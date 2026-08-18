@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/pkg/audit"
+	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
@@ -375,7 +376,57 @@ func TestCaptureAppendsOwnCall(t *testing.T) {
 	assert.Equal(t, "trino_export", capture.Calls[1].Tool)
 	assert.Equal(t, portal.ProvenanceOutcomeSuccess, capture.Calls[1].Outcome)
 	assert.Equal(t, capture.CapturedAt, capture.Calls[1].Timestamp)
-	assert.Empty(t, capture.EventIDs[1:], "the capturing call has no event id yet")
+	assert.Equal(t, []string{"e1"}, capture.EventIDs,
+		"outside the middleware chain there is no minted id for the capturing call")
+}
+
+// TestCaptureOwnCallCarriesItsMintedID proves the capturing call names itself:
+// the id the middleware minted before the handler ran is what an export cites
+// the statement it just streamed by, so that statement's catalog record reads
+// satisfied while the window around it does not (#1353).
+func TestCaptureOwnCallCarriesItsMintedID(t *testing.T) {
+	reader := &fakeReader{events: []audit.Event{event("e1", "trino_query", "trino", 0)}}
+	req := saveRequest()
+	req.Own = &portal.ProvenanceCall{Kind: portal.ProvenanceKindSQL, Tool: "trino_export", Statement: "SELECT 2"}
+
+	pc := middleware.NewPlatformContext("req-1")
+	pc.EventID = "evt-own"
+	ctx := middleware.WithPlatformContext(context.Background(), pc)
+
+	capture := newTestCapturer(reader, nil).Capture(ctx, req)
+
+	require.Len(t, capture.Calls, 2)
+	assert.Equal(t, "evt-own", capture.Calls[1].EventID)
+	assert.True(t, capture.Calls[1].Cited, "the call whose result is the content names itself")
+	assert.False(t, capture.Calls[0].Cited, "a call the window swept up was not named")
+	assert.Equal(t, []string{"e1", "evt-own"}, capture.EventIDs,
+		"the capturing call must be findable by the id it was handed back")
+}
+
+// TestCaptureCitesOnlyWhatWasNamed proves the flag that separates evidence from
+// coincidence: an explicit citation names every call it resolves, and a default
+// window names none of them (#1353).
+func TestCaptureCitesOnlyWhatWasNamed(t *testing.T) {
+	events := []audit.Event{
+		event("e1", "trino_query", "trino", 0),
+		event("e2", "trino_query", "trino", 1),
+	}
+
+	windowed := newTestCapturer(&fakeReader{events: events}, nil).
+		Capture(context.Background(), saveRequest())
+	require.Len(t, windowed.Calls, 2)
+	assert.False(t, windowed.Explicit)
+	for i, call := range windowed.Calls {
+		assert.Falsef(t, call.Cited, "window call %d must not read as named", i)
+	}
+
+	req := saveRequest()
+	req.Sources = []string{"mcp:call:e2"}
+	cited := newTestCapturer(&fakeReader{events: events}, nil).
+		Capture(context.Background(), req)
+	require.Len(t, cited.Calls, 1)
+	assert.True(t, cited.Explicit)
+	assert.True(t, cited.Calls[0].Cited, "a call the caller named is named")
 }
 
 func TestCaptureOwnCallKeepsItsOwnOutcome(t *testing.T) {

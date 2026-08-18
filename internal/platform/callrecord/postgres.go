@@ -90,8 +90,34 @@ func satisfiedByCase(prefixPlaceholder string) string {
 		WHERE a.deleted_at IS NULL
 		  AND a.provenance @> jsonb_build_object('captures', jsonb_build_array(jsonb_build_object('event_ids', jsonb_build_array(r.event_id))))
 		  AND cap->'event_ids' @> to_jsonb(r.event_id)
+		  AND ` + namedSourceExpr("r.event_id") + `
 	)
 END`
+}
+
+// namedSourceExpr answers whether the capture in scope NAMED this call as a
+// source, as opposed to having swept it up in the session's default window.
+//
+// A capture holds every data-access call the session made since the previous
+// one, which is a useful record of the work and is not evidence that any given
+// call answered anything: a session that read a notification history, looked up
+// a user and ran a security probe before saving an asset had all three
+// captured, and all three read `satisfied` (#1353). Naming is the evidence. A
+// caller's `sources` argument names calls, and so does the capturing call's own
+// record of itself, which is how an export cites the statement it streamed.
+//
+// The capture-level flag is read as well as the per-call one so a capture
+// written before the per-call flag existed still says what it knew: an
+// explicit capture named everything in it, by construction.
+func namedSourceExpr(eventID string) string {
+	return `(
+		(cap->>'explicit')::boolean IS TRUE
+		OR EXISTS (
+			SELECT 1 FROM jsonb_array_elements(COALESCE(cap->'calls', '[]'::jsonb)) c
+			WHERE c->>'event_id' = ` + eventID + `
+			  AND (c->>'cited')::boolean IS TRUE
+		)
+	)`
 }
 
 // satisfiedByExpr is the derived read's column: the rule above, named.
@@ -104,7 +130,13 @@ var satisfiedByExpr = satisfiedByCase("?") + " AS satisfied_by"
 // declared superseded — "we could not tell what either query read" is not
 // evidence that one replaced the other. The comparison is a tuple so two calls
 // recorded in the same millisecond still have a defined order.
-const supersededExpr = `EXISTS (
+//
+// Both calls must also be reads. Supersession is a read-shaped idea: a later
+// read of the same thing is a better answer to the same question, while a
+// mutation is not a better version of an earlier mutation, even against the
+// same resource (#1352). Approving a script twice is two decisions, and
+// inserting a row twice is two rows.
+var supersededExpr = fmt.Sprintf(`EXISTS (
 	SELECT 1 FROM call_records l
 	WHERE r.session_id <> ''
 	  AND l.session_id = r.session_id
@@ -114,8 +146,34 @@ const supersededExpr = `EXISTS (
 	  AND l.connection = r.connection
 	  AND l.targets = r.targets
 	  AND jsonb_array_length(r.targets) > 0
+	  AND %s
+	  AND %s
 	  AND (l.created_at, l.event_id) > (r.created_at, r.event_id)
-) AS superseded`
+) AS superseded`, readShapedExpr("r"), readShapedExpr("l"))
+
+// readStatementPattern matches a statement that opens with a reading verb. It is
+// anchored at the start, past any opening parentheses a wrapped select carries,
+// and closed with a word boundary so the match is a whole keyword rather than
+// the prefix of a longer word. A statement the audit policy withheld matches
+// nothing and is therefore not read-shaped, which is the same conservative
+// answer its absent targets already give.
+//
+// The verbs are the ones trino_query accepts, which is the tool that enforces
+// read-only. It classifies by the opening verb and not by what the engine went
+// on to do, so `EXPLAIN ANALYZE <a mutation>` through trino_execute would read
+// as a read; the cost of that is two identical such statements in one session
+// comparing as draft and correction, which is why the verb list is not widened
+// past what a read-only tool would accept.
+const readStatementPattern = `^[\s(]*(with|select|show|describe|desc|explain|table|values)\y`
+
+// readShapedExpr reports whether one record only read. An API call is a read
+// when its method is one, and a query when its statement begins with a reading
+// verb; the two kinds carry different evidence and neither is guessed from the
+// other.
+func readShapedExpr(alias string) string {
+	return fmt.Sprintf(`(CASE WHEN %[1]s.kind = '%[2]s' THEN %[1]s.method IN ('GET', 'HEAD')
+	    ELSE %[1]s.statement ~* '%[3]s' END)`, alias, KindAPI, readStatementPattern)
+}
 
 // reuseCountExpr counts the sessions that fetched this record and then ran what
 // it holds. Counting the credit rows rather than keeping a counter is what
@@ -438,8 +496,13 @@ func (s *PostgresStore) one(ctx context.Context, id sq.Sqlizer, userID string) (
 // artifactQuery lists what cites one call: the assets and exports whose
 // provenance names it, then the captured insights that named its reference.
 // Both halves read the artifact's own record of its sources, which is the same
-// evidence the outcome is derived from.
-const artifactQuery = `
+// evidence the outcome is derived from — including the naming rule, so a record
+// can never list an artifact that did not put it there and read `ran` at the
+// same time.
+//
+// #nosec G202 -- the only thing concatenated is this package's own naming rule;
+// every value the statement compares is bound as a parameter.
+var artifactQuery = `
 	SELECT kind, id, name FROM (
 		SELECT CASE WHEN right(cap->>'tool', 7) = '_export' THEN 'export' ELSE 'asset' END AS kind,
 		       a.id AS id, a.name AS name, a.created_at AS created_at
@@ -448,6 +511,7 @@ const artifactQuery = `
 		WHERE a.deleted_at IS NULL
 		  AND a.provenance @> jsonb_build_object('captures', jsonb_build_array(jsonb_build_object('event_ids', jsonb_build_array($1::text))))
 		  AND cap->'event_ids' @> to_jsonb($1::text)
+		  AND ` + namedSourceExpr("$1::text") + `
 		UNION
 		SELECT 'capture' AS kind, m.id AS id, left(m.content, 120) AS name, m.created_at AS created_at
 		FROM memory_records m
@@ -542,9 +606,14 @@ func (s *PostgresStore) RecordFetch(ctx context.Context, recordID string, by Fet
 // The three conditions are the whole definition of reuse: the session had
 // fetched the record before making this call, the record came out of a
 // different session, and what ran is the same statement (or the same API
-// operation) over the same connection. A session re-running its own query is
+// resource) over the same connection. A session re-running its own query is
 // not reuse, and neither is an identical query written independently: without
 // the fetch, nothing says the record was what led to it.
+//
+// The API arm compares resolved targets rather than the operation id, for the
+// reason supersession does: an operation id names an endpoint, and a session
+// that read one script's record and then approved a different script re-ran
+// nothing (#1352). A call with no target that distinguishes it credits nothing.
 //
 // #nosec G101 -- the reuse-credit INSERT, not a credential: the scanner is
 // matching on the column names (user_id, session_id) the statement selects.
@@ -560,7 +629,7 @@ const creditReuseQuery = `
 	  AND p.connection = $6
 	  AND (
 	        ($5 = 'sql' AND $7 <> '' AND p.statement_norm = $7)
-	     OR ($5 = 'api' AND $8 <> '' AND p.operation_id = $8)
+	     OR ($5 = 'api' AND jsonb_array_length($8::jsonb) > 0 AND p.targets = $8::jsonb)
 	      )
 	ON CONFLICT (call_record_id, session_id) DO NOTHING`
 
@@ -573,9 +642,13 @@ func (s *PostgresStore) CreditReuse(ctx context.Context, r Record) (int, error) 
 	if created.IsZero() {
 		created = time.Now().UTC()
 	}
+	targets, err := json.Marshal(normalizeTargets(r.Targets))
+	if err != nil {
+		return 0, fmt.Errorf("encoding call record targets: %w", err)
+	}
 	res, err := s.db.ExecContext(ctx, creditReuseQuery,
 		r.SessionID, r.UserID, r.EventID, created,
-		r.Kind, r.Connection, NormalizeStatement(r.Statement), r.OperationID,
+		r.Kind, r.Connection, NormalizeStatement(r.Statement), targets,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("crediting call record reuse: %w", err)

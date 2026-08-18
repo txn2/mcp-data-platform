@@ -147,15 +147,103 @@ func TestIndexText(t *testing.T) {
 func TestAPITarget(t *testing.T) {
 	t.Parallel()
 
-	// The same operation against two upstreams is two endpoints, so the
-	// connection is part of the target.
-	if got := APITarget("acme-crm", "GET", "/v1/orders", "listOrders"); got != "api:acme-crm:listOrders" {
-		t.Errorf("APITarget = %q", got)
+	cases := []struct {
+		name        string
+		connection  string
+		method      string
+		path        string
+		operationID string
+		pathParams  map[string]string
+		want        string
+		why         string
+	}{
+		{
+			name: "operation id names the endpoint", connection: "acme-crm",
+			method: "GET", path: "/v1/orders", operationID: "listOrders",
+			want: "api:acme-crm:listOrders",
+			why:  "the same operation against two upstreams is two endpoints, so the connection is part of the target",
+		},
+		{
+			name: "path addressing keeps the request line", connection: "acme-crm",
+			method: "GET", path: "/v1/orders",
+			want: "api:acme-crm:GET /v1/orders",
+		},
+		{
+			name: "no endpoint named", connection: "acme-crm",
+			want: "",
+			why:  "a call that named no endpoint has no target",
+		},
+		{
+			name: "template resolved by its path params", connection: "platform-admin",
+			operationID: "POST /admin/scripts/{id}/versions/{version}/approve",
+			pathParams:  map[string]string{"id": "script-a", "version": "3"},
+			want:        "api:platform-admin:POST /admin/scripts/script-a/versions/3/approve",
+			why:         "approving one script and approving another must not be the same target (#1352)",
+		},
+		{
+			name: "same template, different resource", connection: "platform-admin",
+			operationID: "POST /admin/scripts/{id}/versions/{version}/approve",
+			pathParams:  map[string]string{"id": "script-b", "version": "3"},
+			want:        "api:platform-admin:POST /admin/scripts/script-b/versions/3/approve",
+		},
+		{
+			name: "unresolved slot yields no target", connection: "platform-admin",
+			operationID: "POST /admin/scripts/{id}/versions/{version}/approve",
+			pathParams:  map[string]string{"id": "script-a"},
+			want:        "",
+			why:         "a target with a hole in it identifies nothing, so it must not be comparable",
+		},
+		{
+			name: "empty slot value yields no target", connection: "platform-admin",
+			operationID: "GET /admin/scripts/{id}", pathParams: map[string]string{"id": "  "},
+			want: "",
+		},
+		{
+			name: "named operation carries its resolved resource", connection: "acme-crm",
+			operationID: "approveScriptVersion",
+			pathParams:  map[string]string{"version": "3", "id": "script-a"},
+			want:        `api:acme-crm:approveScriptVersion({"id":"script-a","version":"3"})`,
+			why:         "a spec that declares operationIds still has to distinguish which resource was addressed",
+		},
+		{
+			name: "path template addressed directly is not a resource", connection: "acme-crm",
+			method: "GET", path: "/v1/orders/{id}",
+			want: "",
+		},
 	}
-	if got := APITarget("acme-crm", "GET", "/v1/orders", ""); got != "api:acme-crm:GET /v1/orders" {
-		t.Errorf("APITarget without an operation id = %q", got)
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			got := APITarget(c.connection, c.method, c.path, c.operationID, c.pathParams)
+			if got != c.want {
+				t.Errorf("APITarget = %q, want %q (%s)", got, c.want, c.why)
+			}
+		})
 	}
-	if got := APITarget("acme-crm", "", "", ""); got != "" {
-		t.Errorf("a call that named no endpoint has no target, got %q", got)
+}
+
+// TestAPITargetOrdersUnresolvedParams proves the rendering of the parameters no
+// slot consumed does not depend on Go's map iteration order: two calls carrying
+// the same values have to compare equal, which is the whole point of a target.
+// It also proves the rendering is unambiguous: a value holding the separators a
+// flat encoding would use must not be able to impersonate a different set.
+func TestAPITargetOrdersUnresolvedParams(t *testing.T) {
+	t.Parallel()
+
+	const want = `api:acme:op({"a":"1","b":"2","c":"3"})`
+	for range 20 {
+		got := APITarget("acme", "POST", "", "op", map[string]string{"c": "3", "a": "1", "b": "2"})
+		if got != want {
+			t.Fatalf("APITarget = %q, want %q", got, want)
+		}
+	}
+
+	// One parameter whose value spells out another pairing must not collide
+	// with the pairing itself.
+	spoofed := APITarget("acme", "POST", "", "op", map[string]string{"a": `1","b":"2`})
+	honest := APITarget("acme", "POST", "", "op", map[string]string{"a": "1", "b": "2"})
+	if spoofed == honest {
+		t.Errorf("two different parameter sets rendered the same target: %q", honest)
 	}
 }

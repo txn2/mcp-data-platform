@@ -72,14 +72,19 @@ Each row leads with the purpose, because it is the only line about the call a pe
 
 | Outcome | What it means |
 |---------|---------------|
-| `satisfied` | Something was built from the call: an asset, an export, or a capture that named it |
+| `satisfied` | Something was built from the call and **named** it: an asset or a capture whose `sources` cite it, or an export citing the statement it streamed |
 | `failed` | The call returned an error |
-| `superseded` | A later call in the same session ran over the same tables, and nothing was built from this one |
+| `superseded` | A later **read** in the same session addressed the same resource, and nothing was built from this one |
 | `ran` | The call succeeded and nothing has come of it yet |
 
 Deriving the outcome rather than storing it means it can never be stale with respect to the asset or the capture that gives it meaning: save an asset citing a query and the query reads satisfied on the next read, with no backfill and nothing to recompute.
 
-**Reuse** is the other column worth reading. It counts the later sessions that found the record and then ran what it holds. A session running its own query again does not count, and neither does an identical query written independently: without the sighting, nothing says this record led to it. It is the one signal on a record that a stranger, and not its author, found it worth running.
+Two limits on the rule are worth stating, because their absence produced wrong outcomes:
+
+- **Naming, not proximity.** An asset saved without a `sources` argument still records every call the session made in its [provenance](provenance.md), and that record is not a claim about any one of them. Those calls read `ran`. What makes a call `satisfied` is an artifact naming it.
+- **Supersession is read-shaped, over a resolved resource.** A later read of the same thing is a better answer to the same question; a mutation is not a better version of an earlier mutation. And the resource a call addressed includes the values it resolved its path with, so approving one script is never reported as having been replaced by approving another. A call whose target cannot tell it apart from a different call is never declared superseded.
+
+**Reuse** is the other column worth reading. It counts the later sessions that found the record and then ran what it holds: the same statement, or the same API resource, over the same connection. A session running its own query again does not count, and neither does an identical query written independently: without the sighting, nothing says this record led to it. It is the one signal on a record that a stranger, and not its author, found it worth running.
 
 The facets narrow by kind (SQL or API), connection, outcome, and free text over the purpose and the statement. **Awaiting review** keeps the records that answered something and have not been published or declined, most re-run first. There is no user facet and no user column: this list is always your own, and another person's record id is answered as not found.
 

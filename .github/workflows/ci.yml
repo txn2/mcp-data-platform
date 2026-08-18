@@ -237,11 +237,22 @@ jobs:
           go install github.com/securego/gosec/v2/cmd/gosec@v2.28.0
           gosec ./...
 
+      # The action has no way to accept a finding and exits non-zero whenever
+      # our code calls a vulnerable symbol, fix or no fix. These are the same
+      # two commands `make security` runs, against the same allow file, so a
+      # green local run and a green CI run mean the same thing.
       - name: Run govulncheck
-        uses: golang/govulncheck-action@032d45514ae346b1db93c04b0c90b841c370344f # v1.1.0
-        with:
-          go-version-input: '1.26.6'
-          repo-checkout: false
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4  # GOVULNCHECK_VERSION in the Makefile
+          set +e
+          govulncheck -format json ./... > govulncheck-report.json
+          status=$?
+          set -e
+          if [ $status -ne 0 ] && [ $status -ne 3 ]; then
+            echo "govulncheck failed to run (exit $status)"
+            exit 1
+          fi
+          python3 scripts/govulncheck-gate.py govulncheck-report.json
 
       - name: Run Semgrep
         uses: semgrep/semgrep-action@713efdd345f3035192eaa63f56867b88e63e4e5d # v1

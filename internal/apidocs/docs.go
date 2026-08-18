@@ -22421,6 +22421,10 @@ const docTemplate = `{
         "portaldomain.ProvenanceCall": {
             "type": "object",
             "properties": {
+                "cited": {
+                    "description": "Cited records that this call was NAMED as a source of the write rather\nthan merely being in the session's default window when the write\nhappened. A caller's ` + "`" + `sources` + "`" + ` argument names calls, and so does the\ncapturing call's own record of itself; a window does not. It is what\nseparates a call an artifact was built from, whose catalog record reads\n` + "`" + `satisfied` + "`" + `, from a call that was only in scope at the time (#1353).",
+                    "type": "boolean"
+                },
                 "connection": {
                     "description": "Connection is the named connection the call was routed to.",
                     "type": "string",
@@ -22436,7 +22440,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "event_id": {
-                    "description": "EventID is the audit event this call was read from. Empty for a call the\ncapturing tool recorded about itself, whose own audit row is written\nonly after it returns.",
+                    "description": "EventID is the audit event this call was read from. A call the capturing\ntool recorded about itself carries the id minted for that call before\nits handler ran, which is the same id the caller was handed back: the\naudit row follows, but the identifier does not wait for it.",
                     "type": "string"
                 },
                 "kind": {

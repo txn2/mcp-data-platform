@@ -1,6 +1,6 @@
 import type { Asset, Share, SharedAsset } from "@/api/portal/types";
 import { agentSessions } from "./audit";
-import { citedEventIDs } from "./calls";
+import { citationsFor } from "./calls";
 
 // The first assets are attributed to sessions the audit mock actually
 // recorded, so a session opened in the admin UI shows the asset it saved
@@ -405,34 +405,52 @@ export const mockSharedWithMe: SharedAsset[] = [
   },
 ];
 
-// An asset that a recorded call produced names that call in its own
-// provenance, which is where the call catalog reads satisfaction from. The
-// citations are applied here rather than written into the literals above
-// because the ids belong to generated audit events: writing them by hand would
-// be writing ids that do not exist.
+// An asset that a recorded call produced NAMES that call in its own provenance,
+// which is where the call catalog reads satisfaction from. Naming is the whole
+// distinction: a call the default window swept up is recorded on the asset and
+// is not evidence that it answered anything (#1353). The citations are applied
+// here rather than written into the literals above because the ids belong to
+// generated audit events: writing them by hand would be writing ids that do not
+// exist.
 for (const asset of mockAssets) {
-  const eventIDs = citedEventIDs(asset.id);
-  if (eventIDs.length === 0) continue;
-  const captures = asset.provenance?.captures;
-  if (captures && captures.length > 0) {
-    const capture = captures[0]!;
-    capture.event_ids = [...(capture.event_ids ?? []), ...eventIDs];
-    continue;
-  }
-  // An asset with no capture of its own gets one, recorded under the export
-  // tool: an export is a stream-to-asset write, which is how the catalog
-  // tells an export apart from a save.
+  const citation = citationsFor(asset.id);
+  if (!citation) continue;
+  const { eventIDs, kind } = citation;
   asset.provenance = {
     ...(asset.provenance ?? {}),
     captures: [
-      {
-        tool: "trino_export",
-        captured_at: asset.created_at,
-        version: 1,
-        session_id: asset.session_id ?? "",
-        event_ids: eventIDs,
-        calls: [],
-      },
+      ...(asset.provenance?.captures ?? []),
+      kind === "export"
+        ? {
+            // An export names one call without being asked to: the statement it
+            // streamed into the file. It is cited per call, inside a capture the
+            // caller did not name wholesale.
+            tool: "trino_export",
+            captured_at: asset.updated_at,
+            version: asset.current_version,
+            session_id: asset.session_id ?? "",
+            event_ids: eventIDs,
+            calls: eventIDs.map((id) => ({
+              event_id: id,
+              kind: "sql" as const,
+              tool: "trino_export",
+              connection: "warehouse",
+              outcome: "success" as const,
+              cited: true,
+              timestamp: asset.updated_at,
+            })),
+          }
+        : {
+            // A save that named its sources: the whole capture is cited, which
+            // is what `explicit` records.
+            tool: "save_asset",
+            captured_at: asset.updated_at,
+            version: asset.current_version,
+            session_id: asset.session_id ?? "",
+            explicit: true,
+            event_ids: eventIDs,
+            calls: [],
+          },
     ],
   };
 }

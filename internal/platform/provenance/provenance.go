@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/pkg/audit"
+	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 )
 
@@ -111,20 +112,21 @@ func (c *Capturer) Capture(ctx context.Context, req portal.ProvenanceRequest) po
 		SessionID: req.SessionID,
 		Version:   req.Version,
 	}
+	own := ownEventID(ctx)
 	if c == nil {
 		capture.CapturedAt = time.Now().UTC()
-		return appendOwn(capture, req.Own)
+		return appendOwn(capture, req.Own, own)
 	}
 	capture.CapturedAt = c.now().UTC()
 	if c.events == nil {
-		return appendOwn(capture, req.Own)
+		return appendOwn(capture, req.Own, own)
 	}
 
 	sources := parseSources(req.Sources)
 	if len(sources) == 0 && req.SessionID == "" {
 		// Nothing to read: no cited call, and no session whose calls could be
 		// the default window. Waiting on the audit writer would buy nothing.
-		return appendOwn(capture, req.Own)
+		return appendOwn(capture, req.Own, own)
 	}
 	c.waitForWrites(ctx)
 
@@ -142,20 +144,45 @@ func (c *Capturer) Capture(ctx context.Context, req portal.ProvenanceRequest) po
 	capture.Truncated = truncated
 	for i := range events {
 		call := callFromEvent(events[i])
+		// A cited call was named by the caller; a call the default window
+		// swept up was not. The distinction is what stops a save from
+		// declaring every call in the session to have answered something.
+		call.Cited = capture.Explicit
 		capture.Calls = append(capture.Calls, call)
 		capture.EventIDs = append(capture.EventIDs, call.EventID)
 	}
-	return appendOwn(capture, req.Own)
+	return appendOwn(capture, req.Own, own)
+}
+
+// ownEventID reads the identifier minted for the call taking this capture. The
+// middleware chain mints it before the handler runs precisely so the call can
+// be named before its audit row exists (#1320), which is what lets an export
+// record itself as the source of what it just streamed.
+func ownEventID(ctx context.Context) string {
+	pc := middleware.GetPlatformContext(ctx)
+	if pc == nil {
+		return ""
+	}
+	return pc.EventID
 }
 
 // appendOwn adds the capturing call's own record, which no audit row can
 // supply yet: the row for the call performing the write is written after it
-// returns.
-func appendOwn(capture portal.ProvenanceCapture, own *portal.ProvenanceCall) portal.ProvenanceCapture {
+// returns. Its identifier does exist by then, so eventID names it.
+//
+// The own call is always cited. An export streams the result of the statement
+// it just ran into the asset, so that statement is not a call that happened to
+// be in scope — it is the content. It is named here for the same reason a
+// caller's `sources` argument names one.
+func appendOwn(capture portal.ProvenanceCapture, own *portal.ProvenanceCall, eventID string) portal.ProvenanceCapture {
 	if own == nil {
 		return capture
 	}
 	call := *own
+	if call.EventID == "" {
+		call.EventID = eventID
+	}
+	call.Cited = true
 	if call.Timestamp.IsZero() {
 		call.Timestamp = capture.CapturedAt
 	}
@@ -163,6 +190,9 @@ func appendOwn(capture portal.ProvenanceCapture, own *portal.ProvenanceCall) por
 		call.Outcome = portal.ProvenanceOutcomeSuccess
 	}
 	capture.Calls = append(capture.Calls, call)
+	if call.EventID != "" {
+		capture.EventIDs = append(capture.EventIDs, call.EventID)
+	}
 	return capture
 }
 

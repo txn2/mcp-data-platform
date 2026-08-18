@@ -93,7 +93,7 @@ AI-generated prose (PR descriptions, commit messages, reviews, explanations) is 
    - Coverage verification — total must be ≥82% (hard gate, `COVERAGE_MIN`)
    - Patch coverage — changed lines vs main must be ≥80% (mirrors codecov patch check)
    - Linting (`golangci-lint run ./...` plus `--new-from-rev=$MERGE_BASE` to mirror CI's `only-new-issues: true`) — cyclomatic complexity ≤10, cognitive complexity ≤15
-   - Security scanning (`gosec ./...` + `govulncheck`)
+   - Security scanning (`gosec ./...` + `govulncheck`, whose report is judged against `.govulncheck-allow.txt` by `scripts/govulncheck-gate.py`: an advisory with no patched release may be accepted with a written reason, and the gate fails when an accepted advisory gains a fix or stops being reported)
    - Semgrep SAST — `p/golang` ruleset + custom `.semgrep/` rules (unbounded allocations, etc.)
    - CodeQL analysis — `security-and-quality` query suite, fails on error-level findings
    - Documentation check — warns when documentation-worthy changes lack doc updates (soft warning)

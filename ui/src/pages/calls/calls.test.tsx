@@ -200,4 +200,52 @@ describe("the mock catalog", () => {
       }
     }
   });
+
+  // The server reads satisfaction from an asset having NAMED the call, so a
+  // fixture whose assets merely captured it would be showing a state the
+  // server cannot produce (#1353).
+  it("has the citing assets name the calls, not merely capture them", () => {
+    for (const citing of mockCitingAssets) {
+      const asset = mockAssets.find((a) => a.id === citing.assetId)!;
+      const cited = mockCallRecords
+        .filter((r) => r.artifacts?.some((a) => a.id === citing.assetId))
+        .map((r) => r.event_id);
+      expect(cited.length, citing.assetId).toBeGreaterThan(0);
+      for (const eventID of cited) {
+        const named = (asset.provenance?.captures ?? []).some(
+          (c) =>
+            (c.event_ids ?? []).includes(eventID) &&
+            (c.explicit === true ||
+              (c.calls ?? []).some((call) => call.event_id === eventID && call.cited)),
+        );
+        expect(named, `${citing.assetId} must name ${eventID}`).toBe(true);
+      }
+    }
+  });
+
+  // Supersession is a read-shaped idea, and an API target carries the resource
+  // it addressed rather than the template (#1352).
+  it("supersedes only reads, over targets that name a resource", () => {
+    const superseded = mockCallRecords.filter((r) => r.outcome === "superseded");
+    for (const rec of superseded) {
+      expect(rec.targets.length, rec.id).toBeGreaterThan(0);
+      if (rec.kind === "api") {
+        expect(rec.method, rec.id).toBe("GET");
+      } else {
+        expect(rec.statement, rec.id).toMatch(/^\s*(with|select|show)/i);
+      }
+    }
+    const mutations = mockCallRecords.filter(
+      (r) => r.kind === "sql" && /^\s*insert/i.test(r.statement ?? ""),
+    );
+    expect(mutations.length).toBeGreaterThan(0);
+    for (const rec of mutations) {
+      expect(rec.outcome, rec.id).not.toBe("superseded");
+    }
+    for (const rec of mockCallRecords.filter((r) => r.kind === "api")) {
+      for (const target of rec.targets) {
+        expect(target, rec.id).not.toContain("{");
+      }
+    }
+  });
 });

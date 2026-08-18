@@ -125,6 +125,68 @@ func TestRecorderCatalogsAnAPICall(t *testing.T) {
 	}
 }
 
+// TestRecorderResolvesPathParamsIntoTheTarget proves the arguments an audit row
+// kept reach the target, so two calls that addressed different resources
+// through one endpoint are two targets (#1352). Both argument shapes are
+// exercised: the typed map a toolkit declares and the map a JSON round trip
+// leaves behind.
+func TestRecorderResolvesPathParamsIntoTheTarget(t *testing.T) {
+	t.Parallel()
+
+	const operation = "POST /admin/scripts/{id}/versions/{version}/approve"
+	cases := []struct {
+		name   string
+		params map[string]any
+		want   string
+	}{
+		{
+			name: "typed map",
+			params: map[string]any{
+				"operation_id": operation, "method": "post",
+				"path_params": map[string]string{"id": "script-a", "version": "3"},
+			},
+			want: "api:platform-admin:POST /admin/scripts/script-a/versions/3/approve",
+		},
+		{
+			name: "json round trip",
+			params: map[string]any{
+				"operation_id": operation, "method": "post",
+				"path_params": map[string]any{"id": "script-b", "version": "3"},
+			},
+			want: "api:platform-admin:POST /admin/scripts/script-b/versions/3/approve",
+		},
+		{
+			name:   "no path params recorded",
+			params: map[string]any{"operation_id": operation, "method": "post"},
+			want:   "",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			store := &fakeStore{}
+			rec := NewRecorder(&fakeAudit{}, store, testURN)
+			if err := rec.Log(context.Background(), audit.Event{
+				ID: "evt-" + c.name, ToolName: "api_invoke_endpoint",
+				Connection: "platform-admin", Success: true, Parameters: c.params,
+			}); err != nil {
+				t.Fatalf("Log: %v", err)
+			}
+			got := store.inserted[0].Targets
+			if c.want == "" {
+				if len(got) != 0 {
+					t.Errorf("targets = %v, want none: an unresolved template names no resource", got)
+				}
+				return
+			}
+			if len(got) != 1 || got[0] != c.want {
+				t.Errorf("targets = %v, want [%s]", got, c.want)
+			}
+		})
+	}
+}
+
 func TestRecorderIgnoresEverythingElse(t *testing.T) {
 	t.Parallel()
 

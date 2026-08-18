@@ -19,6 +19,11 @@ CV_EMBED_DIR := ./internal/contentviewer/dist
 GOLANGCI_LINT_VERSION := v2.11.4
 GOSEC_VERSION := v2.28.0
 GREMLINS_VERSION := v0.6.0
+# govulncheck is pinned for the same reason the others are: its report is judged
+# by scripts/govulncheck-gate.py, which reads the -format json message stream, so
+# local and CI must run the same scanner against the same schema. .github/workflows/ci.yml
+# installs this version.
+GOVULNCHECK_VERSION := v1.1.4
 
 # Total-coverage floor. This is the single source of truth for the project
 # coverage gate: .github/workflows/ci.yml, codecov.yml (project target) and
@@ -27,6 +32,10 @@ GREMLINS_VERSION := v0.6.0
 # is a separate gate at PATCH_COVERAGE_MIN.
 COVERAGE_MIN := 82
 PATCH_COVERAGE_MIN := 80
+
+# Where `make security` parks the govulncheck JSON report the gate judges. It
+# is a build artifact, removed by the target that writes it.
+GOVULN_REPORT := build/govulncheck-report.json
 
 # Go commands
 GO := go
@@ -37,7 +46,7 @@ GOFMT := gofmt
 GOLINT := golangci-lint
 
 .PHONY: all build test lint lint-full fmt clean install help docs-serve docs-build verify verify-release \
-	tools-check dead-code mutate patch-coverage doc-check posture-check swagger swagger-check \
+	tools-check dead-code mutate patch-coverage doc-check posture-check swagger swagger-check verify-checks verify-go verify-lint verify-docker verify-ui \
 	semgrep codeql sast osv embed-clean migrate-check \
 	frontend-install frontend-build frontend-build-content-viewer \
 	frontend-dev frontend-mock frontend-test frontend-lint frontend-e2e \
@@ -262,7 +271,23 @@ security:
 	@echo "Running gosec..."
 	gosec -quiet ./...
 	@echo "Running govulncheck..."
-	govulncheck ./...
+	@# govulncheck exits 3 when our code calls a vulnerable symbol, whether or
+	@# not a fixed version exists, and has no way to accept a finding. The gate
+	@# judges the report against .govulncheck-allow.txt, where an accepted
+	@# advisory carries the reason it is accepted and expires the moment a fix
+	@# ships or the advisory stops being reported. CI runs the same two
+	@# commands, so local and CI cannot disagree.
+	@govulncheck -format json ./... > $(GOVULN_REPORT) 2>/dev/null; \
+	status=$$?; \
+	if [ $$status -ne 0 ] && [ $$status -ne 3 ]; then \
+		echo "ERROR: govulncheck failed to run (exit $$status)"; \
+		rm -f $(GOVULN_REPORT); \
+		exit 1; \
+	fi
+	@python3 scripts/govulncheck-gate.py $(GOVULN_REPORT); \
+	status=$$?; \
+	rm -f $(GOVULN_REPORT); \
+	exit $$status
 
 ## osv: Run osv-scanner (informational; mirrors OpenSSF Scorecard)
 ## Not part of `verify`: osv-scanner scans the whole go.sum graph regardless of
@@ -351,7 +376,7 @@ coverage-report: test
 	@echo "=== End Coverage ==="
 
 ## patch-coverage: Check coverage of changed lines vs main (fails below PATCH_COVERAGE_MIN)
-patch-coverage:
+patch-coverage: test
 	@echo "Checking patch coverage..."
 	@PATCH_COVERAGE_THRESHOLD=$(PATCH_COVERAGE_MIN) ./scripts/patch-coverage.sh
 
@@ -421,7 +446,14 @@ tools-check:
 			mismatch="$$mismatch  gosec: have $$v, want $(GOSEC_VERSION) — go install github.com/securego/gosec/v2/cmd/gosec@$(GOSEC_VERSION)\n"; \
 		fi; \
 	fi; \
-	which govulncheck > /dev/null 2>&1   || missing="$$missing  govulncheck: go install golang.org/x/vuln/cmd/govulncheck@latest\n"; \
+	if ! which govulncheck > /dev/null 2>&1; then \
+		missing="$$missing  govulncheck: go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)\n"; \
+	else \
+		v=$$(go version -m $$(which govulncheck) 2>/dev/null | awk '$$1=="mod" && $$2=="golang.org/x/vuln" {print $$3}'); \
+		if [ -n "$$v" ] && [ "$$v" != "$(GOVULNCHECK_VERSION)" ]; then \
+			mismatch="$$mismatch  govulncheck: have $$v, want $(GOVULNCHECK_VERSION) — go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)\n"; \
+		fi; \
+	fi; \
 	which semgrep > /dev/null 2>&1       || missing="$$missing  semgrep: pip3 install semgrep\n"; \
 	which codeql > /dev/null 2>&1        || missing="$$missing  codeql: brew install codeql\n"; \
 	which deadcode > /dev/null 2>&1      || missing="$$missing  deadcode: go install golang.org/x/tools/cmd/deadcode@latest\n"; \
@@ -478,7 +510,27 @@ verify-release: verify mutate
 ## verify: Run the CI-equivalent per-commit suite (test, lint, security, SAST, coverage, release)
 ## NOTE: mutation testing is intentionally excluded — it lives in verify-release.
 ## Do not add `mutate` back to this per-commit target.
-verify: tools-check fmt swagger-check embed-clean test migrate-check test-realdb frontend-test frontend-lint frontend-e2e lint bench-test bench-lint bench-report-check security semgrep codeql coverage-report patch-coverage doc-check dead-code release-check
+verify:
+	@# The four steps that REWRITE the working tree run first, one at a time,
+	@# because everything after them reads what they produce: fmt rewrites
+	@# sources, swagger-check regenerates internal/apidocs, embed-clean empties
+	@# the UI embed directories. Each is its own $(MAKE) line, so they stay
+	@# ordered even when the outer make was given -j.
+	@$(MAKE) --no-print-directory tools-check
+	@$(MAKE) --no-print-directory fmt
+	@$(MAKE) --no-print-directory swagger-check
+	@$(MAKE) --no-print-directory embed-clean
+	@# CodeQL runs alone, before the concurrent phase. Its Go extractor uses
+	@# autobuild, which finds the Makefile and runs the default goal — so the
+	@# codeql step quietly regenerates swagger, runs the whole test suite and
+	@# lints, a second time. That is harmless when nothing else is running and
+	@# destructive when something is: it deleted internal/apidocs/swagger.json
+	@# while another group was compiling. CI extracts the same way, and the
+	@# autobuild surface includes the test files (946 of them), so giving the
+	@# extractor a narrower --command here would both shrink what is analysed
+	@# and split local from CI. It stays serial instead.
+	@$(MAKE) --no-print-directory codeql
+	@$(MAKE) --no-print-directory -j4 verify-checks
 	@echo ""
 	@echo "=== All checks passed ==="
 	@# Write the gate sentinel: the short SHA-256 of the working-tree diff
@@ -492,6 +544,73 @@ verify: tools-check fmt swagger-check embed-clean test migrate-check test-realdb
 	@{ git diff --cached HEAD 2>/dev/null; git diff 2>/dev/null; } \
 		| shasum -a 256 | cut -c1-16 > .claude/.last-verify-passed
 	@echo "Wrote .claude/.last-verify-passed (gate sentinel)"
+
+## verify-checks: the read-only half of `verify`, run concurrently by it.
+##
+## The steps are grouped by the resource they contend for, NOT spread evenly:
+## a flat -j starves whatever it oversubscribes. Each group runs its own steps
+## in order; the five groups run at once, so the wall clock is the slowest group
+## rather than the sum of everything.
+##
+## The groupings are not arbitrary. Each one exists because running its members
+## beside something else was tried and broke:
+##
+##   - release-check runs `npm ci` in goreleaser's before-hook, which deletes
+##     and reinstalls ui/node_modules. Beside the e2e suite that removes
+##     @playwright/test mid-run. It therefore shares a group with the frontend
+##     steps and goes last in it.
+##   - test-realdb starts a Postgres container per test and runs them in
+##     parallel; 20 were live at once here. Beside goreleaser's five-platform
+##     build and CodeQL it starved the Docker daemon into `context deadline
+##     exceeded` while inspecting a starting container. Docker work gets one
+##     group and nothing else in the schedule competes for the daemon.
+##   - golangci-lint refuses to start while another instance is running, so the
+##     two lint steps share a group (see verify-lint).
+## CodeQL is not here at all: its extractor runs the Makefile's default goal,
+## which rewrites generated files, so `verify` runs it before this phase.
+##
+## Run it directly to re-check without the formatting and generation steps.
+verify-checks: verify-go verify-lint verify-docker verify-ui
+	@:
+
+## verify-go: the Go checks that read the tree and the coverage profile.
+## coverage-report and patch-coverage both read the coverage.out that `test`
+## writes, which is why this group is ordered rather than parallel.
+verify-go:
+	@$(MAKE) --no-print-directory test
+	@$(MAKE) --no-print-directory coverage-report
+	@$(MAKE) --no-print-directory patch-coverage
+	@$(MAKE) --no-print-directory security
+	@$(MAKE) --no-print-directory semgrep
+	@$(MAKE) --no-print-directory dead-code
+	@$(MAKE) --no-print-directory bench-test
+	@$(MAKE) --no-print-directory bench-report-check
+	@$(MAKE) --no-print-directory doc-check
+
+## verify-lint: the two lint targets, in order.
+##
+## golangci-lint refuses to start while another instance is running ("parallel
+## golangci-lint is running", exit 3), so `lint` and `bench-lint` cannot be
+## scheduled side by side. They are chained here rather than made dependent on
+## each other, which would make a standalone `make bench-lint` pay for the main
+## module's two-minute lint. bench-lint runs second and therefore runs cold,
+## since `lint` cleans golangci-lint's cache; on this module that is two seconds.
+verify-lint:
+	@$(MAKE) --no-print-directory lint
+	@$(MAKE) --no-print-directory bench-lint
+
+## verify-docker: everything that wants the Docker daemon, and nothing else.
+verify-docker:
+	@$(MAKE) --no-print-directory migrate-check
+	@$(MAKE) --no-print-directory test-realdb
+
+## verify-ui: the frontend steps, then the release build that rebuilds the UI
+## from scratch and must not overlap them.
+verify-ui:
+	@$(MAKE) --no-print-directory frontend-test
+	@$(MAKE) --no-print-directory frontend-lint
+	@$(MAKE) --no-print-directory frontend-e2e
+	@$(MAKE) --no-print-directory release-check
 
 ## docs-serve: Serve documentation locally
 docs-serve:

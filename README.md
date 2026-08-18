@@ -297,7 +297,9 @@ make verify                                             # full CI-equivalent sui
 make osv                                                # osv-scanner, informational (mirrors OpenSSF Scorecard)
 ```
 
-`make verify` runs `govulncheck`, which does reachability analysis and reports only vulnerabilities your code actually calls. `make osv` runs [osv-scanner](https://github.com/google/osv-scanner) the way [OpenSSF Scorecard](https://securityscorecards.dev/) does, flagging every vulnerable package in the dependency graph regardless of reachability. It is informational and not part of `verify`; suppressions for non-reachable and test-only findings are documented with justification and expiry in [`osv-scanner.toml`](osv-scanner.toml).
+`make verify` runs `govulncheck`, which does reachability analysis and reports only vulnerabilities your code actually calls. A finding against a dependency with no patched release would otherwise leave every build red, so the report is judged by [`scripts/govulncheck-gate.py`](scripts/govulncheck-gate.py) against [`.govulncheck-allow.txt`](.govulncheck-allow.txt), where an accepted advisory carries the reason it is accepted. The acceptance cannot outlive its reason: the gate fails the build when an accepted advisory starts naming a fixed version, and again when one stops being reported, so a stale line is a build failure rather than a silent suppression. CI runs the same script against the same file.
+
+`make osv` runs [osv-scanner](https://github.com/google/osv-scanner) the way [OpenSSF Scorecard](https://securityscorecards.dev/) does, flagging every vulnerable package in the dependency graph regardless of reachability. It is informational and not part of `verify`; suppressions for non-reachable and test-only findings are documented with justification and expiry in [`osv-scanner.toml`](osv-scanner.toml).
 
 The React admin portal lives under [`ui/`](ui/README.md). Its CI job runs
 `npm run lint`, which enforces per-function complexity budgets that mirror the

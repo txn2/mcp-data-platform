@@ -49,6 +49,7 @@ const (
 	failingSQL   = "SELECT * FROM iceberg.sales.nope"
 	revenueSQL   = "SELECT region, SUM(amount) FROM iceberg.sales.orders GROUP BY region"
 	inventorySQL = "SELECT sku, qty FROM iceberg.sales.inventory"
+	deleteSQL    = "DELETE FROM iceberg.sales.orders WHERE region = 'west'"
 	queryPurpose = "Sizing Q3 revenue by region for the board deck."
 	invokePurpos = "Pulling the CRM account list the report is keyed on."
 
@@ -222,7 +223,7 @@ func registerDataTools(server *mcp.Server) {
 	server.AddTool(&mcp.Tool{
 		Name:        "api_invoke_endpoint",
 		Description: "Invoke an endpoint",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"connection":{"type":"string"},"method":{"type":"string"},"path":{"type":"string"},"operation_id":{"type":"string"}}}`),
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"connection":{"type":"string"},"method":{"type":"string"},"path":{"type":"string"},"operation_id":{"type":"string"},"path_params":{"type":"object"}}}`),
 	}, func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: `{"status":200}`}}}, nil
 	})
@@ -290,6 +291,26 @@ func runQuery(ctx context.Context, t *testing.T, r *replica, sess *mcp.ClientSes
 	res := call(ctx, t, sess, "trino_query", map[string]any{
 		"sql": sqlText, "connection": "warehouse", "session_id": handle, "purpose": queryPurpose,
 	})
+	flush(ctx, t, r)
+	return reference(t, res)
+}
+
+// invoke calls the API gateway tool under a session handle and returns the call
+// reference its result cited. path_params are passed as the real gateway takes
+// them: values substituted into the operation's own path template.
+func invoke(ctx context.Context, t *testing.T, r *replica, sess *mcp.ClientSession, handle, method, path, operationID string, pathParams map[string]any) string {
+	t.Helper()
+	args := map[string]any{
+		"connection": "crm", "method": method, "operation_id": operationID,
+		"session_id": handle, "purpose": invokePurpos,
+	}
+	if path != "" {
+		args["path"] = path
+	}
+	if pathParams != nil {
+		args["path_params"] = pathParams
+	}
+	res := call(ctx, t, sess, "api_invoke_endpoint", args)
 	flush(ctx, t, r)
 	return reference(t, res)
 }
@@ -419,6 +440,209 @@ func TestCallCatalogRealDBSupersedesADraft(t *testing.T) {
 	flush(ctx, t, r)
 	assert.Equal(t, callrecord.OutcomeSatisfied, recordFor(ctx, t, r, first, analystID).Outcome,
 		"a call something was built from outranks supersession")
+}
+
+// Supersession is a read-shaped idea. Two runs of the same read over the same
+// tables are two answers to one question, and the earlier is a draft; two
+// mutations against the same resource are two mutations, and neither replaces
+// the other (#1352).
+func TestCallCatalogRealDBSupersedesOnlyReads(t *testing.T) {
+	ctx := context.Background()
+	db := testdb.New(t)
+	sessions := pkgsession.NewMemoryStore(time.Hour)
+	r := newReplica(t, db, sessions, newMemS3(), &middleware.UserInfo{
+		UserID: analystID, Email: analystMail, Roles: []string{"analyst"}, AuthType: middleware.AuthTypeAPIKey,
+	})
+	sess := connect(ctx, t, r)
+	handle := mintHandle(ctx, t, sessions, analystID)
+
+	// A read, twice: the earlier one is the draft the agent replaced.
+	firstRead := runQuery(ctx, t, r, sess, handle, revenueSQL)
+	runQuery(ctx, t, r, sess, handle, revenueSQL)
+	assert.Equal(t, callrecord.OutcomeSuperseded, recordFor(ctx, t, r, firstRead, analystID).Outcome,
+		"a later read of the same tables is a better answer to the same question")
+
+	// A mutation, twice, over the very same table the extractor resolves: two
+	// deletions are two deletions.
+	firstWrite := runQuery(ctx, t, r, sess, handle, deleteSQL)
+	secondWrite := runQuery(ctx, t, r, sess, handle, deleteSQL)
+	for _, ref := range []string{firstWrite, secondWrite} {
+		rec := recordFor(ctx, t, r, ref, analystID)
+		require.Equal(t, []string{ordersURN}, rec.Targets,
+			"the test only means something if both mutations resolved the same target")
+		assert.Equal(t, callrecord.OutcomeRan, rec.Outcome,
+			"a mutation is not a better version of an earlier mutation")
+	}
+
+	// The same rule on the API side, where the method is the evidence.
+	firstGet := invoke(ctx, t, r, sess, handle, "GET", "/v1/accounts", "listAccounts", nil)
+	invoke(ctx, t, r, sess, handle, "GET", "/v1/accounts", "listAccounts", nil)
+	assert.Equal(t, callrecord.OutcomeSuperseded, recordFor(ctx, t, r, firstGet, analystID).Outcome,
+		"re-reading one endpoint is the API shape of a corrected draft")
+
+	firstPost := invoke(ctx, t, r, sess, handle, "POST", "/v1/accounts", "createAccount", nil)
+	secondPost := invoke(ctx, t, r, sess, handle, "POST", "/v1/accounts", "createAccount", nil)
+	for _, ref := range []string{firstPost, secondPost} {
+		assert.Equal(t, callrecord.OutcomeRan, recordFor(ctx, t, r, ref, analystID).Outcome,
+			"creating two accounts is two accounts")
+	}
+}
+
+// One endpoint template, two resources: the path parameters are part of the
+// target, so approving one script is not reported as having been replaced by
+// approving another (#1352).
+func TestCallCatalogRealDBDistinguishesResourcesThroughOneEndpoint(t *testing.T) {
+	ctx := context.Background()
+	db := testdb.New(t)
+	sessions := pkgsession.NewMemoryStore(time.Hour)
+	r := newReplica(t, db, sessions, newMemS3(), &middleware.UserInfo{
+		UserID: analystID, Email: analystMail, Roles: []string{"analyst"}, AuthType: middleware.AuthTypeAPIKey,
+	})
+	sess := connect(ctx, t, r)
+	handle := mintHandle(ctx, t, sessions, analystID)
+
+	const readOne = "GET /admin/scripts/{id}"
+	scriptA := invoke(ctx, t, r, sess, handle, "GET", "", readOne, map[string]any{"id": "script-a"})
+	scriptB := invoke(ctx, t, r, sess, handle, "GET", "", readOne, map[string]any{"id": "script-b"})
+
+	recA := recordFor(ctx, t, r, scriptA, analystID)
+	recB := recordFor(ctx, t, r, scriptB, analystID)
+	assert.Equal(t, []string{"api:crm:GET /admin/scripts/script-a"}, recA.Targets)
+	assert.Equal(t, []string{"api:crm:GET /admin/scripts/script-b"}, recB.Targets)
+	assert.Equal(t, callrecord.OutcomeRan, recA.Outcome,
+		"reading one script is not replaced by reading a different one")
+
+	// The same resource twice is the case supersession is for, so the rule has
+	// not simply been switched off.
+	again := invoke(ctx, t, r, sess, handle, "GET", "", readOne, map[string]any{"id": "script-a"})
+	require.NotEmpty(t, again)
+	assert.Equal(t, callrecord.OutcomeSuperseded, recordFor(ctx, t, r, scriptA, analystID).Outcome,
+		"re-reading the same script is the later answer to the same question")
+
+	// A call whose template no argument resolved names a template, not a
+	// resource, and a target that cannot distinguish it is no target at all.
+	unresolved := invoke(ctx, t, r, sess, handle, "GET", "", readOne, nil)
+	assert.Empty(t, recordFor(ctx, t, r, unresolved, analystID).Targets)
+}
+
+// A save names its sources or it does not. The default window is the record of
+// what the session did, and is not evidence that any given call in it answered
+// anything: a session that read a notification history and looked up a user
+// before saving an asset had both captured, and both read satisfied (#1353).
+func TestCallCatalogRealDBSatisfiesOnlyTheCallsAnAssetNamed(t *testing.T) {
+	ctx := context.Background()
+	db := testdb.New(t)
+	sessions := pkgsession.NewMemoryStore(time.Hour)
+	r := newReplica(t, db, sessions, newMemS3(), &middleware.UserInfo{
+		UserID: analystID, Email: analystMail, Roles: []string{"analyst"}, AuthType: middleware.AuthTypeAPIKey,
+	})
+	sess := connect(ctx, t, r)
+	handle := mintHandle(ctx, t, sessions, analystID)
+
+	unrelated := invoke(ctx, t, r, sess, handle, "GET", "/v1/notifications", "listNotifications", nil)
+	answering := runQuery(ctx, t, r, sess, handle, revenueSQL)
+
+	// A save with no sources: the window still records both calls on the asset.
+	saved := call(ctx, t, sess, portalkit.SaveToolName, map[string]any{
+		"name": "Windowed", "content": "x", "content_type": "text/csv", "session_id": handle,
+	})
+	require.False(t, saved.IsError, "save must succeed: %s", resultText(saved))
+	flush(ctx, t, r)
+
+	for _, ref := range []string{unrelated, answering} {
+		rec := recordFor(ctx, t, r, ref, analystID)
+		assert.Equal(t, callrecord.OutcomeRan, rec.Outcome,
+			"a call the window swept up has not been shown to answer anything: %s", ref)
+		assert.Empty(t, rec.SatisfiedBy)
+		assert.Empty(t, rec.Artifacts,
+			"an asset that did not name the call is not an artifact of it")
+	}
+	queue, err := r.calls.List(ctx, callrecord.Filter{UserID: analystID, PromotableOnly: true})
+	require.NoError(t, err)
+	assert.Empty(t, queue, "a windowed save offers nothing for review")
+
+	// The provenance panel is unaffected: the asset still records the session's
+	// work, which is what makes the write checkable.
+	assets, _, err := portal.NewPostgresAssetStore(db).List(ctx, portal.AssetFilter{OwnerID: analystID})
+	require.NoError(t, err)
+	require.Len(t, assets, 1)
+	require.Len(t, assets[0].Provenance.Captures, 1)
+	assert.Len(t, assets[0].Provenance.Captures[0].EventIDs, 2,
+		"narrowing what counts as evidence must not narrow what is recorded")
+
+	// Naming a source is what makes the record read satisfied.
+	named := call(ctx, t, sess, portalkit.SaveToolName, map[string]any{
+		"name": "Named", "content": "x", "content_type": "text/csv",
+		"sources": []any{answering}, "session_id": handle,
+	})
+	require.False(t, named.IsError, "save must succeed: %s", resultText(named))
+	flush(ctx, t, r)
+
+	rec := recordFor(ctx, t, r, answering, analystID)
+	assert.Equal(t, callrecord.OutcomeSatisfied, rec.Outcome)
+	assert.Equal(t, callrecord.SatisfiedByAsset, rec.SatisfiedBy)
+	require.Len(t, rec.Artifacts, 1, "only the asset that named it")
+	assert.Equal(t, "Named", rec.Artifacts[0].Name)
+	assert.Equal(t, callrecord.OutcomeRan, recordFor(ctx, t, r, unrelated, analystID).Outcome,
+		"the unrelated read is still unrelated")
+}
+
+// An export names one call without being asked to: the statement it streamed
+// into the asset. That call is the content, so it reads satisfied while the
+// window captured around it does not (#1353).
+func TestCallCatalogRealDBExportCitesTheStatementItStreamed(t *testing.T) {
+	ctx := context.Background()
+	db := testdb.New(t)
+	r := newReplica(t, db, pkgsession.NewMemoryStore(time.Hour), newMemS3(), &middleware.UserInfo{
+		UserID: analystID, Email: analystMail, Roles: []string{"analyst"}, AuthType: middleware.AuthTypeAPIKey,
+	})
+
+	const (
+		streamed  = "evt-export-own"
+		inScope   = "evt-export-window"
+		sessionID = "dps_export"
+	)
+	for _, id := range []string{streamed, inScope} {
+		require.NoError(t, r.calls.Insert(ctx, callrecord.Record{
+			EventID: id, Kind: callrecord.KindSQL, ToolName: "trino_export",
+			Connection: "warehouse", Statement: revenueSQL, UserID: analystID,
+			UserEmail: analystMail, SessionID: sessionID, Success: true,
+			CreatedAt: time.Now().UTC(),
+		}))
+	}
+
+	// The capture an export takes: the window it swept up, then its own call,
+	// which appendOwn marks as cited (see the provenance package's tests).
+	require.NoError(t, portal.NewPostgresAssetStore(db).Insert(ctx, portal.Asset{
+		ID: "ast-export-1", OwnerID: analystID, OwnerEmail: analystMail,
+		Name: "Exported revenue", ContentType: "text/csv",
+		S3Bucket: bucket, S3Key: "assets/ast-export-1.csv", SessionID: sessionID,
+		Provenance: portal.Provenance{
+			UserID: analystID, SessionID: sessionID,
+			Captures: []portal.ProvenanceCapture{{
+				Tool: "trino_export", CapturedAt: time.Now().UTC(), Version: 1,
+				SessionID: sessionID, EventIDs: []string{inScope, streamed},
+				Calls: []portal.ProvenanceCall{
+					{EventID: inScope, Kind: portal.ProvenanceKindSQL, Tool: "trino_query", Outcome: portal.ProvenanceOutcomeSuccess},
+					{EventID: streamed, Kind: portal.ProvenanceKindSQL, Tool: "trino_export", Outcome: portal.ProvenanceOutcomeSuccess, Cited: true},
+				},
+			}},
+		},
+	}))
+
+	own, err := r.calls.GetByEventID(ctx, streamed, analystID)
+	require.NoError(t, err)
+	assert.Equal(t, callrecord.OutcomeSatisfied, own.Outcome)
+	assert.Equal(t, callrecord.SatisfiedByExport, own.SatisfiedBy,
+		"the export route is the export naming what it streamed")
+	require.Len(t, own.Artifacts, 1)
+	assert.Equal(t, "export", own.Artifacts[0].Kind)
+
+	windowed, err := r.calls.GetByEventID(ctx, inScope, analystID)
+	require.NoError(t, err)
+	assert.Equal(t, callrecord.OutcomeRan, windowed.Outcome,
+		"a call the export's window swept up did not produce the file")
+	assert.Empty(t, windowed.Artifacts)
 }
 
 // The agent's own verdict: a query answered in conversation only, confirmed by

@@ -174,10 +174,18 @@ type ProvenanceCapture struct {
 // ProvenanceCall is one captured call: what ran, against what, why, and how it
 // ended. Fields that do not apply to a call's kind are empty.
 type ProvenanceCall struct {
-	// EventID is the audit event this call was read from. Empty for a call the
-	// capturing tool recorded about itself, whose own audit row is written
-	// only after it returns.
+	// EventID is the audit event this call was read from. A call the capturing
+	// tool recorded about itself carries the id minted for that call before
+	// its handler ran, which is the same id the caller was handed back: the
+	// audit row follows, but the identifier does not wait for it.
 	EventID string `json:"event_id,omitempty"`
+	// Cited records that this call was NAMED as a source of the write rather
+	// than merely being in the session's default window when the write
+	// happened. A caller's `sources` argument names calls, and so does the
+	// capturing call's own record of itself; a window does not. It is what
+	// separates a call an artifact was built from, whose catalog record reads
+	// `satisfied`, from a call that was only in scope at the time (#1353).
+	Cited bool `json:"cited,omitempty"`
 	// Kind is one of the ProvenanceKind constants.
 	Kind string `json:"kind" example:"sql"`
 	// Tool is the tool that was called.
