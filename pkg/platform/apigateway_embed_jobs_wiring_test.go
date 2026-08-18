@@ -2,12 +2,15 @@ package platform
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/indexqueue"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptindex"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlayer"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
@@ -279,5 +282,51 @@ func TestWireAPIGatewayEmbedJobsFromDB_ToolEnumeratorSeam(t *testing.T) {
 	}
 	if got[platformFindToolsName] {
 		t.Error("discovery tool must be excluded via the wired DiscoveryToolName")
+	}
+}
+
+// TestWireAPIGatewayEmbedJobsFromDB_ScriptIndexProducerSeam is the end-to-end
+// integration test for the managed-script index seam (CLAUDE.md rule 5). The
+// producer is created inside the script tool layer, carried to the queue as one
+// element of Config.Producers, and bound only because the scripts consumer
+// registered. A unit test on either end would pass with the two never meeting;
+// this drives the real wiring and then proves a script write reaches the job
+// table, which is the whole point of the write-path path existing.
+func TestWireAPIGatewayEmbedJobsFromDB_ScriptIndexProducerSeam(t *testing.T) {
+	t.Parallel()
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	p := &Platform{
+		db:              db,
+		embeddingProv:   embedding.NewOllamaProvider(embedding.OllamaConfig{}),
+		config:          &Config{},
+		toolkitRegistry: registry.NewRegistry(),
+		lifecycle:       &Lifecycle{},
+		scripts:         scriptlayer.New(scriptlayer.Config{DB: db}),
+	}
+	p.WireAPIGatewayEmbedJobsFromDB()
+
+	if p.indexQueue == nil {
+		t.Fatal("queue should wire with a database and a real embedder")
+	}
+	if !slices.Contains(p.indexQueue.Registry().Kinds(), scriptindex.SourceKind) {
+		t.Fatalf("kinds = %v; want the scripts consumer registered", p.indexQueue.Registry().Kinds())
+	}
+
+	// The bound producer reaches the queue's own job store: the insert lands on
+	// this connection, which is what proves the two ends met.
+	mock.ExpectQuery("INSERT INTO index_jobs").
+		WithArgs(scriptindex.SourceKind, "script-1", string(indexjobs.TriggerWrite)).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(1)))
+	mock.ExpectExec("SELECT pg_notify").WillReturnResult(sqlmock.NewResult(0, 0))
+
+	p.scripts.IndexProducer().NotifyWrite(context.Background(), "script-1")
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("the script write did not reach the job store: %v", err)
 	}
 }

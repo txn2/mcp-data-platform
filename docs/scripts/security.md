@@ -358,6 +358,29 @@ granted bucket names its bucket and key and is not a link, because the platform
 wrote those bytes and does not hold them. The delivered copy is evidence of a
 delivery, not a way to read it back.
 
+**What is embedded is the contract, never the source.** A script's description
+card is embedded off the request path by the scripts consumer of the shared
+index-jobs framework (`internal/platform/scriptindex`), so a script is found by
+what it does and not only by the words it was named with. The text is
+`script.IndexText`: the title, the description, the parameter names, the tags,
+and the one line stating whether anything will execute it. It is exactly the
+first tier of the table above, and it is the same text a caller is shown as the
+search snippet.
+
+The source is excluded because it belongs to a narrower tier. There is one
+vector per script row, stored inline as prompts and memory store theirs, and one
+vector cannot be split along a line that admits the contract to everyone the
+scope rules admit and the source only to the owner and to administrators. A
+vector built partly from source would let code a caller may not read decide how
+their results rank, which is the objection that reclassified a run log as
+owner-only: a log is free text the script printed under ITS grant. Ranking is a
+read, and a read of the source by proxy is still a read of the source.
+
+Nothing is widened by the index. The store applies the same scope predicate to
+both the semantic and the lexical arm before ranking, so a script the caller
+cannot see reaches neither, and a hit still says only that a script exists and
+what it takes.
+
 **`show_scripts` performs no data work.** It is presentation-only, following the
 `show_prompts` split for the same reason: an app is rendered in response to a
 tool call, and tool calls are made by agents, so a presentation surface attached

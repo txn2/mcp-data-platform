@@ -67,7 +67,7 @@ func TestUpdateWithVersion_SnapshotsOnlyWhenTheSubstanceMoved(t *testing.T) {
 		expectNextVersion(mock, 2)
 		mock.ExpectExec(regexp.QuoteMeta("INSERT INTO script_versions")).
 			WillReturnResult(sqlmock.NewResult(1, 1))
-		mock.ExpectExec(regexp.QuoteMeta("UPDATE scripts")).WillReturnResult(sqlmock.NewResult(0, 1))
+		expectLiveRowUpdate(mock, true)
 		mock.ExpectCommit()
 
 		sc := &script.Script{ID: "script_1", Name: "daily", Scope: script.ScopePersonal, Source: "print(2)"}
@@ -80,7 +80,7 @@ func TestUpdateWithVersion_SnapshotsOnlyWhenTheSubstanceMoved(t *testing.T) {
 		s, mock := newMock(t)
 		mock.ExpectBegin()
 		expectLockedScript(t, mock)
-		mock.ExpectExec(regexp.QuoteMeta("UPDATE scripts")).WillReturnResult(sqlmock.NewResult(0, 1))
+		expectLiveRowUpdate(mock, true)
 		mock.ExpectCommit()
 
 		sc := &script.Script{

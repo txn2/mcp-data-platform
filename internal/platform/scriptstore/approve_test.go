@@ -54,7 +54,7 @@ func TestApproveVersion_BindsTheAuthorsRolesNotTheRequest(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE script_versions")).
 		WithArgs("sver_1", "admin@example.com", sqlmock.AnyArg(), script.VersionStatusApplied).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(regexp.QuoteMeta("UPDATE scripts")).WillReturnResult(sqlmock.NewResult(0, 1))
+	expectLiveRowUpdate(mock, false)
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE script_versions SET status = $3")).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE scripts SET approved_version_id")).
@@ -83,7 +83,7 @@ func TestApproveVersion_AppliesTheApprovedSnapshot(t *testing.T) {
 	expectLockedScript(t, mock)
 	expectVersionLock(mock, script.VersionStatusDraft)
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE script_versions")).WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(regexp.QuoteMeta("UPDATE scripts")).WillReturnResult(sqlmock.NewResult(0, 1))
+	expectLiveRowUpdate(mock, false)
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE script_versions SET status = $3")).
 		WithArgs("script_1", "sver_1", script.VersionStatusSuperseded, script.VersionStatusDraft).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -173,22 +173,22 @@ func TestApproveVersion_StoreFailuresRollBack(t *testing.T) {
 		}, "stamp script version approval"},
 		{"live row write fails", func(mock sqlmock.Sqlmock) {
 			mock.ExpectExec(regexp.QuoteMeta("UPDATE script_versions")).WillReturnResult(sqlmock.NewResult(0, 1))
-			mock.ExpectExec(regexp.QuoteMeta("UPDATE scripts")).WillReturnError(errors.New("boom"))
+			mock.ExpectQuery(regexp.QuoteMeta("UPDATE scripts")).WillReturnError(errors.New("boom"))
 		}, "update script"},
 		{"superseding the other drafts fails", func(mock sqlmock.Sqlmock) {
 			mock.ExpectExec(regexp.QuoteMeta("UPDATE script_versions")).WillReturnResult(sqlmock.NewResult(0, 1))
-			mock.ExpectExec(regexp.QuoteMeta("UPDATE scripts")).WillReturnResult(sqlmock.NewResult(0, 1))
+			expectLiveRowUpdate(mock, false)
 			mock.ExpectExec(regexp.QuoteMeta("UPDATE script_versions SET status = $3")).WillReturnError(errors.New("boom"))
 		}, "supersede pending script drafts"},
 		{"gate write fails", func(mock sqlmock.Sqlmock) {
 			mock.ExpectExec(regexp.QuoteMeta("UPDATE script_versions")).WillReturnResult(sqlmock.NewResult(0, 1))
-			mock.ExpectExec(regexp.QuoteMeta("UPDATE scripts")).WillReturnResult(sqlmock.NewResult(0, 1))
+			expectLiveRowUpdate(mock, false)
 			mock.ExpectExec(regexp.QuoteMeta("UPDATE script_versions SET status = $3")).WillReturnResult(sqlmock.NewResult(0, 1))
 			mock.ExpectExec(regexp.QuoteMeta("UPDATE scripts SET approved_version_id")).WillReturnError(errors.New("boom"))
 		}, "point script execution gate"},
 		{"re-read fails", func(mock sqlmock.Sqlmock) {
 			mock.ExpectExec(regexp.QuoteMeta("UPDATE script_versions")).WillReturnResult(sqlmock.NewResult(0, 1))
-			mock.ExpectExec(regexp.QuoteMeta("UPDATE scripts")).WillReturnResult(sqlmock.NewResult(0, 1))
+			expectLiveRowUpdate(mock, false)
 			mock.ExpectExec(regexp.QuoteMeta("UPDATE script_versions SET status = $3")).WillReturnResult(sqlmock.NewResult(0, 1))
 			mock.ExpectExec(regexp.QuoteMeta("UPDATE scripts SET approved_version_id")).WillReturnResult(sqlmock.NewResult(0, 1))
 			mock.ExpectQuery(regexp.QuoteMeta("FROM script_versions WHERE id = $1")).WillReturnError(errors.New("boom"))

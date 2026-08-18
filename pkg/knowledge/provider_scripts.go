@@ -3,7 +3,6 @@ package knowledge
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -58,12 +57,19 @@ func (*ScriptsProvider) Scope() Scope { return ScopeShared }
 // Search returns the scripts visible to the caller, ranked by relevance to the
 // intent. It responds to the text path only; a query with no intent yields
 // nothing.
+//
+// The router's query vector is passed through, so ranking is hybrid wherever
+// the scripts consumer has embedded the corpus and lexical wherever it has not
+// — the same degradation every other source has. The snippet is
+// script.IndexText, the exact text the vector was built from, so what a caller
+// reads is what was ranked.
 func (p *ScriptsProvider) Search(ctx context.Context, q Query) ([]Hit, error) {
 	if q.Intent == "" {
 		return nil, nil
 	}
 
 	scored, err := p.searcher.Search(ctx, script.SearchQuery{
+		Embedding:  q.Embedding,
 		QueryText:  q.Intent,
 		OwnerEmail: q.Caller.Email,
 		Personas:   q.Caller.Personas,
@@ -77,7 +83,7 @@ func (p *ScriptsProvider) Search(ctx context.Context, q Query) ([]Hit, error) {
 	for i := range scored {
 		sc := scored[i].Script
 		hits = append(hits, Hit{
-			Text:       scriptHitText(&sc),
+			Text:       script.IndexText(&sc),
 			Source:     SourceScripts,
 			Ref:        sc.ID,
 			Score:      scored[i].Score,
@@ -127,41 +133,4 @@ func (p *ScriptsProvider) Fetch(ctx context.Context, ref string, caller Caller) 
 		Body:      c.Text(),
 		Content:   c,
 	}, true, nil
-}
-
-// scriptHitText renders a script as a knowledge snippet: its title, its
-// description, its parameter names, and whether anything will execute it.
-//
-// The execution state belongs in the snippet rather than only in the fetched
-// document because it changes what the hit is FOR: an approved script is
-// something to run, and an unapproved one is something to ask a reviewer about.
-// Reading a search result should not leave that ambiguous.
-func scriptHitText(sc *script.Script) string {
-	parts := make([]string, 0, 4)
-	parts = append(parts, scriptTitle(sc))
-	if sc.Description != "" {
-		parts = append(parts, sc.Description)
-	}
-	if names := script.ParamSummary(sc.Params); names != "" {
-		parts = append(parts, "parameters: "+names)
-	}
-	parts = append(parts, executionNote(sc))
-	return strings.TrimSpace(strings.Join(parts, "\n"))
-}
-
-// scriptTitle renders a script's human label: its display name, falling back to
-// the name an agent would call it by.
-func scriptTitle(sc *script.Script) string {
-	if sc.DisplayName != "" {
-		return sc.DisplayName
-	}
-	return sc.Name
-}
-
-// executionNote states the hit's execution state in one sentence.
-func executionNote(sc *script.Script) string {
-	if sc.Executable() {
-		return "An approved version exists; call run_script to execute it."
-	}
-	return "No version of this script is approved, so nothing will execute it."
 }

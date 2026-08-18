@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -152,7 +153,7 @@ func applySnapshot(ctx context.Context, tx *sql.Tx, sc *script.Script, v *script
 	sc.Tags = v.Tags
 	sc.Version = v.Version
 	normalizeSlices(sc)
-	if err := updateTx(ctx, tx, sc); err != nil {
+	if _, err := updateTx(ctx, tx, sc); err != nil {
 		return err
 	}
 	_, err := tx.ExecContext(ctx, `
@@ -174,14 +175,31 @@ func pointExecutionGate(ctx context.Context, tx *sql.Tx, sc *script.Script, v *s
 	if status == script.StatusDraft {
 		status = script.StatusActive
 	}
-	_, err := tx.ExecContext(ctx, `
-		UPDATE scripts SET approved_version_id = $2, status = $3, updated_at = NOW()
-		 WHERE id = $1`, sc.ID, v.ID, status)
+	// The struct is advanced to the state this statement writes before the hash
+	// is taken, because the indexed text reads the execution pointer: making a
+	// script executable rewrites the card's last line, and a hash taken from the
+	// pre-approval struct would leave the old vector in place claiming nothing
+	// will run it. applySnapshot's own updateTx ran while the pointer was still
+	// unset, so this is the write that sees the change.
+	sc.ApprovedVersionID = v.ID
+	sc.Status = status
+	// #nosec G201 G202 -- the only interpolation is a constant parameter index
+	// into a constant SQL fragment; every value is bound.
+	q := `
+		UPDATE scripts SET approved_version_id = $2, status = $3, updated_at = NOW()` +
+		fmt.Sprintf(indexInvalidation, gateHashParam) +
+		"\n\t\t WHERE id = $1"
+	_, err := tx.ExecContext(ctx, q, sc.ID, v.ID, status,
+		indexjobs.TextHash(script.IndexText(sc)))
 	if err != nil {
 		return fmt.Errorf("point script execution gate: %w", err)
 	}
 	return nil
 }
+
+// gateHashParam is pointExecutionGate's placeholder index for the new text
+// hash, one past its last column value.
+const gateHashParam = 4
 
 // readVersionTx re-reads a version inside the transaction so the caller gets
 // the row as stored rather than the struct the caller assembled.

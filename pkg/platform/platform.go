@@ -48,6 +48,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/resourceaudit"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcelayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/routepolicy"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/searchfed"
 	"github.com/txn2/mcp-data-platform/internal/platform/sessionsync"
@@ -273,6 +274,10 @@ type Platform struct {
 	// accessors and surfaced by ResourceStore() / ResourceS3Client(). nil when
 	// managed resources are disabled or no database is configured.
 	resources *resourcelayer.Handle
+
+	// Managed-script tool layer, retained for its write-path index producer:
+	// the queue binds it so a re-described script enters search now (#1370).
+	scripts *scriptlayer.Handle
 
 	// Known-users directory (#614). The owner (pkg/platform/userdir) holds the
 	// user store and the throttled-async directory behind one Handle; the store
@@ -2864,9 +2869,10 @@ func (p *Platform) Start(ctx context.Context) error {
 	// Managed scripts (#1283, #1284). The execution side owns the run queue and
 	// the worker that drains it; the tool layer owns manage_script and
 	// run_script and enqueues onto that same queue. The lifecycle holds the
-	// worker, so the platform needs no field of its own for it.
-	scripts := wireScripts(p)
-	p.lifecycle.OnComponent(scripts.Start, scripts.Stop)
+	// worker, so the platform keeps no field for it; the tool layer is kept
+	// because the index queue binds its write-path producer (#1370).
+	scriptRuns := wireScripts(p)
+	p.lifecycle.OnComponent(scriptRuns.Start, scriptRuns.Stop)
 
 	// Register platform-level prompts from config
 	p.prompts.RegisterPlatformPrompts(p.mcpServer)
