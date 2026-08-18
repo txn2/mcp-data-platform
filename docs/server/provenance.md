@@ -48,6 +48,14 @@ therefore records the calls made since the first save, not the whole session
 again. The boundaries are the writes themselves: `save_asset`, any `*_export`
 tool, and a `manage_asset` content edit.
 
+That default window is the record of what the session did. It is deliberately
+wide, and being in it is **not** a claim that a given call produced the asset: a
+session that read a notification history and looked up a user before saving had
+both captured, and neither answered the question the asset answers. What
+distinguishes the two is **naming**, described below, and the
+[call catalog](portal-user.md#my-calls) derives a call's outcome from naming
+rather than from the window.
+
 Calls the platform serves for its own bookkeeping are never an asset's source:
 saving an asset, managing memory, searching the catalog. What counts is the
 toolkit a call was routed to — the query engines, the API gateway, the catalog,
@@ -60,8 +68,9 @@ asset saved through another.
 
 ### Naming the sources exactly
 
-An agent that knows which calls produced the content can say so. Every data
-call's result carries its own identifier:
+An agent that knows which calls produced the content can say so, and should:
+naming is the only evidence the platform has that a call answered anything.
+Every data call's result carries its own identifier:
 
 ```json
 {"call_reference": {"call_id": "8kQ2f1uVQ2S1p0aT4Hn2Zw", "reference": "mcp:call:8kQ2f1uVQ2S1p0aT4Hn2Zw"}}
@@ -87,16 +96,30 @@ than were asked for.
 
 The same id names the call in the [call catalog](portal-user.md#my-calls),
 where the call is a record in its own right: what it was for, what it
-addressed, and what came of it. An asset citing a call is one of the things
-that makes that record read as `satisfied`, and `memory_capture` takes the same
+addressed, and what came of it. An asset **naming** a call is what makes that
+record read as `satisfied`; a call the default window swept up reads `ran`, and
+the asset is not listed as an artifact of it. `memory_capture` takes the same
 ids in its own `sources` for the answer that never became an asset.
+
+Two things name a call, and only these two:
+
+- A caller's `sources` argument on `save_asset`, a `manage_asset` content edit,
+  or `memory_capture`. The whole capture is marked cited, and the portal shows
+  a **Cited** badge on it.
+- **A capturing call's own record of itself.** `trino_export` and `api_export`
+  stream the result of a statement into the asset, so that statement is not a
+  call that happened to be in scope — it is the content. The export names it
+  without being asked to, and the portal marks that one call **Source** inside
+  a capture that also holds the window around it.
 
 ## Reading it back
 
 The portal's asset page groups provenance by capture: which version each
 capture produced, whether the agent named the sources itself, and one card per
 call showing its kind, tool, connection, stated purpose, duration, and whether
-it failed.
+it failed. A call named as a source inside a capture the caller did not name
+wholesale is badged **Source**, which is how an export's own statement is told
+apart from the session's work around it.
 
 ![Provenance panel on the asset viewer](../images/screenshots/light/user-asset-provenance-light.webp#only-light)![Provenance panel on the asset viewer](../images/screenshots/dark/user-asset-provenance-dark.webp#only-dark)
 

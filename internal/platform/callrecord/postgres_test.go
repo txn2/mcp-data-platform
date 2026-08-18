@@ -266,6 +266,28 @@ func TestCreditReuseOnlyForASuccessfulSessionCall(t *testing.T) {
 	assert.Equal(t, 2, n)
 }
 
+// TestCreditReuseComparesResolvedTargets proves the API arm is bound the
+// record's normalized targets rather than its operation id, which is what stops
+// a session that read one resource's record and then addressed another from
+// being credited with re-running it (#1352).
+func TestCreditReuseComparesResolvedTargets(t *testing.T) {
+	store, mock := newMock(t)
+
+	mock.ExpectExec("INSERT INTO call_record_reuse").
+		WithArgs("dps_x", "u1", "evt-9", testTime(), KindAPI, "platform-admin", "",
+			[]byte(`["api:platform-admin:POST /admin/scripts/script-a/approve"]`)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	n, err := store.CreditReuse(context.Background(), Record{
+		Success: true, SessionID: "dps_x", UserID: "u1", EventID: "evt-9",
+		Kind: KindAPI, Connection: "platform-admin", OperationID: "approveScript",
+		Targets:   []string{"api:platform-admin:POST /admin/scripts/script-a/approve"},
+		CreatedAt: testTime(),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, n)
+}
+
 func TestForTargetsKeepsOnlySatisfiedRecords(t *testing.T) {
 	store, mock := newMock(t)
 	mock.ExpectQuery("FROM call_records").

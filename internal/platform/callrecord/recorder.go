@@ -2,7 +2,9 @@ package callrecord
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
+	"regexp"
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/sqltables"
@@ -185,7 +187,9 @@ func describeAPI(rec *Record, params map[string]any) {
 	rec.Method = strings.ToUpper(stringParam(params, "method"))
 	rec.Path = stringParam(params, "path")
 	rec.OperationID = stringParam(params, "operation_id")
-	if target := APITarget(rec.Connection, rec.Method, rec.Path, rec.OperationID); target != "" {
+	target := APITarget(rec.Connection, rec.Method, rec.Path, rec.OperationID,
+		stringMapParam(params, "path_params"))
+	if target != "" {
 		rec.Targets = []string{target}
 	}
 }
@@ -195,25 +199,123 @@ func describeAPI(rec *Record, params map[string]any) {
 // spelled distinctly rather than made to look like one.
 const apiTargetPrefix = "api:"
 
-// APITarget names the endpoint an API call addressed: its operation id when the
-// catalog defines one, and otherwise the request line. It is scoped by
-// connection for the same reason a dataset URN is scoped by platform: the same
-// operation id against two upstreams is two endpoints.
-func APITarget(connection, method, path, operationID string) string {
+// APITarget names the resource an API call addressed: its operation id with
+// every path parameter resolved into it, or the request line when the caller
+// addressed the endpoint by path directly. It is scoped by connection for the
+// same reason a dataset URN is scoped by platform: the same operation id
+// against two upstreams is two endpoints.
+//
+// The path parameters are part of the target, not decoration. A target is what
+// decides whether two calls addressed the same thing, so an operation id alone
+// would make approving one script and approving another the same target, and
+// every call through a generic dispatch endpoint one target (#1352).
+//
+// A target that cannot distinguish the call is not returned at all. An
+// operation id holding a placeholder no path parameter resolved names a
+// template rather than a resource, and the empty target it yields is the same
+// answer the SQL side gives when it cannot tell what a statement read: not
+// comparable, so never declared superseded and never credited as reuse.
+func APITarget(connection, method, path, operationID string, pathParams map[string]string) string {
 	switch {
 	case operationID != "":
-		return apiTargetPrefix + connection + ":" + operationID
+		resolved, used, complete := resolveTemplate(operationID, pathParams)
+		if !complete {
+			return ""
+		}
+		return apiTargetPrefix + connection + ":" + resolved + unresolvedParams(pathParams, used)
 	case path != "":
+		// Only the path itself is a template question. A query string may
+		// legitimately carry braces in a filter value, and dropping the target
+		// over that would lose the endpoint for no reason.
+		if route, _, _ := strings.Cut(path, "?"); placeholderPattern.MatchString(route) {
+			return ""
+		}
 		return apiTargetPrefix + connection + ":" + strings.TrimSpace(method+" "+path)
 	default:
 		return ""
 	}
 }
 
+// placeholderPattern matches one {name} slot of a path template. The name
+// cannot span a path segment, which is what an OpenAPI template guarantees.
+var placeholderPattern = regexp.MustCompile(`\{[^{}/]+\}`)
+
+// resolveTemplate substitutes path parameters into a path template, reporting
+// which parameters it consumed and whether every slot was filled. A slot with
+// no value, or an empty one, leaves the template incomplete: an address with a
+// hole in it identifies nothing.
+func resolveTemplate(template string, params map[string]string) (resolved string, used map[string]bool, complete bool) {
+	used = make(map[string]bool, len(params))
+	complete = true
+	resolved = placeholderPattern.ReplaceAllStringFunc(template, func(slot string) string {
+		name := slot[1 : len(slot)-1]
+		value := strings.TrimSpace(params[name])
+		if value == "" {
+			complete = false
+			return slot
+		}
+		used[name] = true
+		return value
+	})
+	return resolved, used, complete
+}
+
+// unresolvedParams renders the path parameters no slot consumed. An operation id
+// that is a name rather than a template — which is what a spec declaring
+// operationIds gives — carries no slots at all, so this is where its resolved
+// resource is stated.
+//
+// It is rendered as JSON because a target is an identity: Go orders a map's keys
+// when it marshals one, so two calls carrying the same values compare equal, and
+// a value holding a separator cannot make two different parameter sets render
+// alike. Substituting into a template needs no such care — a resolved path is
+// the address the request actually used, so two calls resolving to the same one
+// did address the same resource.
+func unresolvedParams(params map[string]string, used map[string]bool) string {
+	extra := make(map[string]string, len(params))
+	for name, value := range params {
+		value = strings.TrimSpace(value)
+		if used[name] || value == "" {
+			continue
+		}
+		extra[name] = value
+	}
+	if len(extra) == 0 {
+		return ""
+	}
+	encoded, err := json.Marshal(extra)
+	if err != nil {
+		// Unreachable for map[string]string; a target that cannot be rendered
+		// is no target rather than a partial one.
+		return ""
+	}
+	return "(" + string(encoded) + ")"
+}
+
 // stringParam reads one string argument off a recorded parameter map.
 func stringParam(params map[string]any, key string) string {
 	v, _ := params[key].(string)
 	return v
+}
+
+// stringMapParam reads one map-valued argument off a recorded parameter map.
+// Both shapes an argument reaches here in are read: the typed map a toolkit
+// declares, and the map[string]any a JSON round trip leaves behind.
+func stringMapParam(params map[string]any, key string) map[string]string {
+	switch raw := params[key].(type) {
+	case map[string]string:
+		return raw
+	case map[string]any:
+		out := make(map[string]string, len(raw))
+		for name, value := range raw {
+			if s, ok := value.(string); ok {
+				out[name] = s
+			}
+		}
+		return out
+	default:
+		return nil
+	}
 }
 
 // Verify interface compliance: the recorder stands where the audit store does.

@@ -247,6 +247,7 @@ internal/platform/promptlayer/notifystore -> pkg/prompt
 internal/platform/promptlayer/promptschema -> pkg/prompt
 internal/platform/promptlayer/promptschema -> pkg/textpatch
 internal/platform/provenance -> pkg/audit
+internal/platform/provenance -> pkg/middleware
 internal/platform/provenance -> pkg/portal
 internal/platform/reflexivecapture -> pkg/memory
 internal/platform/reflexivecapture -> pkg/middleware

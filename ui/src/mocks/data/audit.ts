@@ -78,9 +78,13 @@ const toolDefs: ToolDef[] = [
   { name: "trino_describe_table", connection: "acme-warehouse", kind: "trino", toolkit: "acme-warehouse", weight: 7 },
   { name: "trino_browse", connection: "acme-warehouse", kind: "trino", toolkit: "acme-warehouse", weight: 5 },
   { name: "trino_explain", connection: "acme-warehouse", kind: "trino", toolkit: "acme-warehouse", weight: 1 },
-  // acme-staging (trino) — 5% of traffic
+  // acme-staging (trino) — 7% of traffic, and the only place a write runs
   { name: "trino_query", connection: "acme-staging", kind: "trino", toolkit: "acme-staging", weight: 4 },
   { name: "trino_describe_table", connection: "acme-staging", kind: "trino", toolkit: "acme-staging", weight: 1 },
+  { name: "trino_execute", connection: "acme-staging", kind: "trino", toolkit: "acme-staging", weight: 2 },
+  // acme-billing-api (api gateway) — 6% of traffic. pickSource biases these
+  // toward the REST shim, which is the population that dropdown exists for.
+  { name: "api_invoke_endpoint", connection: "acme-billing-api", kind: "api", toolkit: "acme-billing-api", weight: 5 },
   // acme-catalog (datahub) — 25% of traffic
   { name: "datahub_search", connection: "acme-catalog", kind: "datahub", toolkit: "acme-catalog", weight: 12 },
   { name: "datahub_get_entity", connection: "acme-catalog", kind: "datahub", toolkit: "acme-catalog", weight: 6 },
@@ -155,6 +159,7 @@ const s3Buckets = [
   "acme-raw-transactions", "acme-analytics-output", "acme-ml-features",
   "acme-report-archive", "acme-data-exports",
 ];
+const billingInvoices = ["inv-4192", "inv-7730", "inv-2081"];
 const s3Prefixes = [
   "raw/2024/", "processed/daily/", "exports/regional/", "ml/features/",
   "reports/quarterly/", "archives/2023/",
@@ -175,6 +180,23 @@ function toolParameters(tool: ToolDef): Record<string, unknown> {
       };
     case "trino_browse":
       return { catalog: seededItem(trinoCatalogs), schema: seededItem(trinoSchemas) };
+    case "trino_execute":
+      // The write path: trino_execute is the tool that modifies data, and a
+      // mutation is what makes it distinguishable from trino_query in every
+      // surface that reads these events.
+      return {
+        sql: `INSERT INTO ${seededItem(trinoSchemas)}.${seededItem(trinoTables)} SELECT * FROM staging.${seededItem(trinoTables)}`,
+        catalog: seededItem(trinoCatalogs),
+      };
+    case "api_invoke_endpoint":
+      // Addressed the two ways the gateway accepts: an operation id whose path
+      // template the call resolves with path_params, and one that is a name.
+      // The resolved values are what tell one resource apart from another.
+      return seededItem([
+        { method: "GET", operation_id: "GET /v1/invoices/{id}", path_params: { id: seededItem(billingInvoices) } },
+        { method: "GET", operation_id: "listInvoices", query_params: { status: "open" } },
+        { method: "POST", operation_id: "POST /v1/invoices/{id}/void", path_params: { id: seededItem(billingInvoices) } },
+      ]);
     case "trino_explain":
       return {
         sql: `SELECT region, SUM(revenue) FROM ${seededItem(trinoSchemas)}.${seededItem(trinoTables)} GROUP BY region`,

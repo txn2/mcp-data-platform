@@ -152,9 +152,17 @@ function CopyButton({ text, label }: { text: string; label: string }) {
 
 function CallCard({
   call,
+  named,
   onClick,
 }: {
   call: ProvenanceCall;
+  /**
+   * Show that this call was named as a source. Only passed inside a capture the
+   * caller did not name wholesale, where one call standing out from the window
+   * says something: an export's own statement is the file's content, while the
+   * calls around it were merely in scope (#1353).
+   */
+  named?: boolean;
   onClick: () => void;
 }) {
   const Icon = getToolIcon(call.tool);
@@ -183,6 +191,15 @@ function CallCard({
               {failed && (
                 <Badge variant="danger" className="shrink-0">
                   Failed
+                </Badge>
+              )}
+              {named && (
+                <Badge
+                  variant="info"
+                  className="shrink-0"
+                  title="This call was named as a source of the write"
+                >
+                  Source
                 </Badge>
               )}
             </span>
@@ -320,7 +337,7 @@ function CaptureHeading({ capture }: { capture: ProvenanceCapture }) {
       <span className="flex items-center gap-1.5 text-xs font-medium">
         {capture.version ? `Version ${capture.version}` : "Capture"}
         {capture.explicit && (
-          <Badge variant="info" title="The agent named these calls">
+          <Badge variant="info" title="The agent named these calls as the sources of this write">
             Cited
           </Badge>
         )}
@@ -364,6 +381,7 @@ export function ProvenancePanel({ provenance, onOpenSession }: Props) {
             <CallCard
               key={call.event_id ?? `${ci}-${i}`}
               call={call}
+              named={!capture.explicit && call.cited}
               onClick={() => setSelected(call)}
             />
           ))}

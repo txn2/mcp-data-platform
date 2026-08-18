@@ -96,6 +96,57 @@ describe("ProvenancePanel", () => {
     ).toBeInTheDocument();
   });
 
+  // An export's capture holds the window it swept up AND the statement it
+  // streamed. Only the second one produced the file, and the catalog reads that
+  // distinction, so the panel has to show it (#1353).
+  it("marks the call a windowed capture named as its source", () => {
+    const exported: Provenance = {
+      captures: [
+        {
+          tool: "trino_export",
+          captured_at: "2026-08-16T10:05:00Z",
+          version: 1,
+          event_ids: ["evt-window", "evt-streamed"],
+          calls: [
+            {
+              event_id: "evt-window",
+              kind: "sql",
+              tool: "trino_query",
+              statement: "SELECT 1",
+              outcome: "success",
+              timestamp: "2026-08-16T10:00:00Z",
+            },
+            {
+              event_id: "evt-streamed",
+              kind: "sql",
+              tool: "trino_export",
+              statement: "SELECT region, revenue FROM sales.quarterly",
+              outcome: "success",
+              cited: true,
+              timestamp: "2026-08-16T10:05:00Z",
+            },
+          ],
+        },
+      ],
+    };
+    render(<ProvenancePanel provenance={exported} />);
+
+    const badges = screen.getAllByText("Source");
+    expect(badges).toHaveLength(1);
+    const card = badges[0]!.closest("button");
+    expect(card).not.toBeNull();
+    expect(within(card!).getByText("Trino Export")).toBeInTheDocument();
+  });
+
+  // On a capture the caller named wholesale, the capture-level badge already
+  // says it; repeating it on every call would be noise.
+  it("does not repeat the source badge on a wholly cited capture", () => {
+    render(<ProvenancePanel provenance={captured} />);
+
+    expect(screen.getByText("Cited")).toBeInTheDocument();
+    expect(screen.queryByText("Source")).not.toBeInTheDocument();
+  });
+
   it("says what truncation means when the platform chose the window", () => {
     const wide: Provenance = {
       captures: [

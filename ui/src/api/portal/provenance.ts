@@ -43,6 +43,13 @@ export type ProvenanceOutcome = "success" | "error";
 
 export interface ProvenanceCall {
   event_id?: string;
+  /**
+   * The write NAMED this call as a source, rather than the platform sweeping it
+   * up in the session's default window. A caller's `sources` argument names
+   * calls, and so does the capturing call's own record of itself. It is what
+   * makes the call's catalog record read `satisfied` (#1353).
+   */
+  cited?: boolean;
   kind: ProvenanceCallKind;
   tool: string;
   connection?: string;

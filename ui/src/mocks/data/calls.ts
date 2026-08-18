@@ -6,11 +6,16 @@ import { MOCK_CALLER_EMAIL, mockAuditEvents } from "./audit";
 // session, the caller and the statement the events tab shows for the same call.
 //
 // The outcomes are derived here too, by the same rule the SQL uses: a record an
-// asset cites is satisfied, a record a later call in the same session replaced
-// over the same targets is superseded, a failed call is failed, and everything
-// else merely ran. What the fixture chooses is which calls the mock assets
-// cite; the outcomes follow from that, so the mock cannot show a state the
-// server could not produce.
+// asset NAMED is satisfied, a read a later read of the same resource replaced is
+// superseded, a failed call is failed, and everything else merely ran. What the
+// fixture chooses is which calls the mock assets name; the outcomes follow from
+// that, so the mock cannot show a state the server could not produce.
+//
+// Two parts of the rule are easy to lose and are spelled out here because the
+// server spells them out too (#1352, #1353): a target carries the resolved path
+// parameters, so one endpoint addressing two resources is two targets; and only
+// a read can be superseded, because a mutation is not a better version of an
+// earlier mutation.
 
 /** The tools the catalog records, mirroring internal/platform/callrecord. */
 const RECORDED_TOOLS: Record<string, CallKind> = {
@@ -21,8 +26,12 @@ const RECORDED_TOOLS: Record<string, CallKind> = {
   api_export: "api",
 };
 
-/** How many of the caller's own records the mock assets cite. */
-const CITED_PER_ASSET = 2;
+/**
+ * How many of the caller's own records each citing artifact names. An export
+ * names one call, the statement it streamed into the file; a save names the set
+ * the agent passed as `sources`.
+ */
+const CITED_PER_ASSET: Record<"asset" | "export", number> = { asset: 2, export: 1 };
 
 /**
  * The assets whose provenance cites recorded calls. Asset ids and names are
@@ -41,17 +50,65 @@ const CAPTURE_ARTIFACT = {
   name: "Revenue by region excludes canceled orders; filter on status.",
 };
 
+/**
+ * One {name} slot of an operation's path template. Two spellings because a
+ * global regex carries `lastIndex` state across `.test()` calls: substitution
+ * needs the global flag, and asking whether a slot survived must not depend on
+ * where the previous question left off.
+ */
+const PLACEHOLDER_ALL = /\{[^{}/]+\}/g;
+const PLACEHOLDER = /\{[^{}/]+\}/;
+
+/**
+ * The resource an API call addressed: the operation id with its path parameters
+ * substituted in, and the parameters no slot consumed appended. A template slot
+ * nothing resolved leaves no target at all, which is how the server says "this
+ * call cannot be told apart from a different one".
+ */
+function apiTarget(event: AuditEvent): string[] {
+  const operation = String(event.parameters?.["operation_id"] ?? "");
+  if (!operation) return [];
+  const params = (event.parameters?.["path_params"] ?? {}) as Record<string, string>;
+  const used = new Set<string>();
+  const resolved = operation.replace(PLACEHOLDER_ALL, (slot) => {
+    const name = slot.slice(1, -1);
+    const value = (params[name] ?? "").trim();
+    if (!value) return slot;
+    used.add(name);
+    return value;
+  });
+  if (PLACEHOLDER.test(resolved)) return [];
+  // Rendered as JSON with sorted keys, matching the server: a target is an
+  // identity, so a value holding a separator must not be able to make two
+  // different parameter sets render alike.
+  const extra = Object.entries(params)
+    .filter(([name, value]) => !used.has(name) && String(value).trim() !== "")
+    .sort(([a], [b]) => a.localeCompare(b));
+  const suffix =
+    extra.length > 0 ? `(${JSON.stringify(Object.fromEntries(extra))})` : "";
+  return [`api:${event.connection}:${resolved}${suffix}`];
+}
+
 /** Extracts the dataset a mock SQL statement reads, in URN form. */
 function targetsOf(event: AuditEvent, kind: CallKind): string[] {
-  if (kind === "api") {
-    const operation = String(event.parameters?.["operation_id"] ?? "");
-    return operation ? [`api:${event.connection}:${operation}`] : [];
-  }
+  if (kind === "api") return apiTarget(event);
   const sql = String(event.parameters?.["sql"] ?? "");
   const match = sql.match(/FROM\s+([a-zA-Z_][\w.]*)/i);
   if (!match) return [];
   const name = match[1]!.split(".").length === 3 ? match[1]! : `iceberg.${match[1]!}`;
   return [`urn:li:dataset:(urn:li:dataPlatform:trino,${name},PROD)`];
+}
+
+/** A statement that only reads, matching the server's own pattern. */
+const READ_STATEMENT = /^[\s(]*(with|select|show|describe|desc|explain|table|values)\b/i;
+
+/**
+ * Whether a record can be superseded at all. Supersession says a later call
+ * answered the same question better, which only a read does.
+ */
+function readShaped(record: CallRecord): boolean {
+  if (record.kind === "api") return record.method === "GET" || record.method === "HEAD";
+  return READ_STATEMENT.test(record.statement ?? "");
 }
 
 /** One audit event as the record the catalog would hold for it. */
@@ -65,7 +122,7 @@ function toRecord(event: AuditEvent, kind: CallKind): CallRecord {
     tool_name: event.tool_name,
     connection: event.connection,
     statement: kind === "sql" ? sql : "",
-    method: kind === "api" ? String(event.parameters?.["method"] ?? "GET") : "",
+    method: kind === "api" ? String(event.parameters?.["method"] ?? "").toUpperCase() : "",
     path: kind === "api" ? String(event.parameters?.["path"] ?? "") : "",
     operation_id: kind === "api" ? String(event.parameters?.["operation_id"] ?? "") : "",
     targets: targetsOf(event, kind),
@@ -94,23 +151,26 @@ function toRecord(event: AuditEvent, kind: CallKind): CallRecord {
  * demonstrating nothing but "ran" would demonstrate nothing.
  */
 function applyCitations(records: CallRecord[]): void {
-  const satisfied = records
-    .filter((r) => r.success && r.statement && r.user_id === MOCK_CALLER_EMAIL)
-    .slice(0, CITED_PER_ASSET * CITING_ASSETS.length + 1);
-  satisfied.forEach((record, i) => {
-    if (i === satisfied.length - 1) {
-      // The last one is the capture route: an answer that went into the
-      // conversation and was recorded by the agent rather than saved.
-      record.satisfied_by = "capture";
-      record.artifacts = [CAPTURE_ARTIFACT];
-      record.reuse_count = 2;
-      return;
+  const eligible = records.filter(
+    (r) => r.success && r.statement && r.user_id === MOCK_CALLER_EMAIL,
+  );
+  let next = 0;
+  for (const asset of CITING_ASSETS) {
+    for (let n = 0; n < CITED_PER_ASSET[asset.kind]; n++) {
+      const record = eligible[next++];
+      if (!record) return;
+      record.satisfied_by = asset.kind;
+      record.artifacts = [{ kind: asset.kind, id: asset.assetId, name: asset.assetName }];
+      record.reuse_count = next === 1 ? 3 : 0;
     }
-    const asset = CITING_ASSETS[Math.floor(i / CITED_PER_ASSET)]!;
-    record.satisfied_by = asset.kind;
-    record.artifacts = [{ kind: asset.kind, id: asset.assetId, name: asset.assetName }];
-    record.reuse_count = i === 0 ? 3 : 0;
-  });
+  }
+  // One more by the capture route: an answer that went into the conversation
+  // and was recorded by the agent rather than saved.
+  const captured = eligible[next];
+  if (!captured) return;
+  captured.satisfied_by = "capture";
+  captured.artifacts = [CAPTURE_ARTIFACT];
+  captured.reuse_count = 2;
 }
 
 /**
@@ -125,6 +185,22 @@ export function citedEventIDs(assetId: string): string[] {
     .map((r) => r.event_id);
 }
 
+/**
+ * How an asset names the calls it cites, which the asset fixture writes into
+ * that asset's provenance. A save names them as a set the agent passed; an
+ * export names one call, its own, inside a capture that also holds the window
+ * around it. The server reads exactly this distinction (#1353).
+ */
+export function citationsFor(assetId: string): {
+  eventIDs: string[];
+  kind: "asset" | "export";
+} | null {
+  const asset = CITING_ASSETS.find((a) => a.assetId === assetId);
+  if (!asset) return null;
+  const eventIDs = citedEventIDs(assetId);
+  return eventIDs.length > 0 ? { eventIDs, kind: asset.kind } : null;
+}
+
 /** Applies the derived outcome to every record, in the server's order. */
 function deriveOutcomes(records: CallRecord[]): void {
   for (const record of records) {
@@ -136,17 +212,20 @@ function deriveOutcomes(records: CallRecord[]): void {
       record.outcome = "satisfied";
       continue;
     }
-    const superseded = records.some(
-      (other) =>
-        other !== record &&
-        other.success &&
-        other.session_id === record.session_id &&
-        other.kind === record.kind &&
-        other.connection === record.connection &&
-        record.targets.length > 0 &&
-        other.targets.join() === record.targets.join() &&
-        Date.parse(other.created_at) > Date.parse(record.created_at),
-    );
+    const superseded =
+      readShaped(record) &&
+      records.some(
+        (other) =>
+          other !== record &&
+          other.success &&
+          readShaped(other) &&
+          other.session_id === record.session_id &&
+          other.kind === record.kind &&
+          other.connection === record.connection &&
+          record.targets.length > 0 &&
+          other.targets.join() === record.targets.join() &&
+          Date.parse(other.created_at) > Date.parse(record.created_at),
+      );
     record.outcome = superseded ? "superseded" : "ran";
   }
 }
