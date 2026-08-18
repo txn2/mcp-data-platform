@@ -19,6 +19,11 @@ CV_EMBED_DIR := ./internal/contentviewer/dist
 GOLANGCI_LINT_VERSION := v2.11.4
 GOSEC_VERSION := v2.28.0
 GREMLINS_VERSION := v0.6.0
+# govulncheck is pinned for the same reason the others are: its report is judged
+# by scripts/govulncheck-gate.py, which reads the -format json message stream, so
+# local and CI must run the same scanner against the same schema. .github/workflows/ci.yml
+# installs this version.
+GOVULNCHECK_VERSION := v1.1.4
 
 # Total-coverage floor. This is the single source of truth for the project
 # coverage gate: .github/workflows/ci.yml, codecov.yml (project target) and
@@ -27,6 +32,10 @@ GREMLINS_VERSION := v0.6.0
 # is a separate gate at PATCH_COVERAGE_MIN.
 COVERAGE_MIN := 82
 PATCH_COVERAGE_MIN := 80
+
+# Where `make security` parks the govulncheck JSON report the gate judges. It
+# is a build artifact, removed by the target that writes it.
+GOVULN_REPORT := build/govulncheck-report.json
 
 # Go commands
 GO := go
@@ -262,7 +271,23 @@ security:
 	@echo "Running gosec..."
 	gosec -quiet ./...
 	@echo "Running govulncheck..."
-	govulncheck ./...
+	@# govulncheck exits 3 when our code calls a vulnerable symbol, whether or
+	@# not a fixed version exists, and has no way to accept a finding. The gate
+	@# judges the report against .govulncheck-allow.txt, where an accepted
+	@# advisory carries the reason it is accepted and expires the moment a fix
+	@# ships or the advisory stops being reported. CI runs the same two
+	@# commands, so local and CI cannot disagree.
+	@govulncheck -format json ./... > $(GOVULN_REPORT) 2>/dev/null; \
+	status=$$?; \
+	if [ $$status -ne 0 ] && [ $$status -ne 3 ]; then \
+		echo "ERROR: govulncheck failed to run (exit $$status)"; \
+		rm -f $(GOVULN_REPORT); \
+		exit 1; \
+	fi
+	@python3 scripts/govulncheck-gate.py $(GOVULN_REPORT); \
+	status=$$?; \
+	rm -f $(GOVULN_REPORT); \
+	exit $$status
 
 ## osv: Run osv-scanner (informational; mirrors OpenSSF Scorecard)
 ## Not part of `verify`: osv-scanner scans the whole go.sum graph regardless of
@@ -421,7 +446,14 @@ tools-check:
 			mismatch="$$mismatch  gosec: have $$v, want $(GOSEC_VERSION) — go install github.com/securego/gosec/v2/cmd/gosec@$(GOSEC_VERSION)\n"; \
 		fi; \
 	fi; \
-	which govulncheck > /dev/null 2>&1   || missing="$$missing  govulncheck: go install golang.org/x/vuln/cmd/govulncheck@latest\n"; \
+	if ! which govulncheck > /dev/null 2>&1; then \
+		missing="$$missing  govulncheck: go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)\n"; \
+	else \
+		v=$$(go version -m $$(which govulncheck) 2>/dev/null | awk '$$1=="mod" && $$2=="golang.org/x/vuln" {print $$3}'); \
+		if [ -n "$$v" ] && [ "$$v" != "$(GOVULNCHECK_VERSION)" ]; then \
+			mismatch="$$mismatch  govulncheck: have $$v, want $(GOVULNCHECK_VERSION) — go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)\n"; \
+		fi; \
+	fi; \
 	which semgrep > /dev/null 2>&1       || missing="$$missing  semgrep: pip3 install semgrep\n"; \
 	which codeql > /dev/null 2>&1        || missing="$$missing  codeql: brew install codeql\n"; \
 	which deadcode > /dev/null 2>&1      || missing="$$missing  deadcode: go install golang.org/x/tools/cmd/deadcode@latest\n"; \

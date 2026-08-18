@@ -38,7 +38,7 @@ By participating in this project, you agree to maintain a respectful and inclusi
    # Versions must equal the pins in the Makefile (currently v2.11.4 / v2.28.0).
    go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4
    go install github.com/securego/gosec/v2/cmd/gosec@v2.28.0
-   go install golang.org/x/vuln/cmd/govulncheck@latest
+   go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
    ```
 
    Run `make tools-check` to verify your installed versions match the pins; it
