@@ -8,6 +8,11 @@ unworked. Delivery is durable (a database-backed queue with retries), never
 blocks the originating request, and respects per-user preferences including
 a daily digest mode.
 
+Email is one of three ways the platform tells someone that something needs
+them. The [portal activity feed](portal-user.md#activity) shows it to anyone who
+opens the portal, and [session-start notices](session-notices.md) put it in
+front of a person working through an agent, who may open neither.
+
 Email notifications require a database-backed deployment running the HTTP
 transport: the queue, the send worker, and SMTP are owned by the HTTP server,
 which is the long-lived process they belong in. With no database, or under
@@ -58,6 +63,14 @@ graph LR
    whose author cannot be resolved queues no general fan-out at all -- it
    cannot be shown not to be a self-notification -- though addresses the body
    named explicitly still get their mention.
+   One recipient is dropped for a reason that is not a preference: an API key
+   that configured no `email` authenticates as a synthetic `name@apikey.local`
+   address. That is an identity, not a mailbox, and it becomes the owner of
+   every asset an agent saves under that key, so without the check each comment
+   on an agent-produced asset would queue a message no mail server can accept.
+   The drop happens at the same enqueue seam as the others, so it holds for
+   every category. An API key configured with a real address is a real mailbox
+   and receives mail normally.
 2. A background send worker claims due rows (immediately via Postgres
    LISTEN/NOTIFY, or on a poll interval), renders a branded HTML email with
    a plaintext alternative, and delivers it over SMTP. Failed sends retry

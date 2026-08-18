@@ -145,6 +145,10 @@ func (*fakeShareStore) ListSharedCollectionsWithUser(_ context.Context, _, _ str
 	return nil, 0, nil
 }
 
+func (*fakeShareStore) ListSharedWithUserSince(_ context.Context, _, _ string, _ time.Time, _ int) ([]portal.SharedTargetRef, error) {
+	return nil, nil
+}
+
 func (*fakeShareStore) ListSharedPromptsWithUser(_ context.Context, _, _ string) ([]portal.SharedPromptRef, error) {
 	return nil, nil
 }

@@ -95,6 +95,10 @@ func (f *fakeShareStore) GetUserCollectionPermission(_ context.Context, collecti
 	return f.collectionPerm[collectionID], nil
 }
 
+func (*fakeShareStore) ListSharedWithUserSince(_ context.Context, _, _ string, _ time.Time, _ int) ([]portaldomain.SharedTargetRef, error) {
+	return nil, nil
+}
+
 func (f *fakeShareStore) ListSharedPromptsWithUser(_ context.Context, _, _ string) ([]portaldomain.SharedPromptRef, error) {
 	if f.sharedPromptsErr != nil {
 		return nil, f.sharedPromptsErr

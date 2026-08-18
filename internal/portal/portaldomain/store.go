@@ -1,6 +1,9 @@
 package portaldomain
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // Target-type discriminators shared by shares and threads. Exactly one of the
 // object targets (asset/collection/prompt/knowledge page) is set on a
@@ -53,6 +56,13 @@ type ShareStore interface {
 	ListSharedWithUser(ctx context.Context, userID, email string, limit, offset int) ([]SharedAsset, int, error)
 	ListSharedCollectionsWithUser(ctx context.Context, userID, email string, limit, offset int) ([]SharedCollection, int, error)
 	ListSharedPromptsWithUser(ctx context.Context, userID, email string) ([]SharedPromptRef, error)
+	// ListSharedWithUserSince returns the active share grants naming this user
+	// -- assets, collections, and prompts alike -- created after since, newest
+	// first, capped at limit. It answers "what was shared with me lately"
+	// without loading each artifact's body, which is what the session-start
+	// notice digest needs (#1278). A link share nobody was named on is not a
+	// share with this user and never appears.
+	ListSharedWithUserSince(ctx context.Context, userID, email string, since time.Time, limit int) ([]SharedTargetRef, error)
 	ListActiveShareSummaries(ctx context.Context, assetIDs []string) (map[string]ShareSummary, error)
 	ListActiveCollectionShareSummaries(ctx context.Context, collectionIDs []string) (map[string]ShareSummary, error)
 	GetUserAssetPermissionViaCollection(ctx context.Context, assetID, userID, email string) (SharePermission, error)

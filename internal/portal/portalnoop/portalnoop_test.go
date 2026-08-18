@@ -3,6 +3,7 @@ package portalnoop
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -83,6 +84,10 @@ func TestNoopStoresAnswerEveryContractMethod(t *testing.T) {
 	promptRefs, err := shares.ListSharedPromptsWithUser(ctx, "u1", "u1@example.com")
 	require.NoError(t, err)
 	assert.Nil(t, promptRefs)
+
+	sinceRefs, err := shares.ListSharedWithUserSince(ctx, "u1", "u1@example.com", time.Now(), 10)
+	require.NoError(t, err)
+	assert.Nil(t, sinceRefs)
 
 	_, err = shares.GetUserCollectionPermission(ctx, "c1", "u1", "u1@example.com")
 	require.ErrorIs(t, err, errNotFound)

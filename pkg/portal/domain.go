@@ -102,6 +102,8 @@ type (
 	SharedAsset = portaldomain.SharedAsset
 	// SharedPromptRef references a prompt shared with a user along with share metadata.
 	SharedPromptRef = portaldomain.SharedPromptRef
+	// SharedTargetRef is one share grant to a named recipient, of any artifact kind.
+	SharedTargetRef = portaldomain.SharedTargetRef
 	// ShareSummary indicates what kinds of active shares exist for an asset.
 	ShareSummary = portaldomain.ShareSummary
 )

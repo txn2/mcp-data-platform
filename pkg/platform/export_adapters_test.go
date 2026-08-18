@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -42,6 +43,10 @@ type stubShareStore struct {
 func (s *stubShareStore) Insert(_ context.Context, share portal.Share) error {
 	s.inserted = &share
 	return s.insertErr
+}
+
+func (*stubShareStore) ListSharedWithUserSince(_ context.Context, _, _ string, _ time.Time, _ int) ([]portal.SharedTargetRef, error) {
+	return nil, nil
 }
 
 func (s *stubShareStore) ListSharedPromptsWithUser(_ context.Context, _, _ string) ([]portal.SharedPromptRef, error) {

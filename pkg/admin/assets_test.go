@@ -101,6 +101,10 @@ func (*mockAdminShareStore) ListByPrompt(_ context.Context, _ string) ([]portal.
 	return nil, nil
 }
 
+func (*mockAdminShareStore) ListSharedWithUserSince(_ context.Context, _, _ string, _ time.Time, _ int) ([]portal.SharedTargetRef, error) {
+	return nil, nil
+}
+
 func (*mockAdminShareStore) ListSharedPromptsWithUser(_ context.Context, _, _ string) ([]portal.SharedPromptRef, error) {
 	return nil, nil
 }

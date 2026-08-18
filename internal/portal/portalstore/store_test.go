@@ -1448,3 +1448,98 @@ func TestPostgresAssetStoreAppendProvenanceCaptureExecError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "appending provenance capture")
 }
+
+// One polymorphic query serves all three artifact kinds (#1278): portal_shares
+// carries asset_id, collection_id and prompt_id on the same row, so the
+// session-start notice digest asks once rather than three times.
+func TestPostgresShareStoreListSharedWithUserSince(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	since := time.Date(2026, 8, 10, 9, 0, 0, 0, time.UTC)
+	sharedAt := since.Add(time.Hour)
+
+	mock.ExpectQuery("SELECT .+ FROM portal_shares ps").
+		WithArgs("user2", "user2@example.com", since, 10).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"share_id", "target_type", "target_id", "target_name", "shared_by", "shared_at", "permission",
+		}).
+			AddRow("share1", "asset", "abc123", "Q3 revenue", "owner@example.com", sharedAt, "viewer").
+			AddRow("share2", "prompt", "p-1", "Daily report", "lead@example.com", sharedAt, "editor"))
+
+	refs, err := NewPostgresShareStore(db).ListSharedWithUserSince(
+		context.Background(), "user2", "user2@example.com", since, 10)
+	require.NoError(t, err)
+	require.Len(t, refs, 2)
+	assert.Equal(t, portaldomain.SharedTargetRef{
+		ShareID: "share1", TargetType: "asset", TargetID: "abc123", TargetName: "Q3 revenue",
+		SharedBy: "owner@example.com", SharedAt: sharedAt, Permission: portaldomain.PermissionViewer,
+	}, refs[0])
+	assert.Equal(t, "prompt", refs[1].TargetType)
+	assert.Equal(t, portaldomain.PermissionEditor, refs[1].Permission)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPostgresShareStoreListSharedWithUserSinceClampsThePage(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	since := time.Date(2026, 8, 10, 9, 0, 0, 0, time.UTC)
+	store := NewPostgresShareStore(db)
+
+	mock.ExpectQuery("SELECT .+ FROM portal_shares ps").
+		WithArgs("user2", "", since, portaldomain.DefaultLimit).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"share_id", "target_type", "target_id", "target_name", "shared_by", "shared_at", "permission",
+		}))
+	_, err = store.ListSharedWithUserSince(context.Background(), "user2", "", since, 0)
+	require.NoError(t, err)
+
+	mock.ExpectQuery("SELECT .+ FROM portal_shares ps").
+		WithArgs("user2", "", since, portaldomain.MaxLimit).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"share_id", "target_type", "target_id", "target_name", "shared_by", "shared_at", "permission",
+		}))
+	_, err = store.ListSharedWithUserSince(context.Background(), "user2", "", since, portaldomain.MaxLimit+1)
+	require.NoError(t, err)
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPostgresShareStoreListSharedWithUserSinceErrors(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresShareStore(db)
+	since := time.Now()
+
+	mock.ExpectQuery("SELECT .+ FROM portal_shares ps").WillReturnError(errors.New("db error"))
+	_, err = store.ListSharedWithUserSince(context.Background(), "user2", "", since, 10)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "querying shares since")
+
+	mock.ExpectQuery("SELECT .+ FROM portal_shares ps").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"share_id", "target_type", "target_id", "target_name", "shared_by", "shared_at", "permission",
+		}).AddRow("share1", "asset", "abc123", "Q3 revenue", "owner@example.com", "not-a-time", "viewer"))
+	_, err = store.ListSharedWithUserSince(context.Background(), "user2", "", since, 10)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "scanning share since row")
+
+	// A cursor that fails partway through must surface, not silently return the
+	// rows read so far as if they were the whole set.
+	mock.ExpectQuery("SELECT .+ FROM portal_shares ps").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"share_id", "target_type", "target_id", "target_name", "shared_by", "shared_at", "permission",
+		}).
+			AddRow("share1", "asset", "abc123", "Q3 revenue", "owner@example.com", since, "viewer").
+			RowError(0, errors.New("connection lost mid-read")))
+	_, err = store.ListSharedWithUserSince(context.Background(), "user2", "", since, 10)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "iterating share since rows")
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}

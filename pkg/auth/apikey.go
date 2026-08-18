@@ -38,7 +38,7 @@ type APIKey struct {
 	Key         string     // The API key value (plaintext; used for file-loaded keys)
 	KeyHash     string     // bcrypt hash of the key value (used for DB-loaded keys)
 	Name        string     // Display name for the key
-	Email       string     // Email address for this key (optional; defaults to name@apikey.local)
+	Email       string     // Email address for this key (optional; defaults to the synthetic name@apikey.local, which receives no mail)
 	Description string     // Human-readable description of what this key is for
 	Roles       []string   // Roles assigned to this key
 	ExpiresAt   *time.Time // Optional expiration time (nil = never expires)
@@ -298,12 +298,25 @@ func (a *APIKeyAuthenticator) GenerateKey(def APIKey) (string, error) {
 	return keyValue, nil
 }
 
-// apiKeyEmail returns the email for an API key, falling back to name@apikey.local.
+// SyntheticEmailDomain is the domain the platform mints an address in for an
+// API key that configured none. It is an identity, not a mailbox: nothing
+// resolves it, so anything that would deliver to an address in this domain must
+// recognize it and decline (#1345). Exported so the sites that mint one and the
+// notification path that refuses one cannot drift apart.
+const SyntheticEmailDomain = "apikey.local"
+
+// SyntheticEmail builds the address for an API key that configured none.
+func SyntheticEmail(name string) string {
+	return name + "@" + SyntheticEmailDomain
+}
+
+// apiKeyEmail returns the email for an API key, falling back to the synthetic
+// address built from its name.
 func apiKeyEmail(key APIKey) string {
 	if key.Email != "" {
 		return key.Email
 	}
-	return key.Name + "@apikey.local"
+	return SyntheticEmail(key.Name)
 }
 
 // Verify interface compliance.

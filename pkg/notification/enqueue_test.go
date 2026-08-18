@@ -167,6 +167,42 @@ func TestEnqueuer_Notify_DailySchedulesDigest(t *testing.T) {
 	}
 }
 
+// The synthetic-address drop must not become a blanket refusal: an API key
+// configured with a real mailbox is a person's inbox and keeps its mail.
+func TestEnqueuer_Notify_APIKeyWithARealAddressStillGetsMail(t *testing.T) {
+	queue := &fakeQueueStore{}
+	e := NewEnqueuer(&fakePrefsStore{}, queue, 13)
+
+	if _, err := e.Notify(context.Background(), "ci@example.com", CategoryComment,
+		Payload{Actor: "human@example.com"}); err != nil {
+		t.Fatalf("Notify: %v", err)
+	}
+	if got := queue.enqueuedCopy(); len(got) != 1 {
+		t.Fatalf("expected 1 enqueued, got %d", len(got))
+	}
+}
+
+// The fan-out is where this actually bites: one comment reaches the asset's
+// owner and every grantee at once, so the synthetic owner must drop out WITHOUT
+// taking the human recipients of the same event with it.
+func TestEnqueuer_NotifyFanout_DropsOnlyTheSyntheticRecipient(t *testing.T) {
+	queue := &fakeQueueStore{}
+	e := NewEnqueuer(&fakePrefsStore{}, queue, 13)
+
+	sent := e.NotifyFanout(context.Background(),
+		[]string{"ci@apikey.local", "reviewer@example.com", "lead@example.com"},
+		CategoryComment, Payload{Actor: "human@example.com"})
+
+	if want := []string{"reviewer@example.com", "lead@example.com"}; len(sent) != len(want) {
+		t.Fatalf("sent = %v, want %v", sent, want)
+	}
+	for _, n := range queue.enqueuedCopy() {
+		if n.Recipient == "ci@apikey.local" {
+			t.Errorf("queued a message for a synthetic api-key address: %+v", n)
+		}
+	}
+}
+
 func TestEnqueuer_Notify_Drops(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -198,6 +234,19 @@ func TestEnqueuer_Notify_Drops(t *testing.T) {
 			prefs: map[string]Prefs{"off@b.io": {Mode: ModeOff}},
 		},
 		{name: "unknown category", recipient: "a@b.io", category: "carrier-pigeon"},
+		{
+			// An API key that configured no address authenticates as
+			// name@apikey.local, which becomes the owner of every asset the
+			// agent saves and therefore a recipient of every comment on one
+			// (#1345). The address is an identity, not a mailbox.
+			name: "synthetic api-key address", recipient: "ci@apikey.local", category: CategoryComment,
+			payload: Payload{Actor: "human@example.com"},
+			prefs:   map[string]Prefs{"ci@apikey.local": {Mode: ModeImmediate, SharesEnabled: true, CommentsEnabled: true}},
+		},
+		{
+			name: "synthetic api-key address in display form", recipient: "CI Runner <CI@APIKey.Local>",
+			category: CategoryShare, payload: Payload{Actor: "human@example.com"},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

@@ -73,6 +73,9 @@ func TestNew_S3BackedWiresEveryStoreAndToolkit(t *testing.T) {
 	if h.ThreadStore() == nil {
 		t.Error("ThreadStore() = nil, want the postgres thread store")
 	}
+	if h.Notices() == nil {
+		t.Error("Notices() = nil, want the session-start digest assembler")
+	}
 	if h.KnowledgePageStore() == nil {
 		t.Error("KnowledgePageStore() = nil, want the postgres knowledge-page store")
 	}
@@ -145,6 +148,9 @@ func TestNewFromStores_AccessorsReturnInjectedStores(t *testing.T) {
 	if h.CollectionStore() != collection {
 		t.Error("CollectionStore() did not return the injected collection store")
 	}
+	if h.Notices() != nil {
+		t.Error("NewFromStores Notices() != nil: without a database there is no watermark to brief against")
+	}
 	if h.ThreadStore() != thread {
 		t.Error("ThreadStore() did not return the injected thread store")
 	}
@@ -204,6 +210,9 @@ func TestNilHandle_AccessorsAndCloseAreSafe(t *testing.T) {
 	}
 	if h.ThreadStore() != nil {
 		t.Error("nil Handle ThreadStore() != nil")
+	}
+	if h.Notices() != nil {
+		t.Error("nil Handle Notices() != nil")
 	}
 	if h.KnowledgePageStore() != nil {
 		t.Error("nil Handle KnowledgePageStore() != nil")
