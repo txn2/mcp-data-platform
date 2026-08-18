@@ -18,7 +18,12 @@ export default defineConfig({
     viewport: { width: 1440, height: 900 },
     reducedMotion: "reduce",
   },
-  workers: 1,
+  // Half the machine's cores. Each test drives its own browser context with its
+  // own MSW worker, so nothing is shared between them but the one dev server,
+  // which `reuseExistingServer` already has them share. On an 18-core machine
+  // this took the suite from 238s to 114s at four workers; the fraction rather
+  // than a fixed number keeps it honest on a smaller CI runner.
+  workers: "50%",
   retries: process.env["CI"] ? 1 : 0,
   reporter: [["list"]],
   webServer: {

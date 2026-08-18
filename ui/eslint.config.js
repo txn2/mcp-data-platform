@@ -23,7 +23,19 @@ import tseslint from "typescript-eslint";
 // See docs and the #816 triage list before adding to the baseline.
 export default tseslint.config(
   // Build output and generated MSW service workers are not hand-edited source.
-  { ignores: ["dist", "dist-content-viewer", "public/mockServiceWorker.js"] },
+  // test-results and playwright-report are Playwright's own output. They hold
+  // no source, and they appear and disappear while a run is in progress, so
+  // globbing them fails outright (ENOENT) when lint and e2e run at the same
+  // time. Both are gitignored.
+  {
+    ignores: [
+      "dist",
+      "dist-content-viewer",
+      "public/mockServiceWorker.js",
+      "test-results",
+      "playwright-report",
+    ],
+  },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx}"],
