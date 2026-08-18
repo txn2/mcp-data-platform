@@ -23511,7 +23511,7 @@
                     "type": "integer"
                 },
                 "next_run_at": {
-                    "description": "NextRunAt is when the next fire is due, and zero when the expression has\nno further fire at all. It is the materializer's efficiency index, not\nits correctness guarantee: two replicas may read the same due schedule,\nand what stops them producing two runs is the unique index on the run\nthey insert.",
+                    "description": "NextRunAt is when the next fire is due, and zero when the expression has\nno further fire at all. It is the materializer's efficiency index, not\nits correctness guarantee: two replicas may read the same due schedule,\nand what stops them producing two runs is the unique index on the run\nthey insert.\n\nWhile the schedule is disabled the field still holds the fire it was\npaused on, because resuming picks up from there. What a READER is told is\nDueAt, which is empty for a paused schedule; see MarshalJSON.",
                     "type": "string"
                 },
                 "params": {

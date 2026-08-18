@@ -230,8 +230,7 @@ type ExportResult struct {
 	AssetVersion int
 	Bucket       string
 	Key          string
-	// Bytes is the serialized size actually written, which the writer knows
-	// exactly and the engine can only estimate.
+	// Bytes is the serialized size actually written.
 	Bytes int
 }
 
@@ -246,7 +245,10 @@ type ExportRecord struct {
 	Destination string `json:"destination"`
 	Format      string `json:"format"`
 	RowCount    int    `json:"row_count"`
-	Bytes       int    `json:"bytes"`
+	// Bytes is the serialized length of the output in its declared format. A
+	// preview serializes to measure rather than estimating, so the number is
+	// the same one a real run would report for the same rows.
+	Bytes int `json:"bytes"`
 	// Preview is true when nothing was persisted.
 	Preview      bool   `json:"preview"`
 	AssetID      string `json:"asset_id,omitempty"`

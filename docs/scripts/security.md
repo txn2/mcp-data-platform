@@ -49,9 +49,10 @@ The state of the feature at this revision:
   or — where the approval bound a bucket destination — delivers the same bytes
   to an operator-configured bucket (see
   [Delivery: leaving the platform](#delivery-leaving-the-platform)). A draft run
-  still writes nothing wherever it is addressed: it reports the shape an output
-  would have (`internal/platform/scriptrun/host.go`, `hostState.export`,
-  `persistOrPreview`).
+  still writes nothing wherever it is addressed: it serializes the output with
+  the same formatter an approved run would, and reports the shape and size that
+  produced without storing it (`internal/platform/scriptrun/host.go`,
+  `hostState.export`, `persistOrPreview`, `FormatOutput`).
 
 ## The claim this feature makes about authority
 
@@ -405,6 +406,11 @@ privilege:
 - A schedule whose bound parameters no longer satisfy the approved version's
   contract fires nothing and records the fire as missed, rather than executing
   with values the contract does not admit.
+- A **paused** schedule reports no next fire, on every surface that serves one.
+  The stored due time survives the pause, because resuming picks up the fire it
+  was parked on; reporting it while paused would tell an operator reading the
+  unattended inventory that a schedule nobody has re-enabled is about to run
+  (`pkg/script/schedule.go`, `Schedule.DueAt`).
 
 One thing the platform does decide on its own, and it is deliberately narrow: a
 schedule whose cron expression no longer parses is DISABLED, because walking an
@@ -690,7 +696,7 @@ managed script is a procedure executed once, top to bottom, by one runner.
 | CPU | Interpreter execution-step cap; a draft is capped tighter than an approved run, because somebody is waiting for a draft | `scriptrun.DraftMaxSteps`, `ApprovedMaxSteps` |
 | Wall clock | Context deadline bridged to thread cancellation, covering time spent inside host calls | `scriptrun.DraftTimeout`, `ApprovedTimeout`, `watchCancel` |
 | Result size | Hard row and byte caps on every `platform.query` result, with the row cap pushed down into the query | `scriptrun.DraftMaxRows`, `ApprovedMaxRows`, `DraftMaxResultBytes`, `hostState.queryResult` |
-| Output size | Cap on one serialized output, matching the portal export ceiling | `scriptexec.maxOutputBytes` |
+| Output size | Cap on one serialized output, matching the portal export ceiling and applied by the serializer, so a draft is refused on the same terms an approved run is | `scriptrun.MaxOutputBytes`, `FormatOutput` |
 | Concurrency | One run at a time per replica, which is the only lever that bounds how much heap concurrent scripts can reach | `internal/platform/scriptexec/worker.go` |
 | Blast radius | Which replicas execute at all, so the memory a script can reach belongs to a pod nothing is talking to | `scripts.worker.enabled` |
 | Truncation | A result the engine truncated at the cap FAILS the run rather than being handed over as complete | `hostState.queryResult`, `truncated` |
@@ -730,10 +736,19 @@ covered by tests (`bind_test.go`).
 
 Binding is offered because the alternative is worse. Without a bound list an
 author builds an `IN` clause by joining strings, which is exactly the
-concatenation this path exists to remove. The engine that ultimately executes
-the statement still applies its own read-only interception (`trino_query`
-refuses writes); binding is defense in depth on top of that, not a replacement
-for it.
+concatenation this path exists to remove.
+
+A write statement is refused before it becomes a tool call at all.
+`platform.query` applies the query tool's own `IsWriteSQL` predicate rather than
+a second definition of what a write is, so the two surfaces cannot come to
+disagree about which statements they refuse
+(`internal/platform/scriptrun/host.go`, `refuseWrite`). The refusal is raised
+here rather than left to the tool because the tool's own message names
+`trino_execute` as the place writes go, and no script can call it: the Starlark
+surface is `platform.query` and `platform.export`. The engine that ultimately
+executes the statement still applies its read-only interception behind both.
+Binding is defense in depth on top of all of it, not a replacement for any of
+it.
 
 ### A partial result is a failure, not a result
 
@@ -852,6 +867,7 @@ retrying only multiplies the cost).
 | A caller reads the runs of a script that is not theirs | Run reads are the owner's, the administrator's, and the requester's own; every surface answers the same way for "not yours" and "no such run" | `scriptlayer/runs.go`, `runReadable`; `scripthttp/portal.go`, `ownedScript` |
 | A script escapes the interpreter | No IO, filesystem, network, or module system is predeclared | `scriptrun.go`, `predeclared` |
 | A script builds a statement out of untrusted values | Typed literal binding with a state-aware scanner | `bind.go` |
+| A script writes through the query path | The write is refused before it becomes a tool call, by the query tool's own predicate, and the tool refuses it again | `host.go`, `refuseWrite` |
 | A script carries an inline credential | Secret scan blocks it as an error at validate time | `validate.go`, `secretPatterns` |
 | A script burns unbounded CPU or wall clock | Step limit and deadline, both bridged to interpreter cancellation | `scriptrun.go`, `Run` |
 | A script pulls an unbounded result | Row and byte caps, row cap pushed into the query | `host.go`, `queryResult` |

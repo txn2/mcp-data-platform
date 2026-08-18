@@ -320,9 +320,8 @@ func contractSchedule(s *Schedule) *ContractSchedule {
 		Timezone: s.Timezone,
 		Enabled:  s.Enabled,
 	}
-	if s.Enabled && !s.NextRunAt.IsZero() {
-		next := s.NextRunAt
-		out.NextRunAt = &next
+	if due := s.DueAt(); !due.IsZero() {
+		out.NextRunAt = &due
 	}
 	return out
 }

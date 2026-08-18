@@ -15,11 +15,6 @@ import (
 	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 )
 
-// maxOutputBytes caps one serialized output. It matches the ceiling the portal
-// export path applies, so a script cannot write an asset a human could not have
-// exported by hand.
-const maxOutputBytes = 100 << 20
-
 // outputWriter persists one run's outputs, to the portal or to a granted
 // bucket.
 //
@@ -77,17 +72,11 @@ func (w *outputWriter) Export(ctx context.Context, req scriptrun.ExportRequest) 
 		return prior, nil
 	}
 
-	formatter, err := trinokit.NewFormatter(req.Format)
+	data, formatter, err := scriptrun.FormatOutput(req)
 	if err != nil {
-		return nil, fmt.Errorf("output %q: %w", req.Name, err)
-	}
-	data, err := formatter.Format(req.Columns, tabular(req.Columns, req.Rows))
-	if err != nil {
-		return nil, fmt.Errorf("formatting output %q: %w", req.Name, err)
-	}
-	if len(data) > maxOutputBytes {
-		return nil, fmt.Errorf("output %q is %d bytes, over the %d-byte limit; aggregate in SQL or write fewer columns",
-			req.Name, len(data), maxOutputBytes)
+		//nolint:wrapcheck // FormatOutput names the output, what went wrong with it,
+		// and what to do; a second wrap here would only repeat the output's name.
+		return nil, err
 	}
 
 	written, out, err := w.write(ctx, req, formatter, data)
@@ -283,27 +272,4 @@ func sanitizeKeySegment(s string) string {
 		return "unnamed"
 	}
 	return b.String()
-}
-
-// tabular projects row dicts onto the column order the script wrote. A row
-// missing a column contributes an empty cell rather than shifting the row,
-// which is what keeps a ragged result readable instead of misaligned.
-func tabular(columns []string, rows []any) [][]any {
-	out := make([][]any, 0, len(rows))
-	for _, row := range rows {
-		dict, ok := row.(map[string]any)
-		if !ok {
-			// A non-dict row has no columns to project. Rendering it as an empty
-			// row keeps the row count honest; the alternative, dropping it, would
-			// make the output disagree with the row count the script was told.
-			out = append(out, make([]any, len(columns)))
-			continue
-		}
-		cells := make([]any, len(columns))
-		for i, column := range columns {
-			cells[i] = dict[column]
-		}
-		out = append(out, cells)
-	}
-	return out
 }

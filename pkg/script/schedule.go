@@ -2,6 +2,7 @@ package script
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -98,6 +99,10 @@ type Schedule struct {
 	// its correctness guarantee: two replicas may read the same due schedule,
 	// and what stops them producing two runs is the unique index on the run
 	// they insert.
+	//
+	// While the schedule is disabled the field still holds the fire it was
+	// paused on, because resuming picks up from there. What a READER is told is
+	// DueAt, which is empty for a paused schedule; see MarshalJSON.
 	NextRunAt time.Time `json:"next_run_at,omitzero"`
 	// LastFireAt is the fire time of the most recent run this schedule
 	// produced, empty until it has produced one.
@@ -112,6 +117,37 @@ type Schedule struct {
 	UpdatedBy string    `json:"updated_by,omitempty" example:"jane@example.com"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// DueAt reports when this schedule's next fire is due, and the zero time when
+// no fire is due at all.
+//
+// A disabled schedule has no next fire. Its stored NextRunAt is the fire it was
+// paused on, kept so that resuming picks up where the pause began, and stating
+// it to a reader announces a fire that will not happen: the materializer's own
+// predicate requires the schedule to be enabled. Every surface that tells
+// somebody when a schedule fires next asks this rather than reading the field.
+func (s Schedule) DueAt() time.Time {
+	if !s.Enabled {
+		return time.Time{}
+	}
+	return s.NextRunAt
+}
+
+// MarshalJSON renders the schedule as a reader may act on it, which differs
+// from the stored row in exactly one field: next_run_at is DueAt.
+//
+// It lives here rather than in each of the surfaces that serve a Schedule
+// because the rule is a property of the schedule, not of any one payload — the
+// admin API, the portal API, and the manage_script response all serve this
+// struct, and a rule applied in three places is a rule that drifts in one.
+func (s Schedule) MarshalJSON() ([]byte, error) {
+	type schedulePayload Schedule
+	out := schedulePayload(s)
+	out.NextRunAt = s.DueAt()
+	//nolint:wrapcheck // a MarshalJSON returns the encoder's own error; wrapping it
+	// would change what json.Marshal reports about the value it could not encode.
+	return json.Marshal(out)
 }
 
 // Cron is a parsed cron expression bound to its timezone.

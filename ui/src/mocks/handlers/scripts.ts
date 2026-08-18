@@ -59,7 +59,23 @@ function setScheduleEnabled(scriptID: string, enabled: boolean) {
     return HttpResponse.json({ detail: "this script has no schedule" }, { status: 404 });
   }
   schedule.enabled = enabled;
-  return HttpResponse.json(schedule);
+  return HttpResponse.json(reportable(schedule));
+}
+
+// scheduleOf is a script's cadence as the listing may report it, absent when
+// the script runs on demand.
+function scheduleOf(scriptID: string): ScriptSchedule | undefined {
+  const schedule = schedules[scriptID];
+  return schedule ? reportable(schedule) : undefined;
+}
+
+// reportable drops the one field the server withholds from a paused schedule.
+// The stored due time is the fire it resumes on, so the fixture keeps it and
+// the payload does not, which is what the server does with the same row.
+function reportable(schedule: ScriptSchedule): ScriptSchedule {
+  if (schedule.enabled) return schedule;
+  const { next_run_at: _parked, ...rest } = schedule;
+  return rest;
 }
 
 // alertWarnings mirrors the server's check for a configuration that saves
@@ -191,7 +207,10 @@ export const scriptHandlers = [
       const runs = mockScriptRuns[script.id] ?? [];
       return {
         script,
-        schedule: mockScriptSchedules[script.id],
+        // The mutable map, not the fixture: a cadence saved or paused in this
+        // session has to be what the listing shows next, and a paused schedule
+        // withholds its next fire here exactly as it does on its own route.
+        schedule: scheduleOf(script.id),
         last_run: runs[0],
         owned: true,
       };
@@ -277,7 +296,7 @@ export const scriptHandlers = [
     if (!schedule) {
       return HttpResponse.json({ detail: "this script has no schedule" }, { status: 404 });
     }
-    return HttpResponse.json(schedule);
+    return HttpResponse.json(reportable(schedule));
   }),
 
   http.put(`${PORTAL_BASE}/scripts/:id/schedule`, async ({ params, request }) => {
@@ -307,12 +326,12 @@ export const scriptHandlers = [
       enabled: previous?.enabled ?? true,
       // The next fire is recomputed from now whether or not the schedule is
       // enabled, as the server does: the old cadence's next fire is not a fire
-      // this schedule has any more. A paused schedule simply does not show it.
+      // this schedule has any more. A paused schedule simply does not report it.
       next_run_at: new Date(Date.now() + 22 * 3_600_000).toISOString(),
       last_fire_at: previous?.last_fire_at,
       missed_fires: previous?.missed_fires ?? 0,
     };
-    return HttpResponse.json(schedules[id]);
+    return HttpResponse.json(reportable(schedules[id]));
   }),
 
   // Pausing and resuming are two routes rather than one with the state in the
