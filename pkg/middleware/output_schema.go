@@ -101,8 +101,8 @@ func MustOutputSchema[T any]() *jsonschema.Schema {
 // error contract replaces a failed call's body with the {error} envelope, the
 // call reference appends call_reference to a data call, and semantic enrichment
 // mirrors its context blocks in. A toolkit that registers a typed handler with
-// no explicit OutputSchema (mcp-trino does) gets one inferred from its Go
-// struct, and jsonschema-go closes every struct-derived object with
+// no explicit OutputSchema (mcp-trino did before v1.4.0) gets one inferred
+// from its Go struct, and jsonschema-go closes every struct-derived object with
 // additionalProperties: false and a required list. A client that validates
 // structuredContent against the advertised schema then discards every such
 // result, successes for the keys the platform added and failures for the

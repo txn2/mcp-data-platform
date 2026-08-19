@@ -230,8 +230,8 @@ func mirrorEnrichmentToStructured(result *mcp.CallToolResult, fromIndex int) {
 //
 // Interaction with declared OutputSchemas (#925, #1381): the tools this
 // middleware enriches (trino_/datahub_/s3_, gated by inferToolkitKind) do
-// advertise output schemas, and mcp-trino's are the closed ones the SDK infers
-// from its typed handlers. Mirroring open-ended keys into structuredContent is
+// advertise output schemas, and a typed handler registered without one (as
+// mcp-trino's were before v1.4.0) advertises the closed schema the SDK infers. Mirroring open-ended keys into structuredContent is
 // schema-valid only because MCPOutputSchemaMiddleware opens the top level of
 // every advertised schema in tools/list, the same way the platform-owned
 // schemas are built open by middleware.OpenToolOutputSchema.

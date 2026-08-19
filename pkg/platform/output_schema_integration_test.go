@@ -180,9 +180,10 @@ func TestPlatformOutputSchemasAreOpen(t *testing.T) {
 // succeeds), lists their tools through the assembled server, calls each tool
 // through the full receiving chain, and validates the returned
 // structuredContent against the output schema the same server advertised for
-// it. mcp-trino registers typed handlers with no explicit schema, so the SDK
-// infers one and jsonschema-go closes it; mcp-s3 declares its own open
-// schemas. Both must admit what the chain hands back: the error envelope the
+// it. mcp-trino before v1.4.0 registered typed handlers with no explicit
+// schema, so the SDK inferred one and jsonschema-go closed it; both toolkits
+// now declare open schemas, and the platform opens every advertised one
+// regardless. Every advertised schema must admit what the chain hands back: the error envelope the
 // contract substitutes on failure, and a success body. The success path that
 // carries a call_reference is proved on a real database by
 // TestRealDB_TrinoQueryResultWithCallReferenceValidatesAgainstAdvertisedSchema.
