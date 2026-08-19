@@ -16,6 +16,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/txn2/mcp-data-platform/internal/contentviewer"
 	"github.com/txn2/mcp-data-platform/internal/portal/access"
 	"github.com/txn2/mcp-data-platform/internal/portal/feedbackapi"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
@@ -227,6 +228,9 @@ type Handler struct {
 	deps        Deps
 	rateLimiter *viewerlimit.RateLimiter
 	access      *access.Checker
+	// viewerAssets serves the share viewer's code-split chunks. See ServeHTTP
+	// for why it is dispatched by prefix rather than registered on publicMux.
+	viewerAssets http.Handler
 }
 
 // NewHandler creates a new portal API handler.
@@ -238,6 +242,7 @@ func NewHandler(deps Deps, authMiddle func(http.Handler) http.Handler) *Handler 
 		rateLimiter: viewerlimit.New(deps.RateLimit, deps.RateLimitResolver),
 		access:      newAccessChecker(deps),
 	}
+	h.viewerAssets = contentviewer.Handler()
 	h.registerRoutes()
 
 	// Wrap the authenticated mux once at startup, not on every request.
@@ -304,6 +309,29 @@ func (h *Handler) feedbackConfig() feedbackapi.Config {
 
 // ServeHTTP implements http.Handler.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// The share viewer's own chunks. This is checked ahead of the share
+	// routes rather than registered alongside them because every share route
+	// puts the token in this position, and a pattern with a literal there
+	// overlaps all of them without being more specific — which ServeMux
+	// rejects outright. A share token is hex (portaldomain.GenerateShareToken),
+	// so no token can ever reach this prefix.
+	//
+	// It is outside both the share access gate and the rate limiter. The gate
+	// has nothing to gate on: no token is in the path, no share is looked up,
+	// and the bytes are identical for every viewer, so gating would leave every
+	// public share page blank. The limiter is wrong here for a different
+	// reason — it is sized for share page loads (60/min, burst 10), and one
+	// cold view of a markdown document with a diagram in it legitimately
+	// fetches around thirty chunks at once, which that bucket would answer 429
+	// and blank the page. Nothing here justifies the bucket either: a request
+	// costs a map lookup and a read from memory, the names are content hashes
+	// with nothing to enumerate, and the responses are immutable-cached so a
+	// returning viewer fetches none of them. This matches how the portal's own
+	// SPA bundle is already served.
+	if strings.HasPrefix(r.URL.Path, contentviewer.AssetPathPrefix) {
+		h.viewerAssets.ServeHTTP(w, r)
+		return
+	}
 	if strings.HasPrefix(r.URL.Path, "/portal/view/") {
 		h.publicMux.ServeHTTP(w, r)
 		return

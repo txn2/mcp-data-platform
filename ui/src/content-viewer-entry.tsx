@@ -1,8 +1,48 @@
-import { useState } from "react";
+import { lazy, Suspense, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ContentRenderer } from "./components/renderers/ContentRenderer";
-import { MarkdownRenderer } from "./components/renderers/MarkdownRenderer";
 import { resolveRenderer } from "./components/renderers/registry";
+
+// The markdown viewer is behind the same lazy boundary the other families use,
+// so the entry chunk this page always loads carries React and the registry and
+// nothing family-specific.
+const MarkdownRenderer = lazy(() =>
+  import("./components/renderers/MarkdownRenderer").then((m) => ({ default: m.MarkdownRenderer })),
+);
+
+const ViewerLoading = () => (
+  <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
+    Loading viewer...
+  </div>
+);
+
+/**
+ * Shown when the renderer fails to arrive. The page around it still carries
+ * the asset's name, description and download link, so this says what is
+ * missing rather than replacing the page with an error.
+ */
+const ViewerFailed = () => (
+  <div style={{ padding: "3rem 1rem", textAlign: "center" }}>
+    <p style={{ fontSize: "0.875rem", fontWeight: 500 }}>The preview could not be loaded.</p>
+    <p style={{ fontSize: "0.875rem", opacity: 0.6, marginTop: "0.25rem" }}>
+      Reloading this page may fix it. The download link below still works.
+    </p>
+  </div>
+);
+
+/**
+ * Every mount goes through this: the renderers arrive on demand, and a chunk
+ * that does not arrive would otherwise take the whole page down with it —
+ * including the metadata and download link the reader can still use.
+ */
+function guarded(children: ReactNode): ReactNode {
+  return (
+    <ErrorBoundary fallback={<ViewerFailed />}>
+      <Suspense fallback={<ViewerLoading />}>{children}</Suspense>
+    </ErrorBoundary>
+  );
+}
 
 function MarkdownWithSourceToggle({ content }: { content: string }) {
   const [showSource, setShowSource] = useState(false);
@@ -19,7 +59,7 @@ function MarkdownWithSourceToggle({ content }: { content: string }) {
       </div>
       {showSource
         ? <pre className="rounded-lg border bg-card p-6 text-sm overflow-auto whitespace-pre-wrap">{content}</pre>
-        : <MarkdownRenderer content={content} />}
+        : guarded(<MarkdownRenderer content={content} />)}
     </>
   );
 }
@@ -85,13 +125,15 @@ if (dataEl) {
       createRoot(root).render(
         entry.kind === "markdown"
           ? <MarkdownWithSourceToggle content={content} />
-          : <ContentRenderer
-              contentType={contentType}
-              content={serveFromURL ? undefined : content}
-              fileName={name}
-              contentUrl={contentURL || downloadURL}
-              sizeBytes={sizeBytes}
-            />,
+          : guarded(
+              <ContentRenderer
+                contentType={contentType}
+                content={serveFromURL ? undefined : content}
+                fileName={name}
+                contentUrl={contentURL || downloadURL}
+                sizeBytes={sizeBytes}
+              />,
+            ),
       );
     }
   }
@@ -100,9 +142,30 @@ if (dataEl) {
 // Expose MarkdownRenderer for pages that need to render multiple markdown blocks
 // (e.g., public collection viewer with collection + section descriptions).
 // Uses the exact same React component as the single-asset viewer.
-(window as Window & { renderMarkdown?: (element: HTMLElement, content: string) => void }).renderMarkdown = function (element: HTMLElement, content: string) {
-  createRoot(element).render(<MarkdownRenderer content={content} bare />);
+type MarkdownHost = Window & {
+  renderMarkdown?: (element: HTMLElement, content: string) => void;
+  /** Blocks the host page queued before this bundle finished loading. */
+  __pendingMarkdown?: [HTMLElement, string][];
 };
+
+function renderMarkdown(element: HTMLElement, content: string) {
+  createRoot(element).render(guarded(<MarkdownRenderer content={content} bare />));
+}
+
+const host = window as MarkdownHost;
+host.renderMarkdown = renderMarkdown;
+
+// This bundle is loaded as a module, so it runs after the host page's inline
+// script whatever order the tags are in. The collection viewer therefore
+// queues its descriptions instead of calling renderMarkdown directly; drain
+// what it left.
+const pending = host.__pendingMarkdown;
+host.__pendingMarkdown = undefined;
+if (pending) {
+  for (const [element, content] of pending) {
+    renderMarkdown(element, content);
+  }
+}
 
 // Bridge data-theme attribute to .dark class for Tailwind's dark: variant.
 // The public viewer template already toggles .dark in its own applyTheme(),

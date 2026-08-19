@@ -16,10 +16,10 @@ const TOKENS = {
 };
 
 // The content-viewer bundle is a gitignored build artifact embedded into the
-// binary at compile time, and the page renders an empty <script> when the
-// binary was built without it. Every family case would then time out waiting
-// for content that no code is there to render, so the run stops here instead
-// with the reason.
+// binary at compile time, and the page omits the viewer <script> entirely when
+// the binary was built without it. Every family case would then time out
+// waiting for content that no code is there to render, so the run stops here
+// instead with the reason.
 test.beforeAll(async ({ playwright }) => {
   const baseURL = test.info().project.use.baseURL;
   const request = await playwright.request.newContext({ baseURL });
@@ -32,10 +32,10 @@ test.beforeAll(async ({ playwright }) => {
     `${baseURL} did not serve the share page. Start a stack with \`make dev\` and point PUBLIC_VIEWER_BASE_URL at it.`,
   ).toBe(200);
   expect(
-    html.includes("<script></script>"),
+    /<script type="module" src="\/portal\/view\/_assets\//.test(html),
     "the server carries no content-viewer bundle: it was built with internal/contentviewer/dist empty. " +
       "Run `make frontend-build`, then restart the server so the rebuilt bundle is embedded.",
-  ).toBe(false);
+  ).toBe(true);
 });
 
 /** Console text a CSP refusal produces, in either the page or a child frame. */
@@ -118,6 +118,62 @@ test.describe("public viewer content families", () => {
       .frameLocator("iframe");
     await expect(artifact.locator("body")).toContainText("ACME Corporation");
     expect(refusals, refusals.join("\n")).toHaveLength(0);
+  });
+});
+
+// What the page loads is the whole point of the split (#1355), and it is a
+// property of the built chunk graph rather than of any one source file, so it
+// is asserted here against a real browser fetching a real share.
+test.describe("what a share page loads", () => {
+  /** Viewer chunk filenames the page fetched, in order. */
+  function watchChunks(page: Page): string[] {
+    const chunks: string[] = [];
+    page.on("request", (r) => {
+      const url = r.url();
+      const at = url.indexOf("/portal/view/_assets/");
+      if (at >= 0) chunks.push(url.slice(at + "/portal/view/_assets/".length));
+    });
+    return chunks;
+  }
+
+  test("a markdown share fetches the markdown viewer and not the others", async ({ page }) => {
+    const chunks = watchChunks(page);
+    await page.goto(`/portal/view/${TOKENS.markdown}`, { waitUntil: "networkidle" });
+    await expect(page.locator("#content-root")).toContainText("Data Pipeline Architecture");
+
+    const loaded = chunks.join(" ");
+    expect(loaded, "the entry chunk was never fetched").toContain("content-viewer-entry");
+    expect(loaded, "the markdown viewer was never fetched").toContain("MarkdownRenderer");
+    // The families this asset is not. Each was in the single bundle every
+    // share used to carry.
+    expect(loaded).not.toContain("CodeRenderer");
+    expect(loaded).not.toContain("JsxRenderer");
+    expect(loaded).not.toContain("JsonRenderer");
+  });
+
+  test("the chunks are cacheable, so a second share costs no JavaScript", async ({ page, request }) => {
+    const chunks = watchChunks(page);
+    await page.goto(`/portal/view/${TOKENS.markdown}`, { waitUntil: "networkidle" });
+    const entry = chunks.find((c) => c.startsWith("content-viewer-entry"));
+    expect(entry, "no entry chunk was fetched").toBeTruthy();
+
+    const res = await request.get(`/portal/view/_assets/${entry}`);
+    expect(res.status()).toBe(200);
+    expect(res.headers()["cache-control"]).toContain("immutable");
+    expect(res.headers()["content-type"]).toContain("javascript");
+  });
+
+  test("the asset route serves the bundle and nothing else under it", async ({ request }) => {
+    // vite's manifest describes the graph; it is not part of what a browser
+    // loads, and neither is anything reached by traversal.
+    for (const path of [
+      "/portal/view/_assets/.vite/manifest.json",
+      "/portal/view/_assets/../../../etc/passwd",
+      "/portal/view/_assets/missing-0000.js",
+    ]) {
+      const res = await request.get(path);
+      expect(res.status(), `${path} was served`).toBe(404);
+    }
   });
 });
 

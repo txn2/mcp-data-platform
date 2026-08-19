@@ -1,14 +1,15 @@
 import { lazy, Suspense, useMemo, type ReactNode } from "react";
-import { JsxRenderer } from "./JsxRenderer";
-import { HtmlRenderer } from "./HtmlRenderer";
-import { MarkdownRenderer } from "./MarkdownRenderer";
-import { SvgRenderer } from "./SvgRenderer";
-import { CsvRenderer } from "./CsvRenderer";
 import { BinaryRenderer } from "./BinaryRenderer";
 import { resolveRenderer, type Resolution } from "./registry";
 
-// The heavy viewers load on demand: CodeMirror, the virtualizer and the JSON
-// tree are only pulled in when an asset of that family is actually opened.
+// Every family's viewer loads on demand. Only the registry, which decides
+// which family a piece of content belongs to, and the metadata card that
+// stands in for a family with nothing to show are resolved eagerly.
+//
+// The split matters most on the public share page, which serves one asset to
+// someone who has never used the platform: a markdown document there now
+// fetches the markdown viewer and nothing else, rather than CodeMirror, the
+// JSX transformer, the CSV parser and the diagram engine as well.
 const JsonRenderer = lazy(() => import("./JsonRenderer").then((m) => ({ default: m.JsonRenderer })));
 const NdjsonRenderer = lazy(() => import("./NdjsonRenderer").then((m) => ({ default: m.NdjsonRenderer })));
 const CodeRenderer = lazy(() => import("./CodeRenderer").then((m) => ({ default: m.CodeRenderer })));
@@ -16,6 +17,11 @@ const ImageRenderer = lazy(() => import("./ImageRenderer").then((m) => ({ defaul
 const AudioRenderer = lazy(() => import("./MediaRenderer").then((m) => ({ default: m.AudioRenderer })));
 const VideoRenderer = lazy(() => import("./MediaRenderer").then((m) => ({ default: m.VideoRenderer })));
 const PdfRenderer = lazy(() => import("./MediaRenderer").then((m) => ({ default: m.PdfRenderer })));
+const JsxRenderer = lazy(() => import("./JsxRenderer").then((m) => ({ default: m.JsxRenderer })));
+const HtmlRenderer = lazy(() => import("./HtmlRenderer").then((m) => ({ default: m.HtmlRenderer })));
+const MarkdownRenderer = lazy(() => import("./MarkdownRenderer").then((m) => ({ default: m.MarkdownRenderer })));
+const SvgRenderer = lazy(() => import("./SvgRenderer").then((m) => ({ default: m.SvgRenderer })));
+const CsvRenderer = lazy(() => import("./CsvRenderer").then((m) => ({ default: m.CsvRenderer })));
 
 interface Props {
   contentType: string;
@@ -111,15 +117,35 @@ function renderFromText(entry: Resolution, text: string, fileName?: string): Rea
         </Suspense>
       );
     case "table":
-      return <CsvRenderer content={text} fileName={fileName} delimiter={entry.delimiter} />;
+      return (
+        <Suspense fallback={<Loading />}>
+          <CsvRenderer content={text} fileName={fileName} delimiter={entry.delimiter} />
+        </Suspense>
+      );
     case "jsx":
-      return <JsxRenderer content={text} />;
+      return (
+        <Suspense fallback={<Loading />}>
+          <JsxRenderer content={text} />
+        </Suspense>
+      );
     case "svg":
-      return <SvgRenderer content={text} />;
+      return (
+        <Suspense fallback={<Loading />}>
+          <SvgRenderer content={text} />
+        </Suspense>
+      );
     case "markdown":
-      return <MarkdownRenderer content={text} />;
+      return (
+        <Suspense fallback={<Loading />}>
+          <MarkdownRenderer content={text} />
+        </Suspense>
+      );
     case "html":
-      return <HtmlRenderer content={text} />;
+      return (
+        <Suspense fallback={<Loading />}>
+          <HtmlRenderer content={text} />
+        </Suspense>
+      );
     default:
       return (
         <pre

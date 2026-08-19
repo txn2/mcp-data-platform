@@ -48,7 +48,7 @@ GOLINT := golangci-lint
 .PHONY: all build test lint lint-full fmt clean install help docs-serve docs-build verify verify-release \
 	tools-check dead-code mutate patch-coverage doc-check posture-check swagger swagger-check verify-checks verify-go verify-lint verify-docker verify-ui \
 	semgrep codeql sast osv embed-clean migrate-check \
-	frontend-install frontend-build frontend-build-content-viewer \
+	frontend-install frontend-build frontend-build-content-viewer content-viewer-embed \
 	frontend-dev frontend-mock frontend-test frontend-lint frontend-e2e \
 	frontend-e2e-public-viewer \
 	e2e-up e2e-down e2e-seed e2e-test e2e e2e-logs e2e-clean \
@@ -297,7 +297,7 @@ clean:
 	@echo "Cleaning..."
 	@rm -rf $(BUILD_DIR) $(DIST_DIR)
 	@rm -f coverage.out coverage.html
-	@rm -rf $(UI_DIR)/dist $(UI_DIR)/dist-content-viewer $(UI_DIR)/node_modules
+	@rm -rf $(UI_DIR)/dist $(UI_DIR)/dist-content-viewer $(UI_DIR)/dist-content-viewer-css $(UI_DIR)/node_modules
 	@# Reset embed dirs but keep .gitkeep
 	@find $(UI_EMBED_DIR) -not -name '.gitkeep' -not -path $(UI_EMBED_DIR) -delete 2>/dev/null || true
 	@find $(CV_EMBED_DIR) -not -name '.gitkeep' -not -path $(CV_EMBED_DIR) -delete 2>/dev/null || true
@@ -631,7 +631,12 @@ verify:
 ##   - release-check runs `npm ci` in goreleaser's before-hook, which deletes
 ##     and reinstalls ui/node_modules. Beside the e2e suite that removes
 ##     @playwright/test mid-run. It therefore shares a group with the frontend
-##     steps and goes last in it.
+##     steps and goes last in it. The Go lane used to be exposed to the same
+##     deletion from the other side — one npm dependency ships a Go package
+##     inside node_modules, so `go test ./...` compiled it and an ill-timed
+##     `npm ci` failed the run on a file that had vanished. ui/go.mod takes
+##     that directory out of the root module, so the two lanes no longer share
+##     it; see the comment in that file.
 ##   - test-realdb starts a Postgres container per test and runs them in
 ##     parallel; 20 were live at once here. Beside goreleaser's five-platform
 ##     build and CodeQL it starved the Docker daemon into `context deadline
@@ -722,15 +727,11 @@ frontend-install:
 	cd $(UI_DIR) && npm ci
 	@echo "UI dependencies installed."
 
-## frontend-build-content-viewer: Build standalone content viewer JS bundle (CSS comes from SPA build)
+## frontend-build-content-viewer: Build the public share viewer (code-split JS + its own purged CSS)
 frontend-build-content-viewer: frontend-install
-	@echo "Building content viewer (JS only)..."
-	cd $(UI_DIR) && npx vite build --config vite.content-viewer.config.ts
-	@mkdir -p $(CV_EMBED_DIR)
-	@cp $(UI_DIR)/dist-content-viewer/content-viewer.js $(CV_EMBED_DIR)/
-	@echo "Content viewer JS built and embedded."
+	@$(MAKE) --no-print-directory content-viewer-embed
 
-## frontend-build: Build SPA first (produces CSS), then content viewer (JS only), copy SPA CSS as content-viewer CSS
+## frontend-build: Build and embed both frontends — the portal SPA and the public share viewer
 frontend-build: frontend-install
 	@echo "Building SPA..."
 	cd $(UI_DIR) && npm run build
@@ -739,14 +740,25 @@ frontend-build: frontend-install
 	@cp -r $(UI_DIR)/dist/* $(UI_EMBED_DIR)/
 	@rm -f $(UI_EMBED_DIR)/mockServiceWorker.js
 	@echo "SPA built and embedded."
-	cd $(UI_DIR) && npx vite build --config vite.content-viewer.config.ts
-	@mkdir -p $(CV_EMBED_DIR)
-	@cp $(UI_DIR)/dist-content-viewer/content-viewer.js $(CV_EMBED_DIR)/
-	@echo "Copying SPA CSS as content-viewer CSS..."
-	@SPA_CSS=$$(find $(UI_DIR)/dist/assets -maxdepth 1 -name '*.css' -print -quit 2>/dev/null); \
-	if [ -z "$$SPA_CSS" ]; then echo "ERROR: SPA CSS not found in $(UI_DIR)/dist/assets/"; exit 1; fi; \
-	cp "$$SPA_CSS" $(CV_EMBED_DIR)/content-viewer.css
+	@$(MAKE) --no-print-directory content-viewer-embed
 	@echo "Frontend build complete."
+
+## content-viewer-embed: Build the share viewer's chunks, then its stylesheet, then embed both.
+## The order is load-bearing: content-viewer.css declares the emitted chunks as
+## its only Tailwind source (see ui/src/content-viewer.css), so compiling it
+## before the JS exists yields a stylesheet with no utilities in it.
+content-viewer-embed:
+	@echo "Building content viewer chunks..."
+	cd $(UI_DIR) && npx vite build --config vite.content-viewer.config.ts
+	@echo "Building content viewer stylesheet..."
+	cd $(UI_DIR) && npx vite build --config vite.content-viewer-css.config.ts
+	@# Chunk filenames carry a content hash, so a stale build's files would
+	@# otherwise pile up in the embedded directory forever.
+	@find $(CV_EMBED_DIR) -not -name '.gitkeep' -not -path $(CV_EMBED_DIR) -delete 2>/dev/null || true
+	@mkdir -p $(CV_EMBED_DIR)
+	@cp -r $(UI_DIR)/dist-content-viewer/. $(CV_EMBED_DIR)/
+	@cp $(UI_DIR)/dist-content-viewer-css/content-viewer.css $(CV_EMBED_DIR)/
+	@echo "Content viewer built and embedded."
 
 ## frontend-dev: Run UI dev server (hot reload)
 frontend-dev:

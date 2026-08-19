@@ -1,6 +1,13 @@
-import { useCallback } from "react";
+import { Suspense, lazy, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ThumbnailGenerator } from "@/components/ThumbnailGenerator";
+
+// The capturer carries html2canvas, the markdown renderer and the diagram
+// engine. An asset that already has a thumbnail never mounts this component,
+// and one that does not should not pay for the capturer before the page is
+// readable, so it arrives on demand (#1351).
+const ThumbnailGenerator = lazy(() =>
+  import("@/components/ThumbnailGenerator").then((m) => ({ default: m.ThumbnailGenerator })),
+);
 
 export function ThumbnailGeneratorWithInvalidation({
   assetId,
@@ -25,12 +32,14 @@ export function ThumbnailGeneratorWithInvalidation({
   }, [onDone]);
 
   return (
-    <ThumbnailGenerator
-      assetId={assetId}
-      content={content}
-      contentType={contentType}
-      onCaptured={handleCaptured}
-      onFailed={handleFailed}
-    />
+    <Suspense fallback={null}>
+      <ThumbnailGenerator
+        assetId={assetId}
+        content={content}
+        contentType={contentType}
+        onCaptured={handleCaptured}
+        onFailed={handleFailed}
+      />
+    </Suspense>
   );
 }

@@ -84,6 +84,7 @@ describe("isAdminRoute", () => {
 describe("the routes the shell renders", () => {
   const SOURCES = [
     "../components/layout/AppShell.tsx",
+    "../components/layout/AdminPages.tsx",
     "../pages/activity/ActivityRoutes.tsx",
     "../pages/activity/routes.ts",
     "../pages/calls/CallRoutes.tsx",
@@ -116,6 +117,9 @@ describe("the routes the shell renders", () => {
     const text = read(source);
     // `route === "/x"`, and the route constants the Activity section exports.
     for (const m of text.matchAll(/route === "(\/[^"]*)"/g)) literals.add(m[1]!);
+    // The admin section resolves an exact path through a keyed table rather
+    // than a run of comparisons, so its keys are routes too.
+    for (const m of text.matchAll(/^\s*\["(\/[^"]*)",/gm)) literals.add(m[1]!);
     for (const m of text.matchAll(/^export const [A-Z_]+ = "(\/[^"]*)";$/gm)) {
       literals.add(m[1]!);
     }

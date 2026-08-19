@@ -1,9 +1,12 @@
 import html2canvas from "html2canvas";
 import { apiFetchRaw } from "@/api/portal/client";
 import { transformJsx, escapeScriptClose, findComponentName } from "@/components/renderers/JsxRenderer";
+import { THUMB_WIDTH } from "@/lib/thumbnailSupport";
 
-export const THUMB_WIDTH = 400;
-export const THUMB_HEIGHT = 300;
+// Re-exported so the capturer has one import for everything it needs. Callers
+// that only ask which types are supported import lib/thumbnailSupport directly
+// and stay clear of html2canvas.
+export { THUMB_WIDTH, THUMB_HEIGHT, THUMBNAIL_SOURCE_LIMIT, isThumbnailSupported, isThemeable } from "@/lib/thumbnailSupport";
 
 /** Desktop viewport dimensions used for rendering before scaling down. */
 export const RENDER_WIDTH = 1280;
@@ -200,23 +203,4 @@ ${mountSection}
   <script>${notifierScript}</script>
 </body>
 </html>`;
-}
-
-/**
- * Returns true if the content type supports thumbnail generation.
- */
-export function isThumbnailSupported(contentType: string): boolean {
-  const ct = contentType.toLowerCase();
-  return ct.includes("html") || ct.includes("jsx") || ct.includes("svg") || ct.includes("markdown") || ct.includes("csv");
-}
-
-/**
- * Returns true if the content type is rendered on a forced (non-themed)
- * background and therefore needs a separate dark-mode thumbnail. HTML, JSX, and
- * SVG carry their own colors, so they reuse the single light/default thumbnail
- * in both modes.
- */
-export function isThemeable(contentType: string): boolean {
-  const ct = contentType.toLowerCase();
-  return ct.includes("markdown") || ct.includes("csv");
 }

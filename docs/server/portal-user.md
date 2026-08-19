@@ -110,6 +110,7 @@ Features:
 - **View toggle** — Switch between grid (card thumbnails) and table view; preference persisted to localStorage
 - **Grid cards** — 4:3 thumbnail previews with content type icon, tags, collection badges, file size, and sharing indicators
 - **Theme-aware thumbnails** — Markdown and CSV previews are captured in both light and dark variants, and the grid shows the one matching your active theme. Self-themed content (HTML, JSX, SVG) carries its own colors, so a single preview is used in both modes. Public shares always use the light variant.
+- **When a preview is captured** — A missing preview is produced in your browser, by rendering the asset off-screen and rasterizing it. That is a long piece of work on the same thread the page runs on, so it waits: it starts only once the browser has gone idle with the tab in front, runs one asset at a time, stops after eight assets on a visit, and skips any asset over 1 MB, which keeps its placeholder icon. The rest are picked up the next time you open the list, so a large library fills in over a few visits rather than stalling one.
 - **Table rows** — Columns for name, type, tags, collections, size, sharing, and the ordering date. Name, size, and the date header sort the list; clicking the active column reverses it.
 
 ### Asset Viewer

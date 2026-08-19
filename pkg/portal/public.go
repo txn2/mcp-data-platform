@@ -247,8 +247,8 @@ func (h *Handler) renderAssetViewer(w http.ResponseWriter, r *http.Request, pad 
 		"Tags":               asset.Tags,
 		"CreatedAtISO":       asset.CreatedAt.UTC().Format(time.RFC3339),
 		"UpdatedAtISO":       asset.UpdatedAt.UTC().Format(time.RFC3339),
-		"ContentJSON":        template.JS(contentJSON),        // #nosec G203 -- json.Marshal escapes <, >, & as \uXXXX; safe inside <script type="application/json">
-		"ContentViewerJS":    template.JS(contentviewer.JS),   // #nosec G203 -- build artifact embedded at compile time, not user input
+		"ContentJSON":        template.JS(contentJSON), // #nosec G203 -- json.Marshal escapes <, >, & as \uXXXX; safe inside <script type="application/json">
+		"ContentViewerURL":   contentviewer.EntryURL(),
 		"ContentViewerCSS":   template.CSS(contentviewer.CSS), // #nosec G203 -- build artifact embedded at compile time, not user input
 		"BrandName":          brandName,
 		"BrandLogoSVG":       template.HTML(brandLogo), // #nosec G203 -- operator-provided SVG from config, not user input
@@ -558,8 +558,8 @@ func (h *Handler) publicCollectionView(w http.ResponseWriter, r *http.Request, s
 	_ = publicviewer.CollectionTemplate.Execute(w, map[string]any{
 		"Name":               coll.Name,
 		"Description":        coll.Description,
-		"CollectionJSON":     template.JS(collJSON),           // #nosec G203 -- json.Marshal output
-		"ContentViewerJS":    template.JS(contentviewer.JS),   // #nosec G203 -- build artifact
+		"CollectionJSON":     template.JS(collJSON), // #nosec G203 -- json.Marshal output
+		"ContentViewerURL":   contentviewer.EntryURL(),
 		"ContentViewerCSS":   template.CSS(contentviewer.CSS), // #nosec G203 -- build artifact
 		"BrandName":          brandName,
 		"BrandLogoSVG":       template.HTML(brandLogo), // #nosec G203 -- operator config

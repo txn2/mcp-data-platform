@@ -299,7 +299,7 @@ main{max-width:960px;margin:0 auto;padding:32px 24px;width:100%}
 </div>
 
 <script type="application/json" id="collection-data">{{.CollectionJSON}}</script>
-<script>{{.ContentViewerJS}}</script>
+{{if .ContentViewerURL}}<script type="module" src="{{.ContentViewerURL}}"></script>{{end}}
 <script>
 (function(){
   // Theme toggle — mirrors public_viewer.html's single sun/moon button.
@@ -357,6 +357,16 @@ main{max-width:960px;margin:0 auto;padding:32px 24px;width:100%}
 
   var data = JSON.parse(document.getElementById('collection-data').textContent);
   var main = document.getElementById('main');
+  // The content viewer bundle is a module, so it executes after this script
+  // no matter where the tag sits. Descriptions are queued rather than
+  // rendered inline, and the bundle drains the queue once it defines
+  // window.renderMarkdown. Without a bundle the queue is simply never
+  // drained, which leaves the description blank exactly as before.
+  function renderMarkdownWhenReady(el, text){
+    if(window.renderMarkdown){ window.renderMarkdown(el, text); return; }
+    (window.__pendingMarkdown = window.__pendingMarkdown || []).push([el, text]);
+  }
+
   var token = '{{.Token}}';
   var thumbSize = data.thumbnailSize || 'large';
 
@@ -371,7 +381,7 @@ main{max-width:960px;margin:0 auto;padding:32px 24px;width:100%}
     var descEl = document.createElement('div');
     descEl.className = 'collection-desc';
     main.appendChild(descEl);
-    if(window.renderMarkdown) window.renderMarkdown(descEl, data.description);
+    renderMarkdownWhenReady(descEl, data.description);
   }
 
   (data.sections || []).forEach(function(sec){
@@ -382,7 +392,7 @@ main{max-width:960px;margin:0 auto;padding:32px 24px;width:100%}
       var secDescEl = document.createElement('div');
       secDescEl.className = 'section-desc';
       secDiv.appendChild(secDescEl);
-      if(window.renderMarkdown) window.renderMarkdown(secDescEl, sec.description);
+      renderMarkdownWhenReady(secDescEl, sec.description);
     }
     var grid = document.createElement('div');
     grid.className = 'items-grid thumb-' + thumbSize;
