@@ -131,3 +131,47 @@ func TestScript_Principal(t *testing.T) {
 	assert.Equal(t, "script:daily-sales", sc.Principal())
 	assert.True(t, len(sc.Principal()) > len(script.PrincipalPrefix))
 }
+
+// TestRefuseDraftRun is the gate a DRAFT crosses, which is not the approved-run
+// gate: a draft executes as its author with no grant, so approval has nothing
+// to say about it — but a script taken out of service must still not run.
+func TestRefuseDraftRun(t *testing.T) {
+	tests := []struct {
+		name    string
+		sc      *script.Script
+		wantErr string
+	}{
+		{
+			name: "an unapproved script may still be dry-run: that is the whole point",
+			sc:   &script.Script{Enabled: true, Status: script.StatusDraft},
+		},
+		{
+			name:    "a disabled script runs nothing, including a draft",
+			sc:      &script.Script{Enabled: false, Status: script.StatusActive},
+			wantErr: "disabled",
+		},
+		{
+			name: "a superseded script names its replacement",
+			sc: &script.Script{
+				Enabled: true, Status: script.StatusSuperseded, SupersededBy: "daily-v2",
+			},
+			wantErr: "daily-v2",
+		},
+		{
+			name:    "a script that does not exist",
+			sc:      nil,
+			wantErr: "does not exist",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := script.RefuseDraftRun(tt.sc)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}

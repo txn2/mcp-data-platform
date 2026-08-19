@@ -171,3 +171,95 @@ func TestParamsEqual(t *testing.T) {
 	d := []script.Param{{Name: "g", Type: script.ParamTypeEnum, Values: []string{"a", "b"}}}
 	assert.False(t, script.ParamsEqual(c, d))
 }
+
+// A connection parameter is a string whose value set the platform holds, so it
+// is a type of its own rather than a string with a convention (#1361).
+func TestParams_Connection(t *testing.T) {
+	tests := []struct {
+		name    string
+		param   script.Param
+		wantErr string
+	}{
+		{
+			name:  "a required connection parameter is a valid contract",
+			param: script.Param{Name: "source", Type: script.ParamTypeConnection, Required: true},
+		},
+		{
+			name: "an optional one must say what it means when nobody supplies one",
+			param: script.Param{
+				Name: "source", Type: script.ParamTypeConnection, Required: false,
+			},
+			wantErr: "must declare a default",
+		},
+		{
+			name: "an optional one with a default is fine",
+			param: script.Param{
+				Name: "source", Type: script.ParamTypeConnection, Default: "warehouse",
+			},
+		},
+		{
+			name: "its values come from the deployment, so it may not enumerate its own",
+			param: script.Param{
+				Name: "source", Type: script.ParamTypeConnection, Required: true,
+				Values: []string{"warehouse"},
+			},
+			wantErr: "only an enum parameter carries values",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := script.ValidateParams([]script.Param{tt.param})
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
+// TestBindParams_Connection covers the coercion: a name, and never an empty
+// one — the grant refuses an unnamed connection, so a value certain to be
+// rejected is rejected while somebody is still looking at the form.
+func TestBindParams_Connection(t *testing.T) {
+	defs := []script.Param{{Name: "source", Type: script.ParamTypeConnection, Required: true}}
+
+	bound, err := script.BindParams(defs, map[string]any{"source": "warehouse"})
+	require.NoError(t, err)
+	assert.Equal(t, "warehouse", bound["source"])
+
+	_, err = script.BindParams(defs, map[string]any{"source": ""})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot be empty")
+
+	_, err = script.BindParams(defs, map[string]any{"source": 7})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "expected a connection name")
+}
+
+// TestOptionalParamsWithoutADefault separates the types that have a meaningful
+// empty value from the three that do not. An optional parameter of one of those
+// three would bind to a value its own contract refuses, which turns an omitted
+// argument into a failed run.
+func TestOptionalParamsWithoutADefault(t *testing.T) {
+	needsDefault := []string{
+		script.ParamTypeEnum, script.ParamTypeDate, script.ParamTypeConnection,
+	}
+	hasAnEmpty := []string{
+		script.ParamTypeString, script.ParamTypeInt,
+		script.ParamTypeFloat, script.ParamTypeBool,
+	}
+
+	for _, paramType := range needsDefault {
+		p := script.Param{Name: "p", Type: paramType}
+		if paramType == script.ParamTypeEnum {
+			p.Values = []string{"a"}
+		}
+		require.Error(t, script.ValidateParams([]script.Param{p}), paramType)
+	}
+	for _, paramType := range hasAnEmpty {
+		require.NoError(t,
+			script.ValidateParams([]script.Param{{Name: "p", Type: paramType}}), paramType)
+	}
+}

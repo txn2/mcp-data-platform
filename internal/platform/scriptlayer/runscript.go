@@ -86,6 +86,12 @@ func (h *Handle) handleRunScript(ctx context.Context, input runScriptInput) (*mc
 	if err != nil {
 		return errorResult(err.Error()), nil, nil
 	}
+	// A connection named by a parameter is checked against the approved grant
+	// here, where the caller is still present, rather than by the host at the
+	// query the run would have failed on (#1361).
+	if err := script.CheckConnectionParams(version.Params, params, version.Grants); err != nil {
+		return errorResult(err.Error()), nil, nil
+	}
 	run, err := h.enqueueRun(ctx, sc, version, params)
 	if err != nil {
 		slog.Error("failed to queue a script run", fieldName, sc.Name, logKeyError, err)

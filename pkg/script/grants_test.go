@@ -141,3 +141,68 @@ func TestGrants_MissingFor(t *testing.T) {
 	assert.Equal(t, []string{"warehouse"}, missing.Connections)
 	assert.Equal(t, []string{script.DestinationPortal}, missing.Destinations)
 }
+
+// TestCheckConnectionParams is where a connection-typed parameter earns its
+// type (#1361): the refusal lands on the surface that asked for the value
+// rather than on a run nobody is watching.
+func TestCheckConnectionParams(t *testing.T) {
+	defs := []script.Param{
+		{Name: "source", Type: script.ParamTypeConnection, Required: true},
+		{Name: "region", Type: script.ParamTypeString, Required: true},
+	}
+	granted := script.Grants{Connections: []string{"warehouse", "lake"}}
+
+	tests := []struct {
+		name    string
+		defs    []script.Param
+		bound   map[string]any
+		grants  script.Grants
+		wantErr string
+	}{
+		{
+			name:   "a granted connection passes",
+			defs:   defs,
+			bound:  map[string]any{"source": "warehouse", "region": "west"},
+			grants: granted,
+		},
+		{
+			name:    "a connection outside the grant is refused, naming what is allowed",
+			defs:    defs,
+			bound:   map[string]any{"source": "staging", "region": "west"},
+			grants:  granted,
+			wantErr: "warehouse, lake",
+		},
+		{
+			name:    "an empty connection is refused: the grant cannot verify a name nobody gave",
+			defs:    defs,
+			bound:   map[string]any{"source": "", "region": "west"},
+			grants:  granted,
+			wantErr: "warehouse, lake",
+		},
+		{
+			name:    "a script granted nothing says so rather than printing an empty list",
+			defs:    defs,
+			bound:   map[string]any{"source": "warehouse"},
+			grants:  script.Grants{},
+			wantErr: "no connections at all",
+		},
+		{
+			name:   "a contract with no connection parameter is nothing to check",
+			defs:   []script.Param{{Name: "region", Type: script.ParamTypeString}},
+			bound:  map[string]any{"region": "west"},
+			grants: script.Grants{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := script.CheckConnectionParams(tt.defs, tt.bound, tt.grants)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+			assert.Contains(t, err.Error(), "source", "the refusal must name the parameter")
+		})
+	}
+}

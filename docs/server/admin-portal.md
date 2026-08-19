@@ -426,6 +426,17 @@ A script the platform would refuse to run anyway — disabled, deprecated, or
 superseded — is not in the queue: approving it would change nothing. Re-enabling
 it brings its decision back.
 
+**Whether anybody has run it.** A version opened for review states whether its
+exact source has been dry-run, by whom, when, how it ended, and the shape of the
+outputs it would have written. The account is matched by the source itself
+rather than by a version number, so it describes the code in front of the
+reviewer and no other version.
+
+![A version somebody ran](../images/screenshots/light/admin-admin-script-dry-run-account-light.webp#only-light)![A version somebody ran](../images/screenshots/dark/admin-admin-script-dry-run-account-dark.webp#only-dark)
+
+A version nobody has dry-run says so, because approving one means that code
+first executes unattended.
+
 **All scripts** lists every script with what it is executing: an approved
 version, or **Nothing approved**. A row expands to that script's versions, and
 any version can be opened for review — approving an earlier one is a rollback,

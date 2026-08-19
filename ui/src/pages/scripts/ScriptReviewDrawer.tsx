@@ -6,6 +6,8 @@ import {
   useScriptVersionReview,
 } from "@/api/admin/hooks";
 import type {
+  ScriptDryRunAccount,
+  ScriptDryRunOutput,
   ScriptFinding,
   ScriptGrants,
   VersionReview,
@@ -156,6 +158,7 @@ function ReviewBody({
     <>
       <ReviewHeader review={review} />
       <AuthorityNote grants={grant} author={review.version.author} />
+      <DryRunAccount review={review} />
       <Findings findings={review.findings ?? []} />
       <Separator />
       <GrantSection
@@ -280,6 +283,76 @@ function ReviewHeader({ review }: { review: VersionReview }) {
         )}
       </p>
     </div>
+  );
+}
+
+// DryRunAccount says whether anybody has executed this exact source, and what
+// happened when they did (#1364).
+//
+// Its absence is the case worth showing loudest: approving is agreeing to run
+// code unattended, and "nobody has run this" is the single most useful thing a
+// reviewer can know before doing so. The account is matched by the source
+// itself, so it describes the code in this drawer and no other version.
+function DryRunAccount({ review }: { review: VersionReview }) {
+  const account = review.dry_run;
+  if (!account) {
+    return (
+      <Alert>
+        <AlertTriangle />
+        <AlertDescription>
+          Nobody has dry-run this source. Approving it means this code first
+          executes unattended, under the grant below.
+        </AlertDescription>
+      </Alert>
+    );
+  }
+  return (
+    <div className="space-y-1.5">
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <h4 className="text-sm font-medium">Dry run</h4>
+        <Badge variant={account.status === "failed" ? "danger" : "success"}>
+          {account.status}
+        </Badge>
+      </div>
+      <p className="text-xs text-muted-foreground">{dryRunLine(account)}</p>
+      {account.error && (
+        <pre className="overflow-x-auto whitespace-pre-wrap text-xs text-destructive">
+          {account.error}
+        </pre>
+      )}
+      <DryRunOutputs outputs={account.outputs ?? []} />
+    </div>
+  );
+}
+
+// dryRunLine states who ran it, when, and what it cost, in one sentence — with
+// the property that made a dry run safe to offer at all stated in the middle of
+// it rather than in a footnote.
+function dryRunLine(account: ScriptDryRunAccount): string {
+  const outputs = (account.outputs ?? []).length;
+  const queries = account.metrics.queries;
+  return (
+    `Run by ${account.requested_by || "unknown"} on ` +
+    `${new Date(account.created_at).toLocaleString()}, as themselves and persisting ` +
+    `nothing: ${queries} quer${queries === 1 ? "y" : "ies"}, ` +
+    `${account.metrics.duration_ms} ms, ${outputs} output${outputs === 1 ? "" : "s"}.`
+  );
+}
+
+// DryRunOutputs is the shape of what that run would have written. Nothing was
+// written, so each entry names a size and no location.
+function DryRunOutputs({ outputs }: { outputs: ScriptDryRunOutput[] }) {
+  if (outputs.length === 0) return null;
+  return (
+    <ul className="space-y-0.5 text-xs text-muted-foreground">
+      {outputs.map((o) => (
+        <li key={`${o.name}-${o.destination ?? ""}`}>
+          <span className="font-mono">{o.name}</span>: {o.row_count} row
+          {o.row_count === 1 ? "" : "s"} as {o.format} ({o.bytes} bytes) to{" "}
+          {o.destination || "the portal"}.
+        </li>
+      ))}
+    </ul>
   );
 }
 

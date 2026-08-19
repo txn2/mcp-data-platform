@@ -36,6 +36,12 @@ const (
 	// one, which is why a failed scheduled run notifies and a failed tool run
 	// answers its caller.
 	TriggerSchedule = "schedule"
+	// TriggerPortal marks a run an owner asked for on the script's own page
+	// (#1363). It executes exactly as the other two do — same worker, same
+	// grant, same audit — and it is a distinct label because the run history is
+	// read by the person who clicked it, and recording their own click as an
+	// agent's tool call is a false statement about who did what.
+	TriggerPortal = "portal"
 )
 
 // Run queue and lifecycle errors.
@@ -273,6 +279,25 @@ func RefuseNewRun(sc *Script, approved *Version) error {
 		run.Version = approved.Version
 	}
 	return RefuseRun(sc, approved, run)
+}
+
+// RefuseDraftRun reports why a draft run of this script would be refused, or
+// nil when one would be admitted.
+//
+// A draft run is the only execution path an unapproved script has, so without
+// this check "disabled" and "superseded" would disable and supersede nothing.
+// It is deliberately NOT the approved-run gate: a draft executes as its author
+// with no grant, so approval has nothing to say about it.
+func RefuseDraftRun(sc *Script) error {
+	switch {
+	case sc == nil:
+		return errors.New("the script does not exist")
+	case !sc.Enabled:
+		return errors.New("this script is disabled; enable it before running a draft")
+	case sc.Status == StatusSuperseded:
+		return fmt.Errorf("this script was superseded by %q; run that one instead", sc.SupersededBy)
+	}
+	return nil
 }
 
 // RunFilter selects runs for a history listing.

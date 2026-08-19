@@ -297,14 +297,29 @@ script pages existed (`ui/src/pages/scripts/MyScriptsPage.tsx` and
 `ScriptDetailPage.tsx`, over `internal/httpserver/scripthttp`'s portal routes)
 they could read their own scripts only by asking an agent to call a tool.
 
-The surface writes two things, and neither is an authority. A script's cadence,
-by the person who owns it (`internal/httpserver/scripthttp/portalschedule.go`),
-which carries nothing: the gate and the grant are re-read at every fire. And a
-script's SOURCE (`portalsource.go`), which crosses `script.ApplyEdit` — the one
-gate every mutation surface crosses — so an edit to a script with an approved
-version becomes a draft awaiting review and the approved version keeps running
-until somebody approves the change. The version records the roles its editor
-held, which is the ceiling on what approving it can ever grant.
+The surface writes four things, and none of them is an authority.
+
+A script's cadence, by the person who owns it
+(`internal/httpserver/scripthttp/portalschedule.go`), which carries nothing: the
+gate and the grant are re-read at every fire.
+
+A script's SOURCE (`portalsource.go`), which crosses `script.ApplyEdit` — the
+one gate every mutation surface crosses — so an edit to a script with an
+approved version becomes a draft awaiting review and the approved version keeps
+running until somebody approves the change. The version records the roles its
+editor held, which is the ceiling on what approving it can ever grant.
+
+A run of the APPROVED version, asked for by its owner (`portalrun.go`). It
+queues exactly what `run_script` queues and adds no path into execution: the run
+is executed by a worker under the script principal, with the grant its approval
+bound, and whether one is admitted at all is `script.RefuseNewRun`'s answer —
+the same one `run_script` obeys and the contract document reports — so this
+route cannot run what those two call unrunnable. The run's `trigger` records
+`portal` rather than `tool`, which is a label on who asked and not a difference
+in what executed.
+
+A DRAFT run of an edit, executed as the caller (`portaldraft.go`, over
+`internal/platform/scriptdraft`). This is discussed on its own below.
 
 Approving a version and the grant that approval binds stay on the admin API
 behind admin authentication, and no portal route can approve, reject, or widen
@@ -389,6 +404,75 @@ every time the agent read a script. It returns a confirmation and, where the
 deployment has been configured with its public address, a link to the pages; it
 carries no script data, which is also what keeps it useless to an agent as a
 source of one (`internal/platform/scriptlayer/show.go`).
+
+### Checking an edit: validate, and a draft run as yourself
+
+An author could edit a script in the portal and could not find out whether what
+they wrote worked. The two mechanisms that answer that existed and were
+reachable only from an agent session; both are now on the editor (#1364).
+
+**Validate** (`POST /api/v1/portal/scripts/{id}/validate`) is a static read.
+It parses the source, reports the capabilities, connections and destinations it
+reaches and the findings against it, and executes nothing, stores nothing, and
+touches no record. It is `scriptrun.Validate`, the same function the review
+surface builds its capability diff from, so an author and a reviewer are shown
+the same reading of the same code.
+
+**A draft run** (`POST /api/v1/portal/scripts/{id}/dry-run`) executes the edit.
+It introduces no authority, and the reason is structural rather than a promise:
+the run opens an in-memory MCP session carrying the CALLER's own identity, so
+every platform call it makes is authenticated, authorized, rate limited and
+audited exactly as the same call typed by that person directly would be. There
+is nothing reachable through it that its caller could not already reach by
+calling the tools themselves.
+
+It is deliberately not a way around the execution gate:
+
+- It persists nothing. `platform.export` previews — it serializes the rows to
+  measure them and writes none of them — so no asset is versioned and no object
+  is delivered, wherever the output was addressed.
+- It runs under the draft limits, which are tighter than an approved run's.
+- It never reads or sets the approved-version pointer, and it cannot approve,
+  reject, or widen anything.
+- It is refused for a script taken out of service (`script.RefuseDraftRun`),
+  since a draft run is the only execution path an unapproved script has and
+  without that check "disabled" would disable nothing.
+- Source that does not parse is refused before the interpreter is involved.
+
+The identity is copied from the authenticated portal caller — user id, email,
+roles, and the auth type the request actually arrived with — and never
+synthesized. Both the tool and the portal go through one implementation
+(`internal/platform/scriptdraft`), so there is one definition of what a draft run
+is and the two surfaces cannot drift.
+
+**How many run at once is bounded.** A run holds a Starlark heap the interpreter
+cannot cap, so the number executing concurrently is the one lever that bounds
+the memory a pathological script can reach; the approved-run worker takes that
+lever by executing one run at a time per replica. A draft has no queue in front
+of it and is now reachable from a form in a browser rather than only from a tool
+call, so the runner holds a small fixed number of execution slots and a request
+that cannot get one within a few seconds is refused as busy rather than queued.
+The bound is small rather than one because an author iterating is interactive
+work: serializing every author in a deployment behind a single interpreter would
+make the loop unusable for the second person to press the button.
+
+**The account kept of a draft run.** A dry run still persists nothing it
+PRODUCED; what is stored is the account of one having happened: the run id (which
+is also its session id, so the audit rows the run wrote are reachable from it),
+who ran it, when, how it ended, the bounded log it captured, and the shape of the
+outputs it would have written. The account is keyed by the SHA-256 of the source
+that executed rather than by a version id, because an author dry-runs an edit
+before saving it — matching by source digest links the account to whichever
+version later carries that exact code, in either order, and to no other.
+
+It exists for the reviewer. Approving a version is agreeing to run code
+unattended, and until now nobody could tell whether the author had ever run it.
+The review drawer shows the account beside the version, and states its absence
+plainly: a version nobody dry-ran is code that first executes unattended.
+
+The account is owner-and-admin reading like every other run record, and it is
+bounded at write: an author keeps the newest handful of accounts per script, so
+an afternoon of iteration cannot grow the table without limit.
 
 ### Schedules: cadence, and nothing else
 
@@ -996,7 +1080,25 @@ retrying only multiplies the cost).
    so an unlisted name is refused; what the reviewer loses is the ability to
    read the full set before approving.
 
-8. **Delivery is standing egress on a schedule.** An approved script that
+8. **A draft run has no per-request rate limit of its own.** The execution-slot
+   bound above caps how many run at once and the draft limits cap what each one
+   may consume, but nothing throttles how OFTEN an authenticated person may ask
+   for one. The exposure is bounded by what a draft can reach — the caller's own
+   access, through the same rate-limited, audited tool calls — so it is a cost
+   control rather than an authority one, and the same was true of
+   `manage_script run_draft` before a form existed.
+
+9. **A dry run's log is stored, and a log is free text the script printed.**
+   The account of a draft run keeps the bounded log that run captured, which may
+   echo rows the run read under its CALLER's access. That is the same
+   classification an approved run's log already carries, and the same audience:
+   the script's owner and administrators. What is new is that the log now
+   reaches a reviewer, who is an administrator, and that a person who dry-ran a
+   script leaves a record of having done so. Neither widens who may read the
+   underlying data, because a draft run reaches only what its caller already
+   reaches.
+
+10. **Delivery is standing egress on a schedule.** An approved script that
    delivers to a bucket keeps delivering, every fire, until someone changes it,
    and once an object lands the platform's access controls no longer govern who
    reads it. Nothing here is accidental — the destination is pinned to the

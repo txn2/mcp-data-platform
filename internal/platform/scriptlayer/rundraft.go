@@ -2,16 +2,14 @@ package scriptlayer
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/script"
-	pkgsession "github.com/txn2/mcp-data-platform/pkg/session"
 )
 
 // handleValidate parses a script without running it and reports what it would
@@ -75,48 +73,39 @@ func (h *Handle) handleRunDraft(ctx context.Context, input manageScriptInput) (*
 	if err != nil {
 		return errorResult(err.Error()), nil, nil
 	}
-	// The run id is minted BEFORE the session, because it is the session: it is
-	// threaded onto the session context so every platform call the run makes
-	// records the same session id in audit. Without that, a run issuing three
-	// queries would write three unrelated ids and nothing would group them, and
-	// the id handed back to the author would appear in no audit row at all.
-	runID, err := pkgsession.GenerateScriptSessionID()
-	if err != nil {
-		return errorResult("failed to mint a run id"), nil, nil
+	pc := middleware.GetPlatformContext(ctx)
+	if pc == nil {
+		return errorResult(scriptdraft.ErrNoIdentity.Error()), nil, nil
 	}
-	caller, cleanup, err := h.connectAuthorSession(ctx, runID)
+	outcome, err := scriptdraft.New(h.server).Run(ctx, scriptdraft.Request{
+		Source: sc.Source, Name: sc.Name, Params: params,
+		Identity: scriptdraft.Identity{
+			UserID: pc.UserID, Email: pc.UserEmail, Claims: pc.UserClaims,
+			Roles: pc.Roles, AuthType: pc.AuthType,
+		},
+	})
 	if err != nil {
 		return errorResult(err.Error()), nil, nil
 	}
-	defer cleanup()
-	result, runErr := scriptrun.Run(ctx, scriptrun.Options{
-		Source: sc.Source, Name: sc.Name, RunID: runID,
-		// The fire time is pinned here, once, and handed to the script as
-		// run.fire_time: even a draft never reads a clock, so what an author
-		// verifies in the loop is what a scheduled run will do.
-		FireTime: time.Now().UTC(), Params: params, Caller: caller,
-	})
-	return jsonResult(draftResult(sc, runID, result, runErr))
+	return jsonResult(draftResult(sc, outcome))
 }
 
-// runnable refuses a draft run of a script that has been taken out of service.
-// run_draft is the only execution path that exists, so without this check
-// "disabled" and "superseded" would disable and supersede nothing.
+// runnable refuses a draft run of a script that has been taken out of service,
+// asking the domain (script.RefuseDraftRun) so this surface and the portal
+// editor refuse the same states in the same words.
 func runnable(sc *script.Script) *mcp.CallToolResult {
-	if !sc.Enabled {
-		return errorResult("this script is disabled; enable it with update enabled=true before running a draft")
-	}
-	if sc.Status == script.StatusSuperseded {
-		return errorResult(fmt.Sprintf("this script was superseded by %q; run that one instead", sc.SupersededBy))
+	if err := script.RefuseDraftRun(sc); err != nil {
+		return errorResult(err.Error())
 	}
 	return nil
 }
 
 // draftResult renders one draft run, successful or failed. A failed run still
 // reports its log and metrics: the log is the whole reason to have run it.
-func draftResult(sc *script.Script, runID string, result *scriptrun.Result, runErr error) map[string]any {
+func draftResult(sc *script.Script, outcome *scriptdraft.Outcome) map[string]any {
+	result, runErr := outcome.Result, outcome.Err
 	out := map[string]any{
-		fieldName: sc.Name, "run_id": runID, "draft": true,
+		fieldName: sc.Name, "run_id": outcome.RunID, "draft": true,
 		fieldStatus: "succeeded", "queries": 0, "exports": []scriptrun.ExportRecord{},
 	}
 	if result != nil {
@@ -145,44 +134,4 @@ func orEmptyExports(exports []scriptrun.ExportRecord) []scriptrun.ExportRecord {
 		return []scriptrun.ExportRecord{}
 	}
 	return exports
-}
-
-// connectAuthorSession opens an in-memory MCP session against the assembled
-// server, carrying the calling author's identity and tagged as a script run.
-//
-// The identity is copied from the caller's own PlatformContext rather than
-// synthesized, which is what makes the "no new authority" property structural
-// instead of a promise: the session authenticates as the person who called
-// run_draft, and the same authorization middleware then resolves the same
-// persona and the same connection rules it resolved for the manage_script call
-// that got here. The source tag buys exactly two things, neither of them
-// authority: audit rows that say a script ran, and the per-run session identity
-// that keeps the run out of the author's own discovery and gate state. runID is
-// threaded onto that context as the session identity, so the whole run is one
-// session in audit rather than one session per platform call.
-//
-// An approved run differs from this in exactly one respect — it authenticates
-// as the script principal with the roles its approval bound — which is why the
-// session plumbing itself lives in scriptrun and only the identity is decided
-// here.
-func (h *Handle) connectAuthorSession(ctx context.Context, runID string) (*scriptrun.SessionCaller, func(), error) {
-	pc := middleware.GetPlatformContext(ctx)
-	if pc == nil || pc.UserID == "" {
-		return nil, nil, errors.New("run_draft needs an authenticated caller to run as")
-	}
-
-	serverCtx := middleware.WithSource(ctx, middleware.SourceScript)
-	serverCtx = pkgsession.WithAwareSessionID(serverCtx, runID)
-	serverCtx = middleware.WithPreAuthenticatedUser(serverCtx, &middleware.UserInfo{
-		UserID:   pc.UserID,
-		Email:    pc.UserEmail,
-		Claims:   pc.UserClaims,
-		Roles:    pc.Roles,
-		AuthType: pc.AuthType,
-	})
-	caller, cleanup, err := scriptrun.Connect(serverCtx, h.server, "script-draft")
-	if err != nil {
-		return nil, nil, fmt.Errorf("opening the draft's session: %w", err)
-	}
-	return caller, cleanup, nil
 }

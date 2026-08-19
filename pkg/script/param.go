@@ -23,16 +23,26 @@ const (
 	ParamTypeBool   = "bool"
 	ParamTypeDate   = "date"
 	ParamTypeEnum   = "enum"
+
+	// ParamTypeConnection is a connection name (#1361). It binds as a string,
+	// and it is a type of its own because the platform knows the whole set of
+	// values it can take and an approved version's grant names the subset this
+	// script may use. That is the difference from a string: a surface asking
+	// for one can OFFER the set instead of asking somebody to remember the
+	// spelling, and a value outside it is refused where it was entered rather
+	// than at the run it would have failed.
+	ParamTypeConnection = "connection"
 )
 
 // validParamTypes is the set of allowed parameter types.
 var validParamTypes = map[string]bool{
-	ParamTypeString: true,
-	ParamTypeInt:    true,
-	ParamTypeFloat:  true,
-	ParamTypeBool:   true,
-	ParamTypeDate:   true,
-	ParamTypeEnum:   true,
+	ParamTypeString:     true,
+	ParamTypeInt:        true,
+	ParamTypeFloat:      true,
+	ParamTypeBool:       true,
+	ParamTypeDate:       true,
+	ParamTypeEnum:       true,
+	ParamTypeConnection: true,
 }
 
 // DateLayout is the one accepted wire form for a date parameter and the form
@@ -125,7 +135,7 @@ func validateParamShape(p Param) error {
 		// contract they just declared. Requiring a default is the honest fix:
 		// the author states what the parameter means when it is not supplied,
 		// and the failure lands at authoring time rather than mid-run.
-		if !p.Required && (p.Type == ParamTypeEnum || p.Type == ParamTypeDate) {
+		if !p.Required && requiresDefault(p.Type) {
 			return fmt.Errorf("optional %s parameter %q must declare a default; there is no meaningful empty %s", p.Type, p.Name, p.Type)
 		}
 		return nil
@@ -134,6 +144,20 @@ func validateParamShape(p Param) error {
 		return fmt.Errorf("default for parameter %q: %w", p.Name, err)
 	}
 	return nil
+}
+
+// requiresDefault reports whether a type has no meaningful empty value, so an
+// optional parameter of it must state what it means when nobody supplies one.
+// A connection joins the list for the same reason a date does: "" is not a
+// connection, and a run that binds it is refused by the grant, which turns an
+// omitted optional parameter into a failed run.
+func requiresDefault(paramType string) bool {
+	switch paramType {
+	case ParamTypeEnum, ParamTypeDate, ParamTypeConnection:
+		return true
+	default:
+		return false
+	}
 }
 
 // validateEnumValues checks that an enum enumerates something and that nothing
@@ -254,9 +278,26 @@ func coerceParam(p Param, raw any) (any, error) {
 		return coerceBool(raw)
 	case ParamTypeDate:
 		return coerceDate(raw)
+	case ParamTypeConnection:
+		return coerceConnection(raw)
 	default:
 		return nil, fmt.Errorf("invalid type %q", p.Type)
 	}
+}
+
+// coerceConnection accepts a non-empty connection name. Emptiness is refused
+// here rather than passed on because the grant refuses an unnamed connection
+// too (Grants.AllowsConnection), and a value the run is certain to reject is
+// worth rejecting while somebody is still looking at the form.
+func coerceConnection(raw any) (any, error) {
+	s, ok := raw.(string)
+	if !ok {
+		return nil, fmt.Errorf("expected a connection name, got %T", raw)
+	}
+	if s == "" {
+		return nil, errors.New("a connection name cannot be empty")
+	}
+	return s, nil
 }
 
 // coerceString accepts only a string; a number or bool spelled as a string

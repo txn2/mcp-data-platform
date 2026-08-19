@@ -18,7 +18,10 @@ import (
 // carol owns the global script in portalStore. She is the caller the whole
 // change is for: the owner of a shared automation who is not an administrator
 // and, before #1307, could not pause her own report.
-var carol = &PortalIdentity{UserID: "u4", Email: "carol@example.com", Persona: "analyst"}
+var carol = &PortalIdentity{
+	UserID: "u4", Email: "carol@example.com", Persona: "analyst",
+	Roles: []string{"dp_analyst"}, AuthType: "browser_session",
+}
 
 // portalSchedulePath is the route under test, on the global script carol owns.
 const portalSchedulePath = "/api/v1/portal/scripts/script_2/schedule"

@@ -112,9 +112,10 @@ function RunRows({
       <TableRow className="cursor-pointer" onClick={onToggle}>
         {/* How it ended and when, together, because they are read as one fact.
             What triggered it and which version ran are the qualifiers of that
-            fact rather than facts of their own: the trigger is a two-value
-            enumeration and the version is the same number down the whole
-            column, so neither earns a column at the width this page has. */}
+            fact rather than facts of their own: the trigger is a three-value
+            enumeration (a schedule, an agent's tool call, or this page) and the
+            version is the same number down the whole column, so neither earns a
+            column at the width this page has. */}
         <TableCell>
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
             <Badge variant={runStatusVariant(run.status)}>{runStatusLabel(run.status)}</Badge>

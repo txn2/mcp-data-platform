@@ -1,26 +1,15 @@
 import { useState } from "react";
 import {
+  SCRIPT_RUN_AUDIENCE,
+  useScriptConnections,
   useScriptSchedule,
   useSetScriptSchedule,
   useSetScriptSchedulePaused,
 } from "@/api/portal/hooks/scripts";
-import type {
-  ScriptContract,
-  ScriptParam,
-  ScriptSchedule,
-} from "@/api/portal/hooks/scripts";
+import type { ScriptContract, ScriptSchedule } from "@/api/portal/hooks/scripts";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   DEFAULT_CADENCE,
   describeCron,
@@ -31,6 +20,13 @@ import {
 } from "./cadence";
 import { formatWhen } from "./runFormat";
 import { ScheduleBuilder } from "./ScheduleBuilder";
+import {
+  boundParams,
+  declaresConnection,
+  ScriptParameterForm,
+  valuesFrom,
+  type Values,
+} from "./ScriptParameterForm";
 
 // ScriptScheduleEditor is where the owner of an automation says when it runs
 // (#1307). It is the only thing on these pages that changes anything.
@@ -44,16 +40,6 @@ import { ScheduleBuilder } from "./ScheduleBuilder";
 // The one thing it must never do is imply an approval it cannot grant. A
 // schedule on a script nothing will execute saves and stays inert, and the page
 // says so in the gate's own words.
-
-// FIRE_DATE is the one token a binding may carry. It expands at the fire, so
-// the run records the date it computed for rather than the day somebody set the
-// schedule.
-const FIRE_DATE = "${fire_date}";
-
-// UNSET is the clearable choice in a parameter dropdown: once a value is
-// picked, the placeholder is unreachable, so "leave it unbound" has to be an
-// item of its own.
-const UNSET = "__unset__";
 
 interface Props {
   scriptId: string;
@@ -103,6 +89,14 @@ function ScheduleControls({
 }: Props & { schedule: ScriptSchedule | null }) {
   const save = useSetScriptSchedule(scriptId);
   const pause = useSetScriptSchedulePaused(scriptId);
+  // Every fire binds these values through the approved version's grant, so the
+  // set a connection parameter offers here is the granted one — the same set
+  // the fire is checked against (#1361).
+  const { data: connections } = useScriptConnections(
+    scriptId,
+    declaresConnection(contract.params ?? []),
+    SCRIPT_RUN_AUDIENCE.run,
+  );
   // draft holds the owner's edits and nothing else, so a background refetch
   // cannot discard a cadence somebody is part-way through typing.
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -152,10 +146,13 @@ function ScheduleControls({
             onTimezoneChange={(timezone) => setDraft({ ...current, timezone })}
           />
 
-          <ParameterBindings
+          <ScriptParameterForm
+            form="schedule"
             params={contract.params ?? []}
             values={current.values}
             disabled={busy}
+            connections={connections?.data}
+            scheduled
             onChange={(name, value) =>
               setDraft({ ...current, values: { ...current.values, [name]: value } })
             }
@@ -208,7 +205,7 @@ function PauseButton({
 interface Draft {
   cadence: Cadence;
   timezone: string;
-  values: Record<string, string>;
+  values: Values;
 }
 
 // draftOf seeds the form from the stored schedule, so editing a cadence starts
@@ -216,14 +213,10 @@ interface Draft {
 // the bindings it does not carry. An expression the builder cannot express
 // comes back as the custom cadence carrying it verbatim.
 function draftOf(schedule: ScriptSchedule | null): Draft {
-  const values: Record<string, string> = {};
-  for (const [name, value] of Object.entries(schedule?.params ?? {})) {
-    values[name] = value === null || value === undefined ? "" : String(value);
-  }
   return {
     cadence: schedule ? fromCron(schedule.cron_spec) : DEFAULT_CADENCE,
     timezone: schedule?.timezone || defaultTimezone(),
-    values,
+    values: valuesFrom(schedule?.params),
   };
 }
 
@@ -232,29 +225,6 @@ function draftOf(schedule: ScriptSchedule | null): Draft {
 // are; the platform still stores UTC when the runtime cannot name a zone.
 function defaultTimezone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-}
-
-// boundParams is what the fire binds. An empty box is an unbound parameter
-// rather than an empty value: sending "" for a date would be refused, and a
-// required one left empty is refused by the contract, which is the answer that
-// names what to fix.
-//
-// It is driven by the CONTRACT rather than by what the schedule happens to
-// carry, so a binding for a parameter the approved version no longer declares
-// is dropped on the next save. That binding is already failing every fire —
-// the contract refuses it — so saving through this form repairs the schedule
-// rather than preserving the thing that broke it.
-function boundParams(
-  params: ScriptParam[],
-  values: Record<string, string>,
-): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const p of params) {
-    const value = values[p.name];
-    if (value === undefined || value === "") continue;
-    out[p.name] = value;
-  }
-  return out;
 }
 
 // CadenceSummary is the schedule in force, stated before the form that changes
@@ -322,125 +292,5 @@ function InertNotice({ contract, scheduled }: { contract: ScriptContract; schedu
         for one.
       </AlertDescription>
     </Alert>
-  );
-}
-
-// ParameterBindings is the value every fire passes for each declared
-// parameter. The contract shown is the approved version's, because that is the
-// version anything will execute.
-function ParameterBindings({
-  params,
-  values,
-  disabled,
-  onChange,
-}: {
-  params: ScriptParam[];
-  values: Record<string, string>;
-  disabled: boolean;
-  onChange: (name: string, value: string) => void;
-}) {
-  // A script that declares no parameters gets no bindings section at all: the
-  // contract above already says it takes none, and a second sentence saying so
-  // is one more thing to read on the way to the save button.
-  if (params.length === 0) return null;
-  return (
-    <div className="grid gap-4 sm:grid-cols-2">
-      {params.map((p) => (
-        <Field
-          key={p.name}
-          id={`script-param-${p.name}`}
-          label={`${p.name}${p.required ? "" : " (optional)"}`}
-          hint={bindingHint(p)}
-        >
-          <BindingInput
-            param={p}
-            value={values[p.name] ?? ""}
-            disabled={disabled}
-            onChange={(value) => onChange(p.name, value)}
-          />
-        </Field>
-      ))}
-    </div>
-  );
-}
-
-// bindingHint tells the owner what this box takes, and — for a date — what the
-// one token means, since pinning the fire's own date is the reason most
-// recurring reports have a date parameter at all.
-function bindingHint(p: ScriptParam): string {
-  const described = p.description ? `${p.description} ` : "";
-  if (p.type === "date") {
-    return `${described}A date as YYYY-MM-DD, or ${FIRE_DATE} for the day the schedule fires.`;
-  }
-  if (p.type === "enum") {
-    return `${described}One of: ${(p.values ?? []).join(", ")}.`;
-  }
-  return `${described}Type: ${p.type}.`;
-}
-
-// BindingInput is the control one parameter deserves: a choice where the
-// contract declares one, a box otherwise.
-function BindingInput({
-  param,
-  value,
-  disabled,
-  onChange,
-}: {
-  param: ScriptParam;
-  value: string;
-  disabled: boolean;
-  onChange: (value: string) => void;
-}) {
-  const options = param.type === "bool" ? ["true", "false"] : (param.values ?? []);
-  if (param.type !== "bool" && param.type !== "enum") {
-    return (
-      <Input
-        id={`script-param-${param.name}`}
-        value={value}
-        disabled={disabled}
-        placeholder={param.type === "date" ? FIRE_DATE : ""}
-        onChange={(e) => onChange(e.target.value)}
-      />
-    );
-  }
-  return (
-    <Select
-      value={value === "" ? undefined : value}
-      disabled={disabled}
-      onValueChange={(v) => onChange(v === UNSET ? "" : v)}
-    >
-      <SelectTrigger id={`script-param-${param.name}`} aria-label={param.name} className="w-full">
-        <SelectValue placeholder="-- unbound --" />
-      </SelectTrigger>
-      <SelectContent>
-        {!param.required && <SelectItem value={UNSET}>-- unbound --</SelectItem>}
-        {options.map((o) => (
-          <SelectItem key={o} value={o}>
-            {o}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
-}
-
-// Field is one labeled control with the sentence that explains it.
-function Field({
-  id,
-  label,
-  hint,
-  children,
-}: {
-  id: string;
-  label: string;
-  hint: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <Label htmlFor={id}>{label}</Label>
-      {children}
-      <p className="text-xs text-muted-foreground">{hint}</p>
-    </div>
   );
 }

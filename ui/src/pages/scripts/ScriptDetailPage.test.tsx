@@ -20,22 +20,32 @@ vi.mock("@/api/portal/hooks/scripts", () => ({
   useScriptSchedule: vi.fn(),
   useSetScriptSchedule: vi.fn(),
   useSetScriptSchedulePaused: vi.fn(),
-  // The source editor's hook. It has its own tests; here it only has to answer.
+  // The source editor's and the run panel's hooks. Each has its own tests;
+  // here they only have to answer, so the page composes with every section.
   useSaveScriptSource: vi.fn(),
+  useValidateScriptSource: vi.fn(),
+  useDryRunScript: vi.fn(),
+  useScriptConnections: vi.fn(),
+  useRunScript: vi.fn(),
+  SCRIPT_RUN_AUDIENCE: { run: "run", draft: "draft" },
   // The page size is the module's own constant, not a hook: the run history
   // states it when a result fills it.
   RUN_PAGE_SIZE: 25,
 }));
 
 import {
+  useDryRunScript,
   useScriptContract,
   usePortalScriptVersions,
+  useRunScript,
+  useScriptConnections,
   useScriptRun,
   useScriptRuns,
   useSaveScriptSource,
   useScriptSchedule,
   useSetScriptSchedule,
   useSetScriptSchedulePaused,
+  useValidateScriptSource,
 } from "@/api/portal/hooks/scripts";
 
 const mockContract = vi.mocked(useScriptContract);
@@ -46,6 +56,10 @@ const mockSchedule = vi.mocked(useScriptSchedule);
 const mockSaveSchedule = vi.mocked(useSetScriptSchedule);
 const mockPauseSchedule = vi.mocked(useSetScriptSchedulePaused);
 const mockSaveSource = vi.mocked(useSaveScriptSource);
+const mockValidateSource = vi.mocked(useValidateScriptSource);
+const mockDryRun = vi.mocked(useDryRunScript);
+const mockConnections = vi.mocked(useScriptConnections);
+const mockRunScript = vi.mocked(useRunScript);
 
 const onBack = vi.fn();
 const onNavigate = vi.fn();
@@ -193,6 +207,10 @@ beforeEach(() => {
   mockSaveSchedule.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
   mockPauseSchedule.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
   mockSaveSource.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
+  mockValidateSource.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
+  mockDryRun.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
+  mockRunScript.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
+  mockConnections.mockReturnValue(query(undefined));
 });
 
 afterEach(cleanup);

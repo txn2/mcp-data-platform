@@ -6,6 +6,7 @@ import type {
 } from "@/api/admin/types";
 import type { ScriptSchedule } from "@/api/portal/hooks/scripts";
 import {
+  mockReachableConnections,
   mockScriptContracts,
   mockScriptReviewAlert,
   mockScriptReviewPayloads,
@@ -16,6 +17,13 @@ import {
   mockScriptVersions,
   mockScripts,
 } from "../data/scripts";
+
+// referencedIn is the mock's stand-in for the static read the server performs:
+// the names of `candidates` that appear literally in the source. It is enough
+// for a demo and a screenshot, and it is deliberately not a parser.
+function referencedIn(source: string, candidates: string[]): string[] {
+  return candidates.filter((name) => source.includes(name));
+}
 
 const ADMIN_BASE = "/api/v1/admin";
 const PORTAL_BASE = "/api/v1/portal";
@@ -224,10 +232,17 @@ export const scriptHandlers = [
     if (!contract) {
       return HttpResponse.json({ detail: "script not found" }, { status: 404 });
     }
-    // The live source travels with the contract for the owner, which is what
-    // the editor opens.
+    // The live source and the contract that code was written against travel
+    // with the document for the owner: the editor opens the one and the dry-run
+    // form binds the other. In these fixtures the live and approved parameter
+    // contracts agree, which is the ordinary case.
     const live = (versions[id] ?? []).find((v) => v.status === "applied");
-    return HttpResponse.json({ contract, owned: true, source: live?.source ?? "" });
+    return HttpResponse.json({
+      contract,
+      owned: true,
+      source: live?.source ?? "",
+      draft_params: contract.params,
+    });
   }),
 
   // Editing the code (#1307). An approved script's edit becomes a draft the
@@ -280,6 +295,135 @@ export const scriptHandlers = [
     return HttpResponse.json({
       applied: true,
       message: "Saved. Nothing is approved for this script yet, so nothing executes it unattended.",
+    });
+  }),
+
+  // The owner's exercise loop (#1361, #1363, #1364): the connections a
+  // parameter may name, a run of the approved version, and the two checks an
+  // author makes before asking anybody to approve an edit.
+
+  // The set a connection parameter chooses from. Which set depends on what will
+  // execute: an approved run is confined to the grant, while a dry run reaches
+  // what its caller reaches, and answering with the wrong one would offer values
+  // the run then refuses.
+  http.get(`${PORTAL_BASE}/scripts/:id/connections`, ({ params, request }) => {
+    const id = String(params.id);
+    if (!mockScriptContracts[id]) {
+      return HttpResponse.json({ detail: "script not found" }, { status: 404 });
+    }
+    if (new URL(request.url).searchParams.get("audience") === "draft") {
+      return HttpResponse.json({
+        data: mockReachableConnections,
+        source: "persona",
+        note:
+          "A dry run executes as you, so it reaches the connections you reach. " +
+          "An approved run is confined to what its approval granted instead.",
+      });
+    }
+    // The approved version is the one the execution gate points at, resolved by
+    // id rather than by status: an approved version's status is "applied", so a
+    // status test would find none and offer an empty set.
+    const gate = scripts.find((sc) => sc.id === id)?.approved_version_id;
+    const granted = (versions[id] ?? []).find((v) => v.id === gate)?.grants?.connections;
+    const data = mockReachableConnections.filter((c) => (granted ?? []).includes(c.name));
+    return HttpResponse.json({
+      data,
+      source: "grant",
+      note: data.length
+        ? "These are the connections this script's approved version may reach. " +
+          "A run naming any other is refused."
+        : "Nothing is approved for this script, or its approval granted no connection, " +
+          "so a run of it can name none.",
+    });
+  }),
+
+  // Running the approved version now. It queues what run_script queues; the
+  // response carries the run id and never a result, because a worker executes
+  // it and the history is where it is followed.
+  http.post(`${PORTAL_BASE}/scripts/:id/runs`, async ({ params, request }) => {
+    const id = String(params.id);
+    const contract = mockScriptContracts[id];
+    if (!contract) {
+      return HttpResponse.json({ detail: "script not found" }, { status: 404 });
+    }
+    if (contract.approval.refusal) {
+      return HttpResponse.json({ detail: contract.approval.refusal }, { status: 400 });
+    }
+    await request.json();
+    return HttpResponse.json(
+      {
+        run_id: `dpx_${Date.now().toString(36)}`,
+        status: "pending",
+        version: contract.approval.version ?? 0,
+        message: "Queued. It appears in this script's run history and updates as it progresses.",
+      },
+      { status: 202 },
+    );
+  }),
+
+  // Validating an edit. It parses and reports; it executes nothing and stores
+  // nothing, so the mock answers from the source it was sent.
+  http.post(`${PORTAL_BASE}/scripts/:id/validate`, async ({ request }) => {
+    const body = (await request.json()) as { source?: string };
+    const source = body.source ?? "";
+    if (!source.trim() || source.includes("while ")) {
+      return HttpResponse.json({
+        ok: false,
+        findings: [
+          {
+            severity: "error",
+            line: 1,
+            message: "while loops are not available in this dialect",
+            hint: "Loop over a list, or express the repetition in SQL.",
+          },
+        ],
+        capabilities: [],
+        connections: [],
+        destinations: [],
+        dynamic_connections: false,
+        dynamic_destinations: false,
+      });
+    }
+    return HttpResponse.json({
+      ok: true,
+      findings: [],
+      capabilities: referencedIn(source, ["platform.query", "platform.export"]),
+      connections: referencedIn(source, mockReachableConnections.map((c) => c.name)),
+      destinations: source.includes("platform.export") ? ["portal"] : [],
+      dynamic_connections: false,
+      dynamic_destinations: false,
+    });
+  }),
+
+  // Dry-running an edit. Nothing is persisted, which is why the outputs carry a
+  // shape and no locator.
+  http.post(`${PORTAL_BASE}/scripts/:id/dry-run`, async ({ request }) => {
+    const body = (await request.json()) as { source?: string };
+    const source = body.source ?? "";
+    if (source.includes("fail(")) {
+      return HttpResponse.json({
+        run_id: "dpx_draft_demo",
+        status: "failed",
+        error: "script failed: deliberate stop\n  at line 4",
+        log: "reading yesterday's rows",
+        metrics: { steps: 128, duration_ms: 210, queries: 1, exports: 0 },
+        outputs: [],
+        message:
+          "A script failure is deterministic: the same source on the same inputs fails the " +
+          "same way, so running it again changes nothing. Fix the script and dry-run it again.",
+      });
+    }
+    return HttpResponse.json({
+      run_id: "dpx_draft_demo",
+      status: "succeeded",
+      log: "reading yesterday's rows\n1,284 rows for 2026-08-17",
+      metrics: { steps: 1042, duration_ms: 1830, queries: 1, exports: 1 },
+      outputs: [
+        { name: "daily_sales", destination: "portal", format: "csv", row_count: 1284, bytes: 48213 },
+      ],
+      message:
+        "Nothing was persisted. platform.export reported the shape of each output " +
+        "rather than writing it.",
     });
   }),
 
