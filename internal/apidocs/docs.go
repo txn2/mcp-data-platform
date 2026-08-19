@@ -23735,6 +23735,11 @@ const docTemplate = `{
                     "type": "string",
                     "example": "portal"
                 },
+                "document": {
+                    "description": "Document marks an output written verbatim from a string body, whose\nRowCount is therefore not a fact about it.",
+                    "type": "boolean",
+                    "example": false
+                },
                 "format": {
                     "type": "string",
                     "example": "csv"
@@ -23920,6 +23925,10 @@ const docTemplate = `{
                 "destination": {
                     "description": "Destination is the granted destination's name. It is empty on rows\nwritten before destinations existed, which Destination() reads as the\nportal.",
                     "type": "string"
+                },
+                "document": {
+                    "description": "Document marks an output written verbatim from a string body rather than\nserialized from rows, so a surface reporting the output does not describe\na dashboard as a zero-row table.",
+                    "type": "boolean"
                 },
                 "format": {
                     "type": "string"

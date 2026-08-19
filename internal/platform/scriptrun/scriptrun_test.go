@@ -270,7 +270,14 @@ print(json.encode(out))
 	}{
 		{"unknown format", `platform.export(name="d", rows=[], format="parquet")`, "is not one of"},
 		{"blank name", `platform.export(name="  ", rows=[])`, "name is required"},
-		{"rows not a list", `platform.export(name="d", rows="nope")`, "must be a list"},
+		{"string body under a rows-only format", `platform.export(name="d", rows="a,b", format="csv")`, "is serialized from rows"},
+		{"rows under a document-only format", `platform.export(name="d", rows=[{"a": 1}], format="html")`, "written verbatim from a string body"},
+		{"rows neither list nor string", `platform.export(name="d", rows=42)`, "must be a list of dicts, or a string body"},
+		{"blank document body", `platform.export(name="d", rows="  \n", format="html")`, "the string body is empty"},
+		{"one name written twice to one destination", `
+platform.export(name="d", rows=[{"a": 1}])
+platform.export(name="d", rows=[{"a": 2}])
+`, "once per destination"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -279,6 +286,80 @@ print(json.encode(out))
 			assert.Contains(t, err.Error(), tc.wantErr)
 		})
 	}
+}
+
+// TestRun_ExportDocumentBody pins the string-body arm (#1388): a document
+// format accepts a string written verbatim, so a script can publish an HTML
+// dashboard or a prose report under the same output identity a table gets.
+func TestRun_ExportDocumentBody(t *testing.T) {
+	body := "<html><body><h1>Daily</h1></body></html>"
+	result, err := execute(t, `
+out = platform.export(name="dash", rows="`+body+`", format="html")
+print(json.encode(out))
+`, nil, nil)
+	require.NoError(t, err)
+	require.Len(t, result.Exports, 1)
+	assert.Equal(t, ExportRecord{
+		Name: "dash", Destination: script.DestinationPortal,
+		Format: "html", RowCount: 0, Document: true, Bytes: len(body), Preview: true,
+	}, result.Exports[0],
+		"a preview measures the body itself: verbatim is the contract, so the size is the byte length of what the script composed")
+
+	// markdown sits in both sets: the same format takes rows or a body.
+	result, err = execute(t, `
+platform.export(name="prose", rows="# Report\n\nAll good.", format="markdown")
+platform.export(name="table", rows=[{"a": 1}], format="markdown")
+`, nil, nil)
+	require.NoError(t, err)
+	require.Len(t, result.Exports, 2)
+	assert.Equal(t, len("# Report\n\nAll good."), result.Exports[0].Bytes)
+	assert.Zero(t, result.Exports[0].RowCount)
+	assert.Equal(t, 1, result.Exports[1].RowCount)
+}
+
+// TestFormatOutput_DocumentBody pins that the one serializer passes a body
+// through byte for byte and stores it under the content type the portal
+// already renders for that kind of document — with the key extension derived
+// from the platform's one content-type-to-extension table, so a jsx document
+// lands on the same ".html" key spelling every other text/jsx object does.
+func TestFormatOutput_DocumentBody(t *testing.T) {
+	cases := []struct {
+		format      string
+		contentType string
+		extension   string
+	}{
+		{"html", "text/html", ".html"},
+		{"jsx", "text/jsx", ".html"},
+		{"markdown", "text/markdown", ".md"},
+		{"text", "text/plain", ".txt"},
+	}
+	body := "raw document bytes, exactly as composed"
+	for _, tc := range cases {
+		t.Run(tc.format, func(t *testing.T) {
+			data, identity, err := FormatOutput(ExportRequest{Name: "doc", Format: tc.format, Body: &body})
+			require.NoError(t, err)
+			assert.Equal(t, []byte(body), data)
+			assert.Equal(t, tc.contentType, identity.ContentType)
+			assert.Equal(t, tc.extension, identity.Extension)
+		})
+	}
+
+	// The rows-only invariant holds inside the serializer, not only at the
+	// argument edge: a request some other constructor built with a body under
+	// csv must not pass through verbatim as a "well-formed" feed. And a body
+	// under an unknown format is refused by the same check, naming the output.
+	for _, format := range []string{"csv", "json", "parquet"} {
+		_, _, err := FormatOutput(ExportRequest{Name: "doc", Format: format, Body: &body})
+		require.Error(t, err, format)
+		assert.Contains(t, err.Error(), `output "doc"`)
+		assert.Contains(t, err.Error(), "document formats")
+	}
+
+	// The ceiling applies to a body exactly as it applies to rows.
+	big := strings.Repeat("x", MaxOutputBytes+1)
+	_, _, err := FormatOutput(ExportRequest{Name: "doc", Format: "html", Body: &big})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "over the")
 }
 
 // TestFormatOutput_RefusalsNameTheOutput pins that a serialization failure

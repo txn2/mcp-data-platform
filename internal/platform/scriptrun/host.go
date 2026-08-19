@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 	"unicode/utf8"
 
@@ -11,6 +12,7 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 
+	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 )
@@ -40,10 +42,28 @@ const (
 // it.
 var Capabilities = script.Capabilities
 
-// exportFormats is the set platform.export accepts, matched to the formats
-// trino_export already writes so the contract does not change when preview
-// becomes persistence.
-var exportFormats = map[string]bool{"csv": true, "json": true, "markdown": true, "text": true}
+// The formats platform.export accepts, split by what serializes them. A format
+// may appear in both sets: markdown and text are sometimes a table computed
+// from rows and sometimes a document the script composed itself.
+var (
+	// rowFormats serialize a list of row dicts, matched to the formats
+	// trino_export already writes so the contract does not change when preview
+	// becomes persistence. csv and json are ONLY here: a data feed another
+	// system parses stays well-formed by construction.
+	rowFormats = map[string]bool{"csv": true, "json": true, "markdown": true, "text": true}
+	// documentFormats accept a string body written verbatim. html and jsx are
+	// ONLY here: they have no tabular serialization, and they map to the
+	// content types the portal already stores and renders for saved assets, so
+	// a script-published dashboard is patchable like any other document asset.
+	documentFormats = map[string]bool{"markdown": true, "text": true, "html": true, "jsx": true}
+	// exportFormats is their union, for the unknown-format refusal, merged
+	// from the two sets the arms are checked against so it cannot drift.
+	exportFormats = func() map[string]bool {
+		out := maps.Clone(rowFormats)
+		maps.Copy(out, documentFormats)
+		return out
+	}()
+)
 
 // defaultExportFormat is what an export takes when the author names none.
 const defaultExportFormat = "csv"
@@ -61,7 +81,7 @@ const exportPositionalArgs = 3
 // hint and the number of SetKey calls below it cannot drift apart.
 const (
 	queryResultFields  = 3
-	exportRecordFields = 10
+	exportRecordFields = 11
 )
 
 // argErr wraps an argument-unpacking failure with the binding it came from, so
@@ -326,6 +346,16 @@ func (h *hostState) export(_ *starlark.Thread, b *starlark.Builtin, args starlar
 	if len(h.exports) >= maxExports {
 		return nil, fmt.Errorf("in %s: a run may produce at most %d outputs", b.Name(), maxExports)
 	}
+	// The once-per-destination rule is checked here, not only by the writer,
+	// so a draft run refuses exactly what an approved run refuses: a script
+	// that exports one name to one place twice must fail while the author is
+	// iterating, not at the first fire after somebody approved it.
+	for _, prior := range h.exports {
+		if prior.Name == req.Name && prior.Destination == req.Destination.Name {
+			return nil, fmt.Errorf("in %s: output %q was already written to %q by this run; each output name may be written once per destination, so give the second one its own name",
+				b.Name(), req.Name, req.Destination.Name)
+		}
+	}
 	record, err := h.persistOrPreview(b, req)
 	if err != nil {
 		return nil, err
@@ -382,12 +412,12 @@ func (h *hostState) exportRequest(b *starlark.Builtin, args starlark.Tuple, kwar
 	if err := checkExportKey(b, resolved, key); err != nil {
 		return ExportRequest{}, err
 	}
-	list, err := exportRows(b, rows)
+	body, list, err := exportContent(b, format, rows)
 	if err != nil {
 		return ExportRequest{}, err
 	}
 	return ExportRequest{
-		Name: name, Format: format, Columns: columnOrder(rows), Rows: list,
+		Name: name, Format: format, Columns: columnOrder(rows), Rows: list, Body: body,
 		Destination: resolved, Key: key,
 	}, nil
 }
@@ -415,7 +445,39 @@ func checkExportKey(b *starlark.Builtin, destination script.Destination, key str
 	return nil
 }
 
-// exportRows converts the rows argument to the list of dicts every output
+// exportContent reads the rows argument into whichever of the two content arms
+// the declared format serializes: a string body written verbatim for a
+// document, or a list of row dicts for a tabular write. Exactly one of the two
+// returns is set.
+func exportContent(b *starlark.Builtin, format string, rows starlark.Value) (body *string, list []any, err error) {
+	if s, ok := rows.(starlark.String); ok {
+		if !documentFormats[format] {
+			return nil, nil, fmt.Errorf("in %s: format %q is serialized from rows, a list of dicts; a string body is written verbatim and is valid for the document formats %s",
+				b.Name(), format, sortedSet(documentFormats))
+		}
+		content := string(s)
+		// A blank document is refused rather than published: a body assembled
+		// conditionally that ends up empty is a script bug, and the failure
+		// must be loud rather than a blank version silently replacing the
+		// current one on a shared dashboard. A run with nothing to say should
+		// say so in the document, or fail("why").
+		if strings.TrimSpace(content) == "" {
+			return nil, nil, fmt.Errorf("in %s: the string body is empty; write the document's content, state \"no data\" in it, or stop the run with fail(...)", b.Name())
+		}
+		return &content, nil, nil
+	}
+	if !rowFormats[format] {
+		return nil, nil, fmt.Errorf("in %s: format %q is a document written verbatim from a string body, not serialized from rows",
+			b.Name(), format)
+	}
+	list, err = exportRows(b, rows)
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, list, nil
+}
+
+// exportRows converts the rows argument to the list of dicts a tabular output
 // format is written from.
 func exportRows(b *starlark.Builtin, rows starlark.Value) ([]any, error) {
 	goRows, err := fromStarlark(rows)
@@ -424,7 +486,8 @@ func exportRows(b *starlark.Builtin, rows starlark.Value) ([]any, error) {
 	}
 	list, ok := goRows.([]any)
 	if !ok {
-		return nil, fmt.Errorf("in %s: rows must be a list of dicts, got %s", b.Name(), rows.Type())
+		return nil, fmt.Errorf("in %s: rows must be a list of dicts, or a string body for a document format (%s), got %s",
+			b.Name(), strings.Join(sortedSet(documentFormats), ", "), rows.Type())
 	}
 	return list, nil
 }
@@ -441,8 +504,8 @@ func exportRows(b *starlark.Builtin, rows starlark.Value) ([]any, error) {
 func (h *hostState) persistOrPreview(b *starlark.Builtin, req ExportRequest) (ExportRecord, error) {
 	record := ExportRecord{
 		Name: req.Name, Destination: req.Destination.Name, Format: req.Format,
-		RowCount: len(req.Rows),
-		Preview:  h.opts.Exporter == nil,
+		RowCount: len(req.Rows), Document: req.Body != nil,
+		Preview: h.opts.Exporter == nil,
 	}
 	if h.opts.Exporter == nil {
 		data, _, err := FormatOutput(req)
@@ -474,6 +537,7 @@ func exportValue(record ExportRecord) starlark.Value {
 	_ = out.SetKey(starlark.String("destination"), starlark.String(record.Destination))
 	_ = out.SetKey(starlark.String("format"), starlark.String(record.Format))
 	_ = out.SetKey(starlark.String("row_count"), starlark.MakeInt(record.RowCount))
+	_ = out.SetKey(starlark.String("document"), starlark.Bool(record.Document))
 	_ = out.SetKey(starlark.String("bytes"), starlark.MakeInt(record.Bytes))
 	if record.AssetID != "" {
 		_ = out.SetKey(starlark.String("asset_id"), starlark.String(record.AssetID))
@@ -565,28 +629,79 @@ func (l *logBuffer) string() string {
 // exported by hand.
 const MaxOutputBytes = 100 << 20
 
+// OutputIdentity is how one output is stored: the media type it carries and
+// the file extension its object keys take. It is a value rather than the
+// formatter that produced the bytes, because the bytes are already serialized
+// when FormatOutput returns — nothing downstream may re-serialize, and a
+// document has no serializer to hand back.
+type OutputIdentity struct {
+	ContentType string
+	Extension   string
+}
+
 // FormatOutput serializes one export request in its declared format, checks it
-// against the output ceiling, and returns the formatter that produced it.
+// against the output ceiling, and returns the identity the bytes are stored
+// under.
 //
 // It is the single serializer for a script's output, and the ceiling is applied
 // here rather than by the writer so that the two runs of a script agree: an
 // approved run persists exactly these bytes, and a draft run measures them, so
 // an output too large to write is refused while the author is still iterating
 // rather than at the first fire after somebody approved it.
-func FormatOutput(req ExportRequest) ([]byte, trinokit.Formatter, error) {
+func FormatOutput(req ExportRequest) ([]byte, OutputIdentity, error) {
+	if req.Body != nil {
+		return formatDocument(req)
+	}
 	formatter, err := trinokit.NewFormatter(req.Format)
 	if err != nil {
-		return nil, nil, fmt.Errorf("output %q: %w", req.Name, err)
+		return nil, OutputIdentity{}, fmt.Errorf("output %q: %w", req.Name, err)
 	}
 	data, err := formatter.Format(req.Columns, tabular(req.Columns, req.Rows))
 	if err != nil {
-		return nil, nil, fmt.Errorf("formatting output %q: %w", req.Name, err)
+		return nil, OutputIdentity{}, fmt.Errorf("formatting output %q: %w", req.Name, err)
 	}
 	if len(data) > MaxOutputBytes {
-		return nil, nil, fmt.Errorf("output %q is %d bytes, over the %d-byte limit; aggregate in SQL or write fewer columns",
+		return nil, OutputIdentity{}, fmt.Errorf("output %q is %d bytes, over the %d-byte limit; aggregate in SQL or write fewer columns",
 			req.Name, len(data), MaxOutputBytes)
 	}
-	return data, formatter, nil
+	return data, OutputIdentity{ContentType: formatter.ContentType(), Extension: formatter.FileExtension()}, nil
+}
+
+// documentTypes maps each document format to the canonical media type it is
+// stored under — the same types the portal stores and renders for saved
+// assets, so a script-published document is patchable like any other. The
+// extension an object key carries follows from the type through
+// contenttype.Extension, the one authority every other write path derives
+// keys from, so a jsx document lands on the same key spelling a
+// save_asset-written text/jsx object does.
+var documentTypes = map[string]string{
+	"markdown": contenttype.Markdown,
+	"text":     contenttype.PlainText,
+	"html":     contenttype.HTML,
+	"jsx":      contenttype.JSX,
+}
+
+// formatDocument passes a string body through as the output's bytes, checked
+// against the same ceiling a tabular output is. Verbatim is the contract: what
+// the script composed is what the portal stores or the bucket receives, byte
+// for byte, so a draft's measurement and a real run's write cannot differ.
+//
+// The format is checked against documentFormats here as well as at the
+// argument edge: FormatOutput is the serializer both runs share, and a
+// request some other constructor built with a body under csv or json must be
+// refused rather than written verbatim as a "well-formed by construction"
+// feed.
+func formatDocument(req ExportRequest) ([]byte, OutputIdentity, error) {
+	if !documentFormats[req.Format] {
+		return nil, OutputIdentity{}, fmt.Errorf("output %q: format %q is serialized from rows, a list of dicts; a string body is valid for the document formats %s",
+			req.Name, req.Format, sortedSet(documentFormats))
+	}
+	if len(*req.Body) > MaxOutputBytes {
+		return nil, OutputIdentity{}, fmt.Errorf("output %q is %d bytes, over the %d-byte limit; write a smaller document",
+			req.Name, len(*req.Body), MaxOutputBytes)
+	}
+	ct := documentTypes[req.Format]
+	return []byte(*req.Body), OutputIdentity{ContentType: ct, Extension: contenttype.Extension(ct)}, nil
 }
 
 // tabular projects row dicts onto the column order the script wrote. A row

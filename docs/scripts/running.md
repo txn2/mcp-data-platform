@@ -509,6 +509,40 @@ writes a new version of it. A daily report therefore keeps its identity, its
 shares, and its history instead of producing a new asset every morning, and a
 year of runs leaves one asset with a year of versions.
 
+### Tables and documents
+
+`rows` carries the output's content in one of two shapes, and the declared
+format decides which are valid:
+
+- **A list of dicts**, serialized in the declared format. `csv` and `json`
+  accept only this shape, so a data feed another system parses stays well-formed
+  by construction.
+- **A string body, written verbatim**, so a script can compose a document: an
+  HTML or JSX dashboard, a prose report, a hand-assembled markdown page. `html`
+  and `jsx` accept only this shape — they have no tabular serialization — and
+  `markdown` and `text` accept either. The body lands byte for byte, under the
+  content type the portal already stores and renders for that kind of saved
+  asset, so a script-published dashboard is patchable and shareable like any
+  other document asset.
+
+```python
+platform.export(
+    name="revenue-dashboard",
+    rows="<html><body><h1>Revenue</h1>...</body></html>",
+    format="html",
+)
+```
+
+A document keeps everything a table gets: the same name-to-asset identity and
+versioning, the same destinations, the same draft-run preview (the body is
+measured, nothing is persisted), the same size ceiling, and the same provenance
+capture. An empty body is refused rather than published, so a conditionally
+assembled document that ends up blank fails the run loudly instead of silently
+replacing the current version of a shared dashboard. Object keys carry the
+extension the platform assigns the document's content type — `.md`, `.txt`,
+`.html`, and `.html` for `jsx` too, the platform-wide key spelling for
+`text/jsx` objects.
+
 ### Delivering to an external system
 
 Some output exists to be consumed elsewhere — the weekly CSV another system

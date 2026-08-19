@@ -211,8 +211,13 @@ type ExportRequest struct {
 	// they became order-free Go maps. A tabular format writes its columns in
 	// this order; see columnOrder.
 	Columns []string
-	// Rows is the list of row dicts to write.
+	// Rows is the list of row dicts to write. Nil when the script passed a
+	// string body instead, which Body then carries.
 	Rows []any
+	// Body is the document arm: a string the script composed, persisted
+	// verbatim. Valid for the document formats (markdown, text, html, jsx) and
+	// nil for a tabular output — exactly one of Body and Rows is the content.
+	Body *string
 	// Destination is the granted destination the output goes to, already
 	// resolved from the name the script wrote to the address its approval
 	// pinned. A draft carries only the name, because a draft writes nothing and
@@ -245,6 +250,10 @@ type ExportRecord struct {
 	Destination string `json:"destination"`
 	Format      string `json:"format"`
 	RowCount    int    `json:"row_count"`
+	// Document marks an output written verbatim from a string body, whose
+	// RowCount is therefore not a fact about it: without the marker a surface
+	// rendering "N rows as html" would describe a dashboard as an empty table.
+	Document bool `json:"document,omitempty"`
 	// Bytes is the serialized length of the output in its declared format. A
 	// preview serializes to measure rather than estimating, so the number is
 	// the same one a real run would report for the same rows.

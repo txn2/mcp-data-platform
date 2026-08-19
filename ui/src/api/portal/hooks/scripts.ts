@@ -71,6 +71,9 @@ export interface ScriptRunOutput {
   key?: string;
   format: string;
   row_count: number;
+  // A document was written verbatim from a string body, so its row count is
+  // not a fact about it and is not shown.
+  document?: boolean;
   bytes: number;
 }
 

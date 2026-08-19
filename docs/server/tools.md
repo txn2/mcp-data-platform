@@ -1373,7 +1373,7 @@ The same visibility rule attachments follow applies, over the script's own scope
 | Binding | What it does |
 |---|---|
 | `platform.query(sql, connection, params)` | Read-only SQL. Returns `{columns, rows, row_count}`, rows as dicts keyed by column name, under hard row and byte caps |
-| `platform.export(name, rows, format)` | Declares an output (`csv`, `json`, `markdown`, `text`). In a draft run this reports the shape and size the output would have and writes nothing |
+| `platform.export(name, rows, format)` | Declares an output: rows as a list of dicts serialized in the declared format, or a string body written verbatim for a document. Formats: `csv`, `json`, `markdown`, `text`, `html`, `jsx` — `csv` and `json` require rows, `html` and `jsx` take only a string body, `markdown` and `text` accept either. In a draft run this reports the shape and size the output would have and writes nothing |
 | `print(...)` | The run log, bounded; anything larger belongs in an export |
 | `run.run_id`, `run.fire_time`, `run.params[...]` | The frozen run record |
 | `json`, `date` | Encode/decode, and date arithmetic over `YYYY-MM-DD` strings |

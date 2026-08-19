@@ -12,7 +12,6 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/script"
-	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 )
 
 // outputWriter persists one run's outputs, to the portal or to a granted
@@ -72,14 +71,14 @@ func (w *outputWriter) Export(ctx context.Context, req scriptrun.ExportRequest) 
 		return prior, nil
 	}
 
-	data, formatter, err := scriptrun.FormatOutput(req)
+	data, identity, err := scriptrun.FormatOutput(req)
 	if err != nil {
 		//nolint:wrapcheck // FormatOutput names the output, what went wrong with it,
 		// and what to do; a second wrap here would only repeat the output's name.
 		return nil, err
 	}
 
-	written, out, err := w.write(ctx, req, formatter, data)
+	written, out, err := w.write(ctx, req, identity, data)
 	if err != nil {
 		return nil, err
 	}
@@ -88,11 +87,11 @@ func (w *outputWriter) Export(ctx context.Context, req scriptrun.ExportRequest) 
 }
 
 // write sends one formatted output to its destination.
-func (w *outputWriter) write(ctx context.Context, req scriptrun.ExportRequest, formatter trinokit.Formatter, data []byte) (*scriptrun.ExportResult, script.RunOutput, error) {
+func (w *outputWriter) write(ctx context.Context, req scriptrun.ExportRequest, identity scriptrun.OutputIdentity, data []byte) (*scriptrun.ExportResult, script.RunOutput, error) {
 	if req.Destination.IsPortal() {
-		return w.writePortal(ctx, req, formatter, data)
+		return w.writePortal(ctx, req, identity, data)
 	}
-	return w.deliver(ctx, req, formatter, data)
+	return w.deliver(ctx, req, identity, data)
 }
 
 // refuseRepeat refuses a second write of one output name to one destination
@@ -159,16 +158,16 @@ func outputKey(name, destination string) string {
 }
 
 // writePortal stores one output as a new version of the script's asset.
-func (w *outputWriter) writePortal(ctx context.Context, req scriptrun.ExportRequest, formatter trinokit.Formatter, data []byte) (*scriptrun.ExportResult, script.RunOutput, error) {
+func (w *outputWriter) writePortal(ctx context.Context, req scriptrun.ExportRequest, identity scriptrun.OutputIdentity, data []byte) (*scriptrun.ExportResult, script.RunOutput, error) {
 	if !w.deps.ready() {
 		return nil, script.RunOutput{}, fmt.Errorf("output %q cannot be written: this deployment has no portal asset store or object storage configured", req.Name)
 	}
-	asset, err := w.assetFor(ctx, req.Name, formatter.ContentType())
+	asset, err := w.assetFor(ctx, req.Name, identity.ContentType)
 	if err != nil {
 		return nil, script.RunOutput{}, err
 	}
-	key := w.objectKey(asset.ID, formatter.FileExtension())
-	if err := w.deps.S3.PutObject(ctx, w.deps.Bucket, key, data, formatter.ContentType()); err != nil {
+	key := w.objectKey(asset.ID, identity.Extension)
+	if err := w.deps.S3.PutObject(ctx, w.deps.Bucket, key, data, identity.ContentType); err != nil {
 		return nil, script.RunOutput{}, fmt.Errorf("uploading output %q: %w", req.Name, err)
 	}
 	version, err := w.deps.Versions.CreateVersion(ctx, portal.AssetVersion{
@@ -176,7 +175,7 @@ func (w *outputWriter) writePortal(ctx context.Context, req scriptrun.ExportRequ
 		AssetID:     asset.ID,
 		S3Key:       key,
 		S3Bucket:    w.deps.Bucket,
-		ContentType: formatter.ContentType(),
+		ContentType: identity.ContentType,
 		SizeBytes:   int64(len(data)),
 		CreatedBy:   w.script.Principal(),
 		ChangeSummary: fmt.Sprintf("%s v%d, run %s",
@@ -188,7 +187,8 @@ func (w *outputWriter) writePortal(ctx context.Context, req scriptrun.ExportRequ
 	out := script.RunOutput{
 		Name: req.Name, Destination: req.Destination.Name,
 		AssetID: asset.ID, AssetVersion: version,
-		Format: req.Format, RowCount: len(req.Rows), Bytes: len(data),
+		Format: req.Format, RowCount: len(req.Rows), Document: req.Body != nil,
+		Bytes: len(data),
 	}
 	return &scriptrun.ExportResult{AssetID: asset.ID, AssetVersion: version, Bytes: len(data)}, out, nil
 }

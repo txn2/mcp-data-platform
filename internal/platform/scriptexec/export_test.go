@@ -277,6 +277,49 @@ func TestOutputWriter_WritesAnAssetAndRecordsItOnTheRun(t *testing.T) {
 	assert.Equal(t, "daily", h.runs.outputs[0].Name)
 }
 
+// documentRequest is one composed document in the shape the engine hands over.
+func documentRequest(name, format, body string) scriptrun.ExportRequest {
+	return scriptrun.ExportRequest{
+		Name: name, Format: format, Body: &body,
+		Destination: script.PortalDestination(),
+	}
+}
+
+// TestOutputWriter_WritesADocumentVerbatim pins #1388 across the persistence
+// seam: a string body lands byte for byte, under the content type the portal
+// renders for that document kind, and a delivered one takes the format's own
+// extension when the script names no key.
+func TestOutputWriter_WritesADocumentVerbatim(t *testing.T) {
+	h := newWriterHarness(t)
+	body := "<html><body>dash</body></html>"
+
+	result, err := h.writer.Export(context.Background(), documentRequest("dash", "html", body))
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.AssetVersion)
+	assert.Equal(t, len(body), result.Bytes)
+
+	require.Len(t, h.assets.inserted, 1)
+	assert.Equal(t, "text/html", h.assets.inserted[0].ContentType)
+	require.Len(t, h.versions.created, 1)
+	assert.Equal(t, "text/html", h.versions.created[0].ContentType)
+	require.Len(t, h.s3.objects, 1)
+	for key, data := range h.s3.objects {
+		assert.True(t, strings.HasSuffix(key, ".html"), key)
+		assert.Equal(t, body, string(data), "verbatim is the contract")
+	}
+
+	// The same document delivered to a granted bucket, with no key named: the
+	// default key takes the document format's own extension.
+	req := documentRequest("dash", "html", body)
+	req.Destination = acmeDrop()
+	h.caller.result = map[string]any{}
+	_, err = h.writer.Export(context.Background(), req)
+	require.NoError(t, err)
+	require.Len(t, h.caller.calls, 1)
+	assert.Equal(t, "weekly/dash.html", h.caller.calls[0].args["key"])
+	assert.Equal(t, "text/html", h.caller.calls[0].args["content_type"])
+}
+
 // TestOutputWriter_SameNameIsANewVersionOfOneAsset is the stable-identity
 // property: a daily report keeps its asset, its shares, and its history instead
 // of minting a new asset every morning.
