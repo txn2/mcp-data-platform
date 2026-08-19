@@ -4998,6 +4998,12 @@ definitions:
       destination:
         example: portal
         type: string
+      document:
+        description: |-
+          Document marks an output written verbatim from a string body, whose
+          RowCount is therefore not a fact about it.
+        example: false
+        type: boolean
       format:
         example: csv
         type: string
@@ -5161,6 +5167,12 @@ definitions:
           written before destinations existed, which Destination() reads as the
           portal.
         type: string
+      document:
+        description: |-
+          Document marks an output written verbatim from a string body rather than
+          serialized from rows, so a surface reporting the output does not describe
+          a dashboard as a zero-row table.
+        type: boolean
       format:
         type: string
       key:

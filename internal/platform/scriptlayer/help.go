@@ -41,11 +41,20 @@ WHAT IS AVAILABLE
       "DATE :day", which renders the standard date literal DATE '2026-08-12'.
       A query whose result is truncated by the row cap FAILS rather than
       returning a partial answer: aggregate in SQL, or narrow the query.
+      A SQL DECIMAL column arrives in the rows as a STRING, not a number, so
+      pass it through float() before arithmetic:
+      sum([float(r["total"]) for r in rows]).
   platform.export(name, rows, format="csv", destination="portal", key=None)
-      Declare an output. Formats: csv, json, markdown, text. name is the
-      output's identity across runs: the same name from the same script is one
-      portal asset, and every run adds a version of it, so a dashboard keeps its
-      identity instead of a new asset appearing every morning.
+      Declare an output. rows is a list of dicts serialized in the declared
+      format, or a string body written verbatim so a script can compose a
+      document: an HTML or JSX dashboard, a prose report, a hand-assembled
+      markdown page. Formats: csv, json, markdown, text, html, jsx. csv and
+      json require rows, so a data feed stays well-formed by construction;
+      html and jsx take only a string body; markdown and text accept either.
+      name is the output's identity across runs: the same name from the same
+      script is one portal asset, and every run adds a version of it, so a
+      dashboard keeps its identity instead of a new asset appearing every
+      morning.
       destination says where the output goes. The default, "portal", is that
       versioned asset. A destination approved for a bucket delivers the same
       bytes to an external system instead; the script names only the
@@ -58,9 +67,9 @@ WHAT IS AVAILABLE
       be positional, because where a script writes has to be readable from its
       source before anyone approves it.
       In a draft run this writes nothing, wherever it was addressed, and
-      reports the shape and size the output would have: the rows are serialized
-      in the declared format to measure them, so the size is the one a real run
-      writes.
+      reports the shape and size the output would have: the content is
+      serialized in the declared format to measure it, so the size is the one
+      a real run writes.
   print(...)  Goes to the run log (capped; anything larger is an export).
   run.run_id, run.fire_time, run.params["name"]  The frozen run record.
       A parameter is typed string, int, float, bool, date, enum or connection.

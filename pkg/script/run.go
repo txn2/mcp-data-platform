@@ -96,7 +96,11 @@ type RunOutput struct {
 
 	Format   string `json:"format"`
 	RowCount int    `json:"row_count"`
-	Bytes    int    `json:"bytes"`
+	// Document marks an output written verbatim from a string body rather than
+	// serialized from rows, so a surface reporting the output does not describe
+	// a dashboard as a zero-row table.
+	Document bool `json:"document,omitempty"`
+	Bytes    int  `json:"bytes"`
 }
 
 // destinationOf reads a recorded output's destination, treating an unset one as

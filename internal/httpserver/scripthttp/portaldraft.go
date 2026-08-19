@@ -282,7 +282,7 @@ func draftOutputs(outcome *scriptdraft.Outcome) []script.DryRunOutput {
 	for _, e := range outcome.Result.Exports {
 		out = append(out, script.DryRunOutput{
 			Name: e.Name, Destination: e.Destination, Format: e.Format,
-			RowCount: e.RowCount, Bytes: e.Bytes,
+			RowCount: e.RowCount, Document: e.Document, Bytes: e.Bytes,
 		})
 	}
 	return out

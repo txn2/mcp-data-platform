@@ -518,9 +518,9 @@ calling the tools themselves.
 
 It is deliberately not a way around the execution gate:
 
-- It persists nothing. `platform.export` previews — it serializes the rows to
-  measure them and writes none of them — so no asset is versioned and no object
-  is delivered, wherever the output was addressed.
+- It persists nothing. `platform.export` previews — it serializes the output to
+  measure it and writes nothing — so no asset is versioned and no object is
+  delivered, wherever the output was addressed.
 - It runs under the draft limits, which are tighter than an approved run's.
 - It never reads or sets the approved-version pointer, and it cannot approve,
   reject, or widen anything.

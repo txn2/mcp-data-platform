@@ -30,6 +30,9 @@ type DryRunOutput struct {
 	Destination string `json:"destination,omitempty" example:"portal"`
 	Format      string `json:"format" example:"csv"`
 	RowCount    int    `json:"row_count" example:"1200"`
+	// Document marks an output written verbatim from a string body, whose
+	// RowCount is therefore not a fact about it.
+	Document bool `json:"document,omitempty" example:"false"`
 	// Bytes is the serialized length in the declared format. A preview
 	// serializes to measure rather than estimating, so it is the size a real
 	// run of the same rows would write.

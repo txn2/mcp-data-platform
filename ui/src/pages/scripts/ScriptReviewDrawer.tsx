@@ -347,9 +347,11 @@ function DryRunOutputs({ outputs }: { outputs: ScriptDryRunOutput[] }) {
     <ul className="space-y-0.5 text-xs text-muted-foreground">
       {outputs.map((o) => (
         <li key={`${o.name}-${o.destination ?? ""}`}>
-          <span className="font-mono">{o.name}</span>: {o.row_count} row
-          {o.row_count === 1 ? "" : "s"} as {o.format} ({o.bytes} bytes) to{" "}
-          {o.destination || "the portal"}.
+          <span className="font-mono">{o.name}</span>:{" "}
+          {o.document
+            ? `a ${o.format} document`
+            : `${o.row_count} row${o.row_count === 1 ? "" : "s"} as ${o.format}`}{" "}
+          ({o.bytes} bytes) to {o.destination || "the portal"}.
         </li>
       ))}
     </ul>

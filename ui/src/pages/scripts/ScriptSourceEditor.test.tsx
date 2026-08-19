@@ -292,13 +292,18 @@ describe("ScriptSourceEditor: checking an edit", () => {
         status: "succeeded",
         log: "computed 12 rows",
         metrics: { steps: 40, duration_ms: 250, queries: 1, exports: 1 },
-        outputs: [{ name: "daily", destination: "portal", format: "csv", row_count: 12, bytes: 300 }],
+        outputs: [
+          { name: "daily", destination: "portal", format: "csv", row_count: 12, bytes: 300 },
+          { name: "dash", destination: "portal", format: "html", row_count: 0, document: true, bytes: 512 },
+        ],
         message: "Nothing was persisted.",
       }),
     );
     expect(screen.getByText("succeeded")).toBeInTheDocument();
     expect(screen.getByText("Nothing was persisted.")).toBeInTheDocument();
     expect(screen.getByText(/would write 12 rows as csv/)).toBeInTheDocument();
+    // A composed document is not a zero-row table and is not described as one.
+    expect(screen.getByText(/would write a html document \(512 bytes\)/)).toBeInTheDocument();
     expect(screen.getByText("computed 12 rows")).toBeInTheDocument();
   });
 
