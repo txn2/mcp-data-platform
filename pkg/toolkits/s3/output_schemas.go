@@ -15,7 +15,9 @@ const (
 
 // nullTolerantOutputSchemas returns mcp-s3's default output schemas with every
 // top-level array property also admitting null, for the tools where that
-// changes anything (list_buckets and list_objects in mcp-s3 v1.3.0).
+// changes anything (list_buckets and list_objects in mcp-s3 v1.3.0). It is the
+// interim correction for txn2/mcp-s3#141 and is removed once a release of
+// mcp-s3 carrying that fix is pinned here.
 //
 // mcp-s3 registers typed handlers and answers a failure with an error result
 // and a nil typed output. The MCP SDK then substitutes the zero value of the
