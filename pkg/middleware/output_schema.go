@@ -1,9 +1,12 @@
 package middleware
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/google/jsonschema-go/jsonschema"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // ErrorEnvelopeProperty returns the JSON Schema for the machine-readable error
@@ -45,10 +48,12 @@ func stringProp(description string) *jsonschema.Schema {
 //     no success-body field is guaranteed present on every result.
 //   - The semantic-enrichment middleware may mirror open-ended
 //     semantic/memory/knowledge keys into structuredContent
-//     (mcp_enrichment.go); the platform cannot enumerate those keys ahead of
-//     time. (It fires only for trino_/datahub_/s3_ tools today, none of which
-//     declare a schema, but keeping declared schemas open makes them safe if
-//     that ever changes.)
+//     (mcp_enrichment.go), and the call reference appends call_reference to
+//     every data call; the platform cannot enumerate those keys ahead of time.
+//
+// Third-party toolkits do not build their schemas through this function, so
+// MCPOutputSchemaMiddleware applies the same opening to every schema a
+// tools/list response advertises (#1381).
 //
 // To keep a spec-faithful client from rejecting a valid result, this opens the
 // schema: additionalProperties is allowed (admits injected keys), no property is
@@ -85,4 +90,105 @@ func MustOutputSchema[T any]() *jsonschema.Schema {
 		panic(fmt.Sprintf("middleware.MustOutputSchema: %v", err))
 	}
 	return OpenToolOutputSchema(base)
+}
+
+// MCPOutputSchemaMiddleware opens the top level of every output schema a
+// tools/list response advertises, so the schema admits the keys the platform
+// adds to a tool's structuredContent after the tool's own handler has returned
+// (#1381).
+//
+// The platform reserves the top level of every tool's structured output: the
+// error contract replaces a failed call's body with the {error} envelope, the
+// call reference appends call_reference to a data call, and semantic enrichment
+// mirrors its context blocks in. A toolkit that registers a typed handler with
+// no explicit OutputSchema (mcp-trino does) gets one inferred from its Go
+// struct, and jsonschema-go closes every struct-derived object with
+// additionalProperties: false and a required list. A client that validates
+// structuredContent against the advertised schema then discards every such
+// result, successes for the keys the platform added and failures for the
+// envelope that replaced the body. The advertised contract is therefore the
+// same one OpenToolOutputSchema gives the platform-owned tools: the top level is
+// open, nothing is required, and the error envelope is documented under
+// "error". Nested objects keep the strict schemas the toolkit declared, since
+// only the top level receives platform keys.
+//
+// The SDK still validates a handler's own structured output against the schema
+// it inferred, inside the handler wrapper and before any middleware runs, so a
+// toolkit's own contract is enforced unchanged; only what the server promises
+// the client changes. The decorator replaces the Tool pointer in the list with
+// a copy, so the server's registry is never mutated. A tool that declares a
+// non-object output schema, or none, is left as it is.
+func MCPOutputSchemaMiddleware() mcp.Middleware {
+	return func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			result, err := next(ctx, method, req)
+			if err != nil || method != methodToolsList {
+				return result, err
+			}
+			return openListedOutputSchemas(result), nil
+		}
+	}
+}
+
+// openListedOutputSchemas rewrites each listed tool's advertised output schema
+// through openOutputSchema. A result that is not a tools/list result is
+// returned untouched.
+func openListedOutputSchemas(result mcp.Result) mcp.Result {
+	listResult, ok := result.(*mcp.ListToolsResult)
+	if !ok || listResult == nil {
+		return result
+	}
+	for i, tool := range listResult.Tools {
+		if tool == nil || tool.OutputSchema == nil {
+			continue
+		}
+		opened, ok := openOutputSchema(tool.OutputSchema)
+		if !ok {
+			continue
+		}
+		cp := *tool
+		cp.OutputSchema = opened
+		listResult.Tools[i] = &cp
+	}
+	return listResult
+}
+
+// openOutputSchema returns a copy of an object output schema with its top level
+// opened to the platform's keys: additionalProperties allowed, no required
+// property, and the shared error envelope declared under "error" when the tool
+// did not declare that key itself. It normalizes any schema representation
+// (*jsonschema.Schema, json.RawMessage, or map) through a JSON round-trip, so
+// one code path covers every registration style. The second return is false
+// when the schema is not a JSON object schema; such a tool is left unchanged.
+func openOutputSchema(schema any) (any, bool) {
+	raw, err := json.Marshal(schema)
+	if err != nil {
+		return nil, false
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err != nil || obj == nil {
+		return nil, false
+	}
+	if t, _ := obj["type"].(string); t != "" && t != "object" {
+		return nil, false
+	}
+	obj["additionalProperties"] = true
+	delete(obj, "required")
+	props, _ := obj["properties"].(map[string]any)
+	if props == nil {
+		props = map[string]any{}
+	}
+	if _, declared := props[errorEnvelopeKey]; !declared {
+		envelope, err := json.Marshal(ErrorEnvelopeProperty())
+		if err != nil {
+			return nil, false
+		}
+		var envelopeObj map[string]any
+		if err := json.Unmarshal(envelope, &envelopeObj); err != nil {
+			return nil, false
+		}
+		props[errorEnvelopeKey] = envelopeObj
+	}
+	obj["properties"] = props
+	return obj, true
 }

@@ -61,17 +61,24 @@ const MinInputBytes = 256
 // Embed) or stop re-queueing the unit.
 var ErrInputTooLarge = errors.New("embedding: input exceeds the model context length")
 
-// contextLengthMarkers are the substrings an Ollama 400 body uses to say
+// contextLengthMarkers are the substrings an Ollama error body uses to say
 // an input does not fit the model's context (observed: "the input length
-// exceeds the context length"). Matched case-insensitively, and only on a
-// 400, so a 5xx or a transport failure stays a generic retryable error.
+// exceeds the context length"). Matched case-insensitively on the body
+// alone, whatever status carries it: the same Ollama answers the condition
+// with a 400 from the batch endpoint (/api/embed) and a 500 from the
+// single-input endpoint (/api/embeddings), with an identical body (#1385).
+// A status-gated match classified the batch refusal and missed the
+// per-input one that follows it, so the bound was never reduced and the
+// unit failed identically forever. A 5xx or transport failure with no
+// marker in the body stays a generic retryable error.
 //
 // The wording is matched rather than compared because it is not part of
 // Ollama's API contract and has varied across releases. The asymmetry is
 // deliberate: a false positive costs a few extra calls at smaller bounds
 // before the original error surfaces unchanged, while a false negative
 // restores the endless identical failure this classification exists to
-// end.
+// end. Widening past the 400 moves in the safe direction for the same
+// reason.
 var contextLengthMarkers = []string{
 	"context length",
 	"context window",
@@ -79,11 +86,9 @@ var contextLengthMarkers = []string{
 }
 
 // isContextLengthError reports whether an Ollama error response says the
-// input overflowed the model's context.
-func isContextLengthError(status int, body string) bool {
-	if status != http.StatusBadRequest {
-		return false
-	}
+// input overflowed the model's context. The status is not consulted; see
+// contextLengthMarkers for why.
+func isContextLengthError(body string) bool {
 	lower := strings.ToLower(body)
 	for _, marker := range contextLengthMarkers {
 		if strings.Contains(lower, marker) {
@@ -271,7 +276,7 @@ func (o *ollamaProvider) embedOnce(ctx context.Context, text string, budget int)
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
-		if isContextLengthError(resp.StatusCode, string(respBody)) {
+		if isContextLengthError(string(respBody)) {
 			return nil, fmt.Errorf("ollama API returned status %d: %s: %w",
 				resp.StatusCode, string(respBody), ErrInputTooLarge)
 		}
@@ -373,7 +378,7 @@ func (o *ollamaProvider) embedBatchOnce(ctx context.Context, texts []string) (re
 	}
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
-		if isContextLengthError(resp.StatusCode, string(respBody)) {
+		if isContextLengthError(string(respBody)) {
 			return nil, false, fmt.Errorf("ollama batch API returned status %d: %s: %w",
 				resp.StatusCode, string(respBody), ErrInputTooLarge)
 		}

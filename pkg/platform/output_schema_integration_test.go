@@ -3,6 +3,10 @@ package platform
 import (
 	"context"
 	"encoding/json"
+	"maps"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/google/jsonschema-go/jsonschema"
@@ -167,4 +171,125 @@ func TestPlatformOutputSchemasAreOpen(t *testing.T) {
 		_, ok := s.Properties["error"]
 		assert.True(t, ok, "%s: declares the shared error property", name)
 	}
+}
+
+// TestThirdPartyToolResultsValidateAgainstTheirAdvertisedSchemas is the gate
+// #1381 asked for: it assembles the real Trino and S3 toolkits (against
+// endpoints that refuse every request, so nearly every call fails the way a
+// deployment's does when its backend is down; s3_presign_url signs locally and
+// succeeds), lists their tools through the assembled server, calls each tool
+// through the full receiving chain, and validates the returned
+// structuredContent against the output schema the same server advertised for
+// it. mcp-trino registers typed handlers with no explicit schema, so the SDK
+// infers one and jsonschema-go closes it; mcp-s3 declares its own open
+// schemas. Both must admit what the chain hands back: the error envelope the
+// contract substitutes on failure, and a success body. The success path that
+// carries a call_reference is proved on a real database by
+// TestRealDB_TrinoQueryResultWithCallReferenceValidatesAgainstAdvertisedSchema.
+func TestThirdPartyToolResultsValidateAgainstTheirAdvertisedSchemas(t *testing.T) {
+	s3Instance := map[string]any{"region": "us-east-1", "access_key_id": "a", "secret_access_key": "b"}
+	cfg := &Config{
+		Server:   ServerConfig{Name: "test-platform"},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+		Personas: PersonasConfig{Definitions: map[string]PersonaDef{"default": {
+			DisplayName: "Default",
+			Roles:       []string{auth.RoleAnonymous},
+			Tools:       ToolRulesDef{Allow: []string{"*"}},
+			Connections: ConnectionRulesDef{Allow: []string{"*"}},
+		}}},
+		// The search-first gate would refuse trino_query before the toolkit
+		// runs; this gate is about what the toolkit's own result looks like.
+		Workflow: WorkflowConfig{RequireSearch: new(false)},
+		Toolkits: map[string]any{
+			"trino": map[string]any{"enabled": true, "instances": map[string]any{
+				"acme": map[string]any{"host": "127.0.0.1", "port": 1, "user": "t"},
+			}},
+			"s3": map[string]any{"enabled": true, "instances": map[string]any{"acme": s3Instance}},
+		},
+	}
+	// An S3 endpoint that refuses every request at once, so the S3 client's
+	// retry schedule does not set the pace of the test.
+	refusing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `<Error><Code>AccessDenied</Code><Message>refused</Message></Error>`, http.StatusForbidden)
+	}))
+	t.Cleanup(refusing.Close)
+	s3Instance["endpoint"] = refusing.URL
+	s3Instance["use_path_style"] = true
+
+	p, err := New(WithConfig(cfg))
+	require.NoError(t, err)
+	ctx := context.Background()
+	require.NoError(t, p.Start(ctx))
+	defer func() { _ = p.Stop(ctx) }()
+
+	t1, t2 := mcp.NewInMemoryTransports()
+	ss, err := p.MCPServer().Connect(ctx, t1, nil)
+	require.NoError(t, err)
+	defer func() { _ = ss.Close() }()
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "c", Version: "v0"}, nil).Connect(ctx, t2, nil)
+	require.NoError(t, err)
+	defer func() { _ = cs.Close() }()
+
+	schemas := listedPlatformSchemas(ctx, t, cs)
+	for _, name := range []string{"trino_query", "trino_describe_table", "trino_explain", "trino_browse", "s3_list_objects", "s3_list_buckets"} {
+		require.Contains(t, schemas, name, "%s advertises an output schema", name)
+	}
+	// A real client states a purpose exactly where the server advertised the
+	// argument; the gate refuses a data call without one before the toolkit
+	// runs, and a tool that does not advertise it rejects the unknown argument.
+	takesPurpose := map[string]bool{}
+	lt, err := cs.ListTools(ctx, nil)
+	require.NoError(t, err)
+	for _, tool := range lt.Tools {
+		raw, err := json.Marshal(tool.InputSchema)
+		require.NoError(t, err)
+		var in struct {
+			Properties map[string]json.RawMessage `json:"properties"`
+		}
+		require.NoError(t, json.Unmarshal(raw, &in))
+		_, takesPurpose[tool.Name] = in.Properties["purpose"]
+	}
+
+	info, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "platform_info", Arguments: map[string]any{}})
+	require.NoError(t, err)
+	sid := sessionIDFromSC(t, info.StructuredContent)
+	require.NotEmpty(t, sid)
+
+	// The arguments a real caller would send; anything the tool needs beyond
+	// these is still answered with a result whose structuredContent must
+	// validate, so an unexpected refusal is covered as well.
+	args := map[string]map[string]any{
+		"trino_query":            {"sql": "SELECT 1"},
+		"trino_execute":          {"sql": "SELECT 1"},
+		"trino_explain":          {"sql": "SELECT 1"},
+		"trino_describe_table":   {"table": "memory.default.t"},
+		"s3_list_objects":        {"bucket": "b"},
+		"s3_get_object":          {"bucket": "b", "key": "k"},
+		"s3_get_object_metadata": {"bucket": "b", "key": "k"},
+		"s3_presign_url":         {"bucket": "b", "key": "k"},
+		"s3_put_object":          {"bucket": "b", "key": "k", "content": "x"},
+		"s3_copy_object":         {"source_bucket": "b", "source_key": "k", "dest_bucket": "b", "dest_key": "k2"},
+		"s3_delete_object":       {"bucket": "b", "key": "k"},
+	}
+	checked := 0
+	for name, resolved := range schemas {
+		if !strings.HasPrefix(name, "trino_") && !strings.HasPrefix(name, "s3_") {
+			continue
+		}
+		checked++
+		t.Run(name, func(t *testing.T) {
+			callArgs := map[string]any{"session_id": sid, "connection": "acme"}
+			if takesPurpose[name] {
+				callArgs["purpose"] = "Proving every tool result validates against its advertised schema."
+			}
+			maps.Copy(callArgs, args[name])
+			res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: callArgs})
+			require.NoError(t, err, "the call is answered with a result, not a protocol error")
+			require.NotNil(t, res.StructuredContent, "the chain emits structuredContent: %v", res.Content)
+			validatePlatformSC(t, resolved, res.StructuredContent)
+		})
+	}
+	require.GreaterOrEqual(t, checked, 10, "the real Trino and S3 toolkits were assembled and their tools called")
 }

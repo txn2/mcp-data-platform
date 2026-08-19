@@ -24,29 +24,45 @@ func TestIsContextLengthError(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
-		status int
-		body   string
-		want   bool
+		name string
+		body string
+		want bool
 	}{
-		{"canonical ollama body", http.StatusBadRequest, contextLengthBody, true},
-		{"reworded exceeded", http.StatusBadRequest, `{"error":"context length exceeded"}`, true},
-		{"context window wording", http.StatusBadRequest, `{"error":"exceeds the context window"}`, true},
-		{"input is too large wording", http.StatusBadRequest, `{"error":"input is too large"}`, true},
-		{"mixed case", http.StatusBadRequest, `{"error":"Input Length Exceeds The Context Length"}`, true},
-		{"400 for an unrelated reason", http.StatusBadRequest, `{"error":"model not found"}`, false},
-		// A 500 carrying the same words is a server fault, not an input
-		// fault. Shrinking the text would not fix it, and classifying it as
-		// deterministic would stop the retry that can.
-		{"same wording on a 500", http.StatusInternalServerError, contextLengthBody, false},
-		{"503 outage", http.StatusServiceUnavailable, "upstream unavailable", false},
-		{"empty body", http.StatusBadRequest, "", false},
+		{"canonical ollama body", contextLengthBody, true},
+		{"reworded exceeded", `{"error":"context length exceeded"}`, true},
+		{"context window wording", `{"error":"exceeds the context window"}`, true},
+		{"input is too large wording", `{"error":"input is too large"}`, true},
+		{"mixed case", `{"error":"Input Length Exceeds The Context Length"}`, true},
+		{"unrelated refusal", `{"error":"model not found"}`, false},
+		{"outage body", "upstream unavailable", false},
+		{"empty body", "", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			assert.Equal(t, tt.want, isContextLengthError(tt.status, tt.body))
+			assert.Equal(t, tt.want, isContextLengthError(tt.body))
 		})
+	}
+}
+
+// TestIsContextLengthError_StatusDoesNotGateTheMatch pins #1385 with the
+// response the deployment produced: the single-input endpoint refused the
+// same oversized text with a 500 where the batch endpoint had said 400,
+// body identical. Both must classify as ErrInputTooLarge, or the halving
+// loop never engages and the unit fails identically forever.
+func TestIsContextLengthError_StatusDoesNotGateTheMatch(t *testing.T) {
+	t.Parallel()
+
+	for _, status := range []int{http.StatusBadRequest, http.StatusInternalServerError, http.StatusServiceUnavailable} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(status)
+			_, _ = w.Write([]byte(contextLengthBody))
+		}))
+		p := NewOllamaProvider(OllamaConfig{URL: srv.URL, Model: "m", MaxInputBytes: MinInputBytes})
+		_, err := p.Embed(context.Background(), "x")
+		srv.Close()
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, ErrInputTooLarge), "status %d with the context-length body must classify as ErrInputTooLarge, got %v", status, err)
 	}
 }
 
@@ -67,6 +83,10 @@ type oversizeServer struct {
 	mu        sync.Mutex
 	acceptAt  int
 	promptLen []int
+	// singleStatus is the status the single-input endpoint refuses with.
+	// Zero means 400. The Ollama behind #1385 answers 500 there while the
+	// batch endpoint answers 400 for the same input and the same body.
+	singleStatus int
 }
 
 func (s *oversizeServer) handler(t *testing.T) http.HandlerFunc {
@@ -85,7 +105,11 @@ func (s *oversizeServer) handler(t *testing.T) http.HandlerFunc {
 		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
 		s.promptLen = append(s.promptLen, len(req.Prompt))
 		if len(req.Prompt) > s.acceptAt {
-			w.WriteHeader(http.StatusBadRequest)
+			status := s.singleStatus
+			if status == 0 {
+				status = http.StatusBadRequest
+			}
+			w.WriteHeader(status)
 			_, _ = w.Write([]byte(contextLengthBody))
 			return
 		}
@@ -201,6 +225,27 @@ func TestEmbedBatch_RefusedBatchRerunsPerInput(t *testing.T) {
 
 	assert.Equal(t, []int{5, 6000, 3000, 1500, 750}, srv.prompts(),
 		"the within-budget input must embed whole; only the oversized one shrinks")
+}
+
+// TestEmbedBatch_ConvergesWhenTheSingleEndpointRefusesWith500 is the
+// #1385 reproduction end to end: the batch endpoint refuses with a 400,
+// the per-input rerun is refused with a 500 carrying the same body, and
+// the oversized input must still converge instead of surfacing the 500 as
+// a generic failure on every attempt.
+func TestEmbedBatch_ConvergesWhenTheSingleEndpointRefusesWith500(t *testing.T) {
+	t.Parallel()
+
+	srv := &oversizeServer{acceptAt: 1000, singleStatus: http.StatusInternalServerError}
+	ts := httptest.NewServer(srv.handler(t))
+	defer ts.Close()
+
+	p := NewOllamaProvider(OllamaConfig{URL: ts.URL, Model: "m", MaxInputBytes: 6000})
+	vecs, err := p.EmbedBatch(context.Background(), []string{"short", strings.Repeat("a", 6000)})
+	require.NoError(t, err, "a 500 with the context-length body must be bounded like the 400")
+	require.Len(t, vecs, 2)
+
+	assert.Equal(t, []int{5, 6000, 3000, 1500, 750}, srv.prompts(),
+		"the oversized input must halve until accepted whatever status refused it")
 }
 
 // TestEmbedBatch_RefusedBatchDoesNotMarkTheEndpointUnsupported proves the

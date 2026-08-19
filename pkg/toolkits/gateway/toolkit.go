@@ -1283,7 +1283,24 @@ func (t *Toolkit) makeForwarder(u *upstream, remoteName, localName string) mcp.T
 		if !res.IsError {
 			t.applyEnrichment(ctx, connection, localName, req, res)
 		}
+		dropUpstreamServerInfo(res)
 		return res, nil
+	}
+}
+
+// dropUpstreamServerInfo removes the identity an upstream on protocol revision
+// 2026-07-28 or later stamps into a result's _meta. The SDK annotates a result
+// with this server's identity only when the key is absent, so left in place the
+// upstream's name would be what this server's client reads as the answering
+// server (#1383). The proxied result is this server's answer, and its envelope
+// is this server's to write.
+func dropUpstreamServerInfo(res *mcp.CallToolResult) {
+	if res == nil || res.Meta == nil {
+		return
+	}
+	delete(res.Meta, mcp.MetaKeyServerInfo)
+	if len(res.Meta) == 0 {
+		res.Meta = nil
 	}
 }
 

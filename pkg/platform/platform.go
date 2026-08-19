@@ -43,7 +43,6 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/obs"
 	"github.com/txn2/mcp-data-platform/internal/platform/portalstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/promptlayer"
-	"github.com/txn2/mcp-data-platform/internal/platform/provenance"
 	"github.com/txn2/mcp-data-platform/internal/platform/reflexivecapture"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourceaudit"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcelayer"
@@ -2312,19 +2311,6 @@ func (p *Platform) addManagedResourceMiddleware() {
 		cfg.PersonasForRoles = iam.PersonasForRoles(p.personaRegistry)
 	}
 	p.mcpServer.AddReceivingMiddleware(middleware.MCPManagedResourceMiddleware(cfg))
-}
-
-// addCallReferenceMiddleware hands each data call its own identifier back, so
-// an agent can name exactly which calls produced the asset it saves (#1320).
-// It is registered only when audit is recording: without a stored call there is
-// nothing for the identifier to refer to.
-func (p *Platform) addCallReferenceMiddleware() {
-	if !p.audit.Recording() {
-		return
-	}
-	p.mcpServer.AddReceivingMiddleware(
-		middleware.MCPCallReferenceMiddleware(provenance.SourceToolkitKinds()),
-	)
 }
 
 // captureProvenance resolves the calls behind one asset write. It is the seam

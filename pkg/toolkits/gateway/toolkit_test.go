@@ -1213,6 +1213,46 @@ func TestForwarder_ReconnectsAfterDroppedSession(t *testing.T) {
 	assert.NotSame(t, firstClient, newClient, "expected a fresh upstream client after reconnect")
 }
 
+// TestForwarder_DropsTheUpstreamServerIdentity covers #1383's envelope rule: an
+// upstream on a current protocol revision stamps its own identity into the
+// result's _meta, and the forwarder removes it so the platform server, which
+// annotates only an absent key, is the server the client sees answering.
+func TestForwarder_DropsTheUpstreamServerIdentity(t *testing.T) {
+	srv := mcp.NewServer(&mcp.Implementation{Name: "upstream", Version: "0.0.1"}, nil)
+	mcp.AddTool(srv, &mcp.Tool{Name: toolEcho, Description: "echo"},
+		func(context.Context, *mcp.CallToolRequest, struct{}) (*mcp.CallToolResult, any, error) {
+			return &mcp.CallToolResult{
+				Meta:    mcp.Meta{mcp.MetaKeyServerInfo: map[string]any{"name": "upstream"}, "x-trace": "keep"},
+				Content: []mcp.Content{&mcp.TextContent{Text: "echo"}},
+			}, nil, nil
+		})
+	ts := httptest.NewServer(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil))
+	t.Cleanup(func() { ts.CloseClientConnections(); ts.Close() })
+
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+	require.NoError(t, tk.AddConnection(connCRM, connectionConfig(ts.URL, connCRM)))
+	tk.mu.RLock()
+	u := tk.connections[connCRM]
+	tk.mu.RUnlock()
+
+	res, err := tk.makeForwarder(u, toolEcho, localCRMEcho)(context.Background(), &mcp.CallToolRequest{
+		Params: &mcp.CallToolParamsRaw{Name: toolEcho, Arguments: json.RawMessage(`{}`)},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError)
+	_, leaked := res.Meta[mcp.MetaKeyServerInfo]
+	assert.False(t, leaked, "the upstream's serverInfo must not reach the client: %v", res.Meta)
+	assert.Equal(t, "keep", res.Meta["x-trace"], "other upstream meta is forwarded")
+
+	// A result with only the upstream identity ends with no meta at all, and a
+	// nil result is tolerated.
+	only := &mcp.CallToolResult{Meta: mcp.Meta{mcp.MetaKeyServerInfo: "u"}}
+	dropUpstreamServerInfo(only)
+	assert.Nil(t, only.Meta)
+	dropUpstreamServerInfo(nil)
+}
+
 // healthFor returns the health snapshot for the CRM test connection, or nil.
 func healthFor(details []toolkit.ConnectionDetail) *toolkit.ConnectionHealth {
 	for _, d := range details {

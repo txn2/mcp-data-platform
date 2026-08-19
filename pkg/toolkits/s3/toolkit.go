@@ -159,6 +159,9 @@ func createToolkit(client *s3client.Client, cfg Config, metrics *observability.M
 	if len(cfg.Annotations) > 0 {
 		opts = append(opts, s3tools.WithAnnotations(toS3Annotations(cfg.Annotations)))
 	}
+	// A failed listing must answer with the tool's own error, not the SDK's
+	// output-validation error; see nullTolerantOutputSchemas.
+	opts = append(opts, s3tools.WithOutputSchemas(nullTolerantOutputSchemas()))
 	return s3tools.NewToolkit(client, opts...)
 }
 

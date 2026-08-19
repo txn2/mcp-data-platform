@@ -513,6 +513,7 @@ Request processing flows through MCP protocol-level middleware registered via `s
 **IMPORTANT**: `AddReceivingMiddleware` wraps the current handler — each call makes the new middleware the **outermost** layer. The LAST middleware added runs FIRST. In `finalizeSetup()`, middleware is added innermost-first:
 
 Execution order (outermost to innermost):
+0. **MCPResultTypeMiddleware** - Outermost: types every tools/call, prompts/get and resources/read result with the `resultType` the negotiated protocol revision requires (#1382, #1383). The SDK stamps only the result its own handler returns; a gate's refusal, the error contract's rebuild and the managed resource read are built by the layers below and are typed here. The list decorators (icons, descriptions, visibility, session-handle and purpose schemas, **MCPOutputSchemaMiddleware** opening every advertised output schema to the platform's keys (#1381)) sit between it and MCPAppsMetadataMiddleware.
 1. **MCPAppsMetadataMiddleware** - Injects `_meta.ui` into tools/list responses
 2. **MCPToolCallMiddleware** - Authenticates user, authorizes tool access, creates PlatformContext
 3. **MCPWorkflowGateMiddleware** - Search-first hard gate (#787): refuses query tools until `search` is called in the session, short-circuiting with a `SEARCH_REQUIRED` error before the handler runs. Default-on; disabled by `workflow.require_search: false`.
