@@ -35,7 +35,7 @@ vi.mock("./ThumbnailGenerator", () => ({
 
 import { ThumbnailQueue } from "./ThumbnailQueue";
 
-function asset(id: string): Asset {
+function asset(id: string, over: Partial<Asset> = {}): Asset {
   return {
     id,
     owner_id: "u1",
@@ -52,6 +52,7 @@ function asset(id: string): Asset {
     current_version: 1,
     created_at: "",
     updated_at: "",
+    ...over,
   };
 }
 
@@ -104,5 +105,76 @@ describe("ThumbnailQueue invalidation batching", () => {
     // Let the drain effect run after the final advance.
     await waitFor(() => expect(invalidate).not.toHaveBeenCalled());
     expect(invalidate).not.toHaveBeenCalled();
+  });
+});
+
+// Capture is a long main-thread task per asset. These are the bounds that keep
+// the assets home from spending a first visit on it (#1351).
+describe("ThumbnailQueue bounds", () => {
+  beforeEach(() => {
+    fetchRaw.mockReset();
+    fetchRaw.mockResolvedValue({ ok: true, text: () => Promise.resolve("<html></html>") });
+    captureMode.value = "captured";
+  });
+
+  it("captures at most eight assets per visit", async () => {
+    const qc = new QueryClient();
+    vi.spyOn(qc, "invalidateQueries").mockResolvedValue();
+
+    const assets = Array.from({ length: 20 }, (_, i) => asset(`a${i}`));
+
+    render(
+      <QueryClientProvider client={qc}>
+        <ThumbnailQueue assets={assets} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(fetchRaw).toHaveBeenCalledTimes(8));
+    // Give the queue room to overrun the cap if it were going to.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(fetchRaw).toHaveBeenCalledTimes(8);
+  });
+
+  it("skips an asset too large to render twice cheaply", async () => {
+    const qc = new QueryClient();
+    vi.spyOn(qc, "invalidateQueries").mockResolvedValue();
+
+    render(
+      <QueryClientProvider client={qc}>
+        <ThumbnailQueue
+          assets={[asset("huge", { size_bytes: 5 * 1024 * 1024 }), asset("small")]}
+        />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(fetchRaw).toHaveBeenCalledTimes(1));
+    expect(fetchRaw).toHaveBeenCalledWith("/assets/small/content");
+  });
+
+  // A hidden tab is where a capture is least useful and most disruptive: it
+  // lands as jank the moment the reader comes back.
+  it("captures nothing while the tab is hidden", async () => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden" as DocumentVisibilityState,
+    });
+    try {
+      const qc = new QueryClient();
+      vi.spyOn(qc, "invalidateQueries").mockResolvedValue();
+
+      render(
+        <QueryClientProvider client={qc}>
+          <ThumbnailQueue assets={[asset("a")]} />
+        </QueryClientProvider>,
+      );
+
+      await new Promise((r) => setTimeout(r, 50));
+      expect(fetchRaw).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        get: () => "visible" as DocumentVisibilityState,
+      });
+    }
   });
 });

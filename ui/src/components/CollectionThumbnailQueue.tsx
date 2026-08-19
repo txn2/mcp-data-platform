@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiFetchRaw } from "@/api/portal/client";
 import type { Collection, CollectionResponse } from "@/api/portal/types";
-import { THUMB_WIDTH, THUMB_HEIGHT } from "@/lib/thumbnail";
+import { THUMB_WIDTH, THUMB_HEIGHT } from "@/lib/thumbnailSupport";
 
 /** Maximum number of asset thumbnails to compose into the mosaic. */
 const MAX_TILES = 4;

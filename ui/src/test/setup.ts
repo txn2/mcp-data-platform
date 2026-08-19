@@ -30,3 +30,17 @@ HTMLElement.prototype.hasPointerCapture ??= () => false;
 HTMLElement.prototype.setPointerCapture ??= () => {};
 HTMLElement.prototype.releasePointerCapture ??= () => {};
 HTMLElement.prototype.scrollIntoView ??= () => {};
+
+// jsdom implements neither idle callback, so deferred work (thumbnail capture,
+// see lib/idle) would fall back to its one-second timer and every test that
+// waits for it would sit out that second. Browsers that matter schedule the
+// callback promptly, so the stub does too, and the tests exercise the same
+// path production takes.
+interface IdleGlobal {
+  requestIdleCallback?: (cb: () => void) => number;
+  cancelIdleCallback?: (handle: number) => void;
+}
+const idleGlobal = globalThis as unknown as IdleGlobal;
+idleGlobal.requestIdleCallback ??= (cb: () => void) => setTimeout(cb, 0) as unknown as number;
+idleGlobal.cancelIdleCallback ??= (handle: number) =>
+  clearTimeout(handle as unknown as ReturnType<typeof setTimeout>);

@@ -1,0 +1,22 @@
+/* Stylesheet for the public share viewer.
+ *
+ * The viewer used to be served the portal SPA's stylesheet verbatim (the build
+ * copied dist/assets/*.css over), so a shared markdown document downloaded the
+ * utilities for the admin tables, the settings forms and every other portal
+ * page it can never show. This entry is compiled against the viewer's own
+ * bundle instead.
+ *
+ * `source(none)` turns off Tailwind's automatic source detection, which would
+ * otherwise walk the whole `src/` tree and put us back where we started. The
+ * one declared source is the built viewer bundle: the class names present in
+ * the emitted chunks are exactly the class names the viewer can render, so the
+ * stylesheet cannot fall behind the code and cannot carry anything the code
+ * does not reference. That ordering is why `frontend-build` builds the viewer
+ * JS before this stylesheet. */
+@import "tailwindcss" source(none);
+@import "tw-animate-css";
+@plugin "@tailwindcss/typography";
+
+@source "../dist-content-viewer/**/*.js";
+
+@import "./theme.css";

@@ -13,6 +13,7 @@ import (
 	"net/http"
 
 	"github.com/txn2/mcp-data-platform/internal/contentviewer"
+	"github.com/txn2/mcp-data-platform/internal/portal/publicviewer"
 )
 
 const viewerHTML = `<!DOCTYPE html>
@@ -67,7 +68,7 @@ nav a.active{background:var(--badge-bg);color:var(--badge-text)}
   <style>{{.ContentViewerCSS}}</style>
   <div id="content-root"><p style="color:var(--text-muted);padding:16px">Loading...</p></div>
   <script type="application/json" id="content-data">{{.ContentJSON}}</script>
-  <script>{{.ContentViewerJS}}</script>
+  {{if .ContentViewerURL}}<script type="module" src="{{.ContentViewerURL}}"></script>{{end}}
 </div>
 </body>
 </html>`
@@ -81,7 +82,10 @@ const sampleMarkdown = "markdown"
 const mimeTypeMarkdown = "text/markdown"
 
 var samples = map[string][2]string{
-	sampleMarkdown: {mimeTypeMarkdown, "# Hello World\n\nThis is a **bold** test with GFM:\n\n| Feature | Status |\n|---------|--------|\n| Tables | Working |\n| Strikethrough | ~~yes~~ |\n\n- [x] Task list\n- [ ] Another task\n\n```go\nfunc main() {\n    fmt.Println(\"Hello\")\n}\n```\n"},
+	// The markdown sample carries a mermaid fence on purpose: the diagram
+	// engine is the heaviest thing a markdown document can pull, it arrives on
+	// demand, and it is the case a preview without one would never exercise.
+	sampleMarkdown: {mimeTypeMarkdown, "# Hello World\n\nThis is a **bold** test with GFM:\n\n| Feature | Status |\n|---------|--------|\n| Tables | Working |\n| Strikethrough | ~~yes~~ |\n\n- [x] Task list\n- [ ] Another task\n\n```mermaid\ngraph LR\n  A[Source] --> B[Transform]\n  B --> C[Warehouse]\n```\n\n```go\nfunc main() {\n    fmt.Println(\"Hello\")\n}\n```\n"},
 	"svg":          {"image/svg+xml", `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg"><circle cx="100" cy="100" r="80" fill="#3b82f6" opacity="0.8"/><text x="100" y="108" text-anchor="middle" fill="white" font-size="24" font-family="system-ui">SVG</text></svg>`},
 	"jsx":          {"text/jsx", "import { useState } from 'react';\n\nexport default function Counter() {\n  const [count, setCount] = useState(0);\n  return (\n    <div style={{padding: '2rem', fontFamily: 'system-ui'}}>\n      <h1>Counter: {count}</h1>\n      <button onClick={() => setCount(c => c + 1)}\n        style={{padding: '8px 16px', fontSize: '16px', cursor: 'pointer'}}>\n        Increment\n      </button>\n    </div>\n  );\n}\n"},
 	"html":         {"text/html", "<!DOCTYPE html>\n<html>\n<head><style>body{font-family:system-ui;padding:2rem}h1{color:#3b82f6}</style></head>\n<body><h1>Hello from HTML</h1><p>This is rendered in a sandboxed iframe.</p></body>\n</html>"},
@@ -108,18 +112,25 @@ func newHandler() http.HandlerFunc {
 			"content":     sample[1],
 		})
 
+		// The same policy the real share page runs under. Previewing the
+		// viewer without it is how a change that the browser refuses reaches a
+		// live share unnoticed.
+		w.Header().Set("Content-Security-Policy", publicviewer.AssetCSP())
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_ = viewerTpl.Execute(w, map[string]any{ // #nosec G104 -- template execution on ResponseWriter; error is logged by http.Server
 			"Name":             fmt.Sprintf("Preview: %s", typ),
 			"ContentType":      sample[0],
-			"ContentJSON":      template.JS(contentJSON),        // #nosec G203 -- dev-only preview with static samples
-			"ContentViewerJS":  template.JS(contentviewer.JS),   // #nosec G203 -- embedded bundle, not user input
+			"ContentJSON":      template.JS(contentJSON), // #nosec G203 -- dev-only preview with static samples
+			"ContentViewerURL": contentviewer.EntryURL(),
 			"ContentViewerCSS": template.CSS(contentviewer.CSS), // #nosec G203 -- embedded bundle, not user input
 		})
 	}
 }
 
 func main() {
+	// The viewer's chunks are served, not inlined, so the preview needs the
+	// same asset route the portal mounts.
+	http.Handle(contentviewer.AssetPathPrefix, contentviewer.Handler())
 	http.Handle("/", newHandler())
 
 	fmt.Println("Preview server at http://localhost:9090")

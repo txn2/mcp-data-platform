@@ -1,43 +1,66 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { Suspense, lazy, useState, useEffect, useCallback, useRef } from "react";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { useAuthStore } from "@/stores/auth";
 
-// Portal pages (everyone)
-import { ActivityRoutes } from "@/pages/activity/ActivityRoutes";
-import { MyAssetsPage } from "@/pages/assets/MyAssetsPage";
-import { KnowledgeHub } from "@/pages/knowledge/KnowledgeHub";
-import { MyPromptsPage } from "@/pages/prompts/MyPromptsPage";
-import { PromptViewerPage } from "@/pages/prompts/PromptViewerPage";
-import { PortalScriptRoutes } from "@/pages/scripts/ScriptRoutes";
-import { AssetViewerPage } from "@/pages/viewer/AssetViewerPage";
-import { CollectionsPage } from "@/pages/collections/CollectionsPage";
-import { CollectionViewerPage } from "@/pages/collections/CollectionViewerPage";
-import { CollectionEditorPage } from "@/pages/collections/CollectionEditorPage";
-import { ResourcesPage } from "@/pages/resources/ResourcesPage";
-import { FeedbackPage } from "@/pages/feedback/FeedbackPage";
-import { UserSettingsPage } from "@/pages/settings/UserSettingsPage";
+// Every page below is its own chunk. The shell used to import all of them
+// statically, which put the whole portal — CodeMirror, the chart library, the
+// diagram engine and thirty pages — into one 3.1 MB script that a cold cache
+// had to download and evaluate before it could paint anything, on every route
+// including the login screen (#1351). Now a visit fetches the shell and the
+// one page it landed on.
+//
+// Each page keeps its named export, so it stays importable by name from its
+// tests; lazy() is given the {default} shape it wants at this call site, which
+// also preserves each page's prop types.
 
-// Admin pages (admin only)
-import { AdminAssetsPage } from "@/pages/assets/AdminAssetsPage";
-import { AdminAssetViewerPage } from "@/pages/viewer/AdminAssetViewerPage";
-import { AdminCollectionRoutes } from "@/pages/collections/AdminCollectionRoutes";
-import { ToolsPage } from "@/pages/tools/ToolsPage";
-import { AuditLogPage } from "@/pages/audit/AuditLogPage";
-import { CallRoutes } from "@/pages/calls/CallRoutes";
-import { SessionRoutes } from "@/pages/sessions/SessionRoutes";
-import { ConfigEditorPage } from "@/pages/settings/ConfigEditorPage";
-import { CatalogsPanel } from "@/pages/settings/CatalogsPanel";
-import { ConnectionsPanel } from "@/pages/settings/ConnectionsPanel";
-import { PersonasPanel } from "@/pages/settings/PersonasPanel";
-import { AdminPromptsPage } from "@/pages/prompts/AdminPromptsPage";
-import { AdminScriptsPage } from "@/pages/scripts/AdminScriptsPage";
-import { KeysPage } from "@/pages/settings/KeysPage";
-import { UsersPanel } from "@/pages/settings/UsersPanel";
-import { ChangelogPage } from "@/pages/settings/ChangelogPage";
-import { AdminSettingsPage } from "@/pages/settings/AdminSettingsPage";
+// Portal pages (everyone)
+const ActivityRoutes = lazy(() =>
+  import("@/pages/activity/ActivityRoutes").then((m) => ({ default: m.ActivityRoutes })),
+);
+const MyAssetsPage = lazy(() =>
+  import("@/pages/assets/MyAssetsPage").then((m) => ({ default: m.MyAssetsPage })),
+);
+const KnowledgeHub = lazy(() =>
+  import("@/pages/knowledge/KnowledgeHub").then((m) => ({ default: m.KnowledgeHub })),
+);
+const MyPromptsPage = lazy(() =>
+  import("@/pages/prompts/MyPromptsPage").then((m) => ({ default: m.MyPromptsPage })),
+);
+const PromptViewerPage = lazy(() =>
+  import("@/pages/prompts/PromptViewerPage").then((m) => ({ default: m.PromptViewerPage })),
+);
+const PortalScriptRoutes = lazy(() =>
+  import("@/pages/scripts/ScriptRoutes").then((m) => ({ default: m.PortalScriptRoutes })),
+);
+const AssetViewerPage = lazy(() =>
+  import("@/pages/viewer/AssetViewerPage").then((m) => ({ default: m.AssetViewerPage })),
+);
+const CollectionsPage = lazy(() =>
+  import("@/pages/collections/CollectionsPage").then((m) => ({ default: m.CollectionsPage })),
+);
+const CollectionViewerPage = lazy(() =>
+  import("@/pages/collections/CollectionViewerPage").then((m) => ({ default: m.CollectionViewerPage })),
+);
+const CollectionEditorPage = lazy(() =>
+  import("@/pages/collections/CollectionEditorPage").then((m) => ({ default: m.CollectionEditorPage })),
+);
+const ResourcesPage = lazy(() =>
+  import("@/pages/resources/ResourcesPage").then((m) => ({ default: m.ResourcesPage })),
+);
+const FeedbackPage = lazy(() =>
+  import("@/pages/feedback/FeedbackPage").then((m) => ({ default: m.FeedbackPage })),
+);
+const UserSettingsPage = lazy(() =>
+  import("@/pages/settings/UserSettingsPage").then((m) => ({ default: m.UserSettingsPage })),
+);
+
+
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { AdminPages } from "./AdminPages";
 import { AdminOnlyNotice, PageNotFound } from "./RouteFallbacks";
-import { canonicalRoute, isAdminRoute, isKnownRoute } from "@/lib/portalRoutes";
+import { canonicalRoute, isAdminRoute, isInSection, isKnownRoute } from "@/lib/portalRoutes";
+import { LoadingIndicator } from "@/components/LoadingIndicator";
 
 const pageTitles: Record<string, string> = {
   "/activity": "Activity",
@@ -111,6 +134,39 @@ function resolveTitle(v: {
   if (v.promptView) return "Prompt";
   if (v.knowledge) return "Knowledge";
   return pageTitleFor(v.route);
+}
+
+/** Placeholder held in the page area while a route's chunk loads. */
+function PageLoading() {
+  return (
+    <div className="flex h-full items-center justify-center py-16">
+      <LoadingIndicator />
+    </div>
+  );
+}
+
+/**
+ * Shown when a page fails to render — in practice, when its chunk does not
+ * arrive. Reloading is the fix when the cause is a deploy that moved the
+ * chunk names out from under an open tab, so that is what it offers.
+ */
+function PageFailed() {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 py-16 text-center">
+      <p className="text-sm font-medium">This page could not be loaded.</p>
+      <p className="max-w-md text-sm text-muted-foreground">
+        If the platform was updated while this tab was open, reloading will pick up the new version.
+        Everything else in the portal still works.
+      </p>
+      <button
+        type="button"
+        onClick={() => window.location.reload()}
+        className="rounded-md border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-accent"
+      >
+        Reload
+      </button>
+    </div>
+  );
 }
 
 const SIDEBAR_STORAGE_KEY = "sidebar-collapsed";
@@ -353,10 +409,20 @@ export function AppShell() {
             the ramp's own middle step, and a muted wash would land on top of
             the fills (tab tracks, code blocks) that also derive from muted. */}
         <main className="flex-1 overflow-auto bg-background p-3 sm:p-6">
+          {/* Two boundaries around the page area, both scoped to it so the
+              sidebar and header stay painted and navigation still works. The
+              Suspense one holds the space while the route's chunk arrives; the
+              error one catches the chunk that never does, which would
+              otherwise unmount the whole portal. It is reset by the route, so
+              navigating away from a broken page clears it. */}
+          <ErrorBoundary resetKey={route} fallback={<PageFailed />}>
+          <Suspense fallback={<PageLoading />}>
           {notFound && <PageNotFound route={route} onNavigate={navigate} />}
 
           {/* Portal routes — everyone */}
-          {!adminRoute && <ActivityRoutes route={route} onNavigate={navigate} />}
+          {!adminRoute && isInSection(route, "/activity") && (
+            <ActivityRoutes route={route} onNavigate={navigate} />
+          )}
           {!adminRoute && route === "/" && (
             <MyAssetsPage onNavigate={navigate} />
           )}
@@ -405,7 +471,9 @@ export function AppShell() {
               onBack={() => navigate("/prompts")}
             />
           )}
-          {!adminRoute && <PortalScriptRoutes route={route} onNavigate={navigate} />}
+          {!adminRoute && isInSection(route, "/scripts") && (
+            <PortalScriptRoutes route={route} onNavigate={navigate} />
+          )}
           {collectionAssetMatch && (
             <AssetViewerPage assetId={collectionAssetMatch[2]!} onNavigate={navigate} onBack={() => navigate(`/collections/${collectionAssetMatch[1]!}`)} />
           )}
@@ -419,51 +487,16 @@ export function AppShell() {
           {/* Admin routes — admin only (defense in depth) */}
           {adminRoute && !isAdmin && <AdminOnlyNotice />}
           {adminRoute && isAdmin && (
-            <>
-              {/* Dashboard now hosts the merged MCP / API Gateway / Events
-                  activity views (was a separate Audit Log page). */}
-              {(route === "/admin" || route === "/admin/audit") && (
-                <AuditLogPage
-                  key={currentPath}
-                  initialTab={initialTab}
-                  onNavigate={navigate}
-                />
-              )}
-              {route === "/admin/assets" && <AdminAssetsPage onNavigate={navigate} />}
-              {adminAssetMatch && (
-                <AdminAssetViewerPage
-                  assetId={adminAssetMatch[1]!}
-                  onNavigate={navigate}
-                />
-              )}
-              <AdminCollectionRoutes route={route} onNavigate={navigate} />
-              {route === "/admin/tools" && (
-                <ToolsPage key={currentPath} initialTab={initialTab} />
-              )}
-              {route === "/admin/description" && (
-                <ConfigEditorPage configKey="server.description" label="Description" description="Platform identity visible to MCP clients" />
-              )}
-              {route === "/admin/agent-instructions" && (
-                <ConfigEditorPage configKey="server.agent_instructions" label="Agent Instructions" description="Guidance for AI agents using this platform" showPlatformBaseline />
-              )}
-              {route === "/admin/api-catalogs" && <CatalogsPanel />}
-              {route === "/admin/connections" && <ConnectionsPanel />}
-              {route === "/admin/personas" && <PersonasPanel />}
-              {route === "/admin/prompts" && (
-                <AdminPromptsPage onNavigate={navigate} />
-              )}
-              {route === "/admin/resources" && (
-                <ResourcesPage admin onNavigate={navigate} />
-              )}
-              {route === "/admin/scripts" && <AdminScriptsPage />}
-              <SessionRoutes route={route} onNavigate={navigate} />
-              <CallRoutes route={route} onNavigate={navigate} />
-              {route === "/admin/keys" && <KeysPage />}
-              {route === "/admin/users" && <UsersPanel />}
-              {route === "/admin/changelog" && <ChangelogPage />}
-              {route === "/admin/settings" && <AdminSettingsPage />}
-            </>
+            <AdminPages
+              route={route}
+              currentPath={currentPath}
+              initialTab={initialTab}
+              adminAssetId={adminAssetMatch?.[1]}
+              onNavigate={navigate}
+            />
           )}
+          </Suspense>
+          </ErrorBoundary>
         </main>
       </div>
     </div>

@@ -51,15 +51,22 @@ const DefaultLogoSVG = `<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w
 // permissive source is required by one of them:
 //
 //   - script-src 'unsafe-inline' — both documents carry inline script. The
-//     page's theme, expiry and modal handlers and the embedded content-viewer
-//     bundle are inline (templates/public_viewer.html), and a stored HTML
-//     asset's own <script> blocks are the artifact itself. A per-response
-//     nonce would cover the page and blank every HTML asset, because the
-//     inherited policy would then reject script the server never saw. What
-//     isolates an artifact is the frame, not this directive: the renderers
-//     set sandbox="allow-scripts" without allow-same-origin, so artifact
-//     script runs in an opaque origin with no reach into the viewer's origin
-//     or storage.
+//     page's theme, expiry and modal handlers are inline
+//     (templates/public_viewer.html), and a stored HTML asset's own <script>
+//     blocks are the artifact itself. A per-response nonce would cover the
+//     page and blank every HTML asset, because the inherited policy would
+//     then reject script the server never saw. What isolates an artifact is
+//     the frame, not this directive: the renderers set
+//     sandbox="allow-scripts" without allow-same-origin, so artifact script
+//     runs in an opaque origin with no reach into the viewer's origin or
+//     storage.
+//   - script-src 'self' — the content-viewer bundle is loaded from
+//     /portal/view/_assets/ as a module rather than inlined, and its chunks
+//     are fetched by the same directive as it renders each family (#1355).
+//     On an https deployment `https:` already covered this; 'self' is what
+//     makes a plaintext deployment work too. It grants the server's own
+//     origin, which is where the page itself came from, and resolves to
+//     nothing inside an artifact frame, whose origin is opaque.
 //   - script-src https: — assets legitimately load third-party script. The
 //     JSX renderer resolves react, react-dom, recharts and lucide-react from
 //     esm.sh through an import map, and stored HTML artifacts reference CDN
@@ -88,7 +95,7 @@ const DefaultLogoSVG = `<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w
 //
 //nolint:lll // CSP directives are necessarily long
 const baseCSP = "default-src 'none'; " +
-	"script-src 'unsafe-inline' blob: https:; " +
+	"script-src 'self' 'unsafe-inline' blob: https:; " +
 	"style-src 'unsafe-inline' https:; " +
 	"img-src * data: blob:; " +
 	"media-src 'self' blob: data:; " +

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { sanitizeMermaidSvg } from "./MarkdownRenderer";
+import { sanitizeMermaidSvg } from "./MermaidBlock";
 
 // Mermaid v11 emits node labels as HTML inside an SVG <foreignObject> (the
 // default `htmlLabels: true` path), while subgraph/cluster titles are plain

@@ -31,6 +31,7 @@ export default tseslint.config(
     ignores: [
       "dist",
       "dist-content-viewer",
+      "dist-content-viewer-css",
       "public/mockServiceWorker.js",
       "test-results",
       "playwright-report",

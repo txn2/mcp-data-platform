@@ -100,6 +100,26 @@ export function isAdminRoute(route: string): boolean {
   return route === ADMIN_PREFIX || route.startsWith(`${ADMIN_PREFIX}/`);
 }
 
+/**
+ * isInSection reports whether a path belongs to the section mounted at prefix
+ * — the prefix itself or anything under it.
+ *
+ * The shell uses this to decide whether to mount a section at all. Five of the
+ * pages are section components that own their own matching and render null for
+ * a path outside them (ActivityRoutes, PortalScriptRoutes,
+ * AdminCollectionRoutes, SessionRoutes, CallRoutes), so the shell used to
+ * mount all five on every route and let four of them decline. That was free
+ * when every page was in one bundle. It is not free now that each page is its
+ * own chunk: mounting a section is what fetches it, so an unguarded section
+ * would download five sections' code to render one (#1351).
+ *
+ * Each of the five owns exactly one prefix, which is what makes a prefix test
+ * the right shape here rather than a second copy of their matching.
+ */
+export function isInSection(route: string, prefix: string): boolean {
+  return route === prefix || route.startsWith(`${prefix}/`);
+}
+
 /** isKnownRoute reports whether the shell renders a page for this path. */
 export function isKnownRoute(route: string): boolean {
   if (KNOWN_ROUTES.includes(route)) return true;

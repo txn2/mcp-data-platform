@@ -393,7 +393,7 @@
             <p style="color:var(--text-muted);padding:16px">Loading...</p>
         </div>
         <script type="application/json" id="content-data">{{.ContentJSON}}</script>
-        <script>{{.ContentViewerJS}}</script>
+        {{if .ContentViewerURL}}<script type="module" src="{{.ContentViewerURL}}"></script>{{end}}
     </div>
     {{if not .Embedded}}
     <div class="modal-overlay" id="info-modal" hidden>

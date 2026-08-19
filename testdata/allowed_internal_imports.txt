@@ -3,6 +3,7 @@ cmd/mcp-data-platform -> internal/httpserver
 cmd/mcp-data-platform -> internal/server
 cmd/mcp-data-platform -> pkg/platform
 cmd/preview-content-viewer -> internal/contentviewer
+cmd/preview-content-viewer -> internal/portal/publicviewer
 internal/admin/auditapi -> internal/httpjson
 internal/admin/auditapi -> pkg/audit
 internal/admin/callapi -> internal/httpjson

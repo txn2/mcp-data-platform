@@ -5,7 +5,8 @@ import { EmptyState } from "@/components/patterns/EmptyState";
 import { ShareDialog } from "@/components/ShareDialog";
 import { Button } from "@/components/ui/button";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
-import { isThumbnailSupported } from "@/lib/thumbnail";
+import { useIdleGate } from "@/lib/idle";
+import { isThumbnailSupported, THUMBNAIL_SOURCE_LIMIT } from "@/lib/thumbnailSupport";
 import { isEditableContent } from "@/components/renderers/registry";
 import { type AssetViewerProps, type ViewMode } from "./assetviewer/types";
 import { ThumbnailGeneratorWithInvalidation } from "./assetviewer/ThumbnailGeneratorWithInvalidation";
@@ -57,6 +58,20 @@ export function AssetViewer({
   const [dirty, setDirty] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "error">("idle");
   const [thumbnailStale, setThumbnailStale] = useState(false);
+
+  // Capturing a thumbnail renders the asset a second time off-screen and
+  // rasterizes it. Doing that while someone is reading the asset is what made
+  // the detail page stop responding on a first visit (#1351), so it waits for
+  // the browser to go idle with the tab in front, and is skipped entirely for
+  // a document too large to render twice cheaply.
+  const thumbnailWanted =
+    typeof content === "string" &&
+    content.length > 0 &&
+    !!asset &&
+    isThumbnailSupported(asset.content_type) &&
+    asset.size_bytes <= THUMBNAIL_SOURCE_LIMIT &&
+    (!asset.thumbnail_s3_key || thumbnailStale);
+  const captureThumbnail = useIdleGate(thumbnailWanted);
   const isSharedEditor = !isOwner && sharePermission === "editor";
 
   const canEditSource =
@@ -266,7 +281,7 @@ export function AssetViewer({
         />
       )}
 
-      {content && typeof content === "string" && isThumbnailSupported(asset.content_type) && (!asset.thumbnail_s3_key || thumbnailStale) && (
+      {captureThumbnail && typeof content === "string" && (
         <ThumbnailGeneratorWithInvalidation
           key={thumbnailStale ? "regen" : "initial"}
           assetId={asset.id}

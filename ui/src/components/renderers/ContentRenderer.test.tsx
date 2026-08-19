@@ -101,13 +101,15 @@ describe("ContentRenderer routing", () => {
     expect(screen.getByText(/no preview for this file type/i)).toBeInTheDocument();
   });
 
-  it("renders a CSV asset as a table", () => {
+  // Every family's viewer is loaded on demand (#1355), so the table arrives a
+  // tick after the render rather than during it.
+  it("renders a CSV asset as a table", async () => {
     render(<ContentRenderer contentType="text/csv" content={"id,name\n1,acme\n"} fileName="rows.csv" />);
-    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(await screen.findByRole("table")).toBeInTheDocument();
     expect(screen.getByText("acme")).toBeInTheDocument();
   });
 
-  it("renders a TSV asset with the same table viewer", () => {
+  it("renders a TSV asset with the same table viewer", async () => {
     render(
       <ContentRenderer
         contentType="text/tab-separated-values"
@@ -115,7 +117,7 @@ describe("ContentRenderer routing", () => {
         fileName="rows.tsv"
       />,
     );
-    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(await screen.findByRole("table")).toBeInTheDocument();
     expect(screen.getByText("acme")).toBeInTheDocument();
   });
 

@@ -72,6 +72,7 @@ apps/preview-data.json
 ui/node_modules/
 ui/dist/
 ui/dist-content-viewer/
+ui/dist-content-viewer-css/
 ui/.vite/
 ui/test-results/
 ui/src/api/generated/

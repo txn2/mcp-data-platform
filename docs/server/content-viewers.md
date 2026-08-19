@@ -203,6 +203,49 @@ The public viewer's Content-Security-Policy carries `media-src` and `object-src`
 for the audio, video and PDF sources. Active types keep their existing sandboxed
 iframe and DOMPurify treatment.
 
+### What the public share page loads
+
+The page carries its own chrome — the theme toggle, the expiry countdown, the
+modal handlers, the asset's content as JSON — and its stylesheet inline. It does
+not carry the renderer. The viewer is referenced as a module:
+
+```html
+<script type="module" src="/portal/view/_assets/content-viewer-entry-<hash>.js"></script>
+```
+
+and each family's viewer is a chunk the browser fetches only if the asset it is
+showing needs it. A markdown document loads the markdown renderer; it does not
+load CodeMirror, the JSX transformer, the CSV parser or the diagram engine, and
+a document with no ```mermaid fence does not load the diagram engine either.
+
+The chunks are served from `/portal/view/_assets/{file}` by the portal handler,
+outside both the share access gate and the viewer rate limiter. The gate has
+nothing to gate on: no token is in the path, no share is looked up, and the same
+bytes are served to every viewer, so gating it would leave every public share
+page blank. The limiter is wrong for a different reason — it is sized for share
+page loads (60/min, burst 10), and one cold view of a markdown document with a
+diagram in it legitimately fetches around thirty chunks at once, which that
+bucket would answer 429. Nothing here justifies the bucket either: a request
+costs a map lookup and a read from memory, the names are content hashes with
+nothing to enumerate, and this matches how the portal's own SPA bundle is
+already served. Filenames are content-hashed and served
+`Cache-Control: public, max-age=31536000, immutable`, so the second share
+someone opens costs no JavaScript at all.
+
+A chunk that does not arrive — a tab left open across a deploy asks a replica
+for a hash it does not have — is caught by an error boundary rather than
+blanking the page: `<Suspense>` does not catch a rejected `import()`, and
+React's own answer to one is to unmount the document. The share page keeps its
+metadata and download link and says the preview could not be loaded; the portal
+keeps its chrome and offers a reload, which is the fix when the cause is a
+deploy that moved the chunk names.
+
+The stylesheet is inline rather than a second request because it is small: it is
+compiled against the viewer's own bundle (`ui/src/content-viewer.css` declares
+the emitted chunks as its only Tailwind source), not copied from the portal SPA.
+That ordering is why `make content-viewer-embed` builds the JavaScript before
+the stylesheet.
+
 ### The public viewer's policy
 
 One policy governs two documents, which is what bounds how narrow it can be: the
@@ -210,7 +253,7 @@ viewer page, and the untrusted HTML and JSX assets it renders in `blob:` URL
 iframes, which inherit the creating document's policy. The page is served with:
 
 ```
-default-src 'none'; script-src 'unsafe-inline' blob: https:; style-src 'unsafe-inline' https:;
+default-src 'none'; script-src 'self' 'unsafe-inline' blob: https:; style-src 'unsafe-inline' https:;
 img-src * data: blob:; media-src 'self' blob: data:; object-src 'self';
 font-src * data:; connect-src 'self' https:;
 ```
@@ -219,12 +262,18 @@ plus `frame-src blob: data: 'self'` for a single asset, or `frame-src 'self'
 blob: data:` for a collection, whose items open in a same-origin iframe.
 
 - `script-src 'unsafe-inline'` is required by both documents: the page's theme,
-  expiry and modal handlers and the embedded content-viewer bundle are inline,
-  and a stored HTML asset's own `<script>` blocks are the artifact. A
-  per-response nonce would cover the page and blank every HTML asset, since the
-  inherited policy would reject script the server never saw. What isolates an
-  artifact is the frame — `sandbox="allow-scripts"` without
-  `allow-same-origin`, so artifact script runs in an opaque origin.
+  expiry and modal handlers are inline, and a stored HTML asset's own
+  `<script>` blocks are the artifact. A per-response nonce would cover the page
+  and blank every HTML asset, since the inherited policy would reject script the
+  server never saw. What isolates an artifact is the frame —
+  `sandbox="allow-scripts"` without `allow-same-origin`, so artifact script runs
+  in an opaque origin.
+- `script-src 'self'` is what lets the page load the viewer bundle from
+  `/portal/view/_assets/` and fetch the rest of its chunks. On an https
+  deployment `https:` already covered it; `'self'` is what makes a plaintext
+  deployment work too. It grants the server's own origin, which is where the
+  page came from, and resolves to nothing inside an artifact frame, whose origin
+  is opaque.
 - `script-src https:` is required because assets legitimately load third-party
   script: the JSX renderer resolves react, react-dom, recharts and lucide-react
   from esm.sh through an import map, and stored HTML artifacts reference CDN
