@@ -582,10 +582,11 @@ You never need to type these names. Ask your agent to run a prompt by whatever h
 
 ## Scripts
 
-Scripts are the automations the platform runs for you: an agent writes one once, an
-administrator approves it, and from then on it produces the same report, dashboard
-refresh, or export on a schedule or on request. The Scripts page is where you see what
-you have, what is scheduled, and how it has been going.
+Scripts are the automations the platform runs for you: an agent writes one once, and from
+then on it produces the same report, dashboard refresh, or export on a schedule or on
+request. A script only you can see and only you can run starts working as soon as it is
+saved; one that other people can use is approved by an administrator first. The Scripts
+page is where you see what you have, what is scheduled, and how it has been going.
 
 ![Scripts](../images/screenshots/light/user-scripts-light.webp#only-light)![Scripts](../images/screenshots/dark/user-scripts-dark.webp#only-dark)
 
@@ -652,6 +653,9 @@ On a script you own, the source is editable in place, with Starlark highlighted 
 Python dialect it is. Saving does not mean the same thing for every script, and the
 editor says which it means before you save:
 
+- **This script is yours alone**: saving approves it. The platform works out what the
+  code reaches — which capabilities, which connections, where it writes — grants exactly
+  that, and runs it under the access you hold. Nobody else is asked.
 - **Nothing approved yet**: the edit applies directly. The script still executes nothing
   unattended until an administrator approves a version.
 - **A version is approved**: that version keeps running, and your edit is saved as a
@@ -659,6 +663,16 @@ editor says which it means before you save:
   can approve anything.
 
 ![Script source](../images/screenshots/light/user-script-source-light.webp#only-light)![Script source](../images/screenshots/dark/user-script-source-dark.webp#only-dark)
+
+![Your own script](../images/screenshots/light/user-script-personal-auto-approved-light.webp#only-light)![Your own script](../images/screenshots/dark/user-script-personal-auto-approved-dark.webp#only-dark)
+
+A few things send even your own script to an administrator, and the save says which: code
+that does not parse, a call that works out its connection or its destination instead of
+naming one, and a place to write that no approval has ever given an address to. The first
+delivery to a bucket is always reviewed, because where that bucket is is a decision
+nothing in your code states; after that, your edits are approved against the address that
+review pinned. The contract at the top of the page names an approval nobody reviewed as
+one, rather than letting your own address there read as somebody's decision.
 
 The source that does not parse is refused when you save it, naming what to fix, rather
 than failing at the next run with nobody watching.

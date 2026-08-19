@@ -281,6 +281,22 @@ func (s *Script) Validate() error {
 	return ValidateStatus(s.Status)
 }
 
+// OwnedPersonally reports whether the named caller is this script's entire
+// audience: it is personal, and it is theirs.
+//
+// It is the one definition of that question, which two rules turn on (#1367).
+// Automatic approval is available on exactly this shape, because there is no
+// second person for a reviewer to be protecting; and the same shape is what
+// makes a script its owner's to delete outright, since nothing anybody else can
+// see or run disappears with it.
+//
+// Both sides must be identified, for the reason scopeVisible gives: a script
+// whose owner could not be established would otherwise belong to every caller
+// the platform cannot name either.
+func (s *Script) OwnedPersonally(email string) bool {
+	return s != nil && s.Scope == ScopePersonal && s.OwnerEmail != "" && s.OwnerEmail == email
+}
+
 // Executable reports whether the platform may execute this script on its own —
 // on a schedule or through a run tool. It is false until a version is approved.
 func (s *Script) Executable() bool { return s.ApprovedVersionID != "" }

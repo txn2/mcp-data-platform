@@ -91,7 +91,7 @@ func TestRealDB_EditFunnelAppliesAndDefers(t *testing.T) {
 	before := *sc
 	after := *sc
 	after.Source = "print(2)\n"
-	outcome, err := script.ApplyEdit(ctx, s, &before, &after, testAuthor)
+	outcome, err := script.ApplyEdit(ctx, s, script.Edit{Before: &before, After: &after, Author: testAuthor})
 	require.NoError(t, err)
 	assert.True(t, outcome.Applied)
 	assert.Equal(t, 2, after.Version)
@@ -116,7 +116,7 @@ func TestRealDB_EditFunnelAppliesAndDefers(t *testing.T) {
 	gatedBefore := *live
 	gatedAfter := *live
 	gatedAfter.Source = "print(3)\n"
-	outcome, err = script.ApplyEdit(ctx, s, &gatedBefore, &gatedAfter, testAuthor)
+	outcome, err = script.ApplyEdit(ctx, s, script.Edit{Before: &gatedBefore, After: &gatedAfter, Author: testAuthor})
 	require.NoError(t, err)
 	assert.False(t, outcome.Applied)
 	assert.Equal(t, 3, outcome.PendingVersion)

@@ -79,7 +79,7 @@ func (s *stubStore) List(_ context.Context, filter script.ListFilter) ([]script.
 	return s.scripts, s.listErr
 }
 
-func (*stubStore) UpdateWithVersion(context.Context, *script.Script, script.Author) error {
+func (*stubStore) UpdateWithVersion(context.Context, *script.Script, script.Author, bool) error {
 	return nil
 }
 

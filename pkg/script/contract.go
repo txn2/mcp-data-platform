@@ -60,6 +60,11 @@ type ContractApproval struct {
 	// ApprovedBy and ApprovedAt stamp who admitted that version and when.
 	ApprovedBy string     `json:"approved_by,omitempty" example:"admin@example.com"`
 	ApprovedAt *time.Time `json:"approved_at,omitempty"`
+	// Automatic reports that the platform approved this version itself, because
+	// the script is personal and its owner wrote it (#1367). Nobody reviewed it,
+	// and a reader of the contract is told so rather than reading ApprovedBy as
+	// a decision somebody made.
+	Automatic bool `json:"automatic,omitempty" example:"false"`
 
 	// Refusal states why a run requested now would be refused, and is empty when
 	// one would be admitted. It is the gate's own answer (RefuseNewRun), not a
@@ -160,7 +165,12 @@ func (c Contract) Text() string {
 // there is one so a reader is never left to infer it.
 func (c Contract) approvalLine() string {
 	line := "Approval: no version is approved, so nothing will execute this script."
-	if c.Approval.Approved {
+	switch {
+	case c.Approval.Approved && c.Approval.Automatic:
+		line = fmt.Sprintf(
+			"Approval: version %d, approved automatically because %s owns it and wrote it; nobody reviewed it.",
+			c.Approval.Version, c.Approval.ApprovedBy)
+	case c.Approval.Approved:
 		line = fmt.Sprintf("Approval: version %d, approved by %s.", c.Approval.Version, c.Approval.ApprovedBy)
 	}
 	if c.Approval.Refusal != "" {
@@ -299,6 +309,7 @@ func contractApproval(sc *Script, approved *Version) ContractApproval {
 	out.Version = approved.Version
 	out.ApprovedBy = approved.ApprovedBy
 	out.ApprovedAt = approved.ApprovedAt
+	out.Automatic = approved.AutoApproved
 	return out
 }
 

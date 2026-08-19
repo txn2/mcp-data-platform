@@ -105,6 +105,20 @@ export const mockScripts: Script[] = [
     updated_at: daysAgo(9),
   },
   {
+    id: "script-004",
+    name: "my-margin-check",
+    display_name: "My Margin Check",
+    description: "Margin by product line, for my own morning read.",
+    scope: "personal",
+    owner_email: "sarah.chen@example.com",
+    status: "active",
+    enabled: true,
+    version: 1,
+    approved_version_id: "sver-004-v1",
+    tags: ["finance"],
+    updated_at: daysAgo(1),
+  },
+  {
     id: "script-003",
     name: "warehouse-freshness",
     display_name: "Warehouse Freshness Check",
@@ -224,6 +238,32 @@ export const mockScriptVersions: Record<string, ScriptVersion[]> = {
       status: "applied",
       grants: { roles: [], connections: [], capabilities: [], destinations: [] },
       created_at: daysAgo(9),
+    },
+  ],
+  // A personal script its own owner wrote, approved on save with no reviewer
+  // (#1367): the grant was minted from what the source reaches, and the record
+  // says nobody looked at it.
+  "script-004": [
+    {
+      id: "sver-004-v1",
+      script_id: "script-004",
+      version: 1,
+      display_name: "My Margin Check",
+      description: "Margin by product line.",
+      source: `rows = platform.query(connection="acme-finance", sql="SELECT line, margin_pct FROM finance.margins")\nplatform.export(name="my-margins", format="csv", rows=rows["rows"])\n`,
+      author: "sarah.chen@example.com",
+      author_roles: ["analyst"],
+      status: "applied",
+      approved_by: "sarah.chen@example.com",
+      approved_at: daysAgo(1),
+      auto_approved: true,
+      grants: {
+        roles: ["analyst"],
+        connections: ["acme-finance"],
+        capabilities: ["platform.query", "platform.export"],
+        destinations: [{ name: "portal", kind: "portal" }],
+      },
+      created_at: daysAgo(1),
     },
   ],
   "script-003": [
@@ -703,6 +743,25 @@ export const mockScriptContracts: Record<string, ScriptContract> = {
     approval: {
       approved: false,
       refusal: "the script has no approved version, so nothing may execute it",
+    },
+  },
+  "script-004": {
+    id: "script-004",
+    name: "my-margin-check",
+    display_name: "My Margin Check",
+    description: "Margin by product line, for my own morning read.",
+    owner_email: "sarah.chen@example.com",
+    scope: "personal",
+    tags: ["finance"],
+    status: "active",
+    enabled: true,
+    params: [],
+    approval: {
+      approved: true,
+      version: 1,
+      approved_by: "sarah.chen@example.com",
+      approved_at: daysAgo(1),
+      automatic: true,
     },
   },
   "script-003": {

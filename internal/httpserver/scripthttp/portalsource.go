@@ -43,6 +43,10 @@ type sourceResponse struct {
 	Applied bool `json:"applied" example:"false"`
 	// PendingVersion is the draft version awaiting review, zero when applied.
 	PendingVersion int `json:"pending_version,omitempty" example:"4"`
+	// Approved is true when the saved version is now the version the platform
+	// executes, because this is the owner's own personal script and the platform
+	// approved it for them (#1367).
+	Approved bool `json:"approved,omitempty" example:"true"`
 	// Message states the outcome in the owner's terms.
 	Message string `json:"message" example:"Saved as version 4, awaiting review."`
 }
@@ -111,7 +115,9 @@ func (h *Handler) landEdit(
 	before, after *script.Script,
 	user *PortalIdentity,
 ) {
-	outcome, err := script.ApplyEdit(r.Context(), h.deps.Scripts, before, after, editAuthor(user))
+	outcome, err := script.ApplyEdit(r.Context(), h.deps.Scripts, script.Edit{
+		Before: before, After: after, Author: editAuthor(user), Auto: h.deps.Auto,
+	})
 	if err != nil {
 		writeEditError(w, err)
 		return
@@ -125,9 +131,45 @@ func (h *Handler) landEdit(
 		return
 	}
 	httpjson.WriteJSON(w, http.StatusOK, sourceResponse{
-		Applied: true,
-		Message: "Saved. Nothing is approved for this script yet, so nothing executes it unattended.",
+		Applied:  true,
+		Approved: outcome.Auto.Approved,
+		Message:  savedMessage(after, outcome.Auto),
 	})
+}
+
+// savedMessage states what an applied edit means for whether anything will run
+// it, which is the question an owner presses save with (#1367).
+//
+// A refusal is quoted rather than summarized: it names the connection, the
+// destination, or the shape of the code that stopped the approval, and that is
+// the sentence the owner can act on.
+func savedMessage(sc *script.Script, auto script.AutoOutcome) string {
+	switch {
+	case auto.Approved:
+		return "Saved and approved. This script is yours alone, so the platform approved this version " +
+			"for you and runs it under the access you hold. " + runsNow(sc)
+	case auto.Reason != "":
+		return "Saved, and not approved: " + auto.Reason +
+			". Until a version is approved, nothing executes this script on its own; " +
+			"dry-run it here to execute it as yourself."
+	default:
+		return "Saved. Nothing is approved for this script yet, so nothing executes it unattended."
+	}
+}
+
+// runsNow reports what an approval actually buys this script, which is not
+// always a run: the execution gate refuses a disabled or deprecated script
+// whatever is approved on it, and a save that said "it runs now" over one would
+// be a false statement the owner acts on.
+func runsNow(sc *script.Script) string {
+	switch {
+	case !sc.Enabled:
+		return "This script is disabled, so nothing executes it until it is enabled again."
+	case sc.Status == script.StatusDeprecated:
+		return "This script is deprecated, so nothing executes it."
+	default:
+		return "It runs now, and on its schedule."
+	}
 }
 
 // editAuthor is who wrote the version and the authority they held while writing

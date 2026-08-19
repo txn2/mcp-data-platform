@@ -24,8 +24,10 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/mentionhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/versionhttp"
+	"github.com/txn2/mcp-data-platform/internal/platform/connreach"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourceaudit"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptauto"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
@@ -180,7 +182,10 @@ func mountScriptPortalAPI(mux *http.ServeMux, p *platform.Platform, wrap func(ht
 	// parameter may name, and the runner a dry run of an edit executes on. The
 	// runner is built over the assembled MCP server, so a draft's platform
 	// calls cross the same middleware chain an agent's calls cross.
-	deps.Connections = scriptConnectionEnumerator(p.ToolkitRegistry(), p.PersonaRegistry())
+	lister := connreach.New(connreach.Deps{
+		Toolkits: p.ToolkitRegistry(), Personas: p.PersonaRegistry(),
+	})
+	deps.Connections = scriptConnectionEnumerator(lister)
 	deps.Drafts = scriptdraft.New(p.MCPServer())
 	scripthttp.New(deps).RegisterPortal(mux, wrap)
 }
@@ -208,6 +213,15 @@ func scriptDeps(p *platform.Platform) (scripthttp.Deps, bool) {
 		DryRuns:    store,
 		Contracts:  store,
 		LatestRuns: store,
+		// A personal script its owner edits is approved on save (#1367), against
+		// the same connection enumeration the parameter picker is filled from, so
+		// the set a form offers and the set an approval admits are one set.
+		Auto: scriptauto.New(scriptauto.Deps{
+			Approvals: store, Versions: store,
+			Reach: connreach.New(connreach.Deps{
+				Toolkits: p.ToolkitRegistry(), Personas: p.PersonaRegistry(),
+			}).ForRoles,
+		}),
 	}, true
 }
 

@@ -33,6 +33,10 @@ export interface Script {
   display_name: string;
   description: string;
   scope: string;
+  // personas are the personas a persona-scoped script serves, and are empty at
+  // every other scope. The listing names the audience because scope is what
+  // decides whether a version is reviewed at all (#1367).
+  personas?: string[];
   owner_email: string;
   status: string;
   enabled: boolean;
@@ -59,6 +63,11 @@ export interface ScriptVersion {
   status: string;
   approved_by?: string;
   approved_at?: string;
+  // auto_approved marks an approval the PLATFORM made rather than a person
+  // (#1367): a personal script's own owner wrote this version, so the grant was
+  // minted from what its code reaches instead of asked of a reviewer.
+  // approved_by still names the owner, because they are accountable for it.
+  auto_approved?: boolean;
   grants: ScriptGrants;
   created_at: string;
 }

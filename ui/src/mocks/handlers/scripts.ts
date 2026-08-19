@@ -260,6 +260,24 @@ export const scriptHandlers = [
     const list = versions[id] ?? [];
     const script = scripts.find((s) => s.id === id);
     const next = Math.max(0, ...list.map((v) => v.version)) + 1;
+    // A personal script its own owner edits is approved by the save itself
+    // (#1367): the platform mints the grant from what the source reaches, and
+    // no reviewer is asked — so this is answered BEFORE the review branch,
+    // which is what an approved shared script's edit takes. The demo caller is
+    // sarah.chen, so the fixture's personal script is hers.
+    if (script?.scope === "personal" && script.owner_email === "sarah.chen@example.com") {
+      if (list[0]) {
+        list[0].source = body.source;
+        list[0].auto_approved = true;
+      }
+      return HttpResponse.json({
+        applied: true,
+        approved: true,
+        message:
+          "Saved and approved. This script is yours alone, so the platform approved this version " +
+          "for you and runs it under the access you hold. It runs now, and on its schedule.",
+      });
+    }
     if (script?.approved_version_id) {
       list.unshift({
         ...list[0]!,

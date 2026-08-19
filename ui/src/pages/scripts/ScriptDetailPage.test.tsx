@@ -33,6 +33,18 @@ vi.mock("@/api/portal/hooks/scripts", () => ({
   RUN_PAGE_SIZE: 25,
 }));
 
+vi.mock("@/api/admin/hooks", () => ({
+  useScriptVersionReview: vi.fn(),
+  useApproveScriptVersion: vi.fn(),
+  useRejectScriptVersion: vi.fn(),
+}));
+
+import {
+  useApproveScriptVersion,
+  useRejectScriptVersion,
+  useScriptVersionReview,
+} from "@/api/admin/hooks";
+
 import {
   useDryRunScript,
   useScriptContract,
@@ -60,6 +72,9 @@ const mockValidateSource = vi.mocked(useValidateScriptSource);
 const mockDryRun = vi.mocked(useDryRunScript);
 const mockConnections = vi.mocked(useScriptConnections);
 const mockRunScript = vi.mocked(useRunScript);
+const mockReview = vi.mocked(useScriptVersionReview);
+const mockApprove = vi.mocked(useApproveScriptVersion);
+const mockReject = vi.mocked(useRejectScriptVersion);
 
 const onBack = vi.fn();
 const onNavigate = vi.fn();
@@ -211,6 +226,21 @@ beforeEach(() => {
   mockDryRun.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
   mockRunScript.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
   mockConnections.mockReturnValue(query(undefined));
+  mockReview.mockReturnValue(
+    query({
+      version,
+      referenced: {
+        capabilities: ["platform.query"],
+        connections: ["acme-warehouse"],
+        destinations: [],
+        dynamic_connections: false,
+        dynamic_destinations: false,
+      },
+      findings: [],
+    }),
+  );
+  mockApprove.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
+  mockReject.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
 });
 
 afterEach(cleanup);
@@ -396,5 +426,53 @@ describe("ScriptDetailPage: the run history", () => {
     expect(
       screen.getByText("Requested by").closest("td")?.getAttribute("colspan"),
     ).toBe("3");
+  });
+});
+
+// The admin surface is this same page with review turned on (#1367): an
+// administrator does everything an owner does, plus decides whether a version
+// executes.
+describe("ScriptDetailPage: the admin surface", () => {
+  it("offers no decision to an owner", () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /v2/ }));
+    expect(screen.queryByRole("button", { name: /Review/ })).not.toBeInTheDocument();
+  });
+
+  it("opens the decision on any version, which is how a rollback is approved", async () => {
+    render(
+      <ScriptDetailPage
+        scriptId="script-001"
+        review
+        backLabel="All scripts"
+        onBack={onBack}
+        onNavigate={onNavigate}
+      />,
+    );
+
+    // Every owner section is still here: an administrator runs, edits and
+    // schedules every script exactly as its owner does.
+    expect(screen.getByRole("button", { name: "Run" })).toBeInTheDocument();
+    expect(screen.getByText("Source")).toBeInTheDocument();
+    expect(screen.getAllByText("Schedule").length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("button", { name: /Review the grant/ }));
+    // The drawer is loaded on demand, so an owner never downloads it.
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("says who admitted a version, and when nobody did", () => {
+    mockVersions.mockReturnValue(
+      query({
+        data: [{ ...version, approved_by: "sarah.chen@example.com", auto_approved: true }],
+        total: 1,
+      }),
+    );
+    renderPage();
+
+    expect(screen.getByText("Nobody reviewed it")).toBeInTheDocument();
+    expect(
+      screen.getByText(/approved automatically .* because sarah\.chen@example\.com owns this script/),
+    ).toBeInTheDocument();
   });
 });

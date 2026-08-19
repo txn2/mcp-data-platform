@@ -16,6 +16,7 @@ import type {
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { SourceEditor } from "@/components/SourceEditor";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { approvesOnSave, useViewerIdentity } from "./approval";
 import { Button } from "@/components/ui/button";
 import { CT } from "@/lib/contentType";
 import { DryRunReport, ValidationReport } from "./ScriptDraftChecks";
@@ -310,21 +311,34 @@ function EditorResults({
 // decision for somebody else — and which one applies is a property of the
 // script, not of the edit.
 function ReviewNotice({ contract }: { contract: ScriptContract }) {
+  const viewer = useViewerIdentity();
+  const checks =
+    " Validate and dry run check the edit first — a dry run executes it as you, and persists nothing.";
+  if (approvesOnSave(contract, viewer)) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        This script is yours alone, so saving approves it: it runs under the access you hold,
+        and nobody else is asked. An edit whose connections or destinations cannot be read
+        from its source goes to an administrator instead, and the save says so.
+        {checks}
+      </p>
+    );
+  }
   if (contract.approval.approved) {
     return (
       <p className="text-xs text-muted-foreground">
         Version {contract.approval.version} is approved and keeps running. Saving a change here
         does not touch it: the edit is queued as a draft, and an administrator decides whether
-        it becomes what executes. Validate and dry run check the edit first — a dry run executes
-        it as you, and persists nothing.
+        it becomes what executes.
+        {checks}
       </p>
     );
   }
   return (
     <p className="text-xs text-muted-foreground">
       Nothing is approved for this script, so saving changes it directly. It still executes
-      nothing unattended until an administrator approves a version. Validate and dry run check
-      the edit first — a dry run executes it as you, and persists nothing.
+      nothing unattended until an administrator approves a version.
+      {checks}
     </p>
   );
 }

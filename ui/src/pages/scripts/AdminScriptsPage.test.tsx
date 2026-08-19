@@ -32,6 +32,7 @@ const mockReject = vi.mocked(useRejectScriptVersion);
 
 const approveMutate = vi.fn();
 const rejectMutate = vi.fn();
+const navigate = vi.fn();
 
 const pendingRow: PendingReview = {
   script_id: "script-001",
@@ -123,7 +124,7 @@ afterEach(cleanup);
 
 describe("AdminScriptsPage: the queue", () => {
   it("lists a pending version as a change to a running script", () => {
-    render(<AdminScriptsPage />);
+    render(<AdminScriptsPage onNavigate={navigate} />);
     // The name appears in the queue and again in the listing below it.
     expect(screen.getAllByText("Daily Sales Report").length).toBeGreaterThan(0);
     expect(screen.getByText("v3")).toBeInTheDocument();
@@ -135,32 +136,32 @@ describe("AdminScriptsPage: the queue", () => {
     mockReviews.mockReturnValue(
       query({ data: [{ ...pendingRow, first_approval: true }], total: 1 }),
     );
-    render(<AdminScriptsPage />);
+    render(<AdminScriptsPage onNavigate={navigate} />);
     expect(screen.getByText("First approval")).toBeInTheDocument();
   });
 
   it("says plainly when nothing is waiting", () => {
     mockReviews.mockReturnValue(query({ data: [], total: 0 }));
-    render(<AdminScriptsPage />);
+    render(<AdminScriptsPage onNavigate={navigate} />);
     expect(screen.getByText(/Nothing is waiting for approval/)).toBeInTheDocument();
   });
 
   it("reports a queue that could not be loaded instead of showing it as empty", () => {
     mockReviews.mockReturnValue(query(undefined, { error: new Error("boom") }));
-    render(<AdminScriptsPage />);
+    render(<AdminScriptsPage onNavigate={navigate} />);
     expect(screen.getByText(/review queue could not be loaded/)).toBeInTheDocument();
   });
 
   it("says when no scripts exist at all", () => {
     mockScripts.mockReturnValue(query({ data: [], total: 0 }));
-    render(<AdminScriptsPage />);
+    render(<AdminScriptsPage onNavigate={navigate} />);
     expect(screen.getByText(/No scripts have been authored yet/)).toBeInTheDocument();
   });
 });
 
 describe("AdminScriptsPage: the review", () => {
   function openReview() {
-    render(<AdminScriptsPage />);
+    render(<AdminScriptsPage onNavigate={navigate} />);
     fireEvent.click(screen.getByRole("button", { name: /^Review Daily Sales Report/ }));
     return screen.getByRole("dialog");
   }
@@ -245,14 +246,14 @@ describe("AdminScriptsPage: the review", () => {
   });
 
   it("keeps a part-edited grant when the review is refetched underneath it", () => {
-    const { rerender } = render(<AdminScriptsPage />);
+    const { rerender } = render(<AdminScriptsPage onNavigate={navigate} />);
     fireEvent.click(screen.getByRole("button", { name: /^Review Daily Sales Report/ }));
     const dialog = screen.getByRole("dialog");
 
     fireEvent.click(within(dialog).getByRole("button", { name: /platform\.export/ }));
     // A background refetch hands back an equal payload with a new identity.
     mockReview.mockReturnValue(query(reviewPayload()));
-    rerender(<AdminScriptsPage />);
+    rerender(<AdminScriptsPage onNavigate={navigate} />);
 
     fireEvent.click(within(dialog).getByRole("button", { name: /Approve/ }));
     const [vars] = approveMutate.mock.calls[0] as [{ grant: { capabilities: string[] } }];
@@ -351,45 +352,25 @@ describe("AdminScriptsPage: the review", () => {
   });
 });
 
-describe("AdminScriptsPage: version history", () => {
-  it("does not mark a queued row as open when an older version is the one open", () => {
-    const approved: ScriptVersion = {
-      ...draftVersion,
-      id: "sver-001-v2",
-      version: 2,
-      status: "applied",
-    };
-    mockVersions.mockReturnValue(query({ data: [approved], total: 1 }));
-    render(<AdminScriptsPage />);
+describe("AdminScriptsPage: opening a script", () => {
+  it("opens the script itself, on the same page its owner opens", () => {
+    render(<AdminScriptsPage onNavigate={navigate} />);
 
     fireEvent.click(screen.getByRole("row", { name: /Daily Sales Report/ }));
-    // v2 is the version executing today, so the history offers it as "View".
-    fireEvent.click(screen.getByRole("button", { name: "View version 2" }));
 
-    // The queue row is for v3; the drawer is on v2, so the queue item must not
-    // read as the decision being made.
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-    const queued = screen.getByRole("button", { name: /^Review Daily Sales Report/ });
-    expect(queued).not.toHaveAttribute("aria-current", "true");
+    // The listing lists; the detail page is where an administrator runs, edits,
+    // schedules and decides (#1367). A second surface here would have been a
+    // second answer to what an administrator can do with a script.
+    expect(navigate).toHaveBeenCalledWith("/admin/scripts/script-001");
   });
 
-  it("opens any version for review, which is how a rollback is approved", () => {
-    const approved: ScriptVersion = {
-      ...draftVersion,
-      id: "sver-001-v2",
-      version: 2,
-      status: "applied",
-      approved_by: "admin@acme.example.com",
-    };
-    mockVersions.mockReturnValue(query({ data: [draftVersion, approved], total: 2 }));
-    render(<AdminScriptsPage />);
+  it("names the audience, which is what decides whether a version is reviewed here", () => {
+    mockScripts.mockReturnValue(
+      query({ data: [script, { ...script, id: "script-002", name: "mine", display_name: "My Own Report", scope: "personal" }], total: 2 }),
+    );
+    render(<AdminScriptsPage onNavigate={navigate} />);
 
-    fireEvent.click(screen.getByRole("row", { name: /Daily Sales Report/ }));
-    // One badge on the version the gate points at; the column header of the
-    // same name is the other match.
-    expect(screen.getAllByText("Executing")).toHaveLength(2);
-    // The executing version opens too: a reviewer can read what is running.
-    fireEvent.click(screen.getByRole("button", { name: "View version 2" }));
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByRole("row", { name: /Daily Sales Report/ })).toHaveTextContent("everyone");
+    expect(screen.getByRole("row", { name: /My Own Report/ })).toHaveTextContent("its owner");
   });
 });

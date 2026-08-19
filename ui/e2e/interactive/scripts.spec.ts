@@ -208,7 +208,7 @@ test.describe("Portal script pages", () => {
     // Each caption states what its number counts and over what population, and
     // the failure tile names the smaller population it is computed over (#1360).
     await expect(page.getByText("scripts visible to you")).toBeVisible();
-    await expect(page.getByText("have a version an administrator approved")).toBeVisible();
+    await expect(page.getByText("have a version the platform may execute")).toBeVisible();
     await expect(page.getByText("run on a schedule, unattended")).toBeVisible();
     await expect(page.getByText(/of the \d+ you own/)).toBeVisible();
   });
@@ -229,6 +229,25 @@ test.describe("Portal script pages", () => {
     await page.getByRole("button", { name: "Save" }).click();
 
     await expect(page.getByText(/saved as a draft awaiting review/)).toBeVisible();
+  });
+
+  // The third outcome (#1367): the owner's own personal script is approved by
+  // the save itself, so the page says it runs rather than that somebody will
+  // decide.
+  test("an owner edits their own personal script, and the save approves it", async ({ page }) => {
+    await gotoScripts(page);
+    await page.getByRole("row").filter({ hasText: "My Margin Check" }).click();
+
+    await expect(page.getByText(/This script is yours alone, so saving approves it/)).toBeVisible();
+    // The contract says who admitted it, and that nobody reviewed it.
+    await expect(page.getByText(/v1 automatically on .* nobody reviewed it/)).toBeVisible();
+
+    const editor = page.locator(".cm-content").first();
+    await editor.click();
+    await page.keyboard.type("\n# checked by the owner\n");
+    await page.getByRole("button", { name: "Save" }).click();
+
+    await expect(page.getByText(/It runs now, and on its schedule/)).toBeVisible();
   });
 
   test("says a run history's success rate over the runs it actually loaded", async ({ page }) => {

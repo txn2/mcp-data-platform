@@ -1,3 +1,4 @@
+import { lazy, Suspense, useState } from "react";
 import { FileCode2 } from "lucide-react";
 import { useScriptContract } from "@/api/portal/hooks/scripts";
 import type { ScriptContract, ScriptParam } from "@/api/portal/hooks/scripts";
@@ -13,6 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { approvalFact } from "./approval";
 import { executionState, formatWhen } from "./runFormat";
 import { ScriptRunHistory } from "./ScriptRunHistory";
 import { ScriptRunPanel } from "./ScriptRunPanel";
@@ -20,13 +22,28 @@ import { ScriptScheduleEditor } from "./ScriptScheduleEditor";
 import { ScriptSourceEditor } from "./ScriptSourceEditor";
 import { ScriptVersionHistory } from "./ScriptVersionHistory";
 
+// The decision surface is loaded only when somebody opens one. It carries the
+// grant editor and the diff view, and an owner — who can never approve anything
+// — would otherwise download all of it to read their own script (#1351).
+const ScriptReviewDrawer = lazy(() =>
+  import("./ScriptReviewDrawer").then((m) => ({ default: m.ScriptReviewDrawer })),
+);
+
 // ScriptDetailPage is one script in full: what it is and what it takes, what
 // will execute it, on what cadence, and — for its owner — everything it has run
 // (#1290), plus what the owner does here. They run it now (#1363), which is the
-// same run the schedule produces; they change the code, which an edit sends
-// back through review (#1307), after checking it against the interpreter and
-// running it once as themselves (#1364); and they change the cadence, which
-// carries no authority at all.
+// same run the schedule produces; they change the code, which for a personal
+// script is approved on save and for a shared one goes to review (#1307,
+// #1367), after checking it against the interpreter and running it once as
+// themselves (#1364); and they change the cadence, which carries no authority
+// at all.
+//
+// It is ONE page for both surfaces. The admin section mounts it with review
+// turned on, which adds the approve-and-reject decision to the version history
+// and nothing else: an administrator reads and does everything an owner does,
+// on every script, plus the one thing only they do. Two pages would have meant
+// two answers to "what can I do with this script", and the answer differing by
+// which menu somebody came in through is the defect this avoids.
 //
 // The top of the page is the contract document, the same one a reference to
 // this script resolves to for an agent. There is deliberately not a second
@@ -37,35 +54,65 @@ interface Props {
   scriptId: string;
   onBack: () => void;
   onNavigate: (path: string) => void;
+  /** review adds the approve-and-reject decision, for the admin surface. */
+  review?: boolean;
+  /** backLabel names where onBack goes, which differs between the two sections. */
+  backLabel?: string;
 }
 
-export function ScriptDetailPage({ scriptId, onBack, onNavigate }: Props) {
+export function ScriptDetailPage({
+  scriptId,
+  onBack,
+  onNavigate,
+  review,
+  backLabel = "Scripts",
+}: Props) {
   const { data, isLoading, error } = useScriptContract(scriptId);
 
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Loading script...</p>;
   }
   if (error || !data) {
-    return (
-      <div className="space-y-4">
-        <PageHeader backLabel="Scripts" onBack={onBack} icon={FileCode2} title="Script" />
-        <Alert variant="destructive">
-          <AlertDescription>
-            This script could not be loaded. It may have been deleted, or it may not be
-            yours to see.
-          </AlertDescription>
-        </Alert>
-      </div>
-    );
+    return <UnreadableScript backLabel={backLabel} onBack={onBack} />;
   }
+  return (
+    <ScriptDetail
+      scriptId={scriptId}
+      data={data}
+      onBack={onBack}
+      onNavigate={onNavigate}
+      review={review}
+      backLabel={backLabel}
+    />
+  );
+}
 
+// ScriptDetail is the page once the script is in hand, so the states that have
+// no script — loading, and one this reader cannot have — are answered above it
+// rather than threaded through everything below.
+function ScriptDetail({
+  scriptId,
+  data,
+  onBack,
+  onNavigate,
+  review,
+  backLabel,
+}: {
+  scriptId: string;
+  data: { contract: ScriptContract; owned: boolean; source?: string; draft_params?: ScriptParam[] };
+  onBack: () => void;
+  onNavigate: (path: string) => void;
+  review?: boolean;
+  backLabel: string;
+}) {
+  const [reviewing, setReviewing] = useState<number | null>(null);
   const { contract, owned, source } = data;
   const state = executionState(contract);
 
   return (
     <div className="space-y-4">
       <PageHeader
-        backLabel="Scripts"
+        backLabel={backLabel}
         onBack={onBack}
         icon={FileCode2}
         title={contract.display_name || contract.name}
@@ -95,15 +142,52 @@ export function ScriptDetailPage({ scriptId, onBack, onNavigate }: Props) {
           source={source ?? ""}
           draftParams={draftParamsOf(data)}
           onNavigate={onNavigate}
+          onReview={review ? setReviewing : undefined}
         />
       ) : (
-        <p className="text-xs text-muted-foreground">
-          This script belongs to {contract.owner_email || "someone else"}. Its cadence, its
-          source, its capability grant, and its run history are theirs and the administrators'
-          to read.
-        </p>
+        <UnownedNotice ownerEmail={contract.owner_email} />
+      )}
+
+      {reviewing !== null && (
+        <Suspense fallback={null}>
+          <ScriptReviewDrawer
+            key={`${scriptId}-${reviewing}`}
+            scriptID={scriptId}
+            scriptName={contract.display_name || contract.name}
+            version={reviewing}
+            onClose={() => setReviewing(null)}
+          />
+        </Suspense>
       )}
     </div>
+  );
+}
+
+// UnreadableScript is the page for a script this reader cannot have: deleted,
+// or not theirs. The two are deliberately one answer, because distinguishing
+// them would tell a reader that a script they may not see exists.
+function UnreadableScript({ backLabel, onBack }: { backLabel: string; onBack: () => void }) {
+  return (
+    <div className="space-y-4">
+      <PageHeader backLabel={backLabel} onBack={onBack} icon={FileCode2} title="Script" />
+      <Alert variant="destructive">
+        <AlertDescription>
+          This script could not be loaded. It may have been deleted, or it may not be yours
+          to see.
+        </AlertDescription>
+      </Alert>
+    </div>
+  );
+}
+
+// UnownedNotice states what a reader who is not this script's owner does not
+// get, rather than leaving four missing sections to be inferred.
+function UnownedNotice({ ownerEmail }: { ownerEmail?: string }) {
+  return (
+    <p className="text-xs text-muted-foreground">
+      This script belongs to {ownerEmail || "someone else"}. Its cadence, its source, its
+      capability grant, and its run history are theirs and the administrators' to read.
+    </p>
   );
 }
 
@@ -133,6 +217,7 @@ function OwnerSections({
   source,
   draftParams,
   onNavigate,
+  onReview,
 }: {
   scriptId: string;
   contract: ScriptContract;
@@ -140,6 +225,8 @@ function OwnerSections({
   /** The live record's parameter contract, which is what a dry run binds. */
   draftParams: ScriptParam[];
   onNavigate: (path: string) => void;
+  /** onReview opens the decision surface, on the admin surface only. */
+  onReview?: (version: number) => void;
 }) {
   return (
     <>
@@ -151,7 +238,7 @@ function OwnerSections({
         draftParams={draftParams}
       />
       <ScriptScheduleEditor scriptId={scriptId} contract={contract} />
-      <ScriptVersionHistory scriptId={scriptId} contract={contract} />
+      <ScriptVersionHistory scriptId={scriptId} contract={contract} onReview={onReview} />
       <ScriptRunHistory scriptId={scriptId} onNavigate={onNavigate} />
     </>
   );
@@ -160,9 +247,7 @@ function OwnerSections({
 // ContractFacts is the summary every surface agrees on: who owns it, who may
 // see it, what approved it, and when it next fires.
 function ContractFacts({ contract }: { contract: ScriptContract }) {
-  const approval = contract.approval.approved
-    ? `v${contract.approval.version} by ${contract.approval.approved_by || "unknown"} on ${formatWhen(contract.approval.approved_at)}`
-    : "nothing approved";
+  const approval = approvalFact(contract);
   const cadence = contract.schedule
     ? `${contract.schedule.cron_spec} (${contract.schedule.timezone})${contract.schedule.enabled ? "" : " — paused"}`
     : "on demand";

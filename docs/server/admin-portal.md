@@ -401,10 +401,18 @@ Features:
 
 ## Scripts (Admin)
 
-The Scripts page is where a managed script becomes something the platform will
-run. Nothing executes unattended except a version an administrator approved, so
-this page is the control the whole feature rests on: it lists what is waiting
-for a decision, and it shows a reviewer what they would be agreeing to.
+The Scripts page is where a managed script that other people can use becomes
+something the platform will run. Nothing shared executes unattended except a
+version an administrator approved, so this page is the control that rests on:
+it lists what is waiting for a decision, and it shows a reviewer what they would
+be agreeing to.
+
+One kind of script never reaches this queue. A script at `personal` scope,
+written by the person who owns it, is approved when they save it: its only
+caller is its author, and an approved run has always presented that author's own
+roles, so there was no authority for a reviewer to decide about. See
+[Managed Scripts: Security Model](../scripts/security.md#a-personal-script-is-approved-for-its-owner)
+for what that accepts and what still sends such a version here.
 
 ![Admin Scripts](../images/screenshots/light/admin-admin-scripts-light.webp#only-light)![Admin Scripts](../images/screenshots/dark/admin-admin-scripts-dark.webp#only-dark)
 
@@ -437,10 +445,28 @@ reviewer and no other version.
 A version nobody has dry-run says so, because approving one means that code
 first executes unattended.
 
-**All scripts** lists every script with what it is executing: an approved
-version, or **Nothing approved**. A row expands to that script's versions, and
-any version can be opened for review — approving an earlier one is a rollback,
-which points the execution gate back at it.
+**All scripts** lists every script with who owns it, who can see it, and what it
+is executing: an approved version, or **Nothing approved**. Opening a row opens
+the script.
+
+### One script
+
+The script page an administrator opens is the page its owner opens, with the
+decision added.
+
+![One script](../images/screenshots/light/admin-admin-script-detail-light.webp#only-light)![One script](../images/screenshots/dark/admin-admin-script-detail-dark.webp#only-dark)
+
+Everything an owner does is here for every script — run it now, edit the source,
+validate and dry-run the edit, set or pause the cadence, read the version history
+and the run history — and so is the one thing only an administrator does: any
+version can be opened for review from the history, and approving an earlier one
+is a rollback, which points the execution gate back at it. The version history
+also says which approvals nobody reviewed, because a personal script's own owner
+approved it by saving it.
+
+There is deliberately one script page rather than two. Two would have meant the
+administrator's and the owner's answers to "what can I do with this script"
+drifting apart, one feature at a time.
 
 ### Runs
 

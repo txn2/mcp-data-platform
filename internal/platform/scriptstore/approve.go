@@ -12,7 +12,10 @@ import (
 )
 
 // Compile-time interface verification for the execution gate's write side.
-var _ script.ApprovalStore = (*Store)(nil)
+var (
+	_ script.ApprovalStore     = (*Store)(nil)
+	_ script.AutoApprovalStore = (*Store)(nil)
+)
 
 // ApproveVersion is the only write in this package that may set
 // scripts.approved_version_id, and therefore the only thing that can make a
@@ -57,6 +60,9 @@ type approval struct {
 	version  int
 	approver string
 	grants   script.Grants
+	// auto marks an approval the platform made for a personal script's owner
+	// rather than one a reviewer decided (#1367).
+	auto bool
 }
 
 // approveTx is ApproveVersion's transaction body: lock both rows, check the
@@ -73,13 +79,16 @@ func approveTx(ctx context.Context, tx *sql.Tx, req approval) (*script.Version, 
 	if err := approvable(sc, v); err != nil {
 		return nil, err
 	}
+	if err := autoApprovable(sc, v, req.auto); err != nil {
+		return nil, err
+	}
 	// The roles come from the version, never from the request: approving may
 	// narrow what a script reaches and may never widen what it is.
 	req.grants.Roles = v.AuthorRoles
 	if err := req.grants.Validate(); err != nil {
 		return nil, fmt.Errorf("this version cannot be approved with that capability set: %w (%w)", err, script.ErrInvalidGrant)
 	}
-	if err := stampApproval(ctx, tx, v, req.approver, req.grants); err != nil {
+	if err := stampApproval(ctx, tx, v, req); err != nil {
 		return nil, err
 	}
 	if err := applySnapshot(ctx, tx, sc, v); err != nil {
@@ -120,20 +129,116 @@ func approvable(sc *script.Script, v *script.Version) error {
 	return nil
 }
 
-// stampApproval writes the approval stamp and the bound grant onto the version.
-func stampApproval(ctx context.Context, tx *sql.Tx, v *script.Version, approver string, grants script.Grants) error {
-	grantsJSON, err := json.Marshal(grants)
+// autoApprovable refuses an automatic approval of anything but a personal
+// script's own owner's version (#1367).
+//
+// It is here rather than only in the caller because this is where the grant's
+// roles are taken from the version's author. A version somebody else wrote
+// carries THEIR roles, so approving it without a reviewer would put a script on
+// authority its owner never held — the one thing the whole grant model exists to
+// prevent. The caller decides whether to ask; this decides whether the answer
+// can be yes.
+func autoApprovable(sc *script.Script, v *script.Version, auto bool) error {
+	if !auto {
+		return nil
+	}
+	if !sc.OwnedPersonally(v.Author) {
+		return fmt.Errorf(
+			"version %d was written by %q, who does not own this personal script, so it cannot be approved without a reviewer: %w",
+			v.Version, v.Author, script.ErrVersionConflict)
+	}
+	return nil
+}
+
+// stampApproval writes the approval stamp and the bound grant onto the version,
+// recording whether a person decided it or the platform minted it.
+func stampApproval(ctx context.Context, tx *sql.Tx, v *script.Version, req approval) error {
+	grantsJSON, err := json.Marshal(req.grants)
 	if err != nil {
 		return fmt.Errorf("marshal version grants: %w", err)
 	}
 	_, err = tx.ExecContext(ctx, `
 		UPDATE script_versions
 		   SET approved_by = $2, approved_at = NOW(), grants = $3,
-		       status = $4
+		       status = $4, auto_approved = $5
 		 WHERE id = $1`,
-		v.ID, approver, grantsJSON, script.VersionStatusApplied)
+		v.ID, req.approver, grantsJSON, script.VersionStatusApplied, req.auto)
 	if err != nil {
 		return fmt.Errorf("stamp script version approval: %w", err)
+	}
+	return nil
+}
+
+// AutoApproveVersion is the automatic half of the execution gate (#1367): the
+// approval the platform makes for a personal script whose own owner wrote the
+// version.
+//
+// It is deliberately the same transaction body as ApproveVersion. An
+// automatically approved version binds a grant, applies its snapshot to the live
+// row, supersedes competing drafts, and moves the execution pointer, on exactly
+// the terms a reviewed one does — including the rule that matters most, which is
+// that the grant's roles are replaced with the version author's own. What is
+// different is one recorded fact: nobody reviewed it, and the row says so.
+func (s *Store) AutoApproveVersion(ctx context.Context, scriptID string, version int, owner string, grants script.Grants) (*script.Version, error) {
+	var approved *script.Version
+	err := s.withTx(ctx, "auto-approve script version", func(tx *sql.Tx) error {
+		var err error
+		approved, err = approveTx(ctx, tx, approval{
+			scriptID: scriptID, version: version, approver: owner, grants: grants, auto: true,
+		})
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return approved, nil
+}
+
+// withdrawAutoApproval takes back an approval nobody made, when the edit being
+// applied widens a personal script's scope past the audience that approval was
+// reasoned about (#1367).
+//
+// The version was approved because its only caller was its author. A
+// persona-scoped or global script has an audience that agreed to nothing, so the
+// automatic approval must not follow the script into it: the execution pointer is
+// cleared and the version's stamp and grant are removed, which puts it straight
+// back into the review queue (that query lists the live version of any script
+// with no approved version). An approval a PERSON made survives the change,
+// which is what the auto_approved predicate on the update expresses — they
+// decided, and widening the audience does not un-decide it.
+//
+// It runs inside UpdateWithVersion's transaction, under the script row lock, so
+// there is no instant at which a widened script is executable on an approval
+// nobody gave it.
+func withdrawAutoApproval(ctx context.Context, tx *sql.Tx, before, sc *script.Script) error {
+	if !script.WithdrawsAutoApproval(before, sc) {
+		return nil
+	}
+	res, err := tx.ExecContext(ctx, `
+		UPDATE script_versions
+		   SET approved_by = '', approved_at = NULL, grants = '{}'::jsonb,
+		       auto_approved = FALSE
+		 WHERE id = $1 AND auto_approved`, before.ApprovedVersionID)
+	if err != nil {
+		return fmt.Errorf("withdraw automatic script approval: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("withdraw automatic script approval: %w", err)
+	}
+	if n == 0 {
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE scripts SET approved_version_id = NULL WHERE id = $1`, sc.ID); err != nil {
+		return fmt.Errorf("clear script execution gate: %w", err)
+	}
+	// The struct is advanced to what this transaction leaves behind, because the
+	// caller's own updateTx writes the status and the indexed text hash after
+	// this runs, and both read the execution pointer.
+	sc.ApprovedVersionID = ""
+	if sc.Status == script.StatusActive {
+		sc.Status = script.StatusDraft
 	}
 	return nil
 }

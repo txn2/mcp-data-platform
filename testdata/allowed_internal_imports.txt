@@ -49,10 +49,11 @@ internal/httpserver -> internal/httpserver/versionhttp
 internal/httpserver -> internal/notification/notifyrender
 internal/httpserver -> internal/platform/branding
 internal/httpserver -> internal/platform/callrecord
-internal/httpserver -> internal/platform/connscope
+internal/httpserver -> internal/platform/connreach
 internal/httpserver -> internal/platform/notifydelivery
 internal/httpserver -> internal/platform/resourceaudit
 internal/httpserver -> internal/platform/reviewalert
+internal/httpserver -> internal/platform/scriptauto
 internal/httpserver -> internal/platform/scriptdraft
 internal/httpserver -> internal/platform/scriptstore
 internal/httpserver -> internal/platform/sessionview
@@ -61,7 +62,6 @@ internal/httpserver -> pkg/admin
 internal/httpserver -> pkg/audit
 internal/httpserver -> pkg/browsersession
 internal/httpserver -> pkg/connoauth
-internal/httpserver -> pkg/connview
 internal/httpserver -> pkg/knowledge
 internal/httpserver -> pkg/middleware
 internal/httpserver -> pkg/notification
@@ -156,6 +156,10 @@ internal/platform/connauth -> pkg/connoauth
 internal/platform/connauth -> pkg/platform/fieldcrypt
 internal/platform/connbackfill -> pkg/connview
 internal/platform/connbackfill -> pkg/registry
+internal/platform/connreach -> internal/platform/connscope
+internal/platform/connreach -> pkg/connview
+internal/platform/connreach -> pkg/persona
+internal/platform/connreach -> pkg/registry
 internal/platform/connscope -> pkg/persona
 internal/platform/datasetindex -> pkg/indexjobs
 internal/platform/datasetindex -> pkg/knowledge
@@ -275,6 +279,8 @@ internal/platform/reviewalert -> pkg/script
 internal/platform/reviewalert -> pkg/toolkits/knowledge
 internal/platform/routepolicy -> pkg/middleware
 internal/platform/routepolicy -> pkg/persona
+internal/platform/scriptauto -> internal/platform/scriptrun
+internal/platform/scriptauto -> pkg/script
 internal/platform/scriptdraft -> internal/platform/scriptrun
 internal/platform/scriptdraft -> pkg/middleware
 internal/platform/scriptdraft -> pkg/session
@@ -295,12 +301,16 @@ internal/platform/scriptexec -> pkg/session
 internal/platform/scriptexec -> pkg/toolkits/trino
 internal/platform/scriptindex -> pkg/indexjobs
 internal/platform/scriptindex -> pkg/script
+internal/platform/scriptlayer -> internal/platform/connreach
+internal/platform/scriptlayer -> internal/platform/scriptauto
 internal/platform/scriptlayer -> internal/platform/scriptdraft
 internal/platform/scriptlayer -> internal/platform/scriptindex
 internal/platform/scriptlayer -> internal/platform/scriptrun
 internal/platform/scriptlayer -> internal/platform/scriptstore
 internal/platform/scriptlayer -> pkg/indexjobs
 internal/platform/scriptlayer -> pkg/middleware
+internal/platform/scriptlayer -> pkg/persona
+internal/platform/scriptlayer -> pkg/registry
 internal/platform/scriptlayer -> pkg/script
 internal/platform/scriptlayer -> pkg/session
 internal/platform/scriptlayer -> pkg/textpatch

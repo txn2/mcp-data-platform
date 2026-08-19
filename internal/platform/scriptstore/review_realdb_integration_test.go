@@ -26,7 +26,7 @@ func draftOn(ctx context.Context, t *testing.T, s *Store, live *script.Script, s
 	before := *live
 	after := *live
 	after.Source = source
-	outcome, err := script.ApplyEdit(ctx, s, &before, &after, testAuthor)
+	outcome, err := script.ApplyEdit(ctx, s, script.Edit{Before: &before, After: &after, Author: testAuthor})
 	require.NoError(t, err)
 	require.False(t, outcome.Applied, "a gated script defers its edits")
 	return outcome.PendingVersion

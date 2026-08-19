@@ -538,8 +538,10 @@ func TestIntegration_SecondRunIsANewVersionOfTheSameAsset(t *testing.T) {
 func TestIntegration_UnapprovedScriptRefuses(t *testing.T) {
 	ctx := context.Background()
 	h := executionServer(t, "warehouse")
-	res := call(t, h.handle, authorCtx(), manageScriptInput{
-		Command: cmdCreate, Name: "daily", Source: reportSource,
+	// A GLOBAL script an administrator wrote: a personal script its own owner
+	// wrote is approved on save (#1367), so it would no longer exercise the gate.
+	res := call(t, h.handle, adminCtx(), manageScriptInput{
+		Command: cmdCreate, Name: "daily", Source: reportSource, Scope: script.ScopeGlobal,
 		Params: []script.Param{{Name: "day", Type: script.ParamTypeString}},
 	})
 	require.False(t, res.IsError, resultText(res))

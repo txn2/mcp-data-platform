@@ -48,27 +48,40 @@ func (s *stubRuns) ListRuns(ctx context.Context, filter script.RunFilter) ([]scr
 	return s.memRuns.ListRuns(ctx, filter)
 }
 
-// runnableHandle returns a handle over an in-memory store holding one script,
-// approved when approve is true.
-func runnableHandle(t *testing.T, approve bool) (*Handle, *memStore, *stubRuns) {
+// runnableHandle returns a handle over an in-memory store holding one personal
+// script of jane's, approved with the full capability set.
+func runnableHandle(t *testing.T) (*Handle, *memStore, *stubRuns) {
 	t.Helper()
 	store, runs := newMemStore(), newStubRuns()
 	h := New(Config{Store: store, Runs: runs, AdminPersona: "admin"})
-	ctx := authorCtx()
 
-	res := call(t, h, ctx, manageScriptInput{
+	res := call(t, h, authorCtx(), manageScriptInput{
 		Command: cmdCreate, Name: "daily", Source: "print(1)\n",
 	})
 	require.False(t, res.IsError, resultText(res))
-	if !approve {
-		return h, store, runs
-	}
 	sc, err := store.GetPersonal(context.Background(), "jane@example.com", "daily")
 	require.NoError(t, err)
 	_, err = store.ApproveVersion(context.Background(), sc.ID, sc.Version, "admin@example.com",
 		script.Grants{Capabilities: script.Capabilities, Destinations: []script.Destination{script.PortalDestination()}})
 	require.NoError(t, err)
 	return h, store, runs
+}
+
+// unapprovedHandle returns a handle holding one script nothing has approved.
+//
+// The script is GLOBAL and written by an administrator, because that is what an
+// unapproved script now is: a personal script its own owner wrote is approved on
+// save (#1367), so a personal fixture would no longer be testing the gate at
+// all — it would be testing the path around it.
+func unapprovedHandle(t *testing.T) *Handle {
+	t.Helper()
+	h := New(Config{Store: newMemStore(), Runs: newStubRuns(), AdminPersona: "admin"})
+
+	res := call(t, h, adminCtx(), manageScriptInput{
+		Command: cmdCreate, Name: "daily", Source: "print(1)\n", Scope: script.ScopeGlobal,
+	})
+	require.False(t, res.IsError, resultText(res))
+	return h
 }
 
 // runScriptCall invokes the run_script handler directly.
@@ -102,7 +115,7 @@ func TestRunScript_RefusesWhatMustNotExecute(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h, store, _ := runnableHandle(t, true)
+			h, store, _ := runnableHandle(t)
 			sc, err := store.GetPersonal(context.Background(), "jane@example.com", "daily")
 			require.NoError(t, err)
 			tt.mutate(sc)
@@ -115,7 +128,7 @@ func TestRunScript_RefusesWhatMustNotExecute(t *testing.T) {
 }
 
 func TestRunScript_UnknownScript(t *testing.T) {
-	h, _, _ := runnableHandle(t, true)
+	h, _, _ := runnableHandle(t)
 	out := runScriptCall(t, h, runScriptInput{Name: "nope"})
 	assert.Contains(t, out["error"], "not found")
 }
@@ -123,13 +136,13 @@ func TestRunScript_UnknownScript(t *testing.T) {
 // TestRunScript_ParamsAreCheckedAgainstTheApprovedContract pins that binding
 // uses the approved version's parameters, not the live row's.
 func TestRunScript_ParamsAreCheckedAgainstTheApprovedContract(t *testing.T) {
-	h, _, _ := runnableHandle(t, true)
+	h, _, _ := runnableHandle(t)
 	out := runScriptCall(t, h, runScriptInput{Name: "daily", Args: map[string]any{"nope": 1}})
 	assert.Contains(t, out["error"], `has no parameter "nope"`)
 }
 
 func TestRunScript_EnqueueFailure(t *testing.T) {
-	h, _, runs := runnableHandle(t, true)
+	h, _, runs := runnableHandle(t)
 	runs.enqueueErr = errors.New("boom")
 	out := runScriptCall(t, h, runScriptInput{Name: "daily"})
 	assert.Contains(t, out["error"], "failed to queue")
@@ -138,7 +151,7 @@ func TestRunScript_EnqueueFailure(t *testing.T) {
 // TestRunScript_WaitEndsWithoutAWorker covers the bounded window with nothing
 // draining the queue: the caller gets the run id and the way to follow it.
 func TestRunScript_WaitEndsWithoutAWorker(t *testing.T) {
-	h, _, _ := runnableHandle(t, true)
+	h, _, _ := runnableHandle(t)
 	out := runScriptCall(t, h, runScriptInput{Name: "daily", WaitSeconds: -1})
 	assert.Equal(t, script.RunStatusPending, out[fieldStatus])
 	assert.Contains(t, out["message"], "get_run")
@@ -147,7 +160,7 @@ func TestRunScript_WaitEndsWithoutAWorker(t *testing.T) {
 // TestRunScript_WaitSurvivesAFailedRead pins that a read failing mid-wait says
 // nothing about the run, which a worker elsewhere is still executing.
 func TestRunScript_WaitSurvivesAFailedRead(t *testing.T) {
-	h, _, runs := runnableHandle(t, true)
+	h, _, runs := runnableHandle(t)
 	runs.getErr = errors.New("boom")
 	out := runScriptCall(t, h, runScriptInput{Name: "daily", WaitSeconds: 1})
 	assert.Equal(t, script.RunStatusPending, out[fieldStatus])
@@ -157,7 +170,7 @@ func TestRunScript_WaitSurvivesAFailedRead(t *testing.T) {
 // TestRunScript_CancelledCallerLeavesTheRunGoing covers a client hanging up
 // mid-wait.
 func TestRunScript_CancelledCallerLeavesTheRunGoing(t *testing.T) {
-	h, _, _ := runnableHandle(t, true)
+	h, _, _ := runnableHandle(t)
 	ctx, cancel := context.WithCancel(authorCtx())
 	cancel()
 
@@ -176,7 +189,7 @@ func TestWaitBudget(t *testing.T) {
 
 // TestRuns_ListsAndReadsOneRun covers the history commands over a queued run.
 func TestRuns_ListsAndReadsOneRun(t *testing.T) {
-	h, _, runs := runnableHandle(t, true)
+	h, _, runs := runnableHandle(t)
 	queued := runScriptCall(t, h, runScriptInput{Name: "daily", WaitSeconds: -1})
 	runID, ok := queued["run_id"].(string)
 	require.True(t, ok)
@@ -196,7 +209,7 @@ func TestRuns_ListsAndReadsOneRun(t *testing.T) {
 // id is not an authorization rule: a caller who cannot see the script cannot
 // read its runs, and cannot tell the difference from a run that does not exist.
 func TestGetRun_IsAuthorizedLikeTheScriptItBelongsTo(t *testing.T) {
-	h, _, _ := runnableHandle(t, true)
+	h, _, _ := runnableHandle(t)
 	queued := runScriptCall(t, h, runScriptInput{Name: "daily", WaitSeconds: -1})
 	runID, ok := queued["run_id"].(string)
 	require.True(t, ok)
@@ -213,7 +226,7 @@ func TestGetRun_IsAuthorizedLikeTheScriptItBelongsTo(t *testing.T) {
 // a transition to apply to the script — and the tool's closed schema refuses
 // a run status there, so a filter reading it would have been unreachable.
 func TestRuns_FilterUsesTheRunStatusVocabulary(t *testing.T) {
-	h, _, _ := runnableHandle(t, true)
+	h, _, _ := runnableHandle(t)
 	runScriptCall(t, h, runScriptInput{Name: "daily", WaitSeconds: -1})
 
 	pending := resultFields(t, call(t, h, authorCtx(), manageScriptInput{
@@ -233,7 +246,7 @@ func TestRuns_FilterUsesTheRunStatusVocabulary(t *testing.T) {
 
 func TestRunCommands_Failures(t *testing.T) {
 	t.Run("runs listing fails", func(t *testing.T) {
-		h, _, runs := runnableHandle(t, true)
+		h, _, runs := runnableHandle(t)
 		runs.listErr = errors.New("boom")
 		res := call(t, h, authorCtx(), manageScriptInput{Command: cmdRuns, Name: "daily"})
 		assert.True(t, res.IsError)
@@ -241,21 +254,21 @@ func TestRunCommands_Failures(t *testing.T) {
 	})
 
 	t.Run("get_run needs a run id", func(t *testing.T) {
-		h, _, _ := runnableHandle(t, true)
+		h, _, _ := runnableHandle(t)
 		res := call(t, h, authorCtx(), manageScriptInput{Command: cmdGetRun})
 		assert.True(t, res.IsError)
 		assert.Contains(t, resultText(res), "run_id is required")
 	})
 
 	t.Run("unknown run", func(t *testing.T) {
-		h, _, _ := runnableHandle(t, true)
+		h, _, _ := runnableHandle(t)
 		res := call(t, h, authorCtx(), manageScriptInput{Command: cmdGetRun, RunID: "dpx_nope"})
 		assert.True(t, res.IsError)
 		assert.Contains(t, resultText(res), "run not found")
 	})
 
 	t.Run("the script a run belongs to is gone", func(t *testing.T) {
-		h, store, runs := runnableHandle(t, true)
+		h, store, runs := runnableHandle(t)
 		queued := runScriptCall(t, h, runScriptInput{Name: "daily", WaitSeconds: -1})
 		runID, ok := queued["run_id"].(string)
 		require.True(t, ok)
@@ -281,7 +294,7 @@ func TestRunCommands_Failures(t *testing.T) {
 	})
 
 	t.Run("run read fails", func(t *testing.T) {
-		h, _, runs := runnableHandle(t, true)
+		h, _, runs := runnableHandle(t)
 		runs.getErr = errors.New("boom")
 		res := call(t, h, authorCtx(), manageScriptInput{Command: cmdGetRun, RunID: "dpx_1"})
 		assert.True(t, res.IsError)
@@ -303,7 +316,7 @@ func TestRunCommands_UnavailableWithoutAQueue(t *testing.T) {
 // TestRunScript_UnapprovedScriptNamesTheWayForward pins the refusal an author
 // is most likely to hit, and that it points at run_draft.
 func TestRunScript_UnapprovedScriptNamesTheWayForward(t *testing.T) {
-	h, _, _ := runnableHandle(t, false)
+	h := unapprovedHandle(t)
 	out := runScriptCall(t, h, runScriptInput{Name: "daily"})
 	assert.Contains(t, out["error"], "no approved version")
 	assert.Contains(t, out["error"], "run_draft")
@@ -406,7 +419,7 @@ func TestRunScriptSchema_ClosedAndInSyncWithTheInputStruct(t *testing.T) {
 // carries the parameters it bound, the error it failed with, and free text the
 // script printed while holding ITS grant.
 func TestRunReads_AreTheOwnersAndTheAdmins(t *testing.T) {
-	h, store, _ := runnableHandle(t, true)
+	h, store, _ := runnableHandle(t)
 	// Make the script visible to every analyst, so a colleague can see it and
 	// still not be its owner.
 	sc, err := store.GetPersonal(context.Background(), "jane@example.com", "daily")
@@ -431,7 +444,7 @@ func TestRunReads_AreTheOwnersAndTheAdmins(t *testing.T) {
 // caller who ran the script gets the result when they ask for it, so a run id
 // they were handed must stay followable even though the script is not theirs.
 func TestGetRun_ReadableByWhoeverAskedForIt(t *testing.T) {
-	h, store, runs := runnableHandle(t, true)
+	h, store, runs := runnableHandle(t)
 	sc, err := store.GetPersonal(context.Background(), "jane@example.com", "daily")
 	require.NoError(t, err)
 	sc.Scope, sc.Personas = script.ScopePersona, []string{"analyst"}

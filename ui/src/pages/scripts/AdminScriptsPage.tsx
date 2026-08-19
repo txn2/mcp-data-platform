@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { FileCode2 } from "lucide-react";
-import { useAdminScripts, useScriptReviews, useScriptVersions } from "@/api/admin/hooks";
-import type { PendingReview, Script, ScriptVersion } from "@/api/admin/types";
+import { useAdminScripts, useScriptReviews } from "@/api/admin/hooks";
+import type { PendingReview, Script } from "@/api/admin/types";
 import { EmptyState } from "@/components/patterns/EmptyState";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -19,13 +19,18 @@ import { ScriptReviewDrawer } from "./ScriptReviewDrawer";
 import { ScriptReviewQueue } from "./ScriptReviewQueue";
 import { ScriptRunsTab } from "./ScriptRunsTab";
 
-// AdminScriptsPage is the managed-script review surface (#1287): the queue of
-// versions waiting for a decision, every script and what it is executing, and
-// the version history a rollback is approved from.
+// AdminScriptsPage is the administrator's script listing: the queue of versions
+// waiting for a decision, every script on the platform, and what has been
+// running (#1287, #1307).
 //
-// It is the human control the execution gate has always needed. Approving is a
-// REST call either way; what this page adds is a reviewer who can see what
-// they are agreeing to.
+// A row opens the script itself, on the same detail page its owner opens
+// (#1367): an administrator runs, edits, dry-runs, schedules and reads the
+// history of every script exactly as its owner does, and decides whether a
+// version executes. This page lists; that page acts.
+//
+// The queue keeps its own drawer because it is a different motion — open,
+// decide, next — and a reviewer working a queue should not have to walk into a
+// whole script and back out again for each one.
 
 // Open names the version the review drawer is open on.
 interface Open {
@@ -34,11 +39,10 @@ interface Open {
   version: number;
 }
 
-export function AdminScriptsPage() {
+export function AdminScriptsPage({ onNavigate }: { onNavigate: (path: string) => void }) {
   const reviews = useScriptReviews();
   const scripts = useAdminScripts();
   const [open, setOpen] = useState<Open | null>(null);
-  const [expanded, setExpanded] = useState<Script | null>(null);
 
   const pending = reviews.data?.data ?? [];
   const allScripts = scripts.data?.data ?? [];
@@ -78,54 +82,44 @@ export function AdminScriptsPage() {
       </TabsContent>
 
       <TabsContent value="review" className="space-y-4">
-      {reviews.error && (
-        <Alert variant="destructive">
-          <AlertDescription>
-            The review queue could not be loaded, so this page cannot say whether
-            anything is waiting. The server may be unavailable.
-          </AlertDescription>
-        </Alert>
-      )}
+        {reviews.error && (
+          <Alert variant="destructive">
+            <AlertDescription>
+              The review queue could not be loaded, so this page cannot say whether
+              anything is waiting. The server may be unavailable.
+            </AlertDescription>
+          </Alert>
+        )}
 
-      <ScriptReviewQueue
-        pending={pending}
-        isLoading={reviews.isLoading}
-        selectedVersionID={openQueueRow(pending, open)?.version_id ?? null}
-        onOpen={openReview}
-      />
-
-      <SectionCard title="All scripts">
-        <ScriptsSection
-          scripts={allScripts}
-          isLoading={scripts.isLoading}
-          expanded={expanded}
-          onExpand={setExpanded}
-          onOpenVersion={(script, version) =>
-            setOpen({
-              scriptID: script.id,
-              scriptName: script.display_name || script.name,
-              version,
-            })
-          }
+        <ScriptReviewQueue
+          pending={pending}
+          isLoading={reviews.isLoading}
+          selectedVersionID={openQueueRow(pending, open)?.version_id ?? null}
+          onOpen={openReview}
         />
-      </SectionCard>
 
-      {open && (
-        <ScriptReviewDrawer
-          key={`${open.scriptID}-${open.version}`}
-          scriptID={open.scriptID}
-          scriptName={open.scriptName}
-          version={open.version}
-          onClose={() => setOpen(null)}
-        />
-      )}
+        <SectionCard title="All scripts">
+          <ScriptsSection
+            scripts={allScripts}
+            isLoading={scripts.isLoading}
+            onNavigate={onNavigate}
+          />
+        </SectionCard>
+
+        {open && (
+          <ScriptReviewDrawer
+            key={`${open.scriptID}-${open.version}`}
+            scriptID={open.scriptID}
+            scriptName={open.scriptName}
+            version={open.version}
+            onClose={() => setOpen(null)}
+          />
+        )}
       </TabsContent>
     </Tabs>
   );
 }
 
-// ScriptsSection is the listing's three states: loading, nothing authored yet,
-// and the table.
 // openQueueRow finds the queue row the drawer is open on, matching the version
 // as well as the script: a script can have a queued version and an older one
 // open from its history, and highlighting the queued row then names a decision
@@ -135,18 +129,16 @@ function openQueueRow(pending: PendingReview[], open: Open | null): PendingRevie
   return pending.find((p) => p.script_id === open.scriptID && p.version === open.version);
 }
 
+// ScriptsSection is the listing's three states: loading, nothing authored yet,
+// and the table.
 function ScriptsSection({
   scripts,
   isLoading,
-  expanded,
-  onExpand,
-  onOpenVersion,
+  onNavigate,
 }: {
   scripts: Script[];
   isLoading: boolean;
-  expanded: Script | null;
-  onExpand: (script: Script | null) => void;
-  onOpenVersion: (script: Script, version: number) => void;
+  onNavigate: (path: string) => void;
 }) {
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Loading scripts...</p>;
@@ -155,30 +147,20 @@ function ScriptsSection({
     return (
       <EmptyState icon={FileCode2}>
         No scripts have been authored yet. An agent creates one through the manage_script
-        tool; it appears here as soon as it needs a decision.
+        tool, or a person writes one on their own scripts page; it appears here as soon as
+        it exists.
       </EmptyState>
     );
   }
-  return (
-    <ScriptTable
-      scripts={scripts}
-      expanded={expanded}
-      onExpand={onExpand}
-      onOpenVersion={onOpenVersion}
-    />
-  );
+  return <ScriptTable scripts={scripts} onNavigate={onNavigate} />;
 }
 
 function ScriptTable({
   scripts,
-  expanded,
-  onExpand,
-  onOpenVersion,
+  onNavigate,
 }: {
   scripts: Script[];
-  expanded: Script | null;
-  onExpand: (script: Script | null) => void;
-  onOpenVersion: (script: Script, version: number) => void;
+  onNavigate: (path: string) => void;
 }) {
   return (
     <Table>
@@ -186,58 +168,40 @@ function ScriptTable({
         <TableRow>
           <TableHead>Script</TableHead>
           <TableHead>Owner</TableHead>
+          <TableHead>Visible to</TableHead>
           <TableHead>Executing</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {scripts.map((script) => (
-          <ScriptRows
+          <TableRow
             key={script.id}
-            script={script}
-            expanded={expanded?.id === script.id}
-            onExpand={onExpand}
-            onOpenVersion={onOpenVersion}
-          />
+            className="cursor-pointer"
+            onClick={() => onNavigate(`/admin/scripts/${script.id}`)}
+          >
+            <TableCell>
+              <div className="font-medium">{script.display_name || script.name}</div>
+              <div className="font-mono text-xs text-muted-foreground">{script.name}</div>
+            </TableCell>
+            <TableCell className="text-xs">{script.owner_email || "—"}</TableCell>
+            <TableCell className="text-xs">{audience(script)}</TableCell>
+            <TableCell>
+              <ExecutionState script={script} />
+            </TableCell>
+          </TableRow>
         ))}
       </TableBody>
     </Table>
   );
 }
 
-function ScriptRows({
-  script,
-  expanded,
-  onExpand,
-  onOpenVersion,
-}: {
-  script: Script;
-  expanded: boolean;
-  onExpand: (script: Script | null) => void;
-  onOpenVersion: (script: Script, version: number) => void;
-}) {
-  return (
-    <>
-      {/* The row expands the version history, as every other expandable row in
-          the portal does. */}
-      <TableRow className="cursor-pointer" onClick={() => onExpand(expanded ? null : script)}>
-        <TableCell>
-          <div className="font-medium">{script.display_name || script.name}</div>
-          <div className="font-mono text-xs text-muted-foreground">{script.name}</div>
-        </TableCell>
-        <TableCell className="text-xs">{script.owner_email || "—"}</TableCell>
-        <TableCell>
-          <ExecutionState script={script} />
-        </TableCell>
-      </TableRow>
-      {expanded && (
-        <TableRow>
-          <TableCell colSpan={3} className="bg-muted/30">
-            <VersionHistory script={script} onOpenVersion={onOpenVersion} />
-          </TableCell>
-        </TableRow>
-      )}
-    </>
-  );
+// audience renders a script's scope in the reader's terms. It is on this table
+// because scope is what decides whether a version reaches this queue at all: a
+// personal script its owner wrote is approved without anybody here (#1367).
+function audience(script: Script): string {
+  if (script.scope === "global") return "everyone";
+  if (script.scope === "persona") return (script.personas ?? []).join(", ") || "no persona";
+  return "its owner";
 }
 
 // ExecutionState says what the script is running, which is the only status
@@ -256,70 +220,4 @@ function ExecutionState({ script }: { script: Script }) {
     );
   }
   return <Badge variant="success">Approved v{script.version}</Badge>;
-}
-
-// VersionHistory is where a rollback happens: any version can be approved, and
-// approving an earlier one points the execution gate back at it. The list says
-// so rather than hiding the option behind the queue.
-function VersionHistory({
-  script,
-  onOpenVersion,
-}: {
-  script: Script;
-  onOpenVersion: (script: Script, version: number) => void;
-}) {
-  const { data, isLoading, error } = useScriptVersions(script.id);
-  if (isLoading) return <p className="text-xs text-muted-foreground">Loading history...</p>;
-  if (error) {
-    return (
-      <p className="text-xs text-muted-foreground">
-        This script's history could not be loaded.
-      </p>
-    );
-  }
-  const versions = data?.data ?? [];
-  if (versions.length === 0) {
-    return <p className="text-xs text-muted-foreground">This script has no versions.</p>;
-  }
-  return (
-    <ul className="space-y-1.5">
-      {versions.map((v) => (
-        <li
-          key={v.id}
-          role="button"
-          aria-label={`${v.id === script.approved_version_id ? "View" : "Review"} version ${v.version}`}
-          tabIndex={0}
-          onClick={() => onOpenVersion(script, v.version)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              onOpenVersion(script, v.version);
-            }
-          }}
-          className="flex cursor-pointer items-center justify-between gap-3 rounded-md px-2 py-1 select-none hover:bg-muted/50"
-        >
-          <VersionLine version={v} executing={v.id === script.approved_version_id} />
-          <span className="text-xs whitespace-nowrap text-muted-foreground">
-            {v.id === script.approved_version_id ? "View" : "Review"}
-          </span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function VersionLine({ version, executing }: { version: ScriptVersion; executing: boolean }) {
-  return (
-    <div className="min-w-0 text-xs">
-      <span className="font-mono">v{version.version}</span>{" "}
-      <Badge variant={version.status === "draft" ? "warning" : "muted"}>
-        {version.status}
-      </Badge>{" "}
-      {executing && <Badge variant="success">Executing</Badge>}{" "}
-      <span className="text-muted-foreground">
-        by {version.author || "unknown"}
-        {version.approved_by && ` · approved by ${version.approved_by}`}
-      </span>
-    </div>
-  );
 }

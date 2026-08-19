@@ -67,6 +67,11 @@ type Deps struct {
 	// leaves the choices route unmounted.
 	Connections ConnectionEnumerator
 
+	// Auto approves an owner-authored personal script on save (#1367), minting
+	// the grant from what its code reaches. Nil leaves every saved version
+	// waiting for a reviewer, which is what this surface did before it existed.
+	Auto script.AutoApprover
+
 	// AdminEmail returns the authenticated administrator's email, which is
 	// stamped on the approval.
 	AdminEmail func(r *http.Request) string

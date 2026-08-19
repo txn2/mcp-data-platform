@@ -169,7 +169,7 @@ describe("MyScriptsPage", () => {
     );
     render(<MyScriptsPage onNavigate={onNavigate} />);
     expect(screen.getByText("scripts visible to you")).toBeInTheDocument();
-    expect(screen.getByText("have a version an administrator approved")).toBeInTheDocument();
+    expect(screen.getByText("have a version the platform may execute")).toBeInTheDocument();
     expect(screen.getByText("run on a schedule, unattended")).toBeInTheDocument();
     expect(screen.getByText("of the 1 you own")).toBeInTheDocument();
   });
