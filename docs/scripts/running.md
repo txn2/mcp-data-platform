@@ -262,6 +262,66 @@ refuses to mix a reviewable change with them anyway.
 The source is parsed before anything is stored, so code that cannot run is
 refused at the keyboard rather than at the next fire.
 
+### Documenting a script
+
+A managed script is complex logic that outlives the conversation that produced
+it, so its description is a document rather than a caption: markdown, at
+whatever length the automation needs explaining at, rendered on the script's
+page the way an asset's description and a knowledge page are rendered elsewhere
+in the portal. Write what the script produces, what each parameter means in the
+reader's terms, what it assumes about the data, and anything somebody re-reading
+it in six months would need.
+
+Four fields say what a script is, and the owner writes all four on the page that
+shows them (`PUT /api/v1/portal/scripts/{id}/metadata`), or an agent writes them
+with `manage_script update`:
+
+| Field | What it is |
+|---|---|
+| `display_name` | The label every listing, page header and search result prints. At most 200 characters. |
+| `description` | The document, in markdown. |
+| `category` | One lowercase slug the script is filed under (`^[a-z][a-z0-9-]{0,30}$`), which the listings filter on. |
+| `tags` | Free-form labels, up to 20. |
+
+**None of the four is review-gated.** `script.RequiresReview` keys on the source
+and the parameter contract alone, so documenting a script applies immediately
+and the approved version keeps executing untouched. The change is still captured
+as a version, because what a script claimed to do is part of explaining what one
+of its runs did.
+
+Being versioned has one consequence worth knowing while a draft is waiting for a
+reviewer: approving a version applies that version's whole snapshot to the live
+row, documentation included. So if you document a script after an edit to its
+source became a draft, approving that draft restores the documentation the draft
+captured. The portal form says so when a version is waiting, so the case is
+visible where it happens; document it again after the approval, or document it
+before making the source edit.
+
+The portal form sends all four fields on every save, so clearing a box clears
+the field. Through the tool, a field left out of an `update` is left alone: send
+`category: ""` or `tags: []` to unset those, and note that `display_name` and
+`description` follow the tool's older convention in which an empty string means
+"not sent" and cannot clear the field.
+
+All four are matched by search — `script_fts` is composed from the title, the
+description, the category, the tags and the parameter contract, and the semantic
+index embeds the same text — so how a script is described and filed decides
+whether anybody finds it.
+
+**Length.** A description is refused only above 64 KiB, which is a structural
+limit rather than an editorial one: the full-text expression is built into a
+GIN index, so PostgreSQL runs `to_tsvector` on every write and refuses an input
+over 1 MiB, which would make the row unwritable rather than merely unfindable.
+Well below that, at about 16 KiB, the write still succeeds and the response
+carries a suggestion that the background might belong in a knowledge page the
+description links to. It is advice, never a refusal.
+
+**Filing.** A category is one value written one way, which is what makes it a
+filter: reuse an existing category rather than coining a near-duplicate, and let
+tags carry everything a single axis cannot. `manage_script command=list` accepts
+both (`category`, `tags`) and the portal listing offers a chip per value, which
+narrows the listing on the server rather than in the page.
+
 ### Checking an edit before asking for approval
 
 The editor offers the same two checks `manage_script` offers an agent, on the

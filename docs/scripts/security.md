@@ -373,7 +373,7 @@ script pages existed (`ui/src/pages/scripts/MyScriptsPage.tsx` and
 `ScriptDetailPage.tsx`, over `internal/httpserver/scripthttp`'s portal routes)
 they could read their own scripts only by asking an agent to call a tool.
 
-The surface writes four things, and none of them is an authority.
+The surface writes five things, and none of them is an authority.
 
 A script's cadence, by the person who owns it
 (`internal/httpserver/scripthttp/portalschedule.go`), which carries nothing: the
@@ -396,6 +396,20 @@ in what executed.
 
 A DRAFT run of an edit, executed as the caller (`portaldraft.go`, over
 `internal/platform/scriptdraft`). This is discussed on its own below.
+
+What a script SAYS about itself — its display name, its markdown description,
+the category it is filed under and its tags (`portaledit.go`, #1369). This
+one is worth being explicit about, because "it changes the record and needs no
+review" is the shape a widening usually hides in. It is not one: none of the
+four is an input to any decision the platform makes. The execution gate is an
+approved version id, the grant is bound to that version, and visibility is scope
+plus owner — a description cannot move any of them. `script.RequiresReview` keys
+on the source and the parameter contract alone, so this applies to the live row
+directly, and the version that is executing is untouched. The edit still crosses
+`script.ApplyEdit` like every other mutation and is captured as a version, so
+what a script claimed to do at the time one of its runs ran is still on record.
+The route is the owner's and the administrator's, answering not-yours and
+does-not-exist identically, as every other owner route does.
 
 Approving a version and the grant that approval binds stay on the admin API
 behind admin authentication, and no portal route can approve, reject, or widen

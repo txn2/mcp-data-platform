@@ -28,7 +28,7 @@ func (h *Handle) handleCreate(ctx context.Context, input manageScriptInput) (*mc
 	}
 	sc := &script.Script{
 		Name: input.Name, DisplayName: input.DisplayName, Description: input.Description,
-		Source: input.Source, Params: input.Params, Scope: scope,
+		Category: derefOr(input.Category), Source: input.Source, Params: input.Params, Scope: scope,
 		Personas: orEmpty(input.Personas), Tags: orEmpty(input.Tags),
 		OwnerEmail: resolveEmail(ctx), Enabled: true, Status: script.StatusDraft,
 	}
@@ -51,11 +51,13 @@ func (h *Handle) handleCreate(ctx context.Context, input manageScriptInput) (*mc
 	// and a grant that cannot be read off the source leaves the script waiting
 	// for a reviewer exactly as it did before.
 	auto := h.auto.AutoApprove(ctx, sc, sc.Version, author)
-	return jsonResult(map[string]any{
+	out := map[string]any{
 		fieldStatus: "created", "id": sc.ID, fieldName: sc.Name, fieldVersion: sc.Version,
 		"executable": sc.Executable(),
 		"next":       createdNext(auto),
-	})
+	}
+	addDescriptionNotice(out, sc)
+	return jsonResult(out)
 }
 
 // createdNext tells the author what happens to the script they just created:
@@ -71,6 +73,25 @@ func createdNext(auto script.AutoOutcome) string {
 	default:
 		return "Call run_draft to execute it under your own identity; nothing runs it on its own until a version is approved."
 	}
+}
+
+// addDescriptionNotice attaches the non-blocking signal that a description has
+// outgrown the script it documents. It is advisory in the response for the same
+// reason it is advisory in the domain: the write already succeeded, and this is
+// a suggestion about where the prose might live better, not a complaint about
+// the script.
+func addDescriptionNotice(out map[string]any, sc *script.Script) {
+	if notice := script.DescriptionNotice(sc.Description); notice != "" {
+		out["description_notice"] = notice
+	}
+}
+
+// derefOr reads an optional string, yielding "" when the caller sent nothing.
+func derefOr(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
 }
 
 // orEmpty normalizes a nil slice to an empty one.
@@ -133,6 +154,9 @@ func applyStringFields(sc *script.Script, input manageScriptInput) {
 	if input.Description != "" {
 		sc.Description = input.Description
 	}
+	if input.Category != nil {
+		sc.Category = *input.Category
+	}
 	if input.Personas != nil {
 		sc.Personas = input.Personas
 	}
@@ -180,6 +204,7 @@ func (h *Handle) persist(ctx context.Context, before, after *script.Script, extr
 	}
 	out[fieldStatus] = "updated"
 	out["executable"] = after.Executable()
+	addDescriptionNotice(out, after)
 	if msg := updatedMessage(after, outcome.Auto); msg != "" {
 		out["message"] = msg
 	}
@@ -275,7 +300,7 @@ func scriptFields(sc *script.Script) map[string]any {
 		"id": sc.ID, fieldName: sc.Name, "display_name": sc.DisplayName,
 		"description": sc.Description, fieldSource: sc.Source, "params": sc.Params,
 		"scope": sc.Scope, "personas": sc.Personas, "owner_email": sc.OwnerEmail,
-		"tags": sc.Tags, "enabled": sc.Enabled, fieldStatus: sc.Status,
+		"category": sc.Category, "tags": sc.Tags, "enabled": sc.Enabled, fieldStatus: sc.Status,
 		fieldVersion: sc.Version, "executable": sc.Executable(),
 		"executable_note": executableNote(sc),
 		"created_at":      sc.CreatedAt, "updated_at": sc.UpdatedAt,
@@ -296,6 +321,7 @@ func executableNote(sc *script.Script) string {
 func (h *Handle) handleList(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
 	filter := script.ListFilter{
 		Scope: input.Scope, Status: input.Status, Search: input.Search, Limit: input.Limit,
+		Category: derefOr(input.Category), Tags: input.Tags,
 	}
 	if !h.isAdminPersona(ctx) {
 		// Scope the listing by the same rule the read path applies, not by
@@ -314,7 +340,8 @@ func (h *Handle) handleList(ctx context.Context, input manageScriptInput) (*mcp.
 		items = append(items, map[string]any{
 			fieldName: sc.Name, "display_name": sc.DisplayName, "description": sc.Description,
 			"scope": sc.Scope, "owner_email": sc.OwnerEmail, fieldStatus: sc.Status,
-			fieldVersion: sc.Version, "executable": sc.Executable(), "tags": sc.Tags,
+			fieldVersion: sc.Version, "executable": sc.Executable(),
+			"category": sc.Category, "tags": sc.Tags,
 		})
 	}
 	return jsonResult(map[string]any{"scripts": items, "count": len(items)})

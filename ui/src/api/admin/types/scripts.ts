@@ -44,6 +44,9 @@ export interface Script {
   // approved_version_id is the execution gate: empty means nothing of this
   // script runs.
   approved_version_id?: string;
+  // category files the script under one lowercase slug, the axis the listings
+  // filter on (#1369). Empty for a script nobody has filed.
+  category?: string;
   tags?: string[];
   updated_at: string;
 }
@@ -55,6 +58,7 @@ export interface ScriptVersion {
   version: number;
   display_name: string;
   description: string;
+  category?: string;
   source: string;
   tags?: string[];
   author: string;

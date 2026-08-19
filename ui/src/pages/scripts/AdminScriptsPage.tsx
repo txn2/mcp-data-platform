@@ -15,6 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ScriptFacetBadges } from "./ScriptFacetBadges";
 import { ScriptReviewDrawer } from "./ScriptReviewDrawer";
 import { ScriptReviewQueue } from "./ScriptReviewQueue";
 import { ScriptRunsTab } from "./ScriptRunsTab";
@@ -182,6 +183,11 @@ function ScriptTable({
             <TableCell>
               <div className="font-medium">{script.display_name || script.name}</div>
               <div className="font-mono text-xs text-muted-foreground">{script.name}</div>
+              <ScriptFacetBadges
+                category={script.category}
+                tags={script.tags}
+                className="mt-1"
+              />
             </TableCell>
             <TableCell className="text-xs">{script.owner_email || "—"}</TableCell>
             <TableCell className="text-xs">{audience(script)}</TableCell>

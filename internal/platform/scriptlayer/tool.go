@@ -56,15 +56,21 @@ const (
 type manageScriptInput struct {
 	Command string `json:"command"`
 
-	Name        string         `json:"name,omitempty"`
-	DisplayName string         `json:"display_name,omitempty"`
-	Description string         `json:"description,omitempty"`
-	Source      string         `json:"source,omitempty"`
-	Params      []script.Param `json:"params,omitempty"`
-	Scope       string         `json:"scope,omitempty"`
-	Personas    []string       `json:"personas,omitempty"`
-	OwnerEmail  string         `json:"owner_email,omitempty"`
-	Tags        []string       `json:"tags,omitempty"`
+	Name        string `json:"name,omitempty"`
+	DisplayName string `json:"display_name,omitempty"`
+	Description string `json:"description,omitempty"`
+	// Category is a pointer for the reason Enabled is: an empty category is a
+	// meaningful value (the script is filed under nothing) and has to be
+	// distinguishable from "not sent". Its two siblings above keep the
+	// zero-value convention they were written with; this one is new (#1369) and
+	// is clearable, as the tag list beside it already was.
+	Category   *string        `json:"category,omitempty"`
+	Source     string         `json:"source,omitempty"`
+	Params     []script.Param `json:"params,omitempty"`
+	Scope      string         `json:"scope,omitempty"`
+	Personas   []string       `json:"personas,omitempty"`
+	OwnerEmail string         `json:"owner_email,omitempty"`
+	Tags       []string       `json:"tags,omitempty"`
 	// Enabled is a pointer so "not sent" (leave it alone) is distinct from
 	// false (disable it).
 	Enabled      *bool  `json:"enabled,omitempty"`
@@ -234,8 +240,25 @@ func manageScriptSchema() any {
 			keyType:        valString,
 			keyDescription: "Script name (lowercase letters, digits, hyphens, underscores).",
 		},
-		"display_name": map[string]any{keyType: valString, keyDescription: "Human-readable display name."},
-		keyDescription: map[string]any{keyType: valString, keyDescription: "What the script produces."},
+		"display_name": map[string]any{
+			keyType:        valString,
+			keyDescription: fmt.Sprintf("Human-readable display name, at most %d characters.", script.MaxDisplayNameLen),
+		},
+		keyDescription: map[string]any{
+			keyType: valString,
+			keyDescription: "What the script is for, in markdown. This is documentation rather than a " +
+				"caption: write what the script produces, what each parameter means in the reader's " +
+				"terms, what it assumes about the data, and anything somebody re-reading it in six " +
+				"months would need. It is rendered as markdown on the script's page and is part of " +
+				"what search matches the script on.",
+		},
+		"category": map[string]any{
+			keyType: valString,
+			keyDescription: "One lowercase slug filing the script under a category (letters, digits and " +
+				"hyphens, starting with a letter), which the listings filter on. Reuse an existing " +
+				"category from list rather than coining a near-duplicate; send an empty string to " +
+				"file the script under nothing.",
+		},
 		fieldSource: map[string]any{
 			keyType:        valString,
 			keyDescription: "The Starlark source. Call 'help' for the dialect contract and worked examples.",
@@ -254,8 +277,11 @@ func manageScriptSchema() any {
 			keyType: valArray, keyItems: map[string]any{keyType: valString},
 			keyDescription: "Personas a persona-scoped script is visible to.",
 		},
-		"owner_email":   map[string]any{keyType: valString, keyDescription: "Owner of the script; admins use it to address another owner's personal script."},
-		"tags":          map[string]any{keyType: valArray, keyItems: map[string]any{keyType: valString}, keyDescription: "Free-form tags."},
+		"owner_email": map[string]any{keyType: valString, keyDescription: "Owner of the script; admins use it to address another owner's personal script."},
+		"tags": map[string]any{
+			keyType: valArray, keyItems: map[string]any{keyType: valString},
+			keyDescription: "Free-form tags. On list they narrow the result to the scripts carrying any of them.",
+		},
 		"enabled":       map[string]any{keyType: valBoolean, keyDescription: "Whether the script is available."},
 		fieldStatus:     map[string]any{keyType: valString, keyEnum: []string{script.StatusActive, script.StatusDeprecated, script.StatusSuperseded}, keyDescription: "Lifecycle transition to apply."},
 		"superseded_by": map[string]any{keyType: valString, keyDescription: "Name of the replacing script when superseding."},

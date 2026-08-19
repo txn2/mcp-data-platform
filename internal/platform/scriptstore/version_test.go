@@ -18,7 +18,7 @@ import (
 // versionSelectColumns is the result-set shape a version SELECT mock must
 // return, in versionColumns order.
 var versionSelectColumns = []string{
-	"id", "script_id", "version", "display_name", "description",
+	"id", "script_id", "version", "display_name", "description", "category",
 	"source_code", "params", "tags", "author", "author_roles", "status",
 	"approved_by", "approved_at", "auto_approved", "grants", "created_at",
 }
@@ -26,17 +26,26 @@ var versionSelectColumns = []string{
 // versionRow returns one full version row in versionColumns order.
 func versionRow(version int, source, status string, paramsJSON []byte) []driver.Value {
 	return []driver.Value{
-		"sver_1", "script_1", version, "Daily", "A daily report",
+		"sver_1", "script_1", version, "Daily", "A daily report", "",
 		source, paramsJSON, pq.Array([]string{}), "jane@example.com",
 		pq.Array([]string{"analyst"}), status, "", nil, false, []byte("{}"), rowTime,
 	}
 }
 
+// versionRowAuthorIndex is the author column's position in versionSelectColumns,
+// named so a column added ahead of it moves one constant rather than every
+// numeric index in this file.
+const (
+	versionRowAuthorIndex     = 9
+	versionRowApprovedByIndex = 12
+	versionRowGrantsIndex     = 15
+)
+
 // versionRowBy returns a version row written by a named author, for the rules
 // that turn on WHO wrote a version rather than on what it contains.
 func versionRowBy(author, status string) []driver.Value {
 	row := versionRow(2, "print(1)", status, []byte("[]"))
-	row[8] = author
+	row[versionRowAuthorIndex] = author
 	return row
 }
 
@@ -44,7 +53,7 @@ func versionRowBy(author, status string) []driver.Value {
 // shape a version written before the author-roles column existed carries.
 func versionRowWithoutRoles(version int, status string) []driver.Value {
 	row := versionRow(version, "print(1)", status, []byte("[]"))
-	row[9] = pq.Array([]string{})
+	row[versionRowAuthorIndex+1] = pq.Array([]string{})
 	return row
 }
 

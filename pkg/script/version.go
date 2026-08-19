@@ -46,9 +46,9 @@ type Author struct {
 }
 
 // Version is one immutable snapshot of a script's versioned fields (source,
-// params, display name, description, tags), with the author who produced it and
-// the approval stamp bound to this specific version. Stamps never change once
-// set: approving v5 does not alter what was recorded for v4.
+// params, display name, description, category, tags), with the author who
+// produced it and the approval stamp bound to this specific version. Stamps
+// never change once set: approving v5 does not alter what was recorded for v4.
 //
 // The snapshot is what makes a run explainable months later — a run record
 // names the version it executed, and the code of that version is still here.
@@ -58,6 +58,7 @@ type Version struct {
 	Version     int      `json:"version" example:"3"`
 	DisplayName string   `json:"display_name" example:"Daily Sales Report"`
 	Description string   `json:"description" example:"Summarize yesterday's sales by region"`
+	Category    string   `json:"category,omitempty" example:"reporting"`
 	Source      string   `json:"source"`
 	Params      []Param  `json:"params"`
 	Tags        []string `json:"tags" example:"sales,reporting"`

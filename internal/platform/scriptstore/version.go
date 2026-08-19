@@ -16,8 +16,8 @@ import (
 // versionColumns is the column list read by every script_versions SELECT,
 // mirrored by scanVersion so the scan order cannot drift from the query.
 const versionColumns = `id, script_id, version, display_name, description,
-	source_code, params, tags, author, author_roles, status, approved_by,
-	approved_at, auto_approved, grants, created_at`
+	category, source_code, params, tags, author, author_roles, status,
+	approved_by, approved_at, auto_approved, grants, created_at`
 
 // versionSelect is the base SELECT for the version columns.
 const versionSelect = "SELECT " + versionColumns + " FROM script_versions"
@@ -27,8 +27,9 @@ func scanVersion(sc rowScanner) (*script.Version, error) {
 	v := &script.Version{}
 	var paramsJSON, grantsJSON []byte
 	err := sc.Scan(&v.ID, &v.ScriptID, &v.Version, &v.DisplayName, &v.Description,
-		&v.Source, &paramsJSON, pq.Array(&v.Tags), &v.Author, pq.Array(&v.AuthorRoles),
-		&v.Status, &v.ApprovedBy, &v.ApprovedAt, &v.AutoApproved, &grantsJSON, &v.CreatedAt)
+		&v.Category, &v.Source, &paramsJSON, pq.Array(&v.Tags), &v.Author,
+		pq.Array(&v.AuthorRoles), &v.Status, &v.ApprovedBy, &v.ApprovedAt,
+		&v.AutoApproved, &grantsJSON, &v.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("scanning script version row: %w", err)
 	}
@@ -82,12 +83,12 @@ func insertVersionRow(ctx context.Context, tx *sql.Tx, ins versionInsert) error 
 	}
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO script_versions (script_id, version, display_name, description,
-		                             source_code, params, tags, author, author_roles,
-		                             status, approved_by, approved_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+		                             category, source_code, params, tags, author,
+		                             author_roles, status, approved_by, approved_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
 		ins.ScriptID, ins.Version, ins.Snapshot.DisplayName, ins.Snapshot.Description,
-		ins.Snapshot.Source, paramsJSON, pq.Array(tags), ins.Author.Email, pq.Array(roles),
-		ins.Status, ins.ApprovedBy, ins.ApprovedAt)
+		ins.Snapshot.Category, ins.Snapshot.Source, paramsJSON, pq.Array(tags),
+		ins.Author.Email, pq.Array(roles), ins.Status, ins.ApprovedBy, ins.ApprovedAt)
 	if err != nil {
 		return fmt.Errorf("insert script version: %w", err)
 	}

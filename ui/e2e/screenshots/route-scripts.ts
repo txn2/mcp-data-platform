@@ -1,6 +1,7 @@
 import {
   openPersonalScriptSource,
   openScriptDeliveryGrant,
+  openScriptDocumentation,
   openScriptDryRun,
   openScriptDryRunAccount,
   openScriptFirstApproval,
@@ -43,6 +44,16 @@ export const userScriptRoutes: ScreenshotRoute[] = [
     slug: "script-detail",
     path: "/portal/scripts/script-001",
     category: "user",
+  },
+  {
+    // The form an owner documents a script in (#1369): the four fields that say
+    // what it is, edited on the page that shows them rather than by asking an
+    // agent. The read state is on the detail capture above, where the
+    // description is already rendered as markdown.
+    slug: "script-documentation",
+    path: "/portal/scripts/script-001",
+    category: "user",
+    beforeCapture: openScriptDocumentation,
   },
   {
     // A script only its owner can see and only its owner can run, approved by

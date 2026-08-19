@@ -292,6 +292,23 @@ describe("ScriptDetailPage: the contract", () => {
     renderPage();
     expect(screen.getByText(/could not be loaded/)).toBeInTheDocument();
   });
+
+  // The description used to be the page header's subtitle, which is a one-line
+  // slot, so a page of markdown arrived as one run-on line and authors wrote
+  // one-line captions to fit it (#1369). It is a document now, and it renders
+  // in the section the owner also writes it in.
+  it("renders the description as a document rather than as a header caption", () => {
+    mockContract.mockReturnValue(
+      query({
+        contract: { ...contract, description: "## What it produces\n\nOne CSV." },
+        owned: true,
+      }),
+    );
+    renderPage();
+
+    expect(screen.getByRole("heading", { level: 2, name: "What it produces" })).toBeInTheDocument();
+    expect(screen.queryByText(/## What it produces/)).not.toBeInTheDocument();
+  });
 });
 
 describe("ScriptDetailPage: what an owner may read", () => {

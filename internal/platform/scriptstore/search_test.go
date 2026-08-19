@@ -42,7 +42,7 @@ func TestSearch_NoQueryTextIsNoQuery(t *testing.T) {
 // (deprecated, superseded) out of the ranking.
 func TestSearch_AppliesVisibilityAndLifecycleInSQL(t *testing.T) {
 	s, mock := newMock(t)
-	mock.ExpectQuery(regexp.QuoteMeta("script_fts(display_name, name, description, tags, params)")).
+	mock.ExpectQuery(regexp.QuoteMeta("script_fts(display_name, name, description, category, tags, params)")).
 		WithArgs("sales report", sqlmock.AnyArg(), sqlmock.AnyArg(), "jane@example.com", script.DefaultSearchLimit).
 		WillReturnRows(sqlmock.NewRows(scoredSelectColumns).
 			AddRow(scoredRow(rowSpec{
@@ -199,9 +199,9 @@ func approvedVersionRow(t *testing.T) []driver.Value {
 	t.Helper()
 	row := versionRow(3, "print(1)", script.VersionStatusApplied,
 		[]byte(`[{"name":"report_date","type":"date","required":true}]`))
-	row[11] = "admin@example.com" // approved_by
-	row[12] = rowTime             // approved_at
-	row[14] = []byte(`{"connections":["warehouse"]}`)
+	row[versionRowApprovedByIndex] = "admin@example.com"
+	row[versionRowApprovedByIndex+1] = rowTime
+	row[versionRowGrantsIndex] = []byte(`{"connections":["warehouse"]}`)
 	return row
 }
 

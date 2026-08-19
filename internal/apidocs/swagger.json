@@ -14019,7 +14019,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns every managed script the caller is entitled to see, each with its cadence and, for the scripts they own, the state of its most recent run. Administrators see every script.",
+                "description": "Returns every managed script the caller is entitled to see, each with its cadence and, for the scripts they own, the state of its most recent run. Administrators see every script. The category and tag parameters narrow the listing; tag may be repeated, and a script matching any of the named tags is returned.",
                 "produces": [
                     "application/json"
                 ],
@@ -14027,6 +14027,24 @@
                     "Scripts"
                 ],
                 "summary": "List scripts visible to the portal caller",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Narrow to one category slug",
+                        "name": "category",
+                        "in": "query"
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "collectionFormat": "multi",
+                        "description": "Narrow to the scripts carrying any of these tags",
+                        "name": "tag",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -14208,6 +14226,79 @@
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/scripthttp.dryRunResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/scripts/{id}/metadata": {
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Saves the display name, markdown description, category and tags of a script the caller owns. None of these is review-gated, so the change applies immediately and the approved version keeps executing untouched; it is still captured as a version. Restricted to the script's owner and to administrators.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Edit what a script says about itself",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Documentation fields",
+                        "name": "metadata",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/scripthttp.metadataRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/scripthttp.metadataResponse"
                         }
                     },
                     "400": {
@@ -23347,6 +23438,10 @@
                 "approval": {
                     "$ref": "#/definitions/script.ContractApproval"
                 },
+                "category": {
+                    "type": "string",
+                    "example": "reporting"
+                },
                 "description": {
                     "type": "string",
                     "example": "Summarize yesterday's sales by region"
@@ -23896,6 +23991,11 @@
                     "description": "ApprovedVersionID is THE execution gate: the id of the one version the\nplatform may execute. Empty means the script has no approved version and\nnothing will run it \u2014 which is every script today, because the approval\naction and the runner that reads this pointer arrive with the execution\ngate. Draft execution (manage_script run_draft) deliberately never reads\nit: a draft runs under its author's own identity and authority, so it\nneeds no approval, and it also cannot stand in for one.",
                     "type": "string"
                 },
+                "category": {
+                    "description": "Category files the script under one lowercase slug, the axis a listing\nfilters on and a reader scans. It is the same axis a resource and an\ninsight carry, written the same way (#1369).",
+                    "type": "string",
+                    "example": "reporting"
+                },
                 "created_at": {
                     "type": "string",
                     "example": "2026-08-13T14:30:00Z"
@@ -24008,6 +24108,10 @@
                     "description": "AutoApproved marks an approval the PLATFORM made rather than a person\n(#1367): a personal script's own owner wrote this version, so the grant\nwas minted from what its code reaches instead of being asked of a\nreviewer. ApprovedBy still names the owner, because they are accountable\nfor it; this is what separates their authorship from somebody's decision,\nso an operator reading the history can tell which scripts nobody reviewed.",
                     "type": "boolean",
                     "example": false
+                },
+                "category": {
+                    "type": "string",
+                    "example": "reporting"
                 },
                 "created_at": {
                     "type": "string",
@@ -24277,6 +24381,45 @@
                 "status": {
                     "type": "string",
                     "example": "succeeded"
+                }
+            }
+        },
+        "scripthttp.metadataRequest": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "display_name": {
+                    "type": "string"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "scripthttp.metadataResponse": {
+            "type": "object",
+            "properties": {
+                "description_notice": {
+                    "description": "DescriptionNotice is the non-blocking suggestion that a very long\ndescription belongs somewhere of its own. Empty for every description\nunder that threshold, which is nearly all of them.",
+                    "type": "string"
+                },
+                "message": {
+                    "description": "Message states the outcome in the owner's terms.",
+                    "type": "string",
+                    "example": "Saved."
+                },
+                "version": {
+                    "description": "Version is the version number the script now carries. It advances when the\nedit moved anything the snapshot holds and stays put when it did not, so a\nclient can tell a real change from a re-save of identical text.",
+                    "type": "integer",
+                    "example": 4
                 }
             }
         },

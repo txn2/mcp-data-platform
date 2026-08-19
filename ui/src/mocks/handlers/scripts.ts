@@ -37,6 +37,25 @@ const versions = JSON.parse(JSON.stringify(mockScriptVersions)) as Record<
   ScriptVersion[]
 >;
 const alert = JSON.parse(JSON.stringify(mockScriptReviewAlert));
+// Contracts are mutable for the same reason the records are: documenting a
+// script on its own page has to be what the page reads back (#1369).
+const contracts = JSON.parse(JSON.stringify(mockScriptContracts)) as typeof mockScriptContracts;
+
+// LONG_DESCRIPTION_BYTES mirrors the server's advisory threshold: a description
+// at or over it gets a non-blocking suggestion that it might belong somewhere
+// of its own. Nothing is ever refused for it.
+const LONG_DESCRIPTION_BYTES = 16 * 1024;
+
+// descriptionNotice is the mock of script.DescriptionNotice, so the form's
+// advisory branch is exercised by the same input the server would advise on.
+function descriptionNotice(description: string): string | undefined {
+  if (description.length < LONG_DESCRIPTION_BYTES) return undefined;
+  return (
+    `this description is ${description.length} bytes, which is long enough to be a document ` +
+    "in its own right; consider moving the background to a knowledge page and leaving the " +
+    "description to what this script does, takes and produces"
+  );
+}
 // Schedules are mutable for the same reason: a cadence set on this surface has
 // to be the cadence the page reads back.
 const schedules = JSON.parse(JSON.stringify(mockScriptSchedules)) as Record<
@@ -203,7 +222,7 @@ export const scriptHandlers = [
   // Portal script pages (#1290). The mock caller is an administrator, so every
   // script comes back owned: that is what the server answers an admin, whose
   // reach into this surface is unrestricted by design.
-  http.get(`${PORTAL_BASE}/scripts`, () => {
+  http.get(`${PORTAL_BASE}/scripts`, ({ request }) => {
     // An account with no automations is a real product state, and the fixture
     // set is deliberately not empty. The demo and the screenshots reach it by
     // asking for it in the page URL: the handlers run in the page and can see
@@ -211,24 +230,33 @@ export const scriptHandlers = [
     if (emptyDemoRequested("scripts")) {
       return HttpResponse.json({ data: [], total: 0 });
     }
-    const data = scripts.map((script) => {
-      const runs = mockScriptRuns[script.id] ?? [];
-      return {
-        script,
-        // The mutable map, not the fixture: a cadence saved or paused in this
-        // session has to be what the listing shows next, and a paused schedule
-        // withholds its next fire here exactly as it does on its own route.
-        schedule: scheduleOf(script.id),
-        last_run: runs[0],
-        owned: true,
-      };
-    });
+    // The category and tag axes narrow the listing on the server (#1369), so
+    // the mock narrows it too: a page that filtered its own rows would pass
+    // against a server that ignored the query.
+    const query = new URL(request.url).searchParams;
+    const category = query.get("category");
+    const tags = query.getAll("tag");
+    const data = scripts
+      .filter((script) => !category || script.category === category)
+      .filter((script) => tags.length === 0 || tags.some((t) => (script.tags ?? []).includes(t)))
+      .map((script) => {
+        const runs = mockScriptRuns[script.id] ?? [];
+        return {
+          script,
+          // The mutable map, not the fixture: a cadence saved or paused in this
+          // session has to be what the listing shows next, and a paused schedule
+          // withholds its next fire here exactly as it does on its own route.
+          schedule: scheduleOf(script.id),
+          last_run: runs[0],
+          owned: true,
+        };
+      });
     return HttpResponse.json({ data, total: data.length });
   }),
 
   http.get(`${PORTAL_BASE}/scripts/:id`, ({ params }) => {
     const id = String(params.id);
-    const contract = mockScriptContracts[id];
+    const contract = contracts[id];
     if (!contract) {
       return HttpResponse.json({ detail: "script not found" }, { status: 404 });
     }
@@ -242,6 +270,59 @@ export const scriptHandlers = [
       owned: true,
       source: live?.source ?? "",
       draft_params: contract.params,
+    });
+  }),
+
+  // Documenting the script (#1369). It is not review-gated, so it applies at
+  // once and never produces a draft; the record and the contract both move,
+  // because the page reads the contract and the listing reads the record.
+  http.put(`${PORTAL_BASE}/scripts/:id/metadata`, async ({ params, request }) => {
+    const id = String(params.id);
+    const body = (await request.json()) as {
+      display_name?: string;
+      description?: string;
+      category?: string;
+      tags?: string[];
+    };
+    const script = scripts.find((s) => s.id === id);
+    const contract = contracts[id];
+    if (!script || !contract) {
+      return HttpResponse.json({ detail: "script not found" }, { status: 404 });
+    }
+    if (body.category && !/^[a-z][a-z0-9-]{0,30}$/.test(body.category)) {
+      return HttpResponse.json(
+        {
+          detail:
+            "category must be at most 31 characters of lowercase letters, digits, and hyphens, starting with a letter",
+        },
+        { status: 400 },
+      );
+    }
+    // The server versions an edit only when it MOVED a versioned field
+    // (SnapshotChanged), and the advisory is taken from the description the
+    // write leaves behind rather than from the request — an edit that changes
+    // only the category still carries the advisory when the stored description
+    // is over the threshold. A mock that bumped on every request, or read the
+    // notice off the body, would let a page keyed on either pass here and be
+    // wrong against the real API.
+    const moved =
+      (body.display_name !== undefined && body.display_name !== script.display_name) ||
+      (body.description !== undefined && body.description !== script.description) ||
+      (body.category !== undefined && body.category !== script.category) ||
+      (body.tags !== undefined && body.tags.join(",") !== (script.tags ?? []).join(","));
+    for (const target of [script, contract]) {
+      if (body.display_name !== undefined) target.display_name = body.display_name;
+      if (body.description !== undefined) target.description = body.description;
+      if (body.category !== undefined) target.category = body.category;
+      if (body.tags !== undefined) target.tags = body.tags;
+    }
+    if (moved) script.version += 1;
+    return HttpResponse.json({
+      version: script.version,
+      description_notice: descriptionNotice(script.description),
+      message:
+        "Saved. This changes what the script says about itself and not what it does, " +
+        "so nothing was sent for review.",
     });
   }),
 
@@ -360,7 +441,7 @@ export const scriptHandlers = [
   // it and the history is where it is followed.
   http.post(`${PORTAL_BASE}/scripts/:id/runs`, async ({ params, request }) => {
     const id = String(params.id);
-    const contract = mockScriptContracts[id];
+    const contract = contracts[id];
     if (!contract) {
       return HttpResponse.json({ detail: "script not found" }, { status: 404 });
     }

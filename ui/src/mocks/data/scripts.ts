@@ -76,19 +76,43 @@ platform.export(
 )
 `;
 
+// A real script description is a document rather than a caption (#1369): what
+// it produces, what its parameters mean, and what it assumes about the data. It
+// is markdown, and the script page renders it as markdown.
+const salesDescription = [
+  "Yesterday's sales by region, exported for the morning review.",
+  "",
+  "## What it produces",
+  "",
+  "One CSV asset, `daily-sales`, with a row per region: revenue and order count",
+  "for the requested day.",
+  "",
+  "## Parameters",
+  "",
+  "- `report_date` — the day to report on. The schedule binds `${fire_date}`, so a",
+  "  scheduled fire reports the day it runs.",
+  "",
+  "## What it assumes",
+  "",
+  "`sales.orders` is loaded for the requested day by 06:00 in the warehouse's",
+  "timezone. A run before the load completes reports a partial day rather than",
+  "failing, so check the load before reading a surprising number.",
+].join("\n");
+
 export const mockScripts: Script[] = [
   {
     id: "script-001",
     name: "daily-sales-report",
     display_name: "Daily Sales Report",
-    description: "Yesterday's sales by region, exported for the morning review.",
+    description: salesDescription,
     scope: "global",
     owner_email: "sarah.chen@example.com",
     status: "active",
     enabled: true,
     version: 2,
     approved_version_id: "sver-001-v2",
-    tags: ["sales", "reporting"],
+    category: "reporting",
+    tags: ["sales", "weekly"],
     updated_at: daysAgo(4),
   },
   {
@@ -101,6 +125,7 @@ export const mockScripts: Script[] = [
     status: "draft",
     enabled: true,
     version: 1,
+    category: "reporting",
     tags: ["retention"],
     updated_at: daysAgo(9),
   },
@@ -115,7 +140,8 @@ export const mockScripts: Script[] = [
     enabled: true,
     version: 1,
     approved_version_id: "sver-004-v1",
-    tags: ["finance"],
+    category: "finance",
+    tags: ["margins"],
     updated_at: daysAgo(1),
   },
   {
@@ -129,7 +155,8 @@ export const mockScripts: Script[] = [
     enabled: true,
     version: 5,
     approved_version_id: "sver-003-v5",
-    tags: ["operations"],
+    category: "operations",
+    tags: ["freshness"],
     updated_at: daysAgo(21),
   },
 ];
@@ -676,10 +703,11 @@ export const mockScriptContracts: Record<string, ScriptContract> = {
     id: "script-001",
     name: "daily-sales-report",
     display_name: "Daily Sales Report",
-    description: "Yesterday's sales by region, exported for the morning review.",
+    description: salesDescription,
     owner_email: "sarah.chen@example.com",
     scope: "global",
-    tags: ["sales", "reporting"],
+    category: "reporting",
+    tags: ["sales", "weekly"],
     status: "active",
     enabled: true,
     params: [
@@ -734,6 +762,7 @@ export const mockScriptContracts: Record<string, ScriptContract> = {
     owner_email: "marcus.webb@example.com",
     scope: "persona",
     personas: ["analyst"],
+    category: "reporting",
     tags: ["retention"],
     status: "draft",
     enabled: true,
@@ -752,7 +781,8 @@ export const mockScriptContracts: Record<string, ScriptContract> = {
     description: "Margin by product line, for my own morning read.",
     owner_email: "sarah.chen@example.com",
     scope: "personal",
-    tags: ["finance"],
+    category: "finance",
+    tags: ["margins"],
     status: "active",
     enabled: true,
     params: [],
@@ -771,7 +801,8 @@ export const mockScriptContracts: Record<string, ScriptContract> = {
     description: "Row counts and max load timestamps per warehouse table.",
     owner_email: "sarah.chen@example.com",
     scope: "global",
-    tags: ["operations"],
+    category: "operations",
+    tags: ["freshness"],
     status: "active",
     enabled: true,
     params: [],

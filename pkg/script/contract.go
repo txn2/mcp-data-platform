@@ -32,6 +32,7 @@ type Contract struct {
 	OwnerEmail  string   `json:"owner_email,omitempty" example:"jane@example.com"`
 	Scope       string   `json:"scope" example:"personal"`
 	Personas    []string `json:"personas,omitempty" example:"analyst"`
+	Category    string   `json:"category,omitempty" example:"reporting"`
 	Tags        []string `json:"tags,omitempty" example:"sales,reporting"`
 	Status      string   `json:"status" example:"active"`
 	Enabled     bool     `json:"enabled" example:"true"`
@@ -279,6 +280,7 @@ func BuildContract(sc *Script, approved *Version, sched *Schedule, lastRun *Run)
 		OwnerEmail:  sc.OwnerEmail,
 		Scope:       sc.Scope,
 		Personas:    sc.Personas,
+		Category:    sc.Category,
 		Tags:        sc.Tags,
 		Status:      sc.Status,
 		Enabled:     sc.Enabled,
