@@ -255,6 +255,7 @@ func applySnapshot(ctx context.Context, tx *sql.Tx, sc *script.Script, v *script
 	sc.Params = v.Params
 	sc.DisplayName = v.DisplayName
 	sc.Description = v.Description
+	sc.Category = v.Category
 	sc.Tags = v.Tags
 	sc.Version = v.Version
 	normalizeSlices(sc)

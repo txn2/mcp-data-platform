@@ -18,11 +18,12 @@ import (
 var _ script.Searcher = (*Store)(nil)
 
 // scriptFTSExpr is the full-text expression the lexical arm matches and ranks
-// against. It calls the script_fts() function from migration 000102 with the
-// same argument order, so the planner uses idx_scripts_search_fts (the GIN index
-// built on that same call). Changing either without the other silently drops the
-// index and leaves a sequential scan behind.
-const scriptFTSExpr = `script_fts(display_name, name, description, tags, params)`
+// against. It calls the script_fts() function with the same argument order the
+// migration defines it with (000102, extended by 000116 to carry the category),
+// so the planner uses idx_scripts_search_fts (the GIN index built on that same
+// call). Changing either without the other silently drops the index and leaves a
+// sequential scan behind.
+const scriptFTSExpr = `script_fts(display_name, name, description, category, tags, params)`
 
 // scriptFTSQuery is the parameterized tsquery the predicate compares against.
 // The lexical-only path binds the query text as $1; the hybrid arms bind $1 to

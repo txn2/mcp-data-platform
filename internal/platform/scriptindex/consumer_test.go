@@ -33,7 +33,7 @@ func TestLoadItemsYieldsOneItemPerScript(t *testing.T) {
 	mock.ExpectQuery("FROM scripts").WithArgs("scr-1").WillReturnRows(
 		sqlmock.NewRows(textColumns).AddRow(
 			"Daily Sales Report", "daily-sales", "Summarize sales",
-			pq.Array([]string{}), []byte(`[]`), ""),
+			"", pq.Array([]string{}), []byte(`[]`), ""),
 	)
 
 	items, err := NewSource(store).LoadItems(context.Background(), "scr-1")

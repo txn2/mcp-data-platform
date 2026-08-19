@@ -4753,6 +4753,9 @@ definitions:
     properties:
       approval:
         $ref: '#/definitions/script.ContractApproval'
+      category:
+        example: reporting
+        type: string
       description:
         example: Summarize yesterday's sales by region
         type: string
@@ -5240,6 +5243,13 @@ definitions:
           it: a draft runs under its author's own identity and authority, so it
           needs no approval, and it also cannot stand in for one.
         type: string
+      category:
+        description: |-
+          Category files the script under one lowercase slug, the axis a listing
+          filters on and a reader scans. It is the same axis a resource and an
+          insight carry, written the same way (#1369).
+        example: reporting
+        type: string
       created_at:
         example: "2026-08-13T14:30:00Z"
         type: string
@@ -5333,6 +5343,9 @@ definitions:
           so an operator reading the history can tell which scripts nobody reviewed.
         example: false
         type: boolean
+      category:
+        example: reporting
+        type: string
       created_at:
         example: "2026-08-13T14:30:00Z"
         type: string
@@ -5551,6 +5564,39 @@ definitions:
       status:
         example: succeeded
         type: string
+    type: object
+  scripthttp.metadataRequest:
+    properties:
+      category:
+        type: string
+      description:
+        type: string
+      display_name:
+        type: string
+      tags:
+        items:
+          type: string
+        type: array
+    type: object
+  scripthttp.metadataResponse:
+    properties:
+      description_notice:
+        description: |-
+          DescriptionNotice is the non-blocking suggestion that a very long
+          description belongs somewhere of its own. Empty for every description
+          under that threshold, which is nearly all of them.
+        type: string
+      message:
+        description: Message states the outcome in the owner's terms.
+        example: Saved.
+        type: string
+      version:
+        description: |-
+          Version is the version number the script now carries. It advances when the
+          edit moved anything the snapshot holds and stays put when it did not, so a
+          client can tell a real change from a re-save of identical text.
+        example: 4
+        type: integer
     type: object
   scripthttp.pendingReviewResponse:
     properties:
@@ -15418,7 +15464,21 @@ paths:
     get:
       description: Returns every managed script the caller is entitled to see, each
         with its cadence and, for the scripts they own, the state of its most recent
-        run. Administrators see every script.
+        run. Administrators see every script. The category and tag parameters narrow
+        the listing; tag may be repeated, and a script matching any of the named tags
+        is returned.
+      parameters:
+      - description: Narrow to one category slug
+        in: query
+        name: category
+        type: string
+      - collectionFormat: multi
+        description: Narrow to the scripts carrying any of these tags
+        in: query
+        items:
+          type: string
+        name: tag
+        type: array
       produces:
       - application/json
       responses:
@@ -15565,6 +15625,55 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Dry-run a script's source
+      tags:
+      - Scripts
+  /portal/scripts/{id}/metadata:
+    put:
+      consumes:
+      - application/json
+      description: Saves the display name, markdown description, category and tags
+        of a script the caller owns. None of these is review-gated, so the change
+        applies immediately and the approved version keeps executing untouched; it
+        is still captured as a version. Restricted to the script's owner and to administrators.
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Documentation fields
+        in: body
+        name: metadata
+        required: true
+        schema:
+          $ref: '#/definitions/scripthttp.metadataRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/scripthttp.metadataResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Edit what a script says about itself
       tags:
       - Scripts
   /portal/scripts/{id}/runs:

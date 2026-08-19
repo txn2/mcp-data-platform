@@ -199,3 +199,89 @@ describe("MyScriptsPage", () => {
     expect(screen.getByText("Loading scripts...")).toBeInTheDocument();
   });
 });
+
+// The two axes a script is filed on (#1369). Both were stored, versioned and
+// searched on long before either was shown anywhere, so a listing that could
+// not narrow by them was a flat list of every automation anybody owns.
+describe("MyScriptsPage: filing and filtering", () => {
+  const sales = row();
+  const margins = row({
+    script: {
+      ...row().script,
+      id: "script-004",
+      name: "my-margin-check",
+      display_name: "My Margin Check",
+      category: "finance",
+      tags: ["margins"],
+    },
+  });
+
+  beforeEach(() => {
+    sales.script.category = "reporting";
+    sales.script.tags = ["sales", "weekly"];
+    mockScripts.mockReturnValue(query({ data: [sales, margins], total: 2 }));
+  });
+
+  it("shows how each script is filed, on its row", () => {
+    render(<MyScriptsPage onNavigate={onNavigate} />);
+    const salesRow = screen.getByRole("row", { name: /Daily Sales Report/ });
+    expect(salesRow).toHaveTextContent("reporting");
+    expect(salesRow).toHaveTextContent("sales");
+    expect(salesRow).toHaveTextContent("weekly");
+  });
+
+  it("offers a chip per category and tag, counted over the listing", () => {
+    render(<MyScriptsPage onNavigate={onNavigate} />);
+    expect(screen.getByRole("button", { name: /reporting/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /finance/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /margins/ })).toBeInTheDocument();
+  });
+
+  // The narrowing is the SERVER's, not the table's: the listing is capped, so a
+  // page filtering the rows it received would answer from a truncated set.
+  it("asks the server for the narrowed listing", () => {
+    render(<MyScriptsPage onNavigate={onNavigate} />);
+    fireEvent.click(screen.getByRole("button", { name: /reporting/ }));
+    expect(mockScripts).toHaveBeenCalledWith({ category: "reporting" });
+  });
+
+  it("clears an axis when its active chip is pressed again", () => {
+    render(<MyScriptsPage onNavigate={onNavigate} />);
+    fireEvent.click(screen.getByRole("button", { name: /reporting/ }));
+    fireEvent.click(screen.getByRole("button", { name: /reporting/ }));
+
+    // The unfiltered facet-vocabulary read passes no argument at all, so the
+    // filter under test is the last call that carried one. A cleared axis is
+    // absent rather than undefined, which is what keeps the two reads on one
+    // query key when nothing is filtered.
+    const filters = mockScripts.mock.calls.map(([f]) => f).filter((f) => f !== undefined);
+    expect(filters[filters.length - 1]).toEqual({});
+  });
+
+  // The chips are read from the UNFILTERED listing, so narrowing to one
+  // category does not delete every other chip and strand the reader there.
+  it("keeps every chip on screen while a filter is applied", () => {
+    render(<MyScriptsPage onNavigate={onNavigate} />);
+    fireEvent.click(screen.getByRole("button", { name: /reporting/ }));
+    expect(screen.getByRole("button", { name: /finance/ })).toBeInTheDocument();
+  });
+
+  it("distinguishes a filter that matched nothing from having no scripts", () => {
+    render(<MyScriptsPage onNavigate={onNavigate} />);
+    // The filtered query answers empty; the unfiltered one still has the rows
+    // the chips are built from, which is what the second mock return models.
+    mockScripts.mockImplementation((filter) =>
+      filter?.category ? query({ data: [], total: 0 }) : query({ data: [sales, margins], total: 2 }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /reporting/ }));
+
+    expect(screen.getByText(/No script you can see carries that category and tag/)).toBeInTheDocument();
+    expect(screen.queryByText(/You have no scripts yet/)).not.toBeInTheDocument();
+  });
+
+  it("shows no filter card when nothing is filed", () => {
+    mockScripts.mockReturnValue(query({ data: [row()], total: 1 }));
+    render(<MyScriptsPage onNavigate={onNavigate} />);
+    expect(screen.queryByText("Filter")).not.toBeInTheDocument();
+  });
+});

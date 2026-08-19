@@ -604,6 +604,11 @@ script, the way every other list in the portal opens a record. A script with no 
 runs on demand; a paused schedule says so rather than showing a next fire that will not
 happen.
 
+Each row also shows how the script is filed: the category it belongs to and the tags it
+carries. The chips above the table narrow the list to one of either, and pressing a chip
+again clears it. The narrowing is done by the server, so it covers every script you can
+see rather than only the ones already on screen.
+
 The cadence is stated here in the same words the schedule editor states it in — "Every
 weekday at 7:00 AM, America/Los_Angeles" — because this is the column you scan to answer
 what is running and when, and a cron expression is not an answer to that. A cadence the
@@ -623,6 +628,22 @@ This is the same document an agent gets when it resolves a reference to the scri
 the page and your agent describe the script identically.
 
 ![Script detail](../images/screenshots/light/user-script-detail-light.webp#only-light)![Script detail](../images/screenshots/dark/user-script-detail-dark.webp#only-dark)
+
+At the top of the page is what the script says about itself, written as a document rather
+than a caption: markdown, rendered the way an asset's description and a knowledge page
+are, with the category and tags it is filed under above it. On a script you own, **Edit**
+opens the four fields together — display name, category, tags, and the description, with
+a live preview beside what you type.
+
+![Documenting a script](../images/screenshots/light/user-script-documentation-light.webp#only-light)![Documenting a script](../images/screenshots/dark/user-script-documentation-dark.webp#only-dark)
+
+None of the four changes what the script does, so saving them applies at once: nothing is
+sent for review, and the version that is running is untouched. Write what the script
+produces, what each parameter means, and what it assumes about the data — this is what
+somebody reading the script in six months has instead of the code, and it is part of what
+search matches the script on. A description long enough to be a document in its own right
+is still saved, with a suggestion that the background might belong in a knowledge page you
+link to.
 
 When a run would be refused — nothing approved, the script disabled or deprecated — the
 page carries the platform's own reason for the refusal rather than leaving you to work it

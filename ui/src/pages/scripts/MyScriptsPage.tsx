@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { FileCode2 } from "lucide-react";
 import { useMyScripts } from "@/api/portal/hooks/scripts";
-import type { PortalScriptRow } from "@/api/portal/hooks/scripts";
+import type { PortalScriptRow, ScriptListFilter } from "@/api/portal/hooks/scripts";
 import { EmptyState } from "@/components/patterns/EmptyState";
+import { FilterChip } from "@/components/FilterChip";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +18,7 @@ import {
 import { cn } from "@/lib/utils";
 import { cadenceLine, scheduleState } from "./cadence";
 import { formatWhen, runStatusLabel, runStatusVariant, runWhen } from "./runFormat";
+import { ScriptFacetBadges } from "./ScriptFacetBadges";
 
 // MyScriptsPage is what the people who own the automations see (#1290): every
 // script they may see, what it is scheduled to do, and how its last run went.
@@ -29,8 +32,15 @@ interface Props {
 }
 
 export function MyScriptsPage({ onNavigate }: Props) {
-  const { data, isLoading, error } = useMyScripts();
+  const [filter, setFilter] = useState<ScriptListFilter>({});
+  const { data, isLoading, error } = useMyScripts(filter);
+  // The facet vocabulary is read from the UNFILTERED listing, not from the rows
+  // on screen: filtering to one category would otherwise remove every other
+  // category's chip and leave a reader unable to switch. With nothing filtered
+  // the two queries are the same key and this costs one request.
+  const { data: all } = useMyScripts();
   const rows = data?.data ?? [];
+  const filtered = !!(filter.category || filter.tag);
 
   return (
     <div className="space-y-4">
@@ -43,13 +53,132 @@ export function MyScriptsPage({ onNavigate }: Props) {
         </Alert>
       )}
 
-      {rows.length > 0 && <AutomationSummary rows={rows} />}
+      {rows.length > 0 && !filtered && <AutomationSummary rows={rows} />}
+
+      <ScriptFacets rows={all?.data ?? []} filter={filter} onFilter={setFilter} />
 
       <SectionCard title="Scripts">
-        <ScriptsSection rows={rows} isLoading={isLoading} onNavigate={onNavigate} />
+        <ScriptsSection
+          rows={rows}
+          isLoading={isLoading}
+          filtered={filtered}
+          onNavigate={onNavigate}
+        />
       </SectionCard>
     </div>
   );
+}
+
+// ScriptFacets is how a reader narrows the listing: the categories scripts are
+// filed under and the tags they carry (#1369). The narrowing is applied by the
+// server, so it is the same answer an agent's list gets and it is not limited
+// to the rows this page happened to load.
+//
+// Only one value per axis is selectable, and pressing an active chip clears it.
+// The two axes combine, so a category and a tag together are the scripts that
+// are both — which is what a reader pressing two chips means, and it is also
+// what the API does.
+function ScriptFacets({
+  rows,
+  filter,
+  onFilter,
+}: {
+  rows: PortalScriptRow[];
+  filter: ScriptListFilter;
+  onFilter: (filter: ScriptListFilter) => void;
+}) {
+  const categories = facetValues(rows, (s) => (s.category ? [s.category] : []));
+  const tags = facetValues(rows, (s) => s.tags ?? []);
+  if (categories.length === 0 && tags.length === 0) {
+    return null;
+  }
+  // A cleared axis is REMOVED from the filter rather than set to undefined, so
+  // the unfiltered filter is the empty object the page started with — and the
+  // query it keys stays the one the facet vocabulary is already read under.
+  const setAxis = (axis: keyof ScriptListFilter, value: string | undefined) => {
+    const next = { ...filter };
+    if (value) {
+      next[axis] = value;
+    } else {
+      delete next[axis];
+    }
+    onFilter(next);
+  };
+  return (
+    <SectionCard title="Filter">
+      <div className="space-y-2">
+        <FacetRow
+          label="Category"
+          values={categories}
+          active={filter.category}
+          onToggle={(value) => setAxis("category", value)}
+        />
+        <FacetRow
+          label="Tag"
+          values={tags}
+          active={filter.tag}
+          onToggle={(value) => setAxis("tag", value)}
+        />
+      </div>
+    </SectionCard>
+  );
+}
+
+// FacetRow is one axis of chips, absent when nothing carries that axis: a
+// deployment where nobody has filed a script should not be shown an empty
+// "Category" strip explaining that.
+function FacetRow({
+  label,
+  values,
+  active,
+  onToggle,
+}: {
+  label: string;
+  values: FacetValue[];
+  active?: string;
+  onToggle: (value: string | undefined) => void;
+}) {
+  if (values.length === 0) {
+    return null;
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      {values.map((value) => (
+        <FilterChip
+          key={value.name}
+          label={value.name}
+          count={value.count}
+          active={active === value.name}
+          onClick={() => onToggle(active === value.name ? undefined : value.name)}
+        />
+      ))}
+    </div>
+  );
+}
+
+// FacetValue is one chip: the value and how many scripts carry it.
+interface FacetValue {
+  name: string;
+  count: number;
+}
+
+// facetValues counts one axis over the listing, ordered by how many scripts
+// carry each value and then alphabetically, so the shelves a reader actually
+// uses come first and the order is stable between renders.
+function facetValues(
+  rows: PortalScriptRow[],
+  values: (script: PortalScriptRow["script"]) => string[],
+): FacetValue[] {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    for (const value of values(row.script)) {
+      counts.set(value, (counts.get(value) ?? 0) + 1);
+    }
+  }
+  return [...counts.entries()]
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 }
 
 // AutomationSummary is the state of this caller's automations in four numbers,
@@ -129,14 +258,25 @@ function SummaryTile({
 function ScriptsSection({
   rows,
   isLoading,
+  filtered,
   onNavigate,
 }: {
   rows: PortalScriptRow[];
   isLoading: boolean;
+  /** filtered distinguishes "nothing matched" from "you have no scripts". */
+  filtered: boolean;
   onNavigate: (path: string) => void;
 }) {
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Loading scripts...</p>;
+  }
+  if (rows.length === 0 && filtered) {
+    return (
+      <EmptyState icon={FileCode2}>
+        No script you can see carries that category and tag. Clear the filter above to see
+        the rest.
+      </EmptyState>
+    );
   }
   if (rows.length === 0) {
     return (
@@ -182,6 +322,7 @@ function ScriptRow({
       <TableCell>
         <div className="font-medium">{script.display_name || script.name}</div>
         <div className="font-mono text-xs text-muted-foreground">{script.name}</div>
+        <ScriptFacetBadges category={script.category} tags={script.tags} className="mt-1" />
       </TableCell>
       <TableCell className="text-xs">{script.owner_email || "—"}</TableCell>
       <TableCell>

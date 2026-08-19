@@ -148,6 +148,9 @@ export interface ScriptContract {
   owner_email?: string;
   scope: string;
   personas?: string[];
+  // category files the script under one lowercase slug (#1369), empty for a
+  // script nobody has filed.
+  category?: string;
   tags?: string[];
   status: string;
   enabled: boolean;
@@ -178,11 +181,31 @@ interface ListResponse<T> {
 // the listing and any open detail together.
 const scriptsKey = ["portal", "scripts"] as const;
 
-export function useMyScripts() {
+// ScriptListFilter narrows the listing to one category, one tag, or both
+// (#1369). It is applied by the server rather than in the table so the answer
+// is the same one an agent's list gets, and so a filtered page does not depend
+// on having already loaded every row.
+export interface ScriptListFilter {
+  category?: string;
+  tag?: string;
+}
+
+export function useMyScripts(filter: ScriptListFilter = {}) {
+  const query = scriptListQuery(filter);
   return useQuery({
-    queryKey: [...scriptsKey, "list"],
-    queryFn: () => apiFetch<ListResponse<PortalScriptRow>>("/scripts"),
+    queryKey: [...scriptsKey, "list", filter.category ?? "", filter.tag ?? ""],
+    queryFn: () => apiFetch<ListResponse<PortalScriptRow>>(`/scripts${query}`),
   });
+}
+
+// scriptListQuery renders the filter as a query string, empty when nothing is
+// filtered so the unfiltered request stays the plain one.
+export function scriptListQuery(filter: ScriptListFilter): string {
+  const params = new URLSearchParams();
+  if (filter.category) params.set("category", filter.category);
+  if (filter.tag) params.set("tag", filter.tag);
+  const rendered = params.toString();
+  return rendered ? `?${rendered}` : "";
 }
 
 export function useScriptContract(scriptID: string | null) {
@@ -226,6 +249,40 @@ export function useSaveScriptSource(scriptID: string) {
       apiFetch<ScriptSourceOutcome>(`/scripts/${scriptID}/source`, {
         method: "PUT",
         body: JSON.stringify({ source }),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: scriptsKey }),
+  });
+}
+
+// ScriptMetadataInput is a change to what a script says about itself. Every
+// field is optional and an omitted one is left alone, so a form that edits one
+// field cannot blank the others.
+export interface ScriptMetadataInput {
+  display_name?: string;
+  description?: string;
+  category?: string;
+  tags?: string[];
+}
+
+// ScriptMetadataOutcome is the saved state, plus the non-blocking advisory that
+// fires when a description has grown into a document of its own (#1369).
+export interface ScriptMetadataOutcome {
+  version: number;
+  description_notice?: string;
+  message: string;
+}
+
+// useSaveScriptMetadata saves the display name, description, category and tags
+// of a script. None of them is review-gated — what a script SAYS about itself
+// is not what it does — so this never produces a draft awaiting approval and
+// never disturbs the version that is executing.
+export function useSaveScriptMetadata(scriptID: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: ScriptMetadataInput) =>
+      apiFetch<ScriptMetadataOutcome>(`/scripts/${scriptID}/metadata`, {
+        method: "PUT",
+        body: JSON.stringify(body),
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: scriptsKey }),
   });

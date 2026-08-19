@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/table";
 import { approvalFact } from "./approval";
 import { executionState, formatWhen } from "./runFormat";
+import { ScriptDocumentation } from "./ScriptDocumentation";
 import { ScriptRunHistory } from "./ScriptRunHistory";
 import { ScriptRunPanel } from "./ScriptRunPanel";
 import { ScriptScheduleEditor } from "./ScriptScheduleEditor";
@@ -48,7 +49,9 @@ const ScriptReviewDrawer = lazy(() =>
 // The top of the page is the contract document, the same one a reference to
 // this script resolves to for an agent. There is deliberately not a second
 // answer to "what is this script": a field a reader needs belongs in the
-// contract rather than beside it.
+// contract rather than beside it. Its prose half — the description, rendered as
+// the markdown it is, with the category and tags the script is filed under —
+// leads the page and is written in place by the owner (#1369).
 
 interface Props {
   scriptId: string;
@@ -117,7 +120,6 @@ function ScriptDetail({
         icon={FileCode2}
         title={contract.display_name || contract.name}
         urn={contract.name}
-        subtitle={contract.description}
         actions={<Badge variant={state.variant}>{state.label}</Badge>}
       />
 
@@ -126,6 +128,8 @@ function ScriptDetail({
           <AlertDescription>{state.detail}</AlertDescription>
         </Alert>
       )}
+
+      <ScriptDocumentation scriptId={scriptId} contract={contract} owned={owned} />
 
       <SectionCard title="Contract">
         <ContractFacts contract={contract} />

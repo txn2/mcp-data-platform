@@ -174,8 +174,12 @@ type Script struct {
 	Scope       string   `json:"scope" example:"personal"`
 	Personas    []string `json:"personas" example:"analyst"`
 	OwnerEmail  string   `json:"owner_email" example:"jane@example.com"`
-	Tags        []string `json:"tags" example:"sales,reporting"`
-	Enabled     bool     `json:"enabled" example:"true"`
+	// Category files the script under one lowercase slug, the axis a listing
+	// filters on and a reader scans. It is the same axis a resource and an
+	// insight carry, written the same way (#1369).
+	Category string   `json:"category,omitempty" example:"reporting"`
+	Tags     []string `json:"tags" example:"sales,reporting"`
+	Enabled  bool     `json:"enabled" example:"true"`
 
 	// Lifecycle.
 	Status       string     `json:"status" example:"draft"`
@@ -254,7 +258,8 @@ func scopeVisibleToAny(scope string, scriptPersonas []string, ownerEmail, email 
 }
 
 // Validate checks the whole record: name, scope, source, parameter contract,
-// tags, and status. Mutation surfaces call it on the FINAL state rather than
+// tags, the fields that document the script (display name, description,
+// category), and status. Mutation surfaces call it on the FINAL state rather than
 // field by field as arguments arrive, so a record that was valid before an edit
 // and invalid after it is refused — which is the case a per-argument check
 // misses, since the offending combination may involve a field the caller never
@@ -273,6 +278,15 @@ func (s *Script) Validate() error {
 		return err
 	}
 	if err := ValidateTags(s.Tags); err != nil {
+		return err
+	}
+	if err := validateDisplayName(s.DisplayName); err != nil {
+		return err
+	}
+	if err := validateDescription(s.Description); err != nil {
+		return err
+	}
+	if err := validateCategory(s.Category); err != nil {
 		return err
 	}
 	if s.Scope == ScopePersona && len(s.Personas) == 0 {
@@ -354,8 +368,14 @@ type ListFilter struct {
 	OwnerEmail string   // filter by owner
 	Enabled    *bool    // filter by enabled state
 	Status     string   // filter by lifecycle status; "" for all
-	Search     string   // free-text search on name, display_name, description
-	Limit      int      // cap the number of rows returned; 0 means the store default
+	// Category narrows to one category slug; "" for all. Tags narrows to the
+	// scripts carrying ANY of the named tags, which is the same OR match the
+	// persona axis uses: a reader filtering by two tags is asking for the union
+	// of two shelves, not for the scripts on both.
+	Category string
+	Tags     []string
+	Search   string // free-text search on name, display_name, description
+	Limit    int    // cap the number of rows returned; 0 means the store default
 
 	// VisibleTo and VisiblePersona apply the scope rules of Script.VisibleTo as
 	// a query predicate: global scripts, the persona-scoped scripts of

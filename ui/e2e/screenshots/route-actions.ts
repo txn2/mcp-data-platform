@@ -351,6 +351,19 @@ export async function openScriptSource(page: Page): Promise<void> {
 }
 
 /**
+ * openScriptDocumentation opens the form an owner documents a script in
+ * (#1369): the display name, the markdown description, the category the script
+ * is filed under, and its tags. The read state of the same section is on the
+ * detail capture, where the description is already rendered as the document it
+ * is; what this one adds is the surface it is written on.
+ */
+export async function openScriptDocumentation(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "Edit" }).first().click();
+  await page.getByLabel("Script description").waitFor({ timeout: 3_000 });
+  await page.waitForTimeout(600);
+}
+
+/**
  * openPersonalScriptSource scrolls to the editor of a script only its owner can
  * see and only its owner can run (#1367). The notice there is the whole point of
  * the capture: saving approves, and no reviewer is ever asked.

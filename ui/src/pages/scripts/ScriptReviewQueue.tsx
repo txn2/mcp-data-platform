@@ -4,6 +4,7 @@ import { EmptyState } from "@/components/patterns/EmptyState";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { descriptionSummary } from "./descriptionSummary";
 
 // ScriptReviewQueue lists the versions waiting for a decision. It is the point
 // of this page: everything else here is context for one of these rows.
@@ -117,8 +118,11 @@ function QueueRow({
           </span>
         </div>
         {row.description && (
+          // One line of prose, not the document: a description is markdown now
+          // (#1369), and a queue row that rendered it whole would print the
+          // syntax and let one script's documentation set the row height.
           <div className="mt-0.5 text-xs break-words text-muted-foreground">
-            {row.description}
+            {descriptionSummary(row.description)}
           </div>
         )}
       </div>

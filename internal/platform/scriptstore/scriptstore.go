@@ -53,7 +53,7 @@ func New(db *sql.DB, opts ...indexjobs.StoreOption) *Store {
 
 // scriptColumns is the column list read by every scripts SELECT, kept in one
 // place so the scan order in scanScript cannot drift from the query.
-const scriptColumns = `id, name, display_name, description, source_code, params,
+const scriptColumns = `id, name, display_name, description, category, source_code, params,
 	scope, personas, owner_email, tags, enabled, status, superseded_by,
 	deprecated_at, version, COALESCE(approved_version_id::text, ''),
 	created_at, updated_at`
@@ -70,7 +70,7 @@ type rowScanner interface {
 func scanScript(sc rowScanner) (*script.Script, error) {
 	s := &script.Script{}
 	var paramsJSON []byte
-	err := sc.Scan(&s.ID, &s.Name, &s.DisplayName, &s.Description, &s.Source, &paramsJSON,
+	err := sc.Scan(&s.ID, &s.Name, &s.DisplayName, &s.Description, &s.Category, &s.Source, &paramsJSON,
 		&s.Scope, pq.Array(&s.Personas), &s.OwnerEmail, pq.Array(&s.Tags), &s.Enabled,
 		&s.Status, &s.SupersededBy, &s.DeprecatedAt, &s.Version, &s.ApprovedVersionID,
 		&s.CreatedAt, &s.UpdatedAt)
@@ -130,11 +130,11 @@ func (s *Store) Create(ctx context.Context, sc *script.Script, author script.Aut
 	sc.Version = 1
 	if err := s.withTx(ctx, "create script", func(tx *sql.Tx) error {
 		row := tx.QueryRowContext(ctx, `
-			INSERT INTO scripts (name, display_name, description, source_code, params,
+			INSERT INTO scripts (name, display_name, description, category, source_code, params,
 			                     scope, personas, owner_email, tags, enabled, status, version)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 1)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 1)
 			RETURNING id, created_at, updated_at`,
-			sc.Name, sc.DisplayName, sc.Description, sc.Source, paramsJSON,
+			sc.Name, sc.DisplayName, sc.Description, sc.Category, sc.Source, paramsJSON,
 			sc.Scope, pq.Array(sc.Personas), sc.OwnerEmail, pq.Array(sc.Tags),
 			sc.Enabled, sc.Status)
 		if err := row.Scan(&sc.ID, &sc.CreatedAt, &sc.UpdatedAt); err != nil {
@@ -244,16 +244,17 @@ func updateTx(ctx context.Context, tx *sql.Tx, sc *script.Script) (bool, error) 
 	// constant SQL fragments; every value is bound.
 	q := `
 		UPDATE scripts
-		   SET name = $2, display_name = $3, description = $4, source_code = $5,
-		       params = $6, scope = $7, personas = $8, owner_email = $9, tags = $10,
-		       enabled = $11, status = $12, superseded_by = $13, deprecated_at = $14,
-		       version = $15, updated_at = NOW()` +
+		   SET name = $2, display_name = $3, description = $4, category = $5,
+		       source_code = $6, params = $7, scope = $8, personas = $9,
+		       owner_email = $10, tags = $11, enabled = $12, status = $13,
+		       superseded_by = $14, deprecated_at = $15, version = $16,
+		       updated_at = NOW()` +
 		fmt.Sprintf(indexInvalidation, updateHashParam) +
 		"\n\t\t WHERE id = $1" +
 		fmt.Sprintf(indexTextChanged, updateHashParam)
 	var changed bool
 	err = tx.QueryRowContext(ctx, q,
-		sc.ID, sc.Name, sc.DisplayName, sc.Description, sc.Source, paramsJSON,
+		sc.ID, sc.Name, sc.DisplayName, sc.Description, sc.Category, sc.Source, paramsJSON,
 		sc.Scope, pq.Array(sc.Personas), sc.OwnerEmail, pq.Array(sc.Tags),
 		sc.Enabled, sc.Status, sc.SupersededBy, sc.DeprecatedAt, sc.Version,
 		indexjobs.TextHash(script.IndexText(sc))).Scan(&changed)
@@ -268,7 +269,7 @@ func updateTx(ctx context.Context, tx *sql.Tx, sc *script.Script) (bool, error) 
 
 // updateHashParam is updateTx's placeholder index for the new text hash, one
 // past its last column value.
-const updateHashParam = 16
+const updateHashParam = 17
 
 // Delete removes a script by ID. Its versions cascade.
 func (s *Store) Delete(ctx context.Context, id string) error {
@@ -334,6 +335,16 @@ func (q *listQuery) addEquality(filter script.ListFilter) {
 	}
 	if filter.Status != "" {
 		q.add("status = $%d", filter.Status)
+	}
+	if filter.Category != "" {
+		q.add("category = $%d", filter.Category)
+	}
+	if len(filter.Tags) > 0 {
+		// Overlap rather than containment: naming two tags asks for the scripts
+		// carrying either, which is the union of two shelves. It is the same
+		// match the persona axis above uses, over the same array type and the
+		// same GIN-indexable operator.
+		q.add("tags && $%d", pq.Array(filter.Tags))
 	}
 }
 

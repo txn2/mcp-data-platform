@@ -17,9 +17,10 @@ const (
 
 // IndexText composes the text a script is embedded on and shown as in a search
 // result: its title (display name, falling back to the name an agent calls it
-// by), its description, the names of the parameters a run binds, its tags, and
-// one line stating whether anything will execute it. Empty parts are skipped so
-// a sparse script does not pad the text with blank lines.
+// by), its description, the names of the parameters a run binds, the category
+// it is filed under and its tags, and one line stating whether anything will
+// execute it. Empty parts are skipped so a sparse script does not pad the text
+// with blank lines.
 //
 // The execution note is part of the document rather than decoration: it changes
 // what the script IS FOR. An approved script is something to run; an unapproved
@@ -46,8 +47,8 @@ func IndexText(s *Script) string {
 	if names := ParamSummary(s.Params); names != "" {
 		parts = append(parts, "parameters: "+names)
 	}
-	if len(s.Tags) > 0 {
-		parts = append(parts, strings.Join(s.Tags, " "))
+	if facets := strings.TrimSpace(s.Category + " " + strings.Join(s.Tags, " ")); facets != "" {
+		parts = append(parts, facets)
 	}
 	parts = append(parts, ExecutionNote(s))
 	return strings.TrimSpace(strings.Join(parts, "\n"))

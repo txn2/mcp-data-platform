@@ -30,7 +30,9 @@ func newMock(t *testing.T) (*Store, sqlmock.Sqlmock) {
 
 // textColumns is the projection GetIndexText reads. source_code is deliberately
 // absent, and this list is where that stays visible.
-var textColumns = []string{"display_name", "name", "description", "tags", "params", "approved_version_id"}
+var textColumns = []string{
+	"display_name", "name", "description", "category", "tags", "params", "approved_version_id",
+}
 
 // pgVecLiteral renders a []float32 in the pgvector text format so sqlmock's
 // driver value round-trips through the pgvector.Vector scanner.
@@ -47,14 +49,18 @@ func TestGetIndexTextComposesTheDescriptionCard(t *testing.T) {
 	mock.ExpectQuery("FROM scripts").WithArgs("scr-1").WillReturnRows(
 		sqlmock.NewRows(textColumns).AddRow(
 			"Daily Sales Report", "daily-sales", "Summarize yesterday's sales by region",
-			pq.Array([]string{"revenue"}), []byte(`[{"name":"report_date","type":"date","required":true}]`),
+			"reporting", pq.Array([]string{"revenue"}),
+			[]byte(`[{"name":"report_date","type":"date","required":true}]`),
 			"sver-1"),
 	)
 
 	got, err := store.GetIndexText(context.Background(), "scr-1")
 	require.NoError(t, err)
+	// The category is in the card beside the tags: the worker must hash the
+	// same document the write path hashed, and the write path composes it from
+	// the whole record.
 	assert.Equal(t, "Daily Sales Report\nSummarize yesterday's sales by region\n"+
-		"parameters: report_date (required)\nrevenue\n"+
+		"parameters: report_date (required)\nreporting revenue\n"+
 		"An approved version exists; call run_script to execute it.", got)
 }
 
@@ -65,7 +71,7 @@ func TestGetIndexTextReportsTheExecutionStateOfAnUnapprovedScript(t *testing.T) 
 	store, mock := newMock(t)
 	mock.ExpectQuery("FROM scripts").WithArgs("scr-1").WillReturnRows(
 		sqlmock.NewRows(textColumns).AddRow(
-			"", "daily-sales", "", pq.Array([]string{}), []byte(`[]`), ""),
+			"", "daily-sales", "", "", pq.Array([]string{}), []byte(`[]`), ""),
 	)
 
 	got, err := store.GetIndexText(context.Background(), "scr-1")
@@ -102,7 +108,7 @@ func TestGetIndexTextSurfacesAQueryFailure(t *testing.T) {
 func TestGetIndexTextSurfacesUnreadableParams(t *testing.T) {
 	store, mock := newMock(t)
 	mock.ExpectQuery("FROM scripts").WithArgs("scr-1").WillReturnRows(
-		sqlmock.NewRows(textColumns).AddRow("D", "n", "", pq.Array([]string{}), []byte(`not json`), ""),
+		sqlmock.NewRows(textColumns).AddRow("D", "n", "", "", pq.Array([]string{}), []byte(`not json`), ""),
 	)
 
 	_, err := store.GetIndexText(context.Background(), "scr-1")

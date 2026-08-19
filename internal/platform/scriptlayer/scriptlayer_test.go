@@ -132,6 +132,17 @@ func (m *memStore) List(_ context.Context, filter script.ListFilter) ([]script.S
 		if filter.VisibleTo != "" && !sc.VisibleTo(filter.VisibleTo, filter.VisiblePersona) {
 			continue
 		}
+		// The facet axes model the real store's operators: the category is an
+		// equality and the tags are an OVERLAP, so naming two tags asks for the
+		// scripts carrying either (#1369).
+		if filter.Category != "" && sc.Category != filter.Category {
+			continue
+		}
+		if len(filter.Tags) > 0 && !slices.ContainsFunc(filter.Tags, func(t string) bool {
+			return slices.Contains(sc.Tags, t)
+		}) {
+			continue
+		}
 		out = append(out, *sc)
 	}
 	return out, nil
@@ -829,4 +840,153 @@ func listToolNames(t *testing.T, server *mcp.Server) []string {
 
 func TestResolveEmail_Anonymous(t *testing.T) {
 	assert.Equal(t, "anonymous", resolveEmail(context.Background()))
+}
+
+// TestCreate_CarriesTheCategory proves the axis reaches the record from the
+// tool, alongside the tags it has always carried (#1369).
+func TestCreate_CarriesTheCategory(t *testing.T) {
+	h, store := newHandle()
+
+	res := call(t, h, authorCtx(), manageScriptInput{
+		Command: cmdCreate, Name: "daily", Source: "print(1)\n",
+		Category: new("reporting"), Tags: []string{"sales"},
+	})
+
+	require.False(t, res.IsError, resultText(res))
+	for _, sc := range store.scripts {
+		assert.Equal(t, "reporting", sc.Category)
+		assert.Equal(t, []string{"sales"}, sc.Tags)
+	}
+}
+
+// TestCreate_RefusesACategoryThatIsNotASlug keeps one category from being
+// filed three ways. The check is the domain's, applied to the whole record, so
+// the tool and the portal refuse the same input.
+func TestCreate_RefusesACategoryThatIsNotASlug(t *testing.T) {
+	h, _ := newHandle()
+
+	res := call(t, h, authorCtx(), manageScriptInput{
+		Command: cmdCreate, Name: "daily", Source: "print(1)\n", Category: new("Sales Reports"),
+	})
+
+	assert.True(t, res.IsError)
+	assert.Contains(t, resultText(res), "category must be at most 31 characters")
+}
+
+// TestUpdate_CarriesTheCategoryAndDoesNotDeferIt proves the ticket's
+// governance claim at the tool surface: filing an APPROVED script applies
+// directly rather than becoming a draft somebody has to approve.
+func TestUpdate_CarriesTheCategoryAndDoesNotDeferIt(t *testing.T) {
+	h, store := newHandle()
+	createShared(t, h)
+	for _, sc := range store.scripts {
+		sc.ApprovedVersionID = "sver_1"
+	}
+
+	res := call(t, h, adminCtx(), manageScriptInput{
+		Command: cmdUpdate, Name: "shared", Category: new("reporting"),
+	})
+
+	require.False(t, res.IsError, resultText(res))
+	fields := resultFields(t, res)
+	assert.Equal(t, "updated", fields["status"], "documenting a script is not a review")
+	assert.NotContains(t, fields, "pending_version")
+	for _, sc := range store.scripts {
+		assert.Equal(t, "reporting", sc.Category)
+		assert.Equal(t, "sver_1", sc.ApprovedVersionID, "the executing version is untouched")
+	}
+}
+
+// TestUpdate_ClearsACategoryWhenAskedTo proves the axis can be UNSET through
+// the tool, not only set. An agent told to unfile a script must not be answered
+// "updated" over a record that still carries the category: the field is a
+// pointer for exactly this, as the tag list beside it has always been a nil-able
+// slice.
+func TestUpdate_ClearsACategoryWhenAskedTo(t *testing.T) {
+	h, store := newHandle()
+	call(t, h, authorCtx(), manageScriptInput{
+		Command: cmdCreate, Name: "daily", Source: "print(1)\n",
+		Category: new("reporting"), Tags: []string{"sales"},
+	})
+
+	res := call(t, h, authorCtx(), manageScriptInput{
+		Command: cmdUpdate, Name: "daily", Category: new(""), Tags: []string{},
+	})
+
+	require.False(t, res.IsError, resultText(res))
+	for _, sc := range store.scripts {
+		assert.Empty(t, sc.Category)
+		assert.Empty(t, sc.Tags)
+	}
+
+	// And an update that does not mention the category leaves it alone.
+	call(t, h, authorCtx(), manageScriptInput{
+		Command: cmdUpdate, Name: "daily", Category: new("finance"),
+	})
+	res = call(t, h, authorCtx(), manageScriptInput{
+		Command: cmdUpdate, Name: "daily", DisplayName: "Daily",
+	})
+	require.False(t, res.IsError, resultText(res))
+	for _, sc := range store.scripts {
+		assert.Equal(t, "finance", sc.Category)
+	}
+}
+
+// TestUpdate_CarriesTheLongDescriptionAdvisory proves the signal travels with a
+// SUCCESSFUL write: the description is stored and the response suggests where
+// the prose might live better.
+func TestUpdate_CarriesTheLongDescriptionAdvisory(t *testing.T) {
+	h, store := newHandle()
+	createDaily(t, h)
+	long := strings.Repeat("x", 20_000)
+
+	res := call(t, h, authorCtx(), manageScriptInput{
+		Command: cmdUpdate, Name: "daily", Description: long,
+	})
+
+	require.False(t, res.IsError, resultText(res))
+	notice, _ := resultFields(t, res)["description_notice"].(string)
+	assert.Contains(t, notice, "knowledge page")
+	for _, sc := range store.scripts {
+		assert.Equal(t, long, sc.Description, "the advisory must not have blocked the write")
+	}
+
+	// An ordinary description carries no advisory at all.
+	res = call(t, h, authorCtx(), manageScriptInput{
+		Command: cmdUpdate, Name: "daily", Description: "By region, every weekday.",
+	})
+	require.False(t, res.IsError, resultText(res))
+	assert.NotContains(t, resultFields(t, res), "description_notice")
+}
+
+// TestList_NarrowsByCategoryAndTag proves the two axes reach the store's filter
+// from the tool, so an agent and the portal narrow a listing the same way.
+func TestList_NarrowsByCategoryAndTag(t *testing.T) {
+	h, _ := newHandle()
+	call(t, h, authorCtx(), manageScriptInput{
+		Command: cmdCreate, Name: "daily-sales", Source: "x = 1",
+		Category: new("reporting"), Tags: []string{"sales"},
+	})
+	call(t, h, authorCtx(), manageScriptInput{
+		Command: cmdCreate, Name: "margin-check", Source: "x = 1",
+		Category: new("finance"), Tags: []string{"margins"},
+	})
+
+	fields := resultFields(t, call(t, h, authorCtx(), manageScriptInput{
+		Command: cmdList, Category: new("reporting"),
+	}))
+	assert.Equal(t, []string{"daily-sales"}, listedNames(t, fields))
+
+	fields = resultFields(t, call(t, h, authorCtx(), manageScriptInput{
+		Command: cmdList, Tags: []string{"margins"},
+	}))
+	assert.Equal(t, []string{"margin-check"}, listedNames(t, fields))
+
+	// The listing reports the axes it filters on, so a reader can see how a row
+	// is filed without opening it.
+	items, ok := fields["scripts"].([]any)
+	require.True(t, ok)
+	row, ok := items[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "finance", row["category"])
 }

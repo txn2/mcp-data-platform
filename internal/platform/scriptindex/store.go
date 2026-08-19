@@ -43,8 +43,13 @@ var errNotIndexable = errors.New("scriptindex: script missing or disabled")
 // a caller, and it reads only the description card: no source_code column is
 // selected here, which is the storage-level expression of that rule.
 func (s *Store) GetIndexText(ctx context.Context, id string) (string, error) {
+	// Every column script.IndexText reads is selected here, and no other. A
+	// field composed into the text but missing from this projection would leave
+	// the worker hashing a DIFFERENT document from the one updateTx hashed on
+	// the write, so the row's stored hash would never match and the script would
+	// be re-embedded on every sweep, forever.
 	const q = `
-		SELECT display_name, name, description, tags, params,
+		SELECT display_name, name, description, category, tags, params,
 		       COALESCE(approved_version_id::text, '')
 		  FROM scripts
 		 WHERE id = $1 AND enabled = true`
@@ -53,7 +58,7 @@ func (s *Store) GetIndexText(ctx context.Context, id string) (string, error) {
 		paramsJSON []byte
 	)
 	err := s.db.QueryRowContext(ctx, q, id).Scan(
-		&sc.DisplayName, &sc.Name, &sc.Description, pq.Array(&sc.Tags),
+		&sc.DisplayName, &sc.Name, &sc.Description, &sc.Category, pq.Array(&sc.Tags),
 		&paramsJSON, &sc.ApprovedVersionID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", errNotIndexable

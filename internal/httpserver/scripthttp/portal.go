@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
@@ -109,6 +110,9 @@ func (h *Handler) RegisterPortal(mux *http.ServeMux, wrap func(http.Handler) htt
 	// Editing the code is the owner's, and it crosses the same review gate the
 	// tool crosses: an approved script's edit becomes a draft (#1307).
 	mux.Handle("PUT /api/v1/portal/scripts/{id}/source", wrap(h.portalHandler(h.portalSetSource)))
+	// Documenting the script is the owner's too, and it is not review-gated:
+	// what a script SAYS about itself is not what it does (#1369).
+	mux.Handle("PUT /api/v1/portal/scripts/{id}/metadata", wrap(h.portalHandler(h.portalSetMetadata)))
 	// Checking an edit before asking anyone to approve it (#1364). Validating
 	// parses and reports; it executes nothing, needs no collaborator, and is
 	// therefore always available where the editor is.
@@ -214,9 +218,11 @@ type portalScriptListResponse struct {
 // portalListScripts returns the scripts this caller may see.
 //
 // @Summary      List scripts visible to the portal caller
-// @Description  Returns every managed script the caller is entitled to see, each with its cadence and, for the scripts they own, the state of its most recent run. Administrators see every script.
+// @Description  Returns every managed script the caller is entitled to see, each with its cadence and, for the scripts they own, the state of its most recent run. Administrators see every script. The category and tag parameters narrow the listing; tag may be repeated, and a script matching any of the named tags is returned.
 // @Tags         Scripts
 // @Produce      json
+// @Param        category  query  string    false  "Narrow to one category slug"
+// @Param        tag       query  []string  false  "Narrow to the scripts carrying any of these tags"  collectionFormat(multi)
 // @Success      200  {object}  portalScriptListResponse
 // @Failure      401  {object}  httpjson.ProblemDetail
 // @Failure      500  {object}  httpjson.ProblemDetail
@@ -224,7 +230,7 @@ type portalScriptListResponse struct {
 // @Security     BearerAuth
 // @Router       /portal/scripts [get]
 func (h *Handler) portalListScripts(w http.ResponseWriter, r *http.Request, user *PortalIdentity) {
-	scripts, err := h.deps.Scripts.List(r.Context(), portalListFilter(user))
+	scripts, err := h.deps.Scripts.List(r.Context(), portalListFilter(user, r.URL.Query()))
 	if err != nil {
 		httpjson.WriteError(w, http.StatusInternalServerError, "failed to list scripts")
 		return
@@ -253,13 +259,39 @@ func reportableScript(sc script.Script, owned bool) script.Script {
 	return sc
 }
 
-// portalListFilter applies the caller's visibility as a query predicate. An
-// administrator carries no predicate, which is the unfiltered admin view.
-func portalListFilter(user *PortalIdentity) script.ListFilter {
-	if user.IsAdmin {
-		return script.ListFilter{}
+// nonEmpty drops the empty values from a repeated query parameter, so a request
+// carrying `?tag=` reads as one that named no tag rather than as one asking for
+// the scripts tagged with the empty string — a predicate nothing satisfies,
+// which would answer a URL that looks unfiltered with an empty listing. It is
+// what Query.Get already does for the single-valued category beside it.
+func nonEmpty(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		if v != "" {
+			out = append(out, v)
+		}
 	}
-	return script.ListFilter{VisibleTo: user.owner(), VisiblePersona: user.Persona}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// portalListFilter applies the caller's visibility as a query predicate, plus
+// the category and tag axes the listing filters on (#1369). An administrator
+// carries no visibility predicate, which is the unfiltered admin view; the
+// facet filters apply to them exactly as they do to everybody else, because
+// those narrow what a reader asked for rather than what they are entitled to.
+func portalListFilter(user *PortalIdentity, query url.Values) script.ListFilter {
+	filter := script.ListFilter{
+		Category: query.Get("category"),
+		Tags:     nonEmpty(query["tag"]),
+	}
+	if user.IsAdmin {
+		return filter
+	}
+	filter.VisibleTo, filter.VisiblePersona = user.owner(), user.Persona
+	return filter
 }
 
 // attachSchedules fills in each row's cadence in one query, leaving every row

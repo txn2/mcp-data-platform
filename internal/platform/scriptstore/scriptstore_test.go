@@ -27,7 +27,7 @@ var testAuthor = script.Author{Email: "jane@example.com", Roles: []string{"analy
 // scriptSelectColumns is the result-set shape a SELECT mock must return, in
 // scriptColumns order.
 var scriptSelectColumns = []string{
-	"id", "name", "display_name", "description", "source_code", "params",
+	"id", "name", "display_name", "description", "category", "source_code", "params",
 	"scope", "personas", "owner_email", "tags", "enabled", "status",
 	"superseded_by", "deprecated_at", "version", "approved_version_id",
 	"created_at", "updated_at",
@@ -44,6 +44,7 @@ type rowSpec struct {
 	paramsJSON      []byte
 	approvedVersion string
 	source          string
+	category        string
 }
 
 // scriptRow returns one full result row in scriptColumns order.
@@ -53,7 +54,7 @@ func scriptRow(spec rowSpec) []driver.Value {
 		source = "print(1)"
 	}
 	return []driver.Value{
-		spec.id, spec.name, "Daily", "A daily report", source, spec.paramsJSON,
+		spec.id, spec.name, "Daily", "A daily report", spec.category, source, spec.paramsJSON,
 		spec.scope, pq.Array([]string{}), spec.owner, pq.Array([]string{}), true, "draft",
 		"", nil, 1, spec.approvedVersion, rowTime, rowTime,
 	}
@@ -251,6 +252,51 @@ func TestBuildListQuery(t *testing.T) {
 	// An over-large limit is clamped rather than honored.
 	_, args = buildListQuery(script.ListFilter{Limit: 100000})
 	assert.Equal(t, defaultListLimit, args[0])
+}
+
+// TestBuildListQuery_FacetAxes covers the two axes the listing gained with the
+// category (#1369). The tag arm is an OVERLAP rather than a containment: naming
+// two tags asks for the scripts carrying either, which is the union of two
+// shelves and not their intersection.
+func TestBuildListQuery_FacetAxes(t *testing.T) {
+	query, args := buildListQuery(script.ListFilter{Category: "reporting"})
+	assert.Contains(t, query, "category = $1")
+	require.Len(t, args, 2)
+	assert.Equal(t, "reporting", args[0])
+
+	query, _ = buildListQuery(script.ListFilter{Tags: []string{"sales", "weekly"}})
+	assert.Contains(t, query, "tags && $1")
+
+	// Both axes together are a conjunction: a reader who pressed a category and
+	// a tag asked for the scripts that are both.
+	query, _ = buildListQuery(script.ListFilter{Category: "reporting", Tags: []string{"sales"}})
+	assert.Contains(t, query, "category = $1 AND tags && $2")
+
+	// An empty tag list is not a filter for "no tags", which would answer an
+	// unfiltered listing with nothing.
+	query, _ = buildListQuery(script.ListFilter{Tags: []string{}})
+	assert.NotContains(t, query, "tags &&")
+}
+
+// TestScanScript_ReadsTheCategory proves the column reaches the record. The
+// scan order is positional, so a column added to scriptColumns without a
+// matching destination silently shifts every field after it.
+func TestScanScript_ReadsTheCategory(t *testing.T) {
+	s, mock := newMock(t)
+	mock.ExpectQuery(regexp.QuoteMeta("FROM scripts WHERE id = $1")).
+		WillReturnRows(sqlmock.NewRows(scriptSelectColumns).AddRow(scriptRow(rowSpec{
+			id: "script_1", name: "daily", scope: "personal",
+			owner: "jane@example.com", paramsJSON: emptyParams(t), category: "reporting",
+		})...))
+
+	got, err := s.GetByID(context.Background(), "script_1")
+
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "reporting", got.Category)
+	assert.Equal(t, "daily", got.Name, "the fields after the new column still land where they belong")
+	assert.Equal(t, "A daily report", got.Description)
+	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 func TestList(t *testing.T) {

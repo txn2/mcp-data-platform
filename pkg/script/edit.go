@@ -71,11 +71,18 @@ func RequiresReview(before, after *Script) bool {
 }
 
 // SnapshotChanged reports whether any versioned snapshot field (source, params,
-// display name, description, tags) differs between the two states.
+// display name, description, category, tags) differs between the two states.
+//
+// The four documentation fields are versioned together and none of them is
+// gated by RequiresReview, which is what lets one form edit all of them at once
+// (#1369): an edit that only documents a script applies to the live row
+// immediately, is captured as a version like every other edit, and does not
+// send the version that is executing back to a reviewer.
 func SnapshotChanged(before, after *Script) bool {
 	return before.Source != after.Source ||
 		before.DisplayName != after.DisplayName ||
 		before.Description != after.Description ||
+		before.Category != after.Category ||
 		!ParamsEqual(before.Params, after.Params) ||
 		!slices.Equal(before.Tags, after.Tags)
 }
