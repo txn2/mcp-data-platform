@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
 import type { ScriptContract, ScriptParam } from "@/api/portal/hooks/scripts";
+import { useAuthStore } from "@/stores/auth";
 import { ScriptSourceEditor } from "./ScriptSourceEditor";
 
 // The editor's own behaviour is what matters here: where a save lands, and
@@ -69,6 +70,7 @@ const unapproved: ScriptContract = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  useAuthStore.setState({ user: null });
   mockSave.mockReturnValue({ mutate: save, isPending: false } as never);
   mockValidate.mockReturnValue({ mutate: validate, isPending: false } as never);
   mockDryRun.mockReturnValue({ mutate: dryRun, isPending: false } as never);
@@ -105,6 +107,28 @@ describe("ScriptSourceEditor: what it opens", () => {
 
   it("says an edit to an unapproved script applies directly", () => {
     renderEditor(unapproved);
+    expect(screen.getByText(/saving changes it directly/)).toBeInTheDocument();
+  });
+
+  // The third outcome (#1367): the owner's own personal script is approved by
+  // the save itself, so a notice about a reviewer would be describing somebody
+  // who is never asked.
+  it("says saving the owner's own personal script approves it", () => {
+    useAuthStore.setState({
+      user: { user_id: "u-1", email: "sarah.chen@example.com", roles: [], is_admin: false },
+    });
+    renderEditor({ ...unapproved, scope: "personal", owner_email: "sarah.chen@example.com" });
+
+    expect(screen.getByText(/This script is yours alone, so saving approves it/)).toBeInTheDocument();
+    expect(screen.queryByText(/an administrator approves a version/)).not.toBeInTheDocument();
+  });
+
+  it("keeps the review notice for somebody else's personal script", () => {
+    useAuthStore.setState({
+      user: { user_id: "u-2", email: "admin@acme.example.com", roles: [], is_admin: true },
+    });
+    renderEditor({ ...unapproved, scope: "personal", owner_email: "sarah.chen@example.com" });
+
     expect(screen.getByText(/saving changes it directly/)).toBeInTheDocument();
   });
 });

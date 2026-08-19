@@ -41,14 +41,36 @@ func (h *Handle) handleCreate(ctx context.Context, input manageScriptInput) (*mc
 	if report := scriptrun.Validate(sc.Source); !report.OK {
 		return jsonResult(refusedReport("the source does not parse, so it was not saved", report))
 	}
-	if err := h.store.Create(ctx, sc, callerAuthor(ctx)); err != nil {
+	author := callerAuthor(ctx)
+	if err := h.store.Create(ctx, sc, author); err != nil {
 		slog.Error("failed to create script", fieldName, input.Name, logKeyError, err)
 		return errorResult("failed to create script"), nil, nil
 	}
+	// A personal script its author owns is approved here, on the same terms an
+	// edit to one is (#1367): the grant is minted from what the source reaches,
+	// and a grant that cannot be read off the source leaves the script waiting
+	// for a reviewer exactly as it did before.
+	auto := h.auto.AutoApprove(ctx, sc, sc.Version, author)
 	return jsonResult(map[string]any{
 		fieldStatus: "created", "id": sc.ID, fieldName: sc.Name, fieldVersion: sc.Version,
-		"next": "Call run_draft to execute it under your own identity; nothing runs it on its own until a version is approved.",
+		"executable": sc.Executable(),
+		"next":       createdNext(auto),
 	})
+}
+
+// createdNext tells the author what happens to the script they just created:
+// that it already runs, or what to do about the fact that it does not.
+func createdNext(auto script.AutoOutcome) string {
+	switch {
+	case auto.Approved:
+		return "This is your own script, so the platform approved it for you: run_script executes it now, " +
+			"under the access you hold, and a schedule you set will fire it."
+	case auto.Reason != "":
+		return "It was not approved automatically: " + auto.Reason +
+			". Call run_draft to execute it under your own identity meanwhile."
+	default:
+		return "Call run_draft to execute it under your own identity; nothing runs it on its own until a version is approved."
+	}
 }
 
 // orEmpty normalizes a nil slice to an empty one.
@@ -142,7 +164,9 @@ func (h *Handle) applyScopeAndStatus(ctx context.Context, sc *script.Script, inp
 // persist lands an edit through script.ApplyEdit and reports the outcome. extra
 // carries command-specific fields (a patch report) into the response.
 func (h *Handle) persist(ctx context.Context, before, after *script.Script, extra map[string]any) (*mcp.CallToolResult, any, error) {
-	outcome, err := script.ApplyEdit(ctx, h.store, before, after, callerAuthor(ctx))
+	outcome, err := script.ApplyEdit(ctx, h.store, script.Edit{
+		Before: before, After: after, Author: callerAuthor(ctx), Auto: h.auto,
+	})
 	if err != nil {
 		return editError(err), nil, nil
 	}
@@ -155,7 +179,41 @@ func (h *Handle) persist(ctx context.Context, before, after *script.Script, extr
 		return jsonResult(out)
 	}
 	out[fieldStatus] = "updated"
+	out["executable"] = after.Executable()
+	if msg := updatedMessage(after, outcome.Auto); msg != "" {
+		out["message"] = msg
+	}
 	return jsonResult(out)
+}
+
+// updatedMessage states what an applied edit means for whether anything will run
+// the script, and says nothing when automatic approval had nothing to say — a
+// shared script's edit is the ordinary review path and needs no sentence about
+// a mechanism that does not apply to it.
+func updatedMessage(sc *script.Script, auto script.AutoOutcome) string {
+	switch {
+	case auto.Approved:
+		return "This is your own script, so the platform approved this version for you. " + runsNow(sc)
+	case auto.Reason != "":
+		return "It was not approved automatically: " + auto.Reason +
+			". Call run_draft to execute it under your own identity meanwhile."
+	default:
+		return ""
+	}
+}
+
+// runsNow reports what an approval actually buys this script, which is not
+// always a run: the execution gate refuses a disabled or deprecated script
+// whatever is approved on it.
+func runsNow(sc *script.Script) string {
+	switch {
+	case !sc.Enabled:
+		return "It is disabled, so nothing executes it until it is enabled again."
+	case sc.Status == script.StatusDeprecated:
+		return "It is deprecated, so nothing executes it."
+	default:
+		return "It executes now, under the access you hold, and on any schedule you set."
+	}
 }
 
 // editError maps an edit failure to a caller-facing message. The two the caller
@@ -179,7 +237,13 @@ func (h *Handle) handleDelete(ctx context.Context, input manageScriptInput) (*mc
 	if errResult != nil {
 		return errResult, nil, nil
 	}
-	if existing.Executable() {
+	// A script with an approved version may be executing on a schedule for
+	// somebody, so deleting it is refused in favor of deprecating it — except
+	// where the caller IS that somebody. A personal script its owner deletes
+	// takes its schedule and its history with it, and nobody else could see it,
+	// run it, or notice it go; refusing would leave an owner unable to delete a
+	// script the platform approved for them on save (#1367).
+	if existing.Executable() && !existing.OwnedPersonally(resolveEmail(ctx)) {
 		return errorResult("this script has an approved version and may be executing on a schedule; deprecate it with update status=deprecated instead of deleting it"), nil, nil
 	}
 	if err := h.store.Delete(ctx, existing.ID); err != nil {

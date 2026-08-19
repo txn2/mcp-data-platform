@@ -223,6 +223,80 @@ script's substance becomes a pending draft rather than an edit to what executes
 (`pkg/script/edit.go`, `RequiresReview`), and the store re-validates that under
 the row lock so an edit racing an approval is refused rather than applied.
 
+### A personal script is approved for its owner
+
+One case does not go through a reviewer. A script at `personal` scope, whose
+version was written by the person who owns it, is approved on save
+(`internal/platform/scriptauto`, `pkg/script/autoapprove.go`). Its entire
+audience is its author, and the roles an approved run presents are copied from
+that author and refused from the approval request, so asking an administrator to
+approve it was asking a person to authorize somebody against themselves.
+
+**It mints a grant; it does not skip one.** `Grants.Validate` refuses an empty
+roles list and a nil grant makes every `allow*` check in the host facade
+short-circuit to permit, so an approval with nothing bound would be worse than
+no approval. The grant is derived from the same static read of the source the
+review route checks a reviewer's grant against (`scriptrun.Validate`):
+
+- capabilities and connections are what the code names;
+- a `portal` destination resolves to the canonical portal address;
+- any other destination resolves to the address the script's currently approved
+  version already pins, because where a bucket destination points is a person's
+  decision and nothing in the source states it. A destination with no pinned
+  address goes to review, so the FIRST delivery to a bucket is reviewed and a
+  reviewer pins the address; the owner's later edits are approved against it.
+
+**Anything unreadable goes to review.** A source that does not parse, one that
+computes its connection or destination instead of naming it, an author holding
+no roles, and a connection the author's own persona cannot reach are each
+refused (`script.DeriveGrants`, `script.RefuseUnreachable`), and the refusal is
+returned to the person who pressed save, naming what stopped it. The version
+then sits in the review queue exactly where it sat before this path existed.
+The decision is taken BEFORE the edit is written (`AutoApprover.Consider`),
+which is what keeps a declined edit out of the state where the live row is ahead
+of the version the gate names and nothing lists it as waiting. The verdict is
+carried into the write (`UpdateWithVersion`'s `ungated`) rather than re-derived
+under the row lock, so the store's gate re-validation still refuses every edit
+the funnel deferred, including one racing an approval.
+
+**The gate stays intact where it is still doing work.**
+
+- An edit written by anybody other than the owner is not covered. An
+  administrator editing another person's script is the author of what they
+  wrote, and their roles are what the version would capture, so that edit goes
+  to review. Two things hold that, at different distances: the funnel offers
+  automatic approval only the version an edit PRODUCED — an edit that moved no
+  versioned field produces none, and the version the live row already carries
+  was written by somebody at some other time — and the store refuses outright to
+  approve automatically any version whose author does not own the personal
+  script (`scriptstore/approve.go`, `autoApprovable`). The second is where the
+  roles are actually read, which is why the invariant lives there rather than
+  only in the caller.
+- Widening scope off `personal` withdraws the automatic approval: the execution
+  pointer is cleared and the version's stamp and grant are removed, inside the
+  same transaction as the scope change (`scriptstore/approve.go`,
+  `withdrawAutoApproval`), which returns it to the review queue. An approval a
+  PERSON made survives the change — they decided, and widening the audience does
+  not un-decide it.
+- A script is its owner's to delete. `manage_script delete` refuses a script
+  with an approved version in favour of deprecating it, because it may be
+  executing on a schedule for somebody — except where the caller IS that
+  somebody. Every personal script now carries an approval on save, so keeping
+  that refusal would have left an owner unable to delete anything they wrote,
+  and the remedy it names (deprecating) is an administrator's action. Deleting
+  takes the script's schedule and history with it, and nobody else could see it,
+  run it, or notice it go.
+- An automatic approval is recorded as one. `script_versions.auto_approved`
+  separates the owner's authorship from somebody's decision, the run's audit
+  event carries `approval=auto`, and the contract document, the version history
+  and the review surfaces all say plainly that nobody reviewed it.
+
+What this accepts is stated in [residual risks](#residual-risks) 11 and 12: an
+unattended run on standing authority, and egress to a bucket on a cadence, each
+with one person involved. Both remain bounded by the author's persona, which the
+middleware chain enforces independently of the grant, and by the audit record of
+every run.
+
 ### Review is a surface, not an API call
 
 The gate above is only as good as the decision behind it, and a decision made
@@ -233,7 +307,9 @@ portal's Scripts page (`ui/src/pages/scripts/`, over
 **The queue is what is not executing.** A version is waiting when it is a
 pending draft, or when it is the live version of a script that has never had
 one approved (`internal/platform/scriptstore/review.go`,
-`pendingReviewQuery`). The second case matters: a brand-new script's only
+`pendingReviewQuery`). A personal script its owner wrote is approved on save and
+so is never in the queue; one whose grant could not be read off its source is,
+which is the only way a personal script reaches a reviewer. The second case matters: a brand-new script's only
 version is recorded `applied`, so a queue built on version status alone would
 show nothing waiting while the script sat unrunnable. The queue holds one row
 per script — approving any version supersedes that script's other pending
@@ -1108,6 +1184,25 @@ retrying only multiplies the cost).
    compensating visibility is that the destination's full address is on the
    version, every delivered object is on the run record, and re-pointing it
    requires approving again.
+
+11. **Standing authority with no second reader.** A personal script approved for
+   its own owner runs unattended on the roles that owner held when they wrote
+   the version, and nobody signed off on that. It is the same standing-authority
+   exposure as risk 5, without the compensating fact that somebody looked once:
+   the script keeps running on captured roles after the author's own access
+   changes, and no review stamp records a decision because no decision was made.
+   What bounds it is that the roles are the author's own and can never exceed
+   them, that the persona those roles resolve to is enforced by the middleware at
+   every call, that the script is invisible and uninvokable to everybody else,
+   and that disabling, deprecating or superseding it stops it at execution.
+
+12. **Egress with no second reader.** A personal script may deliver to a bucket
+   on a cadence with one person involved, which is risk 10 without the review.
+   It is bounded on the one axis that decides where the bytes go: the address is
+   never derived from the source, only carried forward from an approval a person
+   made, so the first delivery to any bucket is reviewed and re-pointing it is a
+   re-approval. What the owner can change without a reviewer is WHAT is
+   delivered, not WHERE.
 
 ## Maintenance contract
 

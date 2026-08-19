@@ -20,7 +20,7 @@ import (
 var versionSelectColumns = []string{
 	"id", "script_id", "version", "display_name", "description",
 	"source_code", "params", "tags", "author", "author_roles", "status",
-	"approved_by", "approved_at", "grants", "created_at",
+	"approved_by", "approved_at", "auto_approved", "grants", "created_at",
 }
 
 // versionRow returns one full version row in versionColumns order.
@@ -28,8 +28,16 @@ func versionRow(version int, source, status string, paramsJSON []byte) []driver.
 	return []driver.Value{
 		"sver_1", "script_1", version, "Daily", "A daily report",
 		source, paramsJSON, pq.Array([]string{}), "jane@example.com",
-		pq.Array([]string{"analyst"}), status, "", nil, []byte("{}"), rowTime,
+		pq.Array([]string{"analyst"}), status, "", nil, false, []byte("{}"), rowTime,
 	}
+}
+
+// versionRowBy returns a version row written by a named author, for the rules
+// that turn on WHO wrote a version rather than on what it contains.
+func versionRowBy(author, status string) []driver.Value {
+	row := versionRow(2, "print(1)", status, []byte("[]"))
+	row[8] = author
+	return row
 }
 
 // versionRowWithoutRoles returns a version row whose author held no roles, the
@@ -71,7 +79,7 @@ func TestUpdateWithVersion_SnapshotsOnlyWhenTheSubstanceMoved(t *testing.T) {
 		mock.ExpectCommit()
 
 		sc := &script.Script{ID: "script_1", Name: "daily", Scope: script.ScopePersonal, Source: "print(2)"}
-		require.NoError(t, s.UpdateWithVersion(context.Background(), sc, testAuthor))
+		require.NoError(t, s.UpdateWithVersion(context.Background(), sc, testAuthor, false))
 		assert.Equal(t, 2, sc.Version)
 		require.NoError(t, mock.ExpectationsWereMet())
 	})
@@ -87,7 +95,7 @@ func TestUpdateWithVersion_SnapshotsOnlyWhenTheSubstanceMoved(t *testing.T) {
 			ID: "script_1", Name: "daily", Scope: script.ScopePersonal, Source: "print(1)",
 			DisplayName: "Daily", Description: "A daily report", Params: []script.Param{}, Tags: []string{},
 		}
-		require.NoError(t, s.UpdateWithVersion(context.Background(), sc, testAuthor))
+		require.NoError(t, s.UpdateWithVersion(context.Background(), sc, testAuthor, false))
 		require.NoError(t, mock.ExpectationsWereMet())
 	})
 }
@@ -107,7 +115,7 @@ func TestUpdateWithVersion_RejectsAnEditRacingAnApproval(t *testing.T) {
 	mock.ExpectRollback()
 
 	sc := &script.Script{ID: "script_1", Name: "daily", Scope: script.ScopePersonal, Source: "print(2)"}
-	err := s.UpdateWithVersion(context.Background(), sc, testAuthor)
+	err := s.UpdateWithVersion(context.Background(), sc, testAuthor, false)
 	require.ErrorIs(t, err, script.ErrVersionConflict)
 	assert.Contains(t, err.Error(), "re-read and retry")
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -119,7 +127,7 @@ func TestUpdateWithVersion_MissingScript(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta("FOR UPDATE")).WillReturnRows(sqlmock.NewRows(scriptSelectColumns))
 	mock.ExpectRollback()
 
-	err := s.UpdateWithVersion(context.Background(), &script.Script{ID: "gone"}, testAuthor)
+	err := s.UpdateWithVersion(context.Background(), &script.Script{ID: "gone"}, testAuthor, false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -131,7 +139,7 @@ func TestUpdateWithVersion_LockErrorIsWrapped(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta("FOR UPDATE")).WillReturnError(errors.New("boom"))
 	mock.ExpectRollback()
 
-	err := s.UpdateWithVersion(context.Background(), &script.Script{ID: "script_1"}, testAuthor)
+	err := s.UpdateWithVersion(context.Background(), &script.Script{ID: "script_1"}, testAuthor, false)
 	assert.ErrorContains(t, err, "lock script")
 }
 
@@ -143,7 +151,8 @@ func TestUpdateWithVersion_VersionNumberErrorIsWrapped(t *testing.T) {
 	mock.ExpectRollback()
 
 	err := s.UpdateWithVersion(context.Background(),
-		&script.Script{ID: "script_1", Name: "daily", Scope: script.ScopePersonal, Source: "print(2)"}, testAuthor)
+		&script.Script{ID: "script_1", Name: "daily", Scope: script.ScopePersonal, Source: "print(2)"},
+		testAuthor, false)
 	assert.ErrorContains(t, err, "next version number")
 }
 

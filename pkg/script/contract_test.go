@@ -188,6 +188,22 @@ func TestContractTextReportsNeverHavingRun(t *testing.T) {
 	assert.Contains(t, text, "Parameters: report_date (required)")
 }
 
+// TestContractTextSaysNobodyReviewedAnAutomaticApproval keeps the contract from
+// reading an automatic approval as a decision somebody made (#1367): the owner
+// is named because they are accountable for the script, and a reader is told
+// plainly that nobody else looked at it.
+func TestContractTextSaysNobodyReviewedAnAutomaticApproval(t *testing.T) {
+	v := approvedVersion()
+	v.ApprovedBy = "jane@example.com"
+	v.AutoApproved = true
+
+	c := BuildContract(liveScript(), v, nil, nil)
+
+	assert.True(t, c.Approval.Automatic)
+	assert.Contains(t, c.Text(), "approved automatically because jane@example.com owns it and wrote it")
+	assert.Contains(t, c.Text(), "nobody reviewed it")
+}
+
 // TestContractTextOmitsTheSource proves the document a reference resolves to
 // never carries the script's code. Discovery answers "what is this and can I
 // use it"; the code is what a reviewer reads.

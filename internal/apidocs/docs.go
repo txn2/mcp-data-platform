@@ -23445,6 +23445,11 @@ const docTemplate = `{
                     "type": "string",
                     "example": "admin@example.com"
                 },
+                "automatic": {
+                    "description": "Automatic reports that the platform approved this version itself, because\nthe script is personal and its owner wrote it (#1367). Nobody reviewed it,\nand a reader of the contract is told so rather than reading ApprovedBy as\na decision somebody made.",
+                    "type": "boolean",
+                    "example": false
+                },
                 "refusal": {
                     "description": "Refusal states why a run requested now would be refused, and is empty when\none would be admitted. It is the gate's own answer (RefuseNewRun), not a\nsecond reading of it, so a caller is never told a script is runnable that\nrun_script would then decline.",
                     "type": "string",
@@ -24004,6 +24009,11 @@ const docTemplate = `{
                     "example": [
                         "analyst"
                     ]
+                },
+                "auto_approved": {
+                    "description": "AutoApproved marks an approval the PLATFORM made rather than a person\n(#1367): a personal script's own owner wrote this version, so the grant\nwas minted from what its code reaches instead of being asked of a\nreviewer. ApprovedBy still names the owner, because they are accountable\nfor it; this is what separates their authorship from somebody's decision,\nso an operator reading the history can tell which scripts nobody reviewed.",
+                    "type": "boolean",
+                    "example": false
                 },
                 "created_at": {
                     "type": "string",
@@ -24631,6 +24641,11 @@ const docTemplate = `{
                     "description": "Applied is true when the live script now carries this source.",
                     "type": "boolean",
                     "example": false
+                },
+                "approved": {
+                    "description": "Approved is true when the saved version is now the version the platform\nexecutes, because this is the owner's own personal script and the platform\napproved it for them (#1367).",
+                    "type": "boolean",
+                    "example": true
                 },
                 "message": {
                     "description": "Message states the outcome in the owner's terms.",

@@ -1,4 +1,5 @@
 import {
+  openPersonalScriptSource,
   openScriptDeliveryGrant,
   openScriptDryRun,
   openScriptDryRunAccount,
@@ -42,6 +43,15 @@ export const userScriptRoutes: ScreenshotRoute[] = [
     slug: "script-detail",
     path: "/portal/scripts/script-001",
     category: "user",
+  },
+  {
+    // A script only its owner can see and only its owner can run, approved by
+    // the save itself (#1367): the contract names the approval as one nobody
+    // reviewed, and the editor says saving approves rather than queues.
+    slug: "script-personal-auto-approved",
+    path: "/portal/scripts/script-004",
+    category: "user",
+    beforeCapture: openPersonalScriptSource,
   },
   {
     // A paused automation, and the control that resumes it (#1307). The
@@ -131,6 +141,16 @@ export const adminScriptRoutes: ScreenshotRoute[] = [
     path: "/portal/admin/scripts",
     category: "admin",
     beforeCapture: openScriptReview,
+  },
+  {
+    // One script on the administrator's surface (#1367): the same page its
+    // owner opens, with the decision added and nothing taken away — running,
+    // editing, dry-running, re-timing, and the version history a rollback is
+    // approved from.
+    slug: "admin-script-detail",
+    path: "/portal/admin/scripts/script-001",
+    category: "admin",
+    beforeCapture: openScriptVersionHistory,
   },
   {
     // Whether anybody has run the code being approved (#1364). Its absence is

@@ -20,9 +20,9 @@ import { formatWhen, runStatusLabel, runStatusVariant, runWhen } from "./runForm
 // MyScriptsPage is what the people who own the automations see (#1290): every
 // script they may see, what it is scheduled to do, and how its last run went.
 //
-// It reads only. Approving a version is an administrator's decision and stays
-// on the admin surface; this page exists because an owner is frequently not an
-// administrator and had no way to see their own automations at all.
+// It reads only; what an owner does to a script is on the script's own page.
+// This listing exists because an owner is frequently not an administrator and
+// had no way to see their own automations at all.
 
 interface Props {
   onNavigate: (path: string) => void;
@@ -83,7 +83,7 @@ function AutomationSummary({ rows }: { rows: PortalScriptRow[] }) {
       <SummaryTile
         label="Approved"
         value={executable}
-        hint="have a version an administrator approved"
+        hint="have a version the platform may execute"
       />
       <SummaryTile label="On a cadence" value={scheduled} hint="run on a schedule, unattended" />
       <SummaryTile
@@ -142,8 +142,8 @@ function ScriptsSection({
     return (
       <EmptyState icon={FileCode2}>
         You have no scripts yet. Ask an agent to write one for a report or an export you
-        run repeatedly; it appears here once it exists, and runs once an administrator
-        approves it.
+        run repeatedly. A script only you can see runs as soon as it is saved, under the
+        access you hold; one you share with others is reviewed first.
       </EmptyState>
     );
   }

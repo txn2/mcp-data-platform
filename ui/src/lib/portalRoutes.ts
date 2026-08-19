@@ -10,7 +10,7 @@
 // So the shell asks this module first. A path with a canonical form redirects
 // to it, a path with no page says so, and only a recognized path reaches the
 // switch. Recognition lives here rather than as a final `else` inside the
-// switch because the switch is spread across five section components that each
+// switch because the switch is spread across six section components that each
 // own their own matching, and none of them can see whether another matched.
 
 /** ADMIN_PREFIX is the segment that makes a route the administrator's. */
@@ -73,6 +73,7 @@ const KNOWN_PATTERNS: readonly RegExp[] = [
   /^\/admin\/collections\/.+$/,
   /^\/admin\/sessions\/.+$/,
   /^\/admin\/calls\/.+$/,
+  /^\/admin\/scripts\/.+$/,
 ];
 
 // ALIASES are paths that named a real surface and no longer do. Each redirects
@@ -104,16 +105,16 @@ export function isAdminRoute(route: string): boolean {
  * isInSection reports whether a path belongs to the section mounted at prefix
  * — the prefix itself or anything under it.
  *
- * The shell uses this to decide whether to mount a section at all. Five of the
+ * The shell uses this to decide whether to mount a section at all. Six of the
  * pages are section components that own their own matching and render null for
  * a path outside them (ActivityRoutes, PortalScriptRoutes,
- * AdminCollectionRoutes, SessionRoutes, CallRoutes), so the shell used to
- * mount all five on every route and let four of them decline. That was free
- * when every page was in one bundle. It is not free now that each page is its
- * own chunk: mounting a section is what fetches it, so an unguarded section
- * would download five sections' code to render one (#1351).
+ * AdminCollectionRoutes, SessionRoutes, CallRoutes, AdminScriptRoutes), so the
+ * shell used to mount them all on every route and let the rest decline. That was
+ * free when every page was in one bundle. It is not free now that each page is
+ * its own chunk: mounting a section is what fetches it, so an unguarded section
+ * would download six sections' code to render one (#1351).
  *
- * Each of the five owns exactly one prefix, which is what makes a prefix test
+ * Each of the six owns exactly one prefix, which is what makes a prefix test
  * the right shape here rather than a second copy of their matching.
  */
 export function isInSection(route: string, prefix: string): boolean {

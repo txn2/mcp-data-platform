@@ -21,10 +21,14 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/connreach"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptauto"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
+	"github.com/txn2/mcp-data-platform/pkg/persona"
+	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -50,6 +54,13 @@ type Config struct {
 	// linkless: a deployment that has not been told its own address cannot be
 	// given one by guessing.
 	PortalURL string
+	// Toolkits and Personas are the live registries automatic approval reads to
+	// answer what a version author's own authority reaches (#1367). A personal
+	// script reaching past it is refused at save, where the author can act on
+	// it, rather than by a failed run nobody is watching. Either one absent
+	// skips that early answer; the middleware enforces the boundary regardless.
+	Toolkits *registry.Registry
+	Personas *persona.Registry
 }
 
 // Handle owns the assembled script layer. All accessors are nil-safe, so a
@@ -72,6 +83,10 @@ type Handle struct {
 	// opens an in-memory session against it so a draft's platform calls cross
 	// the same middleware chain an agent's calls cross.
 	server *mcp.Server
+	// auto approves an owner-authored personal script on save (#1367). It is
+	// always present and declines everything on a deployment whose store cannot
+	// approve, so the edit path has one shape.
+	auto *scriptauto.Approver
 	// indexProducer is the write-path index-job producer the Postgres script
 	// store was built with, so a created or re-described script enters ranked
 	// search without waiting for the reconciler (#1370). Nil when the layer was
@@ -89,6 +104,13 @@ func New(cfg Config) *Handle {
 	}
 	h.versions, _ = h.store.(script.VersionStore)
 	h.schedules, _ = h.store.(script.ScheduleStore)
+	approvals, _ := h.store.(script.AutoApprovalStore)
+	h.auto = scriptauto.New(scriptauto.Deps{
+		Approvals: approvals, Versions: h.versions,
+		Reach: connreach.New(connreach.Deps{
+			Toolkits: cfg.Toolkits, Personas: cfg.Personas,
+		}).ForRoles,
+	})
 	return h
 }
 

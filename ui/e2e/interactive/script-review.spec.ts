@@ -175,19 +175,46 @@ test.describe("Script review queue", () => {
     await expect(dialog.getByText(/nothing to reject here/)).toBeVisible();
   });
 
-  test("version history opens any version, which is how a rollback is approved", async ({
+  // A row opens the script itself, on the same page its owner opens (#1367).
+  // The administrator's version of it adds the decision and takes nothing away,
+  // which is the whole claim this test exists to hold.
+  test("a row opens the script, where an administrator does everything an owner does", async ({
     page,
   }) => {
     await gotoScripts(page);
 
     await page.getByRole("row").filter({ hasText: "daily-sales-report" }).click();
+    await expect(page).toHaveURL(/\/admin\/scripts\/script-001$/);
+    // The shell names the page for what it is showing, which a detail route
+    // under a section it does not know would otherwise get wrong.
+    await expect(page.getByRole("heading", { name: "Script", level: 1 })).toBeVisible();
 
-    await expect(page.getByText("Executing").last()).toBeVisible();
-    // v1 is an earlier approved version: opening it is the rollback path.
-    await page
-      .getByRole("button", { name: /^(Review|View) version 2$/ })
-      .first()
-      .click();
+    // Everything an owner has: run it, edit it, check the edit, re-time it.
+    await expect(page.getByRole("button", { name: "Run", exact: true })).toBeVisible();
+    await expect(page.getByText("Source", { exact: true })).toBeVisible();
+    await expect(page.getByText("Version history")).toBeVisible();
+    await expect(page.getByText("Run history")).toBeVisible();
+
+    // Plus the decision. The version executing today opens by default, so its
+    // grant is the one in front of the reviewer; approving an earlier version
+    // from here is the rollback path.
+    await page.getByRole("button", { name: /Review the grant/ }).click();
     await expect(page.getByRole("dialog")).toBeVisible();
+  });
+
+  // The other half of #1367: a personal script its own owner wrote never
+  // reaches this queue, and the surfaces say plainly that nobody reviewed it.
+  test("a personal script the owner wrote is approved with nobody in the queue", async ({
+    page,
+  }) => {
+    await gotoScripts(page);
+
+    const queue = page.getByRole("button", { name: /^Review My Margin Check/ });
+    await expect(queue).toHaveCount(0);
+
+    await page.getByRole("row").filter({ hasText: "my-margin-check" }).click();
+    await expect(page.getByText(/v1 automatically on .* nobody reviewed it/)).toBeVisible();
+    // Exact, because the contract line above says the same thing in a sentence.
+    await expect(page.getByText("Nobody reviewed it", { exact: true })).toBeVisible();
   });
 });

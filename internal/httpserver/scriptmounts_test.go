@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp"
-	"github.com/txn2/mcp-data-platform/pkg/connview"
+	"github.com/txn2/mcp-data-platform/internal/platform/connreach"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/query"
@@ -105,7 +105,7 @@ func enumeratorFixture(t *testing.T) (toolkits *registry.Registry, personas *per
 // by the same predicate list_connections applies.
 func TestScriptConnectionEnumerator_AppliesThePersonaBoundary(t *testing.T) {
 	tr, pr := enumeratorFixture(t)
-	enumerate := scriptConnectionEnumerator(tr, pr)
+	enumerate := scriptConnectionEnumerator(connreach.New(connreach.Deps{Toolkits: tr, Personas: pr}))
 	require.NotNil(t, enumerate)
 
 	got := enumerate(context.Background(), scripthttp.ConnectionScope{Persona: "analyst"})
@@ -118,7 +118,7 @@ func TestScriptConnectionEnumerator_AppliesThePersonaBoundary(t *testing.T) {
 // the admin surface unrestricted, which is what it is everywhere else.
 func TestScriptConnectionEnumerator_EnumeratesAnAdministratorUnrestricted(t *testing.T) {
 	tr, pr := enumeratorFixture(t)
-	got := scriptConnectionEnumerator(tr, pr)(context.Background(),
+	got := scriptConnectionEnumerator(connreach.New(connreach.Deps{Toolkits: tr, Personas: pr}))(context.Background(),
 		scripthttp.ConnectionScope{Persona: "admin", Unrestricted: true})
 
 	require.Len(t, got, 2)
@@ -129,7 +129,7 @@ func TestScriptConnectionEnumerator_EnumeratesAnAdministratorUnrestricted(t *tes
 // registry cannot place reaches nothing.
 func TestScriptConnectionEnumerator_DeniesAnUnresolvedPersona(t *testing.T) {
 	tr, pr := enumeratorFixture(t)
-	got := scriptConnectionEnumerator(tr, pr)(context.Background(),
+	got := scriptConnectionEnumerator(connreach.New(connreach.Deps{Toolkits: tr, Personas: pr}))(context.Background(),
 		scripthttp.ConnectionScope{Persona: "nobody"})
 
 	assert.Empty(t, got)
@@ -139,17 +139,5 @@ func TestScriptConnectionEnumerator_DeniesAnUnresolvedPersona(t *testing.T) {
 // choices route unmounted rather than serving an empty set a form would render
 // as "this script may reach nothing".
 func TestScriptConnectionEnumerator_IsAbsentWithoutAToolkitRegistry(t *testing.T) {
-	assert.Nil(t, scriptConnectionEnumerator(nil, persona.NewRegistry()))
-}
-
-// TestConnectionValue pins which name a picker offers, which is not always the
-// one the enumeration leads with: a single-connection toolkit's entry carries
-// its INSTANCE name in Name and its connection name in Connection, and the
-// connection name is what a persona's rules match and a grant lists. Offering
-// the instance name would produce a picker whose every value the run refuses.
-func TestConnectionValue(t *testing.T) {
-	assert.Equal(t, "warehouse",
-		connectionValue(connview.Entry{Name: "wh", Connection: "warehouse"}))
-	assert.Equal(t, "wh",
-		connectionValue(connview.Entry{Name: "wh"}))
+	assert.Nil(t, scriptConnectionEnumerator(connreach.New(connreach.Deps{Personas: persona.NewRegistry()})))
 }

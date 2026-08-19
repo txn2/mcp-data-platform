@@ -186,10 +186,29 @@ func (r *runner) recordAudit(ctx context.Context, run *script.Run, sc *script.Sc
 			"trigger":      run.Trigger,
 			"requested_by": run.RequestedBy,
 			"attempt":      run.Attempt,
+			"approval":     approvalKind(v),
 		},
 		ErrorMessage: res.Error,
 	}
 	if err := r.audit.Log(ctx, event); err != nil {
 		slog.Warn("scripts: recording the run audit event failed", logKeyRunID, run.ID, logKeyError, err)
 	}
+}
+
+// Approval kinds recorded on a run's lifecycle event.
+const (
+	// approvalReviewed marks a version a person decided to approve.
+	approvalReviewed = "reviewed"
+	// approvalAutomatic marks one the platform approved for a personal script's
+	// own owner (#1367), which nobody reviewed. An operator reading the audit
+	// history can separate the two without joining back to the version row.
+	approvalAutomatic = "auto"
+)
+
+// approvalKind names who admitted the version this run executed.
+func approvalKind(v *script.Version) string {
+	if v != nil && v.AutoApproved {
+		return approvalAutomatic
+	}
+	return approvalReviewed
 }

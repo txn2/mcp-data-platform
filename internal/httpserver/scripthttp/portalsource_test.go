@@ -53,9 +53,22 @@ func (e *editStore) CreateDraftVersion(
 	return e.draftAtNum, nil
 }
 
-func (e *editStore) UpdateWithVersion(_ context.Context, sc *script.Script, author script.Author) error {
+// UpdateWithVersion models the real store's contract, including the part the
+// funnel now reads back: an edit that moved a versioned field snapshots a new
+// version and ADVANCES sc.Version to it, which is how ApplyEdit knows which
+// version this edit produced and therefore which one automatic approval may
+// bind (#1367). A fake that left the number alone would make every save look
+// like an edit that produced nothing.
+func (e *editStore) UpdateWithVersion(
+	_ context.Context, sc *script.Script, author script.Author, _ bool,
+) error {
 	if e.updateErr != nil {
 		return e.updateErr
+	}
+	for i := range e.scripts {
+		if e.scripts[i].ID == sc.ID && script.SnapshotChanged(&e.scripts[i], sc) {
+			sc.Version++
+		}
 	}
 	e.updated, e.updatedBy = sc, author
 	return nil
@@ -142,6 +155,92 @@ func TestPortalSetSource_OnAnUnapprovedScriptApplies(t *testing.T) {
 	require.NotNil(t, store.updated)
 	assert.Equal(t, editedSource, store.updated.Source)
 	assert.Nil(t, store.draftFor)
+}
+
+// stubAuto answers the edit funnel with a fixed decision, so what is under test
+// here is what the route SAYS about automatic approval rather than the deciding.
+type stubAuto struct{ decision script.AutoDecision }
+
+func (s stubAuto) Consider(context.Context, *script.Script, script.Author) script.AutoDecision {
+	return s.decision
+}
+
+func (stubAuto) Approve(
+	_ context.Context, _ *script.Script, _ int, decision script.AutoDecision,
+) script.AutoOutcome {
+	if !decision.Approvable {
+		return script.AutoOutcome{Reason: decision.Reason}
+	}
+	return script.AutoOutcome{Approved: true}
+}
+
+// TestPortalSetSource_SaysTheOwnersOwnScriptIsRunning is what an owner needs
+// from the save that made their script executable (#1367): not "saved", but
+// that it runs now.
+func TestPortalSetSource_SaysTheOwnersOwnScriptIsRunning(t *testing.T) {
+	store := newEditStore(false)
+	deps := editDeps(store, carol)
+	deps.Auto = stubAuto{decision: script.AutoDecision{Approvable: true}}
+
+	rec := servePortalRequest(t, deps, http.MethodPut, sourcePath, editedBody)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var body sourceResponse
+	decodeInto(t, rec, &body)
+	assert.True(t, body.Applied)
+	assert.True(t, body.Approved)
+	assert.Contains(t, body.Message, "It runs now")
+}
+
+// TestPortalSetSource_DoesNotClaimADisabledScriptRuns keeps the save honest
+// about what an approval actually buys: the execution gate refuses a disabled
+// or deprecated script whatever is approved on it.
+func TestPortalSetSource_DoesNotClaimADisabledScriptRuns(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mutate func(*script.Script)
+		want   string
+	}{
+		{"disabled", func(sc *script.Script) { sc.Enabled = false }, "until it is enabled again"},
+		{"deprecated", func(sc *script.Script) { sc.Status = script.StatusDeprecated }, "is deprecated"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newEditStore(false)
+			tc.mutate(&store.scripts[1])
+			deps := editDeps(store, carol)
+			deps.Auto = stubAuto{decision: script.AutoDecision{Approvable: true}}
+
+			rec := servePortalRequest(t, deps, http.MethodPut, sourcePath, editedBody)
+
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			var body sourceResponse
+			decodeInto(t, rec, &body)
+			assert.True(t, body.Approved)
+			assert.Contains(t, body.Message, tc.want)
+			assert.NotContains(t, body.Message, "It runs now")
+		})
+	}
+}
+
+// TestPortalSetSource_QuotesTheRefusalItWasNotApprovedFor puts the sentence the
+// owner can act on in front of them, at save, rather than leaving them to find
+// out at the next fire.
+func TestPortalSetSource_QuotesTheRefusalItWasNotApprovedFor(t *testing.T) {
+	store := newEditStore(false)
+	deps := editDeps(store, carol)
+	deps.Auto = stubAuto{decision: script.AutoDecision{
+		Reason: "this script writes to acme-drop, and where that is is a decision nothing in the source states",
+	}}
+
+	rec := servePortalRequest(t, deps, http.MethodPut, sourcePath, editedBody)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var body sourceResponse
+	decodeInto(t, rec, &body)
+	assert.True(t, body.Applied)
+	assert.False(t, body.Approved)
+	assert.Contains(t, body.Message, "acme-drop")
+	assert.Contains(t, body.Message, "dry-run it here")
 }
 
 // TestPortalSetSource_RefusesSourceThatDoesNotParse pins that the static read

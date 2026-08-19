@@ -108,7 +108,7 @@ func scheduleSet(t *testing.T, h *Handle, ctx context.Context, input manageScrip
 }
 
 func TestScheduleSet_StoresTheCadenceAndSaysWhatWillHappen(t *testing.T) {
-	h, store, _ := runnableHandle(t, true)
+	h, store, _ := runnableHandle(t)
 
 	fields := scheduleSet(t, h, authorCtx(), manageScriptInput{
 		Cron: weekdayMornings, Timezone: "America/Los_Angeles",
@@ -133,9 +133,11 @@ func TestScheduleSet_StoresTheCadenceAndSaysWhatWillHappen(t *testing.T) {
 // report: the schedule is stored, and the author is told plainly that the
 // execution gate still refuses it.
 func TestScheduleSet_OnAnUnapprovedScriptSaysNothingWillRunIt(t *testing.T) {
-	h, _, _ := runnableHandle(t, false)
+	h := unapprovedHandle(t)
 
-	fields := scheduleSet(t, h, authorCtx(), manageScriptInput{Cron: "@daily"})
+	// The unapproved fixture is a global script an administrator wrote, and a
+	// cadence is the owner's to set.
+	fields := scheduleSet(t, h, adminCtx(), manageScriptInput{Cron: "@daily"})
 	require.NotContains(t, fields, "error", fields)
 	assert.Equal(t, false, fields["executable"])
 	assert.Contains(t, fields["message"], "no approved version")
@@ -193,7 +195,7 @@ func TestScheduleSet_Refusals(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h, _, _ := runnableHandle(t, true)
+			h, _, _ := runnableHandle(t)
 			fields := scheduleSet(t, h, tt.ctx, tt.input)
 			assert.Contains(t, fields["error"], tt.wantErr)
 		})
@@ -204,7 +206,7 @@ func TestScheduleSet_Refusals(t *testing.T) {
 // not create a second schedule: the runs already pointing at this one point at
 // the same automation.
 func TestScheduleSet_ReplacingKeepsTheAutomation(t *testing.T) {
-	h, store, _ := runnableHandle(t, true)
+	h, store, _ := runnableHandle(t)
 	scheduleSet(t, h, authorCtx(), manageScriptInput{Cron: "@daily"})
 	scheduleSet(t, h, authorCtx(), manageScriptInput{Cron: weekdayMornings})
 
@@ -217,7 +219,7 @@ func TestScheduleSet_ReplacingKeepsTheAutomation(t *testing.T) {
 // TestScheduleEnableDisable pins the retirement path: a schedule is turned off,
 // never deleted, so the row that explains its runs stays.
 func TestScheduleEnableDisable(t *testing.T) {
-	h, _, _ := runnableHandle(t, true)
+	h, _, _ := runnableHandle(t)
 	scheduleSet(t, h, authorCtx(), manageScriptInput{Cron: "@daily"})
 
 	off := resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdScheduleDisable, Name: "daily"}))
@@ -231,7 +233,7 @@ func TestScheduleEnableDisable(t *testing.T) {
 }
 
 func TestScheduleEnable_WithNoScheduleSaysHowToSetOne(t *testing.T) {
-	h, _, _ := runnableHandle(t, true)
+	h, _, _ := runnableHandle(t)
 	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdScheduleEnable, Name: "daily"})
 	assert.True(t, res.IsError)
 	assert.Contains(t, resultText(res), cmdScheduleSet)
@@ -259,7 +261,7 @@ func shareScript(t *testing.T, store *memStore, scope string, personas ...string
 func TestScheduleSet_AnOwnerRetimesTheirOwnSharedScript(t *testing.T) {
 	for _, scope := range []string{script.ScopeGlobal, script.ScopePersona} {
 		t.Run(scope, func(t *testing.T) {
-			h, store, _ := runnableHandle(t, true)
+			h, store, _ := runnableHandle(t)
 			shareScript(t, store, scope, "analyst")
 
 			set := scheduleSet(t, h, authorCtx(), manageScriptInput{Cron: weekdayMornings})
@@ -286,7 +288,7 @@ func TestScheduleSet_AnOwnerRetimesTheirOwnSharedScript(t *testing.T) {
 // deciding when it runs are different entitlements, and an administrator is
 // unrestricted as everywhere else.
 func TestScheduleSet_ANonOwnerIsRefused(t *testing.T) {
-	h, store, _ := runnableHandle(t, true)
+	h, store, _ := runnableHandle(t)
 	shareScript(t, store, script.ScopeGlobal)
 
 	refused := scheduleSet(t, h, callerCtx("bob@example.com", "analyst"), manageScriptInput{Cron: "@daily"})
@@ -302,7 +304,7 @@ func TestScheduleSet_ANonOwnerIsRefused(t *testing.T) {
 }
 
 func TestScheduleList(t *testing.T) {
-	h, _, _ := runnableHandle(t, true)
+	h, _, _ := runnableHandle(t)
 	scheduleSet(t, h, authorCtx(), manageScriptInput{Cron: weekdayMornings})
 
 	t.Run("across scripts", func(t *testing.T) {
@@ -387,7 +389,7 @@ func (s *scheduleless) List(ctx context.Context, f script.ListFilter) ([]script.
 // TestScheduleSet_StoreFailuresAreReportedNotPanicked covers the read and write
 // failures the commands can meet.
 func TestScheduleSet_StoreFailuresAreReportedNotPanicked(t *testing.T) {
-	h, store, _ := runnableHandle(t, true)
+	h, store, _ := runnableHandle(t)
 	store.scheduleErr = errors.New("boom")
 
 	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdScheduleSet, Name: "daily", Cron: "@daily"})
@@ -403,7 +405,7 @@ func TestScheduleSet_StoreFailuresAreReportedNotPanicked(t *testing.T) {
 // TestScheduleSet_AnUnreadableApprovedVersionIsReported pins that a schedule is
 // not bound against a contract the layer could not read.
 func TestScheduleSet_AnUnreadableApprovedVersionIsReported(t *testing.T) {
-	h, store, _ := runnableHandle(t, true)
+	h, store, _ := runnableHandle(t)
 	store.versionErr = errors.New("boom")
 
 	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdScheduleSet, Name: "daily", Cron: "@daily"})
@@ -415,7 +417,7 @@ func TestScheduleSet_AnUnreadableApprovedVersionIsReported(t *testing.T) {
 // that landed is reported as landed: re-reading it is a courtesy, not the
 // outcome.
 func TestScheduleDisable_ReportsTheChangeWhenTheReadBackFails(t *testing.T) {
-	h, store, _ := runnableHandle(t, true)
+	h, store, _ := runnableHandle(t)
 	scheduleSet(t, h, authorCtx(), manageScriptInput{Cron: "@daily"})
 	store.scheduleReadErr = errors.New("boom")
 
@@ -435,7 +437,7 @@ func TestScheduleNote_SaysWhatADisabledScheduleWillDo(t *testing.T) {
 // TestScheduleEnable_AStoreFailureIsReported pins that a failed write is not
 // reported as a change that landed.
 func TestScheduleEnable_AStoreFailureIsReported(t *testing.T) {
-	h, store, _ := runnableHandle(t, true)
+	h, store, _ := runnableHandle(t)
 	scheduleSet(t, h, authorCtx(), manageScriptInput{Cron: "@daily"})
 	store.enabledErr = errors.New("boom")
 
@@ -448,7 +450,7 @@ func TestScheduleEnable_AStoreFailureIsReported(t *testing.T) {
 // not silently shorten itself: a schedule whose script fell outside the bulk
 // lookup is resolved individually and still checked for visibility.
 func TestScheduleList_ResolvesAScriptTheListingCutOff(t *testing.T) {
-	h, store, _ := runnableHandle(t, true)
+	h, store, _ := runnableHandle(t)
 	scheduleSet(t, h, authorCtx(), manageScriptInput{Cron: "@daily"})
 
 	// A schedule pointing at a script the bulk listing does not return.

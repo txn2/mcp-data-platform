@@ -52,7 +52,7 @@ func TestApproveVersion_BindsTheAuthorsRolesNotTheRequest(t *testing.T) {
 	expectLockedScript(t, mock)
 	expectVersionLock(mock, script.VersionStatusApplied)
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE script_versions")).
-		WithArgs("sver_1", "admin@example.com", sqlmock.AnyArg(), script.VersionStatusApplied).
+		WithArgs("sver_1", "admin@example.com", sqlmock.AnyArg(), script.VersionStatusApplied, false).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	expectLiveRowUpdate(mock, false)
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE script_versions SET status = $3")).

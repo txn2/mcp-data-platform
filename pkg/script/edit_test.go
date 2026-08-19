@@ -56,13 +56,28 @@ type versioningStore struct {
 	draftFor      string
 	draftErr      error
 	updateErr     error
+	// ungated records the funnel's verdict, which is the store's only way to
+	// know an edit needs no review.
+	ungated bool
+	// stored is the pre-edit row, when a test needs the fake to answer the real
+	// store's question of whether the snapshot moved. Nil means it did, which is
+	// what a source edit — the ordinary case here — does.
+	stored *script.Script
 }
 
-func (s *versioningStore) UpdateWithVersion(_ context.Context, sc *script.Script, author script.Author) error {
+// UpdateWithVersion models the real store: an edit that moved a versioned field
+// snapshots a new version and advances sc.Version to it, which is how the funnel
+// knows which version this edit produced.
+func (s *versioningStore) UpdateWithVersion(
+	_ context.Context, sc *script.Script, author script.Author, ungated bool,
+) error {
 	if s.updateErr != nil {
 		return s.updateErr
 	}
-	s.appliedAuthor = author
+	s.appliedAuthor, s.ungated = author, ungated
+	if s.stored == nil || script.SnapshotChanged(s.stored, sc) {
+		sc.Version++
+	}
 	s.updated = sc
 	return nil
 }
@@ -155,7 +170,9 @@ func TestApplyEdit_UngatedEditAppliesWithAVersion(t *testing.T) {
 	after := *before
 	after.Source = "x = 2"
 
-	outcome, err := script.ApplyEdit(context.Background(), store, before, &after, testAuthor)
+	outcome, err := script.ApplyEdit(context.Background(), store, script.Edit{
+		Before: before, After: &after, Author: testAuthor,
+	})
 	require.NoError(t, err)
 	assert.True(t, outcome.Applied)
 	assert.Zero(t, outcome.PendingVersion)
@@ -170,7 +187,9 @@ func TestApplyEdit_GatedEditBecomesADraftAndLeavesTheLiveRow(t *testing.T) {
 	after := approved()
 	after.Source = "x = 2"
 
-	outcome, err := script.ApplyEdit(context.Background(), store, before, after, testAuthor)
+	outcome, err := script.ApplyEdit(context.Background(), store, script.Edit{
+		Before: before, After: after, Author: testAuthor,
+	})
 	require.NoError(t, err)
 	assert.False(t, outcome.Applied)
 	assert.Equal(t, 7, outcome.PendingVersion)
@@ -202,7 +221,9 @@ func TestApplyEdit_MixedEditRefused(t *testing.T) {
 			after.Source = "x = 2"
 			tc.mutate(after)
 
-			_, err := script.ApplyEdit(context.Background(), store, before, after, testAuthor)
+			_, err := script.ApplyEdit(context.Background(), store, script.Edit{
+				Before: before, After: after, Author: testAuthor,
+			})
 			require.ErrorIs(t, err, script.ErrReviewRequiredMixedEdit)
 			assert.Empty(t, store.draftFor, "a refused edit must create nothing")
 			assert.Nil(t, store.updated)
@@ -216,7 +237,9 @@ func TestApplyEdit_StoreWithoutVersioningDegradesToAPlainUpdate(t *testing.T) {
 	after := approved()
 	after.Source = "x = 2"
 
-	outcome, err := script.ApplyEdit(context.Background(), store, before, after, testAuthor)
+	outcome, err := script.ApplyEdit(context.Background(), store, script.Edit{
+		Before: before, After: after, Author: testAuthor,
+	})
 	require.NoError(t, err)
 	assert.True(t, outcome.Applied)
 	assert.Same(t, after, store.updated)
@@ -225,16 +248,22 @@ func TestApplyEdit_StoreWithoutVersioningDegradesToAPlainUpdate(t *testing.T) {
 func TestApplyEdit_StoreErrorsPropagate(t *testing.T) {
 	boom := errors.New("boom")
 
-	_, err := script.ApplyEdit(context.Background(), &plainStore{failErr: boom}, approved(), approved(), testAuthor)
+	_, err := script.ApplyEdit(context.Background(), &plainStore{failErr: boom}, script.Edit{
+		Before: approved(), After: approved(), Author: testAuthor,
+	})
 	require.ErrorIs(t, err, boom)
 
 	after := approved()
 	after.Source = "x = 2"
-	_, err = script.ApplyEdit(context.Background(), &versioningStore{draftErr: boom}, approved(), after, testAuthor)
+	_, err = script.ApplyEdit(context.Background(), &versioningStore{draftErr: boom}, script.Edit{
+		Before: approved(), After: after, Author: testAuthor,
+	})
 	require.ErrorIs(t, err, boom)
 
 	unapproved := approved()
 	unapproved.ApprovedVersionID = ""
-	_, err = script.ApplyEdit(context.Background(), &versioningStore{updateErr: boom}, unapproved, unapproved, testAuthor)
+	_, err = script.ApplyEdit(context.Background(), &versioningStore{updateErr: boom}, script.Edit{
+		Before: unapproved, After: unapproved, Author: testAuthor,
+	})
 	require.ErrorIs(t, err, boom)
 }

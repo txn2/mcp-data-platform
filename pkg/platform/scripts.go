@@ -45,6 +45,8 @@ func wireScripts(p *Platform) *scriptexec.Handle {
 		Runs:         scripts.Runs(),
 		AdminPersona: p.config.Admin.Persona,
 		PortalURL:    p.config.Portal.PublicBaseURL,
+		Toolkits:     p.toolkitRegistry,
+		Personas:     p.personaRegistry,
 	})
 	p.scripts.RegisterTool(p.mcpServer)
 	return scripts

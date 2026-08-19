@@ -50,8 +50,8 @@ const PersonasPanel = lazy(() =>
 const AdminPromptsPage = lazy(() =>
   import("@/pages/prompts/AdminPromptsPage").then((m) => ({ default: m.AdminPromptsPage })),
 );
-const AdminScriptsPage = lazy(() =>
-  import("@/pages/scripts/AdminScriptsPage").then((m) => ({ default: m.AdminScriptsPage })),
+const AdminScriptRoutes = lazy(() =>
+  import("@/pages/scripts/AdminScriptRoutes").then((m) => ({ default: m.AdminScriptRoutes })),
 );
 const KeysPage = lazy(() =>
   import("@/pages/settings/KeysPage").then((m) => ({ default: m.KeysPage })),
@@ -114,7 +114,6 @@ const EXACT_PAGES: ReadonlyMap<string, (p: PageContext) => ReactNode> = new Map(
   ["/admin/personas", () => <PersonasPanel />],
   ["/admin/prompts", (p: PageContext) => <AdminPromptsPage onNavigate={p.navigate} />],
   ["/admin/resources", (p: PageContext) => <ResourcesPage admin onNavigate={p.navigate} />],
-  ["/admin/scripts", () => <AdminScriptsPage />],
   ["/admin/keys", () => <KeysPage />],
   ["/admin/users", () => <UsersPanel />],
   ["/admin/changelog", () => <ChangelogPage />],
@@ -154,6 +153,9 @@ export function AdminPages({
       )}
       {isInSection(route, "/admin/calls") && (
         <CallRoutes route={route} onNavigate={navigate} />
+      )}
+      {isInSection(route, "/admin/scripts") && (
+        <AdminScriptRoutes route={route} onNavigate={navigate} />
       )}
     </>
   );

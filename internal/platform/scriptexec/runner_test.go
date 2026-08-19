@@ -117,7 +117,27 @@ func TestRunner_ExecutesAsTheScriptPrincipal(t *testing.T) {
 	assert.Equal(t, "script:daily", events[0].UserID)
 	assert.Equal(t, run.ID, events[0].SessionID)
 	assert.Equal(t, 3, events[0].Parameters["version"])
+	assert.Equal(t, "reviewed", events[0].Parameters["approval"],
+		"a version a person approved is recorded as one")
 	assert.True(t, events[0].Success)
+}
+
+// TestRunner_RecordsThatNobodyReviewedAnAutomaticApproval keeps the audit
+// history able to answer which unattended runs executed code no second person
+// looked at (#1367), without joining back to the version row.
+func TestRunner_RecordsThatNobodyReviewedAnAutomaticApproval(t *testing.T) {
+	var seen middleware.PlatformContext
+	sc, v, run := executableState()
+	v.AutoApproved = true
+	run.LockedBy, run.Attempt = "worker-a", 1
+
+	audit := &recordingAudit{}
+	r := newRunner(&fakeRuns{}, Config{Server: identityServer(t, &seen), Audit: audit})
+	r.recordAudit(context.Background(), run, sc, v, script.RunResult{Status: script.RunStatusSucceeded})
+
+	events := audit.all()
+	require.Len(t, events, 1)
+	assert.Equal(t, "auto", events[0].Parameters["approval"])
 }
 
 // TestRunner_PinsTheFireTimeToWhatTheRunWasCreatedFor pins that a delayed run

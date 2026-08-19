@@ -17,7 +17,7 @@ import (
 // mirrored by scanVersion so the scan order cannot drift from the query.
 const versionColumns = `id, script_id, version, display_name, description,
 	source_code, params, tags, author, author_roles, status, approved_by,
-	approved_at, grants, created_at`
+	approved_at, auto_approved, grants, created_at`
 
 // versionSelect is the base SELECT for the version columns.
 const versionSelect = "SELECT " + versionColumns + " FROM script_versions"
@@ -28,7 +28,7 @@ func scanVersion(sc rowScanner) (*script.Version, error) {
 	var paramsJSON, grantsJSON []byte
 	err := sc.Scan(&v.ID, &v.ScriptID, &v.Version, &v.DisplayName, &v.Description,
 		&v.Source, &paramsJSON, pq.Array(&v.Tags), &v.Author, pq.Array(&v.AuthorRoles),
-		&v.Status, &v.ApprovedBy, &v.ApprovedAt, &grantsJSON, &v.CreatedAt)
+		&v.Status, &v.ApprovedBy, &v.ApprovedAt, &v.AutoApproved, &grantsJSON, &v.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("scanning script version row: %w", err)
 	}
@@ -128,8 +128,16 @@ func nextVersionNumber(ctx context.Context, tx *sql.Tx, scriptID string) (int, e
 // racing an approval), applying the edit here would swap the source out from
 // under a live approval — exactly what the gate exists to prevent — so the
 // write is rejected as a conflict for the caller to re-read and retry.
-func requireUngated(locked, sc *script.Script) error {
-	if script.RequiresReview(locked, sc) {
+//
+// ungated is the edit funnel's verdict that automatic approval covers this edit
+// (#1367), which is the only case in which an edit to a script with an approved
+// version belongs on the live row. It is the funnel's actual DECISION rather
+// than a weaker test re-derived here: an edit whose grant could not be minted is
+// deferred to a draft by the funnel and never reaches this method, so a race
+// cannot land one on the live row where neither the gate nor the review queue
+// would account for it.
+func requireUngated(locked, sc *script.Script, ungated bool) error {
+	if script.RequiresReview(locked, sc) && !ungated {
 		return fmt.Errorf("script %s was approved while this edit was in flight; re-read and retry (source or parameter changes to an approved script require review): %w",
 			sc.ID, script.ErrVersionConflict)
 	}
@@ -140,7 +148,7 @@ func requireUngated(locked, sc *script.Script) error {
 // field changed against the stored row, records a new applied version authored
 // by author and advances sc.Version to it. The review gate is re-validated
 // under the row lock (see requireUngated).
-func (s *Store) UpdateWithVersion(ctx context.Context, sc *script.Script, author script.Author) error {
+func (s *Store) UpdateWithVersion(ctx context.Context, sc *script.Script, author script.Author, ungated bool) error {
 	normalizeSlices(sc)
 	var indexed bool
 	if err := s.withTx(ctx, "update script with version", func(tx *sql.Tx) error {
@@ -148,21 +156,14 @@ func (s *Store) UpdateWithVersion(ctx context.Context, sc *script.Script, author
 		if err != nil {
 			return err
 		}
-		if err := requireUngated(before, sc); err != nil {
+		if err := requireUngated(before, sc, ungated); err != nil {
 			return err
 		}
-		if script.SnapshotChanged(before, sc) {
-			n, err := nextVersionNumber(ctx, tx, sc.ID)
-			if err != nil {
-				return err
-			}
-			sc.Version = n
-			if err := insertVersionRow(ctx, tx, versionInsert{
-				ScriptID: sc.ID, Version: n, Snapshot: sc,
-				Author: author, Status: script.VersionStatusApplied,
-			}); err != nil {
-				return err
-			}
+		if err := withdrawAutoApproval(ctx, tx, before, sc); err != nil {
+			return err
+		}
+		if err := snapshotIfMoved(ctx, tx, before, sc, author); err != nil {
+			return err
 		}
 		indexed, err = updateTx(ctx, tx, sc)
 		return err
@@ -173,6 +174,27 @@ func (s *Store) UpdateWithVersion(ctx context.Context, sc *script.Script, author
 		s.index.NotifyWrite(ctx, sc.ID)
 	}
 	return nil
+}
+
+// snapshotIfMoved records a new applied version when the edit moved a versioned
+// field, advancing sc.Version to it. An edit that moved nothing a snapshot
+// carries writes no history: the version number is what the funnel reads back to
+// know whether this edit produced a version at all.
+func snapshotIfMoved(
+	ctx context.Context, tx *sql.Tx, before, sc *script.Script, author script.Author,
+) error {
+	if !script.SnapshotChanged(before, sc) {
+		return nil
+	}
+	n, err := nextVersionNumber(ctx, tx, sc.ID)
+	if err != nil {
+		return err
+	}
+	sc.Version = n
+	return insertVersionRow(ctx, tx, versionInsert{
+		ScriptID: sc.ID, Version: n, Snapshot: sc,
+		Author: author, Status: script.VersionStatusApplied,
+	})
 }
 
 // CreateDraftVersion snapshots proposed's versioned fields as a new draft

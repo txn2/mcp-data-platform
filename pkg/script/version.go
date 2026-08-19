@@ -68,6 +68,13 @@ type Version struct {
 	Status      string     `json:"status" example:"applied"`
 	ApprovedBy  string     `json:"approved_by,omitempty" example:"admin@example.com"`
 	ApprovedAt  *time.Time `json:"approved_at,omitempty"`
+	// AutoApproved marks an approval the PLATFORM made rather than a person
+	// (#1367): a personal script's own owner wrote this version, so the grant
+	// was minted from what its code reaches instead of being asked of a
+	// reviewer. ApprovedBy still names the owner, because they are accountable
+	// for it; this is what separates their authorship from somebody's decision,
+	// so an operator reading the history can tell which scripts nobody reviewed.
+	AutoApproved bool `json:"auto_approved,omitempty" example:"false"`
 	// Grants is the capability set bound to this version at approval: what the
 	// approver approved this code to be able to do. It is empty on every
 	// version that was never approved, and the approval action is the only
@@ -88,7 +95,15 @@ type VersionStore interface {
 	// UpdateWithVersion persists s like Store.Update and, when any versioned
 	// snapshot field differs from the stored row, records a new applied version
 	// authored by author and advances s.Version to it.
-	UpdateWithVersion(ctx context.Context, s *Script, author Author) error
+	//
+	// ungated carries the edit funnel's verdict that this edit needs no review,
+	// which the store cannot re-derive: an edit to a script with an approved
+	// version reaches the live row ONLY when automatic approval decided it
+	// covers it (#1367), and that decision needs a static read of the source
+	// this layer has no business doing. Everything else is re-validated against
+	// the row as locked and refused as a conflict, which is what stops an edit
+	// racing an approval from swapping code out from under it.
+	UpdateWithVersion(ctx context.Context, s *Script, author Author, ungated bool) error
 
 	// CreateDraftVersion snapshots proposed's versioned fields as a new draft
 	// version without touching the live row, returning the new version number.
@@ -129,4 +144,24 @@ type ApprovalStore interface {
 	// draft is superseded. It returns ErrVersionConflict when the version was
 	// already resolved or the script moved underneath the reviewer.
 	ApproveVersion(ctx context.Context, scriptID string, version int, approver string, grants Grants) (*Version, error)
+}
+
+// AutoApprovalStore is the execution gate's other write: the approval the
+// platform makes for a personal script on behalf of its owner (#1367).
+//
+// It is separate from ApprovalStore for the same reason that one is separate
+// from VersionStore — it records a different act. Everything else about it is
+// identical, deliberately: it binds a grant, applies the snapshot, and moves the
+// execution pointer through the same transaction body, so an automatically
+// approved version is not a second kind of approved version.
+type AutoApprovalStore interface {
+	// AutoApproveVersion stamps the named version approved on the owner's own
+	// authorship, binds grants to it, marks it as an approval nobody reviewed,
+	// and points the script's execution gate at it.
+	//
+	// The grant's Roles are ignored here exactly as they are in ApproveVersion:
+	// the implementation copies them from the version's author, who for an
+	// automatic approval is the owner. It returns ErrVersionConflict when the
+	// version was already resolved or the script moved underneath the write.
+	AutoApproveVersion(ctx context.Context, scriptID string, version int, owner string, grants Grants) (*Version, error)
 }

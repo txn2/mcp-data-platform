@@ -110,9 +110,7 @@ func (h *Handle) approvedVersion(ctx context.Context, sc *script.Script) (*scrip
 		return nil, errorResult("this script is deprecated and is no longer executed; run its replacement instead")
 	}
 	if !sc.Executable() {
-		return nil, errorResult(fmt.Sprintf(
-			"script %q has no approved version, so nothing may execute it. Use manage_script run_draft to run it as yourself while you iterate, and ask an administrator to review and approve it before it can run on its own.",
-			sc.Name))
+		return nil, errorResult(unapprovedRefusal(sc, resolveEmail(ctx)))
 	}
 	if h.versions == nil {
 		return nil, errorResult("this deployment cannot read script versions, so approved runs are unavailable")
@@ -126,6 +124,26 @@ func (h *Handle) approvedVersion(ctx context.Context, sc *script.Script) (*scrip
 		return nil, errorResult("the approved version of this script is missing; it must be approved again before it can run")
 	}
 	return version, nil
+}
+
+// unapprovedRefusal explains why nothing will run this script, in terms of the
+// path that applies to the caller.
+//
+// For a shared script that is a reviewer. For the caller's OWN personal script
+// it is not: the platform approves those on save (#1367), so this state means
+// something about the script stopped it — a computed connection or destination,
+// a place to write that no approval has pinned an address for, or a connection
+// the caller's persona cannot reach. Saving it again reports which, and sending
+// that person to an administrator instead would send them past the answer.
+func unapprovedRefusal(sc *script.Script, caller string) string {
+	if sc.OwnedPersonally(caller) {
+		return fmt.Sprintf(
+			"script %q has no approved version. This script is yours alone, so the platform normally approves it when you save it; something about it could not be read off its source. Save it again to be told what, use manage_script run_draft to run it as yourself meanwhile, or ask an administrator to approve this version.",
+			sc.Name)
+	}
+	return fmt.Sprintf(
+		"script %q has no approved version, so nothing may execute it. Use manage_script run_draft to run it as yourself while you iterate, and ask an administrator to review and approve it before it can run on its own.",
+		sc.Name)
 }
 
 // enqueueRun mints the run identity and puts the run on the queue.

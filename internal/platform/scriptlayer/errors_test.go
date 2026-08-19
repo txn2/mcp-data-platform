@@ -49,11 +49,11 @@ func (f *failingStore) List(ctx context.Context, filter script.ListFilter) ([]sc
 	return f.memStore.List(ctx, filter)
 }
 
-func (f *failingStore) UpdateWithVersion(ctx context.Context, sc *script.Script, author script.Author) error {
+func (f *failingStore) UpdateWithVersion(ctx context.Context, sc *script.Script, author script.Author, ungated bool) error {
 	if f.updateErr != nil {
 		return f.updateErr
 	}
-	return f.memStore.UpdateWithVersion(ctx, sc, author)
+	return f.memStore.UpdateWithVersion(ctx, sc, author, ungated)
 }
 
 // newFailingHandle builds a Handle over a store that can be made to fail.
@@ -87,9 +87,11 @@ func TestStoreFailuresAreReportedWithoutLeakingDetail(t *testing.T) {
 
 	t.Run("delete", func(t *testing.T) {
 		h, store := newFailingHandle()
-		createDaily(t, h)
+		// A shared script, because delete refuses a script with an approved
+		// version and a personal one its owner wrote now has one (#1367).
+		createShared(t, h)
 		store.deleteErr = boom
-		res := call(t, h, authorCtx(), manageScriptInput{Command: cmdDelete, Name: "daily"})
+		res := call(t, h, adminCtx(), manageScriptInput{Command: cmdDelete, Name: "shared"})
 		assert.True(t, res.IsError)
 		assert.Equal(t, "failed to delete script", resultText(res))
 	})

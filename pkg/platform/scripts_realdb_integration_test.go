@@ -3,6 +3,7 @@
 package platform_test
 
 import (
+	"database/sql"
 	"encoding/json"
 	"testing"
 
@@ -27,13 +28,16 @@ import (
 type scriptClient struct {
 	session   *mcp.ClientSession
 	sessionID string
+	// db is the migrated database the platform is running on, for the facts a
+	// tool response cannot carry — the approval stamp on a version row.
+	db *sql.DB
 }
 
 // startScriptPlatform assembles a real platform on a migrated Postgres and
 // returns a connected client session.
-func startScriptPlatform(t *testing.T) *mcp.ClientSession {
+func startScriptPlatform(t *testing.T) (*mcp.ClientSession, *sql.DB) {
 	t.Helper()
-	_, dsn := testdb.NewWithDSN(t)
+	db, dsn := testdb.NewWithDSN(t)
 
 	p, err := platform.New(platform.WithConfig(&platform.Config{
 		Server:   platform.ServerConfig{Name: "scripts-it", Version: "1.0.0"},
@@ -68,7 +72,7 @@ func startScriptPlatform(t *testing.T) *mcp.ClientSession {
 	session, err := client.Connect(ctx, t2, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = session.Close() })
-	return session
+	return session, db
 }
 
 // newScriptClient starts the platform and performs the session handshake the
@@ -77,7 +81,7 @@ func startScriptPlatform(t *testing.T) *mcp.ClientSession {
 // point — this test is meant to take the same path a real agent takes.
 func newScriptClient(t *testing.T) *scriptClient {
 	t.Helper()
-	session := startScriptPlatform(t)
+	session, db := startScriptPlatform(t)
 
 	res, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: "platform_info"})
 	require.NoError(t, err)
@@ -89,7 +93,7 @@ func newScriptClient(t *testing.T) *scriptClient {
 	require.True(t, ok, "platform_info must mint a session_id")
 	require.NotEmpty(t, sessionID)
 
-	return &scriptClient{session: session, sessionID: sessionID}
+	return &scriptClient{session: session, sessionID: sessionID, db: db}
 }
 
 // callScript runs one manage_script command and decodes its JSON result.
@@ -111,7 +115,9 @@ func callScript(t *testing.T, c *scriptClient, args map[string]any) (map[string]
 
 // TestRealDB_ManageScriptIsRegisteredAndRoundTripsThroughPostgres drives the
 // platform's own wiring: the tool is advertised, a create lands in the migrated
-// schema, and get reads it back with its execution gate reported closed.
+// schema, and get reads back a script the platform approved for its own owner
+// on save (#1367) — through the real assembled facade, the real store, and the
+// real connection enumeration, none of which the unit tests exercise together.
 func TestRealDB_ManageScriptIsRegisteredAndRoundTripsThroughPostgres(t *testing.T) {
 	c := newScriptClient(t)
 
@@ -134,8 +140,23 @@ func TestRealDB_ManageScriptIsRegisteredAndRoundTripsThroughPostgres(t *testing.
 	got, res := callScript(t, c, map[string]any{"command": "get", "name": "wiring-check"})
 	require.False(t, res.IsError, got)
 	assert.Equal(t, "wiring-check", got["name"])
-	assert.Equal(t, false, got["executable"], "nothing in the authoring loop approves a version")
-	assert.Contains(t, got["executable_note"], "no approved version")
+	assert.Equal(t, true, got["executable"],
+		"a personal script its own author wrote is approved on save")
+	assert.Contains(t, got["executable_note"], "may execute it")
+
+	// The approval is recorded as one nobody reviewed, and it names the owner,
+	// who is accountable for the script either way. Read from the row rather
+	// than from a response, because the column, the write, and the migration
+	// that added it are what this proves.
+	var autoApproved bool
+	var approvedBy string
+	require.NoError(t, c.db.QueryRow(`
+		SELECT v.auto_approved, v.approved_by
+		  FROM script_versions v
+		  JOIN scripts s ON s.approved_version_id = v.id
+		 WHERE s.name = $1`, "wiring-check").Scan(&autoApproved, &approvedBy))
+	assert.True(t, autoApproved, "the record has to say nobody reviewed it")
+	assert.NotEmpty(t, approvedBy)
 
 	listed, res := callScript(t, c, map[string]any{"command": "list"})
 	require.False(t, res.IsError, listed)

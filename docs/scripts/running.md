@@ -9,13 +9,56 @@ writing, validating, and dry-running a script — is reached through
 
 ## Nothing runs until a version is approved
 
-A script is inert when it is written. The platform executes exactly one version
-of a script, the one `scripts.approved_version_id` points at, and only an
-approval writes that pointer. Until then:
+The platform executes exactly one version of a script, the one
+`scripts.approved_version_id` points at, and only an approval writes that
+pointer. Until there is one:
 
 - `run_script` refuses, naming `manage_script run_draft` as the way to execute
   the draft as yourself while you are still writing it.
 - Nothing else executes the script at all.
+
+### Your own script is approved when you save it
+
+A script at `personal` scope, written by the person who owns it, is approved on
+save and runs immediately — on demand and on a schedule — under the access its
+author holds. Nobody else can see it or invoke it, and the roles an approved run
+presents were always copied from the version's author, so there was never an
+authority for a reviewer to decide about.
+
+The platform mints the capability grant itself, from what a static read of the
+source plainly reaches: the capabilities it calls, the connections it names, and
+the portal for output that names no destination. Four things send the version to
+a reviewer instead, and the save says which:
+
+- the source does not parse;
+- a call computes its connection or its destination instead of naming one, so
+  what it reaches cannot be read from the code;
+- the author holds no roles, so an approved run would resolve to the deny-all
+  persona and could call nothing;
+- the script writes to a bucket destination no approval has pinned an address
+  for, or reaches a connection the author's own persona cannot. The first
+  delivery to a bucket is therefore always reviewed, and the owner's later edits
+  are approved against the address that review pinned.
+
+A personal script is also its owner's to delete: `manage_script delete` refuses a
+script with an approved version in favour of deprecating it, because it may be
+executing for somebody, and every personal script now carries one — so the
+refusal applies only where the caller is not the script's owner.
+
+Widening a personal script's scope takes the approval back: the execution
+pointer is cleared and the version returns to the review queue, because a shared
+script has an audience that agreed to nothing. An approval a person made
+survives the change.
+
+Every automatic approval is recorded as one — on the version, in the contract
+document, in the version history, and on each run's audit event — so an operator
+can tell which scripts nobody reviewed. What that accepts is written up in
+[Managed Scripts: Security Model](security.md#a-personal-script-is-approved-for-its-owner).
+
+### A shared script is reviewed
+
+A `global` or `persona`-scoped script, and any script somebody other than its
+owner edited, waits for an administrator.
 
 Approving happens in the portal under **Admin, then Scripts**, which lists the
 versions waiting for a decision and shows the reviewer what they are agreeing to
@@ -207,9 +250,10 @@ leaves the row that explains the runs it produced.
 
 The owner of a script edits its source on the script's page, in the portal's own
 editor, and the edit crosses the same gate a `manage_script update` crosses
-(`script.ApplyEdit`): a script with an approved version keeps executing that
-version and the edit becomes a draft in the review queue, while a script with
-nothing approved applies directly. The route is `PUT
+(`script.ApplyEdit`): an edit to the owner's own personal script is applied and
+approved, a shared script with an approved version keeps executing that version
+while the edit becomes a draft in the review queue, and a script with nothing
+approved applies directly. The save states which of the three happened. The route is `PUT
 /api/v1/portal/scripts/{id}/source`, restricted to the script's owner and to
 administrators, and it edits the SOURCE only — scope, personas, status, and the
 parameter contract are structured decisions the tool owns, and the domain

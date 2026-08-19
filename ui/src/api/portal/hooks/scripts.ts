@@ -123,6 +123,10 @@ export interface ScriptContractApproval {
   version?: number;
   approved_by?: string;
   approved_at?: string;
+  // automatic reports that the platform approved this version itself, because
+  // the script is personal and its owner wrote it (#1367). Nobody reviewed it,
+  // and a reader is told so rather than reading approved_by as a decision.
+  automatic?: boolean;
   refusal?: string;
 }
 
@@ -206,6 +210,9 @@ export function useScriptContract(scriptID: string | null) {
 export interface ScriptSourceOutcome {
   applied: boolean;
   pending_version?: number;
+  // approved is true when the saved version is now the one the platform
+  // executes, because this is the owner's own personal script (#1367).
+  approved?: boolean;
   message: string;
 }
 

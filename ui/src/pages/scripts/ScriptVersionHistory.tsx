@@ -5,6 +5,7 @@ import type { ScriptContract } from "@/api/portal/hooks/scripts";
 import type { ScriptVersion } from "@/api/admin/types";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { SourceView } from "./DiffView";
 import { formatWhen } from "./runFormat";
 
@@ -17,9 +18,17 @@ import { formatWhen } from "./runFormat";
 export function ScriptVersionHistory({
   scriptId,
   contract,
+  onReview,
 }: {
   scriptId: string;
   contract: ScriptContract;
+  /**
+   * onReview opens the decision surface for one version. It is present for an
+   * administrator and absent for everyone else, which is the whole difference
+   * between the two script surfaces (#1367): the sections are the same, and
+   * approving is the one thing only an administrator does.
+   */
+  onReview?: (version: number) => void;
 }) {
   const { data, isLoading, error } = usePortalScriptVersions(scriptId, true);
   const [openVersion, setOpenVersion] = useState<number | null>(
@@ -47,6 +56,7 @@ export function ScriptVersionHistory({
               executing={v.version === contract.approval.version && contract.approval.approved}
               open={openVersion === v.version}
               onToggle={() => setOpenVersion(openVersion === v.version ? null : v.version)}
+              onReview={onReview}
             />
           </li>
         ))}
@@ -60,11 +70,13 @@ function VersionRow({
   executing,
   open,
   onToggle,
+  onReview,
 }: {
   version: ScriptVersion;
   executing: boolean;
   open: boolean;
   onToggle: () => void;
+  onReview?: (version: number) => void;
 }) {
   return (
     <>
@@ -96,12 +108,12 @@ function VersionRow({
               {version.status}
             </Badge>
             {executing && <Badge variant="success">Executing</Badge>}
+            {version.auto_approved && <Badge variant="muted">Nobody reviewed it</Badge>}
           </div>
           <div className="text-xs text-muted-foreground">
             written by {version.author || "unknown"} on {formatWhen(version.created_at)}
-            {version.approved_by
-              ? ` · approved by ${version.approved_by} on ${formatWhen(version.approved_at)}`
-              : " · never approved"}
+            {" · "}
+            {approvalProvenance(version)}
           </div>
         </div>
         <span className="text-xs text-muted-foreground">
@@ -112,10 +124,29 @@ function VersionRow({
         <div className="mt-3 space-y-3">
           <GrantSummary version={version} />
           <SourceView source={version.source} />
+          {onReview && (
+            <Button variant="outline" size="sm" onClick={() => onReview(version.version)}>
+              {executing ? "Review the grant" : "Review this version"}
+            </Button>
+          )}
         </div>
       )}
     </>
   );
+}
+
+// approvalProvenance says who admitted this version, and separates a decision a
+// person made from one the platform made for a personal script's own owner
+// (#1367). approved_by names that owner either way, because they are
+// accountable for the script; reading it as somebody's decision is the mistake
+// this line exists to prevent.
+function approvalProvenance(version: ScriptVersion): string {
+  if (!version.approved_by) return "never approved";
+  const when = formatWhen(version.approved_at);
+  if (version.auto_approved) {
+    return `approved automatically on ${when} because ${version.approved_by} owns this script and wrote it`;
+  }
+  return `approved by ${version.approved_by} on ${when}`;
 }
 
 // GrantSummary is what approving this version allowed it to reach. An

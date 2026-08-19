@@ -4823,6 +4823,14 @@ definitions:
           when.
         example: admin@example.com
         type: string
+      automatic:
+        description: |-
+          Automatic reports that the platform approved this version itself, because
+          the script is personal and its owner wrote it (#1367). Nobody reviewed it,
+          and a reader of the contract is told so rather than reading ApprovedBy as
+          a decision somebody made.
+        example: false
+        type: boolean
       refusal:
         description: |-
           Refusal states why a run requested now would be refused, and is empty when
@@ -5315,6 +5323,16 @@ definitions:
         items:
           type: string
         type: array
+      auto_approved:
+        description: |-
+          AutoApproved marks an approval the PLATFORM made rather than a person
+          (#1367): a personal script's own owner wrote this version, so the grant
+          was minted from what its code reaches instead of being asked of a
+          reviewer. ApprovedBy still names the owner, because they are accountable
+          for it; this is what separates their authorship from somebody's decision,
+          so an operator reading the history can tell which scripts nobody reviewed.
+        example: false
+        type: boolean
       created_at:
         example: "2026-08-13T14:30:00Z"
         type: string
@@ -5830,6 +5848,13 @@ definitions:
       applied:
         description: Applied is true when the live script now carries this source.
         example: false
+        type: boolean
+      approved:
+        description: |-
+          Approved is true when the saved version is now the version the platform
+          executes, because this is the owner's own personal script and the platform
+          approved it for them (#1367).
+        example: true
         type: boolean
       message:
         description: Message states the outcome in the owner's terms.

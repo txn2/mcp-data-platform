@@ -201,7 +201,7 @@ func approvedVersionRow(t *testing.T) []driver.Value {
 		[]byte(`[{"name":"report_date","type":"date","required":true}]`))
 	row[11] = "admin@example.com" // approved_by
 	row[12] = rowTime             // approved_at
-	row[13] = []byte(`{"connections":["warehouse"]}`)
+	row[14] = []byte(`{"connections":["warehouse"]}`)
 	return row
 }
 
