@@ -100,6 +100,7 @@ const pageTitles: Record<string, string> = {
 // than adding a branch to it.
 function pageTitleFor(route: string): string {
   if (route.startsWith("/scripts/")) return "Script";
+  if (route.startsWith("/admin/scripts/")) return "Script";
   if (route.startsWith("/admin/collections/")) return "Collection";
   if (route.startsWith("/admin/sessions/")) return "Session";
   if (route.startsWith("/activity/sessions/")) return "Session";

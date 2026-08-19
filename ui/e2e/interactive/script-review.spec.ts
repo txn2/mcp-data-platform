@@ -185,6 +185,9 @@ test.describe("Script review queue", () => {
 
     await page.getByRole("row").filter({ hasText: "daily-sales-report" }).click();
     await expect(page).toHaveURL(/\/admin\/scripts\/script-001$/);
+    // The shell names the page for what it is showing, which a detail route
+    // under a section it does not know would otherwise get wrong.
+    await expect(page.getByRole("heading", { name: "Script", level: 1 })).toBeVisible();
 
     // Everything an owner has: run it, edit it, check the edit, re-time it.
     await expect(page.getByRole("button", { name: "Run", exact: true })).toBeVisible();
@@ -211,6 +214,7 @@ test.describe("Script review queue", () => {
 
     await page.getByRole("row").filter({ hasText: "my-margin-check" }).click();
     await expect(page.getByText(/v1 automatically on .* nobody reviewed it/)).toBeVisible();
-    await expect(page.getByText("Nobody reviewed it")).toBeVisible();
+    // Exact, because the contract line above says the same thing in a sentence.
+    await expect(page.getByText("Nobody reviewed it", { exact: true })).toBeVisible();
   });
 });
