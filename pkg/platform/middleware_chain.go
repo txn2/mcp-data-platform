@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/mwchain"
+	"github.com/txn2/mcp-data-platform/internal/platform/provenance"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolargs"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolratelimit"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -16,12 +17,14 @@ import (
 type mwName = mwchain.Name
 
 const (
+	mwResultType          mwName = "result_type"
 	mwIcons               mwName = "icons"
 	mwDescriptionOverride mwName = "description_override"
 	mwPromptVisibility    mwName = "prompt_visibility"
 	mwToolVisibility      mwName = "tool_visibility"
 	mwSessionHandleSchema mwName = "session_handle_schema"
 	mwPurposeSchema       mwName = "purpose_schema"
+	mwOutputSchema        mwName = "output_schema"
 	mwMCPApps             mwName = "mcp_apps"
 	mwToolCall            mwName = "tool_call" // auth/authz; writes PlatformContext via context.WithValue
 	mwSessionGate         mwName = "session_gate"
@@ -60,7 +63,10 @@ type mwSpec = mwchain.Spec
 // of which middlewares are enabled at runtime.
 func (p *Platform) receivingMiddlewareChain() []mwSpec {
 	return []mwSpec{
-		// List decorators (outermost): shape tools/list, prompts/list, and
+		// Result type (outermost): types every result the layers below hand back, theirs included (#1382, #1383).
+		{Name: mwResultType, Register: func() { p.mcpServer.AddReceivingMiddleware(middleware.MCPResultTypeMiddleware()) }},
+
+		// List decorators: shape tools/list, prompts/list, and
 		// resources/list responses. They do not touch PlatformContext.
 		{Name: mwIcons, Register: p.addIconMiddleware},
 		{Name: mwDescriptionOverride, Register: p.addDescriptionOverrideMiddleware},
@@ -76,6 +82,9 @@ func (p *Platform) receivingMiddlewareChain() []mwSpec {
 				p.mcpServer.AddReceivingMiddleware(middleware.MCPPurposeSchemaMiddleware(r))
 			}
 		}},
+		// Opens every advertised output schema to the keys the chain below adds
+		// to structuredContent (#1381).
+		{Name: mwOutputSchema, Register: func() { p.mcpServer.AddReceivingMiddleware(middleware.MCPOutputSchemaMiddleware()) }},
 		{Name: mwMCPApps, Register: p.addMCPAppsMiddleware},
 
 		// Auth/authz writes PlatformContext; it must be outer to every reader below.
@@ -139,7 +148,12 @@ func (p *Platform) receivingMiddlewareChain() []mwSpec {
 		// The call reference stamps a data call's own audit event id onto its
 		// result. It reads PlatformContext (pc.EventID, pc.ToolkitKind), so it
 		// requires the auth/authz middleware that writes them.
-		{Name: mwCallReference, Requires: []mwName{mwToolCall}, Register: p.addCallReferenceMiddleware},
+		// Only when audit records: without a stored call there is nothing to refer to (#1320).
+		{Name: mwCallReference, Requires: []mwName{mwToolCall}, Register: func() {
+			if p.audit.Recording() {
+				p.mcpServer.AddReceivingMiddleware(middleware.MCPCallReferenceMiddleware(provenance.SourceToolkitKinds()))
+			}
+		}},
 
 		// Enrichment reads PlatformContext (session dedup) and sets
 		// EnrichmentApplied on the way out. The observers that record it —

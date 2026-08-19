@@ -3,7 +3,9 @@ package middleware
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
+	"reflect"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -135,4 +137,144 @@ func unwrapLegacyErrorJSON(text string) string {
 		return legacy.Error
 	}
 	return text
+}
+
+// resultTypeProtocolVersion is the first MCP protocol revision whose tools/call,
+// prompts/get and resources/read results carry a required resultType
+// (SEP-2322). The SDK keeps its own copy of this constant unexported; this one
+// mirrors it, and TestMCPResultTypeMiddleware_MirrorsTheSDKForOlderClients pins
+// the two to the same behavior.
+const resultTypeProtocolVersion = "2026-07-28"
+
+// MCPResultTypeMiddleware guarantees that every result the platform hands back
+// on tools/call, prompts/get and resources/read carries the resultType the
+// negotiated protocol revision requires (#1382, #1383).
+//
+// The SDK stamps resultType="complete" on a result inside its own method
+// handler (Server.callTool and its prompt/resource counterparts), which is the
+// innermost layer of the receiving chain. A receiving middleware that builds a
+// result of its own never passes that layer: a refusal short-circuited by the
+// gates (authz, session, search-first, purpose, rate limit), the error
+// contract's normalized replacement of a bare error result, and the managed
+// resource read all answer with a fresh result the SDK never saw. A client on
+// revision 2026-07-28 rejects such a result as invalid, and the refusal text
+// the platform composed for the person is discarded with it.
+//
+// This middleware is the outermost layer of the chain, so it sees the final
+// result whatever built it, and it mirrors the SDK's own rule: for a client on
+// 2026-07-28 or later the result is complete unless it carries input requests,
+// and for an older client the field is left unset. The field is unexported in
+// the SDK and reachable only through its wire form, so the stamp is applied by
+// copying the result's exported fields onto a value decoded from that form.
+func MCPResultTypeMiddleware() mcp.Middleware {
+	return func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			result, err := next(ctx, method, req)
+			if err != nil || result == nil {
+				return result, err
+			}
+			if !clientRequiresResultType(req) {
+				return result, nil
+			}
+			switch method {
+			case methodToolsCall, methodPromptsGet, methodReadResource:
+				stampComplete(result)
+			}
+			return result, nil
+		}
+	}
+}
+
+// clientRequiresResultType reports whether the session's negotiated protocol
+// revision requires resultType on a result. A session with no recorded
+// initialize parameters is treated as the latest revision, which is the SDK's
+// own default for the same question.
+func clientRequiresResultType(req mcp.Request) bool {
+	if req == nil {
+		return false
+	}
+	ss, ok := req.GetSession().(*mcp.ServerSession)
+	if !ok || ss == nil {
+		return false
+	}
+	if params := ss.InitializeParams(); params != nil {
+		return params.ProtocolVersion >= resultTypeProtocolVersion
+	}
+	return true
+}
+
+// completeCallToolResult, completeGetPromptResult and completeReadResourceResult
+// are zero results decoded from the wire form that carries resultType=complete.
+// They are the only way to obtain the unexported field set, and a value copy of
+// one carries it.
+var (
+	completeCallToolResult     = mustDecodeComplete[mcp.CallToolResult]()
+	completeGetPromptResult    = mustDecodeComplete[mcp.GetPromptResult]()
+	completeReadResourceResult = mustDecodeComplete[mcp.ReadResourceResult]()
+)
+
+// mustDecodeComplete decodes the minimal complete-result wire form into T. A
+// failure is a programming error surfaced at package initialization and covered
+// by tests, mirroring regexp.MustCompile.
+func mustDecodeComplete[T any]() T {
+	var v T
+	if err := json.Unmarshal([]byte(`{"resultType":"complete"}`), &v); err != nil {
+		panic(fmt.Sprintf("middleware: decoding complete %T: %v", v, err))
+	}
+	return v
+}
+
+// stampComplete marks result complete in place. A result that carries input
+// requests is left alone: it is the SDK's input_required answer, and the SDK
+// has already typed it. A typed nil is left alone too; the SDK handles it as
+// the absent result it is.
+func stampComplete(result mcp.Result) {
+	switch r := result.(type) {
+	case *mcp.CallToolResult:
+		stampCallToolResult(r)
+	case *mcp.GetPromptResult:
+		if r != nil && len(r.InputRequests) == 0 {
+			restamp(completeGetPromptResult, r)
+		}
+	case *mcp.ReadResourceResult:
+		if r != nil && len(r.InputRequests) == 0 {
+			restamp(completeReadResourceResult, r)
+		}
+	}
+}
+
+// stampCallToolResult is stampComplete for a tool result, which also carries
+// an unexported error the stamp must keep: it feeds GetError on the way out,
+// so it is re-stashed after the copy. Content is already populated, so
+// SetError leaves it untouched.
+func stampCallToolResult(r *mcp.CallToolResult) {
+	if r == nil || len(r.InputRequests) > 0 {
+		return
+	}
+	err := r.GetError()
+	restamp(completeCallToolResult, r)
+	if err != nil {
+		r.SetError(err)
+	}
+}
+
+// restamp replaces *r with a copy of template carrying r's exported fields, so
+// r keeps everything it said and gains the template's unexported resultType.
+func restamp[T any](template T, r *T) {
+	stamped := template
+	copyExportedFields(&stamped, r)
+	*r = stamped
+}
+
+// copyExportedFields assigns every exported field of src to dst, leaving dst's
+// unexported fields as they are. dst and src must be pointers to the same
+// struct type.
+func copyExportedFields(dst, src any) {
+	d := reflect.ValueOf(dst).Elem()
+	s := reflect.ValueOf(src).Elem()
+	for i := range s.NumField() {
+		if s.Type().Field(i).IsExported() {
+			d.Field(i).Set(s.Field(i))
+		}
+	}
 }

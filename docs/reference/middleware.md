@@ -6,10 +6,12 @@ Middleware processes requests and responses at the MCP protocol level. Each midd
 
 ```mermaid
 graph LR
-    Request --> Icons
+    Request --> ResultType
+    ResultType --> Icons
     Icons --> DescOverrides
     DescOverrides --> ToolVisibility
-    ToolVisibility --> AppsMetadata
+    ToolVisibility --> OutputSchema
+    OutputSchema --> AppsMetadata
     AppsMetadata --> MCPToolCall
     MCPToolCall --> MCPWorkflowGate
     MCPWorkflowGate --> MCPAudit
@@ -22,13 +24,15 @@ graph LR
     MCPAudit --> MCPWorkflowGate
     MCPWorkflowGate --> MCPToolCall
     MCPToolCall --> AppsMetadata
-    AppsMetadata --> ToolVisibility
+    AppsMetadata --> OutputSchema
+    OutputSchema --> ToolVisibility
     ToolVisibility --> DescOverrides
     DescOverrides --> Icons
-    Icons --> Response
+    Icons --> ResultType
+    ResultType --> Response
 ```
 
-The platform registers up to nine middleware layers. Execution flows left-to-right for requests and right-to-left for responses.
+The platform registers up to eleven middleware layers. Execution flows left-to-right for requests and right-to-left for responses. `ResultType` is the outermost layer and types every result the chain hands back; the canonical list, with each layer's ordering dependencies, is `receivingMiddlewareChain` in `pkg/platform/middleware_chain.go`.
 
 ## MCP Middleware Interface
 
@@ -170,6 +174,26 @@ Modeled on `MCPSessionGateMiddleware`: it is positioned inner to `MCPToolCallMid
 - **Write resilience:** a failed discovery write persists nothing (there is no divergent local state); a forced discovery write always re-attempts, so the agent's next `search` retries persistence once writes recover.
 - **Fail-open on read error (deliberate):** the gate decision follows the read. A total store outage (reads fail) fails open (allows queries, logged) rather than blocking every one, since the gate is a workflow quality guard, not a security boundary.
 - **Fail-closed on write outage (deliberate):** a store that accepts reads but rejects writes leaves discovery un-persisted, so the read returns not-discovered and the caller is gated (`SEARCH_REQUIRED`) until writes recover. This is intentional: failing open on a write error would let one caller's transient write blip open the gate for everyone. If queries must proceed during a store-write outage, disable the gate (`workflow.require_search: false`).
+
+### MCPResultTypeMiddleware
+
+Guarantees that every `tools/call`, `prompts/get` and `resources/read` result carries the `resultType` the negotiated MCP protocol revision requires (issues #1382, #1383). Revision `2026-07-28` requires the field on every such result; a client on that revision rejects a result without it as invalid, and whatever the result said is lost.
+
+```go
+func MCPResultTypeMiddleware() mcp.Middleware
+```
+
+The SDK stamps `resultType: "complete"` on a result inside its own method handler, which is the innermost layer of the chain. A middleware that builds a result of its own never passes that layer: a refusal short-circuited by the gates (authz, session handle, search-first, purpose, rate limit), the error contract's normalized replacement of a bare error result, and a managed resource read all answer with a fresh result the SDK never typed. This middleware is therefore registered outermost, so it sees the final result whatever built it, and applies the SDK's own rule: for a session negotiated at `2026-07-28` or later the result is complete unless it carries input requests, and for an older client the field is left unset, exactly as the SDK leaves it.
+
+### MCPOutputSchemaMiddleware
+
+Opens the top level of every output schema a `tools/list` response advertises (issue #1381), so the schema admits the keys the platform adds to a tool's `structuredContent` after the tool's own handler has returned: the `{error}` envelope the error contract substitutes on failure, the `call_reference` appended to a data call, and the context blocks semantic enrichment mirrors in.
+
+```go
+func MCPOutputSchemaMiddleware() mcp.Middleware
+```
+
+A toolkit that registers a typed handler with no explicit output schema (mcp-trino did before v1.4.0) gets one inferred from its Go struct, and jsonschema-go closes every struct-derived object with `additionalProperties: false` and a `required` list; a client validating against that schema discarded every Trino result. The decorator gives each advertised object schema the same contract `middleware.OpenToolOutputSchema` gives the platform-owned tools: `additionalProperties` allowed, nothing required, and the error envelope documented under `error`. Nested schemas are untouched, the server's registry is never mutated (the listed `Tool` is replaced with a copy), and the SDK still validates a handler's own structured output against the schema it inferred, inside the handler wrapper and before any middleware runs. A tool that declares a non-object schema, or none, is listed as it is.
 
 ### MCPSessionHandleSchemaMiddleware
 
