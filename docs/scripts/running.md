@@ -106,6 +106,61 @@ Runs execute on the platform itself, on whichever replica claims them, so a
 long report does not hold an agent's connection open and a restart does not lose
 a queued run.
 
+### Typed parameters, and the ones the platform can offer
+
+A parameter is typed `string`, `int`, `float`, `bool`, `date`, `enum` or
+`connection`. Every surface that asks for a value renders the control the type
+deserves: a choice where the value comes from a set somebody already knows, and
+a box only for a value the platform genuinely cannot enumerate.
+
+`connection` is the type for a parameter naming a platform connection. It binds
+as a string, and it is a type of its own because the platform holds the whole
+set of values it can take:
+
+- The surfaces that ask for one OFFER the set instead of asking an author to
+  remember the spelling. Which set depends on what will execute: a run of the
+  approved version may name only the connections its approval granted, while a
+  draft run reaches the connections its caller's own persona reaches.
+- A value outside that set is refused where it was entered — on the run form, on
+  the schedule form, and by `run_script` — rather than at the query it would
+  have failed on, hours later, in a run nobody is watching.
+
+An `enum` carries its own values and renders the same way. An optional
+`connection`, like an optional `enum` or `date`, must declare a default: there
+is no meaningful empty connection, and a run that bound one would be refused by
+the grant.
+
+### Running one from the portal
+
+The owner of a script runs it from the script's own page. The form is built
+from the approved version's parameter contract, and pressing Run queues exactly
+what `run_script` queues: `POST /api/v1/portal/scripts/{id}/runs`, restricted to
+the script's owner and to administrators, binds the values against the approved
+version, puts a run on the queue, and answers with its id. A worker executes it
+under the script principal, so a run asked for here and a run asked for by an
+agent are the same run in every respect except the label recording who asked.
+
+The run appears in the history below the form and updates as it progresses: the
+history re-reads itself while anything is pending or running and stops once
+nothing is. The response carries no result — an approved run may take ten
+minutes, and the history is where a run is followed.
+
+Three things it cannot do:
+
+- It cannot run what the platform would refuse. Whether a run would be admitted
+  is `script.RefuseNewRun`'s answer, the same one the contract document reports
+  and `run_script` obeys, so a script with nothing approved says so instead of
+  offering a control that cannot work.
+- It cannot bind a connection the approval did not grant. A `connection`
+  parameter's value is checked against the version's grant before the run is
+  queued, so a name outside it is refused on the form rather than at the query
+  it would have failed on.
+- It cannot approve anything, widen a grant, or change what executes.
+
+A run's trigger records which of the three producers created it: `tool` for
+`run_script`, `schedule` for a fire, and `portal` for one an owner asked for on
+the page. They execute identically.
+
 ## Running one on a schedule
 
 A schedule is what turns an approved script into an automation: a cadence, a
@@ -162,6 +217,50 @@ refuses to mix a reviewable change with them anyway.
 
 The source is parsed before anything is stored, so code that cannot run is
 refused at the keyboard rather than at the next fire.
+
+### Checking an edit before asking for approval
+
+The editor offers the same two checks `manage_script` offers an agent, on the
+page the author is already looking at.
+
+**Validate** (`POST /api/v1/portal/scripts/{id}/validate`) parses the edited
+source and reports the capabilities, connections and destinations it would
+reach, with a correction for every finding. It executes nothing and stores
+nothing. Where a list is known to be incomplete — a `platform.query` call that
+computes its connection rather than naming one — the report says so, because a
+list that silently omitted a computed name would be a false statement.
+
+**Dry run** (`POST /api/v1/portal/scripts/{id}/dry-run`) executes the edit under
+the author's own identity and persona, with the draft limits, persisting
+nothing: `platform.export` reports the shape and size of each output instead of
+writing it, no asset is versioned, no object is delivered, and the approved
+version pointer is untouched. It is the same execution `manage_script
+command=run_draft` performs, through one implementation
+(`internal/platform/scriptdraft`), so neither surface can drift from the other.
+
+Neither introduces authority. A dry run is the caller's own session: it is
+authenticated, authorized, rate limited and audited exactly as the same calls
+typed by that person directly would be, and there is nothing reachable through
+it that its caller could not already reach. Values bind against the LIVE
+record's contract rather than the approved version's, because a draft is
+precisely the code that does not match the approved version yet.
+
+A replica runs a small fixed number of drafts at once, because an interpreter's
+heap cannot be capped and how many are running is what bounds it. A request that
+cannot get a slot within a few seconds is answered as busy — a `503` saying to
+try again — rather than held open.
+
+**What the reviewer sees.** Each dry run is recorded as an account of itself:
+who ran it, when, how it ended, what it printed, and the shape of the outputs it
+would have written. The account is keyed by the SOURCE that executed, so it
+attaches to whichever version later carries that exact code — which is the order
+authors work in, since an edit is dry-run before it is saved. The review drawer
+shows it beside the version, and its ABSENCE is stated plainly: approving a
+version nobody has run means that code first executes unattended.
+
+An author's accounts are trimmed to the most recent handful per script, so the
+table is bounded by the authoring loop rather than by how many times somebody
+pressed the button.
 
 ### Who sets a cadence
 

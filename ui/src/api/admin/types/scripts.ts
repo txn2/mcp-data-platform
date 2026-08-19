@@ -122,6 +122,33 @@ export interface ApprovedBaseline {
   source_diff?: string;
 }
 
+// ScriptDryRunOutput is one output a draft run would have written: the shape,
+// and nothing else. A preview has no asset id and no object key, because it
+// wrote neither.
+export interface ScriptDryRunOutput {
+  name: string;
+  destination?: string;
+  format: string;
+  row_count: number;
+  bytes: number;
+}
+
+// ScriptDryRunAccount is the record of somebody having executed this exact
+// source (#1364). Its absence on a version is itself the answer a reviewer
+// needs: nobody ran the code they are being asked to approve.
+export interface ScriptDryRunAccount {
+  id: string;
+  script_id: string;
+  requested_by?: string;
+  status: string;
+  error?: string;
+  log?: string;
+  log_truncated?: boolean;
+  metrics: { steps: number; duration_ms: number; queries: number; exports: number };
+  outputs?: ScriptDryRunOutput[];
+  created_at: string;
+}
+
 // VersionReview is everything the review surface shows for one version.
 export interface VersionReview {
   version: ScriptVersion;
@@ -131,6 +158,9 @@ export interface VersionReview {
   missing_destinations?: string[];
   findings?: ScriptFinding[];
   approved?: ApprovedBaseline;
+  // dry_run is the account of this exact source having been run, absent when
+  // nobody has run it.
+  dry_run?: ScriptDryRunAccount;
 }
 
 // ScriptApproveInput is the approval body. It carries no roles: see

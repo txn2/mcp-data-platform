@@ -15,6 +15,13 @@ type User struct {
 	// FromCookie is true for browser-session (cookie) auth; only such requests
 	// are CSRF-enforced (API-key / Bearer auth is exempt).
 	FromCookie bool
+	// AuthType is HOW this caller was authenticated, as the authenticator that
+	// admitted them reported it. It is carried rather than re-derived because a
+	// surface that opens a session ON THIS CALLER'S BEHALF — the portal's
+	// script dry run (#1364) — must present the authentication the request
+	// actually arrived with, and FromCookie alone cannot tell an API key from a
+	// bearer token.
+	AuthType string
 }
 
 // GetUser returns the User from context, or nil if not set.

@@ -108,7 +108,10 @@ test.describe("Portal script pages", () => {
       "true",
     );
     await expect(page.getByLabel("Time", { exact: true })).toHaveValue("07:00");
-    await expect(page.getByLabel("report_date")).toHaveValue("${fire_date}");
+    // The page carries three parameter forms — run now, dry run, and these
+    // bindings — so a control is named by the form it belongs to rather than by
+    // the parameter alone, which now matches all three.
+    await expect(page.locator("#script-param-schedule-report_date")).toHaveValue("${fire_date}");
 
     // Moving the report an hour earlier is a change to the time, not to a cron
     // field, and the page says what it will save before it saves it.
@@ -123,6 +126,60 @@ test.describe("Portal script pages", () => {
     await expect(page.getByRole("button", { name: "Resume" })).toBeVisible();
   });
 
+  // Running one is the other mutation the owner performs here (#1363), so it
+  // goes through the mock server too: the request has to reach the route the
+  // server registers, and the answer has to come back into the page.
+  test("an owner runs their own script, choosing the connection rather than typing it", async ({
+    page,
+  }) => {
+    await gotoScripts(page);
+    await page.getByRole("row").filter({ hasText: "Daily Sales Report" }).click();
+
+    // The run is refused until every required value is bound, and the page says
+    // which are missing rather than submitting a request it knows is bad.
+    const run = page.getByRole("button", { name: "Run", exact: true });
+    await expect(run).toBeDisabled();
+    await expect(page.getByText("report_date, source are required.")).toBeVisible();
+
+    await page.locator("#script-param-run-report_date").fill("2026-08-17");
+    // The connection comes from the set this script was APPROVED to reach, so
+    // it is chosen. A name outside that set never reaches the form.
+    await page.locator("#script-param-run-source").click();
+    await page.getByRole("option", { name: /acme-warehouse/ }).click();
+    await expect(page.getByRole("option", { name: /acme-lake/ })).toHaveCount(0);
+
+    await expect(run).toBeEnabled();
+    await run.click();
+    await expect(page.getByText(/Queued\. It appears in this script's run history/)).toBeVisible();
+  });
+
+  // Checking an edit before asking anyone to approve it (#1364). Both actions
+  // reach the server: one parses, the other executes as the caller.
+  test("an owner validates and dry-runs an edit without persisting anything", async ({ page }) => {
+    await gotoScripts(page);
+    await page.getByRole("row").filter({ hasText: "Daily Sales Report" }).click();
+
+    await page.getByRole("button", { name: "Validate" }).click();
+    await expect(page.getByText("Parses")).toBeVisible();
+    // What the edit reaches, which is the capability change a reviewer would
+    // otherwise be the first to see.
+    await expect(page.getByText("platform.query, platform.export").first()).toBeVisible();
+
+    // A dry run binds the live contract's values, and is unavailable until the
+    // required ones are supplied.
+    await expect(page.getByRole("button", { name: "Dry run" })).toBeDisabled();
+    await page.locator("#script-param-draft-report_date").fill("2026-08-17");
+    await page.locator("#script-param-draft-source").click();
+    await page.getByRole("option", { name: /acme-warehouse/ }).click();
+
+    await page.getByRole("button", { name: "Dry run" }).click();
+    // The report's own sentences, not the status badge: "succeeded" also
+    // appears on every successful row in the run history below.
+    await expect(page.getByText(/Nothing was persisted/)).toBeVisible();
+    await expect(page.getByText(/would write 1284 rows as csv/)).toBeVisible();
+    await expect(page.getByText(/1,284 rows for 2026-08-17/)).toBeVisible();
+  });
+
   // A cadence on a script nothing has approved saves and fires nothing, and
   // the page has to say so: the owner cannot approve it themselves.
   test("says a schedule on an unapproved script will execute nothing", async ({ page }) => {
@@ -134,7 +191,7 @@ test.describe("Portal script pages", () => {
 
     await page.getByRole("button", { name: "Daily" }).click();
     await page.getByLabel("Time", { exact: true }).fill("05:00");
-    await page.getByLabel("cutoff").fill("2026-01-01");
+    await page.locator("#script-param-schedule-cutoff").fill("2026-01-01");
     await page.getByRole("button", { name: "Set schedule" }).click();
     await expect(page.getByText(/nothing will execute it/)).toBeVisible();
     await expect(page.getByText(/Every day at 5:00 AM/).first()).toBeVisible();

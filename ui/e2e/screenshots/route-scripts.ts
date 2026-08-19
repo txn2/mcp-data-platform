@@ -1,9 +1,12 @@
 import {
   openScriptDeliveryGrant,
+  openScriptDryRun,
+  openScriptDryRunAccount,
   openScriptFirstApproval,
   openScriptReview,
   openScriptRunHistory,
   openScriptRunLog,
+  openScriptRunPanel,
   openScriptRunsTab,
   openScriptSource,
   openScriptSchedule,
@@ -70,6 +73,24 @@ export const userScriptRoutes: ScreenshotRoute[] = [
     beforeCapture: openScriptSource,
   },
   {
+    // Running it now (#1363): the same run the schedule produces, asked for by
+    // its owner, with every value the platform can offer offered rather than
+    // typed.
+    slug: "script-run-now",
+    path: "/portal/scripts/script-001",
+    category: "user",
+    beforeCapture: openScriptRunPanel,
+  },
+  {
+    // What an author gets back before anybody is asked to approve the edit
+    // (#1364): a real execution as themselves that persisted nothing, with the
+    // shape of each output and the log it printed.
+    slug: "script-dry-run",
+    path: "/portal/scripts/script-001",
+    category: "user",
+    beforeCapture: openScriptDryRun,
+  },
+  {
     // The version history, where the source of the version behind the
     // execution gate opens by default with the grant approving it bound.
     slug: "script-versions",
@@ -110,6 +131,15 @@ export const adminScriptRoutes: ScreenshotRoute[] = [
     path: "/portal/admin/scripts",
     category: "admin",
     beforeCapture: openScriptReview,
+  },
+  {
+    // Whether anybody has run the code being approved (#1364). Its absence is
+    // the state worth showing loudest, and the first-approval capture below
+    // carries it.
+    slug: "admin-script-dry-run-account",
+    path: "/portal/admin/scripts",
+    category: "admin",
+    beforeCapture: openScriptDryRunAccount,
   },
   {
     // The other decision: a script nothing has ever approved, where the whole

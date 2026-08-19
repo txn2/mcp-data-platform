@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 )
 
 // Capability names. A capability is one host binding a script may call, and
@@ -76,6 +77,45 @@ func (g Grants) AllowsCapability(name string) bool {
 // approval never named.
 func (g Grants) AllowsConnection(name string) bool {
 	return name != "" && slices.Contains(g.Connections, name)
+}
+
+// CheckConnectionParams refuses a bound value for a connection-typed parameter
+// that the grant does not permit (#1361).
+//
+// The run would refuse it anyway: a connection reaches platform.query as an
+// argument, and the host checks every one against this same list. What this
+// buys is WHERE the refusal lands. Without it a mistyped connection name is
+// accepted by every surface that takes it, queued, executed, and reported as a
+// failed run to somebody who is no longer looking; with it the surface that
+// asked for the value answers, naming what this script was approved to reach.
+//
+// It applies only to a run confined by a grant. A draft executes under its
+// author's own identity with no grant layer, so there is nothing here to check
+// it against and the author's persona is the boundary.
+func CheckConnectionParams(defs []Param, bound map[string]any, g Grants) error {
+	for _, p := range defs {
+		if p.Type != ParamTypeConnection {
+			continue
+		}
+		name, _ := bound[p.Name].(string)
+		if g.AllowsConnection(name) {
+			continue
+		}
+		return fmt.Errorf(
+			"parameter %q names connection %q, which this script was not approved to reach; it may reach %s",
+			p.Name, name, connectionList(g.Connections))
+	}
+	return nil
+}
+
+// connectionList renders a grant's connections for a refusal, naming the empty
+// case rather than printing an empty list: a script granted no connection at
+// all cannot be fixed by picking a different one.
+func connectionList(names []string) string {
+	if len(names) == 0 {
+		return "no connections at all"
+	}
+	return strings.Join(names, ", ")
 }
 
 // AllowsDestination reports whether the grant permits writing to one named

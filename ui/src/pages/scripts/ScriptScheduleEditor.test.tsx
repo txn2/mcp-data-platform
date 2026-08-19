@@ -7,12 +7,15 @@ import { ScriptScheduleEditor } from "./ScriptScheduleEditor";
 // assertion here is about what an owner reads before they change it and what
 // the page actually submits.
 vi.mock("@/api/portal/hooks/scripts", () => ({
+  SCRIPT_RUN_AUDIENCE: { run: "run", draft: "draft" },
+  useScriptConnections: vi.fn(),
   useScriptSchedule: vi.fn(),
   useSetScriptSchedule: vi.fn(),
   useSetScriptSchedulePaused: vi.fn(),
 }));
 
 import {
+  useScriptConnections,
   useScriptSchedule,
   useSetScriptSchedule,
   useSetScriptSchedulePaused,
@@ -21,6 +24,7 @@ import {
 const mockSchedule = vi.mocked(useScriptSchedule);
 const mockSave = vi.mocked(useSetScriptSchedule);
 const mockPause = vi.mocked(useSetScriptSchedulePaused);
+const mockConnections = vi.mocked(useScriptConnections);
 
 const save = vi.fn();
 const pause = vi.fn();
@@ -59,6 +63,7 @@ beforeEach(() => {
   mockSchedule.mockReturnValue(query(schedule));
   mockSave.mockReturnValue({ mutate: save, isPending: false } as never);
   mockPause.mockReturnValue({ mutate: pause, isPending: false } as never);
+  mockConnections.mockReturnValue(query(undefined));
 });
 
 afterEach(cleanup);

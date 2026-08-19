@@ -26,6 +26,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/versionhttp"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourceaudit"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -175,6 +176,12 @@ func mountScriptPortalAPI(mux *http.ServeMux, p *platform.Platform, wrap func(ht
 		resolver = buildPersonaResolver(pr, p.ToolkitRegistry())
 	}
 	deps.PortalUser = scriptPortalIdentity(adminRoles, resolver)
+	// The owner's exercise loop (#1361, #1363, #1364): the connections a
+	// parameter may name, and the runner a dry run of an edit executes on. The
+	// runner is built over the assembled MCP server, so a draft's platform
+	// calls cross the same middleware chain an agent's calls cross.
+	deps.Connections = scriptConnectionEnumerator(p.ToolkitRegistry(), p.PersonaRegistry())
+	deps.Drafts = scriptdraft.New(p.MCPServer())
 	scripthttp.New(deps).RegisterPortal(mux, wrap)
 }
 
@@ -198,6 +205,7 @@ func scriptDeps(p *platform.Platform) (scripthttp.Deps, bool) {
 		Rejections: store,
 		Schedules:  store,
 		Runs:       store,
+		DryRuns:    store,
 		Contracts:  store,
 		LatestRuns: store,
 	}, true
@@ -214,7 +222,8 @@ func scriptPortalIdentity(adminRoles []string, resolver portal.PersonaResolver) 
 		}
 		id := &scripthttp.PortalIdentity{
 			UserID: user.UserID, Email: user.Email, Roles: user.Roles,
-			IsAdmin: rolesIntersect(user.Roles, adminRoles),
+			AuthType: user.AuthType,
+			IsAdmin:  rolesIntersect(user.Roles, adminRoles),
 		}
 		if resolver != nil {
 			if pi := resolver(user.Roles); pi != nil {

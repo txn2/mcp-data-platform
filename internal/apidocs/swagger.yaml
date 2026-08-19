@@ -4938,6 +4938,65 @@ definitions:
         example: weekly
         type: string
     type: object
+  script.DryRun:
+    properties:
+      created_at:
+        type: string
+      error:
+        description: Error is why a failed draft failed, including the interpreter
+          traceback.
+        type: string
+      id:
+        description: |-
+          ID is the run id the draft executed under, which is also its session id,
+          so the audit rows the run produced are reachable from this account.
+        example: run_a1b2c3d4
+        type: string
+      log:
+        description: Log is what the run printed, bounded when it was captured.
+        type: string
+      log_truncated:
+        type: boolean
+      metrics:
+        $ref: '#/definitions/script.RunMetrics'
+      outputs:
+        items:
+          $ref: '#/definitions/script.DryRunOutput'
+        type: array
+      requested_by:
+        example: jane@example.com
+        type: string
+      script_id:
+        type: string
+      status:
+        description: |-
+          Status is RunStatusSucceeded or RunStatusFailed. A draft run has no
+          pending state: it is executed inline, and the caller waits for it.
+        example: succeeded
+        type: string
+    type: object
+  script.DryRunOutput:
+    properties:
+      bytes:
+        description: |-
+          Bytes is the serialized length in the declared format. A preview
+          serializes to measure rather than estimating, so it is the size a real
+          run of the same rows would write.
+        example: 48213
+        type: integer
+      destination:
+        example: portal
+        type: string
+      format:
+        example: csv
+        type: string
+      name:
+        example: daily_sales
+        type: string
+      row_count:
+        example: 1200
+        type: integer
+    type: object
   script.Grants:
     properties:
       capabilities:
@@ -5300,6 +5359,21 @@ definitions:
         example: 3
         type: integer
     type: object
+  scripthttp.ConnectionChoice:
+    properties:
+      description:
+        example: Production Trino cluster
+        type: string
+      kind:
+        description: |-
+          Kind is the toolkit serving it, empty for a granted connection the caller
+          cannot themselves enumerate.
+        example: trino
+        type: string
+      name:
+        example: warehouse
+        type: string
+    type: object
   scripthttp.adminRun:
     properties:
       duration_ms:
@@ -5404,6 +5478,60 @@ definitions:
         type: integer
       version_id:
         example: sver_a1b2c3d4
+        type: string
+    type: object
+  scripthttp.connectionChoicesResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/scripthttp.ConnectionChoice'
+        type: array
+      note:
+        description: |-
+          Note states the source in the reader's terms, so a form can put it under
+          the control without composing the sentence itself.
+        type: string
+      source:
+        description: |-
+          Source is "grant" when the set is what the approved version was approved
+          to reach, and "persona" when it is what the caller reaches themselves.
+        example: grant
+        type: string
+    type: object
+  scripthttp.draftRequest:
+    properties:
+      params:
+        additionalProperties: {}
+        type: object
+      source:
+        type: string
+    type: object
+  scripthttp.dryRunResponse:
+    properties:
+      error:
+        type: string
+      log:
+        description: Log is what the run printed, bounded when it was captured.
+        type: string
+      log_truncated:
+        type: boolean
+      message:
+        description: |-
+          Message states what did and did not happen, because "succeeded" on a run
+          that deliberately wrote nothing is the sentence most likely to be
+          misread.
+        type: string
+      metrics:
+        $ref: '#/definitions/script.RunMetrics'
+      outputs:
+        items:
+          $ref: '#/definitions/script.DryRunOutput'
+        type: array
+      run_id:
+        example: run_a1b2c3d4
+        type: string
+      status:
+        example: succeeded
         type: string
     type: object
   scripthttp.pendingReviewResponse:
@@ -5552,6 +5680,18 @@ definitions:
     properties:
       contract:
         $ref: '#/definitions/script.Contract'
+      draft_params:
+        description: |-
+          DraftParams is the LIVE record's parameter contract, which is not always
+          the contract above: that one is the APPROVED version's, because that is
+          what a run binds against. A draft run binds against this one, because a
+          draft is the code that does not match the approved version yet (#1364),
+          and a form built from the wrong one would offer parameters the dry run
+          then refuses. It travels with the source for the same audience and for
+          the same reason.
+        items:
+          $ref: '#/definitions/script.Param'
+        type: array
       owned:
         example: true
         type: boolean
@@ -5615,6 +5755,27 @@ definitions:
         type: boolean
       dynamic_destinations:
         type: boolean
+    type: object
+  scripthttp.runRequest:
+    properties:
+      params:
+        additionalProperties: {}
+        type: object
+    type: object
+  scripthttp.runResponse:
+    properties:
+      message:
+        description: Message states what was queued, in the owner's terms.
+        type: string
+      run_id:
+        example: run_a1b2c3d4
+        type: string
+      status:
+        example: pending
+        type: string
+      version:
+        example: 3
+        type: integer
     type: object
   scripthttp.scheduleListResponse:
     properties:
@@ -5680,6 +5841,45 @@ definitions:
         example: 4
         type: integer
     type: object
+  scripthttp.validateResponse:
+    properties:
+      capabilities:
+        description: |-
+          Capabilities, Connections and Destinations are what the code plainly
+          reaches. They are the reviewer's diff material, shown to the author first
+          so the capability change is theirs to notice rather than a surprise in
+          somebody else's queue.
+        items:
+          type: string
+        type: array
+      connections:
+        items:
+          type: string
+        type: array
+      destinations:
+        items:
+          type: string
+        type: array
+      dynamic_connections:
+        description: |-
+          DynamicConnections and DynamicDestinations report that a list above is
+          known to be incomplete because a call computes its target instead of
+          naming one. Reporting the gap is the point: a list that silently omitted
+          a computed name would be a false statement.
+        type: boolean
+      dynamic_destinations:
+        type: boolean
+      findings:
+        items:
+          $ref: '#/definitions/scriptrun.Finding'
+        type: array
+      note:
+        description: Note states any such gap in the author's terms.
+        type: string
+      ok:
+        example: true
+        type: boolean
+    type: object
   scripthttp.versionListResponse:
     properties:
       data:
@@ -5700,6 +5900,15 @@ definitions:
           holds and the diff from its source to this one. It is absent when the
           script has never had a version approved, which is what makes this a first
           approval rather than a change to something already running.
+      dry_run:
+        allOf:
+        - $ref: '#/definitions/script.DryRun'
+        description: |-
+          DryRun is the account of somebody having executed this exact source, and
+          what it did (#1364). It is absent when nobody has, which is a fact a
+          reviewer should have: approving is agreeing to run code unattended, and
+          "the author never ran this" is the single most useful thing to know
+          before doing so.
       findings:
         description: Findings are the validator's complaints about the source.
         items:
@@ -15242,6 +15451,97 @@ paths:
       summary: Get a script's contract
       tags:
       - Scripts
+  /portal/scripts/{id}/connections:
+    get:
+      description: Returns the set a `connection` parameter chooses from. By default
+        that is what the approved version was granted, which is the only set an approved
+        run can use; `audience=draft` returns what a dry run executing as the caller
+        would reach instead. Restricted to the script's owner and to administrators.
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: run (default) or draft
+        in: query
+        name: audience
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/scripthttp.connectionChoicesResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List the connections a script's parameters may name
+      tags:
+      - Scripts
+  /portal/scripts/{id}/dry-run:
+    post:
+      consumes:
+      - application/json
+      description: 'Executes Starlark for a script the caller owns, under the caller''s
+        own identity and persona and with tighter limits, persisting nothing: platform.export
+        reports the shape of each output instead of writing it, and no approval is
+        touched. An empty source runs the script''s saved code. The account of the
+        run is kept so a reviewer can see that the version they are approving was
+        executed, and by whom.'
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Source and parameter values
+        in: body
+        name: draft
+        schema:
+          $ref: '#/definitions/scripthttp.draftRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/scripthttp.dryRunResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Dry-run a script's source
+      tags:
+      - Scripts
   /portal/scripts/{id}/runs:
     get:
       description: 'Returns the run history of a script the caller owns, newest first:
@@ -15284,6 +15584,54 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: List a script's runs
+      tags:
+      - Scripts
+    post:
+      consumes:
+      - application/json
+      description: Queues one run of the approved version of a script the caller owns,
+        binding the supplied parameters against that version's contract. The run is
+        executed by a worker under the script's own identity, exactly as a scheduled
+        fire is, and appears in the script's run history. A script with nothing approved
+        is refused, in the execution gate's own words.
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Parameter values
+        in: body
+        name: run
+        schema:
+          $ref: '#/definitions/scripthttp.runRequest'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/scripthttp.runResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Run a script
       tags:
       - Scripts
   /portal/scripts/{id}/runs/{runID}:
@@ -15531,6 +15879,50 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Edit a script's source
+      tags:
+      - Scripts
+  /portal/scripts/{id}/validate:
+    post:
+      consumes:
+      - application/json
+      description: Parses Starlark for a script the caller owns and reports the capabilities,
+        connections and destinations it would reach, plus any findings with the correction
+        for each. Nothing is executed and nothing is stored. An empty source validates
+        the script's saved code.
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Source to validate
+        in: body
+        name: draft
+        schema:
+          $ref: '#/definitions/scripthttp.draftRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/scripthttp.validateResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Validate a script's source
       tags:
       - Scripts
   /portal/scripts/{id}/versions:

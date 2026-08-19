@@ -14110,6 +14110,139 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/scripts/{id}/connections": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the set a ` + "`" + `connection` + "`" + ` parameter chooses from. By default that is what the approved version was granted, which is the only set an approved run can use; ` + "`" + `audience=draft` + "`" + ` returns what a dry run executing as the caller would reach instead. Restricted to the script's owner and to administrators.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "List the connections a script's parameters may name",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "run (default) or draft",
+                        "name": "audience",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/scripthttp.connectionChoicesResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/scripts/{id}/dry-run": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Executes Starlark for a script the caller owns, under the caller's own identity and persona and with tighter limits, persisting nothing: platform.export reports the shape of each output instead of writing it, and no approval is touched. An empty source runs the script's saved code. The account of the run is kept so a reviewer can see that the version they are approving was executed, and by whom.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Dry-run a script's source",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Source and parameter values",
+                        "name": "draft",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/scripthttp.draftRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/scripthttp.dryRunResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/scripts/{id}/runs": {
             "get": {
                 "security": [
@@ -14154,6 +14287,76 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/scripthttp.portalRunListResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Queues one run of the approved version of a script the caller owns, binding the supplied parameters against that version's contract. The run is executed by a worker under the script's own identity, exactly as a scheduled fire is, and appears in the script's run history. A script with nothing approved is refused, in the execution gate's own words.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Run a script",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Parameter values",
+                        "name": "run",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/scripthttp.runRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/scripthttp.runResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "401": {
@@ -14541,6 +14744,72 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/scripts/{id}/validate": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Parses Starlark for a script the caller owns and reports the capabilities, connections and destinations it would reach, plus any findings with the correction for each. Nothing is executed and nothing is stored. An empty source validates the script's saved code.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Validate a script's source",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Source to validate",
+                        "name": "draft",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/scripthttp.draftRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/scripthttp.validateResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -23309,6 +23578,77 @@ const docTemplate = `{
                 }
             }
         },
+        "script.DryRun": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Error is why a failed draft failed, including the interpreter traceback.",
+                    "type": "string"
+                },
+                "id": {
+                    "description": "ID is the run id the draft executed under, which is also its session id,\nso the audit rows the run produced are reachable from this account.",
+                    "type": "string",
+                    "example": "run_a1b2c3d4"
+                },
+                "log": {
+                    "description": "Log is what the run printed, bounded when it was captured.",
+                    "type": "string"
+                },
+                "log_truncated": {
+                    "type": "boolean"
+                },
+                "metrics": {
+                    "$ref": "#/definitions/script.RunMetrics"
+                },
+                "outputs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/script.DryRunOutput"
+                    }
+                },
+                "requested_by": {
+                    "type": "string",
+                    "example": "jane@example.com"
+                },
+                "script_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "description": "Status is RunStatusSucceeded or RunStatusFailed. A draft run has no\npending state: it is executed inline, and the caller waits for it.",
+                    "type": "string",
+                    "example": "succeeded"
+                }
+            }
+        },
+        "script.DryRunOutput": {
+            "type": "object",
+            "properties": {
+                "bytes": {
+                    "description": "Bytes is the serialized length in the declared format. A preview\nserializes to measure rather than estimating, so it is the size a real\nrun of the same rows would write.",
+                    "type": "integer",
+                    "example": 48213
+                },
+                "destination": {
+                    "type": "string",
+                    "example": "portal"
+                },
+                "format": {
+                    "type": "string",
+                    "example": "csv"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "daily_sales"
+                },
+                "row_count": {
+                    "type": "integer",
+                    "example": 1200
+                }
+            }
+        },
         "script.Grants": {
             "type": "object",
             "properties": {
@@ -23722,6 +24062,24 @@ const docTemplate = `{
                 }
             }
         },
+        "scripthttp.ConnectionChoice": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string",
+                    "example": "Production Trino cluster"
+                },
+                "kind": {
+                    "description": "Kind is the toolkit serving it, empty for a granted connection the caller\ncannot themselves enumerate.",
+                    "type": "string",
+                    "example": "trino"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "warehouse"
+                }
+            }
+        },
         "scripthttp.adminRun": {
             "type": "object",
             "properties": {
@@ -23847,6 +24205,74 @@ const docTemplate = `{
                 "version_id": {
                     "type": "string",
                     "example": "sver_a1b2c3d4"
+                }
+            }
+        },
+        "scripthttp.connectionChoicesResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/scripthttp.ConnectionChoice"
+                    }
+                },
+                "note": {
+                    "description": "Note states the source in the reader's terms, so a form can put it under\nthe control without composing the sentence itself.",
+                    "type": "string"
+                },
+                "source": {
+                    "description": "Source is \"grant\" when the set is what the approved version was approved\nto reach, and \"persona\" when it is what the caller reaches themselves.",
+                    "type": "string",
+                    "example": "grant"
+                }
+            }
+        },
+        "scripthttp.draftRequest": {
+            "type": "object",
+            "properties": {
+                "params": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "source": {
+                    "type": "string"
+                }
+            }
+        },
+        "scripthttp.dryRunResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                },
+                "log": {
+                    "description": "Log is what the run printed, bounded when it was captured.",
+                    "type": "string"
+                },
+                "log_truncated": {
+                    "type": "boolean"
+                },
+                "message": {
+                    "description": "Message states what did and did not happen, because \"succeeded\" on a run\nthat deliberately wrote nothing is the sentence most likely to be\nmisread.",
+                    "type": "string"
+                },
+                "metrics": {
+                    "$ref": "#/definitions/script.RunMetrics"
+                },
+                "outputs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/script.DryRunOutput"
+                    }
+                },
+                "run_id": {
+                    "type": "string",
+                    "example": "run_a1b2c3d4"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "succeeded"
                 }
             }
         },
@@ -24029,6 +24455,13 @@ const docTemplate = `{
                 "contract": {
                     "$ref": "#/definitions/script.Contract"
                 },
+                "draft_params": {
+                    "description": "DraftParams is the LIVE record's parameter contract, which is not always\nthe contract above: that one is the APPROVED version's, because that is\nwhat a run binds against. A draft run binds against this one, because a\ndraft is the code that does not match the approved version yet (#1364),\nand a form built from the wrong one would offer parameters the dry run\nthen refuses. It travels with the source for the same audience and for\nthe same reason.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/script.Param"
+                    }
+                },
                 "owned": {
                     "type": "boolean",
                     "example": true
@@ -24096,6 +24529,36 @@ const docTemplate = `{
                 },
                 "dynamic_destinations": {
                     "type": "boolean"
+                }
+            }
+        },
+        "scripthttp.runRequest": {
+            "type": "object",
+            "properties": {
+                "params": {
+                    "type": "object",
+                    "additionalProperties": {}
+                }
+            }
+        },
+        "scripthttp.runResponse": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "description": "Message states what was queued, in the owner's terms.",
+                    "type": "string"
+                },
+                "run_id": {
+                    "type": "string",
+                    "example": "run_a1b2c3d4"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "pending"
+                },
+                "version": {
+                    "type": "integer",
+                    "example": 3
                 }
             }
         },
@@ -24181,6 +24644,51 @@ const docTemplate = `{
                 }
             }
         },
+        "scripthttp.validateResponse": {
+            "type": "object",
+            "properties": {
+                "capabilities": {
+                    "description": "Capabilities, Connections and Destinations are what the code plainly\nreaches. They are the reviewer's diff material, shown to the author first\nso the capability change is theirs to notice rather than a surprise in\nsomebody else's queue.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "connections": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "destinations": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "dynamic_connections": {
+                    "description": "DynamicConnections and DynamicDestinations report that a list above is\nknown to be incomplete because a call computes its target instead of\nnaming one. Reporting the gap is the point: a list that silently omitted\na computed name would be a false statement.",
+                    "type": "boolean"
+                },
+                "dynamic_destinations": {
+                    "type": "boolean"
+                },
+                "findings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/scriptrun.Finding"
+                    }
+                },
+                "note": {
+                    "description": "Note states any such gap in the author's terms.",
+                    "type": "string"
+                },
+                "ok": {
+                    "type": "boolean",
+                    "example": true
+                }
+            }
+        },
         "scripthttp.versionListResponse": {
             "type": "object",
             "properties": {
@@ -24204,6 +24712,14 @@ const docTemplate = `{
                     "allOf": [
                         {
                             "$ref": "#/definitions/scripthttp.approvedBaseline"
+                        }
+                    ]
+                },
+                "dry_run": {
+                    "description": "DryRun is the account of somebody having executed this exact source, and\nwhat it did (#1364). It is absent when nobody has, which is a fact a\nreviewer should have: approving is agreeing to run code unattended, and\n\"the author never ran this\" is the single most useful thing to know\nbefore doing so.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/script.DryRun"
                         }
                     ]
                 },

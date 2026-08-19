@@ -63,6 +63,11 @@ WHAT IS AVAILABLE
       writes.
   print(...)  Goes to the run log (capped; anything larger is an export).
   run.run_id, run.fire_time, run.params["name"]  The frozen run record.
+      A parameter is typed string, int, float, bool, date, enum or connection.
+      Declare a connection parameter for a connection the caller chooses rather
+      than a string: the surfaces that ask for one offer the connections this
+      script may reach, and a name outside them is refused where it was
+      entered instead of failing the run.
   json.encode / json.decode / json.indent
   date.of, date.parse, date.format, date.add_days, date.add_months,
       date.diff_days, date.start_of_month, date.weekday  All dates are

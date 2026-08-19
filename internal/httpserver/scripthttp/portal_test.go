@@ -490,3 +490,53 @@ func TestPortalGetRun_RefusedForANonOwner(t *testing.T) {
 		"/api/v1/portal/scripts/script_2/runs/run_2")
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
+
+// TestPortalGetScript_CarriesTheLiveParameterContractForTheOwner is the pair
+// the dry-run form is built from (#1364). The contract above it is the APPROVED
+// version's, because that is what a run binds against; a draft binds against
+// the live record's, and a form built from the wrong one would offer parameters
+// the dry run then refuses.
+func TestPortalGetScript_CarriesTheLiveParameterContractForTheOwner(t *testing.T) {
+	store := portalStore()
+	store.scripts[1].Source = "x = 1\n"
+	store.scripts[1].Params = []script.Param{{Name: "region", Type: script.ParamTypeString}}
+	contracts := &stubContracts{contract: &script.Contract{
+		ID: "script_2", Name: "shared-report", Scope: script.ScopeGlobal,
+		OwnerEmail: "carol@example.com",
+		Params:     []script.Param{{Name: "report_date", Type: script.ParamTypeDate, Required: true}},
+	}}
+
+	rec := servePortal(t, portalDeps(store, nil, contracts, carol), "/api/v1/portal/scripts/script_2")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var body portalScriptResponse
+	decodeInto(t, rec, &body)
+	assert.Equal(t, "x = 1\n", body.Source)
+	require.Len(t, body.DraftParams, 1)
+	assert.Equal(t, "region", body.DraftParams[0].Name)
+	require.Len(t, body.Contract.Params, 1)
+	assert.Equal(t, "report_date", body.Contract.Params[0].Name,
+		"the contract keeps the approved version's, which is what a run binds")
+}
+
+// TestPortalGetScript_WithholdsTheLiveRecordFromAReader keeps both halves on the
+// same side of the line: the source is the owner's, and so is the contract the
+// draft it would run binds against.
+func TestPortalGetScript_WithholdsTheLiveRecordFromAReader(t *testing.T) {
+	store := portalStore()
+	store.scripts[1].Source = "x = 1\n"
+	store.scripts[1].Params = []script.Param{{Name: "region", Type: script.ParamTypeString}}
+	contracts := &stubContracts{contract: &script.Contract{
+		ID: "script_2", Name: "shared-report", Scope: script.ScopeGlobal,
+		OwnerEmail: "carol@example.com",
+	}}
+
+	rec := servePortal(t, portalDeps(store, nil, contracts, stranger), "/api/v1/portal/scripts/script_2")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var body portalScriptResponse
+	decodeInto(t, rec, &body)
+	assert.False(t, body.Owned)
+	assert.Empty(t, body.Source)
+	assert.Empty(t, body.DraftParams)
+}

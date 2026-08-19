@@ -1,5 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Script, ScriptVersion } from "@/api/admin/types";
+import type {
+  Script,
+  ScriptDryRunOutput,
+  ScriptFinding,
+  ScriptVersion,
+} from "@/api/admin/types";
 import { ApiError, apiFetch } from "../client";
 
 // Portal script hooks (#1290): the read surface for the people who own the
@@ -181,10 +186,16 @@ export function useScriptContract(scriptID: string | null) {
     queryKey: [...scriptsKey, scriptID, "contract"],
     // source is the live code, served only to the script's owner: it is what
     // the editor on that page opens (#1307).
+    // draft_params is the LIVE record's parameter contract, which is not always
+    // the contract's: that one is the approved version's, because that is what
+    // a run binds against, and a draft binds against the code it actually is.
     queryFn: () =>
-      apiFetch<{ contract: ScriptContract; owned: boolean; source?: string }>(
-        `/scripts/${scriptID}`,
-      ),
+      apiFetch<{
+        contract: ScriptContract;
+        owned: boolean;
+        source?: string;
+        draft_params?: ScriptParam[];
+      }>(`/scripts/${scriptID}`),
     enabled: !!scriptID,
   });
 }
@@ -229,13 +240,31 @@ export function usePortalScriptVersions(scriptID: string | null, owned: boolean)
 // its history began this morning.
 export const RUN_PAGE_SIZE = 25;
 
+// RUN_POLL_MS is how often the history re-reads itself while a run is still
+// going. A run asked for on the page (#1363) is queued and executed by a
+// worker, so the answer arrives after the request that started it; without this
+// the person who pressed Run would watch a row that says "pending" until they
+// reloaded the page themselves.
+//
+// The poll stops the moment nothing is in flight, so a page of finished runs
+// costs one request.
+export const RUN_POLL_MS = 3_000;
+
 export function useScriptRuns(scriptID: string | null, owned: boolean) {
   return useQuery({
     queryKey: [...scriptsKey, scriptID, "runs", RUN_PAGE_SIZE],
     queryFn: () =>
       apiFetch<ListResponse<ScriptRun>>(`/scripts/${scriptID}/runs?per_page=${RUN_PAGE_SIZE}`),
     enabled: !!scriptID && owned,
+    refetchInterval: (query) => (hasRunInFlight(query.state.data) ? RUN_POLL_MS : false),
   });
+}
+
+// hasRunInFlight reports whether any run in the history has yet to finish.
+// Those two statuses are the queue's, not the outcome's: everything else is a
+// run that has stopped moving.
+export function hasRunInFlight(data: { data: ScriptRun[] } | undefined): boolean {
+  return (data?.data ?? []).some((r) => r.status === "pending" || r.status === "running");
 }
 
 // useScriptSchedule reads an owned script's cadence in full, including the
@@ -294,5 +323,130 @@ export function useScriptRun(scriptID: string | null, runID: string | null) {
     queryKey: [...scriptsKey, scriptID, "runs", runID],
     queryFn: () => apiFetch<ScriptRunDetail>(`/scripts/${scriptID}/runs/${runID}`),
     enabled: !!scriptID && !!runID,
+  });
+}
+
+// ScriptConnectionChoice is one connection a `connection` parameter may name
+// (#1361): the value bound into a run, and what a person picks it by.
+export interface ScriptConnectionChoice {
+  name: string;
+  kind?: string;
+  description?: string;
+}
+
+// ScriptConnectionChoices is the set a connection parameter chooses from, and
+// where it came from. The source matters: an approved run is confined to what
+// its approval granted, while a dry run reaches what the caller reaches, so the
+// same parameter has two different sets depending on which is being asked for.
+export interface ScriptConnectionChoices {
+  data: ScriptConnectionChoice[];
+  source: string;
+  note: string;
+}
+
+// SCRIPT_RUN_AUDIENCE names the two sets. Passing one is not optional in
+// practice: a form that asked for the wrong set would offer values the run then
+// refuses, which is the failure the picker exists to remove.
+export const SCRIPT_RUN_AUDIENCE = { run: "run", draft: "draft" } as const;
+
+export type ScriptRunAudience =
+  (typeof SCRIPT_RUN_AUDIENCE)[keyof typeof SCRIPT_RUN_AUDIENCE];
+
+// useScriptConnections reads the connections a parameter of this script may
+// name. It is requested only for an owned script that actually declares a
+// connection parameter: every other script has no use for the set, and asking
+// for it would put a request on every script page.
+export function useScriptConnections(
+  scriptID: string | null,
+  enabled: boolean,
+  audience: ScriptRunAudience,
+) {
+  return useQuery({
+    queryKey: [...scriptsKey, scriptID, "connections", audience],
+    queryFn: () =>
+      apiFetch<ScriptConnectionChoices>(`/scripts/${scriptID}/connections?audience=${audience}`),
+    enabled: !!scriptID && enabled,
+  });
+}
+
+// ScriptRunQueued identifies a run this page asked for. It carries no result:
+// the run is executed by a worker, and the history below the form is where it
+// is followed.
+export interface ScriptRunQueued {
+  run_id: string;
+  status: string;
+  version: number;
+  message: string;
+}
+
+// useRunScript queues one run of a script's approved version (#1363). It is the
+// same action run_script performs — the run is executed by a worker under the
+// script's own identity — so this hook cannot make a script run that the
+// execution gate refuses.
+//
+// Every script query is invalidated on success, because the run belongs in the
+// history immediately: a queued run that does not appear until the next poll
+// reads as a button that did nothing.
+export function useRunScript(scriptID: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (params: Record<string, unknown>) =>
+      apiFetch<ScriptRunQueued>(`/scripts/${scriptID}/runs`, {
+        method: "POST",
+        body: JSON.stringify({ params }),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: scriptsKey }),
+  });
+}
+
+// ScriptValidation is what an edited source would reach, and what is wrong with
+// it (#1364). It executes nothing.
+export interface ScriptValidation {
+  ok: boolean;
+  findings: ScriptFinding[];
+  capabilities: string[];
+  connections: string[];
+  destinations: string[];
+  dynamic_connections: boolean;
+  dynamic_destinations: boolean;
+  note?: string;
+}
+
+// useValidateScriptSource parses an edit and reports what it would reach.
+// Nothing is stored, so nothing is invalidated.
+export function useValidateScriptSource(scriptID: string) {
+  return useMutation({
+    mutationFn: (source: string) =>
+      apiFetch<ScriptValidation>(`/scripts/${scriptID}/validate`, {
+        method: "POST",
+        body: JSON.stringify({ source }),
+      }),
+  });
+}
+
+// ScriptDryRun is one draft execution as the editor reports it. A failed run
+// answers with the same fields a successful one does: the log is the whole
+// reason to have run it.
+export interface ScriptDryRun {
+  run_id: string;
+  status: string;
+  error?: string;
+  log?: string;
+  log_truncated?: boolean;
+  metrics: { steps: number; duration_ms: number; queries: number; exports: number };
+  outputs: ScriptDryRunOutput[];
+  message: string;
+}
+
+// useDryRunScript executes an edit as the caller, persisting nothing it
+// produced. It introduces no authority: the run is the caller's own session,
+// their persona and their audit trail, so it reaches exactly what they reach.
+export function useDryRunScript(scriptID: string) {
+  return useMutation({
+    mutationFn: (input: { source: string; params: Record<string, unknown> }) =>
+      apiFetch<ScriptDryRun>(`/scripts/${scriptID}/dry-run`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
   });
 }

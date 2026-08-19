@@ -310,11 +310,38 @@ func BuildSchedule(sc *Script, approved *Version, prev *Schedule, req ScheduleRe
 	if err != nil {
 		return nil, err
 	}
+	if err := checkScheduledConnections(contract, sched.Params, approved, now, cronSpec.Location()); err != nil {
+		return nil, err
+	}
 	// The first fire is computed from now, not carried over from the schedule
 	// being replaced: changing a cadence means the old cadence's next fire is
 	// no longer a fire this schedule has.
 	sched.NextRunAt = cronSpec.Next(now)
 	return sched, nil
+}
+
+// checkScheduledConnections refuses a cadence whose bindings name a connection
+// the approved grant does not permit (#1361). Every fire of such a schedule
+// would fail identically, unattended, and the owner setting it is the last
+// person in a position to notice.
+//
+// Nothing is checked before approval: there is no grant to check against, and
+// a schedule on an unapproved script fires nothing anyway.
+func checkScheduledConnections(
+	contract []Param,
+	bindings map[string]any,
+	approved *Version,
+	now time.Time,
+	loc *time.Location,
+) error {
+	if approved == nil {
+		return nil
+	}
+	bound, err := BindScheduleParams(contract, bindings, now.In(loc), loc)
+	if err != nil {
+		return err
+	}
+	return CheckConnectionParams(contract, bound, approved.Grants)
 }
 
 // ScheduleFire is what one materialization pass concluded about a schedule:

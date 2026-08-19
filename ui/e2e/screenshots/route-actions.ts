@@ -250,6 +250,22 @@ export async function openScriptReview(page: Page): Promise<void> {
 }
 
 /**
+ * openScriptDryRunAccount frames the account of the author having executed this
+ * exact source (#1364), which is the fact a reviewer most wants before agreeing
+ * that code should run unattended. The drawer's first approval below carries
+ * none, which is the other state and is stated as plainly.
+ */
+export async function openScriptDryRunAccount(page: Page): Promise<void> {
+  await openQueuedReview(page, "Daily Sales Report");
+  await page
+    .getByRole("dialog")
+    .getByText("Dry run", { exact: true })
+    .scrollIntoViewIfNeeded({ timeout: 3_000 })
+    .catch(() => {});
+  await page.waitForTimeout(600);
+}
+
+/**
  * openScriptFirstApproval opens the drawer on a script nothing has ever
  * approved, which is the other decision this surface exists for: approving
  * starts something running rather than changing what runs.
@@ -332,6 +348,66 @@ export async function openScriptSource(page: Page): Promise<void> {
     .scrollIntoViewIfNeeded({ timeout: 3_000 })
     .catch(() => {});
   await page.waitForTimeout(600);
+}
+
+/**
+ * openScriptRunPanel scrolls to the control an owner runs their automation
+ * with (#1363), which is the first thing on the page they own: the parameters
+ * the approved version declares, with a connection offered as a choice.
+ */
+export async function openScriptRunPanel(page: Page): Promise<void> {
+  // The form is filled the way a person fills it, so the capture shows the
+  // control the whole change is about: a connection CHOSEN from the set this
+  // script may reach, rather than a box somebody has to spell a name into.
+  await bindRunParameters(page, "run");
+  await page
+    .getByRole("button", { name: "Run" })
+    .scrollIntoViewIfNeeded({ timeout: 3_000 })
+    .catch(() => {});
+  await page.waitForTimeout(600);
+}
+
+/**
+ * bindRunParameters supplies the fixture script's two required values on one
+ * of the page's parameter forms. Each form scopes its control ids, which is
+ * what lets a capture drive the run form without touching the dry-run form
+ * below it or the schedule's bindings below that.
+ */
+async function bindRunParameters(page: Page, form: string): Promise<void> {
+  await page
+    .locator(`#script-param-${form}-report_date`)
+    .fill("2026-08-17", { timeout: 3_000 })
+    .catch(() => {});
+  await page
+    .locator(`#script-param-${form}-source`)
+    .click({ timeout: 3_000 })
+    .catch(() => {});
+  await page
+    .getByRole("option", { name: /acme-warehouse/ })
+    .click({ timeout: 3_000 })
+    .catch(() => {});
+  await page.waitForTimeout(300);
+}
+
+/**
+ * openScriptDryRun executes the saved source as the caller and frames what came
+ * back (#1364): the metrics, the shape of the outputs nothing wrote, and the
+ * log, which is the whole reason to have run it.
+ */
+export async function openScriptDryRun(page: Page): Promise<void> {
+  // A dry run binds the same values a real one does, so the required ones are
+  // supplied first: the control is deliberately unavailable until they are.
+  await bindRunParameters(page, "draft");
+  await page
+    .getByRole("button", { name: "Dry run" })
+    .click({ timeout: 3_000 })
+    .catch(() => {});
+  await page.waitForTimeout(900);
+  await page
+    .getByText("Nothing was persisted", { exact: false })
+    .scrollIntoViewIfNeeded({ timeout: 3_000 })
+    .catch(() => {});
+  await page.waitForTimeout(400);
 }
 
 /**

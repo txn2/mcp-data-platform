@@ -5,6 +5,7 @@ import type {
   VersionReview,
 } from "@/api/admin/types";
 import type {
+  ScriptConnectionChoice,
   ScriptContract,
   ScriptRun,
   ScriptRunDetail,
@@ -295,6 +296,28 @@ export const mockScriptReviewPayloads: Record<string, VersionReview> = {
       approved_at: daysAgo(30),
       source_diff: salesDiff,
     },
+    // The author ran this exact source before sending it (#1364), which is what
+    // a reviewer most wants to know before agreeing that it should run
+    // unattended. The other payloads deliberately carry no account, because a
+    // version nobody has run is the state the drawer has to state plainly.
+    dry_run: {
+      id: "dpx_draft_001",
+      script_id: "script-001",
+      requested_by: "sarah.chen@example.com",
+      status: "succeeded",
+      log: "reading yesterday's rows\n1,284 rows for 2026-08-17",
+      metrics: { steps: 1042, duration_ms: 1830, queries: 1, exports: 1 },
+      outputs: [
+        {
+          name: "daily_sales",
+          destination: "portal",
+          format: "csv",
+          row_count: 1_284,
+          bytes: 48_213,
+        },
+      ],
+      created_at: daysAgo(3),
+    },
   },
   "script-001/2": {
     version: mockScriptVersions["script-001"]![1]!,
@@ -351,6 +374,16 @@ export const mockScriptReviewAlert = {
   updated_at: daysAgo(11),
   warnings: [] as string[],
 };
+
+// mockReachableConnections is the deployment's connection inventory as the
+// enumerator reports it (#1361). A run form narrows it to what the approved
+// version was granted; a dry-run form shows it whole, because a draft executes
+// as its caller.
+export const mockReachableConnections: ScriptConnectionChoice[] = [
+  { name: "acme-warehouse", kind: "trino", description: "Production Trino warehouse" },
+  { name: "acme-reporting", kind: "trino", description: "Reporting replica" },
+  { name: "acme-lake", kind: "s3", description: "Raw object store" },
+];
 
 // ---------------------------------------------------------------------------
 // Portal script pages (#1290): the owner's view of the same scripts — their
@@ -614,6 +647,12 @@ export const mockScriptContracts: Record<string, ScriptContract> = {
         name: "report_date",
         type: "date",
         description: "The business date to report on; the schedule pins it to the fire time.",
+        required: true,
+      },
+      {
+        name: "source",
+        type: "connection",
+        description: "Which warehouse the day's rows are read from.",
         required: true,
       },
     ],

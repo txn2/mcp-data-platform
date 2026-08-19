@@ -349,3 +349,46 @@ func TestScheduleMarshalJSON(t *testing.T) {
 	assert.NotContains(t, paused, "next_run_at", "a pointer marshals by the same rule as a value")
 	assert.Equal(t, "@daily", paused["cron_spec"], "and every other field is unchanged")
 }
+
+// A schedule binding a connection the approved grant refuses would fail on
+// every fire, unattended, and the owner setting it is the last person in a
+// position to notice (#1361).
+func TestBuildSchedule_ChecksConnectionBindingsAgainstTheGrant(t *testing.T) {
+	now := time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)
+	sc := &Script{
+		ID: "script_1", Name: "daily-sales", Enabled: true, Status: StatusActive,
+		ApprovedVersionID: "sver_1",
+		Params:            []Param{{Name: "source", Type: ParamTypeConnection, Required: true}},
+	}
+	approvedAt := now.Add(-24 * time.Hour)
+	approved := &Version{
+		ID: "sver_1", Version: 2, ApprovedAt: &approvedAt,
+		Params: sc.Params,
+		Grants: Grants{Roles: []string{"analyst"}, Connections: []string{"warehouse"}},
+	}
+	req := func(connection string) ScheduleRequest {
+		return ScheduleRequest{
+			CronSpec: "0 7 * * 1-5", Timezone: "America/Los_Angeles",
+			Params: map[string]any{"source": connection}, Actor: "jane@example.com",
+		}
+	}
+
+	t.Run("a granted connection saves", func(t *testing.T) {
+		sched, err := BuildSchedule(sc, approved, nil, req("warehouse"), now)
+		require.NoError(t, err)
+		assert.Equal(t, "warehouse", sched.Params["source"])
+	})
+
+	t.Run("one the grant does not cover is refused at the form", func(t *testing.T) {
+		_, err := BuildSchedule(sc, approved, nil, req("staging"), now)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "warehouse")
+	})
+
+	t.Run("nothing is checked before approval: there is no grant, and nothing fires", func(t *testing.T) {
+		unapproved := *sc
+		unapproved.ApprovedVersionID = ""
+		_, err := BuildSchedule(&unapproved, nil, nil, req("staging"), now)
+		require.NoError(t, err)
+	})
+}

@@ -626,6 +626,25 @@ When a run would be refused — nothing approved, the script disabled or depreca
 page carries the platform's own reason for the refusal rather than leaving you to work it
 out from the status.
 
+### Running it now
+
+On a script you own, **Run now** produces fresh output without waiting for the next
+scheduled fire. The form is built from the parameters the approved version declares, and
+pressing Run queues exactly what an agent's `run_script` queues: the platform executes it
+the same way a scheduled fire is executed, and it appears in the run history below and
+updates as it goes.
+
+Where a value comes from a set the platform already knows, the form offers the set rather
+than asking you to remember the spelling. A parameter naming a connection is a list of
+the connections this script was approved to reach, each with what it is; a parameter with
+declared choices is those choices. A box is for a value the platform genuinely cannot
+enumerate.
+
+![Run a script now](../images/screenshots/light/user-script-run-now-light.webp#only-light)![Run a script now](../images/screenshots/dark/user-script-run-now-dark.webp#only-dark)
+
+A script nothing would execute has no Run control at all, for the reason stated at the
+top of the page, rather than a button that fails when you press it.
+
 ### The code
 
 On a script you own, the source is editable in place, with Starlark highlighted as the
@@ -642,6 +661,30 @@ editor says which it means before you save:
 
 The source that does not parse is refused when you save it, naming what to fix, rather
 than failing at the next run with nobody watching.
+
+### Checking a change before you send it
+
+Beside Save are the two things you would otherwise have had to ask an agent for.
+
+**Validate** parses what is on screen and tells you what it would reach — which
+capabilities, which connections, where it writes — and, if it does not parse, what to fix
+and where. Nothing runs and nothing is saved.
+
+**Dry run** actually executes it, as you: your identity, your access, tighter limits, and
+nothing kept. Outputs are measured rather than written, so you see how many rows and how
+big each one would be without a dashboard being refreshed or a file leaving the platform.
+You get the log the script printed, which is usually the whole reason to have run it, and
+a failure is reported with the same detail a success is.
+
+![Dry-run a change](../images/screenshots/light/user-script-dry-run-light.webp#only-light)![Dry-run a change](../images/screenshots/dark/user-script-dry-run-dark.webp#only-dark)
+
+Because a dry run is you running it, it reaches exactly what you reach and nothing more.
+The connections offered to a dry run are your own, which is why they can differ from the
+ones a Run now offers: an approved run is confined to what its approval granted.
+
+The administrator reviewing your change sees that you ran it, when, and what it produced.
+A version nobody has dry-run says so on their screen, which is the thing most worth
+knowing before agreeing that code should run unattended.
 
 ### The cadence
 

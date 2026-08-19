@@ -48,9 +48,11 @@ internal/httpserver -> internal/httpserver/versionhttp
 internal/httpserver -> internal/notification/notifyrender
 internal/httpserver -> internal/platform/branding
 internal/httpserver -> internal/platform/callrecord
+internal/httpserver -> internal/platform/connscope
 internal/httpserver -> internal/platform/notifydelivery
 internal/httpserver -> internal/platform/resourceaudit
 internal/httpserver -> internal/platform/reviewalert
+internal/httpserver -> internal/platform/scriptdraft
 internal/httpserver -> internal/platform/scriptstore
 internal/httpserver -> internal/platform/sessionview
 internal/httpserver -> internal/ui
@@ -58,6 +60,7 @@ internal/httpserver -> pkg/admin
 internal/httpserver -> pkg/audit
 internal/httpserver -> pkg/browsersession
 internal/httpserver -> pkg/connoauth
+internal/httpserver -> pkg/connview
 internal/httpserver -> pkg/knowledge
 internal/httpserver -> pkg/middleware
 internal/httpserver -> pkg/notification
@@ -106,8 +109,10 @@ internal/httpserver/notifyhttp -> pkg/notification
 internal/httpserver/notifyhttp -> pkg/notification/smtp
 internal/httpserver/scripthttp -> internal/httpjson
 internal/httpserver/scripthttp -> internal/logsan
+internal/httpserver/scripthttp -> internal/platform/scriptdraft
 internal/httpserver/scripthttp -> internal/platform/scriptrun
 internal/httpserver/scripthttp -> pkg/script
+internal/httpserver/scripthttp -> pkg/session
 internal/httpserver/scripthttp -> pkg/textpatch
 internal/httpserver/sources -> pkg/toolkits/gateway/enrichment
 internal/httpserver/unsubhttp -> pkg/notification
@@ -269,6 +274,9 @@ internal/platform/reviewalert -> pkg/script
 internal/platform/reviewalert -> pkg/toolkits/knowledge
 internal/platform/routepolicy -> pkg/middleware
 internal/platform/routepolicy -> pkg/persona
+internal/platform/scriptdraft -> internal/platform/scriptrun
+internal/platform/scriptdraft -> pkg/middleware
+internal/platform/scriptdraft -> pkg/session
 internal/platform/scriptexec -> internal/logsan
 internal/platform/scriptexec -> internal/notification/notifyprefs
 internal/platform/scriptexec -> internal/notification/notifyqueue
@@ -286,6 +294,7 @@ internal/platform/scriptexec -> pkg/session
 internal/platform/scriptexec -> pkg/toolkits/trino
 internal/platform/scriptindex -> pkg/indexjobs
 internal/platform/scriptindex -> pkg/script
+internal/platform/scriptlayer -> internal/platform/scriptdraft
 internal/platform/scriptlayer -> internal/platform/scriptindex
 internal/platform/scriptlayer -> internal/platform/scriptrun
 internal/platform/scriptlayer -> internal/platform/scriptstore

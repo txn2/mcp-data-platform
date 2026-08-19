@@ -241,9 +241,10 @@ func manageScriptSchema() any {
 			keyDescription: "The Starlark source. Call 'help' for the dialect contract and worked examples.",
 		},
 		"params": map[string]any{
-			keyType:        valArray,
-			keyDescription: "Typed parameter contract: {name, type: string|int|float|bool|date|enum, required, default, description, values}.",
-			keyItems:       map[string]any{keyType: valObject},
+			keyType: valArray,
+			keyDescription: "Typed parameter contract: {name, type: string|int|float|bool|date|enum|connection, required, default, description, values}. " +
+				"A connection parameter takes the name of a platform connection; the surfaces that ask for one offer the set this script may reach.",
+			keyItems: map[string]any{keyType: valObject},
 		},
 		"scope": map[string]any{
 			keyType: valString, keyEnum: []string{script.ScopeGlobal, script.ScopePersona, script.ScopePersonal},

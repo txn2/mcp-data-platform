@@ -51,6 +51,11 @@ type PortalIdentity struct {
 	// author held, which is what keeps approval from being a way to hand a
 	// script more access than the person who wrote it.
 	Roles []string
+	// AuthType is HOW this caller was authenticated. It matters because the
+	// dry-run route opens a session on their behalf (#1364): that session must
+	// present the authentication the request actually arrived with rather than
+	// a kind no authenticator issues.
+	AuthType string
 }
 
 // owner is the identity a script's owner is compared against: the caller's
@@ -104,6 +109,16 @@ func (h *Handler) RegisterPortal(mux *http.ServeMux, wrap func(http.Handler) htt
 	// Editing the code is the owner's, and it crosses the same review gate the
 	// tool crosses: an approved script's edit becomes a draft (#1307).
 	mux.Handle("PUT /api/v1/portal/scripts/{id}/source", wrap(h.portalHandler(h.portalSetSource)))
+	// Checking an edit before asking anyone to approve it (#1364). Validating
+	// parses and reports; it executes nothing, needs no collaborator, and is
+	// therefore always available where the editor is.
+	mux.Handle("POST /api/v1/portal/scripts/{id}/validate", wrap(h.portalHandler(h.portalValidateSource)))
+	if h.deps.Drafts != nil {
+		mux.Handle("POST /api/v1/portal/scripts/{id}/dry-run", wrap(h.portalHandler(h.portalDryRunSource)))
+	}
+	if h.deps.Connections != nil {
+		mux.Handle("GET /api/v1/portal/scripts/{id}/connections", wrap(h.portalHandler(h.portalScriptConnections)))
+	}
 	if h.deps.Schedules != nil {
 		h.registerPortalSchedules(mux, wrap)
 	}
@@ -112,6 +127,9 @@ func (h *Handler) RegisterPortal(mux *http.ServeMux, wrap func(http.Handler) htt
 	}
 	mux.Handle("GET /api/v1/portal/scripts/{id}/runs", wrap(h.portalHandler(h.portalListRuns)))
 	mux.Handle("GET /api/v1/portal/scripts/{id}/runs/{runID}", wrap(h.portalHandler(h.portalGetRun)))
+	// Running one now (#1363). It is mounted with the history because it is the
+	// same store: what a run IS and what a run DID are one record.
+	mux.Handle("POST /api/v1/portal/scripts/{id}/runs", wrap(h.portalHandler(h.portalRunScript)))
 }
 
 // portalHandler adapts a portal handler by resolving the caller first,
@@ -336,6 +354,14 @@ type portalScriptResponse struct {
 	// contract document deliberately does not carry it, because that document
 	// is served to everyone the scope rules admit.
 	Source string `json:"source,omitempty"`
+	// DraftParams is the LIVE record's parameter contract, which is not always
+	// the contract above: that one is the APPROVED version's, because that is
+	// what a run binds against. A draft run binds against this one, because a
+	// draft is the code that does not match the approved version yet (#1364),
+	// and a form built from the wrong one would offer parameters the dry run
+	// then refuses. It travels with the source for the same audience and for
+	// the same reason.
+	DraftParams []script.Param `json:"draft_params,omitempty"`
 }
 
 // portalGetScript returns one script's contract.
@@ -365,25 +391,28 @@ func (h *Handler) portalGetScript(w http.ResponseWriter, r *http.Request, user *
 		return
 	}
 	owned := user.IsAdmin || ownsEmail(contract.OwnerEmail, user.owner())
+	source, draftParams := h.liveRecord(r, contract.ID, owned)
 	httpjson.WriteJSON(w, http.StatusOK, portalScriptResponse{
-		Contract: *contract,
-		Owned:    owned,
-		Source:   h.liveSource(r, contract.ID, owned),
+		Contract:    *contract,
+		Owned:       owned,
+		Source:      source,
+		DraftParams: draftParams,
 	})
 }
 
-// liveSource is the code the script would run if it were approved today, read
-// for the owner alone. A read that fails leaves the editor closed rather than
-// failing the whole page: the contract above it is still worth showing.
-func (h *Handler) liveSource(r *http.Request, id string, owned bool) string {
+// liveRecord is what the script would run if it were approved today — its code
+// and the parameter contract that code was written against — read for the owner
+// alone. A read that fails leaves the editor closed rather than failing the
+// whole page: the contract above it is still worth showing.
+func (h *Handler) liveRecord(r *http.Request, id string, owned bool) (string, []script.Param) {
 	if !owned {
-		return ""
+		return "", nil
 	}
 	sc, err := h.deps.Scripts.GetByID(r.Context(), id)
 	if err != nil || sc == nil {
-		return ""
+		return "", nil
 	}
-	return sc.Source
+	return sc.Source, sc.Params
 }
 
 // portalListVersions returns an owned script's version history.

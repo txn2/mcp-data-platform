@@ -14,13 +14,16 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/datahubapi"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/gatewayhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/httpauth"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp"
 	"github.com/txn2/mcp-data-platform/internal/platform/callrecord"
+	"github.com/txn2/mcp-data-platform/internal/platform/connscope"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
 	"github.com/txn2/mcp-data-platform/internal/platform/reviewalert"
 	"github.com/txn2/mcp-data-platform/internal/platform/sessionview"
 	"github.com/txn2/mcp-data-platform/internal/ui"
 	"github.com/txn2/mcp-data-platform/pkg/admin"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
+	"github.com/txn2/mcp-data-platform/pkg/connview"
 	"github.com/txn2/mcp-data-platform/pkg/knowledge"
 	"github.com/txn2/mcp-data-platform/pkg/observability/proxy"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
@@ -488,6 +491,55 @@ func buildPersonaResolver(pr *persona.Registry, tr *registry.Registry) portal.Pe
 		}
 		return info
 	}
+}
+
+// scriptConnectionEnumerator resolves the connections one portal caller may
+// reach, which a connection-typed script parameter is chosen from (#1361).
+//
+// It is the same enumeration list_connections serves and it applies the same
+// persona predicate (connscope), so the values a form offers and the values a
+// tool call is allowed to name are one set. An administrator is enumerated
+// unrestricted, which is what the admin surface already gives them everywhere
+// else.
+//
+// A nil toolkit registry yields a nil enumerator, which leaves the choices
+// route unmounted rather than serving an empty set a form would render as
+// "this script may reach nothing".
+func scriptConnectionEnumerator(tr *registry.Registry, pr *persona.Registry) scripthttp.ConnectionEnumerator {
+	if tr == nil {
+		return nil
+	}
+	scope := connscope.New(connscope.Deps{Registry: pr})
+	return func(ctx context.Context, caller scripthttp.ConnectionScope) []scripthttp.ConnectionChoice {
+		var permit connview.Permit
+		if !caller.Unrestricted {
+			permit = func(_, name string) bool { return scope.AllowConnection(caller.Persona, name) }
+		}
+		// The knowledge-page enrichment is deliberately not asked for: a picker
+		// needs a name and a sentence, and one reverse lookup per connection is
+		// a cost the list_connections tool pays for a different purpose.
+		out := connview.Build(ctx, tr.All(), nil, nil, permit)
+		choices := make([]scripthttp.ConnectionChoice, 0, len(out.Connections))
+		for _, c := range out.Connections {
+			choices = append(choices, scripthttp.ConnectionChoice{
+				Name: connectionValue(c), Kind: c.Kind, Description: c.Description,
+			})
+		}
+		return choices
+	}
+}
+
+// connectionValue is the name a run actually binds, which is not always the
+// name the enumeration leads with: a single-connection toolkit's entry carries
+// its INSTANCE name in Name and its connection name in Connection, and the
+// connection name is what a persona's rules match and what a script's grant
+// lists. Offering the instance name would produce a picker whose every value
+// the run then refuses.
+func connectionValue(entry connview.Entry) string {
+	if entry.Connection != "" {
+		return entry.Connection
+	}
+	return entry.Name
 }
 
 // portalAuthChain composes the portal's authentication and persona

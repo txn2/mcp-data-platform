@@ -19,6 +19,7 @@ package scripthttp
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -49,6 +50,22 @@ type Deps struct {
 	// LatestRuns reports each script's most recent run for the portal listing.
 	// Nil leaves the listing's last-run column empty rather than unmounting it.
 	LatestRuns LatestRunReader
+
+	// DryRuns records and resolves the accounts of draft executions (#1364).
+	// Nil runs drafts without keeping an account of them, which leaves every
+	// version reading as one nobody dry-ran — the state before the account
+	// existed — rather than failing the run.
+	DryRuns script.DryRunStore
+
+	// Drafts executes a draft under the calling person's own identity. Nil
+	// leaves the dry-run route unmounted; validate needs nothing but the
+	// source and stays either way.
+	Drafts DraftRunner
+
+	// Connections enumerates the connections the portal caller's own persona
+	// reaches, which a connection-typed parameter is chosen from (#1361). Nil
+	// leaves the choices route unmounted.
+	Connections ConnectionEnumerator
 
 	// AdminEmail returns the authenticated administrator's email, which is
 	// stamped on the approval.
@@ -193,6 +210,12 @@ type versionReviewResponse struct {
 	// script has never had a version approved, which is what makes this a first
 	// approval rather than a change to something already running.
 	Approved *approvedBaseline `json:"approved,omitempty"`
+	// DryRun is the account of somebody having executed this exact source, and
+	// what it did (#1364). It is absent when nobody has, which is a fact a
+	// reviewer should have: approving is agreeing to run code unattended, and
+	// "the author never ran this" is the single most useful thing to know
+	// before doing so.
+	DryRun *script.DryRun `json:"dry_run,omitempty"`
 }
 
 // referenced is the static read of a version's source.
@@ -246,7 +269,28 @@ func (h *Handler) getVersion(w http.ResponseWriter, r *http.Request) {
 		MissingConnections:  missing.Connections,
 		MissingDestinations: missing.Destinations,
 		Findings:            report.Findings,
+		DryRun:              h.dryRunFor(r, sc.ID, v.Source),
 	})
+}
+
+// dryRunFor is the account of this exact source having been executed, or nil
+// when there is none.
+//
+// A read that fails yields nil rather than failing the review page: the
+// account is a decoration on a decision the rest of this payload supports, and
+// "we could not check" and "nobody ran it" are close enough in consequence that
+// blocking the reviewer over the difference would be the worse trade. The
+// difference is recorded in the log.
+func (h *Handler) dryRunFor(r *http.Request, scriptID, source string) *script.DryRun {
+	if h.deps.DryRuns == nil {
+		return nil
+	}
+	d, err := h.deps.DryRuns.LatestDryRun(r.Context(), scriptID, script.SourceDigest(source))
+	if err != nil {
+		slog.Error("failed to read a script dry-run account", "error", err)
+		return nil
+	}
+	return d
 }
 
 // approveRequest is the grant a reviewer binds to a version.

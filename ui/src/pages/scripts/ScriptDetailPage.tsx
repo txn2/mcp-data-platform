@@ -1,6 +1,6 @@
 import { FileCode2 } from "lucide-react";
 import { useScriptContract } from "@/api/portal/hooks/scripts";
-import type { ScriptContract } from "@/api/portal/hooks/scripts";
+import type { ScriptContract, ScriptParam } from "@/api/portal/hooks/scripts";
 import { PageHeader } from "@/components/patterns/PageHeader";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -15,15 +15,18 @@ import {
 } from "@/components/ui/table";
 import { executionState, formatWhen } from "./runFormat";
 import { ScriptRunHistory } from "./ScriptRunHistory";
+import { ScriptRunPanel } from "./ScriptRunPanel";
 import { ScriptScheduleEditor } from "./ScriptScheduleEditor";
 import { ScriptSourceEditor } from "./ScriptSourceEditor";
 import { ScriptVersionHistory } from "./ScriptVersionHistory";
 
 // ScriptDetailPage is one script in full: what it is and what it takes, what
 // will execute it, on what cadence, and — for its owner — everything it has run
-// (#1290), plus the two things the owner changes here (#1307): the code, which
-// an edit sends back through review, and the cadence, which carries no
-// authority at all.
+// (#1290), plus what the owner does here. They run it now (#1363), which is the
+// same run the schedule produces; they change the code, which an edit sends
+// back through review (#1307), after checking it against the interpreter and
+// running it once as themselves (#1364); and they change the cadence, which
+// carries no authority at all.
 //
 // The top of the page is the contract document, the same one a reference to
 // this script resolves to for an agent. There is deliberately not a second
@@ -90,6 +93,7 @@ export function ScriptDetailPage({ scriptId, onBack, onNavigate }: Props) {
           scriptId={scriptId}
           contract={contract}
           source={source ?? ""}
+          draftParams={draftParamsOf(data)}
           onNavigate={onNavigate}
         />
       ) : (
@@ -103,24 +107,49 @@ export function ScriptDetailPage({ scriptId, onBack, onNavigate }: Props) {
   );
 }
 
-// OwnerSections is everything the contract does not say out loud: the cadence
-// the owner sets, the code behind the execution gate, and what the automation
-// has actually been doing. All three are the owner's and the administrators',
-// and they appear or are absent together.
+// draftParamsOf is the contract a dry run binds against: the LIVE record's,
+// which the detail route serves to the owner beside the source. It falls back
+// to the contract's own parameters for a deployment that predates the field —
+// the two agree except on a script whose approved version and live record carry
+// different parameter contracts, which is what the field exists for.
+function draftParamsOf(data: {
+  contract: ScriptContract;
+  draft_params?: ScriptParam[];
+}): ScriptParam[] {
+  return data.draft_params ?? data.contract.params ?? [];
+}
+
+// OwnerSections is everything the contract does not say out loud: the run the
+// owner asks for now, the cadence they set, the code behind the execution gate,
+// and what the automation has actually been doing. All four are the owner's and
+// the administrators', and they appear or are absent together.
+//
+// Running comes first because it is what somebody opening their own automation
+// most often came to do; the code and the cadence are what they change when it
+// is not doing what they wanted.
 function OwnerSections({
   scriptId,
   contract,
   source,
+  draftParams,
   onNavigate,
 }: {
   scriptId: string;
   contract: ScriptContract;
   source: string;
+  /** The live record's parameter contract, which is what a dry run binds. */
+  draftParams: ScriptParam[];
   onNavigate: (path: string) => void;
 }) {
   return (
     <>
-      <ScriptSourceEditor scriptId={scriptId} contract={contract} source={source} />
+      <ScriptRunPanel scriptId={scriptId} contract={contract} />
+      <ScriptSourceEditor
+        scriptId={scriptId}
+        contract={contract}
+        source={source}
+        draftParams={draftParams}
+      />
       <ScriptScheduleEditor scriptId={scriptId} contract={contract} />
       <ScriptVersionHistory scriptId={scriptId} contract={contract} />
       <ScriptRunHistory scriptId={scriptId} onNavigate={onNavigate} />
