@@ -14,10 +14,8 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/postgres"
-	"github.com/testcontainers/testcontainers-go/wait"
 
+	"github.com/txn2/mcp-data-platform/internal/testdb"
 	"github.com/txn2/mcp-data-platform/pkg/admin"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
@@ -45,25 +43,15 @@ func TestEmbeddingNoop_EndToEnd_RealDB(t *testing.T) {
 
 	ctx := context.Background()
 
-	// pgvector/pgvector:pg16 is required so migration 000044's
-	// `CREATE EXTENSION vector` succeeds. The base postgres:16-alpine
-	// image other integration tests use does not carry the extension.
-	pgContainer, err := postgres.Run(ctx,
-		"pgvector/pgvector:pg16",
-		postgres.WithDatabase("testdb"),
-		postgres.WithUsername("test"),
-		postgres.WithPassword("test"),
-		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").
-				WithOccurrence(2).
-				WithStartupTimeout(5*time.Minute),
-		),
-	)
-	require.NoError(t, err, "start postgres container")
-	defer func() { _ = pgContainer.Terminate(ctx) }()
-
-	dsn, err := pgContainer.ConnectionString(ctx, "sslmode=disable")
-	require.NoError(t, err)
+	// The shared harness rather than a container of this test's own. It carries
+	// the pgvector image migration 000044's `CREATE EXTENSION vector` needs, and
+	// under `make test-realdb` it clones the already-migrated template on the one
+	// server the whole gate shares, so this test starts no container and needs no
+	// testcontainers reaper. Starting its own made it the only test in the gate
+	// whose success depended on the reaper coming up inside its 60-second wait,
+	// which is a dependency the rest of the gate does not have and which failed
+	// on CI while every assertion below was fine.
+	_, dsn := testdb.NewWithDSN(t)
 
 	// Build a Platform with DB but NO memory.embedding block. The
 	// initMemory default branch picks the noop placeholder; the WARN
