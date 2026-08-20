@@ -8,11 +8,14 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/platform/connsource"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/connreconcile"
+	"github.com/txn2/mcp-data-platform/pkg/connview"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/platform/fieldcrypt"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
@@ -305,9 +308,14 @@ func (h *Handler) deleteConnectionInstance(w http.ResponseWriter, r *http.Reques
 	// Hot-remove: if the toolkit supports dynamic connections, remove it live.
 	h.hotRemoveConnection(kind, name)
 
-	// Update the connection source map.
+	// Update the connection source map, under the name it was filed by, and
+	// put back whatever the running configuration still says about the
+	// connection: deleting a stored override must not leave a connection its
+	// toolkit still serves with no mapping at all until the next restart.
 	if h.deps.ConnectionSources != nil {
-		h.deps.ConnectionSources.Remove(kind, name)
+		bound := h.connectionBindingName(kind, name)
+		h.deps.ConnectionSources.Remove(kind, bound)
+		h.seedConfiguredSource(kind, bound)
 	}
 
 	if hadToken {
@@ -695,11 +703,60 @@ func nestedMapHasRedacted(raw any) bool {
 
 // activateConnection hot-adds the connection to its toolkit and updates the
 // connection source map. Extracted to reduce setConnectionInstance complexity.
+//
+// The entry is filed under the name a call binds, which is the stored instance
+// name unless a live single-connection toolkit renames it with a
+// connection_name; filing it under the instance would leave the operator's
+// mapping unreachable by every lookup. The configured entry is seeded first so
+// the overlay lands on what the running configuration states rather than on the
+// previous save: without that a new connection would carry a kind default
+// instead of the deployment's urn_mapping, and a field the operator cleared
+// would keep answering with the value they deleted (#1396).
 func (h *Handler) activateConnection(inst platform.ConnectionInstance) {
 	h.hotAddConnection(inst.Kind, inst.Name, inst.Config)
-	if h.deps.ConnectionSources != nil {
-		h.deps.ConnectionSources.Add(platform.ConnectionSourceFromInstance(inst))
+	if h.deps.ConnectionSources == nil {
+		return
 	}
+	bound := h.connectionBindingName(inst.Kind, inst.Name)
+	h.seedConfiguredSource(inst.Kind, bound)
+	src := platform.ConnectionSourceFromInstance(inst)
+	src.Name = bound
+	h.deps.ConnectionSources.Overlay(src)
+}
+
+// seedConfiguredSource files the entry the running configuration derives for a
+// connection: the base an overlay lands on, and what a deleted stored override
+// falls back to. A connection no live toolkit serves contributes nothing, which
+// is what leaving it unmapped means — for a kind that supports hot-remove, a
+// deleted connection is already gone from its toolkit by the time this runs.
+func (h *Handler) seedConfiguredSource(kind, connection string) {
+	if h.deps.ToolkitRegistry == nil {
+		return
+	}
+	// A deployment with no config block maps nothing, which is the zero value.
+	// Bailing out instead would skip the seed entirely and leave an overlay
+	// landing on the previous save, so a cleared field could never clear.
+	var mapping platform.URNMappingConfig
+	if h.deps.Config != nil {
+		mapping = h.deps.Config.Semantic.URNMapping
+	}
+	for _, tk := range h.deps.ToolkitRegistry.All() {
+		if tk.Kind() != kind || !slices.Contains(connview.ConnectionNames(tk), connection) {
+			continue
+		}
+		h.deps.ConnectionSources.Seed(connsource.RegistryEntries(
+			kind, []string{connection}, mapping.Platform, mapping.CatalogMapping))
+		return
+	}
+}
+
+// connectionBindingName resolves a stored instance name to the name a call
+// binds it by. A nil registry leaves the instance name unchanged.
+func (h *Handler) connectionBindingName(kind, instance string) string {
+	if h.deps.ToolkitRegistry == nil {
+		return instance
+	}
+	return connview.BindingName(h.deps.ToolkitRegistry.All(), kind, instance)
 }
 
 // findConnectionManager returns the ConnectionManager for the given toolkit kind,

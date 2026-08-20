@@ -767,7 +767,6 @@ toolkits:
         default_limit: 1000
         max_limit: 10000
         read_only: false
-        connection_name: primary
     default: primary
 ```
 
@@ -785,7 +784,7 @@ toolkits:
 | `default_limit` | int | `1000` | Default row limit for queries |
 | `max_limit` | int | `10000` | Maximum allowed row limit |
 | `read_only` | bool | `false` | Reject write SQL on this connection. Set per instance: the other instances of the same toolkit are unaffected, and a call that omits `connection` is judged by the default instance's setting |
-| `connection_name` | string | instance name | Display name for this connection |
+| `connection_name` | string | - | No effect; accepted for compatibility and warned about at startup. Trino routes by the `instances:` key, so that key is the name `list_connections` advertises, a `connection` parameter carries, an audit row records and a persona rule matches. See [Connection Names](multi-provider.md#connection-names) |
 | `descriptions` | map | `{}` | Override tool descriptions for this instance (key: tool name, value: description text) |
 
 `read_only` became per connection in #1269. Before that it was read from the
@@ -828,7 +827,7 @@ toolkits:
 | `default_limit` | int | `10` | Default search result limit |
 | `max_limit` | int | `100` | Maximum search result limit |
 | `max_lineage_depth` | int | `5` | Maximum lineage traversal depth |
-| `connection_name` | string | instance name | Display name for this connection |
+| `connection_name` | string | instance name | The name a call binds this connection by: what an audit row records, what a persona's `connections.allow` / `connections.deny` rules match, and what the semantic layer resolves its platform and catalog mapping through. See [Connection Names](multi-provider.md#connection-names) |
 | `read_only` | bool | `false` | Restrict to read operations (disables write tools) |
 | `descriptions` | map | `{}` | Override tool descriptions for this instance (key: tool name, value: description text) |
 
@@ -873,7 +872,7 @@ toolkits:
 | `read_only` | bool | `false` | Restrict to read operations |
 | `max_get_size` | int64 | `10485760` | Max bytes to read from objects |
 | `max_put_size` | int64 | `104857600` | Max bytes to write to objects |
-| `connection_name` | string | instance name | Display name for this connection |
+| `connection_name` | string | instance name | The name a call binds this connection by: what an audit row records, what a persona's `connections.allow` / `connections.deny` rules match, and what the semantic layer resolves its platform and catalog mapping through. See [Connection Names](multi-provider.md#connection-names) |
 | `bucket_prefix` | string | - | Only show buckets with this prefix |
 | `descriptions` | map | `{}` | Override tool descriptions for this instance (key: tool name, value: description text) |
 

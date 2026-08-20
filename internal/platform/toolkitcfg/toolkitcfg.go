@@ -50,18 +50,23 @@ type DataHub struct {
 
 // Trino holds extracted Trino configuration.
 type Trino struct {
-	Host           string
-	Port           int
-	User           string
-	Password       string // #nosec G117 -- Trino connection credential from admin config
-	Catalog        string
-	Schema         string
-	SSL            bool
-	SSLVerify      bool
-	Timeout        time.Duration
-	DefaultLimit   int
-	MaxLimit       int
-	ReadOnly       bool
+	Host         string
+	Port         int
+	User         string
+	Password     string // #nosec G117 -- Trino connection credential from admin config
+	Catalog      string
+	Schema       string
+	SSL          bool
+	SSLVerify    bool
+	Timeout      time.Duration
+	DefaultLimit int
+	MaxLimit     int
+	ReadOnly     bool
+	// ConnectionName is the name a call binds this connection by: the resolved
+	// `instances:` key, which is what the Trino toolkit routes on. The query
+	// provider stamps it onto every availability answer, so it is the name an
+	// agent is told to pass as `connection` — a label the router does not know
+	// would send the agent to a connection that refuses it (#1396).
 	ConnectionName string
 }
 
@@ -218,8 +223,14 @@ func DataHubConfig(toolkits map[string]any, instance string) *DataHub {
 
 // TrinoConfig extracts Trino configuration for the named instance (or the
 // default instance when instance is ""). Returns nil if not configured.
+//
+// ConnectionName is the resolved instance name rather than the instance's
+// `connection_name`: Trino routes by instance, so that key is the name a
+// `connection` argument carries and a persona rule matches, and it is what the
+// toolkit reports as its connection. Reading `connection_name` here published a
+// name no call could bind, and reading nothing published an empty one (#1396).
 func TrinoConfig(toolkits map[string]any, instance string) *Trino {
-	instanceCfg := InstanceConfig(toolkits, kindTrino, instance)
+	instanceCfg, resolved := resolveInstance(toolkits, kindTrino, instance)
 	if instanceCfg == nil {
 		return nil
 	}
@@ -237,7 +248,7 @@ func TrinoConfig(toolkits map[string]any, instance string) *Trino {
 		DefaultLimit:   cfgmap.Int(instanceCfg, "default_limit", DefaultTrinoQueryLimit),
 		MaxLimit:       cfgmap.Int(instanceCfg, "max_limit", DefaultTrinoMaxLimit),
 		ReadOnly:       cfgmap.Bool(instanceCfg, "read_only"),
-		ConnectionName: cfgmap.String(instanceCfg, "connection_name"),
+		ConnectionName: resolved,
 	}
 }
 

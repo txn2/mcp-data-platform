@@ -1220,3 +1220,174 @@ func TestSetConnectionInstance_APICatalogValidation(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 	})
 }
+
+// TestActivateConnectionFilesSourceUnderBoundName covers the runtime half of
+// #1396: a stored connection is keyed by the toolkit instance it configures,
+// while every lookup asks by the name a call binds. When a live
+// single-connection toolkit renames it with a connection_name, filing the
+// operator's mapping under the instance leaves it unreachable.
+func TestActivateConnectionFilesSourceUnderBoundName(t *testing.T) {
+	reg := &mockToolkitRegistry{allResult: []mockToolkit{
+		{kind: "s3", name: "data_lake", connection: "Data Lake"},
+		{kind: "datahub", name: "primary"},
+	}}
+	sources := platform.NewConnectionSourceMap()
+	h := NewHandler(Deps{ToolkitRegistry: reg, ConnectionSources: sources}, nil)
+
+	h.activateConnection(platform.ConnectionInstance{
+		Kind:   "s3",
+		Name:   "data_lake",
+		Config: map[string]any{"datahub_source_name": "minio"},
+	})
+
+	src := sources.ForConnection("s3", "Data Lake")
+	require.NotNil(t, src, "the stored mapping answers the name a call binds")
+	assert.Equal(t, "minio", src.DataHubSourceName)
+	assert.Nil(t, sources.ForConnection("s3", "data_lake"),
+		"the instance key is not a second entry for the same connection")
+
+	// A toolkit that carries no connection_name keeps its instance name.
+	h.activateConnection(platform.ConnectionInstance{
+		Kind: "datahub", Name: "primary", Config: map[string]any{"datahub_source_name": "dh"},
+	})
+	dh := sources.ForConnection("datahub", "primary")
+	require.NotNil(t, dh)
+	assert.Equal(t, "dh", dh.DataHubSourceName)
+
+	// Saving the same connection with the key removed clears it, rather than
+	// overlaying onto the previous save and answering with a deleted value.
+	h.activateConnection(platform.ConnectionInstance{
+		Kind: "datahub", Name: "primary", Config: map[string]any{},
+	})
+	cleared := sources.ForConnection("datahub", "primary")
+	require.NotNil(t, cleared)
+	assert.Equal(t, "datahub", cleared.DataHubSourceName,
+		"the cleared field falls back to what the configuration states")
+
+	// And the removal path drops the entry it filed, not a name that was never used.
+	assert.Equal(t, "Data Lake", h.connectionBindingName("s3", "data_lake"))
+	assert.Equal(t, "unclaimed", h.connectionBindingName("s3", "unclaimed"),
+		"an instance no live toolkit claims keeps its own name")
+
+	noReg := NewHandler(Deps{ConnectionSources: sources}, nil)
+	assert.Equal(t, "data_lake", noReg.connectionBindingName("s3", "data_lake"),
+		"a handler with no registry cannot translate, so it leaves the name alone")
+}
+
+// TestSeedConfiguredSource covers what a deleted override falls back to: the
+// mapping the running configuration still supplies for a connection the file
+// configures, rather than no mapping at all until the next restart.
+func TestSeedConfiguredSource(t *testing.T) {
+	reg := &mockToolkitRegistry{rawToolkits: []registry.Toolkit{
+		mockToolkit{kind: "s3", name: "data_lake", connection: "Data Lake"},
+		mockMultiConnectionToolkit{
+			mockToolkit: mockToolkit{kind: "trino", name: "warehouse", connection: "warehouse"},
+			connections: []toolkit.ConnectionDetail{{Name: "warehouse"}},
+		},
+	}}
+	cfg := &platform.Config{}
+	cfg.Semantic.URNMapping = platform.URNMappingConfig{
+		Platform:       "hive",
+		CatalogMapping: map[string]string{"rdbms": "postgres"},
+	}
+	sources := platform.NewConnectionSourceMap()
+	h := NewHandler(Deps{ToolkitRegistry: reg, ConnectionSources: sources, Config: cfg}, nil)
+
+	h.seedConfiguredSource("s3", "Data Lake")
+	s3src := sources.ForConnection("s3", "Data Lake")
+	require.NotNil(t, s3src, "a connection the toolkit still serves keeps a mapping")
+	assert.Equal(t, "s3", s3src.DataHubSourceName)
+
+	h.seedConfiguredSource("trino", "warehouse")
+	trinoSrc := sources.ForConnection("trino", "warehouse")
+	require.NotNil(t, trinoSrc)
+	assert.Equal(t, "hive", trinoSrc.DataHubSourceName, "the deployment's urn_mapping is restored, not a kind default")
+	assert.Equal(t, "postgres", trinoSrc.CatalogMapping["rdbms"])
+
+	h.seedConfiguredSource("s3", "gone")
+	assert.Nil(t, sources.ForConnection("s3", "gone"),
+		"a connection no live toolkit serves stays unmapped")
+
+	// A connection added at runtime carries the deployment's urn_mapping, not a
+	// kind default: activateConnection seeds the configured entry before the
+	// stored override lands on it.
+	added := NewHandler(Deps{ToolkitRegistry: reg, ConnectionSources: sources, Config: cfg}, nil)
+	added.activateConnection(platform.ConnectionInstance{
+		Kind: "trino", Name: "warehouse", Config: map[string]any{},
+	})
+	runtimeSrc := sources.ForConnection("trino", "warehouse")
+	require.NotNil(t, runtimeSrc)
+	assert.Equal(t, "hive", runtimeSrc.DataHubSourceName)
+	assert.Equal(t, "postgres", runtimeSrc.CatalogMapping["rdbms"])
+
+	// Missing wiring is a no-op, never a panic.
+	NewHandler(Deps{ConnectionSources: sources}, nil).seedConfiguredSource("s3", "Data Lake")
+	NewHandler(Deps{ToolkitRegistry: reg, ConnectionSources: sources}, nil).seedConfiguredSource("s3", "Data Lake")
+	if got := sources.ForConnection("s3", "Data Lake"); got == nil || got.DataHubSourceName != "s3" {
+		t.Errorf("a nil Config maps nothing rather than skipping the seed: %+v", got)
+	}
+}
+
+// TestDeleteConnectionInstanceRefilesConfiguredSource drives the real DELETE
+// endpoint rather than the source-map helpers alone, so the three steps the
+// handler strings together are proven to run in order: resolve the bound name,
+// drop the stored entry, and put back what the running configuration still
+// states for a connection its toolkit continues to serve (#1396).
+func TestDeleteConnectionInstanceRefilesConfiguredSource(t *testing.T) {
+	reg := &mockToolkitRegistry{allResult: []mockToolkit{
+		{kind: "s3", name: "data_lake", connection: "Data Lake"},
+	}}
+	sources := platform.NewConnectionSourceMap()
+	// What the operator's override left in the map before the delete.
+	sources.Add(platform.ConnectionSource{
+		Kind: "s3", Name: "Data Lake", DataHubSourceName: "minio",
+	})
+
+	h := NewHandler(Deps{
+		Config:            testConfig(),
+		ConnectionStore:   &mockConnectionStore{},
+		ConfigStore:       &mockConfigStore{mode: "database"},
+		ToolkitRegistry:   reg,
+		ConnectionSources: sources,
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete,
+		"/api/v1/admin/connection-instances/s3/data_lake", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d %s", w.Code, w.Body.String())
+	}
+
+	src := sources.ForConnection("s3", "Data Lake")
+	require.NotNil(t, src, "the connection its toolkit still serves keeps a mapping")
+	assert.Equal(t, "s3", src.DataHubSourceName,
+		"the deleted override gives way to what the configuration states")
+}
+
+// TestDeleteConnectionInstanceLeavesAnAbsentConnectionUnmapped covers the other
+// outcome of the same block: a connection no live toolkit serves is left with
+// no entry, rather than one no configuration states.
+func TestDeleteConnectionInstanceLeavesAnAbsentConnectionUnmapped(t *testing.T) {
+	sources := platform.NewConnectionSourceMap()
+	sources.Add(platform.ConnectionSource{Kind: "s3", Name: "gone", DataHubSourceName: "minio"})
+
+	h := NewHandler(Deps{
+		Config:            testConfig(),
+		ConnectionStore:   &mockConnectionStore{},
+		ConfigStore:       &mockConfigStore{mode: "database"},
+		ToolkitRegistry:   &mockToolkitRegistry{},
+		ConnectionSources: sources,
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete,
+		"/api/v1/admin/connection-instances/s3/gone", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d %s", w.Code, w.Body.String())
+	}
+	assert.Nil(t, sources.ForConnection("s3", "gone"))
+}

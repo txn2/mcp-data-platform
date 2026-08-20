@@ -4,6 +4,7 @@ package trino
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -56,18 +57,21 @@ const (
 
 // Config holds Trino toolkit configuration.
 type Config struct {
-	Host           string                      `yaml:"host"`
-	Port           int                         `yaml:"port"`
-	User           string                      `yaml:"user"`
-	Password       string                      `yaml:"password"` // #nosec G117 -- Trino credential from admin YAML config
-	Catalog        string                      `yaml:"catalog"`
-	Schema         string                      `yaml:"schema"`
-	SSL            bool                        `yaml:"ssl"`
-	SSLVerify      bool                        `yaml:"ssl_verify"`
-	Timeout        time.Duration               `yaml:"timeout"`
-	DefaultLimit   int                         `yaml:"default_limit"`
-	MaxLimit       int                         `yaml:"max_limit"`
-	ReadOnly       bool                        `yaml:"read_only"`
+	Host         string        `yaml:"host"`
+	Port         int           `yaml:"port"`
+	User         string        `yaml:"user"`
+	Password     string        `yaml:"password"` // #nosec G117 -- Trino credential from admin YAML config
+	Catalog      string        `yaml:"catalog"`
+	Schema       string        `yaml:"schema"`
+	SSL          bool          `yaml:"ssl"`
+	SSLVerify    bool          `yaml:"ssl_verify"`
+	Timeout      time.Duration `yaml:"timeout"`
+	DefaultLimit int           `yaml:"default_limit"`
+	MaxLimit     int           `yaml:"max_limit"`
+	ReadOnly     bool          `yaml:"read_only"`
+	// ConnectionName is accepted for compatibility and has no effect. The
+	// platform identifies a Trino connection by its instance name, which is
+	// what the manager routes on and what Connection() reports (#1396).
 	ConnectionName string                      `yaml:"connection_name"`
 	Description    string                      `yaml:"description"` // Human-readable description of this connection's purpose
 	Titles         map[string]string           `yaml:"titles"`
@@ -143,6 +147,7 @@ func New(name string, cfg Config) (*Toolkit, error) {
 		return nil, err
 	}
 
+	warnInertConnectionName(name, cfg.ConnectionName)
 	cfg = applyDefaults(name, cfg)
 
 	client, err := createClient(cfg)
@@ -199,6 +204,7 @@ func NewMulti(cfg MultiConfig) (*Toolkit, error) {
 		if err := validateConfig(instCfg); err != nil {
 			return nil, fmt.Errorf("instance %s: %w", name, err)
 		}
+		warnInertConnectionName(name, instCfg.ConnectionName)
 	}
 
 	// Build multiserver config from instance configs.
@@ -230,6 +236,23 @@ func NewMulti(cfg MultiConfig) (*Toolkit, error) {
 	}, opts...)
 
 	return t, nil
+}
+
+// warnInertConnectionName reports a connection_name the platform cannot honor.
+//
+// Connections are deny-by-default, so a persona whose connections.allow lists a
+// Trino instance's connection_name reaches nothing: the name a call binds is the
+// instance name (#1396). Dropping the key silently turns that into a refusal
+// with no stated cause, so it is named here with the value to list instead.
+func warnInertConnectionName(instance, connectionName string) {
+	if connectionName == "" || connectionName == instance {
+		return
+	}
+	slog.Warn("trino connection_name has no effect; the connection is named by its instance",
+		"instance", instance,
+		"connection_name", connectionName,
+		"remedy", "list "+instance+" wherever "+connectionName+" is named, including persona connections rules",
+	)
 }
 
 // buildConnectionRequired creates a ConnectionRequiredMiddleware when multiple
@@ -474,9 +497,18 @@ func (t *Toolkit) Name() string {
 	return t.name
 }
 
-// Connection returns the connection name for audit logging.
+// Connection returns the name a tool call binds when it names none: the
+// identity audit records it under, a persona's connection rules match, and the
+// connection source map is keyed by.
+//
+// That name is the instance name in both modes. The multi-connection manager
+// routes by instance, and this toolkit reports its connections by instance
+// through ListConnections, so config.ConnectionName is a label nothing else in
+// the platform can reach: returning it named a connection no persona rule could
+// match, no `connection` argument could carry, and no source-map lookup could
+// resolve (#1396).
 func (t *Toolkit) Connection() string {
-	return t.config.ConnectionName
+	return t.name
 }
 
 // RegisterTools registers Trino tools with the MCP server.
@@ -529,7 +561,8 @@ func (t *Toolkit) SetQueryProvider(provider query.Provider) {
 // Implements toolkit.ConnectionLister.
 func (t *Toolkit) ListConnections() []toolkit.ConnectionDetail {
 	if t.manager == nil {
-		// Single-client mode: one connection.
+		// Single-client mode: one connection, advertised under the name a call
+		// binds it by, which is what Connection() reports.
 		return []toolkit.ConnectionDetail{{
 			Name:        t.name,
 			Description: t.config.Description,
@@ -558,6 +591,8 @@ func (t *Toolkit) AddConnection(name string, config map[string]any) error {
 	if t.manager == nil {
 		return errors.New("dynamic connections require multi-connection mode")
 	}
+
+	warnInertConnectionName(name, getString(config, "connection_name"))
 
 	conn := multiserver.ConnectionConfig{
 		Host:     getString(config, "host"),

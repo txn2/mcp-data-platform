@@ -21,7 +21,6 @@ toolkits:
         user: analyst
         ssl: true
         catalog: hive
-        connection_name: Production
 
       staging:
         host: trino-staging.example.com
@@ -29,7 +28,6 @@ toolkits:
         user: analyst
         ssl: true
         catalog: hive
-        connection_name: Staging
 
       warehouse:
         host: trino-dw.example.com
@@ -37,7 +35,6 @@ toolkits:
         user: analyst
         ssl: true
         catalog: iceberg
-        connection_name: Data Warehouse
     default: production
 
   datahub:
@@ -71,6 +68,37 @@ toolkits:
     default: data_lake
 ```
 
+## Connection Names
+
+An instance has two names, and which one a caller uses depends on the kind.
+
+The `instances:` key (`primary`, `data_lake`) is the configuration identity. It
+is the name `default:`, `semantic.instance`, `query.instance`,
+`storage.instance`, `knowledge.apply.datahub_connection` and
+`resources.managed.s3_connection` resolve, and the name a knowledge page cites a
+connection by (`mcp:connection:(datahub,primary)`).
+
+`connection_name` renames the connection for callers of the DataHub and S3
+kinds: it is what an audit row records, what a persona's `connections.allow` /
+`connections.deny` rules match, and the connection the semantic layer resolves a
+dataset's platform and catalog mapping through. Set it to give a connection a
+readable name; leave it out and the instance key is used for all of these.
+
+Trino is different: it routes by the `instances:` key, so that key is the name
+`list_connections` advertises, the name a `connection` parameter carries, and
+the connection's identity everywhere else — in audit rows, in persona rules and
+in the semantic layer. A `connection_name` on a Trino instance has no effect,
+and the server logs a warning at startup naming the instance and the value to
+use in its place.
+
+Before #1396, an unqualified Trino call — one that passes no `connection` — was
+recorded and authorized under the instance's `connection_name` instead, a name
+`list_connections` never advertised and a `connection` parameter could never
+carry. A deployment that set `connection_name` on a Trino instance and listed
+that name in a persona's `connections.allow` must list the `instances:` key
+there instead; without the change the same persona could not authorize a call
+that named the connection explicitly.
+
 ## Using Connections in Tools
 
 Every tool accepts a `connection` parameter to specify which instance to use:
@@ -85,11 +113,10 @@ Tool call: `trino_query` with:
 
 ## Listing Available Connections
 
-Use the `*_list_connections` tools to see configured instances:
-
-- `trino_list_connections` - Lists all Trino connections
-- `datahub_list_connections` - Lists all DataHub connections
-- `s3_list_connections` - Lists all S3 connections
+`list_connections` enumerates every connection across every kind, narrowed to
+the ones the caller's persona is granted. It replaces the per-toolkit
+`trino_list_connections`, `datahub_list_connections` and `s3_list_connections`
+tools, which the platform does not register.
 
 **Example response:**
 
@@ -97,20 +124,28 @@ Use the `*_list_connections` tools to see configured instances:
 {
   "connections": [
     {
+      "kind": "trino",
       "name": "production",
-      "display_name": "Production",
-      "host": "trino-prod.example.com",
-      "catalog": "hive"
+      "connection": "production",
+      "reference": "mcp:connection:(trino,production)",
+      "is_default": true,
+      "datahub_source_name": "trino"
     },
     {
-      "name": "staging",
-      "display_name": "Staging",
-      "host": "trino-staging.example.com",
-      "catalog": "hive"
+      "kind": "s3",
+      "name": "data_lake",
+      "connection": "Data Lake",
+      "reference": "mcp:connection:(s3,data_lake)",
+      "datahub_source_name": "s3"
     }
-  ]
+  ],
+  "count": 2
 }
 ```
+
+`connection` is the value to pass as a tool's `connection` parameter;
+`reference` is the citation a knowledge page uses, which keys on the
+`instances:` name.
 
 ## Default Connection
 

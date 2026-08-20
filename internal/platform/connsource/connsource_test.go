@@ -1,6 +1,10 @@
 package connsource
 
-import "testing"
+import (
+	"strconv"
+	"sync"
+	"testing"
+)
 
 func TestPlatformFromURN(t *testing.T) {
 	tests := []struct {
@@ -83,5 +87,180 @@ func TestMap_SharedNameResolvesByKind(t *testing.T) {
 					kind, src.DataHubSourceName, kind)
 			}
 		}
+	}
+}
+
+func TestOverlay(t *testing.T) {
+	t.Run("a stored row that states nothing leaves the configured mapping standing", func(t *testing.T) {
+		m := NewMap()
+		m.Add(Source{
+			Kind: "trino", Name: "warehouse", DataHubSourceName: "hive",
+			CatalogMapping: map[string]string{"rdbms": "postgres"}, Description: "from file",
+		})
+
+		m.Overlay(Source{Kind: "trino", Name: "warehouse"})
+
+		got := m.ForConnection("trino", "warehouse")
+		if got == nil || got.DataHubSourceName != "hive" {
+			t.Fatalf("DataHubSourceName = %+v, want hive", got)
+		}
+		if got.CatalogMapping["rdbms"] != "postgres" {
+			t.Errorf("CatalogMapping = %v", got.CatalogMapping)
+		}
+		if got.Description != "from file" {
+			t.Errorf("Description = %q", got.Description)
+		}
+	})
+
+	t.Run("a stored row that states a mapping overrides field by field", func(t *testing.T) {
+		m := NewMap()
+		m.Add(Source{
+			Kind: "trino", Name: "warehouse", DataHubSourceName: "hive",
+			CatalogMapping: map[string]string{"rdbms": "postgres"}, Description: "from file",
+		})
+
+		m.Overlay(Source{
+			Kind: "trino", Name: "warehouse", DataHubSourceName: "postgres",
+			Description: "from admin",
+		})
+
+		got := m.ForConnection("trino", "warehouse")
+		if got.DataHubSourceName != "postgres" || got.Description != "from admin" {
+			t.Errorf("stated fields not applied: %+v", got)
+		}
+		if got.CatalogMapping["rdbms"] != "postgres" {
+			t.Errorf("unstated CatalogMapping should survive: %v", got.CatalogMapping)
+		}
+	})
+
+	t.Run("with no entry to overlay the kind default answers", func(t *testing.T) {
+		m := NewMap()
+		m.Overlay(Source{Kind: "s3", Name: "lake"})
+		if got := m.ForConnection("s3", "lake"); got == nil || got.DataHubSourceName != "s3" {
+			t.Errorf("ForConnection = %+v, want the s3 default", got)
+		}
+
+		m.Overlay(Source{Kind: "mystery", Name: "x"})
+		if got := m.ForConnection("mystery", "x"); got == nil || got.DataHubSourceName != "" {
+			t.Errorf("an unmapped kind names no platform: %+v", got)
+		}
+	})
+}
+
+func TestDefaultSourceNameFn(t *testing.T) {
+	for kind, want := range map[string]string{"trino": "trino", "s3": "s3", "datahub": "datahub", "mcp": "", "": ""} {
+		if got := DefaultSourceName(kind); got != want {
+			t.Errorf("DefaultSourceName(%q) = %q, want %q", kind, got, want)
+		}
+	}
+}
+
+func TestRegistryEntries(t *testing.T) {
+	t.Run("trino carries the deployment urn_mapping across every connection", func(t *testing.T) {
+		mapping := map[string]string{"rdbms": "postgres"}
+		got := RegistryEntries("trino", []string{"warehouse", "staging"}, "hive", mapping)
+		if len(got) != 2 {
+			t.Fatalf("len = %d, want 2", len(got))
+		}
+		for _, src := range got {
+			if src.DataHubSourceName != "hive" || src.CatalogMapping["rdbms"] != "postgres" {
+				t.Errorf("entry = %+v", src)
+			}
+		}
+		if got[0].Name != "warehouse" || got[1].Name != "staging" {
+			t.Errorf("names = %q %q", got[0].Name, got[1].Name)
+		}
+	})
+
+	t.Run("trino with no urn_mapping falls back to its own platform name", func(t *testing.T) {
+		got := RegistryEntries("trino", []string{"warehouse"}, "", nil)
+		if len(got) != 1 || got[0].DataHubSourceName != "trino" {
+			t.Errorf("entries = %+v", got)
+		}
+	})
+
+	t.Run("s3 and datahub name themselves and ignore the query mapping", func(t *testing.T) {
+		for _, kind := range []string{"s3", "datahub"} {
+			got := RegistryEntries(kind, []string{"one"}, "hive", map[string]string{"a": "b"})
+			if len(got) != 1 || got[0].DataHubSourceName != kind || got[0].CatalogMapping != nil {
+				t.Errorf("%s entries = %+v", kind, got)
+			}
+		}
+	})
+
+	t.Run("a kind with no DataHub platform contributes nothing", func(t *testing.T) {
+		if got := RegistryEntries("mcp", []string{"vendor"}, "hive", nil); got != nil {
+			t.Errorf("entries = %+v, want nil", got)
+		}
+	})
+}
+
+// TestMapConcurrentAccess is the regression for the shared map's locking: one
+// map serves tool-call goroutines reading on every enrichment and URN build
+// while the admin connection routes add, overlay and remove from HTTP
+// goroutines. Concurrent read and write of a Go map is a fatal runtime error,
+// so this must hold under -race and in a plain run.
+func TestMapConcurrentAccess(t *testing.T) {
+	m := NewMap()
+	m.Seed(RegistryEntries("trino", []string{"warehouse"}, "hive", map[string]string{"rdbms": "postgres"}))
+
+	const iterations = 200
+	var wg sync.WaitGroup
+	wg.Add(4)
+
+	go func() {
+		defer wg.Done()
+		for i := range iterations {
+			m.Overlay(Source{Kind: "trino", Name: "warehouse", Description: strconv.Itoa(i)})
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := range iterations {
+			m.Add(Source{Kind: "s3", Name: strconv.Itoa(i), DataHubSourceName: "s3"})
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := range iterations {
+			m.Remove("s3", strconv.Itoa(i))
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for range iterations {
+			_ = m.ForConnection("trino", "warehouse")
+			_ = m.DataHubSourceName("trino", "warehouse")
+			for _, src := range m.ConnectionsForURN("urn:li:dataset:(urn:li:dataPlatform:s3,b/k,PROD)") {
+				_ = src.Name
+			}
+			_ = m.ConnectionsForSource("hive")
+		}
+	}()
+
+	wg.Wait()
+
+	if got := m.ForConnection("trino", "warehouse"); got == nil || got.DataHubSourceName != "hive" {
+		t.Errorf("the seeded mapping survived the traffic: %+v", got)
+	}
+}
+
+func TestSeed(t *testing.T) {
+	m := NewMap()
+	m.Seed(RegistryEntries("trino", []string{"warehouse"}, "hive", nil))
+	m.Overlay(Source{Kind: "trino", Name: "warehouse", DataHubSourceName: "postgres"})
+
+	// Re-seeding replaces the overlay, which is what a deleted stored override
+	// falls back to.
+	m.Seed(RegistryEntries("trino", []string{"warehouse"}, "hive", nil))
+	if got := m.ForConnection("trino", "warehouse"); got == nil || got.DataHubSourceName != "hive" {
+		t.Errorf("ForConnection = %+v, want hive", got)
+	}
+
+	// Seeding nothing is a no-op, not a panic.
+	m.Seed(nil)
+	m.Seed(RegistryEntries("mcp", []string{"vendor"}, "", nil))
+	if got := m.ForConnection("mcp", "vendor"); got != nil {
+		t.Errorf("an unmapped kind seeds nothing: %+v", got)
 	}
 }

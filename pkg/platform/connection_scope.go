@@ -42,15 +42,11 @@ func connectionScopeFor(reg *persona.Registry, sources *ConnectionSourceMap, too
 // whether the caller's persona reaches any of them).
 //
 // It walks the LIVE connections rather than the source map's entries, because
-// the two are not the same set: the map keys a file-configured multi-connection
-// toolkit by its instance, while a persona's rules and a tool call's
-// `connection` argument name each connection that toolkit serves. Resolving
-// through the map alone would attribute a dataset to a name no persona grants —
-// and would miss a connection added after startup. Each connection's platform
-// comes from its own map entry when it has one (the DB-backed case, where a
-// connection may override its DataHub source name) and otherwise from its
-// toolkit's; a connection with neither is not a candidate, which leaves the URN
-// unattributable rather than attributed by guess.
+// the two are not the same set: the map is built once at startup, so it does
+// not hold a connection added to a toolkit after it. Each connection's platform
+// comes from its own map entry when it has one and otherwise from its toolkit's
+// instance entry; a connection with neither is not a candidate, which leaves
+// the URN unattributable rather than attributed by guess.
 func connectionNamesForURN(sources *ConnectionSourceMap, toolkits []registry.Toolkit, urn string) []string {
 	platform := connsource.PlatformFromURN(urn)
 	if platform == "" || sources == nil {

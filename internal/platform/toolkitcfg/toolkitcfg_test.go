@@ -139,8 +139,31 @@ func TestTrinoConfig(t *testing.T) {
 		cfg := TrinoConfig(toolkits, "primary")
 		if cfg == nil || cfg.Port != 9090 || cfg.Catalog != "c" || cfg.Schema != "s" ||
 			!cfg.SSL || cfg.SSLVerify || !cfg.ReadOnly ||
-			cfg.DefaultLimit != 50 || cfg.MaxLimit != 500 || cfg.ConnectionName != "cn" {
+			cfg.DefaultLimit != 50 || cfg.MaxLimit != 500 {
 			t.Errorf("TrinoConfig = %+v", cfg)
+		}
+		// The query provider stamps ConnectionName onto every availability
+		// answer as the name to pass as `connection`. Trino routes by instance,
+		// so the instance key is that name and the instance's connection_name
+		// ("cn" here) is not (#1396).
+		if cfg.ConnectionName != "primary" {
+			t.Errorf("ConnectionName = %q, want the routed instance 'primary'", cfg.ConnectionName)
+		}
+	})
+	t.Run("an unnamed instance resolves the default rather than an empty label", func(t *testing.T) {
+		toolkits := map[string]any{"trino": map[string]any{
+			"default": "warehouse",
+			"instances": map[string]any{
+				"warehouse": map[string]any{"host": "h", "user": "u"},
+				"staging":   map[string]any{"host": "s", "user": "u"},
+			},
+		}}
+		cfg := TrinoConfig(toolkits, "")
+		if cfg == nil {
+			t.Fatal("TrinoConfig returned nil")
+		}
+		if cfg.ConnectionName != "warehouse" {
+			t.Errorf("ConnectionName = %q, want 'warehouse'", cfg.ConnectionName)
 		}
 	})
 }

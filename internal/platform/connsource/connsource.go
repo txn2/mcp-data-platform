@@ -4,7 +4,20 @@
 // platform re-exports Source and Map as type aliases for its existing callers.
 package connsource
 
-import "strings"
+import (
+	"strings"
+	"sync"
+)
+
+// keySep joins a connection's kind and name into its map key.
+const keySep = "/"
+
+// The toolkit kinds whose connections carry a DataHub platform.
+const (
+	kindTrino   = "trino"
+	kindS3      = "s3"
+	kindDataHub = "datahub"
+)
 
 // Source holds the DataHub mapping for a single connection.
 type Source struct {
@@ -30,7 +43,16 @@ type Source struct {
 
 // Map provides forward and reverse lookups between connections and DataHub URN
 // components.
+//
+// One map is shared for the life of the process: tool-call goroutines read it
+// on every enrichment and URN build, while the admin connection routes add,
+// overlay and remove entries from HTTP goroutines. Go maps are not safe for
+// concurrent read and write — that pair is a fatal runtime error, not a
+// recoverable one — so every accessor takes the lock, and the readers that
+// answer with a slice answer with their own copy of it.
 type Map struct {
+	mu sync.RWMutex
+
 	// byConnection maps "kind/name" to its DataHub source info.
 	byConnection map[string]*Source
 
@@ -50,23 +72,127 @@ func NewMap() *Map {
 // If the same connection (kind+name) already exists, the old entry is
 // replaced so that bySourceName never contains duplicates.
 func (m *Map) Add(src Source) {
-	key := src.Kind + "/" + src.Name
-	if _, exists := m.byConnection[key]; exists {
-		m.Remove(src.Kind, src.Name)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.addLocked(src)
+}
+
+// addLocked registers a mapping. The caller holds the write lock.
+func (m *Map) addLocked(src Source) {
+	k := key(src.Kind, src.Name)
+	if _, exists := m.byConnection[k]; exists {
+		m.removeLocked(src.Kind, src.Name)
 	}
-	m.byConnection[key] = &src
+	m.byConnection[k] = &src
 	m.bySourceName[src.DataHubSourceName] = append(m.bySourceName[src.DataHubSourceName], &src)
+}
+
+// key is the map key a connection is filed under.
+func key(kind, name string) string { return kind + keySep + name }
+
+// Overlay files a stored connection's mapping over the entry the map holds for
+// the same connection: a field the stored config leaves unset keeps the value
+// already there, and the kind's default answers only when nothing else did.
+//
+// The entry it overlays MUST be the one the running configuration derives —
+// call Seed first, or overlay onto a map the registry arm has just populated.
+// Two behaviors depend on that. Replacing the entry outright would lose the
+// deployment's urn_mapping on every boot after the first, because the
+// connection backfill seeds a config-less row for each file-configured
+// connection and a row with nothing to say must not out-rank the file. And
+// overlaying onto a previous overlay would make a field unclearable: an
+// operator who removes datahub_source_name from a stored connection would keep
+// reading the value they deleted until the next restart (#1396).
+func (m *Map) Overlay(src Source) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if base := m.byConnection[key(src.Kind, src.Name)]; base != nil {
+		if src.DataHubSourceName == "" {
+			src.DataHubSourceName = base.DataHubSourceName
+		}
+		if src.CatalogMapping == nil {
+			src.CatalogMapping = base.CatalogMapping
+		}
+		if src.Description == "" {
+			src.Description = base.Description
+		}
+	}
+	if src.DataHubSourceName == "" {
+		src.DataHubSourceName = DefaultSourceName(src.Kind)
+	}
+	m.addLocked(src)
+}
+
+// Seed files the entry the running configuration derives for one connection,
+// replacing whatever the map held. It is what an Overlay must land on and what
+// a deleted stored override falls back to, so a connection is never left
+// carrying a value no configuration states.
+func (m *Map) Seed(entries []Source) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, src := range entries {
+		m.addLocked(src)
+	}
+}
+
+// DefaultSourceName returns the DataHub platform a kind's datasets carry when
+// nothing overrides it. An unmapped kind returns "", which leaves its
+// connections out of every URN's candidate set rather than in the wrong one.
+func DefaultSourceName(kind string) string {
+	switch kind {
+	case kindTrino, kindS3, kindDataHub:
+		return kind
+	default:
+		return ""
+	}
+}
+
+// RegistryEntries returns the source entries a live toolkit of the given kind
+// contributes: one per connection name it serves, all sharing the kind's
+// mapping. urnPlatform and catalogMapping are the deployment's semantic
+// urn_mapping, which only the query engine's kind carries. A kind that names no
+// DataHub platform contributes nothing.
+//
+// It is the one derivation of "what does the running configuration say about
+// this connection", so the startup build and the admin path that has to restore
+// it after a stored override is deleted cannot answer differently (#1396).
+func RegistryEntries(kind string, names []string, urnPlatform string, catalogMapping map[string]string) []Source {
+	src := Source{Kind: kind, DataHubSourceName: DefaultSourceName(kind)}
+	if src.DataHubSourceName == "" {
+		return nil
+	}
+	if kind == kindTrino {
+		if urnPlatform != "" {
+			src.DataHubSourceName = urnPlatform
+		}
+		src.CatalogMapping = catalogMapping
+	}
+
+	out := make([]Source, 0, len(names))
+	for _, name := range names {
+		src.Name = name
+		out = append(out, src)
+	}
+	return out
 }
 
 // Remove deletes a connection's DataHub source mapping.
 func (m *Map) Remove(kind, name string) {
-	key := kind + "/" + name
-	src, ok := m.byConnection[key]
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.removeLocked(kind, name)
+}
+
+// removeLocked deletes a mapping. The caller holds the write lock.
+func (m *Map) removeLocked(kind, name string) {
+	k := key(kind, name)
+	src, ok := m.byConnection[k]
 	if !ok {
 		return
 	}
 
-	delete(m.byConnection, key)
+	delete(m.byConnection, k)
 
 	// Remove from the bySourceName slice.
 	dsn := src.DataHubSourceName
@@ -96,7 +222,9 @@ func (m *Map) ForConnection(kind, name string) *Source {
 	if m == nil {
 		return nil
 	}
-	return m.byConnection[kind+"/"+name]
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.byConnection[key(kind, name)]
 }
 
 // DataHubSourceName returns the DataHub source name mapped to a connection, or ""
@@ -114,7 +242,22 @@ func (m *Map) ConnectionsForSource(datahubSourceName string) []*Source {
 	if m == nil {
 		return nil
 	}
-	return m.bySourceName[datahubSourceName]
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.sourcesFor(datahubSourceName)
+}
+
+// sourcesFor copies the entries filed under a source name, so a caller iterating
+// the result cannot be racing an Add that appends to the stored slice. The
+// caller holds the read lock. A source name with no entries answers nil.
+func (m *Map) sourcesFor(datahubSourceName string) []*Source {
+	entries := m.bySourceName[datahubSourceName]
+	if len(entries) == 0 {
+		return nil
+	}
+	out := make([]*Source, len(entries))
+	copy(out, entries)
+	return out
 }
 
 // ConnectionsForURN parses a DataHub URN and returns all connections whose
@@ -127,7 +270,9 @@ func (m *Map) ConnectionsForURN(urn string) []*Source {
 	if platform == "" {
 		return nil
 	}
-	return m.bySourceName[platform]
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.sourcesFor(platform)
 }
 
 // PlatformFromURN extracts the platform name from a DataHub URN.

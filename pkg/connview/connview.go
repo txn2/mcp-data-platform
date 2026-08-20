@@ -98,6 +98,28 @@ func ConnectionNames(tk registry.Toolkit) []string {
 	return []string{policyName(tk)}
 }
 
+// BindingName returns the name a call binds the connection that an `instances:`
+// key configures, given the live toolkits.
+//
+// The two are the same for a multi-connection toolkit, which routes on the
+// instance key, and for a single-connection toolkit that sets no
+// connection_name. They differ for one that does, and the difference matters
+// wherever something keyed by the instance — a connection_instances row, and so
+// any stored override read off one — has to answer a lookup a call makes
+// (#1396). An instance no live toolkit claims keeps its own name.
+func BindingName(toolkits []registry.Toolkit, kind, instance string) string {
+	for _, tk := range toolkits {
+		if tk.Kind() != kind || tk.Name() != instance {
+			continue
+		}
+		if _, ok := tk.(toolkit.ConnectionLister); ok {
+			return instance
+		}
+		return policyName(tk)
+	}
+	return instance
+}
+
 // policyName is the identity a persona's connection rules match on for a
 // single-connection toolkit: its configured connection name, or its instance
 // name when it carries none.
@@ -176,13 +198,18 @@ func appendFallback(entries []Entry, tk registry.Toolkit, src SourceResolver, pe
 	}
 	// A single-connection toolkit's persona/audit identity is its configured
 	// connection name, which may differ from its instance name; filter on the
-	// former so discovery keys on exactly what the authorizer checks.
-	if !permit.allows(kind, policyName(tk)) {
+	// former so discovery keys on exactly what the authorizer checks. The
+	// source map is keyed the same way, so one name answers both (#1396).
+	conn := policyName(tk)
+	if !permit.allows(kind, conn) {
 		return entries, 1
 	}
+	// Name and Reference stay on the INSTANCE name: the reference FKs to the
+	// connection_instances row the backfill seeds, and that row's name is the
+	// key a stored connection is merged back into toolkit config under.
 	e := Entry{Kind: kind, Name: tk.Name(), Connection: tk.Connection(), Reference: knowledgepage.ConnectionRef(kind, tk.Name())}
 	if src != nil {
-		e.DataHubSourceName = src.DataHubSourceName(kind, tk.Name())
+		e.DataHubSourceName = src.DataHubSourceName(kind, conn)
 	}
 	return append(entries, e), 0
 }
