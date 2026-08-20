@@ -25,9 +25,11 @@ const manageScriptDescription = "Author, validate, and dry-run managed scripts: 
 	"A script does not run on its own until a version is approved; until then run_draft is the only way it " +
 	"executes, and it can reach nothing you could not reach yourself."
 
-// dialectContract is the help command's body: what a script is, what is
+// DialectContract is the help command's body: what a script is, what is
 // predeclared, and what a Python instinct will reach for and not find.
-const dialectContract = `Managed scripts are written in Starlark: Python-shaped syntax, deliberately smaller.
+// It is exported for the built-in knowledge pages (#1390): the authoring page
+// derives its dialect section from this constant, so the two cannot drift.
+const DialectContract = `Managed scripts are written in Starlark: Python-shaped syntax, deliberately smaller.
 
 WHAT IS AVAILABLE
   platform.query(sql, connection=..., params={})  Run read-only SQL. Returns
@@ -244,7 +246,7 @@ func (*Handle) handleHelp(_ context.Context, _ manageScriptInput) (*mcp.CallTool
 		names = append(names, map[string]any{fieldName: ex.name, "description": ex.description})
 	}
 	return jsonResult(map[string]any{
-		"dialect":      dialectContract,
+		"dialect":      DialectContract,
 		"capabilities": scriptrun.Capabilities,
 		"limits": map[string]any{
 			"draft_max_steps":  scriptrun.DraftMaxSteps,

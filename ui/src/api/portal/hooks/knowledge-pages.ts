@@ -136,6 +136,22 @@ export function useUpdateKnowledgePage() {
   });
 }
 
+/**
+ * useRestoreBuiltinPages un-hides every hidden built-in knowledge page (#1390),
+ * refreshed to the running release. Returns {restored} so the caller can say
+ * whether anything came back.
+ */
+export function useRestoreBuiltinPages() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<{ restored: number }>(`/knowledge-pages/restore-builtin`, { method: "POST" }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["knowledge-pages"] });
+    },
+  });
+}
+
 export function useDeleteKnowledgePage() {
   const qc = useQueryClient();
   return useMutation({

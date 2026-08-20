@@ -72,4 +72,21 @@ test.describe("Knowledge Pages", () => {
     await page.getByRole("button", { name: "History" }).click();
     await expect(page.getByText("Version history")).toBeVisible();
   });
+
+  // A built-in page (#1390) is the platform's own documentation: badged,
+  // offered no Edit, and its delete affordance is a Hide the reconcile
+  // respects. Restore built-in on the list is the way back.
+  test("built-in page is badged, uneditable, and hidable with a way back", async ({ page }) => {
+    await page.getByText("Writing a managed script").click();
+    await expect(page.getByText("Built-in", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Edit" })).toHaveCount(0);
+    await page.getByRole("button", { name: "Hide" }).click();
+    await expect(page.getByText(/upgrades will not bring it back/)).toBeVisible();
+    await page.getByRole("dialog").getByRole("button", { name: "Hide" }).click();
+    // Back on the list, the page is gone; Restore built-in brings it back.
+    await expect(page.getByText("Writing a managed script")).toHaveCount(0);
+    await page.getByRole("button", { name: "Restore built-in" }).click();
+    await expect(page.getByText("Restored 1 built-in page.")).toBeVisible();
+    await expect(page.getByText("Writing a managed script")).toBeVisible();
+  });
 });

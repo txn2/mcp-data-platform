@@ -18,14 +18,14 @@ func TestSearch_Lexical(t *testing.T) {
 
 	cols := append([]string{
 		"id", "slug", "title", "summary", "body", "tags",
-		"created_by", "created_email", "updated_by", "current_version",
+		"created_by", "created_email", "updated_by", "current_version", "builtin",
 		"created_at", "updated_at", "deleted_at",
 	}, "lex_rank")
 	mock.ExpectQuery("FROM portal_knowledge_pages").
 		WithArgs("revenue").
 		WillReturnRows(sqlmock.NewRows(cols).
 			AddRow("kp1", "", "Revenue model", "", "how revenue works", []byte(`[]`),
-				"", "", "", 1, time.Now(), time.Now(), nil, 0.42))
+				"", "", "", 1, false, time.Now(), time.Now(), nil, 0.42))
 
 	out, err := store.Search(context.Background(), SearchQuery{QueryText: "revenue", Limit: 10})
 	require.NoError(t, err)
@@ -43,7 +43,7 @@ func TestSearch_Hybrid(t *testing.T) {
 
 	cols := append([]string{
 		"id", "slug", "title", "summary", "body", "tags",
-		"created_by", "created_email", "updated_by", "current_version",
+		"created_by", "created_email", "updated_by", "current_version", "builtin",
 		"created_at", "updated_at", "deleted_at",
 	}, "vec_score", "lex_match")
 	// The vector arm ranks the CHUNK table and scores each page by its best
@@ -51,7 +51,7 @@ func TestSearch_Hybrid(t *testing.T) {
 	mock.ExpectQuery("portal_knowledge_page_embedding_chunks").
 		WillReturnRows(sqlmock.NewRows(cols).
 			AddRow("kp1", "", "Revenue model", "", "body", []byte(`[]`),
-				"", "", "", 1, time.Now(), time.Now(), nil, 0.9, true))
+				"", "", "", 1, false, time.Now(), time.Now(), nil, 0.9, true))
 
 	out, err := store.Search(context.Background(), SearchQuery{
 		QueryText: "revenue", Embedding: []float32{0.1, 0.2, 0.3}, Limit: 10,
@@ -72,7 +72,7 @@ func TestSemanticSearch(t *testing.T) {
 
 	cols := append([]string{
 		"id", "slug", "title", "summary", "body", "tags",
-		"created_by", "created_email", "updated_by", "current_version",
+		"created_by", "created_email", "updated_by", "current_version", "builtin",
 		"created_at", "updated_at", "deleted_at",
 	}, "cos")
 	// Pure cosine arm: no FTS, no UNION; the raw cosine of the page's best
@@ -80,7 +80,7 @@ func TestSemanticSearch(t *testing.T) {
 	mock.ExpectQuery("portal_knowledge_page_embedding_chunks").
 		WillReturnRows(sqlmock.NewRows(cols).
 			AddRow("kp1", "return-policy", "Return Policy", "", "body", []byte(`[]`),
-				"", "", "", 1, time.Now(), time.Now(), nil, 0.91))
+				"", "", "", 1, false, time.Now(), time.Now(), nil, 0.91))
 
 	out, err := store.SemanticSearch(context.Background(), []float32{0.1, 0.2, 0.3}, 5)
 	require.NoError(t, err)

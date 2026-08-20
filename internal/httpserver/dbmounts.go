@@ -25,6 +25,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/versionhttp"
 	"github.com/txn2/mcp-data-platform/internal/platform/connreach"
+	"github.com/txn2/mcp-data-platform/internal/platform/knowledgebuiltin"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourceaudit"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptauto"
@@ -79,9 +80,14 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 		ThreadStore:                 p.PortalThreadStore(),
 		KnowledgePageStore:          p.PortalKnowledgePageStore(),
 		KnowledgePageDedupThreshold: p.Config().Knowledge.Pages.Resolve().DedupThreshold,
-		S3Client:                    p.PortalS3Client(),
-		S3Bucket:                    p.Config().Portal.S3Bucket,
-		PublicBaseURL:               p.Config().Portal.PublicBaseURL,
+		// The way back from hiding a built-in page (#1390); the seam no-ops on
+		// a store without the capability.
+		RestoreBuiltinPages: func(ctx context.Context) (int, error) {
+			return knowledgebuiltin.Restore(ctx, p.PortalKnowledgePageStore())
+		},
+		S3Client:      p.PortalS3Client(),
+		S3Bucket:      p.Config().Portal.S3Bucket,
+		PublicBaseURL: p.Config().Portal.PublicBaseURL,
 		RateLimit: portal.RateLimitConfig{
 			RequestsPerMinute: p.Config().Portal.RateLimit.RequestsPerMinute,
 			BurstSize:         p.Config().Portal.RateLimit.BurstSize,

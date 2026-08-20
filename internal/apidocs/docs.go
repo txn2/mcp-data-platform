@@ -11513,6 +11513,52 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/knowledge-pages/restore-builtin": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Un-hides the platform's built-in knowledge pages a deployment hid, refreshed to the running release. Requires apply_knowledge access.",
+                "tags": [
+                    "Knowledge"
+                ],
+                "summary": "Restore hidden built-in knowledge pages",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "integer"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/knowledge-pages/search": {
             "get": {
                 "security": [
@@ -20855,6 +20901,10 @@ const docTemplate = `{
                 "body": {
                     "type": "string",
                     "example": "# Fiscal Calendar\n\nQ1 begins..."
+                },
+                "builtin": {
+                    "description": "Builtin marks a page the platform ships in its binary and reconciles at\nstartup (#1390). Content edits are refused (ErrBuiltinReadOnly) because\nthe next release would overwrite them; SoftDelete stays available and is\nthe operator's way to hide the page — the reconcile respects the\ntombstone instead of resurrecting it.",
+                    "type": "boolean"
                 },
                 "created_at": {
                     "type": "string"

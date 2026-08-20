@@ -52,6 +52,10 @@ type DedupCandidate struct {
 	Slug  string  `json:"slug,omitempty"`
 	Title string  `json:"title"`
 	Score float64 `json:"score"`
+	// Builtin marks a platform-shipped, read-only page (#1390): it cannot be
+	// consolidated onto, so a caller shown this candidate either hides it and
+	// writes their own page or knowingly creates a separate one (force_new).
+	Builtin bool `json:"builtin,omitempty"`
 }
 
 // NearDuplicatePages returns the existing pages whose cosine similarity to the
@@ -103,10 +107,11 @@ func mergeCandidates(best map[string]DedupCandidate, scored []ScoredPage, thresh
 			continue
 		}
 		best[scored[i].Page.ID] = DedupCandidate{
-			ID:    scored[i].Page.ID,
-			Slug:  scored[i].Page.Slug,
-			Title: scored[i].Page.Title,
-			Score: scored[i].Score,
+			ID:      scored[i].Page.ID,
+			Slug:    scored[i].Page.Slug,
+			Title:   scored[i].Page.Title,
+			Score:   scored[i].Score,
+			Builtin: scored[i].Page.Builtin,
 		}
 	}
 }

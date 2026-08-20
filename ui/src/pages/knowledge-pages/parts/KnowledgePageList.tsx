@@ -1,4 +1,5 @@
-import { Plus } from "lucide-react";
+import { ArchiveRestore, Plus } from "lucide-react";
+import { useRestoreBuiltinPages } from "@/api/portal/hooks";
 import { InfiniteFooter } from "@/components/InfiniteFooter";
 import { SearchInput } from "@/components/patterns/SearchInput";
 import { Button } from "@/components/ui/button";
@@ -22,6 +23,7 @@ export function KnowledgePageList({
 }) {
   const browse = useKnowledgePageBrowse();
   const { cards, searching, tag } = browse;
+  const restore = useRestoreBuiltinPages();
 
   return (
     <div className="space-y-4">
@@ -30,12 +32,27 @@ export function KnowledgePageList({
         <div className="flex items-center gap-2">
           <ViewToggle value={browse.view} onChange={browse.setView} />
           {canEdit && (
-            <Button size="sm" onClick={onCreate}>
-              <Plus /> New page
-            </Button>
+            <>
+              {/* The way back from hiding a built-in page (#1390). Idempotent:
+                  with nothing hidden it reports so instead of doing nothing. */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => restore.mutate()}
+                disabled={restore.isPending}
+                title="Bring back any hidden built-in platform documentation pages, refreshed to this release."
+              >
+                <ArchiveRestore /> Restore built-in
+              </Button>
+              <Button size="sm" onClick={onCreate}>
+                <Plus /> New page
+              </Button>
+            </>
           )}
         </div>
       </div>
+
+      <RestoreOutcome restore={restore} />
 
       <SearchInput
         value={browse.query}
@@ -95,6 +112,25 @@ export function KnowledgePageList({
 }
 
 /** CorpusCount states how much of the knowledgebase this listing covers. */
+/**
+ * RestoreOutcome reports what the last Restore built-in did (#1390): the count
+ * that came back, or that nothing was hidden, or that the call failed.
+ */
+function RestoreOutcome({ restore }: { restore: ReturnType<typeof useRestoreBuiltinPages> }) {
+  if (restore.isError) {
+    return <p className="text-xs text-destructive">Restoring built-in pages failed.</p>;
+  }
+  if (!restore.isSuccess) return null;
+  const n = restore.data.restored;
+  return (
+    <p className="text-xs text-muted-foreground">
+      {n > 0
+        ? `Restored ${n} built-in ${n === 1 ? "page" : "pages"}.`
+        : "No hidden built-in pages to restore."}
+    </p>
+  );
+}
+
 function CorpusCount({ total, tag }: { total: number; tag: string }) {
   return (
     <p className="text-sm text-muted-foreground">

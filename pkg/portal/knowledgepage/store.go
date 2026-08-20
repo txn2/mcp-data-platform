@@ -27,19 +27,25 @@ func NewVersionID() string { return "kpv_" + uuid.New().String() }
 // apply_knowledge access edit it. The markdown body is stored inline (not in S3)
 // so page CONTENT is directly embeddable and full-text searchable.
 type Page struct {
-	ID             string     `json:"id" example:"kp_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"`
-	Slug           string     `json:"slug,omitempty" example:"fiscal-calendar"`
-	Title          string     `json:"title" example:"Fiscal Calendar"`
-	Summary        string     `json:"summary,omitempty" example:"How the company defines fiscal quarters."`
-	Body           string     `json:"body" example:"# Fiscal Calendar\n\nQ1 begins..."`
-	Tags           []string   `json:"tags"`
-	CreatedBy      string     `json:"created_by,omitempty" example:"alice@example.com"`
-	CreatedEmail   string     `json:"created_email,omitempty" example:"alice@example.com"`
-	UpdatedBy      string     `json:"updated_by,omitempty" example:"bob@example.com"`
-	CurrentVersion int        `json:"current_version" example:"3"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
-	DeletedAt      *time.Time `json:"deleted_at,omitempty"`
+	ID             string   `json:"id" example:"kp_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"`
+	Slug           string   `json:"slug,omitempty" example:"fiscal-calendar"`
+	Title          string   `json:"title" example:"Fiscal Calendar"`
+	Summary        string   `json:"summary,omitempty" example:"How the company defines fiscal quarters."`
+	Body           string   `json:"body" example:"# Fiscal Calendar\n\nQ1 begins..."`
+	Tags           []string `json:"tags"`
+	CreatedBy      string   `json:"created_by,omitempty" example:"alice@example.com"`
+	CreatedEmail   string   `json:"created_email,omitempty" example:"alice@example.com"`
+	UpdatedBy      string   `json:"updated_by,omitempty" example:"bob@example.com"`
+	CurrentVersion int      `json:"current_version" example:"3"`
+	// Builtin marks a page the platform ships in its binary and reconciles at
+	// startup (#1390). Content edits are refused (ErrBuiltinReadOnly) because
+	// the next release would overwrite them; SoftDelete stays available and is
+	// the operator's way to hide the page — the reconcile respects the
+	// tombstone instead of resurrecting it.
+	Builtin   bool       `json:"builtin,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 }
 
 // Version records a single saved version of a page's content. The
@@ -112,6 +118,12 @@ type Store interface {
 // live page.
 var ErrNotFound = errors.New("knowledge page not found")
 
+// ErrBuiltinReadOnly is returned by Update for a page carrying the builtin
+// marker: its content is the platform's own documentation, owned by the
+// release and reconciled at startup, so an edit would be overwritten by the
+// next start. Hide the page (SoftDelete) and write your own instead.
+var ErrBuiltinReadOnly = errors.New("knowledge page is built-in platform documentation and read-only; hide it and create your own page instead")
+
 // IndexText composes the text a page is embedded and lexically
 // indexed on: its title, body, and tags. The indexjobs knowledge-pages consumer
 // and the request-path search MUST agree on this composition so a stored
@@ -135,7 +147,7 @@ func IndexText(title, body string, tags []string) string {
 // pageColumns is the projection every page read uses, in
 // scanPage order so the scan cannot drift from the query.
 const pageColumns = `id, COALESCE(slug, ''), title, summary, body, tags, ` +
-	`created_by, created_email, updated_by, current_version, created_at, updated_at, deleted_at`
+	`created_by, created_email, updated_by, current_version, builtin, created_at, updated_at, deleted_at`
 
 type postgresStore struct {
 	db *sql.DB
@@ -340,15 +352,24 @@ func (s *postgresStore) Update(ctx context.Context, id string, updates Update) e
 	}
 	defer tx.Rollback() //nolint:errcheck // commit below on success
 
-	cur, currentVersion, err := lockPageContent(ctx, tx, id)
+	locked, err := lockPageContent(ctx, tx, id)
 	if err != nil {
 		return err
 	}
+	// Refused under the same row lock the write would take, so the check and
+	// the write cannot interleave with a concurrent reconcile. Every content
+	// write path (portal handler, apply_knowledge promotion, rollback) funnels
+	// through Update, which makes this the one enforcement point; the startup
+	// reconcile writes builtin rows through its own path (builtin.go).
+	if locked.builtin {
+		return ErrBuiltinReadOnly
+	}
+	cur := locked.content
 	indexedChanged, err := cur.merge(updates)
 	if err != nil {
 		return err
 	}
-	nextVersion := currentVersion + 1
+	nextVersion := locked.version + 1
 
 	if err := applyPageUpdate(ctx, tx, pageUpdateRow{
 		id: id, content: cur, slug: updates.Slug, updatedBy: updates.UpdatedBy,
@@ -374,27 +395,33 @@ func (s *postgresStore) Update(ctx context.Context, id string, updates Update) e
 	return nil
 }
 
+// lockedPage is what lockPageContent read under the row lock: the page's
+// current content, its version, and its builtin marker.
+type lockedPage struct {
+	content pageContent
+	version int
+	builtin bool
+}
+
 // lockPageContent locks the live page row FOR UPDATE and returns its current
-// content plus version. Returns ErrNotFound when the page is missing
-// or already deleted.
-func lockPageContent(ctx context.Context, tx *sql.Tx, id string) (pageContent, int, error) {
-	const lockQuery = `SELECT title, summary, body, tags, current_version
+// content, version, and builtin marker. Returns ErrNotFound when the page is
+// missing or already deleted.
+func lockPageContent(ctx context.Context, tx *sql.Tx, id string) (lockedPage, error) {
+	const lockQuery = `SELECT title, summary, body, tags, current_version, builtin
 		FROM portal_knowledge_pages WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`
-	var (
-		c              pageContent
-		currentVersion int
-	)
-	err := tx.QueryRowContext(ctx, lockQuery, id).Scan(&c.title, &c.summary, &c.body, &c.tagsJSON, &currentVersion)
+	var lp lockedPage
+	err := tx.QueryRowContext(ctx, lockQuery, id).Scan(
+		&lp.content.title, &lp.content.summary, &lp.content.body, &lp.content.tagsJSON, &lp.version, &lp.builtin)
 	if errors.Is(err, sql.ErrNoRows) {
-		return c, 0, ErrNotFound
+		return lp, ErrNotFound
 	}
 	if err != nil {
-		return c, 0, fmt.Errorf("locking knowledge page: %w", err)
+		return lp, fmt.Errorf("locking knowledge page: %w", err)
 	}
-	if err := unmarshalTags(c.tagsJSON, &c.tags); err != nil {
-		return c, 0, err
+	if err := unmarshalTags(lp.content.tagsJSON, &lp.content.tags); err != nil {
+		return lp, err
 	}
-	return c, currentVersion, nil
+	return lp, nil
 }
 
 // pageUpdateRow carries the merged fields applyPageUpdate writes back.
@@ -596,7 +623,7 @@ func scanDest(page *Page, tagsJSON *[]byte, deletedAt *sql.NullTime) []any {
 	return []any{
 		&page.ID, &page.Slug, &page.Title, &page.Summary, &page.Body, tagsJSON,
 		&page.CreatedBy, &page.CreatedEmail, &page.UpdatedBy, &page.CurrentVersion,
-		&page.CreatedAt, &page.UpdatedAt, deletedAt,
+		&page.Builtin, &page.CreatedAt, &page.UpdatedAt, deletedAt,
 	}
 }
 

@@ -1,6 +1,7 @@
 import { MessageSquare } from "lucide-react";
 import type { KnowledgePage } from "@/api/portal/types";
 import { Badge } from "@/components/ui/badge";
+import { BuiltinBadge } from "@/components/knowledge/BuiltinBadge";
 import { markdownToPlainText } from "@/lib/markdownText";
 
 /**
@@ -25,6 +26,7 @@ export function PageCard({
     >
       <span className="flex items-start justify-between gap-2">
         <span className="font-medium">{page.title}</span>
+        {page.builtin && <BuiltinBadge />}
         {openThreads > 0 && (
           <Badge
             variant="muted"

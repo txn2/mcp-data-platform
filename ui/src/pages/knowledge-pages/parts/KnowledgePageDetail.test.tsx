@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, within } from "@testing-library/react";
-import { useDeleteKnowledgePage } from "@/api/portal/hooks";
+import { useDeleteKnowledgePage, useKnowledgePage } from "@/api/portal/hooks";
 import { KnowledgePageDetail } from "./KnowledgePageDetail";
 
 const PAGE = {
@@ -124,5 +124,37 @@ describe("KnowledgePageDetail reading", () => {
 
     expect(screen.queryByRole("button", { name: /Remove/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /History/ })).not.toBeInTheDocument();
+  });
+});
+
+// A built-in page (#1390) is the platform's own documentation, reconciled from
+// the release at startup: the server refuses edits, so the UI must not offer
+// one, and the delete affordance is a hide the reconcile respects.
+describe("KnowledgePageDetail builtin", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(useKnowledgePage).mockReturnValue({
+      data: { ...PAGE, builtin: true },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useKnowledgePage>);
+  });
+
+  it("badges the page, offers no Edit, and offers Hide instead of Remove", () => {
+    renderDetail();
+
+    expect(screen.getByText("Built-in")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Edit/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Hide/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Remove/ })).not.toBeInTheDocument();
+  });
+
+  it("says what hiding a built-in page means before doing it", () => {
+    renderDetail();
+
+    fireEvent.click(screen.getByRole("button", { name: /Hide/ }));
+
+    expect(screen.getByText(/Hide "Fiscal Calendar"\?/)).toBeInTheDocument();
+    expect(screen.getByText(/upgrades will not bring it back/)).toBeInTheDocument();
   });
 });

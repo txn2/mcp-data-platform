@@ -133,6 +133,12 @@ type Deps struct {
 	CollectionStore    CollectionStore
 	ThreadStore        ThreadStore
 	KnowledgePageStore knowledgepage.Store
+	// RestoreBuiltinPages un-hides the operator-hidden built-in knowledge pages
+	// and reconciles them to the running release, returning how many came back
+	// (#1390). Wired by the composition root (the reconcile lives in an
+	// internal seam this package cannot import); nil leaves the route
+	// unregistered.
+	RestoreBuiltinPages func(ctx context.Context) (int, error)
 	// KnowledgePageDedupThreshold is the create-time duplicate-gate threshold (#705)
 	// the REST create path shares with the MCP apply path. 0 disables the gate. The
 	// platform resolves it (default/disabled) before wiring; the handler treats it as

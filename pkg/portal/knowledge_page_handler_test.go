@@ -62,7 +62,10 @@ func (m *mockKnowledgePageStore) Get(_ context.Context, _ string) (*knowledgepag
 	return m.page, nil
 }
 
-func (*mockKnowledgePageStore) GetBySlug(_ context.Context, _ string) (*knowledgepage.Page, error) {
+func (m *mockKnowledgePageStore) GetBySlug(_ context.Context, slug string) (*knowledgepage.Page, error) {
+	if m.page != nil && m.page.Slug == slug {
+		return m.page, nil
+	}
 	return nil, knowledgepage.ErrNotFound
 }
 
@@ -274,6 +277,38 @@ func TestKnowledgePage_UpdateNotFound(t *testing.T) {
 	h := newKnowledgePageHandler(store, kpAdmin)
 	if rec := doKP(h, "PUT", "/api/v1/portal/knowledge-pages/missing", `{"title":"B"}`); rec.Code != http.StatusNotFound {
 		t.Errorf("update missing = %d, want 404", rec.Code)
+	}
+}
+
+// A create aimed at a built-in page's slug must not be told to "update it
+// instead" — that update 403s — so the 409 names the way forward (#1390).
+func TestKnowledgePage_CreateOnBuiltinSlugNamesTheWayForward(t *testing.T) {
+	store := &mockKnowledgePageStore{page: &knowledgepage.Page{ID: "kp1", Slug: "platform-topic", Title: "Topic", Builtin: true}}
+	h := newKnowledgePageHandler(store, kpAdmin)
+	rec := doKP(h, "POST", "/api/v1/portal/knowledge-pages", `{"slug":"platform-topic","title":"Mine","body":"b"}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("builtin slug create = %d, want 409", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "built-in") || !strings.Contains(body, "hide") {
+		t.Errorf("409 body must name hide-and-create, got: %s", body)
+	}
+	if strings.Contains(body, "update it instead") {
+		t.Errorf("409 body must not point at an update that would be refused: %s", body)
+	}
+}
+
+// A built-in page's content is the release's, not the deployment's (#1390):
+// the store's refusal must surface as a 403 carrying the reason, not a 500.
+func TestKnowledgePage_UpdateBuiltinIsForbidden(t *testing.T) {
+	store := &mockKnowledgePageStore{updateErr: knowledgepage.ErrBuiltinReadOnly}
+	h := newKnowledgePageHandler(store, kpAdmin)
+	rec := doKP(h, "PUT", "/api/v1/portal/knowledge-pages/kp1", `{"title":"B"}`)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("builtin update = %d, want 403", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "built-in") {
+		t.Errorf("403 body must say the page is built-in, got: %s", rec.Body.String())
 	}
 }
 
@@ -500,5 +535,41 @@ func TestValidateKnowledgePageAndNormalizeTags(t *testing.T) {
 	got := normalizeTags([]string{" a ", "a", "", "b"})
 	if len(got) != 2 || got[0] != "a" || got[1] != "b" {
 		t.Errorf("normalizeTags = %v, want [a b]", got)
+	}
+}
+
+// The restore route is the way back from hiding a built-in page (#1390): gated
+// like every page write, reporting the count, and absent when the composition
+// root wired no seam.
+func TestKnowledgePage_RestoreBuiltin(t *testing.T) {
+	newHandler := func(fn func(context.Context) (int, error), user *User) *Handler {
+		return NewHandler(Deps{
+			KnowledgePageStore:  &mockKnowledgePageStore{},
+			RestoreBuiltinPages: fn,
+			AdminRoles:          []string{"admin"},
+			RateLimit:           RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
+		}, testAuthMiddleware(user))
+	}
+	restore := func(context.Context) (int, error) { return 2, nil }
+
+	if rec := doKP(newHandler(restore, kpViewer), "POST", "/api/v1/portal/knowledge-pages/restore-builtin", ""); rec.Code != http.StatusForbidden {
+		t.Fatalf("non-admin restore = %d, want 403", rec.Code)
+	}
+	rec := doKP(newHandler(restore, kpAdmin), "POST", "/api/v1/portal/knowledge-pages/restore-builtin", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("admin restore = %d, want 200", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `"restored":2`) {
+		t.Errorf("restore body must report the count, got: %s", rec.Body.String())
+	}
+	if rec := doKP(newHandler(func(context.Context) (int, error) { return 0, errors.New("boom") }, kpAdmin),
+		"POST", "/api/v1/portal/knowledge-pages/restore-builtin", ""); rec.Code != http.StatusInternalServerError {
+		t.Fatalf("failed restore = %d, want 500", rec.Code)
+	}
+	// No seam wired (portalnoop / injected stores): the route does not exist,
+	// so the path falls through to the GET-only {id} pattern and POST is 405.
+	if rec := doKP(newKnowledgePageHandler(&mockKnowledgePageStore{}, kpAdmin),
+		"POST", "/api/v1/portal/knowledge-pages/restore-builtin", ""); rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("unwired restore = %d, want 405", rec.Code)
 	}
 }

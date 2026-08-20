@@ -403,6 +403,21 @@ export const mockKnowledgePages: KnowledgePage[] = [
     created_at: "2026-05-26T09:00:00Z",
     updated_at: "2026-06-22T12:00:00Z",
   },
+  {
+    id: "kp-seed-builtin-1",
+    slug: "platform-writing-managed-scripts",
+    title: "Writing a managed script",
+    summary:
+      "How to write a managed script: the Starlark dialect's deliberate absences, DECIMAL columns arriving as strings, the validate/dry-run loop, and when a script is approved without a reviewer.",
+    body: "A managed script is a small Starlark program the platform stores, versions, and runs unattended.\n\n## The mistakes that cost a round trip\n\nA SQL DECIMAL column arrives in the rows as a **string**, not a number: pass it through `float()` before arithmetic.\n",
+    tags: ["scripts", "starlark", "authoring"],
+    created_by: "platform",
+    updated_by: "platform",
+    current_version: 1,
+    builtin: true,
+    created_at: "2026-06-01T00:00:00Z",
+    updated_at: "2026-06-01T00:00:00Z",
+  },
 ];
 
 // mockPageRefs is the per-page entity-reference store behind the refs endpoints
