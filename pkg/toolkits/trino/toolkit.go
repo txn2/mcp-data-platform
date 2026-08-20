@@ -13,6 +13,7 @@ import (
 	"github.com/txn2/mcp-trino/pkg/multiserver"
 	trinotools "github.com/txn2/mcp-trino/pkg/tools"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
@@ -248,10 +249,15 @@ func warnInertConnectionName(instance, connectionName string) {
 	if connectionName == "" || connectionName == instance {
 		return
 	}
+	// Both values come from deployment configuration, which an admin API write
+	// can reach, so they are stripped of control characters before they reach a
+	// log field or the sentence built from them.
+	safeInstance := logsan.SanitizeForLog(instance)
+	safeName := logsan.SanitizeForLog(connectionName)
 	slog.Warn("trino connection_name has no effect; the connection is named by its instance",
-		"instance", instance,
-		"connection_name", connectionName,
-		"remedy", "list "+instance+" wherever "+connectionName+" is named, including persona connections rules",
+		"instance", safeInstance,
+		"connection_name", safeName,
+		"remedy", "list "+safeInstance+" wherever "+safeName+" is named, including persona connections rules",
 	)
 }
 

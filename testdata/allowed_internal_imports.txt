@@ -732,6 +732,7 @@ pkg/toolkits/search -> pkg/query
 pkg/toolkits/search -> pkg/semantic
 pkg/toolkits/search -> pkg/toolkit
 pkg/toolkits/tools/toolsindex -> pkg/indexjobs
+pkg/toolkits/trino -> internal/logsan
 pkg/toolkits/trino -> internal/sqltables
 pkg/toolkits/trino -> pkg/mcpcontext
 pkg/toolkits/trino -> pkg/query
