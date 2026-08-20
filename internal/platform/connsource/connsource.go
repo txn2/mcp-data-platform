@@ -84,6 +84,14 @@ func (m *Map) Remove(kind, name string) {
 
 // ForConnection returns the DataHub source info for a connection.
 // Returns nil if the connection has no mapping.
+//
+// Kind and name together identify a connection, and both are required because a
+// deployment may legitimately carry one name across several kinds. A lookup by
+// name alone used to answer with whichever entry the map iteration reached
+// first, which put an s3 platform on a Trino warehouse table's URN and returned
+// a different platform on the next call (#1384). Every caller reads the kind off
+// the audit event or PlatformContext it reads the name from, so this map is not
+// the place to guess one.
 func (m *Map) ForConnection(kind, name string) *Source {
 	if m == nil {
 		return nil
@@ -98,20 +106,6 @@ func (m *Map) DataHubSourceName(kind, name string) string {
 		return s.DataHubSourceName
 	}
 	return ""
-}
-
-// ForConnectionName returns the DataHub source info by connection name only.
-// Searches all kinds. Returns nil if not found.
-func (m *Map) ForConnectionName(name string) *Source {
-	if m == nil {
-		return nil
-	}
-	for _, src := range m.byConnection {
-		if src.Name == name {
-			return src
-		}
-	}
-	return nil
 }
 
 // ConnectionsForSource returns all connections that map to the given DataHub

@@ -40,6 +40,9 @@ func queryPC() *PlatformContext {
 	pc.UserEmail = "analyst@example.com"
 	pc.PersonaName = "analyst"
 	pc.ToolName = "trino_query"
+	// A tool call carries the kind of the toolkit that served it; the URN
+	// builder reads it to name the platform a table belongs to (#1384).
+	pc.ToolkitKind = "trino"
 	return pc
 }
 
@@ -50,7 +53,7 @@ func TestReflexiveObserve_ErrorThenFixDispatches(t *testing.T) {
 	cfg := ReflexiveCaptureConfig{
 		Captor:     chanCaptor{ch: ch},
 		Tracker:    tr,
-		URNBuilder: func(_, c, s, tb string) string { return "urn:" + c + "." + s + "." + tb },
+		URNBuilder: func(k, _, c, s, tb string) string { return "urn:" + k + ":" + c + "." + s + "." + tb },
 	}
 	pc := queryPC()
 
@@ -67,7 +70,7 @@ func TestReflexiveObserve_ErrorThenFixDispatches(t *testing.T) {
 		if cc.CreatedBy != "analyst@example.com" {
 			t.Errorf("CreatedBy = %q", cc.CreatedBy)
 		}
-		if len(cc.EntityURNs) != 1 || cc.EntityURNs[0] != "urn:cat.sch.orders" {
+		if len(cc.EntityURNs) != 1 || cc.EntityURNs[0] != "urn:trino:cat.sch.orders" {
 			t.Errorf("EntityURNs = %v", cc.EntityURNs)
 		}
 		if !strings.Contains(cc.Content, "custmer_id") || !strings.Contains(cc.Content, "customer_id") {
@@ -248,23 +251,23 @@ func TestTruncateForCapture(t *testing.T) {
 
 func TestReflexiveEntityURNs(t *testing.T) {
 	cfg := ReflexiveCaptureConfig{
-		URNBuilder: func(_, catalog, schema, table string) string {
-			return "urn:" + catalog + "." + schema + "." + table
+		URNBuilder: func(kind, _, catalog, schema, table string) string {
+			return "urn:" + kind + ":" + catalog + "." + schema + "." + table
 		},
 	}
 	refs := sqltables.Extract("SELECT * FROM cat.sch.orders o JOIN cat.sch.customers c ON o.id = c.id")
-	urns := cfg.entityURNs("primary", refs)
+	urns := cfg.entityURNs("trino", "primary", refs)
 	if len(urns) != 2 {
 		t.Fatalf("expected 2 urns, got %v", urns)
 	}
 
 	// A two-part table (no catalog) yields no URN; a nil builder yields none.
 	partial := sqltables.Extract("SELECT * FROM sch.orders")
-	if got := cfg.entityURNs("primary", partial); got != nil {
+	if got := cfg.entityURNs("trino", "primary", partial); got != nil {
 		t.Errorf("two-part table should not produce a URN, got %v", got)
 	}
 	nilCfg := ReflexiveCaptureConfig{}
-	if got := nilCfg.entityURNs("primary", refs); got != nil {
+	if got := nilCfg.entityURNs("trino", "primary", refs); got != nil {
 		t.Errorf("nil builder should produce no URNs, got %v", got)
 	}
 }

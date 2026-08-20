@@ -108,6 +108,37 @@ func TestRegistry_AllAndAllTools(t *testing.T) {
 	}
 }
 
+// TestRegistry_EnumerationIsStable is the guarantee every connection surface
+// rests on (#1384): the same registry answers the same order every time, so a
+// caller resolving a connection NAME against the list reaches the same toolkit
+// on every call. Ranging the backing map answered a different order per call,
+// and a single-call assertion could not see it.
+func TestRegistry_EnumerationIsStable(t *testing.T) {
+	reg := NewRegistry()
+	for _, kind := range []string{"s3", regTestTrino, "datahub"} {
+		_ = reg.Register(&mockToolkit{kind: kind, name: "acme", tools: []string{kind + "_list"}})
+	}
+
+	wantKinds := []string{"datahub", "s3", regTestTrino}
+	wantTools := []string{"datahub_list", "s3_list", "trino_list"}
+	for range 20 {
+		all := reg.All()
+		kinds := make([]string, 0, len(all))
+		for _, tk := range all {
+			kinds = append(kinds, tk.Kind())
+		}
+		if fmt.Sprint(kinds) != fmt.Sprint(wantKinds) {
+			t.Fatalf("All() order = %v, want %v", kinds, wantKinds)
+		}
+		if got := reg.AllTools(); fmt.Sprint(got) != fmt.Sprint(wantTools) {
+			t.Fatalf("AllTools() order = %v, want %v", got, wantTools)
+		}
+		if got := reg.GetToolkitForTool("trino_list"); got.Kind != regTestTrino {
+			t.Fatalf("GetToolkitForTool kind = %q, want %q", got.Kind, regTestTrino)
+		}
+	}
+}
+
 func TestRegistry_Close(t *testing.T) {
 	reg := NewRegistry()
 	toolkit := &mockToolkit{kind: regTestTrino, name: regTestProd}

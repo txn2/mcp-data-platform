@@ -85,7 +85,7 @@ func TestWire_Gating(t *testing.T) {
 		Enabled:           true,
 		Server:            server,
 		Toolkit:           tk,
-		BuildURN:          func(_, _, _, _ string) string { return "urn:li:dataset:(urn:li:dataPlatform:trino,a.b.c,PROD)" },
+		BuildURN:          func(_, _, _, _, _ string) string { return "urn:li:dataset:(urn:li:dataPlatform:trino,a.b.c,PROD)" },
 		PersonaAllowsTool: func(context.Context, []string, string) bool { return true },
 	})
 	if tr == nil {

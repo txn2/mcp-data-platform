@@ -41,7 +41,12 @@ func KindForTool(tool string) string { return recordedTools[tool] }
 // by, applying the connection's platform and catalog mapping. It is the same
 // function the reflexive-capture path takes (middleware.URNBuilder); declared
 // here so this package does not import the middleware that will later read it.
-type URNBuilder func(connection, catalog, schema, table string) string
+//
+// The connection is named by kind and name together. A name alone is ambiguous
+// where a deployment carries it across kinds, and the target it produced then
+// named a platform the statement never ran against (#1384); the audit event
+// this recorder reads carries the kind alongside the name.
+type URNBuilder func(connectionKind, connection, catalog, schema, table string) string
 
 // Recorder catalogs data-access calls as they are audited.
 //
@@ -142,7 +147,7 @@ func (r *Recorder) recordFrom(ev audit.Event) (Record, bool) {
 		CreatedAt:     ev.Timestamp.UTC(),
 	}
 	if kind == KindSQL {
-		r.describeSQL(&rec, ev.Parameters)
+		r.describeSQL(&rec, ev.ToolkitKind, ev.Parameters)
 	} else {
 		describeAPI(&rec, ev.Parameters)
 	}
@@ -153,9 +158,9 @@ func (r *Recorder) recordFrom(ev audit.Event) (Record, bool) {
 // the arguments the audit row kept, so a deployment that disables parameter
 // capture catalogs the call without its statement rather than not at all: the
 // purpose, the connection and the outcome are still worth having.
-func (r *Recorder) describeSQL(rec *Record, params map[string]any) {
+func (r *Recorder) describeSQL(rec *Record, connectionKind string, params map[string]any) {
 	rec.Statement = stringParam(params, "sql")
-	rec.Targets = r.targets(rec.Connection, rec.Statement)
+	rec.Targets = r.targets(connectionKind, rec.Connection, rec.Statement)
 }
 
 // targets names the datasets a statement reads, as the URNs the catalog knows
@@ -166,7 +171,7 @@ func (r *Recorder) describeSQL(rec *Record, params map[string]any) {
 // the audit row does not record, so any URN built from it would name a dataset
 // nobody asked for. A record with no targets is still a record; it is only
 // never declared superseded, since supersession compares targets.
-func (r *Recorder) targets(connection, statement string) []string {
+func (r *Recorder) targets(connectionKind, connection, statement string) []string {
 	if r.urn == nil || statement == "" {
 		return nil
 	}
@@ -175,7 +180,7 @@ func (r *Recorder) targets(connection, statement string) []string {
 		if ref.Catalog == "" || ref.Schema == "" || ref.Table == "" {
 			continue
 		}
-		if urn := r.urn(connection, ref.Catalog, ref.Schema, ref.Table); urn != "" {
+		if urn := r.urn(connectionKind, connection, ref.Catalog, ref.Schema, ref.Table); urn != "" {
 			urns = append(urns, urn)
 		}
 	}

@@ -446,10 +446,30 @@ export const mockScriptReviewAlert = {
 // enumerator reports it (#1361). A run form narrows it to what the approved
 // version was granted; a dry-run form shows it whole, because a draft executes
 // as its caller.
+//
+// It carries one name under two kinds, which is legitimate and is what made the
+// route answer differently on each call (#1384). The server serves only the
+// kind a connection parameter can name, so "acme-lake" appears here and never
+// in a response.
 export const mockReachableConnections: ScriptConnectionChoice[] = [
   { name: "acme-warehouse", kind: "trino", description: "Production Trino warehouse" },
   { name: "acme-reporting", kind: "trino", description: "Reporting replica" },
   { name: "acme-lake", kind: "s3", description: "Raw object store" },
+  { name: "acme-warehouse", kind: "s3", description: "Warehouse exports bucket" },
+];
+
+// mockBindableConnections is what the connections route actually serves: the
+// inventory narrowed to the kind a connection parameter binds to.
+export const mockBindableConnections: ScriptConnectionChoice[] = mockReachableConnections.filter(
+  (c) => c.kind === "trino",
+);
+
+// mockConnectionNames is the distinct names the inventory holds. The static
+// validator reports the connection names a script's SOURCE references, with no
+// kind narrowing — that narrowing belongs to the picker — so the names are what
+// it works from, deduplicated because one name may be carried by two kinds.
+export const mockConnectionNames: string[] = [
+  ...new Set(mockReachableConnections.map((c) => c.name)),
 ];
 
 // ---------------------------------------------------------------------------

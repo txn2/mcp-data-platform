@@ -2,6 +2,7 @@ package script_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -184,18 +185,75 @@ func TestRefuseUnreachable_NamesAConnectionTheAuthorCannotCall(t *testing.T) {
 		}},
 	}
 
-	assert.Empty(t, script.RefuseUnreachable(grants, []string{"warehouse", "finance", "acme-s3"}))
+	query := func(names ...string) []script.ConnectionRef {
+		refs := make([]script.ConnectionRef, 0, len(names))
+		for _, n := range names {
+			refs = append(refs, script.ConnectionRef{Kind: script.ConnectionParamKind, Name: n})
+		}
+		return refs
+	}
+	drop := script.ConnectionRef{Kind: script.DestinationKindS3, Name: "acme-s3"}
 
-	reason := script.RefuseUnreachable(grants, []string{"warehouse", "acme-s3"})
+	assert.Empty(t, script.RefuseUnreachable(grants, append(query("warehouse", "finance"), drop)))
+
+	reason := script.RefuseUnreachable(grants, append(query("warehouse"), drop))
 	assert.Contains(t, reason, "finance")
 	assert.NotContains(t, reason, "warehouse")
 
 	assert.Contains(t,
-		script.RefuseUnreachable(grants, []string{"warehouse", "finance"}), "acme-s3",
+		script.RefuseUnreachable(grants, query("warehouse", "finance")), "acme-s3",
 		"the connection a destination is delivered over crosses the same boundary")
 
 	assert.Empty(t, script.RefuseUnreachable(grants, nil),
 		"a deployment that cannot enumerate its connections refuses nothing")
+}
+
+// TestRefuseUnreachable_MatchesTheKindTheRunWillReach proves a granted name is
+// checked against the connection the run reaches under it, not against any
+// connection that happens to share the name (#1384). A deployment may carry one
+// name across kinds; matching by name alone admitted a grant the middleware
+// would then refuse, which is exactly the answer this check exists to give
+// early.
+func TestRefuseUnreachable_MatchesTheKindTheRunWillReach(t *testing.T) {
+	grants := script.Grants{
+		Roles:       testAuthor.Roles,
+		Connections: []string{"acme"},
+		Destinations: []script.Destination{{
+			Name: "acme-drop", Kind: script.DestinationKindS3,
+			Connection: "acme", Bucket: "acme-exports",
+		}},
+	}
+
+	// The author reaches only the s3 connection called "acme". The queried
+	// connection is reached through the query binding, which is another kind,
+	// so the query grant is refused and the destination is not.
+	reason := script.RefuseUnreachable(grants,
+		[]script.ConnectionRef{{Kind: script.DestinationKindS3, Name: "acme"}})
+	assert.Contains(t, reason, "acme ("+script.ConnectionParamKind+")")
+	assert.NotContains(t, reason, "acme ("+script.DestinationKindS3+")")
+
+	// Reaching both is what the grant actually needs.
+	assert.Empty(t, script.RefuseUnreachable(grants, []script.ConnectionRef{
+		{Kind: script.ConnectionParamKind, Name: "acme"},
+		{Kind: script.DestinationKindS3, Name: "acme"},
+	}))
+
+	// A connection a grant names more than once is one connection, so an
+	// unreachable one is reported once rather than per mention.
+	repeated := script.Grants{
+		Connections: []string{"acme", "acme"},
+		Destinations: []script.Destination{
+			// The portal is reached through the platform, not over a connection,
+			// so it crosses no connection boundary and is not checked here.
+			script.PortalDestination(),
+			{Name: "a", Kind: script.DestinationKindS3, Connection: "drop"},
+			{Name: "b", Kind: script.DestinationKindS3, Connection: "drop"},
+		},
+	}
+	reason = script.RefuseUnreachable(repeated,
+		[]script.ConnectionRef{{Kind: "datahub", Name: "elsewhere"}})
+	assert.Equal(t, 1, strings.Count(reason, "acme ("))
+	assert.Equal(t, 1, strings.Count(reason, "drop ("))
 }
 
 // stubApprover records what the funnel asked it and answers with a fixed

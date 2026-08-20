@@ -2264,19 +2264,19 @@ func callSearcher(calls *callrecord.PostgresStore) knowledge.CallSearcher {
 }
 
 // datasetURNFor builds the dataset URN a table is known by in the catalog,
-// resolving the connection's DataHub platform name and catalog mapping first
-// and falling back to the query-provider mapping when the connection is
-// unknown.
+// resolving the connection — identified by KIND and name together (#1384) — to
+// its DataHub platform name and catalog mapping, and falling back to the
+// query-provider mapping when the connection is unknown.
 //
 // It is the platform's one answer to "which catalog entity is this table", and
 // every path that must agree with enrichment about that — reflexive capture
 // entity-keying a correction, the call catalog naming a query's targets — takes
 // it rather than composing its own.
-func (p *Platform) datasetURNFor(connection, catalog, schema, table string) string {
+func (p *Platform) datasetURNFor(connectionKind, connection, catalog, schema, table string) string {
 	mapping := p.config.Query.URNMapping
 	platform, catalogMapping := mapping.Platform, mapping.CatalogMapping
-	if p.connectionSources != nil && connection != "" {
-		if src := p.connectionSources.ForConnectionName(connection); src != nil {
+	if p.connectionSources != nil && connection != "" && connectionKind != "" {
+		if src := p.connectionSources.ForConnection(connectionKind, connection); src != nil {
 			platform, catalogMapping = src.DataHubSourceName, src.CatalogMapping
 		}
 	}
@@ -2574,8 +2574,8 @@ func (p *Platform) buildEnrichmentConfig() middleware.EnrichmentConfig {
 
 	// Wire connection source map lookups as closures to avoid import cycles.
 	if p.connectionSources != nil {
-		cfg.ForConnection = func(connectionName string) (string, map[string]string) {
-			src := p.connectionSources.ForConnectionName(connectionName)
+		cfg.ForConnection = func(connectionKind, connectionName string) (string, map[string]string) {
+			src := p.connectionSources.ForConnection(connectionKind, connectionName)
 			if src == nil {
 				return "", nil
 			}

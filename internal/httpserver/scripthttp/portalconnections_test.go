@@ -16,11 +16,13 @@ import (
 
 const connectionsPath = "/api/v1/portal/scripts/script_2/connections"
 
-// reachable is what the caller's own persona enumerates in these tests: two
-// connections, only one of which the fixture's grant covers.
+// reachable is what the caller's own persona enumerates in these tests: three
+// connections, only one of which the fixture's grant covers, and only two of a
+// kind a connection parameter can name.
 func reachable() []ConnectionChoice {
 	return []ConnectionChoice{
 		{Name: "warehouse", Kind: "trino", Description: "Production warehouse"},
+		{Name: "reporting", Kind: "trino", Description: "Reporting cluster"},
 		{Name: "lake", Kind: "s3", Description: "Raw object store"},
 	}
 }
@@ -67,7 +69,11 @@ func TestPortalScriptConnections_ServesThePersonaForADraft(t *testing.T) {
 	var body connectionChoicesResponse
 	decodeInto(t, rec, &body)
 	assert.Equal(t, "persona", body.Source)
-	assert.Len(t, body.Data, 2, "a dry run reaches what its caller reaches")
+	assert.Len(t, body.Data, 2,
+		"a dry run reaches what its caller reaches, of the kind a connection parameter names")
+	for _, c := range body.Data {
+		assert.Equal(t, "trino", c.Kind)
+	}
 	assert.Equal(t, "analyst", asked.Persona)
 	assert.False(t, asked.Unrestricted)
 }
@@ -143,5 +149,45 @@ func TestPortalScriptConnections_IsUnmountedWithoutAnEnumerator(t *testing.T) {
 func TestOrEmptyChoices(t *testing.T) {
 	assert.NotNil(t, orEmptyChoices(nil))
 	assert.Empty(t, orEmptyChoices(nil))
-	assert.Len(t, orEmptyChoices(reachable()), 2)
+	assert.Len(t, orEmptyChoices(reachable()), 3)
+}
+
+// TestBindableChoices narrows an enumeration to the kind a connection parameter
+// can name, which is the kind the query binding reaches (#1384). Offering the
+// others offered values the run refuses, and made a name carried by several
+// kinds resolve to whichever the enumeration reached first.
+func TestBindableChoices(t *testing.T) {
+	got := bindableChoices(reachable())
+	require.Len(t, got, 2)
+	assert.Equal(t, "warehouse", got[0].Name)
+	assert.Equal(t, "reporting", got[1].Name)
+
+	assert.Empty(t, bindableChoices(nil))
+	assert.Empty(t, bindableChoices([]ConnectionChoice{{Name: "lake", Kind: "s3"}}))
+}
+
+// TestPortalScriptConnections_ResolvesASharedNameToTheKindTheRunReaches is the
+// stability the picker owes its reader (#1384). A deployment may carry one name
+// across kinds, and a value bound here is passed to the query binding, so the
+// granted name resolves to the connection that binding reaches — the same one
+// on every call. Calling the route repeatedly is the assertion: a single call
+// passed by luck against the old resolution.
+func TestPortalScriptConnections_ResolvesASharedNameToTheKindTheRunReaches(t *testing.T) {
+	shared := []ConnectionChoice{
+		{Name: "warehouse", Kind: "s3", Description: "Raw object store"},
+		{Name: "warehouse", Kind: "datahub", Description: "Catalog"},
+		{Name: "warehouse", Kind: "trino", Description: "Production warehouse"},
+	}
+	deps, _ := connectionDeps(grantedStore(), carol, shared)
+
+	for range 20 {
+		rec := servePortalRequest(t, deps, http.MethodGet, connectionsPath, "")
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		var body connectionChoicesResponse
+		decodeInto(t, rec, &body)
+		require.Len(t, body.Data, 1)
+		assert.Equal(t, "warehouse", body.Data[0].Name)
+		assert.Equal(t, "trino", body.Data[0].Kind)
+		assert.Equal(t, "Production warehouse", body.Data[0].Description)
+	}
 }

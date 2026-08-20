@@ -28,21 +28,24 @@ func TestConnectionSourceMap_AddAndForConnection(t *testing.T) {
 	assert.Nil(t, m.ForConnection("s3", "prod"))
 }
 
-func TestConnectionSourceMap_ForConnectionName(t *testing.T) {
+// TestConnectionSourceMap_SharedNameResolvesByKind proves that one name carried
+// by three kinds resolves to the connection meant, repeatably (#1384). The
+// alias is re-exported to platform callers, so the guarantee is asserted on the
+// surface they use.
+func TestConnectionSourceMap_SharedNameResolvesByKind(t *testing.T) {
 	m := NewConnectionSourceMap()
-	m.Add(ConnectionSource{Kind: "trino", Name: "analytics", DataHubSourceName: "trino"})
-	m.Add(ConnectionSource{Kind: "s3", Name: "lake", DataHubSourceName: "s3"})
+	for _, kind := range []string{"trino", "datahub", "s3"} {
+		m.Add(ConnectionSource{Kind: kind, Name: "acme", DataHubSourceName: kind})
+	}
 
-	got := m.ForConnectionName("analytics")
-	require.NotNil(t, got)
-	assert.Equal(t, "trino", got.Kind)
-
-	got = m.ForConnectionName("lake")
-	require.NotNil(t, got)
-	assert.Equal(t, "s3", got.Kind)
-
-	// Non-existent name returns nil.
-	assert.Nil(t, m.ForConnectionName("missing"))
+	for range 20 {
+		for _, kind := range []string{"trino", "datahub", "s3"} {
+			got := m.ForConnection(kind, "acme")
+			require.NotNil(t, got)
+			assert.Equal(t, kind, got.DataHubSourceName)
+		}
+	}
+	assert.Nil(t, m.ForConnection("trino", "missing"))
 }
 
 func TestConnectionSourceMap_ConnectionsForSource(t *testing.T) {
@@ -149,7 +152,6 @@ func TestConnectionSourceMap_Nil(t *testing.T) {
 	var m *ConnectionSourceMap
 
 	assert.Nil(t, m.ForConnection("trino", "prod"))
-	assert.Nil(t, m.ForConnectionName("prod"))
 	assert.Nil(t, m.ConnectionsForSource("trino"))
 	assert.Nil(t, m.ConnectionsForURN("urn:li:dataset:(urn:li:dataPlatform:trino,c.s.t,PROD)"))
 }

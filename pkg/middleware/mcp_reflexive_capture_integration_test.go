@@ -98,8 +98,12 @@ func reflexiveTestServer(t *testing.T, errTrigger string, capturePermitted func(
 	server.AddReceivingMiddleware(middleware.MCPReflexiveCaptureMiddleware(middleware.ReflexiveCaptureConfig{
 		Captor:  &testCaptor{tk: tk},
 		Tracker: tracker,
-		URNBuilder: func(_, catalog, schema, table string) string {
-			return "urn:li:dataset:(urn:li:dataPlatform:trino," + catalog + "." + schema + "." + table + ",PROD)"
+		// The platform segment is the connection KIND the chain resolved, not a
+		// literal: this asserts the kind reaches the builder through the real
+		// wiring, which is what stops a Trino table being recorded under
+		// another platform that shares its connection name (#1384).
+		URNBuilder: func(kind, _, catalog, schema, table string) string {
+			return "urn:li:dataset:(urn:li:dataPlatform:" + kind + "," + catalog + "." + schema + "." + table + ",PROD)"
 		},
 		CapturePermitted: capturePermitted,
 	}))
