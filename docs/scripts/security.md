@@ -753,50 +753,51 @@ whatever cadence its schedule fires, until someone changes it. That is the
 feature, and the control on it is the capability diff a reviewer reads before
 binding the destination.
 
-### The data-region refresh: the narrowest write
+### The data-region refresh
 
 `platform.publish_data` (capability `platform.publish_data`, #1389) refreshes
-the data region of a dashboard the script already publishes, and it is
-deliberately the narrowest write the host offers. The claim a reviewer approves
-is: **this script replaces the interior of one marked element of one named
-asset, and cannot modify the document's markup.** That claim holds
-structurally, not by convention:
+the data region of a dashboard the script already publishes. It adds no
+authority: an approved run presents its author's roles, and the author can
+already rewrite the whole document through `manage_asset` or `save_asset`, so
+confining the call to one region is not a security boundary and this section
+does not claim one. What the confinement is, is a behavioral contract worth
+stating precisely in the document that describes what each host binding does:
 
 - **The target is pinned by the export identity rule.** The name resolves
   through the same idempotency key an export writes under
-  (`internal/platform/scriptexec`, `outputIdentityKey`), so the only reachable
-  documents are this script's own portal outputs. A name that resolves to
+  (`internal/platform/scriptexec`, `outputIdentityKey`), so the call reaches
+  this script's own portal outputs and nothing else. A name that resolves to
   nothing fails the run; the call creates no asset and takes no asset id. The
   write requires a PORTAL-kind destination in the grant, checked by kind and
   not only by name — and the destination name "portal" is reserved for the
-  platform's own asset store (`Destination.validateBucket`), so a bucket
-  destination can never wear it and be resolved where an asset write is meant.
-- **The splice is structural.** The payload replaces the interior of the ONE
-  element matching `#data` (`pkg/script/refresh.go`, `DataRegionSelector`)
-  through the anchored-editing engine's `replace_content` operation — the same
-  `pkg/textpatch` machinery `manage_asset` patch uses — never string
-  interpolation. A document with no match, or more than one, fails the run
-  rather than writing anywhere else.
-- **The payload cannot escape the element.** The serializer
+  platform's own asset store (`Destination.validateBucket`). This is a
+  coherence rule, not a defense: a grant that lists only a bucket destination
+  must not produce a portal write its own text does not describe.
+- **The splice is structural, for document integrity.** The payload replaces
+  the interior of the ONE element matching `#data` (`pkg/script/refresh.go`,
+  `DataRegionSelector`) through the anchored-editing engine's `replace_content`
+  operation — the same `pkg/textpatch` machinery `manage_asset` patch uses —
+  never string interpolation, and the serializer
   (`internal/platform/scriptrun`, `FormatDataPayload`) keeps `encoding/json`'s
   default escaping, which writes `<`, `>` and `&` as `\u` escapes, so no
-  string in the payload can contain `</script>` and terminate the island. In a
-  JSX document the payload is wrapped as a template-literal expression child
-  with backslash, backtick and `${` escaped, so it can neither break the module
-  nor evaluate anything: the literal's value is exactly the JSON.
+  payload string can contain `</script>` and corrupt the document's structure.
+  In a JSX document the payload is wrapped as a template-literal expression
+  child with backslash, backtick and `${` escaped, so the module still
+  compiles and the literal's value is exactly the JSON. A document with no
+  match, or more than one, fails the run rather than writing anywhere else.
 - **The validator reports the target.** A static read collects the output names
   `publish_data` refreshes (`refresh_targets`), and a computed name is flagged
-  rather than silently omitted, so the reviewer sees which asset the script
-  rewrites — alongside the capability and the portal destination the grant must
-  cover.
-- **Why it exists at all**: the alternative is a script that re-emits the whole
-  document through `platform.export`'s document arm every run. That puts the
-  markup in the script's source, so the only claim a reviewer can approve is
-  "this script writes arbitrary markup" — and any change to the presentation
-  means editing the script, which cannot run until the new version is approved
-  again. Splitting the template (versioned in the asset) from the data
-  (refreshed by the script) shrinks both the approval statement and the blast
-  radius of a compromised or buggy script to one region of one document.
+  rather than silently omitted, so a reviewer reading a version diff sees which
+  asset the change refreshes without reading the interpreter's behavior out of
+  the source.
+- **Why the call exists**: the alternative is a script that re-emits the whole
+  document through `platform.export`'s document arm every run, which costs two
+  practical things. Every fire overwrites the current version wholesale, so an
+  edit made to the layout in the portal is destroyed by the next scheduled run;
+  and any presentation change means editing the script, which cannot run until
+  the new version is approved again. Keeping the template in the asset and the
+  data in the script lets asset edits and scheduled refreshes coexist, and
+  keeps each version an as-of snapshot of one run's data.
 
 ### The script principal
 

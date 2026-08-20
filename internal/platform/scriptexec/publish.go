@@ -21,11 +21,12 @@ import (
 // documents are versioned; the data lives in the script, refreshed on the
 // script's cadence. The write is structural — the payload replaces the interior
 // of the ONE element the data-region selector resolves, through the same
-// anchored-editing machinery manage_asset patch uses — so the platform can state
-// to a reviewer, truthfully, that this call cannot modify the document's markup.
-// Every refreshed version is a self-contained as-of snapshot: a public share of
-// the dashboard needs no view-time fetch, and an old version still shows exactly
-// the data it showed.
+// anchored-editing machinery manage_asset patch uses — which is what lets an
+// edit made to the asset's markup coexist with the schedule: a refresh rewrites
+// the island and nothing else, where a whole-document re-emit would destroy the
+// edit at the next fire. Every refreshed version is a self-contained as-of
+// snapshot: a public share of the dashboard needs no view-time fetch, and an
+// old version still shows exactly the data it showed.
 func (w *outputWriter) PublishData(ctx context.Context, req scriptrun.PublishRequest) (*scriptrun.ExportResult, error) {
 	// A data region is a property of a portal document, so the destination is
 	// the portal by construction; the host has already checked the grant covers

@@ -387,9 +387,10 @@ func (h *hostState) admitOutput(b *starlark.Builtin, name, destination string) e
 //
 // The presentation is not creatable through this call, on purpose: the split
 // this binding exists for keeps the template in the asset and the data in the
-// script, so the reviewable claim stays "this script replaces the data region
-// of this asset and cannot modify its markup". The whole-document write is
-// platform.export's document arm, which is the wider grant.
+// script, so a layout edit made in the portal survives the next scheduled fire
+// instead of being overwritten by a whole-document re-emit, and changing the
+// presentation never requires a script edit and a re-approval. Composing the
+// whole document is platform.export's document arm.
 func (h *hostState) publishData(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	if err := h.allowCapability(CapabilityPublishData); err != nil {
 		return nil, argErr(b, err)

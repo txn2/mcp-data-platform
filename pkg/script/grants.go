@@ -17,11 +17,12 @@ import (
 const (
 	CapabilityQuery  = "platform.query"
 	CapabilityExport = "platform.export"
-	// CapabilityPublishData is the narrow write: replace the data region of a
-	// portal document this script already owns, and touch nothing else in it.
-	// It is deliberately separate from CapabilityExport, whose document arm
-	// writes arbitrary markup — a reviewer granting this one is approving a
-	// statement about ONE region of one asset, not a page.
+	// CapabilityPublishData replaces the data region of a portal document this
+	// script already publishes, and touches nothing else in it. It is separate
+	// from CapabilityExport, whose document arm composes whole documents,
+	// because the two describe different behavior a reader of the grant should
+	// be able to tell apart — not because the split confers or withholds any
+	// authority: a run carries its author's roles either way.
 	CapabilityPublishData = "platform.publish_data"
 )
 

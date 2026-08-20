@@ -550,12 +550,13 @@ a schedule: one portal asset at one URL, authored once as an HTML, JSX, or
 markdown document with real visualizations, whose numbers a script refreshes on
 a cadence. The wrong way to build one is to make the script re-emit the whole
 document every run. That puts the markup inside the script's source, which
-costs twice: the reviewer can only approve the broad claim "this script writes
-arbitrary markup", and changing anything about the presentation — a chart
-color, a heading — means editing the script, and an edited script cannot run
-until an administrator approves the new version. The right split keeps the
-template in the asset, where a layout change is an ordinary document edit, and
-the data in the script; `platform.publish_data` is that split:
+costs twice: every fire overwrites the current version wholesale, so a layout
+edit made in the portal is destroyed by the next scheduled run; and changing
+anything about the presentation — a chart color, a heading — means editing the
+script, and an edited script cannot run until its new version is approved. The
+right split keeps the template in the asset, where a layout change is an
+ordinary document edit that survives the schedule, and the data in the script;
+`platform.publish_data` is that split:
 
 ```python
 data = {"regions": platform.query(connection="warehouse", sql="SELECT ...")["rows"]}
