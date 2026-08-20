@@ -12,6 +12,7 @@ package federation
 import (
 	"context"
 
+	"github.com/txn2/mcp-data-platform/pkg/connid"
 	"github.com/txn2/mcp-data-platform/pkg/knowledge"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
@@ -96,6 +97,7 @@ func (l ConnectionLister) Connections() []knowledge.ConnectionInfo {
 					Name:        conn.Name,
 					Kind:        tk.Kind(),
 					Description: conn.Description,
+					Bound:       conn.Name,
 				})
 			}
 			continue
@@ -104,10 +106,11 @@ func (l ConnectionLister) Connections() []knowledge.ConnectionInfo {
 			continue
 		}
 		// A single-connection toolkit's persona/audit identity is its configured
-		// connection name, which may differ from its instance name; carry both so
-		// discovery filters on exactly what the authorizer checks.
+		// connection name, which may differ from its instance name; connid
+		// derives it so discovery filters on exactly what the authorizer checks.
+		c := connid.NewResolver([]registry.Toolkit{tk}, nil).ByInstance(tk.Kind(), connid.Instance(tk.Name()))
 		infos = append(infos, knowledge.ConnectionInfo{
-			Name: tk.Name(), Kind: tk.Kind(), Connection: tk.Connection(),
+			Name: tk.Name(), Kind: tk.Kind(), Bound: string(c.Bound),
 		})
 	}
 	return infos

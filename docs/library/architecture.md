@@ -573,6 +573,49 @@ type Toolkit interface {
 }
 ```
 
+### Connection Identity
+
+A connection carries three names, and they are not interchangeable. Confusing
+two of them has been the cause of every defect in this area, so `pkg/connid`
+gives the first two distinct Go types and `connid.Resolver` is the only thing
+that translates between them.
+
+| Name | Type | What it is |
+|------|------|------------|
+| Instance | `connid.Instance` | The `toolkits.<kind>.instances` key the config file writes, the `connection_instances` row name, and the target of an `mcp:connection:(kind,name)` reference |
+| Bound | `connid.Bound` | The value a tool call's `connection` argument carries, the name a persona's `connections` rules match, and the key the connection source map answers to |
+| Toolkit | `string` | The registered toolkit's own name |
+
+Instance and Bound are equal for a multi-connection toolkit, which routes on the
+instance key, and for a single-connection toolkit that sets no
+`connection_name`. They differ for one that does.
+
+Toolkit is a third identity because a multi-connection toolkit is one registered
+toolkit serving many connections: its name is neither of theirs and names no
+connection at all. The connection source map still holds entries under it, from
+per-kind configuration, and a connection with no entry of its own falls back to
+that one.
+
+```go
+res := connid.NewResolver(registry.All(), cfg)
+
+// A stored record or an instances key names an Instance.
+conn := res.ByInstance("trino", "warehouse")
+conn.Bound     // what a call binds it by
+conn.Toolkit   // the toolkit serving it
+conn.IsFile()  // whether the config file declares it
+conn.Live      // whether a registered toolkit currently serves it
+
+// A tool-call argument or a persona rule names a Bound.
+conn, ok := res.ByBound("s3", "Data Lake")
+```
+
+`Resolver` also reports which half of the configuration owns a connection. The
+config file owns one it declares, and the admin API refuses to save a record for
+it or to delete it; see [Admin API](../server/admin-api.md). This cannot be read
+off the connection store, because the platform seeds a credential-free row for
+every file-configured connection so that knowledge-page references resolve.
+
 ### Toolkit Registry
 
 The registry manages toolkit lifecycle and routing:

@@ -1374,6 +1374,7 @@ export const handlers = [
         description:
           "Production data warehouse with retail, inventory, and analytics schemas",
         source: "file",
+        file_declared: true,
         tools: [
           "trino_query",
           "trino_describe_table",
@@ -1405,6 +1406,7 @@ export const handlers = [
         description:
           "Production metadata catalog with business glossary and data lineage",
         source: "file",
+        file_declared: true,
         tools: [
           "datahub_search",
           "datahub_get_entity",
@@ -1434,6 +1436,7 @@ export const handlers = [
         description:
           "Raw data lake containing ETL outputs, CDC streams, and ML training data",
         source: "file",
+        file_declared: true,
         tools: ["s3_list_objects", "s3_get_object", "s3_list_buckets"],
         config: { region: "us-west-2", bucket: "acme-data-lake-prod" },
         updated_at: new Date(Date.now() - 30 * 86400000).toISOString(),
@@ -1445,6 +1448,7 @@ export const handlers = [
         description:
           "Generated reports and exported dashboards for stakeholder distribution",
         source: "file",
+        file_declared: true,
         tools: ["s3_list_objects", "s3_get_object"],
         config: { region: "us-west-2", bucket: "acme-reports-prod" },
         updated_at: new Date(Date.now() - 10 * 86400000).toISOString(),

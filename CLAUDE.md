@@ -153,7 +153,7 @@ AI-generated prose (PR descriptions, commit messages, reviews, explanations) is 
 
 ## Project Structure
 
-`pkg/` holds 42 top-level packages (all public API). Depth-2 subdirectories are
+`pkg/` holds 43 top-level packages (all public API). Depth-2 subdirectories are
 shown where they represent a distinct implementation (a storage backend, an
 adapter); helper subpackages are omitted for brevity. Regenerate this list with
 `find pkg -mindepth 1 -maxdepth 1 -type d | sort` and diff against the packages
@@ -167,7 +167,7 @@ an implementation seam and belongs under `internal/`.
 ```
 mcp-data-platform/
 ├── cmd/mcp-data-platform/          # Entry point (main.go)
-├── pkg/                            # PUBLIC API (42 top-level packages)
+├── pkg/                            # PUBLIC API (43 top-level packages)
 │   ├── admin/                      # REST API endpoints for administrative operations
 │   ├── audit/                      # Audit logging (postgres/ = PostgreSQL implementation)
 │   ├── auth/                       # Authentication: OIDC, API keys, claims, middleware
@@ -177,6 +177,7 @@ mcp-data-platform/
 │   ├── configstore/                # Granular key/value storage for platform config (postgres/)
 │   ├── connoauth/                  # Shared OAuth-to-upstream-MCP implementation across connection kinds
 │   ├── connreconcile/              # Shared remove/add reconcile of a DB connection onto live toolkits (admin hot-reload + reload bus)
+│   ├── connid/                     # Connection identity: the instance a connection is stored under, the name a call binds it by, the toolkit serving it, and which half of the config owns it — one Resolver, distinct types
 │   ├── connview/                   # Builds the list_connections view (configured + discovered)
 │   ├── contenttype/                # Media-type detection and normalization for every content write path
 │   ├── database/                   # Database utilities (migrate/ = golang-migrate runner + 117 embedded SQL migrations)

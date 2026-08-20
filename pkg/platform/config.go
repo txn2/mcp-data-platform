@@ -150,6 +150,32 @@ type Config struct {
 	// copyable — the admin export builds a copy with the resolved values
 	// substituted. Unexported so YAML marshaling ignores it.
 	overrides *overrideBinding
+
+	// declared names the connection instances the config file declared, taken
+	// before any stored connection is merged into Toolkits. Read through
+	// DeclaresConnection; nil declares nothing.
+	declared toolkitcfg.DeclaredConnections
+}
+
+// SnapshotDeclaredConnections records the connection instances Toolkits
+// currently holds as the file's. Call it once, before any stored connection is
+// merged into Toolkits; calling it after would claim those for the file too.
+func (c *Config) SnapshotDeclaredConnections() {
+	c.declared = toolkitcfg.Declared(c.Toolkits)
+}
+
+// DeclaresConnection reports whether the config file declared this connection
+// as an instance of its kind, rather than it arriving from the connection
+// store. The distinction survives nowhere else once the platform is running:
+// stored connections merge into the same Toolkits instances map the file
+// produced, and the connection backfill seeds a connection_instances row for
+// every file-configured connection, so the store holds a row either way. A nil
+// Config declares nothing, the same answer an empty snapshot gives.
+func (c *Config) DeclaresConnection(kind, name string) bool {
+	if c == nil {
+		return false
+	}
+	return c.declared.Has(kind, name)
 }
 
 // ConfigMeta holds meta-configuration controlling how the config file itself is

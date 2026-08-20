@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/pkg/connid"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
@@ -39,6 +40,10 @@ type mockConnectionStore struct {
 	// to prove fields like static_headers reach the store, not just
 	// that the HTTP request returned 200.
 	setCalls []platform.ConnectionInstance
+	// deleteCalls records each (kind,name) passed to Delete so a test can
+	// assert a refused delete never reached the store, not merely that the
+	// response carried the refusal status.
+	deleteCalls []string
 }
 
 func (m *mockConnectionStore) List(_ context.Context) ([]platform.ConnectionInstance, error) {
@@ -60,7 +65,8 @@ func (m *mockConnectionStore) Set(_ context.Context, inst platform.ConnectionIns
 	return m.setErr
 }
 
-func (m *mockConnectionStore) Delete(_ context.Context, _, _ string) error {
+func (m *mockConnectionStore) Delete(_ context.Context, kind, name string) error {
+	m.deleteCalls = append(m.deleteCalls, kind+"/"+name)
 	return m.deleteErr
 }
 
@@ -1265,12 +1271,17 @@ func TestActivateConnectionFilesSourceUnderBoundName(t *testing.T) {
 		"the cleared field falls back to what the configuration states")
 
 	// And the removal path drops the entry it filed, not a name that was never used.
-	assert.Equal(t, "Data Lake", h.connectionBindingName("s3", "data_lake"))
-	assert.Equal(t, "unclaimed", h.connectionBindingName("s3", "unclaimed"),
+	assert.Equal(t, connid.Bound("Data Lake"),
+		h.connections().ByInstance("s3", "data_lake").Bound)
+
+	unclaimed := h.connections().ByInstance("s3", "unclaimed")
+	assert.Equal(t, connid.Bound("unclaimed"), unclaimed.Bound,
 		"an instance no live toolkit claims keeps its own name")
+	assert.False(t, unclaimed.Live, "and reports that nothing serves it")
 
 	noReg := NewHandler(Deps{ConnectionSources: sources}, nil)
-	assert.Equal(t, "data_lake", noReg.connectionBindingName("s3", "data_lake"),
+	assert.Equal(t, connid.Bound("data_lake"),
+		noReg.connections().ByInstance("s3", "data_lake").Bound,
 		"a handler with no registry cannot translate, so it leaves the name alone")
 }
 
@@ -1293,18 +1304,18 @@ func TestSeedConfiguredSource(t *testing.T) {
 	sources := platform.NewConnectionSourceMap()
 	h := NewHandler(Deps{ToolkitRegistry: reg, ConnectionSources: sources, Config: cfg}, nil)
 
-	h.seedConfiguredSource("s3", "Data Lake")
+	h.seedConfiguredSource(h.connections().ByInstance("s3", "data_lake"))
 	s3src := sources.ForConnection("s3", "Data Lake")
 	require.NotNil(t, s3src, "a connection the toolkit still serves keeps a mapping")
 	assert.Equal(t, "s3", s3src.DataHubSourceName)
 
-	h.seedConfiguredSource("trino", "warehouse")
+	h.seedConfiguredSource(h.connections().ByInstance("trino", "warehouse"))
 	trinoSrc := sources.ForConnection("trino", "warehouse")
 	require.NotNil(t, trinoSrc)
 	assert.Equal(t, "hive", trinoSrc.DataHubSourceName, "the deployment's urn_mapping is restored, not a kind default")
 	assert.Equal(t, "postgres", trinoSrc.CatalogMapping["rdbms"])
 
-	h.seedConfiguredSource("s3", "gone")
+	h.seedConfiguredSource(h.connections().ByInstance("s3", "gone"))
 	assert.Nil(t, sources.ForConnection("s3", "gone"),
 		"a connection no live toolkit serves stays unmapped")
 
@@ -1320,9 +1331,15 @@ func TestSeedConfiguredSource(t *testing.T) {
 	assert.Equal(t, "hive", runtimeSrc.DataHubSourceName)
 	assert.Equal(t, "postgres", runtimeSrc.CatalogMapping["rdbms"])
 
-	// Missing wiring is a no-op, never a panic.
-	NewHandler(Deps{ConnectionSources: sources}, nil).seedConfiguredSource("s3", "Data Lake")
-	NewHandler(Deps{ToolkitRegistry: reg, ConnectionSources: sources}, nil).seedConfiguredSource("s3", "Data Lake")
+	// Missing wiring is a no-op, never a panic. With no registry the connection
+	// resolves as not live and nothing is filed; with a registry but no Config
+	// the seed still runs and maps nothing, which is what the zero URNMapping
+	// states.
+	noRegistry := NewHandler(Deps{ConnectionSources: sources}, nil)
+	noRegistry.seedConfiguredSource(noRegistry.connections().ByInstance("s3", "data_lake"))
+
+	noConfig := NewHandler(Deps{ToolkitRegistry: reg, ConnectionSources: sources}, nil)
+	noConfig.seedConfiguredSource(noConfig.connections().ByInstance("s3", "data_lake"))
 	if got := sources.ForConnection("s3", "Data Lake"); got == nil || got.DataHubSourceName != "s3" {
 		t.Errorf("a nil Config maps nothing rather than skipping the seed: %+v", got)
 	}

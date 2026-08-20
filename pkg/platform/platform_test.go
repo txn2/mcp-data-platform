@@ -3895,6 +3895,71 @@ func TestMergeDBConnectionsIntoConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("records the file's connections before the store's join them", func(t *testing.T) {
+		// The delete route reads this to tell a connection the file owns from
+		// one the admin UI created (#1400). Both end up in the same instances
+		// map here, and connbackfill gives both a connection_instances row, so
+		// the snapshot has to be taken on the way in or the answer is lost.
+		p := &Platform{
+			config: &Config{
+				Toolkits: map[string]any{
+					"s3": map[string]any{
+						cfgKeyEnabled: true,
+						cfgKeyInstances: map[string]any{
+							"lake": map[string]any{"region": "us-east-1"},
+						},
+					},
+				},
+			},
+			connectionStore: &mockConnectionStoreForTest{
+				instances: []ConnectionInstance{
+					{Kind: "s3", Name: "archive", Config: map[string]any{"region": "us-west-2"}},
+				},
+			},
+		}
+		p.mergeDBConnectionsIntoConfig()
+
+		kindMap, ok := p.config.Toolkits["s3"].(map[string]any)
+		if !ok {
+			t.Fatal("s3 kind map should exist")
+		}
+		instances, ok := kindMap[cfgKeyInstances].(map[string]any)
+		if !ok {
+			t.Fatal("instances map should exist")
+		}
+		if _, ok := instances["archive"]; !ok {
+			t.Fatal("precondition: the stored connection should have merged into the same map")
+		}
+		if !p.config.DeclaresConnection("s3", "lake") {
+			t.Error("the file's instance should be recorded as declared")
+		}
+		if p.config.DeclaresConnection("s3", "archive") {
+			t.Error("a stored connection must not be claimed by the file")
+		}
+	})
+
+	t.Run("records the file's connections when nothing is merged", func(t *testing.T) {
+		// Every early return below the snapshot is a deployment that still has
+		// file-declared connections to protect.
+		p := &Platform{
+			config: &Config{
+				Toolkits: map[string]any{
+					"s3": map[string]any{
+						cfgKeyEnabled: true,
+						cfgKeyInstances: map[string]any{
+							"lake": map[string]any{"region": "us-east-1"},
+						},
+					},
+				},
+			},
+		}
+		p.mergeDBConnectionsIntoConfig()
+
+		if !p.config.DeclaresConnection("s3", "lake") {
+			t.Error("a deployment with no connection store still declares its file connections")
+		}
+	})
+
 	t.Run("skips disabled toolkit kind", func(t *testing.T) {
 		p := &Platform{
 			config: &Config{

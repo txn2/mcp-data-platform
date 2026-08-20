@@ -19,24 +19,26 @@ type ConnectionInfo struct {
 	Name        string
 	Kind        string
 	Description string
-	// Connection is the identity a persona's connections rules and the audit
-	// trail use for this connection, when a toolkit carries a configured
-	// connection_name distinct from its instance name. Empty means Name is that
-	// identity, which is the case for every connection a multi-connection
-	// toolkit enumerates.
-	Connection string
+	// Bound is the identity a persona's connections rules and the audit trail
+	// use, which is what a tool call's connection argument carries. Name is the
+	// instance the connection is configured and stored under, and the two
+	// differ for a single-connection toolkit that sets a connection_name.
+	//
+	// The producer resolves it through connid rather than leaving it empty to
+	// mean "same as Name": that convention put the derivation rule in a third
+	// place, and discovery must key on exactly what the authorizer checks or a
+	// connection an operator granted is hidden by the platform preferring the
+	// other name.
+	Bound string
 }
 
-// policyName is the identity the persona connection rules match on. Discovery
-// keys on exactly what the authorizer checks, so a connection an operator
-// granted can never be hidden by the platform preferring a different one of its
-// two names.
-func (c ConnectionInfo) policyName() string {
-	if c.Connection != "" {
-		return c.Connection
-	}
-	return c.Name
-}
+// gateable reports whether this entry carries the identity the persona rules
+// are matched on. An entry with no Bound is withheld rather than inferred from
+// Name: inferring would put the derivation rule back in a third place, and
+// guessing wrong on this predicate shows a caller a connection they were never
+// granted. The producer resolves Bound through connid, so an empty one is a
+// wiring fault, not a shape a real connection has.
+func (c ConnectionInfo) gateable() bool { return c.Bound != "" }
 
 // ConnectionLister enumerates the deployment's configured connections. The
 // platform implements it over the same toolkit registry list_connections uses,
@@ -102,7 +104,7 @@ func (p *ConnectionsProvider) Search(_ context.Context, q Query) ([]Hit, error) 
 	withheld := 0
 	for _, c := range p.lister.Connections() {
 		if s := connectionScore(c, tokens); s > 0 {
-			if !q.Caller.allowsConnection(c.policyName()) {
+			if !c.gateable() || !q.Caller.allowsConnection(c.Bound) {
 				withheld++
 				continue
 			}
@@ -151,7 +153,7 @@ func (p *ConnectionsProvider) Fetch(_ context.Context, ref string, caller Caller
 	}
 	for _, c := range p.lister.Connections() {
 		if c.Kind == parsed.ConnectionKind && c.Name == parsed.ConnectionName {
-			if !caller.allowsConnection(c.policyName()) {
+			if !c.gateable() || !caller.allowsConnection(c.Bound) {
 				return nil, true, ErrNotFound
 			}
 			return &Document{

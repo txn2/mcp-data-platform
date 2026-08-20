@@ -5,17 +5,17 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"log/slog"
 	"maps"
 	"net/http"
-	"slices"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/connsource"
+	"github.com/txn2/mcp-data-platform/pkg/connid"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/connreconcile"
-	"github.com/txn2/mcp-data-platform/pkg/connview"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/platform/fieldcrypt"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
@@ -180,7 +180,7 @@ type setConnectionInstanceRequest struct {
 // setConnectionInstance handles PUT /api/v1/admin/connection-instances/{kind}/{name}.
 //
 // @Summary      Create or update connection instance
-// @Description  Creates or updates a database-managed connection instance.
+// @Description  Creates or updates a database-managed connection instance. A connection the platform configuration file declares is refused with 409: the file owns it.
 // @Tags         Connections
 // @Accept       json
 // @Produce      json
@@ -189,6 +189,7 @@ type setConnectionInstanceRequest struct {
 // @Param        body  body  setConnectionInstanceRequest  true  "Connection instance data"
 // @Success      200   {object}  platform.ConnectionInstance
 // @Failure      400   {object}  problemDetail
+// @Failure      409   {object}  problemDetail
 // @Failure      500   {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
@@ -199,6 +200,17 @@ func (h *Handler) setConnectionInstance(w http.ResponseWriter, r *http.Request) 
 
 	if !knownConnectionKinds[kind] {
 		writeError(w, http.StatusBadRequest, "unknown connection kind: "+kind)
+		return
+	}
+
+	// The config file owns a connection it declares, for writes as well as for
+	// the delete below. Storing a record for one reached the running process
+	// but never survived a restart: mergeDBConnectionsIntoConfig skips a name
+	// the file already declares, so the file's config came back and the saved
+	// record went on describing a state nothing was running (#1400).
+	if h.fileDeclaresConnection(kind, name) {
+		writeError(w, http.StatusConflict, fmt.Sprintf(
+			"%s/%s is declared in the platform configuration file; edit it there", kind, name))
 		return
 	}
 
@@ -270,12 +282,13 @@ func (h *Handler) setConnectionInstance(w http.ResponseWriter, r *http.Request) 
 // deleteConnectionInstance handles DELETE /api/v1/admin/connection-instances/{kind}/{name}.
 //
 // @Summary      Delete connection instance
-// @Description  Deletes a database-managed connection instance.
+// @Description  Deletes a database-managed connection instance. A connection the platform configuration file declares is refused with 409: the file owns it.
 // @Tags         Connections
 // @Param        kind  path  string  true  "Toolkit kind (trino, datahub, s3)"
 // @Param        name  path  string  true  "Instance name"
 // @Success      204
 // @Failure      404  {object}  problemDetail
+// @Failure      409  {object}  problemDetail
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
@@ -283,6 +296,19 @@ func (h *Handler) setConnectionInstance(w http.ResponseWriter, r *http.Request) 
 func (h *Handler) deleteConnectionInstance(w http.ResponseWriter, r *http.Request) {
 	kind := r.PathValue("kind")
 	name := r.PathValue("name")
+
+	// A connection the config file declares is not this API's to delete. The
+	// backfill seeds a connection_instances row for every file-configured
+	// connection, so a row existing proves nothing about who owns the
+	// connection; deleting it would drop a file-configured connection from
+	// every live toolkit of its kind, here and on every peer the removal
+	// broadcasts to, until each replica restarts and the file put it back
+	// (#1400).
+	if h.fileDeclaresConnection(kind, name) {
+		writeError(w, http.StatusConflict, fmt.Sprintf(
+			"%s/%s is declared in the platform configuration file; remove it there to delete it", kind, name))
+		return
+	}
 
 	// Capture whether a token row existed before the delete so we know
 	// whether to emit token_deleted_admin. The ConnectionStore.Delete
@@ -313,9 +339,9 @@ func (h *Handler) deleteConnectionInstance(w http.ResponseWriter, r *http.Reques
 	// connection: deleting a stored override must not leave a connection its
 	// toolkit still serves with no mapping at all until the next restart.
 	if h.deps.ConnectionSources != nil {
-		bound := h.connectionBindingName(kind, name)
-		h.deps.ConnectionSources.Remove(kind, bound)
-		h.seedConfiguredSource(kind, bound)
+		conn := h.connections().ByInstance(kind, connid.Instance(name))
+		h.deps.ConnectionSources.Remove(kind, string(conn.Bound))
+		h.seedConfiguredSource(conn)
 	}
 
 	if hadToken {
@@ -350,6 +376,8 @@ type effectiveConnection struct {
 	CreatedBy   string                        `json:"created_by,omitempty" example:"admin@example.com"`
 	UpdatedAt   *time.Time                    `json:"updated_at,omitempty"`
 	Health      *toolkit.ConnectionHealthWire `json:"health,omitempty"`
+	// FileDeclared marks a connection the platform configuration file declares, which cannot be deleted through this API. Source cannot answer it: the connection backfill gives a file-configured connection a stored row too, so it reports "both" as well.
+	FileDeclared bool `json:"file_declared,omitempty" example:"true"`
 }
 
 // listEffectiveConnections returns the merged view of file-configured and DB-managed connections.
@@ -379,6 +407,7 @@ func (h *Handler) listEffectiveConnections(w http.ResponseWriter, r *http.Reques
 	result := mergeConnections(live, dbInstances)
 	for i := range result {
 		result[i].Config = redactConnectionConfig(result[i].Config)
+		result[i].FileDeclared = h.fileDeclaresConnection(result[i].Kind, result[i].Name)
 	}
 	writeJSON(w, http.StatusOK, result)
 }
@@ -717,10 +746,12 @@ func (h *Handler) activateConnection(inst platform.ConnectionInstance) {
 	if h.deps.ConnectionSources == nil {
 		return
 	}
-	bound := h.connectionBindingName(inst.Kind, inst.Name)
-	h.seedConfiguredSource(inst.Kind, bound)
+	// Resolve after the hot-add: a connection that did not exist a moment ago
+	// is only claimable by a toolkit once it has been added to one.
+	conn := h.connections().ByInstance(inst.Kind, connid.Instance(inst.Name))
+	h.seedConfiguredSource(conn)
 	src := platform.ConnectionSourceFromInstance(inst)
-	src.Name = bound
+	src.Name = string(conn.Bound)
 	h.deps.ConnectionSources.Overlay(src)
 }
 
@@ -728,9 +759,10 @@ func (h *Handler) activateConnection(inst platform.ConnectionInstance) {
 // connection: the base an overlay lands on, and what a deleted stored override
 // falls back to. A connection no live toolkit serves contributes nothing, which
 // is what leaving it unmapped means — for a kind that supports hot-remove, a
-// deleted connection is already gone from its toolkit by the time this runs.
-func (h *Handler) seedConfiguredSource(kind, connection string) {
-	if h.deps.ToolkitRegistry == nil {
+// deleted connection is already gone from its toolkit by the time this runs,
+// which is exactly what Live reports.
+func (h *Handler) seedConfiguredSource(conn connid.Connection) {
+	if !conn.Live {
 		return
 	}
 	// A deployment with no config block maps nothing, which is the zero value.
@@ -740,23 +772,34 @@ func (h *Handler) seedConfiguredSource(kind, connection string) {
 	if h.deps.Config != nil {
 		mapping = h.deps.Config.Semantic.URNMapping
 	}
-	for _, tk := range h.deps.ToolkitRegistry.All() {
-		if tk.Kind() != kind || !slices.Contains(connview.ConnectionNames(tk), connection) {
-			continue
-		}
-		h.deps.ConnectionSources.Seed(connsource.RegistryEntries(
-			kind, []string{connection}, mapping.Platform, mapping.CatalogMapping))
-		return
-	}
+	h.deps.ConnectionSources.Seed(connsource.RegistryEntries(
+		conn.Kind, []string{string(conn.Bound)}, mapping.Platform, mapping.CatalogMapping))
 }
 
-// connectionBindingName resolves a stored instance name to the name a call
-// binds it by. A nil registry leaves the instance name unchanged.
-func (h *Handler) connectionBindingName(kind, instance string) string {
-	if h.deps.ToolkitRegistry == nil {
-		return instance
+// connections builds a resolver over the live toolkits and the file's
+// declarations. Every crossing between a stored record's instance name and the
+// name a call binds goes through it, and so does every question about which
+// half of the configuration owns a connection.
+//
+// A nil registry or a nil config is tolerated the way the rest of the handler
+// tolerates absent wiring: the resolver reports each instance under its own
+// name, owned by the store.
+func (h *Handler) connections() *connid.Resolver {
+	var toolkits []registry.Toolkit
+	if h.deps.ToolkitRegistry != nil {
+		toolkits = h.deps.ToolkitRegistry.All()
 	}
-	return connview.BindingName(h.deps.ToolkitRegistry.All(), kind, instance)
+	if h.deps.Config == nil {
+		return connid.NewResolver(toolkits, nil)
+	}
+	return connid.NewResolver(toolkits, h.deps.Config)
+}
+
+// fileDeclaresConnection reports whether the config file declares this
+// connection, which makes the file its owner: the admin API refuses both to
+// save a record for one and to delete it.
+func (h *Handler) fileDeclaresConnection(kind, name string) bool {
+	return h.connections().ByInstance(kind, connid.Instance(name)).IsFile()
 }
 
 // findConnectionManager returns the ConnectionManager for the given toolkit kind,

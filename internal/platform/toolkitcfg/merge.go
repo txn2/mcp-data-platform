@@ -94,3 +94,48 @@ func KindEnabled(kindMap map[string]any) bool {
 		return false
 	}
 }
+
+// DeclaredConnections records, per toolkit kind, the connection instances the
+// config file declared. It is the only record of which connections the file
+// owns: MergeInstance puts stored connections into the same instances map the
+// file produced, and connbackfill seeds a connection_instances row for every
+// file-configured connection, so neither the merged config nor the store can
+// answer "did the file declare this one" afterwards.
+//
+// The keys are the instance names, which is the same namespace a
+// connection_instances row's name and a MergeInstance call use.
+type DeclaredConnections map[string]map[string]struct{}
+
+// Declared snapshots the instances each kind declares. Call it before
+// MergeInstance merges a stored connection into the same map, and before
+// PinDeclaredDefaults, which reads instances but adds none.
+//
+// Every kind is captured, including the ones the admin connection API does not
+// manage: a file-declared datahub instance is as much the file's as a trino one.
+func Declared(toolkits map[string]any) DeclaredConnections {
+	declared := make(DeclaredConnections, len(toolkits))
+	for kind, kindCfg := range toolkits {
+		kindMap, ok := kindCfg.(map[string]any)
+		if !ok {
+			continue
+		}
+		instances, ok := kindMap[keyInstances].(map[string]any)
+		if !ok || len(instances) == 0 {
+			continue
+		}
+		names := make(map[string]struct{}, len(instances))
+		for name := range instances {
+			names[name] = struct{}{}
+		}
+		declared[kind] = names
+	}
+	return declared
+}
+
+// Has reports whether the config file declared name as an instance of kind. The
+// zero value declares nothing, so a caller holding no snapshot treats every
+// connection as database-owned.
+func (d DeclaredConnections) Has(kind, name string) bool {
+	_, ok := d[kind][name]
+	return ok
+}

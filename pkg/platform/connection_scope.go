@@ -3,7 +3,6 @@ package platform
 import (
 	"github.com/txn2/mcp-data-platform/internal/platform/connscope"
 	"github.com/txn2/mcp-data-platform/internal/platform/connsource"
-	"github.com/txn2/mcp-data-platform/pkg/connview"
 	"github.com/txn2/mcp-data-platform/pkg/knowledge"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
@@ -30,49 +29,7 @@ func connectionScopeFor(reg *persona.Registry, sources *ConnectionSourceMap, too
 			if toolkits == nil {
 				return nil
 			}
-			return connectionNamesForURN(sources, toolkits.All(), urn)
+			return connsource.ConnectionNamesForURN(sources, toolkits.All(), urn)
 		},
 	})
-}
-
-// connectionNamesForURN returns the names of the connections that could serve a
-// catalog URN, empty when none can be determined. It is the one resolution
-// shared by the enrichment middleware (which tells an agent which connections
-// can query a dataset) and the discovery connection boundary (which decides
-// whether the caller's persona reaches any of them).
-//
-// It walks the LIVE connections rather than the source map's entries, because
-// the two are not the same set: the map is built once at startup, so it does
-// not hold a connection added to a toolkit after it. Each connection's platform
-// comes from its own map entry when it has one and otherwise from its toolkit's
-// instance entry; a connection with neither is not a candidate, which leaves
-// the URN unattributable rather than attributed by guess.
-func connectionNamesForURN(sources *ConnectionSourceMap, toolkits []registry.Toolkit, urn string) []string {
-	platform := connsource.PlatformFromURN(urn)
-	if platform == "" || sources == nil {
-		return nil
-	}
-	var names []string
-	for _, tk := range toolkits {
-		for _, name := range connview.ConnectionNames(tk) {
-			if platformForConnection(sources, tk, name) == platform {
-				names = append(names, name)
-			}
-		}
-	}
-	return names
-}
-
-// platformForConnection resolves the DataHub platform a connection's datasets
-// carry: its own mapping when the deployment records one, else its toolkit's.
-// Empty means unknown, which keeps the connection out of every URN's candidate
-// set.
-func platformForConnection(sources *ConnectionSourceMap, tk registry.Toolkit, connection string) string {
-	if s := sources.ForConnection(tk.Kind(), connection); s != nil {
-		return s.DataHubSourceName
-	}
-	if s := sources.ForConnection(tk.Kind(), tk.Name()); s != nil {
-		return s.DataHubSourceName
-	}
-	return ""
 }
