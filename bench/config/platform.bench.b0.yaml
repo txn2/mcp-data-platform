@@ -230,4 +230,3 @@ personas:
       allow: ["platform_info", "acme__*"]
     connections:
       allow: ["*"]
-  default_persona: admin

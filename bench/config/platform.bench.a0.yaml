@@ -392,7 +392,6 @@ personas:
       allow: ["platform_info", "trino_*", "s3_*"]
     connections:
       allow: ["*"]
-  default_persona: admin
 
 toolkits:
   trino:

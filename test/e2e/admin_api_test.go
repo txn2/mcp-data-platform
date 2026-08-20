@@ -725,8 +725,13 @@ func TestAdminAPI_BootstrapDB(t *testing.T) {
 		if status != http.StatusOK {
 			t.Fatalf("expected 200, got %d", status)
 		}
-		if len(changelog) < 1 {
-			t.Errorf("expected at least 1 changelog entry, got %d", len(changelog))
+		if len(changelog.Entries) < 1 {
+			t.Errorf("expected at least 1 changelog entry, got %d", len(changelog.Entries))
+		}
+		// Total counts the full history, not the returned page, so it is at
+		// least the page length.
+		if changelog.Total < len(changelog.Entries) {
+			t.Errorf("total %d is below the returned page length %d", changelog.Total, len(changelog.Entries))
 		}
 	})
 

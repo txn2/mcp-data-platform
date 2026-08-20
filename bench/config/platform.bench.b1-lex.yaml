@@ -235,4 +235,3 @@ personas:
       allow: ["platform_info", "list_connections", "api_list_specs", "api_list_endpoints", "api_get_endpoint_schema", "api_invoke_endpoint"]
     connections:
       allow: ["*"]
-  default_persona: admin

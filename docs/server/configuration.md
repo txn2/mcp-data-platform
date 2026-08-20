@@ -40,6 +40,56 @@ Free-form maps are exempt because they accept arbitrary keys by design: the
 and `tools`, are still validated). A future release will make strict rejection
 the default; you will be able to opt back out with `config.strict: false`.
 
+### Startup validation
+
+After parsing, the server validates the configuration and refuses to start when
+it finds a setting that cannot work as written. The error names every problem it
+found at once, so a config with several is fixed in one pass rather than one
+restart at a time. Validation covers:
+
+- `personas.default_persona`, which was removed and is refused rather than ignored
+- `auth.oidc.issuer` when OIDC is enabled
+- `auth.browser_session`: OIDC must also be enabled, `signing_key` is required,
+  `same_site` must be one of `lax`, `strict`, `none`, and `same_site: none`
+  requires `secure: true` (browsers drop a `SameSite=None` cookie that is not
+  `Secure`, which would break portal login)
+- `oauth.issuer` when the OAuth server is enabled, its `upstream.issuer`,
+  `upstream.client_id` and `upstream.redirect_uri` when an upstream is set, and
+  `oauth.signing_key` on an HTTP transport unless
+  `oauth.allow_ephemeral_signing_key: true` is set (a per-process key makes each
+  replica reject tokens minted by its peers)
+- `database.dsn` when `sessions.store: database`, and on that store a
+  `sessions.broadcast_channel` that fits PostgreSQL's 63-byte `LISTEN`
+  identifier limit and unquoted-identifier grammar (a longer name would be
+  truncated by `LISTEN` but not by `NOTIFY`, so replicas would never hear each
+  other)
+- `audit.delivery`
+
+These are separate from the unknown-key handling above: a key here is one the
+schema recognizes, so `config.strict` has no bearing on it. A value that is
+merely unusual is not refused; validation covers settings whose effect would
+otherwise be silent.
+
+!!! warning "Newly enforced"
+
+    These checks were written alongside the settings they guard, but nothing
+    ran them: the loader parsed and applied defaults and the server started.
+    A deployment could therefore be running today on a config that will be
+    refused after upgrading. Two cases are worth checking before you roll
+    out, because each previously produced a partial failure rather than an
+    error:
+
+    - `auth.browser_session.enabled: true` with `auth.oidc.enabled: false`
+      started with portal login silently switched off. It is now refused.
+    - `oauth.enabled: true` on an HTTP transport with no `oauth.signing_key`
+      minted a per-process key, which peers reject; multi-replica deployments
+      saw intermittent auth failures. It is now refused unless
+      `oauth.allow_ephemeral_signing_key: true` says the ephemeral key is
+      intended.
+
+    Run the server against your config once before rolling out. It reports
+    every problem in a single error.
+
 ## Configuration File
 
 Create a `platform.yaml` file:

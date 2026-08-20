@@ -59,7 +59,6 @@ personas:
       allow: ["*"]
     connections:
       allow: ["*"]
-  default_persona: admin
 
 # noop semantic: no DataHub dependency in CI.
 semantic:

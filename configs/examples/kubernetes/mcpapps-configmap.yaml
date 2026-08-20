@@ -64,6 +64,11 @@ data:
         tools:
           allow: ["*"]
           deny: []
+        # Connections are deny-by-default: a persona with no connections block
+        # reaches no toolkit connection at all, so an allow-all tools list on
+        # its own grants nothing.
+        connections:
+          allow: ["*"]
 
     toolkits:
       trino:
