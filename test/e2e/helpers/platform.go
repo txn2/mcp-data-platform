@@ -86,12 +86,11 @@ func buildPlatformConfig(e2eCfg *E2EConfig) *platform.Config {
 				"enabled": true,
 				"instances": map[string]any{
 					"e2e": map[string]any{
-						"host":            e2eCfg.TrinoHost,
-						"port":            e2eCfg.TrinoPort,
-						"user":            "e2e-test",
-						"catalog":         "memory",
-						"schema":          "e2e_test",
-						"connection_name": "e2e-trino",
+						"host":    e2eCfg.TrinoHost,
+						"port":    e2eCfg.TrinoPort,
+						"user":    "e2e-test",
+						"catalog": "memory",
+						"schema":  "e2e_test",
 					},
 				},
 			},

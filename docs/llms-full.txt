@@ -2045,7 +2045,7 @@ personas:
       deny: ["prod-admin-*"]
 ```
 
-Connections are deny-by-default: if the `connections` block is omitted or `allow` is empty, the persona reaches no connection at all. Connection patterns use the same wildcard syntax as tool patterns.
+Connections are deny-by-default: if the `connections` block is omitted or `allow` is empty, the persona reaches no connection at all. Connection patterns use the same wildcard syntax as tool patterns. A pattern matches the name a call binds the connection by, which `list_connections` reports as `connection`: the `instances:` key of the toolkit instance, or the `connection_name` a DataHub or S3 instance sets in its place. A `connection_name` on a Trino instance has no effect (the server warns about it at startup): Trino routes by the `instances:` key, so that key is its connection's name everywhere. Before #1396 an unqualified Trino call bound the `connection_name` instead, so a persona that lists one must be changed to list the `instances:` key.
 
 Discovery applies the same rules through the same predicate, so what a caller can find and what a caller can call never disagree. `search` omits catalog datasets, connections, and API endpoints belonging to connections the persona is not granted; `fetch` returns `found: false` for such a reference, so a citation cannot read around what search omitted; `list_connections` enumerates only the granted connections; the portal search shares the router and behaves identically. A dataset is attributed to a connection through its DataHub platform name — a dataset that maps to no configured connection stays visible, and one reachable through any granted connection stays visible.
 

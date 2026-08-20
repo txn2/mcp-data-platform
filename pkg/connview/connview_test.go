@@ -88,18 +88,50 @@ func TestBuild_KnowledgeBoundedByCap(t *testing.T) {
 }
 
 func TestBuild_FallbackKindFilterAndSource(t *testing.T) {
+	// s3 and datahub are the kinds that reach appendFallback: neither lists
+	// connections, and either may carry a connection_name that differs from its
+	// instance name. Trino always implements ConnectionLister.
 	toolkits := []registry.Toolkit{
-		&mockTK{kind: "trino", name: "warehouse", conn: "warehouse-conn"}, // data kind -> entry
-		&mockTK{kind: "api", name: "gw", conn: "gw-conn"},                 // not a data kind -> skipped
+		&mockTK{kind: "s3", name: "data_lake", conn: "Data Lake"}, // data kind -> entry
+		&mockTK{kind: "api", name: "gw", conn: "gw-conn"},         // not a data kind -> skipped
 	}
-	src := fakeSource{names: map[string]string{"trino/warehouse": "trino_src"}}
+	// The source map is keyed by the connection name a call binds, not by the
+	// toolkit's instance name (#1396).
+	src := fakeSource{names: map[string]string{"s3/Data Lake": "s3_src", "s3/data_lake": "wrong"}}
 	out := Build(context.Background(), toolkits, src, nil, nil)
 
 	require.Len(t, out.Connections, 1, "non-data kinds are dropped in the fallback path")
-	assert.Equal(t, "trino", out.Connections[0].Kind)
-	assert.Equal(t, "mcp:connection:(trino,warehouse)", out.Connections[0].Reference, "fallback path emits the canonical reference")
-	assert.Equal(t, "trino_src", out.Connections[0].DataHubSourceName)
+	assert.Equal(t, "s3", out.Connections[0].Kind)
+	assert.Equal(t, "data_lake", out.Connections[0].Name, "the entry keeps the instance identity")
+	assert.Equal(t, "Data Lake", out.Connections[0].Connection, "and reports the name a call binds")
+	assert.Equal(t, "mcp:connection:(s3,data_lake)", out.Connections[0].Reference, "fallback path emits the canonical reference")
+	assert.Equal(t, "s3_src", out.Connections[0].DataHubSourceName)
 	assert.Equal(t, 1, out.Count)
+}
+
+// TestBindingName covers the translation from the name an instance is
+// configured and stored under to the name a call binds it by (#1396).
+func TestBindingName(t *testing.T) {
+	toolkits := []registry.Toolkit{
+		&mockTK{kind: "s3", name: "data_lake", conn: "Data Lake"},
+		&mockTK{kind: "datahub", name: "primary"},
+		&listerTK{
+			mockTK: mockTK{kind: "trino", name: "warehouse", conn: "warehouse"},
+			conns:  []toolkit.ConnectionDetail{{Name: "warehouse"}, {Name: "staging"}},
+		},
+	}
+
+	assert.Equal(t, "Data Lake", BindingName(toolkits, "s3", "data_lake"),
+		"a single-connection toolkit binds by its connection name")
+	assert.Equal(t, "primary", BindingName(toolkits, "datahub", "primary"),
+		"one that carries no connection name binds by its instance")
+	assert.Equal(t, "warehouse", BindingName(toolkits, "trino", "warehouse"),
+		"a multi-connection toolkit routes on the instance key, so it is already the bound name")
+	assert.Equal(t, "data_lake", BindingName(toolkits, "datahub", "data_lake"),
+		"the match is per kind, so a name another kind carries is not borrowed")
+	assert.Equal(t, "unclaimed", BindingName(toolkits, "s3", "unclaimed"),
+		"an instance no live toolkit claims keeps its own name")
+	assert.Equal(t, "data_lake", BindingName(nil, "s3", "data_lake"))
 }
 
 func TestBuild_NoEnrichmentWhenLookupNilOrEmpty(t *testing.T) {

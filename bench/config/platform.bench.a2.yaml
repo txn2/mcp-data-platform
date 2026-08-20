@@ -412,7 +412,6 @@ toolkits:
         user: "bench"
         catalog: "memory"
         schema: "bench"
-        connection_name: "e2e-trino"
     config:
       default_limit: 1000
       max_limit: 10000

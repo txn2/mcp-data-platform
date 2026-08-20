@@ -401,6 +401,7 @@ pkg/admin -> internal/admin/settingsapi
 pkg/admin -> internal/httpjson
 pkg/admin -> internal/logsan
 pkg/admin -> internal/platform/callrecord
+pkg/admin -> internal/platform/connsource
 pkg/admin -> internal/platform/reviewalert
 pkg/admin -> internal/server
 pkg/admin -> pkg/audit
@@ -411,6 +412,7 @@ pkg/admin -> pkg/browsersession
 pkg/admin -> pkg/configstore
 pkg/admin -> pkg/connoauth
 pkg/admin -> pkg/connreconcile
+pkg/admin -> pkg/connview
 pkg/admin -> pkg/embedding
 pkg/admin -> pkg/indexjobs
 pkg/admin -> pkg/middleware
@@ -730,6 +732,7 @@ pkg/toolkits/search -> pkg/query
 pkg/toolkits/search -> pkg/semantic
 pkg/toolkits/search -> pkg/toolkit
 pkg/toolkits/tools/toolsindex -> pkg/indexjobs
+pkg/toolkits/trino -> internal/logsan
 pkg/toolkits/trino -> internal/sqltables
 pkg/toolkits/trino -> pkg/mcpcontext
 pkg/toolkits/trino -> pkg/query

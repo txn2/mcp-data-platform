@@ -324,6 +324,8 @@ Discovery evaluates the same rules against the same persona, so what a caller ca
 
 Connections are **deny-by-default**, mirroring the tool axis: a persona reaches a connection only when a `connections.allow` pattern matches its name. If the `connections` block is omitted or `allow` is empty, the persona is granted **no** connections, so every tool call that targets a connection is denied. Grant each persona exactly the connections it needs (the admin persona typically uses `allow: ["*"]`).
 
+The name a pattern matches is the name a call binds the connection by, which `list_connections` reports as `connection`: the `instances:` key, or the `connection_name` a DataHub or S3 instance sets in its place. See [Connection Names](../server/multi-provider.md#connection-names).
+
 ### What Discovery Shows
 
 The same rules narrow what a persona can see, not only what it can call:

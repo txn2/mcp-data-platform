@@ -1,7 +1,10 @@
 package trino
 
 import (
+	"bytes"
+	"log/slog"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -293,8 +296,11 @@ func TestToolkit_KindAndName(t *testing.T) {
 	if tk.Name() != "test-toolkit" {
 		t.Errorf("Name() = %q", tk.Name())
 	}
-	if tk.Connection() != trinoTestConnectionName {
-		t.Errorf("Connection() = %q, want 'test'", tk.Connection())
+	// A Trino connection is named by its instance whatever connection_name the
+	// config carries: that is the name the manager routes on, ListConnections
+	// advertises, and a persona rule matches (#1396).
+	if tk.Connection() != "test-toolkit" {
+		t.Errorf("Connection() = %q, want 'test-toolkit'", tk.Connection())
 	}
 }
 
@@ -986,4 +992,85 @@ func TestBuildToolkitOptions(t *testing.T) {
 			t.Errorf("expected %d options, got %d", baseline+8, len(opts))
 		}
 	})
+}
+
+// TestConnectionIsAdvertised holds the invariant #1396 restored: the name an
+// unqualified call binds is one of the names the toolkit advertises. Multi
+// mode routes by instance key, so a config connection_name the router never
+// sees cannot be the answer — returning it named a connection no persona rule
+// could match, no source-map lookup could resolve, and list_connections never
+// showed.
+func TestConnectionIsAdvertised(t *testing.T) {
+	t.Run("multi mode binds the routed default instance", func(t *testing.T) {
+		tk, err := NewMulti(MultiConfig{
+			DefaultConnection: trinoTestWarehouse,
+			Instances: map[string]Config{
+				"warehouse": {
+					Host: "wh.example.com", User: "trino", Port: trinoTestPort443, SSL: true,
+					ConnectionName: "Data Warehouse",
+				},
+				"staging": {Host: "st.example.com", User: "trino", Port: trinoTestPort443, SSL: true},
+			},
+		})
+		if err != nil {
+			t.Fatalf("NewMulti error: %v", err)
+		}
+		if got := tk.Connection(); got != trinoTestWarehouse {
+			t.Errorf("Connection() = %q, want %q", got, trinoTestWarehouse)
+		}
+		assertAdvertised(t, tk)
+	})
+
+	t.Run("single mode binds its instance, and connection_name does not move it", func(t *testing.T) {
+		tk := &Toolkit{name: "prod", config: Config{ConnectionName: "Production"}}
+		if got := tk.Connection(); got != "prod" {
+			t.Errorf("Connection() = %q, want 'prod'", got)
+		}
+		assertAdvertised(t, tk)
+	})
+
+	t.Run("single mode with no connection name", func(t *testing.T) {
+		tk := &Toolkit{name: "prod"}
+		if got := tk.Connection(); got != "prod" {
+			t.Errorf("Connection() = %q, want 'prod'", got)
+		}
+		assertAdvertised(t, tk)
+	})
+}
+
+// TestWarnInertConnectionName covers the diagnosis path for a connection_name
+// the platform cannot honor: it fires only when the config carries a name that
+// differs from the instance a call actually binds.
+func TestWarnInertConnectionName(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	warnInertConnectionName("prod", "")
+	warnInertConnectionName("prod", "prod")
+	if buf.Len() != 0 {
+		t.Errorf("expected no warning for an absent or matching name, got %q", buf.String())
+	}
+
+	warnInertConnectionName("prod", "Production")
+	out := buf.String()
+	for _, want := range []string{"prod", "Production", "remedy"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("warning %q missing %q", out, want)
+		}
+	}
+}
+
+// assertAdvertised fails unless Connection() names one of the connections
+// ListConnections advertises.
+func assertAdvertised(t *testing.T, tk *Toolkit) {
+	t.Helper()
+	conn := tk.Connection()
+	for _, c := range tk.ListConnections() {
+		if c.Name == conn {
+			return
+		}
+	}
+	t.Errorf("Connection() = %q is advertised by no entry of ListConnections()", conn)
 }
