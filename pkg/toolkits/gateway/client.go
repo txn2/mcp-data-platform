@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -94,7 +95,7 @@ func dial(ctx context.Context, cfg Config, deps dialDeps) (*upstreamClient, erro
 // silently truncated to its first page.
 func (u *upstreamClient) listTools(ctx context.Context) ([]*mcp.Tool, error) {
 	var tools []*mcp.Tool
-	for tool, err := range u.session.Tools(ctx, nil) {
+	for tool, err := range u.session.Tools(upstreamContext(ctx), nil) {
 		if err != nil {
 			return nil, fmt.Errorf("list tools: %w", err)
 		}
@@ -105,7 +106,7 @@ func (u *upstreamClient) listTools(ctx context.Context) ([]*mcp.Tool, error) {
 
 // callTool forwards a call to the upstream, returning the raw result.
 func (u *upstreamClient) callTool(ctx context.Context, name string, args any) (*mcp.CallToolResult, error) {
-	res, err := u.session.CallTool(ctx, &mcp.CallToolParams{
+	res, err := u.session.CallTool(upstreamContext(ctx), &mcp.CallToolParams{
 		Name:      name,
 		Arguments: args,
 	})
@@ -114,6 +115,35 @@ func (u *upstreamClient) callTool(ctx context.Context, name string, args any) (*
 	}
 	return res, nil
 }
+
+// upstreamContext returns the context an outbound request to the upstream runs
+// on: the caller's cancellation and deadline, none of the caller's values.
+//
+// The revision this platform negotiated WITH the upstream is the only revision
+// an outbound request carries (#1387); #1383 stated the same rule for what the
+// platform promises its own client. The caller's revision reaches the outbound
+// request through the context: a stateless streamable server builds each
+// request's session on that request's context, which holds the calling client's
+// revision, and go-sdk v1.7.0's streamable client reads the context before its
+// own session's negotiated revision when stamping Mcp-Protocol-Version. That
+// precedence is an upstream defect (modelcontextprotocol/go-sdk#1162, fixed on
+// main and unreleased as of v1.7.0), but the guard belongs here whatever the
+// SDK does: a proxy is a trust boundary, and no caller context value crosses
+// it.
+//
+// The SDK's context key is unexported, so the value cannot be removed on its
+// own. The whole value chain is detached instead and the OTel span is
+// re-attached explicitly so the outbound call stays inside the caller's trace.
+func upstreamContext(parent context.Context) context.Context {
+	return trace.ContextWithSpan(detachedValues{parent}, trace.SpanFromContext(parent))
+}
+
+// detachedValues carries its parent's cancellation, deadline and error while
+// resolving every value lookup to nil.
+type detachedValues struct{ context.Context }
+
+// Value reports no value for any key.
+func (detachedValues) Value(any) any { return nil }
 
 // close terminates the upstream session.
 func (u *upstreamClient) close() error {
