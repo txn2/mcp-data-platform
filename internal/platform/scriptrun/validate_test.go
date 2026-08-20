@@ -267,3 +267,43 @@ func TestValidate_RefusesAPositionalDestination(t *testing.T) {
 	assert.Empty(t, report.Destinations,
 		"nothing is claimed about where this script writes, because nothing can be read")
 }
+
+// TestValidate_ReportsRefreshTargets pins the reviewer's view of a refresh:
+// which asset's data region the script rewrites, whether the name was passed
+// positionally or by keyword, plus the capability and the portal destination
+// the grant must cover.
+func TestValidate_ReportsRefreshTargets(t *testing.T) {
+	report := Validate(`
+platform.publish_data("dash", {"a": 1})
+platform.publish_data(name="kpis", data={"b": 2})
+`)
+	assert.True(t, report.OK, report.Findings)
+	assert.Equal(t, []string{CapabilityPublishData}, report.Capabilities)
+	assert.Equal(t, []string{"dash", "kpis"}, report.RefreshTargets)
+	assert.False(t, report.DynamicRefreshTargets)
+	assert.Equal(t, []string{script.DestinationPortal}, report.Destinations,
+		"a refresh writes to the portal, and the reviewer's destination diff must say so")
+}
+
+// TestValidate_DynamicRefreshTargetIsReported states the gap rather than
+// hiding it: a computed target name cannot be read statically, so the list is
+// known to be incomplete.
+func TestValidate_DynamicRefreshTargetIsReported(t *testing.T) {
+	report := Validate(`
+name = "dash-" + run.params["region"]
+platform.publish_data(name, {"a": 1})
+`)
+	assert.True(t, report.OK, report.Findings)
+	assert.Empty(t, report.RefreshTargets)
+	assert.True(t, report.DynamicRefreshTargets)
+	assert.Equal(t, []string{script.DestinationPortal}, report.Destinations)
+}
+
+// TestValidate_NoRefreshMeansAnEmptyList keeps the field a list, never null,
+// and absent-by-default.
+func TestValidate_NoRefreshMeansAnEmptyList(t *testing.T) {
+	report := Validate(`platform.export(name="a", rows=[])`)
+	assert.NotNil(t, report.RefreshTargets)
+	assert.Empty(t, report.RefreshTargets)
+	assert.False(t, report.DynamicRefreshTargets)
+}

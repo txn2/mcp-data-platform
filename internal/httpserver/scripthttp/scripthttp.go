@@ -231,12 +231,17 @@ type referenced struct {
 	// portal counted for any export that names none, because that is where such
 	// an export lands.
 	Destinations []string `json:"destinations"`
+	// RefreshTargets are the output names platform.publish_data refreshes, so
+	// the reviewer sees which asset's data region this script rewrites.
+	RefreshTargets []string `json:"refresh_targets"`
 	// DynamicConnections is true when at least one call computes its connection
-	// instead of naming one, and DynamicDestinations when one computes its
-	// destination. Either makes that list incomplete — and means the grant
-	// cannot be checked against the code by reading it.
-	DynamicConnections  bool `json:"dynamic_connections"`
-	DynamicDestinations bool `json:"dynamic_destinations"`
+	// instead of naming one, DynamicDestinations when one computes its
+	// destination, and DynamicRefreshTargets when a publish_data call computes
+	// the name it refreshes. Any of them makes that list incomplete — and means
+	// the grant cannot be checked against the code by reading it.
+	DynamicConnections    bool `json:"dynamic_connections"`
+	DynamicDestinations   bool `json:"dynamic_destinations"`
+	DynamicRefreshTargets bool `json:"dynamic_refresh_targets"`
 }
 
 // getVersion returns one version with its capability diff.
@@ -264,11 +269,13 @@ func (h *Handler) getVersion(w http.ResponseWriter, r *http.Request) {
 		Version:  *v,
 		Approved: h.baselineFor(r, sc, v),
 		Referenced: referenced{
-			Capabilities:        report.Capabilities,
-			Connections:         report.Connections,
-			Destinations:        report.Destinations,
-			DynamicConnections:  report.DynamicConnections,
-			DynamicDestinations: report.DynamicDestinations,
+			Capabilities:          report.Capabilities,
+			Connections:           report.Connections,
+			Destinations:          report.Destinations,
+			RefreshTargets:        report.RefreshTargets,
+			DynamicConnections:    report.DynamicConnections,
+			DynamicDestinations:   report.DynamicDestinations,
+			DynamicRefreshTargets: report.DynamicRefreshTargets,
 		},
 		MissingCapabilities: missing.Capabilities,
 		MissingConnections:  missing.Connections,

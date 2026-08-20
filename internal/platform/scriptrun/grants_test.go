@@ -14,8 +14,9 @@ import (
 // recordingExporter stands in for the portal writer, recording what it was
 // asked to persist.
 type recordingExporter struct {
-	requests []ExportRequest
-	err      error
+	requests  []ExportRequest
+	published []PublishRequest
+	err       error
 }
 
 func (e *recordingExporter) Export(_ context.Context, req ExportRequest) (*ExportResult, error) {
@@ -24,6 +25,14 @@ func (e *recordingExporter) Export(_ context.Context, req ExportRequest) (*Expor
 		return nil, e.err
 	}
 	return &ExportResult{AssetID: "asset_1", AssetVersion: len(e.requests), Bytes: 512}, nil
+}
+
+func (e *recordingExporter) PublishData(_ context.Context, req PublishRequest) (*ExportResult, error) {
+	e.published = append(e.published, req)
+	if e.err != nil {
+		return nil, e.err
+	}
+	return &ExportResult{AssetID: "asset_1", AssetVersion: len(e.published), Bytes: 256}, nil
 }
 
 // grantedRun executes source under an approved run's shape: a grant that

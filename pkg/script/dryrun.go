@@ -33,6 +33,10 @@ type DryRunOutput struct {
 	// Document marks an output written verbatim from a string body, whose
 	// RowCount is therefore not a fact about it.
 	Document bool `json:"document,omitempty" example:"false"`
+	// Refresh marks a platform.publish_data call: the run would have replaced
+	// the data region of an existing asset, and Bytes is the payload it would
+	// have spliced in.
+	Refresh bool `json:"refresh,omitempty" example:"false"`
 	// Bytes is the serialized length in the declared format. A preview
 	// serializes to measure rather than estimating, so it is the size a real
 	// run of the same rows would write.

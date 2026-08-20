@@ -142,6 +142,22 @@ func TestValidate_ReportsADynamicConnection(t *testing.T) {
 	assert.Contains(t, fields["connections_note"], "incomplete")
 }
 
+func TestValidate_ReportsRefreshTargets(t *testing.T) {
+	h, _ := newHandle()
+	fields := resultFields(t, call(t, h, authorCtx(), manageScriptInput{
+		Command: cmdValidate, Source: "platform.publish_data(\"dash\", {\"a\": 1})",
+	}))
+	assert.Equal(t, true, fields["ok"])
+	assert.Equal(t, []any{"dash"}, fields["refresh_targets"])
+	assert.Equal(t, false, fields["dynamic_refresh_targets"])
+
+	fields = resultFields(t, call(t, h, authorCtx(), manageScriptInput{
+		Command: cmdValidate, Source: "n = \"a\" + \"b\"\nplatform.publish_data(n, {\"a\": 1})",
+	}))
+	assert.Equal(t, true, fields["dynamic_refresh_targets"])
+	assert.Contains(t, fields["refresh_targets_note"], "incomplete")
+}
+
 func TestValidate_InvalidSourceOffersHelp(t *testing.T) {
 	h, _ := newHandle()
 	fields := resultFields(t, call(t, h, authorCtx(), manageScriptInput{

@@ -20,7 +20,7 @@ const PropertiesJSON = `{
       "properties": {
         "op": {
           "type": "string",
-          "enum": ["replace", "insert_before", "insert_after", "replace_section", "move_section", "append", "prepend"],
+          "enum": ["replace", "insert_before", "insert_after", "replace_section", "replace_content", "move_section", "append", "prepend"],
           "description": "Operation. Defaults to 'replace' when omitted."
         },
         "find": {
@@ -37,7 +37,7 @@ const PropertiesJSON = `{
         },
         "text": {
           "type": "string",
-          "description": "Text to insert or to become the section body (insert_before, insert_after, replace_section, append, prepend)."
+          "description": "Text to insert or to become the region's content (insert_before, insert_after, replace_section, replace_content, append, prepend)."
         },
         "section": {
           "type": "string",
@@ -45,7 +45,7 @@ const PropertiesJSON = `{
         },
         "selector": {
           "type": "string",
-          "description": "CSS selector naming an element on an HTML, JSX or SVG document ('.card', '#main', 'section > h2', '[data-region=notes]'). The region is that element's balanced subtree. Alternative to 'section' for replace_section and move_section, and a scope for the anchored operations. Supported forms: tag, #id, .class (also matches className), [attr], [attr=value], joined by descendant (space) or child ('>') combinators. Refused on a markdown or structureless document."
+          "description": "CSS selector naming an element on an HTML, JSX or SVG document ('.card', '#main', 'section > h2', '[data-region=notes]'). The region is that element's balanced subtree. Alternative to 'section' for replace_section and move_section, required by replace_content (which swaps only the element's interior, keeping its tags), and a scope for the anchored operations. Supported forms: tag, #id, .class (also matches className), [attr], [attr=value], joined by descendant (space) or child ('>') combinators. Refused on a markdown or structureless document."
         },
         "occurrence": {
           "type": "string",

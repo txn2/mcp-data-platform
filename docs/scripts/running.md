@@ -543,6 +543,66 @@ extension the platform assigns the document's content type — `.md`, `.txt`,
 `.html`, and `.html` for `jsx` too, the platform-wide key spelling for
 `text/jsx` objects.
 
+### Refreshing a dashboard's data region
+
+A semi-dynamic dashboard is a presentation that stays put while its data tracks
+a schedule: one portal asset at one URL, authored once as an HTML, JSX, or
+markdown document with real visualizations, whose numbers a script refreshes on
+a cadence. The wrong way to build one is to make the script re-emit the whole
+document every run. That puts the markup inside the script's source, which
+costs twice: the reviewer can only approve the broad claim "this script writes
+arbitrary markup", and changing anything about the presentation — a chart
+color, a heading — means editing the script, and an edited script cannot run
+until an administrator approves the new version. The right split keeps the
+template in the asset, where a layout change is an ordinary document edit, and
+the data in the script; `platform.publish_data` is that split:
+
+```python
+data = {"regions": platform.query(connection="warehouse", sql="SELECT ...")["rows"]}
+platform.publish_data("revenue-dashboard", data)
+```
+
+- `name` resolves through the same output identity `platform.export` uses: one
+  (script, output name) pair is one asset. The asset must already exist and be
+  an `html`, `jsx`, or `markdown` document — this call refreshes a region of a
+  presentation and can never create one. Publish the dashboard once with
+  `platform.export(name, body, format="html")` (or `"jsx"`, or `"markdown"`),
+  then let the schedule refresh only the numbers.
+- The document marks its **data region**: exactly one element with `id="data"`,
+  conventionally `<script type="application/json" id="data">...</script>`, whose
+  text content is the JSON the dashboard's own code reads and renders. The
+  platform serializes `data` (a dict or a list) as JSON and structurally
+  replaces that element's interior — through the same anchored-editing engine
+  `manage_asset` patch uses — leaving every other byte of the document exactly
+  as its author wrote it. In a JSX document the payload is spliced as a
+  template-literal expression child, so the module still compiles and the
+  element's rendered text is still the JSON. A markdown document carries the
+  island as a raw-HTML block, which is legal markdown; an `id="data"` occurrence
+  quoted inside a fenced code block is example text, and a refresh that would
+  land there is refused rather than spliced into the fence.
+- The write is an ordinary new version of the asset, with the same provenance an
+  export gets, so each version is a faithful as-of snapshot: a public share
+  works with no auth or view-time fetch, and an old version still shows exactly
+  the data it showed.
+- A document without the marked region — or with more than one — fails the run
+  with a message naming what is missing, rather than writing anywhere else. A
+  document of the wrong kind (a CSV, a plain-text page) is refused the same way.
+- The zero-rows case is yours, as with any export: publish the empty structure
+  or `fail("why")`.
+- In a draft run nothing is written; the call reports the payload size it would
+  splice. Whether the target asset carries the region is checked by the run
+  that writes, because the asset's content changes independently of the script.
+
+The dashboard reads its own island at view time:
+
+```html
+<script type="application/json" id="data">{"regions": []}</script>
+<script>
+  const data = JSON.parse(document.getElementById("data").textContent);
+  // render from data
+</script>
+```
+
 ### Delivering to an external system
 
 Some output exists to be consumed elsewhere — the weekly CSV another system

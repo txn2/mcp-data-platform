@@ -6,7 +6,11 @@ import type { ScriptDestination, ScriptGrants, VersionReview } from "@/api/admin
 // than only what the code was seen to use. A capability the server does not
 // implement is refused at approval, which is what keeps this list from drifting
 // silently.
-export const CAPABILITIES = ["platform.query", "platform.export"] as const;
+export const CAPABILITIES = [
+  "platform.query",
+  "platform.export",
+  "platform.publish_data",
+] as const;
 
 // The portal is the destination the platform provides itself, and the one a
 // script writes to when it names none. Every other destination is an address a

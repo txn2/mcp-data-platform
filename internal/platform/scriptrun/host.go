@@ -34,8 +34,9 @@ const (
 // the vocabulary a reviewer approves and the vocabulary this engine enforces
 // have to be one list, not two that agree by convention.
 const (
-	CapabilityQuery  = script.CapabilityQuery
-	CapabilityExport = script.CapabilityExport
+	CapabilityQuery       = script.CapabilityQuery
+	CapabilityExport      = script.CapabilityExport
+	CapabilityPublishData = script.CapabilityPublishData
 )
 
 // Capabilities is the full host surface, in the order help and validate report
@@ -81,8 +82,14 @@ const exportPositionalArgs = 3
 // hint and the number of SetKey calls below it cannot drift apart.
 const (
 	queryResultFields  = 3
-	exportRecordFields = 11
+	exportRecordFields = 12
 )
+
+// PublishFormat is the one format a data-region payload has. The region is a
+// JSON data island by contract, so unlike an export there is no format axis for
+// the script to choose on. Exported because the writer records the same fact on
+// the run row, and the two spellings must be one.
+const PublishFormat = "json"
 
 // argErr wraps an argument-unpacking failure with the binding it came from, so
 // an author reads which call they got wrong rather than a bare argument name.
@@ -343,18 +350,8 @@ func (h *hostState) export(_ *starlark.Thread, b *starlark.Builtin, args starlar
 	if err != nil {
 		return nil, err
 	}
-	if len(h.exports) >= maxExports {
-		return nil, fmt.Errorf("in %s: a run may produce at most %d outputs", b.Name(), maxExports)
-	}
-	// The once-per-destination rule is checked here, not only by the writer,
-	// so a draft run refuses exactly what an approved run refuses: a script
-	// that exports one name to one place twice must fail while the author is
-	// iterating, not at the first fire after somebody approved it.
-	for _, prior := range h.exports {
-		if prior.Name == req.Name && prior.Destination == req.Destination.Name {
-			return nil, fmt.Errorf("in %s: output %q was already written to %q by this run; each output name may be written once per destination, so give the second one its own name",
-				b.Name(), req.Name, req.Destination.Name)
-		}
+	if err := h.admitOutput(b, req.Name, req.Destination.Name); err != nil {
+		return nil, err
 	}
 	record, err := h.persistOrPreview(b, req)
 	if err != nil {
@@ -362,6 +359,152 @@ func (h *hostState) export(_ *starlark.Thread, b *starlark.Builtin, args starlar
 	}
 	h.exports = append(h.exports, record)
 	return exportValue(record), nil
+}
+
+// admitOutput enforces the two rules every output-producing binding shares:
+// the per-run output budget, and the once-per-destination rule.
+//
+// The once-per-destination rule is checked here, not only by the writer,
+// so a draft run refuses exactly what an approved run refuses: a script
+// that writes one name to one place twice must fail while the author is
+// iterating, not at the first fire after somebody approved it.
+func (h *hostState) admitOutput(b *starlark.Builtin, name, destination string) error {
+	if len(h.exports) >= maxExports {
+		return fmt.Errorf("in %s: a run may produce at most %d outputs", b.Name(), maxExports)
+	}
+	for _, prior := range h.exports {
+		if prior.Name == name && prior.Destination == destination {
+			return fmt.Errorf("in %s: output %q was already written to %q by this run; each output name may be written once per destination, so give the second one its own name",
+				b.Name(), name, destination)
+		}
+	}
+	return nil
+}
+
+// publishData implements platform.publish_data: refresh the data region of an
+// output asset this script already publishes, leaving the rest of the document
+// untouched (#1389).
+//
+// The presentation is not creatable through this call, on purpose: the split
+// this binding exists for keeps the template in the asset and the data in the
+// script, so the reviewable claim stays "this script replaces the data region
+// of this asset and cannot modify its markup". The whole-document write is
+// platform.export's document arm, which is the wider grant.
+func (h *hostState) publishData(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	if err := h.allowCapability(CapabilityPublishData); err != nil {
+		return nil, argErr(b, err)
+	}
+	var (
+		name string
+		data starlark.Value
+	)
+	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "name", &name, "data", &data); err != nil {
+		return nil, argErr(b, err)
+	}
+	// Trimmed exactly as an export's name is: the name is the output's identity
+	// across runs, and it must resolve to the same asset the export wrote.
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, fmt.Errorf("in %s: name is required and identifies the output asset whose data region to refresh", b.Name())
+	}
+	payload, err := publishPayload(b, data)
+	if err != nil {
+		return nil, err
+	}
+	// A data region is a property of a portal document, so the write is always
+	// against the granted portal destination; a grant without it refuses here
+	// with the same messages an export gets.
+	resolved, err := h.resolveDestination(script.DestinationPortal)
+	if err != nil {
+		return nil, argErr(b, err)
+	}
+	// The kind is checked as well as the name. Grants written before the name
+	// was reserved could carry a bucket destination called "portal", and this
+	// binding must never turn that into an asset write nobody approved.
+	if !resolved.IsPortal() {
+		return nil, fmt.Errorf("in %s: this script's %q destination is a bucket, not the platform's asset store; a data region is a property of a portal document, so approving a portal destination is what lets this call write",
+			b.Name(), script.DestinationPortal)
+	}
+	if err := h.admitOutput(b, name, resolved.Name); err != nil {
+		return nil, err
+	}
+	record, err := h.persistOrPreviewPublish(b, PublishRequest{Name: name, Data: payload})
+	if err != nil {
+		return nil, err
+	}
+	h.exports = append(h.exports, record)
+	return exportValue(record), nil
+}
+
+// publishPayload converts the data argument to the Go value the payload
+// serializer consumes, refusing a scalar: the region holds the data structure a
+// dashboard renders from, and a bare string or number there is a mistake worth
+// naming rather than a one-character island.
+func publishPayload(b *starlark.Builtin, data starlark.Value) (any, error) {
+	goData, err := fromStarlark(data)
+	if err != nil {
+		return nil, argErr(b, err)
+	}
+	switch goData.(type) {
+	case map[string]any, []any:
+		return goData, nil
+	default:
+		return nil, fmt.Errorf("in %s: data must be a dict or a list — the structure the dashboard renders from — got %s",
+			b.Name(), data.Type())
+	}
+}
+
+// persistOrPreviewPublish writes the refresh through the run's Exporter, or
+// measures it when the run has none. The preview serializes through the same
+// FormatDataPayload the writer uses, so the size a draft reports is the size an
+// approved run splices.
+func (h *hostState) persistOrPreviewPublish(b *starlark.Builtin, req PublishRequest) (ExportRecord, error) {
+	record := ExportRecord{
+		Name: req.Name, Destination: script.DestinationPortal, Format: PublishFormat,
+		RowCount: PublishRowCount(req.Data), Refresh: true,
+	}
+	return h.finishRecord(b, record,
+		func() ([]byte, error) { return FormatDataPayload(req.Name, req.Data) },
+		func() (*ExportResult, error) { return h.opts.Exporter.PublishData(h.ctx, req) })
+}
+
+// finishRecord completes one output record by the preview-or-persist rule every
+// output-producing binding shares: with no Exporter the content is serialized
+// only to be measured, and with one the write's own answer fills in where the
+// output landed. One implementation, so the preview contract cannot drift
+// between the bindings.
+func (h *hostState) finishRecord(
+	b *starlark.Builtin, record ExportRecord,
+	measure func() ([]byte, error), persist func() (*ExportResult, error),
+) (ExportRecord, error) {
+	if h.opts.Exporter == nil {
+		record.Preview = true
+		data, err := measure()
+		if err != nil {
+			return ExportRecord{}, argErr(b, err)
+		}
+		record.Bytes = len(data)
+		return record, nil
+	}
+	written, err := persist()
+	if err != nil {
+		return ExportRecord{}, argErr(b, err)
+	}
+	record.AssetID = written.AssetID
+	record.AssetVersion = written.AssetVersion
+	record.Bucket = written.Bucket
+	record.Key = written.Key
+	record.Bytes = written.Bytes
+	return record, nil
+}
+
+// PublishRowCount reports the honest row count of a payload: the length of a
+// list, and zero for a dict, whose size is not a row count.
+func PublishRowCount(data any) int {
+	if list, ok := data.([]any); ok {
+		return len(list)
+	}
+	return 0
 }
 
 // exportRequest unpacks and checks one platform.export call: the output's name
@@ -505,26 +648,10 @@ func (h *hostState) persistOrPreview(b *starlark.Builtin, req ExportRequest) (Ex
 	record := ExportRecord{
 		Name: req.Name, Destination: req.Destination.Name, Format: req.Format,
 		RowCount: len(req.Rows), Document: req.Body != nil,
-		Preview: h.opts.Exporter == nil,
 	}
-	if h.opts.Exporter == nil {
-		data, _, err := FormatOutput(req)
-		if err != nil {
-			return ExportRecord{}, argErr(b, err)
-		}
-		record.Bytes = len(data)
-		return record, nil
-	}
-	written, err := h.opts.Exporter.Export(h.ctx, req)
-	if err != nil {
-		return ExportRecord{}, argErr(b, err)
-	}
-	record.AssetID = written.AssetID
-	record.AssetVersion = written.AssetVersion
-	record.Bucket = written.Bucket
-	record.Key = written.Key
-	record.Bytes = written.Bytes
-	return record, nil
+	return h.finishRecord(b, record,
+		func() ([]byte, error) { data, _, err := FormatOutput(req); return data, err },
+		func() (*ExportResult, error) { return h.opts.Exporter.Export(h.ctx, req) })
 }
 
 // exportValue renders one export record as the dict the script receives. Where
@@ -538,6 +665,7 @@ func exportValue(record ExportRecord) starlark.Value {
 	_ = out.SetKey(starlark.String("format"), starlark.String(record.Format))
 	_ = out.SetKey(starlark.String("row_count"), starlark.MakeInt(record.RowCount))
 	_ = out.SetKey(starlark.String("document"), starlark.Bool(record.Document))
+	_ = out.SetKey(starlark.String("refresh"), starlark.Bool(record.Refresh))
 	_ = out.SetKey(starlark.String("bytes"), starlark.MakeInt(record.Bytes))
 	if record.AssetID != "" {
 		_ = out.SetKey(starlark.String("asset_id"), starlark.String(record.AssetID))
@@ -665,6 +793,28 @@ func FormatOutput(req ExportRequest) ([]byte, OutputIdentity, error) {
 			req.Name, len(data), MaxOutputBytes)
 	}
 	return data, OutputIdentity{ContentType: formatter.ContentType(), Extension: formatter.FileExtension()}, nil
+}
+
+// FormatDataPayload serializes one publish_data payload as the JSON the data
+// region will hold, checked against the same output ceiling every export is.
+//
+// It is the single serializer for the payload — a draft measures exactly the
+// bytes an approved run splices — and it keeps encoding/json's default
+// escaping, which writes <, > and & as \u escapes, so no string in the payload
+// can ever terminate the <script> element it lands inside. Go serializes map
+// keys in sorted order, so the bytes are deterministic for a given payload.
+// The indentation is for the reader of a version diff: a refreshed dashboard's
+// history should read field by field, not as one replaced line.
+func FormatDataPayload(name string, data any) ([]byte, error) {
+	out, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("output %q: the data cannot be serialized as JSON: %w", name, err)
+	}
+	if len(out) > MaxOutputBytes {
+		return nil, fmt.Errorf("output %q is %d bytes, over the %d-byte limit; aggregate in SQL or publish less data",
+			name, len(out), MaxOutputBytes)
+	}
+	return out, nil
 }
 
 // documentTypes maps each document format to the canonical media type it is

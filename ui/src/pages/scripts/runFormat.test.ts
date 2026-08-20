@@ -1,6 +1,7 @@
 import type { ScriptRun } from "@/api/portal/hooks/scripts";
 import { describe, it, expect } from "vitest";
 import {
+  dryRunOutputPhrase,
   executionState,
   formatWhen,
   outputLink,
@@ -10,6 +11,22 @@ import {
   successRate,
   summarize,
 } from "./runFormat";
+
+describe("dryRunOutputPhrase", () => {
+  it("names a refresh as a data-region refresh, not a table or a document", () => {
+    expect(
+      dryRunOutputPhrase({ format: "json", row_count: 0, refresh: true, bytes: 42 }),
+    ).toBe("a data-region refresh (42 bytes of JSON)");
+  });
+  it("keeps the document and table phrasings", () => {
+    expect(
+      dryRunOutputPhrase({ format: "html", row_count: 0, document: true, bytes: 9 }),
+    ).toBe("a html document (9 bytes) to the portal");
+    expect(
+      dryRunOutputPhrase({ format: "csv", row_count: 1, bytes: 9, destination: "acme-drop" }),
+    ).toBe("1 row as csv (9 bytes) to acme-drop");
+  });
+});
 
 describe("run status", () => {
   it("separates a skipped overlap from both a success and a failure", () => {
@@ -61,6 +78,20 @@ describe("outputs", () => {
     });
     expect(link.href).toBe("/assets/asset-1");
     expect(link.detail).toBe("asset version 42");
+  });
+
+  it("says a refresh replaced the data region rather than reading as a whole write", () => {
+    const link = outputLink({
+      name: "revenue-dashboard",
+      asset_id: "asset-1",
+      asset_version: 43,
+      format: "json",
+      row_count: 0,
+      refresh: true,
+      bytes: 100,
+    });
+    expect(link.href).toBe("/assets/asset-1");
+    expect(link.detail).toBe("data refresh, asset version 43");
   });
 
   it("names a delivered object without offering a link to it", () => {

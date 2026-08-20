@@ -45,6 +45,27 @@ export function runWhen(run: Pick<ScriptRun, "finished_at" | "started_at" | "fir
   return formatWhen(run.finished_at ?? run.started_at ?? run.fire_time);
 }
 
+// dryRunOutputPhrase says what one previewed output IS — a data-region
+// refresh, a document, or a table — with its size and destination. One phrase,
+// because the draft-checks panel and the review drawer both describe the same
+// preview and must not drift.
+export function dryRunOutputPhrase(o: {
+  format: string;
+  row_count: number;
+  document?: boolean;
+  refresh?: boolean;
+  bytes: number;
+  destination?: string;
+}): string {
+  if (o.refresh) {
+    return `a data-region refresh (${o.bytes} bytes of JSON)`;
+  }
+  const shape = o.document
+    ? `a ${o.format} document`
+    : `${o.row_count} row${o.row_count === 1 ? "" : "s"} as ${o.format}`;
+  return `${shape} (${o.bytes} bytes) to ${o.destination || "the portal"}`;
+}
+
 // OutputLink is how one output of a run is presented: an asset the platform
 // still serves carries a path to it, and an object delivered to a bucket
 // carries only where it was written, because the bytes left the platform and
@@ -60,7 +81,9 @@ export function outputLink(output: ScriptRunOutput): OutputLink {
   if (output.asset_id) {
     return {
       label: output.name,
-      detail: `asset version ${output.asset_version ?? 1}`,
+      detail: output.refresh
+        ? `data refresh, asset version ${output.asset_version ?? 1}`
+        : `asset version ${output.asset_version ?? 1}`,
       href: `/assets/${output.asset_id}`,
     };
   }

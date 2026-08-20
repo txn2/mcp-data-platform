@@ -70,6 +70,25 @@ WHAT IS AVAILABLE
       reports the shape and size the output would have: the content is
       serialized in the declared format to measure it, so the size is the one
       a real run writes.
+  platform.publish_data(name, data)
+      Refresh the data region of an existing dashboard without touching its
+      markup. name is the same output identity platform.export uses, and must
+      already be an html, jsx, or markdown document of this script's; data is
+      a dict or list, serialized as JSON and spliced into the interior of the
+      ONE element matching ` + script.DataRegionSelector + ` — conventionally
+      <script type="application/json" id="data">...</script>, whose content
+      the dashboard's own code reads and renders (a markdown document carries
+      the island as a raw-HTML block). The write is a new version of the
+      asset, so every refresh is a self-contained as-of snapshot; a document
+      without the marked region fails the run rather than being written
+      anywhere else. Publish the presentation once with
+      platform.export(name, body, format="html") (or "jsx" or "markdown"),
+      then let the schedule refresh only the numbers: the layout can be
+      edited in the asset like any document, with no script change to
+      re-approve. Zero rows is your decision, as with any export: publish
+      the empty structure or fail().
+      In a draft run this writes nothing and reports the payload size it
+      would splice.
   print(...)  Goes to the run log (capped; anything larger is an export).
   run.run_id, run.fire_time, run.params["name"]  The frozen run record.
       A parameter is typed string, int, float, bool, date, enum or connection.

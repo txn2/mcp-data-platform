@@ -51,7 +51,7 @@ func TestEditsSchemaEnumeratesEveryOperation(t *testing.T) {
 	}
 	assert.ElementsMatch(t, []string{
 		OpReplace, OpInsertBefore, OpInsertAfter,
-		OpReplaceSection, OpMoveSection, OpAppend, OpPrepend,
+		OpReplaceSection, OpReplaceContent, OpMoveSection, OpAppend, OpPrepend,
 	}, declared, "the advertised operations are exactly the ones applyOne dispatches")
 }
 

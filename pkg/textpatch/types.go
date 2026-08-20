@@ -27,6 +27,11 @@ const (
 	// OpReplaceSection replaces a whole markdown section (its heading
 	// through the next heading of the same or higher level) with Text.
 	OpReplaceSection = "replace_section"
+	// OpReplaceContent replaces the interior of a selector-addressed element
+	// with Text, leaving the element's own tags exactly as written. It is the
+	// data-island operation: a region's markup stays put while what it holds is
+	// swapped.
+	OpReplaceContent = "replace_content"
 	// OpMoveSection relocates a whole section before or after another
 	// heading, or to the start or end of the document.
 	OpMoveSection = "move_section"
@@ -90,6 +95,7 @@ const (
 //	insert_before    Find or Pattern, Text placed before the anchor
 //	insert_after     Find or Pattern, Text placed after the anchor
 //	replace_section  Section -> Text
+//	replace_content  Selector -> Text (the element's interior; its tags stay)
 //	move_section     Section, plus Before, After, or Position
 //	append/prepend   Text only
 //

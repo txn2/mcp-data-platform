@@ -298,6 +298,7 @@ internal/platform/scriptexec -> pkg/observability
 internal/platform/scriptexec -> pkg/portal
 internal/platform/scriptexec -> pkg/script
 internal/platform/scriptexec -> pkg/session
+internal/platform/scriptexec -> pkg/textpatch
 internal/platform/scriptindex -> pkg/indexjobs
 internal/platform/scriptindex -> pkg/script
 internal/platform/scriptlayer -> internal/platform/connreach

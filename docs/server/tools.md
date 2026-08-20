@@ -1137,6 +1137,7 @@ Operations:
 - `replace` (the default when `op` is omitted): `find` is matched literally and swapped for `replace`. An empty `replace` deletes the matched text.
 - `insert_before` / `insert_after`: `text` is placed relative to the `find` anchor, leaving the anchor in place.
 - `replace_section`: names a region with `section` or `selector` (see below) and replaces its whole span with `text`.
+- `replace_content`: names an element with `selector` and replaces its interior with `text`, leaving the element's own tags exactly as written — the data-island operation. Selector-only; a void or self-closing element is refused because it has no interior.
 - `move_section`: relocate a whole region `before` or `after` another heading, or with `position` set to `start` or `end`.
 - `append` / `prepend`: `text` at the end or start of the body. No anchor needed.
 
@@ -1374,6 +1375,7 @@ The same visibility rule attachments follow applies, over the script's own scope
 |---|---|
 | `platform.query(sql, connection, params)` | Read-only SQL. Returns `{columns, rows, row_count}`, rows as dicts keyed by column name, under hard row and byte caps |
 | `platform.export(name, rows, format)` | Declares an output: rows as a list of dicts serialized in the declared format, or a string body written verbatim for a document. Formats: `csv`, `json`, `markdown`, `text`, `html`, `jsx` — `csv` and `json` require rows, `html` and `jsx` take only a string body, `markdown` and `text` accept either. In a draft run this reports the shape and size the output would have and writes nothing |
+| `platform.publish_data(name, data)` | Refreshes the data region of an existing dashboard without touching its markup: `name` is the same output identity `platform.export` uses and must already be an `html`, `jsx`, or `markdown` document of this script's; `data` (a dict or list) is serialized as JSON and structurally spliced into the one element matching `#data`. A document without the marked region fails the run. In a draft run this reports the payload size and writes nothing. See [Refreshing a dashboard's data region](../scripts/running.md#refreshing-a-dashboards-data-region) |
 | `print(...)` | The run log, bounded; anything larger belongs in an export |
 | `run.run_id`, `run.fire_time`, `run.params[...]` | The frozen run record |
 | `json`, `date` | Encode/decode, and date arithmetic over `YYYY-MM-DD` strings |

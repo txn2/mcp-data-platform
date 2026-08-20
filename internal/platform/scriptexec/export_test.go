@@ -80,6 +80,11 @@ type fakeVersionStore struct {
 	created   []portal.AssetVersion
 	counts    map[string]int
 	createErr error
+	// onCreate mirrors the real store's transactional side effect: creating a
+	// version repoints the asset row's current key, bucket, type, and version.
+	// The refresh path reads the asset row to find the current bytes, so a fake
+	// that skipped this would hide a read of a stale key.
+	onCreate func(v portal.AssetVersion, version int)
 }
 
 func newFakeVersionStore() *fakeVersionStore {
@@ -92,6 +97,9 @@ func (f *fakeVersionStore) CreateVersion(_ context.Context, v portal.AssetVersio
 	}
 	f.counts[v.AssetID]++
 	f.created = append(f.created, v)
+	if f.onCreate != nil {
+		f.onCreate(v, f.counts[v.AssetID])
+	}
 	return f.counts[v.AssetID], nil
 }
 
@@ -107,10 +115,12 @@ func (*fakeVersionStore) GetLatest(context.Context, string) (*portal.AssetVersio
 	return nil, sql.ErrNoRows
 }
 
-// fakeS3 records the objects the writer uploads.
+// fakeS3 records the objects the writer uploads and serves them back, the way
+// the refresh path reads an asset's current bytes.
 type fakeS3 struct {
 	objects map[string][]byte
 	putErr  error
+	getErr  error
 }
 
 func newFakeS3() *fakeS3 { return &fakeS3{objects: map[string][]byte{}} }
@@ -127,8 +137,14 @@ func (*fakeS3) PutObjectStream(context.Context, string, string, io.Reader, strin
 	return 0, nil
 }
 
-func (*fakeS3) GetObject(context.Context, string, string) (data []byte, contentType string, err error) {
-	return nil, "", nil
+func (f *fakeS3) GetObject(_ context.Context, _, key string) (data []byte, contentType string, err error) {
+	if f.getErr != nil {
+		return nil, "", f.getErr
+	}
+	if data, ok := f.objects[key]; ok {
+		return data, "", nil
+	}
+	return nil, "", errors.New("no such object: " + key)
 }
 func (*fakeS3) DeleteObject(context.Context, string, string) error { return nil }
 func (*fakeS3) Close() error                                       { return nil }
@@ -179,6 +195,15 @@ func newWriterHarness(t *testing.T) writerHarness {
 	run.Status, run.LockedBy, run.Attempt = script.RunStatusRunning, "worker-a", 1
 
 	assets, versions, s3 := newFakeAssets(), newFakeVersionStore(), newFakeS3()
+	versions.onCreate = func(v portal.AssetVersion, n int) {
+		for _, asset := range assets.byKey {
+			if asset.ID == v.AssetID {
+				asset.S3Key, asset.S3Bucket = v.S3Key, v.S3Bucket
+				asset.ContentType = v.ContentType
+				asset.CurrentVersion = n
+			}
+		}
+	}
 	caller := &fakeCaller{}
 	deps := ExportDeps{Assets: assets, Versions: versions, S3: s3, Bucket: "assets", Prefix: "portal"}
 	return writerHarness{
@@ -408,11 +433,11 @@ func TestOutputWriter_Failures(t *testing.T) {
 		},
 		{
 			"upload fails", func(h writerHarness) { h.s3.putErr = errors.New("boom") },
-			csvRequest("daily"), "uploading output",
+			csvRequest("daily"), "uploading the object",
 		},
 		{
 			"version write fails", func(h writerHarness) { h.versions.createErr = errors.New("boom") },
-			csvRequest("daily"), "recording output",
+			csvRequest("daily"), "recording the version",
 		},
 	}
 	for _, tt := range tests {

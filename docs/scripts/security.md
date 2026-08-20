@@ -753,6 +753,51 @@ whatever cadence its schedule fires, until someone changes it. That is the
 feature, and the control on it is the capability diff a reviewer reads before
 binding the destination.
 
+### The data-region refresh: the narrowest write
+
+`platform.publish_data` (capability `platform.publish_data`, #1389) refreshes
+the data region of a dashboard the script already publishes, and it is
+deliberately the narrowest write the host offers. The claim a reviewer approves
+is: **this script replaces the interior of one marked element of one named
+asset, and cannot modify the document's markup.** That claim holds
+structurally, not by convention:
+
+- **The target is pinned by the export identity rule.** The name resolves
+  through the same idempotency key an export writes under
+  (`internal/platform/scriptexec`, `outputIdentityKey`), so the only reachable
+  documents are this script's own portal outputs. A name that resolves to
+  nothing fails the run; the call creates no asset and takes no asset id. The
+  write requires a PORTAL-kind destination in the grant, checked by kind and
+  not only by name — and the destination name "portal" is reserved for the
+  platform's own asset store (`Destination.validateBucket`), so a bucket
+  destination can never wear it and be resolved where an asset write is meant.
+- **The splice is structural.** The payload replaces the interior of the ONE
+  element matching `#data` (`pkg/script/refresh.go`, `DataRegionSelector`)
+  through the anchored-editing engine's `replace_content` operation — the same
+  `pkg/textpatch` machinery `manage_asset` patch uses — never string
+  interpolation. A document with no match, or more than one, fails the run
+  rather than writing anywhere else.
+- **The payload cannot escape the element.** The serializer
+  (`internal/platform/scriptrun`, `FormatDataPayload`) keeps `encoding/json`'s
+  default escaping, which writes `<`, `>` and `&` as `\u` escapes, so no
+  string in the payload can contain `</script>` and terminate the island. In a
+  JSX document the payload is wrapped as a template-literal expression child
+  with backslash, backtick and `${` escaped, so it can neither break the module
+  nor evaluate anything: the literal's value is exactly the JSON.
+- **The validator reports the target.** A static read collects the output names
+  `publish_data` refreshes (`refresh_targets`), and a computed name is flagged
+  rather than silently omitted, so the reviewer sees which asset the script
+  rewrites — alongside the capability and the portal destination the grant must
+  cover.
+- **Why it exists at all**: the alternative is a script that re-emits the whole
+  document through `platform.export`'s document arm every run. That puts the
+  markup in the script's source, so the only claim a reviewer can approve is
+  "this script writes arbitrary markup" — and any change to the presentation
+  means editing the script, which cannot run until the new version is approved
+  again. Splitting the template (versioned in the asset) from the data
+  (refreshed by the script) shrinks both the approval statement and the blast
+  radius of a compromised or buggy script to one region of one document.
+
 ### The script principal
 
 An approved run authenticates as `script:<name>`

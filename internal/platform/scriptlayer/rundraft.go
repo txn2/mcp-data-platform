@@ -26,19 +26,24 @@ func (h *Handle) handleValidate(ctx context.Context, input manageScriptInput) (*
 	}
 	report := scriptrun.Validate(source)
 	out := map[string]any{
-		"ok":                   report.OK,
-		"findings":             report.Findings,
-		"capabilities":         report.Capabilities,
-		"connections":          report.Connections,
-		"destinations":         report.Destinations,
-		"dynamic_connections":  report.DynamicConnections,
-		"dynamic_destinations": report.DynamicDestinations,
+		"ok":                      report.OK,
+		"findings":                report.Findings,
+		"capabilities":            report.Capabilities,
+		"connections":             report.Connections,
+		"destinations":            report.Destinations,
+		"refresh_targets":         report.RefreshTargets,
+		"dynamic_connections":     report.DynamicConnections,
+		"dynamic_destinations":    report.DynamicDestinations,
+		"dynamic_refresh_targets": report.DynamicRefreshTargets,
 	}
 	if report.DynamicConnections {
 		out["connections_note"] = "At least one platform.query call computes its connection instead of naming one, so this connection list is incomplete."
 	}
 	if report.DynamicDestinations {
 		out["destinations_note"] = "At least one platform.export call computes its destination instead of naming one, so this destination list is incomplete."
+	}
+	if report.DynamicRefreshTargets {
+		out["refresh_targets_note"] = "At least one platform.publish_data call computes the output name it refreshes instead of naming one, so this refresh-target list is incomplete."
 	}
 	if !report.OK {
 		out["help"] = fmt.Sprintf("Call %s with command=help for the dialect contract and worked examples.", ToolNameManageScript)

@@ -74,6 +74,9 @@ export interface ScriptRunOutput {
   // A document was written verbatim from a string body, so its row count is
   // not a fact about it and is not shown.
   document?: boolean;
+  // A refresh replaced the data region of an existing asset; bytes is the
+  // payload spliced in, not the document.
+  refresh?: boolean;
   bytes: number;
 }
 
@@ -86,6 +89,9 @@ export interface ScriptContractOutput {
   destination: string;
   format?: string;
   row_count?: number;
+  // A refresh replaced the data region of an existing asset rather than
+  // writing a whole document.
+  refresh?: boolean;
   bytes?: number;
   asset_id?: string;
   asset_version?: number;
@@ -474,8 +480,12 @@ export interface ScriptValidation {
   capabilities: string[];
   connections: string[];
   destinations: string[];
+  // The output names platform.publish_data refreshes: which asset's data
+  // region this source rewrites.
+  refresh_targets?: string[];
   dynamic_connections: boolean;
   dynamic_destinations: boolean;
+  dynamic_refresh_targets?: boolean;
   note?: string;
 }
 

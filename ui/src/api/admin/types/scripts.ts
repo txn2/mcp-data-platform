@@ -104,11 +104,16 @@ export interface ReferencedCapabilities {
   // portal for any export that names none, because that is where such an
   // export lands.
   destinations: string[];
+  // refresh_targets are the output names platform.publish_data refreshes, so
+  // the reviewer sees which asset's data region this script rewrites.
+  refresh_targets?: string[];
   // dynamic_connections is true when a call computes its connection instead of
-  // naming one, and dynamic_destinations when one computes its destination.
-  // Either makes that list incomplete.
+  // naming one, dynamic_destinations when one computes its destination, and
+  // dynamic_refresh_targets when a publish_data call computes the name it
+  // refreshes. Any of them makes that list incomplete.
   dynamic_connections: boolean;
   dynamic_destinations: boolean;
+  dynamic_refresh_targets?: boolean;
 }
 
 // ScriptFinding is one validator complaint about the source. The hint is the
@@ -146,6 +151,9 @@ export interface ScriptDryRunOutput {
   // A document was written verbatim from a string body, so its row count is
   // not a fact about it and is not shown.
   document?: boolean;
+  // A refresh replaced the data region of an existing asset, and bytes is the
+  // payload it would splice in.
+  refresh?: boolean;
   bytes: number;
 }
 
