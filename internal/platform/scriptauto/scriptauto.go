@@ -31,17 +31,19 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/connreach"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
 // ConnectionReach lists the connections one author's authority reaches, in the
-// deployment's terms. It is the composition root's, because resolving it means
-// walking the live toolkit registry through the persona boundary.
+// deployment's terms, each identified by kind and name together. It is the
+// composition root's, because resolving it means walking the live toolkit
+// registry through the persona boundary.
 //
 // Nil skips the check. The middleware enforces the same boundary at run time
 // regardless, so what is lost is the early answer, not the boundary.
-type ConnectionReach func(ctx context.Context, roles []string) []string
+type ConnectionReach func(ctx context.Context, roles []string) []connreach.Connection
 
 // Deps are the collaborators an approver needs.
 type Deps struct {
@@ -60,6 +62,17 @@ type Deps struct {
 // under. It implements script.AutoApprover.
 type Approver struct {
 	deps Deps
+}
+
+// reachedRefs states an enumeration in the terms the grant check compares
+// against: kind and name together, which is how the platform identifies a
+// connection and how a granted name has to be matched (#1384).
+func reachedRefs(conns []connreach.Connection) []script.ConnectionRef {
+	refs := make([]script.ConnectionRef, 0, len(conns))
+	for _, c := range conns {
+		refs = append(refs, script.ConnectionRef{Kind: c.Kind, Name: c.Name})
+	}
+	return refs
 }
 
 // New builds an approver. A nil result is never returned; a deployment that
@@ -88,7 +101,7 @@ func (a *Approver) Consider(ctx context.Context, sc *script.Script, author scrip
 		return declined(err.Error())
 	}
 	if a.deps.Reach != nil {
-		if reason := script.RefuseUnreachable(grants, a.deps.Reach(ctx, author.Roles)); reason != "" {
+		if reason := script.RefuseUnreachable(grants, reachedRefs(a.deps.Reach(ctx, author.Roles))); reason != "" {
 			return declined(reason)
 		}
 	}

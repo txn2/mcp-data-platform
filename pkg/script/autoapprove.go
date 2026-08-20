@@ -205,6 +205,23 @@ func destinationNamed(destinations []Destination, name string) (Destination, boo
 	return Destination{}, false
 }
 
+// ConnectionRef identifies a connection the way the platform identifies one:
+// by kind and name together.
+//
+// A name alone does not identify a connection. A deployment may carry one name
+// across several kinds, and a membership test by name alone admitted a granted
+// connection because a DIFFERENT connection sharing its name was reachable
+// (#1384) — the run would then be refused by the boundary this check exists to
+// answer ahead of.
+type ConnectionRef struct {
+	Kind string
+	Name string
+}
+
+// String renders a reference for a message, naming the kind so a reader can
+// tell which of several same-named connections is meant.
+func (c ConnectionRef) String() string { return c.Name + " (" + c.Kind + ")" }
+
 // RefuseUnreachable reports the granted connections the author's own persona
 // cannot reach, or an empty string when every one of them is reachable.
 //
@@ -217,14 +234,14 @@ func destinationNamed(destinations []Destination, name string) (Destination, boo
 // An empty reachable set is not read as "reaches nothing": a deployment that
 // cannot enumerate its connections would otherwise refuse every script, and this
 // check is a courtesy in front of a boundary the middleware enforces regardless.
-func RefuseUnreachable(g Grants, reachable []string) string {
+func RefuseUnreachable(g Grants, reachable []ConnectionRef) string {
 	if len(reachable) == 0 {
 		return ""
 	}
 	var missing []string
-	for _, name := range grantedConnectionNames(g) {
-		if !slices.Contains(reachable, name) {
-			missing = append(missing, name)
+	for _, ref := range grantedConnectionRefs(g) {
+		if !slices.Contains(reachable, ref) {
+			missing = append(missing, ref.String())
 		}
 	}
 	if len(missing) == 0 {
@@ -235,15 +252,30 @@ func RefuseUnreachable(g Grants, reachable []string) string {
 			"so it was not approved", strings.Join(missing, ", "))
 }
 
-// grantedConnectionNames is every connection a grant lets a run reach: the ones
+// grantedConnectionRefs is every connection a grant lets a run reach: the ones
 // it queries, and the one each external destination is delivered over. Both
 // cross the same persona boundary at run time, so both are checked here.
-func grantedConnectionNames(g Grants) []string {
-	names := slices.Clone(g.Connections)
-	for _, d := range g.Destinations {
-		if d.Connection != "" && !slices.Contains(names, d.Connection) {
-			names = append(names, d.Connection)
+//
+// Each carries the kind it will be reached as, which the grant does not record
+// because it does not have to: a queried connection is reached through
+// platform.query (ConnectionParamKind), and a destination's connection is
+// reached as the destination's own kind.
+func grantedConnectionRefs(g Grants) []ConnectionRef {
+	refs := make([]ConnectionRef, 0, len(g.Connections)+len(g.Destinations))
+	for _, name := range g.Connections {
+		ref := ConnectionRef{Kind: ConnectionParamKind, Name: name}
+		if !slices.Contains(refs, ref) {
+			refs = append(refs, ref)
 		}
 	}
-	return names
+	for _, d := range g.Destinations {
+		if d.Connection == "" {
+			continue
+		}
+		ref := ConnectionRef{Kind: d.Kind, Name: d.Connection}
+		if !slices.Contains(refs, ref) {
+			refs = append(refs, ref)
+		}
+	}
+	return refs
 }

@@ -282,6 +282,7 @@ internal/platform/reviewalert -> pkg/script
 internal/platform/reviewalert -> pkg/toolkits/knowledge
 internal/platform/routepolicy -> pkg/middleware
 internal/platform/routepolicy -> pkg/persona
+internal/platform/scriptauto -> internal/platform/connreach
 internal/platform/scriptauto -> internal/platform/scriptrun
 internal/platform/scriptauto -> pkg/script
 internal/platform/scriptdraft -> internal/platform/scriptrun

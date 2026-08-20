@@ -34,6 +34,26 @@ const (
 	ParamTypeConnection = "connection"
 )
 
+// ConnectionParamKind is the toolkit kind a connection-typed parameter's value
+// names.
+//
+// A connection is identified by kind and name together, and a deployment may
+// legitimately carry one name across several kinds. A grant records names
+// alone, which left the surface offering the value unable to say which
+// connection a granted name meant (#1384). It does not have to infer one: the
+// kind is a property of the binding the value is passed to, not of the grant.
+// The one host binding that takes a connection is platform.query, which runs
+// its statement through the Trino toolkit (internal/platform/scriptrun/host.go
+// calls trino_query), so the connection a run reaches under a granted name is
+// the Trino one, whatever else carries that name. platform.export names a
+// destination the approval pinned rather than a connection, so it does not
+// widen this.
+//
+// Adding a binding that takes a connection of another kind means this stops
+// being one constant, and the picker route that reads it is where that would
+// show first.
+const ConnectionParamKind = "trino"
+
 // validParamTypes is the set of allowed parameter types.
 var validParamTypes = map[string]bool{
 	ParamTypeString:     true,

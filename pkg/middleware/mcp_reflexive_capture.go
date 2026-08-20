@@ -51,7 +51,7 @@ type ReflexiveCaptor interface {
 
 // URNBuilder builds a DataHub dataset URN from a query table reference, applying
 // the connection's catalog mapping. Returns "" when a URN cannot be formed.
-type URNBuilder func(connection, catalog, schema, table string) string
+type URNBuilder func(connectionKind, connection, catalog, schema, table string) string
 
 // ReflexiveCaptureConfig configures the reflexive-capture middleware.
 type ReflexiveCaptureConfig struct {
@@ -183,7 +183,7 @@ func (cfg ReflexiveCaptureConfig) buildCorrection(pc *PlatformContext, failed Fa
 		SinkClass:  memstore.SinkSchemaEntity,
 		Category:   memstore.CategoryCorrection,
 		Content:    buildCorrectionContent(failed, successSQL),
-		EntityURNs: cfg.entityURNs(connection, refs),
+		EntityURNs: cfg.entityURNs(pc.ToolkitKind, connection, refs),
 		CreatedBy:  pc.UserEmail,
 		Persona:    pc.PersonaName,
 		UserID:     pc.UserID,
@@ -197,7 +197,7 @@ func (cfg ReflexiveCaptureConfig) buildCorrection(pc *PlatformContext, failed Fa
 // entityURNs builds best-effort dataset URNs for the fully-qualified tables in
 // refs, capped at the record limit. Returns nil when no builder is wired or no
 // ref carries a catalog+schema+table triple.
-func (cfg ReflexiveCaptureConfig) entityURNs(connection string, refs []sqltables.Ref) []string {
+func (cfg ReflexiveCaptureConfig) entityURNs(connectionKind, connection string, refs []sqltables.Ref) []string {
 	if cfg.URNBuilder == nil {
 		return nil
 	}
@@ -207,7 +207,7 @@ func (cfg ReflexiveCaptureConfig) entityURNs(connection string, refs []sqltables
 		if r.Catalog == "" || r.Schema == "" || r.Table == "" {
 			continue
 		}
-		urn := cfg.URNBuilder(connection, r.Catalog, r.Schema, r.Table)
+		urn := cfg.URNBuilder(connectionKind, connection, r.Catalog, r.Schema, r.Table)
 		if urn == "" {
 			continue
 		}

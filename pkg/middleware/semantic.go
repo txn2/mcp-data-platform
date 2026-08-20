@@ -121,9 +121,15 @@ type EnrichmentConfig struct {
 	WorkflowTracker *SessionWorkflowTracker
 
 	// ForConnection returns the DataHub source name and catalog mapping for
-	// a named connection. Returns ("", nil) if the connection has no mapping.
-	// This avoids an import cycle between middleware and platform packages.
-	ForConnection func(connectionName string) (datahubSourceName string, catalogMapping map[string]string)
+	// a connection, identified by kind and name together. Returns ("", nil) if
+	// the connection has no mapping. This avoids an import cycle between
+	// middleware and platform packages.
+	//
+	// The kind is required because a name alone does not identify a connection:
+	// a deployment may carry one name across several kinds, and resolving by
+	// name matched an arbitrary one of them (#1384). Every call site here takes
+	// it from the PlatformContext it already holds.
+	ForConnection func(connectionKind, connectionName string) (datahubSourceName string, catalogMapping map[string]string)
 
 	// ConnectionsForURN returns connection names that can access the dataset
 	// identified by a DataHub URN, based on the URN's platform component.
@@ -227,7 +233,7 @@ func (e *semanticEnricher) enrich(
 		if e.cfg.EnrichS3Results && e.semanticProvider != nil {
 			var catalogMapping map[string]string
 			if e.cfg.ForConnection != nil && pc.Connection != "" {
-				_, catalogMapping = e.cfg.ForConnection(pc.Connection)
+				_, catalogMapping = e.cfg.ForConnection(pc.ToolkitKind, pc.Connection)
 			}
 			return enrichS3Result(ctx, result, request, e.semanticProvider, catalogMapping)
 		}
@@ -247,7 +253,7 @@ func (e *semanticEnricher) enrichTrinoResultWithDedup(
 	// Resolve catalog mapping for the current connection.
 	var catalogMapping map[string]string
 	if e.cfg.ForConnection != nil && pc.Connection != "" {
-		_, catalogMapping = e.cfg.ForConnection(pc.Connection)
+		_, catalogMapping = e.cfg.ForConnection(pc.ToolkitKind, pc.Connection)
 	}
 
 	cache := e.cfg.SessionCache
@@ -306,7 +312,7 @@ func (e *semanticEnricher) handleFullEnrichment(
 	// Resolve catalog mapping for the current connection.
 	var catalogMapping map[string]string
 	if e.cfg.ForConnection != nil && pc.Connection != "" {
-		_, catalogMapping = e.cfg.ForConnection(pc.Connection)
+		_, catalogMapping = e.cfg.ForConnection(pc.ToolkitKind, pc.Connection)
 	}
 
 	enrichedResult, err := e.enrichTrinoResult(ctx, result, request, catalogMapping, pc)

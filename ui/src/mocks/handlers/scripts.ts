@@ -6,7 +6,8 @@ import type {
 } from "@/api/admin/types";
 import type { ScriptSchedule } from "@/api/portal/hooks/scripts";
 import {
-  mockReachableConnections,
+  mockBindableConnections,
+  mockConnectionNames,
   mockScriptContracts,
   mockScriptReviewAlert,
   mockScriptReviewPayloads,
@@ -412,11 +413,12 @@ export const scriptHandlers = [
     }
     if (new URL(request.url).searchParams.get("audience") === "draft") {
       return HttpResponse.json({
-        data: mockReachableConnections,
+        data: mockBindableConnections,
         source: "persona",
         note:
-          "A dry run executes as you, so it reaches the connections you reach. " +
-          "An approved run is confined to what its approval granted instead.",
+          "A dry run executes as you, so these are the connections you reach " +
+          "that a script may query. An approved run is confined to what its " +
+          "approval granted instead.",
       });
     }
     // The approved version is the one the execution gate points at, resolved by
@@ -424,7 +426,7 @@ export const scriptHandlers = [
     // status test would find none and offer an empty set.
     const gate = scripts.find((sc) => sc.id === id)?.approved_version_id;
     const granted = (versions[id] ?? []).find((v) => v.id === gate)?.grants?.connections;
-    const data = mockReachableConnections.filter((c) => (granted ?? []).includes(c.name));
+    const data = mockBindableConnections.filter((c) => (granted ?? []).includes(c.name));
     return HttpResponse.json({
       data,
       source: "grant",
@@ -487,7 +489,7 @@ export const scriptHandlers = [
       ok: true,
       findings: [],
       capabilities: referencedIn(source, ["platform.query", "platform.export"]),
-      connections: referencedIn(source, mockReachableConnections.map((c) => c.name)),
+      connections: referencedIn(source, mockConnectionNames),
       destinations: source.includes("platform.export") ? ["portal"] : [],
       dynamic_connections: false,
       dynamic_destinations: false,

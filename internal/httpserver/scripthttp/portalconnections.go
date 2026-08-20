@@ -95,15 +95,16 @@ func (h *Handler) portalScriptConnections(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	reachable := h.deps.Connections(r.Context(), ConnectionScope{
+	reachable := bindableChoices(h.deps.Connections(r.Context(), ConnectionScope{
 		Persona: user.Persona, Unrestricted: user.IsAdmin,
-	})
+	}))
 	if r.URL.Query().Get("audience") == audienceDraft {
 		httpjson.WriteJSON(w, http.StatusOK, connectionChoicesResponse{
 			Data:   orEmptyChoices(reachable),
 			Source: "persona",
-			Note: "A dry run executes as you, so it reaches the connections you reach. " +
-				"An approved run is confined to what its approval granted instead.",
+			Note: "A dry run executes as you, so these are the connections you reach " +
+				"that a script may query. An approved run is confined to what its " +
+				"approval granted instead.",
 		})
 		return
 	}
@@ -135,6 +136,26 @@ func (h *Handler) grantedConnections(w http.ResponseWriter, r *http.Request, sc 
 		return nil, true
 	}
 	return version.Grants.Connections, true
+}
+
+// bindableChoices narrows an enumeration to the connections a connection-typed
+// parameter can actually name.
+//
+// The caller reaches connections of every kind the deployment holds, but the
+// value bound here is passed to platform.query, which reaches one kind
+// (script.ConnectionParamKind). Offering the others offers values the run
+// refuses, and it is why a granted name carried by several kinds used to be
+// described as whichever kind the enumeration happened to reach first (#1384).
+// Narrowing to the bindable kind resolves a granted name to the connection the
+// run will actually use, and to that one only.
+func bindableChoices(reachable []ConnectionChoice) []ConnectionChoice {
+	out := make([]ConnectionChoice, 0, len(reachable))
+	for _, c := range reachable {
+		if c.Kind == script.ConnectionParamKind {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // describeChoices renders the granted names, borrowing the kind and the

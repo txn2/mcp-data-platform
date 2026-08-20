@@ -31,8 +31,8 @@ func TestMap_AddForConnectionRemove(t *testing.T) {
 	if s := m.ForConnection("trino", "prod"); s == nil || s.DataHubSourceName != "trino" {
 		t.Fatalf("ForConnection = %+v", s)
 	}
-	if s := m.ForConnectionName("prod"); s == nil || s.CatalogMapping["raw"] != "warehouse" {
-		t.Fatalf("ForConnectionName = %+v", s)
+	if s := m.ForConnection("trino", "prod"); s == nil || s.CatalogMapping["raw"] != "warehouse" {
+		t.Fatalf("ForConnection catalog mapping = %+v", s)
 	}
 	if got := m.DataHubSourceName("trino", "prod"); got != "trino" {
 		t.Errorf("DataHubSourceName = %q", got)
@@ -55,8 +55,33 @@ func TestMap_AddForConnectionRemove(t *testing.T) {
 
 func TestMap_Nil(t *testing.T) {
 	var m *Map
-	if m.ForConnection("k", "n") != nil || m.ForConnectionName("n") != nil ||
+	if m.ForConnection("k", "n") != nil ||
 		m.ConnectionsForSource("s") != nil || m.ConnectionsForURN("urn") != nil {
 		t.Error("nil map lookups should return nil")
+	}
+}
+
+// TestMap_SharedNameResolvesByKind proves the fix for #1384: three connections
+// carrying one name, one per kind, each resolve to their own source, and the
+// answer is the same on every call. Before the fix the only lookup that took a
+// bare name ranged the backing map, so a repeated call returned a different
+// kind; a single-call assertion passed roughly one time in three by luck.
+func TestMap_SharedNameResolvesByKind(t *testing.T) {
+	m := NewMap()
+	for _, kind := range []string{"trino", "datahub", "s3"} {
+		m.Add(Source{Kind: kind, Name: "acme", DataHubSourceName: kind})
+	}
+
+	for range 20 {
+		for _, kind := range []string{"trino", "datahub", "s3"} {
+			src := m.ForConnection(kind, "acme")
+			if src == nil {
+				t.Fatalf("ForConnection(%q, acme) = nil", kind)
+			}
+			if src.DataHubSourceName != kind {
+				t.Fatalf("ForConnection(%q, acme).DataHubSourceName = %q, want %q",
+					kind, src.DataHubSourceName, kind)
+			}
+		}
 	}
 }

@@ -25,7 +25,7 @@ func TestProvenQueriesAreAppendedToADescribe(t *testing.T) {
 
 	var gotURN, gotUser string
 	enricher := &semanticEnricher{cfg: EnrichmentConfig{
-		ForConnection: func(string) (string, map[string]string) { return "trino", nil },
+		ForConnection: func(string, string) (string, map[string]string) { return "trino", nil },
 		ProvenQueries: func(_ context.Context, urn, userID string, _ int) []ProvenQuery {
 			gotURN, gotUser = urn, userID
 			return []ProvenQuery{{

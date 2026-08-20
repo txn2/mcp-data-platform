@@ -79,7 +79,10 @@ func TestForPersona_DeniesAnUnresolvedPersona(t *testing.T) {
 func TestForRoles_ResolvesThePersonaFromTheAuthoritySaved(t *testing.T) {
 	l := connreach.New(fixture(t))
 
-	assert.Equal(t, []string{"warehouse"}, l.ForRoles(context.Background(), []string{"dp_analyst"}))
+	assert.Equal(t, []connreach.Connection{{Name: "warehouse", Kind: "trino"}},
+		l.ForRoles(context.Background(), []string{"dp_analyst"}),
+		"the kind travels with the name: a membership test by name alone matches "+
+			"a different connection that happens to share it")
 	assert.Empty(t, l.ForRoles(context.Background(), []string{"dp_nobody"}),
 		"roles that resolve to no persona reach nothing")
 	assert.Empty(t, l.ForRoles(context.Background(), nil))

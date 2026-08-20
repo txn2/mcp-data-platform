@@ -154,8 +154,11 @@ func newReplica(t *testing.T, db *sql.DB, sessions pkgsession.Store, s3 *memS3, 
 	layer := auditwiring.Assemble(auditwiring.Config{
 		DB:            db,
 		RetentionDays: 30,
-		BuildURN: func(_, catalog, schema, table string) string {
-			return fmt.Sprintf("urn:li:dataset:(urn:li:dataPlatform:trino,%s.%s.%s,PROD)", catalog, schema, table)
+		// The platform segment is the connection KIND the audit event carried,
+		// so a target names the platform the statement ran against rather than
+		// one of several a shared connection name could mean (#1384).
+		BuildURN: func(kind, _, catalog, schema, table string) string {
+			return fmt.Sprintf("urn:li:dataset:(urn:li:dataPlatform:%s,%s.%s.%s,PROD)", kind, catalog, schema, table)
 		},
 	})
 

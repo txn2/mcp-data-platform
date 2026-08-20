@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/connreach"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptauto"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -198,7 +199,9 @@ func TestAutoApprove_RefusesAConnectionTheAuthorCannotReach(t *testing.T) {
 	approvals := &approvalStore{}
 	a := scriptauto.New(scriptauto.Deps{
 		Approvals: approvals, Versions: &versionStore{},
-		Reach: func(context.Context, []string) []string { return []string{"finance"} },
+		Reach: func(context.Context, []string) []connreach.Connection {
+			return []connreach.Connection{{Kind: script.ConnectionParamKind, Name: "finance"}}
+		},
 	})
 
 	out := a.AutoApprove(context.Background(), personal(querySource), 3, owner)

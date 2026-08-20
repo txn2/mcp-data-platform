@@ -52,8 +52,11 @@ func (f *fakeAudit) Close() error {
 
 // testURN is the URN builder the recorder is given: a stand-in for the
 // platform's connection-aware one.
-func testURN(connection, catalog, schema, table string) string {
-	return "urn:li:dataset:(urn:li:dataPlatform:" + connection + "," + catalog + "." + schema + "." + table + ",PROD)"
+// testURN stands in for the platform's builder. It puts the connection KIND in
+// the platform segment, which is what the real one resolves it from, so a test
+// asserting on a target is asserting the kind reached the builder (#1384).
+func testURN(connectionKind, _, catalog, schema, table string) string {
+	return "urn:li:dataset:(urn:li:dataPlatform:" + connectionKind + "," + catalog + "." + schema + "." + table + ",PROD)"
 }
 
 func TestRecorderCatalogsAQuery(t *testing.T) {
@@ -184,6 +187,32 @@ func TestRecorderResolvesPathParamsIntoTheTarget(t *testing.T) {
 				t.Errorf("targets = %v, want [%s]", got, c.want)
 			}
 		})
+	}
+}
+
+// TestRecorderTargetsCarryTheConnectionKind proves a recorded call's target
+// names the platform the statement actually ran against (#1384). A Trino export
+// over a connection whose name is also carried by an s3 connection recorded an
+// s3 dataset URN, because the builder resolved the name alone; the kind is on
+// the audit event this recorder reads, so it is passed rather than guessed.
+func TestRecorderTargetsCarryTheConnectionKind(t *testing.T) {
+	t.Parallel()
+
+	store := &fakeStore{}
+	rec := NewRecorder(&fakeAudit{}, store, testURN)
+
+	if err := rec.Log(context.Background(), audit.Event{
+		ID: "evt-kind", ToolName: "trino_export", ToolkitKind: "trino",
+		Connection: "acme", Success: true,
+		Parameters: map[string]any{"sql": "SELECT * FROM warehouse.public.regions"},
+	}); err != nil {
+		t.Fatalf("Log: %v", err)
+	}
+
+	want := "urn:li:dataset:(urn:li:dataPlatform:trino,warehouse.public.regions,PROD)"
+	got := store.inserted[0].Targets
+	if len(got) != 1 || got[0] != want {
+		t.Errorf("targets = %v, want [%s]", got, want)
 	}
 }
 

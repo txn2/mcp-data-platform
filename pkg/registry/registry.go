@@ -18,6 +18,12 @@ type Registry struct {
 	// Registered toolkits by kind+name
 	toolkits map[string]Toolkit
 
+	// ordered holds the same toolkits in kind+name order. It is maintained on
+	// registration rather than derived per read because every tool call walks
+	// it (GetToolkitForTool) and the order has to be stable across calls; see
+	// All.
+	ordered []Toolkit
+
 	// Factory functions by kind
 	factories map[string]ToolkitFactory
 
@@ -103,7 +109,24 @@ func (r *Registry) Register(toolkit Toolkit) error {
 	}
 
 	r.toolkits[key] = toolkit
+	r.reorder()
 	return nil
+}
+
+// reorder rebuilds the ordered view after a registration. Callers hold the
+// write lock. Registration happens at startup and on an admin hot-reload, so
+// rebuilding costs nothing a reader would notice.
+func (r *Registry) reorder() {
+	keys := make([]string, 0, len(r.toolkits))
+	for k := range r.toolkits {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+
+	r.ordered = make([]Toolkit, 0, len(keys))
+	for _, k := range keys {
+		r.ordered = append(r.ordered, r.toolkits[k])
+	}
 }
 
 // CreateAndRegister creates a toolkit from config and registers it.
@@ -138,24 +161,31 @@ func (r *Registry) GetByKind(kind string) []Toolkit {
 	defer r.mu.RUnlock()
 
 	var result []Toolkit
-	for key, toolkit := range r.toolkits {
+	for _, toolkit := range r.ordered {
 		if toolkit.Kind() == kind {
-			result = append(result, r.toolkits[key])
+			result = append(result, toolkit)
 		}
 	}
 	return result
 }
 
-// All returns all registered toolkits.
+// All returns all registered toolkits, ordered by kind then name.
+//
+// The order is part of the contract, not a convenience. Every surface that
+// enumerates connections reads this list, and a caller resolving a connection
+// NAME against it takes whichever entry it reaches first. Ranging a map here
+// made that resolution pick a different toolkit on each call, so a deployment
+// holding one connection name across several kinds reported a different kind on
+// every page load (#1384).
 func (r *Registry) All() []Toolkit {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-
-	result := make([]Toolkit, 0, len(r.toolkits))
-	for _, toolkit := range r.toolkits {
-		result = append(result, toolkit)
-	}
-	return result
+	// A copy, and non-nil even when empty: the ordered view is the registry's
+	// own state, and callers walk, filter, and sometimes append to what they
+	// get back.
+	out := make([]Toolkit, len(r.ordered))
+	copy(out, r.ordered)
+	return out
 }
 
 // AllTools returns all tool names from all toolkits.
@@ -164,7 +194,7 @@ func (r *Registry) AllTools() []string {
 	defer r.mu.RUnlock()
 
 	tools := make([]string, 0, len(r.toolkits)*4)
-	for _, toolkit := range r.toolkits {
+	for _, toolkit := range r.ordered {
 		tools = append(tools, toolkit.Tools()...)
 	}
 	return tools
@@ -192,7 +222,7 @@ func (r *Registry) GetToolkitForTool(toolName string) ToolkitMatch {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	for _, toolkit := range r.toolkits {
+	for _, toolkit := range r.ordered {
 		if slices.Contains(toolkit.Tools(), toolName) {
 			conn := toolkit.Connection()
 			resolved := false
@@ -214,12 +244,14 @@ func (r *Registry) GetToolkitForTool(toolName string) ToolkitMatch {
 	return ToolkitMatch{}
 }
 
-// RegisterAllTools registers all tools from all toolkits with the MCP server.
+// RegisterAllTools registers all tools from all toolkits with the MCP server,
+// in the same order All reports them so two processes started from one config
+// register in one order.
 func (r *Registry) RegisterAllTools(s *mcp.Server) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	for _, toolkit := range r.toolkits {
+	for _, toolkit := range r.ordered {
 		toolkit.RegisterTools(s)
 	}
 }
@@ -230,7 +262,7 @@ func (r *Registry) Close() error {
 	defer r.mu.Unlock()
 
 	var errs []error
-	for _, toolkit := range r.toolkits {
+	for _, toolkit := range r.ordered {
 		if err := toolkit.Close(); err != nil {
 			errs = append(errs, err)
 		}

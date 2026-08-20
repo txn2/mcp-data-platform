@@ -164,6 +164,13 @@ set of values it can take:
   remember the spelling. Which set depends on what will execute: a run of the
   approved version may name only the connections its approval granted, while a
   draft run reaches the connections its caller's own persona reaches.
+- Either way the set holds only connections a script can query. A connection is
+  identified by kind and name together, and a deployment may legitimately carry
+  one name across kinds — a Trino cluster, a DataHub instance and a bucket all
+  called `acme`. The value bound here is passed to `platform.query`, which
+  reaches the Trino connection, so that is the connection the name resolves to
+  and the one the surface describes. `platform.export` names a destination the
+  approval pinned rather than a connection, so it does not widen the set.
 - A value outside that set is refused where it was entered — on the run form, on
   the schedule form, and by `run_script` — rather than at the query it would
   have failed on, hours later, in a run nobody is watching.

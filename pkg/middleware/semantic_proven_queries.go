@@ -55,13 +55,17 @@ type ProvenQueryLister func(ctx context.Context, urn, userID string, limit int) 
 // the key a recorded call's targets are stored under. The table identifier has
 // already had the connection's catalog mapping applied by the enricher, so only
 // the platform name is resolved here, from the same connection lookup.
-func (e *semanticEnricher) datasetURN(table semantic.TableIdentifier, connection string) string {
+//
+// The connection is named by kind and name together, so the platform this
+// returns is the one the statement ran against rather than one of the several a
+// shared name could mean.
+func (e *semanticEnricher) datasetURN(table semantic.TableIdentifier, connectionKind, connection string) string {
 	if table.Schema == "" || table.Table == "" {
 		return ""
 	}
 	var platform string
 	if e.cfg.ForConnection != nil && connection != "" {
-		platform, _ = e.cfg.ForConnection(connection)
+		platform, _ = e.cfg.ForConnection(connectionKind, connection)
 	}
 	name := table.Table
 	if table.Schema != "" {
@@ -85,7 +89,7 @@ func (e *semanticEnricher) appendProvenQueries(
 	if e.cfg.ProvenQueries == nil || pc == nil || pc.UserID == "" || result == nil {
 		return result
 	}
-	urn := e.datasetURN(table, pc.Connection)
+	urn := e.datasetURN(table, pc.ToolkitKind, pc.Connection)
 	if urn == "" {
 		return result
 	}
