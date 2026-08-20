@@ -25,6 +25,10 @@ graph LR
 
 The forwarder dials each configured upstream once at startup, discovers its tool catalog, and re-registers every tool under a connection-namespaced local name (`<connection>__<remote_tool>`). Persona rules and audit middleware see proxied tools the same way they see native tools, with no special handling required.
 
+## Protocol revision boundary
+
+The platform and each upstream negotiate their MCP protocol revisions separately. A client may be on `2026-07-28` while an upstream three releases behind settles on `2025-06-18`, and neither side sees the other's revision: a proxied call leaves the platform stamped with the revision the platform negotiated with THAT upstream, and the result the caller receives is typed for the revision the caller negotiated. An upstream that refuses revisions it does not know therefore stays reachable through the gateway however new the calling client is.
+
 ## Terminology
 
 - The platform IS the gateway — it owns the proxying behavior, the admin endpoints under `/api/v1/admin/gateway/*`, the enrichment-rule storage, and the docs you are reading.

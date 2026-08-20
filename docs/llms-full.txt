@@ -3245,6 +3245,10 @@ The gateway toolkit lets the platform act as an MCP **client** against arbitrary
 
 The forwarder dials each configured upstream once at startup, discovers its tool catalog, and re-registers every tool under a connection-namespaced local name (`<connection>__<remote_tool>`). Persona rules and audit middleware see proxied tools the same way they see native tools.
 
+## Protocol revision boundary
+
+The platform and each upstream negotiate their MCP protocol revisions separately. A client may be on `2026-07-28` while an upstream three releases behind settles on `2025-06-18`, and neither side sees the other's revision: a proxied call leaves the platform stamped with the revision the platform negotiated with THAT upstream, and the result the caller receives is typed for the revision the caller negotiated. An upstream that refuses revisions it does not know therefore stays reachable through the gateway however new the calling client is.
+
 ## Configuring connections
 
 Gateway connections live in the database, not in `platform.yaml`. Operators add and authenticate them through the admin portal (or directly via the admin REST API). Required for the kind to be active in YAML:
