@@ -111,12 +111,15 @@ func (*fakeThreads) CountSignoffs(context.Context, string, string) (int, error) 
 // fakeMarks is an in-memory watermark store that records every advance.
 type fakeMarks struct {
 	mark    *time.Time
+	nowErr  error
 	getErr  error
 	setErr  error
 	setKey  string
 	setAt   time.Time
 	setCall int
 }
+
+func (f *fakeMarks) Now(context.Context) (time.Time, error) { return testNow, f.nowErr }
 
 func (f *fakeMarks) Get(context.Context, string) (*time.Time, error) { return f.mark, f.getErr }
 
@@ -145,7 +148,6 @@ func testHandle(a *fakeAssets, s *fakeShares, t *fakeThreads, m *fakeMarks) *Han
 		shares:  s,
 		threads: t,
 		marks:   m,
-		now:     func() time.Time { return testNow },
 	}
 }
 
@@ -345,6 +347,17 @@ func TestBuildAFailedHalfIsReportedButTheWatermarkHolds(t *testing.T) {
 				"a half that failed to load must be reported next session, not silently dropped")
 		})
 	}
+}
+
+// Without a clock the digest has no boundary, so it reports nothing rather
+// than guessing one and reading out notices the caller has already seen.
+func TestBuildUnreadableClockReportsNothingRatherThanEverything(t *testing.T) {
+	marks := &fakeMarks{mark: &testMark, nowErr: errors.New("db down")}
+	h := testHandle(&fakeAssets{owned: ownedAsset()}, &fakeShares{refs: newShare()},
+		&fakeThreads{found: openThread()}, marks)
+
+	assert.Nil(t, h.Build(context.Background(), testCaller()))
+	assert.Zero(t, marks.setCall, "a digest that was never built must not advance the watermark")
 }
 
 func TestBuildUnreadableWatermarkReportsNothingRatherThanEverything(t *testing.T) {

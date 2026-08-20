@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"fmt"
 	"log/slog"
 	"maps"
 )
@@ -134,6 +135,14 @@ func mergeMapInstances(instances, kindConfig map[string]any) map[string]map[stri
 }
 
 // loadAggregate invokes an aggregate factory and registers the resulting toolkit.
+//
+// A failure here is fatal, unlike the per-instance loop above, because the two
+// failures are not the same size: one bad instance of a per-instance kind costs
+// that instance, while an aggregate kind builds every one of its connections in
+// a single toolkit, so a failed factory costs all of them. Reporting that as a
+// warning left a deployment serving no Trino tools at all with nothing but a
+// log line to say why — a mistyped toolkits.trino.default is enough to trigger
+// it, and the operator sees a platform that simply cannot query.
 func (l *Loader) loadAggregate(
 	kind, defaultName string,
 	instances map[string]map[string]any,
@@ -141,9 +150,7 @@ func (l *Loader) loadAggregate(
 ) error {
 	toolkit, err := factory(defaultName, instances)
 	if err != nil {
-		slog.Warn("skipping aggregate toolkit",
-			"kind", kind, "error", err)
-		return nil
+		return fmt.Errorf("building the %s toolkit: %w", kind, err)
 	}
 	return l.registry.Register(toolkit)
 }

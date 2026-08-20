@@ -3858,6 +3858,43 @@ func TestMergeDBConnectionsIntoConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("a stored connection does not take over the declared default", func(t *testing.T) {
+		// The file declares one S3 instance, so it needs no "default" and
+		// nothing recorded which connection it meant. Merging an admin-UI
+		// connection whose name sorts earlier used to hand the unqualified
+		// lookup to the stored one at the next restart, moving managed-resource
+		// blob storage off the connection the file pointed at.
+		p := &Platform{
+			config: &Config{
+				Toolkits: map[string]any{
+					"s3": map[string]any{
+						cfgKeyEnabled: true,
+						cfgKeyInstances: map[string]any{
+							"lake": map[string]any{"region": "us-east-1"},
+						},
+					},
+				},
+			},
+			connectionStore: &mockConnectionStoreForTest{
+				instances: []ConnectionInstance{
+					{Kind: "s3", Name: "archive", Config: map[string]any{"region": "us-west-2"}},
+				},
+			},
+		}
+		p.mergeDBConnectionsIntoConfig()
+
+		cfg := toolkitcfg.S3Config(p.config.Toolkits, "")
+		if cfg == nil {
+			t.Fatal("S3Config returned nil")
+		}
+		if cfg.ConnectionName != "lake" {
+			t.Errorf("unqualified lookup resolved to %q, want lake", cfg.ConnectionName)
+		}
+		if toolkitcfg.S3Config(p.config.Toolkits, "archive") == nil {
+			t.Error("the stored connection should still have merged")
+		}
+	})
+
 	t.Run("skips disabled toolkit kind", func(t *testing.T) {
 		p := &Platform{
 			config: &Config{

@@ -114,21 +114,33 @@ Use the `*_list_connections` tools to see configured instances:
 
 ## Default Connection
 
-The first instance configured becomes the default. You can rely on this behavior or explicitly specify which instance to use for semantic providers:
+The Trino, DataHub and S3 kinds name their default with a `default:` key beside their `instances:` block. One of them configuring more than one instance without it is refused at startup, listing the instances it found:
+
+```
+validating config: config validation errors: toolkits.datahub.default is required when more than one instance is configured (instances: legacy, primary)
+```
+
+Which catalog or warehouse a request means when it names none is a deployment decision, so the platform asks for it rather than picking one. A kind with a single instance needs no `default:` — there is nothing to choose between. The gateway kinds (`mcp`, `api`) never need one: every tool they proxy is namespaced by its connection, so no request resolves a default for them.
+
+A kind that is configured but not enabled is still asked for a default. The semantic, query and storage providers read an instance's settings through the same lookup whether or not the kind registers tools, so a catalog used only for enrichment still has to say which of its instances the enrichment reads.
+
+The `default:` answers the lookups that name no instance: the provider blocks below when their `instance` is left unset, `knowledge.apply.datahub_connection`, `resources.managed.s3_connection`, and the connection a Trino tool call uses when it passes no `connection` parameter.
 
 ```yaml
 semantic:
   provider: datahub
-  instance: primary    # Use the "primary" DataHub instance
+  instance: primary    # optional; without it, toolkits.datahub.default is used
 
 query:
   provider: trino
-  instance: production # Use the "production" Trino instance
+  instance: production # optional; without it, toolkits.trino.default is used
 
 storage:
   provider: s3
-  instance: data_lake  # Use the "data_lake" S3 instance
+  instance: data_lake  # optional; without it, toolkits.s3.default is used
 ```
+
+Connections added through the admin UI are held in the database and join the toolkit config after startup validation, so they arrive too late to be checked by it. They cannot take over a lookup a configured instance already answers: whatever the file resolves to is pinned before they merge. For a kind whose instances all come from the database, a lookup that names no instance resolves to the first instance name in alphabetical order, which is the same one on every replica and after every restart.
 
 ## Cross-Enrichment with Multiple Providers
 

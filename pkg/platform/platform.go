@@ -3024,8 +3024,8 @@ func (p *Platform) ConnectionSources() *ConnectionSourceMap {
 //
 //  2. Trino and S3 toolkit kinds auto-enable when an operator saves their
 //     first DB instance via the admin UI. Pre-fix, the saved row was
-//     orphaned: the kind block didn't exist, isToolkitEnabled returned
-//     false, mergeConnectionInstance was a no-op, and the toolkit loader
+//     orphaned: the kind block didn't exist, toolkitcfg.KindEnabled
+//     returned false, the merge was a no-op, and the toolkit loader
 //     never instantiated anything.
 //
 // Operator-set values are never overridden — if the YAML explicitly sets
@@ -3053,6 +3053,11 @@ func (p *Platform) mergeDBConnectionsIntoConfig() {
 		p.config.Toolkits = make(map[string]any)
 	}
 
+	// Pin what the file already resolves to before anything from the database
+	// joins the instance maps, so a stored connection cannot take over the
+	// lookup a declared instance answers today.
+	toolkitcfg.PinDeclaredDefaults(p.config.Toolkits)
+
 	// (1) The gateway toolkits need no instance config to be useful —
 	// auto-enable so the admin UI's "Add Connection" path produces a
 	// live toolkit on the next request. Both the MCP gateway (#338)
@@ -3060,8 +3065,8 @@ func (p *Platform) mergeDBConnectionsIntoConfig() {
 	// connections are added dynamically through the admin UI rather
 	// than via YAML 'instances' blocks, so the kind has to be
 	// pre-enabled for saves to land in a live toolkit.
-	p.autoEnableToolkitKind(kindMCP)
-	p.autoEnableToolkitKind(kindAPI)
+	toolkitcfg.AutoEnableKind(p.config.Toolkits, kindMCP)
+	toolkitcfg.AutoEnableKind(p.config.Toolkits, kindAPI)
 
 	instances, err := p.connectionStore.List(context.Background())
 	if err != nil {
@@ -3084,65 +3089,9 @@ func (p *Platform) mergeDBConnectionsIntoConfig() {
 	for _, inst := range instances {
 		if manageableKinds[inst.Kind] {
 			// (2) Auto-enable the kind so the merge actually has effect.
-			p.autoEnableToolkitKind(inst.Kind)
-			mergeConnectionInstance(p.config.Toolkits, inst)
+			toolkitcfg.AutoEnableKind(p.config.Toolkits, inst.Kind)
+			toolkitcfg.MergeInstance(p.config.Toolkits, inst.Kind, inst.Name, inst.Config)
 		}
-	}
-}
-
-// autoEnableToolkitKind ensures p.config.Toolkits[kind] exists with
-// enabled=true so the toolkit loader will instantiate it. Idempotent and
-// non-overriding: if the operator has already declared the kind block
-// (enabled OR disabled), their explicit choice is respected.
-//
-// Logs at Debug, not Info: this is the platform's documented default
-// behavior, not an exceptional condition that requires operator
-// attention. Operators who want to silence the path entirely can set
-// the kind explicitly in YAML (with either enabled state).
-func (p *Platform) autoEnableToolkitKind(kind string) {
-	if _, exists := p.config.Toolkits[kind]; exists {
-		return
-	}
-	p.config.Toolkits[kind] = map[string]any{cfgKeyEnabled: true}
-	slog.Debug("auto-enabled toolkit kind (requirements met, no explicit YAML)",
-		"kind", kind)
-}
-
-// mergeConnectionInstance merges a single DB connection instance into the
-// toolkit config map. File config takes precedence over DB connections.
-func mergeConnectionInstance(toolkits map[string]any, inst ConnectionInstance) {
-	kindMap, ok := toolkits[inst.Kind].(map[string]any)
-	if !ok || !isToolkitEnabled(kindMap) {
-		return
-	}
-
-	kindInstances, ok := kindMap[cfgKeyInstances].(map[string]any)
-	if !ok {
-		kindInstances = make(map[string]any)
-		kindMap[cfgKeyInstances] = kindInstances
-	}
-
-	// Only add if not already present (file config takes precedence)
-	if _, exists := kindInstances[inst.Name]; !exists {
-		kindInstances[inst.Name] = inst.Config
-		slog.Info("merged DB connection into toolkit config", "kind", inst.Kind, "name", inst.Name)
-	}
-}
-
-// isToolkitEnabled checks if a toolkit kind map has enabled=true.
-// Handles both bool and string values (env var expansion produces strings).
-func isToolkitEnabled(kindMap map[string]any) bool {
-	v, ok := kindMap[cfgKeyEnabled]
-	if !ok {
-		return false
-	}
-	switch val := v.(type) {
-	case bool:
-		return val
-	case string:
-		return val == "true"
-	default:
-		return false
 	}
 }
 

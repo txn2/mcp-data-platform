@@ -104,3 +104,33 @@ func TestNewBuildsAWatermarkBackedHandle(t *testing.T) {
 	assert.Nil(t, New(db, &fakeAssets{}, nil, &fakeThreads{}))
 	assert.Nil(t, New(db, &fakeAssets{}, &fakeShares{}, nil))
 }
+
+// The digest's boundary must come from the database, because every timestamp
+// it is compared against was stamped there.
+func TestPostgresWatermarkNowReadsTheDatabaseClock(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	at := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT NOW()")).
+		WillReturnRows(sqlmock.NewRows([]string{"now"}).AddRow(at))
+
+	got, err := NewPostgresWatermarkStore(db).Now(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, at, got)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPostgresWatermarkNowReportsAFailure(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT NOW()")).WillReturnError(errors.New("connection reset"))
+
+	_, err = NewPostgresWatermarkStore(db).Now(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "reading the database clock")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}

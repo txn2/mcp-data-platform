@@ -1349,7 +1349,7 @@ resources:
 |-------|------|---------|-------------|
 | `enabled` | bool | auto | Enable managed resources. Unset means enabled whenever a database is configured; set `false` to disable the subsystem outright |
 | `uri_scheme` | string | `mcp` | Scheme of the URIs minted for managed resources (`<scheme>://global/<category>/<filename>`, and the persona/user equivalents). Changing it after resources exist changes the URIs the platform serves for them |
-| `s3_connection` | string | first configured S3 instance | Name of the S3 toolkit instance used for blob storage |
+| `s3_connection` | string | the S3 kind's `default:` | Name of the S3 toolkit instance used for blob storage |
 | `s3_bucket` | string | `managed-resources` | Bucket the uploaded bytes are written to |
 | `max_versions` | int | `10` | Content revisions a resource keeps, counting the current one. A revision past the cap prunes the oldest stored file; live content is never pruned. A non-positive value selects the default, and anything below `2` is raised to `2`, since a cap of `1` would keep no history at all |
 
