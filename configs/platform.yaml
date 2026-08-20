@@ -218,6 +218,8 @@ toolkits:
         host: "trino-staging.example.com"
         port: 8080
         description: "Staging environment for testing queries before production"
+    # Which instance a request that names no connection means. Required
+    # once a kind configures more than one instance.
     default: production
     config:
       default_limit: 1000
@@ -235,6 +237,8 @@ toolkits:
         token: "${DATAHUB_TOKEN}"
         debug: false            # Enable debug logging for GraphQL operations
         read_only: true         # Restrict to read operations
+    # Which instance a request that names no connection means. Required
+    # once a kind configures more than one instance.
     default: primary
     config:
       default_limit: 50
@@ -255,6 +259,8 @@ toolkits:
         #                                           # signed against it instead of endpoint. Data traffic
         #                                           # keeps using endpoint. Empty falls back to endpoint.
         # use_path_style: true                      # required for SeaweedFS / MinIO style addressing
+    # Which instance a request that names no connection means. Required
+    # once a kind configures more than one instance.
     default: data_lake
     config:
       read_only: true

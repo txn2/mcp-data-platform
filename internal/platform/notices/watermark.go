@@ -12,6 +12,15 @@ import (
 // to them. Get answers nil (not an error) for a caller who has never been
 // briefed; Set is what makes delivery single-shot.
 type WatermarkStore interface {
+	// Now returns the clock the watermark is kept on.
+	//
+	// A digest compares its boundary against timestamps the database stamped
+	// (portal_shares.created_at defaults to NOW()), so the boundary has to be
+	// read from that same clock. Stamping it from the process clock instead
+	// compares two clocks: a few milliseconds of skew between the application
+	// host and the database server is enough to place an already-delivered
+	// share after the watermark and read it out to the caller a second time.
+	Now(ctx context.Context) (time.Time, error)
 	Get(ctx context.Context, userKey string) (*time.Time, error)
 	Set(ctx context.Context, userKey string, at time.Time) error
 }
@@ -24,6 +33,16 @@ type PostgresWatermarkStore struct {
 // NewPostgresWatermarkStore returns a watermark store over db.
 func NewPostgresWatermarkStore(db *sql.DB) *PostgresWatermarkStore {
 	return &PostgresWatermarkStore{db: db}
+}
+
+// Now returns the database server's current time, which is the clock every
+// timestamp a digest compares against was stamped from.
+func (s *PostgresWatermarkStore) Now(ctx context.Context) (time.Time, error) {
+	var at time.Time
+	if err := s.db.QueryRowContext(ctx, `SELECT NOW()`).Scan(&at); err != nil {
+		return time.Time{}, fmt.Errorf("reading the database clock: %w", err)
+	}
+	return at, nil
 }
 
 // Get returns when this caller was last briefed, or nil if never.

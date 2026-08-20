@@ -1,6 +1,7 @@
 package toolkitcfg
 
 import (
+	"slices"
 	"testing"
 	"time"
 )
@@ -172,4 +173,164 @@ func TestS3Config(t *testing.T) {
 			t.Errorf("S3Config connection_name = %+v, want myinstance", cfg)
 		}
 	})
+}
+
+func TestResolveDefaultInstanceIsStableAcrossRestarts(t *testing.T) {
+	// Go randomizes map iteration order, so a fallback that ranged the
+	// instances map resolved a different instance on each process start: two
+	// replicas built from one config disagreed about which connection an
+	// unqualified lookup meant. Building the map fresh each round models a
+	// restart; the answer must not move. A single resolution would pass by
+	// luck.
+	newInstances := func() map[string]any {
+		return map[string]any{"zeta": nil, "delta": nil, "alpha": nil, "omega": nil, "beta": nil}
+	}
+	const want = "alpha"
+	for i := range 200 {
+		if got := ResolveDefaultInstance(map[string]any{}, newInstances()); got != want {
+			t.Fatalf("round %d: ResolveDefaultInstance = %q, want %q", i, got, want)
+		}
+	}
+}
+
+func TestResolveDefaultInstanceUnusableDefaultKey(t *testing.T) {
+	// An empty or non-string "default" has named nothing, so it falls through
+	// to the deterministic pick rather than resolving to "".
+	instances := map[string]any{"beta": nil, "alpha": nil}
+	for name, kindCfg := range map[string]map[string]any{
+		"empty string": {"default": ""},
+		"not a string": {"default": 7},
+	} {
+		if got := ResolveDefaultInstance(kindCfg, instances); got != "alpha" {
+			t.Errorf("%s: ResolveDefaultInstance = %q, want alpha", name, got)
+		}
+	}
+}
+
+func TestMissingDefaults(t *testing.T) {
+	tests := []struct {
+		name     string
+		toolkits map[string]any
+		want     []string
+	}{
+		{name: "nil config"},
+		{
+			name: "single instance needs no default",
+			toolkits: map[string]any{"s3": map[string]any{
+				"instances": map[string]any{"only": nil},
+			}},
+		},
+		{
+			name: "several instances with a default",
+			toolkits: map[string]any{"s3": map[string]any{
+				"default":   "archive",
+				"instances": map[string]any{"archive": nil, "lake": nil},
+			}},
+		},
+		{
+			name: "several instances without a default",
+			toolkits: map[string]any{"s3": map[string]any{
+				"instances": map[string]any{"lake": nil, "archive": nil},
+			}},
+			want: []string{"toolkits.s3.default is required when more than one instance is configured (instances: archive, lake)"},
+		},
+		{
+			name: "empty default does not count as named",
+			toolkits: map[string]any{"datahub": map[string]any{
+				"default":   "",
+				"instances": map[string]any{"primary": nil, "secondary": nil},
+			}},
+			want: []string{"toolkits.datahub.default is required when more than one instance is configured (instances: primary, secondary)"},
+		},
+		{
+			name: "every offending kind is reported, sorted",
+			toolkits: map[string]any{
+				"trino": map[string]any{
+					"instances": map[string]any{"staging": nil, "production": nil},
+				},
+				"datahub": map[string]any{
+					"instances": map[string]any{"b": nil, "a": nil},
+				},
+				"s3": map[string]any{
+					"default":   "lake",
+					"instances": map[string]any{"lake": nil, "archive": nil},
+				},
+			},
+			want: []string{
+				"toolkits.datahub.default is required when more than one instance is configured (instances: a, b)",
+				"toolkits.trino.default is required when more than one instance is configured (instances: production, staging)",
+			},
+		},
+		{
+			// The gateway kinds namespace every proxied tool by its
+			// connection, so nothing resolves a default for them and
+			// requiring one would refuse a config over an inert key.
+			name: "gateway kinds are not asked for a default",
+			toolkits: map[string]any{
+				"mcp": map[string]any{
+					"enabled":   true,
+					"instances": map[string]any{"upstream_a": nil, "upstream_b": nil},
+				},
+				"api": map[string]any{
+					"enabled":   true,
+					"instances": map[string]any{"billing": nil, "crm": nil},
+				},
+			},
+		},
+		{
+			// The providers read an instance through InstanceConfig without
+			// consulting the enable flag, so a disabled kind is still asked
+			// which of its instances an unqualified lookup means.
+			name: "a disabled kind is still ambiguous",
+			toolkits: map[string]any{"datahub": map[string]any{
+				"enabled":   false,
+				"instances": map[string]any{"primary": nil, "legacy": nil},
+			}},
+			want: []string{"toolkits.datahub.default is required when more than one instance is configured (instances: legacy, primary)"},
+		},
+		{
+			name:     "malformed kind block is not a default problem",
+			toolkits: map[string]any{"s3": "not-a-map"},
+		},
+		{
+			name: "malformed instances block is not a default problem",
+			toolkits: map[string]any{"s3": map[string]any{
+				"instances": []string{"lake", "archive"},
+			}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := MissingDefaults(tt.toolkits)
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("MissingDefaults() = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestS3ConfigNamesTheResolvedConnection(t *testing.T) {
+	// An instance that omits connection_name is labeled by the instance name.
+	// Resolving through the default used to hand back the caller's empty
+	// string instead, leaving every downstream connection label blank.
+	toolkits := map[string]any{"s3": map[string]any{
+		"default": "archive",
+		"instances": map[string]any{
+			"archive": map[string]any{"region": "us-west-2"},
+			"lake":    map[string]any{"region": "us-east-1"},
+		},
+	}}
+	cfg := S3Config(toolkits, "")
+	if cfg == nil {
+		t.Fatal("S3Config returned nil")
+	}
+	if cfg.ConnectionName != "archive" {
+		t.Errorf("ConnectionName = %q, want archive", cfg.ConnectionName)
+	}
+	if cfg.Region != "us-west-2" {
+		t.Errorf("Region = %q, want us-west-2", cfg.Region)
+	}
+	if named := S3Config(toolkits, "lake"); named == nil || named.ConnectionName != "lake" {
+		t.Errorf("S3Config(lake) = %+v, want ConnectionName lake", named)
+	}
 }

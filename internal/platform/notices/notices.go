@@ -42,9 +42,6 @@ type Handle struct {
 	shares  portaldomain.ShareStore
 	threads threads.ThreadStore
 	marks   WatermarkStore
-	// now is the clock, replaced in tests so a digest's watermark arithmetic is
-	// deterministic.
-	now func() time.Time
 }
 
 // New builds the digest assembler over db and the portal stores. It returns nil
@@ -59,7 +56,6 @@ func New(db *sql.DB, assets portaldomain.AssetStore, shares portaldomain.ShareSt
 		shares:  shares,
 		threads: ts,
 		marks:   NewPostgresWatermarkStore(db),
-		now:     time.Now,
 	}
 }
 
@@ -107,7 +103,11 @@ func (h *Handle) Build(ctx context.Context, pc *middleware.PlatformContext) *Dig
 	if !ok {
 		return nil
 	}
-	now := h.now()
+	now, err := h.marks.Now(ctx)
+	if err != nil {
+		slog.WarnContext(ctx, "platform_info: notice clock unavailable", logKeyError, err)
+		return nil
+	}
 	since, err := h.since(ctx, c.key, now)
 	if err != nil {
 		slog.WarnContext(ctx, "platform_info: notice watermark unavailable", logKeyError, err)

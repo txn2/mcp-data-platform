@@ -21,6 +21,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/reflexivecapture"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptexec"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolargs"
+	"github.com/txn2/mcp-data-platform/internal/platform/toolkitcfg"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	datahubsemantic "github.com/txn2/mcp-data-platform/pkg/semantic/datahub"
@@ -1978,6 +1979,13 @@ func (c *Config) Validate() error {
 	if c.Auth.OIDC.Enabled && c.Auth.OIDC.Issuer == "" {
 		errs = append(errs, "auth.oidc.issuer is required when OIDC is enabled")
 	}
+
+	// A kind with several instances and no "default" leaves the platform to
+	// pick which connection an unqualified lookup (semantic.instance,
+	// query.instance, storage.instance, knowledge.apply.datahub_connection)
+	// means. Refuse here and name the candidates rather than resolve to one
+	// the operator did not choose.
+	errs = append(errs, toolkitcfg.MissingDefaults(c.Toolkits)...)
 
 	errs = c.validateOAuth(errs)
 	errs = c.validateSessions(errs)

@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -2219,6 +2220,48 @@ func TestConfigValidate_RejectsBadAuditDelivery(t *testing.T) {
 	if !strings.Contains(err.Error(), "audit.delivery") {
 		t.Errorf("expected error to mention audit.delivery, got %v", err)
 	}
+}
+
+// TestConfigValidate_RequiresDefaultForMultipleInstances covers the refusal
+// that keeps the platform from choosing a connection the operator never named.
+// Which instance an unqualified lookup (semantic.instance, query.instance,
+// storage.instance, knowledge.apply.datahub_connection) means is undefined when
+// a kind holds several with no "default", so the config is refused at startup
+// with the candidates named rather than resolved to one of them.
+func TestConfigValidate_RequiresDefaultForMultipleInstances(t *testing.T) {
+	twoInstances := func(extra map[string]any) map[string]any {
+		kind := map[string]any{"instances": map[string]any{
+			"primary":   map[string]any{"url": "https://a.example.com"},
+			"secondary": map[string]any{"url": "https://b.example.com"},
+		}}
+		maps.Copy(kind, extra)
+		return map[string]any{"datahub": kind}
+	}
+
+	t.Run("refused with the candidates named", func(t *testing.T) {
+		err := (&Config{Toolkits: twoInstances(nil)}).Validate()
+		if err == nil {
+			t.Fatal("expected Validate to refuse two datahub instances with no default")
+		}
+		for _, want := range []string{"toolkits.datahub.default", "primary, secondary"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("expected error to mention %q, got %v", want, err)
+			}
+		}
+	})
+	t.Run("accepted once an instance is named", func(t *testing.T) {
+		if err := (&Config{Toolkits: twoInstances(map[string]any{"default": "primary"})}).Validate(); err != nil {
+			t.Errorf("Validate() = %v, want nil once default names an instance", err)
+		}
+	})
+	t.Run("a single instance needs no default", func(t *testing.T) {
+		cfg := &Config{Toolkits: map[string]any{"s3": map[string]any{
+			"instances": map[string]any{"lake": map[string]any{"region": "us-east-1"}},
+		}}}
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("Validate() = %v, want nil for a single instance", err)
+		}
+	})
 }
 
 // TestScriptsConfig_IsWorkerEnabled covers the switch that separates the

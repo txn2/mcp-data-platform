@@ -79,7 +79,7 @@ Execute a read-only SQL query against the Trino cluster. Write operations (INSER
 |-----------|------|----------|---------|-------------|
 | `query` | string | Yes | - | SQL query to execute (read-only) |
 | `limit` | integer | No | 1000 | Maximum rows to return (capped by max_limit config) |
-| `connection` | string | No | first configured | Trino connection name |
+| `connection` | string | No | the kind's `default:` | Trino connection name |
 
 **Response Schema:**
 
@@ -136,7 +136,7 @@ Execute any SQL against the Trino cluster, including write operations (INSERT, U
 |-----------|------|----------|---------|-------------|
 | `query` | string | Yes | - | SQL query to execute |
 | `limit` | integer | No | 1000 | Maximum rows to return (capped by max_limit config) |
-| `connection` | string | No | first configured | Trino connection name |
+| `connection` | string | No | the kind's `default:` | Trino connection name |
 
 **Response Schema:** Same as `trino_query`.
 
@@ -151,7 +151,7 @@ Get the execution plan for a SQL query.
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `query` | string | Yes | - | SQL query to explain |
-| `connection` | string | No | first configured | Trino connection name |
+| `connection` | string | No | the kind's `default:` | Trino connection name |
 
 **Response Schema:**
 
@@ -175,7 +175,7 @@ Browse the Trino catalog hierarchy. Omit all parameters to list catalogs. Provid
 | `catalog` | string | No | - | Catalog name. Omit to list all catalogs |
 | `schema` | string | No | - | Schema name. Requires `catalog`. Omit to list schemas |
 | `pattern` | string | No | - | LIKE pattern to filter tables (only when listing tables) |
-| `connection` | string | No | first configured | Trino connection name |
+| `connection` | string | No | the kind's `default:` | Trino connection name |
 
 **Response Schema (list catalogs):**
 
@@ -219,7 +219,7 @@ Get table schema and metadata.
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `table` | string | Yes | - | Table name (can be `catalog.schema.table`) |
-| `connection` | string | No | first configured | Trino connection name |
+| `connection` | string | No | the kind's `default:` | Trino connection name |
 
 **Response Schema:**
 

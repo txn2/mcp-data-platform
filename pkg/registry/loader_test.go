@@ -2,6 +2,7 @@ package registry
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -176,7 +177,11 @@ func TestLoader_Load(t *testing.T) {
 		}
 	})
 
-	t.Run("aggregate factory error skipped", func(t *testing.T) {
+	// An aggregate kind holds every one of its connections in one toolkit, so a
+	// failed factory costs all of them, not one instance. Reported as a warning
+	// it left the deployment serving none of that kind's tools with only a log
+	// line to say why.
+	t.Run("aggregate factory error is reported", func(t *testing.T) {
 		reg := NewRegistry()
 		reg.RegisterAggregateFactory("failing", func(_ string, _ map[string]map[string]any) (Toolkit, error) {
 			return nil, fmt.Errorf("aggregate creation failed")
@@ -193,8 +198,13 @@ func TestLoader_Load(t *testing.T) {
 		}
 
 		err := loader.Load(cfg)
-		if err != nil {
-			t.Errorf("expected error to be skipped, got: %v", err)
+		if err == nil {
+			t.Fatal("expected the aggregate factory failure to be reported")
+		}
+		for _, want := range []string{"failing", "aggregate creation failed"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("expected the error to name %q, got: %v", want, err)
+			}
 		}
 		if len(reg.All()) != 0 {
 			t.Errorf("expected 0 toolkits, got %d", len(reg.All()))
@@ -358,7 +368,7 @@ func TestLoader_LoadFromMap(t *testing.T) {
 		}
 	})
 
-	t.Run("aggregate factory error from map skipped", func(t *testing.T) {
+	t.Run("aggregate factory error from map is reported", func(t *testing.T) {
 		reg := NewRegistry()
 		reg.RegisterAggregateFactory("fail-map", func(_ string, _ map[string]map[string]any) (Toolkit, error) {
 			return nil, fmt.Errorf("map aggregate failed")
@@ -373,8 +383,13 @@ func TestLoader_LoadFromMap(t *testing.T) {
 		}
 
 		err := loader.LoadFromMap(toolkits)
-		if err != nil {
-			t.Errorf("expected error to be skipped, got: %v", err)
+		if err == nil {
+			t.Fatal("expected the aggregate factory failure to be reported")
+		}
+		for _, want := range []string{"fail-map", "map aggregate failed"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("expected the error to name %q, got: %v", want, err)
+			}
 		}
 		if len(reg.All()) != 0 {
 			t.Errorf("expected 0 toolkits, got %d", len(reg.All()))

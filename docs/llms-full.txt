@@ -1642,7 +1642,7 @@ Execute a read-only SQL query against Trino. Write operations are rejected. Anno
 |-----------|------|----------|---------|-------------|
 | `query` | string | Yes | - | SQL query to execute (read-only) |
 | `limit` | integer | No | 1000 | Maximum rows to return |
-| `connection` | string | No | first configured | Trino connection name |
+| `connection` | string | No | the kind's `default:` | Trino connection name |
 
 ### trino_execute
 
@@ -1652,7 +1652,7 @@ Execute any SQL against Trino including write operations (INSERT, UPDATE, DELETE
 |-----------|------|----------|---------|-------------|
 | `query` | string | Yes | - | SQL query to execute |
 | `limit` | integer | No | 1000 | Maximum rows to return |
-| `connection` | string | No | first configured | Trino connection name |
+| `connection` | string | No | the kind's `default:` | Trino connection name |
 
 ### trino_explain
 
@@ -1661,7 +1661,7 @@ Get the execution plan for a SQL query.
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `query` | string | Yes | - | SQL query to explain |
-| `connection` | string | No | first configured | Trino connection name |
+| `connection` | string | No | the kind's `default:` | Trino connection name |
 
 ### trino_browse
 
@@ -1674,7 +1674,7 @@ Get table schema and metadata.
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `table` | string | Yes | - | Table name (can be `catalog.schema.table`) |
-| `connection` | string | No | first configured | Trino connection name |
+| `connection` | string | No | the kind's `default:` | Trino connection name |
 
 ### trino_export
 

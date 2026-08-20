@@ -3,6 +3,7 @@ package embedding
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -237,6 +238,47 @@ func TestOllamaProvider_EmbedBatch_FallbackOn404(t *testing.T) {
 	require.Len(t, results2, 2)
 	assert.Equal(t, 1, batchCallCount, "second call must skip /api/embed entirely")
 	assert.Equal(t, 5, singularCallCount, "second call adds two more /api/embeddings calls")
+}
+
+// The provider must not run on the process-wide connection pool. Anything that
+// empties http.DefaultTransport's idle connections empties the provider's too,
+// and httptest.Server.Close empties it on every close, so a parallel test
+// elsewhere could break an embedding request that had nothing to do with it.
+func TestOllamaProviderDoesNotShareTheDefaultTransport(t *testing.T) {
+	t.Parallel()
+
+	p, ok := NewOllamaProvider(OllamaConfig{URL: "http://ollama.example.com"}).(*ollamaProvider)
+	require.True(t, ok, "NewOllamaProvider returns *ollamaProvider")
+	require.NotNil(t, p.client.Transport, "a nil Transport falls back to http.DefaultTransport")
+	assert.NotSame(t, http.DefaultTransport, p.client.Transport)
+}
+
+// errStubRoundTrip is what stubRoundTripper answers with. The stub exists to be
+// recognized by type, never to carry a request, so it refuses every one.
+var errStubRoundTrip = errors.New("stub round tripper carries no request")
+
+// stubRoundTripper stands in for a RoundTripper a caller installed in place of
+// the standard transport.
+type stubRoundTripper struct{}
+
+func (stubRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, errStubRoundTrip
+}
+
+func TestCloneTransport(t *testing.T) {
+	t.Parallel()
+
+	t.Run("the standard transport is copied", func(t *testing.T) {
+		t.Parallel()
+		got := cloneTransport(http.DefaultTransport)
+		assert.NotSame(t, http.DefaultTransport, got)
+		assert.IsType(t, &http.Transport{}, got)
+	})
+	t.Run("any other RoundTripper is left alone", func(t *testing.T) {
+		t.Parallel()
+		rt := stubRoundTripper{}
+		assert.Equal(t, rt, cloneTransport(rt))
+	})
 }
 
 func TestOllamaProvider_EmbedBatch_FallbackPropagatesSequentialError(t *testing.T) {
