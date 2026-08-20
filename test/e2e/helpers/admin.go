@@ -157,6 +157,15 @@ type AdminConfigEntry struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
+// AdminConfigChangelog mirrors the admin changelogListResponse: a page of
+// entries plus the full-history total (#974). The endpoint returned a bare
+// array before that change, so a helper that still decodes one fails on the
+// object rather than on a missing field.
+type AdminConfigChangelog struct {
+	Entries []AdminConfigChangelogEntry `json:"entries"`
+	Total   int                         `json:"total"`
+}
+
 // AdminConfigChangelogEntry mirrors configstore.ChangelogEntry.
 type AdminConfigChangelogEntry struct {
 	ID        int     `json:"id"`
@@ -396,7 +405,7 @@ func (c *AdminClient) DeleteConfigEntry(key string) (int, error) {
 }
 
 // ConfigChangelog calls GET /api/v1/admin/config/changelog.
-func (c *AdminClient) ConfigChangelog() ([]AdminConfigChangelogEntry, int, error) {
+func (c *AdminClient) ConfigChangelog() (*AdminConfigChangelog, int, error) {
 	resp, err := c.get("/api/v1/admin/config/changelog")
 	if err != nil {
 		return nil, 0, err
@@ -405,11 +414,11 @@ func (c *AdminClient) ConfigChangelog() ([]AdminConfigChangelogEntry, int, error
 	if resp.StatusCode >= 400 {
 		return nil, resp.StatusCode, nil
 	}
-	var result []AdminConfigChangelogEntry
+	var result AdminConfigChangelog
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, resp.StatusCode, err
 	}
-	return result, resp.StatusCode, nil
+	return &result, resp.StatusCode, nil
 }
 
 // --- Persona endpoints ---

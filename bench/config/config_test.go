@@ -20,10 +20,41 @@ type personaDef struct {
 }
 
 // armConfig is the subset of an arm config this guard reads. The personas map
-// mixes persona definitions with the default_persona string, so values decode
-// lazily per key.
+// is inline in the platform schema, so a non-persona key under personas: would
+// decode as a sibling of the persona definitions; values decode lazily per key
+// so TestNoArmConfigSetsDefaultPersona can name one.
 type armConfig struct {
 	Personas map[string]yaml.Node `yaml:"personas"`
+}
+
+// TestNoArmConfigSetsDefaultPersona: personas.default_persona was retired by
+// #1109 and the platform now refuses a config that sets it. Every arm config
+// carried the key until #1380; the harness kept starting only because nothing
+// validated the config it loaded. Each arm's API keys carry roles: ["admin"]
+// and the arm persona lists that role, so the key never selected the persona
+// the arms run under - but a reader could not tell that from the file.
+func TestNoArmConfigSetsDefaultPersona(t *testing.T) {
+	t.Parallel()
+	configs, err := filepath.Glob("platform.bench.*.yaml")
+	if err != nil {
+		t.Fatalf("glob arm configs: %v", err)
+	}
+	if len(configs) == 0 {
+		t.Fatal("no platform.bench.*.yaml configs found")
+	}
+	for _, path := range configs {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		var cfg armConfig
+		if err := yaml.Unmarshal(b, &cfg); err != nil {
+			t.Fatalf("parse %s: %v", path, err)
+		}
+		if _, ok := cfg.Personas["default_persona"]; ok {
+			t.Errorf("%s sets personas.default_persona; the platform refuses it at startup, so the arm would not run", path)
+		}
+	}
 }
 
 // TestSearchArmsGrantFetch: any arm persona that grants search must also grant
@@ -57,9 +88,6 @@ func TestSearchArmsGrantFetch(t *testing.T) {
 			t.Fatalf("parse %s: %v", path, err)
 		}
 		for name, node := range cfg.Personas {
-			if name == "default_persona" {
-				continue
-			}
 			var p personaDef
 			if err := node.Decode(&p); err != nil {
 				t.Fatalf("decode persona %q in %s: %v", name, path, err)

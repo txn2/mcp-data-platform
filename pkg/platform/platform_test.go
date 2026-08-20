@@ -364,7 +364,6 @@ func TestLoadPersonas(t *testing.T) {
 					},
 				},
 			},
-			DefaultPersona: testRoleAnalyst,
 		},
 	}
 
@@ -1116,7 +1115,6 @@ func TestPlatformWithMultiplePersonas(t *testing.T) {
 					},
 				},
 			},
-			DefaultPersona: "viewer",
 		},
 	}
 

@@ -166,7 +166,6 @@ personas:
       allow: ["platform_info", "search", "fetch", "list_connections"]
     connections:
       allow: ["*"]
-  default_persona: admin
 
 memory:
   embedding:

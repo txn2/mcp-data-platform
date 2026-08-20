@@ -27,6 +27,15 @@ func New(cfg *platform.Config) (*mcp.Server, *platform.Platform, error) {
 		cfg.Server.Version = Version
 	}
 
+	// Refuse an invalid configuration here, in the composition root, before any
+	// component is built. LoadConfig only parses and applies defaults, so this
+	// is the one place a deployment is checked; a key that a release retired
+	// (personas.default_persona, #1109) would otherwise be parsed, ignored, and
+	// surface later as an unexplained authorization refusal.
+	if err := cfg.Validate(); err != nil {
+		return nil, nil, fmt.Errorf("validating config: %w", err)
+	}
+
 	// Create platform
 	p, err := platform.New(platform.WithConfig(cfg))
 	if err != nil {

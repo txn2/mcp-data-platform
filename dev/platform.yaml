@@ -119,6 +119,9 @@ personas:
       allow:
         - "*"
       deny: []
+    connections:
+      allow:
+        - "*"
     context:
       description_prefix: |
         You are the ACME data platform administrator with full access.
@@ -135,6 +138,9 @@ personas:
         - "s3_*"
       deny:
         - "s3_delete_*"
+    connections:
+      allow:
+        - "*"
     context:
       description_prefix: |
         You are helping an ACME data engineer build and maintain data pipelines.
@@ -157,6 +163,9 @@ personas:
         - "datahub_get_schema"
         - "s3_list_*"
       deny: []
+    connections:
+      allow:
+        - "*"
     context:
       description_prefix: |
         You are helping an ACME inventory analyst track stock levels across 1,000 stores.
@@ -178,6 +187,9 @@ personas:
         - "s3_list_objects"
         - "s3_get_object"
       deny: []
+    connections:
+      allow:
+        - "*"
     context:
       description_prefix: |
         You are providing regional performance data to an ACME regional director.
@@ -195,6 +207,9 @@ personas:
         - "s3_list_objects"
         - "s3_get_object"
       deny: []
+    connections:
+      allow:
+        - "*"
     context:
       description_prefix: |
         You are providing financial insights to an ACME executive.
@@ -211,12 +226,14 @@ personas:
         - "datahub_search"
         - "s3_get_object"
       deny: []
+    connections:
+      allow:
+        - "*"
     context:
       description_prefix: |
         You are helping an ACME store manager access store-level data.
         Focus on daily sales, inventory, and employee scheduling.
 
-  default_persona: inventory-analyst
 
   role_mapping:
     oidc_to_persona:

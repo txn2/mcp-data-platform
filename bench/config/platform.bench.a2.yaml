@@ -389,7 +389,6 @@ personas:
       allow: ["platform_info", "search", "fetch", "list_connections", "trino_*", "datahub_*", "s3_*"]
     connections:
       allow: ["*"]
-  default_persona: admin
 
 semantic:
   provider: datahub

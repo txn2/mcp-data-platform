@@ -77,7 +77,6 @@ personas:
       allow: ["*"]
     connections:
       allow: ["*"]
-  default_persona: admin
 
 semantic:
   provider: datahub

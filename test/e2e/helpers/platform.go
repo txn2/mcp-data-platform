@@ -9,6 +9,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/pkg/auth"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/query"
@@ -25,6 +26,15 @@ type TestPlatform struct {
 // NewTestPlatform creates a new test platform with E2E configuration.
 func NewTestPlatform(ctx context.Context, e2eCfg *E2EConfig) (*TestPlatform, error) {
 	cfg := buildPlatformConfig(e2eCfg)
+
+	// Run the config this helper builds through the same check the server
+	// applies at startup. The helper assembles the struct directly rather than
+	// loading YAML, so without this a key a release retires stays in the helper
+	// and surfaces as an unexplained tool-authorization failure in the nightly
+	// run instead of a named config error here (#1380).
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("e2e platform config: %w", err)
+	}
 
 	p, err := platform.New(
 		platform.WithConfig(cfg),
@@ -118,10 +128,14 @@ func buildPlatformConfig(e2eCfg *E2EConfig) *platform.Config {
 		},
 		// Allow an anonymous caller mapped to an allow-all admin persona so a
 		// test driving the assembled server over an in-process session is
-		// authorized. Personas are deny-by-default (DefaultPersona denies "*"),
-		// so without this every tool call through the real middleware chain
-		// would be rejected before reaching the handler. Tests that bypass the
-		// authorizer (calling the enrichment middleware directly) are unaffected.
+		// authorized. The allowed-anonymous identity carries exactly one role,
+		// auth.RoleAnonymous, and a caller whose roles match no persona
+		// resolves to the deny-all persona (#1109), so the admin persona has to
+		// list that role itself: there is no fallback that would hand it a
+		// persona it was not granted. Without it every tool call through the
+		// real middleware chain is refused before reaching the handler. Tests
+		// that bypass the authorizer (calling the enrichment middleware
+		// directly) are unaffected.
 		Auth: platform.AuthConfig{
 			AllowAnonymous: true,
 		},
@@ -129,12 +143,11 @@ func buildPlatformConfig(e2eCfg *E2EConfig) *platform.Config {
 			Definitions: map[string]platform.PersonaDef{
 				"admin": {
 					DisplayName: "E2E Admin",
-					Roles:       []string{"admin"},
+					Roles:       []string{"admin", auth.RoleAnonymous},
 					Tools:       platform.ToolRulesDef{Allow: []string{"*"}},
 					Connections: platform.ConnectionRulesDef{Allow: []string{"*"}},
 				},
 			},
-			DefaultPersona: "admin",
 		},
 	}
 }

@@ -11,8 +11,11 @@
 package mcp_data_platform_test
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -22,6 +25,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
+
+	"github.com/txn2/mcp-data-platform/pkg/platform"
 )
 
 // ---------------------------------------------------------------------------
@@ -707,4 +712,150 @@ func TestDevSeedCatalogCitationsAreSeeded(t *testing.T) {
 		t.Errorf("dev/seed.sql cites %s, which dev/datahub-datasets.json does not create.\n"+
 			"Add it to the fixture, or the dev catalog will not have the dataset the pages describe.", urn)
 	}
+}
+
+// TestShippedConfigsValidate loads every platform config the repository ships
+// and runs it through the check the server applies at startup
+// (internal/server.New). LoadConfig only parses and applies defaults, so a
+// config that sets a key a release retired is otherwise accepted, ignored, and
+// felt later as behavior nobody configured: all ten benchmark arm configs
+// carried personas.default_persona for the whole life of #1109 without a word
+// in any log (#1380).
+//
+// The benchmark and load harnesses live in separate Go modules, so this reads
+// their files rather than importing them; the archived copies under
+// bench/results/ are run records of the config an arm ran under and are
+// deliberately not covered. The Kubernetes examples carry their config inside a
+// ConfigMap rather than as a file of their own, so they are unwrapped first: an
+// example an operator copies is as much a shipped config as configs/platform.yaml.
+func TestShippedConfigsValidate(t *testing.T) {
+	t.Parallel()
+
+	sources := shippedConfigSources(t)
+	// A pattern that stops matching would pass this test without reading a
+	// single config.
+	require.NotEmpty(t, sources, "no shipped configs found; the patterns have drifted")
+
+	for _, src := range sources {
+		t.Run(src.name, func(t *testing.T) {
+			cfg, err := platform.LoadConfigFromBytes(src.data)
+			require.NoError(t, err, "%s does not load", src.name)
+			assert.NoError(t, cfg.Validate(), "%s does not validate; the server would refuse to start on it", src.name)
+		})
+	}
+}
+
+// TestShippedConfigsGrantConnections: every persona in a shipped config must
+// carry a connections block. Connections are deny-by-default with no admin
+// carve-out (pkg/persona/filter.go, IsConnectionAllowed), and a toolkit instance
+// that names no connection_name takes its instance name, so a persona with an
+// allow-all tools list and no connections block is advertised every tool and
+// refused on every call that targets a connection. Config validation cannot
+// catch this - an absent block is well-formed - and the failure is silent at
+// startup, so it is guarded here. dev/platform.yaml shipped all six personas
+// that way, and the Kubernetes example one (#1380).
+func TestShippedConfigsGrantConnections(t *testing.T) {
+	t.Parallel()
+
+	sources := shippedConfigSources(t)
+	require.NotEmpty(t, sources, "no shipped configs found; the patterns have drifted")
+
+	checked := 0
+	for _, src := range sources {
+		t.Run(src.name, func(t *testing.T) {
+			cfg, err := platform.LoadConfigFromBytes(src.data)
+			require.NoError(t, err, "%s does not load", src.name)
+			for name, def := range cfg.Personas.Definitions {
+				assert.NotEmpty(t, def.Connections.Allow,
+					"%s persona %q has no connections.allow; deny-by-default means it reaches no connection, so every tool call that targets one is refused",
+					src.name, name)
+			}
+		})
+		cfg, err := platform.LoadConfigFromBytes(src.data)
+		require.NoError(t, err)
+		checked += len(cfg.Personas.Definitions)
+	}
+	// The invariant is vacuous if persona definitions stop being decoded (the
+	// personas map is inline, so a schema change could silently empty it).
+	require.NotZero(t, checked, "no persona definitions were decoded from any shipped config")
+}
+
+// shippedConfig is one platform config the repository ships, named by where a
+// reader would find it.
+type shippedConfig struct {
+	name string
+	data []byte
+}
+
+// shippedConfigSources collects every platform config in the tree: the
+// standalone YAML files, and the ones embedded in the Kubernetes example
+// ConfigMaps.
+func shippedConfigSources(t *testing.T) []shippedConfig {
+	t.Helper()
+
+	var out []shippedConfig
+	for _, pattern := range []string{
+		"configs/*.yaml",
+		"dev/platform.yaml",
+		"bench/config/platform.bench.*.yaml",
+		"test/load/config/platform.load*.yaml",
+	} {
+		matched, err := filepath.Glob(pattern)
+		require.NoError(t, err, "glob %s", pattern)
+		require.NotEmpty(t, matched, "no configs matched %s; the pattern has drifted", pattern)
+		for _, path := range matched {
+			data, readErr := os.ReadFile(path) //nolint:gosec // test reads project config
+			require.NoError(t, readErr)
+			out = append(out, shippedConfig{name: path, data: data})
+		}
+	}
+
+	manifests, err := filepath.Glob("configs/examples/kubernetes/*.yaml")
+	require.NoError(t, err)
+	require.NotEmpty(t, manifests, "no Kubernetes examples found; the path has drifted")
+	embedded := 0
+	for _, path := range manifests {
+		data, readErr := os.ReadFile(path) //nolint:gosec // test reads project config
+		require.NoError(t, readErr)
+		for _, c := range configMapPlatformConfigs(t, path, data) {
+			out = append(out, c)
+			embedded++
+		}
+	}
+	// The unwrapping is the fragile half: a ConfigMap rename or a restructured
+	// example would silently drop this coverage.
+	require.NotZero(t, embedded, "no platform config found in the Kubernetes examples; the unwrapping has drifted")
+
+	return out
+}
+
+// configMapPlatformConfigs returns the YAML-valued entries of every ConfigMap in
+// a (possibly multi-document) manifest. Non-YAML entries, such as an app's
+// index.html, are skipped.
+func configMapPlatformConfigs(t *testing.T, path string, manifest []byte) []shippedConfig {
+	t.Helper()
+
+	var out []shippedConfig
+	dec := yaml.NewDecoder(bytes.NewReader(manifest))
+	for {
+		var doc struct {
+			Kind string            `yaml:"kind"`
+			Data map[string]string `yaml:"data"`
+		}
+		err := dec.Decode(&doc)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		require.NoError(t, err, "parse %s", path)
+		if doc.Kind != "ConfigMap" {
+			continue
+		}
+		for key, value := range doc.Data {
+			if ext := filepath.Ext(key); ext != ".yaml" && ext != ".yml" {
+				continue
+			}
+			out = append(out, shippedConfig{name: path + "#" + key, data: []byte(value)})
+		}
+	}
+	return out
 }

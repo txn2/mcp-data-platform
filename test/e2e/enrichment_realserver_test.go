@@ -6,8 +6,8 @@ package e2e
 // assembled server. Unlike cross_enrichment_test.go (which mocks the tool result
 // and exercises only the enrichment middleware), this drives an in-process MCP
 // session against the platform's own mcp.Server, so the real trino_describe_table
-// / datahub_search handlers run the real query -> URN -> enrichment path the way
-// a deployed client does.
+// / datahub_get_entity handlers run the real query -> URN -> enrichment path the
+// way a deployed client does.
 //
 // The include_sample parameter assertion needs only Trino (make e2e-up). The
 // semantic/query enrichment assertions need DataHub seeded with
@@ -30,9 +30,14 @@ import (
 // DataHub (test/e2e/testdata/datahub/datasets.json) with owners alice/bob and
 // the ecommerce tag/domain.
 const (
+	// The purpose every gated call in this suite states, as a real agent would.
+	enrichPurpose = "Verifying end-to-end cross-enrichment against the seeded e2e fixture."
+
 	enrichCatalog = "memory"
 	enrichSchema  = "e2e_test"
 	enrichTable   = "test_orders"
+	// The dataset URN the fixture upserts, byte-for-byte.
+	enrichDatasetURN = "urn:li:dataset:(urn:li:dataPlatform:trino,memory.e2e_test.test_orders,PROD)"
 )
 
 func TestEnrichment_RealAssembledServer(t *testing.T) {
@@ -87,15 +92,19 @@ func TestEnrichment_RealAssembledServer(t *testing.T) {
 		helpers.AssertTagPresent(t, sc, "ecommerce")
 	})
 
-	// DataHub -> Trino: a datahub_search result must carry query availability
-	// (query_context) for the seeded dataset when DataHub is up.
-	t.Run("datahub_search is enriched with query context", func(t *testing.T) {
+	// DataHub -> Trino: a DataHub result must carry query availability
+	// (query_context) for the seeded dataset when DataHub is up. datahub_search
+	// was retired - its relevance role folded into the unified search and
+	// structured navigation into datahub_browse (pkg/toolkits/datahub/toolkit.go,
+	// datahubReadTools) - and datahub_browse lists tags, domains and data
+	// products rather than datasets, so it carries no dataset URN to enrich.
+	// datahub_get_entity is the DataHub read that names one.
+	t.Run("datahub_get_entity is enriched with query context", func(t *testing.T) {
 		if helpers.SkipIfDataHubUnavailable(cfg) {
 			t.Skip("DataHub not reachable; run `datahub docker quickstart` + `make e2e-seed` for enrichment assertions")
 		}
-		res := callTool(t, ctx, session, sessionID, "datahub_search", map[string]any{
-			"query":    "test_orders",
-			"platform": "trino",
+		res := callTool(t, ctx, session, sessionID, "datahub_get_entity", map[string]any{
+			"urn": enrichDatasetURN,
 		})
 		helpers.AssertHasQueryContext(t, res)
 	})
@@ -149,11 +158,17 @@ func structuredMap(t *testing.T, res *mcp.CallToolResult) map[string]any {
 
 // callTool invokes a tool over the in-process session and fails on a transport
 // or tool-level error. It threads the platform_info-minted session_id (#792) so
-// the call clears the SESSION_REQUIRED gate the assembled server enforces.
+// the call clears the SESSION_REQUIRED gate the assembled server enforces, and a
+// purpose so it clears the PURPOSE_REQUIRED gate: the platform requires one from
+// exactly the callers that thread a handle, this test among them
+// (pkg/middleware/mcp_purpose.go, PurposeResolver.resolve).
 func callTool(t *testing.T, ctx context.Context, s *mcp.ClientSession, sessionID, name string, args map[string]any) *mcp.CallToolResult {
 	t.Helper()
 	if sessionID != "" {
 		args["session_id"] = sessionID
+		if _, ok := args["purpose"]; !ok {
+			args["purpose"] = enrichPurpose
+		}
 	}
 	res, err := s.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})
 	require.NoError(t, err, "%s transport error", name)
