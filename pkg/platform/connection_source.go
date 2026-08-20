@@ -5,7 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/connsource"
-	"github.com/txn2/mcp-data-platform/pkg/connview"
+	"github.com/txn2/mcp-data-platform/pkg/connid"
 )
 
 // ConnectionSource is re-exported from the connsource package (extracted for the
@@ -36,26 +36,32 @@ func (p *Platform) buildConnectionSourceMap() *ConnectionSourceMap {
 // the toolkit's `instances:` key. For a toolkit configured with a
 // connection_name the two differ, and keying by the instance meant every lookup
 // missed and the caller silently fell back to the query-provider mapping
-// (#1396). connview.ConnectionNames is the one enumeration of those names, so
-// discovery, the persona boundary and this map cannot drift apart.
+// (#1396). The resolver's Bound is that name, and it is the same value the
+// persona boundary matches and discovery advertises, so the three cannot drift.
 func (p *Platform) addRegistryConnections(m *ConnectionSourceMap) {
 	mapping := p.config.Semantic.URNMapping
-	for _, tk := range p.toolkitRegistry.All() {
-		entries := connsource.RegistryEntries(
-			tk.Kind(), connview.ConnectionNames(tk), mapping.Platform, mapping.CatalogMapping)
-		for _, src := range entries {
+	for _, c := range connectionResolver(p).All("") {
+		for _, src := range connsource.RegistryEntries(
+			c.Kind, []string{string(c.Bound)}, mapping.Platform, mapping.CatalogMapping) {
 			m.Add(src)
 		}
 	}
+}
+
+// connectionResolver is the one place the platform crosses between a stored
+// record's instance name and the name a call binds. A free function so it does
+// not become part of Platform's surface.
+func connectionResolver(p *Platform) *connid.Resolver {
+	return connid.NewResolver(p.toolkitRegistry.All(), p.config)
 }
 
 // addDBConnections loads connection instances from the database and adds them
 // to the source map, overriding the registry entry for the same connection.
 //
 // A stored row is keyed by the toolkit instance it configures; the map is keyed
-// by the name a call binds. BindingName translates between them, so an
-// operator's stored datahub_source_name reaches the lookup enrichment makes
-// even when the instance carries a connection_name (#1396).
+// by the name a call binds. The resolver translates, so an operator's stored
+// datahub_source_name reaches the lookup enrichment makes even when the
+// instance carries a connection_name (#1396).
 func (p *Platform) addDBConnections(m *ConnectionSourceMap) {
 	if p.connectionStore == nil {
 		return
@@ -67,10 +73,10 @@ func (p *Platform) addDBConnections(m *ConnectionSourceMap) {
 		return
 	}
 
-	toolkits := p.toolkitRegistry.All()
+	res := connectionResolver(p)
 	for _, inst := range instances {
 		src := ConnectionSourceFromInstance(inst)
-		src.Name = connview.BindingName(toolkits, inst.Kind, inst.Name)
+		src.Name = string(res.ByInstance(inst.Kind, connid.Instance(inst.Name)).Bound)
 		m.Overlay(src)
 	}
 }

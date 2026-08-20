@@ -162,6 +162,8 @@ internal/platform/connreach -> pkg/connview
 internal/platform/connreach -> pkg/persona
 internal/platform/connreach -> pkg/registry
 internal/platform/connscope -> pkg/persona
+internal/platform/connsource -> pkg/connid
+internal/platform/connsource -> pkg/registry
 internal/platform/datasetindex -> pkg/indexjobs
 internal/platform/datasetindex -> pkg/knowledge
 internal/platform/datasetindex -> pkg/semantic
@@ -410,9 +412,9 @@ pkg/admin -> pkg/authevents
 pkg/admin -> pkg/blobserve
 pkg/admin -> pkg/browsersession
 pkg/admin -> pkg/configstore
+pkg/admin -> pkg/connid
 pkg/admin -> pkg/connoauth
 pkg/admin -> pkg/connreconcile
-pkg/admin -> pkg/connview
 pkg/admin -> pkg/embedding
 pkg/admin -> pkg/indexjobs
 pkg/admin -> pkg/middleware
@@ -448,10 +450,13 @@ pkg/browsersession -> internal/logsan
 pkg/browsersession -> pkg/middleware
 pkg/browsersession -> pkg/user
 pkg/configstore/postgres -> pkg/configstore
+pkg/connid -> pkg/registry
+pkg/connid -> pkg/toolkit
 pkg/connoauth -> internal/logsan
 pkg/connoauth -> pkg/authevents
 pkg/connreconcile -> pkg/registry
 pkg/connreconcile -> pkg/toolkit
+pkg/connview -> pkg/connid
 pkg/connview -> pkg/portal/knowledgepage
 pkg/connview -> pkg/registry
 pkg/connview -> pkg/toolkit
@@ -472,6 +477,7 @@ pkg/knowledge -> pkg/resource
 pkg/knowledge -> pkg/script
 pkg/knowledge -> pkg/semantic
 pkg/knowledge -> pkg/toolkits/knowledge
+pkg/knowledge/federation -> pkg/connid
 pkg/knowledge/federation -> pkg/knowledge
 pkg/knowledge/federation -> pkg/registry
 pkg/knowledge/federation -> pkg/toolkit
@@ -554,6 +560,7 @@ pkg/platform -> pkg/authevents
 pkg/platform -> pkg/browsersession
 pkg/platform -> pkg/configstore
 pkg/platform -> pkg/configstore/postgres
+pkg/platform -> pkg/connid
 pkg/platform -> pkg/connoauth
 pkg/platform -> pkg/connreconcile
 pkg/platform -> pkg/connview

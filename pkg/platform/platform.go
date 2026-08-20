@@ -29,6 +29,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/completionlayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/connauth"
 	"github.com/txn2/mcp-data-platform/internal/platform/connbackfill"
+	"github.com/txn2/mcp-data-platform/internal/platform/connsource"
 	"github.com/txn2/mcp-data-platform/internal/platform/datasetindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/dedup"
 	"github.com/txn2/mcp-data-platform/internal/platform/exportadapters"
@@ -2582,7 +2583,7 @@ func (p *Platform) buildEnrichmentConfig() middleware.EnrichmentConfig {
 			return src.DataHubSourceName, src.CatalogMapping
 		}
 		cfg.ConnectionsForURN = func(urn string) []string {
-			return connectionNamesForURN(p.connectionSources, p.toolkitRegistry.All(), urn)
+			return connsource.ConnectionNamesForURN(p.connectionSources, p.toolkitRegistry.All(), urn)
 		}
 	}
 
@@ -3031,6 +3032,11 @@ func (p *Platform) ConnectionSources() *ConnectionSourceMap {
 // Operator-set values are never overridden — if the YAML explicitly sets
 // `toolkits.mcp.enabled: false`, that wins.
 func (p *Platform) mergeDBConnectionsIntoConfig() {
+	// Record what the file declared before anything below can add to the same
+	// map. This runs ahead of every early return so the snapshot is taken on
+	// the deployments that merge nothing too.
+	p.config.SnapshotDeclaredConnections()
+
 	if p.connectionStore == nil {
 		return
 	}

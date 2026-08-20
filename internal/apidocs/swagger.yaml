@@ -446,6 +446,13 @@ definitions:
       description:
         example: Production data warehouse
         type: string
+      file_declared:
+        description: 'FileDeclared marks a connection the platform configuration file
+          declares, which cannot be deleted through this API. Source cannot answer
+          it: the connection backfill gives a file-configured connection a stored
+          row too, so it reports "both" as well.'
+        example: true
+        type: boolean
       health:
         $ref: '#/definitions/toolkit.ConnectionHealthWire'
       kind:
@@ -8719,7 +8726,8 @@ paths:
       - Connections
   /admin/connection-instances/{kind}/{name}:
     delete:
-      description: Deletes a database-managed connection instance.
+      description: 'Deletes a database-managed connection instance. A connection the
+        platform configuration file declares is refused with 409: the file owns it.'
       parameters:
       - description: Toolkit kind (trino, datahub, s3)
         in: path
@@ -8736,6 +8744,10 @@ paths:
           description: No Content
         "404":
           description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "409":
+          description: Conflict
           schema:
             $ref: '#/definitions/admin.problemDetail'
         "500":
@@ -8786,7 +8798,9 @@ paths:
     put:
       consumes:
       - application/json
-      description: Creates or updates a database-managed connection instance.
+      description: 'Creates or updates a database-managed connection instance. A connection
+        the platform configuration file declares is refused with 409: the file owns
+        it.'
       parameters:
       - description: Toolkit kind (trino, datahub, s3)
         in: path
@@ -8813,6 +8827,10 @@ paths:
             $ref: '#/definitions/platform.ConnectionInstance'
         "400":
           description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "409":
+          description: Conflict
           schema:
             $ref: '#/definitions/admin.problemDetail'
         "500":

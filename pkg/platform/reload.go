@@ -78,13 +78,14 @@ func parseConnectionReloadOp(s string) ConnectionReloadOp {
 //     database blip; a later upsert event re-materializes it.
 //   - not found (raced with a concurrent delete): remove it.
 //   - present: remove-then-add so the changed config takes effect.
+//
+// Neither removal applies to a connection this replica's config file declares:
+// an absent row is not evidence it should stop serving, because the file is
+// what it runs on (#1400). An upsert that finds a row still applies to one.
 func (p *Platform) reloadConnectionLocal(kind, name, op string) {
 	rec := connreconcile.New(p.toolkitRegistry)
 	if parseConnectionReloadOp(op) == ReloadDelete {
-		for _, f := range rec.Remove(kind, name) {
-			slog.Warn("reload-bus: failed to remove deleted connection from toolkit",
-				logKeyKind, kind, logKeyName, name, logKeyError, f.Err)
-		}
+		p.removeReloadedConnection(rec, kind, name, "reload-bus: failed to remove deleted connection from toolkit")
 		return
 	}
 
@@ -94,10 +95,7 @@ func (p *Platform) reloadConnectionLocal(kind, name, op string) {
 		slog.Error("reload-bus: failed to read connection from store; keeping live config",
 			logKeyKind, kind, logKeyName, name, logKeyError, err)
 	case inst == nil:
-		for _, f := range rec.Remove(kind, name) {
-			slog.Warn("reload-bus: failed to remove connection from toolkit",
-				logKeyKind, kind, logKeyName, name, logKeyError, f.Err)
-		}
+		p.removeReloadedConnection(rec, kind, name, "reload-bus: failed to remove connection from toolkit")
 	default:
 		// A failure here leaves a toolkit out of sync with the store, so it is
 		// logged at ERROR; the reconciler still updates the other toolkits.
@@ -105,6 +103,24 @@ func (p *Platform) reloadConnectionLocal(kind, name, op string) {
 			slog.Error("reload-bus: failed to reconcile connection onto toolkit",
 				logKeyKind, kind, logKeyName, name, "phase", f.Phase.String(), logKeyError, f.Err)
 		}
+	}
+}
+
+// removeReloadedConnection drops a connection the reload bus says is gone from
+// this replica's toolkits, unless the config file declares it. A peer that
+// predates the delete refusal, or one racing a delete, can still broadcast the
+// removal of such a connection; honoring it would take it out of service here
+// until a restart put it back, and the file is unaffected by anything the store
+// did. A failed removal is logged at WARN, not ERROR: removing an
+// already-absent connection is not state-corrupting.
+func (p *Platform) removeReloadedConnection(rec *connreconcile.Reconciler, kind, name, msg string) {
+	if p.config.DeclaresConnection(kind, name) {
+		slog.Info("reload-bus: keeping a connection the configuration file declares",
+			logKeyKind, kind, logKeyName, name)
+		return
+	}
+	for _, f := range rec.Remove(kind, name) {
+		slog.Warn(msg, logKeyKind, kind, logKeyName, name, logKeyError, f.Err)
 	}
 }
 

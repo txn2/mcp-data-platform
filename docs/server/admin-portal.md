@@ -592,18 +592,31 @@ The Connections page manages toolkit backend instances (Trino, DataHub, S3, MCP 
 
 - **Metadata** — Kind, created by, and last updated
 - **Configuration** — Key-value pairs with "Show sensitive" toggle for passwords and tokens
-- **Actions** — Edit and Delete buttons
+- **Actions** — Edit, and Delete for a connection the config file does not declare
 
 **Source tracking:**
 
 | Badge | Meaning |
 |-------|---------|
-| **file** | Defined in the YAML config file. Read-only in the admin UI. |
-| **database** | Created via the admin UI. Fully editable. |
-| **both** | Defined in config with a database override. Database version is active. |
+| **file** | A live toolkit connection with no stored record |
+| **database** | A stored record with no live toolkit connection |
+| **both** | Both a live connection and a stored record |
 
-- **File connections** are read-only. Editing creates a database override (source becomes "both").
-- **Deleting a "both" connection** removes the override and reverts to the file version.
+**both** is the ordinary state for nearly every connection on a database-backed
+deployment, not a sign of an override: the platform seeds a credential-free
+record for each connection the config file declares so that
+`mcp:connection:(kind,name)` knowledge-page references resolve. The badge
+therefore does not say where a connection came from. The detail pane says so
+directly for the connections the file declares.
+
+- **Connections the config file declares cannot be edited or deleted here.**
+  The detail pane says the file declares them and offers neither button; the API
+  refuses both requests with `409`. Deleting the stored record would drop the
+  connection from every live toolkit of its kind, on the replica handling the
+  request and on every peer, until each of them restarted and the file put it
+  back. Saving a record for one reached the running process but was discarded at
+  the next restart, because the platform skips a name the file already declares.
+  Change the config file instead.
 - **+ Add Connection** at the bottom creates database-only connections.
 
 Creating or editing a connection opens a kind-aware editor: a markdown description plus the configuration fields for the selected kind (Trino host/port/catalog, S3 bucket/region, DataHub server, or an API-gateway base URL and catalog picker), with TLS material and auth handled inline.

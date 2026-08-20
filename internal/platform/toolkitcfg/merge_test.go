@@ -164,3 +164,68 @@ func TestPinDeclaredDefaults(t *testing.T) {
 		}
 	})
 }
+
+func TestDeclared(t *testing.T) {
+	toolkits := map[string]any{
+		// Every kind is captured, whether or not the admin connection API
+		// manages it and whether or not the kind is enabled.
+		"trino": map[string]any{
+			"enabled":   true,
+			"instances": map[string]any{"warehouse": nil, "staging": nil},
+		},
+		"datahub": map[string]any{
+			"enabled":   false,
+			"instances": map[string]any{"catalog": nil},
+		},
+		// A kind with no instances contributes nothing, and neither does one
+		// whose config is not a map at all.
+		"mcp": map[string]any{"enabled": true},
+		"s3":  "not-a-map",
+	}
+	declared := Declared(toolkits)
+
+	for _, tc := range []struct {
+		kind, name string
+		want       bool
+	}{
+		{"trino", "warehouse", true},
+		{"trino", "staging", true},
+		{"datahub", "catalog", true},
+		{"trino", "catalog", false},
+		{"mcp", "anything", false},
+		{"s3", "lake", false},
+		{"api", "acme", false},
+	} {
+		if got := declared.Has(tc.kind, tc.name); got != tc.want {
+			t.Errorf("Has(%q, %q) = %v, want %v", tc.kind, tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestDeclaredIsASnapshot(t *testing.T) {
+	// The snapshot is what separates a file-declared connection from one
+	// MergeInstance later puts into the same map; sharing the map would erase
+	// the distinction the moment a stored connection merged.
+	instances := map[string]any{"warehouse": nil}
+	toolkits := map[string]any{"trino": map[string]any{"enabled": true, "instances": instances}}
+
+	declared := Declared(toolkits)
+	MergeInstance(toolkits, "trino", "adhoc", map[string]any{"host": "trino.local"})
+
+	if _, merged := instances["adhoc"]; !merged {
+		t.Fatal("precondition: MergeInstance should have added adhoc to the live map")
+	}
+	if !declared.Has("trino", "warehouse") {
+		t.Error("the file's instance should still be declared after a merge")
+	}
+	if declared.Has("trino", "adhoc") {
+		t.Error("a merged connection must not appear in a snapshot taken before it")
+	}
+}
+
+func TestDeclaredZeroValue(t *testing.T) {
+	var declared DeclaredConnections
+	if declared.Has("trino", "warehouse") {
+		t.Error("the zero value declares nothing")
+	}
+}

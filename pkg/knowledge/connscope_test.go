@@ -152,8 +152,8 @@ func TestAllocate_WithheldOnlySourceStillReported(t *testing.T) {
 // fetch, so a provider never has to be handed a boundary by its caller.
 func TestRouter_ConnectionScopeReachesProviders(t *testing.T) {
 	lister := &fakeConnLister{conns: []ConnectionInfo{
-		{Name: "warehouse", Kind: "trino", Description: "analytics"},
-		{Name: "payroll", Kind: "trino", Description: "analytics"},
+		{Name: "warehouse", Bound: "warehouse", Kind: "trino", Description: "analytics"},
+		{Name: "payroll", Bound: "payroll", Kind: "trino", Description: "analytics"},
 	}}
 	r := NewRouter(nil, nil, NewConnectionsProvider(lister))
 	r.SetConnectionScope(stubScope{allowed: map[string]bool{"warehouse": true}})

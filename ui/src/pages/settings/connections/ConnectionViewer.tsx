@@ -89,6 +89,19 @@ export function ConnectionViewer({
   const configEntries = Object.entries(connection.config ?? {}).filter(
     ([key]) => !hiddenConfigKeys.has(key),
   );
+  // The configuration file owns a connection it declares: the API refuses both
+  // to delete one (that would take it out of every live toolkit until the next
+  // restart put it back) and to save a record for one (the record applied to
+  // the running process but the file's config came back at the next restart).
+  // Withhold both affordances rather than let the operator find out from a 409.
+  //
+  // This replaced a note keyed on source === "both", which read "a fallback
+  // version also exists in the config file". That was true when only a file
+  // connection could produce "both"; the connection backfill gives every
+  // file-configured connection a stored row, so "both" is now what an
+  // admin-created connection reports as well, and the note claimed a file entry
+  // that does not exist for exactly the connections it still reached.
+  const fileOwned = connection.file_declared === true;
 
   return (
     <div className="space-y-6 p-6">
@@ -114,15 +127,15 @@ export function ConnectionViewer({
               />
             </div>
           )}
-          {connection.source === "both" && (
+          {fileOwned && (
             <p className="mt-1 text-xs text-muted-foreground">
-              This connection is managed in the database. A fallback version
-              also exists in the config file and can be removed once database
-              management is confirmed.
+              This connection is declared in the platform configuration file.
+              Edit the file to change it, or remove it from the file to delete
+              it.
             </p>
           )}
         </div>
-        {!isReadOnly && (
+        {!isReadOnly && !fileOwned && (
           <div className="flex gap-2">
             <Button type="button" size="sm" onClick={onEdit}>
               Edit

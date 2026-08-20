@@ -102,7 +102,7 @@ Three facts that are commonly assumed the other way around, stated here so an ag
 
 - [Library Overview](https://mcp-data-platform.txn2.com/library/overview/): Build custom MCP servers using the Go library
 - [Quick Start](https://mcp-data-platform.txn2.com/library/quickstart/): Code examples for common patterns
-- [Architecture](https://mcp-data-platform.txn2.com/library/architecture/): Package structure, MCP protocol middleware, provider interfaces
+- [Architecture](https://mcp-data-platform.txn2.com/library/architecture/): Package structure, MCP protocol middleware, provider interfaces, and connection identity — the three names a connection carries (the instance it is configured and stored under, the name a call binds it by, the toolkit serving it), which of them each surface keys on, and connid.Resolver as the one translation between them
 - [Extensibility](https://mcp-data-platform.txn2.com/library/extensibility/): Custom toolkits, providers, middleware
 - [API Stability](https://mcp-data-platform.txn2.com/library/stability/): Supported import surface, the TestPublicSurfacePolicy gate bounding what else may live under pkg/, change policy for other pkg/ packages, config-file compatibility policy
 

@@ -109,31 +109,6 @@ func TestBuild_FallbackKindFilterAndSource(t *testing.T) {
 	assert.Equal(t, 1, out.Count)
 }
 
-// TestBindingName covers the translation from the name an instance is
-// configured and stored under to the name a call binds it by (#1396).
-func TestBindingName(t *testing.T) {
-	toolkits := []registry.Toolkit{
-		&mockTK{kind: "s3", name: "data_lake", conn: "Data Lake"},
-		&mockTK{kind: "datahub", name: "primary"},
-		&listerTK{
-			mockTK: mockTK{kind: "trino", name: "warehouse", conn: "warehouse"},
-			conns:  []toolkit.ConnectionDetail{{Name: "warehouse"}, {Name: "staging"}},
-		},
-	}
-
-	assert.Equal(t, "Data Lake", BindingName(toolkits, "s3", "data_lake"),
-		"a single-connection toolkit binds by its connection name")
-	assert.Equal(t, "primary", BindingName(toolkits, "datahub", "primary"),
-		"one that carries no connection name binds by its instance")
-	assert.Equal(t, "warehouse", BindingName(toolkits, "trino", "warehouse"),
-		"a multi-connection toolkit routes on the instance key, so it is already the bound name")
-	assert.Equal(t, "data_lake", BindingName(toolkits, "datahub", "data_lake"),
-		"the match is per kind, so a name another kind carries is not borrowed")
-	assert.Equal(t, "unclaimed", BindingName(toolkits, "s3", "unclaimed"),
-		"an instance no live toolkit claims keeps its own name")
-	assert.Equal(t, "data_lake", BindingName(nil, "s3", "data_lake"))
-}
-
 func TestBuild_NoEnrichmentWhenLookupNilOrEmpty(t *testing.T) {
 	tk := &listerTK{mockTK: mockTK{kind: "trino"}, conns: []toolkit.ConnectionDetail{{Name: "acme"}}}
 
@@ -275,21 +250,18 @@ func TestBuild_PermitUsesThePersonaFacingConnectionName(t *testing.T) {
 	assert.Equal(t, 1, out.Withheld)
 }
 
-func TestConnectionNames(t *testing.T) {
-	// A multi-connection toolkit is its connections, not its instance: those are
-	// the names a persona's rules and a tool call's connection argument carry.
-	lister := &listerTK{
-		mockTK: mockTK{kind: "trino", name: "warehouse"},
-		conns:  []toolkit.ConnectionDetail{{Name: "warehouse-a"}, {Name: "warehouse-b"}},
-	}
-	assert.Equal(t, []string{"warehouse-a", "warehouse-b"}, ConnectionNames(lister))
+// TestBuild_FallbackReportsTheBoundName covers the connection name a caller
+// puts in a tool call's connection argument for a single-connection toolkit
+// that sets no connection_name. Reporting the raw connection_name left it
+// empty for every such toolkit, while the name a call actually binds is the
+// instance — the same instance/bound confusion connid exists to prevent.
+func TestBuild_FallbackReportsTheBoundName(t *testing.T) {
+	out := Build(context.Background(), []registry.Toolkit{
+		&mockTK{kind: "datahub", name: "primary"},
+	}, nil, nil, nil)
 
-	// A single-connection toolkit is its configured connection name.
-	assert.Equal(t, []string{"prod-lake"}, ConnectionNames(&mockTK{kind: "s3", name: "lake", conn: "prod-lake"}))
-
-	// With none configured, its instance name is that identity.
-	assert.Equal(t, []string{"primary"}, ConnectionNames(&mockTK{kind: "datahub", name: "primary"}))
-
-	// A lister that currently serves nothing contributes no name.
-	assert.Empty(t, ConnectionNames(&listerTK{mockTK: mockTK{kind: "api", name: "gw"}}))
+	require.Len(t, out.Connections, 1)
+	assert.Equal(t, "primary", out.Connections[0].Name, "the entry keeps the instance identity")
+	assert.Equal(t, "primary", out.Connections[0].Connection,
+		"a toolkit with no connection_name is still bound by its instance name")
 }

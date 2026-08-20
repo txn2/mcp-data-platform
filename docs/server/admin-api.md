@@ -1458,6 +1458,13 @@ PUT /api/v1/admin/connection-instances/{kind}/{name}
 
 Creates or updates a database-managed connection instance. Only available in database config mode.
 
+A connection the platform configuration file declares is refused with `409
+Conflict`, the same as the delete below. A stored record for such a connection
+reached the running process but was discarded at the next restart: the merge
+that folds stored connections into the toolkit config skips a name the file
+already declares, so the file's config came back and the record went on
+describing a state nothing was running.
+
 **Path Parameters:**
 
 | Parameter | Description |
@@ -1497,6 +1504,54 @@ Deletes a database-managed connection instance. Only available in database confi
 
 **Response:** `204 No Content` (no body)
 
+A connection the platform configuration file declares is refused with `409
+Conflict` naming the file as its owner. The configuration file is the only place
+such a connection can be removed: deleting the stored row would drop it from
+every live toolkit of its kind, on this replica and on every peer the removal
+broadcasts to, until each of them restarts and the file put it back.
+
+The stored row is not evidence of who owns the connection. The platform seeds a
+credential-free `connection_instances` row for every file-configured connection
+so that `mcp:connection:(kind,name)` knowledge-page references resolve, which
+means a file connection and a database connection both have one. The list
+endpoint below reports the distinction as `file_declared`.
+
+### List Effective Connections
+
+```
+GET /api/v1/admin/connection-instances/effective
+```
+
+Returns the merged view of the connections the platform is actually serving:
+every live toolkit connection, overlaid with its stored instance where one
+exists, with secrets redacted. Unlike the other connection endpoints this one is
+available in file config mode as well, because it reads the running toolkits
+rather than the store alone.
+
+**Response:**
+
+```json
+[
+  {
+    "kind": "trino",
+    "name": "prod",
+    "connection": "prod",
+    "description": "Production Trino cluster",
+    "source": "both",
+    "file_declared": true,
+    "tools": ["trino_query", "trino_describe_table"],
+    "config": {"host": "trino.example.com", "port": 8080},
+    "created_by": "system",
+    "updated_at": "2026-01-15T14:30:00Z"
+  }
+]
+```
+
+| Field | Description |
+|-------|-------------|
+| `source` | `file` when only a live toolkit contributes the connection, `database` when only a stored row does, `both` when each does |
+| `file_declared` | `true` when the platform configuration file declares the connection. `source` cannot answer this: the backfilled row makes a file-configured connection report `both` as well. A `file_declared` connection cannot be deleted through this API |
+
 ### Cross-replica hot-reload
 
 Connection create, update, and delete take effect on the handling replica
@@ -1515,6 +1570,13 @@ The broadcast carries the operation so peers apply it safely:
 - **Delete**: peers remove the connection from their live toolkits **without a
   store read**, so a transient store failure on a peer can never leave a deleted
   connection callable there.
+
+Neither removal applies to a connection the receiving replica's configuration
+file declares. A replica that predates the delete refusal above can still
+broadcast one, and an upsert whose store read comes back empty removes on the
+same reasoning; the file is unaffected by anything the store did, so such a
+connection keeps serving. An upsert that finds a row is applied normally, so a
+stored override still reaches every replica.
 
 During a rolling upgrade, a delete broadcast from an older replica that predates
 the operation tag falls back to the read-and-decide path on newer replicas.

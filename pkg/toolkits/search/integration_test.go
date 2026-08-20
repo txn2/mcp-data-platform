@@ -741,8 +741,8 @@ type stubConnLister struct{}
 
 func (stubConnLister) Connections() []knowledge.ConnectionInfo {
 	return []knowledge.ConnectionInfo{
-		{Name: "warehouse", Kind: "trino", Description: "analytics orders tables"},
-		{Name: "stripe", Kind: "api", Description: "payments"},
+		{Name: "warehouse", Bound: "warehouse", Kind: "trino", Description: "analytics orders tables"},
+		{Name: "stripe", Bound: "stripe", Kind: "api", Description: "payments"},
 	}
 }
 

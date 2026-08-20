@@ -10,6 +10,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/txn2/mcp-data-platform/pkg/connid"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
@@ -80,56 +81,6 @@ func (p Permit) allows(kind, name string) bool {
 	return p == nil || p(kind, name)
 }
 
-// ConnectionNames returns the persona-facing connection names a toolkit
-// currently serves: every connection a multi-connection toolkit enumerates, or
-// the single configured connection name of one that does not. These are the
-// names a persona's connections rules match and a tool call's `connection`
-// argument carries, so callers that reason about connection permissions resolve
-// them here rather than assuming a toolkit is its connection.
-func ConnectionNames(tk registry.Toolkit) []string {
-	if lister, ok := tk.(toolkit.ConnectionLister); ok {
-		details := lister.ListConnections()
-		names := make([]string, 0, len(details))
-		for _, c := range details {
-			names = append(names, c.Name)
-		}
-		return names
-	}
-	return []string{policyName(tk)}
-}
-
-// BindingName returns the name a call binds the connection that an `instances:`
-// key configures, given the live toolkits.
-//
-// The two are the same for a multi-connection toolkit, which routes on the
-// instance key, and for a single-connection toolkit that sets no
-// connection_name. They differ for one that does, and the difference matters
-// wherever something keyed by the instance — a connection_instances row, and so
-// any stored override read off one — has to answer a lookup a call makes
-// (#1396). An instance no live toolkit claims keeps its own name.
-func BindingName(toolkits []registry.Toolkit, kind, instance string) string {
-	for _, tk := range toolkits {
-		if tk.Kind() != kind || tk.Name() != instance {
-			continue
-		}
-		if _, ok := tk.(toolkit.ConnectionLister); ok {
-			return instance
-		}
-		return policyName(tk)
-	}
-	return instance
-}
-
-// policyName is the identity a persona's connection rules match on for a
-// single-connection toolkit: its configured connection name, or its instance
-// name when it carries none.
-func policyName(tk registry.Toolkit) string {
-	if conn := tk.Connection(); conn != "" {
-		return conn
-	}
-	return tk.Name()
-}
-
 // SourceResolver resolves a connection's DataHub source name (empty when none).
 type SourceResolver interface {
 	DataHubSourceName(kind, name string) string
@@ -196,20 +147,26 @@ func appendFallback(entries []Entry, tk registry.Toolkit, src SourceResolver, pe
 	if !dataKinds[kind] {
 		return entries, 0
 	}
-	// A single-connection toolkit's persona/audit identity is its configured
-	// connection name, which may differ from its instance name; filter on the
-	// former so discovery keys on exactly what the authorizer checks. The
-	// source map is keyed the same way, so one name answers both (#1396).
-	conn := policyName(tk)
-	if !permit.allows(kind, conn) {
+	// connid derives both names, so discovery keys on exactly what the
+	// authorizer checks and what the source map is keyed by (#1396).
+	c := connid.NewResolver([]registry.Toolkit{tk}, nil).ByInstance(kind, connid.Instance(tk.Name()))
+	if !permit.allows(kind, string(c.Bound)) {
 		return entries, 1
 	}
 	// Name and Reference stay on the INSTANCE name: the reference FKs to the
 	// connection_instances row the backfill seeds, and that row's name is the
 	// key a stored connection is merged back into toolkit config under.
-	e := Entry{Kind: kind, Name: tk.Name(), Connection: tk.Connection(), Reference: knowledgepage.ConnectionRef(kind, tk.Name())}
+	//
+	// Connection is the BOUND name, which is what a caller puts in a tool
+	// call's connection argument. Reporting the raw connection_name here left
+	// it empty for every toolkit that sets none, while the name such a call
+	// actually binds is the instance.
+	e := Entry{
+		Kind: kind, Name: tk.Name(), Connection: string(c.Bound),
+		Reference: knowledgepage.ConnectionRef(kind, tk.Name()),
+	}
 	if src != nil {
-		e.DataHubSourceName = src.DataHubSourceName(kind, conn)
+		e.DataHubSourceName = src.DataHubSourceName(kind, string(c.Bound))
 	}
 	return append(entries, e), 0
 }

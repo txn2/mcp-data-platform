@@ -30,7 +30,7 @@ func TestConnectionsProvider_Metadata(t *testing.T) {
 }
 
 func TestConnectionsProvider_NoIntentSkips(t *testing.T) {
-	l := &fakeConnLister{conns: []ConnectionInfo{{Name: "warehouse", Kind: "trino"}}}
+	l := &fakeConnLister{conns: []ConnectionInfo{{Name: "warehouse", Bound: "warehouse", Kind: "trino"}}}
 	p := NewConnectionsProvider(l)
 	// Entity-only query: connections respond to the text path only.
 	hits, err := p.Search(context.Background(), Query{EntityURNs: []string{"urn:x"}})
@@ -44,9 +44,9 @@ func TestConnectionsProvider_NoIntentSkips(t *testing.T) {
 
 func TestConnectionsProvider_RanksByTokenOverlap(t *testing.T) {
 	l := &fakeConnLister{conns: []ConnectionInfo{
-		{Name: "stripe", Kind: "api", Description: "payments and billing"},
-		{Name: "warehouse", Kind: "trino", Description: "analytics tables"},
-		{Name: "billing-db", Kind: "trino", Description: "invoices"},
+		{Name: "stripe", Bound: "stripe", Kind: "api", Description: "payments and billing"},
+		{Name: "warehouse", Bound: "warehouse", Kind: "trino", Description: "analytics tables"},
+		{Name: "billing-db", Bound: "billing-db", Kind: "trino", Description: "invoices"},
 	}}
 	p := NewConnectionsProvider(l)
 	hits, err := p.Search(context.Background(), Query{Intent: "billing payments", Limit: 10})
@@ -73,7 +73,7 @@ func TestConnectionsProvider_RanksByTokenOverlap(t *testing.T) {
 }
 
 func TestConnectionsProvider_NoMatchYieldsNothing(t *testing.T) {
-	l := &fakeConnLister{conns: []ConnectionInfo{{Name: "warehouse", Kind: "trino"}}}
+	l := &fakeConnLister{conns: []ConnectionInfo{{Name: "warehouse", Bound: "warehouse", Kind: "trino"}}}
 	p := NewConnectionsProvider(l)
 	hits, err := p.Search(context.Background(), Query{Intent: "completely unrelated zzz"})
 	if err != nil {
@@ -86,9 +86,9 @@ func TestConnectionsProvider_NoMatchYieldsNothing(t *testing.T) {
 
 func TestConnectionsProvider_LimitCaps(t *testing.T) {
 	l := &fakeConnLister{conns: []ConnectionInfo{
-		{Name: "data-a", Kind: "trino"},
-		{Name: "data-b", Kind: "trino"},
-		{Name: "data-c", Kind: "trino"},
+		{Name: "data-a", Bound: "data-a", Kind: "trino"},
+		{Name: "data-b", Bound: "data-b", Kind: "trino"},
+		{Name: "data-c", Bound: "data-c", Kind: "trino"},
 	}}
 	p := NewConnectionsProvider(l)
 	hits, err := p.Search(context.Background(), Query{Intent: "data", Limit: 2})
@@ -101,7 +101,7 @@ func TestConnectionsProvider_LimitCaps(t *testing.T) {
 }
 
 func TestConnectionHitText_NoKindNoDescription(t *testing.T) {
-	if got := connectionHitText(ConnectionInfo{Name: "bare"}); got != "bare" {
+	if got := connectionHitText(ConnectionInfo{Name: "bare", Bound: "bare"}); got != "bare" {
 		t.Errorf("got %q, want %q", got, "bare")
 	}
 }
@@ -109,8 +109,8 @@ func TestConnectionHitText_NoKindNoDescription(t *testing.T) {
 func TestConnectionsProvider_Fetch(t *testing.T) {
 	t.Run("returns the matching connection descriptor", func(t *testing.T) {
 		l := &fakeConnLister{conns: []ConnectionInfo{
-			{Name: "warehouse", Kind: "trino", Description: "primary lakehouse"},
-			{Name: "events", Kind: "s3"},
+			{Name: "warehouse", Bound: "warehouse", Kind: "trino", Description: "primary lakehouse"},
+			{Name: "events", Bound: "events", Kind: "s3"},
 		}}
 		ref := knowledgepage.ConnectionRef("trino", "warehouse")
 		doc, owned, err := NewConnectionsProvider(l).Fetch(context.Background(), ref, Caller{})
@@ -138,7 +138,7 @@ func TestConnectionsProvider_Fetch(t *testing.T) {
 	})
 
 	t.Run("unknown connection is not-found", func(t *testing.T) {
-		l := &fakeConnLister{conns: []ConnectionInfo{{Name: "warehouse", Kind: "trino"}}}
+		l := &fakeConnLister{conns: []ConnectionInfo{{Name: "warehouse", Bound: "warehouse", Kind: "trino"}}}
 		ref := knowledgepage.ConnectionRef("s3", "events")
 		_, owned, err := NewConnectionsProvider(l).Fetch(context.Background(), ref, Caller{})
 		if !owned || !errors.Is(err, ErrNotFound) {
@@ -149,9 +149,9 @@ func TestConnectionsProvider_Fetch(t *testing.T) {
 
 func TestConnectionsProvider_HidesConnectionsThePersonaCannotReach(t *testing.T) {
 	l := &fakeConnLister{conns: []ConnectionInfo{
-		{Name: "warehouse-a", Kind: "trino", Description: "analytics"},
-		{Name: "warehouse-b", Kind: "trino", Description: "analytics"},
-		{Name: "ledger", Kind: "trino", Description: "unrelated"},
+		{Name: "warehouse-a", Bound: "warehouse-a", Kind: "trino", Description: "analytics"},
+		{Name: "warehouse-b", Bound: "warehouse-b", Kind: "trino", Description: "analytics"},
+		{Name: "ledger", Bound: "ledger", Kind: "trino", Description: "unrelated"},
 	}}
 	p := NewConnectionsProvider(l)
 	caller, gate := scopedCaller(stubScope{allowed: map[string]bool{"warehouse-a": true}})
@@ -171,7 +171,7 @@ func TestConnectionsProvider_HidesConnectionsThePersonaCannotReach(t *testing.T)
 }
 
 func TestConnectionsProvider_WithheldReportedWhenNothingRemains(t *testing.T) {
-	l := &fakeConnLister{conns: []ConnectionInfo{{Name: "payroll", Kind: "trino", Description: "analytics"}}}
+	l := &fakeConnLister{conns: []ConnectionInfo{{Name: "payroll", Bound: "payroll", Kind: "trino", Description: "analytics"}}}
 	p := NewConnectionsProvider(l)
 	caller, gate := scopedCaller(stubScope{})
 
@@ -189,8 +189,8 @@ func TestConnectionsProvider_WithheldReportedWhenNothingRemains(t *testing.T) {
 
 func TestConnectionsProvider_FetchDeniedConnectionIsNotFound(t *testing.T) {
 	l := &fakeConnLister{conns: []ConnectionInfo{
-		{Name: "warehouse-a", Kind: "trino"},
-		{Name: "payroll", Kind: "trino"},
+		{Name: "warehouse-a", Bound: "warehouse-a", Kind: "trino"},
+		{Name: "payroll", Bound: "payroll", Kind: "trino"},
 	}}
 	p := NewConnectionsProvider(l)
 	caller, _ := scopedCaller(stubScope{allowed: map[string]bool{"warehouse-a": true}})
@@ -218,8 +218,8 @@ func TestConnectionsProvider_FiltersOnThePersonaFacingConnectionName(t *testing.
 	// its instance name: the persona rules and the audit trail key on the former,
 	// so discovery must too, or a granted connection would be hidden.
 	l := &fakeConnLister{conns: []ConnectionInfo{
-		{Name: "lake", Kind: "s3", Connection: "prod-lake", Description: "analytics"},
-		{Name: "vault", Kind: "s3", Connection: "prod-vault", Description: "analytics"},
+		{Name: "lake", Kind: "s3", Bound: "prod-lake", Description: "analytics"},
+		{Name: "vault", Kind: "s3", Bound: "prod-vault", Description: "analytics"},
 	}}
 	p := NewConnectionsProvider(l)
 	caller, gate := scopedCaller(stubScope{allowed: map[string]bool{"prod-lake": true}})
@@ -243,5 +243,38 @@ func TestConnectionsProvider_FiltersOnThePersonaFacingConnectionName(t *testing.
 	_, owned, err := p.Fetch(context.Background(), knowledgepage.ConnectionRef("s3", "vault"), caller)
 	if !owned || !errors.Is(err, ErrNotFound) {
 		t.Errorf("denied connection: owned=%v err=%v, want owned + ErrNotFound", owned, err)
+	}
+}
+
+// TestConnectionsProvider_WithholdsAnEntryWithNoBoundName pins the direction
+// the gate fails in. Bound is the identity the persona rules are matched on; an
+// entry that carries none cannot be checked, and an unchecked connection must
+// be withheld rather than shown. Inferring it from Name instead would put the
+// derivation rule back in a third place, which is what connid exists to stop.
+func TestConnectionsProvider_WithholdsAnEntryWithNoBoundName(t *testing.T) {
+	l := &fakeConnLister{conns: []ConnectionInfo{
+		{Name: "warehouse", Kind: "trino", Description: "analytics"},
+	}}
+	p := NewConnectionsProvider(l)
+	caller, gate := scopedCaller(stubScope{allowed: map[string]bool{"warehouse": true}})
+
+	hits, err := p.Search(context.Background(), Query{Intent: "analytics", Limit: 10, Caller: caller})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(hits) != 0 {
+		t.Fatalf("an entry with no bound name must be withheld, got %+v", hits)
+	}
+	if gate.withheld != 1 {
+		t.Errorf("withheld = %d, want 1", gate.withheld)
+	}
+
+	// And the same on the fetch path: the provider owns the reference and
+	// answers not-found, which is exactly what it answers for a connection
+	// outside the caller's persona, so a citation cannot read around the gate.
+	doc, owned, err := p.Fetch(context.Background(),
+		knowledgepage.ConnectionRef("trino", "warehouse"), caller)
+	if !owned || doc != nil || !errors.Is(err, ErrNotFound) {
+		t.Fatalf("fetch: doc=%+v owned=%v err=%v, want a withheld entry", doc, owned, err)
 	}
 }

@@ -88,3 +88,78 @@ func TestPlatform_ReloadWiring(t *testing.T) {
 	// Publish after close must be safe (broadcaster closed).
 	p.PublishConnectionReload("api", "c1", ReloadDelete)
 }
+
+// missingConnStore reports every connection as absent, which is what a peer's
+// store looks like after another replica deleted the row.
+type missingConnStore struct{ fakeConnStore }
+
+func (missingConnStore) Get(context.Context, string, string) (*ConnectionInstance, error) {
+	return nil, ErrConnectionNotFound
+}
+
+// TestReloadKeepsAConnectionTheFileDeclares covers the peer half of #1400. The
+// admin route refuses to delete a file-declared connection, but a replica that
+// predates that refusal — or one racing a delete — can still broadcast the
+// removal, and an upsert whose store read comes back empty removes on the same
+// reasoning. Neither may take a connection out of service that this replica's
+// config file declares, because the file is what it runs on.
+func TestReloadKeepsAConnectionTheFileDeclares(t *testing.T) {
+	reg := registry.NewRegistry()
+	apiTk := apigatewaykit.New("api")
+	if err := reg.Register(apiTk); err != nil {
+		t.Fatalf("register toolkit: %v", err)
+	}
+	cfg := &Config{Toolkits: map[string]any{
+		"api": map[string]any{
+			"enabled": true,
+			"instances": map[string]any{
+				"declared": map[string]any{"base_url": "https://declared.example.com"},
+			},
+		},
+	}}
+	cfg.SnapshotDeclaredConnections()
+
+	p := &Platform{
+		config:          cfg,
+		toolkitRegistry: reg,
+		connectionStore: missingConnStore{},
+	}
+	for _, name := range []string{"declared", "stored"} {
+		if err := apiTk.AddConnection(name, map[string]any{"base_url": "https://x"}); err != nil {
+			t.Fatalf("seed %s: %v", name, err)
+		}
+	}
+
+	p.reloadConnectionLocal("api", "declared", ReloadDelete.String())
+	if !apiTk.HasConnection("declared") {
+		t.Error("a delete broadcast must not remove a connection the file declares")
+	}
+	p.reloadConnectionLocal("api", "declared", ReloadUpsert.String())
+	if !apiTk.HasConnection("declared") {
+		t.Error("an upsert that finds no row must not remove a connection the file declares")
+	}
+
+	// The same two events still remove a connection the file does not declare,
+	// or the guard would strand every deleted connection on every peer.
+	p.reloadConnectionLocal("api", "stored", ReloadDelete.String())
+	if apiTk.HasConnection("stored") {
+		t.Error("a delete broadcast should still remove a stored connection")
+	}
+	if err := apiTk.AddConnection("stored", map[string]any{"base_url": "https://x"}); err != nil {
+		t.Fatalf("re-seed stored: %v", err)
+	}
+	p.reloadConnectionLocal("api", "stored", ReloadUpsert.String())
+	if apiTk.HasConnection("stored") {
+		t.Error("an upsert that finds no row should still remove a stored connection")
+	}
+}
+
+// TestDeclaresConnectionOnNilConfig covers the receiver state the reload path
+// reaches in wiring that holds no config: it answers "not declared" rather than
+// panicking, which is the same answer an empty snapshot gives.
+func TestDeclaresConnectionOnNilConfig(t *testing.T) {
+	var cfg *Config
+	if cfg.DeclaresConnection("api", "anything") {
+		t.Error("a nil config declares nothing")
+	}
+}

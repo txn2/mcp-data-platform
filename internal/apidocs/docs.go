@@ -3588,7 +3588,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Creates or updates a database-managed connection instance.",
+                "description": "Creates or updates a database-managed connection instance. A connection the platform configuration file declares is refused with 409: the file owns it.",
                 "consumes": [
                     "application/json"
                 ],
@@ -3637,6 +3637,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/admin.problemDetail"
                         }
                     },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
@@ -3654,7 +3660,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Deletes a database-managed connection instance.",
+                "description": "Deletes a database-managed connection instance. A connection the platform configuration file declares is refused with 409: the file owns it.",
                 "tags": [
                     "Connections"
                 ],
@@ -3681,6 +3687,12 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/admin.problemDetail"
                         }
@@ -17794,6 +17806,11 @@ const docTemplate = `{
                 "description": {
                     "type": "string",
                     "example": "Production data warehouse"
+                },
+                "file_declared": {
+                    "description": "FileDeclared marks a connection the platform configuration file declares, which cannot be deleted through this API. Source cannot answer it: the connection backfill gives a file-configured connection a stored row too, so it reports \"both\" as well.",
+                    "type": "boolean",
+                    "example": true
                 },
                 "health": {
                     "$ref": "#/definitions/toolkit.ConnectionHealthWire"

@@ -83,6 +83,11 @@ export interface EffectiveConnection {
   created_by?: string;
   updated_at?: string;
   health?: ConnectionHealth;
+  // file_declared marks a connection the platform configuration file declares.
+  // source cannot carry it: the connection backfill seeds a stored row for
+  // every file-configured connection, so those report "both" as well. The file
+  // owns such a connection, and deleting it is refused.
+  file_declared?: boolean;
 }
 
 // ---------------------------------------------------------------------------
