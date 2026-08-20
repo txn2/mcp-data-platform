@@ -16,6 +16,12 @@ vi.mock("@/api/portal/hooks", () => ({
   })),
   useSearchKnowledgePages: vi.fn(() => ({ data: undefined, isLoading: false, isError: false })),
   useThreadCounts: vi.fn(() => ({ data: {} })),
+  useRestoreBuiltinPages: vi.fn(() => ({
+    mutate: vi.fn(),
+    isPending: false,
+    isSuccess: false,
+    isError: false,
+  })),
   MIN_SEARCH_LEN: 3,
 }));
 

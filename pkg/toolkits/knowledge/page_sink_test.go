@@ -1115,3 +1115,22 @@ func TestTagsWithOrigin(t *testing.T) {
 	assert.Equal(t, []string{"a"}, tagsWithOrigin([]string{"a"}, ""))
 	assert.Equal(t, []string{"x"}, tagsWithOrigin([]string{"x"}, "x")) // origin already present
 }
+
+// A promotion aimed at a built-in page's slug is refused before the dedup and
+// confirmation gates (#1390): the store would refuse the write anyway
+// (ErrBuiltinReadOnly), and the earlier answer names the way forward.
+func TestPromoteToPage_RefusesABuiltinSlug(t *testing.T) {
+	store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkBusinessKnowledge}}}
+	pw := newFakePageWriter()
+	pw.pages["seasons"] = &knowledgepage.Page{ID: "kp_builtin", Slug: "seasons", Title: "Seasons", Builtin: true}
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk.SetPageWriter(pw)
+
+	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, applyPageInput([]string{"i1"}))
+	require.NoError(t, err)
+	require.True(t, res.IsError, "a builtin slug must be refused")
+	tc, ok := res.Content[0].(*mcp.TextContent)
+	require.True(t, ok, "expected *mcp.TextContent")
+	assert.Contains(t, tc.Text, "built-in")
+	assert.Empty(t, pw.updated, "nothing may be written to the builtin page")
+}

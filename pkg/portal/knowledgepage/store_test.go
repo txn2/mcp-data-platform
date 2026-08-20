@@ -18,7 +18,7 @@ var errBoom = errors.New("boom")
 func kpRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"id", "slug", "title", "summary", "body", "tags",
-		"created_by", "created_email", "updated_by", "current_version",
+		"created_by", "created_email", "updated_by", "current_version", "builtin",
 		"created_at", "updated_at", "deleted_at",
 	})
 }
@@ -34,12 +34,12 @@ func TestNewPostgresStoreSearcher(t *testing.T) {
 
 	cols := append([]string{
 		"id", "slug", "title", "summary", "body", "tags",
-		"created_by", "created_email", "updated_by", "current_version",
+		"created_by", "created_email", "updated_by", "current_version", "builtin",
 		"created_at", "updated_at", "deleted_at",
 	}, "cos")
 	mock.ExpectQuery("ORDER BY embedding").
 		WillReturnRows(sqlmock.NewRows(cols).
-			AddRow("kp1", "s", "T", "", "b", []byte(`[]`), "", "", "", 1, time.Now(), time.Now(), nil, 0.88))
+			AddRow("kp1", "s", "T", "", "b", []byte(`[]`), "", "", "", 1, false, time.Now(), time.Now(), nil, 0.88))
 
 	out, err := ss.SemanticSearch(context.Background(), []float32{0.1, 0.2}, 5)
 	require.NoError(t, err)
@@ -80,7 +80,7 @@ func TestStore_Get(t *testing.T) {
 	mock.ExpectQuery("SELECT .* FROM portal_knowledge_pages").
 		WithArgs("kp1").
 		WillReturnRows(kpRows().AddRow("kp1", "fiscal", "Fiscal", "sum", "# body", []byte(`["finance"]`),
-			"alice@example.com", "alice@example.com", "bob@example.com", 2, time.Now(), time.Now(), nil))
+			"alice@example.com", "alice@example.com", "bob@example.com", 2, false, time.Now(), time.Now(), nil))
 
 	page, err := store.Get(context.Background(), "kp1")
 	require.NoError(t, err)
@@ -110,7 +110,7 @@ func TestStore_GetBySlug(t *testing.T) {
 	mock.ExpectQuery("SELECT .* FROM portal_knowledge_pages").
 		WithArgs("fiscal").
 		WillReturnRows(kpRows().AddRow("kp1", "fiscal", "Fiscal", "", "", []byte(`[]`),
-			"", "", "", 1, time.Now(), time.Now(), nil))
+			"", "", "", 1, false, time.Now(), time.Now(), nil))
 	page, err := store.GetBySlug(context.Background(), "fiscal")
 	require.NoError(t, err)
 	assert.Equal(t, "kp1", page.ID)
@@ -129,7 +129,7 @@ func TestStore_List(t *testing.T) {
 	mock.ExpectQuery("SELECT COUNT").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	mock.ExpectQuery("SELECT .* FROM portal_knowledge_pages").
 		WillReturnRows(kpRows().AddRow("kp1", "", "Fiscal", "", "", []byte(`[]`),
-			"", "", "", 1, time.Now(), time.Now(), nil))
+			"", "", "", 1, false, time.Now(), time.Now(), nil))
 
 	pages, total, err := store.List(context.Background(), Filter{Tag: "finance", Query: "fis", Limit: 10})
 	require.NoError(t, err)
@@ -147,8 +147,8 @@ func TestStore_Update(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectQuery("SELECT title, summary, body, tags, current_version").
 		WithArgs("kp1").
-		WillReturnRows(sqlmock.NewRows([]string{"title", "summary", "body", "tags", "current_version"}).
-			AddRow("Old", "olds", "oldbody", []byte(`["a"]`), 1))
+		WillReturnRows(sqlmock.NewRows([]string{"title", "summary", "body", "tags", "current_version", "builtin"}).
+			AddRow("Old", "olds", "oldbody", []byte(`["a"]`), 1, false))
 	mock.ExpectExec("UPDATE portal_knowledge_pages").WillReturnResult(sqlmock.NewResult(0, 1))
 	// The content edit drops the page's embedding chunks in the SAME transaction,
 	// so no vector computed from the old text survives the write (#1242).
@@ -237,8 +237,8 @@ func TestStore_ErrorPaths(t *testing.T) {
 		store := NewPostgresStore(db)
 		mock.ExpectBegin()
 		mock.ExpectQuery("SELECT title, summary, body, tags, current_version").WithArgs("kp1").
-			WillReturnRows(sqlmock.NewRows([]string{"title", "summary", "body", "tags", "current_version"}).
-				AddRow("Old", "", "b", []byte(`[]`), 1))
+			WillReturnRows(sqlmock.NewRows([]string{"title", "summary", "body", "tags", "current_version", "builtin"}).
+				AddRow("Old", "", "b", []byte(`[]`), 1, false))
 		mock.ExpectExec("UPDATE portal_knowledge_pages").WillReturnError(errBoom)
 		mock.ExpectRollback()
 		title := "New"
@@ -258,7 +258,7 @@ func TestStore_ErrorPaths(t *testing.T) {
 		store := NewPostgresStore(db)
 		mock.ExpectQuery("SELECT .* FROM portal_knowledge_pages").WithArgs("kp1").
 			WillReturnRows(kpRows().AddRow("kp1", "", "T", "", "", []byte(`{not an array}`),
-				"", "", "", 1, time.Now(), time.Now(), nil))
+				"", "", "", 1, false, time.Now(), time.Now(), nil))
 		_, err := store.Get(context.Background(), "kp1")
 		assert.Error(t, err)
 	})

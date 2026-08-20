@@ -481,6 +481,8 @@ export interface KnowledgePage {
   created_email?: string;
   updated_by?: string;
   current_version: number;
+  /** Shipped with the platform and reconciled at startup; read-only (deleting hides it). */
+  builtin?: boolean;
   created_at: string;
   updated_at: string;
   deleted_at?: string;

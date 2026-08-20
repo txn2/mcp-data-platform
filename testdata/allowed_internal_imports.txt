@@ -50,6 +50,7 @@ internal/httpserver -> internal/notification/notifyrender
 internal/httpserver -> internal/platform/branding
 internal/httpserver -> internal/platform/callrecord
 internal/httpserver -> internal/platform/connreach
+internal/httpserver -> internal/platform/knowledgebuiltin
 internal/httpserver -> internal/platform/notifydelivery
 internal/httpserver -> internal/platform/resourceaudit
 internal/httpserver -> internal/platform/reviewalert
@@ -187,6 +188,8 @@ internal/platform/indexqueue -> pkg/toolkits/apigateway
 internal/platform/indexqueue -> pkg/toolkits/apigateway/catalog
 internal/platform/indexqueue -> pkg/toolkits/apigateway/catalogindex
 internal/platform/indexqueue -> pkg/toolkits/tools/toolsindex
+internal/platform/knowledgebuiltin -> internal/platform/scriptlayer
+internal/platform/knowledgebuiltin -> pkg/portal/knowledgepage
 internal/platform/knowledgelayer -> internal/platform/knowledgepageindex
 internal/platform/knowledgelayer -> pkg/embedding
 internal/platform/knowledgelayer -> pkg/indexjobs
@@ -383,6 +386,7 @@ internal/portal/sessionapi -> internal/portal/access
 internal/portal/sharecache -> pkg/blobserve
 internal/portal/sharecache -> pkg/portal/shareaccess
 internal/portal/viewerlimit -> pkg/ratelimit
+internal/server -> internal/platform/knowledgebuiltin
 internal/server -> pkg/platform
 internal/tableavail -> pkg/query
 pkg/admin -> internal/admin/auditapi

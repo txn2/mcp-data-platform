@@ -982,10 +982,28 @@ export const handlers = [
     mockKnowledgePages.push(page);
     return HttpResponse.json(page, { status: 201 });
   }),
+  // The way back from hiding a built-in page (#1390).
+  http.post(`${PORTAL_BASE}/knowledge-pages/restore-builtin`, () => {
+    let restored = 0;
+    for (const p of mockKnowledgePages) {
+      if (p.builtin && p.deleted_at) {
+        delete p.deleted_at;
+        restored += 1;
+      }
+    }
+    return HttpResponse.json({ restored });
+  }),
   http.put(`${PORTAL_BASE}/knowledge-pages/:id`, async ({ params, request }) => {
     const reqBody = (await request.json()) as Record<string, unknown>;
     const page = mockKnowledgePages.find((p) => p.id === params.id);
     if (!page) return new HttpResponse(null, { status: 404 });
+    // Builtin pages are the platform's own documentation: read-only (#1390).
+    if (page.builtin) {
+      return HttpResponse.json(
+        { error: "knowledge page is built-in platform documentation and read-only" },
+        { status: 403 },
+      );
+    }
     page.title = String(reqBody.title ?? page.title);
     page.summary = String(reqBody.summary ?? page.summary);
     page.body = String(reqBody.body ?? page.body);

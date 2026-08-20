@@ -2832,6 +2832,14 @@ definitions:
 
           Q1 begins...
         type: string
+      builtin:
+        description: |-
+          Builtin marks a page the platform ships in its binary and reconciles at
+          startup (#1390). Content edits are refused (ErrBuiltinReadOnly) because
+          the next release would overwrite them; SoftDelete stays available and is
+          the operator's way to hide the page — the reconcile respects the
+          tombstone instead of resurrecting it.
+        type: boolean
       created_at:
         type: string
       created_by:
@@ -14154,6 +14162,35 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Resolve entity references to display labels
+      tags:
+      - Knowledge
+  /portal/knowledge-pages/restore-builtin:
+    post:
+      description: Un-hides the platform's built-in knowledge pages a deployment hid,
+        refreshed to the running release. Requires apply_knowledge access.
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: integer
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Restore hidden built-in knowledge pages
       tags:
       - Knowledge
   /portal/knowledge-pages/search:

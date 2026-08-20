@@ -186,6 +186,17 @@ func (t *Toolkit) promoteToPage(ctx context.Context, input applyKnowledgeInput) 
 		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
 
+	// A builtin page is the platform's own documentation, reconciled from the
+	// binary at startup: a promotion onto its slug would be overwritten by the
+	// next start, so it is refused here — before the dedup and confirmation
+	// gates ask the caller questions about a write that cannot happen. The
+	// store refuses the same write (ErrBuiltinReadOnly); this earlier check
+	// exists to name the way forward.
+	if existing != nil && existing.Builtin {
+		return toolkit.ErrorResult(fmt.Sprintf("slug %q is a built-in platform documentation page and is read-only; "+
+			"promote under a different slug (or hide the built-in page in the portal and create your own)", page.Slug)), nil, nil
+	}
+
 	// Create-time duplicate gate (#705): on a slug miss, block a near-duplicate
 	// create and return the candidate pages to consolidate against, unless the
 	// caller passed force_new. Runs before the confirmation gate so the agent
@@ -199,7 +210,9 @@ func (t *Toolkit) promoteToPage(ctx context.Context, input applyKnowledgeInput) 
 			"duplicate_blocked": true,
 			"candidates":        candidates,
 			fieldMessage: "A similar knowledge page already exists. Prefer updating existing knowledge over creating a duplicate: " +
-				"re-apply with a candidate's slug to consolidate onto that page, or set page.force_new: true to create a separate page anyway.",
+				"re-apply with a candidate's slug to consolidate onto that page (a candidate marked builtin is the platform's " +
+				"own read-only documentation and cannot be consolidated onto), or set page.force_new: true to create a " +
+				"separate page anyway.",
 		})
 	}
 

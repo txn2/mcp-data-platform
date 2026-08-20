@@ -108,8 +108,8 @@ func TestStoreUpdateEnqueuesOnlyWhenIndexedTextMoves(t *testing.T) {
 			mock.ExpectBegin()
 			mock.ExpectQuery("SELECT title, summary, body, tags, current_version").
 				WithArgs("kp1").
-				WillReturnRows(sqlmock.NewRows([]string{"title", "summary", "body", "tags", "current_version"}).
-					AddRow("Old", "olds", "oldbody", []byte(`["a"]`), 1))
+				WillReturnRows(sqlmock.NewRows([]string{"title", "summary", "body", "tags", "current_version", "builtin"}).
+					AddRow("Old", "olds", "oldbody", []byte(`["a"]`), 1, false))
 			mock.ExpectExec("UPDATE portal_knowledge_pages").WillReturnResult(sqlmock.NewResult(0, 1))
 			if tc.dropsChunks {
 				mock.ExpectExec("DELETE FROM portal_knowledge_page_embedding_chunks").

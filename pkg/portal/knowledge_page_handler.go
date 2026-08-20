@@ -59,6 +59,45 @@ func (h *Handler) registerKnowledgePageRoutes() {
 		h.mux.HandleFunc("GET /api/v1/portal/knowledge-pages/graph",
 			func(w http.ResponseWriter, r *http.Request) { h.knowledgeGraph(w, r, reader) })
 	}
+	// The way back from hiding a built-in page (#1390): un-hide them all and
+	// reconcile to the running release. Registered only when the composition
+	// root wired the seam (a database-backed deployment).
+	if h.deps.RestoreBuiltinPages != nil {
+		h.mux.HandleFunc("POST /api/v1/portal/knowledge-pages/restore-builtin", h.restoreBuiltinPages)
+	}
+}
+
+// restoreBuiltinPages handles POST /api/v1/portal/knowledge-pages/restore-builtin
+// (apply_knowledge access). It un-hides every operator-hidden built-in page and
+// reports how many came back; idempotent, so restoring with nothing hidden is a
+// clean {restored: 0}.
+//
+// @Summary      Restore hidden built-in knowledge pages
+// @Description  Un-hides the platform's built-in knowledge pages a deployment hid, refreshed to the running release. Requires apply_knowledge access.
+// @Tags         Knowledge
+// @Success      200  {object}  map[string]int
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/knowledge-pages/restore-builtin [post]
+func (h *Handler) restoreBuiltinPages(w http.ResponseWriter, r *http.Request) {
+	user := GetUser(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, errAuthRequired)
+		return
+	}
+	if !h.userHasApplyKnowledge(user) {
+		writeError(w, http.StatusForbidden, errKnowledgePageForbidden)
+		return
+	}
+	restored, err := h.deps.RestoreBuiltinPages(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to restore built-in knowledge pages")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int{"restored": restored})
 }
 
 // knowledgePageRequest is the create/update payload.
@@ -141,7 +180,14 @@ func (h *Handler) createKnowledgePage(w http.ResponseWriter, r *http.Request) {
 	// collision). #705.
 	if slug := strings.TrimSpace(req.Slug); slug != "" {
 		if existing, err := h.deps.KnowledgePageStore.GetBySlug(r.Context(), slug); err == nil && existing != nil && existing.DeletedAt == nil {
-			writeError(w, http.StatusConflict, fmt.Sprintf("a knowledge page with slug %q already exists; update it instead", slug))
+			// "update it instead" would be a dead end on a builtin page — the
+			// update 403s — so that case names the way forward instead (#1390).
+			msg := fmt.Sprintf("a knowledge page with slug %q already exists; update it instead", slug)
+			if existing.Builtin {
+				msg = fmt.Sprintf("slug %q is a built-in platform documentation page and is read-only; "+
+					"hide it and create your own page, or pick another slug", slug)
+			}
+			writeError(w, http.StatusConflict, msg)
 			return
 		}
 	}
@@ -159,7 +205,9 @@ func (h *Handler) createKnowledgePage(w http.ResponseWriter, r *http.Request) {
 				DuplicateBlocked: true,
 				Candidates:       dup,
 				Message: "A similar knowledge page already exists. Update an existing page instead of creating a duplicate: " +
-					"edit a candidate page, or resubmit with force_new to create a separate page anyway.",
+					"edit a candidate page (a candidate marked builtin is the platform's own read-only documentation " +
+					"and cannot be edited — hide it and write your own, or create alongside it), " +
+					"or resubmit with force_new to create a separate page anyway.",
 			})
 			return
 		}
@@ -393,6 +441,10 @@ func (h *Handler) updateKnowledgePage(w http.ResponseWriter, r *http.Request) {
 	if err := h.deps.KnowledgePageStore.Update(r.Context(), id, update); err != nil {
 		if errors.Is(err, knowledgepage.ErrNotFound) {
 			writeError(w, http.StatusNotFound, errKnowledgePageNotFoundMsg)
+			return
+		}
+		if errors.Is(err, knowledgepage.ErrBuiltinReadOnly) {
+			writeError(w, http.StatusForbidden, knowledgepage.ErrBuiltinReadOnly.Error())
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "failed to update knowledge page")

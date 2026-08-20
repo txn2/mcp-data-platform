@@ -7,6 +7,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/knowledgebuiltin"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 )
 
@@ -36,6 +37,12 @@ func New(cfg *platform.Config) (*mcp.Server, *platform.Platform, error) {
 	if err := p.Start(context.Background()); err != nil {
 		return nil, nil, fmt.Errorf("starting platform: %w", err)
 	}
+
+	// The platform's own built-in knowledge pages (#1390), reconciled in the
+	// background at every start so a release that changes them updates the
+	// deployment. Wired here, in the composition root, on both transports; the
+	// seam no-ops without a database and logs (never fails) on error.
+	knowledgebuiltin.Start(context.Background(), p.PortalKnowledgePageStore())
 
 	mcpSrv := p.MCPServer()
 	return mcpSrv, p, nil

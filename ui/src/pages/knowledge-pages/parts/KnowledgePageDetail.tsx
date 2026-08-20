@@ -4,6 +4,7 @@ import { useKnowledgePage, useResolveRefs, useDeleteKnowledgePage } from "@/api/
 import type { KnowledgePage } from "@/api/portal/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { MarkdownRenderer } from "@/components/renderers/MarkdownRenderer";
+import { BuiltinBadge } from "@/components/knowledge/BuiltinBadge";
 import { PageHeader } from "@/components/patterns/PageHeader";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -60,6 +61,7 @@ export function KnowledgePageDetail({
           <DetailActions
             id={id}
             canEdit={canEdit}
+            builtin={!!page.builtin}
             removing={del.isPending}
             onToggleHistory={() => setShowHistory((v) => !v)}
             onEdit={onEdit}
@@ -87,9 +89,7 @@ export function KnowledgePageDetail({
       <ConfirmDialog
         open={confirmRemove}
         onOpenChange={setConfirmRemove}
-        title={`Remove "${page.title}"?`}
-        description="It will no longer appear in search."
-        confirmLabel="Remove"
+        {...removeDialogCopy(page)}
         destructive
         loading={del.isPending}
         // A failed remove keeps the dialog open, so it has to say why: without
@@ -107,12 +107,38 @@ function removeError(err: unknown): string {
 }
 
 /**
+ * removeDialogCopy is what the confirm dialog says: a built-in page (#1390) is
+ * hidden, not removed — the reconcile respects the hide across upgrades, and
+ * Restore built-in on the Knowledge list is the way back.
+ */
+function removeDialogCopy(page: KnowledgePage): {
+  title: string;
+  description: string;
+  confirmLabel: string;
+} {
+  if (page.builtin) {
+    return {
+      title: `Hide "${page.title}"?`,
+      description:
+        "This is the platform's built-in documentation. Hiding it removes it from search on this deployment, and upgrades will not bring it back. You can write your own page on the topic, and Restore built-in on the Knowledge list brings it back.",
+      confirmLabel: "Hide",
+    };
+  }
+  return {
+    title: `Remove "${page.title}"?`,
+    description: "It will no longer appear in search.",
+    confirmLabel: "Remove",
+  };
+}
+
+/**
  * DetailActions is the page's own verbs. Feedback is open to any authenticated
  * user; apply_knowledge holders (canEdit) also moderate it and own the page.
  */
 function DetailActions({
   id,
   canEdit,
+  builtin,
   removing,
   onToggleHistory,
   onEdit,
@@ -120,6 +146,7 @@ function DetailActions({
 }: {
   id: string;
   canEdit: boolean;
+  builtin: boolean;
   removing: boolean;
   onToggleHistory: () => void;
   onEdit: () => void;
@@ -133,9 +160,15 @@ function DetailActions({
           <Button variant="outline" size="sm" onClick={onToggleHistory}>
             <History /> History
           </Button>
-          <Button variant="outline" size="sm" onClick={onEdit}>
-            <Pencil /> Edit
-          </Button>
+          {/* A built-in page is the platform's own documentation, reconciled
+              from the release at startup: an edit would be overwritten, so the
+              server refuses it and the button is not offered. Remove stays —
+              hiding the page is how a deployment supersedes it. */}
+          {!builtin && (
+            <Button variant="outline" size="sm" onClick={onEdit}>
+              <Pencil /> Edit
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -143,7 +176,7 @@ function DetailActions({
             onClick={onRemove}
             disabled={removing}
           >
-            <Trash2 /> Remove
+            <Trash2 /> {builtin ? "Hide" : "Remove"}
           </Button>
         </>
       )}
@@ -156,6 +189,7 @@ function PageIntro({ page }: { page: KnowledgePage }) {
   const tags = page.tags ?? [];
   return (
     <div className="space-y-2">
+      {page.builtin && <BuiltinBadge />}
       {page.summary && (
         <p className="max-w-3xl text-muted-foreground">{markdownToPlainText(page.summary)}</p>
       )}
