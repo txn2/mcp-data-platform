@@ -157,12 +157,18 @@ func pickNthNode(matches []*htmlNode, req regionRequest, index int) (*htmlNode, 
 // consumes, its span the element's balanced outer bounds.
 func sectionFromNode(body, selector string, node *htmlNode) Section {
 	return Section{
-		Heading:   selector,
-		Title:     node.tag,
-		Line:      lineAt(body, node.outerStart),
-		SizeBytes: node.outerEnd - node.outerStart,
-		start:     node.outerStart,
-		end:       node.outerEnd,
+		Heading:    selector,
+		Title:      node.tag,
+		Line:       lineAt(body, node.outerStart),
+		SizeBytes:  node.outerEnd - node.outerStart,
+		start:      node.outerStart,
+		end:        node.outerEnd,
+		innerStart: node.innerStart,
+		innerEnd:   node.innerEnd,
+		// Only an explicit end tag leaves an interior to address: a void or
+		// self-closing element has nowhere for content to go, and text spliced
+		// at its offsets would land OUTSIDE the element.
+		hasInner: node.outerEnd > node.innerEnd,
 	}
 }
 

@@ -197,6 +197,25 @@ type Exporter interface {
 	// Export writes one output and reports where it landed. An error fails the
 	// run: a report whose output did not persist did not happen.
 	Export(ctx context.Context, req ExportRequest) (*ExportResult, error)
+
+	// PublishData replaces the data region of the named output asset with the
+	// request's payload and reports the version that created. An error fails
+	// the run: a dashboard that did not refresh did not refresh.
+	PublishData(ctx context.Context, req PublishRequest) (*ExportResult, error)
+}
+
+// PublishRequest is one data-region refresh as the script produced it
+// (platform.publish_data, #1389).
+type PublishRequest struct {
+	// Name identifies the target asset through the same identity rule an
+	// export's name resolves by: one (script, name) pair is one asset. The
+	// asset must already exist — this call refreshes a region of it and can
+	// create nothing.
+	Name string
+	// Data is the payload the asset's data region will hold, already converted
+	// to plain Go values. FormatDataPayload is its one serializer, shared by
+	// the draft preview and the approved write.
+	Data any
 }
 
 // ExportRequest is one output as the script produced it.
@@ -254,6 +273,10 @@ type ExportRecord struct {
 	// RowCount is therefore not a fact about it: without the marker a surface
 	// rendering "N rows as html" would describe a dashboard as an empty table.
 	Document bool `json:"document,omitempty"`
+	// Refresh marks a platform.publish_data call: the run replaced the data
+	// region of an existing asset rather than writing a whole output, and
+	// Bytes is the payload spliced in, not the document around it.
+	Refresh bool `json:"refresh,omitempty"`
 	// Bytes is the serialized length of the output in its declared format. A
 	// preview serializes to measure rather than estimating, so the number is
 	// the same one a real run would report for the same rows.
@@ -407,8 +430,9 @@ func predeclared(host *hostState) starlark.StringDict {
 		"platform": &starlarkstruct.Module{
 			Name: "platform",
 			Members: starlark.StringDict{
-				"query":  starlark.NewBuiltin("platform.query", host.query),
-				"export": starlark.NewBuiltin("platform.export", host.export),
+				"query":        starlark.NewBuiltin("platform.query", host.query),
+				"export":       starlark.NewBuiltin("platform.export", host.export),
+				"publish_data": starlark.NewBuiltin("platform.publish_data", host.publishData),
 			},
 		},
 		"json": json.Module,

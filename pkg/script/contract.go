@@ -117,7 +117,11 @@ type ContractOutput struct {
 	Destination string `json:"destination" example:"portal"`
 	Format      string `json:"format,omitempty" example:"csv"`
 	RowCount    int    `json:"row_count,omitempty" example:"1420"`
-	Bytes       int    `json:"bytes,omitempty" example:"98304"`
+	// Refresh marks a data-region refresh of an existing asset: the run
+	// replaced one marked region rather than writing a whole document, and
+	// Bytes is the spliced payload.
+	Refresh bool `json:"refresh,omitempty" example:"false"`
+	Bytes   int  `json:"bytes,omitempty" example:"98304"`
 
 	// AssetID and AssetVersion locate an OutputKindAsset output.
 	AssetID      string `json:"asset_id,omitempty" example:"asset_a1b2c3d4"`
@@ -362,6 +366,7 @@ func contractOutput(o RunOutput) ContractOutput {
 		Destination:  destinationOf(o),
 		Format:       o.Format,
 		RowCount:     o.RowCount,
+		Refresh:      o.Refresh,
 		Bytes:        o.Bytes,
 		AssetID:      o.AssetID,
 		AssetVersion: o.AssetVersion,

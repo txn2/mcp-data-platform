@@ -6,12 +6,14 @@ import {
   useScriptVersionReview,
 } from "@/api/admin/hooks";
 import type {
+  ReferencedCapabilities,
   ScriptDryRunAccount,
   ScriptDryRunOutput,
   ScriptFinding,
   ScriptGrants,
   VersionReview,
 } from "@/api/admin/types";
+import { dryRunOutputPhrase } from "./runFormat";
 import { DrawerShell } from "@/components/patterns/DrawerShell";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -246,7 +248,37 @@ function GrantSection({
           </AlertDescription>
         </Alert>
       )}
+      <RefreshTargets referenced={review.referenced} />
     </section>
+  );
+}
+
+// RefreshTargets states which assets' data regions this version rewrites, and
+// flags a computed target the static read could not resolve.
+function RefreshTargets({ referenced }: { referenced: ReferencedCapabilities }) {
+  const targets = referenced.refresh_targets ?? [];
+  const dynamic = referenced.dynamic_refresh_targets ?? false;
+  return (
+    <>
+      {targets.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          Refreshes the data region of{" "}
+          <span className="font-mono">{targets.join(", ")}</span>: the named
+          output asset is rewritten only inside its marked data island, never
+          its markup.
+        </p>
+      )}
+      {dynamic && (
+        <Alert variant="destructive">
+          <AlertTriangle />
+          <AlertDescription>
+            This version computes the output name it refreshes instead of naming
+            it, so which asset's data region it rewrites cannot be checked by
+            reading the code.
+          </AlertDescription>
+        </Alert>
+      )}
+    </>
   );
 }
 
@@ -347,11 +379,7 @@ function DryRunOutputs({ outputs }: { outputs: ScriptDryRunOutput[] }) {
     <ul className="space-y-0.5 text-xs text-muted-foreground">
       {outputs.map((o) => (
         <li key={`${o.name}-${o.destination ?? ""}`}>
-          <span className="font-mono">{o.name}</span>:{" "}
-          {o.document
-            ? `a ${o.format} document`
-            : `${o.row_count} row${o.row_count === 1 ? "" : "s"} as ${o.format}`}{" "}
-          ({o.bytes} bytes) to {o.destination || "the portal"}.
+          <span className="font-mono">{o.name}</span>: {dryRunOutputPhrase(o)}.
         </li>
       ))}
     </ul>

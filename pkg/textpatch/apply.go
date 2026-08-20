@@ -78,13 +78,15 @@ func applyOne(body string, e Edit, index int, opts Options) (string, EditResult,
 		return e.Text + body, EditResult{Index: index, Op: OpPrepend, Matches: 1, Line: 1}, nil
 	case OpReplaceSection:
 		return applyReplaceSection(body, e, index, opts.Syntax)
+	case OpReplaceContent:
+		return applyReplaceContent(body, e, index, opts.Syntax)
 	case OpMoveSection:
 		return applyMoveSection(body, e, index, opts.Syntax)
 	case OpReplace, OpInsertBefore, OpInsertAfter:
 		return applyAnchored(body, e, index, opts)
 	default:
 		return "", EditResult{}, newError(CodeBadEdit, index,
-			"Use one of: replace, insert_before, insert_after, replace_section, move_section, append, prepend.",
+			"Use one of: replace, insert_before, insert_after, replace_section, replace_content, move_section, append, prepend.",
 			"unknown op %q", e.Op)
 	}
 }
@@ -178,6 +180,33 @@ func applyReplaceSection(body string, e Edit, index int, syntax Syntax) (string,
 	return body[:sec.start] + e.Text + body[sec.end:], EditResult{
 		Index:   index,
 		Op:      OpReplaceSection,
+		Matches: 1,
+		Line:    sec.Line,
+	}, nil
+}
+
+// applyReplaceContent swaps a selector-addressed element's interior for the
+// edit's text, leaving the element's own tags byte-for-byte as written. It is
+// selector-only: a heading section has no tag pair bracketing an interior, so
+// naming one is a mistake answered with the operation that does apply to it.
+func applyReplaceContent(body string, e Edit, index int, syntax Syntax) (string, EditResult, error) {
+	if e.Selector == "" {
+		return "", EditResult{}, newError(CodeBadEdit, index,
+			"Supply \"selector\" naming the element whose content to replace. A heading section has no enclosing tags; use replace_section for one.",
+			"replace_content needs a \"selector\"")
+	}
+	sec, err := resolveRegion(body, syntax, e.region(), index)
+	if err != nil {
+		return "", EditResult{}, err
+	}
+	if !sec.hasInner {
+		return "", EditResult{}, newError(CodeBadEdit, index,
+			"The element is void or self-closing, so it has no interior to hold content. Give it an explicit end tag, or swap the whole element with replace_section.",
+			"selector %q resolved to an element with no interior", e.Selector)
+	}
+	return body[:sec.innerStart] + e.Text + body[sec.innerEnd:], EditResult{
+		Index:   index,
+		Op:      OpReplaceContent,
 		Matches: 1,
 		Line:    sec.Line,
 	}, nil

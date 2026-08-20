@@ -17,11 +17,18 @@ import (
 const (
 	CapabilityQuery  = "platform.query"
 	CapabilityExport = "platform.export"
+	// CapabilityPublishData replaces the data region of a portal document this
+	// script already publishes, and touches nothing else in it. It is separate
+	// from CapabilityExport, whose document arm composes whole documents,
+	// because the two describe different behavior a reader of the grant should
+	// be able to tell apart — not because the split confers or withholds any
+	// authority: a run carries its author's roles either way.
+	CapabilityPublishData = "platform.publish_data"
 )
 
 // Capabilities is the full host surface, in the order help, validate, and the
 // review surfaces report it.
-var Capabilities = []string{CapabilityQuery, CapabilityExport}
+var Capabilities = []string{CapabilityQuery, CapabilityExport, CapabilityPublishData}
 
 // Grants is the capability set bound to one approved version: the authority
 // the run presents, the connections it may reach, the host bindings it may

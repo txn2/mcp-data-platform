@@ -47,14 +47,22 @@ type Report struct {
 	Capabilities []string `json:"capabilities"`
 	Connections  []string `json:"connections"`
 	Destinations []string `json:"destinations"`
+	// RefreshTargets is the output names platform.publish_data refreshes, read
+	// literally from the calls, so a reviewer sees WHICH asset's data region a
+	// script rewrites — the name is not a granted axis, but it is the half of
+	// the claim "this script refreshes that dashboard" a grant alone cannot
+	// state.
+	RefreshTargets []string `json:"refresh_targets"`
 	// DynamicConnections is true when a platform.query call computes its
-	// connection instead of naming one literally, and DynamicDestinations when
-	// a platform.export call computes its destination, so the list in question
-	// is known to be incomplete. Reporting the gap is the point: a reviewer
-	// reading a list that silently omitted a computed name would be reading a
-	// false statement.
-	DynamicConnections  bool `json:"dynamic_connections"`
-	DynamicDestinations bool `json:"dynamic_destinations"`
+	// connection instead of naming one literally, DynamicDestinations when
+	// a platform.export call computes its destination, and DynamicRefreshTargets
+	// when a platform.publish_data call computes the name it refreshes, so the
+	// list in question is known to be incomplete. Reporting the gap is the
+	// point: a reviewer reading a list that silently omitted a computed name
+	// would be reading a false statement.
+	DynamicConnections    bool `json:"dynamic_connections"`
+	DynamicDestinations   bool `json:"dynamic_destinations"`
+	DynamicRefreshTargets bool `json:"dynamic_refresh_targets"`
 }
 
 // hasErrors reports whether any finding blocks execution.
@@ -68,7 +76,10 @@ func hasErrors(findings []Finding) bool {
 // specific correction, and the capability set is extracted for review — all
 // without a query running or a row moving.
 func Validate(source string) Report {
-	report := Report{Capabilities: []string{}, Connections: []string{}, Destinations: []string{}}
+	report := Report{
+		Capabilities: []string{}, Connections: []string{},
+		Destinations: []string{}, RefreshTargets: []string{},
+	}
 	findings := scanSource(source)
 
 	file, parseErr := fileOptions.Parse("script", source, 0)
@@ -83,8 +94,10 @@ func Validate(source string) Report {
 	findings = append(findings, found.findings...)
 	report.Capabilities, report.Connections = found.capabilities, found.connections
 	report.Destinations = found.destinations
+	report.RefreshTargets = found.refreshTargets
 	report.DynamicConnections = found.dynamicConnections
 	report.DynamicDestinations = found.dynamicDestinations
+	report.DynamicRefreshTargets = found.dynamicRefreshTargets
 
 	if _, resolveErr := starlark.FileProgram(file, isPredeclaredName); resolveErr != nil {
 		findings = append(findings, translate(resolveFindings(resolveErr))...)
@@ -308,22 +321,25 @@ func lineOf(source string, off int) int {
 // inspection is what one walk of a parsed file learns about what the script
 // would reach.
 type inspection struct {
-	capabilities        []string
-	connections         []string
-	destinations        []string
-	dynamicConnections  bool
-	dynamicDestinations bool
-	findings            []Finding
+	capabilities          []string
+	connections           []string
+	destinations          []string
+	refreshTargets        []string
+	dynamicConnections    bool
+	dynamicDestinations   bool
+	dynamicRefreshTargets bool
+	findings              []Finding
 }
 
 // inspect walks the parsed file for what the script would reach: which host
 // bindings it names, which connections it queries, and where it writes.
 func inspect(file *syntax.File) inspection {
 	var findings []Finding
-	var dynamicConnections, dynamicDestinations bool
+	var dynamicConnections, dynamicDestinations, dynamicRefreshTargets bool
 	capSet := map[string]bool{}
 	connSet := map[string]bool{}
 	destSet := map[string]bool{}
+	refreshSet := map[string]bool{}
 
 	syntax.Walk(file, func(n syntax.Node) bool {
 		call, ok := n.(*syntax.CallExpr)
@@ -343,7 +359,7 @@ func inspect(file *syntax.File) inspection {
 			findings = append(findings, Finding{
 				Severity: SeverityError, Line: int(dot.NamePos.Line),
 				Message: fmt.Sprintf("%s does not exist", name),
-				Hint:    "The platform module provides exactly " + strings.Join(Capabilities, " and ") + ".",
+				Hint:    "The platform module provides exactly " + strings.Join(Capabilities, ", ") + ".",
 			})
 			return true
 		}
@@ -360,18 +376,58 @@ func inspect(file *syntax.File) inspection {
 				break
 			}
 			collectExportDestination(call, destSet, &dynamicDestinations)
+		case CapabilityPublishData:
+			// A refresh writes to the portal and nowhere else, so the call
+			// contributes the portal to the destination diff a reviewer reads —
+			// and the grant check refuses an approval that does not cover it.
+			destSet[script.DestinationPortal] = true
+			collectRefreshTarget(call, refreshSet, &dynamicRefreshTargets)
 		}
 		return true
 	})
 
 	return inspection{
-		capabilities:        sortedNames(capSet),
-		connections:         sortedNames(connSet),
-		destinations:        sortedNames(destSet),
-		dynamicConnections:  dynamicConnections,
-		dynamicDestinations: dynamicDestinations,
-		findings:            findings,
+		capabilities:          sortedNames(capSet),
+		connections:           sortedNames(connSet),
+		destinations:          sortedNames(destSet),
+		refreshTargets:        sortedNames(refreshSet),
+		dynamicConnections:    dynamicConnections,
+		dynamicDestinations:   dynamicDestinations,
+		dynamicRefreshTargets: dynamicRefreshTargets,
+		findings:              findings,
 	}
+}
+
+// collectRefreshTarget records the output name one platform.publish_data call
+// refreshes, whether it was passed positionally or by keyword — the name is the
+// call's first argument either way — or marks the call as computing it.
+func collectRefreshTarget(call *syntax.CallExpr, into map[string]bool, dynamic *bool) {
+	if collectKeyword(call, "name", into, dynamic) {
+		return
+	}
+	for _, arg := range call.Args {
+		if isKeywordArg(arg) {
+			continue
+		}
+		if lit, ok := arg.(*syntax.Literal); ok {
+			if s, ok := lit.Value.(string); ok {
+				into[s] = true
+				return
+			}
+		}
+		*dynamic = true
+		return
+	}
+	// No name at all: the interpreter refuses the call as a missing argument,
+	// so there is nothing here to report.
+}
+
+// isKeywordArg reports whether one call argument is a keyword argument, which
+// the Starlark AST represents as a BinaryExpr with Op EQ. It is the one
+// spelling of that convention for every collector that walks call arguments.
+func isKeywordArg(arg syntax.Expr) bool {
+	bin, ok := arg.(*syntax.BinaryExpr)
+	return ok && bin.Op == syntax.EQ
 }
 
 // refusePositionalDestination reports a platform.export call that passes its
@@ -386,7 +442,7 @@ func inspect(file *syntax.File) inspection {
 func refusePositionalDestination(call *syntax.CallExpr, line int) (Finding, bool) {
 	positional := 0
 	for _, arg := range call.Args {
-		if bin, ok := arg.(*syntax.BinaryExpr); ok && bin.Op == syntax.EQ {
+		if isKeywordArg(arg) {
 			continue
 		}
 		positional++

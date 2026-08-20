@@ -170,6 +170,15 @@ func (d Destination) validatePortal() error {
 // address. Every part is required at approval rather than defaulted at write
 // time, because a default is a place nobody approved.
 func (d Destination) validateBucket() error {
+	// The name "portal" is reserved for the platform's own asset store. A
+	// bucket wearing it would make every surface that resolves destinations by
+	// name lie: an export naming no destination defaults to "portal", the
+	// reviewer's diff would say "portal" and mean a bucket, and a data-region
+	// refresh — which writes only portal documents — would resolve a grant that
+	// contains no portal destination at all.
+	if d.Name == DestinationPortal {
+		return fmt.Errorf("the destination name %q is reserved for the platform's own asset store; give the bucket destination its own name", DestinationPortal)
+	}
 	if d.Connection == "" {
 		return fmt.Errorf("destination %q must name the platform connection it writes over; a script never supplies one", d.Name)
 	}

@@ -41,6 +41,15 @@ type Section struct {
 	// start and end are the section's byte span in the body, end exclusive.
 	start int
 	end   int
+
+	// innerStart and innerEnd bracket a selector-addressed element's interior —
+	// just past its start tag to the '<' of its end tag. hasInner is true only
+	// when the element carries an explicit end tag, so there is an interior to
+	// address at all; a heading section and a void or self-closing element leave
+	// it false.
+	innerStart int
+	innerEnd   int
+	hasInner   bool
 }
 
 // Stats is the cheap metadata of a document: enough to decide whether to read

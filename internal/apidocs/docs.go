@@ -14852,7 +14852,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Parses Starlark for a script the caller owns and reports the capabilities, connections and destinations it would reach, plus any findings with the correction for each. Nothing is executed and nothing is stored. An empty source validates the script's saved code.",
+                "description": "Parses Starlark for a script the caller owns and reports the capabilities, connections and destinations it would reach and the output assets whose data region it refreshes, plus any findings with the correction for each. Nothing is executed and nothing is stored. An empty source validates the script's saved code.",
                 "consumes": [
                     "application/json"
                 ],
@@ -23599,6 +23599,11 @@ const docTemplate = `{
                     "type": "string",
                     "example": "sales_by_region"
                 },
+                "refresh": {
+                    "description": "Refresh marks a data-region refresh of an existing asset: the run\nreplaced one marked region rather than writing a whole document, and\nBytes is the spliced payload.",
+                    "type": "boolean",
+                    "example": false
+                },
                 "row_count": {
                     "type": "integer",
                     "example": 1420
@@ -23747,6 +23752,11 @@ const docTemplate = `{
                 "name": {
                     "type": "string",
                     "example": "daily_sales"
+                },
+                "refresh": {
+                    "description": "Refresh marks a platform.publish_data call: the run would have replaced\nthe data region of an existing asset, and Bytes is the payload it would\nhave spliced in.",
+                    "type": "boolean",
+                    "example": false
                 },
                 "row_count": {
                     "type": "integer",
@@ -23938,6 +23948,10 @@ const docTemplate = `{
                 },
                 "name": {
                     "type": "string"
+                },
+                "refresh": {
+                    "description": "Refresh marks a platform.publish_data write: the run replaced the data\nregion of an existing asset rather than writing a whole output, so Bytes\nis the payload spliced in, not the document.",
+                    "type": "boolean"
                 },
                 "row_count": {
                     "type": "integer"
@@ -24686,11 +24700,21 @@ const docTemplate = `{
                     }
                 },
                 "dynamic_connections": {
-                    "description": "DynamicConnections is true when at least one call computes its connection\ninstead of naming one, and DynamicDestinations when one computes its\ndestination. Either makes that list incomplete — and means the grant\ncannot be checked against the code by reading it.",
+                    "description": "DynamicConnections is true when at least one call computes its connection\ninstead of naming one, DynamicDestinations when one computes its\ndestination, and DynamicRefreshTargets when a publish_data call computes\nthe name it refreshes. Any of them makes that list incomplete — and means\nthe grant cannot be checked against the code by reading it.",
                     "type": "boolean"
                 },
                 "dynamic_destinations": {
                     "type": "boolean"
+                },
+                "dynamic_refresh_targets": {
+                    "type": "boolean"
+                },
+                "refresh_targets": {
+                    "description": "RefreshTargets are the output names platform.publish_data refreshes, so\nthe reviewer sees which asset's data region this script rewrites.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -24834,10 +24858,13 @@ const docTemplate = `{
                     }
                 },
                 "dynamic_connections": {
-                    "description": "DynamicConnections and DynamicDestinations report that a list above is\nknown to be incomplete because a call computes its target instead of\nnaming one. Reporting the gap is the point: a list that silently omitted\na computed name would be a false statement.",
+                    "description": "DynamicConnections, DynamicDestinations and DynamicRefreshTargets report\nthat a list above is known to be incomplete because a call computes its\ntarget instead of naming one. Reporting the gap is the point: a list that\nsilently omitted a computed name would be a false statement.",
                     "type": "boolean"
                 },
                 "dynamic_destinations": {
+                    "type": "boolean"
+                },
+                "dynamic_refresh_targets": {
                     "type": "boolean"
                 },
                 "findings": {
@@ -24853,6 +24880,13 @@ const docTemplate = `{
                 "ok": {
                     "type": "boolean",
                     "example": true
+                },
+                "refresh_targets": {
+                    "description": "RefreshTargets are the output names platform.publish_data refreshes, so\nthe author sees which asset's data region the edit rewrites.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },

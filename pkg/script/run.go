@@ -100,7 +100,11 @@ type RunOutput struct {
 	// serialized from rows, so a surface reporting the output does not describe
 	// a dashboard as a zero-row table.
 	Document bool `json:"document,omitempty"`
-	Bytes    int  `json:"bytes"`
+	// Refresh marks a platform.publish_data write: the run replaced the data
+	// region of an existing asset rather than writing a whole output, so Bytes
+	// is the payload spliced in, not the document.
+	Refresh bool `json:"refresh,omitempty"`
+	Bytes   int  `json:"bytes"`
 }
 
 // destinationOf reads a recorded output's destination, treating an unset one as

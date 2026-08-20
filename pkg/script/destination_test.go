@@ -144,6 +144,13 @@ func TestDestination_ValidateRefusesWhatCannotBeWritten(t *testing.T) {
 			script.Destination{Name: "assets", Kind: script.DestinationKindPortal},
 			`must be named "portal"`,
 		},
+		"a bucket wearing the portal name": {
+			script.Destination{
+				Name: "portal", Kind: script.DestinationKindS3,
+				Connection: "acme-s3", Bucket: "exports",
+			},
+			"reserved for the platform's own asset store",
+		},
 		"prefix over the limit": {
 			script.Destination{
 				Name: "drop", Kind: script.DestinationKindS3,

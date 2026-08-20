@@ -6,6 +6,7 @@ import type {
 import type { ScriptFinding } from "@/api/admin/types";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { dryRunOutputPhrase } from "./runFormat";
 
 // The two answers an author gets before asking anyone to approve an edit
 // (#1364): what the code would reach, and what happened when they ran it.
@@ -44,6 +45,9 @@ export function ValidationReport({
         <Reached label="Capabilities" values={report.capabilities} />
         <Reached label="Connections" values={report.connections} />
         <Reached label="Destinations" values={report.destinations} />
+        {(report.refresh_targets ?? []).length > 0 && (
+          <Reached label="Refreshes" values={report.refresh_targets ?? []} />
+        )}
       </dl>
 
       {report.note && <p className="text-xs text-muted-foreground">{report.note}</p>}
@@ -145,10 +149,7 @@ function DryRunOutputs({ result }: { result: ScriptDryRun }) {
       {result.outputs.map((o) => (
         <li key={`${o.name}-${o.destination ?? ""}`}>
           <span className="font-mono">{o.name}</span> would write{" "}
-          {o.document
-            ? `a ${o.format} document`
-            : `${o.row_count} row${o.row_count === 1 ? "" : "s"} as ${o.format}`}{" "}
-          ({o.bytes} bytes) to {o.destination || "the portal"}.
+          {dryRunOutputPhrase(o)}.
         </li>
       ))}
     </ul>

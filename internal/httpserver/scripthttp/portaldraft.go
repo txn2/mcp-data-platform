@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
@@ -62,12 +63,16 @@ type validateResponse struct {
 	Capabilities []string `json:"capabilities"`
 	Connections  []string `json:"connections"`
 	Destinations []string `json:"destinations"`
-	// DynamicConnections and DynamicDestinations report that a list above is
-	// known to be incomplete because a call computes its target instead of
-	// naming one. Reporting the gap is the point: a list that silently omitted
-	// a computed name would be a false statement.
-	DynamicConnections  bool `json:"dynamic_connections"`
-	DynamicDestinations bool `json:"dynamic_destinations"`
+	// RefreshTargets are the output names platform.publish_data refreshes, so
+	// the author sees which asset's data region the edit rewrites.
+	RefreshTargets []string `json:"refresh_targets"`
+	// DynamicConnections, DynamicDestinations and DynamicRefreshTargets report
+	// that a list above is known to be incomplete because a call computes its
+	// target instead of naming one. Reporting the gap is the point: a list that
+	// silently omitted a computed name would be a false statement.
+	DynamicConnections    bool `json:"dynamic_connections"`
+	DynamicDestinations   bool `json:"dynamic_destinations"`
+	DynamicRefreshTargets bool `json:"dynamic_refresh_targets"`
 	// Note states any such gap in the author's terms.
 	Note string `json:"note,omitempty"`
 }
@@ -75,7 +80,7 @@ type validateResponse struct {
 // portalValidateSource parses an edit and reports what it would reach.
 //
 // @Summary      Validate a script's source
-// @Description  Parses Starlark for a script the caller owns and reports the capabilities, connections and destinations it would reach, plus any findings with the correction for each. Nothing is executed and nothing is stored. An empty source validates the script's saved code.
+// @Description  Parses Starlark for a script the caller owns and reports the capabilities, connections and destinations it would reach and the output assets whose data region it refreshes, plus any findings with the correction for each. Nothing is executed and nothing is stored. An empty source validates the script's saved code.
 // @Tags         Scripts
 // @Accept       json
 // @Produce      json
@@ -99,14 +104,16 @@ func (h *Handler) portalValidateSource(w http.ResponseWriter, r *http.Request, u
 	}
 	report := scriptrun.Validate(sourceOr(req.Source, sc))
 	httpjson.WriteJSON(w, http.StatusOK, validateResponse{
-		OK:                  report.OK,
-		Findings:            report.Findings,
-		Capabilities:        report.Capabilities,
-		Connections:         report.Connections,
-		Destinations:        report.Destinations,
-		DynamicConnections:  report.DynamicConnections,
-		DynamicDestinations: report.DynamicDestinations,
-		Note:                incompleteNote(report),
+		OK:                    report.OK,
+		Findings:              report.Findings,
+		Capabilities:          report.Capabilities,
+		Connections:           report.Connections,
+		Destinations:          report.Destinations,
+		RefreshTargets:        report.RefreshTargets,
+		DynamicConnections:    report.DynamicConnections,
+		DynamicDestinations:   report.DynamicDestinations,
+		DynamicRefreshTargets: report.DynamicRefreshTargets,
+		Note:                  incompleteNote(report),
 	})
 }
 
@@ -223,18 +230,21 @@ func sourceOr(sent string, sc *script.Script) string {
 // incompleteNote states that a validate report's lists are known to be short,
 // which is the one thing an author reading them must not miss.
 func incompleteNote(report scriptrun.Report) string {
-	switch {
-	case report.DynamicConnections && report.DynamicDestinations:
-		return "At least one call computes its connection and at least one computes its destination, " +
-			"so both lists are incomplete."
-	case report.DynamicConnections:
-		return "At least one platform.query call computes its connection instead of naming one, " +
-			"so the connection list is incomplete."
-	case report.DynamicDestinations:
-		return "At least one platform.export call computes its destination instead of naming one, " +
-			"so the destination list is incomplete."
+	var gaps []string
+	if report.DynamicConnections {
+		gaps = append(gaps, "at least one platform.query call computes its connection instead of naming one, so the connection list is incomplete")
 	}
-	return ""
+	if report.DynamicDestinations {
+		gaps = append(gaps, "at least one platform.export call computes its destination instead of naming one, so the destination list is incomplete")
+	}
+	if report.DynamicRefreshTargets {
+		gaps = append(gaps, "at least one platform.publish_data call computes the output name it refreshes, so the refresh-target list is incomplete")
+	}
+	if len(gaps) == 0 {
+		return ""
+	}
+	note := strings.Join(gaps, "; and ")
+	return strings.ToUpper(note[:1]) + note[1:] + "."
 }
 
 // draftOutcome renders one executed draft.
@@ -282,7 +292,7 @@ func draftOutputs(outcome *scriptdraft.Outcome) []script.DryRunOutput {
 	for _, e := range outcome.Result.Exports {
 		out = append(out, script.DryRunOutput{
 			Name: e.Name, Destination: e.Destination, Format: e.Format,
-			RowCount: e.RowCount, Document: e.Document, Bytes: e.Bytes,
+			RowCount: e.RowCount, Document: e.Document, Refresh: e.Refresh, Bytes: e.Bytes,
 		})
 	}
 	return out

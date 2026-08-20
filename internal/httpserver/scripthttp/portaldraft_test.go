@@ -413,9 +413,14 @@ func TestIncompleteNote(t *testing.T) {
 			want:   "the destination list is incomplete",
 		},
 		{
-			name:   "both, named as both rather than as one of them",
+			name:   "both, each gap named rather than collapsed into one",
 			report: scriptrun.Report{DynamicConnections: true, DynamicDestinations: true},
-			want:   "both lists are incomplete",
+			want:   "the connection list is incomplete; and at least one platform.export",
+		},
+		{
+			name:   "a computed refresh target",
+			report: scriptrun.Report{DynamicRefreshTargets: true},
+			want:   "the refresh-target list is incomplete",
 		},
 	}
 	for _, tt := range tests {
