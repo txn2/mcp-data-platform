@@ -16,15 +16,11 @@ import (
 // reach. The source may be sent inline (validating an edit before saving it) or
 // resolved by name.
 func (h *Handle) handleValidate(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
-	source := input.Source
-	if source == "" {
-		sc, errResult := h.readable(ctx, input)
-		if errResult != nil {
-			return errResult, nil, nil
-		}
-		source = sc.Source
+	source, errResult := h.draftSource(ctx, input)
+	if errResult != nil {
+		return errResult, nil, nil
 	}
-	report := scriptrun.Validate(source)
+	report := scriptrun.WithDestinationCheck(scriptrun.Validate(source), h.destinations)
 	out := map[string]any{
 		"ok":                      report.OK,
 		"findings":                report.Findings,
@@ -65,7 +61,8 @@ func (h *Handle) handleValidate(ctx context.Context, input manageScriptInput) (*
 //
 // It is deliberately NOT a platform run: it persists nothing (platform.export
 // previews), it runs under tighter limits, and it executes the source as sent
-// rather than the saved version.
+// rather than the saved version. Sending no source runs the saved version,
+// which is how an author dry-runs a script they have not edited.
 func (h *Handle) handleRunDraft(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
 	sc, errResult := h.readable(ctx, input)
 	if errResult != nil {
@@ -74,6 +71,12 @@ func (h *Handle) handleRunDraft(ctx context.Context, input manageScriptInput) (*
 	if errResult := runnable(sc); errResult != nil {
 		return errResult, nil, nil
 	}
+	source := script.DraftSource(input.Source, sc)
+	if errResult := refuseDraftSource(source, h.destinations); errResult != nil {
+		return errResult, nil, nil
+	}
+	// Values bind against the LIVE record's contract, which is the contract the
+	// source being run was written against.
 	params, err := script.BindParams(sc.Params, input.Args)
 	if err != nil {
 		return errorResult(err.Error()), nil, nil
@@ -83,7 +86,7 @@ func (h *Handle) handleRunDraft(ctx context.Context, input manageScriptInput) (*
 		return errorResult(scriptdraft.ErrNoIdentity.Error()), nil, nil
 	}
 	outcome, err := scriptdraft.New(h.server, h.destinations).Run(ctx, scriptdraft.Request{
-		Source: sc.Source, Name: sc.Name, Params: params,
+		Source: source, Name: sc.Name, Params: params,
 		Identity: scriptdraft.Identity{
 			UserID: pc.UserID, Email: pc.UserEmail, Claims: pc.UserClaims,
 			Roles: pc.Roles, AuthType: pc.AuthType,
@@ -93,6 +96,38 @@ func (h *Handle) handleRunDraft(ctx context.Context, input manageScriptInput) (*
 		return errorResult(err.Error()), nil, nil
 	}
 	return jsonResult(draftResult(sc, outcome))
+}
+
+// draftSource resolves the source a validate acts on: the edit when one was
+// sent, and the stored code otherwise. A name is only read when no source came
+// with the call, so validating an inline edit needs no stored script.
+func (h *Handle) draftSource(ctx context.Context, input manageScriptInput) (string, *mcp.CallToolResult) {
+	if input.Source != "" {
+		return input.Source, nil
+	}
+	sc, errResult := h.readable(ctx, input)
+	if errResult != nil {
+		return "", errResult
+	}
+	return sc.Source, nil
+}
+
+// refuseDraftSource applies the static read before a draft executes, so a draft
+// refuses what the rest of the surface refuses: a source that cannot parse, one
+// carrying an inline credential, and one naming a destination this deployment
+// does not declare. Without it a draft run would be the one way to execute
+// source every other path rejects, and the destination refusal would arrive
+// only after the script's queries had run (#1415).
+func refuseDraftSource(source string, destinations []script.Destination) *mcp.CallToolResult {
+	report := scriptrun.WithDestinationCheck(scriptrun.Validate(source), destinations)
+	if report.OK {
+		return nil
+	}
+	detail := "the source does not pass validation, so it was not run"
+	if len(report.Findings) > 0 {
+		detail += ": " + report.Findings[0].Message
+	}
+	return errorResult(detail)
 }
 
 // runnable refuses a draft run of a script that has been taken out of service,

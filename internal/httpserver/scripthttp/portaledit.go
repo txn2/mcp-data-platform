@@ -85,6 +85,12 @@ func (h *Handler) portalSetSource(w http.ResponseWriter, r *http.Request, user *
 // edit: source that does not parse is refused here rather than at the next run,
 // where nobody is watching. The detail names the first finding, which is what a
 // person needs to fix it.
+//
+// A save is deliberately NOT checked against the deployment's declared
+// destinations: the declared set is configuration that changes under a stored
+// script, and refusing the save would take away the edit that fixes it. The
+// dry-run path checks it (refuseDraftSource), because that is the surface
+// answering "would this run".
 func refuseSource(source string) string {
 	if report := scriptrun.Validate(source); !report.OK {
 		detail := "the source does not parse, so it was not saved"
@@ -94,6 +100,22 @@ func refuseSource(source string) string {
 		return detail
 	}
 	return ""
+}
+
+// refuseDraftSource is the same static read before a DRAFT executes, plus the
+// destination check: a dry run is the surface that answers whether a script
+// would run here, so a destination this deployment does not declare is
+// reported before the queries execute rather than after (#1415).
+func refuseDraftSource(source string, destinations []script.Destination) string {
+	report := scriptrun.WithDestinationCheck(scriptrun.Validate(source), destinations)
+	if report.OK {
+		return ""
+	}
+	detail := "the source does not pass validation, so it was not run"
+	if len(report.Findings) > 0 {
+		return detail + ": " + report.Findings[0].Message
+	}
+	return detail
 }
 
 // applyEdit puts the edit through script.ApplyEdit — the one gate every mutation

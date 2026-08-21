@@ -280,7 +280,8 @@ func TestPortalDryRunSource_RefusesSourceThatDoesNotParse(t *testing.T) {
 	rec := servePortalRequest(t, deps, http.MethodPost, dryRunPath, draftBody("def f(:\n"))
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "does not parse")
+	assert.Contains(t, rec.Body.String(), "was not run")
+	assert.Contains(t, rec.Body.String(), "want ')'", "the refusal carries the parser's own finding")
 	assert.Empty(t, runner.got.Source)
 }
 
@@ -456,4 +457,62 @@ func TestPortalDryRunSource_AnswersBusyAsRetryableRatherThanBroken(t *testing.T)
 
 	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
 	assert.Contains(t, rec.Body.String(), "try again")
+}
+
+// bucketExportSource names a bucket destination, which only a deployment that
+// declares one can serve.
+const bucketExportSource = "platform.export(\"top-stores\", [], \"csv\", destination=\"drop\", key=\"top.csv\")\n"
+
+// TestPortalValidateSource_RefusesAnUndeclaredDestination is #1415 on the
+// editor: an author pressing Validate has to learn that this deployment cannot
+// serve the destination the script names, rather than finding out from a failed
+// run after the queries have executed.
+func TestPortalValidateSource_RefusesAnUndeclaredDestination(t *testing.T) {
+	deps, _, _ := draftDeps(portalStore(), carol)
+	rec := servePortalRequest(t, deps, http.MethodPost, validatePath, draftBody(bucketExportSource))
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var body validateResponse
+	decodeInto(t, rec, &body)
+	assert.False(t, body.OK)
+	require.Len(t, body.Findings, 1)
+	assert.Contains(t, body.Findings[0].Message, `destination "drop" is not configured`)
+}
+
+// TestPortalValidateSource_AcceptsADeclaredDestination is the same source on the
+// deployment that declares it: the check must not be stricter than the run.
+func TestPortalValidateSource_AcceptsADeclaredDestination(t *testing.T) {
+	deps, _, _ := draftDeps(portalStore(), carol)
+	deps.Destinations = []script.Destination{{
+		Name: "drop", Kind: script.DestinationKindS3,
+		Connection: "acme-s3", Bucket: "acme-exports",
+	}}
+	rec := servePortalRequest(t, deps, http.MethodPost, validatePath, draftBody(bucketExportSource))
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var body validateResponse
+	decodeInto(t, rec, &body)
+	assert.True(t, body.OK)
+	assert.Contains(t, body.Destinations, "drop")
+}
+
+// TestPortalDryRunSource_RefusesAnUndeclaredDestination puts the same answer in
+// front of the interpreter, so nothing runs on the way to a known refusal.
+func TestPortalDryRunSource_RefusesAnUndeclaredDestination(t *testing.T) {
+	deps, runner, _ := draftDeps(portalStore(), carol)
+	rec := servePortalRequest(t, deps, http.MethodPost, dryRunPath, draftBody(bucketExportSource))
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), `destination \"drop\" is not configured`)
+	assert.Empty(t, runner.got.Source, "nothing should have been executed")
+}
+
+// TestPortalEditSource_AcceptsAnUndeclaredDestination states the deliberate
+// asymmetry: the declared set is configuration that changes under a stored
+// script, so refusing the SAVE would take away the edit that fixes it. Only the
+// surfaces answering "would this run" check it.
+func TestPortalEditSource_AcceptsAnUndeclaredDestination(t *testing.T) {
+	assert.Empty(t, refuseSource(bucketExportSource),
+		"a save reads the source, not the deployment's destination configuration")
+	assert.NotEmpty(t, refuseDraftSource(bucketExportSource, nil))
 }

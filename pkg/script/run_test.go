@@ -155,3 +155,28 @@ func TestRefuseDraftRun(t *testing.T) {
 		})
 	}
 }
+
+// TestDraftSource is the rule both draft surfaces read. The first case is
+// #1413: the tool arm ignored the source it was given and ran the stored
+// version, so an author iterating over MCP was shown a log their edit never
+// produced.
+func TestDraftSource(t *testing.T) {
+	stored := &script.Script{Source: "print(\"saved\")\n"}
+	tests := []struct {
+		name string
+		sent string
+		sc   *script.Script
+		want string
+	}{
+		{"an edit is what runs", "print(\"submitted\")\n", stored, "print(\"submitted\")\n"},
+		{"no edit runs the stored version", "", stored, "print(\"saved\")\n"},
+		{"whitespace is source, not absence", " ", stored, " "},
+		{"no edit and no record is empty", "", nil, ""},
+		{"an edit needs no record", "print(1)\n", nil, "print(1)\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, script.DraftSource(tt.sent, tt.sc))
+		})
+	}
+}

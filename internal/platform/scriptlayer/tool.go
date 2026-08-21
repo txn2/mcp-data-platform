@@ -258,8 +258,11 @@ func manageScriptSchema() any {
 				"file the script under nothing.",
 		},
 		fieldSource: map[string]any{
-			keyType:        valString,
-			keyDescription: "The Starlark source. Call 'help' for the dialect contract and worked examples.",
+			keyType: valString,
+			keyDescription: "The Starlark source. Call 'help' for the dialect contract and worked examples. " +
+				"validate and run_draft act on this source when it is sent and on the script's saved " +
+				"version when it is not, which is how an edit is checked and executed before it becomes " +
+				"the version run_script and a schedule execute.",
 		},
 		"params": map[string]any{
 			keyType: valArray,

@@ -215,6 +215,9 @@ func scriptDeps(p *platform.Platform) (scripthttp.Deps, bool) {
 		DryRuns:    store,
 		Contracts:  store,
 		LatestRuns: store,
+		// The same declared set the run worker and the tool arm resolve
+		// against, so all three answer one question about a destination.
+		Destinations: p.Config().Scripts.ScriptDestinations(),
 	}
 	if auditStore := p.Audit().Store(); auditStore != nil {
 		deps.Audit = auditStore

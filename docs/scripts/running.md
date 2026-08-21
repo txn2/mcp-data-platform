@@ -276,6 +276,15 @@ nothing. Where a list is known to be incomplete — a `platform.query` call that
 computes its connection rather than naming one — the report says so, because a
 list that silently omitted a computed name would be a false statement.
 
+Validate also checks each destination the source names literally against the
+set this deployment declares, and reports the ones it cannot serve in the
+words the run itself would use. Destinations are resolved by name at run time,
+so the declared set changes underneath a stored script with no script edit;
+validate is where an operator finds the affected scripts without running each
+one. A destination the source computes is not readable from the source and is
+reported by `dynamic_destinations` instead. A save is deliberately not checked
+this way: refusing it would take away the edit that fixes the script.
+
 **Dry run** (`POST /api/v1/portal/scripts/{id}/dry-run`) executes the edit
 under the author's own identity and persona, with the draft limits, persisting
 nothing: `platform.export` reports the shape and size of each output instead of
@@ -283,6 +292,14 @@ writing it, no asset is versioned, and no object is delivered. It is the same
 execution `manage_script command=run_draft` performs, through one
 implementation (`internal/platform/scriptdraft`), so neither surface can drift
 from the other.
+
+Both surfaces execute the source sent with the call, which is the whole point:
+a save is immediately the version `run_script` executes and a schedule fires,
+so a dry run is the only way to try a change without making it live. Sending no
+source runs the saved version, which is how a script nobody has edited is
+dry-run. The static read runs first either way, so a source that cannot parse,
+one carrying an inline credential, or one naming an undeclared destination is
+refused before the interpreter starts.
 
 Neither introduces authority. A dry run is the caller's own session: it is
 authenticated, authorized, rate limited and audited exactly as the same calls
