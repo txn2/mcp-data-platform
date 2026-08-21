@@ -214,33 +214,114 @@ func TestRun_QueryFailuresSurfaceToTheScript(t *testing.T) {
 	assert.Contains(t, err.Error(), "not available")
 }
 
-// TestRun_WriteSQLIsRefusedInTheScriptSurfaceVocabulary pins #1356: the query
-// tool refuses a write with advice to call trino_execute, and neither that tool
-// nor trino_query exists inside a script. The refusal names what an author can
-// actually reach.
-func TestRun_WriteSQLIsRefusedInTheScriptSurfaceVocabulary(t *testing.T) {
-	writes := []string{
-		`platform.query(sql="DELETE FROM sales WHERE day = '2026-08-18'")`,
-		`platform.query(sql="INSERT INTO sales VALUES (1)")`,
-		`platform.query(sql="CREATE TABLE t AS SELECT 1")`,
-	}
-	for _, source := range writes {
-		caller := &recordingCaller{}
-		_, err := execute(t, source, caller, nil)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "platform.query is read-only")
-		assert.Contains(t, err.Error(), "platform.export")
-		assert.NotContains(t, err.Error(), "trino_query")
-		assert.NotContains(t, err.Error(), "trino_execute")
-		assert.Empty(t, caller.calls, "the refusal precedes the tool call")
-	}
+// TestRun_WriteSQLReachesTheQueryToolThatRefusesIt pins the removal of the
+// script-layer write refusal (#1419). platform.query is trino_query, and
+// trino_query is what says a write goes to trino_execute — advice that now
+// leads somewhere, because platform.call reaches trino_execute. A second
+// definition of what a write is, in front of a tool that already has one,
+// would be a definition that can come to disagree.
+func TestRun_WriteSQLReachesTheQueryToolThatRefusesIt(t *testing.T) {
+	caller := &recordingCaller{err: errors.New("trino_query is read-only; use trino_execute for writes")}
+	_, err := execute(t, `platform.query(sql="INSERT INTO sales VALUES (1)")`, caller, nil)
 
-	// The refusal is exactly the query tool's own predicate, so a SELECT that
-	// merely mentions one of those words is not caught by it.
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "trino_execute",
+		"the tool's own refusal reaches the author, naming the tool platform.call can invoke")
+	require.Len(t, caller.calls, 1, "the statement is the query tool's to refuse, so it reaches it")
+	assert.Equal(t, toolQuery, caller.calls[0].name)
+	assert.Equal(t, "INSERT INTO sales VALUES (1)", caller.calls[0].args["sql"])
+}
+
+// TestRun_CallInvokesAnyToolByName is the whole of #1419: the mechanism under
+// every host binding takes a tool name, and platform.call is that mechanism
+// with the name left to the author.
+func TestRun_CallInvokesAnyToolByName(t *testing.T) {
 	caller := &recordingCaller{}
-	_, err := execute(t, `platform.query(sql="SELECT deleted FROM sales")`, caller, nil)
+	result, err := execute(t, `
+res = platform.call("trino_execute", {"connection": "acme", "sql": "INSERT INTO t VALUES (1)"})
+print(res["rows"][0]["region"])
+`, caller, nil)
+
 	require.NoError(t, err)
-	assert.Len(t, caller.calls, 1)
+	assert.Equal(t, "west\n", result.Log)
+	require.Len(t, caller.calls, 1)
+	assert.Equal(t, "trino_execute", caller.calls[0].name)
+	assert.Equal(t, map[string]any{"connection": "acme", "sql": "INSERT INTO t VALUES (1)"}, caller.calls[0].args)
+	assert.Zero(t, result.Queries, "a generic call is not a platform.query, and the query count says so")
+}
+
+// TestRun_CallPassesArgumentsThroughUnchanged covers the shapes a tool argument
+// set actually takes: nested structure, numbers, and a keyword args=.
+func TestRun_CallPassesArgumentsThroughUnchanged(t *testing.T) {
+	caller := &recordingCaller{}
+	_, err := execute(t, `
+platform.call(tool="api_invoke_endpoint", args={
+    "connection": "util",
+    "operation_id": "fetch_url",
+    "body": {"url": "https://example.com/forecast", "retries": 2},
+})
+platform.call("show_scripts")
+`, caller, nil)
+
+	require.NoError(t, err)
+	require.Len(t, caller.calls, 2)
+	assert.Equal(t, map[string]any{
+		"connection":   "util",
+		"operation_id": "fetch_url",
+		"body":         map[string]any{"url": "https://example.com/forecast", "retries": int64(2)},
+	}, caller.calls[0].args)
+	assert.Equal(t, "show_scripts", caller.calls[1].name)
+	assert.Empty(t, caller.calls[1].args, "a tool taking no arguments is called with an empty set, never nil")
+}
+
+// TestRun_CallSurfacesTheToolsOwnRefusal is the authorization contract at the
+// engine seam: there is no allowlist here, so what a script may call is
+// whatever the middleware admits, and a refusal arrives in the middleware's
+// own words.
+func TestRun_CallSurfacesTheToolsOwnRefusal(t *testing.T) {
+	caller := &recordingCaller{err: errors.New("access denied: tool trino_execute is not available to persona analyst")}
+	_, err := execute(t, `platform.call("trino_execute", {"sql": "DROP TABLE t"})`, caller, nil)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not available to persona analyst")
+	assert.Len(t, caller.calls, 1, "the engine issues the call and lets the middleware decide")
+}
+
+// TestRun_CallRefusalsAnAuthorCanAct is the argument contract, which the engine
+// answers for rather than sending an empty tool name at the server.
+func TestRun_CallRefusalsAnAuthorCanAct(t *testing.T) {
+	caller := &recordingCaller{}
+	_, err := execute(t, `platform.call("")`, caller, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tool is empty")
+	assert.Empty(t, caller.calls)
+
+	_, err = execute(t, `platform.call("trino_execute", {1: "x"})`, caller, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "dict keys must be strings")
+	assert.Empty(t, caller.calls)
+
+	// With no caller wired the binding exists and refuses, rather than being
+	// absent and producing a confusing "undefined" error.
+	_, err = execute(t, `platform.call("trino_execute")`, nil, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not available")
+}
+
+// TestRun_CallResultIsCapped applies the query binding's byte cap to the open
+// binding, because the heap is the one resource this interpreter cannot bound
+// and a generic call can ask any tool for any amount.
+func TestRun_CallResultIsCapped(t *testing.T) {
+	rows := make([]any, 0, 4000)
+	for i := range 4000 {
+		rows = append(rows, map[string]any{"id": i, "blob": strings.Repeat("x", 512)})
+	}
+	_, err := Run(context.Background(), Options{
+		Source: `platform.call("s3_list_objects", {"connection": "acme"})`, Name: "test", RunID: "run_1",
+		FireTime: fireTime, Caller: &recordingCaller{rows: rows}, MaxResultBytes: 1 << 16,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "byte cap")
 }
 
 func TestRun_ExportRecordsAndValidates(t *testing.T) {

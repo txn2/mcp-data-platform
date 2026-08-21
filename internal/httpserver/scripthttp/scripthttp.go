@@ -211,9 +211,14 @@ type versionDetailResponse struct {
 type referenced struct {
 	Capabilities []string `json:"capabilities"`
 	Connections  []string `json:"connections"`
-	// Destinations are the destination names the source writes to, with the
-	// portal counted for any export that names none, because that is where such
-	// an export lands.
+	// Tools are the tool names the source passes to platform.call literally.
+	// The persona filter decides what a run MAY call; this is what this version
+	// DOES call (#1419).
+	Tools []string `json:"tools"`
+	// Destinations are where this version's OUTPUTS go: the names
+	// platform.export writes to, with the portal counted for any export that
+	// names none. It is not every byte the script can move — a write made
+	// through platform.call is read in Tools instead.
 	Destinations []string `json:"destinations"`
 	// RefreshTargets are the output names platform.publish_data refreshes, so
 	// a reader sees which asset's data region this script rewrites.
@@ -225,6 +230,10 @@ type referenced struct {
 	DynamicConnections    bool `json:"dynamic_connections"`
 	DynamicDestinations   bool `json:"dynamic_destinations"`
 	DynamicRefreshTargets bool `json:"dynamic_refresh_targets"`
+	// DynamicTools is true when a platform.call computes the tool it invokes,
+	// which shortens the tool list. A computed argument set shortens the
+	// connection list instead.
+	DynamicTools bool `json:"dynamic_tools"`
 }
 
 // getVersion returns one version with what its source reaches.
@@ -252,11 +261,13 @@ func (h *Handler) getVersion(w http.ResponseWriter, r *http.Request) {
 		Referenced: referenced{
 			Capabilities:          report.Capabilities,
 			Connections:           report.Connections,
+			Tools:                 report.Tools,
 			Destinations:          report.Destinations,
 			RefreshTargets:        report.RefreshTargets,
 			DynamicConnections:    report.DynamicConnections,
 			DynamicDestinations:   report.DynamicDestinations,
 			DynamicRefreshTargets: report.DynamicRefreshTargets,
+			DynamicTools:          report.DynamicTools,
 		},
 		Findings: report.Findings,
 		DryRun:   h.dryRunFor(r, sc.ID, v.Source),

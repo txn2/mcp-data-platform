@@ -416,10 +416,11 @@ func (t *Toolkit) canEditAsset(ctx context.Context, id string) bool {
 	if err != nil || a == nil || a.DeletedAt != nil {
 		return false
 	}
-	if a.OwnerID == resolveOwnerID(ctx) {
+	if ownsResource(ctx, a.OwnerID, a.OwnerEmail) {
 		return true
 	}
-	share, err := t.shareStore.GetActiveShareForTarget(ctx, threadTargetAsset, id, resolveOwnerID(ctx), resolveOwnerEmail(ctx))
+	shareID, shareEmail := shareIdentity(ctx)
+	share, err := t.shareStore.GetActiveShareForTarget(ctx, threadTargetAsset, id, shareID, shareEmail)
 	return err == nil && share != nil && share.Permission == portal.PermissionEditor
 }
 
@@ -433,10 +434,11 @@ func (t *Toolkit) canEditCollection(ctx context.Context, id string) bool {
 	if err != nil || c == nil || c.DeletedAt != nil {
 		return false
 	}
-	if c.OwnerID == resolveOwnerID(ctx) {
+	if ownsResource(ctx, c.OwnerID, c.OwnerEmail) {
 		return true
 	}
-	perm, _ := t.shareStore.GetUserCollectionPermission(ctx, id, resolveOwnerID(ctx), resolveOwnerEmail(ctx))
+	shareID, shareEmail := shareIdentity(ctx)
+	perm, _ := t.shareStore.GetUserCollectionPermission(ctx, id, shareID, shareEmail)
 	return perm == portal.PermissionEditor
 }
 

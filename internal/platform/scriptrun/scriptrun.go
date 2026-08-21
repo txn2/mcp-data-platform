@@ -6,9 +6,12 @@
 // the LANGUAGE rather than of a blocklist the platform has to maintain: the
 // language has no ambient clock, randomness, filesystem, or network, iteration
 // order is specified, and unbounded loops and recursion are off by default. A
-// script can only affect the world through bindings this package chooses to
-// predeclare, which is why the surface here is small and enumerable — an
-// enumerable surface is what makes a capability review meaningful.
+// script can only affect the world through bindings this package predeclares,
+// and every one of them is one ordinary platform tool call: platform.call names
+// the tool, and the three named helpers are that call with a constant and some
+// behavior worth a name. What a script may reach is what its author's persona
+// authorizes, at every call, at run time; what a READER can enumerate is what
+// Validate reads out of the source.
 //
 // The determinism contract this engine supports, stated exactly:
 //
@@ -21,8 +24,12 @@
 // script carry no semantic enrichment (which varies with catalog state).
 //
 // Resource limits, honestly: starlark-go bounds CPU with an execution-step
-// limit and wall-clock through thread cancellation, and this package adds hard
-// row and byte caps on every host result plus bounded log capture. Neither
+// limit and wall-clock through thread cancellation, and this package adds a
+// hard byte cap on every host result plus bounded log capture. The ROW cap and
+// its push-down into the query belong to platform.query, which is the reason
+// that helper exists: a script that calls the query tool through platform.call
+// is handed the tool's own result, its truncation flag included, and reads it
+// itself. Neither
 // starlark-go nor any comparable embedded interpreter offers a hard MEMORY cap,
 // so a pathological script can still grow the process heap. That residual risk
 // is recorded in docs/scripts/security.md rather than papered over.
@@ -436,9 +443,10 @@ func predeclared(host *hostState) starlark.StringDict {
 		"platform": &starlarkstruct.Module{
 			Name: "platform",
 			Members: starlark.StringDict{
-				"query":        starlark.NewBuiltin("platform.query", host.query),
-				"export":       starlark.NewBuiltin("platform.export", host.export),
-				"publish_data": starlark.NewBuiltin("platform.publish_data", host.publishData),
+				"query":        starlark.NewBuiltin(CapabilityQuery, host.query),
+				"export":       starlark.NewBuiltin(CapabilityExport, host.export),
+				"publish_data": starlark.NewBuiltin(CapabilityPublishData, host.publishData),
+				"call":         starlark.NewBuiltin(CapabilityCall, host.call),
 			},
 		},
 		"json":         json.Module,

@@ -114,7 +114,7 @@ func (t *Toolkit) handlePatch(ctx context.Context, input manageAssetInput) (*mcp
 	if errResult != nil {
 		return errResult, nil, nil
 	}
-	if !t.isAdmin(ctx) && asset.OwnerID != resolveOwnerID(ctx) {
+	if !t.isAdmin(ctx) && !ownsResource(ctx, asset.OwnerID, asset.OwnerEmail) {
 		return middleware.UnauthorizedResult("you can only patch your own assets",
 			"Ask the owner to apply the change, or save your own copy with save_asset."), nil, nil
 	}
@@ -306,14 +306,26 @@ func (t *Toolkit) loadReadableAsset(ctx context.Context, assetID string) (*porta
 // grant on it, directly or through a collection. Read access is deliberately
 // wider than the owner-only write checks: a viewer share is enough to read.
 // An admin is unrestricted by design and reads any asset.
+//
+// Ownership is ownsResource's, so a managed-script run reads what its author
+// owns. Reading it here matters as much as the write check does: every write
+// path loads the asset through this gate first, so an id-only check would
+// refuse a script at the read and the ownership check below would never be
+// reached (#1419).
+//
+// Shares are NOT inherited: the lookup below is keyed on shareIdentity, which
+// carries no address for a run, so a share addressed to a person admits that
+// person and not their scripts. A run therefore reaches what its author OWNS,
+// which is narrower than what its author can read, and deliberately so — a
+// grant made to a person is not a grant to everything that person automates.
 func (t *Toolkit) canReadAsset(ctx context.Context, asset *portal.Asset) bool {
 	if t.isAdmin(ctx) {
 		return true
 	}
-	userID, email := resolveOwnerID(ctx), resolveOwnerEmail(ctx)
-	if asset.OwnerID == userID {
+	if ownsResource(ctx, asset.OwnerID, asset.OwnerEmail) {
 		return true
 	}
+	userID, email := shareIdentity(ctx)
 	if t.shareStore == nil {
 		return false
 	}

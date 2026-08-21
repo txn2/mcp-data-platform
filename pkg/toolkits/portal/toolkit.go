@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -708,8 +709,7 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageAssetInput) (*mc
 		return middleware.NotFoundResult("asset not found: "+err.Error(), assetNotFoundHint), nil, nil
 	}
 
-	ownerID := resolveOwnerID(ctx)
-	if !t.isAdmin(ctx) && asset.OwnerID != ownerID {
+	if !t.isAdmin(ctx) && !ownsResource(ctx, asset.OwnerID, asset.OwnerEmail) {
 		return toolkit.ErrorResult("you can only update your own assets"), nil, nil
 	}
 
@@ -867,8 +867,7 @@ func (t *Toolkit) handleDelete(ctx context.Context, input manageAssetInput) (*mc
 		return middleware.NotFoundResult("asset not found: "+err.Error(), assetNotFoundHint), nil, nil
 	}
 
-	ownerID := resolveOwnerID(ctx)
-	if !t.isAdmin(ctx) && asset.OwnerID != ownerID {
+	if !t.isAdmin(ctx) && !ownsResource(ctx, asset.OwnerID, asset.OwnerEmail) {
 		return toolkit.ErrorResult("you can only delete your own assets"), nil, nil
 	}
 
@@ -914,8 +913,7 @@ func (t *Toolkit) handleRevert(ctx context.Context, input manageAssetInput) (*mc
 		return middleware.NotFoundResult("asset not found: "+err.Error(), assetNotFoundHint), nil, nil
 	}
 
-	ownerID := resolveOwnerID(ctx)
-	if !t.isAdmin(ctx) && asset.OwnerID != ownerID {
+	if !t.isAdmin(ctx) && !ownsResource(ctx, asset.OwnerID, asset.OwnerEmail) {
 		return toolkit.ErrorResult("you can only revert your own assets"), nil, nil
 	}
 
@@ -991,6 +989,53 @@ func resolveOwnerID(ctx context.Context) string {
 		return pc.UserID
 	}
 	return anonymousUserName
+}
+
+// ownsResource reports whether the caller owns a resource, judged on the
+// identity the call actually carries.
+//
+// A person is matched on user id, which is what every human caller has. A
+// managed-script run is matched on the address it acts for: it authenticates as
+// script:<name>, a principal that owns nothing a person owns, so an id-only
+// check refuses a script the very assets its own author can edit. That refusal
+// is not the persona filter's, and a feature whose rule is that a script
+// reaches what its author reaches cannot have one (#1419).
+//
+// It grants nothing new. The address is the version author's, captured from an
+// authenticated context at the save exactly as the run's roles are, so the run
+// reaches what that person reaches and nothing else. Both sides must be
+// non-empty: a version with no recorded author must never match a resource with
+// no recorded owner, because absence of an identity is not a shared one.
+func ownsResource(ctx context.Context, ownerID, ownerEmail string) bool {
+	if ownerID != "" && ownerID == resolveOwnerID(ctx) {
+		return true
+	}
+	pc := middleware.GetPlatformContext(ctx)
+	if pc == nil || pc.OnBehalfOfEmail == "" || ownerEmail == "" {
+		return false
+	}
+	return strings.EqualFold(ownerEmail, pc.OnBehalfOfEmail)
+}
+
+// shareIdentity is the (id, address) pair a SHARE lookup is keyed on.
+//
+// It is the caller's own identity, and for a managed-script run that means no
+// address at all. A run's UserEmail is its script's OWNER — carried for
+// accountability, so audit names a person beside the principal — and matching
+// a share on it would hand every run of that script everything anybody had
+// shared with its owner, silently and by email. A grant addressed to a person
+// is a grant to that person, not to everything they automate, and it is not
+// ownership: a run reaches what its author OWNS (ownsResource), which is the
+// narrower and stated rule (#1419).
+//
+// Ownership is unaffected — ownsResource is consulted before this — so a script
+// still reaches its author's own assets.
+func shareIdentity(ctx context.Context) (userID, email string) {
+	pc := middleware.GetPlatformContext(ctx)
+	if pc != nil && pc.Source == middleware.SourceScript {
+		return resolveOwnerID(ctx), ""
+	}
+	return resolveOwnerID(ctx), resolveOwnerEmail(ctx)
 }
 
 // resolveOwnerEmail returns the authenticated user's email from the context,

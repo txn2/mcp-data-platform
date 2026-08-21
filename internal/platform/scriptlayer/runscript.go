@@ -71,6 +71,9 @@ func (h *Handle) registerRunScript(server *mcp.Server) {
 // asked for here or fired by a schedule, and there is exactly one path into
 // execution to govern.
 func (h *Handle) handleRunScript(ctx context.Context, input runScriptInput) (*mcp.CallToolResult, any, error) {
+	if errResult := refuseReentrantRun(ctx, ToolNameRunScript); errResult != nil {
+		return errResult, nil, nil
+	}
 	sc, errResult := h.readable(ctx, manageScriptInput{Name: input.Name, OwnerEmail: input.OwnerEmail})
 	if errResult != nil {
 		return errResult, nil, nil

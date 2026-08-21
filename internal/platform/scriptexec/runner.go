@@ -120,7 +120,7 @@ func attemptFrom(result *scriptrun.Result, runErr error) attempt {
 //   - the session: the run id itself, threaded on so all of a run's calls share
 //     one session id in audit and none of them touch the owner's own discovery
 //     or gate state.
-func (r *runner) connect(ctx context.Context, run *script.Run, sc *script.Script, v *script.Version) (*scriptrun.SessionCaller, func(), error) {
+func (r *runner) connect(ctx context.Context, run *script.Run, sc *script.Script, v *script.Version) (scriptrun.Caller, func(), error) {
 	serverCtx := middleware.WithSource(ctx, middleware.SourceScript)
 	serverCtx = pkgsession.WithAwareSessionID(serverCtx, run.ID)
 	serverCtx = middleware.WithPreAuthenticatedUser(serverCtx, &middleware.UserInfo{
@@ -128,6 +128,19 @@ func (r *runner) connect(ctx context.Context, run *script.Run, sc *script.Script
 		Email:    sc.OwnerEmail,
 		Roles:    v.AuthorRoles,
 		AuthType: middleware.AuthTypeScript,
+		// The AUTHOR, not the owner: the run presents the author's roles, so
+		// ownership must follow the same person or a run would combine one
+		// person's authority with another's ownership — a pairing neither of
+		// them has.
+		//
+		// The two are frequently different people. A transfer writes the new
+		// version authored by the transferring ADMINISTRATOR while the owner
+		// becomes somebody else, so a run of it then presents that
+		// administrator's roles and acts for them, and the new owner is merely
+		// who may trigger it. That is the save's widening, recorded in the
+		// version history, not this binding's: roles resolving to the admin
+		// persona already reach every asset through each check's admin arm.
+		OnBehalfOf: v.Author,
 	})
 	caller, cleanup, err := scriptrun.Connect(serverCtx, r.server, "script-run")
 	if err != nil {

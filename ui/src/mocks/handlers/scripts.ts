@@ -20,6 +20,17 @@ function referencedIn(source: string, candidates: string[]): string[] {
   return candidates.filter((name) => source.includes(name));
 }
 
+// calledTools is the mock's stand-in for the tool names the server reads out of
+// platform.call. Like referencedIn it is a demo aid, not a parser.
+const CALL_TOOL_RE = /platform\.call\(\s*(?:tool\s*=\s*)?["']([^"']+)["']/g;
+function calledTools(source: string): string[] {
+  const names = new Set<string>();
+  for (const match of source.matchAll(CALL_TOOL_RE)) {
+    if (match[1]) names.add(match[1]);
+  }
+  return [...names].sort();
+}
+
 const ADMIN_BASE = "/api/v1/admin";
 const PORTAL_BASE = "/api/v1/portal";
 
@@ -414,18 +425,27 @@ export const scriptHandlers = [
         capabilities: [],
         connections: [],
         destinations: [],
+        tools: [],
         dynamic_connections: false,
         dynamic_destinations: false,
+        dynamic_tools: false,
       });
     }
     return HttpResponse.json({
       ok: true,
       findings: [],
-      capabilities: referencedIn(source, ["platform.query", "platform.export"]),
+      capabilities: referencedIn(source, [
+        "platform.query",
+        "platform.export",
+        "platform.publish_data",
+        "platform.call",
+      ]),
       connections: referencedIn(source, mockConnectionNames),
       destinations: source.includes("platform.export") ? ["portal"] : [],
+      tools: calledTools(source),
       dynamic_connections: false,
       dynamic_destinations: false,
+      dynamic_tools: false,
     });
   }),
 

@@ -62,7 +62,13 @@ type validateResponse struct {
 	// somebody else's queue.
 	Capabilities []string `json:"capabilities"`
 	Connections  []string `json:"connections"`
+	// Destinations are where this source's OUTPUTS go, which is not every byte
+	// it can move: a write made through platform.call is read in Tools.
 	Destinations []string `json:"destinations"`
+	// Tools are the tool names the edit passes to platform.call literally, so
+	// the author sees the reach of the open half of the surface before a run
+	// exercises it (#1419).
+	Tools []string `json:"tools"`
 	// RefreshTargets are the output names platform.publish_data refreshes, so
 	// the author sees which asset's data region the edit rewrites.
 	RefreshTargets []string `json:"refresh_targets"`
@@ -73,6 +79,7 @@ type validateResponse struct {
 	DynamicConnections    bool `json:"dynamic_connections"`
 	DynamicDestinations   bool `json:"dynamic_destinations"`
 	DynamicRefreshTargets bool `json:"dynamic_refresh_targets"`
+	DynamicTools          bool `json:"dynamic_tools"`
 	// Note states any such gap in the author's terms.
 	Note string `json:"note,omitempty"`
 }
@@ -109,10 +116,12 @@ func (h *Handler) portalValidateSource(w http.ResponseWriter, r *http.Request, u
 		Capabilities:          report.Capabilities,
 		Connections:           report.Connections,
 		Destinations:          report.Destinations,
+		Tools:                 report.Tools,
 		RefreshTargets:        report.RefreshTargets,
 		DynamicConnections:    report.DynamicConnections,
 		DynamicDestinations:   report.DynamicDestinations,
 		DynamicRefreshTargets: report.DynamicRefreshTargets,
+		DynamicTools:          report.DynamicTools,
 		Note:                  incompleteNote(report),
 	})
 }
@@ -222,13 +231,16 @@ func decodeDraftRequest(w http.ResponseWriter, r *http.Request) (draftRequest, b
 func incompleteNote(report scriptrun.Report) string {
 	var gaps []string
 	if report.DynamicConnections {
-		gaps = append(gaps, "at least one platform.query call computes its connection instead of naming one, so the connection list is incomplete")
+		gaps = append(gaps, "at least one call computes its connection instead of naming one, or passes platform.call an argument set that cannot be read from the source, so the connection list is incomplete")
 	}
 	if report.DynamicDestinations {
 		gaps = append(gaps, "at least one platform.export call computes its destination instead of naming one, so the destination list is incomplete")
 	}
 	if report.DynamicRefreshTargets {
 		gaps = append(gaps, "at least one platform.publish_data call computes the output name it refreshes, so the refresh-target list is incomplete")
+	}
+	if report.DynamicTools {
+		gaps = append(gaps, "at least one platform.call computes the tool it invokes instead of naming one, so the tool list is incomplete")
 	}
 	if len(gaps) == 0 {
 		return ""

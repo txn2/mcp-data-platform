@@ -34,9 +34,9 @@ const DialectContract = `Managed scripts are written in Starlark: Python-shaped 
 WHAT IS AVAILABLE
   platform.query(sql, connection=..., params={})  Run read-only SQL. Returns
       {"columns": [...], "rows": [...], "row_count": n}; rows are dicts keyed by
-      column name. A script cannot write: a statement that modifies state,
-      such as INSERT, UPDATE, DELETE, CREATE or DROP, is refused. Compute the
-      result with SELECT and write it with platform.export.
+      column name. It is the read tool, so a statement that modifies state —
+      INSERT, UPDATE, DELETE, CREATE, DROP — is refused by it, and the write
+      tool is reached with platform.call("trino_execute", {...}).
       Use :name placeholders and pass the values in params; the platform
       quotes them by type. Never build SQL by string concatenation.
       A date binds as a quoted string, so compare it against a DATE column as
@@ -92,6 +92,42 @@ WHAT IS AVAILABLE
       structure or fail().
       In a draft run this writes nothing and reports the payload size it
       would splice.
+  platform.call(tool, args={})  Call any platform tool by name and get its
+      structured result. This is the same mechanism the three helpers above
+      are built on, with the tool left to you, and it is how a script reaches
+      everything else the platform can do: writing a table with
+      trino_execute, fetching an external API server-side with
+      api_invoke_endpoint, reading an object with s3_get_object, capturing a
+      memory, updating the catalog.
+      A run acts on what its author owns: it authenticates as script:<name>
+      and carries the author's address, so it can refresh or patch a
+      dashboard the author owns. An asset merely SHARED with them is not
+      inherited.
+      A script may call every tool ITS AUTHOR may call. Each call is
+      authorized by the persona filter at the moment it is made, presenting
+      the roles you held when you saved the version, so a tool your persona
+      does not allow is refused in the persona filter's own words. There is
+      no separate script allowlist to consult.
+      Prefer the three helpers where they apply. They are not a restriction
+      you are working around: platform.query pushes the row cap down into the
+      query and FAILS a truncated result, which a raw trino_query call hands
+      you to notice yourself, and platform.export records what it wrote on the
+      run, which a write made by tool call does not appear in.
+      The result byte cap applies to every call.
+      A tool that answers with plain text rather than a structured object
+      arrives as {"text": "..."}; decode it yourself if it is JSON.
+      args is a dict of the tool's own arguments, passed through unchanged:
+      platform.call("trino_execute", {"connection": "warehouse",
+                                      "sql": "INSERT INTO t VALUES (1)"}).
+      Name the tool with a string literal, and write the args dict out in
+      the call. validate reads both, which is how a reader learns what a
+      script reaches without reading the Starlark: a computed tool name is
+      reported as a gap in the tool list, and a computed args dict as a gap
+      in the connection list.
+      run_script and manage_script run_draft are refused from inside a run.
+      A run executes one at a time, so a script waiting on a run it started
+      would wait on the worker running it. Give the second script its own
+      schedule.
   print(...)  Goes to the run log (capped; anything larger is an export).
   run.run_id, run.fire_time, run.params["name"]  The frozen run record.
       A parameter is typed string, int, float, bool, date, enum or connection.
@@ -122,8 +158,10 @@ WHAT IS NOT, AND WHAT TO WRITE INSTEAD
   datetime / now()    There is no clock. Reading one would make the run
                       unreproducible; the fire time is pinned on run.fire_time.
   random              There is no randomness, for the same reason.
-  open / requests     There is no filesystem and no network. The platform is the
-                      only outside world a script has.
+  open / requests     There is no filesystem and no direct network. The platform
+                      is the only outside world a script has: reach an external
+                      API through a configured connection with
+                      platform.call("api_invoke_endpoint", {...}).
   credentials         Never in the source. Name a connection; the platform holds
                       its credentials and authorizes the call.
 
@@ -134,8 +172,9 @@ WHAT DETERMINISTIC MEANS HERE
 
 THE LOOP
   create -> validate -> run_draft -> patch -> validate -> run_draft. validate
-  parses and reports the capabilities, connections and destinations the script
-  reaches; run_draft executes it under your own identity with nothing persisted.
+  parses and reports the capabilities, the tools platform.call names, the
+  connections, and the destinations the script's OUTPUTS go to; run_draft
+  executes it under your own identity with nothing persisted.
   Both act on the source you send with the call, and on the saved version when
   you send none: a save is immediately the version run_script executes and a
   schedule fires, so sending the edit is how you try it without making it live.

@@ -42,9 +42,13 @@ export interface ScriptVersion {
 export interface ReferencedCapabilities {
   capabilities: string[];
   connections: string[];
-  // destinations are the destination names the source writes to, counting the
-  // portal for any export that names none, because that is where such an
-  // export lands.
+  // tools are the tool names the source passes to platform.call literally. The
+  // persona filter decides what a run may call; this is what it does call.
+  tools?: string[];
+  // destinations are where this script's OUTPUTS go: the names platform.export
+  // writes to, counting the portal for any export that names none, because
+  // that is where such an export lands. Not every byte the script can move — a
+  // write made through platform.call is read in tools instead.
   destinations: string[];
   // refresh_targets are the output names platform.publish_data refreshes, so a
   // reader sees which asset's data region this script rewrites.
@@ -56,6 +60,9 @@ export interface ReferencedCapabilities {
   dynamic_connections: boolean;
   dynamic_destinations: boolean;
   dynamic_refresh_targets?: boolean;
+  // dynamic_tools is true when a call computes the tool it invokes instead of
+  // naming one, which makes the tool list incomplete.
+  dynamic_tools?: boolean;
 }
 
 // ScriptFinding is one validator complaint about the source. The hint is the

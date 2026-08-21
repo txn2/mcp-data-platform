@@ -5688,9 +5688,10 @@ definitions:
         type: array
       destinations:
         description: |-
-          Destinations are the destination names the source writes to, with the
-          portal counted for any export that names none, because that is where such
-          an export lands.
+          Destinations are where this version's OUTPUTS go: the names
+          platform.export writes to, with the portal counted for any export that
+          names none. It is not every byte the script can move — a write made
+          through platform.call is read in Tools instead.
         items:
           type: string
         type: array
@@ -5705,10 +5706,24 @@ definitions:
         type: boolean
       dynamic_refresh_targets:
         type: boolean
+      dynamic_tools:
+        description: |-
+          DynamicTools is true when a platform.call computes the tool it invokes,
+          which shortens the tool list. A computed argument set shortens the
+          connection list instead.
+        type: boolean
       refresh_targets:
         description: |-
           RefreshTargets are the output names platform.publish_data refreshes, so
           a reader sees which asset's data region this script rewrites.
+        items:
+          type: string
+        type: array
+      tools:
+        description: |-
+          Tools are the tool names the source passes to platform.call literally.
+          The persona filter decides what a run MAY call; this is what this version
+          DOES call (#1419).
         items:
           type: string
         type: array
@@ -5811,6 +5826,9 @@ definitions:
           type: string
         type: array
       destinations:
+        description: |-
+          Destinations are where this source's OUTPUTS go, which is not every byte
+          it can move: a write made through platform.call is read in Tools.
         items:
           type: string
         type: array
@@ -5824,6 +5842,8 @@ definitions:
       dynamic_destinations:
         type: boolean
       dynamic_refresh_targets:
+        type: boolean
+      dynamic_tools:
         type: boolean
       findings:
         items:
@@ -5839,6 +5859,14 @@ definitions:
         description: |-
           RefreshTargets are the output names platform.publish_data refreshes, so
           the author sees which asset's data region the edit rewrites.
+        items:
+          type: string
+        type: array
+      tools:
+        description: |-
+          Tools are the tool names the edit passes to platform.call literally, so
+          the author sees the reach of the open half of the surface before a run
+          exercises it (#1419).
         items:
           type: string
         type: array

@@ -1,8 +1,16 @@
 # Script outputs: export identity, stable names, and dated series
 
-`platform.export(name, rows, format=...)` is how a managed script writes. Where
-the output lands and what identity it keeps are decided by two things you
-choose: the destination and the name.
+`platform.export(name, rows, format=...)` is how a managed script produces an
+OUTPUT: a thing the platform keeps, versions, and records on the run. Where it
+lands and what identity it keeps are decided by two things you choose: the
+destination and the name.
+
+It is not the only way a script writes. A script calls the tools its author can
+call, so `platform.call("s3_put_object", ...)` or `platform.call("trino_execute",
+...)` writes too — but what those produce is not an output in this sense: it is
+not versioned, it does not appear on the run as an output, and it is recorded in
+the audit log like any other tool call. Use `platform.export` for the thing the
+report IS; use a tool call for a side effect somewhere else.
 
 ## Why your export is not a new asset every day
 
@@ -62,7 +70,11 @@ failed run is recorded with its reason; a silently empty publish is not.
 `destination` defaults to `portal` (the versioned asset). A bucket destination
 the deployment declares in configuration (`scripts.destinations`) receives the
 same bytes instead; the script names only the destination — the connection,
-bucket, and prefix come from the configuration. `destination` and `key` must be
+bucket, and prefix come from the configuration. That declaration bounds where an
+EXPORT may address, which is not the same as bounding the script: a persona
+holding an S3 connection reaches `s3_put_object` directly. What the
+configuration buys is that a named destination can be repointed without touching
+the script. `destination` and `key` must be
 passed **by name**, not positionally. One output name may be written once per destination
 in a run, so sending one result to the portal and to a bucket is two calls with
 one name.

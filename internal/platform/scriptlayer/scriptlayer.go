@@ -188,6 +188,53 @@ func (h *Handle) resolveScript(ctx context.Context, name, ownerEmail string) (*s
 	return sc, nil
 }
 
+// refuseReentrantRun refuses a run asked for from inside a run, naming what was
+// asked for.
+//
+// This is a runaway-work guard, not an authorization rule. A script may call
+// every tool its author's persona authorizes (#1419), and run_script is one of
+// them — but a script that starts a run can start a script that starts a run,
+// and while Starlark has no while and no recursion, so a single run cannot
+// loop, a cycle ACROSS runs has nothing to stop it. It would also deadlock on
+// the way there: a worker executes one run at a time per replica
+// (internal/platform/scriptexec/worker.go), so a script waiting on a run it
+// queued is waiting on the worker it is itself occupying.
+//
+// The signal is PlatformContext.Source, which the run layer sets to
+// SourceScript for every call a run makes, so the guard covers a platform run
+// and a draft alike and needs nothing threaded through the interpreter.
+func refuseReentrantRun(ctx context.Context, what string) *mcp.CallToolResult {
+	if !insideRun(ctx) {
+		return nil
+	}
+	return errorResult(what + " cannot be called from inside a script run: a run executes one at a time, " +
+		"so a script waiting on a run it started would wait on the worker running it. " +
+		"Do the work in this script, or give the second script its own schedule.")
+}
+
+// refuseScriptAuthoring refuses a command that would author, edit, delete or
+// schedule a script when it was issued from inside a run. See
+// scriptWritingCommands for why the surface is closed to a run rather than
+// merely the two execution verbs.
+func refuseScriptAuthoring(ctx context.Context, what string) *mcp.CallToolResult {
+	if !insideRun(ctx) {
+		return nil
+	}
+	return errorResult(what + " cannot be called from inside a script run: a run may read the script " +
+		"surface but never change what exists or what will execute. A script that could write a script " +
+		"could schedule unbounded work, and a script that could edit itself would capture the roles it " +
+		"is running with as a new version's authority. Make the change from your own session.")
+}
+
+// insideRun reports whether the current call is one a managed-script run made.
+// The signal is PlatformContext.Source, which the run layer sets to
+// SourceScript for every call a run makes, so it covers a platform run and a
+// draft alike and needs nothing threaded through the interpreter.
+func insideRun(ctx context.Context) bool {
+	pc := middleware.GetPlatformContext(ctx)
+	return pc != nil && pc.Source == middleware.SourceScript
+}
+
 // readable resolves the script a read command names and checks the caller may
 // see it.
 func (h *Handle) readable(ctx context.Context, input manageScriptInput) (*script.Script, *mcp.CallToolResult) {

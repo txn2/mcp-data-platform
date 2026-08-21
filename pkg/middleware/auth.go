@@ -46,6 +46,16 @@ type UserInfo struct {
 	Claims   map[string]any
 	Roles    []string
 	AuthType string // one of the AuthType* constants below
+	// OnBehalfOf is the address of the PERSON an unattended caller acts for,
+	// set only where the authenticated principal is not itself a person: a
+	// managed-script run authenticates as script:<name> and presents the roles
+	// its version author held, and this is that same author. Empty for every
+	// human caller, who is matched on UserID and needs no second identity.
+	//
+	// It is authorization input, so it is only ever captured from an
+	// authenticated context and never accepted as an argument — the same rule
+	// Roles follows, and for the same reason.
+	OnBehalfOf string
 }
 
 // AuthType values set by the authenticators, identifying HOW a caller was

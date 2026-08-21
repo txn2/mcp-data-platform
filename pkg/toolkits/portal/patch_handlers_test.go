@@ -681,3 +681,200 @@ func TestUploadContentUpdateDefaultsTheChangeSummary(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, defaultChangeSummary, versions[1].ChangeSummary)
 }
+
+// TestOwnsResource_MatchesTheAddressAnUnattendedRunActsFor pins the identity
+// rule behind every ownership check in this toolkit (#1419).
+//
+// A managed-script run authenticates as script:<name>, a principal that owns
+// nothing a person owns. Judging ownership on that id alone refused a script
+// the very assets its own author can edit — a refusal that is not the persona
+// filter's, in a feature whose rule is that a script reaches what its author
+// reaches.
+func TestOwnsResource_MatchesTheAddressAnUnattendedRunActsFor(t *testing.T) {
+	const (
+		ownerID    = "d2927f77-2c52-4d0d-a521-76c84428f22a"
+		ownerEmail = "craig@example.com"
+	)
+	tests := []struct {
+		name       string
+		pc         *middleware.PlatformContext
+		ownerID    string
+		ownerEmail string
+		want       bool
+	}{
+		{
+			name:    "a person is matched on user id",
+			pc:      &middleware.PlatformContext{UserID: ownerID},
+			ownerID: ownerID, ownerEmail: ownerEmail, want: true,
+		},
+		{
+			name:    "another person is not",
+			pc:      &middleware.PlatformContext{UserID: "someone-else"},
+			ownerID: ownerID, ownerEmail: ownerEmail, want: false,
+		},
+		{
+			name:    "a run acting for the owner is matched on the address",
+			pc:      &middleware.PlatformContext{UserID: "script:weather", OnBehalfOfEmail: ownerEmail},
+			ownerID: ownerID, ownerEmail: ownerEmail, want: true,
+		},
+		{
+			name:    "the address is matched without regard to case",
+			pc:      &middleware.PlatformContext{UserID: "script:weather", OnBehalfOfEmail: "Craig@Example.COM"},
+			ownerID: ownerID, ownerEmail: ownerEmail, want: true,
+		},
+		{
+			name:    "a run acting for somebody else is refused",
+			pc:      &middleware.PlatformContext{UserID: "script:weather", OnBehalfOfEmail: "mallory@example.com"},
+			ownerID: ownerID, ownerEmail: ownerEmail, want: false,
+		},
+		{
+			name:    "a run acting for nobody is refused",
+			pc:      &middleware.PlatformContext{UserID: "script:weather"},
+			ownerID: ownerID, ownerEmail: ownerEmail, want: false,
+		},
+		{
+			// The dangerous pair: absence of an identity is not a shared
+			// identity, so two empties must never be an ownership match.
+			name:    "an empty address never matches an unowned resource",
+			pc:      &middleware.PlatformContext{UserID: "script:weather", OnBehalfOfEmail: ""},
+			ownerID: "", ownerEmail: "", want: false,
+		},
+		{
+			name:    "an empty owner id never matches an empty caller id",
+			pc:      &middleware.PlatformContext{},
+			ownerID: "", ownerEmail: "", want: false,
+		},
+		{
+			name: "no platform context at all is refused",
+			pc:   nil, ownerID: ownerID, ownerEmail: ownerEmail, want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			if tt.pc != nil {
+				ctx = middleware.WithPlatformContext(ctx, tt.pc)
+			}
+			assert.Equal(t, tt.want, ownsResource(ctx, tt.ownerID, tt.ownerEmail))
+		})
+	}
+}
+
+// TestManageAssetPatch_AScriptRefreshesItsAuthorsDashboard is the use case
+// #1419 was opened for, driven through the real handler.
+//
+// A scheduled script fetches from an API and rewrites the data island of a
+// dashboard its author owns. Before the ownership fix the run was refused
+// twice over — at the read, then at the write — because it authenticates as
+// script:<name> and that principal owns nothing a person owns. Neither refusal
+// was the persona filter's, in a feature whose whole rule is that a script
+// reaches what its author reaches.
+func TestManageAssetPatch_AScriptRefreshesItsAuthorsDashboard(t *testing.T) {
+	const dashboard = `<html><body>
+<h1>Data Center Weather Watch</h1>
+<script type="application/json" id="data">{"sites":[]}</script>
+</body></html>`
+
+	f := newPatchFixture(t, dashboard, "text/html")
+	// A platform run: the script principal, acting for the asset's owner, who
+	// is the author whose roles the run presents.
+	f.ctx = middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
+		UserID: "script:weather-watch", UserEmail: "user1@example.com",
+		OnBehalfOfEmail: "user1@example.com",
+	})
+
+	got, result := f.call(t, manageAssetInput{
+		Action:        actionPatch,
+		ChangeSummary: "Hourly NWS refresh",
+		Edits: []textpatch.Edit{{
+			Op:       "replace_content",
+			Selector: "#data",
+			Text:     `{"sites":[{"name":"Phoenix","peak":113}]}`,
+		}},
+	})
+	require.False(t, result.IsError, "%+v", result.Content)
+	assert.Equal(t, float64(2), got["version"])
+	assert.Contains(t, f.storedBody(t), `{"sites":[{"name":"Phoenix","peak":113}]}`)
+	assert.Contains(t, f.storedBody(t), "Data Center Weather Watch",
+		"the markup around the island is untouched, which is the whole point of patching it")
+}
+
+// TestManageAssetPatch_AScriptActingForSomebodyElseIsRefused is the other half:
+// the address a run carries is its author's, captured from an authenticated
+// context at the save, and it admits that person's resources and nobody else's.
+func TestManageAssetPatch_AScriptActingForSomebodyElseIsRefused(t *testing.T) {
+	f := newPatchFixture(t, patchReport, "text/markdown")
+	f.ctx = middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
+		UserID: "script:mallorys-report", UserEmail: "mallory@example.com",
+		OnBehalfOfEmail: "mallory@example.com",
+	})
+
+	_, result := f.call(t, manageAssetInput{Edits: []textpatch.Edit{{
+		Find: "Q3", Replace: "Q4",
+	}}, Action: actionPatch})
+	require.True(t, result.IsError)
+	assert.Equal(t, patchReport, f.storedBody(t), "nothing was written")
+}
+
+// TestCanReadAsset_ARunDoesNotInheritItsOwnersShares pins the narrower half of
+// the ownership rule (#1419).
+//
+// A run's UserEmail is its script's OWNER, carried so audit names a person
+// beside the principal. Matching a share on it would hand every run of that
+// script everything anybody had ever shared with its owner, silently and by
+// email. Ownership is the widened path; a grant addressed to a person is not.
+func TestCanReadAsset_ARunDoesNotInheritItsOwnersShares(t *testing.T) {
+	f := newPatchFixture(t, patchReport, "text/markdown")
+	shared := &portal.Asset{
+		ID: "asset-shared", OwnerID: "someone-else", OwnerEmail: "other@example.com",
+	}
+	f.tk.shareStore = &emailShareStore{admits: "user1@example.com"}
+
+	t.Run("a person reads what was shared with them", func(t *testing.T) {
+		ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
+			UserID: "user1", UserEmail: "user1@example.com",
+		})
+		assert.True(t, f.tk.canReadAsset(ctx, shared))
+	})
+
+	t.Run("their script does not", func(t *testing.T) {
+		ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
+			UserID: "script:report", UserEmail: "user1@example.com",
+			OnBehalfOfEmail: "user1@example.com", Source: middleware.SourceScript,
+		})
+		assert.False(t, f.tk.canReadAsset(ctx, shared),
+			"a grant addressed to a person is not a grant to everything they automate")
+	})
+
+	t.Run("but it still reads what its author owns", func(t *testing.T) {
+		owned := &portal.Asset{ID: "a", OwnerID: "user1", OwnerEmail: "user1@example.com"}
+		ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
+			UserID: "script:report", UserEmail: "user1@example.com",
+			OnBehalfOfEmail: "user1@example.com", Source: middleware.SourceScript,
+		})
+		assert.True(t, f.tk.canReadAsset(ctx, owned))
+	})
+}
+
+// emailShareStore admits exactly one address, which is how a share addressed by
+// email behaves in the real store (it matches on LOWER(shared_with_email)).
+type emailShareStore struct {
+	portal.ShareStore
+	admits string
+}
+
+func (s *emailShareStore) GetActiveShareForTarget(_ context.Context, _, _, _, email string) (*portal.Share, error) {
+	if email != "" && strings.EqualFold(email, s.admits) {
+		return &portal.Share{Permission: portal.PermissionViewer}, nil
+	}
+	// The real store's not-found contract, matched deliberately: no active
+	// share is (nil, nil), not an error (internal/portal/portalstore/store.go).
+	return nil, nil //nolint:nilnil // models the real store: no active share is not an error
+}
+
+func (s *emailShareStore) GetUserAssetPermissionViaCollection(_ context.Context, _, _, email string) (portal.SharePermission, error) {
+	if email != "" && strings.EqualFold(email, s.admits) {
+		return portal.PermissionViewer, nil
+	}
+	return "", nil
+}

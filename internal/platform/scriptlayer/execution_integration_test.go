@@ -75,6 +75,14 @@ func (m *memRuns) Enqueue(_ context.Context, r *script.Run) error {
 	return nil
 }
 
+// all returns every run this queue has seen, which is how a test proves that a
+// refused enqueue produced no row.
+func (m *memRuns) all() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]string(nil), m.order...)
+}
+
 func (m *memRuns) claimCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -274,13 +282,71 @@ func (*memS3) Close() error                                       { return nil }
 // filter: it authorizes tools for the analyst persona but only on the
 // connections that persona holds, which is the entire authorization boundary a
 // run answers to.
-type connectionAuthz struct{ allowed map[string]bool }
+type connectionAuthz struct {
+	allowed map[string]bool
+	// deniedTools are the tools this persona may not call at all, which is what
+	// the persona filter answers for a tool outside a persona's allow list. It
+	// is the only thing that refuses a platform.call (#1419).
+	mu          sync.Mutex
+	deniedTools map[string]bool
+}
 
-func (a *connectionAuthz) IsAuthorized(_ context.Context, _ string, _ []string, _, connection string) (authorized bool, persona, reason string) {
+// deny puts one tool outside the persona, the way a persona's deny list does.
+func (a *connectionAuthz) deny(tool string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.deniedTools == nil {
+		a.deniedTools = map[string]bool{}
+	}
+	a.deniedTools[tool] = true
+}
+
+func (a *connectionAuthz) IsAuthorized(_ context.Context, _ string, _ []string, tool, connection string) (authorized bool, persona, reason string) {
+	a.mu.Lock()
+	denied := a.deniedTools[tool]
+	a.mu.Unlock()
+	if denied {
+		return false, "analyst", "tool not allowed for persona: analyst"
+	}
 	if connection != "" && !a.allowed[connection] {
 		return false, "analyst", "connection not allowed for persona: analyst"
 	}
 	return true, "analyst", ""
+}
+
+// executeInput mirrors the trino toolkit's trino_execute argument shape. The
+// write tool is served here by a tool of the same name and arguments, because a
+// script reaches it the way an agent does: one ordinary tool call.
+type executeInput struct {
+	SQL        string `json:"sql"`
+	Connection string `json:"connection,omitempty"`
+}
+
+// recordingExecutes collects what the write tool was asked to run.
+type recordingExecutes struct {
+	mu   sync.Mutex
+	seen []executeInput
+}
+
+func (e *recordingExecutes) record(in executeInput) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.seen = append(e.seen, in)
+}
+
+func (e *recordingExecutes) calls() []executeInput {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return append([]executeInput(nil), e.seen...)
+}
+
+// invokeInput mirrors the apigateway toolkit's api_invoke_endpoint arguments:
+// the automation whose input is not SQL, which is the case the closed surface
+// blocked.
+type invokeInput struct {
+	Connection  string         `json:"connection,omitempty"`
+	OperationID string         `json:"operation_id"`
+	Body        map[string]any `json:"body,omitempty"`
 }
 
 // putObjectInput mirrors the s3 toolkit's s3_put_object argument shape, which
@@ -328,6 +394,29 @@ type execHarness struct {
 	queries  *recordingQueries
 	puts     *recordingPuts
 	worker   *scriptexec.Handle
+	authz    *connectionAuthz
+	executes *recordingExecutes
+	identity *recordingIdentity
+}
+
+// recordingIdentity captures the PlatformContext a tool handler was given, which
+// is the only way to prove an identity actually crossed the middleware chain
+// rather than merely being set on the way in.
+type recordingIdentity struct {
+	mu   sync.Mutex
+	seen []middleware.PlatformContext
+}
+
+func (r *recordingIdentity) record(pc middleware.PlatformContext) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.seen = append(r.seen, pc)
+}
+
+func (r *recordingIdentity) calls() []middleware.PlatformContext {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]middleware.PlatformContext(nil), r.seen...)
 }
 
 // executionServer wires the whole feature: manage_script and run_script over
@@ -389,10 +478,44 @@ func execServerWithWorker(t *testing.T, workerOn bool, allowedConnections ...str
 				map[string]any{"bucket": in.Bucket, "key": in.Key, "size": len(decoded)}, nil
 		})
 
+	seen := &recordingIdentity{}
+	mcp.AddTool(server, &mcp.Tool{Name: "whoami", Description: "identity"},
+		func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
+			if pc := middleware.GetPlatformContext(ctx); pc != nil {
+				seen.record(*pc)
+			}
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}},
+				map[string]any{"ok": true}, nil
+		})
+
+	executes := &recordingExecutes{}
+	mcp.AddTool(server, &mcp.Tool{Name: "trino_execute", Description: "execute"},
+		func(_ context.Context, _ *mcp.CallToolRequest, in executeInput) (*mcp.CallToolResult, any, error) {
+			executes.record(in)
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}},
+				map[string]any{"statement": in.SQL, "rows_affected": 1}, nil
+		})
+
+	mcp.AddTool(server, &mcp.Tool{Name: "api_invoke_endpoint", Description: "invoke"},
+		func(_ context.Context, _ *mcp.CallToolRequest, in invokeInput) (*mcp.CallToolResult, any, error) {
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}},
+				map[string]any{
+					"status": 200,
+					"body": map[string]any{
+						"operation": in.OperationID,
+						"periods": []any{
+							map[string]any{"name": "Tonight", "temperature": 78},
+							map[string]any{"name": "Thursday", "temperature": 101},
+						},
+					},
+				}, nil
+		})
+
 	allowed := map[string]bool{}
 	for _, c := range allowedConnections {
 		allowed[c] = true
 	}
+	authz := &connectionAuthz{allowed: allowed}
 	tracker := middleware.NewSessionWorkflowTracker(
 		[]string{"search"}, []string{"trino_query"}, searchgate.NewMemoryStore(time.Hour), time.Hour)
 	server.AddReceivingMiddleware(middleware.MCPAuditMiddleware(audit))
@@ -402,7 +525,7 @@ func execServerWithWorker(t *testing.T, workerOn bool, allowedConnections ...str
 			UserID: "user-jane@example.com", Email: "jane@example.com",
 			Roles: []string{"analyst"}, AuthType: middleware.AuthTypeOIDC,
 		}},
-		&connectionAuthz{allowed: allowed},
+		authz,
 		&fakeLookup{},
 		middleware.ToolCallConfig{Transport: "http", AdminPersona: "admin", WorkflowTracker: tracker},
 	))
@@ -423,6 +546,7 @@ func execServerWithWorker(t *testing.T, workerOn bool, allowedConnections ...str
 		server: server, handle: h, store: store, runs: runs,
 		assets: assets, versions: versions, s3: s3, audit: audit,
 		queries: queries, puts: puts, worker: worker,
+		authz: authz, executes: executes, identity: seen,
 	}
 }
 
@@ -853,4 +977,235 @@ func TestIntegration_RunScriptIsUnavailableWithoutAQueue(t *testing.T) {
 	assert.Contains(t, names, ToolNameManageScript)
 	assert.NotContains(t, names, ToolNameRunScript,
 		fmt.Sprintf("a deployment with no run queue authors scripts and runs none: %v", names))
+}
+
+// etlSource is the automation the closed capability list blocked: fetch from an
+// external API server-side, then land the result in the warehouse. Both halves
+// are platform.call.
+const etlSource = `resp = platform.call("api_invoke_endpoint", {
+    "connection": "util",
+    "operation_id": "fetch_forecast",
+    "body": {"office": "PSR"},
+})
+periods = resp["body"]["periods"]
+print("periods: %d" % len(periods))
+# The statement's text is the script's own: trino_execute takes no bound
+# parameters, so a value from outside never becomes part of one.
+platform.call("trino_execute", {
+    "connection": "warehouse",
+    "sql": "REFRESH MATERIALIZED VIEW forecast",
+})
+platform.export(name="forecast", rows=periods, format="json")
+`
+
+// TestIntegration_ScriptCallsTheToolsItsAuthorCanCall is #1419's definition of
+// done, proved against the assembled system: a saved script reaches
+// api_invoke_endpoint and trino_execute through platform.call, the API response
+// arrives inside the script, and the statement reaches the connection the
+// script named.
+func TestIntegration_ScriptCallsTheToolsItsAuthorCanCall(t *testing.T) {
+	ctx := context.Background()
+	h := executionServer(t, "warehouse", "util")
+	authorScript(t, h, etlSource)
+	session := connectAgent(ctx, t, h.server)
+
+	out, isErr := runScript(ctx, t, session, map[string]any{
+		"name": "daily", "args": map[string]any{"day": "2026-08-12"},
+	})
+	require.False(t, isErr, out["error"])
+	require.Equal(t, script.RunStatusSucceeded, out["status"], out)
+	assert.Contains(t, out["log"], "periods: 2",
+		"the tool's structured result reached the script as ordinary data")
+
+	executes := h.executes.calls()
+	require.Len(t, executes, 1, "the write reached the write tool")
+	assert.Equal(t, "warehouse", executes[0].Connection)
+	assert.Equal(t, "REFRESH MATERIALIZED VIEW forecast", executes[0].SQL,
+		"the statement the script wrote is the statement that arrived")
+
+	// The call was an ordinary tool call and is audited as one, under the
+	// script principal like every other call a run makes.
+	written := h.audit.waitFor(t, "trino_execute")
+	assert.Equal(t, "script:daily", written.UserID)
+	assert.Equal(t, middleware.SourceScript, written.Source)
+}
+
+// TestIntegration_MiddlewareRefusesAToolThePersonaLacks is the authorization
+// contract for the open surface: the persona filter is the only refusal, it is
+// evaluated at run time, and its own words reach the run record. Nothing in the
+// script layer decides this.
+func TestIntegration_MiddlewareRefusesAToolThePersonaLacks(t *testing.T) {
+	ctx := context.Background()
+	h := executionServer(t, "warehouse", "util")
+	h.authz.deny("trino_execute")
+	authorScript(t, h, etlSource)
+	session := connectAgent(ctx, t, h.server)
+
+	out, isErr := runScript(ctx, t, session, map[string]any{
+		"name": "daily", "args": map[string]any{"day": "2026-08-12"},
+	})
+	require.False(t, isErr, out["error"])
+	assert.Equal(t, script.RunStatusFailed, out["status"], out)
+	assert.Contains(t, out["error"], "tool not allowed for persona",
+		"the persona filter's own refusal reaches the run record")
+	assert.Empty(t, h.executes.calls(), "the refusal happened before the tool ran")
+	assert.Empty(t, h.assets.inserted, "and the run failed rather than exporting half a pipeline")
+}
+
+// TestIntegration_AScriptCannotStartARun pins the runaway-work guard. It is not
+// authorization — run_script is a tool the caller's own persona allows — it is
+// that a worker executes one run at a time per replica, so a script waiting on
+// a run it queued would wait on the worker running it.
+func TestIntegration_AScriptCannotStartARun(t *testing.T) {
+	ctx := context.Background()
+	h := executionServer(t, "warehouse")
+	authorScript(t, h, `platform.call("run_script", {"name": "daily"})`)
+	session := connectAgent(ctx, t, h.server)
+
+	out, isErr := runScript(ctx, t, session, map[string]any{
+		"name": "daily", "args": map[string]any{"day": "2026-08-12"},
+	})
+	require.False(t, isErr, out["error"])
+	assert.Equal(t, script.RunStatusFailed, out["status"], out)
+	assert.Contains(t, out["error"], "cannot be called from inside a script run")
+
+	// Exactly one run exists: the one the agent asked for. The refusal is what
+	// keeps the second from being queued at all.
+	assert.Len(t, h.runs.all(), 1)
+}
+
+// TestIntegration_AScriptCannotDraftRunAScript is the same guard on the other
+// entry point, which would nest an interpreter inside an interpreter.
+func TestIntegration_AScriptCannotDraftRunAScript(t *testing.T) {
+	ctx := context.Background()
+	h := executionServer(t, "warehouse")
+	authorScript(t, h, `platform.call("manage_script", {"command": "run_draft", "name": "daily"})`)
+	session := connectAgent(ctx, t, h.server)
+
+	out, isErr := runScript(ctx, t, session, map[string]any{
+		"name": "daily", "args": map[string]any{"day": "2026-08-12"},
+	})
+	require.False(t, isErr, out["error"])
+	assert.Equal(t, script.RunStatusFailed, out["status"], out)
+	assert.Contains(t, out["error"], "cannot be called from inside a script run")
+}
+
+// TestIntegration_ARunActsForItsVersionAuthor is the wiring proof behind every
+// ownership check a script crosses (#1419).
+//
+// A run authenticates as script:<name>, a principal that owns nothing a person
+// owns, so an ownership check judged on that id alone refuses a script the very
+// assets its own author can edit — a refusal that is not the persona filter's.
+// The run therefore carries the address of the person it acts for, and this
+// asserts that the address REACHES a tool handler through the real chain, which
+// is the half a unit test on the predicate cannot prove.
+//
+// It is the author, not the script's owner: the run presents the author's
+// roles, so pairing them with anyone else's ownership would give a run a
+// combination no person has.
+func TestIntegration_ARunActsForItsVersionAuthor(t *testing.T) {
+	ctx := context.Background()
+	h := executionServer(t, "warehouse")
+	authorScript(t, h, `platform.call("whoami")`)
+	session := connectAgent(ctx, t, h.server)
+
+	out, isErr := runScript(ctx, t, session, map[string]any{
+		"name": "daily", "args": map[string]any{"day": "2026-08-12"},
+	})
+	require.False(t, isErr, out["error"])
+	require.Equal(t, script.RunStatusSucceeded, out["status"], out)
+
+	calls := h.identity.calls()
+	require.Len(t, calls, 1)
+	assert.Equal(t, "script:daily", calls[0].UserID,
+		"the run still authenticates as the script principal, which is what audit and its outputs are attributed to")
+	assert.Equal(t, "jane@example.com", calls[0].OnBehalfOfEmail,
+		"and carries the address of the author whose roles it presents, so ownership follows the same person")
+	assert.Equal(t, middleware.SourceScript, calls[0].Source)
+}
+
+// TestIntegration_ADraftActsAsItselfAndNeedsNoSecondIdentity covers the other
+// run kind. A draft authenticates as the caller, a real person with a real user
+// id, so ownership already resolves on the id and no address is carried: a
+// second matching path for a caller who already matches would be surface with
+// nothing to do.
+func TestIntegration_ADraftActsAsItselfAndNeedsNoSecondIdentity(t *testing.T) {
+	h := executionServer(t, "warehouse")
+	authorScript(t, h, `platform.call("whoami")`)
+
+	res := call(t, h.handle, authorCtx(), manageScriptInput{
+		Command: cmdRunDraft, Name: "daily",
+		Args: map[string]any{"day": "2026-08-12"},
+	})
+	require.False(t, res.IsError, resultText(res))
+
+	calls := h.identity.calls()
+	require.Len(t, calls, 1)
+	assert.Equal(t, "user-jane@example.com", calls[0].UserID,
+		"a draft is its caller, so the id is the person's own")
+	assert.Empty(t, calls[0].OnBehalfOfEmail,
+		"and nobody is being acted for")
+}
+
+// TestIntegration_AScriptCannotAuthorOrScheduleAScript closes the door beside
+// the one refuseReentrantRun locks.
+//
+// A run that could create a script and set a cadence starts unbounded work
+// across runs — the cycle the re-entrancy guard exists to stop. A run that
+// could PATCH a script is worse: inside a run the caller identity is the
+// script's own, so the new version would capture the roles the run is executing
+// with, under the owner's address, making a role set captured once for one save
+// permanent and attributed to somebody who never held it.
+func TestIntegration_AScriptCannotAuthorOrScheduleAScript(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name string
+		args string
+	}{
+		{"create", `{"command": "create", "name": "spawned", "source": "print(1)"}`},
+		{"patch", `{"command": "patch", "name": "daily", "edits": [{"find": "a", "replace": "b"}]}`},
+		{"update", `{"command": "update", "name": "daily", "source": "print(2)"}`},
+		{"delete", `{"command": "delete", "name": "daily"}`},
+		{"schedule_set", `{"command": "schedule_set", "name": "daily", "cron": "* * * * *"}`},
+		{"schedule_enable", `{"command": "schedule_enable", "name": "daily"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := executionServer(t, "warehouse")
+			authorScript(t, h, `platform.call("manage_script", `+tc.args+`)`)
+			session := connectAgent(ctx, t, h.server)
+
+			out, isErr := runScript(ctx, t, session, map[string]any{
+				"name": "daily", "args": map[string]any{"day": "2026-08-12"},
+			})
+			require.False(t, isErr, out["error"])
+			assert.Equal(t, script.RunStatusFailed, out["status"], out)
+			assert.Contains(t, out["error"], "cannot be called from inside a script run")
+
+			// The script is untouched: one version, the one that was authored.
+			sc, err := h.store.GetByName(ctx, "jane@example.com", "daily")
+			require.NoError(t, err)
+			require.NotNil(t, sc)
+			assert.Equal(t, 1, sc.Version, "no version was written by the run")
+		})
+	}
+}
+
+// TestIntegration_AScriptMayStillReadTheScriptSurface is the other half: the
+// guard is about changing what exists, not about looking. A run that could not
+// describe the automation it belongs to would be worse off for no gain.
+func TestIntegration_AScriptMayStillReadTheScriptSurface(t *testing.T) {
+	ctx := context.Background()
+	h := executionServer(t, "warehouse")
+	authorScript(t, h, `
+res = platform.call("manage_script", {"command": "get", "name": "daily"})
+print("read %s" % res["name"])
+`)
+	session := connectAgent(ctx, t, h.server)
+
+	out, isErr := runScript(ctx, t, session, map[string]any{
+		"name": "daily", "args": map[string]any{"day": "2026-08-12"},
+	})
+	require.False(t, isErr, out["error"])
+	require.Equal(t, script.RunStatusSucceeded, out["status"], out)
+	assert.Contains(t, out["log"], "read daily")
 }

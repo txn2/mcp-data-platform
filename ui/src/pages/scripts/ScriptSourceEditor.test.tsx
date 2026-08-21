@@ -223,6 +223,44 @@ describe("ScriptSourceEditor: checking an edit", () => {
     expect(screen.getByText(/Version 2 keeps running until the edit is saved/)).toBeInTheDocument();
   });
 
+  it("names the tools a generic call reaches, and says nothing when there are none", () => {
+    renderEditor();
+    fireEvent.click(screen.getByRole("button", { name: "Validate" }));
+
+    act(() =>
+      validate.mock.calls[0]![1].onSuccess({
+        ok: true,
+        findings: [],
+        capabilities: ["platform.call"],
+        connections: ["util"],
+        destinations: [],
+        tools: ["api_invoke_endpoint", "trino_execute"],
+        dynamic_connections: false,
+        dynamic_destinations: false,
+        dynamic_tools: false,
+      }),
+    );
+    expect(screen.getByText("Tools")).toBeInTheDocument();
+    expect(screen.getByText("api_invoke_endpoint, trino_execute")).toBeInTheDocument();
+
+    // A script that calls no tool by name has no Tools row at all: "none"
+    // there would read as a claim about a list this script does not have.
+    act(() =>
+      validate.mock.calls[0]![1].onSuccess({
+        ok: true,
+        findings: [],
+        capabilities: ["platform.query"],
+        connections: ["warehouse"],
+        destinations: [],
+        tools: [],
+        dynamic_connections: false,
+        dynamic_destinations: false,
+        dynamic_tools: false,
+      }),
+    );
+    expect(screen.queryByText("Tools")).not.toBeInTheDocument();
+  });
+
   it("shows each finding with the correction, which is most of its value", () => {
     renderEditor();
     fireEvent.click(screen.getByRole("button", { name: "Validate" }));

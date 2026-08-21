@@ -46,9 +46,9 @@ as `manage_script command=help` states it, is appended below.
   column as `DATE :day`.
 - **A truncated query result fails the run** rather than returning a partial
   answer. Aggregate in SQL, or narrow the query.
-- **A write statement is refused.** Scripts read with `platform.query` and
-  write only through `platform.export`; INSERT, UPDATE, DELETE, CREATE, and
-  DROP never execute.
+- **`platform.query` is the read tool.** A statement that modifies state is
+  refused by it, and the write tool is reached by name:
+  `platform.call("trino_execute", {"connection": ..., "sql": ...})`.
 - **f-strings do not exist.** Use `"{}".format(x)` or `"%s" % x`.
 - **A destination has to be one this deployment declares.** `platform.export`
   writes to `portal` unless it names a bucket destination the operator
@@ -56,14 +56,77 @@ as `manage_script command=help` states it, is appended below.
   deployment cannot serve, which is worth checking after an upgrade: the
   declared set changes without the script changing.
 
+## A script calls the tools its author can call
+
+`platform.query`, `platform.export`, and `platform.publish_data` are named
+helpers for the three things a report usually does. Everything else the
+platform can do is reached by name:
+
+```python
+resp = platform.call("api_invoke_endpoint", {
+    "connection": "util",
+    "operation_id": "fetch_forecast",
+    "body": {"office": "PSR"},
+})
+platform.call("manage_asset", {
+    "action": "patch",
+    "asset_id": "5affca99a698be1b31dd25d0f76cb398",
+    "edits": [{
+        "op": "replace_content",
+        "selector": "#data",
+        "text": json.encode({"as_of": run.fire_time, "periods": resp["body"]["periods"]}),
+    }],
+})
+```
+
+**A statement passed to `trino_execute` is not parameter-bound.**
+`platform.query` renders `:name` values as typed SQL literals;
+`platform.call("trino_execute", ...)` has no such argument, so there is no safe
+way to put an outside value into one. Never build the statement by
+concatenation or `%` formatting — one apostrophe upstream breaks it, and an
+upstream field can append statements. Write a statement whose text your script
+controls.
+
+Every host binding, the helpers included, is one ordinary platform tool call
+over the run's own MCP session. There is no script allowlist in front of it: a
+call is authorized by the persona filter at the moment it is made, presenting
+the roles the author held when they saved the version, so a script reaches what
+its author reaches and a tool the persona does not allow is refused in the
+persona filter's own words.
+
+Name the tool with a string literal, and write the args dict out in the call.
+`validate` reads both: the literal tool names go into the `tools` list, a
+connection named literally inside the args dict joins the `connections` list,
+and what cannot be read is reported as `dynamic_tools` or
+`dynamic_connections` rather than quietly left out.
+
+Two things a generic call does not get: a write made by tool call is not one of
+the run's outputs (the run's output list covers `platform.export` and
+`platform.publish_data`, and everything else is in the audit log), and a query
+issued by tool call carries no row cap pushed into the statement. That is why
+the three helpers are still the way to do the three things they do. A tool that
+answers with plain text rather than a structured object arrives as
+`{"text": "..."}`.
+
+A run acts on what you own. It authenticates as `script:<name>` — which is what
+its own exported assets belong to — and carries your address, so a script can
+refresh or patch a dashboard you own the same way you would. An asset merely
+SHARED with you is not inherited, and `manage_asset list` from a script shows
+that script's outputs rather than your whole library.
+
+`run_script` and `manage_script run_draft` are the two refusals, and they are
+about runaway work rather than authority: a run executes one at a time, so a
+script waiting on a run it started would be waiting on the worker running it.
+Give the second script its own schedule.
+
 ## A saved script runs
 
 Saving a version makes it the version that runs, immediately, under the access
 you hold at the save. There is no approval step: every call a run makes is
 authorized against your captured roles by the same persona filtering an
 interactive session gets, so the script can reach exactly what you can reach
-and nothing more. A disabled, deprecated, or superseded script is the only
-thing the run gate refuses.
+and nothing more — including the tools that write. A disabled, deprecated, or
+superseded script is the only thing the run gate refuses.
 
 A script is yours: you are the only person who sees it, edits it, runs it, and
 schedules it, and administrators do all four on every script. An administrator

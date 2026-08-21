@@ -10,11 +10,12 @@ managed-scripts surface updates it in the same change.
 Every claim below carries a package or file citation a reviewer can check
 against the source. Where a protection does not exist, this document says so.
 
-Reviewed at the state of the tree that removed approval and grants (#1403):
-saving a version makes it the version that runs, a run presents the roles its
-author held at that save, and connections and destinations are resolved at run
-time through the same persona filtering an interactive session gets. The
-revisions before it introduced external delivery, the review surface, the
+Reviewed at the state of the tree that opened the tool surface (#1419): a
+script calls any tool its author's persona authorizes, through
+`platform.call`, and the persona filter is the only thing that refuses one. The
+revision before it removed approval and grants (#1403), making a saved version
+the version that runs, presenting the roles its author held at that save. The
+revisions before those introduced external delivery, the review surface, the
 script domain and the authoring loop, platform execution (the script principal,
 the run queue, and `run_script`), worker mode, and cron scheduling.
 
@@ -24,8 +25,8 @@ A managed script is a small Starlark program the platform stores, versions, and
 governs, so that a process whose logic is already solved (a KPI report, a
 recurring export) can be re-run without re-deriving it through a model. Scripts
 are authored by an agent through the `manage_script` MCP tool or by their owner
-in the portal, executed by an embedded interpreter, and constrained to a small,
-enumerable set of host functions.
+in the portal, and executed by an embedded interpreter whose every host binding
+is one ordinary platform tool call.
 
 The state of the feature at this revision:
 
@@ -39,6 +40,13 @@ The state of the feature at this revision:
   roles captured from the version's author at the save. Every call it makes is
   authorized by the persona filter at run time, exactly as an interactive
   session's call is.
+- A run **calls the tools its author can call.** `platform.call(tool, args)`
+  invokes any platform tool by name over the run's session; `platform.query`,
+  `platform.export` and `platform.publish_data` are named helpers for the same
+  mechanism with a constant. There is no script-side allowlist in front of any
+  of them (`internal/platform/scriptrun/host.go`, `hostState.call`). What a run
+  may reach is what the persona its captured roles resolve to may reach, at
+  every call.
 - A run **writes**: `platform.export` persists a portal asset version, or —
   where the deployment configures a bucket destination
   (`scripts.destinations`) — delivers the same bytes to an operator-configured
@@ -229,6 +237,140 @@ connection rules therefore takes effect on the next run with no script-side
 action, and there is no stored allowlist to drift out of step with the persona
 configuration it would duplicate.
 
+### Who a run acts for
+
+A run authenticates as `script:<name>` and presents the roles its version author
+held. That principal is right for attribution — audit rows name it, and the
+assets `platform.export` creates belong to it — and wrong for one thing:
+it owns nothing a PERSON owns. Every ownership check compares an owner id
+against the caller's, so judged on the principal alone a run is refused the very
+assets its own author can edit. That refusal is not the persona filter's, and a
+feature whose rule is that a script reaches what its author reaches cannot have
+one (#1419).
+
+A platform run therefore carries a second identity: the address of the person it
+acts for (`middleware.UserInfo.OnBehalfOf`, read by tools as
+`PlatformContext.OnBehalfOfEmail`, set by
+`internal/platform/scriptexec/runner.go`). Ownership checks accept either the
+caller's user id or that address (`pkg/toolkits/portal`, `ownsResource`).
+
+The person is the **version author**, not the script's owner. The run presents
+the author's roles, so ownership has to follow the same person or a run would
+combine one person's authority with another's ownership — a pairing neither of
+them has.
+
+Author and owner are frequently different people, and the consequence is worth
+stating rather than glossing. `Transfer` writes the new version authored by the
+transferring ADMINISTRATOR while the owner becomes somebody else
+(`internal/platform/scriptstore/transfer.go`), so from that point a run of the
+script presents the administrator's roles AND acts for the administrator, while
+the new owner is who may trigger it. The same holds whenever an administrator
+edits another person's script. Ownership follows the roles because they are one
+decision, not two: what widens a run is the save that captured an
+administrator's authority, which the version history records and which the
+[residual risks](#residual-risks) already name. It is not widened further by
+this, because roles that resolve to the admin persona already reach every asset
+on the platform through the admin arm of each check.
+
+It grants nothing new. The address is captured from an authenticated context at
+the save, exactly as the roles are (`scriptlayer.go`, `callerAuthor`), and is
+never accepted as an argument on any surface. A run reaches what that person
+owns and nothing else.
+
+Four limits, stated rather than implied:
+
+- **An empty address matches nothing.** Both sides of the comparison must be
+  non-empty, so a version with no recorded author can never match a resource
+  with no recorded owner. Absence of an identity is not a shared identity.
+- **Shares are not inherited.** The share lookup is keyed on the caller's own id
+  and address, so an asset shared with the author admits the author and not
+  their scripts. A run reaches what its author OWNS, which is narrower than what
+  its author can read. A grant made to a person is not a grant to everything
+  that person automates.
+- **Enumeration stays the script's own.** `list` and `search` scope to the
+  calling principal, so a script's listing is the outputs that script produced,
+  not its author's library. Acting on a named resource is the widened path; the
+  inventory is not.
+- **A draft carries no second identity.** `run_draft` authenticates as the
+  caller, a person with a real user id, so ownership already resolves on the id
+  and `OnBehalfOfEmail` is empty.
+
+### The tool surface is the persona's, not the script layer's
+
+`platform.call(tool, args)` invokes any platform tool by name
+(`internal/platform/scriptrun/host.go`, `hostState.call`). It resolves to the
+same `Caller` the three named helpers resolve to, so a generic call is one
+ordinary MCP tool call over the run's in-memory session against the assembled
+server, crossing authentication, persona and connection authorization, rate
+limiting and audit. A tool the run's persona may not call is refused by the
+middleware, in the middleware's own words.
+
+There is no allowlist in front of it. Until #1419 there was one — three named
+capabilities — and it was not a control: it prevented a script from doing what
+its author could already do interactively, one tool call at a time, with the
+same roles, through the same middleware. What it cost was every automation
+whose input is not SQL, and what it bought was the appearance of a sandbox
+doing limiting the persona filter was already doing.
+
+What replaces it as the reviewer's material is the source, which is stored,
+versioned, and attributed. `validate` reads the tool names a script passes to
+`platform.call` as string literals and reports them as `tools`, alongside the
+connections and destinations it already reported; a call that computes its tool
+name sets `dynamic_tools` so the list is never quietly short
+(`internal/platform/scriptrun/validate.go`, `inspection.visitCall`). A
+connection named as a literal inside a literal argument dict feeds the same
+connection list a `platform.query` connection feeds, because a generic call
+naming a connection is as much a use of it; a call whose argument set is
+computed sets `dynamic_connections`, since the connection is the only claim
+this report makes about what is inside those arguments.
+
+**Re-entrancy is refused, as runaway-work control rather than authorization.**
+`run_script` and `manage_script run_draft` are refused from inside a run
+(`internal/platform/scriptlayer/scriptlayer.go`, `refuseReentrantRun`), keyed on
+`PlatformContext.Source == SourceScript`, which the run layer sets for every
+call a run makes. Starlark has no `while` and no recursion, so a single run
+cannot loop, but a cycle across runs has nothing else to stop it — and it would
+deadlock before it got there, because a worker executes one run at a time per
+replica, so a script waiting on a run it queued is waiting on the worker it is
+itself occupying.
+
+### What a script can move, and what bounds it
+
+A script moves data through the tools its persona allows, and that is the whole
+of the bound. Stated plainly, because the previous revision of this document
+said otherwise:
+
+- **`scripts.destinations` bounds `platform.export`, not the script.** A script
+  whose persona holds an S3 connection can call
+  `platform.call("s3_put_object", {"connection": ..., "bucket": ..., "key": ...})`
+  and write an object the destinations configuration never declared. The
+  configuration is what makes a NAMED destination safe to repoint; it is not a
+  perimeter around the run.
+- **Egress is bounded by the connection set, not by the destination set.** A
+  script still supplies no credential and opens no socket: there is no host
+  binding that reaches the network, and every call goes to a tool over a
+  connection the operator configured. But a connection's tools do what they do
+  — `api_invoke_endpoint` against a spec whose operation takes a URL will
+  fetch that URL server-side, which is the case this feature was opened to
+  support. What a script can reach is what its author can reach through the
+  same tools at a prompt.
+- **The control is the persona.** A deployment that does not want scheduled
+  writes, or scheduled outbound calls, withholds those tools or those
+  connections from the persona whose roles a version captured. That is the same
+  decision, in the same place, that governs the interactive caller.
+- **A query made through a tool is not one of the run's QUERIES.** The run
+  record's query count is `platform.query`'s (`hostState.query`), so a script
+  that reads through `platform.call("trino_query", ...)` reports fewer queries
+  than it ran. Like the outputs gap below, what is complete is the audit log.
+- **A write made through a tool is not one of the run's OUTPUTS.** The run row's
+  output list and the `maxExports` per-run cap cover `platform.export` and
+  `platform.publish_data` (`internal/platform/scriptrun/host.go`,
+  `admitOutput`). An object written by `platform.call("s3_put_object", ...)` is
+  not counted there and does not appear on the run detail page as an output.
+  Where it appears is the audit log, as an ordinary tool call under the script
+  principal, alongside every other call the run made. A reader looking for
+  everything a run did reads the audit trail, not the output list.
+
 ### Destinations are configuration
 
 Where a script's output may leave the platform is the operator's declaration,
@@ -243,10 +385,13 @@ reserved, and configuration cannot redeclare it
 
 The consequences:
 
-- A script supplies no endpoint, no credential, no bucket, and no host name.
+- An EXPORT supplies no endpoint, no credential, no bucket, and no host name.
   It names a destination; everything below the name comes from configuration.
-  **There is no arbitrary egress to have**: the only network a script reaches
-  is the operator-configured connection set.
+  This is a property of `platform.export`, not of the script: since #1419 a
+  script may also call `s3_put_object` (or any other tool its persona allows)
+  through `platform.call`, naming a bucket and key directly. See
+  [What a script can move, and what bounds
+  it](#what-a-script-can-move-and-what-bounds-it).
 - Repointing a destination — changing its connection, bucket, or prefix — is a
   configuration change and takes effect on the next run. The address is in the
   deployment's configuration, reviewed the way the rest of the configuration
@@ -444,11 +589,15 @@ A run may write output to a bucket the deployment declares in
 `scripts.destinations`. It is the sharpest data-movement surface in the
 feature.
 
-**There is no arbitrary egress to have.** A script names a destination and
-nothing else: it supplies no endpoint, no credential, no bucket, and no host
-name, and there is no host binding that opens a socket. The only network a
-script can reach is the set of connections the operator configured the platform
-with, and within that set, only the destinations configuration declares.
+**A delivery names a destination and nothing else**: no endpoint, no
+credential, no bucket, no host name. Everything below the name comes from
+`scripts.destinations`, so `platform.export` reaches only what configuration
+declares.
+
+That is a property of this binding, not of the script. Everything below in this
+section describes `platform.export`'s delivery arm; what a script can move by
+OTHER means is [stated separately](#what-a-script-can-move-and-what-bounds-it),
+because since #1419 it may call the object-store and API tools directly.
 
 The write itself is **one ordinary platform tool call** — `s3_put_object` over
 the run's own in-memory MCP session (`internal/platform/scriptexec/deliver.go`)
@@ -610,10 +759,15 @@ Starlark is the engine because determinism and isolation are properties of the
 language rather than of a blocklist the platform must maintain
 (`internal/platform/scriptrun/scriptrun.go`). Starlark has no ambient clock, no
 randomness, no filesystem, no network, and no module system; iteration order is
-specified. A script can affect the world only through bindings the host chooses
-to predeclare, and the predeclared set is exactly `platform`, `json`, `date`,
-and `run` (`predeclared`, and `isPredeclaredName` in `validate.go`, which is
-the same list validation checks against).
+specified. A script can affect the world only through bindings the host
+predeclares, and the predeclared set is exactly `platform`, `json`, `date`,
+`run`, and `sum` (`predeclared`, and `isPredeclaredName` in `validate.go`,
+which is the same list validation checks against).
+
+What the language bounds is HOW a script reaches the world: through the
+`platform` module, whose every member is one authorized tool call. It does not
+bound WHAT the script reaches — [the persona
+does](#the-tool-surface-is-the-personas-not-the-script-layers).
 
 `while` and recursion are deliberately off, because both are unbounded control
 flow whose cost cannot be read off the source. Top-level control flow and
@@ -626,7 +780,7 @@ safety or determinism.
 |---|---|---|
 | CPU | Interpreter execution-step cap; a draft is capped tighter than a platform run, because somebody is waiting for a draft | `scriptrun.DraftMaxSteps`, `RunMaxSteps` |
 | Wall clock | Context deadline bridged to thread cancellation, covering time spent inside host calls | `scriptrun.DraftTimeout`, `RunTimeout`, `watchCancel` |
-| Result size | Hard row and byte caps on every `platform.query` result, with the row cap pushed down into the query | `scriptrun.DraftMaxRows`, `RunMaxRows`, `DraftMaxResultBytes`, `hostState.queryResult` |
+| Result size | Hard row and byte caps on every `platform.query` result, with the row cap pushed down into the query; the byte cap also applies to a `platform.call` result, which has no row axis to push down | `scriptrun.DraftMaxRows`, `RunMaxRows`, `DraftMaxResultBytes`, `hostState.queryResult`, `hostState.call` |
 | Output size | Cap on one serialized output, matching the portal export ceiling and applied by the serializer, so a draft is refused on the same terms a platform run is | `scriptrun.MaxOutputBytes`, `FormatOutput` |
 | Concurrency | One run at a time per replica, which is the only lever that bounds how much heap concurrent scripts can reach | `internal/platform/scriptexec/worker.go` |
 | Blast radius | Which replicas execute at all, so the memory a script can reach belongs to a pod nothing is talking to | `scripts.worker.enabled` |
@@ -658,12 +812,19 @@ Substitution is state-aware: a `:name` inside a string literal, a quoted
 identifier, or a comment is text, and `::` is a cast rather than the start of a
 placeholder. Both directions are covered by tests (`bind_test.go`).
 
-A write statement is refused before it becomes a tool call at all.
-`platform.query` applies the query tool's own `IsWriteSQL` predicate rather
-than a second definition of what a write is
-(`internal/platform/scriptrun/host.go`, `refuseWrite`). The engine that
-ultimately executes the statement still applies its read-only interception
-behind both.
+A write statement passed to `platform.query` is refused by `trino_query`, the
+read tool `platform.query` is, in the tool's own words: that it is read-only
+and that `trino_execute` is where writes go. That advice now leads somewhere —
+`platform.call("trino_execute", {...})` — which is why the script layer no
+longer carries a copy of the predicate in front of it (#1419). A second
+definition of what a write is, sitting in front of a tool that already has one,
+is a definition that can come to disagree.
+
+**A script writes.** A persona that may call `trino_execute`, `datahub_update`
+or `s3_put_object` reaches them from a script, under the roles its author held
+at the save. A deployment that does not want scheduled writes withholds those
+tools from the persona, which is where that decision already lives for
+interactive callers.
 
 ### A partial result is a failure, not a result
 
@@ -674,6 +835,12 @@ sums the first N rows of a larger result reports a wrong total with nothing in
 the output to show that anything was missing. `platform.query` therefore reads
 the query tool's own truncation flag and fails the run
 (`internal/platform/scriptrun/host.go`, `truncated`).
+
+This is a property of `platform.query`, not of every path to the warehouse. A
+script that calls `trino_query` through `platform.call` is handed the tool's
+own result, truncation flag included, and is responsible for reading it — which
+is the reason the helper exists and the reason the contract prescribes it for
+SQL. The byte cap still applies to every result, generic calls included.
 
 ### Credentials never live in a script
 
@@ -758,14 +925,20 @@ what makes a run explainable after the fact from its own record, and what makes
 | A crashed worker's run is executed twice concurrently | Lease-based claiming, with every write fenced on the lease it was taken under | `runs.go`, `Claim`, `leaseClause` |
 | A reclaimed run writes its output twice | The run records each output as it lands, keyed by output AND destination; a reclaimed run skips what it wrote | `scriptexec/export.go` |
 | A script sends data to a bucket nobody declared | The destination set is configuration; an undeclared name is refused inside the interpreter, and the middleware refuses a connection the persona does not hold | `host.go`, `resolveDestination`; `pkg/persona/filter.go` |
-| A script addresses a bucket, endpoint, or credential of its own | There is no argument for one: a script names a configured destination, and the address comes from configuration | `pkg/script/destination.go` |
+| An EXPORT addresses a bucket, endpoint, or credential of its own | There is no argument for one: an export names a configured destination, and the address comes from configuration | `pkg/script/destination.go` |
+| A script writes an object no destination declared | Not prevented, and not claimed to be: a persona holding an S3 connection reaches `s3_put_object` from a script exactly as its author does at a prompt. The control is which tools and connections that persona holds | `pkg/persona/filter.go`, [what bounds it](#what-a-script-can-move-and-what-bounds-it) |
 | A key climbs out of a destination's prefix | An absolute key, a `..` segment, or an empty segment is refused rather than normalized away | `pkg/script.ValidateObjectKey` |
 | A delivery leaves no trace | Each delivery is one audited tool call under the script principal, and is recorded on the run with its destination, bucket, key, and size | `scriptexec/deliver.go` |
 | A transient fault silently replays a script that already wrote | Retry is classified by where the failure happened; nothing the interpreter reports is retried | `scriptexec/worker.go` |
 | A caller reads the runs of a script that is not theirs | Run reads are the owner's, the administrator's, and the requester's own; every surface answers the same way for "not yours" and "no such run" | `scriptlayer/runs.go`, `runReadable`; `scripthttp/portal.go`, `ownsScript` |
 | A script escapes the interpreter | No IO, filesystem, network, or module system is predeclared | `scriptrun.go`, `predeclared` |
 | A script builds a statement out of untrusted values | Typed literal binding with a state-aware scanner | `bind.go` |
-| A script writes through the query path | The write is refused before it becomes a tool call, by the query tool's own predicate, and the tool refuses it again | `host.go`, `refuseWrite` |
+| A script calls a tool its author may not | The persona filter refuses the call at run time, exactly as for a person; there is no script-side allowlist in front of it to drift | `pkg/persona/filter.go`, `host.go`, `hostState.call` |
+| A script is refused a resource its author owns, by something other than the persona filter | A run carries the address of the person it acts for, and ownership checks accept it | `runner.go`, `OnBehalfOf`; `pkg/toolkits/portal`, `ownsResource` |
+| A run reaches a resource its author does not own | The address is the version author's, captured from an authenticated context at the save and never an argument; both sides of the match must be non-empty, and shares are not inherited | `scriptlayer.go`, `callerAuthor`; `ownsResource` |
+| A reader cannot tell what tools a script reaches | `validate` reports the literal tool names as `tools`, reports `dynamic_tools` when a call computes one, and `dynamic_connections` when a call's argument set cannot be read | `validate.go`, `inspection.visitCall` |
+| A script starts a run that starts a run | `run_script` and `manage_script run_draft` are refused from inside a run, on `PlatformContext.Source` | `scriptlayer.go`, `refuseReentrantRun` |
+| A generic call pulls an unbounded result | The byte cap `platform.query` applies is applied to every `platform.call` result | `host.go`, `hostState.call` |
 | A script carries an inline credential | Secret scan blocks it as an error at validate time | `validate.go`, `secretPatterns` |
 | A script burns unbounded CPU or wall clock | Step limit and deadline, both bridged to interpreter cancellation | `scriptrun.go`, `Run` |
 | A script pulls an unbounded result | Row and byte caps, row cap pushed into the query | `host.go`, `queryResult` |
@@ -789,9 +962,10 @@ what makes a run explainable after the fact from its own record, and what makes
   authority and a platform run with its author's captured authority. A person
   who should not reach a connection must not be granted it in their persona; a
   script will not add a second gate that saves a persona misconfiguration.
-- **Running a script is not restricted separately from seeing it.** Anyone who
-  can see a script can run it, and it runs with its own authority. Scope is the
-  control, and changing it is an administrator's action.
+- **Running a script is not restricted separately from seeing it.** A script is
+  one person's: its owner sees it, edits it, runs it, and schedules it, and so
+  does an administrator. Ownership is the control, and moving a script to
+  another owner is an administrator's action.
 - **There is no review step.** Saving a version makes it the version that runs.
   What bounds a save is that the version can only ever present its author's own
   roles, that every call is authorized by the persona filter at run time, and
@@ -802,8 +976,14 @@ what makes a run explainable after the fact from its own record, and what makes
   produced; nothing inspects it for sensitive values before it becomes an asset
   or an object delivered to a bucket.
 - **Delivered data is out of the platform's hands.** Once an object lands in a
-  configured bucket, who reads it is that bucket's policy, not the platform's.
-  The control is the configuration that declared the destination.
+  bucket, who reads it is that bucket's policy, not the platform's. For an
+  export, the control is the configuration that declared the destination; for a
+  write made through `platform.call`, it is the persona that holds the
+  connection.
+- **The destination set is not a perimeter.** It bounds where `platform.export`
+  may address, and nothing more. A script reaches every tool its persona
+  allows, so what bounds egress is the connection and tool set that persona
+  holds.
 - **The secret scan is not a proof.** It recognizes known credential shapes.
 - **No defense against a malicious admin.** As in the platform threat model.
 
@@ -818,19 +998,24 @@ what makes a run explainable after the fact from its own record, and what makes
    talking to. The remaining gap — an allocation ceiling the interpreter itself
    enforces — needs a WASM engine with a real memory bound.
 2. **A save is unattended execution with no second reader.** Every saved
-   version runs on its author's captured roles, and nobody signs off. What
-   bounds it is that the roles are the author's own and can never exceed them,
+   version runs on its author's captured roles, and nobody signs off. Since
+   #1419 that covers the author's whole tool surface, writes included, rather
+   than three read-and-export bindings: what a script can do unattended is what
+   its author can do at a prompt. What bounds it is that the roles are the
+   author's own and can never exceed them,
    that the persona those roles resolve to is enforced by the middleware at
    every call and re-resolved at every run, that editing a shared script is an
    administrator's action, and that disabling, deprecating or superseding a
    script stops it at execution. A person can, through a script, arrange for
    their own access to be exercised on a schedule — which is the feature, and
    the audit trail under the script principal is its record.
-3. **A version authored by an admin carries admin roles.** Roles are captured
-   from whoever saved the version, and an admin editing a shared script is the
-   author of what they wrote. A run of that version presents those roles. The
-   version history states the roles captured, so the widening is visible rather
-   than silent, but nothing refuses it.
+3. **A version authored by an admin carries admin roles, and acts for that
+   admin.** Roles are captured from whoever saved the version, and an admin
+   editing or transferring somebody else's script is the author of what they
+   wrote. A run of that version presents those roles and acts for that person
+   for ownership, while a different owner is who may trigger it. The version
+   history states the roles captured, so the widening is visible rather than
+   silent, but nothing refuses it.
 4. **Standing authority outlives the author.** The roles a version captured
    keep working after the person who held them stops. The persona filter still
    applies at every call — narrowing what those roles resolve to takes effect
