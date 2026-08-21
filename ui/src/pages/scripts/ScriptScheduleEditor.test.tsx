@@ -66,8 +66,15 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
+// The section is folded by default (#1407), so a test about the builder opens
+// it first. What the folded header says is asserted separately, below.
+function openSchedule() {
+  fireEvent.click(screen.getByRole("button", { name: /^Schedule/ }));
+}
+
 function renderEditor(over: Partial<ScriptContract> = {}) {
   render(<ScriptScheduleEditor scriptId="script-001" contract={{ ...contract, ...over }} />);
+  openSchedule();
 }
 
 describe("ScriptScheduleEditor: what is in force", () => {
@@ -165,12 +172,14 @@ describe("ScriptScheduleEditor: changing the cadence", () => {
     const { rerender } = render(
       <ScriptScheduleEditor scriptId="script-001" contract={contract} />,
     );
+    openSchedule();
     fireEvent.change(screen.getByLabelText("Time"), { target: { value: "23:45" } });
 
     mockSchedule.mockReturnValue(
       query({ ...schedule, script_id: "script-009", cron_spec: "0 9 * * *" }),
     );
     rerender(<ScriptScheduleEditor scriptId="script-009" contract={contract} />);
+    openSchedule();
     expect(screen.getByLabelText("Time")).toHaveValue("09:00");
   });
 
@@ -244,16 +253,63 @@ describe("ScriptScheduleEditor: a script nothing will execute", () => {
 });
 
 describe("ScriptScheduleEditor: a schedule that cannot be read", () => {
+  // A section with no schedule to state does not fold: there is nothing to
+  // state in a folded header, and "Schedule / Loading" would be two words for
+  // one.
   it("says so instead of offering a form that would overwrite it", () => {
     mockSchedule.mockReturnValue(query(null, { error: new Error("boom") }));
-    renderEditor();
+    render(<ScriptScheduleEditor scriptId="script-001" contract={contract} />);
     expect(screen.getByText(/could not be read/)).toBeInTheDocument();
     expect(screen.queryByLabelText("Cadence")).not.toBeInTheDocument();
   });
 
   it("says it is loading before it has an answer", () => {
     mockSchedule.mockReturnValue(query(undefined, { isLoading: true }));
-    renderEditor();
+    render(<ScriptScheduleEditor scriptId="script-001" contract={contract} />);
     expect(screen.getByText(/Loading the schedule/)).toBeInTheDocument();
+  });
+});
+
+// The section is folded by default (#1407): the cadence is set once and read
+// constantly, so the header states what the script does and the builder that
+// changes it is behind a reveal.
+describe("ScriptScheduleEditor: folded", () => {
+  it("states what the script runs without being opened", () => {
+    render(<ScriptScheduleEditor scriptId="script-001" contract={contract} />);
+    expect(
+      screen.getByText("Runs: Every weekday at 7:00 AM, America/Los_Angeles"),
+    ).toBeInTheDocument();
+    // The builder is behind the reveal rather than on the page.
+    expect(screen.queryByLabelText("Time")).not.toBeInTheDocument();
+  });
+
+  it("says a script with no schedule is not scheduled", () => {
+    mockSchedule.mockReturnValue(query(null));
+    render(<ScriptScheduleEditor scriptId="script-001" contract={contract} />);
+    expect(screen.getByText("Not scheduled")).toBeInTheDocument();
+  });
+
+  // A paused schedule is named as paused rather than as what it would do,
+  // because what it does is nothing.
+  it("names a paused schedule as paused", () => {
+    mockSchedule.mockReturnValue(query({ ...schedule, enabled: false }));
+    render(<ScriptScheduleEditor scriptId="script-001" contract={contract} />);
+    expect(
+      screen.getByText("Paused: Every weekday at 7:00 AM, America/Los_Angeles"),
+    ).toBeInTheDocument();
+  });
+
+  // Pausing and resuming stay reachable without opening the builder: they are
+  // what somebody comes to a folded schedule to do.
+  it("keeps the pause control on the folded header", () => {
+    render(<ScriptScheduleEditor scriptId="script-001" contract={contract} />);
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+    expect(pause).toHaveBeenCalledWith(false, expect.anything());
+  });
+
+  it("opens the builder when the heading is pressed", () => {
+    render(<ScriptScheduleEditor scriptId="script-001" contract={contract} />);
+    openSchedule();
+    expect(screen.getByLabelText("Time")).toHaveValue("07:00");
   });
 });

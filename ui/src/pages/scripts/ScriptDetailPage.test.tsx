@@ -233,7 +233,11 @@ describe("ScriptDetailPage: the details", () => {
     // The badge is the run gate's answer: the latest saved version runs.
     expect(screen.getByText("Runs v2")).toBeInTheDocument();
     expect(screen.getByText("v2, the latest saved version")).toBeInTheDocument();
-    expect(screen.getByText(/0 7 \* \* 1-5 \(America\/Los_Angeles\)/)).toBeInTheDocument();
+    // The cadence in words, as every other surface states it (#1407): the
+    // expression is read and written in the schedule editor below.
+    expect(
+      screen.getByText("Every weekday at 7:00 AM, America/Los_Angeles"),
+    ).toBeInTheDocument();
     // The parameters are read in the same section as the facts (#1406), not in
     // a card of their own below them. Scoped to that table: the schedule
     // editor below also names the parameter, because that is the box its

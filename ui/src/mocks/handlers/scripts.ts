@@ -174,18 +174,24 @@ export const scriptHandlers = [
   // The caller's runs across every script they own (#1405). The mock caller is
   // an administrator, so this is every run the fixture holds, which is what the
   // server answers them.
-  http.get(`${PORTAL_BASE}/scripts/runs`, () => {
+  http.get(`${PORTAL_BASE}/scripts/runs`, ({ request }) => {
     if (emptyDemoRequested("scripts")) {
       return HttpResponse.json({ data: [], total: 0, limit: 50 });
     }
     const named = new Map(scripts.map((script) => [script.id, script.display_name || script.name]));
-    const all = Object.entries(mockScriptRuns).flatMap(([scriptID, runs]) =>
-      runs.map((run) => ({
-        ...run,
-        script_id: scriptID,
-        script_name: named.get(scriptID),
-      })),
-    );
+    // The listing narrows to one script on the server (#1407), so the mock
+    // narrows it too: a page that filtered its own rows would pass against a
+    // server that ignored the parameter.
+    const only = new URL(request.url).searchParams.get("script_id");
+    const all = Object.entries(mockScriptRuns)
+      .filter(([scriptID]) => !only || scriptID === only)
+      .flatMap(([scriptID, runs]) =>
+        runs.map((run) => ({
+          ...run,
+          script_id: scriptID,
+          script_name: named.get(scriptID),
+        })),
+      );
     all.sort((a, b) => (a.fire_time < b.fire_time ? 1 : -1));
     return HttpResponse.json({ data: all, total: all.length, limit: 50 });
   }),

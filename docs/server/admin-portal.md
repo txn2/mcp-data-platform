@@ -410,13 +410,28 @@ than gating anything. See
 
 ![Admin Scripts](../images/screenshots/light/admin-admin-scripts-light.webp#only-light)![Admin Scripts](../images/screenshots/dark/admin-admin-scripts-dark.webp#only-dark)
 
-**All scripts** lists every script with who owns it and what it is executing:
-**Runs vN** for a script in service, or its lifecycle state (disabled,
-deprecated, superseded) when nothing will execute it. A script is one person's,
-so its owner is who sees it, runs it, and under whose authority a scheduled run
-executes; a script showing **nobody** as its owner was authored by a principal
-carrying no address and is visible only to administrators. Opening a row opens
-the script.
+**All scripts** lists every script by name, owner, schedule and last run. The
+schedule is the cadence in words — "Every weekday at 7:00 AM,
+America/Los_Angeles" — with what it is doing underneath it (the next fire,
+paused, or no fire due), and a script with no cadence reads **On demand**; the
+cron expression is read and written in the schedule editor on the script's own
+page and appears nowhere else. A script that will execute nothing carries a
+badge beside its name (**disabled**, or its lifecycle status), which is the
+exception a listing is scanned for; the version a run executes is a fact about
+every healthy script and is stated on the script's page rather than in a column
+here.
+
+A script is one person's, so its owner is who sees it, runs it, and under whose
+authority a scheduled run executes; a script showing **nobody** as its owner was
+authored by a principal carrying no address and is visible only to
+administrators. Opening a row opens the script.
+
+The tiles above the table count the listing and also filter it — every script,
+the scheduled ones, and the ones whose last run failed — and the search box and
+the category and tag chips narrow it as query predicates, answered by the server
+over every script rather than over the rows this page happened to load. It is
+the same listing the owners read on their own Scripts page, with the Owner
+column added: one listing, so the two surfaces cannot drift apart.
 
 ### One script
 
@@ -429,7 +444,21 @@ and dry-run the edit, run it, set or pause the schedule, read the version
 history and the run history — plus the one thing only an administrator does:
 **Owner**, which moves the script to another person.
 
+Two of the sections fold. **Schedule** is folded by default and states what the
+script runs in its header ("Runs: Every weekday at 7:00 AM,
+America/Los_Angeles", or "Not scheduled"), with the builder and the bindings
+behind the reveal and the pause control on the header either way: the cadence is
+set once and read constantly. **About** is open, because a reader who opens a
+script wants to know what it is, and folds away when the document is long enough
+to be in the way.
+
 ![Transferring a script](../images/screenshots/light/admin-admin-script-owner-light.webp#only-light)![Transferring a script](../images/screenshots/dark/admin-admin-script-owner-dark.webp#only-dark)
+
+The new owner is chosen from the people who have signed in to this deployment at
+least once, rather than typed: an address nobody has ever authenticated with
+cannot open the portal, so a script handed to one would be a script only
+administrators could see. A deployment where nobody else has signed in says so
+instead of offering the control.
 
 A transfer hands over everything at once, since ownership is the whole of what a
 script is: what its owner sees, edits, runs, and schedules. It is recorded as a
@@ -465,9 +494,17 @@ everything-else split over time, the busiest scripts, and the automations that
 are missing fires. A missed fire is the one thing the run table cannot show,
 because it is precisely a run that does not exist.
 
+**Busiest scripts** and **Missed fires** name a script and link to it: the name
+opens the script, and **Runs** narrows the table below to that script's runs,
+answered by the server so the row cap counts that script's history rather than
+the platform's. A row the listing cannot resolve — a script that has since been
+deleted, whose series outlives it — is still drawn, without links.
+
 The table beneath them is the exact recent history from the platform's own
 records: which script, what triggered the run, how it ended and why when it
-failed, how long it took, and what it produced. It shows the 50 most recent
+failed (in full, wrapped rather than clipped), and how long it took. A row opens
+that run: its parameters, what it cost, what it wrote and the log it printed,
+on the script's own page, and the script's name opens the script itself. It shows the 50 most recent
 runs — the store's own ceiling — and says so when it fills, because older runs
 are kept for as long as the retention window allows and the charts above cover
 that whole window whatever the table holds. The two sources are deliberate —

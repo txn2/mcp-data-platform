@@ -8,6 +8,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { descriptionSummary } from "./descriptionSummary";
 import { ScriptFacetBadges } from "./ScriptFacetBadges";
 
 // ScriptDocumentation is what a script says about itself, read and written on
@@ -37,8 +38,13 @@ export function ScriptDocumentation({ scriptId, contract, owned }: Props) {
   const [editing, setEditing] = useState(false);
 
   return (
+    // Open by default and foldable (#1407): a description is a document, and a
+    // long one is exactly the case for folding it — but a reader who opens a
+    // script wants to know what it is, so the document is what they land on.
     <SectionCard
       title="About"
+      collapsible
+      summary={descriptionSummary(contract.description ?? "") || "No description"}
       action={
         owned && !editing ? (
           <Button type="button" variant="outline" size="xs" onClick={() => setEditing(true)}>

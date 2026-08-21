@@ -244,10 +244,33 @@ export function useSharedPrompts() {
 
 // --- Known-users directory for the share picker (#614) ---
 
-export function useDirectoryUsers(q: string, enabled = true) {
-  const query = q ? `?q=${encodeURIComponent(q)}` : "";
+// DirectoryQuery is how a picker narrows the known-users directory beyond the
+// text it matches on.
+export interface DirectoryQuery {
+  /**
+   * confirmedOnly narrows the answer to the people who have actually signed in
+   * (#1407), which is what a control that hands something over offers. The
+   * narrowing is the server's, so the row cap cannot fill with people who never
+   * have and report the rest as nobody.
+   */
+  confirmedOnly?: boolean;
+  /** limit is the page size; the server caps it at 100 and defaults to 50. */
+  limit?: number;
+}
+
+// useDirectoryUsers reads the known-users directory a picker resolves a person
+// from. The response carries the TOTAL as well as the page, so a caller that
+// filled its page can say so rather than presenting part of the directory as
+// the whole of it.
+export function useDirectoryUsers(q: string, enabled = true, opts: DirectoryQuery = {}) {
+  const params = new URLSearchParams();
+  if (q) params.set("q", q);
+  if (opts.confirmedOnly) params.set("confirmed", "true");
+  if (opts.limit) params.set("limit", String(opts.limit));
+  const rendered = params.toString();
+  const query = rendered ? `?${rendered}` : "";
   return useQuery({
-    queryKey: ["portal", "directory-users", q],
+    queryKey: ["portal", "directory-users", q, !!opts.confirmedOnly, opts.limit ?? 0],
     queryFn: () =>
       apiFetch<import("../types").DirectoryUsersResponse>(`/users${query}`),
     enabled,

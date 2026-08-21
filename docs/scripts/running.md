@@ -34,7 +34,10 @@ script's schedule and history with it — nobody else could see it, run it, or
 notice it go.
 
 An administrator can move a script to another owner, from the script's page in
-the portal (`PUT /api/v1/portal/scripts/{id}/owner`). Ownership is the whole of
+the portal (`PUT /api/v1/portal/scripts/{id}/owner`), choosing the new owner
+from the people who have signed in to this deployment at least once: an address
+nobody has ever authenticated with cannot open the portal, so a script handed to
+one would be visible to administrators alone. Ownership is the whole of
 what a script is, so the transfer hands over what its owner sees, edits, runs,
 and schedules, all at once — including its history: the new owner reads the run
 records and dry-run accounts the previous owner produced, whose logs are free
@@ -619,8 +622,8 @@ skips what it already produced.
 ## Seeing what happened
 
 The portal's **Scripts** page is the human view of all of this: every script you
-can see, what it is executing, its cadence and next fire, and how its last run
-went. Opening one shows its contract, and — for a script you own — its version
+can see, its owner where that is not you, its cadence and next fire, and how its
+last run went. Opening one shows its contract, and — for a script you own — its version
 history with each version's author and the roles a run of it presents, and its
 run history with each run's trigger, duration, outputs, and the log it printed.
 See the [portal guide](../server/portal-user.md#scripts).
@@ -655,7 +658,7 @@ states the cap when the answer fills it:
 | Surface | Shows |
 |---|---|
 | A script's run history in the portal | The 25 most recent runs of that script |
-| The portal Runs tab | The 50 most recent runs across the scripts the caller owns |
+| The portal Runs tab | The 50 most recent runs across the scripts the caller owns, or across every script for an administrator; `script_id` narrows it to one script |
 | The admin Runs tab | The 50 most recent runs across every script |
 | `manage_script runs` | The limit the call names, 20 when it names none, clamped to 50 |
 | A script's contract (`fetch`, a prompt reference, the detail page) | One run: the last SUCCESSFUL one |

@@ -180,4 +180,25 @@ describe("ScriptDocumentation: what the owner writes", () => {
     expect(screen.getByText("category must be at most 31 characters")).toBeInTheDocument();
     expect(screen.getByLabelText("Category")).toHaveValue("Sales Reports");
   });
+
+  // The section folds (#1407): a description is a document, and a long one is
+  // exactly the case for folding — so the header states what the script is
+  // when it is folded, and opens on the document when it is not.
+  it("states the first line of the document in the folded header", () => {
+    renderSection();
+    fireEvent.click(screen.getByRole("button", { name: /^About/ }));
+
+    // The first line of PROSE, not the heading above it: the folded header
+    // answers "what is this script", which a section title does not.
+    expect(
+      screen.getByRole("button", { name: /Recognized revenue only/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("says an undocumented script has no description, folded", () => {
+    renderSection({ description: "" });
+    fireEvent.click(screen.getByRole("button", { name: /^About/ }));
+
+    expect(screen.getByRole("button", { name: /No description/ })).toBeInTheDocument();
+  });
 });

@@ -58,9 +58,13 @@ func (f *fakeAudience) Eligible(_ context.Context, t mention.Target, emails []st
 type fakeDirectory struct {
 	users []userdir.User
 	err   error
+	// gotFilter records what the store was asked for, so a narrowing is
+	// asserted on the query rather than on the fake's answer.
+	gotFilter userdir.Filter
 }
 
-func (f *fakeDirectory) List(context.Context, userdir.Filter) ([]userdir.User, int, error) {
+func (f *fakeDirectory) List(_ context.Context, filter userdir.Filter) ([]userdir.User, int, error) {
+	f.gotFilter = filter
 	return f.users, len(f.users), f.err
 }
 
@@ -206,6 +210,26 @@ func TestListDirectoryUsers(t *testing.T) {
 		{Email: "bob@example.com", FirstName: "Bob", LastName: "Jones", Confirmed: true},
 	}, body.Users)
 	assert.Equal(t, 1, body.Total)
+}
+
+// The picker that hands a script over asks for the people who have actually
+// signed in, and that narrowing is the store's (#1407): filtering the answer
+// would let the row cap fill with people who never have.
+func TestListDirectoryUsers_ConfirmedOnly(t *testing.T) {
+	dir := &fakeDirectory{}
+	rec := serve(t, Deps{Directory: dir, Caller: callerIs(member)},
+		"/api/v1/portal/users?confirmed=true")
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.True(t, dir.gotFilter.ConfirmedOnly)
+}
+
+func TestListDirectoryUsers_ListsEveryoneByDefault(t *testing.T) {
+	dir := &fakeDirectory{}
+	rec := serve(t, Deps{Directory: dir, Caller: callerIs(member)}, "/api/v1/portal/users")
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.False(t, dir.gotFilter.ConfirmedOnly)
 }
 
 func TestListDirectoryUsers_StoreError(t *testing.T) {

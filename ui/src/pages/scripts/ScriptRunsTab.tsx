@@ -1,29 +1,17 @@
-import { useAdminScriptRuns } from "@/api/admin/hooks/scripts";
-import type { AdminScriptRun } from "@/api/admin/hooks/scripts";
-import type { Script } from "@/api/admin/types";
+import { useState } from "react";
+import { useScriptListing } from "@/api/portal/hooks/scripts";
+import type { PortalScriptRow } from "@/api/portal/hooks/scripts";
 import {
   isBackendUnconfigured,
   useObservabilityQuery,
   useObservabilityQueryRange,
 } from "@/api/observability/hooks";
-import { BreakdownBarChart } from "@/components/charts/BarChart";
 import { TimeseriesChart, type TimeseriesSeries } from "@/components/charts/TimeseriesChart";
-import { EmptyState } from "@/components/patterns/EmptyState";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { SegmentedControl } from "@/components/patterns/SegmentedControl";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { formatDuration } from "@/lib/formatDuration";
 import { useTimeRangeStore, type TimeRangePreset } from "@/stores/timerange";
-import { Activity } from "lucide-react";
 import {
   failuresOverWindow,
   missedFiresByScript,
@@ -38,7 +26,8 @@ import {
   stepFor,
   vectorToBreakdown,
 } from "./runMetrics";
-import { runStatusLabel, runStatusVariant, runWhen } from "./runFormat";
+import { ScriptMetricRows } from "./ScriptMetricRows";
+import { ScriptRunsList } from "./ScriptRunsList";
 
 // ScriptRunsTab is what the platform has been running unattended (#1307).
 //
@@ -52,6 +41,14 @@ import { runStatusLabel, runStatusVariant, runWhen } from "./runFormat";
 // replicas, and answer rates and percentiles; the rows are the exact recent
 // history with the reason each failure failed. Neither one can do the other's
 // job.
+//
+// Every panel that names a script leads somewhere (#1407): to the script, and
+// to the runs behind the number, which is the listing at the bottom of this
+// page narrowed to that script. A metric a reader cannot follow is a metric
+// they have to go looking for by hand.
+
+/** SECTION is the section a link from this page opens under. */
+const SECTION = "/admin/scripts";
 
 const RUN_SERIES: TimeseriesSeries[] = [
   { dataKey: "success_count", name: "Succeeded", stroke: "hsl(142, 76%, 36%)" },
@@ -65,25 +62,19 @@ const PRESETS: { value: TimeRangePreset; label: string; text: string }[] = [
   { value: "7d", label: "The last week", text: "7d" },
 ];
 
-export function ScriptRunsTab({ scripts }: { scripts: Script[] }) {
-  const { preset, setPreset, getStartTime, getEndTime } = useTimeRangeStore();
-  const start = Math.floor(new Date(getStartTime()).getTime() / 1000);
-  const end = Math.floor(new Date(getEndTime()).getTime() / 1000);
-  const step = resolutionFor(preset);
-  const rateWindow = stepFor(preset);
+/** Narrowed is the script the run listing has been narrowed to, null for none. */
+interface Narrowed {
+  id: string;
+  name: string;
+}
 
-  const rate = useObservabilityQueryRange(runRateByStatus(rateWindow), start, end, step);
-  const total = useObservabilityQuery(runTotalOverWindow(preset));
-  const failed = useObservabilityQuery(failuresOverWindow(preset));
-  const p95 = useObservabilityQuery(runDurationP95(preset));
-  const inFlight = useObservabilityQuery(runsInFlight());
-  const byScript = useObservabilityQuery(runsByScript(preset));
-  const missed = useObservabilityQuery(missedFiresByScript(preset));
-
-  // One unconfigured answer is the same as all of them: the proxy is either
-  // wired to a Prometheus or it is not, and saying so once is the honest
-  // report. The run table below does not depend on it.
-  const metricsOff = isBackendUnconfigured(rate.error);
+export function ScriptRunsTab({ onNavigate }: { onNavigate: (path: string) => void }) {
+  const { preset, setPreset } = useTimeRangeStore();
+  // The listing is read for one reason: the metric series label a script by
+  // NAME, and a link needs the id. It is the same query the Scripts tab reads,
+  // so on this page it costs nothing.
+  const { data: listing } = useScriptListing();
+  const [narrowed, setNarrowed] = useState<Narrowed | null>(null);
 
   return (
     <div className="space-y-4">
@@ -99,74 +90,133 @@ export function ScriptRunsTab({ scripts }: { scripts: Script[] }) {
         />
       </div>
 
-      {metricsOff ? (
-        <Alert>
-          <AlertDescription>
-            This deployment has no metrics backend configured, so the charts below have
-            nothing to draw. The run history underneath comes from the platform's own
-            records and is unaffected.
-          </AlertDescription>
-        </Alert>
-      ) : (
-        <>
-          <div className="grid gap-4 sm:grid-cols-4">
-            <StatTile
-              label="Runs"
-              value={countText(scalar(total.data))}
-              hint={`in the last ${preset}`}
-            />
-            <StatTile
-              label="Failed"
-              value={countText(scalar(failed.data))}
-              hint={failureHint(scalar(total.data), scalar(failed.data))}
-            />
-            <StatTile
-              label="Slowest 5%"
-              value={durationText(scalar(p95.data))}
-              hint="95th percentile run"
-            />
-            <StatTile
-              label="Running now"
-              value={countText(scalar(inFlight.data))}
-              hint="across every replica"
-            />
-          </div>
+      <RunMetrics
+        scripts={listing?.data ?? []}
+        onOpenScript={(id) => onNavigate(`${SECTION}/${id}`)}
+        onShowRuns={(id, name) => setNarrowed({ id, name })}
+      />
 
-          <SectionCard title="Runs over time">
-            <TimeseriesChart
-              data={statusMatrixToTimeseries(rate.data)}
-              isLoading={rate.isLoading}
-              preset={preset}
-              series={RUN_SERIES}
-            />
-          </SectionCard>
-
-          <div className="grid gap-4 lg:grid-cols-2">
-            <SectionCard title="Busiest scripts">
-              <BreakdownBarChart
-                data={vectorToBreakdown(byScript.data, "script")}
-                isLoading={byScript.isLoading}
-              />
-            </SectionCard>
-            <SectionCard
-              title="Missed fires"
-              action={
-                <span className="text-xs text-muted-foreground">
-                  a schedule that is not keeping its cadence
-                </span>
-              }
-            >
-              <BreakdownBarChart
-                data={vectorToBreakdown(missed.data, "script")}
-                isLoading={missed.isLoading}
-              />
-            </SectionCard>
-          </div>
-        </>
-      )}
-
-      <RecentRuns scripts={scripts} />
+      <ScriptRunsList
+        audience="admin"
+        basePath={SECTION}
+        onNavigate={onNavigate}
+        scriptId={narrowed?.id}
+        scriptName={narrowed?.name}
+        onClearScript={narrowed ? () => setNarrowed(null) : undefined}
+      />
     </div>
+  );
+}
+
+// RunMetrics is everything read from Prometheus: the four counters, the rate
+// over time, and the two per-script rankings. It is one component so the tab
+// above stays the page's shape — the metrics, then the exact history — and so
+// the unconfigured answer is given once for all of them.
+function RunMetrics({
+  scripts,
+  onOpenScript,
+  onShowRuns,
+}: {
+  scripts: PortalScriptRow[];
+  onOpenScript: (scriptId: string) => void;
+  onShowRuns: (scriptId: string, name: string) => void;
+}) {
+  const { preset, getStartTime, getEndTime } = useTimeRangeStore();
+  const start = Math.floor(new Date(getStartTime()).getTime() / 1000);
+  const end = Math.floor(new Date(getEndTime()).getTime() / 1000);
+
+  const rate = useObservabilityQueryRange(
+    runRateByStatus(stepFor(preset)),
+    start,
+    end,
+    resolutionFor(preset),
+  );
+  const total = useObservabilityQuery(runTotalOverWindow(preset));
+  const failed = useObservabilityQuery(failuresOverWindow(preset));
+  const p95 = useObservabilityQuery(runDurationP95(preset));
+  const inFlight = useObservabilityQuery(runsInFlight());
+  const byScript = useObservabilityQuery(runsByScript(preset));
+  const missed = useObservabilityQuery(missedFiresByScript(preset));
+
+  // One unconfigured answer is the same as all of them: the proxy is either
+  // wired to a Prometheus or it is not, and saying so once is the honest
+  // report. The run table below does not depend on it.
+  if (isBackendUnconfigured(rate.error)) {
+    return (
+      <Alert>
+        <AlertDescription>
+          This deployment has no metrics backend configured, so the charts below have
+          nothing to draw. The run history underneath comes from the platform's own
+          records and is unaffected.
+        </AlertDescription>
+      </Alert>
+    );
+  }
+
+  return (
+    <>
+      <div className="grid gap-4 sm:grid-cols-4">
+        <StatTile
+          label="Runs"
+          value={countText(scalar(total.data))}
+          hint={`in the last ${preset}`}
+        />
+        <StatTile
+          label="Failed"
+          value={countText(scalar(failed.data))}
+          hint={failureHint(scalar(total.data), scalar(failed.data))}
+        />
+        <StatTile
+          label="Slowest 5%"
+          value={durationText(scalar(p95.data))}
+          hint="95th percentile run"
+        />
+        <StatTile
+          label="Running now"
+          value={countText(scalar(inFlight.data))}
+          hint="across every replica"
+        />
+      </div>
+
+      <SectionCard title="Runs over time">
+        <TimeseriesChart
+          data={statusMatrixToTimeseries(rate.data)}
+          isLoading={rate.isLoading}
+          preset={preset}
+          series={RUN_SERIES}
+        />
+      </SectionCard>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <SectionCard title="Busiest scripts">
+          <ScriptMetricRows
+            data={vectorToBreakdown(byScript.data, "script")}
+            isLoading={byScript.isLoading}
+            scripts={scripts}
+            unit="runs"
+            onOpenScript={onOpenScript}
+            onShowRuns={onShowRuns}
+          />
+        </SectionCard>
+        <SectionCard
+          title="Missed fires"
+          action={
+            <span className="text-xs text-muted-foreground">
+              a schedule that is not keeping its cadence
+            </span>
+          }
+        >
+          <ScriptMetricRows
+            data={vectorToBreakdown(missed.data, "script")}
+            isLoading={missed.isLoading}
+            scripts={scripts}
+            unit="missed"
+            onOpenScript={onOpenScript}
+            onShowRuns={onShowRuns}
+          />
+        </SectionCard>
+      </div>
+    </>
   );
 }
 
@@ -201,93 +251,4 @@ function durationText(seconds: number | undefined): string {
 function failureHint(total: number | undefined, failed: number | undefined): string {
   if (!total || failed === undefined) return "in the window";
   return `${Math.round((failed / total) * 100)}% of runs`;
-}
-
-// RecentRuns is the exact history: which script, what triggered it, how it
-// ended, and why when it failed. It reads the run rows rather than the metrics,
-// because a rate cannot tell an operator which run to open.
-function RecentRuns({ scripts }: { scripts: Script[] }) {
-  const { data, isLoading, error } = useAdminScriptRuns();
-  const runs = data?.data ?? [];
-  const nameOf = (id: string) =>
-    scripts.find((s) => s.id === id)?.display_name || idOrName(scripts, id);
-
-  return (
-    <SectionCard title="Recent runs">
-      {isLoading && <p className="text-sm text-muted-foreground">Loading runs...</p>}
-      {error && (
-        <p className="text-sm text-muted-foreground">The run history could not be loaded.</p>
-      )}
-      {!isLoading && !error && runs.length === 0 && (
-        <EmptyState icon={Activity}>
-          Nothing has run yet. A run happens when a schedule fires or somebody asks for one,
-          and a run always executes a saved version.
-        </EmptyState>
-      )}
-      <CapNotice shown={runs.length} limit={data?.limit} />
-      {runs.length > 0 && (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Script</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Trigger</TableHead>
-              <TableHead>When</TableHead>
-              <TableHead>Duration</TableHead>
-              <TableHead>Outputs</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {runs.map((run) => (
-              <RunRow key={run.id} run={run} script={nameOf(run.script_id)} />
-            ))}
-          </TableBody>
-        </Table>
-      )}
-    </SectionCard>
-  );
-}
-
-// idOrName falls back to the script's name, and then to its id: a run whose
-// script is not in the listing still names something a person can search for.
-function idOrName(scripts: Script[], id: string): string {
-  return scripts.find((s) => s.id === id)?.name || id;
-}
-
-// CapNotice says the listing was cut off. A page that filled its limit and said
-// nothing would read as the whole history, which is the failure this whole
-// surface exists to prevent.
-function CapNotice({ shown, limit }: { shown: number; limit?: number }) {
-  if (!limit || shown < limit) return null;
-  return (
-    <p className="pb-2 text-xs text-muted-foreground">
-      Showing the {limit} most recent runs. Older ones are kept until this deployment's
-      retention window ends — a year by default
-      (<span className="font-mono">scripts.run_retention_days</span>) — and the charts above
-      are computed from the metrics rather than from this list, so they cover the whole
-      window whatever it holds.
-    </p>
-  );
-}
-
-// RunRow is one run across every script: what it was, how it ended, and the
-// reason when it failed, which is what decides whether anyone opens it.
-function RunRow({ run, script }: { run: AdminScriptRun; script: string }) {
-  return (
-    <TableRow>
-      <TableCell>
-        <div className="font-medium">{script}</div>
-        {run.error && <div className="text-xs text-red-700 dark:text-red-300">{run.error}</div>}
-      </TableCell>
-      <TableCell>
-        <Badge variant={runStatusVariant(run.status)}>{runStatusLabel(run.status)}</Badge>
-      </TableCell>
-      <TableCell className="text-xs">{run.trigger}</TableCell>
-      <TableCell className="text-xs">{runWhen(run)}</TableCell>
-      <TableCell className="text-xs">
-        {run.duration_ms > 0 ? formatDuration(run.duration_ms) : "—"}
-      </TableCell>
-      <TableCell className="text-xs">{run.output_count}</TableCell>
-    </TableRow>
-  );
 }

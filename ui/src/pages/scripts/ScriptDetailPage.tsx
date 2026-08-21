@@ -14,6 +14,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useAuthStore } from "@/stores/auth";
+import { scheduleLine } from "./cadence";
 import { executionState, formatWhen } from "./runFormat";
 import { ScriptDocumentation } from "./ScriptDocumentation";
 import { ScriptOwnerTransfer } from "./ScriptOwnerTransfer";
@@ -190,8 +191,11 @@ function draftParamsOf(data: {
 // lines. They are the same kind of statement — what this script is and what it
 // takes — so they are read here rather than found separately (#1406).
 function ScriptFacts({ contract }: { contract: ScriptContract }) {
+  // In words, as every other surface states a cadence (#1405, #1407): the
+  // expression is read and written in the schedule editor below, and a reader
+  // asking what this script does is not asking what its cron field says.
   const schedule = contract.schedule
-    ? `${contract.schedule.cron_spec} (${contract.schedule.timezone})${contract.schedule.enabled ? "" : " — paused"}`
+    ? `${scheduleLine(contract.schedule.cron_spec, contract.schedule.timezone)}${contract.schedule.enabled ? "" : " — paused"}`
     : "on demand";
   return (
     <div className="space-y-4">

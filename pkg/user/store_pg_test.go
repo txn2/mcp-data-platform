@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -279,5 +280,20 @@ func TestBuildUserWhere(t *testing.T) {
 	got, _ := args[0].(string)
 	if got != "%ma\\_n\\%%" {
 		t.Errorf("pattern not escaped: %q", got)
+	}
+
+	// Confirmed-only is a predicate of its own, and it combines with the text
+	// rather than replacing it (#1407).
+	where, args = buildUserWhere(Filter{ConfirmedOnly: true})
+	if where != " WHERE confirmed = TRUE" || args != nil {
+		t.Errorf("confirmed-only clause is wrong: %q %v", where, args)
+	}
+
+	where, args = buildUserWhere(Filter{Query: "bo", ConfirmedOnly: true})
+	if !strings.Contains(where, "ILIKE $1") || !strings.HasSuffix(where, "AND confirmed = TRUE") {
+		t.Errorf("both predicates should apply, got %q", where)
+	}
+	if len(args) != 1 {
+		t.Fatalf("expected 1 arg, got %d", len(args))
 	}
 }

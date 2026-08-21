@@ -190,7 +190,12 @@ export interface ScriptListFilter {
   search?: string;
 }
 
-export function useMyScripts(filter: ScriptListFilter = {}) {
+// useScriptListing reads the scripts this caller may see: their own, and every
+// script on the platform for an administrator, which is what the
+// administrator's section lists (#1407). One listing serves both surfaces
+// because the server answers both from one predicate; a second endpoint for
+// the admin page would be a second answer to the same question.
+export function useScriptListing(filter: ScriptListFilter = {}) {
   const query = scriptListQuery(filter);
   return useQuery({
     queryKey: [...scriptsKey, "list", filter.category ?? "", filter.tag ?? "", filter.search ?? ""],
@@ -226,17 +231,23 @@ interface OwnRunsResponse extends ListResponse<PortalScriptRun> {
   limit: number;
 }
 
-// useMyScriptRuns reads the caller's runs across every script they own, newest
-// first. It answers the question the per-script history cannot: how are my
-// scripts going, all of them — which previously took opening each in turn.
+// useScriptRunListing reads the caller's runs across every script they own,
+// newest first, and every run on the platform for an administrator. It answers
+// the question the per-script history cannot: how are my scripts going, all of
+// them — which previously took opening each in turn.
+//
+// Naming a script narrows it back to that one (#1407), which is what a metric
+// naming a script links to: the same listing, filtered by the server, so the
+// row cap counts the runs of that script rather than of everything.
 //
 // It polls while anything is still in flight, on the same terms and for the
 // same reason the per-script history does: a run asked for on a script's page
 // is executed by a worker, so the outcome arrives after the request.
-export function useMyScriptRuns() {
+export function useScriptRunListing(scriptID?: string) {
+  const query = scriptID ? `?script_id=${encodeURIComponent(scriptID)}` : "";
   return useQuery({
-    queryKey: [...scriptsKey, "runs"],
-    queryFn: () => apiFetch<OwnRunsResponse>("/scripts/runs"),
+    queryKey: [...scriptsKey, "runs", scriptID ?? ""],
+    queryFn: () => apiFetch<OwnRunsResponse>(`/scripts/runs${query}`),
     refetchInterval: (query) => (hasRunInFlight(query.state.data) ? RUN_POLL_MS : false),
   });
 }

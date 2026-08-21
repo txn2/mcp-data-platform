@@ -557,7 +557,9 @@ const portalOwnRunsLimit = 50
 //
 // The per-script history answers "how is this report going". This answers the
 // other question an owner has — how are my scripts going, all of them — which
-// they previously could only ask by opening each script in turn.
+// they previously could only ask by opening each script in turn. Naming one
+// script narrows it back down (#1407), which is the listing a metric that names
+// a script links to.
 //
 // Visibility is the listing's own: a caller reads the runs of the scripts they
 // own, and an administrator reads every run, which is the same reach their
@@ -575,8 +577,9 @@ const portalOwnRunsLimit = 50
 // @Description  Returns recent runs across every script the caller owns, newest first, with what triggered each one, how it ended, why it failed, and which script it belongs to. Administrators see the runs of every script.
 // @Tags         Scripts
 // @Produce      json
-// @Param        status    query  string  false  "Filter by run status"
-// @Param        per_page  query  int     false  "Maximum rows to return"
+// @Param        status     query  string  false  "Filter by run status"
+// @Param        script_id  query  string  false  "Narrow the listing to one script"
+// @Param        per_page   query  int     false  "Maximum rows to return"
 // @Success      200  {object}  portalOwnRunsResponse
 // @Failure      401  {object}  httpjson.ProblemDetail
 // @Failure      500  {object}  httpjson.ProblemDetail
@@ -595,7 +598,16 @@ func (h *Handler) portalListOwnRuns(w http.ResponseWriter, r *http.Request, user
 	if limit <= 0 || limit > portalOwnRunsLimit {
 		limit = portalOwnRunsLimit
 	}
-	filter := script.RunFilter{Status: r.URL.Query().Get("status"), Limit: limit}
+	filter := script.RunFilter{
+		// ScriptID narrows the listing to one script (#1407), which is what a
+		// metric that names a script links to. The store ANDs it with the
+		// visibility predicate below rather than replacing it, so naming a
+		// script the caller may not read answers with nothing rather than with
+		// its runs.
+		ScriptID: r.URL.Query().Get("script_id"),
+		Status:   r.URL.Query().Get("status"),
+		Limit:    limit,
+	}
 	if !user.IsAdmin {
 		// A non-nil, empty set is the answer for a caller who owns nothing: it
 		// matches no run, where a nil set would list every run on the platform.

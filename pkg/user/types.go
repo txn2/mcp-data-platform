@@ -34,9 +34,16 @@ type User struct {
 type Filter struct {
 	// Query optionally matches (case-insensitive substring) against email,
 	// first name, or last name.
-	Query  string
-	Limit  int
-	Offset int
+	Query string
+	// ConfirmedOnly narrows the listing to people who have actually
+	// authenticated, leaving out the rows an admin pre-added for somebody who
+	// has never signed in. A picker that hands something over — a script's
+	// ownership (#1407) — offers only people who can come and collect it,
+	// and it is applied here rather than over the returned page so the row
+	// cap cannot hide a confirmed person behind unconfirmed ones.
+	ConfirmedOnly bool
+	Limit         int
+	Offset        int
 }
 
 // Update holds mutable fields for an admin edit. A nil pointer leaves the
