@@ -9,18 +9,15 @@ import (
 // The account of a draft execution (#1364).
 //
 // A dry run persists nothing it produced: platform.export previews, no asset
-// is versioned, no object is delivered, and no approval is touched. That is
-// unchanged. What is recorded here is the ACCOUNT of one — that a person ran
-// this exact source, when, how it ended, what it printed, and the shape of the
-// outputs it would have written.
+// is versioned, and no object is delivered. What is recorded here is the
+// ACCOUNT of one — that a person ran this exact source, when, how it ended,
+// what it printed, and the shape of the outputs it would have written.
 //
-// It exists for the reviewer. Approving a version is agreeing to run code
-// unattended, and the surface offered no way to tell whether the author had
-// ever run it themselves. Keying the account to the SOURCE rather than to a
-// version is what makes it work in the order authors actually write in: an
-// edit is dry-run before it is saved, so there is no version to attach it to
-// yet, and the digest links it to whichever version later carries that exact
-// source — and to no other.
+// It exists for whoever reads the script later. Keying the account to the
+// SOURCE rather than to a version is what makes it work in the order authors
+// actually write in: an edit is dry-run before it is saved, so there is no
+// version to attach it to yet, and the digest links it to whichever version
+// later carries that exact source — and to no other.
 
 // DryRunOutput is one output a draft run would have written. It carries the
 // shape and nothing else: a preview has no asset id and no object key, because

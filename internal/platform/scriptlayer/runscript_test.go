@@ -49,7 +49,7 @@ func (s *stubRuns) ListRuns(ctx context.Context, filter script.RunFilter) ([]scr
 }
 
 // runnableHandle returns a handle over an in-memory store holding one personal
-// script of jane's, approved with the full capability set.
+// script of jane's. Saving it is all it takes for it to run.
 func runnableHandle(t *testing.T) (*Handle, *memStore, *stubRuns) {
 	t.Helper()
 	store, runs := newMemStore(), newStubRuns()
@@ -59,29 +59,7 @@ func runnableHandle(t *testing.T) (*Handle, *memStore, *stubRuns) {
 		Command: cmdCreate, Name: "daily", Source: "print(1)\n",
 	})
 	require.False(t, res.IsError, resultText(res))
-	sc, err := store.GetPersonal(context.Background(), "jane@example.com", "daily")
-	require.NoError(t, err)
-	_, err = store.ApproveVersion(context.Background(), sc.ID, sc.Version, "admin@example.com",
-		script.Grants{Capabilities: script.Capabilities, Destinations: []script.Destination{script.PortalDestination()}})
-	require.NoError(t, err)
 	return h, store, runs
-}
-
-// unapprovedHandle returns a handle holding one script nothing has approved.
-//
-// The script is GLOBAL and written by an administrator, because that is what an
-// unapproved script now is: a personal script its own owner wrote is approved on
-// save (#1367), so a personal fixture would no longer be testing the gate at
-// all — it would be testing the path around it.
-func unapprovedHandle(t *testing.T) *Handle {
-	t.Helper()
-	h := New(Config{Store: newMemStore(), Runs: newStubRuns(), AdminPersona: "admin"})
-
-	res := call(t, h, adminCtx(), manageScriptInput{
-		Command: cmdCreate, Name: "daily", Source: "print(1)\n", Scope: script.ScopeGlobal,
-	})
-	require.False(t, res.IsError, resultText(res))
-	return h
 }
 
 // runScriptCall invokes the run_script handler directly.
@@ -96,7 +74,7 @@ func runScriptCall(t *testing.T, h *Handle, input runScriptInput) map[string]any
 }
 
 // TestRunScript_RefusesWhatMustNotExecute covers the states run_script must
-// turn away before anything is queued.
+// turn away before anything is queued, in script.RefuseRun's own words.
 func TestRunScript_RefusesWhatMustNotExecute(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -106,16 +84,15 @@ func TestRunScript_RefusesWhatMustNotExecute(t *testing.T) {
 		{"disabled", func(sc *script.Script) { sc.Enabled = false }, "disabled"},
 		{"superseded", func(sc *script.Script) {
 			sc.Status, sc.SupersededBy = script.StatusSuperseded, "daily-v2"
-		}, "superseded"},
-		{"deprecated", func(sc *script.Script) { sc.Status = script.StatusDeprecated }, "deprecated"},
+		}, `superseded by "daily-v2"`},
 		{
-			"approval pointer dangles", func(sc *script.Script) { sc.ApprovedVersionID = "sver_missing" },
-			"must be approved again",
+			"deprecated", func(sc *script.Script) { sc.Status = script.StatusDeprecated },
+			"the script is deprecated and must not be executed",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h, store, _ := runnableHandle(t)
+			h, store, runs := runnableHandle(t)
 			sc, err := store.GetPersonal(context.Background(), "jane@example.com", "daily")
 			require.NoError(t, err)
 			tt.mutate(sc)
@@ -123,8 +100,33 @@ func TestRunScript_RefusesWhatMustNotExecute(t *testing.T) {
 
 			out := runScriptCall(t, h, runScriptInput{Name: "daily"})
 			assert.Contains(t, out["error"], tt.wantErr)
+			assert.Empty(t, runs.byID, "a refused run is never queued")
 		})
 	}
+}
+
+// TestRunScript_MissingCurrentVersionIsReported covers a history the live row
+// points past: the refusal names the repair (save again) rather than queueing
+// a run nothing can load.
+func TestRunScript_MissingCurrentVersionIsReported(t *testing.T) {
+	h, store, _ := runnableHandle(t)
+	sc, err := store.GetPersonal(context.Background(), "jane@example.com", "daily")
+	require.NoError(t, err)
+	sc.Version = 99
+	require.NoError(t, store.Update(context.Background(), sc))
+
+	out := runScriptCall(t, h, runScriptInput{Name: "daily"})
+	assert.Contains(t, out["error"], "current version is missing")
+}
+
+// TestRunScript_VersionReadFailureIsNotAMissingVersion keeps a store failure
+// from telling an author their script's history is gone.
+func TestRunScript_VersionReadFailureIsNotAMissingVersion(t *testing.T) {
+	h, store, _ := runnableHandle(t)
+	store.versionErr = errors.New("boom")
+
+	out := runScriptCall(t, h, runScriptInput{Name: "daily"})
+	assert.Contains(t, out["error"], "failed to read the script's current version")
 }
 
 func TestRunScript_UnknownScript(t *testing.T) {
@@ -133,9 +135,9 @@ func TestRunScript_UnknownScript(t *testing.T) {
 	assert.Contains(t, out["error"], "not found")
 }
 
-// TestRunScript_ParamsAreCheckedAgainstTheApprovedContract pins that binding
-// uses the approved version's parameters, not the live row's.
-func TestRunScript_ParamsAreCheckedAgainstTheApprovedContract(t *testing.T) {
+// TestRunScript_ParamsAreCheckedAgainstTheCurrentContract pins that binding
+// uses the current version's parameter contract before anything is queued.
+func TestRunScript_ParamsAreCheckedAgainstTheCurrentContract(t *testing.T) {
 	h, _, _ := runnableHandle(t)
 	out := runScriptCall(t, h, runScriptInput{Name: "daily", Args: map[string]any{"nope": 1}})
 	assert.Contains(t, out["error"], `has no parameter "nope"`)
@@ -313,17 +315,37 @@ func TestRunCommands_UnavailableWithoutAQueue(t *testing.T) {
 	}
 }
 
-// TestRunScript_UnapprovedScriptNamesTheWayForward pins the refusal an author
-// is most likely to hit, and that it points at run_draft.
-func TestRunScript_UnapprovedScriptNamesTheWayForward(t *testing.T) {
-	h := unapprovedHandle(t)
-	out := runScriptCall(t, h, runScriptInput{Name: "daily"})
-	assert.Contains(t, out["error"], "no approved version")
-	assert.Contains(t, out["error"], "run_draft")
+// TestRunScript_ExecutesTheCurrentVersion pins the versioning rule at the
+// tool: the run is queued against the version sc.Version names — the latest
+// saved one — so an edit is what the very next run executes.
+func TestRunScript_ExecutesTheCurrentVersion(t *testing.T) {
+	h, store, runs := runnableHandle(t)
+	res := call(t, h, authorCtx(), manageScriptInput{
+		Command: cmdUpdate, Name: "daily", Source: "print(2)\n",
+	})
+	require.False(t, res.IsError, resultText(res))
+
+	out := runScriptCall(t, h, runScriptInput{Name: "daily", WaitSeconds: -1})
+	assert.EqualValues(t, 2, out["version"])
+
+	runID, ok := out["run_id"].(string)
+	require.True(t, ok)
+	run, err := runs.GetRun(context.Background(), runID)
+	require.NoError(t, err)
+	assert.Equal(t, 2, run.Version)
+
+	sc, err := store.GetPersonal(context.Background(), "jane@example.com", "daily")
+	require.NoError(t, err)
+	v, err := store.GetVersion(context.Background(), sc.ID, sc.Version)
+	require.NoError(t, err)
+	require.NotNil(t, v)
+	assert.Equal(t, v.ID, run.VersionID, "the queued run names the snapshot the worker loads")
+	assert.Equal(t, "print(2)\n", v.Source, "and that snapshot carries the edited source")
 }
 
 // TestRunScript_WithoutAVersionStoreIsUnavailable covers a store that cannot
-// answer for versions, where the approved code cannot be loaded at all.
+// answer for versions, where the code a run would execute cannot be loaded at
+// all.
 func TestRunScript_WithoutAVersionStoreIsUnavailable(t *testing.T) {
 	store := &unversionedStore{inner: newMemStore()}
 	h := New(Config{Store: store, Runs: newStubRuns(), AdminPersona: "admin"})
@@ -331,10 +353,6 @@ func TestRunScript_WithoutAVersionStoreIsUnavailable(t *testing.T) {
 
 	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdCreate, Name: "daily", Source: "print(1)\n"})
 	require.False(t, res.IsError, resultText(res))
-	sc, err := store.GetPersonal(context.Background(), "jane@example.com", "daily")
-	require.NoError(t, err)
-	sc.ApprovedVersionID = "sver_1"
-	require.NoError(t, store.Update(context.Background(), sc))
 
 	out := runScriptCall(t, h, runScriptInput{Name: "daily"})
 	assert.Contains(t, out["error"], "cannot read script versions")
@@ -417,7 +435,7 @@ func TestRunScriptSchema_ClosedAndInSyncWithTheInputStruct(t *testing.T) {
 // TestRunReads_AreTheOwnersAndTheAdmins pins who may read what a script did,
 // which is a narrower entitlement than seeing that the script exists: a run
 // carries the parameters it bound, the error it failed with, and free text the
-// script printed while holding ITS grant.
+// script printed while presenting its author's captured roles.
 func TestRunReads_AreTheOwnersAndTheAdmins(t *testing.T) {
 	h, store, _ := runnableHandle(t)
 	// Make the script visible to every analyst, so a colleague can see it and
@@ -517,4 +535,48 @@ func TestUnidentifiedCallerIsStillAnOwner(t *testing.T) {
 	res := call(t, h, ctx, manageScriptInput{Command: cmdCreate, Name: "daily", Source: "print(1)\n"})
 	require.False(t, res.IsError, resultText(res))
 	assert.False(t, call(t, h, ctx, manageScriptInput{Command: cmdGet, Name: "daily"}).IsError)
+}
+
+// TestRunScript_OffersADraftRunOnlyWhereOneWouldBeAdmitted proves the refusal
+// does not send somebody to a second refusal: run_draft turns away a disabled
+// or superseded script too, and only a deprecated one is still draft-runnable
+// by the person fixing it.
+func TestRunScript_OffersADraftRunOnlyWhereOneWouldBeAdmitted(t *testing.T) {
+	tests := []struct {
+		name     string
+		mutate   func(*script.Script)
+		phrase   string
+		wantHint bool
+	}{
+		{"deprecated: a draft still runs", func(sc *script.Script) {
+			sc.Status = script.StatusDeprecated
+		}, "deprecated", true},
+		{"disabled: a draft is refused too", func(sc *script.Script) {
+			sc.Enabled = false
+		}, "disabled", false},
+		{"superseded: a draft is refused too", func(sc *script.Script) {
+			sc.Status, sc.SupersededBy = script.StatusSuperseded, "daily-v2"
+		}, "superseded", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h, store, _ := runnableHandle(t)
+			sc, err := store.GetPersonal(context.Background(), "jane@example.com", "daily")
+			require.NoError(t, err)
+			tt.mutate(sc)
+			require.NoError(t, store.Update(context.Background(), sc))
+
+			out := runScriptCall(t, h, runScriptInput{Name: "daily", WaitSeconds: -1})
+
+			refusal, _ := out["error"].(string)
+			require.NotEmpty(t, refusal, "the run must be refused")
+			assert.Contains(t, refusal, tt.phrase)
+			if tt.wantHint {
+				assert.Contains(t, refusal, "run_draft")
+				return
+			}
+			assert.NotContains(t, refusal, "run_draft",
+				"run_draft refuses this state too, so naming it sends the caller to a second refusal")
+		})
+	}
 }

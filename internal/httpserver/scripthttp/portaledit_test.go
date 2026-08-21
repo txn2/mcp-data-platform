@@ -3,6 +3,7 @@ package scripthttp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,53 +15,36 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
-// The edit route is the second mutation on the portal surface (#1307), and the
-// only one that changes what a script DOES. Everything here is about the gate
-// it crosses to do that: an approved script's edit becomes a draft, an
-// unapproved one applies, and neither is an approval.
+// The edit route is the portal mutation that changes what a script DOES
+// (#1307). Every save applies to the live row through script.ApplyEdit — the
+// one gate every mutation surface crosses — and the saved version is the
+// version that runs.
 
 // sourcePath is the route under test, on the global script carol owns.
 const sourcePath = "/api/v1/portal/scripts/script_2/source"
 
-// editedBody is the request the tests send: valid Starlark that reaches for
-// the same capabilities the fixture's grant covers, as a JSON body.
+// editedSource is the request the tests send: valid Starlark reaching for one
+// connection and one export.
 const editedSource = "res = platform.query(connection=\"warehouse\", sql=\"SELECT 2\")\nplatform.export(name=\"daily\", rows=res[\"rows\"])\n"
 
 // editedBody is that source as a request body.
 var editedBody = `{"source":` + strconv.Quote(editedSource) + `}`
 
-// editStore records what ApplyEdit did with the script: a draft version, or an
-// update to the live row. The two outcomes are the whole point of the route, so
-// a fake that collapsed them would prove nothing.
+// editStore records what ApplyEdit wrote to the live row and who it recorded
+// as the author, which is what every assertion here is about.
 type editStore struct {
 	*stubStore
-	draftFor   *script.Script
-	draftBy    script.Author
-	updated    *script.Script
-	updatedBy  script.Author
-	draftErr   error
-	updateErr  error
-	draftAtNum int
+	updated   *script.Script
+	updatedBy script.Author
+	updateErr error
 }
 
-func (e *editStore) CreateDraftVersion(
-	_ context.Context, _ string, sc *script.Script, author script.Author,
-) (int, error) {
-	if e.draftErr != nil {
-		return 0, e.draftErr
-	}
-	e.draftFor, e.draftBy = sc, author
-	return e.draftAtNum, nil
-}
-
-// UpdateWithVersion models the real store's contract, including the part the
-// funnel now reads back: an edit that moved a versioned field snapshots a new
-// version and ADVANCES sc.Version to it, which is how ApplyEdit knows which
-// version this edit produced and therefore which one automatic approval may
-// bind (#1367). A fake that left the number alone would make every save look
-// like an edit that produced nothing.
+// UpdateWithVersion models the real store's contract: an edit that moved a
+// versioned field snapshots a new version and ADVANCES sc.Version to it. A
+// fake that left the number alone would make every save look like an edit that
+// produced nothing.
 func (e *editStore) UpdateWithVersion(
-	_ context.Context, sc *script.Script, author script.Author, _ bool,
+	_ context.Context, sc *script.Script, author script.Author,
 ) error {
 	if e.updateErr != nil {
 		return e.updateErr
@@ -74,14 +58,9 @@ func (e *editStore) UpdateWithVersion(
 	return nil
 }
 
-// newEditStore returns the portal fixture with an edit-aware store, with the
-// global script carol owns made executable when approved is true.
-func newEditStore(approved bool) *editStore {
-	store := portalStore()
-	if approved {
-		store.scripts[1].ApprovedVersionID = "sver_1"
-	}
-	return &editStore{stubStore: store, draftAtNum: 4}
+// newEditStore returns the portal fixture with an edit-aware store.
+func newEditStore() *editStore {
+	return &editStore{stubStore: portalStore()}
 }
 
 func editDeps(store *editStore, user *PortalIdentity) Deps {
@@ -90,30 +69,28 @@ func editDeps(store *editStore, user *PortalIdentity) Deps {
 	return deps
 }
 
-// TestPortalSetSource_OnAnApprovedScriptBecomesADraft is the load-bearing case:
-// the owner edits, the approved version keeps running, and a reviewer decides.
-func TestPortalSetSource_OnAnApprovedScriptBecomesADraft(t *testing.T) {
-	store := newEditStore(true)
+// TestPortalSetSource_AppliesToTheLiveRow is the load-bearing case: the owner
+// saves, the live script carries the new source, and the save says it runs now.
+func TestPortalSetSource_AppliesToTheLiveRow(t *testing.T) {
+	store := newEditStore()
 	rec := servePortalRequest(t, editDeps(store, carol), http.MethodPut, sourcePath,
 		editedBody)
 
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	var body sourceResponse
 	decodeInto(t, rec, &body)
-	assert.False(t, body.Applied, "the live script must not change under its approval")
-	assert.Equal(t, 4, body.PendingVersion)
-	assert.Contains(t, body.Message, "awaiting review")
+	assert.True(t, body.Applied)
+	assert.Contains(t, body.Message, "this version is what runs now")
 
-	require.NotNil(t, store.draftFor, "the edit was not sent to review")
-	assert.Equal(t, editedSource, store.draftFor.Source)
-	assert.Nil(t, store.updated, "the live row must be untouched")
+	require.NotNil(t, store.updated, "the live row was not written")
+	assert.Equal(t, editedSource, store.updated.Source)
 }
 
 // TestPortalSetSource_RecordsTheAuthorAndTheirRoles pins the authority ceiling:
-// approving a version binds the roles its author held, so the version has to
-// carry the roles of the person who actually wrote it.
+// a run of the saved version presents the roles its author held, so the version
+// has to carry the roles of the person who actually wrote it.
 func TestPortalSetSource_RecordsTheAuthorAndTheirRoles(t *testing.T) {
-	store := newEditStore(true)
+	store := newEditStore()
 	author := &PortalIdentity{
 		UserID: "u4", Email: "carol@example.com", Persona: "analyst",
 		Roles: []string{"dp_analyst"},
@@ -122,156 +99,80 @@ func TestPortalSetSource_RecordsTheAuthorAndTheirRoles(t *testing.T) {
 		editedBody)
 
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	assert.Equal(t, "carol@example.com", store.draftBy.Email)
-	assert.Equal(t, []string{"dp_analyst"}, store.draftBy.Roles)
+	assert.Equal(t, "carol@example.com", store.updatedBy.Email)
+	assert.Equal(t, []string{"dp_analyst"}, store.updatedBy.Roles)
 }
 
 // A caller the platform cannot name authors with no roles rather than
 // inheriting somebody else's.
 func TestPortalSetSource_AnAuthorWithNoRolesCarriesNone(t *testing.T) {
-	store := newEditStore(true)
+	store := newEditStore()
 	author := &PortalIdentity{UserID: "u4", Email: "carol@example.com"}
 	rec := servePortalRequest(t, editDeps(store, author), http.MethodPut, sourcePath,
 		editedBody)
 
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	assert.Equal(t, []string{}, store.draftBy.Roles)
+	assert.Equal(t, []string{}, store.updatedBy.Roles)
 }
 
-// TestPortalSetSource_OnAnUnapprovedScriptApplies pins the other half: nothing
-// executes an unapproved script, so its edits are pure authoring.
-func TestPortalSetSource_OnAnUnapprovedScriptApplies(t *testing.T) {
-	store := newEditStore(false)
-	rec := servePortalRequest(t, editDeps(store, carol), http.MethodPut, sourcePath,
-		editedBody)
-
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	var body sourceResponse
-	decodeInto(t, rec, &body)
-	assert.True(t, body.Applied)
-	assert.Zero(t, body.PendingVersion)
-	assert.Contains(t, body.Message, "nothing executes it unattended")
-
-	require.NotNil(t, store.updated)
-	assert.Equal(t, editedSource, store.updated.Source)
-	assert.Nil(t, store.draftFor)
-}
-
-// stubAuto answers the edit funnel with a fixed decision, so what is under test
-// here is what the route SAYS about automatic approval rather than the deciding.
-type stubAuto struct{ decision script.AutoDecision }
-
-func (s stubAuto) Consider(context.Context, *script.Script, script.Author) script.AutoDecision {
-	return s.decision
-}
-
-func (stubAuto) Approve(
-	_ context.Context, _ *script.Script, _ int, decision script.AutoDecision,
-) script.AutoOutcome {
-	if !decision.Approvable {
-		return script.AutoOutcome{Reason: decision.Reason}
-	}
-	return script.AutoOutcome{Approved: true}
-}
-
-// TestPortalSetSource_SaysTheOwnersOwnScriptIsRunning is what an owner needs
-// from the save that made their script executable (#1367): not "saved", but
-// that it runs now.
-func TestPortalSetSource_SaysTheOwnersOwnScriptIsRunning(t *testing.T) {
-	store := newEditStore(false)
-	deps := editDeps(store, carol)
-	deps.Auto = stubAuto{decision: script.AutoDecision{Approvable: true}}
-
-	rec := servePortalRequest(t, deps, http.MethodPut, sourcePath, editedBody)
-
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	var body sourceResponse
-	decodeInto(t, rec, &body)
-	assert.True(t, body.Applied)
-	assert.True(t, body.Approved)
-	assert.Contains(t, body.Message, "It runs now")
-}
-
-// TestPortalSetSource_DoesNotClaimADisabledScriptRuns keeps the save honest
-// about what an approval actually buys: the execution gate refuses a disabled
-// or deprecated script whatever is approved on it.
-func TestPortalSetSource_DoesNotClaimADisabledScriptRuns(t *testing.T) {
+// TestPortalSetSource_DoesNotClaimARefusedScriptRuns keeps the save honest
+// about what it means for execution: the run gate refuses a disabled or
+// deprecated script whatever was just saved, and the save says so in the
+// gate's own words.
+func TestPortalSetSource_DoesNotClaimARefusedScriptRuns(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		mutate func(*script.Script)
 		want   string
 	}{
-		{"disabled", func(sc *script.Script) { sc.Enabled = false }, "until it is enabled again"},
-		{"deprecated", func(sc *script.Script) { sc.Status = script.StatusDeprecated }, "is deprecated"},
+		{"disabled", func(sc *script.Script) { sc.Enabled = false }, "disabled"},
+		{"deprecated", func(sc *script.Script) { sc.Status = script.StatusDeprecated }, "deprecated"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			store := newEditStore(false)
+			store := newEditStore()
 			tc.mutate(&store.scripts[1])
-			deps := editDeps(store, carol)
-			deps.Auto = stubAuto{decision: script.AutoDecision{Approvable: true}}
 
-			rec := servePortalRequest(t, deps, http.MethodPut, sourcePath, editedBody)
+			rec := servePortalRequest(t, editDeps(store, carol), http.MethodPut, sourcePath, editedBody)
 
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 			var body sourceResponse
 			decodeInto(t, rec, &body)
-			assert.True(t, body.Approved)
+			assert.True(t, body.Applied, "the save itself still lands")
+			assert.Contains(t, body.Message, "Nothing executes this script")
 			assert.Contains(t, body.Message, tc.want)
-			assert.NotContains(t, body.Message, "It runs now")
+			assert.NotContains(t, body.Message, "what runs now")
 		})
 	}
-}
-
-// TestPortalSetSource_QuotesTheRefusalItWasNotApprovedFor puts the sentence the
-// owner can act on in front of them, at save, rather than leaving them to find
-// out at the next fire.
-func TestPortalSetSource_QuotesTheRefusalItWasNotApprovedFor(t *testing.T) {
-	store := newEditStore(false)
-	deps := editDeps(store, carol)
-	deps.Auto = stubAuto{decision: script.AutoDecision{
-		Reason: "this script writes to acme-drop, and where that is is a decision nothing in the source states",
-	}}
-
-	rec := servePortalRequest(t, deps, http.MethodPut, sourcePath, editedBody)
-
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	var body sourceResponse
-	decodeInto(t, rec, &body)
-	assert.True(t, body.Applied)
-	assert.False(t, body.Approved)
-	assert.Contains(t, body.Message, "acme-drop")
-	assert.Contains(t, body.Message, "dry-run it here")
 }
 
 // TestPortalSetSource_RefusesSourceThatDoesNotParse pins that the static read
 // happens before anything is stored, rather than at the next run with nobody
 // watching.
 func TestPortalSetSource_RefusesSourceThatDoesNotParse(t *testing.T) {
-	store := newEditStore(true)
+	store := newEditStore()
 	rec := servePortalRequest(t, editDeps(store, carol), http.MethodPut, sourcePath,
 		`{"source":"def broken(:\n"}`)
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "does not parse")
-	assert.Nil(t, store.draftFor)
 	assert.Nil(t, store.updated)
 }
 
 func TestPortalSetSource_RefusesAnEmptySource(t *testing.T) {
-	store := newEditStore(true)
+	store := newEditStore()
 	rec := servePortalRequest(t, editDeps(store, carol), http.MethodPut, sourcePath, `{"source":""}`)
 	require.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Nil(t, store.draftFor)
+	assert.Nil(t, store.updated)
 }
 
 // The edit is the owner's, and a caller who may only SEE the script is refused
 // exactly as one who may not see it at all.
 func TestPortalSetSource_RefusedForANonOwner(t *testing.T) {
-	store := newEditStore(true)
+	store := newEditStore()
 	notYours := servePortalRequest(t, editDeps(store, stranger), http.MethodPut, sourcePath,
 		editedBody)
 	require.Equal(t, http.StatusNotFound, notYours.Code)
-	assert.Nil(t, store.draftFor)
+	assert.Nil(t, store.updated)
 
 	missing := servePortalRequest(t, editDeps(store, stranger), http.MethodPut,
 		"/api/v1/portal/scripts/nope/source", editedBody)
@@ -280,47 +181,50 @@ func TestPortalSetSource_RefusedForANonOwner(t *testing.T) {
 }
 
 func TestPortalSetSource_AdminIsUnrestricted(t *testing.T) {
-	store := newEditStore(true)
+	store := newEditStore()
 	rec := servePortalRequest(t, editDeps(store, admin), http.MethodPut, sourcePath,
 		editedBody)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	assert.NotNil(t, store.draftFor, "an administrator edits like any owner, and still cannot approve")
+	assert.NotNil(t, store.updated, "an administrator edits like any owner")
+}
+
+// TestPortalSetSource_AVersionConflictIsA409 pins the one edit failure a
+// caller can act on: somebody else saved first, and re-reading is the fix.
+func TestPortalSetSource_AVersionConflictIsA409(t *testing.T) {
+	store := newEditStore()
+	store.updateErr = fmt.Errorf("the script moved underneath the edit: %w", script.ErrVersionConflict)
+	rec := servePortalRequest(t, editDeps(store, carol), http.MethodPut, sourcePath,
+		editedBody)
+
+	assert.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
 }
 
 func TestPortalSetSource_Failures(t *testing.T) {
 	t.Run("an unreadable body", func(t *testing.T) {
-		rec := servePortalRequest(t, editDeps(newEditStore(true), carol), http.MethodPut,
+		rec := servePortalRequest(t, editDeps(newEditStore(), carol), http.MethodPut,
 			sourcePath, "{not json")
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 	})
 
 	t.Run("a body past the bound", func(t *testing.T) {
 		body := `{"source":"` + strings.Repeat("x", maxSourceBodyBytes) + `"}`
-		rec := servePortalRequest(t, editDeps(newEditStore(true), carol), http.MethodPut,
+		rec := servePortalRequest(t, editDeps(newEditStore(), carol), http.MethodPut,
 			sourcePath, body)
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 	})
 
-	t.Run("the draft could not be written", func(t *testing.T) {
-		store := newEditStore(true)
-		store.draftErr = errors.New("boom")
+	t.Run("the live update could not be written", func(t *testing.T) {
+		store := newEditStore()
+		store.updateErr = errors.New("boom")
 		rec := servePortalRequest(t, editDeps(store, carol), http.MethodPut, sourcePath,
 			editedBody)
 		assert.Equal(t, http.StatusInternalServerError, rec.Code)
 		assert.NotContains(t, rec.Body.String(), "boom", "a store failure's detail stays in the log")
 	})
-
-	t.Run("the live update could not be written", func(t *testing.T) {
-		store := newEditStore(false)
-		store.updateErr = errors.New("boom")
-		rec := servePortalRequest(t, editDeps(store, carol), http.MethodPut, sourcePath,
-			editedBody)
-		assert.Equal(t, http.StatusInternalServerError, rec.Code)
-	})
 }
 
 func TestPortalSetSource_RequiresAuthentication(t *testing.T) {
-	rec := servePortalRequest(t, editDeps(newEditStore(true), nil), http.MethodPut, sourcePath,
+	rec := servePortalRequest(t, editDeps(newEditStore(), nil), http.MethodPut, sourcePath,
 		editedBody)
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
 }

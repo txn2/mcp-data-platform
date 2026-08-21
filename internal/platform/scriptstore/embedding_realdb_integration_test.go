@@ -61,10 +61,11 @@ func TestRealDB_IndexedTextChangeClearsTheVector(t *testing.T) {
 	assert.Contains(t, gaps, sc.ID)
 }
 
-// TestRealDB_ApprovalClearsTheVector covers the write nobody would guess moves
-// the document: approval rewrites the card's last line, and that line is what
-// tells a caller whether the hit is something to run.
-func TestRealDB_ApprovalClearsTheVector(t *testing.T) {
+// TestRealDB_StatusChangeClearsTheVector covers the write nobody would guess
+// moves the document: a lifecycle change rewrites the card's last line (the
+// execution note reads the status), and that line is what tells a caller
+// whether the hit is something to run.
+func TestRealDB_StatusChangeClearsTheVector(t *testing.T) {
 	db := testdb.New(t)
 	s := New(db)
 	ctx := context.Background()
@@ -76,18 +77,17 @@ func TestRealDB_ApprovalClearsTheVector(t *testing.T) {
 		TextHash: indexjobs.TextHash(script.IndexText(sc)),
 	}}))
 
-	_, err := s.ApproveVersion(ctx, sc.ID, 1, "admin@example.com",
-		script.Grants{Connections: []string{"warehouse"}})
-	require.NoError(t, err)
+	sc.Status = script.StatusDeprecated
+	require.NoError(t, s.Update(ctx, sc))
 
 	got, err := idx.ListVectors(ctx, sc.ID)
 	require.NoError(t, err)
-	assert.Empty(t, got, "the approved card says run_script will execute it; the old vector says nothing will")
+	assert.Empty(t, got, "the deprecated card says nothing will run it; the old vector says run_script will")
 
 	// And the text the next embed is built from now says so.
 	text, err := idx.GetIndexText(ctx, sc.ID)
 	require.NoError(t, err)
-	assert.Contains(t, text, "call run_script")
+	assert.Contains(t, text, "deprecated")
 }
 
 // TestRealDB_HybridSearchRanksSemanticallyAndLexically runs both arms against

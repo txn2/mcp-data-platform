@@ -1,7 +1,6 @@
-import { useState } from "react";
 import { FileCode2 } from "lucide-react";
-import { useAdminScripts, useScriptReviews } from "@/api/admin/hooks";
-import type { PendingReview, Script } from "@/api/admin/types";
+import { useAdminScripts } from "@/api/admin/hooks";
+import type { Script } from "@/api/admin/types";
 import { EmptyState } from "@/components/patterns/EmptyState";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -16,59 +15,32 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ScriptFacetBadges } from "./ScriptFacetBadges";
-import { ScriptReviewDrawer } from "./ScriptReviewDrawer";
-import { ScriptReviewQueue } from "./ScriptReviewQueue";
 import { ScriptRunsTab } from "./ScriptRunsTab";
 
-// AdminScriptsPage is the administrator's script listing: the queue of versions
-// waiting for a decision, every script on the platform, and what has been
-// running (#1287, #1307).
+// AdminScriptsPage is the administrator's script listing: every script on the
+// platform, and what has been running (#1307).
 //
-// A row opens the script itself, on the same detail page its owner opens
-// (#1367): an administrator runs, edits, dry-runs, schedules and reads the
-// history of every script exactly as its owner does, and decides whether a
-// version executes. This page lists; that page acts.
-//
-// The queue keeps its own drawer because it is a different motion — open,
-// decide, next — and a reviewer working a queue should not have to walk into a
-// whole script and back out again for each one.
-
-// Open names the version the review drawer is open on.
-interface Open {
-  scriptID: string;
-  scriptName: string;
-  version: number;
-}
+// A row opens the script itself, on the same detail page its owner opens: an
+// administrator runs, edits, dry-runs, schedules and reads the history of
+// every script exactly as its owner does. This page lists; that page acts.
 
 export function AdminScriptsPage({ onNavigate }: { onNavigate: (path: string) => void }) {
-  const reviews = useScriptReviews();
   const scripts = useAdminScripts();
-  const [open, setOpen] = useState<Open | null>(null);
 
-  const pending = reviews.data?.data ?? [];
   const allScripts = scripts.data?.data ?? [];
 
-  const openReview = (row: PendingReview) =>
-    setOpen({
-      scriptID: row.script_id,
-      scriptName: row.display_name || row.script_name,
-      version: row.version,
-    });
-
   return (
-    <Tabs defaultValue="review" className="gap-4">
-      {/* Two questions, two tabs: what needs a decision, and what has been
-          running. The queue is first because it is the one with somebody
-          waiting on it. */}
+    <Tabs defaultValue="scripts" className="gap-4">
+      {/* Two questions, two tabs: what exists, and what has been running. */}
       <TabsList
         variant="line"
         className="group-data-[orientation=horizontal]/tabs:h-auto w-full justify-start gap-1 border-b p-0"
       >
         <TabsTrigger
-          value="review"
+          value="scripts"
           className="flex-none px-4 py-2 group-data-[orientation=horizontal]/tabs:after:bottom-[-1px]"
         >
-          Review
+          Scripts
         </TabsTrigger>
         <TabsTrigger
           value="runs"
@@ -82,22 +54,14 @@ export function AdminScriptsPage({ onNavigate }: { onNavigate: (path: string) =>
         <ScriptRunsTab scripts={allScripts} />
       </TabsContent>
 
-      <TabsContent value="review" className="space-y-4">
-        {reviews.error && (
+      <TabsContent value="scripts" className="space-y-4">
+        {scripts.error && (
           <Alert variant="destructive">
             <AlertDescription>
-              The review queue could not be loaded, so this page cannot say whether
-              anything is waiting. The server may be unavailable.
+              The script listing could not be loaded. The server may be unavailable.
             </AlertDescription>
           </Alert>
         )}
-
-        <ScriptReviewQueue
-          pending={pending}
-          isLoading={reviews.isLoading}
-          selectedVersionID={openQueueRow(pending, open)?.version_id ?? null}
-          onOpen={openReview}
-        />
 
         <SectionCard title="All scripts">
           <ScriptsSection
@@ -106,28 +70,9 @@ export function AdminScriptsPage({ onNavigate }: { onNavigate: (path: string) =>
             onNavigate={onNavigate}
           />
         </SectionCard>
-
-        {open && (
-          <ScriptReviewDrawer
-            key={`${open.scriptID}-${open.version}`}
-            scriptID={open.scriptID}
-            scriptName={open.scriptName}
-            version={open.version}
-            onClose={() => setOpen(null)}
-          />
-        )}
       </TabsContent>
     </Tabs>
   );
-}
-
-// openQueueRow finds the queue row the drawer is open on, matching the version
-// as well as the script: a script can have a queued version and an older one
-// open from its history, and highlighting the queued row then names a decision
-// nobody is making.
-function openQueueRow(pending: PendingReview[], open: Open | null): PendingReview | undefined {
-  if (!open) return undefined;
-  return pending.find((p) => p.script_id === open.scriptID && p.version === open.version);
 }
 
 // ScriptsSection is the listing's three states: loading, nothing authored yet,
@@ -201,9 +146,7 @@ function ScriptTable({
   );
 }
 
-// audience renders a script's scope in the reader's terms. It is on this table
-// because scope is what decides whether a version reaches this queue at all: a
-// personal script its owner wrote is approved without anybody here (#1367).
+// audience renders a script's scope in the reader's terms.
 function audience(script: Script): string {
   if (script.scope === "global") return "everyone";
   if (script.scope === "persona") return (script.personas ?? []).join(", ") || "no persona";
@@ -211,19 +154,11 @@ function audience(script: Script): string {
 }
 
 // ExecutionState says what the script is running, which is the only status
-// that matters on this page: a script with no approved version runs nothing,
-// however healthy the rest of its record looks.
+// that matters on this page: a saved script runs its latest version unless it
+// is disabled or retired.
 function ExecutionState({ script }: { script: Script }) {
-  if (!script.approved_version_id) {
-    return <Badge variant="muted">Nothing approved</Badge>;
+  if (!script.enabled || script.status !== "active") {
+    return <Badge variant="muted">{script.enabled ? script.status : "disabled"}</Badge>;
   }
-  if (!script.enabled || script.status === "deprecated") {
-    return (
-      <span className="flex flex-wrap items-center gap-1.5">
-        <Badge variant="success">Approved</Badge>
-        <Badge variant="muted">{script.enabled ? script.status : "disabled"}</Badge>
-      </span>
-    );
-  }
-  return <Badge variant="success">Approved v{script.version}</Badge>;
+  return <Badge variant="success">Runs v{script.version}</Badge>;
 }

@@ -74,7 +74,7 @@ All branding fields are optional. When unset the app falls back to the server na
 The platform also ships with `prompt-browser` embedded in the binary, bound to the presentation-only `show_prompts` tool. In an MCP Apps-capable host, calling `show_prompts` renders an interactive prompt library browser for the human. It is bound to `show_prompts` rather than a data tool so the agent's routine prompt work does not render a UI; the rendered app populates itself from its own `manage_prompt` calls:
 
 - Search-as-you-type over the ranked prompt query, with My Prompts / Library buckets, collection and tag filters, and usage-based sorting
-- Cards showing display name, description, version, approval provenance, and run count
+- Cards showing display name, description, version, and run count
 - A detail view with full prompt content, provenance, and a form generated from the prompt's argument specs
 - Run resolves the prompt through the `manage_prompt` `use` command with the filled arguments; when the host supports conversation insertion (`ui/message`), the rendered prompt is placed directly into the chat, otherwise the app offers the rendered content for copy
 

@@ -7,7 +7,6 @@ import { ScriptScheduleEditor } from "./ScriptScheduleEditor";
 // assertion here is about what an owner reads before they change it and what
 // the page actually submits.
 vi.mock("@/api/portal/hooks/scripts", () => ({
-  SCRIPT_RUN_AUDIENCE: { run: "run", draft: "draft" },
   useScriptConnections: vi.fn(),
   useScriptSchedule: vi.fn(),
   useSetScriptSchedule: vi.fn(),
@@ -44,7 +43,7 @@ const contract: ScriptContract = {
   params: [
     { name: "report_date", type: "date", description: "The business date.", required: true },
   ],
-  approval: { approved: true, version: 2, approved_by: "admin@acme.example.com" },
+  version: 2,
 };
 
 const schedule: ScriptSchedule = {
@@ -219,31 +218,29 @@ describe("ScriptScheduleEditor: changing the cadence", () => {
 });
 
 describe("ScriptScheduleEditor: a script nothing will execute", () => {
-  const unapproved: Partial<ScriptContract> = {
-    approval: {
-      approved: false,
-      refusal: "the script has no approved version, so nothing may execute it",
-    },
+  const refused: Partial<ScriptContract> = {
+    enabled: false,
+    refusal: "the script is disabled, so a run would be refused",
   };
 
-  // The page must never imply an approval it cannot grant: a cadence saves,
-  // and the gate's own words say what will happen with it.
+  // The notice is driven by the run gate's own refusal, carried on the
+  // contract: a cadence on a disabled or retired script saves and stays inert,
+  // and the page says so rather than implying a fire it cannot produce.
   it("says a saved schedule will execute nothing, and still lets it be saved", () => {
-    renderEditor(unapproved);
+    renderEditor(refused);
     expect(screen.getByText(/nothing will execute it/)).toBeInTheDocument();
-    expect(screen.getByText(/Approving a version is an administrator's decision/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Update schedule" })).toBeEnabled();
   });
 
   it("says the same before there is a schedule at all", () => {
     mockSchedule.mockReturnValue(query(null));
-    renderEditor(unapproved);
+    renderEditor(refused);
     expect(screen.getByText(/saves, and stays inert/)).toBeInTheDocument();
   });
 
   it("says nothing of the sort when the gate admits a run", () => {
     renderEditor();
-    expect(screen.queryByText(/stays inert/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/nothing will execute it/)).not.toBeInTheDocument();
   });
 });
 

@@ -55,7 +55,7 @@ export function ScriptRunHistory({
       {!isLoading && !error && runs.length === 0 && (
         <p className="text-sm text-muted-foreground">
           This script has never run. A run happens when its schedule fires or when someone
-          asks for one, and only an approved version ever executes.
+          asks for one, and a run always executes a saved version.
         </p>
       )}
       {runs.length > 0 && (

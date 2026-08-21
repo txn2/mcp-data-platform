@@ -135,7 +135,7 @@ func TestRealDB_APortalRunIsAcceptedByTheTriggerCheck(t *testing.T) {
 	s := New(db)
 	ctx := context.Background()
 
-	live, version := approvedScript(ctx, t, s, "portal-triggered")
+	live, version := savedScript(ctx, t, s, "portal-triggered")
 	run := &script.Run{
 		ID: "dpx_portal_1", ScriptID: live.ID, VersionID: version.ID, Version: version.Version,
 		Trigger: script.TriggerPortal, RequestedBy: "jane@example.com",

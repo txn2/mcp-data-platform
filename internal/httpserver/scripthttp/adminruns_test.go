@@ -48,8 +48,7 @@ func (*adminRunStore) PurgeRuns(context.Context, time.Duration) (int64, error) {
 
 func adminRunDeps(store *adminRunStore) Deps {
 	return Deps{
-		Scripts: store.stubStore, Versions: store.stubStore, Approvals: store.stubStore,
-		Reviews: store.stubStore, Rejections: store.stubStore, Schedules: store.stubStore,
+		Scripts: store.stubStore, Versions: store.stubStore, Schedules: store.stubStore,
 		Runs:       store,
 		AdminEmail: func(*http.Request) string { return "admin@example.com" },
 	}
@@ -140,7 +139,7 @@ func TestListRuns_IsNotShadowedByAScriptNamedRuns(t *testing.T) {
 func TestListRuns_UnmountedWithoutARunStore(t *testing.T) {
 	store := newStore()
 	deps := Deps{
-		Scripts: store, Versions: store, Approvals: store, Reviews: store, Rejections: store,
+		Scripts: store, Versions: store,
 		AdminEmail: func(*http.Request) string { return "admin@example.com" },
 	}
 	rec := serveAdmin(t, deps, "/api/v1/admin/scripts/runs")

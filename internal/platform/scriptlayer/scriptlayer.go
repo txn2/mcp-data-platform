@@ -21,14 +21,10 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/txn2/mcp-data-platform/internal/platform/connreach"
-	"github.com/txn2/mcp-data-platform/internal/platform/scriptauto"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
-	"github.com/txn2/mcp-data-platform/pkg/persona"
-	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -54,13 +50,10 @@ type Config struct {
 	// linkless: a deployment that has not been told its own address cannot be
 	// given one by guessing.
 	PortalURL string
-	// Toolkits and Personas are the live registries automatic approval reads to
-	// answer what a version author's own authority reaches (#1367). A personal
-	// script reaching past it is refused at save, where the author can act on
-	// it, rather than by a failed run nobody is watching. Either one absent
-	// skips that early answer; the middleware enforces the boundary regardless.
-	Toolkits *registry.Registry
-	Personas *persona.Registry
+	// Destinations is the deployment's configured bucket destinations, which a
+	// draft run resolves platform.export names against exactly as a platform
+	// run does.
+	Destinations []script.Destination
 }
 
 // Handle owns the assembled script layer. All accessors are nil-safe, so a
@@ -83,10 +76,9 @@ type Handle struct {
 	// opens an in-memory session against it so a draft's platform calls cross
 	// the same middleware chain an agent's calls cross.
 	server *mcp.Server
-	// auto approves an owner-authored personal script on save (#1367). It is
-	// always present and declines everything on a deployment whose store cannot
-	// approve, so the edit path has one shape.
-	auto *scriptauto.Approver
+	// destinations is the configured bucket destination set draft runs resolve
+	// export names against.
+	destinations []script.Destination
 	// indexProducer is the write-path index-job producer the Postgres script
 	// store was built with, so a created or re-described script enters ranked
 	// search without waiting for the reconciler (#1370). Nil when the layer was
@@ -97,20 +89,16 @@ type Handle struct {
 
 // New assembles the script layer.
 func New(cfg Config) *Handle {
-	h := &Handle{store: cfg.Store, runs: cfg.Runs, adminPersona: cfg.AdminPersona, portalURL: cfg.PortalURL}
+	h := &Handle{
+		store: cfg.Store, runs: cfg.Runs, adminPersona: cfg.AdminPersona,
+		portalURL: cfg.PortalURL, destinations: cfg.Destinations,
+	}
 	if h.store == nil && cfg.DB != nil {
 		h.indexProducer = indexjobs.NewProducer(scriptindex.SourceKind)
 		h.store = scriptstore.New(cfg.DB, indexjobs.WithProducer(h.indexProducer))
 	}
 	h.versions, _ = h.store.(script.VersionStore)
 	h.schedules, _ = h.store.(script.ScheduleStore)
-	approvals, _ := h.store.(script.AutoApprovalStore)
-	h.auto = scriptauto.New(scriptauto.Deps{
-		Approvals: approvals, Versions: h.versions,
-		Reach: connreach.New(connreach.Deps{
-			Toolkits: cfg.Toolkits, Personas: cfg.Personas,
-		}).ForRoles,
-	})
 	return h
 }
 
@@ -158,12 +146,12 @@ func resolveEmail(ctx context.Context) string {
 // while writing it.
 //
 // The roles half is the load-bearing part. Every version records the roles its
-// author held, and approving a version binds exactly those roles as the
-// authority an approved run presents — so what a script can eventually do is
-// capped, at authoring time, by what the person writing it could do. A caller
-// with no PlatformContext (a store-level test, an unauthenticated path) authors
-// with no roles, which produces a version that cannot be approved into anything
-// executable rather than one that quietly inherits someone else's authority.
+// author held, and a run of that version presents exactly those roles — so
+// what a script can do unattended is capped, at authoring time, by what the
+// person writing it could do. A caller with no PlatformContext (a store-level
+// test, an unauthenticated path) authors with no roles, which produces a
+// version whose runs resolve to the deny-all persona rather than one that
+// quietly inherits someone else's authority.
 func callerAuthor(ctx context.Context) script.Author {
 	author := script.Author{Email: resolveEmail(ctx), Roles: []string{}}
 	if pc := middleware.GetPlatformContext(ctx); pc != nil && len(pc.Roles) > 0 {

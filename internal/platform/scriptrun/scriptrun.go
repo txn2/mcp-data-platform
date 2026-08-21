@@ -44,7 +44,7 @@ import (
 )
 
 // Draft-execution limits. A draft runs interactively, under its author's own
-// identity, while they iterate — so it is bounded more tightly than an approved
+// identity, while they iterate — so it is bounded more tightly than a platform
 // run will be: the author is waiting for the answer, and a runaway draft should
 // fail fast with a legible message instead of occupying a serving replica.
 const (
@@ -66,36 +66,36 @@ const (
 	MaxLogBytes = 64 << 10
 )
 
-// Approved-execution limits. An approved run is looser than a draft on every
-// axis, because nobody is waiting at a prompt for it and its code has been
-// reviewed — but it is still bounded on all of them, because the one resource
-// no embedded interpreter of this class can cap is memory, and every limit here
-// is part of what keeps a runaway script from taking the process with it.
+// Platform-run limits. A worker-executed run is looser than a draft on every
+// axis, because nobody is waiting at a prompt for it — but it is still bounded
+// on all of them, because the one resource no embedded interpreter of this
+// class can cap is memory, and every limit here is part of what keeps a
+// runaway script from taking the process with it.
 const (
-	// ApprovedMaxSteps caps interpreter execution steps for an approved run.
-	ApprovedMaxSteps = 20_000_000
+	// RunMaxSteps caps interpreter execution steps for a platform run.
+	RunMaxSteps = 20_000_000
 
-	// ApprovedTimeout caps wall-clock time for one approved run, including the
+	// RunTimeout caps wall-clock time for one platform run, including the
 	// time spent inside host calls. It matches the ceiling trino_export already
 	// applies to a synchronous export.
-	ApprovedTimeout = 10 * time.Minute
+	RunTimeout = 10 * time.Minute
 
-	// ApprovedMaxRows caps the rows one platform.query may return.
-	ApprovedMaxRows = 20_000
+	// RunMaxRows caps the rows one platform.query may return.
+	RunMaxRows = 20_000
 
-	// ApprovedMaxResultBytes caps the serialized size of one query result.
-	ApprovedMaxResultBytes = 32 << 20
+	// RunMaxResultBytes caps the serialized size of one query result.
+	RunMaxResultBytes = 32 << 20
 )
 
-// ApprovedLimits returns the limit set an approved run executes under, so a
-// caller configures them by naming the policy rather than by copying four
-// numbers it would then have to keep in step.
-func ApprovedLimits() Options {
+// RunLimits returns the limit set a platform run executes under, so a caller
+// configures them by naming the policy rather than by copying four numbers it
+// would then have to keep in step.
+func RunLimits() Options {
 	return Options{
-		MaxSteps:       ApprovedMaxSteps,
-		Timeout:        ApprovedTimeout,
-		MaxRows:        ApprovedMaxRows,
-		MaxResultBytes: ApprovedMaxResultBytes,
+		MaxSteps:       RunMaxSteps,
+		Timeout:        RunTimeout,
+		MaxRows:        RunMaxRows,
+		MaxResultBytes: RunMaxResultBytes,
 		MaxLogBytes:    MaxLogBytes,
 	}
 }
@@ -144,16 +144,12 @@ type Options struct {
 	// syntax-only execution wants.
 	Caller Caller
 
-	// Grants, when non-nil, is the approved capability set this run is confined
-	// to: the host bindings it may call, the connections it may query, and the
-	// destinations it may write. nil means no grant layer applies, which is the
-	// draft case — a draft executes as its own author, with that author's
-	// authority, so there is nothing to narrow.
-	//
-	// A non-nil grant with empty lists denies everything, which is the correct
-	// reading of "approved with nothing granted" and the reason this is a
-	// pointer rather than a value.
-	Grants *script.Grants
+	// Destinations is the deployment's configured bucket destinations, the set
+	// a platform.export destination name resolves against at run time. The
+	// portal is built in and never listed here. A draft run and a platform run
+	// carry the same set, so the script an author finishes is the script that
+	// runs.
+	Destinations []script.Destination
 
 	// Exporter persists what platform.export produces. nil previews instead,
 	// which is what a draft run does.
@@ -214,7 +210,7 @@ type PublishRequest struct {
 	Name string
 	// Data is the payload the asset's data region will hold, already converted
 	// to plain Go values. FormatDataPayload is its one serializer, shared by
-	// the draft preview and the approved write.
+	// the draft preview and the platform run's write.
 	Data any
 }
 
@@ -237,13 +233,11 @@ type ExportRequest struct {
 	// verbatim. Valid for the document formats (markdown, text, html, jsx) and
 	// nil for a tabular output — exactly one of Body and Rows is the content.
 	Body *string
-	// Destination is the granted destination the output goes to, already
-	// resolved from the name the script wrote to the address its approval
-	// pinned. A draft carries only the name, because a draft writes nothing and
-	// there is no approval yet to resolve against.
+	// Destination is the destination the output goes to, already resolved from
+	// the name the script wrote to the address configuration declares for it.
 	Destination script.Destination
 	// Key is the object key the script asked for beneath the destination's
-	// granted prefix, empty when it named none and never set for the portal.
+	// configured prefix, empty when it named none and never set for the portal.
 	Key string
 }
 
@@ -296,7 +290,7 @@ type Result struct {
 	// LogTruncated is true when output was dropped at the cap.
 	LogTruncated bool `json:"log_truncated"`
 	// Steps is the interpreter step count the run consumed, and Duration its
-	// wall-clock time. Both are the raw material for sizing an approved run's
+	// wall-clock time. Both are the raw material for sizing a platform run's
 	// limits against a draft that already works.
 	Steps    uint64        `json:"steps"`
 	Duration time.Duration `json:"-"`

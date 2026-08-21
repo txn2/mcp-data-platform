@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/lib/pq"
 
@@ -17,7 +16,7 @@ import (
 // mirrored by scanVersion so the scan order cannot drift from the query.
 const versionColumns = `id, script_id, version, display_name, description,
 	category, source_code, params, tags, author, author_roles, status,
-	approved_by, approved_at, auto_approved, grants, created_at`
+	created_at`
 
 // versionSelect is the base SELECT for the version columns.
 const versionSelect = "SELECT " + versionColumns + " FROM script_versions"
@@ -25,19 +24,15 @@ const versionSelect = "SELECT " + versionColumns + " FROM script_versions"
 // scanVersion reads one row in versionColumns order into a Version.
 func scanVersion(sc rowScanner) (*script.Version, error) {
 	v := &script.Version{}
-	var paramsJSON, grantsJSON []byte
+	var paramsJSON []byte
 	err := sc.Scan(&v.ID, &v.ScriptID, &v.Version, &v.DisplayName, &v.Description,
 		&v.Category, &v.Source, &paramsJSON, pq.Array(&v.Tags), &v.Author,
-		pq.Array(&v.AuthorRoles), &v.Status, &v.ApprovedBy, &v.ApprovedAt,
-		&v.AutoApproved, &grantsJSON, &v.CreatedAt)
+		pq.Array(&v.AuthorRoles), &v.Status, &v.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("scanning script version row: %w", err)
 	}
 	if err := json.Unmarshal(paramsJSON, &v.Params); err != nil {
 		return nil, fmt.Errorf("unmarshal version params: %w", err)
-	}
-	if err := json.Unmarshal(grantsJSON, &v.Grants); err != nil {
-		return nil, fmt.Errorf("unmarshal version grants: %w", err)
 	}
 	if v.Params == nil {
 		v.Params = []script.Param{}
@@ -52,22 +47,20 @@ func scanVersion(sc rowScanner) (*script.Version, error) {
 }
 
 // versionInsert carries one script_versions INSERT: the snapshot source, its
-// author, the row status, and an optional approval stamp bound to the row.
+// author, and the row status.
 type versionInsert struct {
-	ScriptID   string
-	Version    int
-	Snapshot   *script.Script
-	Author     script.Author
-	Status     string
-	ApprovedBy string
-	ApprovedAt *time.Time
+	ScriptID string
+	Version  int
+	Snapshot *script.Script
+	Author   script.Author
+	Status   string
 }
 
 // insertVersionRow snapshots the versioned fields of ins.Snapshot as one
 // immutable script_versions row within the caller's transaction.
 //
 // The author's roles are part of the snapshot, not metadata about it: they are
-// the authority ceiling an approval of this row may bind (script.Author).
+// the authority a run of this version presents (script.Author).
 func insertVersionRow(ctx context.Context, tx *sql.Tx, ins versionInsert) error {
 	paramsJSON, err := json.Marshal(ins.Snapshot.Params)
 	if err != nil {
@@ -84,11 +77,11 @@ func insertVersionRow(ctx context.Context, tx *sql.Tx, ins versionInsert) error 
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO script_versions (script_id, version, display_name, description,
 		                             category, source_code, params, tags, author,
-		                             author_roles, status, approved_by, approved_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+		                             author_roles, status)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
 		ins.ScriptID, ins.Version, ins.Snapshot.DisplayName, ins.Snapshot.Description,
 		ins.Snapshot.Category, ins.Snapshot.Source, paramsJSON, pq.Array(tags),
-		ins.Author.Email, pq.Array(roles), ins.Status, ins.ApprovedBy, ins.ApprovedAt)
+		ins.Author.Email, pq.Array(roles), ins.Status)
 	if err != nil {
 		return fmt.Errorf("insert script version: %w", err)
 	}
@@ -123,44 +116,15 @@ func nextVersionNumber(ctx context.Context, tx *sql.Tx, scriptID string) (int, e
 	return n, nil
 }
 
-// requireUngated re-validates the review gate against the row as locked in this
-// transaction. Callers decide gating from an earlier unlocked read; if the
-// script gained an approved version between that read and the write (an edit
-// racing an approval), applying the edit here would swap the source out from
-// under a live approval — exactly what the gate exists to prevent — so the
-// write is rejected as a conflict for the caller to re-read and retry.
-//
-// ungated is the edit funnel's verdict that automatic approval covers this edit
-// (#1367), which is the only case in which an edit to a script with an approved
-// version belongs on the live row. It is the funnel's actual DECISION rather
-// than a weaker test re-derived here: an edit whose grant could not be minted is
-// deferred to a draft by the funnel and never reaches this method, so a race
-// cannot land one on the live row where neither the gate nor the review queue
-// would account for it.
-func requireUngated(locked, sc *script.Script, ungated bool) error {
-	if script.RequiresReview(locked, sc) && !ungated {
-		return fmt.Errorf("script %s was approved while this edit was in flight; re-read and retry (source or parameter changes to an approved script require review): %w",
-			sc.ID, script.ErrVersionConflict)
-	}
-	return nil
-}
-
 // UpdateWithVersion persists sc like Update and, when any versioned snapshot
 // field changed against the stored row, records a new applied version authored
-// by author and advances sc.Version to it. The review gate is re-validated
-// under the row lock (see requireUngated).
-func (s *Store) UpdateWithVersion(ctx context.Context, sc *script.Script, author script.Author, ungated bool) error {
+// by author and advances sc.Version to it.
+func (s *Store) UpdateWithVersion(ctx context.Context, sc *script.Script, author script.Author) error {
 	normalizeSlices(sc)
 	var indexed bool
 	if err := s.withTx(ctx, "update script with version", func(tx *sql.Tx) error {
 		before, err := lockScript(ctx, tx, sc.ID)
 		if err != nil {
-			return err
-		}
-		if err := requireUngated(before, sc, ungated); err != nil {
-			return err
-		}
-		if err := withdrawAutoApproval(ctx, tx, before, sc); err != nil {
 			return err
 		}
 		if err := snapshotIfMoved(ctx, tx, before, sc, author); err != nil {
@@ -196,31 +160,6 @@ func snapshotIfMoved(
 		ScriptID: sc.ID, Version: n, Snapshot: sc,
 		Author: author, Status: script.VersionStatusApplied,
 	})
-}
-
-// CreateDraftVersion snapshots proposed's versioned fields as a new draft
-// version of the script without touching the live row, returning the new
-// version number. The approved version keeps executing until the draft is
-// approved.
-func (s *Store) CreateDraftVersion(ctx context.Context, scriptID string, proposed *script.Script, author script.Author) (int, error) {
-	var n int
-	err := s.withTx(ctx, "create draft version", func(tx *sql.Tx) error {
-		if _, err := lockScript(ctx, tx, scriptID); err != nil {
-			return err
-		}
-		var err error
-		if n, err = nextVersionNumber(ctx, tx, scriptID); err != nil {
-			return err
-		}
-		return insertVersionRow(ctx, tx, versionInsert{
-			ScriptID: scriptID, Version: n, Snapshot: proposed,
-			Author: author, Status: script.VersionStatusDraft,
-		})
-	})
-	if err != nil {
-		return 0, err
-	}
-	return n, nil
 }
 
 // ListVersions returns every version of the script, newest first.

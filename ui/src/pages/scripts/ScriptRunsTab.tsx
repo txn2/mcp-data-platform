@@ -221,7 +221,7 @@ function RecentRuns({ scripts }: { scripts: Script[] }) {
       {!isLoading && !error && runs.length === 0 && (
         <EmptyState icon={Activity}>
           Nothing has run yet. A run happens when a schedule fires or somebody asks for one,
-          and only an approved version ever executes.
+          and a run always executes a saved version.
         </EmptyState>
       )}
       <CapNotice shown={runs.length} limit={data?.limit} />

@@ -50,7 +50,7 @@ func (s *Store) GetIndexText(ctx context.Context, id string) (string, error) {
 	// be re-embedded on every sweep, forever.
 	const q = `
 		SELECT display_name, name, description, category, tags, params,
-		       COALESCE(approved_version_id::text, '')
+		       status, superseded_by
 		  FROM scripts
 		 WHERE id = $1 AND enabled = true`
 	var (
@@ -59,7 +59,10 @@ func (s *Store) GetIndexText(ctx context.Context, id string) (string, error) {
 	)
 	err := s.db.QueryRowContext(ctx, q, id).Scan(
 		&sc.DisplayName, &sc.Name, &sc.Description, &sc.Category, pq.Array(&sc.Tags),
-		&paramsJSON, &sc.ApprovedVersionID)
+		&paramsJSON, &sc.Status, &sc.SupersededBy)
+	// The WHERE clause admitted only an enabled row, and the execution note the
+	// text ends with reads the field.
+	sc.Enabled = true
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", errNotIndexable
 	}

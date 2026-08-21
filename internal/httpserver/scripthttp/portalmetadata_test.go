@@ -13,9 +13,8 @@ import (
 
 // The documentation route is the portal's third mutation (#1369), and it is the
 // one that changes nothing about what a script DOES. Everything here turns on
-// that: it applies to an approved script without going near a reviewer, an
-// omitted field is left alone rather than blanked, and only the owner may use
-// it.
+// that: it applies to the live row without touching the code, an omitted field
+// is left alone rather than blanked, and only the owner may use it.
 
 // metadataPath is the route under test, on the global script carol owns.
 const metadataPath = "/api/v1/portal/scripts/script_2/metadata"
@@ -23,18 +22,18 @@ const metadataPath = "/api/v1/portal/scripts/script_2/metadata"
 // metadataStore is the edit fixture with the script carrying source, which
 // every stored script does: the route validates the whole record, so a fixture
 // with no source would be refused for a reason this route is not about.
-func metadataStore(approved bool) *editStore {
-	store := newEditStore(approved)
+func metadataStore() *editStore {
+	store := newEditStore()
 	store.scripts[1].Source = reportSource
 	return store
 }
 
-// TestPortalSetMetadata_AppliesToAnApprovedScriptWithoutReview is the ticket's
-// central claim proved at the surface an author uses: documenting a script the
-// platform is executing lands on the live row, and no draft is created for
-// anybody to approve.
-func TestPortalSetMetadata_AppliesToAnApprovedScriptWithoutReview(t *testing.T) {
-	store := metadataStore(true)
+// TestPortalSetMetadata_AppliesToTheLiveRow is the route's central claim proved
+// at the surface an author uses: documenting a script lands on the live row,
+// and the response says the change is about what the script SAYS, not what it
+// does.
+func TestPortalSetMetadata_AppliesToTheLiveRow(t *testing.T) {
+	store := metadataStore()
 
 	rec := servePortalRequest(t, editDeps(store, carol), http.MethodPut, metadataPath,
 		`{"display_name":"Shared Report","description":"## What it produces\n\nA CSV.","category":"reporting","tags":["sales","weekly"]}`)
@@ -42,24 +41,23 @@ func TestPortalSetMetadata_AppliesToAnApprovedScriptWithoutReview(t *testing.T) 
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	var body metadataResponse
 	decodeInto(t, rec, &body)
-	assert.Contains(t, body.Message, "nothing was sent for review")
+	assert.Contains(t, body.Message, "what the script says about itself")
 	assert.Empty(t, body.DescriptionNotice, "an ordinary description is not nagged")
 
-	require.Nil(t, store.draftFor, "documenting a script must not queue a review")
 	require.NotNil(t, store.updated, "the live row was not written")
 	assert.Equal(t, "Shared Report", store.updated.DisplayName)
 	assert.Equal(t, "## What it produces\n\nA CSV.", store.updated.Description)
 	assert.Equal(t, "reporting", store.updated.Category)
 	assert.Equal(t, []string{"sales", "weekly"}, store.updated.Tags)
-	assert.Equal(t, "sver_1", store.updated.ApprovedVersionID,
-		"the version the platform is executing is untouched")
+	assert.Equal(t, reportSource, store.updated.Source,
+		"the code the platform executes is untouched")
 }
 
 // TestPortalSetMetadata_IsCapturedAsAVersion proves the change is still
 // history. What a script claimed to do is part of explaining what one of its
 // runs did, so the four fields are in the snapshot even though none is gated.
 func TestPortalSetMetadata_IsCapturedAsAVersion(t *testing.T) {
-	store := metadataStore(true)
+	store := metadataStore()
 
 	rec := servePortalRequest(t, editDeps(store, carol), http.MethodPut, metadataPath,
 		`{"category":"reporting"}`)
@@ -75,7 +73,7 @@ func TestPortalSetMetadata_IsCapturedAsAVersion(t *testing.T) {
 // a client editing one field must not blank the other three by not mentioning
 // them, and an explicitly empty value must clear.
 func TestPortalSetMetadata_AnOmittedFieldIsLeftAlone(t *testing.T) {
-	store := metadataStore(false)
+	store := metadataStore()
 	store.scripts[1].DisplayName = "Shared Report"
 	store.scripts[1].Description = "The description nobody is editing."
 	store.scripts[1].Tags = []string{"sales"}
@@ -130,7 +128,7 @@ func TestPortalSetMetadata_RefusesWhatTheDomainRefuses(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			store := metadataStore(false)
+			store := metadataStore()
 
 			rec := servePortalRequest(t, editDeps(store, carol), http.MethodPut, metadataPath, tt.body)
 
@@ -145,7 +143,7 @@ func TestPortalSetMetadata_RefusesWhatTheDomainRefuses(t *testing.T) {
 // advisory in the strongest sense available: the write SUCCEEDED and the notice
 // travels with the success.
 func TestPortalSetMetadata_CarriesTheLongDescriptionAdvisory(t *testing.T) {
-	store := metadataStore(false)
+	store := metadataStore()
 	long := strings.Repeat("x", 20_000)
 
 	rec := servePortalRequest(t, editDeps(store, carol), http.MethodPut, metadataPath,
@@ -163,7 +161,7 @@ func TestPortalSetMetadata_CarriesTheLongDescriptionAdvisory(t *testing.T) {
 // applies: not-yours and does-not-exist are one answer, so the difference
 // cannot be used to learn that a script exists.
 func TestPortalSetMetadata_IsTheOwnersAlone(t *testing.T) {
-	store := metadataStore(false)
+	store := metadataStore()
 	stranger := &PortalIdentity{UserID: "u9", Email: "mallory@example.com", Persona: "analyst"}
 
 	rec := servePortalRequest(t, editDeps(store, stranger), http.MethodPut, metadataPath,

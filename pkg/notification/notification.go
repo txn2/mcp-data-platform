@@ -47,25 +47,16 @@ const (
 	CategoryReviewQueue = "review_queue"
 	// CategoryScriptRun covers the alert raised when a SCHEDULED managed-script
 	// run fails (#1286). Like the review-queue alert it carries no per-user
-	// toggle, and for a stronger reason: its recipients are the two people
-	// accountable for the automation — the script's owner and the
-	// administrator who approved the version — so it is addressed to a
-	// responsibility rather than to an interest. ModeOff, including through the
-	// unsubscribe link, remains the recipient's own opt-out.
+	// toggle, and for a stronger reason: its recipient is the person
+	// accountable for the automation — the script's owner — so it is addressed
+	// to a responsibility rather than to an interest. ModeOff, including
+	// through the unsubscribe link, remains the recipient's own opt-out.
 	//
 	// A run somebody asked for through run_script never comes here: that
 	// failure is reported to the caller in the tool's own response, and mailing
 	// it as well would notify a person about something they are already
 	// reading.
 	CategoryScriptRun = "script_run"
-	// CategoryScriptReview covers the operator alert raised when managed-script
-	// versions are left waiting for approval (#1287). Like the review-queue
-	// alert it carries no per-user toggle and names its recipients in the admin
-	// settings, because it is addressed to whoever holds review duty rather than
-	// to an interest. It is a separate category from CategoryReviewQueue so an
-	// operator who watches one queue is not signed up for the other: the two
-	// have different audiences and very different urgency.
-	CategoryScriptReview = "script_review"
 )
 
 // Delivery modes for user preferences.
@@ -111,10 +102,6 @@ const (
 	// names the script in ItemTitle, the run in ItemID, and carries the failure
 	// and the tail of what the script printed in Message.
 	KindScriptRun = "script_run"
-	// KindScriptReview marks a script review-queue alert (#1287). Like
-	// KindReviewQueue its payload carries a Review rollup instead of an item
-	// reference.
-	KindScriptReview = "script_review"
 )
 
 // ReviewQueue is the pending-review rollup a KindReviewQueue notification

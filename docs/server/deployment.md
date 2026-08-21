@@ -723,7 +723,7 @@ kubectl get pods,hpa -n mcp-data-platform
 Every replica of the deployment above serves traffic, executes queued
 [managed scripts](../scripts/running.md), and turns their due schedules into
 runs. That is the right shape until scripts start doing real work: the Starlark interpreter has no hard per-script memory
-cap, so a heavy approved script pushes on the memory of a pod that agents are
+cap, so a heavy script pushes on the memory of a pod that agents are
 also talking to, and execution capacity is tied to serving capacity even though
 the two scale on different signals.
 

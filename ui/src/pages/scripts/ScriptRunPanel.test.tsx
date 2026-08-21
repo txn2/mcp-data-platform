@@ -7,7 +7,6 @@ import { ScriptRunPanel } from "./ScriptRunPanel";
 // panel submits, what it refuses to submit, and that it never offers a control
 // for a script the platform would not run.
 vi.mock("@/api/portal/hooks/scripts", () => ({
-  SCRIPT_RUN_AUDIENCE: { run: "run", draft: "draft" },
   useRunScript: vi.fn(),
   useScriptConnections: vi.fn(),
 }));
@@ -30,7 +29,7 @@ const contract: ScriptContract = {
     { name: "report_date", type: "date", description: "The business date.", required: true },
     { name: "source", type: "connection", required: true },
   ],
-  approval: { approved: true, version: 4, approved_by: "admin@acme.example.com" },
+  version: 4,
 };
 
 beforeEach(() => {
@@ -39,8 +38,8 @@ beforeEach(() => {
   mockConnections.mockReturnValue({
     data: {
       data: [{ name: "warehouse", kind: "trino", description: "Production warehouse" }],
-      source: "grant",
-      note: "These are the connections this script's approved version may reach.",
+      source: "persona",
+      note: "These are the connections your persona reaches that a script may query.",
     },
     isLoading: false,
     error: null,
@@ -69,10 +68,10 @@ describe("ScriptRunPanel", () => {
     expect(screen.getByText("Queued.")).toBeInTheDocument();
   });
 
-  it("asks for the GRANTED set, not the caller's own connections", () => {
+  it("asks for the persona set only when a parameter binds a connection", () => {
     render(<ScriptRunPanel scriptId="script-001" contract={contract} />);
 
-    expect(mockConnections).toHaveBeenCalledWith("script-001", true, "run");
+    expect(mockConnections).toHaveBeenCalledWith("script-001", true);
   });
 
   it("does not ask for connections for a script that names none", () => {
@@ -83,7 +82,7 @@ describe("ScriptRunPanel", () => {
       />,
     );
 
-    expect(mockConnections).toHaveBeenCalledWith("script-001", false, "run");
+    expect(mockConnections).toHaveBeenCalledWith("script-001", false);
   });
 
   it("names the required values still unbound instead of submitting a refusal", () => {
@@ -106,13 +105,7 @@ describe("ScriptRunPanel", () => {
     render(
       <ScriptRunPanel
         scriptId="script-001"
-        contract={{
-          ...contract,
-          approval: {
-            approved: false,
-            refusal: "the script has no approved version, so nothing may execute it",
-          },
-        }}
+        contract={{ ...contract, refusal: "the script is disabled, so a run would be refused" }}
       />,
     );
 

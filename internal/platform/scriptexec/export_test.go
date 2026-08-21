@@ -225,14 +225,14 @@ func csvRequest(name string) scriptrun.ExportRequest { //nolint:unparam // one o
 	}
 }
 
-// TestDraftMeasuresWhatAnApprovedRunWrites pins #1354 across the seam it
+// TestDraftMeasuresWhatAPlatformRunWrites pins #1354 across the seam it
 // spans: the engine reports a size for an output nobody persisted, and the
 // writer reports one for the object it stored. The two used to disagree,
 // because the draft measured a JSON encoding of the rows whatever format the
 // author declared. They are the same number now because there is one
 // serializer, and this asserts it against the bytes that actually reached
 // storage rather than against either side's own accounting.
-func TestDraftMeasuresWhatAnApprovedRunWrites(t *testing.T) {
+func TestDraftMeasuresWhatAPlatformRunWrites(t *testing.T) {
 	const source = `platform.export(name="daily", format="csv", rows=[` +
 		`{"region": "west", "total": 120}, {"region": "east", "total": 80}])`
 
@@ -333,7 +333,7 @@ func TestOutputWriter_WritesADocumentVerbatim(t *testing.T) {
 		assert.Equal(t, body, string(data), "verbatim is the contract")
 	}
 
-	// The same document delivered to a granted bucket, with no key named: the
+	// The same document delivered to a configured bucket, with no key named: the
 	// default key takes the document format's own extension.
 	req := documentRequest("dash", "html", body)
 	req.Destination = acmeDrop()

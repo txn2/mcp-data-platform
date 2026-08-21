@@ -2,16 +2,12 @@
 
 package scriptstore
 
-// The real-schema proof for the #1284 execution gate and run queue. Two things
-// here cannot be proved anywhere else:
-//
-//   - The claim. sqlmock will happily return whatever rows a test hands it for
-//     an UPDATE ... FOR UPDATE SKIP LOCKED, so a unit test of Claim asserts a
-//     string, not a behavior. Only a real Postgres shows that two concurrent
-//     workers take different runs, that a lease expiring makes a run claimable
-//     again, and that a worker whose run was reclaimed can no longer write to it.
-//   - The approval transaction, against the CHECK constraints and the foreign
-//     keys the migration actually declares.
+// The real-schema proof for the run queue. The claim cannot be proved anywhere
+// else: sqlmock will happily return whatever rows a test hands it for an
+// UPDATE ... FOR UPDATE SKIP LOCKED, so a unit test of Claim asserts a string,
+// not a behavior. Only a real Postgres shows that two concurrent workers take
+// different runs, that a lease expiring makes a run claimable again, and that
+// a worker whose run was reclaimed can no longer write to it.
 
 import (
 	"context"
@@ -25,46 +21,43 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
-// approvedScript creates a script and approves its first version, returning the
-// script and that version — the state a run needs to exist against.
-func approvedScript(ctx context.Context, t *testing.T, s *Store, name string) (*script.Script, *script.Version) {
+// savedScript creates a script and returns it with its v1 snapshot — the state
+// a run needs to exist against, since a saved script runs without review.
+func savedScript(ctx context.Context, t *testing.T, s *Store, name string) (*script.Script, *script.Version) {
 	t.Helper()
 	sc := newScript(name, "jane@example.com")
 	require.NoError(t, s.Create(ctx, sc, testAuthor))
 
-	version, err := s.ApproveVersion(ctx, sc.ID, 1, "admin@example.com", script.Grants{
-		Connections:  []string{"warehouse"},
-		Capabilities: []string{script.CapabilityQuery},
-		Destinations: []script.Destination{script.PortalDestination()},
-	})
+	version, err := s.GetVersion(ctx, sc.ID, sc.Version)
 	require.NoError(t, err)
+	require.NotNil(t, version)
 
 	live, err := s.GetByID(ctx, sc.ID)
 	require.NoError(t, err)
 	return live, version
 }
 
-// TestRealDB_ApprovalBindsTheGateAndTheGrant is the execution gate's write
-// path against the real schema: the pointer, the stamp, the grant, and the
-// author roles the grant is filled from.
-func TestRealDB_ApprovalBindsTheGateAndTheGrant(t *testing.T) {
+// TestRealDB_SavedVersionCarriesTheRunIdentity pins what a run presents against
+// the real schema: creating a script makes it active immediately, and its
+// snapshot records the author's roles — the authority a run of that version
+// executes with, which the persona filter then bounds at run time.
+func TestRealDB_SavedVersionCarriesTheRunIdentity(t *testing.T) {
 	db := testdb.New(t)
 	s := New(db)
 	ctx := context.Background()
 
-	live, version := approvedScript(ctx, t, s, "daily")
+	live, version := savedScript(ctx, t, s, "daily")
 
-	assert.Equal(t, version.ID, live.ApprovedVersionID, "the gate points at the approved version")
-	assert.Equal(t, script.StatusActive, live.Status, "approving lifts a script out of authoring")
-	assert.True(t, version.Approved())
-	assert.Equal(t, "admin@example.com", version.ApprovedBy)
-	assert.Equal(t, testAuthor.Roles, version.Grants.Roles,
-		"the grant carries the version author's roles, not the approver's")
-	assert.Equal(t, []string{"warehouse"}, version.Grants.Connections)
+	assert.Equal(t, script.StatusActive, live.Status, "a saved script is active with no review step")
+	assert.NoError(t, script.RefuseRun(live), "and the run gate admits it")
+	assert.Equal(t, script.VersionStatusApplied, version.Status)
+	assert.Equal(t, testAuthor.Email, version.Author)
+	assert.Equal(t, testAuthor.Roles, version.AuthorRoles,
+		"the snapshot carries the author's roles, which a run presents")
 
-	// The gate is only readable through the version it points at, so the runner
-	// can load exactly the code that was approved.
-	loaded, err := s.GetVersionByID(ctx, live.ApprovedVersionID)
+	// The queue stores a version id, and only the id identifies one immutable
+	// snapshot for the life of the script; the worker's read must resolve it.
+	loaded, err := s.GetVersionByID(ctx, version.ID)
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
 	assert.Equal(t, version.Version, loaded.Version)
@@ -78,7 +71,7 @@ func TestRealDB_ClaimIsExclusiveAcrossWorkers(t *testing.T) {
 	s := New(db)
 	ctx := context.Background()
 
-	sc, version := approvedScript(ctx, t, s, "daily")
+	sc, version := savedScript(ctx, t, s, "daily")
 	for _, id := range []string{"dpx_a", "dpx_b"} {
 		require.NoError(t, s.Enqueue(ctx, &script.Run{
 			ID: id, ScriptID: sc.ID, VersionID: version.ID, Version: version.Version,
@@ -104,7 +97,7 @@ func TestRealDB_ExpiredLeaseIsReclaimedAndFencesTheOldWorker(t *testing.T) {
 	s := New(db)
 	ctx := context.Background()
 
-	sc, version := approvedScript(ctx, t, s, "daily")
+	sc, version := savedScript(ctx, t, s, "daily")
 	require.NoError(t, s.Enqueue(ctx, &script.Run{
 		ID: "dpx_a", ScriptID: sc.ID, VersionID: version.ID, Version: version.Version,
 		Trigger: script.TriggerTool,
@@ -142,7 +135,7 @@ func TestRealDB_RecordOutputAppendsAndRetryRequeues(t *testing.T) {
 	s := New(db)
 	ctx := context.Background()
 
-	sc, version := approvedScript(ctx, t, s, "daily")
+	sc, version := savedScript(ctx, t, s, "daily")
 	require.NoError(t, s.Enqueue(ctx, &script.Run{
 		ID: "dpx_a", ScriptID: sc.ID, VersionID: version.ID, Version: version.Version,
 		Trigger: script.TriggerTool,
@@ -188,7 +181,7 @@ func TestRealDB_PurgeLeavesLiveWorkAlone(t *testing.T) {
 	s := New(db)
 	ctx := context.Background()
 
-	sc, version := approvedScript(ctx, t, s, "daily")
+	sc, version := savedScript(ctx, t, s, "daily")
 	for _, id := range []string{"dpx_done", "dpx_pending"} {
 		require.NoError(t, s.Enqueue(ctx, &script.Run{
 			ID: id, ScriptID: sc.ID, VersionID: version.ID, Version: version.Version,
@@ -221,8 +214,8 @@ func TestRealDB_LatestRunsIsOneRowPerScript(t *testing.T) {
 	s := New(db)
 	ctx := context.Background()
 
-	daily, dailyVersion := approvedScript(ctx, t, s, "daily")
-	weekly, _ := approvedScript(ctx, t, s, "weekly")
+	daily, dailyVersion := savedScript(ctx, t, s, "daily")
+	weekly, _ := savedScript(ctx, t, s, "weekly")
 	for _, id := range []string{"dpx_old", "dpx_new"} {
 		require.NoError(t, s.Enqueue(ctx, &script.Run{
 			ID: id, ScriptID: daily.ID, VersionID: dailyVersion.ID, Version: dailyVersion.Version,
@@ -244,7 +237,7 @@ func TestRealDB_RunHoldsItsVersionInPlace(t *testing.T) {
 	s := New(db)
 	ctx := context.Background()
 
-	sc, version := approvedScript(ctx, t, s, "daily")
+	sc, version := savedScript(ctx, t, s, "daily")
 	require.NoError(t, s.Enqueue(ctx, &script.Run{
 		ID: "dpx_a", ScriptID: sc.ID, VersionID: version.ID, Version: version.Version,
 		Trigger: script.TriggerTool,
@@ -262,7 +255,7 @@ func TestRealDB_RetryMovesTheDueTimeAndNeverTheFireTime(t *testing.T) {
 	s := New(db)
 	ctx := context.Background()
 
-	sc, version := approvedScript(ctx, t, s, "daily")
+	sc, version := savedScript(ctx, t, s, "daily")
 	require.NoError(t, s.Enqueue(ctx, &script.Run{
 		ID: "dpx_a", ScriptID: sc.ID, VersionID: version.ID, Version: version.Version,
 		Trigger: script.TriggerTool,
@@ -294,7 +287,7 @@ func TestRealDB_DeletingAScriptTakesItsRunsWithIt(t *testing.T) {
 	s := New(db)
 	ctx := context.Background()
 
-	sc, version := approvedScript(ctx, t, s, "daily")
+	sc, version := savedScript(ctx, t, s, "daily")
 	require.NoError(t, s.Enqueue(ctx, &script.Run{
 		ID: "dpx_a", ScriptID: sc.ID, VersionID: version.ID, Version: version.Version,
 		Trigger: script.TriggerTool,

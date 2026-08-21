@@ -65,10 +65,10 @@ func TestSearch_AppliesVisibilityAndLifecycleInSQL(t *testing.T) {
 
 // TestSearch_DiscoverableStatusesExcludeDeadEnds pins the ranking rule: a
 // deprecated script must not be executed and a superseded one names its
-// replacement, so neither belongs in a discovery result. A draft does: it is a
-// solved process waiting for a reviewer.
+// replacement, so neither belongs in a discovery result. Active is the only
+// discoverable state left now that a saved script runs without review.
 func TestSearch_DiscoverableStatusesExcludeDeadEnds(t *testing.T) {
-	assert.Equal(t, []string{script.StatusDraft, script.StatusActive}, discoverableStatuses)
+	assert.Equal(t, []string{script.StatusActive}, discoverableStatuses)
 }
 
 func TestSearch_QueryErrorIsWrapped(t *testing.T) {
@@ -82,20 +82,18 @@ func TestSearch_QueryErrorIsWrapped(t *testing.T) {
 }
 
 // TestContract_ComposesTheWholeDocument proves one Contract call assembles the
-// four reads a caller would otherwise have to make, and that the parameter
-// contract reported is the APPROVED version's.
+// three reads a caller would otherwise have to make, and that the parameter
+// contract reported is the live record's — the latest saved version, which is
+// what a run executes.
 func TestContract_ComposesTheWholeDocument(t *testing.T) {
 	s, mock := newMock(t)
 	mock.ExpectQuery(regexp.QuoteMeta("FROM scripts WHERE id = $1")).
 		WillReturnRows(sqlmock.NewRows(scriptSelectColumns).
 			AddRow(scriptRow(rowSpec{
 				id: "script_1", name: "daily-sales", scope: "global",
-				owner: "jane@example.com", paramsJSON: emptyParams(t), approvedVersion: "sver_1",
+				owner:      "jane@example.com",
+				paramsJSON: []byte(`[{"name":"report_date","type":"date","required":true}]`),
 			})...))
-	mock.ExpectQuery(regexp.QuoteMeta("FROM script_versions WHERE id = $1")).
-		WithArgs("sver_1").
-		WillReturnRows(sqlmock.NewRows(versionSelectColumns).
-			AddRow(approvedVersionRow(t)...))
 	mock.ExpectQuery(regexp.QuoteMeta("FROM script_schedules WHERE script_id = $1")).
 		WillReturnRows(sqlmock.NewRows(scheduleSelectColumns).AddRow(scheduleRow(rowTime)...))
 	mock.ExpectQuery(regexp.QuoteMeta("ORDER BY finished_at DESC NULLS LAST LIMIT 1")).
@@ -109,8 +107,9 @@ func TestContract_ComposesTheWholeDocument(t *testing.T) {
 	require.NotNil(t, got)
 	assert.Equal(t, "daily-sales", got.Name)
 	require.Len(t, got.Params, 1)
-	assert.Equal(t, "report_date", got.Params[0].Name, "the approved version's contract, not the live row's")
-	assert.True(t, got.Approval.Approved)
+	assert.Equal(t, "report_date", got.Params[0].Name, "the live record's contract binds the next run")
+	assert.Equal(t, 1, got.Version, "the version a run executes is the latest saved one")
+	assert.Empty(t, got.Refusal, "an enabled, active script admits a run")
 	require.NotNil(t, got.Schedule)
 	require.NotNil(t, got.LastRun)
 	require.Len(t, got.LastRun.Outputs, 1)
@@ -154,8 +153,7 @@ func TestContract_ToleratesNoScheduleAndNoRun(t *testing.T) {
 	require.NotNil(t, got)
 	assert.Nil(t, got.Schedule)
 	assert.Nil(t, got.LastRun)
-	assert.False(t, got.Approval.Approved)
-	assert.Contains(t, got.Approval.Refusal, "no approved version")
+	assert.Empty(t, got.Refusal, "never having run is not a refusal")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -191,18 +189,6 @@ func TestNewDiscoveryStore(t *testing.T) {
 	require.NotNil(t, store)
 	_, isSearcher := store.(script.Searcher)
 	assert.True(t, isSearcher, "the discovery store must satisfy the searcher capability")
-}
-
-// approvedVersionRow returns a version row carrying an approval stamp and the
-// report_date parameter contract.
-func approvedVersionRow(t *testing.T) []driver.Value {
-	t.Helper()
-	row := versionRow(3, "print(1)", script.VersionStatusApplied,
-		[]byte(`[{"name":"report_date","type":"date","required":true}]`))
-	row[versionRowApprovedByIndex] = "admin@example.com"
-	row[versionRowApprovedByIndex+1] = rowTime
-	row[versionRowGrantsIndex] = []byte(`{"connections":["warehouse"]}`)
-	return row
 }
 
 // hybridSelectColumns is the hybrid arms' result-set shape: the script columns

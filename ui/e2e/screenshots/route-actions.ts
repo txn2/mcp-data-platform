@@ -230,109 +230,18 @@ export async function openPersonaScopeTab(page: Page): Promise<void> {
 }
 
 /**
- * openScriptReview opens the review drawer on the queued change to a script
- * that is already running, and scrolls it to the code diff. That row is the
- * capture's whole point -- a first approval has no earlier version to diff
- * against, so it cannot show what this image documents.
- *
- * The clicks are unconditional: an empty queue must fail the run rather than
- * quietly publish the listing behind it under the review name.
- */
-export async function openScriptReview(page: Page): Promise<void> {
-  await openQueuedReview(page, "Daily Sales Report");
-  const heading = page.getByRole("dialog").getByText(/Code changes since/);
-  await heading.scrollIntoViewIfNeeded({ timeout: 3_000 });
-  // Scrolling the heading into view stops with the hunk still below the fold,
-  // and a capture of a diff that shows no changed line documents nothing.
-  await heading.hover();
-  await page.mouse.wheel(0, 220);
-  await page.waitForTimeout(600);
-}
-
-/**
- * openScriptDryRunAccount frames the account of the author having executed this
- * exact source (#1364), which is the fact a reviewer most wants before agreeing
- * that code should run unattended. The drawer's first approval below carries
- * none, which is the other state and is stated as plainly.
- */
-export async function openScriptDryRunAccount(page: Page): Promise<void> {
-  await openQueuedReview(page, "Daily Sales Report");
-  await page
-    .getByRole("dialog")
-    .getByText("Dry run", { exact: true })
-    .scrollIntoViewIfNeeded({ timeout: 3_000 })
-    .catch(() => {});
-  await page.waitForTimeout(600);
-}
-
-/**
- * openScriptFirstApproval opens the drawer on a script nothing has ever
- * approved, which is the other decision this surface exists for: approving
- * starts something running rather than changing what runs.
- */
-export async function openScriptFirstApproval(page: Page): Promise<void> {
-  await openQueuedReview(page, "Dormant Accounts");
-  await page.waitForTimeout(600);
-}
-
-/**
- * openScriptDeliveryGrant opens the drawer on a script that sends data out of
- * the platform and fills in the address the reviewer is agreeing to. It is the
- * sharpest decision the surface carries: a destination the code names has no
- * meaning until a reviewer says which connection, bucket and prefix it resolves
- * to, and until they do, approving is refused.
- */
-export async function openScriptDeliveryGrant(page: Page): Promise<void> {
-  await openQueuedReview(page, "Dormant Accounts");
-  const dialog = page.getByRole("dialog");
-  await dialog.getByLabel("acme-crm-drop connection").fill("acme-s3");
-  await dialog.getByLabel("acme-crm-drop bucket").fill("acme-exports");
-  await dialog.getByLabel("acme-crm-drop prefix").fill("retention");
-  const heading = dialog.getByText("Output destinations");
-  await heading.scrollIntoViewIfNeeded({ timeout: 3_000 });
-  // The editor sits below its own label, so stopping at the label leaves the
-  // address fields -- the whole subject of this capture -- below the fold.
-  await heading.hover();
-  await page.mouse.wheel(0, 200);
-  await page.waitForTimeout(600);
-}
-
-/**
- * openQueuedReview opens one queue row by script name. The row itself is the
- * control, named for what it opens, as every other row in the portal is.
- */
-async function openQueuedReview(page: Page, script: string): Promise<void> {
-  await page
-    .getByRole("button", { name: new RegExp(`^Review ${script}`) })
-    .first()
-    .click();
-  await page.getByRole("dialog").waitFor({ state: "visible", timeout: 5_000 });
-}
-
-/**
- * openScriptAlertSettings scrolls the settings page to the managed-script
- * review alert section (#1287), which sits below the SMTP and knowledge-queue
- * sections and so never appears in a viewport capture of the page top.
- */
-export async function openScriptAlertSettings(page: Page): Promise<void> {
-  await page
-    .getByText("Script review queue alert")
-    .scrollIntoViewIfNeeded({ timeout: 3_000 });
-  await page.waitForTimeout(500);
-}
-
-/**
  * openScriptVersionHistory scrolls a script's detail page to its version
  * history, which sits below the contract and the parameters. The served
  * version's source is already open there: what is running right now is the
  * question the section is usually opened with.
  */
 export async function openScriptVersionHistory(page: Page): Promise<void> {
-  // Scroll to the grant rather than the section heading: the heading is already
-  // above the fold on this page, so stopping there captures the contract again
-  // under the version-history name and documents nothing new.
+  // Scroll to the authority line rather than the section heading: the heading
+  // is already above the fold on this page, so stopping there captures the
+  // contract again under the version-history name and documents nothing new.
   await page
-    .getByText("Runs with the authority of")
+    .getByText("A run of this version presents")
+    .first()
     .scrollIntoViewIfNeeded({ timeout: 3_000 });
   await page.waitForTimeout(500);
 }
@@ -344,7 +253,7 @@ export async function openScriptVersionHistory(page: Page): Promise<void> {
  */
 export async function openScriptSource(page: Page): Promise<void> {
   await page
-    .getByText("Version 2 is approved and keeps running")
+    .getByText("Saving makes this the version that runs")
     .scrollIntoViewIfNeeded({ timeout: 3_000 })
     .catch(() => {});
   await page.waitForTimeout(600);
@@ -360,18 +269,6 @@ export async function openScriptSource(page: Page): Promise<void> {
 export async function openScriptDocumentation(page: Page): Promise<void> {
   await page.getByRole("button", { name: "Edit" }).first().click();
   await page.getByLabel("Script description").waitFor({ timeout: 3_000 });
-  await page.waitForTimeout(600);
-}
-
-/**
- * openPersonalScriptSource scrolls to the editor of a script only its owner can
- * see and only its owner can run (#1367). The notice there is the whole point of
- * the capture: saving approves, and no reviewer is ever asked.
- */
-export async function openPersonalScriptSource(page: Page): Promise<void> {
-  await page
-    .getByText("This script is yours alone, so saving approves it")
-    .scrollIntoViewIfNeeded({ timeout: 3_000 });
   await page.waitForTimeout(600);
 }
 

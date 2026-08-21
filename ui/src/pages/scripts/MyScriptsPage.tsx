@@ -192,17 +192,12 @@ function facetValues(
 //
 // Each caption states what its number counts and the population it counts over
 // (#1360), because the four populations are NOT the same one. Every visible
-// script carries an approval and a cadence, but a last run is the owner's and
+// script carries a lifecycle and a cadence, but a last run is the owner's and
 // the administrator's reading and is absent from a row this caller does not
 // own, so the failure count is over a strictly smaller set than the three
 // beside it and has to say so.
-//
-// The approved caption names the approval and not runnability, because it
-// counts scripts with an approved version and a disabled or deprecated one
-// still has one. The row says which, and this number must not claim more than
-// it counts.
 function AutomationSummary({ rows }: { rows: PortalScriptRow[] }) {
-  const executable = rows.filter((r) => !!r.script.approved_version_id).length;
+  const running = rows.filter((r) => r.script.enabled && r.script.status === "active").length;
   const scheduled = rows.filter((r) => r.schedule?.enabled).length;
   const owned = rows.filter((r) => r.owned).length;
   const failing = rows.filter((r) => r.last_run?.status === "failed").length;
@@ -210,9 +205,9 @@ function AutomationSummary({ rows }: { rows: PortalScriptRow[] }) {
     <div className="grid gap-4 sm:grid-cols-4">
       <SummaryTile label="Automations" value={rows.length} hint="scripts visible to you" />
       <SummaryTile
-        label="Approved"
-        value={executable}
-        hint="have a version the platform may execute"
+        label="In service"
+        value={running}
+        hint="enabled and active; a run executes the latest saved version"
       />
       <SummaryTile label="On a cadence" value={scheduled} hint="run on a schedule, unattended" />
       <SummaryTile
@@ -282,8 +277,7 @@ function ScriptsSection({
     return (
       <EmptyState icon={FileCode2}>
         You have no scripts yet. Ask an agent to write one for a report or an export you
-        run repeatedly. A script only you can see runs as soon as it is saved, under the
-        access you hold; one you share with others is reviewed first.
+        run repeatedly. A script runs as soon as it is saved, under the access you hold.
       </EmptyState>
     );
   }
@@ -326,7 +320,7 @@ function ScriptRow({
       </TableCell>
       <TableCell className="text-xs">{script.owner_email || "—"}</TableCell>
       <TableCell>
-        <ApprovalState row={row} />
+        <ExecutionState row={row} />
       </TableCell>
       <TableCell>
         <ScheduleCell row={row} />
@@ -338,22 +332,14 @@ function ScriptRow({
   );
 }
 
-// ApprovalState reports the execution gate from the listing's own record: a
-// script with no approved version runs nothing, whatever else is true of it.
-function ApprovalState({ row }: { row: PortalScriptRow }) {
+// ExecutionState reports the run gate from the listing's own record: a
+// disabled or retired script runs nothing, whatever else is true of it.
+function ExecutionState({ row }: { row: PortalScriptRow }) {
   const { script } = row;
-  if (!script.approved_version_id) {
-    return <Badge variant="muted">Nothing approved</Badge>;
+  if (!script.enabled || script.status !== "active") {
+    return <Badge variant="muted">{script.enabled ? script.status : "disabled"}</Badge>;
   }
-  if (!script.enabled || script.status === "deprecated") {
-    return (
-      <span className="flex flex-wrap items-center gap-1.5">
-        <Badge variant="success">Approved</Badge>
-        <Badge variant="muted">{script.enabled ? script.status : "disabled"}</Badge>
-      </span>
-    );
-  }
-  return <Badge variant="success">Approved v{script.version}</Badge>;
+  return <Badge variant="success">Runs v{script.version}</Badge>;
 }
 
 // ScheduleCell reports the cadence and what it is doing, in the words the

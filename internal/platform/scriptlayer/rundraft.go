@@ -61,11 +61,11 @@ func (h *Handle) handleValidate(ctx context.Context, input manageScriptInput) (*
 // there is nothing reachable through run_draft that its caller could not
 // already reach by calling the tools themselves. What it adds is the loop —
 // real interpreter errors, real rows, real shapes — so a script is finished
-// before anyone is asked to approve it.
+// before it is saved as the version that runs.
 //
-// It is deliberately NOT a way around the execution gate: it persists nothing
-// (platform.export previews), it runs under tighter limits than an approved run
-// will, and it never reads or sets the approved-version pointer.
+// It is deliberately NOT a platform run: it persists nothing (platform.export
+// previews), it runs under tighter limits, and it executes the source as sent
+// rather than the saved version.
 func (h *Handle) handleRunDraft(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
 	sc, errResult := h.readable(ctx, input)
 	if errResult != nil {
@@ -82,7 +82,7 @@ func (h *Handle) handleRunDraft(ctx context.Context, input manageScriptInput) (*
 	if pc == nil {
 		return errorResult(scriptdraft.ErrNoIdentity.Error()), nil, nil
 	}
-	outcome, err := scriptdraft.New(h.server).Run(ctx, scriptdraft.Request{
+	outcome, err := scriptdraft.New(h.server, h.destinations).Run(ctx, scriptdraft.Request{
 		Source: sc.Source, Name: sc.Name, Params: params,
 		Identity: scriptdraft.Identity{
 			UserID: pc.UserID, Email: pc.UserEmail, Claims: pc.UserClaims,

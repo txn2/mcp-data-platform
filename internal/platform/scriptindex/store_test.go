@@ -31,7 +31,7 @@ func newMock(t *testing.T) (*Store, sqlmock.Sqlmock) {
 // textColumns is the projection GetIndexText reads. source_code is deliberately
 // absent, and this list is where that stays visible.
 var textColumns = []string{
-	"display_name", "name", "description", "category", "tags", "params", "approved_version_id",
+	"display_name", "name", "description", "category", "tags", "params", "status", "superseded_by",
 }
 
 // pgVecLiteral renders a []float32 in the pgvector text format so sqlmock's
@@ -51,7 +51,7 @@ func TestGetIndexTextComposesTheDescriptionCard(t *testing.T) {
 			"Daily Sales Report", "daily-sales", "Summarize yesterday's sales by region",
 			"reporting", pq.Array([]string{"revenue"}),
 			[]byte(`[{"name":"report_date","type":"date","required":true}]`),
-			"sver-1"),
+			"active", ""),
 	)
 
 	got, err := store.GetIndexText(context.Background(), "scr-1")
@@ -61,22 +61,24 @@ func TestGetIndexTextComposesTheDescriptionCard(t *testing.T) {
 	// the whole record.
 	assert.Equal(t, "Daily Sales Report\nSummarize yesterday's sales by region\n"+
 		"parameters: report_date (required)\nreporting revenue\n"+
-		"An approved version exists; call run_script to execute it.", got)
+		"Call run_script to execute it.", got)
 }
 
-// TestGetIndexTextReportsTheExecutionStateOfAnUnapprovedScript pins the one
-// line that distinguishes a script to run from a script to ask a reviewer
-// about, which is what makes the execution pointer part of the read.
-func TestGetIndexTextReportsTheExecutionStateOfAnUnapprovedScript(t *testing.T) {
+// TestGetIndexTextReportsTheExecutionStateOfARetiredScript pins the one line
+// that distinguishes a script to run from a dead end. The status reaches the
+// card through the same RefuseRun answer the run gate gives, so a search hit
+// never claims runnability run_script would then refuse.
+func TestGetIndexTextReportsTheExecutionStateOfARetiredScript(t *testing.T) {
 	store, mock := newMock(t)
 	mock.ExpectQuery("FROM scripts").WithArgs("scr-1").WillReturnRows(
 		sqlmock.NewRows(textColumns).AddRow(
-			"", "daily-sales", "", "", pq.Array([]string{}), []byte(`[]`), ""),
+			"", "daily-sales", "", "", pq.Array([]string{}), []byte(`[]`), "deprecated", ""),
 	)
 
 	got, err := store.GetIndexText(context.Background(), "scr-1")
 	require.NoError(t, err)
-	assert.Equal(t, "daily-sales\nNo version of this script is approved, so nothing will execute it.", got)
+	assert.Equal(t, "daily-sales\nNothing will execute this script: "+
+		"the script is deprecated and must not be executed.", got)
 }
 
 // TestGetIndexTextTreatsAMissingOrDisabledScriptAsNothingToIndex covers the
@@ -108,7 +110,7 @@ func TestGetIndexTextSurfacesAQueryFailure(t *testing.T) {
 func TestGetIndexTextSurfacesUnreadableParams(t *testing.T) {
 	store, mock := newMock(t)
 	mock.ExpectQuery("FROM scripts").WithArgs("scr-1").WillReturnRows(
-		sqlmock.NewRows(textColumns).AddRow("D", "n", "", "", pq.Array([]string{}), []byte(`not json`), ""),
+		sqlmock.NewRows(textColumns).AddRow("D", "n", "", "", pq.Array([]string{}), []byte(`not json`), "active", ""),
 	)
 
 	_, err := store.GetIndexText(context.Background(), "scr-1")

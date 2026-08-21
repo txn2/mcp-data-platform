@@ -39,7 +39,7 @@ func server(t *testing.T) *mcp.Server {
 // TestRun_ExecutesTheSourceAndReportsIt is the ordinary case: real interpreter,
 // real result, no persistence.
 func TestRun_ExecutesTheSourceAndReportsIt(t *testing.T) {
-	outcome, err := New(server(t)).Run(context.Background(), Request{
+	outcome, err := New(server(t), nil).Run(context.Background(), Request{
 		Source: "print(\"hello \" + run.params[\"who\"])\n",
 		Name:   "greeter", Params: map[string]any{"who": "world"},
 		Identity: jane,
@@ -55,7 +55,7 @@ func TestRun_ExecutesTheSourceAndReportsIt(t *testing.T) {
 // TestRun_MintsARunIDThatIsAlsoTheSessionID is what makes a run one thing in
 // audit rather than one row per platform call.
 func TestRun_MintsARunIDThatIsAlsoTheSessionID(t *testing.T) {
-	outcome, err := New(server(t)).Run(context.Background(), Request{
+	outcome, err := New(server(t), nil).Run(context.Background(), Request{
 		Source: "x = 1\n", Name: "trivial", Identity: jane,
 	})
 
@@ -68,7 +68,7 @@ func TestRun_MintsARunIDThatIsAlsoTheSessionID(t *testing.T) {
 // TestRun_CarriesAFailureRatherThanReturningIt keeps the log, which is the
 // whole reason to have run a draft at all.
 func TestRun_CarriesAFailureRatherThanReturningIt(t *testing.T) {
-	outcome, err := New(server(t)).Run(context.Background(), Request{
+	outcome, err := New(server(t), nil).Run(context.Background(), Request{
 		Source: "print(\"before\")\nfail(\"deliberate\")\n", Name: "boom", Identity: jane,
 	})
 
@@ -83,7 +83,7 @@ func TestRun_CarriesAFailureRatherThanReturningIt(t *testing.T) {
 // TestRun_PinsTheFireTimeSoADraftNeverReadsAClock is the determinism contract:
 // what an author verifies in the loop is what a scheduled run will do.
 func TestRun_PinsTheFireTimeSoADraftNeverReadsAClock(t *testing.T) {
-	runner := New(server(t))
+	runner := New(server(t), nil)
 	pinned := time.Date(2026, 8, 18, 7, 0, 0, 0, time.UTC)
 	runner.now = func() time.Time { return pinned }
 
@@ -100,7 +100,7 @@ func TestRun_PinsTheFireTimeSoADraftNeverReadsAClock(t *testing.T) {
 // no-new-authority property: a draft has no identity of its own to fall back
 // to, so a request carrying none cannot execute.
 func TestRun_RefusesARequestWithNobodyToRunAs(t *testing.T) {
-	_, err := New(server(t)).Run(context.Background(), Request{
+	_, err := New(server(t), nil).Run(context.Background(), Request{
 		Source: "x = 1\n", Name: "anonymous",
 	})
 
@@ -110,7 +110,7 @@ func TestRun_RefusesARequestWithNobodyToRunAs(t *testing.T) {
 // TestRun_RefusesWhenThereIsNoServerToRunAgainst is the honest shape for a
 // deployment that cannot execute anything.
 func TestRun_RefusesWhenThereIsNoServerToRunAgainst(t *testing.T) {
-	_, err := New(nil).Run(context.Background(), Request{
+	_, err := New(nil, nil).Run(context.Background(), Request{
 		Source: "x = 1\n", Name: "nowhere", Identity: jane,
 	})
 
@@ -137,7 +137,7 @@ func TestOutcome_FailedOnNothing(t *testing.T) {
 // pathological draft can reach: an interpreter's heap cannot be capped, so the
 // number running at once is what is capped instead.
 func TestRun_BoundsConcurrentDrafts(t *testing.T) {
-	runner := New(server(t))
+	runner := New(server(t), nil)
 	// Fill every slot, so the next request has nowhere to run.
 	for range maxConcurrentDrafts {
 		runner.slots <- struct{}{}
@@ -158,7 +158,7 @@ func TestRun_BoundsConcurrentDrafts(t *testing.T) {
 // TestRun_ReleasesItsSlot keeps a failed run from leaking the slot it took,
 // which would shrink the bound by one on every failure until nothing could run.
 func TestRun_ReleasesItsSlot(t *testing.T) {
-	runner := New(server(t))
+	runner := New(server(t), nil)
 
 	for range maxConcurrentDrafts + 2 {
 		outcome, err := runner.Run(context.Background(), Request{

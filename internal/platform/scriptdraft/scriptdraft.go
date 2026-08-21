@@ -7,11 +7,11 @@
 // person directly would be: there is nothing reachable through a draft run that
 // its caller could not already reach by calling the tools themselves. What it
 // adds is the loop — real interpreter errors, real rows, real shapes — so a
-// script is finished before anyone is asked to approve it.
+// script is finished before it is saved as the version that runs.
 //
 // It is deliberately NOT a way around the execution gate: it persists nothing
-// (platform.export previews), it runs under tighter limits than an approved run
-// will, and it never reads or sets the approved-version pointer.
+// (platform.export previews), it runs under tighter limits than a platform run
+// will, and it persists nothing a run would.
 //
 // The package exists because there are two surfaces that ask for a draft run —
 // the manage_script tool an agent calls and the editor its owner works in
@@ -30,18 +30,19 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
+	"github.com/txn2/mcp-data-platform/pkg/script"
 	pkgsession "github.com/txn2/mcp-data-platform/pkg/session"
 )
 
 // clientLabel names the draft's client in the MCP handshake, so a draft run and
-// an approved one are distinguishable in logs.
+// a platform one are distinguishable in logs.
 const clientLabel = "script-draft"
 
 // Concurrency bound.
 //
 // A run holds a Starlark heap the interpreter cannot cap, so the number of
 // concurrent runs is the one lever that bounds the memory a pathological script
-// can reach. The approved-run worker takes that lever by executing one run at a
+// can reach. The platform-run worker takes that lever by executing one run at a
 // time per replica; a draft run has no queue in front of it, and since #1364 it
 // is reachable from a form in a browser rather than only from a tool call.
 //
@@ -82,7 +83,7 @@ type Request struct {
 	Name string
 	// Params is the already-bound parameter set. Binding is the domain's
 	// (script.BindParams) and happens before a Runner is involved, so a draft
-	// and an approved run bind by one rule.
+	// and a platform run bind by one rule.
 	Params   map[string]any
 	Identity Identity
 }
@@ -108,6 +109,9 @@ func (o *Outcome) Failed() bool { return o != nil && o.Err != nil }
 // Runner executes drafts against an assembled MCP server.
 type Runner struct {
 	server *mcp.Server
+	// destinations is the configured bucket destination set export names
+	// resolve against.
+	destinations []script.Destination
 	// slots bounds concurrent executions on this replica. A buffered channel
 	// rather than a mutex because a caller must be able to give up waiting.
 	slots chan struct{}
@@ -116,14 +120,18 @@ type Runner struct {
 	now func() time.Time
 }
 
-// New builds a Runner over the assembled server. A nil server yields a Runner
-// that refuses every request, which is the honest shape for a deployment with
-// no server to run against.
-func New(server *mcp.Server) *Runner {
+// New builds a Runner over the assembled server. destinations is the
+// deployment's configured bucket destination set, resolved by a draft exactly
+// as a platform run resolves it, so a destination a real run would refuse
+// fails while the author is iterating. A nil server yields a Runner that
+// refuses every request, which is the honest shape for a deployment with no
+// server to run against.
+func New(server *mcp.Server, destinations []script.Destination) *Runner {
 	return &Runner{
-		server: server,
-		slots:  make(chan struct{}, maxConcurrentDrafts),
-		now:    func() time.Time { return time.Now().UTC() },
+		server:       server,
+		destinations: destinations,
+		slots:        make(chan struct{}, maxConcurrentDrafts),
+		now:          func() time.Time { return time.Now().UTC() },
 	}
 }
 
@@ -167,6 +175,7 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Outcome, error) {
 		// run.fire_time: even a draft never reads a clock, so what an author
 		// verifies in the loop is what a scheduled run will do.
 		FireTime: r.now(), Params: req.Params, Caller: caller,
+		Destinations: r.destinations,
 	})
 	return &Outcome{RunID: runID, Result: result, Err: runErr}, nil
 }
@@ -195,8 +204,8 @@ func (r *Runner) acquire(ctx context.Context) (func(), error) {
 // that say a script ran, and the per-run session identity that keeps the run
 // out of the caller's own discovery and gate state.
 //
-// An approved run differs from this in exactly one respect — it authenticates
-// as the script principal with the roles its approval bound — which is why the
+// A platform run differs from this in exactly one respect — it authenticates
+// as the script principal with the version author's captured roles — which is why the
 // session plumbing itself lives in scriptrun and only the identity is decided
 // here.
 func (r *Runner) connect(ctx context.Context, runID string, id Identity) (*scriptrun.SessionCaller, func(), error) {

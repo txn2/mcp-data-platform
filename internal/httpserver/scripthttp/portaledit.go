@@ -13,25 +13,13 @@ import (
 // The two things a script's owner writes from the portal: its SOURCE (#1307)
 // and what it SAYS about itself (#1369). They live together because they cross
 // one gate — script.ApplyEdit, the funnel every mutation surface crosses — and
-// differ in exactly one way, which is worth stating beside each other rather
-// than in two files that each describe half of it.
-//
-// Until these routes existed the only way to change a script was to ask an
-// agent, which is a strange thing to require of the person who owns the
-// automation and is looking straight at it. Neither is a new authority, and
-// nothing here can approve anything.
-//
-// An edit to the SOURCE of a script with an approved version becomes a DRAFT
-// awaiting review, and the approved version keeps running until somebody
-// approves the change. An edit to what the script SAYS applies at once, because
-// script.RequiresReview keys on the source and the parameter contract alone: a
-// description is not an input to any decision the platform makes. Both are
-// captured as versions.
+// both apply to the live row and are captured as versions: saving a version
+// makes it the version that runs.
 //
 // Neither route touches scope, personas, status, or the parameter contract.
-// Those are structured decisions with their own rules — and a mixed edit is
-// refused by the domain anyway — so the page that shows the code changes the
-// code, and the page that shows the document changes the document.
+// Those are structured decisions with their own rules, so the page that shows
+// the code changes the code, and the page that shows the document changes the
+// document.
 
 // maxSourceBodyBytes bounds an edit request. script.MaxSourceLength bounds the
 // source itself; this is the envelope around it, generous enough that a body
@@ -43,26 +31,19 @@ type sourceRequest struct {
 	Source string `json:"source"`
 }
 
-// sourceResponse reports where the edit landed: on the live script, or in the
-// review queue as a draft. A page that said only "saved" would leave an owner
-// believing their change is running when it is waiting for a reviewer.
+// sourceResponse reports the saved edit.
 type sourceResponse struct {
-	// Applied is true when the live script now carries this source.
-	Applied bool `json:"applied" example:"false"`
-	// PendingVersion is the draft version awaiting review, zero when applied.
-	PendingVersion int `json:"pending_version,omitempty" example:"4"`
-	// Approved is true when the saved version is now the version the platform
-	// executes, because this is the owner's own personal script and the platform
-	// approved it for them (#1367).
-	Approved bool `json:"approved,omitempty" example:"true"`
+	// Applied is true when the live script now carries this source, which is
+	// every successful save.
+	Applied bool `json:"applied" example:"true"`
 	// Message states the outcome in the owner's terms.
-	Message string `json:"message" example:"Saved as version 4, awaiting review."`
+	Message string `json:"message" example:"Saved, and this version is what runs now."`
 }
 
 // portalSetSource saves a new version of a script's source.
 //
 // @Summary      Edit a script's source
-// @Description  Saves new Starlark for a script the caller owns. A script with an approved version keeps executing that version and the edit becomes a draft awaiting review; a script with nothing approved yet applies the edit directly. The source is parsed before anything is stored. Restricted to the script's owner and to administrators.
+// @Description  Saves new Starlark for a script the caller owns; the saved version is the version that runs. The source is parsed before anything is stored. Restricted to the script's owner and to administrators.
 // @Tags         Scripts
 // @Accept       json
 // @Produce      json
@@ -124,81 +105,48 @@ func (h *Handler) applyEdit(
 	r *http.Request,
 	before, after *script.Script,
 	user *PortalIdentity,
-) (script.EditOutcome, bool) {
-	outcome, err := script.ApplyEdit(r.Context(), h.deps.Scripts, script.Edit{
-		Before: before, After: after, Author: editAuthor(user), Auto: h.deps.Auto,
+) bool {
+	err := script.ApplyEdit(r.Context(), h.deps.Scripts, script.Edit{
+		Before: before, After: after, Author: editAuthor(user),
 	})
 	if err != nil {
 		writeEditError(w, err)
-		return script.EditOutcome{}, false
+		return false
 	}
-	return outcome, true
+	return true
 }
 
-// landEdit applies a source edit and reports which of its two outcomes happened.
+// landEdit applies a source edit and reports it.
 func (h *Handler) landEdit(
 	w http.ResponseWriter,
 	r *http.Request,
 	before, after *script.Script,
 	user *PortalIdentity,
 ) {
-	outcome, ok := h.applyEdit(w, r, before, after, user)
-	if !ok {
-		return
-	}
-	if outcome.PendingVersion > 0 {
-		httpjson.WriteJSON(w, http.StatusOK, sourceResponse{
-			PendingVersion: outcome.PendingVersion,
-			Message: "This script has an approved version, so the change was saved as a draft " +
-				"awaiting review. The approved version keeps running until the draft is approved.",
-		})
+	if !h.applyEdit(w, r, before, after, user) {
 		return
 	}
 	httpjson.WriteJSON(w, http.StatusOK, sourceResponse{
-		Applied:  true,
-		Approved: outcome.Auto.Approved,
-		Message:  savedMessage(after, outcome.Auto),
+		Applied: true,
+		Message: savedMessage(after),
 	})
 }
 
 // savedMessage states what an applied edit means for whether anything will run
-// it, which is the question an owner presses save with (#1367).
-//
-// A refusal is quoted rather than summarized: it names the connection, the
-// destination, or the shape of the code that stopped the approval, and that is
-// the sentence the owner can act on.
-func savedMessage(sc *script.Script, auto script.AutoOutcome) string {
-	switch {
-	case auto.Approved:
-		return "Saved and approved. This script is yours alone, so the platform approved this version " +
-			"for you and runs it under the access you hold. " + runsNow(sc)
-	case auto.Reason != "":
-		return "Saved, and not approved: " + auto.Reason +
-			". Until a version is approved, nothing executes this script on its own; " +
-			"dry-run it here to execute it as yourself."
-	default:
-		return "Saved. Nothing is approved for this script yet, so nothing executes it unattended."
+// it, which is the question an owner presses save with. A save that said "it
+// runs now" over a disabled or deprecated script would be a false statement
+// the owner acts on.
+func savedMessage(sc *script.Script) string {
+	if err := script.RefuseRun(sc); err != nil {
+		return "Saved. Nothing executes this script: " + err.Error() + "."
 	}
+	return "Saved, and this version is what runs now: it presents the roles you hold, and any schedule fires it."
 }
 
-// runsNow reports what an approval actually buys this script, which is not
-// always a run: the execution gate refuses a disabled or deprecated script
-// whatever is approved on it, and a save that said "it runs now" over one would
-// be a false statement the owner acts on.
-func runsNow(sc *script.Script) string {
-	switch {
-	case !sc.Enabled:
-		return "This script is disabled, so nothing executes it until it is enabled again."
-	case sc.Status == script.StatusDeprecated:
-		return "This script is deprecated, so nothing executes it."
-	default:
-		return "It runs now, and on its schedule."
-	}
-}
-
-// editAuthor is who wrote the version and the authority they held while writing
-// it. The roles are the load-bearing half: approving a version binds exactly
-// these, so a script can never do what the person who wrote it could not.
+// editAuthor is who wrote the version and the authority they held while
+// writing it. The roles are the load-bearing half: a run of the version
+// presents exactly these, so a script can never do what the person who wrote
+// it could not.
 func editAuthor(user *PortalIdentity) script.Author {
 	roles := user.Roles
 	if roles == nil {
@@ -207,12 +155,12 @@ func editAuthor(user *PortalIdentity) script.Author {
 	return script.Author{Email: user.owner(), Roles: roles}
 }
 
-// writeEditError maps an edit failure to a status. The one a caller can act on
-// is the mixed-edit refusal, which is matched by sentinel; anything else is the
+// writeEditError maps an edit failure to a status. A version conflict is the
+// one a caller can act on, matched by sentinel; anything else is the
 // platform's own failure and its detail stays in the log.
 func writeEditError(w http.ResponseWriter, err error) {
-	if errors.Is(err, script.ErrReviewRequiredMixedEdit) {
-		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
+	if errors.Is(err, script.ErrVersionConflict) {
+		httpjson.WriteError(w, http.StatusConflict, err.Error())
 		return
 	}
 	httpjson.WriteError(w, http.StatusInternalServerError, "failed to save the source")
@@ -252,7 +200,7 @@ type metadataResponse struct {
 // portalSetMetadata saves what a script says about itself.
 //
 // @Summary      Edit what a script says about itself
-// @Description  Saves the display name, markdown description, category and tags of a script the caller owns. None of these is review-gated, so the change applies immediately and the approved version keeps executing untouched; it is still captured as a version. Restricted to the script's owner and to administrators.
+// @Description  Saves the display name, markdown description, category and tags of a script the caller owns. The change applies immediately and is captured as a version. Restricted to the script's owner and to administrators.
 // @Tags         Scripts
 // @Accept       json
 // @Produce      json
@@ -283,13 +231,13 @@ func (h *Handler) portalSetMetadata(w http.ResponseWriter, r *http.Request, user
 		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if _, ok := h.applyEdit(w, r, &before, &after, user); !ok {
+	if !h.applyEdit(w, r, &before, &after, user) {
 		return
 	}
 	httpjson.WriteJSON(w, http.StatusOK, metadataResponse{
 		Version:           after.Version,
 		DescriptionNotice: script.DescriptionNotice(after.Description),
-		Message:           "Saved. This changes what the script says about itself and not what it does, so nothing was sent for review.",
+		Message:           "Saved. This changes what the script says about itself and not what it does.",
 	})
 }
 

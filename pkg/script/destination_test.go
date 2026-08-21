@@ -33,10 +33,9 @@ func TestDestination_LabelNamesTheAddress(t *testing.T) {
 	require.NoError(t, d.Validate())
 }
 
-// TestDestination_NormalizedIsWhatKeepsADiffHonest: two approvals that meant
-// the same place must read as the same place, or the next version's capability
-// diff reports a widening that never happened.
-func TestDestination_NormalizedIsWhatKeepsADiffHonest(t *testing.T) {
+// TestDestination_NormalizedIsWhatKeepsConfigurationHonest: two declarations
+// that meant the same place must read as the same place.
+func TestDestination_NormalizedIsWhatKeepsConfigurationHonest(t *testing.T) {
 	typed := script.Destination{
 		Name: " acme-drop ", Kind: " s3 ",
 		Connection: " acme-s3", Bucket: "acme-exports ", Prefix: "/weekly/",
@@ -45,25 +44,6 @@ func TestDestination_NormalizedIsWhatKeepsADiffHonest(t *testing.T) {
 		Name: "acme-drop", Kind: script.DestinationKindS3,
 		Connection: "acme-s3", Bucket: "acme-exports", Prefix: "weekly",
 	}, typed.Normalized())
-}
-
-// TestDestination_ReadsTheNameOnlyFormAGrantRecordedBefore covers the stored
-// shape a version approved before delivery existed carries. The portal was the
-// only destination then, so the older form is unambiguous — and reading it is
-// what lets one replica read a version another approved mid-upgrade.
-func TestDestination_ReadsTheNameOnlyFormAGrantRecordedBefore(t *testing.T) {
-	var grants script.Grants
-	require.NoError(t, json.Unmarshal([]byte(`{"destinations":["portal"]}`), &grants))
-	require.Len(t, grants.Destinations, 1)
-	assert.Equal(t, script.PortalDestination(), grants.Destinations[0])
-	assert.True(t, grants.AllowsDestination(script.DestinationPortal))
-
-	// A name that never meant anything on its own is refused rather than
-	// invented into an address.
-	var d script.Destination
-	require.Error(t, json.Unmarshal([]byte(`"acme-drop"`), &d))
-
-	require.Error(t, json.Unmarshal([]byte(`42`), &d))
 }
 
 // TestDestination_RoundTripsAsAnAddress pins that what is written back is the
@@ -81,9 +61,9 @@ func TestDestination_RoundTripsAsAnAddress(t *testing.T) {
 	assert.Equal(t, original, back)
 }
 
-// TestValidateObjectKey is the boundary of a destination grant: a key that
-// could climb out of the prefix it was granted under is refused, never cleaned
-// up and written somewhere else.
+// TestValidateObjectKey is the boundary of a destination: a key that could
+// climb out of the prefix it writes under is refused, never cleaned up and
+// written somewhere else.
 func TestValidateObjectKey(t *testing.T) {
 	valid := []string{
 		"sales.csv",
@@ -129,9 +109,9 @@ func TestValidateObjectKey(t *testing.T) {
 	})
 }
 
-// TestDestination_ValidateRefusesWhatCannotBeWritten covers the shapes an
-// approval must not bind, each of which would otherwise become a run that
-// cannot write where it was told to.
+// TestDestination_ValidateRefusesWhatCannotBeWritten covers the shapes a
+// configuration must not declare, each of which would otherwise become a run
+// that cannot write where it was told to.
 func TestDestination_ValidateRefusesWhatCannotBeWritten(t *testing.T) {
 	tests := map[string]struct {
 		destination script.Destination
@@ -167,15 +147,4 @@ func TestDestination_ValidateRefusesWhatCannotBeWritten(t *testing.T) {
 			assert.Contains(t, err.Error(), tt.wantErr)
 		})
 	}
-}
-
-// TestGrants_DestinationNamesAreWhatAnErrorTells pins the list an author reads
-// when their script names a destination the approval did not bind.
-func TestGrants_DestinationNamesAreWhatAnErrorTells(t *testing.T) {
-	g := script.Grants{Destinations: []script.Destination{
-		script.PortalDestination(),
-		{Name: "acme-drop", Kind: script.DestinationKindS3, Connection: "acme-s3", Bucket: "exports"},
-	}}
-	assert.Equal(t, []string{"portal", "acme-drop"}, g.DestinationNames())
-	assert.Empty(t, script.Grants{}.DestinationNames())
 }

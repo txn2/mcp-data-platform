@@ -28,7 +28,6 @@ function row(overrides: Partial<PortalScriptRow> = {}): PortalScriptRow {
       status: "active",
       enabled: true,
       version: 2,
-      approved_version_id: "sver-001-v2",
       updated_at: new Date().toISOString(),
     },
     schedule: {
@@ -66,7 +65,7 @@ describe("MyScriptsPage", () => {
     render(<MyScriptsPage onNavigate={onNavigate} />);
 
     expect(screen.getByText("Daily Sales Report")).toBeInTheDocument();
-    expect(screen.getByText("Approved v2")).toBeInTheDocument();
+    expect(screen.getByText("Runs v2")).toBeInTheDocument();
     expect(screen.getByText("succeeded")).toBeInTheDocument();
   });
 
@@ -105,15 +104,16 @@ describe("MyScriptsPage", () => {
     expect(screen.getByText("No fire due")).toBeInTheDocument();
   });
 
-  it("says a script runs nothing when no version is approved", () => {
+  it("says a disabled script runs nothing, whatever else is true of it", () => {
     mockScripts.mockReturnValue(
       query({
-        data: [row({ script: { ...row().script, approved_version_id: undefined } })],
+        data: [row({ script: { ...row().script, enabled: false } })],
         total: 1,
       }),
     );
     render(<MyScriptsPage onNavigate={onNavigate} />);
-    expect(screen.getByText("Nothing approved")).toBeInTheDocument();
+    expect(screen.getByText("disabled")).toBeInTheDocument();
+    expect(screen.queryByText("Runs v2")).not.toBeInTheDocument();
   });
 
   it("reports a paused schedule rather than a next fire that will not happen", () => {
@@ -169,7 +169,9 @@ describe("MyScriptsPage", () => {
     );
     render(<MyScriptsPage onNavigate={onNavigate} />);
     expect(screen.getByText("scripts visible to you")).toBeInTheDocument();
-    expect(screen.getByText("have a version the platform may execute")).toBeInTheDocument();
+    expect(
+      screen.getByText("enabled and active; a run executes the latest saved version"),
+    ).toBeInTheDocument();
     expect(screen.getByText("run on a schedule, unattended")).toBeInTheDocument();
     expect(screen.getByText("of the 1 you own")).toBeInTheDocument();
   });

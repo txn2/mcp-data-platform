@@ -13,7 +13,7 @@ import (
 	pkgsession "github.com/txn2/mcp-data-platform/pkg/session"
 )
 
-// ToolNameRunScript is the MCP tool name of the approved-execution tool,
+// ToolNameRunScript is the MCP tool name of the platform-execution tool,
 // exported for composition roots that bind UI apps to it.
 const ToolNameRunScript = "run_script"
 
@@ -24,8 +24,8 @@ const (
 	DefaultWaitSeconds = 120
 
 	// MaxWaitSeconds caps the wait. Past it the tool answers with the run id and
-	// a pending status rather than holding a request open for the ten minutes an
-	// approved run is allowed to take.
+	// a pending status rather than holding a request open for the ten minutes a
+	// run is allowed to take.
 	MaxWaitSeconds = 300
 
 	// pollEvery is how often the wait re-reads the run row.
@@ -62,34 +62,25 @@ func (h *Handle) registerRunScript(server *mcp.Server) {
 	})
 }
 
-// handleRunScript queues one execution of a script's APPROVED version and waits
-// for it, within a bound.
+// handleRunScript queues one execution of a script's latest saved version and
+// waits for it, within a bound.
 //
-// The tool never executes anything itself. It validates the request against the
-// approved version's parameter contract, puts a row on the queue, and watches
-// it — so a run is executed by a worker, under the script principal, whether it
-// was asked for here or fired by a schedule, and there is exactly one path into
+// The tool never executes anything itself. It validates the request against
+// the script's parameter contract, puts a row on the queue, and watches it —
+// so a run is executed by a worker, under the script principal, whether it was
+// asked for here or fired by a schedule, and there is exactly one path into
 // execution to govern.
 func (h *Handle) handleRunScript(ctx context.Context, input runScriptInput) (*mcp.CallToolResult, any, error) {
 	sc, errResult := h.readable(ctx, manageScriptInput{Name: input.Name, OwnerEmail: input.OwnerEmail})
 	if errResult != nil {
 		return errResult, nil, nil
 	}
-	version, errResult := h.approvedVersion(ctx, sc)
+	version, errResult := h.currentVersion(ctx, sc)
 	if errResult != nil {
 		return errResult, nil, nil
 	}
-	// Parameters are bound against the APPROVED version's contract, not the live
-	// row's: a pending draft may have added or renamed a parameter, and the run
-	// executes the approved code, which knows nothing about it.
 	params, err := script.BindParams(version.Params, input.Args)
 	if err != nil {
-		return errorResult(err.Error()), nil, nil
-	}
-	// A connection named by a parameter is checked against the approved grant
-	// here, where the caller is still present, rather than by the host at the
-	// query the run would have failed on (#1361).
-	if err := script.CheckConnectionParams(version.Params, params, version.Grants); err != nil {
 		return errorResult(err.Error()), nil, nil
 	}
 	run, err := h.enqueueRun(ctx, sc, version, params)
@@ -100,50 +91,36 @@ func (h *Handle) handleRunScript(ctx context.Context, input runScriptInput) (*mc
 	return jsonResult(h.awaitRun(ctx, sc, run, waitBudget(input.WaitSeconds)))
 }
 
-// approvedVersion loads the version the execution gate points at, refusing the
-// states that must not execute.
-func (h *Handle) approvedVersion(ctx context.Context, sc *script.Script) (*script.Version, *mcp.CallToolResult) {
-	if errResult := runnable(sc); errResult != nil {
-		return nil, errResult
-	}
-	if sc.Status == script.StatusDeprecated {
-		return nil, errorResult("this script is deprecated and is no longer executed; run its replacement instead")
-	}
-	if !sc.Executable() {
-		return nil, errorResult(unapprovedRefusal(sc, resolveEmail(ctx)))
+// currentVersion loads the script's latest saved version — the one a run
+// executes — refusing the states that must not execute.
+func (h *Handle) currentVersion(ctx context.Context, sc *script.Script) (*script.Version, *mcp.CallToolResult) {
+	if err := script.RefuseRun(sc); err != nil {
+		return nil, errorResult(err.Error() + draftHint(sc))
 	}
 	if h.versions == nil {
-		return nil, errorResult("this deployment cannot read script versions, so approved runs are unavailable")
+		return nil, errorResult("this deployment cannot read script versions, so platform runs are unavailable")
 	}
-	version, err := h.versions.GetVersionByID(ctx, sc.ApprovedVersionID)
+	version, err := h.versions.GetVersion(ctx, sc.ID, sc.Version)
 	if err != nil {
-		slog.Error("failed to read an approved script version", fieldName, sc.Name, logKeyError, err)
-		return nil, errorResult("failed to read the approved version")
+		slog.Error("failed to read a script version", fieldName, sc.Name, logKeyError, err)
+		return nil, errorResult("failed to read the script's current version")
 	}
 	if version == nil {
-		return nil, errorResult("the approved version of this script is missing; it must be approved again before it can run")
+		return nil, errorResult("the script's current version is missing from its history; save it again to restore it")
 	}
 	return version, nil
 }
 
-// unapprovedRefusal explains why nothing will run this script, in terms of the
-// path that applies to the caller.
-//
-// For a shared script that is a reviewer. For the caller's OWN personal script
-// it is not: the platform approves those on save (#1367), so this state means
-// something about the script stopped it — a computed connection or destination,
-// a place to write that no approval has pinned an address for, or a connection
-// the caller's persona cannot reach. Saving it again reports which, and sending
-// that person to an administrator instead would send them past the answer.
-func unapprovedRefusal(sc *script.Script, caller string) string {
-	if sc.OwnedPersonally(caller) {
-		return fmt.Sprintf(
-			"script %q has no approved version. This script is yours alone, so the platform normally approves it when you save it; something about it could not be read off its source. Save it again to be told what, use manage_script run_draft to run it as yourself meanwhile, or ask an administrator to approve this version.",
-			sc.Name)
+// draftHint offers run_draft only where a draft would actually be admitted.
+// The two gates refuse different sets — a deprecated script may still be
+// draft-run by the person fixing it, while a disabled or superseded one is
+// refused by both — so naming run_draft unconditionally would send somebody to
+// a second refusal.
+func draftHint(sc *script.Script) string {
+	if script.RefuseDraftRun(sc) != nil {
+		return ""
 	}
-	return fmt.Sprintf(
-		"script %q has no approved version, so nothing may execute it. Use manage_script run_draft to run it as yourself while you iterate, and ask an administrator to review and approve it before it can run on its own.",
-		sc.Name)
+	return "; use manage_script run_draft to execute it as yourself while you iterate"
 }
 
 // enqueueRun mints the run identity and puts the run on the queue.
@@ -222,7 +199,7 @@ func runResult(sc *script.Script, run *script.Run) map[string]any {
 	if run.Status == script.RunStatusFailed {
 		out["error"] = run.Error
 		out["retryable"] = false
-		out["message"] = "A script failure is deterministic: the same version on the same inputs fails the same way, so the platform does not retry it. Fix the script, run the draft, and have the fix approved."
+		out["message"] = "A script failure is deterministic: the same version on the same inputs fails the same way, so the platform does not retry it. Fix the script with run_draft and save the fix."
 	}
 	return out
 }
@@ -275,20 +252,20 @@ func orEmptyOutputs(outputs []script.RunOutput) []script.RunOutput {
 }
 
 // runScriptDescription is the tool description an agent reads.
-const runScriptDescription = `Execute a managed script's APPROVED version and return what it produced.
+const runScriptDescription = `Execute a managed script's latest saved version and return what it produced.
 
-The platform runs the script itself, as the script's own principal, with the
-capabilities its approval granted — not as you, and not with your access. A
-script with no approved version cannot be run here: use manage_script
-run_draft to execute a draft as yourself while you are still writing it.
+The platform runs the script itself, as the script's own principal, presenting
+the roles its author held when that version was saved — not as you, and not with your
+access. Use manage_script run_draft to execute unsaved changes as yourself
+while you are still writing them.
 
-Parameters are checked against the approved version's contract before anything
-is queued. The call waits up to two minutes for the run to finish; a longer run
+Parameters are checked against the script's contract before anything is
+queued. The call waits up to two minutes for the run to finish; a longer run
 returns its run_id, keeps going, and is read with manage_script get_run.
 
 A failed run is not retried. A script failure is deterministic — the same
 version on the same inputs fails the same way — so the fix is to correct the
-script and have the correction approved.`
+script and save the correction.`
 
 // runScriptSchema is the closed input schema for run_script.
 func runScriptSchema() any {
@@ -305,7 +282,7 @@ func runScriptSchema() any {
 			},
 			"args": map[string]any{
 				keyType:        valObject,
-				keyDescription: "Parameter values, checked against the approved version's declared parameters.",
+				keyDescription: "Parameter values, checked against the script's declared parameters.",
 			},
 			"wait_seconds": map[string]any{
 				keyType: valInteger,

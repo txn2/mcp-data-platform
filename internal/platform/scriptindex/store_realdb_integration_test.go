@@ -29,10 +29,10 @@ func seedRow(t *testing.T, store *Store, name string) string {
 	t.Helper()
 	var id string
 	require.NoError(t, store.db.QueryRowContext(context.Background(), `
-		INSERT INTO scripts (name, display_name, description, source_code, params, scope, owner_email, tags)
+		INSERT INTO scripts (name, display_name, description, source_code, params, scope, owner_email, tags, status)
 		VALUES ($1, 'Daily Sales Report', 'Summarize yesterday''s sales by region',
 		        'print(1)', '[{"name":"report_date","type":"date","required":true}]'::jsonb,
-		        'global', 'jane@example.com', ARRAY['revenue'])
+		        'global', 'jane@example.com', ARRAY['revenue'], 'active')
 		RETURNING id`, name).Scan(&id))
 	return id
 }

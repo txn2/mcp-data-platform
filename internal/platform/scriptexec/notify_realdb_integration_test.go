@@ -63,16 +63,14 @@ func TestRealDB_AFailedScheduledRunLandsANotificationRow(t *testing.T) {
 	}
 	require.NoError(t, rows.Err())
 
-	require.Len(t, got, 2, "the owner and the approver each get a row")
-	assert.Equal(t, "admin@example.com", got[0].recipient, "the administrator who approved the version")
-	assert.Equal(t, "jane@example.com", got[1].recipient, "and the owner who can fix it")
-	for _, q := range got {
-		assert.Equal(t, notification.CategoryScriptRun, q.category)
-		assert.Equal(t, notification.KindScriptRun, q.kind)
-		assert.Equal(t, run.ID, q.itemID, "the row names the run to go and read")
-		assert.Contains(t, q.message, "division by zero")
-		assert.Contains(t, q.message, "querying warehouse")
-	}
+	require.Len(t, got, 1, "the owner gets the one row")
+	q := got[0]
+	assert.Equal(t, "jane@example.com", q.recipient, "the owner who can fix it")
+	assert.Equal(t, notification.CategoryScriptRun, q.category)
+	assert.Equal(t, notification.KindScriptRun, q.kind)
+	assert.Equal(t, run.ID, q.itemID, "the row names the run to go and read")
+	assert.Contains(t, q.message, "division by zero")
+	assert.Contains(t, q.message, "querying warehouse")
 }
 
 // TestRealDB_ASuccessfulScheduledRunMailsNobody is the other half of the

@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/txn2/mcp-data-platform/pkg/script"
 	"github.com/txn2/mcp-data-platform/pkg/textpatch"
 )
 
@@ -126,24 +125,6 @@ func TestDiff_ComparesVersions(t *testing.T) {
 	diff, ok := fields[textpatch.FieldDiff].(string)
 	require.True(t, ok)
 	assert.Contains(t, diff, "changed")
-}
-
-// TestDiff_PrefersThePendingDraft is the reviewer's question by default: what
-// is waiting, against what is live.
-func TestDiff_PrefersThePendingDraft(t *testing.T) {
-	h, store := newHandle()
-	createDaily(t, h)
-	for _, sc := range store.scripts {
-		sc.ApprovedVersionID = "sver_1"
-		sc.Status = script.StatusActive
-	}
-	call(t, h, authorCtx(), manageScriptInput{Command: cmdUpdate, Name: "daily", Source: "print(\"proposed\")\n"})
-
-	fields := resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdDiff, Name: "daily"}))
-	assert.EqualValues(t, 1, fields["from_version"])
-	assert.EqualValues(t, 2, fields["to_version"])
-	diff, _ := fields[textpatch.FieldDiff].(string)
-	assert.Contains(t, diff, "proposed")
 }
 
 func TestDiff_NoEarlierVersion(t *testing.T) {

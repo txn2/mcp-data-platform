@@ -7,9 +7,7 @@ import (
 )
 
 // reviewAlertRoute is one review queue's settings surface: the store holding
-// its configuration and the target naming its defaults. Both queues are served
-// by one implementation, so a threshold rule or a validation fix cannot apply
-// to one of them and not the other.
+// its configuration and the target naming its defaults.
 type reviewAlertRoute struct {
 	store  reviewalert.SettingsStore
 	target reviewalert.Target
@@ -18,11 +16,6 @@ type reviewAlertRoute struct {
 // knowledgeRoute is the knowledge insight queue's settings surface (#803).
 func (h *handler) knowledgeRoute() reviewAlertRoute {
 	return reviewAlertRoute{store: h.cfg.ReviewAlert, target: reviewalert.KnowledgeTarget()}
-}
-
-// scriptRoute is the managed-script review queue's settings surface (#1287).
-func (h *handler) scriptRoute() reviewAlertRoute {
-	return reviewAlertRoute{store: h.cfg.ScriptReviewAlert, target: reviewalert.ScriptTarget()}
 }
 
 // alertRoutes is one queue's pair of settings routes: where they live, the
@@ -34,22 +27,14 @@ type alertRoutes struct {
 	set   http.HandlerFunc
 }
 
-// registerReviewAlert mounts the alert settings routes for every review queue
-// the deployment has. Like the SMTP routes, reads need only the store and
-// writes need database config mode.
+// registerReviewAlert mounts the knowledge review-queue alert settings
+// routes. Like the SMTP routes, reads need only the store and writes need
+// database config mode.
 func registerReviewAlert(mux *http.ServeMux, h *handler) {
-	for _, route := range []alertRoutes{
-		{
-			path:  "/api/v1/admin/settings/review-queue-alert",
-			store: h.cfg.ReviewAlert, get: h.getReviewAlert, set: h.setReviewAlert,
-		},
-		{
-			path:  "/api/v1/admin/settings/script-review-alert",
-			store: h.cfg.ScriptReviewAlert, get: h.getScriptReviewAlert, set: h.setScriptReviewAlert,
-		},
-	} {
-		registerAlertRoutes(mux, h, route)
-	}
+	registerAlertRoutes(mux, h, alertRoutes{
+		path:  "/api/v1/admin/settings/review-queue-alert",
+		store: h.cfg.ReviewAlert, get: h.getReviewAlert, set: h.setReviewAlert,
+	})
 }
 
 // registerAlertRoutes mounts one queue's pair of routes, leaving both unmounted
@@ -96,37 +81,6 @@ func (h *handler) getReviewAlert(w http.ResponseWriter, r *http.Request) {
 // @Router       /admin/settings/review-queue-alert [put]
 func (h *handler) setReviewAlert(w http.ResponseWriter, r *http.Request) {
 	h.storeReviewAlert(w, r, h.knowledgeRoute())
-}
-
-// getScriptReviewAlert handles GET /api/v1/admin/settings/script-review-alert.
-//
-// @Summary      Get script review-queue alert settings
-// @Description  Returns the managed-script review-queue alert configuration: when to alert that script versions are waiting for approval, and who hears about it. Before an operator has written one, the platform defaults are returned with no recipients.
-// @Tags         Settings
-// @Produce      json
-// @Success      200  {object}  reviewalert.SettingsView
-// @Security     ApiKeyAuth
-// @Security     BearerAuth
-// @Router       /admin/settings/script-review-alert [get]
-func (h *handler) getScriptReviewAlert(w http.ResponseWriter, r *http.Request) {
-	writeReviewAlert(w, r, h.scriptRoute())
-}
-
-// setScriptReviewAlert handles PUT /api/v1/admin/settings/script-review-alert.
-//
-// @Summary      Update script review-queue alert settings
-// @Description  Upserts the managed-script review-queue alert configuration: the pending-count and age thresholds, the re-alert cooldown, and the recipients the alert is delivered to.
-// @Tags         Settings
-// @Accept       json
-// @Produce      json
-// @Param        request  body  reviewalert.SettingsInput  true  "Script review alert settings"
-// @Success      200  {object}  reviewalert.SettingsView
-// @Failure      400  {object}  problemDetail
-// @Security     ApiKeyAuth
-// @Security     BearerAuth
-// @Router       /admin/settings/script-review-alert [put]
-func (h *handler) setScriptReviewAlert(w http.ResponseWriter, r *http.Request) {
-	h.storeReviewAlert(w, r, h.scriptRoute())
 }
 
 // writeReviewAlert answers with one queue's stored configuration, or the

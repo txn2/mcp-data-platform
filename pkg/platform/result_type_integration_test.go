@@ -70,7 +70,7 @@ func TestEveryToolResultCarriesResultTypeThroughTheAssembledChain(t *testing.T) 
 	// managed-script tool returns for a refusal) and a plain success.
 	p.MCPServer().AddTool(&mcp.Tool{Name: rtBareErrorTool, InputSchema: map[string]any{"type": "object"}},
 		func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "script has no approved version"}}}, nil
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "the script is disabled"}}}, nil
 		})
 	for _, name := range []string{rtPlainTool, rtDeniedTool} {
 		p.MCPServer().AddTool(&mcp.Tool{Name: name, InputSchema: map[string]any{"type": "object"}},
@@ -106,7 +106,7 @@ func TestEveryToolResultCarriesResultTypeThroughTheAssembledChain(t *testing.T) 
 		wantText string
 	}{
 		{rtPlainTool, withSession(nil), false, "ran"},
-		{rtBareErrorTool, withSession(nil), true, "script has no approved version"},
+		{rtBareErrorTool, withSession(nil), true, "the script is disabled"},
 		{rtDeniedTool, withSession(nil), true, "not permitted"},
 		{rtUpstreamConn + gateway.NamespaceSeparator + "whoami", withSession(nil), false, "tester"},
 		// No purpose on a data call: the purpose gate refuses before the

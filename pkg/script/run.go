@@ -32,13 +32,13 @@ const (
 	TriggerTool = "tool"
 	// TriggerSchedule marks a run materialized by a script's schedule. The two
 	// triggers produce identical rows and execute through the same worker
-	// under the same grant; what differs is that nobody is waiting on this
-	// one, which is why a failed scheduled run notifies and a failed tool run
-	// answers its caller.
+	// under the script's own principal; what differs is that nobody is waiting
+	// on this one, which is why a failed scheduled run notifies and a failed
+	// tool run answers its caller.
 	TriggerSchedule = "schedule"
 	// TriggerPortal marks a run an owner asked for on the script's own page
 	// (#1363). It executes exactly as the other two do — same worker, same
-	// grant, same audit — and it is a distinct label because the run history is
+	// principal, same audit — and it is a distinct label because the run history is
 	// read by the person who clicked it, and recording their own click as an
 	// agent's tool call is a false statement about who did what.
 	TriggerPortal = "portal"
@@ -61,8 +61,7 @@ var (
 )
 
 // RunMetrics is what one execution cost, recorded on the run for capacity
-// review and for sizing an approved script's limits against what it actually
-// uses.
+// review and for sizing a script's limits against what it actually uses.
 type RunMetrics struct {
 	Steps      uint64 `json:"steps"`
 	DurationMS int64  `json:"duration_ms"`
@@ -81,7 +80,7 @@ type RunMetrics struct {
 // alone.
 type RunOutput struct {
 	Name string `json:"name"`
-	// Destination is the granted destination's name. It is empty on rows
+	// Destination is the named destination's name. It is empty on rows
 	// written before destinations existed, which Destination() reads as the
 	// portal.
 	Destination string `json:"destination,omitempty"`
@@ -117,7 +116,7 @@ func destinationOf(o RunOutput) string {
 	return o.Destination
 }
 
-// Run is one execution of one approved script version: a queue row while it is
+// Run is one execution of one script version: a queue row while it is
 // pending or running, and the durable history of that execution afterwards.
 //
 // The two roles are deliberately one table. A run's history IS its queue
@@ -230,72 +229,34 @@ type RunResult struct {
 	Metrics      RunMetrics
 }
 
-// RefuseRun reports why the execution gate must not execute this run, or nil
-// when it admits it.
+// RefuseRun reports why the platform must not execute this script, or nil when
+// a run is admitted.
 //
-// This is the gate itself, and it lives in the domain because it is the rule
-// the whole feature is built around: nothing the platform runs unattended runs
-// except an approved version of an in-service script. Every path into execution
-// answers to this one function, so a second producer of runs cannot arrive with
-// a second, slightly different idea of what is executable.
-//
-// It is checked when a run is executed, not only when it is queued, because the
-// two happen at different times: between them a script can be disabled,
-// retired, or approved onto a different version, and running the queued row
-// anyway would execute code whose approval has since moved.
-func RefuseRun(sc *Script, v *Version, run *Run) error {
+// It lives in the domain because it is the one rule every path into execution
+// answers to — run_script, the scheduler, and the worker at claim time — so a
+// second producer of runs cannot arrive with a second, slightly different idea
+// of what is executable. It is checked when a run is executed, not only when it
+// is queued, because between the two a script can be disabled or retired.
+func RefuseRun(sc *Script) error {
 	switch {
+	case sc == nil:
+		return errors.New("the script does not exist")
 	case !sc.Enabled:
 		return errors.New("the script is disabled")
 	case sc.Status == StatusSuperseded:
 		return fmt.Errorf("the script was superseded by %q", sc.SupersededBy)
 	case sc.Status == StatusDeprecated:
 		return errors.New("the script is deprecated and must not be executed")
-	case !sc.Executable():
-		return errors.New("the script has no approved version, so nothing may execute it")
-	case sc.ApprovedVersionID != run.VersionID:
-		return fmt.Errorf("version %d was the approved version when this run was queued and is not any more; request the run again to execute what is approved now", run.Version)
-	case !v.Approved() || v.Grants.IsZero():
-		return errors.New("the version this run names carries no approval grant")
 	}
 	return nil
-}
-
-// RefuseNewRun reports why a run requested right now would be refused, or nil
-// when one would be admitted. approved is the script's approved version, nil
-// when it has none.
-//
-// It answers the question a discovery surface has to answer — "if I call
-// run_script on this, will anything happen?" — and it answers it by asking the
-// gate itself against the run such a request would create, rather than by
-// re-deriving the gate's rules. A caller is therefore never told a script is
-// runnable that run_script would then decline.
-func RefuseNewRun(sc *Script, approved *Version) error {
-	if sc == nil {
-		return errors.New("the script does not exist")
-	}
-	if sc.Executable() && (approved == nil || approved.ID != sc.ApprovedVersionID) {
-		// The live row points at an approved version the caller did not read, or
-		// read a different one. Reporting it as runnable either way would promise
-		// execution against a version nothing here has seen.
-		return errors.New("the approved version of this script could not be read")
-	}
-	// The run is the one a fresh request would create: the approved version, at
-	// the version number that version carries.
-	run := &Run{VersionID: sc.ApprovedVersionID}
-	if approved != nil {
-		run.Version = approved.Version
-	}
-	return RefuseRun(sc, approved, run)
 }
 
 // RefuseDraftRun reports why a draft run of this script would be refused, or
 // nil when one would be admitted.
 //
-// A draft run is the only execution path an unapproved script has, so without
-// this check "disabled" and "superseded" would disable and supersede nothing.
-// It is deliberately NOT the approved-run gate: a draft executes as its author
-// with no grant, so approval has nothing to say about it.
+// It is deliberately not RefuseRun: a draft executes as its author, inline,
+// while they iterate — so a deprecated script may still be draft-run by the
+// person fixing it, and the refusals speak to an author rather than a caller.
 func RefuseDraftRun(sc *Script) error {
 	switch {
 	case sc == nil:

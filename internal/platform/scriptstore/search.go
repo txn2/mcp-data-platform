@@ -53,22 +53,15 @@ const (
 const lexRankNormalization = 1 | 32
 
 // discoverableStatuses are the lifecycle states a script is offered from
-// discovery in. A draft is included deliberately: an unapproved script is a
-// solved process waiting for a reviewer, and the contract says plainly that
-// nothing will execute it, which is more useful than hiding it. Deprecated and
-// superseded are excluded because both name a dead end — one must not be
-// executed, the other names its replacement — and ranking them would spend an
-// agent's attention on work it must not do.
+// discovery in. Deprecated and superseded are excluded because both name a
+// dead end — one must not be executed, the other names its replacement — and
+// ranking them would spend an agent's attention on work it must not do.
 //
 // This is a ranking rule, not an access rule. The contract read applies no
 // lifecycle filter: a caller holding a reference to a retired script gets the
 // document, which states the refusal, rather than a not-found that reads as
 // though the script never existed.
-//
-// Built with append rather than a two-element composite literal, which a
-// semgrep registry rule misflags as an unbounded make() capacity — the same
-// reason promptschema.promotionRequestScopes is written this way.
-var discoverableStatuses = append([]string{script.StatusDraft}, script.StatusActive)
+var discoverableStatuses = []string{script.StatusActive}
 
 // NewDiscoveryStore returns the store the search federation reads to rank
 // scripts and to resolve an mcp:script:<id> reference (#1302), or nil when the
@@ -307,9 +300,9 @@ func (s scoreTrailingScanner) Scan(dest ...any) error {
 	return s.rows.Scan(append(dest, s.score)...) //nolint:wrapcheck // wrapped by scanScript
 }
 
-// Contract composes the contract document for one script: the live record, the
-// approved version behind the execution gate, the cadence when it has one, and
-// the last successful run with what it produced.
+// Contract composes the contract document for one script: the live record and
+// its parameter contract, the cadence when it has one, and the last successful
+// run with what it produced.
 //
 // Returns nil, nil when no such script exists. A missing schedule is not an
 // error (most scripts have none), and neither is a script that has never
@@ -322,10 +315,6 @@ func (s *Store) Contract(ctx context.Context, id string) (*script.Contract, erro
 	if sc == nil {
 		return nil, nil //nolint:nilnil // Searcher contract: nil, nil means not found
 	}
-	approved, err := s.approvedVersion(ctx, sc)
-	if err != nil {
-		return nil, err
-	}
 	sched, err := s.GetSchedule(ctx, id)
 	if err != nil && !errors.Is(err, script.ErrScheduleNotFound) {
 		return nil, err
@@ -337,17 +326,8 @@ func (s *Store) Contract(ctx context.Context, id string) (*script.Contract, erro
 	if err != nil {
 		return nil, err
 	}
-	c := script.BuildContract(sc, approved, sched, lastRun)
+	c := script.BuildContract(sc, sched, lastRun)
 	return &c, nil
-}
-
-// approvedVersion reads the version behind the execution gate, or nil when the
-// script has none.
-func (s *Store) approvedVersion(ctx context.Context, sc *script.Script) (*script.Version, error) {
-	if sc.ApprovedVersionID == "" {
-		return nil, nil //nolint:nilnil // no approved version is an ordinary state, not an error
-	}
-	return s.GetVersionByID(ctx, sc.ApprovedVersionID)
 }
 
 // lastSuccessfulRun reads the most recently FINISHED successful run, or nil

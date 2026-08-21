@@ -9,7 +9,6 @@ import {
   openPersonaScopeTab,
   openResourceDetail,
   openResourceLifecycle,
-  openScriptAlertSettings,
   openShareDialog,
   openShareDialogPublicLink,
   openShareDialogWithRecipient,
@@ -506,18 +505,10 @@ export const routes: ScreenshotRoute[] = [
   },
   {
     // Platform settings: SMTP configuration for email notifications (#631)
-    // and the two review-queue alerts that send through it (#803, #1287).
+    // and the knowledge review-queue alert that sends through it (#803).
     slug: "admin-settings",
     path: "/portal/admin/settings",
     category: "admin",
-  },
-  {
-    // The managed-script review alert section, which sits below the fold of a
-    // viewport capture of the settings page (#1287).
-    slug: "admin-settings-script-alert",
-    path: "/portal/admin/settings",
-    category: "admin",
-    beforeCapture: openScriptAlertSettings,
   },
   ...adminScriptRoutes,
 

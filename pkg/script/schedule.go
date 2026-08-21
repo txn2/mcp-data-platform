@@ -22,8 +22,8 @@ const (
 	// MinFireInterval is the closest together two fires of one schedule may
 	// be. Standard cron cannot express anything finer than a minute, so this
 	// only ever bites the @every descriptor — where "@every 5s" would turn a
-	// governed automation into a load generator against the query engine it is
-	// approved to reach.
+	// governed automation into a load generator against the query engine it
+	// reaches.
 	MinFireInterval = time.Minute
 
 	// DefaultTimezone is the zone a schedule is interpreted in when it names
@@ -71,11 +71,10 @@ var (
 // Schedule is the cadence one script runs on: the cron expression, the zone it
 // is read in, and the parameter values every fire binds.
 //
-// A schedule is not an authority. It names when an already-approved version
-// runs and with which parameters, and nothing else; the version it executes,
-// the roles it presents, and the connections it may reach all come from the
-// approval, which a schedule cannot touch. That is why setting one is an
-// owner-or-admin action rather than a reviewer's.
+// A schedule is not an authority. It names when the script's latest saved
+// version runs and with which parameters, and nothing else; the roles a run
+// presents and the connections it may reach are decided at run time by the
+// persona filter, which a schedule cannot touch.
 type Schedule struct {
 	ID       string `json:"id"`
 	ScriptID string `json:"script_id"`
@@ -267,24 +266,15 @@ type ScheduleRequest struct {
 }
 
 // BuildSchedule turns a request into the schedule to store, validated against
-// the parameter contract its fires will bind against and with its first fire
-// computed.
-//
-// The contract is the APPROVED version's when there is one, and the live
-// record's otherwise. Both cases are right for the same reason: a schedule
-// binds against whatever will actually execute, and until a version is approved
-// nothing will, so the live record is the only contract there is to check
-// against — which lets an author prepare a schedule before review without
-// pretending it will fire.
+// the live record's parameter contract — which is what its fires will bind
+// against, because a run executes the latest saved version — and with its
+// first fire computed.
 //
 // prev, when non-nil, is the schedule being replaced: its identity and its
 // creator survive an edit of the cadence, because the runs that point at it
 // point at the same automation.
-func BuildSchedule(sc *Script, approved *Version, prev *Schedule, req ScheduleRequest, now time.Time) (*Schedule, error) {
+func BuildSchedule(sc *Script, prev *Schedule, req ScheduleRequest, now time.Time) (*Schedule, error) {
 	contract := sc.Params
-	if approved != nil {
-		contract = approved.Params
-	}
 	sched := &Schedule{
 		ScriptID:  sc.ID,
 		CronSpec:  strings.TrimSpace(req.CronSpec),
@@ -310,38 +300,11 @@ func BuildSchedule(sc *Script, approved *Version, prev *Schedule, req ScheduleRe
 	if err != nil {
 		return nil, err
 	}
-	if err := checkScheduledConnections(contract, sched.Params, approved, now, cronSpec.Location()); err != nil {
-		return nil, err
-	}
 	// The first fire is computed from now, not carried over from the schedule
 	// being replaced: changing a cadence means the old cadence's next fire is
 	// no longer a fire this schedule has.
 	sched.NextRunAt = cronSpec.Next(now)
 	return sched, nil
-}
-
-// checkScheduledConnections refuses a cadence whose bindings name a connection
-// the approved grant does not permit (#1361). Every fire of such a schedule
-// would fail identically, unattended, and the owner setting it is the last
-// person in a position to notice.
-//
-// Nothing is checked before approval: there is no grant to check against, and
-// a schedule on an unapproved script fires nothing anyway.
-func checkScheduledConnections(
-	contract []Param,
-	bindings map[string]any,
-	approved *Version,
-	now time.Time,
-	loc *time.Location,
-) error {
-	if approved == nil {
-		return nil
-	}
-	bound, err := BindScheduleParams(contract, bindings, now.In(loc), loc)
-	if err != nil {
-		return err
-	}
-	return CheckConnectionParams(contract, bound, approved.Grants)
 }
 
 // ScheduleFire is what one materialization pass concluded about a schedule:

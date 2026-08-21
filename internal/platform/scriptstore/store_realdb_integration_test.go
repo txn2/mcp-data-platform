@@ -21,12 +21,13 @@ import (
 )
 
 // newScript returns a valid personal script with NIL slice fields, which is the
-// shape a caller that never touched tags or personas actually produces.
+// shape a caller that never touched tags or personas actually produces. The
+// status is deliberately left empty: Create defaults it to active.
 func newScript(name, owner string) *script.Script {
 	return &script.Script{
 		Name: name, DisplayName: "Daily", Description: "A daily report",
 		Source: "print(1)\n", Scope: script.ScopePersonal, OwnerEmail: owner,
-		Enabled: true, Status: script.StatusDraft,
+		Enabled: true,
 	}
 }
 
@@ -46,7 +47,7 @@ func TestRealDB_CreateNormalizesNilSlices(t *testing.T) {
 	assert.Equal(t, []string{}, got.Personas)
 	assert.Equal(t, []string{}, got.Tags)
 	assert.Equal(t, 1, got.Version)
-	assert.False(t, got.Executable())
+	assert.Equal(t, script.StatusActive, got.Status, "a saved script runs: creation defaults straight to active")
 
 	versions, err := s.ListVersions(ctx, sc.ID)
 	require.NoError(t, err)
@@ -77,79 +78,43 @@ func TestRealDB_PersonalNamesAreUniquePerOwner(t *testing.T) {
 	assert.Error(t, s.Create(ctx, second, testAuthor), "a shared name is unique platform-wide")
 }
 
-// TestRealDB_EditFunnelAppliesAndDefers drives the domain funnel against the
-// real store: an ungated edit lands with a new applied version, and a gated one
-// leaves the live row alone.
-func TestRealDB_EditFunnelAppliesAndDefers(t *testing.T) {
+// TestRealDB_EditFunnelAlwaysAppliesToTheLiveRow drives the domain funnel
+// against the real store: every edit lands on the live row with a new applied
+// version, so the saved script and the script a run executes are the same code.
+func TestRealDB_EditFunnelAlwaysAppliesToTheLiveRow(t *testing.T) {
 	db := testdb.New(t)
 	s := New(db)
 	ctx := context.Background()
 
 	sc := newScript("daily", "jane@example.com")
-	require.NoError(t, s.Create(ctx, sc, testAuthor), testAuthor)
+	require.NoError(t, s.Create(ctx, sc, testAuthor))
 
 	before := *sc
 	after := *sc
 	after.Source = "print(2)\n"
-	outcome, err := script.ApplyEdit(ctx, s, script.Edit{Before: &before, After: &after, Author: testAuthor})
-	require.NoError(t, err)
-	assert.True(t, outcome.Applied)
+	require.NoError(t, script.ApplyEdit(ctx, s, script.Edit{Before: &before, After: &after, Author: testAuthor}))
 	assert.Equal(t, 2, after.Version)
 
 	live, err := s.GetByID(ctx, sc.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "print(2)\n", live.Source)
 
-	// Approve the current version by hand, which is the state #1284's approval
-	// action will produce, and re-run the funnel.
+	// A second edit lands the same way: there is no gate that could park it.
+	secondBefore := *live
+	secondAfter := *live
+	secondAfter.Source = "print(3)\n"
+	require.NoError(t, script.ApplyEdit(ctx, s, script.Edit{Before: &secondBefore, After: &secondAfter, Author: testAuthor}))
+
+	live, err = s.GetByID(ctx, sc.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "print(3)\n", live.Source, "the live row is what the next run executes")
+	assert.Equal(t, 3, live.Version)
+
 	versions, err := s.ListVersions(ctx, sc.ID)
-	require.NoError(t, err)
-	require.NotEmpty(t, versions)
-	_, err = db.ExecContext(ctx, `UPDATE scripts SET approved_version_id = $2 WHERE id = $1`,
-		sc.ID, versions[0].ID)
-	require.NoError(t, err)
-
-	live, err = s.GetByID(ctx, sc.ID)
-	require.NoError(t, err)
-	require.True(t, live.Executable())
-
-	gatedBefore := *live
-	gatedAfter := *live
-	gatedAfter.Source = "print(3)\n"
-	outcome, err = script.ApplyEdit(ctx, s, script.Edit{Before: &gatedBefore, After: &gatedAfter, Author: testAuthor})
-	require.NoError(t, err)
-	assert.False(t, outcome.Applied)
-	assert.Equal(t, 3, outcome.PendingVersion)
-
-	live, err = s.GetByID(ctx, sc.ID)
-	require.NoError(t, err)
-	assert.Equal(t, "print(2)\n", live.Source, "the approved source keeps being carried")
-
-	versions, err = s.ListVersions(ctx, sc.ID)
 	require.NoError(t, err)
 	require.Len(t, versions, 3)
-	assert.Equal(t, script.VersionStatusDraft, versions[0].Status)
-}
-
-// TestRealDB_ApprovedVersionCannotBeDeletedOutFromUnderAScript exercises the
-// ON DELETE RESTRICT foreign key: a version a script points at must not vanish.
-func TestRealDB_ApprovedVersionCannotBeDeletedOutFromUnderAScript(t *testing.T) {
-	db := testdb.New(t)
-	s := New(db)
-	ctx := context.Background()
-
-	sc := newScript("daily", "jane@example.com")
-	require.NoError(t, s.Create(ctx, sc, testAuthor), testAuthor)
-	versions, err := s.ListVersions(ctx, sc.ID)
-	require.NoError(t, err)
-	require.Len(t, versions, 1)
-
-	_, err = db.ExecContext(ctx, `UPDATE scripts SET approved_version_id = $2 WHERE id = $1`,
-		sc.ID, versions[0].ID)
-	require.NoError(t, err)
-
-	_, err = db.ExecContext(ctx, `DELETE FROM script_versions WHERE id = $1`, versions[0].ID)
-	assert.Error(t, err, "the approved version is referenced and must not be deletable")
+	assert.Equal(t, script.VersionStatusApplied, versions[0].Status,
+		"every save is an applied version, not a proposal")
 }
 
 // TestRealDB_DeleteCascadesVersions covers the other direction: removing a
@@ -213,7 +178,7 @@ func TestRealDB_StatusCheckConstraint(t *testing.T) {
 	require.NoError(t, s.Create(ctx, sc, testAuthor), testAuthor)
 
 	for _, status := range []string{
-		script.StatusDraft, script.StatusActive, script.StatusDeprecated, script.StatusSuperseded,
+		script.StatusActive, script.StatusDeprecated, script.StatusSuperseded,
 	} {
 		sc.Status = status
 		assert.NoError(t, s.Update(ctx, sc), "schema must accept the domain status %q", status)
@@ -221,4 +186,9 @@ func TestRealDB_StatusCheckConstraint(t *testing.T) {
 
 	sc.Status = "retired"
 	assert.Error(t, s.Update(ctx, sc), "a status the domain does not declare must be refused by the schema")
+
+	// 'draft' left the lifecycle with the review gate: migration 000118 narrowed
+	// the CHECK, so the retired state cannot be written back.
+	sc.Status = "draft"
+	assert.Error(t, s.Update(ctx, sc), "the retired draft status must be refused by the schema")
 }

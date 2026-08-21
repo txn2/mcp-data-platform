@@ -14,12 +14,12 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
-// Validating and dry-running an edit before asking for approval (#1364).
+// Validating and dry-running an edit before saving it (#1364).
 //
 // Editing a script in the portal was a blind save: the author wrote a change,
 // could not check that it parsed, could not see what capabilities and
-// connections it now reached, could not execute it once, and sent it to an
-// administrator — who then approved code neither of them had run.
+// connections it now reached, and could not execute it once before saving the
+// version that runs.
 //
 // Both mechanisms already existed and were reachable only from an agent
 // session. These routes are the same two, on the page the author is already
@@ -30,10 +30,10 @@ import (
 //   - dry-run executes the edit as the caller, under their own identity and
 //     persona, with tighter limits, persisting nothing it produced.
 //
-// Neither can approve anything and neither introduces authority. A dry run
-// reaches exactly what the person asking for it reaches: it is their session,
-// their persona, their audit trail. What it changes is that a version reaching
-// a reviewer has been run at least once, by the person who wrote it.
+// Neither introduces authority. A dry run reaches exactly what the person
+// asking for it reaches: it is their session, their persona, their audit
+// trail. What it changes is that a saved version can have been run at least
+// once, by the person who wrote it.
 
 // DraftRunner executes a draft under the calling person's own identity. The
 // composition root supplies it, because building one needs the assembled MCP
@@ -138,7 +138,7 @@ type dryRunResponse struct {
 // portalDryRunSource executes an edit as the caller and reports what it did.
 //
 // @Summary      Dry-run a script's source
-// @Description  Executes Starlark for a script the caller owns, under the caller's own identity and persona and with tighter limits, persisting nothing: platform.export reports the shape of each output instead of writing it, and no approval is touched. An empty source runs the script's saved code. The account of the run is kept so a reviewer can see that the version they are approving was executed, and by whom.
+// @Description  Executes Starlark for a script the caller owns, under the caller's own identity and persona and with tighter limits, persisting nothing: platform.export reports the shape of each output instead of writing it. An empty source runs the script's saved code. The account of the run is kept, so a later reader can see that this exact source was executed, and by whom.
 // @Tags         Scripts
 // @Accept       json
 // @Produce      json
@@ -171,8 +171,7 @@ func (h *Handler) portalDryRunSource(w http.ResponseWriter, r *http.Request, use
 		return
 	}
 	// Values bind against the LIVE record's contract, which is the contract the
-	// source being run was written against. The approved version's would be the
-	// wrong one: a draft is precisely the code that does not match it yet.
+	// source being run was written against.
 	params, err := script.BindParams(sc.Params, req.Params)
 	if err != nil {
 		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
@@ -270,8 +269,8 @@ func draftOutcome(outcome *scriptdraft.Outcome) dryRunResponse {
 }
 
 // draftMetrics projects the engine's result into the metrics shape every other
-// run surface reports, so a draft's cost is read in the same units as an
-// approved run's.
+// run surface reports, so a draft's cost is read in the same units as a
+// platform run's.
 func draftMetrics(result *scriptrun.Result) script.RunMetrics {
 	return script.RunMetrics{
 		Steps:      result.Steps,

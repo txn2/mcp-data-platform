@@ -116,7 +116,7 @@ export type ReviewQueueAlertInput = Omit<
 // queues are the same mechanism with their own thresholds and recipients
 // (#803, #1287), so they are one pair of hooks over a queue rather than two
 // copies of it.
-export type ReviewAlertQueue = "review-queue-alert" | "script-review-alert";
+export type ReviewAlertQueue = "review-queue-alert";
 
 export function useReviewAlert(queue: ReviewAlertQueue) {
   return useQuery({

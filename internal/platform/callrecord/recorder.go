@@ -212,7 +212,7 @@ const apiTargetPrefix = "api:"
 //
 // The path parameters are part of the target, not decoration. A target is what
 // decides whether two calls addressed the same thing, so an operation id alone
-// would make approving one script and approving another the same target, and
+// would make the same mutation against two different resources one target, and
 // every call through a generic dispatch endpoint one target (#1352).
 //
 // A target that cannot distinguish the call is not returned at all. An

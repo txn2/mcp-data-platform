@@ -17,13 +17,10 @@ import (
 // it: reading the code is what manage_script's get is for, and what a reviewer
 // does.
 //
-// Two fields deserve their reasoning stated. Params are the APPROVED version's
-// whenever there is one, because run_script executes that version and binds
-// against its contract; the live record's parameters would describe an edit
-// nothing will run. Approval carries both halves of the execution gate: whether
-// a version is approved, and whether a run requested right now would be
-// admitted at all, which a disabled or deprecated script fails even with an
-// approved version behind it.
+// One field deserves its reasoning stated. Refusal is the run gate's own
+// answer (RefuseRun), not a second reading of it, so a caller is never told a
+// script is runnable that run_script would then decline — a disabled or
+// deprecated script refuses a run whatever its history says.
 type Contract struct {
 	ID          string   `json:"id" example:"script_a1b2c3d4"`
 	Name        string   `json:"name" example:"daily-sales-report"`
@@ -37,11 +34,16 @@ type Contract struct {
 	Status      string   `json:"status" example:"active"`
 	Enabled     bool     `json:"enabled" example:"true"`
 
-	// Params is the typed parameter contract a run binds against: the approved
-	// version's when one is approved, the live record's otherwise.
+	// Params is the typed parameter contract a run binds against: the live
+	// record's, which is the latest saved version's.
 	Params []Param `json:"params"`
 
-	Approval ContractApproval `json:"approval"`
+	// Version is the version a run executes: the latest saved one.
+	Version int `json:"version" example:"3"`
+
+	// Refusal states why a run requested now would be refused, and is empty
+	// when one would be admitted.
+	Refusal string `json:"refusal,omitempty" example:"the script is disabled"`
 
 	// Schedule is the cadence this script fires on, nil when it has none.
 	Schedule *ContractSchedule `json:"schedule,omitempty"`
@@ -50,28 +52,6 @@ type Contract struct {
 	// completed one. It answers "what does this produce" with evidence rather
 	// than with a promise.
 	LastRun *ContractRun `json:"last_successful_run,omitempty"`
-}
-
-// ContractApproval is the execution gate as a caller sees it.
-type ContractApproval struct {
-	// Approved reports whether a version is approved for execution.
-	Approved bool `json:"approved" example:"true"`
-	// Version is the approved version number, zero when none is approved.
-	Version int `json:"version,omitempty" example:"3"`
-	// ApprovedBy and ApprovedAt stamp who admitted that version and when.
-	ApprovedBy string     `json:"approved_by,omitempty" example:"admin@example.com"`
-	ApprovedAt *time.Time `json:"approved_at,omitempty"`
-	// Automatic reports that the platform approved this version itself, because
-	// the script is personal and its owner wrote it (#1367). Nobody reviewed it,
-	// and a reader of the contract is told so rather than reading ApprovedBy as
-	// a decision somebody made.
-	Automatic bool `json:"automatic,omitempty" example:"false"`
-
-	// Refusal states why a run requested now would be refused, and is empty when
-	// one would be admitted. It is the gate's own answer (RefuseNewRun), not a
-	// second reading of it, so a caller is never told a script is runnable that
-	// run_script would then decline.
-	Refusal string `json:"refusal,omitempty" example:"the script has no approved version, so nothing may execute it"`
 }
 
 // ContractSchedule is a script's cadence, reported rather than offered: a
@@ -100,8 +80,8 @@ type ContractRun struct {
 const (
 	// OutputKindAsset is a portal asset the platform versions and serves.
 	OutputKindAsset = "portal_asset"
-	// OutputKindObject is an object delivered to a granted bucket, which the
-	// platform wrote and does not hold.
+	// OutputKindObject is an object delivered to a configured bucket
+	// destination, which the platform wrote and does not hold.
 	OutputKindObject = "object"
 )
 
@@ -112,7 +92,7 @@ const (
 type ContractOutput struct {
 	Name string `json:"name" example:"sales_by_region"`
 	Kind string `json:"kind" example:"portal_asset"`
-	// Destination is the granted destination the output went to; "portal" for an
+	// Destination is the named destination the output went to; "portal" for an
 	// output that named none.
 	Destination string `json:"destination" example:"portal"`
 	Format      string `json:"format,omitempty" example:"csv"`
@@ -157,7 +137,7 @@ func (c Contract) Text() string {
 	if names := ParamSummary(c.Params); names != "" {
 		parts = append(parts, "Parameters: "+names)
 	}
-	parts = append(parts, c.approvalLine())
+	parts = append(parts, c.runLine())
 	if c.Schedule != nil {
 		parts = append(parts, fmt.Sprintf("Schedule: %s (%s)%s",
 			c.Schedule.CronSpec, c.Schedule.Timezone, c.Schedule.stateSuffix()))
@@ -166,22 +146,13 @@ func (c Contract) Text() string {
 	return strings.Join(parts, "\n")
 }
 
-// approvalLine states the execution gate in one line, naming the refusal when
-// there is one so a reader is never left to infer it.
-func (c Contract) approvalLine() string {
-	line := "Approval: no version is approved, so nothing will execute this script."
-	switch {
-	case c.Approval.Approved && c.Approval.Automatic:
-		line = fmt.Sprintf(
-			"Approval: version %d, approved automatically because %s owns it and wrote it; nobody reviewed it.",
-			c.Approval.Version, c.Approval.ApprovedBy)
-	case c.Approval.Approved:
-		line = fmt.Sprintf("Approval: version %d, approved by %s.", c.Approval.Version, c.Approval.ApprovedBy)
+// runLine states in one line whether anything will execute this script, naming
+// the refusal when there is one so a reader is never left to infer it.
+func (c Contract) runLine() string {
+	if c.Refusal != "" {
+		return fmt.Sprintf("Runs: a run requested now would be refused: %s.", c.Refusal)
 	}
-	if c.Approval.Refusal != "" {
-		return line + " A run requested now would be refused: " + c.Approval.Refusal + "."
-	}
-	return line
+	return fmt.Sprintf("Runs: version %d, the latest saved version; run_script executes it and a schedule fires it.", c.Version)
 }
 
 // stateSuffix reports a disabled cadence or an expression with nothing left to
@@ -265,14 +236,13 @@ func (c Contract) VisibleToAny(email string, personas []string) bool {
 }
 
 // BuildContract renders the contract for one script from the records that
-// define it: the live row, the approved version (nil when none is approved),
-// the schedule (nil when it has none), and the last successful run (nil when it
-// has never had one).
+// define it: the live row, the schedule (nil when it has none), and the last
+// successful run (nil when it has never had one).
 //
 // It is a pure function over records the caller has already read, so every
 // surface that resolves a script reference produces the identical document and
 // none of them needs its own composition rule.
-func BuildContract(sc *Script, approved *Version, sched *Schedule, lastRun *Run) Contract {
+func BuildContract(sc *Script, sched *Schedule, lastRun *Run) Contract {
 	if sc == nil {
 		return Contract{}
 	}
@@ -289,12 +259,8 @@ func BuildContract(sc *Script, approved *Version, sched *Schedule, lastRun *Run)
 		Status:      sc.Status,
 		Enabled:     sc.Enabled,
 		Params:      sc.Params,
-		Approval:    contractApproval(sc, approved),
-	}
-	if approved != nil {
-		// The parameter contract a run binds against belongs to the version that
-		// will execute, not to a live edit awaiting review.
-		c.Params = approved.Params
+		Version:     sc.Version,
+		Refusal:     refusalText(RefuseRun(sc)),
 	}
 	if sched != nil {
 		c.Schedule = contractSchedule(sched)
@@ -303,20 +269,6 @@ func BuildContract(sc *Script, approved *Version, sched *Schedule, lastRun *Run)
 		c.LastRun = contractRun(lastRun)
 	}
 	return c
-}
-
-// contractApproval renders the execution gate for the contract.
-func contractApproval(sc *Script, approved *Version) ContractApproval {
-	out := ContractApproval{Refusal: refusalText(RefuseNewRun(sc, approved))}
-	if approved == nil || !approved.Approved() {
-		return out
-	}
-	out.Approved = true
-	out.Version = approved.Version
-	out.ApprovedBy = approved.ApprovedBy
-	out.ApprovedAt = approved.ApprovedAt
-	out.Automatic = approved.AutoApproved
-	return out
 }
 
 // refusalText renders a gate refusal as its message, or "" when the gate
@@ -357,7 +309,7 @@ func contractRun(r *Run) *ContractRun {
 }
 
 // contractOutput renders one recorded output, naming its shape from what was
-// actually written rather than from the destination's name: a granted
+// actually written rather than from the destination's name: a configured
 // destination may be named anything, and the locator that is populated is the
 // only unambiguous evidence of where the bytes went.
 func contractOutput(o RunOutput) ContractOutput {

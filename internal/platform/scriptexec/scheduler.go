@@ -199,8 +199,8 @@ func (s *scheduler) materialize(ctx context.Context, sched *script.Schedule, now
 		adv.Fired = fire.At
 	} else {
 		// The fire was not executable. It is counted as missed rather than
-		// dropped silently, so a schedule attached to a script that lost its
-		// approval reads as a schedule that is not producing anything.
+		// dropped silently, so a schedule attached to a script nothing may
+		// execute reads as a schedule that is not producing anything.
 		adv.Missed++
 	}
 	s.advance(ctx, sched, adv)
@@ -210,14 +210,14 @@ func (s *scheduler) materialize(ctx context.Context, sched *script.Schedule, now
 // produce one. Every refusal is logged, because a schedule that stops producing
 // without saying why is the failure this whole surface exists to prevent.
 func (s *scheduler) buildRun(ctx context.Context, sched *script.Schedule, fire time.Time, cronSpec script.Cron) *script.Run {
-	sc, v, err := s.approved(ctx, sched.ScriptID)
+	sc, v, err := s.current(ctx, sched.ScriptID)
 	if err != nil {
 		refuse(sched, err)
 		return nil
 	}
 	params, err := script.BindScheduleParams(v.Params, sched.Params, fire, cronSpec.Location())
 	if err != nil {
-		refuse(sched, fmt.Errorf("its bound parameters no longer satisfy the approved version's contract: %w", err))
+		refuse(sched, fmt.Errorf("its bound parameters no longer satisfy the script's contract: %w", err))
 		return nil
 	}
 	runID, err := pkgsession.GenerateScriptSessionID()
@@ -229,25 +229,25 @@ func (s *scheduler) buildRun(ctx context.Context, sched *script.Schedule, fire t
 		ID: runID, ScriptID: sc.ID, VersionID: v.ID, Version: v.Version,
 		ScheduleID: sched.ID, Trigger: script.TriggerSchedule, Params: params,
 		// The schedule's author is who asked for this cadence, and so is who
-		// asked for every run of it. Attribution of the EXECUTION is separate
-		// and stronger: the run authenticates as the script's own principal
-		// under the grant its approval bound.
+		// asked for every run of it. Attribution of the EXECUTION is separate:
+		// the run authenticates as the script's own principal, presenting the
+		// version author's captured roles.
 		RequestedBy: sched.CreatedBy,
 		FireTime:    fire, ScheduledFor: fire,
 	}
 	// The one gate, asked the same question the worker will ask it again at
 	// execution. Asking here too keeps a schedule from filling the queue with
 	// runs that are certain to be refused.
-	if refusal := script.RefuseRun(sc, v, run); refusal != nil {
+	if refusal := script.RefuseRun(sc); refusal != nil {
 		refuse(sched, refusal)
 		return nil
 	}
 	return run
 }
 
-// approved resolves the script a schedule names and the version its execution
-// gate points at.
-func (s *scheduler) approved(ctx context.Context, scriptID string) (*script.Script, *script.Version, error) {
+// current resolves the script a schedule names and its latest saved version,
+// which is the version a fire executes.
+func (s *scheduler) current(ctx context.Context, scriptID string) (*script.Script, *script.Version, error) {
 	sc, err := s.cfg.scripts.GetByID(ctx, scriptID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("reading the script failed: %w", err)
@@ -255,15 +255,12 @@ func (s *scheduler) approved(ctx context.Context, scriptID string) (*script.Scri
 	if sc == nil {
 		return nil, nil, errors.New("the script this schedule belongs to no longer exists")
 	}
-	if !sc.Executable() {
-		return nil, nil, errors.New("the script has no approved version, so nothing may execute it")
-	}
-	v, err := s.cfg.versions.GetVersionByID(ctx, sc.ApprovedVersionID)
+	v, err := s.cfg.versions.GetVersion(ctx, sc.ID, sc.Version)
 	if err != nil {
-		return nil, nil, fmt.Errorf("reading the approved version failed: %w", err)
+		return nil, nil, fmt.Errorf("reading the script's current version failed: %w", err)
 	}
 	if v == nil {
-		return nil, nil, errors.New("the approved version of this script is missing")
+		return nil, nil, errors.New("the script's current version is missing from its history")
 	}
 	return sc, v, nil
 }

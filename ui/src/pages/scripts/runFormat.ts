@@ -96,29 +96,22 @@ export function outputLink(output: ScriptRunOutput): OutputLink {
 // executionState is what a script is doing, in the one form both the listing
 // and the detail page report it.
 //
-// The refusal is the execution gate's own answer to "would a run requested now
-// be admitted", so a page never has to re-derive runnability from a status and
-// an enabled flag and reach a different conclusion from the platform.
-export function executionState(contract: Pick<ScriptContract, "approval">): {
+// The refusal is the run gate's own answer to "would a run requested now be
+// admitted", so a page never has to re-derive runnability from a status and an
+// enabled flag and reach a different conclusion from the platform.
+export function executionState(contract: Pick<ScriptContract, "version" | "refusal">): {
   label: string;
   variant: "success" | "muted" | "warning";
   detail?: string;
 } {
-  if (!contract.approval.approved) {
+  if (contract.refusal) {
     return {
-      label: "Nothing approved",
-      variant: "muted",
-      detail: contract.approval.refusal || "No version is approved, so nothing will execute this script.",
-    };
-  }
-  if (contract.approval.refusal) {
-    return {
-      label: `Approved v${contract.approval.version ?? "?"}`,
+      label: "Not running",
       variant: "warning",
-      detail: contract.approval.refusal,
+      detail: contract.refusal,
     };
   }
-  return { label: `Approved v${contract.approval.version ?? "?"}`, variant: "success" };
+  return { label: `Runs v${contract.version}`, variant: "success" };
 }
 
 // RunSummary is what a stretch of run history adds up to. It is computed from

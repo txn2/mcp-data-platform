@@ -18,20 +18,18 @@ import (
 // crosses the same authentication, authorization, connection-scoping, and audit
 // middleware that the same call typed by a person crosses.
 //
-// That is what makes the second enforcement layer real rather than claimed. The
-// facade below refuses a destination the version's grant does not name; this
-// call is then authorized independently against the persona the script's roles
-// resolve to, which is the authority of record. A destination whose connection
-// that persona cannot reach is refused even though the grant named it.
+// That is what makes the enforcement real rather than claimed: the call is
+// authorized against the persona the script's roles resolve to, which is the
+// authority of record, so a destination whose connection that persona cannot
+// reach is refused however the configuration names it.
 const toolPutObject = "s3_put_object"
 
-// deliver writes one output as an object in a granted bucket.
+// deliver writes one output as an object in a configured bucket destination.
 //
 // The bytes are identical to what the portal would have stored: the same
 // formatter produced them, and the same size ceiling applies. What differs is
-// where they land and who can read them afterwards — which is precisely the
-// decision an approval makes, and the reason a destination is pinned to a
-// version rather than named by the script.
+// where they land and who can read them afterwards — which is why the address
+// comes from the deployment's configuration, never from the script.
 func (w *outputWriter) deliver(ctx context.Context, req scriptrun.ExportRequest, identity scriptrun.OutputIdentity, data []byte) (*scriptrun.ExportResult, script.RunOutput, error) {
 	if w.caller == nil {
 		return nil, script.RunOutput{}, fmt.Errorf("output %q cannot be delivered to %q: this deployment has no platform session to write it through",
@@ -94,8 +92,8 @@ func objectAddress(destination script.Destination, key string) string {
 	return destination.Bucket + "\x00" + key
 }
 
-// deliveryKey composes the object key one delivery writes, under the prefix the
-// destination was granted.
+// deliveryKey composes the object key one delivery writes, under the
+// destination's configured prefix.
 //
 // The script chooses the part beneath the prefix, because that part is the
 // contract between this automation and whatever consumes its output: a
@@ -116,7 +114,7 @@ func deliveryKey(req scriptrun.ExportRequest, extension string) (string, error) 
 	}
 	full := path.Join(req.Destination.Prefix, key)
 	if err := script.ValidateObjectKey(full); err != nil {
-		return "", fmt.Errorf("output %q cannot be delivered to key %q under the granted prefix: %w", req.Name, full, err)
+		return "", fmt.Errorf("output %q cannot be delivered to key %q under the destination's prefix: %w", req.Name, full, err)
 	}
 	return full, nil
 }

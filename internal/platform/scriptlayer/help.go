@@ -22,8 +22,8 @@ const manageScriptDescription = "Author, validate, and dry-run managed scripts: 
 	"and help states exactly what is available. The loop is create or update, then validate (parses and " +
 	"reports what the script would reach, runs nothing), then run_draft (executes for real under YOUR " +
 	"identity and persona, with tighter limits, persisting nothing). " +
-	"A script does not run on its own until a version is approved; until then run_draft is the only way it " +
-	"executes, and it can reach nothing you could not reach yourself."
+	"A saved script runs: run_script executes its latest saved version as the script's own principal, " +
+	"presenting the roles you held when you saved it, and a schedule fires it the same way."
 
 // DialectContract is the help command's body: what a script is, what is
 // predeclared, and what a Python instinct will reach for and not find.
@@ -58,16 +58,17 @@ WHAT IS AVAILABLE
       dashboard keeps its identity instead of a new asset appearing every
       morning.
       destination says where the output goes. The default, "portal", is that
-      versioned asset. A destination approved for a bucket delivers the same
-      bytes to an external system instead; the script names only the
-      destination, and the connection, bucket and prefix come from what was
-      approved. Exporting one result to both is two calls with one name.
-      key is the object key beneath a bucket destination's granted prefix
+      versioned asset. A destination the deployment configures for a bucket
+      delivers the same bytes to an external system instead; the script names
+      only the destination, and the connection, bucket and prefix come from
+      the configuration. Exporting one result to both is two calls with one
+      name.
+      key is the object key beneath a bucket destination's configured prefix
       ("2026/08/sales.csv"); it defaults to the output name plus the format's
       extension, and the portal takes no key because it stores its own objects.
       destination and key must be passed BY NAME. Only name, rows and format may
       be positional, because where a script writes has to be readable from its
-      source before anyone approves it.
+      source.
       In a draft run this writes nothing, wherever it was addressed, and
       reports the shape and size the output would have: the content is
       serialized in the declared format to measure it, so the size is the one
@@ -86,9 +87,9 @@ WHAT IS AVAILABLE
       anywhere else. Publish the presentation once with
       platform.export(name, body, format="html") (or "jsx" or "markdown"),
       then let the schedule refresh only the numbers: the layout can be
-      edited in the asset like any document, with no script change to
-      re-approve. Zero rows is your decision, as with any export: publish
-      the empty structure or fail().
+      edited in the asset like any document, with no script change needed.
+      Zero rows is your decision, as with any export: publish the empty
+      structure or fail().
       In a draft run this writes nothing and reports the payload size it
       would splice.
   print(...)  Goes to the run log (capped; anything larger is an export).
@@ -254,7 +255,7 @@ func (*Handle) handleHelp(_ context.Context, _ manageScriptInput) (*mcp.CallTool
 			"draft_max_rows":   scriptrun.DraftMaxRows,
 			"log_bytes":        scriptrun.MaxLogBytes,
 			"max_source_bytes": script.MaxSourceBytes,
-			"note": "A draft run is bounded more tightly than an approved run will be. " +
+			"note": "A draft run is bounded more tightly than a platform run will be. " +
 				"A script error is deterministic, so it is never retried.",
 		},
 		"examples":        names,

@@ -1,13 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
 import type { ScriptContract, ScriptParam } from "@/api/portal/hooks/scripts";
-import { useAuthStore } from "@/stores/auth";
 import { ScriptSourceEditor } from "./ScriptSourceEditor";
 
-// The editor's own behaviour is what matters here: where a save lands, and
-// whether the page says so. CodeMirror is stubbed to a textarea — it is the
-// portal's shared editor with its own tests, and driving a contenteditable
-// would test that library rather than this page.
+// The editor's own behaviour is what matters here: what a save submits, and
+// whether the page says what saving does. CodeMirror is stubbed to a textarea —
+// it is the portal's shared editor with its own tests, and driving a
+// contenteditable would test that library rather than this page.
 vi.mock("@/components/SourceEditor", () => ({
   SourceEditor: ({
     content,
@@ -28,7 +27,6 @@ vi.mock("@/components/SourceEditor", () => ({
 }));
 
 vi.mock("@/api/portal/hooks/scripts", () => ({
-  SCRIPT_RUN_AUDIENCE: { run: "run", draft: "draft" },
   useSaveScriptSource: vi.fn(),
   useValidateScriptSource: vi.fn(),
   useDryRunScript: vi.fn(),
@@ -52,7 +50,7 @@ const dryRun = vi.fn();
 
 const source = 'rows = platform.query(connection="acme", sql="SELECT 1")["rows"]\n';
 
-const approved: ScriptContract = {
+const contract: ScriptContract = {
   id: "script-001",
   name: "daily-sales-report",
   display_name: "Daily Sales Report",
@@ -60,17 +58,11 @@ const approved: ScriptContract = {
   status: "active",
   enabled: true,
   params: [],
-  approval: { approved: true, version: 2, approved_by: "admin@acme.example.com" },
-};
-
-const unapproved: ScriptContract = {
-  ...approved,
-  approval: { approved: false, refusal: "the script has no approved version" },
+  version: 2,
 };
 
 beforeEach(() => {
   vi.clearAllMocks();
-  useAuthStore.setState({ user: null });
   mockSave.mockReturnValue({ mutate: save, isPending: false } as never);
   mockValidate.mockReturnValue({ mutate: validate, isPending: false } as never);
   mockDryRun.mockReturnValue({ mutate: dryRun, isPending: false } as never);
@@ -79,11 +71,11 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-function renderEditor(contract: ScriptContract = approved, draftParams: ScriptParam[] = []) {
+function renderEditor(over: Partial<ScriptContract> = {}, draftParams: ScriptParam[] = []) {
   render(
     <ScriptSourceEditor
       scriptId="script-001"
-      contract={contract}
+      contract={{ ...contract, ...over }}
       source={source}
       draftParams={draftParams}
     />,
@@ -98,38 +90,13 @@ describe("ScriptSourceEditor: what it opens", () => {
     expect(box).toHaveAttribute("data-content-type", "text/x-python");
   });
 
-  // The two outcomes are genuinely different, and which one applies is a
-  // property of the script rather than of the edit, so it is stated up front.
-  it("says an edit to an approved script goes to review", () => {
+  // Saving is the whole authority story now, so the page states it before the
+  // save: the saved version is the version that runs, presenting the roles the
+  // author holds at the save.
+  it("says the saved version is the version that runs", () => {
     renderEditor();
-    expect(screen.getByText(/Version 2 is approved and keeps running/)).toBeInTheDocument();
-  });
-
-  it("says an edit to an unapproved script applies directly", () => {
-    renderEditor(unapproved);
-    expect(screen.getByText(/saving changes it directly/)).toBeInTheDocument();
-  });
-
-  // The third outcome (#1367): the owner's own personal script is approved by
-  // the save itself, so a notice about a reviewer would be describing somebody
-  // who is never asked.
-  it("says saving the owner's own personal script approves it", () => {
-    useAuthStore.setState({
-      user: { user_id: "u-1", email: "sarah.chen@example.com", roles: [], is_admin: false },
-    });
-    renderEditor({ ...unapproved, scope: "personal", owner_email: "sarah.chen@example.com" });
-
-    expect(screen.getByText(/This script is yours alone, so saving approves it/)).toBeInTheDocument();
-    expect(screen.queryByText(/an administrator approves a version/)).not.toBeInTheDocument();
-  });
-
-  it("keeps the review notice for somebody else's personal script", () => {
-    useAuthStore.setState({
-      user: { user_id: "u-2", email: "admin@acme.example.com", roles: [], is_admin: true },
-    });
-    renderEditor({ ...unapproved, scope: "personal", owner_email: "sarah.chen@example.com" });
-
-    expect(screen.getByText(/saving changes it directly/)).toBeInTheDocument();
+    expect(screen.getByText(/Saving makes this the version that runs/)).toBeInTheDocument();
+    expect(screen.getByText(/presenting the roles you hold when you save/)).toBeInTheDocument();
   });
 });
 
@@ -158,48 +125,38 @@ describe("ScriptSourceEditor: saving", () => {
     expect(save).not.toHaveBeenCalled();
   });
 
-  // "Saved" alone would leave an owner believing a change is running when a
-  // reviewer has not looked at it yet.
-  it("reports the server's own account of where the edit landed", () => {
-    renderEditor();
-    fireEvent.change(screen.getByLabelText("Source"), { target: { value: "print(2)\n" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-
-    const onSuccess = save.mock.calls[0]![1].onSuccess as (r: unknown) => void;
-    act(() =>
-      onSuccess({
-        applied: false,
-        pending_version: 4,
-        message: "saved as a draft awaiting review",
-      }),
+  // An applied edit IS the live source, so the editor follows the record: the
+  // draft is dropped, and once the refetched contract carries the saved code
+  // the server's own account of the save is on screen.
+  it("drops the draft and reports the outcome when the edit applies", () => {
+    const { rerender } = render(
+      <ScriptSourceEditor
+        scriptId="script-001"
+        contract={contract}
+        source={source}
+        draftParams={[]}
+      />,
     );
-    expect(screen.getByText(/saved as a draft awaiting review/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
-    // The live source is still the approved version's, so resetting the box to
-    // it would wipe the change that was just queued.
-    expect(screen.getByLabelText("Source")).toHaveValue("print(2)\n");
-    expect(screen.getByRole("button", { name: "Revert" })).toBeEnabled();
-  });
-
-  it("re-enables saving when the queued edit is edited again", () => {
-    renderEditor();
     fireEvent.change(screen.getByLabelText("Source"), { target: { value: "print(2)\n" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    const onSuccess = save.mock.calls[0]![1].onSuccess as (r: unknown) => void;
-    act(() => onSuccess({ applied: false, pending_version: 4, message: "queued" }));
 
-    fireEvent.change(screen.getByLabelText("Source"), { target: { value: "print(3)\n" } });
-    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
-  });
-
-  // An applied edit IS the live source, so the editor follows the record.
-  it("drops the draft when the edit applied directly", () => {
-    renderEditor(unapproved);
-    fireEvent.change(screen.getByLabelText("Source"), { target: { value: "print(2)\n" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     const onSuccess = save.mock.calls[0]![1].onSuccess as (r: unknown) => void;
-    act(() => onSuccess({ applied: true, message: "Saved." }));
+    act(() => onSuccess({ applied: true, message: "Saved. This is the version that runs." }));
+    // The applied edit is the record now, so the editor shows the live source.
     expect(screen.getByLabelText("Source")).toHaveValue(source);
+
+    // The invalidated contract refetches with the saved code as the source, and
+    // the outcome message describes exactly the text on screen.
+    rerender(
+      <ScriptSourceEditor
+        scriptId="script-001"
+        contract={contract}
+        source={"print(2)\n"}
+        draftParams={[]}
+      />,
+    );
+    expect(screen.getByText(/This is the version that runs/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   });
 
   it("reports a refusal in place, in the server's words", () => {
@@ -216,22 +173,16 @@ describe("ScriptSourceEditor: saving", () => {
 
   it("disables both controls while a save is in flight", () => {
     mockSave.mockReturnValue({ mutate: save, isPending: true } as never);
-    render(
-      <ScriptSourceEditor
-        scriptId="script-001"
-        contract={approved}
-        source={source}
-        draftParams={[]}
-      />,
-    );
+    renderEditor();
     fireEvent.change(screen.getByLabelText("Source"), { target: { value: "print(2)\n" } });
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Revert" })).toBeDisabled();
   });
 });
 
-// Checking an edit before asking anyone to approve it (#1364). Both actions are
-// on the editor because that is where the author is; neither approves anything.
+// Checking an edit before saving the version that runs (#1364). Both actions
+// are on the editor because that is where the author is; neither one stores
+// anything.
 describe("ScriptSourceEditor: checking an edit", () => {
   it("validates the text on screen and reports what it would reach", () => {
     renderEditor();
@@ -254,6 +205,8 @@ describe("ScriptSourceEditor: checking an edit", () => {
     expect(screen.getByText("Parses")).toBeInTheDocument();
     expect(screen.getByText("platform.query")).toBeInTheDocument();
     expect(screen.getByText("warehouse")).toBeInTheDocument();
+    // The report names the version that keeps running until the edit is saved.
+    expect(screen.getByText(/Version 2 keeps running until the edit is saved/)).toBeInTheDocument();
   });
 
   it("shows each finding with the correction, which is most of its value", () => {
@@ -327,10 +280,18 @@ describe("ScriptSourceEditor: checking an edit", () => {
     expect(screen.getByText("half way")).toBeInTheDocument();
   });
 
-  it("asks for the connections a DRAFT reaches, which are the caller's own", () => {
+  it("asks for connections only when the live contract declares one", () => {
     renderEditor();
+    expect(mockConnections).toHaveBeenCalledWith("script-001", false);
 
-    expect(mockConnections).toHaveBeenCalledWith("script-001", false, "draft");
+    cleanup();
+    vi.clearAllMocks();
+    mockSave.mockReturnValue({ mutate: save, isPending: false } as never);
+    mockValidate.mockReturnValue({ mutate: validate, isPending: false } as never);
+    mockDryRun.mockReturnValue({ mutate: dryRun, isPending: false } as never);
+    mockConnections.mockReturnValue({ data: undefined, isLoading: false, error: null } as never);
+    renderEditor(contract, [{ name: "source", type: "connection", required: true }]);
+    expect(mockConnections).toHaveBeenCalledWith("script-001", true);
   });
 
   it("replaces the previous answer rather than stacking two reports on one editor", () => {
@@ -362,17 +323,13 @@ describe("ScriptSourceEditor: checking an edit", () => {
   });
 });
 
-// A dry run binds against the LIVE record's contract, not the approved
-// version's: a draft is precisely the code that does not match the approved
-// version yet, so a form built from the contract above would offer parameters
-// the dry run then refuses.
+// A dry run binds against the LIVE record's contract, which the detail route
+// serves beside the source: it is the contract the code on screen was written
+// against.
 describe("ScriptSourceEditor: which contract a dry run binds", () => {
   it("builds the form from the live record's parameters", () => {
     renderEditor(
-      {
-        ...approved,
-        params: [{ name: "report_date", type: "date", required: true }],
-      },
+      { params: [{ name: "report_date", type: "date", required: true }] },
       [{ name: "region", type: "string", required: false }],
     );
 
@@ -381,7 +338,7 @@ describe("ScriptSourceEditor: which contract a dry run binds", () => {
   });
 
   it("sends those values with the source it ran", () => {
-    renderEditor(approved, [{ name: "region", type: "string", required: true }]);
+    renderEditor({}, [{ name: "region", type: "string", required: true }]);
     fireEvent.change(screen.getByLabelText("region"), { target: { value: "west" } });
     fireEvent.click(screen.getByRole("button", { name: "Dry run" }));
 
@@ -392,7 +349,7 @@ describe("ScriptSourceEditor: which contract a dry run binds", () => {
   });
 
   it("will not dry-run until a required value is supplied", () => {
-    renderEditor(approved, [{ name: "region", type: "string", required: true }]);
+    renderEditor({}, [{ name: "region", type: "string", required: true }]);
 
     expect(screen.getByRole("button", { name: "Dry run" })).toBeDisabled();
     expect(screen.getByText(/region is required before a dry run/)).toBeInTheDocument();

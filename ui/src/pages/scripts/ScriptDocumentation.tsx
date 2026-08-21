@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { usePortalScriptVersions, useSaveScriptMetadata } from "@/api/portal/hooks/scripts";
+import { useSaveScriptMetadata } from "@/api/portal/hooks/scripts";
 import type { ScriptContract, ScriptMetadataInput } from "@/api/portal/hooks/scripts";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { SectionCard } from "@/components/patterns/SectionCard";
@@ -22,11 +22,9 @@ import { ScriptFacetBadges } from "./ScriptFacetBadges";
 //
 // The owner edits all four fields here, which is the point of putting them
 // here: an author documenting their own automation should not have to ask an
-// agent to do it on a page they are already looking at. It costs them nothing
-// in governance either. The review gate keys on the source and the parameter
-// contract alone, so this saves immediately and the approved version keeps
-// running untouched — while still being captured as a version, because what a
-// script claimed to do is part of explaining what one of its runs did.
+// agent to do it on a page they are already looking at. The save applies
+// immediately and is captured as a version, because what a script claimed to
+// do is part of explaining what one of its runs did.
 
 interface Props {
   scriptId: string;
@@ -53,7 +51,6 @@ export function ScriptDocumentation({ scriptId, contract, owned }: Props) {
         <DocumentationForm
           scriptId={scriptId}
           contract={contract}
-          owned={owned}
           onDone={() => setEditing(false)}
         />
       ) : (
@@ -93,16 +90,13 @@ function DocumentationView({ contract, owned }: { contract: ScriptContract; owne
 function DocumentationForm({
   scriptId,
   contract,
-  owned,
   onDone,
 }: {
   scriptId: string;
   contract: ScriptContract;
-  owned: boolean;
   onDone: () => void;
 }) {
   const save = useSaveScriptMetadata(scriptId);
-  const pendingDraft = usePendingDraft(scriptId, owned);
   const [draft, setDraft] = useState<Draft>(() => draftOf(contract));
   const [notice, setNotice] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
@@ -169,15 +163,6 @@ function DocumentationForm({
         />
       </Field>
 
-      {pendingDraft && (
-        <Alert>
-          <AlertDescription>
-            Version {pendingDraft} of this script is waiting for a reviewer. Approving it
-            applies everything that version captured, documentation included, so what you
-            write here is replaced when that happens. Write it again after the approval.
-          </AlertDescription>
-        </Alert>
-      )}
       {failure && (
         <Alert variant="destructive">
           <AlertDescription>{failure}</AlertDescription>
@@ -221,19 +206,6 @@ function Field({
   );
 }
 
-// usePendingDraft is the number of the version waiting for a reviewer, or null
-// when none is. It exists because approving a version applies that version's
-// whole snapshot to the live row, documentation included: an owner documenting a
-// script while one of its edits is in the queue would otherwise watch their
-// writing disappear at the approval with nothing having said it would.
-//
-// It reads the version history the page below already requests, on the same
-// query key, so it costs no additional request.
-function usePendingDraft(scriptId: string, owned: boolean): number | null {
-  const { data } = usePortalScriptVersions(scriptId, owned);
-  const draft = (data?.data ?? []).find((v) => v.status === "draft");
-  return draft ? draft.version : null;
-}
 
 // Draft is the form's own state. Tags are one comma-separated string while
 // being typed, because a person mid-word between two commas is not yet a list

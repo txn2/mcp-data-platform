@@ -6920,7 +6920,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns every managed script with its lifecycle status and the id of the version the platform is allowed to execute (empty when nothing is approved).",
+                "description": "Returns every managed script with its lifecycle status and current version.",
                 "produces": [
                     "application/json"
                 ],
@@ -6933,40 +6933,6 @@
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/scripthttp.scriptListResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    }
-                }
-            }
-        },
-        "/admin/scripts/reviews": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Returns the versions waiting for a reviewer's decision across every script, oldest first: pending drafts, and the live version of any script that has never had an approved version. One row per script, because approving a version supersedes that script's other pending drafts.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Scripts"
-                ],
-                "summary": "List script versions awaiting review",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/scripthttp.pendingReviewResponse"
                         }
                     },
                     "500": {
@@ -7117,7 +7083,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Creates or replaces the cadence a script runs on. The parameters are validated against the approved version's contract, or the live record's when nothing is approved yet. A schedule grants no authority: the version that runs and the capabilities it holds were both bound at approval.",
+                "description": "Creates or replaces the cadence a script runs on. The parameters are validated against the script's contract. A schedule grants no authority: every fire executes the latest saved version, authorized against the roles captured at that save.",
                 "consumes": [
                     "application/json"
                 ],
@@ -7282,7 +7248,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns every version of a script with its source, its author and the roles that author held, and the approval stamp and capability grant bound to it.",
+                "description": "Returns every version of a script with its source, its author, and the roles that author held.",
                 "produces": [
                     "application/json"
                 ],
@@ -7331,14 +7297,14 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns one version's snapshot together with the capabilities and connections its source reaches for, and which of those the version's current grant does not cover.",
+                "description": "Returns one version's snapshot together with the capabilities, connections, and destinations its source reaches for.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "Scripts"
                 ],
-                "summary": "Get a script version for review",
+                "summary": "Get a script version",
                 "parameters": [
                     {
                         "type": "string",
@@ -7359,156 +7325,11 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/scripthttp.versionReviewResponse"
+                            "$ref": "#/definitions/scripthttp.versionDetailResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    }
-                }
-            }
-        },
-        "/admin/scripts/{id}/versions/{version}/approve": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Stamps the version approved, binds the capability grant it executes under, and points the script's execution gate at it. The granted roles are the roles the version's author held and cannot be set by the request. Approving a pending draft also applies its snapshot to the live script.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Scripts"
-                ],
-                "summary": "Approve a script version",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Script ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Version number",
-                        "name": "version",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Capability grant",
-                        "name": "grant",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/scripthttp.approveRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/script.Version"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    },
-                    "409": {
-                        "description": "Conflict",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    }
-                }
-            }
-        },
-        "/admin/scripts/{id}/versions/{version}/reject": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Marks a pending draft rejected. The live script and its approved version are untouched, so nothing about what executes changes. Only a pending draft can be rejected: declining the live version of a never-approved script means leaving it unapproved, which is already its state.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Scripts"
-                ],
-                "summary": "Reject a script version",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Script ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Version number",
-                        "name": "version",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    },
-                    "409": {
-                        "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -7717,80 +7538,6 @@
                 "parameters": [
                     {
                         "description": "Review-queue alert settings",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/reviewalert.SettingsInput"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/reviewalert.SettingsView"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/settingsapi.problemDetail"
-                        }
-                    }
-                }
-            }
-        },
-        "/admin/settings/script-review-alert": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Returns the managed-script review-queue alert configuration: when to alert that script versions are waiting for approval, and who hears about it. Before an operator has written one, the platform defaults are returned with no recipients.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Settings"
-                ],
-                "summary": "Get script review-queue alert settings",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/reviewalert.SettingsView"
-                        }
-                    }
-                }
-            },
-            "put": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Upserts the managed-script review-queue alert configuration: the pending-count and age thresholds, the re-alert cooldown, and the recipients the alert is delivered to.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Settings"
-                ],
-                "summary": "Update script review-queue alert settings",
-                "parameters": [
-                    {
-                        "description": "Script review alert settings",
                         "name": "request",
                         "in": "body",
                         "required": true,
@@ -14190,7 +13937,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns the set a `connection` parameter chooses from. By default that is what the approved version was granted, which is the only set an approved run can use; `audience=draft` returns what a dry run executing as the caller would reach instead. Restricted to the script's owner and to administrators.",
+                "description": "Returns the set a `connection` parameter chooses from: the connections the caller's persona reaches, narrowed to the kind the parameter binds. Restricted to the script's owner and to administrators.",
                 "produces": [
                     "application/json"
                 ],
@@ -14205,12 +13952,6 @@
                         "name": "id",
                         "in": "path",
                         "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "run (default) or draft",
-                        "name": "audience",
-                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -14251,7 +13992,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Executes Starlark for a script the caller owns, under the caller's own identity and persona and with tighter limits, persisting nothing: platform.export reports the shape of each output instead of writing it, and no approval is touched. An empty source runs the script's saved code. The account of the run is kept so a reviewer can see that the version they are approving was executed, and by whom.",
+                "description": "Executes Starlark for a script the caller owns, under the caller's own identity and persona and with tighter limits, persisting nothing: platform.export reports the shape of each output instead of writing it. An empty source runs the script's saved code. The account of the run is kept, so a later reader can see that this exact source was executed, and by whom.",
                 "consumes": [
                     "application/json"
                 ],
@@ -14323,7 +14064,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Saves the display name, markdown description, category and tags of a script the caller owns. None of these is review-gated, so the change applies immediately and the approved version keeps executing untouched; it is still captured as a version. Restricted to the script's owner and to administrators.",
+                "description": "Saves the display name, markdown description, category and tags of a script the caller owns. The change applies immediately and is captured as a version. Restricted to the script's owner and to administrators.",
                 "consumes": [
                     "application/json"
                 ],
@@ -14461,7 +14202,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Queues one run of the approved version of a script the caller owns, binding the supplied parameters against that version's contract. The run is executed by a worker under the script's own identity, exactly as a scheduled fire is, and appears in the script's run history. A script with nothing approved is refused, in the execution gate's own words.",
+                "description": "Queues one run of the latest saved version of a script the caller owns, binding the supplied parameters against its contract. The run is executed by a worker under the script's own identity, exactly as a scheduled fire is, and appears in the script's run history. A disabled or retired script is refused, in the run gate's own words.",
                 "consumes": [
                     "application/json"
                 ],
@@ -14648,7 +14389,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Creates or replaces the cadence a script the caller owns runs on, with the parameters every fire binds. A schedule grants no authority: which version runs and what it may reach were both bound at approval. Restricted to the script's owner and to administrators.",
+                "description": "Creates or replaces the cadence a script the caller owns runs on, with the parameters every fire binds. A schedule grants no authority: every fire executes the latest saved version, authorized against the roles captured at that save. Restricted to the script's owner and to administrators.",
                 "consumes": [
                     "application/json"
                 ],
@@ -14831,7 +14572,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Saves new Starlark for a script the caller owns. A script with an approved version keeps executing that version and the edit becomes a draft awaiting review; a script with nothing approved yet applies the edit directly. The source is parsed before anything is stored. Restricted to the script's owner and to administrators.",
+                "description": "Saves new Starlark for a script the caller owns; the saved version is the version that runs. The source is parsed before anything is stored. Restricted to the script's owner and to administrators.",
                 "consumes": [
                     "application/json"
                 ],
@@ -14970,7 +14711,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns every version of a script the caller owns, with its source, its author, and the approval stamp and capability grant bound to it. Restricted to the script's owner and to administrators.",
+                "description": "Returns every version of a script the caller owns, with its source, its author, and the roles that author held. Restricted to the script's owner and to administrators.",
                 "produces": [
                     "application/json"
                 ],
@@ -23502,9 +23243,6 @@
         "script.Contract": {
             "type": "object",
             "properties": {
-                "approval": {
-                    "$ref": "#/definitions/script.ContractApproval"
-                },
                 "category": {
                     "type": "string",
                     "example": "reporting"
@@ -23542,7 +23280,7 @@
                     "example": "jane@example.com"
                 },
                 "params": {
-                    "description": "Params is the typed parameter contract a run binds against: the approved\nversion's when one is approved, the live record's otherwise.",
+                    "description": "Params is the typed parameter contract a run binds against: the live\nrecord's, which is the latest saved version's.",
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/script.Param"
@@ -23556,6 +23294,11 @@
                     "example": [
                         "analyst"
                     ]
+                },
+                "refusal": {
+                    "description": "Refusal states why a run requested now would be refused, and is empty\nwhen one would be admitted.",
+                    "type": "string",
+                    "example": "the script is disabled"
                 },
                 "schedule": {
                     "description": "Schedule is the cadence this script fires on, nil when it has none.",
@@ -23582,37 +23325,9 @@
                         "sales",
                         "reporting"
                     ]
-                }
-            }
-        },
-        "script.ContractApproval": {
-            "type": "object",
-            "properties": {
-                "approved": {
-                    "description": "Approved reports whether a version is approved for execution.",
-                    "type": "boolean",
-                    "example": true
-                },
-                "approved_at": {
-                    "type": "string"
-                },
-                "approved_by": {
-                    "description": "ApprovedBy and ApprovedAt stamp who admitted that version and when.",
-                    "type": "string",
-                    "example": "admin@example.com"
-                },
-                "automatic": {
-                    "description": "Automatic reports that the platform approved this version itself, because\nthe script is personal and its owner wrote it (#1367). Nobody reviewed it,\nand a reader of the contract is told so rather than reading ApprovedBy as\na decision somebody made.",
-                    "type": "boolean",
-                    "example": false
-                },
-                "refusal": {
-                    "description": "Refusal states why a run requested now would be refused, and is empty when\none would be admitted. It is the gate's own answer (RefuseNewRun), not a\nsecond reading of it, so a caller is never told a script is runnable that\nrun_script would then decline.",
-                    "type": "string",
-                    "example": "the script has no approved version, so nothing may execute it"
                 },
                 "version": {
-                    "description": "Version is the approved version number, zero when none is approved.",
+                    "description": "Version is the version a run executes: the latest saved one.",
                     "type": "integer",
                     "example": 3
                 }
@@ -23640,7 +23355,7 @@
                     "example": 98304
                 },
                 "destination": {
-                    "description": "Destination is the granted destination the output went to; \"portal\" for an\noutput that named none.",
+                    "description": "Destination is the named destination the output went to; \"portal\" for an\noutput that named none.",
                     "type": "string",
                     "example": "portal"
                 },
@@ -23711,36 +23426,6 @@
                 "timezone": {
                     "type": "string",
                     "example": "America/Los_Angeles"
-                }
-            }
-        },
-        "script.Destination": {
-            "type": "object",
-            "properties": {
-                "bucket": {
-                    "description": "Bucket is the bucket objects land in, empty for the portal.",
-                    "type": "string",
-                    "example": "acme-exports"
-                },
-                "connection": {
-                    "description": "Connection is the named platform S3 connection the object is written\nover, empty for the portal. It is also the name the authorization\nmiddleware checks independently when the write is issued, so a\ndestination whose connection the script's persona cannot reach is\nrefused a second time, by the authority of record.",
-                    "type": "string",
-                    "example": "acme-s3"
-                },
-                "kind": {
-                    "description": "Kind is one of DestinationKinds.",
-                    "type": "string",
-                    "example": "s3"
-                },
-                "name": {
-                    "description": "Name is what a script writes as destination=\"...\", unique within a grant.",
-                    "type": "string",
-                    "example": "acme-drop"
-                },
-                "prefix": {
-                    "description": "Prefix is the key prefix every object written here sits under, empty for\nthe portal and optional for a bucket. It is the boundary of the grant:\nthe script chooses a key beneath it and can never write outside it.",
-                    "type": "string",
-                    "example": "weekly"
                 }
             }
         },
@@ -23825,39 +23510,6 @@
                 }
             }
         },
-        "script.Grants": {
-            "type": "object",
-            "properties": {
-                "capabilities": {
-                    "description": "Capabilities is the set of host bindings the script may call.",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "connections": {
-                    "description": "Connections is the set of named connections the script may query. A\nquery that names no connection is refused rather than defaulted: the\ngrant cannot verify a connection the call did not name.",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "destinations": {
-                    "description": "Destinations is the set of places the script may write output, each one a\nresolved address rather than a label. An empty list means the script may\ncompute but not persist.",
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/script.Destination"
-                    }
-                },
-                "roles": {
-                    "description": "Roles is the authority the run presents to the authorization middleware,\ncopied from the approved version's author. The middleware resolves them\nto a persona exactly as it does for a human caller, and that persona \u2014\nnot this struct \u2014 is the authority of record.",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                }
-            }
-        },
         "script.Param": {
             "type": "object",
             "properties": {
@@ -23890,72 +23542,6 @@
                         "daily",
                         "weekly"
                     ]
-                }
-            }
-        },
-        "script.PendingReview": {
-            "type": "object",
-            "properties": {
-                "author": {
-                    "description": "Author is who wrote the version and AuthorRoles is the authority\napproving it would bind, which approval copies rather than accepts.",
-                    "type": "string",
-                    "example": "jane@example.com"
-                },
-                "author_roles": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    },
-                    "example": [
-                        "analyst"
-                    ]
-                },
-                "created_at": {
-                    "description": "CreatedAt is when the version was authored, which is how long the\ndecision has been outstanding.",
-                    "type": "string",
-                    "example": "2026-08-14T09:00:00Z"
-                },
-                "description": {
-                    "type": "string",
-                    "example": "Summarize yesterday's sales by region"
-                },
-                "display_name": {
-                    "type": "string",
-                    "example": "Daily Sales Report"
-                },
-                "first_approval": {
-                    "description": "FirstApproval marks a script that has never had an approved version, so\nnothing of it executes today. The distinction matters to a reviewer:\napproving a change alters what already runs unattended, while approving a\nfirst version starts something running.",
-                    "type": "boolean",
-                    "example": true
-                },
-                "owner_email": {
-                    "type": "string",
-                    "example": "jane@example.com"
-                },
-                "scope": {
-                    "type": "string",
-                    "example": "global"
-                },
-                "script_id": {
-                    "type": "string",
-                    "example": "script_a1b2c3d4"
-                },
-                "script_name": {
-                    "type": "string",
-                    "example": "daily-sales-report"
-                },
-                "version": {
-                    "description": "Version is the number a reviewer would approve, and VersionStatus is that\nversion's row status \u2014 \"draft\" for a proposed change, \"applied\" for the\nsnapshot a never-approved script is already serving.",
-                    "type": "integer",
-                    "example": 3
-                },
-                "version_id": {
-                    "type": "string",
-                    "example": "sver_a1b2c3d4"
-                },
-                "version_status": {
-                    "type": "string",
-                    "example": "draft"
                 }
             }
         },
@@ -23994,7 +23580,7 @@
                     "type": "integer"
                 },
                 "destination": {
-                    "description": "Destination is the granted destination's name. It is empty on rows\nwritten before destinations existed, which Destination() reads as the\nportal.",
+                    "description": "Destination is the named destination's name. It is empty on rows\nwritten before destinations existed, which Destination() reads as the\nportal.",
                     "type": "string"
                 },
                 "document": {
@@ -24077,10 +23663,6 @@
         "script.Script": {
             "type": "object",
             "properties": {
-                "approved_version_id": {
-                    "description": "ApprovedVersionID is THE execution gate: the id of the one version the\nplatform may execute. Empty means the script has no approved version and\nnothing will run it \u2014 which is every script today, because the approval\naction and the runner that reads this pointer arrive with the execution\ngate. Draft execution (manage_script run_draft) deliberately never reads\nit: a draft runs under its author's own identity and authority, so it\nneeds no approval, and it also cannot stand in for one.",
-                    "type": "string"
-                },
                 "category": {
                     "description": "Category files the script under one lowercase slug, the axis a listing\nfilters on and a reader scans. It is the same axis a resource and an\ninsight carry, written the same way (#1369).",
                     "type": "string",
@@ -24143,7 +23725,7 @@
                 "status": {
                     "description": "Lifecycle.",
                     "type": "string",
-                    "example": "draft"
+                    "example": "active"
                 },
                 "superseded_by": {
                     "type": "string",
@@ -24164,7 +23746,7 @@
                     "example": "2026-08-13T14:30:00Z"
                 },
                 "version": {
-                    "description": "Version is the number of the snapshot the live row currently carries.\nPending draft versions above this number exist in the history and are not\nserved.",
+                    "description": "Version is the number of the snapshot the live row currently carries,\nwhich is the version a run executes: saving a version makes it the\nversion that runs.",
                     "type": "integer",
                     "example": 3
                 }
@@ -24173,19 +23755,12 @@
         "script.Version": {
             "type": "object",
             "properties": {
-                "approved_at": {
-                    "type": "string"
-                },
-                "approved_by": {
-                    "type": "string",
-                    "example": "admin@example.com"
-                },
                 "author": {
                     "type": "string",
                     "example": "jane@example.com"
                 },
                 "author_roles": {
-                    "description": "AuthorRoles is the authority the author held when this snapshot was\nwritten \u2014 the ceiling on what approving it can grant. See Author.",
+                    "description": "AuthorRoles is the authority the author held when this snapshot was\nwritten, and the roles a run of this version presents. See Author.",
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -24193,11 +23768,6 @@
                     "example": [
                         "analyst"
                     ]
-                },
-                "auto_approved": {
-                    "description": "AutoApproved marks an approval the PLATFORM made rather than a person\n(#1367): a personal script's own owner wrote this version, so the grant\nwas minted from what its code reaches instead of being asked of a\nreviewer. ApprovedBy still names the owner, because they are accountable\nfor it; this is what separates their authorship from somebody's decision,\nso an operator reading the history can tell which scripts nobody reviewed.",
-                    "type": "boolean",
-                    "example": false
                 },
                 "category": {
                     "type": "string",
@@ -24214,14 +23784,6 @@
                 "display_name": {
                     "type": "string",
                     "example": "Daily Sales Report"
-                },
-                "grants": {
-                    "description": "Grants is the capability set bound to this version at approval: what the\napprover approved this code to be able to do. It is empty on every\nversion that was never approved, and the approval action is the only\nwriter \u2014 changing what a script may reach means approving it again, which\nre-stamps the approval alongside the new grant.",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/script.Grants"
-                        }
-                    ]
                 },
                 "id": {
                     "type": "string",
@@ -24268,7 +23830,7 @@
                     "example": "Production Trino cluster"
                 },
                 "kind": {
-                    "description": "Kind is the toolkit serving it, empty for a granted connection the caller\ncannot themselves enumerate.",
+                    "description": "Kind is the toolkit serving it.",
                     "type": "string",
                     "example": "trino"
                 },
@@ -24349,63 +23911,6 @@
                 }
             }
         },
-        "scripthttp.approveRequest": {
-            "type": "object",
-            "properties": {
-                "capabilities": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "connections": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "destinations": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/script.Destination"
-                    }
-                }
-            }
-        },
-        "scripthttp.approvedBaseline": {
-            "type": "object",
-            "properties": {
-                "approved_at": {
-                    "type": "string"
-                },
-                "approved_by": {
-                    "description": "ApprovedBy and ApprovedAt are who bound that grant and when.",
-                    "type": "string",
-                    "example": "admin@example.com"
-                },
-                "grants": {
-                    "description": "Grants is the capability set that version executes under today: what the\nscript already holds, against which the proposed grant is read.",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/script.Grants"
-                        }
-                    ]
-                },
-                "source_diff": {
-                    "description": "SourceDiff is the unified diff from the approved source to the version\nunder review. It is empty when the two carry identical source, which is\nwhat re-approving a version to widen its grant looks like.",
-                    "type": "string"
-                },
-                "version": {
-                    "description": "Version is the approved version's number, and VersionID its id.",
-                    "type": "integer",
-                    "example": 2
-                },
-                "version_id": {
-                    "type": "string",
-                    "example": "sver_a1b2c3d4"
-                }
-            }
-        },
         "scripthttp.connectionChoicesResponse": {
             "type": "object",
             "properties": {
@@ -24420,9 +23925,9 @@
                     "type": "string"
                 },
                 "source": {
-                    "description": "Source is \"grant\" when the set is what the approved version was approved\nto reach, and \"persona\" when it is what the caller reaches themselves.",
+                    "description": "Source names the boundary the set was drawn from.",
                     "type": "string",
-                    "example": "grant"
+                    "example": "persona"
                 }
             }
         },
@@ -24510,21 +24015,6 @@
                     "description": "Version is the version number the script now carries. It advances when the\nedit moved anything the snapshot holds and stays put when it did not, so a\nclient can tell a real change from a re-save of identical text.",
                     "type": "integer",
                     "example": 4
-                }
-            }
-        },
-        "scripthttp.pendingReviewResponse": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/script.PendingReview"
-                    }
-                },
-                "total": {
-                    "type": "integer",
-                    "example": 2
                 }
             }
         },
@@ -24693,7 +24183,7 @@
                     "$ref": "#/definitions/script.Contract"
                 },
                 "draft_params": {
-                    "description": "DraftParams is the LIVE record's parameter contract, which is not always\nthe contract above: that one is the APPROVED version's, because that is\nwhat a run binds against. A draft run binds against this one, because a\ndraft is the code that does not match the approved version yet (#1364),\nand a form built from the wrong one would offer parameters the dry run\nthen refuses. It travels with the source for the same audience and for\nthe same reason.",
+                    "description": "DraftParams is the LIVE record's parameter contract, which is not always\nthe contract above only in freshness: it is read with the source, so the\ndry-run form binds against exactly the contract the code beside it was\nwritten against (#1364). It travels with the source for the same\naudience and for the same reason.",
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/script.Param"
@@ -24721,7 +24211,7 @@
                     ]
                 },
                 "owned": {
-                    "description": "Owned reports whether this caller may read the script's runs, source, and\ngrant, so the page offers those surfaces rather than linking a reader to\na refusal.",
+                    "description": "Owned reports whether this caller may read the script's runs and source,\nso the page offers those surfaces rather than linking a reader to a\nrefusal.",
                     "type": "boolean",
                     "example": true
                 },
@@ -24761,7 +24251,7 @@
                     }
                 },
                 "dynamic_connections": {
-                    "description": "DynamicConnections is true when at least one call computes its connection\ninstead of naming one, DynamicDestinations when one computes its\ndestination, and DynamicRefreshTargets when a publish_data call computes\nthe name it refreshes. Any of them makes that list incomplete \u2014 and means\nthe grant cannot be checked against the code by reading it.",
+                    "description": "DynamicConnections is true when at least one call computes its connection\ninstead of naming one, DynamicDestinations when one computes its\ndestination, and DynamicRefreshTargets when a publish_data call computes\nthe name it refreshes. Any of them makes that list incomplete.",
                     "type": "boolean"
                 },
                 "dynamic_destinations": {
@@ -24771,7 +24261,7 @@
                     "type": "boolean"
                 },
                 "refresh_targets": {
-                    "description": "RefreshTargets are the output names platform.publish_data refreshes, so\nthe reviewer sees which asset's data region this script rewrites.",
+                    "description": "RefreshTargets are the output names platform.publish_data refreshes, so\na reader sees which asset's data region this script rewrites.",
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -24875,24 +24365,14 @@
             "type": "object",
             "properties": {
                 "applied": {
-                    "description": "Applied is true when the live script now carries this source.",
-                    "type": "boolean",
-                    "example": false
-                },
-                "approved": {
-                    "description": "Approved is true when the saved version is now the version the platform\nexecutes, because this is the owner's own personal script and the platform\napproved it for them (#1367).",
+                    "description": "Applied is true when the live script now carries this source, which is\nevery successful save.",
                     "type": "boolean",
                     "example": true
                 },
                 "message": {
                     "description": "Message states the outcome in the owner's terms.",
                     "type": "string",
-                    "example": "Saved as version 4, awaiting review."
-                },
-                "pending_version": {
-                    "description": "PendingVersion is the draft version awaiting review, zero when applied.",
-                    "type": "integer",
-                    "example": 4
+                    "example": "Saved, and this version is what runs now."
                 }
             }
         },
@@ -24951,34 +24431,11 @@
                 }
             }
         },
-        "scripthttp.versionListResponse": {
+        "scripthttp.versionDetailResponse": {
             "type": "object",
             "properties": {
-                "data": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/script.Version"
-                    }
-                },
-                "total": {
-                    "type": "integer",
-                    "example": 4
-                }
-            }
-        },
-        "scripthttp.versionReviewResponse": {
-            "type": "object",
-            "properties": {
-                "approved": {
-                    "description": "Approved is the version the script executes today, with the grant it\nholds and the diff from its source to this one. It is absent when the\nscript has never had a version approved, which is what makes this a first\napproval rather than a change to something already running.",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/scripthttp.approvedBaseline"
-                        }
-                    ]
-                },
                 "dry_run": {
-                    "description": "DryRun is the account of somebody having executed this exact source, and\nwhat it did (#1364). It is absent when nobody has, which is a fact a\nreviewer should have: approving is agreeing to run code unattended, and\n\"the author never ran this\" is the single most useful thing to know\nbefore doing so.",
+                    "description": "DryRun is the account of somebody having executed this exact source, and\nwhat it did (#1364). It is absent when nobody has.",
                     "allOf": [
                         {
                             "$ref": "#/definitions/script.DryRun"
@@ -24992,25 +24449,6 @@
                         "$ref": "#/definitions/scriptrun.Finding"
                     }
                 },
-                "missing_capabilities": {
-                    "description": "MissingCapabilities, MissingConnections and MissingDestinations are what\nthe code reaches for that the current grant does not cover. On an\nunapproved version that is everything, which is the point: it is the\ngrant a reviewer would have to bind for this code to work.",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "missing_connections": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "missing_destinations": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
                 "referenced": {
                     "description": "Referenced is what a static read of the source says the script calls,\nwhich connections it names, and where it writes.",
                     "allOf": [
@@ -25021,6 +24459,21 @@
                 },
                 "version": {
                     "$ref": "#/definitions/script.Version"
+                }
+            }
+        },
+        "scripthttp.versionListResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/script.Version"
+                    }
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 4
                 }
             }
         },

@@ -1,7 +1,6 @@
 package script
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -18,9 +17,8 @@ import (
 const DestinationPortal = "portal"
 
 // Destination kinds. The kind decides what the platform does with the bytes,
-// and the set is closed for the same reason the capability set is: a review is
-// only meaningful while a reviewer can read what kind of place they are
-// approving.
+// and the set is closed: a destination is a place the platform implements a
+// write for, not an open transport.
 const (
 	// DestinationKindPortal versions a portal asset.
 	DestinationKindPortal = "portal"
@@ -33,84 +31,52 @@ const (
 // DestinationKinds is the full set of destination kinds.
 var DestinationKinds = []string{DestinationKindPortal, DestinationKindS3}
 
-// Key limits. maxObjectKeyLength is S3's own limit on a full key; a granted
-// prefix is bounded well inside it so the key a script writes underneath always
-// has room.
+// Key limits. maxObjectKeyLength is S3's own limit on a full key; a
+// destination's prefix is bounded well inside it so the key a script writes
+// underneath always has room.
 const (
 	maxObjectKeyLength = 1024
 	maxPrefixLength    = 512
 )
 
-// Destination is one place an approved version may write: named by the script,
-// resolved by the platform.
-//
-// It carries the ADDRESS rather than only a label, because the address is what
-// a reviewer is agreeing to. A grant naming just "acme-drop" would leave the
-// meaning of that name in configuration the reviewer cannot see at approval
-// time and an operator could repoint afterwards without anyone approving
-// anything. Pinning the connection, the bucket, and the prefix onto the version
-// makes an approval say what it did, and makes repointing it a re-approval.
+// Destination is one place a script may write: named by the script, resolved
+// by the platform against the deployment's configuration at run time. The
+// portal is built in; every other destination is declared in the scripts
+// configuration (scripts.destinations), so repointing one — changing its
+// connection, bucket, or prefix — takes effect on the next run.
 //
 // A script supplies no endpoint, no credential, and no bucket. It names a
-// destination and everything below comes from what was approved, which is why
+// destination and everything below comes from configuration, which is why
 // there is no arbitrary egress to have: the only network a script reaches is
-// the operator-configured connection set.
+// the operator-configured connection set, and the write is authorized against
+// the run's persona by the middleware like any other call.
 type Destination struct {
-	// Name is what a script writes as destination="...", unique within a grant.
-	Name string `json:"name" example:"acme-drop"`
+	// Name is what a script writes as destination="...", unique within the
+	// configured set.
+	Name string `json:"name" yaml:"name" example:"acme-drop"`
 
-	// Kind is one of DestinationKinds.
-	Kind string `json:"kind" example:"s3"`
+	// Kind is one of DestinationKinds. Configuration declares only bucket
+	// destinations, so it defaults to s3 there.
+	Kind string `json:"kind" yaml:"kind" example:"s3"`
 
 	// Connection is the named platform S3 connection the object is written
-	// over, empty for the portal. It is also the name the authorization
-	// middleware checks independently when the write is issued, so a
-	// destination whose connection the script's persona cannot reach is
-	// refused a second time, by the authority of record.
-	Connection string `json:"connection,omitempty" example:"acme-s3"`
+	// over, empty for the portal. It is the name the authorization middleware
+	// checks when the write is issued, so a destination whose connection the
+	// run's persona cannot reach is refused by the authority of record.
+	Connection string `json:"connection,omitempty" yaml:"connection" example:"acme-s3"`
 
 	// Bucket is the bucket objects land in, empty for the portal.
-	Bucket string `json:"bucket,omitempty" example:"acme-exports"`
+	Bucket string `json:"bucket,omitempty" yaml:"bucket" example:"acme-exports"`
 
 	// Prefix is the key prefix every object written here sits under, empty for
-	// the portal and optional for a bucket. It is the boundary of the grant:
+	// the portal and optional for a bucket. It is the destination's boundary:
 	// the script chooses a key beneath it and can never write outside it.
-	Prefix string `json:"prefix,omitempty" example:"weekly"`
+	Prefix string `json:"prefix,omitempty" yaml:"prefix" example:"weekly"`
 }
 
 // PortalDestination returns the canonical portal destination.
 func PortalDestination() Destination {
 	return Destination{Name: DestinationPortal, Kind: DestinationKindPortal}
-}
-
-// UnmarshalJSON reads a destination, accepting the bare name a grant recorded
-// before a destination had an address.
-//
-// The portal was the only destination that existed then, so the older form is
-// unambiguous rather than merely tolerable: "portal" meant exactly what
-// PortalDestination means now. Accepting it is what lets a replica running this
-// code read a grant a replica running the previous code approved, which is the
-// direction a rolling upgrade actually produces — the older code cannot read
-// this addressed form at all, so a version approved mid-upgrade is unreadable
-// on the replicas that have not moved yet, and stays that way until they do.
-func (d *Destination) UnmarshalJSON(data []byte) error {
-	var name string
-	if err := json.Unmarshal(data, &name); err == nil {
-		if name != DestinationPortal {
-			return fmt.Errorf("destination %q carries no address: only %q was ever recorded by name alone", name, DestinationPortal)
-		}
-		*d = PortalDestination()
-		return nil
-	}
-	// A named type is required here: unmarshalling into Destination would call
-	// this method again, forever.
-	type record Destination
-	var out record
-	if err := json.Unmarshal(data, &out); err != nil {
-		return fmt.Errorf("reading a granted destination: %w", err)
-	}
-	*d = Destination(out)
-	return nil
 }
 
 // IsPortal reports whether the destination is the platform's own asset store.
@@ -126,8 +92,8 @@ func (d Destination) Label() string {
 }
 
 // Normalized returns the destination with its fields trimmed and its prefix in
-// one canonical form, so two approvals that meant the same place read as the
-// same place in a diff rather than as a widening.
+// one canonical form, so two declarations that meant the same place read as
+// the same place.
 func (d Destination) Normalized() Destination {
 	d.Name = strings.TrimSpace(d.Name)
 	d.Kind = strings.TrimSpace(d.Kind)
@@ -140,7 +106,7 @@ func (d Destination) Normalized() Destination {
 // Validate checks that one destination names a place the platform can write.
 func (d Destination) Validate() error {
 	if d.Name == "" {
-		return errors.New("a granted destination must be named, because the name is what a script writes")
+		return errors.New("a destination must be named, because the name is what a script writes")
 	}
 	if !slices.Contains(DestinationKinds, d.Kind) {
 		return fmt.Errorf("destination %q has unknown kind %q: the platform implements %v",
@@ -152,10 +118,9 @@ func (d Destination) Validate() error {
 	return d.validateBucket()
 }
 
-// validatePortal refuses a portal destination carrying an address. The platform
-// owns where its own assets live, so a connection or bucket here would be a
-// grant nothing reads, and a reviewer would have approved a route that does not
-// exist.
+// validatePortal refuses a portal destination carrying an address. The
+// platform owns where its own assets live, so a connection or bucket here
+// would be an address nothing reads.
 func (d Destination) validatePortal() error {
 	if d.Name != DestinationPortal {
 		return fmt.Errorf("the portal destination must be named %q, not %q", DestinationPortal, d.Name)
@@ -167,15 +132,13 @@ func (d Destination) validatePortal() error {
 }
 
 // validateBucket refuses an external destination that does not name a complete
-// address. Every part is required at approval rather than defaulted at write
-// time, because a default is a place nobody approved.
+// address. Every part is required in configuration rather than defaulted at
+// write time, because a default is a place nobody decided on.
 func (d Destination) validateBucket() error {
 	// The name "portal" is reserved for the platform's own asset store. A
 	// bucket wearing it would make every surface that resolves destinations by
-	// name lie: an export naming no destination defaults to "portal", the
-	// reviewer's diff would say "portal" and mean a bucket, and a data-region
-	// refresh — which writes only portal documents — would resolve a grant that
-	// contains no portal destination at all.
+	// name lie: an export naming no destination defaults to "portal", and a
+	// data-region refresh writes only portal documents.
 	if d.Name == DestinationPortal {
 		return fmt.Errorf("the destination name %q is reserved for the platform's own asset store; give the bucket destination its own name", DestinationPortal)
 	}
@@ -197,7 +160,27 @@ func (d Destination) validateBucket() error {
 	return nil
 }
 
-// ValidateObjectKey checks a relative object key: the granted prefix of a
+// ValidateDeclaredDestinations checks the destination set a deployment
+// declares in configuration: each must be a complete bucket address, one name
+// is one place, and the built-in portal cannot be redeclared.
+func ValidateDeclaredDestinations(destinations []Destination) error {
+	seen := make(map[string]bool, len(destinations))
+	for _, d := range destinations {
+		if d.IsPortal() {
+			return errors.New("the portal destination is built in and cannot be declared")
+		}
+		if err := d.Validate(); err != nil {
+			return err
+		}
+		if seen[d.Name] {
+			return fmt.Errorf("destination %q is declared twice; one name is one place", d.Name)
+		}
+		seen[d.Name] = true
+	}
+	return nil
+}
+
+// ValidateObjectKey checks a relative object key: the configured prefix of a
 // destination, or the key a script writes beneath it.
 //
 // The rules refuse rather than rewrite. A key is part of the contract between a
@@ -226,7 +209,7 @@ func ValidateObjectKey(key string) error {
 }
 
 // validateKeySegments refuses the segment forms that would move an object out
-// of the prefix it was granted under, or leave it on a path no consumer can
+// of the prefix it writes under, or leave it on a path no consumer can
 // name.
 func validateKeySegments(key string) error {
 	for segment := range strings.SplitSeq(key, "/") {
@@ -234,7 +217,7 @@ func validateKeySegments(key string) error {
 		case "":
 			return errors.New("the key cannot contain an empty path segment, so it cannot end with '/' or contain '//'")
 		case ".", "..":
-			return errors.New("the key cannot contain '.' or '..' segments: an output is written under the granted prefix and never outside it")
+			return errors.New("the key cannot contain '.' or '..' segments: an output is written under the destination's prefix and never outside it")
 		}
 		if strings.TrimSpace(segment) != segment {
 			return fmt.Errorf("the key segment %q has leading or trailing whitespace", segment)

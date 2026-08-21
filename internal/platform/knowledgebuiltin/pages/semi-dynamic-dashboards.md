@@ -11,8 +11,7 @@ The wrong way to build one is to make the script re-emit the whole document
 every run. That puts the markup inside the script's source, which costs twice:
 every fire overwrites the current version wholesale, so a layout edit made in
 the portal is destroyed by the next scheduled run; and changing anything about
-the presentation — a chart color, a heading — means editing the script, and an
-edited shared script cannot run until its new version is approved.
+the presentation — a chart color, a heading — means editing the script.
 
 The right split keeps the template in the asset, where a layout change is an
 ordinary document edit that survives the schedule, and the data in the script.

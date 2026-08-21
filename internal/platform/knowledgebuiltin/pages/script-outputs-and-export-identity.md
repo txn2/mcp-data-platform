@@ -59,11 +59,11 @@ failed run is recorded with its reason; a silently empty publish is not.
 
 ## Destinations
 
-`destination` defaults to `portal` (the versioned asset). A version approved
-with a bucket destination delivers the same bytes to an external system
-instead; the script names only the destination — the connection, bucket, and
-prefix come from the approval. `destination` and `key` must be passed **by
-name**, not positionally. One output name may be written once per destination
+`destination` defaults to `portal` (the versioned asset). A bucket destination
+the deployment declares in configuration (`scripts.destinations`) receives the
+same bytes instead; the script names only the destination — the connection,
+bucket, and prefix come from the configuration. `destination` and `key` must be
+passed **by name**, not positionally. One output name may be written once per destination
 in a run, so sending one result to the portal and to a bucket is two calls with
 one name.
 

@@ -22,8 +22,8 @@ type SessionCaller struct {
 // that drives it, plus the teardown for both ends.
 //
 // The identity the session authenticates as comes from ctx, which the caller
-// has already decorated: a draft run carries its author's own identity, an
-// approved run carries the script principal and the roles its approval bound.
+// has already decorated: a draft run carries its author's own identity, a
+// platform run carries the script principal and the version author's captured roles.
 // This function deliberately establishes no identity of its own — there is one
 // place a script's authority is decided, and it is not here. label names the
 // client in the handshake so the two run kinds are distinguishable in logs.

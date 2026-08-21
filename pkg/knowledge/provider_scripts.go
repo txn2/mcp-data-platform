@@ -23,10 +23,10 @@ type ScriptSearcher interface {
 }
 
 // ScriptsProvider exposes managed scripts to the router (#1302). A script is
-// the most reusable artifact the platform holds — a solved process, reviewed,
-// approved, and often running on a cadence — and until now it was the one
-// first-class entity search could not find, which matters most under the
-// search-first gate: search is the entry point an agent is required to use.
+// the most reusable artifact the platform holds — a solved process, saved,
+// and often running on a cadence — and until now it was the one first-class
+// entity search could not find, which matters most under the search-first
+// gate: search is the entry point an agent is required to use.
 //
 // Visibility is mixed the way prompts and resources are: global scripts are
 // visible to everyone, persona-scoped scripts to a caller belonging to that
@@ -36,8 +36,8 @@ type ScriptSearcher interface {
 // another caller's personal script.
 //
 // Discovery grants nothing. A hit says a script exists and what it takes;
-// running it is still run_script, still gated on an approved version, and still
-// executed under the grant that approval bound.
+// running it is still run_script, executed as the script's own principal with
+// the executing version's captured author roles.
 type ScriptsProvider struct {
 	searcher ScriptSearcher
 }

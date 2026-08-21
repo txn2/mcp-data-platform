@@ -201,6 +201,19 @@ func (f *fakeVersions) GetVersionByID(context.Context, string) (*script.Version,
 	return f.version, f.err
 }
 
+// GetVersion models the real store's contract: a number that is not in the
+// history returns nil, nil. Answering any number with the stored version would
+// let a caller pass the wrong one and still find a version there.
+func (f *fakeVersions) GetVersion(_ context.Context, _ string, version int) (*script.Version, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.version == nil || f.version.Version != version {
+		return nil, nil //nolint:nilnil // VersionStore contract: nil, nil means not found
+	}
+	return f.version, nil
+}
+
 // fakeExecutor stands in for the runner.
 type fakeExecutor struct {
 	out    attempt
@@ -213,17 +226,16 @@ func (f *fakeExecutor) execute(context.Context, *script.Run, *script.Script, *sc
 }
 
 // executableState returns a script and version the gate admits, plus a pending
-// run against them.
+// run against them. The version is the script's current one, which is what a
+// run executes.
 func executableState() (*script.Script, *script.Version, *script.Run) {
-	approvedAt := time.Now().UTC()
 	v := &script.Version{
 		ID: "sver_1", ScriptID: "script_1", Version: 3, Source: "print(1)",
-		AuthorRoles: []string{"analyst"}, ApprovedBy: "admin@example.com", ApprovedAt: &approvedAt,
-		Grants: script.Grants{Roles: []string{"analyst"}, Capabilities: []string{script.CapabilityQuery}},
+		Author: "jane@example.com", AuthorRoles: []string{"analyst"},
 	}
 	sc := &script.Script{
 		ID: "script_1", Name: "daily", Scope: script.ScopePersonal, OwnerEmail: "jane@example.com",
-		Enabled: true, Status: script.StatusActive, ApprovedVersionID: v.ID,
+		Enabled: true, Status: script.StatusActive, Version: v.Version,
 	}
 	run := &script.Run{
 		ID: "dpx_1", ScriptID: sc.ID, VersionID: v.ID, Version: v.Version, Trigger: script.TriggerTool,
@@ -275,12 +287,12 @@ func TestWorker_ReChecksTheGateBeforeExecuting(t *testing.T) {
 		{"disabled after queueing", func(sc *script.Script, _ *script.Version) {
 			sc.Enabled = false
 		}, "disabled"},
-		{"approval moved to another version", func(sc *script.Script, _ *script.Version) {
-			sc.ApprovedVersionID = "sver_9"
-		}, "is not any more"},
-		{"grant removed", func(_ *script.Script, v *script.Version) {
-			v.Grants = script.Grants{}
-		}, "no approval grant"},
+		{"deprecated after queueing", func(sc *script.Script, _ *script.Version) {
+			sc.Status = script.StatusDeprecated
+		}, "deprecated"},
+		{"superseded after queueing", func(sc *script.Script, _ *script.Version) {
+			sc.Status, sc.SupersededBy = script.StatusSuperseded, "daily-v2"
+		}, "superseded"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

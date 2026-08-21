@@ -159,14 +159,12 @@ func TestBindScheduleParams(t *testing.T) {
 	})
 }
 
-// scheduledScript is a script with the daily contract, approved or not.
-func scheduledScript(approved bool) *Script {
-	sc := &Script{ID: "script_1", Name: "daily-sales", Params: dailyParams(), Enabled: true}
-	if approved {
-		sc.ApprovedVersionID = "sver_1"
-		sc.Status = StatusActive
+// scheduledScript is a script with the daily contract.
+func scheduledScript() *Script {
+	return &Script{
+		ID: "script_1", Name: "daily-sales", Params: dailyParams(),
+		Enabled: true, Status: StatusActive,
 	}
-	return sc
 }
 
 func TestBuildSchedule(t *testing.T) {
@@ -177,7 +175,7 @@ func TestBuildSchedule(t *testing.T) {
 	}
 
 	t.Run("a new schedule is enabled and has its first fire computed", func(t *testing.T) {
-		sched, err := BuildSchedule(scheduledScript(true), nil, nil, req, now)
+		sched, err := BuildSchedule(scheduledScript(), nil, req, now)
 		require.NoError(t, err)
 		assert.True(t, sched.Enabled)
 		assert.Equal(t, "jane@example.com", sched.CreatedBy)
@@ -190,14 +188,14 @@ func TestBuildSchedule(t *testing.T) {
 	t.Run("an unnamed zone defaults to UTC", func(t *testing.T) {
 		plain := req
 		plain.Timezone = ""
-		sched, err := BuildSchedule(scheduledScript(true), nil, nil, plain, now)
+		sched, err := BuildSchedule(scheduledScript(), nil, plain, now)
 		require.NoError(t, err)
 		assert.Equal(t, DefaultTimezone, sched.Timezone)
 	})
 
 	t.Run("replacing keeps the identity and the creator", func(t *testing.T) {
 		prev := &Schedule{ID: "sched_1", CreatedBy: "original@example.com", Enabled: false}
-		sched, err := BuildSchedule(scheduledScript(true), nil, prev, req, now)
+		sched, err := BuildSchedule(scheduledScript(), prev, req, now)
 		require.NoError(t, err)
 		assert.Equal(t, "sched_1", sched.ID, "the runs that point at this schedule point at the same automation")
 		assert.Equal(t, "original@example.com", sched.CreatedBy)
@@ -209,43 +207,36 @@ func TestBuildSchedule(t *testing.T) {
 		on := true
 		enabling := req
 		enabling.Enabled = &on
-		sched, err := BuildSchedule(scheduledScript(true), nil,
+		sched, err := BuildSchedule(scheduledScript(),
 			&Schedule{ID: "sched_1", Enabled: false}, enabling, now)
 		require.NoError(t, err)
 		assert.True(t, sched.Enabled)
 	})
 
-	t.Run("it binds against the APPROVED version's contract, not the live row's", func(t *testing.T) {
-		// The live row renamed the parameter in a draft; the approved code
-		// still reads the old name, and the schedule feeds the approved code.
-		sc := scheduledScript(true)
+	t.Run("it binds against the live record's contract", func(t *testing.T) {
+		// A run executes the latest saved version, so the live contract is
+		// what every fire will bind against.
+		sc := scheduledScript()
 		sc.Params = []Param{{Name: "as_of", Type: ParamTypeDate, Required: true}}
-		approved := &Version{ID: "sver_1", Params: dailyParams()}
 
-		_, err := BuildSchedule(sc, approved, nil, req, now)
-		require.NoError(t, err, "report_date satisfies the approved contract")
+		asOf := req
+		asOf.Params = map[string]any{"as_of": FireDateToken}
+		_, err := BuildSchedule(sc, nil, asOf, now)
+		require.NoError(t, err, "as_of satisfies the live contract")
 
-		draftShaped := req
-		draftShaped.Params = map[string]any{"as_of": FireDateToken}
-		_, err = BuildSchedule(sc, approved, nil, draftShaped, now)
-		require.Error(t, err, "the draft's parameter name is not what will execute")
-	})
-
-	t.Run("with nothing approved it binds against the live record", func(t *testing.T) {
-		sched, err := BuildSchedule(scheduledScript(false), nil, nil, req, now)
-		require.NoError(t, err, "an author may prepare a schedule before review")
-		assert.False(t, sched.NextRunAt.IsZero())
+		_, err = BuildSchedule(sc, nil, req, now)
+		require.Error(t, err, "report_date is not in the live contract")
 	})
 
 	t.Run("an unparseable cadence is refused", func(t *testing.T) {
 		bad := req
 		bad.CronSpec = "whenever"
-		_, err := BuildSchedule(scheduledScript(true), nil, nil, bad, now)
+		_, err := BuildSchedule(scheduledScript(), nil, bad, now)
 		require.Error(t, err)
 	})
 
 	t.Run("a schedule with no script is refused", func(t *testing.T) {
-		_, err := BuildSchedule(&Script{Name: "x"}, nil, nil, req, now)
+		_, err := BuildSchedule(&Script{Name: "x"}, nil, req, now)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "needs a script")
 	})
@@ -348,47 +339,4 @@ func TestScheduleMarshalJSON(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &paused))
 	assert.NotContains(t, paused, "next_run_at", "a pointer marshals by the same rule as a value")
 	assert.Equal(t, "@daily", paused["cron_spec"], "and every other field is unchanged")
-}
-
-// A schedule binding a connection the approved grant refuses would fail on
-// every fire, unattended, and the owner setting it is the last person in a
-// position to notice (#1361).
-func TestBuildSchedule_ChecksConnectionBindingsAgainstTheGrant(t *testing.T) {
-	now := time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)
-	sc := &Script{
-		ID: "script_1", Name: "daily-sales", Enabled: true, Status: StatusActive,
-		ApprovedVersionID: "sver_1",
-		Params:            []Param{{Name: "source", Type: ParamTypeConnection, Required: true}},
-	}
-	approvedAt := now.Add(-24 * time.Hour)
-	approved := &Version{
-		ID: "sver_1", Version: 2, ApprovedAt: &approvedAt,
-		Params: sc.Params,
-		Grants: Grants{Roles: []string{"analyst"}, Connections: []string{"warehouse"}},
-	}
-	req := func(connection string) ScheduleRequest {
-		return ScheduleRequest{
-			CronSpec: "0 7 * * 1-5", Timezone: "America/Los_Angeles",
-			Params: map[string]any{"source": connection}, Actor: "jane@example.com",
-		}
-	}
-
-	t.Run("a granted connection saves", func(t *testing.T) {
-		sched, err := BuildSchedule(sc, approved, nil, req("warehouse"), now)
-		require.NoError(t, err)
-		assert.Equal(t, "warehouse", sched.Params["source"])
-	})
-
-	t.Run("one the grant does not cover is refused at the form", func(t *testing.T) {
-		_, err := BuildSchedule(sc, approved, nil, req("staging"), now)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "warehouse")
-	})
-
-	t.Run("nothing is checked before approval: there is no grant, and nothing fires", func(t *testing.T) {
-		unapproved := *sc
-		unapproved.ApprovedVersionID = ""
-		_, err := BuildSchedule(&unapproved, nil, nil, req("staging"), now)
-		require.NoError(t, err)
-	})
 }

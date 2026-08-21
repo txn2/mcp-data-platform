@@ -17,9 +17,9 @@ func TestIndexTextComposesTheDescriptionCard(t *testing.T) {
 			{Name: "report_date", Required: true},
 			{Name: "region"},
 		},
-		Tags:              []string{"revenue", "scheduled"},
-		Source:            "trino.query('SELECT * FROM sales.orders')",
-		ApprovedVersionID: "sver_3",
+		Tags:    []string{"revenue", "scheduled"},
+		Source:  "trino.query('SELECT * FROM sales.orders')",
+		Enabled: true, Status: StatusActive,
 	}
 
 	got := IndexText(sc)
@@ -28,7 +28,7 @@ func TestIndexTextComposesTheDescriptionCard(t *testing.T) {
 		"Summarize yesterday's sales by region\n"+
 		"parameters: report_date (required), region\n"+
 		"revenue scheduled\n"+
-		"An approved version exists; call run_script to execute it.", got)
+		"Call run_script to execute it.", got)
 	assert.NotContains(t, got, "sales.orders",
 		"the source is never part of the document: it is admitted to a narrower audience than the contract")
 }
@@ -36,19 +36,19 @@ func TestIndexTextComposesTheDescriptionCard(t *testing.T) {
 // TestIndexTextSkipsEmptyParts keeps a sparse script from padding its document
 // with blank lines, which would dilute both the vector and the snippet.
 func TestIndexTextSkipsEmptyParts(t *testing.T) {
-	got := IndexText(&Script{Name: "daily-sales"})
+	got := IndexText(&Script{Name: "daily-sales", Enabled: true, Status: StatusActive})
 
-	assert.Equal(t, "daily-sales\nNo version of this script is approved, so nothing will execute it.", got)
+	assert.Equal(t, "daily-sales\nCall run_script to execute it.", got)
 }
 
-// TestIndexTextTracksTheExecutionPointer is why the store re-hashes on
-// approval: making a script executable rewrites the last line, so the vector
-// built before approval no longer describes the script.
-func TestIndexTextTracksTheExecutionPointer(t *testing.T) {
-	sc := &Script{Name: "daily-sales", Description: "Summarize sales"}
+// TestIndexTextTracksTheRunGate is why the store re-hashes on a lifecycle
+// change: taking a script out of service rewrites the last line, so the vector
+// built before no longer describes the script.
+func TestIndexTextTracksTheRunGate(t *testing.T) {
+	sc := &Script{Name: "daily-sales", Description: "Summarize sales", Enabled: true, Status: StatusActive}
 	before := IndexText(sc)
 
-	sc.ApprovedVersionID = "sver_1"
+	sc.Status = StatusDeprecated
 
 	assert.NotEqual(t, before, IndexText(sc))
 }
@@ -60,12 +60,11 @@ func TestTitleFallsBackToTheCallableName(t *testing.T) {
 	assert.Equal(t, "daily-sales", Title(&Script{Name: "daily-sales"}))
 }
 
-// TestExecutionNoteStatesWhatTheHitIsFor: an approved script is something to
-// run and an unapproved one is something to ask a reviewer about, and a reader
-// must not have to guess which.
+// TestExecutionNoteStatesWhatTheHitIsFor: an in-service script is something to
+// run and a retired one is not, and a reader must not have to guess which.
 func TestExecutionNoteStatesWhatTheHitIsFor(t *testing.T) {
-	assert.Contains(t, ExecutionNote(&Script{ApprovedVersionID: "sver_1"}), "call run_script")
-	assert.Contains(t, ExecutionNote(&Script{}), "nothing will execute it")
+	assert.Contains(t, ExecutionNote(&Script{Enabled: true, Status: StatusActive}), "run_script")
+	assert.Contains(t, ExecutionNote(&Script{Enabled: false, Status: StatusActive}), "Nothing will execute this script")
 }
 
 // TestEffectiveLimitClampsIntoRange bounds one ranked query, so a caller that

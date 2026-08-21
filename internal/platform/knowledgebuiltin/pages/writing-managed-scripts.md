@@ -16,8 +16,9 @@ examples you can copy.
 3. `command=run_draft` executes the draft for real under your own identity and
    persona, with tighter limits, persisting nothing: `platform.export` reports
    the shape and size of each output instead of writing it.
-4. Once approved, `run_script` executes the approved version — on demand or on
-   a schedule — under a capability grant bound at approval.
+4. Once saved, `run_script` executes the latest saved version — on demand or
+   on a schedule — as the script's own principal, presenting the roles you held
+   at the save.
 
 ## The dialect is deliberately smaller than Python
 
@@ -45,24 +46,17 @@ as `manage_script command=help` states it, is appended below.
   DROP never execute.
 - **f-strings do not exist.** Use `"{}".format(x)` or `"%s" % x`.
 
-## When your script runs without a reviewer
+## A saved script runs
 
-A script at `personal` scope, written by the person who owns it, is approved on
-save and runs immediately under the access its author already holds. Four
-things send the version to a reviewer instead, and the save says which:
+Saving a version makes it the version that runs, immediately, under the access
+you hold at the save. There is no approval step: every call a run makes is
+authorized against your captured roles by the same persona filtering an
+interactive session gets, so the script can reach exactly what you can reach
+and nothing more. A disabled, deprecated, or superseded script is the only
+thing the run gate refuses.
 
-- the source does not parse;
-- a call **computes its connection or destination instead of naming one** — a
-  `connection=` value that is not a literal string, including a value taken
-  from `run.params`, makes the reach unreadable from the code, so the version
-  waits for a human. If you want a personal script to run immediately, name
-  the connection as a literal;
-- the author holds no roles;
-- the script writes to a bucket destination no approval has pinned an address
-  for, or reaches a connection the author's own persona cannot.
-
-A `global` or `persona`-scoped script, and any script somebody other than its
-owner edited, always waits for an administrator.
+Editing a `global` or `persona`-scoped script is an administrator's action;
+your own personal scripts are yours to edit and delete.
 
 ## The dialect contract
 

@@ -49,11 +49,11 @@ func (f *failingStore) List(ctx context.Context, filter script.ListFilter) ([]sc
 	return f.memStore.List(ctx, filter)
 }
 
-func (f *failingStore) UpdateWithVersion(ctx context.Context, sc *script.Script, author script.Author, ungated bool) error {
+func (f *failingStore) UpdateWithVersion(ctx context.Context, sc *script.Script, author script.Author) error {
 	if f.updateErr != nil {
 		return f.updateErr
 	}
-	return f.memStore.UpdateWithVersion(ctx, sc, author, ungated)
+	return f.memStore.UpdateWithVersion(ctx, sc, author)
 }
 
 // newFailingHandle builds a Handle over a store that can be made to fail.
@@ -87,11 +87,11 @@ func TestStoreFailuresAreReportedWithoutLeakingDetail(t *testing.T) {
 
 	t.Run("delete", func(t *testing.T) {
 		h, store := newFailingHandle()
-		// A shared script, because delete refuses a script with an approved
-		// version and a personal one its owner wrote now has one (#1367).
-		createShared(t, h)
+		// A personal script its owner deletes, which is the one shape delete
+		// admits: a shared script is refused before the store is reached.
+		createDaily(t, h)
 		store.deleteErr = boom
-		res := call(t, h, adminCtx(), manageScriptInput{Command: cmdDelete, Name: "shared"})
+		res := call(t, h, authorCtx(), manageScriptInput{Command: cmdDelete, Name: "daily"})
 		assert.True(t, res.IsError)
 		assert.Equal(t, "failed to delete script", resultText(res))
 	})
@@ -111,7 +111,7 @@ func TestStoreFailuresAreReportedWithoutLeakingDetail(t *testing.T) {
 func TestVersionConflictReachesTheCaller(t *testing.T) {
 	h, store := newFailingHandle()
 	createDaily(t, h)
-	store.updateErr = errors.New("script was approved while this edit was in flight: " + script.ErrVersionConflict.Error())
+	store.updateErr = errors.New("script changed while this edit was in flight: " + script.ErrVersionConflict.Error())
 
 	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdUpdate, Name: "daily", DisplayName: "x"})
 	assert.True(t, res.IsError)

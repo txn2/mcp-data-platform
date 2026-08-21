@@ -8,7 +8,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { dryRunOutputPhrase } from "./runFormat";
 
-// The two answers an author gets before asking anyone to approve an edit
+// The two answers an author gets before saving an edit
 // (#1364): what the code would reach, and what happened when they ran it.
 //
 // Both are rendered here rather than in the editor so the editor stays the
@@ -52,12 +52,10 @@ export function ValidationReport({
 
       {report.note && <p className="text-xs text-muted-foreground">{report.note}</p>}
 
-      {contract.approval.approved && (
-        <p className="text-xs text-muted-foreground">
-          This is what the EDIT reaches. Version {contract.approval.version} keeps running what
-          it was approved for until an administrator approves the change.
-        </p>
-      )}
+      <p className="text-xs text-muted-foreground">
+        This is what the EDIT reaches. Version {contract.version} keeps running until the
+        edit is saved.
+      </p>
     </div>
   );
 }
