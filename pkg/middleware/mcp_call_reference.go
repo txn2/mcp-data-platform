@@ -43,7 +43,9 @@ type CallReference struct {
 //
 // The reference is appended as a JSON content block and mirrored into
 // StructuredContent, matching how the enrichment middleware delivers the
-// context it adds: clients that render only structured output see it too.
+// context it adds: clients that render only structured output see it too. A
+// result whose handler set no structured output keeps the reference in content
+// alone — see mirrorEnrichmentToStructured for why one is not synthesized.
 func MCPCallReferenceMiddleware(sourceKinds []string) mcp.Middleware {
 	kinds := make(map[string]struct{}, len(sourceKinds))
 	for _, k := range sourceKinds {
@@ -85,8 +87,9 @@ func referenceableCall(ctx context.Context, result mcp.Result, kinds map[string]
 }
 
 // appendCallReference adds the call's reference block to result and mirrors it
-// into the structured output. Best-effort: a marshal failure leaves the result
-// untouched rather than failing a call that already succeeded.
+// into the structured output the handler set, if any. Best-effort: a marshal
+// failure leaves the result untouched rather than failing a call that already
+// succeeded.
 func appendCallReference(result *mcp.CallToolResult, eventID string) {
 	block := map[string]CallReference{
 		CallReferenceKey: {CallID: eventID, Reference: CallReferenceScheme + eventID},

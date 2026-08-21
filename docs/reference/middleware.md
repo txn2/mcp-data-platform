@@ -229,6 +229,8 @@ func MCPSemanticEnrichmentMiddleware(
     queryProvider query.Provider,
     storageProvider storage.Provider,
     cfg EnrichmentConfig,
+    memoryProvider MemoryProvider,
+    pageProvider ...KnowledgePageProvider,
 ) mcp.Middleware
 ```
 
@@ -237,9 +239,34 @@ func MCPSemanticEnrichmentMiddleware(
 1. Only intercepts `tools/call` requests
 2. Calls next handler to get result
 3. Skips enrichment if result is error
-4. Determines toolkit kind from tool name prefix (`trino_`, `datahub_`, `s3_`)
-5. Calls appropriate enrichment function based on toolkit
-6. Appends semantic context to result content
+4. Skips the export tools (`trino_export`, `api_export`, ...), whose result is asset metadata rather than rows: enriching it would describe the source tables the response does not contain
+5. Determines toolkit kind from tool name prefix (`trino_`, `datahub_`, `s3_`)
+6. Calls appropriate enrichment function based on toolkit
+7. Appends semantic context to result content, and merges it into the structured result
+
+### Blocks appended to a structured result
+
+Semantic enrichment, the proven queries a describe carries, and the call
+reference each append a JSON text block and merge the same block into
+`structuredContent`, so a client that renders only structured output receives
+them beside what the tool returned.
+
+The merge happens only into a structured result the tool's own handler set, and
+only when that result is a JSON object. A handler that returned none keeps its
+response as it wrote it: a structured result synthesized from the appended
+blocks alone is not context added to the tool's output, it is the tool's output
+replaced by the platform's additions, and a structured-output client then reads
+a response containing nothing it called the tool for.
+
+`trino_export` is the case this protects. It registers through the untyped
+`Server.AddTool` path, so the SDK writes no structured result and its whole
+payload (`asset_id`, `portal_url`, `row_count`, `size_bytes`) is a text block;
+the appended blocks stay in content beside it. `api_export` registers through
+the generic `mcp.AddTool` with a typed output, so the SDK does write one and the
+appended blocks merge into it. The same rule applies wherever a response has no
+object to merge into: a gateway-proxied tool whose upstream answered in text
+keeps its `call_reference` in content only, as does a tool whose structured
+result is an array.
 
 ### MCPToolVisibilityMiddleware
 

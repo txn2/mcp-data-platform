@@ -53,35 +53,90 @@ func TestEnrichment_MergesSemanticContextIntoStructured(t *testing.T) {
 	assert.Contains(t, string(scJSON), "User accounts table")
 }
 
-func TestStructuredAsMap(t *testing.T) {
-	assert.Empty(t, structuredAsMap(nil), "nil yields an empty map")
+func TestStructuredObject(t *testing.T) {
+	_, ok := structuredObject(nil)
+	assert.False(t, ok, "nil is not something to merge into")
 
 	m := map[string]any{"a": float64(1)}
-	assert.Equal(t, m, structuredAsMap(m), "an existing map is returned as-is")
+	got, ok := structuredObject(m)
+	require.True(t, ok)
+	assert.Equal(t, m, got, "an existing map is returned as-is")
 
 	type out struct {
 		Table string `json:"table"`
 	}
-	got := structuredAsMap(out{Table: "x"})
-	assert.Equal(t, "x", got["table"], "a typed struct round-trips to a map")
+	got, ok = structuredObject(out{Table: "x"})
+	require.True(t, ok, "a typed struct round-trips to a map")
+	assert.Equal(t, "x", got["table"])
 
-	assert.Empty(t, structuredAsMap([]int{1, 2}), "a non-object value yields an empty map")
+	_, ok = structuredObject([]int{1, 2})
+	assert.False(t, ok, "an array is not an object to merge into")
+
+	_, ok = structuredObject(42)
+	assert.False(t, ok, "a scalar is not an object to merge into")
+
+	_, ok = structuredObject(make(chan int))
+	assert.False(t, ok, "a value that will not marshal is not an object to merge into")
+
+	// An interface holding a nil map is not == nil, and merging into a nil map
+	// panics; it holds nothing to merge into, so it reads as unset.
+	var nilMap map[string]any
+	_, ok = structuredObject(nilMap)
+	assert.False(t, ok, "a nil map is not an object to merge into")
 }
 
 func TestMirrorEnrichmentToStructured_EdgeCases(t *testing.T) {
 	// nil result and an out-of-range fromIndex are no-ops (no panic).
 	mirrorEnrichmentToStructured(nil, 0)
-	r := &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "x"}}}
+	r := &mcp.CallToolResult{
+		Content:           []mcp.Content{&mcp.TextContent{Text: "x"}},
+		StructuredContent: map[string]any{},
+	}
 	mirrorEnrichmentToStructured(r, 5)
-	assert.Nil(t, r.StructuredContent)
+	assert.Empty(t, r.StructuredContent)
 
 	// Resource links and non-JSON text blocks are skipped; nothing is folded.
-	r2 := &mcp.CallToolResult{Content: []mcp.Content{
-		&mcp.ResourceLink{URI: "schema://x"},
-		&mcp.TextContent{Text: "not json"},
-	}}
+	r2 := &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.ResourceLink{URI: "schema://x"},
+			&mcp.TextContent{Text: "not json"},
+		},
+		StructuredContent: map[string]any{"rows": []any{}},
+	}
 	mirrorEnrichmentToStructured(r2, 0)
-	assert.Nil(t, r2.StructuredContent, "no JSON enrichment blocks means structured content is untouched")
+	assert.Equal(t, map[string]any{"rows": []any{}}, r2.StructuredContent,
+		"no JSON enrichment blocks means structured content is untouched")
+}
+
+// A structured result the handler did not set, or set to something that is not
+// a JSON object, is left alone: there is nothing to merge into, and replacing
+// it with the appended blocks would hand the client the platform's additions in
+// place of what it called the tool for (#822, #1416).
+func TestMirrorEnrichmentToStructured_OnlyMergesIntoAnObject(t *testing.T) {
+	block := &mcp.TextContent{Text: `{"semantic_context":{"description":"d"}}`}
+
+	unset := &mcp.CallToolResult{Content: []mcp.Content{
+		&mcp.TextContent{Text: `{"asset_id":"exp_1"}`}, block,
+	}}
+	mirrorEnrichmentToStructured(unset, 1)
+	assert.Nil(t, unset.StructuredContent, "no structured result is synthesized from the appended block")
+
+	array := &mcp.CallToolResult{
+		Content:           []mcp.Content{&mcp.TextContent{Text: `[1,2]`}, block},
+		StructuredContent: []any{float64(1), float64(2)},
+	}
+	mirrorEnrichmentToStructured(array, 1)
+	assert.Equal(t, []any{float64(1), float64(2)}, array.StructuredContent,
+		"a structured result that is not an object is not replaced by one")
+
+	// Merging into a nil map would panic rather than clobber, which is the
+	// worse failure of the two: a successful call becomes an internal error.
+	var nilMap map[string]any
+	nilStructured := &mcp.CallToolResult{
+		Content:           []mcp.Content{&mcp.TextContent{Text: `{}`}, block},
+		StructuredContent: nilMap,
+	}
+	assert.NotPanics(t, func() { mirrorEnrichmentToStructured(nilStructured, 1) })
 }
 
 // TestEnrichment_StructuredViaAssembledServer is the #571 acceptance: boot a
