@@ -18,30 +18,27 @@ import { executionState, formatWhen } from "./runFormat";
 import { ScriptDocumentation } from "./ScriptDocumentation";
 import { ScriptOwnerTransfer } from "./ScriptOwnerTransfer";
 import { ScriptRunHistory } from "./ScriptRunHistory";
-import { ScriptRunPanel } from "./ScriptRunPanel";
 import { ScriptScheduleEditor } from "./ScriptScheduleEditor";
 import { ScriptSourceEditor } from "./ScriptSourceEditor";
-import { ScriptVersionHistory } from "./ScriptVersionHistory";
 
 // ScriptDetailPage is one script in full: what it is and what it takes, what
-// will execute it, on what cadence, and — for its owner — everything it has
-// run (#1290), plus what the owner does here. They run it now (#1363), which
-// is the same run the schedule produces; they change the code, and the saved
-// version is the version that runs (#1307), after checking it against the
-// interpreter and running it once as themselves (#1364); and they change the
-// cadence, which carries no authority at all.
+// will execute it, on what schedule, and — for its owner — everything it has
+// run (#1290), plus what the owner does here. They change the code, and the
+// saved version is the version that runs (#1307), after checking it against
+// the interpreter and running it once as themselves (#1364); they run it now
+// (#1363), which is the same run the schedule produces; and they change the
+// schedule, which carries no authority at all.
 //
 // It is ONE page for both surfaces: an administrator reads and does everything
 // an owner does, on every script. Two pages would have meant two answers to
 // "what can I do with this script", and the answer differing by which menu
 // somebody came in through is the defect this avoids.
 //
-// The top of the page is the contract document, the same one a reference to
-// this script resolves to for an agent. There is deliberately not a second
-// answer to "what is this script": a field a reader needs belongs in the
-// contract rather than beside it. Its prose half — the description, rendered as
-// the markdown it is, with the category and tags the script is filed under —
-// leads the page and is written in place by the owner (#1369).
+// The sections are ordered for the person debugging a script (#1406): the
+// summary facts, when it fires, what it says about itself, the code, and then
+// what the code has actually been doing. Source and run history are adjacent
+// because they are read together — an error in the history is answered by the
+// text above it.
 
 interface Props {
   scriptId: string;
@@ -122,28 +119,37 @@ function ScriptDetail({
         </Alert>
       )}
 
+      <SectionCard title="Details">
+        <ScriptFacts contract={contract} />
+      </SectionCard>
+
+      {owned && <ScriptScheduleEditor scriptId={scriptId} contract={contract} />}
+
       <ScriptDocumentation scriptId={scriptId} contract={contract} owned={owned} />
 
-      <SectionCard title="Contract">
-        <ContractFacts contract={contract} />
-      </SectionCard>
-
-      <SectionCard title="Parameters">
-        <ParameterTable contract={contract} />
-      </SectionCard>
+      {owned && (
+        <>
+          {/* Keyed on the script for the same reason the schedule editor is:
+              this component sits at the same position in the tree for every
+              script, so an address change from one script to another would
+              otherwise carry a part-typed edit — and the values a real run
+              binds — onto the next one. */}
+          <ScriptSourceEditor
+            key={scriptId}
+            scriptId={scriptId}
+            contract={contract}
+            source={source ?? ""}
+            draftParams={draftParamsOf(data)}
+          />
+          <ScriptRunHistory
+            scriptId={scriptId}
+            openRunId={openRunId}
+            onNavigate={onNavigate}
+          />
+        </>
+      )}
 
       {isAdmin && <ScriptOwnerTransfer scriptId={scriptId} contract={contract} />}
-
-      {owned && (
-        <OwnerSections
-          scriptId={scriptId}
-          contract={contract}
-          source={source ?? ""}
-          draftParams={draftParamsOf(data)}
-          openRunId={openRunId}
-          onNavigate={onNavigate}
-        />
-      )}
     </div>
   );
 }
@@ -175,65 +181,38 @@ function draftParamsOf(data: {
   return data.draft_params ?? data.contract.params ?? [];
 }
 
-// OwnerSections is everything the contract does not say out loud: the run the
-// owner asks for now, the cadence they set, the code behind the execution gate,
-// and what the script has actually been doing. All four are the owner's and
-// the administrators', and they appear or are absent together.
+// ScriptFacts is the summary the whole page rests on: who owns it, which
+// version runs, when it next fires, and what a run binds. Ownership is the
+// whole of who may see it, so there is no second visibility line to read
+// (#1404).
 //
-// Running comes first because it is what somebody opening their own script
-// most often came to do; the code and the cadence are what they change when it
-// is not doing what they wanted.
-function OwnerSections({
-  scriptId,
-  contract,
-  source,
-  draftParams,
-  openRunId,
-  onNavigate,
-}: {
-  scriptId: string;
-  contract: ScriptContract;
-  source: string;
-  /** The live record's parameter contract, which is what a dry run binds. */
-  draftParams: ScriptParam[];
-  /** One run named by the address, opened in the history below (#1405). */
-  openRunId?: string;
-  onNavigate: (path: string) => void;
-}) {
-  return (
-    <>
-      <ScriptRunPanel scriptId={scriptId} contract={contract} />
-      <ScriptSourceEditor
-        scriptId={scriptId}
-        contract={contract}
-        source={source}
-        draftParams={draftParams}
-      />
-      <ScriptScheduleEditor scriptId={scriptId} contract={contract} />
-      <ScriptVersionHistory scriptId={scriptId} contract={contract} />
-      <ScriptRunHistory scriptId={scriptId} openRunId={openRunId} onNavigate={onNavigate} />
-    </>
-  );
-}
-
-// ContractFacts is the summary every surface agrees on: who owns it, which
-// version runs, and when it next fires. Ownership is the whole of who may see
-// it, so there is no second visibility line to read (#1404).
-function ContractFacts({ contract }: { contract: ScriptContract }) {
-  const cadence = contract.schedule
+// The parameters used to be a section of their own, one card below these five
+// lines. They are the same kind of statement — what this script is and what it
+// takes — so they are read here rather than found separately (#1406).
+function ScriptFacts({ contract }: { contract: ScriptContract }) {
+  const schedule = contract.schedule
     ? `${contract.schedule.cron_spec} (${contract.schedule.timezone})${contract.schedule.enabled ? "" : " — paused"}`
     : "on demand";
   return (
-    <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-      <Fact label="Owner" value={contract.owner_email || "nobody"} />
-      <Fact label="Runs" value={`v${contract.version}, the latest saved version`} />
-      <Fact label="Schedule" value={cadence} />
-      <Fact
-        label="Next run"
-        value={contract.schedule?.enabled ? formatWhen(contract.schedule.next_run_at) : "—"}
-      />
-      <Fact label="Status" value={contract.enabled ? contract.status : `${contract.status} (disabled)`} />
-    </dl>
+    <div className="space-y-4">
+      <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+        <Fact label="Owner" value={contract.owner_email || "nobody"} />
+        <Fact label="Runs" value={`v${contract.version}, the latest saved version`} />
+        <Fact label="Schedule" value={schedule} />
+        <Fact
+          label="Next run"
+          value={contract.schedule?.enabled ? formatWhen(contract.schedule.next_run_at) : "—"}
+        />
+        <Fact
+          label="Status"
+          value={contract.enabled ? contract.status : `${contract.status} (disabled)`}
+        />
+      </dl>
+      <div className="space-y-2">
+        <p className="text-xs text-muted-foreground">Parameters</p>
+        <ParameterTable contract={contract} />
+      </div>
+    </div>
   );
 }
 

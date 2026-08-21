@@ -424,10 +424,10 @@ The script page an administrator opens is the page its owner opens.
 
 ![One script](../images/screenshots/light/admin-admin-script-detail-light.webp#only-light)![One script](../images/screenshots/dark/admin-admin-script-detail-dark.webp#only-dark)
 
-Everything an owner does is here for every script — run it now, edit the
-source, validate and dry-run the edit, set or pause the cadence, read the
-version history and the run history — plus the one thing only an administrator
-does: **Owner**, which moves the script to another person.
+Everything an owner does is here for every script — edit the source, validate
+and dry-run the edit, run it, set or pause the schedule, read the version
+history and the run history — plus the one thing only an administrator does:
+**Owner**, which moves the script to another person.
 
 ![Transferring a script](../images/screenshots/light/admin-admin-script-owner-light.webp#only-light)![Transferring a script](../images/screenshots/dark/admin-admin-script-owner-dark.webp#only-dark)
 

@@ -4,7 +4,6 @@ import {
   openScriptOwner,
   openScriptRunHistory,
   openScriptRunLog,
-  openScriptRunPanel,
   openScriptRunsTab,
   openScriptSource,
   openScriptSchedule,
@@ -22,7 +21,7 @@ import { type ScreenshotRoute } from "./route-types";
 export const userScriptRoutes: ScreenshotRoute[] = [
   {
     // The owner's view of their scripts (#1290): what each one is executing,
-    // on what cadence, and how its last run went, over the three tiles that
+    // on what schedule, and how its last run went, over the three tiles that
     // count them and also filter them (#1405).
     slug: "scripts",
     path: "/portal/scripts",
@@ -36,8 +35,9 @@ export const userScriptRoutes: ScreenshotRoute[] = [
     category: "user",
   },
   {
-    // One script in full: the contract a reference to it resolves to, and the
-    // parameters a run binds against.
+    // One script in full: the details every surface agrees on — who owns it,
+    // which version runs, when it fires next — and the parameters a run binds
+    // against, read in the same section (#1406).
     slug: "script-detail",
     path: "/portal/scripts/script-001",
     category: "user",
@@ -54,7 +54,7 @@ export const userScriptRoutes: ScreenshotRoute[] = [
   },
   {
     // A paused schedule, and the control that resumes it (#1307). The
-    // running case is on the detail capture above, where the cadence, its
+    // running case is on the detail capture above, where the schedule, its
     // zone, and the binding every fire passes are already in frame; what this
     // one adds is the state a report sits in when its owner has stopped it.
     slug: "script-schedule-paused",
@@ -63,22 +63,14 @@ export const userScriptRoutes: ScreenshotRoute[] = [
     beforeCapture: openScriptSchedule,
   },
   {
-    // The code, editable by the person who owns it (#1307). The portal's own
-    // source editor, told the content is Python, which is what Starlark reads
-    // as — and the saved version is the version that runs.
+    // The code, and everything done to it, in one place (#1406): the portal's
+    // own source editor told the content is Python, which is what Starlark
+    // reads as, with Run and Dry run side by side over the one parameter form
+    // they both bind. The saved version is the version that runs.
     slug: "script-source",
     path: "/portal/scripts/script-001",
     category: "user",
     beforeCapture: openScriptSource,
-  },
-  {
-    // Running it now (#1363): the same run the schedule produces, asked for by
-    // its owner, with every value the platform can offer offered rather than
-    // typed.
-    slug: "script-run-now",
-    path: "/portal/scripts/script-001",
-    category: "user",
-    beforeCapture: openScriptRunPanel,
   },
   {
     // What an author gets back before saving the version that runs (#1364): a
@@ -90,8 +82,9 @@ export const userScriptRoutes: ScreenshotRoute[] = [
     beforeCapture: openScriptDryRun,
   },
   {
-    // The version history, where the executing version — the latest saved one
-    // — opens by default with the roles a run of it presents.
+    // The version history, folded into the Source section behind a reveal
+    // (#1406): the versions before the one in the editor, each with the roles
+    // a run of it presents.
     slug: "script-versions",
     path: "/portal/scripts/script-001",
     category: "user",
@@ -138,7 +131,7 @@ export const adminScriptRoutes: ScreenshotRoute[] = [
   },
   {
     // One script on the administrator's surface: the same page its owner
-    // opens, with nothing taken away — running, editing, dry-running,
+    // opens, with nothing taken away — editing, running, dry-running,
     // re-timing, and the version history with the roles each version runs
     // under.
     slug: "admin-script-detail",

@@ -3,16 +3,18 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { usePortalScriptVersions } from "@/api/portal/hooks/scripts";
 import type { ScriptContract } from "@/api/portal/hooks/scripts";
 import type { ScriptVersion } from "@/api/admin/types";
-import { SectionCard } from "@/components/patterns/SectionCard";
 import { Badge } from "@/components/ui/badge";
 import { SourceView } from "./DiffView";
 import { formatWhen } from "./runFormat";
 
 // ScriptVersionHistory is the owner's view of what has been written: every
 // version with its author and the roles they held, which are the roles a run
-// of that version presents. The version that runs — the latest saved one —
-// opens by default, because "what is running right now" is the question this
-// section is usually opened with.
+// of that version presents.
+//
+// It is folded into the Source section behind a reveal (#1406) rather than
+// standing as a section of its own. The editor above it already holds the
+// version that runs, so what this adds is the versions before that one — read
+// when an edit went wrong, not on the way past.
 
 export function ScriptVersionHistory({
   scriptId,
@@ -21,13 +23,41 @@ export function ScriptVersionHistory({
   scriptId: string;
   contract: ScriptContract;
 }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-md border">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        className="flex w-full cursor-pointer items-center gap-1.5 p-3 text-left text-sm select-none"
+      >
+        {open ? (
+          <ChevronDown className="size-3.5 text-muted-foreground" />
+        ) : (
+          <ChevronRight className="size-3.5 text-muted-foreground" />
+        )}
+        Version history
+      </button>
+      {open && <VersionList scriptId={scriptId} contract={contract} />}
+    </div>
+  );
+}
+
+// VersionList is the history itself, queried only once somebody opens it: a
+// section nobody has revealed has not asked the platform for anything.
+//
+// Nothing opens by default. The version that runs is the text in the editor
+// directly above, so opening it here would put the same source on the page
+// twice; the versions worth expanding are the earlier ones.
+function VersionList({ scriptId, contract }: { scriptId: string; contract: ScriptContract }) {
   const { data, isLoading, error } = usePortalScriptVersions(scriptId, true);
-  const [openVersion, setOpenVersion] = useState<number | null>(contract.version);
+  const [openVersion, setOpenVersion] = useState<number | null>(null);
 
   const versions = data?.data ?? [];
 
   return (
-    <SectionCard title="Version history">
+    <div className="px-3 pb-3">
       {isLoading && <p className="text-sm text-muted-foreground">Loading history...</p>}
       {error && (
         <p className="text-sm text-muted-foreground">
@@ -49,7 +79,7 @@ export function ScriptVersionHistory({
           </li>
         ))}
       </ul>
-    </SectionCard>
+    </div>
   );
 }
 

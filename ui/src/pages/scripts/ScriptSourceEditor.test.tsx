@@ -30,11 +30,17 @@ vi.mock("@/api/portal/hooks/scripts", () => ({
   useSaveScriptSource: vi.fn(),
   useValidateScriptSource: vi.fn(),
   useDryRunScript: vi.fn(),
+  useRunScript: vi.fn(),
   useScriptConnections: vi.fn(),
+  // The version history is folded into this section (#1406). It has its own
+  // tests; here it only has to answer, so the reveal composes.
+  usePortalScriptVersions: vi.fn(),
 }));
 
 import {
   useDryRunScript,
+  usePortalScriptVersions,
+  useRunScript,
   useSaveScriptSource,
   useScriptConnections,
   useValidateScriptSource,
@@ -43,10 +49,13 @@ import {
 const mockSave = vi.mocked(useSaveScriptSource);
 const mockValidate = vi.mocked(useValidateScriptSource);
 const mockDryRun = vi.mocked(useDryRunScript);
+const mockRun = vi.mocked(useRunScript);
+const mockVersions = vi.mocked(usePortalScriptVersions);
 const mockConnections = vi.mocked(useScriptConnections);
 const save = vi.fn();
 const validate = vi.fn();
 const dryRun = vi.fn();
+const run = vi.fn();
 
 const source = 'rows = platform.query(connection="acme", sql="SELECT 1")["rows"]\n';
 
@@ -65,6 +74,12 @@ beforeEach(() => {
   mockSave.mockReturnValue({ mutate: save, isPending: false } as never);
   mockValidate.mockReturnValue({ mutate: validate, isPending: false } as never);
   mockDryRun.mockReturnValue({ mutate: dryRun, isPending: false } as never);
+  mockRun.mockReturnValue({ mutate: run, isPending: false } as never);
+  mockVersions.mockReturnValue({
+    data: { data: [], total: 0 },
+    isLoading: false,
+    error: null,
+  } as never);
   mockConnections.mockReturnValue({ data: undefined, isLoading: false, error: null } as never);
 });
 
@@ -322,10 +337,10 @@ describe("ScriptSourceEditor: checking an edit", () => {
   });
 });
 
-// A dry run binds against the LIVE record's contract, which the detail route
-// serves beside the source: it is the contract the code on screen was written
-// against.
-describe("ScriptSourceEditor: which contract a dry run binds", () => {
+// A run and a dry run bind against the LIVE record's contract, which the detail
+// route serves beside the source: it is the contract the code on screen was
+// written against, and one form supplies both (#1406).
+describe("ScriptSourceEditor: which contract a run binds", () => {
   it("builds the form from the live record's parameters", () => {
     renderEditor(
       { params: [{ name: "report_date", type: "date", required: true }] },
@@ -347,10 +362,122 @@ describe("ScriptSourceEditor: which contract a dry run binds", () => {
     );
   });
 
-  it("will not dry-run until a required value is supplied", () => {
+  it("will not run or dry-run until a required value is supplied", () => {
     renderEditor({}, [{ name: "region", type: "string", required: true }]);
 
     expect(screen.getByRole("button", { name: "Dry run" })).toBeDisabled();
-    expect(screen.getByText(/region is required before a dry run/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run" })).toBeDisabled();
+    expect(screen.getByText(/region is required before a run/)).toBeInTheDocument();
+  });
+});
+
+// Running the script is here rather than in a section of its own (#1406): a
+// person debugging a script reads the code, runs it, and reads the output, and
+// a button somewhere else on the page is a button somewhere other than the
+// thing it executes.
+describe("ScriptSourceEditor: running the saved version", () => {
+  it("queues a run bound to the values on the one parameter form", () => {
+    renderEditor({}, [{ name: "region", type: "string", required: true }]);
+    fireEvent.change(screen.getByLabelText("region"), { target: { value: "west" } });
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+
+    expect(run).toHaveBeenCalledWith({ region: "west" }, expect.anything());
+    // A run executes the SAVED version, so it sends no source: the text on
+    // screen is what a dry run executes.
+    expect(dryRun).not.toHaveBeenCalled();
+  });
+
+  it("reports what the queue said", () => {
+    renderEditor();
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+    act(() => run.mock.calls[0]![1].onSuccess({ message: "Run queued as run-77." }));
+
+    expect(screen.getByText("Run queued as run-77.")).toBeInTheDocument();
+  });
+
+  it("reports a refused run in place, in the server's words", () => {
+    renderEditor();
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+    act(() => run.mock.calls[0]![1].onError(new Error("the script is disabled")));
+
+    expect(screen.getByText("the script is disabled")).toBeInTheDocument();
+  });
+
+  // Run and Dry run sit side by side over one form, and the difference between
+  // them is which text they execute. Somebody who edits, presses Run, and reads
+  // output from the old code has been told nothing by a page that only said
+  // "the saved version".
+  it("names the version Run executes", () => {
+    renderEditor();
+    expect(screen.getByText(/Run executes version 2 — the latest saved one/)).toBeInTheDocument();
+  });
+
+  it("says the edit on screen is not what Run executes", () => {
+    renderEditor();
+    expect(screen.queryByText(/The edit below is not saved/)).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Source"), { target: { value: "print(1)\n" } });
+
+    expect(
+      screen.getByText(/The edit below is not saved, so Run still executes version 2/),
+    ).toBeInTheDocument();
+  });
+
+  // The refusal is the run gate's own, carried on the contract and stated once
+  // at the top of the page. A control that cannot work is worse than its
+  // absence, so the button goes rather than being offered and failing.
+  it("offers no Run at all on a script nothing would execute", () => {
+    renderEditor({ refusal: "the script is disabled" });
+
+    expect(screen.queryByRole("button", { name: "Run" })).not.toBeInTheDocument();
+    expect(screen.getByText(/there is no Run here until it is back in service/)).toBeInTheDocument();
+    // Editing, checking and saving are untouched: fixing the script is how it
+    // comes back into service.
+    expect(screen.getByRole("button", { name: "Dry run" })).toBeInTheDocument();
+  });
+});
+
+// The version history is folded into this section behind a reveal (#1406). The
+// editor above already holds the version that runs, so the history is the
+// versions before it and is not what the page opens on.
+describe("ScriptSourceEditor: the version history it folds in", () => {
+  it("asks for nothing until the reveal is opened", () => {
+    renderEditor();
+
+    expect(mockVersions).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: /Version history/ })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+  });
+
+  it("loads the versions once somebody opens it", () => {
+    mockVersions.mockReturnValue({
+      data: {
+        data: [
+          {
+            id: "sver-1",
+            script_id: "script-001",
+            version: 1,
+            source: "print('one')\n",
+            author: "sarah.chen@example.com",
+            author_roles: ["analyst"],
+            status: "applied",
+            created_at: "2026-07-14T09:00:00Z",
+          },
+        ],
+        total: 1,
+      },
+      isLoading: false,
+      error: null,
+    } as never);
+    renderEditor();
+    fireEvent.click(screen.getByRole("button", { name: /Version history/ }));
+
+    expect(mockVersions).toHaveBeenCalledWith("script-001", true);
+    expect(screen.getByText("v1")).toBeInTheDocument();
+    // Nothing opens by default: the version that runs is the text in the
+    // editor above, and putting it on the page twice says nothing new.
+    expect(screen.queryByText(/print\('one'\)/)).not.toBeInTheDocument();
   });
 });
