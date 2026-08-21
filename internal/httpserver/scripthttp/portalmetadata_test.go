@@ -203,6 +203,25 @@ func TestPortalListScripts_NarrowsByCategoryAndTag(t *testing.T) {
 	assert.Empty(t, store.lastFilter.Tags)
 }
 
+// TestPortalListScripts_SearchesInTheStore proves the filter bar's free text
+// (#1405) is a query predicate for the same reason the facets are: the page
+// holds at most the store's limit of scripts, so a search the page ran over
+// its own rows would answer from a truncated set and report a count to match.
+func TestPortalListScripts_SearchesInTheStore(t *testing.T) {
+	store := portalStore()
+	deps := portalDeps(store, nil, nil, carol)
+
+	rec := servePortal(t, deps, "/api/v1/portal/scripts?search=sales")
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "sales", store.lastFilter.Search)
+
+	rec = servePortal(t, deps, "/api/v1/portal/scripts")
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Empty(t, store.lastFilter.Search)
+}
+
 // TestPortalListScripts_FacetsNarrowAnAdministratorToo proves the two axes are
 // not a visibility rule wearing a filter's clothes. An admin carries no
 // visibility predicate — their reach is unrestricted by design — and still gets

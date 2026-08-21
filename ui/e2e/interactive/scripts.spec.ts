@@ -29,8 +29,10 @@ test.describe("Portal script pages", () => {
     await expect(
       page.getByText("Every weekday at 7:00 AM, America/Los_Angeles"),
     ).toBeVisible();
-    // An expression the builder cannot express is shown as itself.
-    await expect(page.getByText("*/30 * * * *")).toBeVisible();
+    // Every cadence is in words, including the step expressions the builder
+    // has no control for (#1405): a cron expression appears only in the editor.
+    await expect(page.getByText("Every 30 minutes, UTC")).toBeVisible();
+    await expect(page.getByText("*/30 * * * *")).toHaveCount(0);
 
     // A disabled cadence says so rather than showing a fire that will not happen.
     await expect(page.getByText("Paused")).toBeVisible();
@@ -192,22 +194,62 @@ test.describe("Portal script pages", () => {
     await expect(page.getByText(/Every day at 5:00 AM/).first()).toBeVisible();
   });
 
-  // The owner's summary is computed from the listing itself, so it is exercised
-  // against the mock server rather than only through mocked hooks.
-  test("summarizes the state of the caller's automations", async ({ page }) => {
+  // The tiles are computed from the listing itself and are the page's own
+  // filters (#1405), so they are exercised against the mock server rather than
+  // only through mocked hooks.
+  test("counts the caller's scripts in tiles that filter the listing", async ({ page }) => {
     await gotoScripts(page);
-    await expect(page.getByText("Automations")).toBeVisible();
-    await expect(page.getByText("On a cadence")).toBeVisible();
-    await expect(page.getByText("Last run failed")).toBeVisible();
+    // Scoped to the page: the sidebar carries a "Scripts" control of its own,
+    // which is the section's nav entry rather than the tile.
+    const main = page.locator("main");
 
-    // Each caption states what its number counts, over the one population this
-    // page has: the reader's own scripts (#1360, #1404).
-    await expect(page.getByText("scripts you own", { exact: true })).toBeVisible();
-    await expect(
-      page.getByText("enabled and active; a run executes the latest saved version"),
-    ).toBeVisible();
-    await expect(page.getByText("run on a schedule, unattended")).toBeVisible();
-    await expect(page.getByText("of the scripts you own")).toBeVisible();
+    // Three tiles, each named plainly enough to need no caption under it, and
+    // the word this page no longer uses is nowhere on it.
+    await expect(main.getByRole("button", { name: /^Scripts \d/ })).toBeVisible();
+    await expect(main.getByRole("button", { name: /^Scheduled/ })).toBeVisible();
+    await expect(main.getByRole("button", { name: /^Failing/ })).toBeVisible();
+    await expect(page.getByText(/Automation/i)).toHaveCount(0);
+
+    // Pressing one shows the scripts it counted, and pressing "Scripts" is the
+    // way back to all of them.
+    await main.getByRole("button", { name: /^Scheduled/ }).click();
+    await expect(page.getByText("Dormant Accounts")).toHaveCount(0);
+    await main.getByRole("button", { name: /^Scripts \d/ }).click();
+    await expect(page.getByText("Dormant Accounts")).toBeVisible();
+  });
+
+  // The search is a query predicate, so it reaches the route the server
+  // registers rather than filtering rows the page already holds.
+  test("narrows the listing by what the reader typed", async ({ page }) => {
+    await gotoScripts(page);
+
+    await page.getByLabel("Search scripts").fill("margin");
+    await expect(page.getByText("My Margin Check")).toBeVisible();
+    await expect(page.getByText("Daily Sales Report")).toHaveCount(0);
+
+    await page.getByLabel("Search scripts").fill("");
+    await expect(page.getByText("Daily Sales Report")).toBeVisible();
+  });
+
+  // The Runs tab (#1405): every run of every script this person owns, and the
+  // way from one of them to the run itself. It goes through the mock server
+  // because the listing, the address it links to, and the run that address
+  // opens are three different requests.
+  test("reads every run across the caller's scripts, and opens one", async ({ page }) => {
+    await gotoScripts(page);
+    await page.getByRole("tab", { name: "Runs" }).click();
+
+    // Runs from more than one script, newest first, with the reason a failure
+    // failed in the row rather than behind it.
+    await expect(page.getByRole("cell", { name: /Daily Sales Report/ }).first()).toBeVisible();
+    await expect(page.getByRole("cell", { name: /Warehouse Freshness Check/ })).toBeVisible();
+    await expect(page.getByText(/relation "sales.orders" does not exist/)).toBeVisible();
+
+    // A row opens the run itself: its script's page, with that run's log,
+    // parameters and outputs already open.
+    await page.getByRole("row").filter({ hasText: /Daily Sales Report/ }).first().click();
+    await expect(page).toHaveURL(/\/scripts\/script-001\/runs\//);
+    await expect(page.getByText(/wrote asset version 42/)).toBeVisible();
   });
 
   // Moving a script to another person is the administrator's mutation on this

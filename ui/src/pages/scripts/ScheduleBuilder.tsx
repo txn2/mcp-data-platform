@@ -12,7 +12,7 @@ import {
   type CadenceKind,
 } from "./cadence";
 
-// ScheduleBuilder is how a person says when their automation runs (#1307).
+// ScheduleBuilder is how a person says when their script runs (#1307).
 //
 // It asks the question in their terms — how often, at what time, in which zone
 // — and renders the cron expression itself as a read-back, not as an input.

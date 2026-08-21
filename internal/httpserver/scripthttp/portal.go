@@ -118,6 +118,9 @@ func (h *Handler) RegisterPortal(mux *http.ServeMux, wrap func(http.Handler) htt
 	if h.deps.Runs == nil {
 		return
 	}
+	// A literal segment outranks the {id} wildcard, so a script whose id is
+	// "runs" cannot shadow the caller's cross-script run listing (#1405).
+	mux.Handle("GET /api/v1/portal/scripts/runs", wrap(h.portalHandler(h.portalListOwnRuns)))
 	mux.Handle("GET /api/v1/portal/scripts/{id}/runs", wrap(h.portalHandler(h.portalListRuns)))
 	mux.Handle("GET /api/v1/portal/scripts/{id}/runs/{runID}", wrap(h.portalHandler(h.portalGetRun)))
 	// Running one now (#1363). It is mounted with the history because it is the
@@ -207,11 +210,12 @@ type portalScriptListResponse struct {
 // portalListScripts returns the scripts this caller may see.
 //
 // @Summary      List scripts visible to the portal caller
-// @Description  Returns every managed script the caller is entitled to see, each with its cadence and, for the scripts they own, the state of its most recent run. Administrators see every script. The category and tag parameters narrow the listing; tag may be repeated, and a script matching any of the named tags is returned.
+// @Description  Returns every managed script the caller is entitled to see, each with its cadence and, for the scripts they own, the state of its most recent run. Administrators see every script. The category, tag and search parameters narrow the listing; tag may be repeated, and a script matching any of the named tags is returned.
 // @Tags         Scripts
 // @Produce      json
 // @Param        category  query  string    false  "Narrow to one category slug"
 // @Param        tag       query  []string  false  "Narrow to the scripts carrying any of these tags"  collectionFormat(multi)
+// @Param        search    query  string    false  "Narrow to the scripts whose name, display name or description contains this text"
 // @Success      200  {object}  portalScriptListResponse
 // @Failure      401  {object}  httpjson.ProblemDetail
 // @Failure      500  {object}  httpjson.ProblemDetail
@@ -271,14 +275,23 @@ func nonEmpty(values []string) []string {
 }
 
 // portalListFilter applies the caller's visibility as a query predicate, plus
-// the category and tag axes the listing filters on (#1369). An administrator
-// carries no visibility predicate, which is the unfiltered admin view; the
-// facet filters apply to them exactly as they do to everybody else, because
-// those narrow what a reader asked for rather than what they are entitled to.
+// the category and tag axes the listing filters on (#1369) and the free-text
+// search the filter bar types into (#1405). The search runs in the store,
+// against the name, display name and description, so it covers every script
+// the caller owns rather than the page of them a listing happens to hold.
+//
+// An administrator carries no visibility predicate, which is the unfiltered
+// admin view; the three narrowing axes apply to them exactly as they do to
+// everybody else, because those narrow what a reader asked for rather than
+// what they are entitled to.
+//
+// A nil query names no axis, which is how a caller asks for the visibility
+// predicate alone.
 func portalListFilter(user *PortalIdentity, query url.Values) script.ListFilter {
 	filter := script.ListFilter{
 		Category: query.Get("category"),
 		Tags:     nonEmpty(query["tag"]),
+		Search:   query.Get("search"),
 	}
 	if user.IsAdmin {
 		return filter
@@ -508,6 +521,126 @@ func detailRun(r *script.Run) portalRunDetail {
 		Outputs:      r.Outputs,
 		CreatedAt:    r.CreatedAt,
 	}
+}
+
+// portalScriptRun is one run in the caller's cross-script listing. It names
+// the script it belongs to twice over — the id a link is built from, and the
+// name a person reads — because a listing that spans scripts is unreadable
+// without the second and unnavigable without the first.
+type portalScriptRun struct {
+	portalRun
+	ScriptID string `json:"script_id" example:"script_a1b2c3d4"`
+	// ScriptName is the script's display name, falling back to its name. It is
+	// empty only for a run whose script is outside the listing this answer
+	// resolved names from, and a client shows the id in that case.
+	ScriptName string `json:"script_name,omitempty" example:"Daily Sales Report"`
+}
+
+// portalOwnRunsResponse is the cross-script run listing payload.
+type portalOwnRunsResponse struct {
+	Data  []portalScriptRun `json:"data"`
+	Total int               `json:"total" example:"12"`
+	// Limit is the cap this answer was read under, so a client that filled it
+	// can say there is older history behind it rather than presenting a
+	// truncated listing as the whole of it.
+	Limit int `json:"limit" example:"50"`
+}
+
+// portalOwnRunsLimit caps a cross-script listing that names no limit. It is the
+// store's own ceiling rather than a larger number: the store clamps anything
+// above it, so asking for more would report a listing as complete while
+// returning part of it.
+const portalOwnRunsLimit = 50
+
+// portalListOwnRuns returns the caller's runs across every script they own,
+// newest first (#1405).
+//
+// The per-script history answers "how is this report going". This answers the
+// other question an owner has — how are my scripts going, all of them — which
+// they previously could only ask by opening each script in turn.
+//
+// Visibility is the listing's own: a caller reads the runs of the scripts they
+// own, and an administrator reads every run, which is the same reach their
+// script listing already has. The owned set is bound into the query rather
+// than filtered out of the answer, so a run this caller may not read is never
+// fetched.
+//
+// The owned set is read under the script store's own listing cap, so a caller
+// holding more scripts than that cap reads the runs of the most recently
+// updated of them. That is far beyond any real personal collection, and the
+// alternative — an unbounded id list bound into every run query — is a worse
+// answer to a case nobody is in.
+//
+// @Summary      List the caller's script runs
+// @Description  Returns recent runs across every script the caller owns, newest first, with what triggered each one, how it ended, why it failed, and which script it belongs to. Administrators see the runs of every script.
+// @Tags         Scripts
+// @Produce      json
+// @Param        status    query  string  false  "Filter by run status"
+// @Param        per_page  query  int     false  "Maximum rows to return"
+// @Success      200  {object}  portalOwnRunsResponse
+// @Failure      401  {object}  httpjson.ProblemDetail
+// @Failure      500  {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/scripts/runs [get]
+func (h *Handler) portalListOwnRuns(w http.ResponseWriter, r *http.Request, user *PortalIdentity) {
+	// The visibility predicate alone: the facet axes narrow which scripts a
+	// reader asked to see, and a run listing is not filtered by them.
+	scripts, err := h.deps.Scripts.List(r.Context(), portalListFilter(user, nil))
+	if err != nil {
+		httpjson.WriteError(w, http.StatusInternalServerError, "failed to list scripts")
+		return
+	}
+	limit := httpjson.ParseLimit(r.URL.Query())
+	if limit <= 0 || limit > portalOwnRunsLimit {
+		limit = portalOwnRunsLimit
+	}
+	filter := script.RunFilter{Status: r.URL.Query().Get("status"), Limit: limit}
+	if !user.IsAdmin {
+		// A non-nil, empty set is the answer for a caller who owns nothing: it
+		// matches no run, where a nil set would list every run on the platform.
+		filter.ScriptIDs = scriptIDs(scripts)
+	}
+	runs, err := h.deps.Runs.ListRuns(r.Context(), filter)
+	if err != nil {
+		httpjson.WriteError(w, http.StatusInternalServerError, "failed to list runs")
+		return
+	}
+	names := scriptNames(scripts)
+	out := make([]portalScriptRun, 0, len(runs))
+	for i := range runs {
+		out = append(out, portalScriptRun{
+			portalRun:  summarizeRun(&runs[i]),
+			ScriptID:   runs[i].ScriptID,
+			ScriptName: names[runs[i].ScriptID],
+		})
+	}
+	httpjson.WriteJSON(w, http.StatusOK, portalOwnRunsResponse{
+		Data: out, Total: len(out), Limit: limit,
+	})
+}
+
+// scriptIDs collects a listing's ids, always non-nil so an empty listing binds
+// an empty set rather than reading as an unfiltered one.
+func scriptIDs(scripts []script.Script) []string {
+	ids := make([]string, 0, len(scripts))
+	for i := range scripts {
+		ids = append(ids, scripts[i].ID)
+	}
+	return ids
+}
+
+// scriptNames maps a listing's ids to what a person calls each script.
+func scriptNames(scripts []script.Script) map[string]string {
+	names := make(map[string]string, len(scripts))
+	for i := range scripts {
+		name := scripts[i].DisplayName
+		if name == "" {
+			name = scripts[i].Name
+		}
+		names[scripts[i].ID] = name
+	}
+	return names
 }
 
 // portalListRuns returns an owned script's run history, newest first.

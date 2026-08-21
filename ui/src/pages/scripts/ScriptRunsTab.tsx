@@ -43,7 +43,7 @@ import { runStatusLabel, runStatusVariant, runWhen } from "./runFormat";
 // ScriptRunsTab is what the platform has been running unattended (#1307).
 //
 // It answers a different question from the per-script history an owner reads:
-// not "how is my report going" but "how are the automations going", which is
+// not "how is my report going" but "how are the scripts going", which is
 // the question an operator has and previously could only answer by querying the
 // run table.
 //

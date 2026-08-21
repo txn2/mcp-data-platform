@@ -1,4 +1,4 @@
-// Cadence is a schedule as the person who owns the automation thinks about it,
+// Cadence is a schedule as the person who owns the script thinks about it,
 // and cron is the wire format underneath (#1307).
 //
 // The portal used to ask for the cron expression directly. That is a
@@ -228,28 +228,65 @@ export function skipsShortMonths(c: Cadence): boolean {
 }
 
 /**
- * CadenceLine is a schedule rendered for a place that has one line for it.
+ * scheduleLine renders an expression as the sentence a listing states it in,
+ * always in words (#1405). A raw cron expression belongs in the schedule
+ * editor, where somebody is editing one; in a column an owner scans to answer
+ * "what is running and when", "0 7 * * 1-5" is not an answer to the question.
  *
- * `verbatim` reports that the text IS the expression rather than a sentence
- * about it, so a listing can set it in the mono face it sets other machine
- * text in. Wrapping an expression this module cannot read in a phrase that
- * says "custom" adds a word and no information; the expression is what the
- * reader has to go on, so it is what is shown.
+ * It states the cadences the builder can express, plus the step forms an agent
+ * writes that the builder has no shape for ("every 15 minutes"). Anything left
+ * is named as a custom cadence rather than rendered as its expression: the
+ * expression is still exactly what the editor opens, and it is one click away.
  */
-export interface CadenceLine {
-  text: string;
-  verbatim: boolean;
+export function scheduleLine(spec: string, timezone: string): string {
+  const zone = timezone.trim() || "UTC";
+  const cadence = fromCron(spec);
+  if (cadence.kind !== "custom") {
+    return describe(cadence, zone);
+  }
+  if (!cadence.spec) {
+    return "No cadence set";
+  }
+  return stepLine(cadence.spec, zone) ?? `Custom cadence, ${zone}`;
 }
 
-/** cadenceLine renders an expression for a listing: the sentence the editor
- * states when the cadence is one the builder can express, and the expression
- * itself when it is not. */
-export function cadenceLine(spec: string, timezone: string): CadenceLine {
-  const cadence = fromCron(spec);
-  if (cadence.kind === "custom") {
-    return { text: cadence.spec || "No cadence set", verbatim: !!cadence.spec };
+// stepLine states the step expressions the builder has no shape for, which are
+// the ones an agent writes most: a cadence that repeats within the day rather
+// than at a time of day. It answers null for everything else, which is what
+// keeps this from inventing a sentence about an expression it has not read.
+function stepLine(spec: string, zone: string): string | null {
+  const fields = spec.split(/\s+/);
+  if (fields.length !== 5) return null;
+  const [min, hr, dom, mon, dow] = fields as [string, string, string, string, string];
+  // A step within the day means every day: a step expression narrowed to
+  // particular days or months is a cadence this does not state.
+  if (dom !== "*" || mon !== "*" || dow !== "*") return null;
+
+  const everyMinutes = stepValue(min, 59);
+  if (everyMinutes !== null && hr === "*") {
+    return `Every ${plural(everyMinutes, "minute")}, ${zone}`;
   }
-  return { text: describe(cadence, timezone), verbatim: false };
+  const everyHours = stepValue(hr, 23);
+  const minute = wholeNumber(min, 0, 59);
+  if (everyHours !== null && minute !== null) {
+    return `Every ${plural(everyHours, "hour")} at ${pad(minute)} minutes past, ${zone}`;
+  }
+  return null;
+}
+
+// stepValue reads cron's "*/N" over a whole field, or null when the field is
+// any other form.
+function stepValue(field: string, max: number): number | null {
+  const step = field.match(/^\*\/(\d{1,2})$/);
+  if (!step) return null;
+  const n = Number(step[1]);
+  return n >= 1 && n <= max ? n : null;
+}
+
+// plural renders a count with its unit, dropping the count of one: "every hour"
+// rather than "every 1 hours".
+function plural(n: number, unit: string): string {
+  return n === 1 ? unit : `${n} ${unit}s`;
 }
 
 /**

@@ -4,6 +4,7 @@ import { useMyScripts } from "@/api/portal/hooks/scripts";
 import type { PortalScriptRow, ScriptListFilter } from "@/api/portal/hooks/scripts";
 import { EmptyState } from "@/components/patterns/EmptyState";
 import { FilterChip } from "@/components/FilterChip";
+import { SearchInput } from "@/components/patterns/SearchInput";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -15,36 +16,96 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useDebounced } from "@/lib/useDebounced";
 import { cn } from "@/lib/utils";
-import { cadenceLine, scheduleState } from "./cadence";
+import { MyRunsTab } from "./MyRunsTab";
+import { scheduleLine, scheduleState } from "./cadence";
 import { formatWhen, runStatusLabel, runStatusVariant, runWhen } from "./runFormat";
 import { ScriptFacetBadges } from "./ScriptFacetBadges";
 
-// MyScriptsPage is what the people who own the automations see (#1290): their
+// MyScriptsPage is what the people who own the scripts see (#1290): their
 // scripts, what each is scheduled to do, and how its last run went.
 //
 // Every script here is the reader's own, so there is no owner column to read
 // (#1404); the administrator's listing keeps one, where whose script it is is
 // the fact worth showing.
 //
-// It reads only; what an owner does to a script is on the script's own page.
-// This listing exists because an owner is frequently not an administrator and
-// had no way to see their own automations at all.
+// Two tabs, because there are two questions (#1405): what do I have, and how
+// have they been running. The second one used to take opening every script in
+// turn to answer.
+//
+// The listing itself reads only; what an owner does to a script is on the
+// script's own page. It exists because an owner is frequently not an
+// administrator and had no way to see their own scripts at all.
 
 interface Props {
   onNavigate: (path: string) => void;
 }
 
+// SEARCH_DEBOUNCE_MS is how long typing settles before the listing is asked
+// again. The search runs in the store, so this is a request per pause rather
+// than one per keystroke.
+const SEARCH_DEBOUNCE_MS = 250;
+
 export function MyScriptsPage({ onNavigate }: Props) {
-  const [filter, setFilter] = useState<ScriptListFilter>({});
+  return (
+    <Tabs defaultValue="scripts" className="gap-4">
+      <TabsList
+        variant="line"
+        className="group-data-[orientation=horizontal]/tabs:h-auto w-full justify-start gap-1 border-b p-0"
+      >
+        <TabsTrigger
+          value="scripts"
+          className="flex-none px-4 py-2 group-data-[orientation=horizontal]/tabs:after:bottom-[-1px]"
+        >
+          Scripts
+        </TabsTrigger>
+        <TabsTrigger
+          value="runs"
+          className="flex-none px-4 py-2 group-data-[orientation=horizontal]/tabs:after:bottom-[-1px]"
+        >
+          Runs
+        </TabsTrigger>
+      </TabsList>
+
+      <TabsContent value="scripts">
+        <ScriptsTab onNavigate={onNavigate} />
+      </TabsContent>
+
+      <TabsContent value="runs">
+        <MyRunsTab onNavigate={onNavigate} />
+      </TabsContent>
+    </Tabs>
+  );
+}
+
+// ScriptsTab is the listing and everything that narrows it.
+//
+// Two kinds of narrowing meet here, and they are different in kind rather than
+// in style. The search and the facet chips are query predicates: they are
+// applied by the server, over every script the caller owns rather than over
+// the page of them this listing holds. The tiles narrow the rows already in
+// hand, because what they count — a schedule, a failed last run — travels with
+// each row and needs no second request to know.
+function ScriptsTab({ onNavigate }: Props) {
+  const [category, setCategory] = useState<string | undefined>();
+  const [tag, setTag] = useState<string | undefined>();
+  const [typed, setTyped] = useState("");
+  const [tile, setTile] = useState<TileFilter>(null);
+  const search = useDebounced(typed.trim(), SEARCH_DEBOUNCE_MS);
+
+  const filter = serverFilter(category, tag, search);
   const { data, isLoading, error } = useMyScripts(filter);
   // The facet vocabulary is read from the UNFILTERED listing, not from the rows
   // on screen: filtering to one category would otherwise remove every other
   // category's chip and leave a reader unable to switch. With nothing filtered
   // the two queries are the same key and this costs one request.
   const { data: all } = useMyScripts();
+  const corpus = all?.data ?? [];
   const rows = data?.data ?? [];
-  const filtered = !!(filter.category || filter.tag);
+  const shown = rows.filter((row) => matchesTile(row, tile));
+  const narrowed = isNarrowed(filter) || tile !== null;
 
   return (
     <div className="space-y-4">
@@ -57,15 +118,29 @@ export function MyScriptsPage({ onNavigate }: Props) {
         </Alert>
       )}
 
-      {rows.length > 0 && !filtered && <AutomationSummary rows={rows} />}
+      {rows.length > 0 && <ScriptTiles rows={rows} tile={tile} onTile={setTile} />}
 
-      <ScriptFacets rows={all?.data ?? []} filter={filter} onFilter={setFilter} />
+      {/* Nothing to narrow is nothing to narrow WITH: a caller who owns no
+          script is offered no search box over their own emptiness. The bar is
+          read off the unfiltered listing, so a search that matched nothing
+          keeps the control that clears it. */}
+      {corpus.length > 0 && (
+        <ScriptFilters
+          rows={corpus}
+          category={category}
+          tag={tag}
+          search={typed}
+          onCategory={setCategory}
+          onTag={setTag}
+          onSearch={setTyped}
+        />
+      )}
 
       <SectionCard title="Scripts">
         <ScriptsSection
-          rows={rows}
+          rows={shown}
           isLoading={isLoading}
-          filtered={filtered}
+          narrowed={narrowed}
           onNavigate={onNavigate}
         />
       </SectionCard>
@@ -73,90 +148,118 @@ export function MyScriptsPage({ onNavigate }: Props) {
   );
 }
 
-// ScriptFacets is how a reader narrows the listing: the categories scripts are
-// filed under and the tags they carry (#1369). The narrowing is applied by the
-// server, so it is the same answer an agent's list gets and it is not limited
-// to the rows this page happened to load.
+// serverFilter is the three axes the server narrows on, with an empty axis
+// LEFT OUT rather than set to undefined: an unfiltered listing is then the
+// empty object, which is the query key the facet vocabulary is already read
+// under, so narrowing nothing costs one request rather than two.
+function serverFilter(
+  category: string | undefined,
+  tag: string | undefined,
+  search: string,
+): ScriptListFilter {
+  const filter: ScriptListFilter = {};
+  if (category) filter.category = category;
+  if (tag) filter.tag = tag;
+  if (search) filter.search = search;
+  return filter;
+}
+
+// isNarrowed reports whether anything was asked of the server, which is what
+// separates "nothing matched" from "you have no scripts".
+function isNarrowed(filter: ScriptListFilter): boolean {
+  return Object.keys(filter).length > 0;
+}
+
+/**
+ * TileFilter is which tile is pressed, null for none. The three are one
+ * exclusive group: "Scripts" is the whole listing, so pressing it is how a
+ * reader clears one of the other two.
+ */
+type TileFilter = "scheduled" | "failing" | null;
+
+// matchesTile applies the pressed tile to a row.
 //
-// Only one value per axis is selectable, and pressing an active chip clears it.
-// The two axes combine, so a category and a tag together are the scripts that
-// are both — which is what a reader pressing two chips means, and it is also
-// what the API does.
-function ScriptFacets({
+// "Scheduled" is a script that HAS a cadence, paused or not: the word says so,
+// and a page that counted only the firing ones would report "Scheduled 0" over
+// a row reading "Every 30 minutes / Paused". A paused report is also what
+// somebody presses this tile looking for, and the row itself says which are
+// firing.
+function matchesTile(row: PortalScriptRow, tile: TileFilter): boolean {
+  if (tile === "scheduled") return !!row.schedule;
+  if (tile === "failing") return row.last_run?.status === "failed";
+  return true;
+}
+
+// ScriptFilters is how a reader narrows the listing: free text over what a
+// script is called and what it says about itself, and the shelves it is filed
+// on — the category it carries (#1369) and its tags.
+//
+// Every axis is applied by the server, so the answer is the same one an agent's
+// list gets and it is not limited to the rows this page happened to load. The
+// axes combine, so a category and a word together are the scripts that are
+// both — which is what a reader who typed one and pressed the other means, and
+// it is also what the API does.
+function ScriptFilters({
   rows,
-  filter,
-  onFilter,
+  category,
+  tag,
+  search,
+  onCategory,
+  onTag,
+  onSearch,
 }: {
   rows: PortalScriptRow[];
-  filter: ScriptListFilter;
-  onFilter: (filter: ScriptListFilter) => void;
+  category?: string;
+  tag?: string;
+  search: string;
+  onCategory: (value: string | undefined) => void;
+  onTag: (value: string | undefined) => void;
+  onSearch: (value: string) => void;
 }) {
   const categories = facetValues(rows, (s) => (s.category ? [s.category] : []));
   const tags = facetValues(rows, (s) => s.tags ?? []);
-  if (categories.length === 0 && tags.length === 0) {
-    return null;
-  }
-  // A cleared axis is REMOVED from the filter rather than set to undefined, so
-  // the unfiltered filter is the empty object the page started with — and the
-  // query it keys stays the one the facet vocabulary is already read under.
-  const setAxis = (axis: keyof ScriptListFilter, value: string | undefined) => {
-    const next = { ...filter };
-    if (value) {
-      next[axis] = value;
-    } else {
-      delete next[axis];
-    }
-    onFilter(next);
-  };
   return (
-    <SectionCard title="Filter">
-      <div className="space-y-2">
-        <FacetRow
-          label="Category"
-          values={categories}
-          active={filter.category}
-          onToggle={(value) => setAxis("category", value)}
-        />
-        <FacetRow
-          label="Tag"
-          values={tags}
-          active={filter.tag}
-          onToggle={(value) => setAxis("tag", value)}
-        />
-      </div>
-    </SectionCard>
-  );
-}
-
-// FacetRow is one axis of chips, absent when nothing carries that axis: a
-// deployment where nobody has filed a script should not be shown an empty
-// "Category" strip explaining that.
-function FacetRow({
-  label,
-  values,
-  active,
-  onToggle,
-}: {
-  label: string;
-  values: FacetValue[];
-  active?: string;
-  onToggle: (value: string | undefined) => void;
-}) {
-  if (values.length === 0) {
-    return null;
-  }
-  return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      {values.map((value) => (
-        <FilterChip
-          key={value.name}
-          label={value.name}
-          count={value.count}
-          active={active === value.name}
-          onClick={() => onToggle(active === value.name ? undefined : value.name)}
-        />
-      ))}
+    <div className="space-y-2">
+      <SearchInput
+        value={search}
+        onChange={(e) => onSearch(e.target.value)}
+        placeholder="Search scripts by name or description..."
+        aria-label="Search scripts"
+      />
+      {categories.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {/* The knowledge pages pattern: an "All" chip, then one chip per
+              shelf. Pressing the active chip clears the axis, which is the
+              same thing "All" does and is what a reader tries first. */}
+          <FilterChip label="All" active={!category} onClick={() => onCategory(undefined)} />
+          {categories.map((value) => (
+            <FilterChip
+              key={value.name}
+              label={value.name}
+              count={value.count}
+              active={category === value.name}
+              onClick={() => onCategory(category === value.name ? undefined : value.name)}
+            />
+          ))}
+        </div>
+      )}
+      {tags.length > 0 && (
+        // Tags are a second axis rather than a second set of shelves, so they
+        // carry the label that says which axis they are and no "All" chip of
+        // their own.
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-xs text-muted-foreground">Tag</span>
+          {tags.map((value) => (
+            <FilterChip
+              key={value.name}
+              label={value.name}
+              count={value.count}
+              active={tag === value.name}
+              onClick={() => onTag(tag === value.name ? undefined : value.name)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -185,67 +288,86 @@ function facetValues(
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 }
 
-// AutomationSummary is the state of this caller's automations in four numbers,
-// computed from the listing itself rather than from a second query (#1307): how
-// many there are, how many the platform will actually run, how many are firing
-// on a cadence, and how many last ended badly.
+// ScriptTiles is the state of this caller's scripts in three numbers, each of
+// which is also the control that shows the scripts it counted (#1405). A
+// number an owner opens this page for — the reports that failed this morning —
+// is otherwise a red badge they have to find by reading the table row by row.
 //
-// The last one is the number somebody opens this page for. A report that has
-// been failing every morning is otherwise a red badge in a table they have to
-// read row by row.
-//
-// Each caption states what its number counts (#1360). All four count the same
-// population now that a script is one person's: every row here is the reader's
-// own, so the failure count is over the whole listing rather than a subset of
-// it.
-function AutomationSummary({ rows }: { rows: PortalScriptRow[] }) {
-  const running = rows.filter((r) => r.script.enabled && r.script.status === "active").length;
-  const scheduled = rows.filter((r) => r.schedule?.enabled).length;
-  const failing = rows.filter((r) => r.last_run?.status === "failed").length;
+// The numbers are counted over the listing as filtered, so a tile and a
+// category pressed together agree with the table under them.
+function ScriptTiles({
+  rows,
+  tile,
+  onTile,
+}: {
+  rows: PortalScriptRow[];
+  tile: TileFilter;
+  onTile: (tile: TileFilter) => void;
+}) {
+  const scheduled = rows.filter((r) => matchesTile(r, "scheduled")).length;
+  const failing = rows.filter((r) => matchesTile(r, "failing")).length;
   return (
-    <div className="grid gap-4 sm:grid-cols-4">
-      <SummaryTile label="Automations" value={rows.length} hint="scripts you own" />
-      <SummaryTile
-        label="In service"
-        value={running}
-        hint="enabled and active; a run executes the latest saved version"
+    <div className="grid gap-4 sm:grid-cols-3">
+      <FilterTile
+        label="Scripts"
+        value={rows.length}
+        active={tile === null}
+        onClick={() => onTile(null)}
       />
-      <SummaryTile label="On a cadence" value={scheduled} hint="run on a schedule, unattended" />
-      <SummaryTile
-        label="Last run failed"
+      <FilterTile
+        label="Scheduled"
+        value={scheduled}
+        active={tile === "scheduled"}
+        onClick={() => onTile(tile === "scheduled" ? null : "scheduled")}
+      />
+      <FilterTile
+        label="Failing"
         value={failing}
-        hint="of the scripts you own"
+        active={tile === "failing"}
+        onClick={() => onTile(tile === "failing" ? null : "failing")}
         alarming={failing > 0}
       />
     </div>
   );
 }
 
-function SummaryTile({
+// FilterTile is one number that is also the control that shows what it counted.
+// It is a button rather than a card with a click handler, so it is reachable by
+// keyboard and states whether it is pressed.
+function FilterTile({
   label,
   value,
-  hint,
+  active,
   alarming,
+  onClick,
 }: {
   label: string;
   value: number;
-  hint: string;
+  active: boolean;
   alarming?: boolean;
+  onClick: () => void;
 }) {
   return (
-    <SectionCard title={label}>
-      <div className="space-y-0.5">
-        <div
-          className={cn(
-            "text-2xl font-semibold tabular-nums",
-            alarming && "text-red-700 dark:text-red-300",
-          )}
-        >
-          {value}
-        </div>
-        <div className="text-xs text-muted-foreground">{hint}</div>
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={cn(
+        "bg-card text-card-foreground rounded-xl border px-4 py-3 text-left transition-colors",
+        "hover:bg-accent/50 focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none",
+        active && "border-primary ring-primary/30 ring-[2px]",
+      )}
+    >
+      <div className="text-sm leading-none font-medium">{label}</div>
+      <div
+        className={cn(
+          "mt-2 text-2xl font-semibold tabular-nums",
+          alarming && "text-red-700 dark:text-red-300",
+        )}
+      >
+        {value}
       </div>
-    </SectionCard>
+    </button>
   );
 }
 
@@ -254,23 +376,23 @@ function SummaryTile({
 function ScriptsSection({
   rows,
   isLoading,
-  filtered,
+  narrowed,
   onNavigate,
 }: {
   rows: PortalScriptRow[];
   isLoading: boolean;
-  /** filtered distinguishes "nothing matched" from "you have no scripts". */
-  filtered: boolean;
+  /** narrowed distinguishes "nothing matched" from "you have no scripts". */
+  narrowed: boolean;
   onNavigate: (path: string) => void;
 }) {
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Loading scripts...</p>;
   }
-  if (rows.length === 0 && filtered) {
+  if (rows.length === 0 && narrowed) {
     return (
       <EmptyState icon={FileCode2}>
-        No script you can see carries that category and tag. Clear the filter above to see
-        the rest.
+        No script you can see matches that. Clear the search, the chips, or the tile above
+        to see the rest.
       </EmptyState>
     );
   }
@@ -344,18 +466,17 @@ function ExecutionState({ row }: { row: PortalScriptRow }) {
 // ScheduleCell reports the cadence and what it is doing, in the words the
 // schedule editor states them in (#1358). This column is the surface an owner
 // scans to answer "what is running and when", and a cron expression is not an
-// answer to that question for the person whose report it is. An expression the
-// builder cannot express falls back to the expression, which is all there is to
-// say about it.
+// answer to that question for the person whose report it is — so this column
+// never shows one (#1405), and the editor is where an expression is read and
+// written.
 function ScheduleCell({ row }: { row: PortalScriptRow }) {
   const { schedule } = row;
   if (!schedule) {
     return <span className="text-xs text-muted-foreground">On demand</span>;
   }
-  const line = cadenceLine(schedule.cron_spec, schedule.timezone);
   return (
     <div className="text-xs">
-      <div className={line.verbatim ? "font-mono" : undefined}>{line.text}</div>
+      <div>{scheduleLine(schedule.cron_spec, schedule.timezone)}</div>
       <div className="text-muted-foreground">{scheduleWhen(schedule)}</div>
     </div>
   );

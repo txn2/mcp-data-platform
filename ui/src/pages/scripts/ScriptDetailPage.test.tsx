@@ -347,6 +347,51 @@ describe("ScriptDetailPage: the run history", () => {
     expect(screen.getByText("1284 steps · 1 queries · 1 exports")).toBeInTheDocument();
   });
 
+  // #1405: the cross-script Runs listing links to one run, and that address
+  // lands on the run it named rather than on a history the reader has to find
+  // it in again.
+  it("opens the run the address names, without a click", () => {
+    render(
+      <ScriptDetailPage
+        scriptId="script-001"
+        openRunId="run-001"
+        onBack={onBack}
+        onNavigate={onNavigate}
+      />,
+    );
+    expect(screen.getByText(/wrote asset version 42/)).toBeInTheDocument();
+  });
+
+  // The address is read every time it names a different run, not only when
+  // this page first mounts: following one run link and then another leaves the
+  // history mounted, and a run that stayed closed because the section already
+  // existed reads exactly like one that never opened.
+  it("opens the run the address names when the address changes", () => {
+    mockRun.mockImplementation((_scriptId, runId) =>
+      query({ ...runDetail, id: String(runId), log: `log of ${String(runId)}` }),
+    );
+    const { rerender } = render(
+      <ScriptDetailPage
+        scriptId="script-001"
+        openRunId="run-002"
+        onBack={onBack}
+        onNavigate={onNavigate}
+      />,
+    );
+    expect(screen.getByText(/log of run-002/)).toBeInTheDocument();
+
+    rerender(
+      <ScriptDetailPage
+        scriptId="script-001"
+        openRunId="run-001"
+        onBack={onBack}
+        onNavigate={onNavigate}
+      />,
+    );
+    expect(screen.getByText(/log of run-001/)).toBeInTheDocument();
+    expect(screen.queryByText(/log of run-002/)).not.toBeInTheDocument();
+  });
+
   it("links a portal asset and never a delivered object", () => {
     renderPage();
     fireEvent.click(screen.getAllByRole("row", { name: /succeeded/ })[0]!);

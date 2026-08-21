@@ -8,7 +8,7 @@ import type {
 import { ApiError, apiFetch } from "../client";
 
 // Portal script hooks (#1290): the surface for the people who own the
-// automations. Saving a version makes it the version that runs, and the
+// scripts. Saving a version makes it the version that runs, and the
 // cadence an owner sets here (#1307) carries no authority at all.
 
 // ScriptSchedule is a script's cadence as the portal reports it.
@@ -177,19 +177,23 @@ interface ListResponse<T> {
 // the listing and any open detail together.
 const scriptsKey = ["portal", "scripts"] as const;
 
-// ScriptListFilter narrows the listing to one category, one tag, or both
-// (#1369). It is applied by the server rather than in the table so the answer
-// is the same one an agent's list gets, and so a filtered page does not depend
-// on having already loaded every row.
+// ScriptListFilter narrows the listing to one category, one tag, free text, or
+// any combination (#1369, #1405). Every axis is applied by the server rather
+// than in the table, so the answer is the same one an agent's list gets, and a
+// filtered page does not depend on having already loaded every row — the
+// listing is capped, and a page that filtered its own rows would answer from a
+// truncated set while reporting a count to match.
 export interface ScriptListFilter {
   category?: string;
   tag?: string;
+  /** search matches a script's name, display name, or description. */
+  search?: string;
 }
 
 export function useMyScripts(filter: ScriptListFilter = {}) {
   const query = scriptListQuery(filter);
   return useQuery({
-    queryKey: [...scriptsKey, "list", filter.category ?? "", filter.tag ?? ""],
+    queryKey: [...scriptsKey, "list", filter.category ?? "", filter.tag ?? "", filter.search ?? ""],
     queryFn: () => apiFetch<ListResponse<PortalScriptRow>>(`/scripts${query}`),
   });
 }
@@ -200,8 +204,41 @@ export function scriptListQuery(filter: ScriptListFilter): string {
   const params = new URLSearchParams();
   if (filter.category) params.set("category", filter.category);
   if (filter.tag) params.set("tag", filter.tag);
+  if (filter.search) params.set("search", filter.search);
   const rendered = params.toString();
   return rendered ? `?${rendered}` : "";
+}
+
+// PortalScriptRun is one run in the caller's cross-script listing (#1405): the
+// run, plus which script it belongs to. The name is what the row reads as and
+// the id is what its link is built from; a run whose script is outside the
+// listing the server resolved names from carries no name, and the row shows
+// the id.
+export interface PortalScriptRun extends ScriptRun {
+  script_id: string;
+  script_name?: string;
+}
+
+// OwnRunsResponse carries the cap the answer was read under, so a page that
+// filled it says there is older history behind it rather than presenting a
+// truncated listing as the whole of it.
+interface OwnRunsResponse extends ListResponse<PortalScriptRun> {
+  limit: number;
+}
+
+// useMyScriptRuns reads the caller's runs across every script they own, newest
+// first. It answers the question the per-script history cannot: how are my
+// scripts going, all of them — which previously took opening each in turn.
+//
+// It polls while anything is still in flight, on the same terms and for the
+// same reason the per-script history does: a run asked for on a script's page
+// is executed by a worker, so the outcome arrives after the request.
+export function useMyScriptRuns() {
+  return useQuery({
+    queryKey: [...scriptsKey, "runs"],
+    queryFn: () => apiFetch<OwnRunsResponse>("/scripts/runs"),
+    refetchInterval: (query) => (hasRunInFlight(query.state.data) ? RUN_POLL_MS : false),
+  });
 }
 
 export function useScriptContract(scriptID: string | null) {

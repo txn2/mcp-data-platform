@@ -5423,6 +5423,23 @@ definitions:
         example: 4
         type: integer
     type: object
+  scripthttp.portalOwnRunsResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/scripthttp.portalScriptRun'
+        type: array
+      limit:
+        description: |-
+          Limit is the cap this answer was read under, so a client that filled it
+          can say there is older history behind it rather than presenting a
+          truncated listing as the whole of it.
+        example: 50
+        type: integer
+      total:
+        example: 12
+        type: integer
+    type: object
   scripthttp.portalRun:
     properties:
       duration_ms:
@@ -5604,6 +5621,60 @@ definitions:
           caller does not own it carries the cadence alone (see reportableSchedule).
       script:
         $ref: '#/definitions/script.Script'
+    type: object
+  scripthttp.portalScriptRun:
+    properties:
+      duration_ms:
+        example: 1840
+        type: integer
+      error:
+        description: |-
+          Error is why a failed run failed, carried into the listing because a
+          history whose failures say only "failed" sends every reader to the detail
+          view to learn the same thing.
+        type: string
+      finished_at:
+        type: string
+      fire_time:
+        type: string
+      id:
+        example: run_a1b2c3d4
+        type: string
+      output_count:
+        description: |-
+          OutputCount counts what the run persisted. It is deliberately not called
+          "outputs": the run detail carries the outputs themselves under that name,
+          and one field meaning a count in one payload and a list in another is how
+          a client ends up rendering "3" where a link belongs.
+        example: 1
+        type: integer
+      requested_by:
+        description: |-
+          RequestedBy is who asked for the run, empty for a scheduled one, which
+          nobody requested.
+        example: jane@example.com
+        type: string
+      script_id:
+        example: script_a1b2c3d4
+        type: string
+      script_name:
+        description: |-
+          ScriptName is the script's display name, falling back to its name. It is
+          empty only for a run whose script is outside the listing this answer
+          resolved names from, and a client shows the id in that case.
+        example: Daily Sales Report
+        type: string
+      started_at:
+        type: string
+      status:
+        example: succeeded
+        type: string
+      trigger:
+        example: schedule
+        type: string
+      version:
+        example: 3
+        type: integer
     type: object
   scripthttp.referenced:
     properties:
@@ -15124,9 +15195,9 @@ paths:
     get:
       description: Returns every managed script the caller is entitled to see, each
         with its cadence and, for the scripts they own, the state of its most recent
-        run. Administrators see every script. The category and tag parameters narrow
-        the listing; tag may be repeated, and a script matching any of the named tags
-        is returned.
+        run. Administrators see every script. The category, tag and search parameters
+        narrow the listing; tag may be repeated, and a script matching any of the
+        named tags is returned.
       parameters:
       - description: Narrow to one category slug
         in: query
@@ -15139,6 +15210,11 @@ paths:
           type: string
         name: tag
         type: array
+      - description: Narrow to the scripts whose name, display name or description
+          contains this text
+        in: query
+        name: search
+        type: string
       produces:
       - application/json
       responses:
@@ -15804,6 +15880,41 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: List a script's versions
+      tags:
+      - Scripts
+  /portal/scripts/runs:
+    get:
+      description: Returns recent runs across every script the caller owns, newest
+        first, with what triggered each one, how it ended, why it failed, and which
+        script it belongs to. Administrators see the runs of every script.
+      parameters:
+      - description: Filter by run status
+        in: query
+        name: status
+        type: string
+      - description: Maximum rows to return
+        in: query
+        name: per_page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/scripthttp.portalOwnRunsResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List the caller's script runs
       tags:
       - Scripts
   /portal/search:

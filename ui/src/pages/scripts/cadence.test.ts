@@ -1,7 +1,7 @@
 import { describe as suite, it, expect } from "vitest";
 import {
   DEFAULT_CADENCE,
-  cadenceLine,
+  scheduleLine,
   describe as describeCadence,
   describeCron,
   fromCron,
@@ -140,25 +140,38 @@ suite("months that do not have the chosen day", () => {
   });
 });
 
-suite("cadenceLine", () => {
+suite("scheduleLine", () => {
   it("states a cadence the builder can express as the sentence the editor states", () => {
-    expect(cadenceLine("0 7 * * 1-5", "America/Los_Angeles")).toEqual({
-      text: "Every weekday at 7:00 AM, America/Los_Angeles",
-      verbatim: false,
-    });
+    expect(scheduleLine("0 7 * * 1-5", "America/Los_Angeles")).toBe(
+      "Every weekday at 7:00 AM, America/Los_Angeles",
+    );
   });
 
-  // A phrase wrapped around an expression this module cannot read adds a word
-  // and no information, so a listing gets the expression to set in mono.
-  it("hands back an expression it cannot state, marked as the expression", () => {
-    expect(cadenceLine("*/7 3 * 2 1-5", "UTC")).toEqual({
-      text: "*/7 3 * 2 1-5",
-      verbatim: true,
-    });
+  // #1405: the column an owner scans to answer "what is running and when" is
+  // in words, always. A step expression is the one an agent writes most, and
+  // it is a shape the builder has no control for.
+  it("states a step cadence the builder has no shape for", () => {
+    expect(scheduleLine("*/30 * * * *", "UTC")).toBe("Every 30 minutes, UTC");
+    expect(scheduleLine("*/1 * * * *", "UTC")).toBe("Every minute, UTC");
+    expect(scheduleLine("15 */2 * * *", "UTC")).toBe("Every 2 hours at 15 minutes past, UTC");
+    expect(scheduleLine("0 */1 * * *", "UTC")).toBe("Every hour at 00 minutes past, UTC");
+  });
+
+  // A step narrowed to particular days or months is not the cadence the phrase
+  // above would claim, so it is not stated as one.
+  it("names a cadence it cannot state rather than printing the expression", () => {
+    expect(scheduleLine("*/7 3 * 2 1-5", "UTC")).toBe("Custom cadence, UTC");
+    expect(scheduleLine("*/30 * * * 1-5", "UTC")).toBe("Custom cadence, UTC");
+    expect(scheduleLine("*/90 * * * *", "UTC")).toBe("Custom cadence, UTC");
+    expect(scheduleLine("nonsense", "UTC")).toBe("Custom cadence, UTC");
+  });
+
+  it("names the zone a cadence with no zone is read in", () => {
+    expect(scheduleLine("*/30 * * * *", "  ")).toBe("Every 30 minutes, UTC");
   });
 
   it("says an empty expression is no cadence rather than showing nothing", () => {
-    expect(cadenceLine("   ", "UTC")).toEqual({ text: "No cadence set", verbatim: false });
+    expect(scheduleLine("   ", "UTC")).toBe("No cadence set");
   });
 });
 

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { RUN_PAGE_SIZE, useScriptRun, useScriptRuns } from "@/api/portal/hooks/scripts";
 import type { ScriptRun, ScriptRunDetail } from "@/api/portal/hooks/scripts";
 import { SectionCard } from "@/components/patterns/SectionCard";
@@ -22,7 +22,7 @@ import {
   summarize,
 } from "./runFormat";
 
-// ScriptRunHistory is the refresh history of an automation: every run, what
+// ScriptRunHistory is the refresh history of one script: every run, what
 // triggered it, how it ended, and what it produced. A recurring script writes
 // new versions of the SAME portal asset rather than a new asset each time, so
 // this list read next to that asset's version history is the whole story of
@@ -34,13 +34,27 @@ const RUN_COLUMNS = 3;
 
 export function ScriptRunHistory({
   scriptId,
+  openRunId = null,
   onNavigate,
 }: {
   scriptId: string;
+  /** openRunId is a run named by the address, opened without a click (#1405):
+   * a link from the cross-script listing lands on the run it named rather than
+   * on a history the reader has to find it in again. */
+  openRunId?: string | null;
   onNavigate: (path: string) => void;
 }) {
   const { data, isLoading, error } = useScriptRuns(scriptId, true);
-  const [openRun, setOpenRun] = useState<string | null>(null);
+  const [openRun, setOpenRun] = useState<string | null>(openRunId);
+  // A run named by the address is opened whenever the address names a
+  // different one, not only on the first mount: following one link and then
+  // another leaves this section mounted, and a run that stayed closed because
+  // the section happened to already exist is the same defect as one that never
+  // opened. Nothing here fights a reader's clicks, because the address does not
+  // change when they open a row.
+  useEffect(() => {
+    if (openRunId) setOpenRun(openRunId);
+  }, [openRunId]);
   const runs = data?.data ?? [];
 
   return (
@@ -48,38 +62,15 @@ export function ScriptRunHistory({
       title="Run history"
       action={<RunSummaryLine runs={runs} />}
     >
-      {isLoading && <p className="text-sm text-muted-foreground">Loading runs...</p>}
-      {error && (
-        <p className="text-sm text-muted-foreground">This script's runs could not be loaded.</p>
-      )}
-      {!isLoading && !error && runs.length === 0 && (
-        <p className="text-sm text-muted-foreground">
-          This script has never run. A run happens when its schedule fires or when someone
-          asks for one, and a run always executes a saved version.
-        </p>
-      )}
+      <HistoryState isLoading={isLoading} failed={!!error} empty={runs.length === 0} />
       {runs.length > 0 && (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Run</TableHead>
-              <TableHead>Duration</TableHead>
-              <TableHead>Produced</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {runs.map((run) => (
-              <RunRows
-                key={run.id}
-                run={run}
-                scriptId={scriptId}
-                open={openRun === run.id}
-                onToggle={() => setOpenRun(openRun === run.id ? null : run.id)}
-                onNavigate={onNavigate}
-              />
-            ))}
-          </TableBody>
-        </Table>
+        <RunTable
+          runs={runs}
+          scriptId={scriptId}
+          openRun={openRun}
+          onOpenRun={setOpenRun}
+          onNavigate={onNavigate}
+        />
       )}
       {runs.length >= RUN_PAGE_SIZE && (
         <p className="pt-2 text-xs text-muted-foreground">
@@ -88,6 +79,77 @@ export function ScriptRunHistory({
         </p>
       )}
     </SectionCard>
+  );
+}
+
+// HistoryState is what the section says before it has runs to show: still
+// loading, could not be read, or a script that has never run — which are three
+// different statements and are kept apart here so the section above cannot
+// render two of them at once.
+function HistoryState({
+  isLoading,
+  failed,
+  empty,
+}: {
+  isLoading: boolean;
+  failed: boolean;
+  empty: boolean;
+}) {
+  if (isLoading) {
+    return <p className="text-sm text-muted-foreground">Loading runs...</p>;
+  }
+  if (failed) {
+    return (
+      <p className="text-sm text-muted-foreground">This script's runs could not be loaded.</p>
+    );
+  }
+  if (!empty) return null;
+  return (
+    <p className="text-sm text-muted-foreground">
+      This script has never run. A run happens when its schedule fires or when someone
+      asks for one, and a run always executes a saved version.
+    </p>
+  );
+}
+
+// RunTable is the history itself, once there is one to draw. It is its own
+// component so the section above it stays the three states a history has —
+// loading, never run, and drawn — rather than those plus a table.
+function RunTable({
+  runs,
+  scriptId,
+  openRun,
+  onOpenRun,
+  onNavigate,
+}: {
+  runs: ScriptRun[];
+  scriptId: string;
+  openRun: string | null;
+  onOpenRun: (runId: string | null) => void;
+  onNavigate: (path: string) => void;
+}) {
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Run</TableHead>
+          <TableHead>Duration</TableHead>
+          <TableHead>Produced</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {runs.map((run) => (
+          <RunRows
+            key={run.id}
+            run={run}
+            scriptId={scriptId}
+            open={openRun === run.id}
+            onToggle={() => onOpenRun(openRun === run.id ? null : run.id)}
+            onNavigate={onNavigate}
+          />
+        ))}
+      </TableBody>
+    </Table>
   );
 }
 
@@ -148,7 +210,7 @@ function RunRows({
   );
 }
 
-// RunSummaryLine is what this stretch of history adds up to: how the automation
+// RunSummaryLine is what this stretch of history adds up to: how the script
 // has actually been going, rather than leaving a reader to count badges. It
 // states the window it was computed over, because a success rate without one is
 // not a number anybody can act on.

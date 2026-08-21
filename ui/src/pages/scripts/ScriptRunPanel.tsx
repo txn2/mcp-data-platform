@@ -12,7 +12,7 @@ import {
   type Values,
 } from "./ScriptParameterForm";
 
-// ScriptRunPanel is where an owner runs their automation now (#1363).
+// ScriptRunPanel is where an owner runs their script now (#1363).
 //
 // Until this existed the page showed the contract, the parameters, and the
 // run history, and ran nothing: an owner who wanted fresh output before the

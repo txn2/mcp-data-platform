@@ -273,6 +273,12 @@ func RefuseDraftRun(sc *Script) error {
 type RunFilter struct {
 	// ScriptID scopes the listing to one script; empty lists across scripts.
 	ScriptID string
+	// ScriptIDs scopes the listing to a set of scripts, which is how a caller
+	// reads the runs of everything they own in one query rather than one query
+	// per script. An EMPTY, non-nil slice means "no scripts" and matches
+	// nothing — the distinction matters, because a caller who owns nothing must
+	// not fall through to a listing across every script on the platform.
+	ScriptIDs []string
 	// Status scopes the listing to one lifecycle status.
 	Status string
 	// Limit caps the rows returned; zero means the store default.

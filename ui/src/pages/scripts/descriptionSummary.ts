@@ -1,5 +1,5 @@
 // A script's description is a document (#1369): markdown, at whatever length
-// the automation needs explaining at. Most surfaces render it as one — the
+// the script needs explaining at. Most surfaces render it as one — the
 // script's own page does — but a LIST row has one line for it, and dropping
 // markdown into that line prints the syntax ("## What it produces") and lets a
 // twenty-line document set the height of a queue row.

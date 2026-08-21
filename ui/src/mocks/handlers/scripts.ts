@@ -142,9 +142,20 @@ export const scriptHandlers = [
     const query = new URL(request.url).searchParams;
     const category = query.get("category");
     const tags = query.getAll("tag");
+    // The free text is a store predicate too (#1405), over the same three
+    // fields the store matches: what the script is called, what it is called
+    // on a page, and what it says about itself.
+    const search = (query.get("search") ?? "").toLowerCase();
     const data = scripts
       .filter((script) => !category || script.category === category)
       .filter((script) => tags.length === 0 || tags.some((t) => (script.tags ?? []).includes(t)))
+      .filter(
+        (script) =>
+          !search ||
+          [script.name, script.display_name, script.description]
+            .filter((field): field is string => !!field)
+            .some((field) => field.toLowerCase().includes(search)),
+      )
       .map((script) => {
         const runs = mockScriptRuns[script.id] ?? [];
         return {
@@ -158,6 +169,25 @@ export const scriptHandlers = [
         };
       });
     return HttpResponse.json({ data, total: data.length });
+  }),
+
+  // The caller's runs across every script they own (#1405). The mock caller is
+  // an administrator, so this is every run the fixture holds, which is what the
+  // server answers them.
+  http.get(`${PORTAL_BASE}/scripts/runs`, () => {
+    if (emptyDemoRequested("scripts")) {
+      return HttpResponse.json({ data: [], total: 0, limit: 50 });
+    }
+    const named = new Map(scripts.map((script) => [script.id, script.display_name || script.name]));
+    const all = Object.entries(mockScriptRuns).flatMap(([scriptID, runs]) =>
+      runs.map((run) => ({
+        ...run,
+        script_id: scriptID,
+        script_name: named.get(scriptID),
+      })),
+    );
+    all.sort((a, b) => (a.fire_time < b.fire_time ? 1 : -1));
+    return HttpResponse.json({ data: all, total: all.length, limit: 50 });
   }),
 
   http.get(`${PORTAL_BASE}/scripts/:id`, ({ params }) => {

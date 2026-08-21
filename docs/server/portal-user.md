@@ -588,21 +588,23 @@ You never need to type these names. Ask your agent to run a prompt by whatever h
 
 ## Scripts
 
-Scripts are the automations the platform runs for you: an agent writes one once, and from
-then on it produces the same report, dashboard refresh, or export on a schedule or on
-request. A script runs as soon as it is saved, under the access its author holds. The
-Scripts page is where you see what you have, what is scheduled, and how it has been
-going.
+A script is a program the platform runs for you: an agent writes one once, and from then
+on it produces the same report, dashboard refresh, or export on a schedule or on request.
+A script runs as soon as it is saved, under the access its author holds. The Scripts page
+is where you see what you have, what is scheduled, and how it has been going, over two
+tabs: **Scripts** and **Runs**.
 
 ![Scripts](../images/screenshots/light/user-scripts-light.webp#only-light)![Scripts](../images/screenshots/dark/user-scripts-dark.webp#only-dark)
 
-Above the table, four numbers say how the automations are doing: how many scripts you
-have, how many are in service, how many are firing on a cadence, and how many
-last ended in a failure. The last one is the number most people open this page for.
+Above the table are three numbers, and each of them is also the control that shows what
+it counted: **Scripts**, **Scheduled** (anything with a cadence, paused or not), and
+**Failing** — the scripts whose last run failed, which is the number most people open
+this page for. Pressing a tile narrows the table to the scripts it counted; pressing it
+again, or pressing **Scripts**, shows all of them.
 
-Every script here is yours: a script is one person's, so this page needs no owner
-column and shows nobody else's automations. An administrator can move a script to
-another owner, which is how one arrives here that you did not write.
+Every script here is yours: a script is one person's, so this page needs no owner column
+and shows nobody else's. An administrator can move a script to another owner, which is
+how one arrives here that you did not write.
 
 Each row states the four things worth knowing at a glance: what the script is executing
 (the latest saved version, or plainly that it is disabled or retired and nothing will
@@ -612,20 +614,34 @@ runs on demand; a paused schedule says so rather than showing a next fire that w
 happen.
 
 Each row also shows how the script is filed: the category it belongs to and the tags it
-carries. The chips above the table narrow the list to one of either, and pressing a chip
-again clears it. The narrowing is done by the server, so it covers every script you can
-see rather than only the ones already on screen.
+carries. Under the tiles are a search box and a chip per category, with the tags on a
+second row. The search matches what a script is called and what it says about itself, and
+pressing an active chip again clears it. All three are applied by the server, so they
+cover every script you can see rather than only the ones already on screen.
 
-The cadence is stated here in the same words the schedule editor states it in — "Every
-weekday at 7:00 AM, America/Los_Angeles" — because this is the column you scan to answer
-what is running and when, and a cron expression is not an answer to that. A cadence the
-builder cannot express is shown as the expression itself, which is all there is to say
-about it.
+The cadence is stated in words, always — "Every weekday at 7:00 AM,
+America/Los_Angeles", "Every 30 minutes, UTC" — because this is the column you scan to
+answer what is running and when, and a cron expression is not an answer to that. A
+cadence with no phrase for it is named as a custom cadence; the expression itself is in
+the schedule editor on the script's own page, which is where one is read and written.
 
 Before an agent has written anything for you, the page says so rather than showing an
 empty table.
 
 ![No scripts yet](../images/screenshots/light/user-scripts-empty-light.webp#only-light)![No scripts yet](../images/screenshots/dark/user-scripts-empty-dark.webp#only-dark)
+
+### Every run, across your scripts
+
+The **Runs** tab answers the question the run history on one script cannot: not how is
+this report going, but how are your scripts going, all of them. Every run of every script
+you own, newest first, with what triggered it, how it ended, how long it took, and — when
+it failed — the reason, in the row rather than behind it.
+
+![Runs across your scripts](../images/screenshots/light/user-scripts-runs-light.webp#only-light)![Runs across your scripts](../images/screenshots/dark/user-scripts-runs-dark.webp#only-dark)
+
+Opening a row opens that run: the script's page, with the run's log, its parameters and
+what it produced already open. The script's name in the row opens the script itself. A
+listing that fills its cap says so, and each script's own page carries its full history.
 
 ### One script
 
@@ -736,13 +752,13 @@ Pausing is its own control rather than a cadence you have to clear and retype. A
 schedule resumes on the fire it was parked on, and there is no way to delete one: the
 schedule is part of the explanation of the runs it produced. Fires that came due while
 the platform was not running them are counted and stated rather than caught up on, so a
-gap in an automation is visible instead of turning into a burst of stale reports.
+gap in a script's cadence is visible instead of turning into a burst of stale reports.
 
 ![Paused schedule](../images/screenshots/light/user-script-schedule-paused-light.webp#only-light)![Paused schedule](../images/screenshots/dark/user-script-schedule-paused-dark.webp#only-dark)
 
 A schedule on a disabled or retired script saves, and fires nothing until the script is
-back in service, which the page says plainly rather than leaving you waiting on an
-automation that was never going to run.
+back in service, which the page says plainly rather than leaving you waiting on a run
+that was never going to happen.
 
 ### Version history
 
@@ -755,7 +771,7 @@ is the usual question.
 
 ### Run history
 
-The run history is the refresh record of the automation: what triggered each run, which
+The run history is the refresh record of one script: what triggered each run, which
 version it executed, how long it took, what it produced, and how it ended. A failure
 states its reason in the list. A fire that arrived while the previous run was still
 going is recorded as skipped rather than silently dropped, because a report that stopped
@@ -773,7 +789,8 @@ which the sentence names rather than implying it covers all time.
 ![Run history](../images/screenshots/light/user-script-runs-light.webp#only-light)![Run history](../images/screenshots/dark/user-script-runs-dark.webp#only-dark)
 
 Opening a run shows what it was given, what it cost, what it wrote, and the log it
-printed while working.
+printed while working. A run has an address of its own, which is what the Runs tab links
+to: following one lands on this page with that run open.
 
 ![Run log](../images/screenshots/light/user-script-run-log-light.webp#only-light)![Run log](../images/screenshots/dark/user-script-run-log-dark.webp#only-dark)
 
@@ -789,7 +806,7 @@ contract and says so.
 
 ### Asking for the pages
 
-Ask your agent to show you your scripts — "show me my scripts", "what automations do I
+Ask your agent to show you your scripts — "show me my scripts", "what scripts do I
 have", "did the daily report run" — and it opens this page with the `show_scripts` tool.
 That tool only opens the pages; every script operation an agent performs for its own
 work uses `manage_script`, which renders nothing.

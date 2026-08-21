@@ -13830,7 +13830,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns every managed script the caller is entitled to see, each with its cadence and, for the scripts they own, the state of its most recent run. Administrators see every script. The category and tag parameters narrow the listing; tag may be repeated, and a script matching any of the named tags is returned.",
+                "description": "Returns every managed script the caller is entitled to see, each with its cadence and, for the scripts they own, the state of its most recent run. Administrators see every script. The category, tag and search parameters narrow the listing; tag may be repeated, and a script matching any of the named tags is returned.",
                 "produces": [
                     "application/json"
                 ],
@@ -13854,6 +13854,12 @@ const docTemplate = `{
                         "description": "Narrow to the scripts carrying any of these tags",
                         "name": "tag",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Narrow to the scripts whose name, display name or description contains this text",
+                        "name": "search",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -13861,6 +13867,60 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/scripthttp.portalScriptListResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/scripts/runs": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns recent runs across every script the caller owns, newest first, with what triggered each one, how it ended, why it failed, and which script it belongs to. Administrators see the runs of every script.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "List the caller's script runs",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by run status",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Maximum rows to return",
+                        "name": "per_page",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/scripthttp.portalOwnRunsResponse"
                         }
                     },
                     "401": {
@@ -24113,6 +24173,26 @@ const docTemplate = `{
                 }
             }
         },
+        "scripthttp.portalOwnRunsResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/scripthttp.portalScriptRun"
+                    }
+                },
+                "limit": {
+                    "description": "Limit is the cap this answer was read under, so a client that filled it\ncan say there is older history behind it rather than presenting a\ntruncated listing as the whole of it.",
+                    "type": "integer",
+                    "example": 50
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 12
+                }
+            }
+        },
         "scripthttp.portalRun": {
             "type": "object",
             "properties": {
@@ -24320,6 +24400,63 @@ const docTemplate = `{
                 },
                 "script": {
                     "$ref": "#/definitions/script.Script"
+                }
+            }
+        },
+        "scripthttp.portalScriptRun": {
+            "type": "object",
+            "properties": {
+                "duration_ms": {
+                    "type": "integer",
+                    "example": 1840
+                },
+                "error": {
+                    "description": "Error is why a failed run failed, carried into the listing because a\nhistory whose failures say only \"failed\" sends every reader to the detail\nview to learn the same thing.",
+                    "type": "string"
+                },
+                "finished_at": {
+                    "type": "string"
+                },
+                "fire_time": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "run_a1b2c3d4"
+                },
+                "output_count": {
+                    "description": "OutputCount counts what the run persisted. It is deliberately not called\n\"outputs\": the run detail carries the outputs themselves under that name,\nand one field meaning a count in one payload and a list in another is how\na client ends up rendering \"3\" where a link belongs.",
+                    "type": "integer",
+                    "example": 1
+                },
+                "requested_by": {
+                    "description": "RequestedBy is who asked for the run, empty for a scheduled one, which\nnobody requested.",
+                    "type": "string",
+                    "example": "jane@example.com"
+                },
+                "script_id": {
+                    "type": "string",
+                    "example": "script_a1b2c3d4"
+                },
+                "script_name": {
+                    "description": "ScriptName is the script's display name, falling back to its name. It is\nempty only for a run whose script is outside the listing this answer\nresolved names from, and a client shows the id in that case.",
+                    "type": "string",
+                    "example": "Daily Sales Report"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "succeeded"
+                },
+                "trigger": {
+                    "type": "string",
+                    "example": "schedule"
+                },
+                "version": {
+                    "type": "integer",
+                    "example": 3
                 }
             }
         },

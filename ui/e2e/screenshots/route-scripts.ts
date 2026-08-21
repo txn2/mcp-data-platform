@@ -12,8 +12,8 @@ import {
 } from "./route-actions";
 import { type ScreenshotRoute } from "./route-types";
 
-// Every managed-script capture, on both surfaces: what a person who owns an
-// automation reads (#1290), and what an administrator reads across every
+// Every managed-script capture, on both surfaces: what a person who owns a
+// script reads (#1290), and what an administrator reads across every
 // script (#1307). They live beside the manifest rather than inside it for the
 // same reason the drawer routes do — one feature's captures are read together,
 // and the manifest stays a table of contents rather than a file that grows
@@ -21,15 +21,16 @@ import { type ScreenshotRoute } from "./route-types";
 
 export const userScriptRoutes: ScreenshotRoute[] = [
   {
-    // The owner's view of their automations (#1290): what each script is
-    // executing, on what cadence, and how its last run went.
+    // The owner's view of their scripts (#1290): what each one is executing,
+    // on what cadence, and how its last run went, over the three tiles that
+    // count them and also filter them (#1405).
     slug: "scripts",
     path: "/portal/scripts",
     category: "user",
   },
   {
-    // The same page for an account with no automations at all, which is what
-    // most people see before an agent has written one for them.
+    // The same page for an account with no scripts at all, which is what most
+    // people see before an agent has written one for them.
     slug: "scripts-empty",
     path: "/portal/scripts?empty=scripts",
     category: "user",
@@ -52,7 +53,7 @@ export const userScriptRoutes: ScreenshotRoute[] = [
     beforeCapture: openScriptDocumentation,
   },
   {
-    // A paused automation, and the control that resumes it (#1307). The
+    // A paused schedule, and the control that resumes it (#1307). The
     // running case is on the detail capture above, where the cadence, its
     // zone, and the binding every fire passes are already in frame; what this
     // one adds is the state a report sits in when its owner has stopped it.
@@ -97,8 +98,8 @@ export const userScriptRoutes: ScreenshotRoute[] = [
     beforeCapture: openScriptVersionHistory,
   },
   {
-    // The refresh history of the automation: a success, a failure with its
-    // reason, and a fire skipped because the previous run was still going.
+    // The refresh history of one script: a success, a failure with its reason,
+    // and a fire skipped because the previous run was still going.
     slug: "script-runs",
     path: "/portal/scripts/script-001",
     category: "user",
@@ -111,6 +112,19 @@ export const userScriptRoutes: ScreenshotRoute[] = [
     path: "/portal/scripts/script-001",
     category: "user",
     beforeCapture: openScriptRunLog,
+  },
+  {
+    // Every run of every script this person owns (#1405), which is the question
+    // the per-script history cannot answer: not how is this report going, but
+    // how are my scripts going. A row opens the run it names.
+    //
+    // Last in the list on purpose, for the same reason the administrator's run
+    // capture is: the tab it selects persists on the page these captures share,
+    // so it must not sit in front of the ones that read the script listing.
+    slug: "scripts-runs",
+    path: "/portal/scripts",
+    category: "user",
+    beforeCapture: openScriptRunsTab,
   },
 ];
 
