@@ -129,8 +129,7 @@ func (t *Toolkit) handleUpdateCollection(ctx context.Context, input manageAssetI
 		return errResult, nil, nil
 	}
 
-	ownerID := resolveOwnerID(ctx)
-	if coll.OwnerID != ownerID {
+	if !ownsResource(ctx, coll.OwnerID, coll.OwnerEmail) {
 		return toolkit.ErrorResult("you can only update your own collections"), nil, nil
 	}
 
@@ -172,8 +171,7 @@ func (t *Toolkit) handleDeleteCollection(ctx context.Context, input manageAssetI
 		return errResult, nil, nil
 	}
 
-	ownerID := resolveOwnerID(ctx)
-	if coll.OwnerID != ownerID {
+	if !ownsResource(ctx, coll.OwnerID, coll.OwnerEmail) {
 		return toolkit.ErrorResult("you can only delete your own collections"), nil, nil
 	}
 
@@ -197,8 +195,7 @@ func (t *Toolkit) handleSetSections(ctx context.Context, input manageAssetInput)
 		return errResult, nil, nil
 	}
 
-	ownerID := resolveOwnerID(ctx)
-	if coll.OwnerID != ownerID {
+	if !ownsResource(ctx, coll.OwnerID, coll.OwnerEmail) {
 		return toolkit.ErrorResult("you can only modify your own collections"), nil, nil
 	}
 

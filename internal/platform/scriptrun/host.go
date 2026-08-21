@@ -8,7 +8,6 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	trinotools "github.com/txn2/mcp-trino/pkg/tools"
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 
@@ -17,19 +16,24 @@ import (
 	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 )
 
-// Tool names the host bindings call. They are ordinary platform tools invoked
-// over the run's MCP session, so a script's query is authorized, rate limited,
-// and audited by exactly the middleware an agent's query goes through.
-const (
-	toolQuery = "trino_query"
-)
+// toolQuery is the tool platform.query names. Every host binding issues an
+// ordinary platform tool call over the run's MCP session — the named helpers
+// with a constant here, platform.call with the name the author wrote — so a
+// script's query is authorized, rate limited, and audited by exactly the
+// middleware an agent's query goes through.
+const toolQuery = "trino_query"
 
-// Capability names. A capability is one host binding, and the set is closed:
-// a reader of a script must be able to enumerate everything it can reach,
-// which is only possible while the surface stays small enough to list.
-// Nondeterministic tools (search, memory, catalog mutation) are deliberately
-// absent — they have no place inside an automation whose value proposition is
-// reproducibility.
+// Member names of the platform module.
+//
+// Three of them are named helpers over one tool call each, kept because they
+// carry behavior worth a name: the typed parameter binding on query, the format
+// and destination resolution on export, the structural splice on publish_data.
+// CapabilityCall is the same mechanism with the tool name left to the author,
+// and it is what makes the surface open.
+//
+// The set is not access control. What a script may reach is what its author's
+// persona authorizes, decided by the persona filter at every call, at run time
+// (#1419).
 const (
 	CapabilityQuery  = "platform.query"
 	CapabilityExport = "platform.export"
@@ -39,11 +43,21 @@ const (
 	// because the two describe different behavior a reader should be able to
 	// tell apart.
 	CapabilityPublishData = "platform.publish_data"
+	// CapabilityCall invokes any platform tool by name. It resolves to the same
+	// Caller the three helpers resolve to, so a tool the run's persona may not
+	// call is refused by the middleware in the middleware's own words, exactly
+	// as it refuses an agent.
+	CapabilityCall = "platform.call"
 )
 
-// Capabilities is the full host surface, in the order help and validate report
-// it.
-var Capabilities = []string{CapabilityQuery, CapabilityExport, CapabilityPublishData}
+// Capabilities is the full member set of the platform module, in the order help
+// and validate report it.
+//
+// It is a report ordering and the spelling check behind validate's "no such
+// member" refusal. It is not a boundary: platform.call reaches every tool the
+// run's persona authorizes, and what a script reaches is read from the source
+// by Validate, which reports the tool names it names.
+var Capabilities = []string{CapabilityQuery, CapabilityExport, CapabilityPublishData, CapabilityCall}
 
 // The formats platform.export accepts, split by what serializes them. A format
 // may appear in both sets: markdown and text are sometimes a table computed
@@ -80,12 +94,25 @@ const maxExports = 16
 // output goes and must be named, so a static read of the source can report it.
 const exportPositionalArgs = 3
 
+// callArgsPosition is which positional argument of platform.call carries the
+// tool's argument set: the tool name is first, the arguments second. Named so
+// the binding's signature and the static read of it cannot drift apart.
+const callArgsPosition = 2
+
 // Field counts for the dicts the host bindings return, named so the allocation
 // hint and the number of SetKey calls below it cannot drift apart.
 const (
 	queryResultFields  = 3
 	exportRecordFields = 12
 )
+
+// TextResultKey is the single field a tool result arrives under when the tool
+// returned no structured object: the text it produced, verbatim (SessionCaller.
+// CallTool). It is one key rather than a shape per tool so the rule an author
+// has to remember is one sentence, and it sits with the other result-shape
+// constants because that is what it is — the shape a host call hands back.
+// Exported because the dialect contract states it.
+const TextResultKey = "text"
 
 // PublishFormat is the one format a data-region payload has. The region is a
 // JSON data island by contract, so unlike an export there is no format axis for
@@ -203,9 +230,6 @@ func (h *hostState) query(_ *starlark.Thread, b *starlark.Builtin, args starlark
 	if err != nil {
 		return nil, argErr(b, err)
 	}
-	if err := refuseWrite(b, bound); err != nil {
-		return nil, err
-	}
 
 	call := map[string]any{"sql": bound, "limit": h.opts.MaxRows}
 	if connection != "" {
@@ -219,27 +243,76 @@ func (h *hostState) query(_ *starlark.Thread, b *starlark.Builtin, args starlark
 	return h.queryResult(b.Name(), out)
 }
 
-// refuseWrite refuses a write statement before it becomes a tool call.
+// call implements platform.call: invoke any platform tool by name and hand the
+// script its structured result.
 //
-// The query tool refuses it too, and would do so with its own message: that
-// trino_query is read-only and that trino_execute is where writes go. Neither
-// tool name exists inside a script — the Starlark surface is platform.query and
-// platform.export and nothing else — so an author following that advice has
-// nowhere to go. Refusing here states the same rule in the vocabulary the
-// author is writing in.
+// This is the whole of what the three named helpers do, with the tool name left
+// to the author. It resolves to the same Caller they resolve to, so the call
+// crosses the same authentication, persona and connection authorization, rate
+// limiting and audit an agent's call crosses, presenting the roles the run's
+// version captured from its author. There is no allowlist in front of it and no
+// second authorization path behind it: a tool the run's persona may not call is
+// refused by the middleware, in the middleware's own words.
 //
-// The predicate is the query tool's own IsWriteSQL rather than a second
-// definition of what a write is, so the two surfaces cannot come to disagree
-// about which statements they refuse.
-func refuseWrite(b *starlark.Builtin, sql string) error {
-	if !trinotools.IsWriteSQL(sql) {
-		return nil
+// What a script reaches is therefore what its author reaches, which is what
+// automation is. What a READER can enumerate comes from Validate, which reads
+// the tool names out of the source and reports a call that computes one.
+func (h *hostState) call(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var (
+		tool     string
+		toolArgs *starlark.Dict
+	)
+	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "tool", &tool, "args?", &toolArgs); err != nil {
+		return nil, argErr(b, err)
 	}
-	// The binding is named once, as queryResult's refusals name it: the
-	// interpreter already labels the frame the error came from, so an argErr
-	// prefix on top of a message that also names the binding would say it twice.
-	return fmt.Errorf("a managed script cannot write: %s is read-only, and a statement that modifies state, such as INSERT, UPDATE, DELETE, CREATE or DROP, is refused; compute the result with SELECT and write it with platform.export",
-		b.Name())
+	if tool == "" {
+		return nil, fmt.Errorf("in %s: tool is empty; name the tool to call, as %s(\"trino_execute\", {\"connection\": \"warehouse\", \"sql\": \"...\"})", b.Name(), b.Name())
+	}
+	if h.opts.Caller == nil {
+		return nil, fmt.Errorf("host binding %s is not available in this context", b.Name())
+	}
+	payload, err := callArguments(toolArgs)
+	if err != nil {
+		return nil, argErr(b, err)
+	}
+	out, err := h.opts.Caller.CallTool(h.ctx, tool, payload)
+	if err != nil {
+		return nil, argErr(b, err)
+	}
+	// The byte cap is the query binding's, applied here for the same reason: a
+	// heap the interpreter cannot bound is the one resource no limit in this
+	// engine covers, and a tool asked for more than a run can hold must fail
+	// with a message rather than by growing the process.
+	if n := approxJSONBytes(out); n > h.opts.MaxResultBytes {
+		return nil, fmt.Errorf("result of %s(%q) is %d bytes, over the %d-byte cap; narrow what the tool is asked for",
+			b.Name(), tool, n, h.opts.MaxResultBytes)
+	}
+	value, err := toStarlark(out)
+	if err != nil {
+		return nil, fmt.Errorf("converting the result of %s(%q): %w", b.Name(), tool, err)
+	}
+	return value, nil
+}
+
+// callArguments converts the argument dict a script passed into the plain Go
+// map a tool call takes. A missing dict is an empty argument set, which is what
+// a tool taking no arguments wants.
+func callArguments(args *starlark.Dict) (map[string]any, error) {
+	if args == nil {
+		return map[string]any{}, nil
+	}
+	converted, err := dictFromStarlark(args, 0)
+	if err != nil {
+		return nil, err
+	}
+	out, ok := converted.(map[string]any)
+	if !ok {
+		// dictFromStarlark returns a map[string]any or an error, so this is
+		// unreachable; it is here so a future change to that contract fails
+		// loudly rather than panicking inside a script.
+		return nil, fmt.Errorf("args converted to %T rather than to an argument set", converted)
+	}
+	return out, nil
 }
 
 // queryResult caps and converts one query tool result.

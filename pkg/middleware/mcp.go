@@ -331,6 +331,7 @@ func authenticateAndAuthorize(
 	if userInfo != nil {
 		params.pc.UserID = userInfo.UserID
 		params.pc.UserEmail = userInfo.Email
+		params.pc.OnBehalfOfEmail = userInfo.OnBehalfOf
 		params.pc.UserClaims = userInfo.Claims
 		params.pc.Roles = userInfo.Roles
 		params.pc.AuthType = userInfo.AuthType

@@ -24488,7 +24488,7 @@ const docTemplate = `{
                     }
                 },
                 "destinations": {
-                    "description": "Destinations are the destination names the source writes to, with the\nportal counted for any export that names none, because that is where such\nan export lands.",
+                    "description": "Destinations are where this version's OUTPUTS go: the names\nplatform.export writes to, with the portal counted for any export that\nnames none. It is not every byte the script can move — a write made\nthrough platform.call is read in Tools instead.",
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -24504,8 +24504,19 @@ const docTemplate = `{
                 "dynamic_refresh_targets": {
                     "type": "boolean"
                 },
+                "dynamic_tools": {
+                    "description": "DynamicTools is true when a platform.call computes the tool it invokes,\nwhich shortens the tool list. A computed argument set shortens the\nconnection list instead.",
+                    "type": "boolean"
+                },
                 "refresh_targets": {
                     "description": "RefreshTargets are the output names platform.publish_data refreshes, so\na reader sees which asset's data region this script rewrites.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "tools": {
+                    "description": "Tools are the tool names the source passes to platform.call literally.\nThe persona filter decides what a run MAY call; this is what this version\nDOES call (#1419).",
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -24637,6 +24648,7 @@ const docTemplate = `{
                     }
                 },
                 "destinations": {
+                    "description": "Destinations are where this source's OUTPUTS go, which is not every byte\nit can move: a write made through platform.call is read in Tools.",
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -24650,6 +24662,9 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "dynamic_refresh_targets": {
+                    "type": "boolean"
+                },
+                "dynamic_tools": {
                     "type": "boolean"
                 },
                 "findings": {
@@ -24668,6 +24683,13 @@ const docTemplate = `{
                 },
                 "refresh_targets": {
                     "description": "RefreshTargets are the output names platform.publish_data refreshes, so\nthe author sees which asset's data region the edit rewrites.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "tools": {
+                    "description": "Tools are the tool names the edit passes to platform.call literally, so\nthe author sees the reach of the open half of the surface before a run\nexercises it (#1419).",
                     "type": "array",
                     "items": {
                         "type": "string"

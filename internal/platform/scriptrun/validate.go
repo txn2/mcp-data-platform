@@ -39,13 +39,22 @@ type Finding struct {
 type Report struct {
 	OK       bool      `json:"ok"`
 	Findings []Finding `json:"findings"`
-	// Capabilities is the set of host bindings the source references,
-	// Connections the connection names it names literally, and Destinations
-	// the output destinations it names literally. Together they state what the
-	// code reaches, so a reader learns it without reading the Starlark.
+	// Capabilities is the set of host bindings the source references, and
+	// Connections the connection names it names literally, across every call.
 	Capabilities []string `json:"capabilities"`
 	Connections  []string `json:"connections"`
+	// Destinations is where this script's OUTPUTS go: the destination names
+	// platform.export writes to, plus the portal for an export that names none
+	// and for every platform.publish_data. It is a statement about the output
+	// surface, not about every byte the script can move — a script that writes
+	// through a tool, say platform.call("s3_put_object", ...), produces no
+	// output in this sense and is read in Tools instead.
 	Destinations []string `json:"destinations"`
+	// Tools is the tool names the source passes to platform.call literally,
+	// sorted. It is where a reader learns the reach of the open half of the
+	// surface: the persona filter decides what a run MAY call, and this says
+	// what this source DOES call (#1419).
+	Tools []string `json:"tools"`
 	// RefreshTargets is the output names platform.publish_data refreshes, read
 	// literally from the calls, so a reader sees WHICH asset's data region a
 	// script rewrites.
@@ -60,6 +69,12 @@ type Report struct {
 	DynamicConnections    bool `json:"dynamic_connections"`
 	DynamicDestinations   bool `json:"dynamic_destinations"`
 	DynamicRefreshTargets bool `json:"dynamic_refresh_targets"`
+	// DynamicTools is true when a platform.call computes the tool it invokes,
+	// so the tool list is known to be incomplete. A call that computes its
+	// ARGUMENT SET leaves the tool list intact and sets DynamicConnections
+	// instead, because the connection is the only claim this report makes
+	// about what is inside those arguments.
+	DynamicTools bool `json:"dynamic_tools"`
 }
 
 // CheckDestinations reports each destination a source names literally that the
@@ -128,7 +143,7 @@ func hasErrors(findings []Finding) bool {
 // all without a query running or a row moving.
 func Validate(source string) Report {
 	report := Report{
-		Capabilities: []string{}, Connections: []string{},
+		Capabilities: []string{}, Connections: []string{}, Tools: []string{},
 		Destinations: []string{}, RefreshTargets: []string{},
 	}
 	findings := scanSource(source)
@@ -143,12 +158,14 @@ func Validate(source string) Report {
 
 	found := inspect(file)
 	findings = append(findings, found.findings...)
-	report.Capabilities, report.Connections = found.capabilities, found.connections
-	report.Destinations = found.destinations
-	report.RefreshTargets = found.refreshTargets
+	report.Capabilities, report.Connections = sortedNames(found.capabilities), sortedNames(found.connections)
+	report.Tools = sortedNames(found.tools)
+	report.Destinations = sortedNames(found.destinations)
+	report.RefreshTargets = sortedNames(found.refreshTargets)
 	report.DynamicConnections = found.dynamicConnections
 	report.DynamicDestinations = found.dynamicDestinations
 	report.DynamicRefreshTargets = found.dynamicRefreshTargets
+	report.DynamicTools = found.dynamicTools
 
 	if _, resolveErr := starlark.FileProgram(file, isPredeclaredName); resolveErr != nil {
 		findings = append(findings, translate(resolveFindings(resolveErr))...)
@@ -319,7 +336,7 @@ var sourcePatterns = []sourcePattern{
 		re:       regexp.MustCompile(`\b(?:open|__import__)\s*\(|\bos\.\w|\brequests\.\w`),
 		severity: SeverityWarning,
 		message:  "there is no filesystem or network access in a script",
-		hint:     "The platform is the only outside world a script has: read with `platform.query`, write with `platform.export`.",
+		hint:     "The platform is the only outside world a script has: read with `platform.query`, write with `platform.export`, and reach anything else — an external API, an object store, another tool — with `platform.call(tool, args)` through a configured connection.",
 	},
 }
 
@@ -390,89 +407,238 @@ func lineOf(source string, off int) int {
 }
 
 // inspection is what one walk of a parsed file learns about what the script
-// would reach.
+// would reach. Each set is accumulated as the walk proceeds and rendered in
+// sorted order by sortedNames.
 type inspection struct {
-	capabilities          []string
-	connections           []string
-	destinations          []string
-	refreshTargets        []string
+	capabilities          map[string]bool
+	connections           map[string]bool
+	destinations          map[string]bool
+	refreshTargets        map[string]bool
+	tools                 map[string]bool
 	dynamicConnections    bool
 	dynamicDestinations   bool
 	dynamicRefreshTargets bool
+	dynamicTools          bool
 	findings              []Finding
 }
 
-// inspect walks the parsed file for what the script would reach: which host
-// bindings it names, which connections it queries, and where it writes.
-func inspect(file *syntax.File) inspection {
-	var findings []Finding
-	var dynamicConnections, dynamicDestinations, dynamicRefreshTargets bool
-	capSet := map[string]bool{}
-	connSet := map[string]bool{}
-	destSet := map[string]bool{}
-	refreshSet := map[string]bool{}
-
+// inspect walks the parsed file for what the script would reach: which members
+// of the platform module it names, which tools and connections it calls, and
+// where it writes.
+func inspect(file *syntax.File) *inspection {
+	ins := &inspection{
+		capabilities: map[string]bool{}, connections: map[string]bool{},
+		destinations: map[string]bool{}, refreshTargets: map[string]bool{},
+		tools: map[string]bool{},
+	}
 	syntax.Walk(file, func(n syntax.Node) bool {
-		call, ok := n.(*syntax.CallExpr)
-		if !ok {
-			return true
-		}
-		dot, ok := call.Fn.(*syntax.DotExpr)
-		if !ok {
-			return true
-		}
-		ident, ok := dot.X.(*syntax.Ident)
-		if !ok || ident.Name != "platform" {
-			return true
-		}
-		name := "platform." + dot.Name.Name
-		if !slices.Contains(Capabilities, name) {
-			findings = append(findings, Finding{
-				Severity: SeverityError, Line: int(dot.NamePos.Line),
-				Message: fmt.Sprintf("%s does not exist", name),
-				Hint:    "The platform module provides exactly " + strings.Join(Capabilities, ", ") + ".",
-			})
-			return true
-		}
-		capSet[name] = true
-		switch name {
-		case CapabilityQuery:
-			collectKeyword(call, "connection", connSet, &dynamicConnections)
-		case CapabilityExport:
-			if f, ok := refusePositionalDestination(call, int(dot.NamePos.Line)); ok {
-				// The engine refuses the call for the same reason, so reporting
-				// it here rather than reading past it keeps validate's answer
-				// and the run's behavior the same answer.
-				findings = append(findings, f)
-				break
-			}
-			collectExportDestination(call, destSet, &dynamicDestinations)
-		case CapabilityPublishData:
-			// A refresh writes to the portal and nowhere else, so the call
-			// contributes the portal to the destination list a reader sees.
-			destSet[script.DestinationPortal] = true
-			collectRefreshTarget(call, refreshSet, &dynamicRefreshTargets)
+		if call, dot, ok := platformCall(n); ok {
+			ins.visit(call, dot)
 		}
 		return true
 	})
+	return ins
+}
 
-	return inspection{
-		capabilities:          sortedNames(capSet),
-		connections:           sortedNames(connSet),
-		destinations:          sortedNames(destSet),
-		refreshTargets:        sortedNames(refreshSet),
-		dynamicConnections:    dynamicConnections,
-		dynamicDestinations:   dynamicDestinations,
-		dynamicRefreshTargets: dynamicRefreshTargets,
-		findings:              findings,
+// platformCall recognizes a call on the platform module and reports the call
+// with the member selection that named it.
+func platformCall(n syntax.Node) (*syntax.CallExpr, *syntax.DotExpr, bool) {
+	call, ok := n.(*syntax.CallExpr)
+	if !ok {
+		return nil, nil, false
+	}
+	dot, ok := call.Fn.(*syntax.DotExpr)
+	if !ok {
+		return nil, nil, false
+	}
+	ident, ok := dot.X.(*syntax.Ident)
+	if !ok || ident.Name != "platform" {
+		return nil, nil, false
+	}
+	return call, dot, true
+}
+
+// visit records what one platform.* call reaches, or refuses a member the
+// module does not have.
+func (ins *inspection) visit(call *syntax.CallExpr, dot *syntax.DotExpr) {
+	name := "platform." + dot.Name.Name
+	if !slices.Contains(Capabilities, name) {
+		ins.findings = append(ins.findings, Finding{
+			Severity: SeverityError, Line: int(dot.NamePos.Line),
+			Message: fmt.Sprintf("%s does not exist", name),
+			Hint: "The platform module has " + strings.Join(Capabilities, ", ") + ". " +
+				"Any other tool is called by name through " + CapabilityCall + "(tool, args).",
+		})
+		return
+	}
+	ins.capabilities[name] = true
+	if hasStarArg(call) {
+		ins.unreadable(name)
+		return
+	}
+	switch name {
+	case CapabilityQuery:
+		collectKeyword(call, "connection", ins.connections, &ins.dynamicConnections)
+	case CapabilityExport:
+		ins.visitExport(call, int(dot.NamePos.Line))
+	case CapabilityPublishData:
+		// A refresh writes to the portal and nowhere else, so the call
+		// contributes the portal to the destination list a reader sees.
+		ins.destinations[script.DestinationPortal] = true
+		collectFirstOrKeyword(call, "name", ins.refreshTargets, &ins.dynamicRefreshTargets)
+	case CapabilityCall:
+		ins.visitCall(call)
 	}
 }
 
-// collectRefreshTarget records the output name one platform.publish_data call
-// refreshes, whether it was passed positionally or by keyword — the name is the
-// call's first argument either way — or marks the call as computing it.
-func collectRefreshTarget(call *syntax.CallExpr, into map[string]bool, dynamic *bool) {
-	if collectKeyword(call, "name", into, dynamic) {
+// hasStarArg reports whether a call spreads a computed list or dict into its
+// arguments (f(*args) or f(**kwargs)), which the Starlark AST represents as a
+// unary STAR or STARSTAR.
+//
+// Every collector below reads arguments by position or by keyword, and a
+// spread has neither: the values are in a variable. A call carrying one is
+// therefore not readable at all, and reading past it would let
+// platform.export(**cfg) be reported as a portal write while cfg names a
+// bucket — the same false statement refusePositionalDestination exists to
+// prevent.
+func hasStarArg(call *syntax.CallExpr) bool {
+	for _, arg := range call.Args {
+		if un, ok := arg.(*syntax.UnaryExpr); ok && (un.Op == syntax.STAR || un.Op == syntax.STARSTAR) {
+			return true
+		}
+	}
+	return false
+}
+
+// unreadable records that one platform.* call carried arguments this validator
+// cannot read, marking every list that member would otherwise have contributed
+// to as incomplete rather than reporting a shorter list as a complete one.
+func (ins *inspection) unreadable(name string) {
+	switch name {
+	case CapabilityQuery:
+		ins.dynamicConnections = true
+	case CapabilityExport:
+		ins.dynamicDestinations = true
+	case CapabilityPublishData:
+		// A refresh writes to the portal whatever its arguments say, so the
+		// destination is still a fact; only the target name is unreadable.
+		ins.destinations[script.DestinationPortal] = true
+		ins.dynamicRefreshTargets = true
+	case CapabilityCall:
+		ins.dynamicTools = true
+		ins.dynamicConnections = true
+	}
+}
+
+// visitExport records where one platform.export call writes.
+func (ins *inspection) visitExport(call *syntax.CallExpr, line int) {
+	if f, ok := refusePositionalDestination(call, line); ok {
+		// The engine refuses the call for the same reason, so reporting it here
+		// rather than reading past it keeps validate's answer and the run's
+		// behavior the same answer.
+		ins.findings = append(ins.findings, f)
+		return
+	}
+	collectExportDestination(call, ins.destinations, &ins.dynamicDestinations)
+}
+
+// visitCall records the tool one platform.call invokes and, when its argument
+// set is a dict the source writes out, the connection that call names.
+//
+// The connection matters as much as the tool: the picker a caller chooses a
+// connection parameter from and the reader deciding whether a script's reach is
+// acceptable both read the connection list, and a generic call naming one is
+// exactly as much a use of that connection as platform.query naming it.
+func (ins *inspection) visitCall(call *syntax.CallExpr) {
+	collectFirstOrKeyword(call, "tool", ins.tools, &ins.dynamicTools)
+	args, present := callArgsExpr(call)
+	if !present {
+		// A call with no argument set names no connection. That is a fact about
+		// the source, not a gap in this read.
+		return
+	}
+	dict, ok := args.(*syntax.DictExpr)
+	if !ok {
+		// The arguments were computed, so a connection named inside them is
+		// unreadable. The TOOL is unaffected — it may well have been a literal,
+		// and reporting the tool list as short because the arguments were not
+		// would be a second false statement in place of the one this reports.
+		ins.dynamicConnections = true
+		return
+	}
+	collectDictEntry(dict, "connection", ins.connections, &ins.dynamicConnections)
+}
+
+// callArgsExpr returns the argument-set expression of a platform.call, whether
+// it was passed as args= or as the second positional argument, and reports
+// whether the call carried one at all.
+func callArgsExpr(call *syntax.CallExpr) (syntax.Expr, bool) {
+	positional := 0
+	for _, arg := range call.Args {
+		if bin, ok := arg.(*syntax.BinaryExpr); ok && bin.Op == syntax.EQ {
+			if key, ok := bin.X.(*syntax.Ident); ok && key.Name == "args" {
+				return bin.Y, true
+			}
+			continue
+		}
+		positional++
+		if positional == callArgsPosition {
+			return arg, true
+		}
+	}
+	return nil, false
+}
+
+// collectDictEntry records the literal string a dict literal holds under one
+// key, or marks the read as incomplete when the key is present with a computed
+// value. A key the dict does not carry contributes nothing: the call does not
+// name one.
+func collectDictEntry(dict *syntax.DictExpr, key string, into map[string]bool, dynamic *bool) {
+	for _, item := range dict.List {
+		entry, ok := item.(*syntax.DictEntry)
+		if !ok {
+			continue
+		}
+		lit, ok := entry.Key.(*syntax.Literal)
+		if !ok {
+			// A COMPUTED key might evaluate to the one being looked for, and
+			// this read cannot know that it does not. Reading past it would
+			// state positively that the call names no connection while the run
+			// reaches one, which is the completeness claim this report exists
+			// to keep honest.
+			*dynamic = true
+			continue
+		}
+		name, ok := lit.Value.(string)
+		if !ok {
+			// A non-string literal key is definitively not this key: the keys
+			// a tool call takes are strings. Nothing is hidden by it.
+			continue
+		}
+		if name != key {
+			continue
+		}
+		value, ok := entry.Value.(*syntax.Literal)
+		if !ok {
+			*dynamic = true
+			return
+		}
+		s, ok := value.Value.(string)
+		if !ok {
+			*dynamic = true
+			return
+		}
+		into[s] = true
+		return
+	}
+}
+
+// collectFirstOrKeyword records the literal string a call passes for a keyword
+// whose value may also be given as the call's FIRST positional argument — the
+// output name platform.publish_data refreshes, the tool platform.call invokes —
+// or marks the call as computing it.
+func collectFirstOrKeyword(call *syntax.CallExpr, keyword string, into map[string]bool, dynamic *bool) {
+	if collectKeyword(call, keyword, into, dynamic) {
 		return
 	}
 	for _, arg := range call.Args {
@@ -488,7 +654,7 @@ func collectRefreshTarget(call *syntax.CallExpr, into map[string]bool, dynamic *
 		*dynamic = true
 		return
 	}
-	// No name at all: the interpreter refuses the call as a missing argument,
+	// No value at all: the interpreter refuses the call as a missing argument,
 	// so there is nothing here to report.
 }
 

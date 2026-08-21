@@ -208,7 +208,7 @@ func (r *Runner) acquire(ctx context.Context) (func(), error) {
 // as the script principal with the version author's captured roles — which is why the
 // session plumbing itself lives in scriptrun and only the identity is decided
 // here.
-func (r *Runner) connect(ctx context.Context, runID string, id Identity) (*scriptrun.SessionCaller, func(), error) {
+func (r *Runner) connect(ctx context.Context, runID string, id Identity) (scriptrun.Caller, func(), error) {
 	serverCtx := middleware.WithSource(ctx, middleware.SourceScript)
 	serverCtx = pkgsession.WithAwareSessionID(serverCtx, runID)
 	serverCtx = middleware.WithPreAuthenticatedUser(serverCtx, &middleware.UserInfo{

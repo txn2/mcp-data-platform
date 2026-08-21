@@ -74,6 +74,16 @@ type PlatformContext struct {
 	Roles       []string
 	PersonaName string
 	AuthType    string // "oidc", "oauth", "apikey", "anonymous", "noop"
+	// OnBehalfOfEmail is the address of the person an unattended caller acts
+	// for, carried from UserInfo.OnBehalfOf. A managed-script run authenticates
+	// as script:<name>, which owns nothing a person owns, so an ownership check
+	// against UserID alone refuses a script the very resources its author can
+	// edit. Ownership checks read this so a run reaches what its author
+	// reaches, which is the whole rule of the feature (#1419).
+	//
+	// Empty for every human caller. An empty value must never match an
+	// empty owner address: absence of an identity is not a shared identity.
+	OnBehalfOfEmail string
 
 	// Tool information
 	ToolName    string

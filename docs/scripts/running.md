@@ -50,6 +50,91 @@ an administrator is how it comes to run with an administrator's reach. It is
 refused when the receiving owner already keeps a script of the same name, and
 it is recorded in the audit log like any other administrative write.
 
+### What a run may call
+
+A script calls the tools its author can call. `platform.query`,
+`platform.export` and `platform.publish_data` are named helpers for the three
+things a report usually does; `platform.call(tool, args)` invokes any other
+platform tool by name and hands the script its structured result:
+
+```python
+resp = platform.call("api_invoke_endpoint", {
+    "connection": "util",
+    "operation_id": "fetch_forecast",
+    "body": {"office": "PSR"},
+})
+periods = resp["body"]["properties"]["periods"]
+
+platform.call("manage_asset", {
+    "action": "patch",
+    "asset_id": "5affca99a698be1b31dd25d0f76cb398",
+    "change_summary": "Hourly forecast refresh",
+    "edits": [{
+        "op": "replace_content",
+        "selector": "#data",
+        "text": json.encode({"as_of": run.fire_time, "periods": periods}),
+    }],
+})
+```
+
+A script is executed top to bottom; there is no `main` and nothing calls one.
+
+**A statement passed to `trino_execute` is not parameter-bound.** `platform.query`
+takes `:name` placeholders and renders each value as a typed SQL literal;
+`platform.call("trino_execute", …)` has no such argument, so there is no safe
+way to put a value that came from outside into it. Do not build one by
+concatenation or `%` formatting: one apostrophe in an upstream field breaks the
+statement, and an upstream field can append statements of its own. Write out a
+statement whose text your script controls, or land the data as an output and
+load it with something that binds.
+
+Every one of those, the helpers included, is one ordinary MCP tool call over
+the run's own session. It is authorized by the persona filter at the moment it
+is made, presenting the roles the version's author held at the save, so a
+script reaches exactly what its author reaches and a tool the persona does not
+allow is refused in the persona filter's own words. There is no script-side
+allowlist, and nothing to keep in step with the persona configuration it would
+duplicate. A deployment that does not want scheduled writes withholds
+`trino_execute` from the persona, which is where that decision already lives
+for interactive callers. See the security model's [tool-surface
+section](security.md#the-tool-surface-is-the-personas-not-the-script-layers).
+
+Name the tool with a string literal, and write the args dict out in the call:
+`validate` reads the literal tool names into the report's `tools` list and a
+connection named literally inside the args dict into its `connections` list,
+which is how a reader learns what a script reaches without reading the
+Starlark. What cannot be read is reported as `dynamic_tools` or
+`dynamic_connections` rather than quietly left out.
+
+Two things a generic call does not get, which is why the helpers are still the
+way to do the three things they do. A query issued by tool call is not counted in the run's query
+total, and a write made by tool call is not one of the run's OUTPUTS: the run row's output list and the per-run output cap cover
+`platform.export` and `platform.publish_data`, so an object written by
+`platform.call("s3_put_object", ...)` appears in the audit log rather than on
+the run detail page. And a query issued by tool call is handed the tool's own
+result, truncation flag included, without the row cap `platform.query` pushes
+down into the statement.
+
+A tool that answers with plain text rather than a structured object arrives as
+`{"text": "..."}`, so a call always returns something the script can read.
+
+A run acts on what its author owns. It authenticates as `script:<name>`, which
+is what audit records and what its exported assets belong to, and it carries the
+address of the version's author so ownership checks recognize it: a script can
+refresh a dashboard its author owns, patch a document they own, or share one.
+The author, not the script's owner, because the run presents the author's roles
+and the two halves have to be the same person — so after an administrator
+transfers or edits a script, its runs act for that administrator while the owner
+is who may trigger them. A share addressed to the author
+is not inherited, and `list` still shows the script's own outputs rather than
+its author's library.
+
+Two calls are refused from inside a run: `run_script` and `manage_script
+run_draft`. That is a runaway-work guard rather than an authorization rule — a
+worker executes one run at a time per replica, so a script waiting on a run it
+started would be waiting on the worker running it. Give the second script its
+own schedule.
+
 ### Where output may go
 
 A script writes to the portal by default. Delivering output to a bucket needs
@@ -699,3 +784,4 @@ name a particular run.
 | Mailing a failed scheduled run | The email substrate (`notifications`, and an admin-configured mail server) |
 | Writing portal outputs | A configured portal asset store and object storage; without them an export to the portal fails the run, which is the honest report for a scheduled asset that never appeared |
 | Delivering to a bucket | A destination declared in `scripts.destinations`, over an S3 connection the platform is configured with, not read-only, reachable by the persona the run's roles resolve to. It needs no portal: a run that only delivers writes nothing the platform keeps |
+| Calling any other tool (`platform.call`) | Nothing of its own. The tool has to be registered on the deployment and allowed by the persona the run's roles resolve to, which is the same requirement an interactive caller has |

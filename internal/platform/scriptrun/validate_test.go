@@ -175,12 +175,173 @@ func TestValidate_CredentialShapedAssignmentIsAWarning(t *testing.T) {
 	assert.True(t, legitimate.OK, "a SQL predicate must not be refused as a credential")
 }
 
+// TestValidate_UnknownCapabilityIsAnError covers the one thing the member list
+// still does: catch a typo. The hint names the helpers and points at the
+// generic binding, because a member that does not exist is usually a tool the
+// author should be calling by name (#1419).
 func TestValidate_UnknownCapabilityIsAnError(t *testing.T) {
 	report := Validate(`platform.deliver(name="x")`)
 	assert.False(t, report.OK)
 	f := findingFor(t, report, "platform.deliver does not exist")
 	assert.Contains(t, f.Hint, CapabilityQuery)
+	assert.Contains(t, f.Hint, CapabilityCall+"(tool, args)")
 	assert.Empty(t, report.Capabilities)
+}
+
+// TestValidate_ReportsTheToolsACallNames is the reader's view of the open half
+// of the surface. The persona filter decides what a run MAY call; this says
+// what this source DOES call, whether the tool was named positionally or by
+// keyword.
+func TestValidate_ReportsTheToolsACallNames(t *testing.T) {
+	report := Validate(`
+platform.call("trino_execute", {"connection": "warehouse", "sql": "INSERT INTO t VALUES (1)"})
+platform.call(tool="api_invoke_endpoint", args={"connection": "util", "operation_id": "fetch_url"})
+platform.call("show_scripts")
+`)
+	assert.True(t, report.OK, report.Findings)
+	assert.Equal(t, []string{CapabilityCall}, report.Capabilities)
+	assert.Equal(t, []string{"api_invoke_endpoint", "show_scripts", "trino_execute"}, report.Tools)
+	assert.False(t, report.DynamicTools)
+	assert.Equal(t, []string{"util", "warehouse"}, report.Connections,
+		"a generic call naming a connection is as much a use of it as platform.query naming it")
+	assert.False(t, report.DynamicConnections)
+}
+
+// TestValidate_DynamicToolIsReported states the gap rather than hiding it. A
+// computed tool name, and an argument set this validator cannot read, each make
+// a list short — and a list a reader trusts must say when it is.
+func TestValidate_DynamicToolIsReported(t *testing.T) {
+	report := Validate(`
+tool = "trino_" + "execute"
+platform.call(tool, {"connection": "warehouse"})
+`)
+	assert.True(t, report.OK, report.Findings)
+	assert.Empty(t, report.Tools)
+	assert.True(t, report.DynamicTools)
+	assert.Equal(t, []string{"warehouse"}, report.Connections,
+		"the connection is still readable even when the tool is not")
+
+	// A computed argument set hides the connection named inside it, and only
+	// that: the tool was a literal and the tool list is still complete.
+	report = Validate(`
+args = {"connection": "warehouse"}
+platform.call("trino_execute", args)
+`)
+	assert.True(t, report.DynamicConnections)
+	assert.Empty(t, report.Connections)
+	assert.Equal(t, []string{"trino_execute"}, report.Tools)
+	assert.False(t, report.DynamicTools,
+		"the tool was named literally, so reporting the tool list as short would be a second false statement")
+
+	// A computed connection VALUE inside a readable dict is the same gap the
+	// query binding reports for a computed connection= keyword.
+	report = Validate(`platform.call("trino_execute", {"connection": "prod" + "-west"})`)
+	assert.True(t, report.DynamicConnections)
+	assert.Empty(t, report.Connections)
+	assert.False(t, report.DynamicTools, "the tool name was a literal")
+}
+
+// TestValidate_ACallNamingNoConnectionClaimsNothing keeps the honesty rule
+// symmetric: "this call names no connection" is a fact about the source, not a
+// gap in the read.
+func TestValidate_ACallNamingNoConnectionClaimsNothing(t *testing.T) {
+	report := Validate(`
+platform.call("show_scripts")
+platform.call("search", {"query": "orders"})
+`)
+	assert.True(t, report.OK, report.Findings)
+	assert.Empty(t, report.Connections)
+	assert.False(t, report.DynamicConnections)
+	assert.False(t, report.DynamicTools)
+}
+
+// TestValidate_AnUnreadableArgumentKeyIsNotAConnection covers the dict shapes
+// that carry no readable connection. None of them is a gap in the read: the
+// call names no connection under a key this validator recognizes, which is the
+// same fact as not carrying the key at all.
+func TestValidate_AnUnreadableArgumentKeyIsNotAConnection(t *testing.T) {
+	for name, source := range map[string]string{
+		// A non-string literal key is definitively not "connection", because
+		// the keys a tool call takes are strings.
+		"a non-string key":       `platform.call("t", {1: "warehouse"})`,
+		"another key entirely":   `platform.call("t", {"sql": "SELECT 1"})`,
+		"an empty argument dict": `platform.call("t", {})`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			report := Validate(source + "\n")
+			assert.Empty(t, report.Connections)
+			assert.False(t, report.DynamicConnections)
+		})
+	}
+
+	// A recognized key whose VALUE is not a readable string IS a gap: the call
+	// names a connection this read cannot resolve.
+	report := Validate(`platform.call("t", {"connection": 3})` + "\n")
+	assert.True(t, report.DynamicConnections)
+	assert.Empty(t, report.Connections)
+
+	// So is a COMPUTED key, which might evaluate to "connection". Reading past
+	// it would report a complete connection list for a call that names one.
+	report = Validate("key = \"conn\"\nplatform.call(\"t\", {key: \"warehouse\"})\n")
+	assert.True(t, report.DynamicConnections,
+		"a computed key might be the connection, and this read cannot know it is not")
+	assert.Empty(t, report.Connections)
+}
+
+// TestValidate_ASpreadArgumentMakesACallUnreadable pins the honesty rule for
+// f(*args) and f(**kwargs). Every collector reads arguments by position or by
+// keyword, and a spread has neither — the values are in a variable — so the
+// call contributes nothing and says so, rather than being read past into a
+// shorter list presented as a complete one.
+func TestValidate_ASpreadArgumentMakesACallUnreadable(t *testing.T) {
+	t.Run("an export", func(t *testing.T) {
+		report := Validate(`
+cfg = {"name": "a", "rows": [], "destination": "acme-drop"}
+platform.export(**cfg)
+`)
+		assert.True(t, report.DynamicDestinations)
+		assert.Empty(t, report.Destinations,
+			"a spread export must not be reported as a portal write while its dict names a bucket")
+	})
+
+	t.Run("a query", func(t *testing.T) {
+		report := Validate(`
+cfg = {"sql": "SELECT 1", "connection": "warehouse"}
+platform.query(**cfg)
+`)
+		assert.True(t, report.DynamicConnections)
+		assert.Empty(t, report.Connections)
+	})
+
+	t.Run("a generic call", func(t *testing.T) {
+		report := Validate(`
+cfg = {"tool": "s3_put_object", "args": {"connection": "acme-s3"}}
+platform.call(**cfg)
+`)
+		assert.True(t, report.DynamicTools)
+		assert.True(t, report.DynamicConnections)
+		assert.Empty(t, report.Tools)
+		assert.Empty(t, report.Connections)
+	})
+
+	t.Run("a refresh", func(t *testing.T) {
+		report := Validate(`
+cfg = {"name": "dash", "data": {}}
+platform.publish_data(**cfg)
+`)
+		assert.True(t, report.DynamicRefreshTargets)
+		assert.Empty(t, report.RefreshTargets)
+		assert.Equal(t, []string{script.DestinationPortal}, report.Destinations,
+			"a refresh writes to the portal whatever its arguments say")
+	})
+}
+
+// TestValidate_NoCallMeansAnEmptyToolList keeps the field a list, never null.
+func TestValidate_NoCallMeansAnEmptyToolList(t *testing.T) {
+	report := Validate(`platform.export(name="a", rows=[])`)
+	assert.NotNil(t, report.Tools)
+	assert.Empty(t, report.Tools)
+	assert.False(t, report.DynamicTools)
 }
 
 // TestValidate_DynamicConnectionIsReported pins the honesty rule: a connection
@@ -219,6 +380,7 @@ func TestValidate_ParseErrorSkipsInspection(t *testing.T) {
 	assert.False(t, report.OK)
 	assert.NotEmpty(t, report.Findings)
 	assert.Empty(t, report.Capabilities, "nothing is claimed about a file that does not parse")
+	assert.Empty(t, report.Tools)
 }
 
 // TestValidate_WarningsDoNotBlock separates advice from refusal: an f-string is

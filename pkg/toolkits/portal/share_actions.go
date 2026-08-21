@@ -211,7 +211,7 @@ func (t *Toolkit) loadOwnedAsset(ctx context.Context, assetID, action, verb stri
 	// Sharing is owner authority, not editing: an editor share never carries
 	// the right to hand that access on to someone else (the REST routes hold
 	// the same line). An admin is unrestricted, as everywhere else.
-	if !t.isAdmin(ctx) && asset.OwnerID != resolveOwnerID(ctx) {
+	if !t.isAdmin(ctx) && !ownsResource(ctx, asset.OwnerID, asset.OwnerEmail) {
 		return nil, toolkit.ErrorResult("only the owner can " + verb)
 	}
 	return asset, nil

@@ -16,9 +16,10 @@ import { dryRunOutputPhrase } from "./runFormat";
 // are read together, are laid out together.
 
 // ValidationReport is what the edited source would reach, and what is wrong
-// with it. The capability lists say what the edit touches — which host calls,
-// which connections, where it writes — so a change in any of them is something
-// the author notices here rather than in a run somebody else is watching.
+// with it. The reach lists say what the edit touches — which host calls, which
+// tools it invokes by name, which connections, where it writes — so a change in
+// any of them is something the author notices here rather than in a run
+// somebody else is watching.
 export function ValidationReport({
   report,
   contract,
@@ -41,14 +42,7 @@ export function ValidationReport({
 
       <Findings findings={report.findings} />
 
-      <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
-        <Reached label="Capabilities" values={report.capabilities} />
-        <Reached label="Connections" values={report.connections} />
-        <Reached label="Destinations" values={report.destinations} />
-        {(report.refresh_targets ?? []).length > 0 && (
-          <Reached label="Refreshes" values={report.refresh_targets ?? []} />
-        )}
-      </dl>
+      <ReachLists report={report} />
 
       {report.note && <p className="text-xs text-muted-foreground">{report.note}</p>}
 
@@ -57,6 +51,23 @@ export function ValidationReport({
         edit is saved.
       </p>
     </div>
+  );
+}
+
+// ReachLists is everything the source touches. The three that are always a fact
+// about a script are always shown, including when they are empty; the two that
+// only some scripts have are shown when there is something to say.
+function ReachLists({ report }: { report: ScriptValidation }) {
+  const tools = report.tools ?? [];
+  const refreshes = report.refresh_targets ?? [];
+  return (
+    <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
+      <Reached label="Capabilities" values={report.capabilities} />
+      <Reached label="Connections" values={report.connections} />
+      <Reached label="Output destinations" values={report.destinations} />
+      {tools.length > 0 && <Reached label="Tools" values={tools} />}
+      {refreshes.length > 0 && <Reached label="Refreshes" values={refreshes} />}
+    </dl>
   );
 }
 

@@ -25,21 +25,26 @@ func (h *Handle) handleValidate(ctx context.Context, input manageScriptInput) (*
 		"ok":                      report.OK,
 		"findings":                report.Findings,
 		"capabilities":            report.Capabilities,
+		"tools":                   report.Tools,
 		"connections":             report.Connections,
 		"destinations":            report.Destinations,
 		"refresh_targets":         report.RefreshTargets,
 		"dynamic_connections":     report.DynamicConnections,
 		"dynamic_destinations":    report.DynamicDestinations,
 		"dynamic_refresh_targets": report.DynamicRefreshTargets,
+		"dynamic_tools":           report.DynamicTools,
 	}
 	if report.DynamicConnections {
-		out["connections_note"] = "At least one platform.query call computes its connection instead of naming one, so this connection list is incomplete."
+		out["connections_note"] = "At least one call computes its connection instead of naming one, or passes platform.call an argument set that cannot be read from the source, so this connection list is incomplete."
 	}
 	if report.DynamicDestinations {
 		out["destinations_note"] = "At least one platform.export call computes its destination instead of naming one, so this destination list is incomplete."
 	}
 	if report.DynamicRefreshTargets {
 		out["refresh_targets_note"] = "At least one platform.publish_data call computes the output name it refreshes instead of naming one, so this refresh-target list is incomplete."
+	}
+	if report.DynamicTools {
+		out["tools_note"] = "At least one platform.call computes the tool it invokes instead of naming one, so this tool list is incomplete."
 	}
 	if !report.OK {
 		out["help"] = fmt.Sprintf("Call %s with command=help for the dialect contract and worked examples.", ToolNameManageScript)
@@ -64,6 +69,9 @@ func (h *Handle) handleValidate(ctx context.Context, input manageScriptInput) (*
 // rather than the saved version. Sending no source runs the saved version,
 // which is how an author dry-runs a script they have not edited.
 func (h *Handle) handleRunDraft(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
+	if errResult := refuseReentrantRun(ctx, ToolNameManageScript+" "+cmdRunDraft); errResult != nil {
+		return errResult, nil, nil
+	}
 	sc, errResult := h.readable(ctx, input)
 	if errResult != nil {
 		return errResult, nil, nil

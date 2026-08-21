@@ -518,13 +518,22 @@ export interface ScriptValidation {
   findings: ScriptFinding[];
   capabilities: string[];
   connections: string[];
+  // Where this script's OUTPUTS go: what platform.export writes to, plus the
+  // portal for an export naming none. Not every byte the script can move — a
+  // write made through platform.call is read in tools instead.
   destinations: string[];
+  // The tool names the source passes to platform.call literally. The persona
+  // filter decides what a run may call; this is what the source does call.
+  tools?: string[];
   // The output names platform.publish_data refreshes: which asset's data
   // region this source rewrites.
   refresh_targets?: string[];
   dynamic_connections: boolean;
   dynamic_destinations: boolean;
   dynamic_refresh_targets?: boolean;
+  // dynamic_tools is true when a call computes the tool it invokes, which
+  // shortens the tool list. A computed argument set shortens connections.
+  dynamic_tools?: boolean;
   note?: string;
 }
 

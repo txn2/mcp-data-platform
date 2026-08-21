@@ -22,8 +22,14 @@ func TestSessionCaller_TextOnlyResultIsParsed(t *testing.T) {
 }
 
 // TestSessionCaller_ResultShapes drives the caller against a server whose tool
-// returns each of the three shapes it must handle: structured content, a JSON
-// text block, and text that is not JSON at all.
+// returns each of the shapes it must handle: a JSON text block, text that is
+// not JSON at all, and a JSON array.
+//
+// Since #1419 a script calls any tool its author can call, so a tool whose
+// answer is text — a gateway-proxied upstream tool carries no structured
+// content of its own unless enrichment fires — must reach the script rather
+// than fail a run whose call succeeded. It arrives under TextResultKey, which
+// is one rule an author can hold rather than a shape per tool.
 func TestSessionCaller_ResultShapes(t *testing.T) {
 	ctx := context.Background()
 	cases := []struct {
@@ -33,7 +39,12 @@ func TestSessionCaller_ResultShapes(t *testing.T) {
 		wantErr string
 	}{
 		{"json text block", `{"rows":[]}`, map[string]any{"rows": []any{}}, ""},
-		{"unparseable text", "not json at all", nil, "no structured result"},
+		{"prose", "not json at all", map[string]any{TextResultKey: "not json at all"}, ""},
+		{"a json array", `[1,2]`, map[string]any{TextResultKey: `[1,2]`}, ""},
+		// A SUCCESSFUL call that carried no text carried no text. Handing the
+		// script firstText's error placeholder here would give it a sentence
+		// about a failure that did not happen, as data.
+		{"no text at all", "", map[string]any{TextResultKey: ""}, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

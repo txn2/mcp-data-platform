@@ -169,11 +169,41 @@ func (h *Handle) commands() map[string]commandHandler {
 	}
 }
 
+// scriptWritingCommands are the manage_script commands a script run may not
+// issue: everything that changes what exists or what will execute.
+//
+// A run may READ the script surface — get, list, validate, the content verbs,
+// its own run history — because reading changes nothing and refusing it would
+// take away the obvious way for a script to describe the automation it is part
+// of. It may not author, edit, delete, or schedule (#1419).
+//
+// Two reasons, and the second is the sharper one:
+//
+//   - Runaway work. A run that can create a script and set a cadence can start
+//     unbounded work across runs, which is the cycle refuseReentrantRun exists
+//     to stop; guarding only the two execution verbs would leave the door next
+//     to the one that was locked.
+//   - Authority laundering. Inside a run the caller identity is the script's
+//     own — resolveEmail is the OWNER's address and pc.Roles are the executing
+//     version's AUTHOR roles — so a run that could patch a script would write a
+//     new version capturing those roles under that address. A role set captured
+//     once, for one save, would become permanent and attributed to somebody who
+//     never held it. Nothing about a run should be able to author authority.
+var scriptWritingCommands = map[string]bool{
+	cmdCreate: true, cmdUpdate: true, cmdPatch: true, cmdDelete: true,
+	cmdScheduleSet: true, cmdScheduleEnable: true, cmdScheduleDisable: true,
+}
+
 // handleManageScript dispatches manage_script commands.
 func (h *Handle) handleManageScript(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
 	handler, ok := h.commands()[input.Command]
 	if !ok {
 		return errorResult(fmt.Sprintf("unknown command: %s", input.Command)), nil, nil
+	}
+	if scriptWritingCommands[input.Command] {
+		if errResult := refuseScriptAuthoring(ctx, ToolNameManageScript+" "+input.Command); errResult != nil {
+			return errResult, nil, nil
+		}
 	}
 	return handler(ctx, input)
 }
