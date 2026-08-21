@@ -163,8 +163,10 @@ func TestCallReferenceMiddlewareHandlerError(t *testing.T) {
 	assert.ErrorIs(t, err, wantErr)
 }
 
-// A tool that returned no structured output gets one synthesized from the
-// reference alone, which is how the enrichment middleware behaves too.
+// A tool that returned no structured output keeps the reference in its content
+// and gains no structured result: one synthesized from the reference alone is
+// the whole response as far as a structured-output client is concerned, and
+// that client called the tool for what the tool returned (#1416).
 func TestCallReferenceMiddlewareWithoutStructuredContent(t *testing.T) {
 	result := &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "plain text rows"}}}
 	handler := MCPCallReferenceMiddleware([]string{"trino"})(callReferenceHandler(result, nil))
@@ -173,10 +175,12 @@ func TestCallReferenceMiddlewareWithoutStructuredContent(t *testing.T) {
 	pc.EventID = "evt-9"
 	pc.ToolkitKind = "trino"
 
-	_, err := handler(WithPlatformContext(context.Background(), pc), methodToolsCall, callReferenceRequest())
+	got, err := handler(WithPlatformContext(context.Background(), pc), methodToolsCall, callReferenceRequest())
 	require.NoError(t, err)
 
-	structured, ok := result.StructuredContent.(map[string]any)
-	require.True(t, ok)
-	assert.Contains(t, structured, CallReferenceKey)
+	ref, ok := readCallReference(t, got)
+	require.True(t, ok, "the reference is still handed back in the content")
+	assert.Equal(t, "evt-9", ref.CallID)
+	assert.Nil(t, result.StructuredContent,
+		"no structured result is synthesized from the reference alone")
 }

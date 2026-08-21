@@ -16,8 +16,16 @@ func describedTable() semantic.TableIdentifier {
 	return semantic.TableIdentifier{Catalog: "warehouse", Schema: "sales", Table: "orders"}
 }
 
+// provenResult models what a describe returns: mcp-trino registers
+// trino_describe_table through the generic mcp.AddTool, so the SDK marshals the
+// typed output into StructuredContent before any middleware sees the result.
+// The appended block is merged into that, and is mirrored only because it is
+// there (see mirrorEnrichmentToStructured).
 func provenResult() *mcp.CallToolResult {
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "{}"}}}
+	return &mcp.CallToolResult{
+		Content:           []mcp.Content{&mcp.TextContent{Text: "{}"}},
+		StructuredContent: map[string]any{"columns": []any{}},
+	}
 }
 
 func TestProvenQueriesAreAppendedToADescribe(t *testing.T) {
@@ -54,8 +62,15 @@ func TestProvenQueriesAreAppendedToADescribe(t *testing.T) {
 			t.Errorf("result %q is missing %q", text, want)
 		}
 	}
-	if result.StructuredContent == nil {
+	structured, ok := result.StructuredContent.(map[string]any)
+	if !ok {
+		t.Fatalf("structured content = %T, want the describe's own map", result.StructuredContent)
+	}
+	if _, present := structured["proven_queries"]; !present {
 		t.Error("the block must be mirrored into structured output, as every other enrichment is")
+	}
+	if _, present := structured["columns"]; !present {
+		t.Error("mirroring must not drop what the describe returned")
 	}
 }
 

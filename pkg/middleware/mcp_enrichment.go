@@ -97,14 +97,15 @@ func enrichToolResult(ctx context.Context, enricher *semanticEnricher, req mcp.R
 	// Export tools (trino_export, api_export, ...) return asset metadata
 	// (asset_id, portal_url, row_count, size_bytes), not query rows. Routing
 	// them through query enrichment parses the source SQL and appends a
-	// source-table semantic_context block. The export handler sets no
-	// StructuredContent, so mirrorEnrichmentToStructured then synthesizes a
-	// structured result from that appended block alone: clients that render
-	// structured output receive only semantic_context and never see the
-	// asset_id/portal_url the handler returned (the original text block is
-	// retained, but structured-output clients don't read it) (#822). Skip the
-	// whole enrichment pipeline so the export response reaches the client
-	// unchanged.
+	// source-table semantic_context block describing tables the response does
+	// not contain, which is context about the wrong thing at the cost of the
+	// response it is added to (#822). Skip the whole enrichment pipeline so the
+	// export response reaches the client as the handler wrote it.
+	//
+	// Clobbering trino_export's own payload is a separate hazard, and it is not
+	// this bypass that prevents it: mirrorEnrichmentToStructured merges only
+	// into a structured result the handler set, which the untyped trino_export
+	// handler does not.
 	if isExportTool(toolName) {
 		return result, nil
 	}
@@ -192,15 +193,42 @@ func applyEnrichment(
 	return enrichedResult, nil
 }
 
-// mirrorEnrichmentToStructured copies the JSON enrichment blocks the middleware
-// appended to result.Content (at indices >= fromIndex) into
-// result.StructuredContent, so a client that surfaces only structured output
-// still receives them. Each platform block is a JSON object with named top-level
-// keys (semantic_context, column_context, related_memories, discovery_note,
-// metadata_reference, ...), which merge cleanly. Resource links and non-JSON
-// blocks are skipped. Best-effort: any failure leaves the result unchanged.
+// mirrorEnrichmentToStructured merges the JSON blocks a middleware appended to
+// result.Content (at indices >= fromIndex) into result.StructuredContent, so a
+// client that surfaces only structured output receives them beside what the
+// tool returned. Each platform block is a JSON object with named top-level keys
+// (semantic_context, column_context, related_memories, discovery_note,
+// call_reference, ...), which merge cleanly. Resource links and non-JSON blocks
+// are skipped. Best-effort: any failure leaves the result unchanged.
+//
+// Mirroring happens only into a structured result the handler already set, and
+// only when that result is a JSON object. A handler that returned none, or one
+// that is not an object, gets its result left alone: synthesizing a structured
+// result out of the appended blocks alone does not add context to the tool's
+// output, it replaces it. A structured-output client then reads a response
+// consisting of nothing but the platform's own additions and never sees what it
+// called the tool for.
+//
+// trino_export is the tool that reached a running deployment this way twice
+// (#822 through enrichment, #1416 through the call reference): it registers
+// through the untyped Server.AddTool path (pkg/toolkits/trino/export.go), so
+// the SDK writes no structured result and its asset_id and portal_url live in a
+// text block alone. api_export registers through the generic mcp.AddTool with a
+// typed output, so the SDK does write one and the appended blocks merge into
+// it. The rule is not about exports: a gateway-proxied tool whose upstream
+// answered in text, and any tool whose structured result is an array, are the
+// same case, and their appended blocks stay in content where the response they
+// belong to is.
+//
+// The three paths that append a block — semantic enrichment, the proven queries
+// a describe carries, and the call reference — all mirror through here, so the
+// rule holds for each of them and for the next one.
 func mirrorEnrichmentToStructured(result *mcp.CallToolResult, fromIndex int) {
 	if result == nil || fromIndex < 0 || fromIndex >= len(result.Content) {
+		return
+	}
+	base, mergeable := structuredObject(result.StructuredContent)
+	if !mergeable {
 		return
 	}
 	added := map[string]any{}
@@ -218,15 +246,16 @@ func mirrorEnrichmentToStructured(result *mcp.CallToolResult, fromIndex int) {
 	if len(added) == 0 {
 		return
 	}
-	base := structuredAsMap(result.StructuredContent)
 	maps.Copy(base, added)
 	result.StructuredContent = base
 }
 
-// structuredAsMap returns sc as a map[string]any: the value itself if already a
-// map, a JSON round-trip of a typed struct, or a fresh map when nil or not
-// convertible. The original typed structured value is replaced by this map so
-// the enrichment keys can be merged in.
+// structuredObject returns sc as a mergeable map[string]any: the value itself
+// if already a map, or a JSON round-trip of a typed struct. The original typed
+// structured value is replaced by this map so the appended keys can be merged
+// in. It reports false when sc is nil or does not represent a JSON object (an
+// array, a scalar, a value that will not marshal), which are the cases where
+// there is nothing to merge into and the caller must leave the result alone.
 //
 // Interaction with declared OutputSchemas (#925, #1381): the tools this
 // middleware enriches (trino_/datahub_/s3_, gated by inferToolkitKind) do
@@ -235,22 +264,25 @@ func mirrorEnrichmentToStructured(result *mcp.CallToolResult, fromIndex int) {
 // schema-valid only because MCPOutputSchemaMiddleware opens the top level of
 // every advertised schema in tools/list, the same way the platform-owned
 // schemas are built open by middleware.OpenToolOutputSchema.
-func structuredAsMap(sc any) map[string]any {
+func structuredObject(sc any) (map[string]any, bool) {
 	if sc == nil {
-		return map[string]any{}
+		return nil, false
 	}
 	if m, ok := sc.(map[string]any); ok {
-		return m
+		// An interface holding a nil map is not == nil, and merging into a nil
+		// map panics. It carries nothing to merge into either, so it is the
+		// same case as an unset structured result.
+		return m, m != nil
 	}
 	data, err := json.Marshal(sc)
 	if err != nil {
-		return map[string]any{}
+		return nil, false
 	}
 	var m map[string]any
 	if err := json.Unmarshal(data, &m); err != nil || m == nil {
-		return map[string]any{}
+		return nil, false
 	}
-	return m
+	return m, true
 }
 
 // appendDiscoveryNoteIfNeeded appends a soft discovery note to enriched results

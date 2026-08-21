@@ -12,9 +12,11 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
 
-// exportResponsePayload mirrors the trino_export / api_export handler output:
-// a single JSON text block carrying asset metadata, with no StructuredContent
-// set by the handler (see pkg/toolkits/trino/export.go exportSuccess).
+// exportResponsePayload mirrors the trino_export handler output: a single JSON
+// text block carrying asset metadata, with no StructuredContent, which is what
+// the untyped Server.AddTool path leaves (pkg/toolkits/trino/export.go
+// exportSuccess). api_export carries the same fields in a structured result
+// too — see exportStructuredPayload.
 func exportResponsePayload(t *testing.T) *mcp.CallToolResult {
 	t.Helper()
 	body, err := json.Marshal(map[string]any{
@@ -32,9 +34,9 @@ func exportResponsePayload(t *testing.T) *mcp.CallToolResult {
 }
 
 // assertExportContractSurvives asserts that the export asset metadata is present
-// and was not replaced by source-table semantic_context (#822). It checks both
-// the text content block and the structured content the enrichment layer may
-// synthesize.
+// and was not replaced by anything a middleware appended (#822, #1416). It
+// checks the handler's text block, and any structured result the chain left on
+// the response.
 func assertExportContractSurvives(t *testing.T, cr *mcp.CallToolResult) {
 	t.Helper()
 
@@ -52,7 +54,8 @@ func assertExportContractSurvives(t *testing.T, cr *mcp.CallToolResult) {
 	assert.NotEmpty(t, payload["message"])
 
 	// Enrichment must not have leaked source-table semantic context onto the
-	// export response, nor synthesized structured content that omits the payload.
+	// export response, and a structured result, if the chain produced one at
+	// all, must carry the payload rather than stand in for it.
 	assert.NotContains(t, tc.Text, "semantic_context")
 	if cr.StructuredContent != nil {
 		scJSON, err := json.Marshal(cr.StructuredContent)
@@ -160,5 +163,121 @@ func TestEnrichment_ExportContractViaAssembledServer(t *testing.T) {
 			require.NoError(t, err)
 			assertExportContractSurvives(t, res)
 		})
+	}
+}
+
+// TestExportContractViaAssembledChain is the #1416 acceptance, and the
+// regression test whose absence let #822 return by a second route: an export
+// tool called through the middleware chain as the platform assembles it — the
+// call reference outer to enrichment, both fed the PlatformContext the
+// auth/authz layer writes — hands the client the asset metadata its own
+// description promises.
+//
+// Testing each middleware alone proved neither one clobbers the response, which
+// is not the property that matters: what reaches the client is the chain's
+// output, and it was the second middleware appending through the same helper
+// that emptied it.
+func TestExportContractViaAssembledChain(t *testing.T) {
+	for _, tc := range []struct {
+		toolName    string
+		toolkitKind string
+		// structured is whether this tool's real handler leaves the SDK a
+		// structured result to merge into: trino_export registers through the
+		// untyped Server.AddTool path and does not, api_export registers
+		// through the generic mcp.AddTool with a typed output and does.
+		structured bool
+	}{
+		{toolName: "trino_export", toolkitKind: "trino", structured: false},
+		{toolName: "api_export", toolkitKind: "api", structured: true},
+	} {
+		t.Run(tc.toolName, func(t *testing.T) {
+			server := mcp.NewServer(&mcp.Implementation{Name: "export-chain-test", Version: "v0"}, nil)
+			server.AddTool(&mcp.Tool{
+				Name:        tc.toolName,
+				Description: "export",
+				InputSchema: json.RawMessage(`{"type":"object"}`),
+			}, func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				res := exportResponsePayload(t)
+				if tc.structured {
+					res.StructuredContent = exportStructuredPayload(t)
+				}
+				return res, nil
+			})
+
+			// Registered innermost-first, so the assembled order is the
+			// platform's: PlatformContext outermost, then the call reference,
+			// then enrichment (pkg/platform/middleware_chain.go).
+			server.AddReceivingMiddleware(MCPSemanticEnrichmentMiddleware(
+				exportEnrichmentProvider(), nil, nil, EnrichmentConfig{EnrichTrinoResults: true}, nil))
+			server.AddReceivingMiddleware(MCPCallReferenceMiddleware([]string{"trino", "api"}))
+			server.AddReceivingMiddleware(exportPlatformContextMiddleware(tc.toolkitKind))
+
+			ctx := context.Background()
+			t1, t2 := mcp.NewInMemoryTransports()
+			_, err := server.Connect(ctx, t1, nil)
+			require.NoError(t, err)
+			client := mcp.NewClient(&mcp.Implementation{Name: "c", Version: "v0"}, nil)
+			sess, err := client.Connect(ctx, t2, nil)
+			require.NoError(t, err)
+			defer func() { _ = sess.Close() }()
+
+			res, err := sess.CallTool(ctx, &mcp.CallToolParams{
+				Name: tc.toolName,
+				Arguments: map[string]any{
+					"sql":    "SELECT * FROM warehouse.public.regions ORDER BY 1 LIMIT 10",
+					"format": "csv",
+				},
+			})
+			require.NoError(t, err)
+
+			assertExportContractSurvives(t, res)
+			if tc.structured {
+				// The typed handler's own keys are still there, with the
+				// reference merged in beside them rather than over them.
+				structured, ok := res.StructuredContent.(map[string]any)
+				require.True(t, ok, "structured result = %T", res.StructuredContent)
+				assert.Equal(t, "exp_abc123", structured["asset_id"])
+				assert.Contains(t, structured, CallReferenceKey)
+			} else {
+				assert.Nil(t, res.StructuredContent,
+					"a handler that set no structured result must not be given one built from the chain's own blocks")
+			}
+
+			// The call is still citable: the reference the export gained is
+			// what an agent names when it says which call built the asset.
+			ref, ok := readCallReference(t, res)
+			require.True(t, ok, "an export is a data call and keeps its reference")
+			assert.Equal(t, exportEventID, ref.CallID)
+		})
+	}
+}
+
+// exportStructuredPayload is the structured result the SDK writes for an export
+// tool registered with a typed output, which api_export is
+// (pkg/toolkits/apigateway/export.go returns its output value alongside the
+// result, and the SDK marshals it into StructuredContent).
+func exportStructuredPayload(t *testing.T) map[string]any {
+	t.Helper()
+	tc, ok := exportResponsePayload(t).Content[0].(*mcp.TextContent)
+	require.True(t, ok)
+	var out map[string]any
+	require.NoError(t, json.Unmarshal([]byte(tc.Text), &out))
+	return out
+}
+
+// exportEventID is the recorded call id the assembled-chain test stamps with.
+const exportEventID = "evt-export-1"
+
+// exportPlatformContextMiddleware supplies the PlatformContext the auth/authz
+// middleware writes in the running server, which is what the call-reference
+// middleware reads to decide a call is a citable data call.
+func exportPlatformContextMiddleware(toolkitKind string) mcp.Middleware {
+	return func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			pc := NewPlatformContext("req-export")
+			pc.EventID = exportEventID
+			pc.ToolkitKind = toolkitKind
+			return next(WithPlatformContext(ctx, pc), method, req)
+		}
 	}
 }
