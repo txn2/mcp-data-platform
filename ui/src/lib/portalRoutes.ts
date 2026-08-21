@@ -68,7 +68,13 @@ const KNOWN_PATTERNS: readonly RegExp[] = [
   /^\/collections\/[^/]+\/assets\/.+$/,
   /^\/knowledge\/pages\/.+$/,
   /^\/prompts\/.+$/,
-  /^\/scripts\/.+$/,
+  /^\/scripts\/[^/]+$/,
+  // One run of one script (#1405): the address the cross-script Runs listing
+  // links to, which opens that run in its script's history. Both script shapes
+  // are matched exactly rather than as "anything under /scripts", so a path
+  // under a script that names no page gets the not-found page instead of a
+  // blank one.
+  /^\/scripts\/[^/]+\/runs\/[^/]+$/,
   /^\/admin\/assets\/.+$/,
   /^\/admin\/collections\/.+$/,
   /^\/admin\/sessions\/.+$/,

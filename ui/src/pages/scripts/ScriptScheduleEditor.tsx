@@ -27,7 +27,7 @@ import {
   type Values,
 } from "./ScriptParameterForm";
 
-// ScriptScheduleEditor is where the owner of an automation says when it runs
+// ScriptScheduleEditor is where the owner of a script says when it runs
 // (#1307). It is the only thing on these pages that changes anything.
 //
 // A cadence carries no authority: the run gate and the persona filter are
@@ -226,7 +226,7 @@ function defaultTimezone(): string {
 
 // CadenceSummary is the schedule in force, stated before the form that changes
 // it: what it does now, when it fires next, and whether it has been missing
-// fires — the only place a gap in an automation is visible.
+// fires — the only place a gap in a script's cadence is visible.
 function CadenceSummary({ schedule }: { schedule: ScriptSchedule | null }) {
   if (!schedule) {
     return (

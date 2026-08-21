@@ -194,6 +194,12 @@ func buildRunListQuery(filter script.RunFilter) (query string, args []any) {
 	if filter.ScriptID != "" {
 		q.add("script_id = $%d", filter.ScriptID)
 	}
+	if filter.ScriptIDs != nil {
+		// pq.Array of an empty slice binds an empty array, so ANY(...) matches
+		// nothing — which is exactly right for a caller who owns no scripts,
+		// and is why the clause is added on non-nil rather than on non-empty.
+		q.add("script_id = ANY($%d)", pq.Array(filter.ScriptIDs))
+	}
 	if filter.Status != "" {
 		q.add("status = $%d", filter.Status)
 	}

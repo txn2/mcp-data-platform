@@ -56,7 +56,7 @@ export function runsByScript(window: string): string {
 }
 
 /**
- * missedFiresByScript ranks the automations that are not keeping their cadence.
+ * missedFiresByScript ranks the scripts that are not keeping their cadence.
  * It is the one series that says a schedule is quietly falling behind: the run
  * table shows what ran, and a missed fire is precisely what did not.
  */
@@ -70,7 +70,7 @@ export function missedFiresByScript(window: string): string {
  *
  * Everything else rather than "failed" alone, deliberately — a fire skipped
  * because the previous run was still going is not a success, and a chart that
- * counted only failures would draw a flat green line over an automation that
+ * counted only failures would draw a flat green line over a script that
  * has stopped producing anything.
  */
 export function statusMatrixToTimeseries(resp: PromMatrixResponse | undefined): TimeseriesBucket[] {

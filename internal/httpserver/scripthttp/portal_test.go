@@ -216,6 +216,7 @@ func TestPortalRoutesRequireAuthentication(t *testing.T) {
 		"/api/v1/portal/scripts",
 		"/api/v1/portal/scripts/script_1",
 		"/api/v1/portal/scripts/script_1/versions",
+		"/api/v1/portal/scripts/runs",
 		"/api/v1/portal/scripts/script_1/runs",
 		"/api/v1/portal/scripts/script_1/runs/run_1",
 	} {
@@ -332,6 +333,116 @@ func TestPortalListVersions_AnonymousOwnerIsNotEveryone(t *testing.T) {
 	rec := servePortal(t, portalDeps(store, nil, nil, &PortalIdentity{UserID: "u9"}),
 		"/api/v1/portal/scripts/script_1/versions")
 	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// The cross-script listing (#1405): an owner reads the runs of everything they
+// own in one place, and the owned set is BOUND INTO the query rather than
+// filtered out of the answer.
+func TestPortalListOwnRuns_BindsTheCallersScripts(t *testing.T) {
+	finished := time.Date(2026, 8, 14, 7, 0, 0, 0, time.UTC)
+	runs := &stubRuns{runs: []script.Run{{
+		ID: "run_1", ScriptID: "script_1", Version: 3, Status: script.RunStatusFailed,
+		Trigger: script.TriggerSchedule, FinishedAt: &finished,
+		Error:   "trino: table not found",
+		Metrics: script.RunMetrics{DurationMS: 1840},
+		Log:     "printed while working",
+	}}}
+	store := portalStore()
+	store.scripts[0].DisplayName = "Daily Sales Report"
+	rec := servePortal(t, portalDeps(store, runs, nil, owner), "/api/v1/portal/scripts/runs")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// The script read carried the caller's visibility, and the run read carried
+	// the scripts it returned.
+	assert.Equal(t, "jane@example.com", store.lastFilter.OwnerEmail)
+	assert.Equal(t, []string{"script_1", "script_2"}, runs.lastFilter.ScriptIDs)
+	assert.Empty(t, runs.lastFilter.ScriptID, "the listing spans scripts")
+
+	var body portalOwnRunsResponse
+	decodeInto(t, rec, &body)
+	require.Len(t, body.Data, 1)
+	assert.Equal(t, "script_1", body.Data[0].ScriptID)
+	assert.Equal(t, "Daily Sales Report", body.Data[0].ScriptName)
+	assert.Equal(t, "trino: table not found", body.Data[0].Error)
+	assert.Equal(t, portalOwnRunsLimit, body.Limit)
+	// The log is read one run at a time here too.
+	assert.NotContains(t, rec.Body.String(), "printed while working")
+}
+
+// A script nobody has named is listed under the name it was created with.
+func TestPortalListOwnRuns_FallsBackToTheScriptName(t *testing.T) {
+	runs := &stubRuns{runs: []script.Run{{ID: "run_1", ScriptID: "script_1"}}}
+	rec := servePortal(t, portalDeps(portalStore(), runs, nil, owner), "/api/v1/portal/scripts/runs")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var body portalOwnRunsResponse
+	decodeInto(t, rec, &body)
+	require.Len(t, body.Data, 1)
+	assert.Equal(t, "daily", body.Data[0].ScriptName)
+}
+
+// A caller who owns no script must not fall through to an unfiltered listing:
+// the empty set is bound, and it matches no run.
+func TestPortalListOwnRuns_OwningNothingBindsAnEmptySet(t *testing.T) {
+	store := portalStore()
+	store.scripts = nil
+	runs := &stubRuns{}
+	rec := servePortal(t, portalDeps(store, runs, nil, owner), "/api/v1/portal/scripts/runs")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	require.NotNil(t, runs.lastFilter.ScriptIDs, "an unscoped filter would list every run")
+	assert.Empty(t, runs.lastFilter.ScriptIDs)
+}
+
+// An administrator reads every run, which is the reach their script listing
+// already has.
+func TestPortalListOwnRuns_AdministratorIsUnscoped(t *testing.T) {
+	runs := &stubRuns{}
+	rec := servePortal(t, portalDeps(portalStore(), runs, nil, admin), "/api/v1/portal/scripts/runs")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	assert.Nil(t, runs.lastFilter.ScriptIDs)
+	assert.Empty(t, runs.lastFilter.ScriptID)
+}
+
+// The status and the cap are the caller's to name, and the cap is the store's
+// own ceiling however large a number is asked for.
+func TestPortalListOwnRuns_StatusAndCap(t *testing.T) {
+	runs := &stubRuns{}
+	rec := servePortal(t, portalDeps(portalStore(), runs, nil, owner),
+		"/api/v1/portal/scripts/runs?status=failed&per_page=500")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	assert.Equal(t, script.RunStatusFailed, runs.lastFilter.Status)
+	assert.Equal(t, portalOwnRunsLimit, runs.lastFilter.Limit)
+}
+
+func TestPortalListOwnRuns_StoreFailures(t *testing.T) {
+	t.Run("the script listing", func(t *testing.T) {
+		store := portalStore()
+		store.listErr = errors.New("boom")
+		rec := servePortal(t, portalDeps(store, &stubRuns{}, nil, owner), "/api/v1/portal/scripts/runs")
+		assert.Equal(t, http.StatusInternalServerError, rec.Code)
+	})
+	t.Run("the run listing", func(t *testing.T) {
+		runs := &stubRuns{listErr: errors.New("boom")}
+		rec := servePortal(t, portalDeps(portalStore(), runs, nil, owner), "/api/v1/portal/scripts/runs")
+		assert.Equal(t, http.StatusInternalServerError, rec.Code)
+	})
+}
+
+// The literal segment outranks the {id} wildcard, so a script whose id is
+// "runs" cannot shadow the cross-script listing.
+func TestPortalListOwnRuns_OutranksTheScriptWildcard(t *testing.T) {
+	store := portalStore()
+	store.scripts[0].ID = "runs"
+	runs := &stubRuns{}
+	rec := servePortal(t, portalDeps(store, runs, nil, owner), "/api/v1/portal/scripts/runs")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var body portalOwnRunsResponse
+	decodeInto(t, rec, &body)
+	assert.Equal(t, portalOwnRunsLimit, body.Limit, "the cross-script listing answered")
 }
 
 func TestPortalListRuns_ScopesToTheScript(t *testing.T) {

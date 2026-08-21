@@ -139,6 +139,34 @@ func TestListRuns_FiltersAndCaps(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+// A listing across a set of scripts is one query, which is how a caller reads
+// the runs of everything they own (#1405).
+func TestListRuns_ScopesToASetOfScripts(t *testing.T) {
+	s, mock := newMock(t)
+	mock.ExpectQuery(regexp.QuoteMeta("WHERE script_id = ANY($1) ORDER BY created_at DESC LIMIT $2")).
+		WillReturnRows(sqlmock.NewRows(runSelectColumns).AddRow(runRow(script.RunStatusSucceeded, 1, nil)...))
+
+	runs, err := s.ListRuns(context.Background(), script.RunFilter{
+		ScriptIDs: []string{"script_1", "script_2"},
+	})
+	require.NoError(t, err)
+	require.Len(t, runs, 1)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// An empty, non-nil set matches nothing. A caller who owns no script must not
+// fall through to a listing across every run on the platform.
+func TestListRuns_AnEmptySetIsStillAPredicate(t *testing.T) {
+	s, mock := newMock(t)
+	mock.ExpectQuery(regexp.QuoteMeta("WHERE script_id = ANY($1)")).
+		WillReturnRows(sqlmock.NewRows(runSelectColumns))
+
+	runs, err := s.ListRuns(context.Background(), script.RunFilter{ScriptIDs: []string{}})
+	require.NoError(t, err)
+	assert.Empty(t, runs)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestListRuns_UnboundedListingTakesTheStoreCap(t *testing.T) {
 	s, mock := newMock(t)
 	mock.ExpectQuery(regexp.QuoteMeta("LIMIT $1")).WithArgs(defaultRunListLimit).

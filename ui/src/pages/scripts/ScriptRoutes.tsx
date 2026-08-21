@@ -1,10 +1,16 @@
 import { MyScriptsPage } from "./MyScriptsPage";
 import { ScriptDetailPage } from "./ScriptDetailPage";
 
-// PortalScriptRoutes is the portal's script section: the listing and one
-// script. It owns its own route matching so the shell composes the section
-// rather than each of its pages, which is what keeps the shell's route switch
-// from growing a line per page a section gains.
+// PortalScriptRoutes is the portal's script section: the listing, one script,
+// and one run of one script. It owns its own route matching so the shell
+// composes the section rather than each of its pages, which is what keeps the
+// shell's route switch from growing a line per page a section gains.
+
+// RUN_ROUTE matches one run of one script, which is the address the
+// cross-script Runs listing links to (#1405). A run has no page of its own —
+// it is read in the history on its script's page — so this address opens that
+// page with the run it named already open.
+const RUN_ROUTE = /^\/scripts\/([^/]+)\/runs\/([^/]+)$/;
 
 export function PortalScriptRoutes({
   route,
@@ -15,7 +21,19 @@ export function PortalScriptRoutes({
 }) {
   if (route === "/scripts") return <MyScriptsPage onNavigate={onNavigate} />;
 
-  const detail = route.match(/^\/scripts\/(.+)$/);
+  const run = route.match(RUN_ROUTE);
+  if (run) {
+    return (
+      <ScriptDetailPage
+        scriptId={run[1]!}
+        openRunId={run[2]!}
+        onNavigate={onNavigate}
+        onBack={() => onNavigate("/scripts")}
+      />
+    );
+  }
+
+  const detail = route.match(/^\/scripts\/([^/]+)$/);
   if (!detail) return null;
   return (
     <ScriptDetailPage

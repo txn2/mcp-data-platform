@@ -49,9 +49,18 @@ interface Props {
   onNavigate: (path: string) => void;
   /** backLabel names where onBack goes, which differs between the two sections. */
   backLabel?: string;
+  /** openRunId is one run of this script named by the address, opened in the
+   * history without a click (#1405). */
+  openRunId?: string;
 }
 
-export function ScriptDetailPage({ scriptId, onBack, onNavigate, backLabel = "Scripts" }: Props) {
+export function ScriptDetailPage({
+  scriptId,
+  onBack,
+  onNavigate,
+  backLabel = "Scripts",
+  openRunId,
+}: Props) {
   const { data, isLoading, error } = useScriptContract(scriptId);
 
   if (isLoading) {
@@ -67,6 +76,7 @@ export function ScriptDetailPage({ scriptId, onBack, onNavigate, backLabel = "Sc
       onBack={onBack}
       onNavigate={onNavigate}
       backLabel={backLabel}
+      openRunId={openRunId}
     />
   );
 }
@@ -80,12 +90,14 @@ function ScriptDetail({
   onBack,
   onNavigate,
   backLabel,
+  openRunId,
 }: {
   scriptId: string;
   data: { contract: ScriptContract; owned: boolean; source?: string; draft_params?: ScriptParam[] };
   onBack: () => void;
   onNavigate: (path: string) => void;
   backLabel: string;
+  openRunId?: string;
 }) {
   const { contract, owned, source } = data;
   const state = executionState(contract);
@@ -128,6 +140,7 @@ function ScriptDetail({
           contract={contract}
           source={source ?? ""}
           draftParams={draftParamsOf(data)}
+          openRunId={openRunId}
           onNavigate={onNavigate}
         />
       )}
@@ -164,10 +177,10 @@ function draftParamsOf(data: {
 
 // OwnerSections is everything the contract does not say out loud: the run the
 // owner asks for now, the cadence they set, the code behind the execution gate,
-// and what the automation has actually been doing. All four are the owner's and
+// and what the script has actually been doing. All four are the owner's and
 // the administrators', and they appear or are absent together.
 //
-// Running comes first because it is what somebody opening their own automation
+// Running comes first because it is what somebody opening their own script
 // most often came to do; the code and the cadence are what they change when it
 // is not doing what they wanted.
 function OwnerSections({
@@ -175,6 +188,7 @@ function OwnerSections({
   contract,
   source,
   draftParams,
+  openRunId,
   onNavigate,
 }: {
   scriptId: string;
@@ -182,6 +196,8 @@ function OwnerSections({
   source: string;
   /** The live record's parameter contract, which is what a dry run binds. */
   draftParams: ScriptParam[];
+  /** One run named by the address, opened in the history below (#1405). */
+  openRunId?: string;
   onNavigate: (path: string) => void;
 }) {
   return (
@@ -195,7 +211,7 @@ function OwnerSections({
       />
       <ScriptScheduleEditor scriptId={scriptId} contract={contract} />
       <ScriptVersionHistory scriptId={scriptId} contract={contract} />
-      <ScriptRunHistory scriptId={scriptId} onNavigate={onNavigate} />
+      <ScriptRunHistory scriptId={scriptId} openRunId={openRunId} onNavigate={onNavigate} />
     </>
   );
 }

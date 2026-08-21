@@ -21,7 +21,7 @@ import { ScriptFacetBadges } from "./ScriptFacetBadges";
 // what every script got.
 //
 // The owner edits all four fields here, which is the point of putting them
-// here: an author documenting their own automation should not have to ask an
+// here: an author documenting their own script should not have to ask an
 // agent to do it on a page they are already looking at. The save applies
 // immediately and is captured as a version, because what a script claimed to
 // do is part of explaining what one of its runs did.

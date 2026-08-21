@@ -27,6 +27,13 @@ describe("isKnownRoute", () => {
 
   it("does not let a detail pattern swallow a deeper path", () => {
     expect(isKnownRoute("/collections/c-1/nonesuch")).toBe(false);
+    expect(isKnownRoute("/scripts/script-001/nonesuch")).toBe(false);
+  });
+
+  // One run of one script (#1405), which is the address the cross-script Runs
+  // listing links to.
+  it("recognizes a run under its script", () => {
+    expect(isKnownRoute("/scripts/script-001/runs/run-042")).toBe(true);
   });
 });
 

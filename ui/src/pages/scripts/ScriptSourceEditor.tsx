@@ -30,7 +30,7 @@ import {
 // and checkable by them before saving the version that runs (#1364).
 //
 // Until this existed, changing a script meant asking an agent to do it — an odd
-// thing to require of the owner of an automation who is looking straight at the
+// thing to require of the owner of a script who is looking straight at the
 // code. It is the same editor the portal uses for every other source document
 // (components/SourceEditor over lib/codemirror), told the content is Python:
 // Starlark is a Python dialect, so the highlighting is the language's own.

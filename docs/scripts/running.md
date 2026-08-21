@@ -256,8 +256,9 @@ description links to. It is advice, never a refusal.
 **Filing.** A category is one value written one way, which is what makes it a
 filter: reuse an existing category rather than coining a near-duplicate, and let
 tags carry everything a single axis cannot. `manage_script command=list` accepts
-both (`category`, `tags`) and the portal listing offers a chip per value, which
-narrows the listing on the server rather than in the page.
+both (`category`, `tags`) and the portal listing offers a chip per value beside a
+search box over the name, display name and description, all three of which
+narrow the listing on the server rather than in the page.
 
 ### Checking an edit before saving it
 
@@ -654,6 +655,7 @@ states the cap when the answer fills it:
 | Surface | Shows |
 |---|---|
 | A script's run history in the portal | The 25 most recent runs of that script |
+| The portal Runs tab | The 50 most recent runs across the scripts the caller owns |
 | The admin Runs tab | The 50 most recent runs across every script |
 | `manage_script runs` | The limit the call names, 20 when it names none, clamped to 50 |
 | A script's contract (`fetch`, a prompt reference, the detail page) | One run: the last SUCCESSFUL one |
