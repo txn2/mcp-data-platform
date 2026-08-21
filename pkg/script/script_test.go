@@ -48,35 +48,22 @@ func TestValidateSourceAndTags(t *testing.T) {
 	assert.ErrorContains(t, script.ValidateTags([]string{string(make([]byte, 200))}), "exceeds")
 }
 
-func TestValidateScopeAndStatus(t *testing.T) {
-	assert.NoError(t, script.ValidateScope(script.ScopeGlobal))
-	assert.ErrorContains(t, script.ValidateScope("team"), "invalid scope")
+func TestValidateStatus(t *testing.T) {
 	assert.NoError(t, script.ValidateStatus(script.StatusActive))
 	assert.ErrorContains(t, script.ValidateStatus("retired"), "invalid status")
 	assert.NoError(t, script.ValidateStatusTransition(script.StatusActive, script.StatusDeprecated))
 	assert.ErrorContains(t, script.ValidateStatusTransition(script.StatusSuperseded, script.StatusActive), "invalid status transition")
 }
 
-// TestValidate_WholeRecord proves the record-level check catches the
-// combination a per-field check misses: a persona-scoped script naming no
-// persona is invalid even though every individual field is fine.
+// TestValidate_WholeRecord proves the record-level check refuses each field it
+// covers, applied to the final state rather than to arguments as they arrive.
 func TestValidate_WholeRecord(t *testing.T) {
 	base := func() *script.Script {
 		return &script.Script{
-			Name: "daily", Scope: script.ScopePersonal, Source: "x = 1",
-			Status: script.StatusActive,
+			Name: "daily", Source: "x = 1", Status: script.StatusActive,
 		}
 	}
 	assert.NoError(t, base().Validate())
-
-	personaNoPersona := base()
-	personaNoPersona.Scope = script.ScopePersona
-	assert.ErrorContains(t, personaNoPersona.Validate(), "at least one persona")
-
-	withPersona := base()
-	withPersona.Scope = script.ScopePersona
-	withPersona.Personas = []string{"analyst"}
-	assert.NoError(t, withPersona.Validate())
 
 	refusals := []struct {
 		name    string
@@ -84,7 +71,6 @@ func TestValidate_WholeRecord(t *testing.T) {
 		wantErr string
 	}{
 		{"name", func(s *script.Script) { s.Name = "" }, "name is required"},
-		{"scope", func(s *script.Script) { s.Scope = "team" }, "invalid scope"},
 		{"source", func(s *script.Script) { s.Source = "" }, "source is required"},
 		{"params", func(s *script.Script) { s.Params = []script.Param{{Name: "Day", Type: script.ParamTypeDate}} }, "lowercase letter"},
 		{"tags", func(s *script.Script) { s.Tags = make([]string, 21) }, "too many tags"},
@@ -121,27 +107,27 @@ func TestApplyStatusTransition_LifecycleStamps(t *testing.T) {
 	assert.ErrorContains(t, sc.ApplyStatusTransition("retired", "", now), "invalid status")
 }
 
-// TestVisibleTo is the one definition of script visibility, shared by the read
+// TestOwnedBy is the one definition of script visibility, shared by the read
 // path and the list predicate so a script can never be listable but unreadable.
-func TestVisibleTo(t *testing.T) {
+// Both sides must be identified: an ownerless script belongs to nobody, not to
+// every caller the platform cannot name.
+func TestOwnedBy(t *testing.T) {
 	cases := []struct {
-		name    string
-		sc      script.Script
-		email   string
-		persona string
-		want    bool
+		name  string
+		sc    *script.Script
+		email string
+		want  bool
 	}{
-		{"global to anyone", script.Script{Scope: script.ScopeGlobal}, "bob@example.com", "analyst", true},
-		{"global with no persona", script.Script{Scope: script.ScopeGlobal}, "bob@example.com", "", true},
-		{"persona to a holder", script.Script{Scope: script.ScopePersona, Personas: []string{"analyst", "eng"}}, "bob@example.com", "analyst", true},
-		{"persona to a non-holder", script.Script{Scope: script.ScopePersona, Personas: []string{"eng"}}, "bob@example.com", "analyst", false},
-		{"persona with no persona at all", script.Script{Scope: script.ScopePersona, Personas: []string{"eng"}}, "bob@example.com", "", false},
-		{"personal to its owner", script.Script{Scope: script.ScopePersonal, OwnerEmail: "bob@example.com"}, "bob@example.com", "analyst", true},
-		{"personal to anyone else", script.Script{Scope: script.ScopePersonal, OwnerEmail: "jane@example.com"}, "bob@example.com", "analyst", false},
+		{"its owner", &script.Script{OwnerEmail: "bob@example.com"}, "bob@example.com", true},
+		{"anybody else", &script.Script{OwnerEmail: "jane@example.com"}, "bob@example.com", false},
+		{"ownerless to an identified caller", &script.Script{}, "bob@example.com", false},
+		{"ownerless to an unidentified caller", &script.Script{}, "", false},
+		{"owned, caller unidentified", &script.Script{OwnerEmail: "jane@example.com"}, "", false},
+		{"no script", nil, "bob@example.com", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, tc.sc.VisibleTo(tc.email, tc.persona))
+			assert.Equal(t, tc.want, tc.sc.OwnedBy(tc.email))
 		})
 	}
 }

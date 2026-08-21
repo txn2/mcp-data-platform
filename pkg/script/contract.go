@@ -27,8 +27,6 @@ type Contract struct {
 	DisplayName string   `json:"display_name,omitempty" example:"Daily Sales Report"`
 	Description string   `json:"description,omitempty" example:"Summarize yesterday's sales by region"`
 	OwnerEmail  string   `json:"owner_email,omitempty" example:"jane@example.com"`
-	Scope       string   `json:"scope" example:"personal"`
-	Personas    []string `json:"personas,omitempty" example:"analyst"`
 	Category    string   `json:"category,omitempty" example:"reporting"`
 	Tags        []string `json:"tags,omitempty" example:"sales,reporting"`
 	Status      string   `json:"status" example:"active"`
@@ -226,13 +224,13 @@ func ParamSummary(params []Param) string {
 	return strings.Join(names, ", ")
 }
 
-// VisibleToAny reports whether a caller who belongs to any of personas may see
-// the script this contract describes. It answers through the same rule the
-// record and the store predicate answer through, so a surface holding only the
-// contract — the fetch path, which composes it in one read — enforces the
-// identical visibility without a second read of the script row.
-func (c Contract) VisibleToAny(email string, personas []string) bool {
-	return scopeVisibleToAny(c.Scope, c.Personas, c.OwnerEmail, email, personas)
+// OwnedBy reports whether the named caller owns the script this contract
+// describes. It answers through the same rule the record and the store
+// predicate answer through, so a surface holding only the contract — the fetch
+// path, which composes it in one read — enforces the identical visibility
+// without a second read of the script row.
+func (c Contract) OwnedBy(email string) bool {
+	return c.OwnerEmail != "" && c.OwnerEmail == email
 }
 
 // BuildContract renders the contract for one script from the records that
@@ -252,8 +250,6 @@ func BuildContract(sc *Script, sched *Schedule, lastRun *Run) Contract {
 		DisplayName: sc.DisplayName,
 		Description: sc.Description,
 		OwnerEmail:  sc.OwnerEmail,
-		Scope:       sc.Scope,
-		Personas:    sc.Personas,
 		Category:    sc.Category,
 		Tags:        sc.Tags,
 		Status:      sc.Status,

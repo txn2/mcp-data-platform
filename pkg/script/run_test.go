@@ -12,8 +12,7 @@ import (
 // runnable returns a script in the one state the run gate admits.
 func runnable() *script.Script {
 	return &script.Script{
-		ID: "script_1", Name: "daily-sales", Scope: script.ScopePersonal,
-		OwnerEmail: "jane@example.com", Enabled: true, Status: script.StatusActive,
+		ID: "script_1", Name: "daily-sales", OwnerEmail: "jane@example.com", Enabled: true, Status: script.StatusActive,
 		Version: 3,
 	}
 }

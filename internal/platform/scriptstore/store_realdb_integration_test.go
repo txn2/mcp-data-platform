@@ -26,7 +26,7 @@ import (
 func newScript(name, owner string) *script.Script {
 	return &script.Script{
 		Name: name, DisplayName: "Daily", Description: "A daily report",
-		Source: "print(1)\n", Scope: script.ScopePersonal, OwnerEmail: owner,
+		Source: "print(1)\n", OwnerEmail: owner,
 		Enabled: true,
 	}
 }
@@ -37,14 +37,13 @@ func TestRealDB_CreateNormalizesNilSlices(t *testing.T) {
 	ctx := context.Background()
 
 	sc := newScript("daily", "jane@example.com")
-	require.NoError(t, s.Create(ctx, sc, testAuthor), "nil params/personas/tags must not reach a NOT NULL column")
+	require.NoError(t, s.Create(ctx, sc, testAuthor), "nil params/tags must not reach a NOT NULL column")
 	require.NotEmpty(t, sc.ID)
 
-	got, err := s.GetPersonal(ctx, "jane@example.com", "daily")
+	got, err := s.GetByName(ctx, "jane@example.com", "daily")
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, []script.Param{}, got.Params)
-	assert.Equal(t, []string{}, got.Personas)
 	assert.Equal(t, []string{}, got.Tags)
 	assert.Equal(t, 1, got.Version)
 	assert.Equal(t, script.StatusActive, got.Status, "a saved script runs: creation defaults straight to active")
@@ -56,10 +55,9 @@ func TestRealDB_CreateNormalizesNilSlices(t *testing.T) {
 	assert.Equal(t, "print(1)\n", versions[0].Source)
 }
 
-// TestRealDB_PersonalNamesAreUniquePerOwner exercises the two partial unique
-// indexes: two analysts may each keep their own "daily", while a shared name is
-// unique platform-wide.
-func TestRealDB_PersonalNamesAreUniquePerOwner(t *testing.T) {
+// TestRealDB_NamesAreUniquePerOwner exercises the unique index: two analysts
+// may each keep their own "daily", and neither may keep two.
+func TestRealDB_NamesAreUniquePerOwner(t *testing.T) {
 	db := testdb.New(t)
 	s := New(db)
 	ctx := context.Background()
@@ -69,13 +67,14 @@ func TestRealDB_PersonalNamesAreUniquePerOwner(t *testing.T) {
 	assert.Error(t, s.Create(ctx, newScript("daily", "jane@example.com"), testAuthor),
 		"the same owner may not hold two scripts of the same name")
 
-	shared := newScript("rollup", "admin@example.com")
-	shared.Scope = script.ScopeGlobal
-	require.NoError(t, s.Create(ctx, shared, testAuthor), testAuthor)
-
-	second := newScript("rollup", "other@example.com")
-	second.Scope = script.ScopeGlobal
-	assert.Error(t, s.Create(ctx, second, testAuthor), "a shared name is unique platform-wide")
+	// A name lookup names an owner, so each analyst reaches their own.
+	jane, err := s.GetByName(ctx, "jane@example.com", "daily")
+	require.NoError(t, err)
+	require.NotNil(t, jane)
+	bob, err := s.GetByName(ctx, "bob@example.com", "daily")
+	require.NoError(t, err)
+	require.NotNil(t, bob)
+	assert.NotEqual(t, jane.ID, bob.ID)
 }
 
 // TestRealDB_EditFunnelAlwaysAppliesToTheLiveRow drives the domain funnel

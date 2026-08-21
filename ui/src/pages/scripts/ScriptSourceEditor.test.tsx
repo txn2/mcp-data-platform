@@ -54,7 +54,6 @@ const contract: ScriptContract = {
   id: "script-001",
   name: "daily-sales-report",
   display_name: "Daily Sales Report",
-  scope: "global",
   status: "active",
   enabled: true,
   params: [],

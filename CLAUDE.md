@@ -180,7 +180,7 @@ mcp-data-platform/
 │   ├── connid/                     # Connection identity: the instance a connection is stored under, the name a call binds it by, the toolkit serving it, and which half of the config owns it — one Resolver, distinct types
 │   ├── connview/                   # Builds the list_connections view (configured + discovered)
 │   ├── contenttype/                # Media-type detection and normalization for every content write path
-│   ├── database/                   # Database utilities (migrate/ = golang-migrate runner + 118 embedded SQL migrations)
+│   ├── database/                   # Database utilities (migrate/ = golang-migrate runner + 119 embedded SQL migrations)
 │   ├── embedding/                  # Text embedding generation for memory vector search
 │   ├── indexjobs/                  # Postgres-backed, source-kind-agnostic background indexer
 │   ├── knowledge/                  # Unified read path for platform knowledge (federation/ = live toolkit registry adapter)
@@ -224,7 +224,7 @@ mcp-data-platform/
 ├── internal/                       # Non-exported implementation (not part of the supported library surface)
 │   ├── admin/                      # Admin-API seams built only by pkg/admin: auditapi/ (events + metrics), callapi/ (the call catalog + its review actions), catalogapi/ (OpenAPI spec bundles + embedding jobs), connoauthapi/ (connection OAuth, unified + legacy per-kind), notifyapi/ (notification delivery history + status counts), settingsapi/ (SMTP + review-queue-alert settings REST) — extracted by #1078
 │   ├── httpjson/                   # RFC 9457 Problem Details responder + admin list-query param parsing, shared by the admin/portal decomposition seams (#1078)
-│   ├── httpserver/                 # HTTP composition root: mux/route assembly (MCP streamable+SSE, OAuth, admin/portal/resources/gateway/observability REST, portal UI), CORS, drain/shutdown sequencing — extracted from main.go (#895). Subpackages are the adapters it mounts: accessgate/, attachhttp/, datahubapi/, gatewayhttp/, health/, httpauth/, mentionhttp/, notifyhttp/ (self-scoped notification prefs), scripthttp/ (managed-script review + the approval action), sources/, unsubhttp/ (no-login unsubscribe + its tokens), versionhttp/ (#1076, #1080)
+│   ├── httpserver/                 # HTTP composition root: mux/route assembly (MCP streamable+SSE, OAuth, admin/portal/resources/gateway/observability REST, portal UI), CORS, drain/shutdown sequencing — extracted from main.go (#895). Subpackages are the adapters it mounts: accessgate/, attachhttp/, datahubapi/, gatewayhttp/, health/, httpauth/, mentionhttp/, notifyhttp/ (self-scoped notification prefs), scripthttp/ (managed-script admin + portal routes, including the administrator's owner transfer), sources/, unsubhttp/ (no-login unsubscribe + its tokens), versionhttp/ (#1076, #1080)
 │   ├── sqltables/                  # The one lexical extractor of the tables a SQL statement reads (enrichment + call targets)
 │   ├── pglisten/                   # Shared LISTEN adapter: one goroutine per pg_notify channel waking the workers registered on it (notification delivery, managed-script runs)
 │   ├── notification/               # Notification delivery layers built only by internal/platform/notifydelivery, extracted by #1080: notifyprefs/ (preference persistence), notifyqueue/ (queue persistence + LISTEN wakeup), notifyrender/ (branded templates), notifysend/ (SMTP transport), notifyworker/ (send worker)
@@ -410,9 +410,12 @@ calls:
 Authoring needs no configuration and is available wherever there is a database.
 A saved script runs: `run_script` and a schedule execute the latest saved
 version, presenting the roles its author held at the save, and the persona
-filter authorizes every call at run time. The knobs are how long the record of
-a run is kept, whether this replica executes runs at all, and which bucket
-destinations a script's output may be delivered to.
+filter authorizes every call at run time. A script is personal: its owner sees
+it, edits it, runs it, and schedules it, administrators do all four on every
+script, and an administrator can move a script to another owner (which
+re-captures the run identity from the administrator making the move). The knobs
+are how long the record of a run is kept, whether this replica executes runs at
+all, and which bucket destinations a script's output may be delivered to.
 
 ```yaml
 scripts:

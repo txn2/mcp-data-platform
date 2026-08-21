@@ -233,6 +233,47 @@ export const scriptHandlers = [
     });
   }),
 
+  // Moving a script to another person (#1404). It is an administrator's
+  // action, and the version it records is what carries the authority a run
+  // presents from then on.
+  http.put(`${PORTAL_BASE}/scripts/:id/owner`, async ({ params, request }) => {
+    const id = String(params.id);
+    const body = (await request.json()) as { owner_email?: string };
+    const script = scripts.find((s) => s.id === id);
+    const contract = contracts[id];
+    if (!script || !contract) {
+      return HttpResponse.json({ detail: "script not found" }, { status: 404 });
+    }
+    const to = (body.owner_email ?? "").trim().toLowerCase();
+    if (to === "" || !to.includes("@")) {
+      return HttpResponse.json(
+        { detail: "the new owner is not a usable address" },
+        { status: 400 },
+      );
+    }
+    if (to === script.owner_email.toLowerCase()) {
+      return HttpResponse.json(
+        { detail: `script "${script.name}" already belongs to ${to}` },
+        { status: 400 },
+      );
+    }
+    if (scripts.some((s) => s.id !== id && s.name === script.name && s.owner_email === to)) {
+      return HttpResponse.json(
+        { detail: `${to} already keeps a script named "${script.name}"` },
+        { status: 409 },
+      );
+    }
+    script.owner_email = to;
+    contract.owner_email = to;
+    script.version += 1;
+    contract.version = script.version;
+    return HttpResponse.json({
+      owner_email: to,
+      version: script.version,
+      message: `${script.name} now belongs to ${to} and runs with the access you hold, captured now.`,
+    });
+  }),
+
   // Editing the code (#1307). Every save applies: the saved version is the
   // version a run executes, which is the server's rule and what the editor's
   // outcome message states.

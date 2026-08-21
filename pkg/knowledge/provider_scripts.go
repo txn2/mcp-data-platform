@@ -50,12 +50,11 @@ func NewScriptsProvider(searcher ScriptSearcher) *ScriptsProvider {
 // Name returns the provenance label.
 func (*ScriptsProvider) Name() string { return SourceScripts }
 
-// Scope marks scripts shared (always queried); the store predicate self-filters
-// persona- and personal-scoped scripts to the caller.
-func (*ScriptsProvider) Scope() Scope { return ScopeShared }
+// Scope marks this provider per-user: a script is its owner's, so a caller with
+// no identity has nothing here to find and the Router skips it entirely.
+func (*ScriptsProvider) Scope() Scope { return ScopePerUser }
 
-// Search returns the scripts visible to the caller, ranked by relevance to the
-// intent. It responds to the text path only; a query with no intent yields
+// Search returns the caller's own scripts, ranked by relevance to the intent. It responds to the text path only; a query with no intent yields
 // nothing.
 //
 // The router's query vector is passed through, so ranking is hybrid wherever
@@ -72,7 +71,6 @@ func (p *ScriptsProvider) Search(ctx context.Context, q Query) ([]Hit, error) {
 		Embedding:  q.Embedding,
 		QueryText:  q.Intent,
 		OwnerEmail: q.Caller.Email,
-		Personas:   q.Caller.Personas,
 		Limit:      q.Limit,
 	})
 	if err != nil {
@@ -103,8 +101,8 @@ func (p *ScriptsProvider) Search(ctx context.Context, q Query) ([]Hit, error) {
 //
 // It owns only the script reference form; any other reference is declined
 // (owned=false). The contract read applies no visibility rule of its own, so
-// this re-applies the same rule the search predicate enforces: a script outside
-// the caller's scopes and one that never existed are both a clean ErrNotFound,
+// this re-applies the same rule the search predicate enforces: a script the
+// caller does not own and one that never existed are both a clean ErrNotFound,
 // so fetch reveals neither the contract nor the existence of a script the caller
 // could not have searched.
 //
@@ -123,7 +121,7 @@ func (p *ScriptsProvider) Fetch(ctx context.Context, ref string, caller Caller) 
 	if err != nil {
 		return nil, true, fmt.Errorf("getting script %s: %w", parsed.ScriptID, err)
 	}
-	if c == nil || !c.VisibleToAny(caller.Email, caller.Personas) {
+	if c == nil || !c.OwnedBy(caller.Email) {
 		return nil, true, ErrNotFound
 	}
 	return &Document{

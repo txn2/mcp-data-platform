@@ -20,8 +20,12 @@ import { cadenceLine, scheduleState } from "./cadence";
 import { formatWhen, runStatusLabel, runStatusVariant, runWhen } from "./runFormat";
 import { ScriptFacetBadges } from "./ScriptFacetBadges";
 
-// MyScriptsPage is what the people who own the automations see (#1290): every
-// script they may see, what it is scheduled to do, and how its last run went.
+// MyScriptsPage is what the people who own the automations see (#1290): their
+// scripts, what each is scheduled to do, and how its last run went.
+//
+// Every script here is the reader's own, so there is no owner column to read
+// (#1404); the administrator's listing keeps one, where whose script it is is
+// the fact worth showing.
 //
 // It reads only; what an owner does to a script is on the script's own page.
 // This listing exists because an owner is frequently not an administrator and
@@ -190,20 +194,17 @@ function facetValues(
 // been failing every morning is otherwise a red badge in a table they have to
 // read row by row.
 //
-// Each caption states what its number counts and the population it counts over
-// (#1360), because the four populations are NOT the same one. Every visible
-// script carries a lifecycle and a cadence, but a last run is the owner's and
-// the administrator's reading and is absent from a row this caller does not
-// own, so the failure count is over a strictly smaller set than the three
-// beside it and has to say so.
+// Each caption states what its number counts (#1360). All four count the same
+// population now that a script is one person's: every row here is the reader's
+// own, so the failure count is over the whole listing rather than a subset of
+// it.
 function AutomationSummary({ rows }: { rows: PortalScriptRow[] }) {
   const running = rows.filter((r) => r.script.enabled && r.script.status === "active").length;
   const scheduled = rows.filter((r) => r.schedule?.enabled).length;
-  const owned = rows.filter((r) => r.owned).length;
   const failing = rows.filter((r) => r.last_run?.status === "failed").length;
   return (
     <div className="grid gap-4 sm:grid-cols-4">
-      <SummaryTile label="Automations" value={rows.length} hint="scripts visible to you" />
+      <SummaryTile label="Automations" value={rows.length} hint="scripts you own" />
       <SummaryTile
         label="In service"
         value={running}
@@ -213,7 +214,7 @@ function AutomationSummary({ rows }: { rows: PortalScriptRow[] }) {
       <SummaryTile
         label="Last run failed"
         value={failing}
-        hint={`of the ${owned} you own`}
+        hint="of the scripts you own"
         alarming={failing > 0}
       />
     </div>
@@ -286,7 +287,6 @@ function ScriptsSection({
       <TableHeader>
         <TableRow>
           <TableHead>Script</TableHead>
-          <TableHead>Owner</TableHead>
           <TableHead>Executing</TableHead>
           <TableHead>Schedule</TableHead>
           <TableHead>Last run</TableHead>
@@ -318,7 +318,6 @@ function ScriptRow({
         <div className="font-mono text-xs text-muted-foreground">{script.name}</div>
         <ScriptFacetBadges category={script.category} tags={script.tags} className="mt-1" />
       </TableCell>
-      <TableCell className="text-xs">{script.owner_email || "—"}</TableCell>
       <TableCell>
         <ExecutionState row={row} />
       </TableCell>

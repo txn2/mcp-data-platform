@@ -54,7 +54,7 @@ func New(db *sql.DB, opts ...indexjobs.StoreOption) *Store {
 // scriptColumns is the column list read by every scripts SELECT, kept in one
 // place so the scan order in scanScript cannot drift from the query.
 const scriptColumns = `id, name, display_name, description, category, source_code, params,
-	scope, personas, owner_email, tags, enabled, status, superseded_by,
+	owner_email, tags, enabled, status, superseded_by,
 	deprecated_at, version, created_at, updated_at`
 
 // scriptSelect is the base SELECT for the script columns.
@@ -70,7 +70,7 @@ func scanScript(sc rowScanner) (*script.Script, error) {
 	s := &script.Script{}
 	var paramsJSON []byte
 	err := sc.Scan(&s.ID, &s.Name, &s.DisplayName, &s.Description, &s.Category, &s.Source, &paramsJSON,
-		&s.Scope, pq.Array(&s.Personas), &s.OwnerEmail, pq.Array(&s.Tags), &s.Enabled,
+		&s.OwnerEmail, pq.Array(&s.Tags), &s.Enabled,
 		&s.Status, &s.SupersededBy, &s.DeprecatedAt, &s.Version,
 		&s.CreatedAt, &s.UpdatedAt)
 	if err != nil {
@@ -85,13 +85,10 @@ func scanScript(sc rowScanner) (*script.Script, error) {
 
 // normalizeSlices ensures slice fields are non-nil for stable JSON output and
 // for binding: pq.Array(nil) binds SQL NULL, which violates the NOT NULL
-// constraints on personas and tags.
+// constraint on tags.
 func normalizeSlices(s *script.Script) {
 	if s.Params == nil {
 		s.Params = []script.Param{}
-	}
-	if s.Personas == nil {
-		s.Personas = []string{}
 	}
 	if s.Tags == nil {
 		s.Tags = []string{}
@@ -130,12 +127,11 @@ func (s *Store) Create(ctx context.Context, sc *script.Script, author script.Aut
 	if err := s.withTx(ctx, "create script", func(tx *sql.Tx) error {
 		row := tx.QueryRowContext(ctx, `
 			INSERT INTO scripts (name, display_name, description, category, source_code, params,
-			                     scope, personas, owner_email, tags, enabled, status, version)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 1)
+			                     owner_email, tags, enabled, status, version)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 1)
 			RETURNING id, created_at, updated_at`,
 			sc.Name, sc.DisplayName, sc.Description, sc.Category, sc.Source, paramsJSON,
-			sc.Scope, pq.Array(sc.Personas), sc.OwnerEmail, pq.Array(sc.Tags),
-			sc.Enabled, sc.Status)
+			sc.OwnerEmail, pq.Array(sc.Tags), sc.Enabled, sc.Status)
 		if err := row.Scan(&sc.ID, &sc.CreatedAt, &sc.UpdatedAt); err != nil {
 			return fmt.Errorf("insert script: %w", err)
 		}
@@ -150,15 +146,15 @@ func (s *Store) Create(ctx context.Context, sc *script.Script, author script.Aut
 	return nil
 }
 
-// Get retrieves a shared (global or persona) script by its globally unique name.
-func (s *Store) Get(ctx context.Context, name string) (*script.Script, error) {
-	return s.getOne(ctx, scriptSelect+` WHERE name = $1 AND scope <> 'personal'`, name)
-}
-
-// GetPersonal retrieves a personal script by owner and name.
-func (s *Store) GetPersonal(ctx context.Context, ownerEmail, name string) (*script.Script, error) {
+// GetByName retrieves one owner's script by name. An empty owner matches
+// nothing: the ownerless rows a transfer exists to adopt are addressable by id
+// alone, never by a name lookup an unidentified caller could make.
+func (s *Store) GetByName(ctx context.Context, ownerEmail, name string) (*script.Script, error) {
+	if ownerEmail == "" {
+		return nil, nil //nolint:nilnil // Store contract: nil, nil means not found
+	}
 	return s.getOne(ctx,
-		scriptSelect+` WHERE name = $1 AND owner_email = $2 AND scope = 'personal'`, name, ownerEmail)
+		scriptSelect+` WHERE name = $1 AND owner_email = $2`, name, ownerEmail)
 }
 
 // GetByID retrieves a script by ID.
@@ -201,7 +197,7 @@ func (s *Store) Update(ctx context.Context, sc *script.Script) error {
 // carries: it drops the stored vector whenever the row's recorded text hash no
 // longer matches the hash of the text the write leaves behind, so an edit never
 // leaves a stale embedding ranking against a description the script no longer
-// has. A metadata-only write (a scope change, a source edit — the source is not
+// has. A metadata-only write (an owner change, a source edit — the source is not
 // indexed) matches the stored hash and preserves the vector, which is what keeps
 // the corpus from re-embedding itself for changes that do not alter what the
 // script is for.
@@ -244,9 +240,9 @@ func updateTx(ctx context.Context, tx *sql.Tx, sc *script.Script) (bool, error) 
 	q := `
 		UPDATE scripts
 		   SET name = $2, display_name = $3, description = $4, category = $5,
-		       source_code = $6, params = $7, scope = $8, personas = $9,
-		       owner_email = $10, tags = $11, enabled = $12, status = $13,
-		       superseded_by = $14, deprecated_at = $15, version = $16,
+		       source_code = $6, params = $7,
+		       owner_email = $8, tags = $9, enabled = $10, status = $11,
+		       superseded_by = $12, deprecated_at = $13, version = $14,
 		       updated_at = NOW()` +
 		fmt.Sprintf(indexInvalidation, updateHashParam) +
 		"\n\t\t WHERE id = $1" +
@@ -254,7 +250,7 @@ func updateTx(ctx context.Context, tx *sql.Tx, sc *script.Script) (bool, error) 
 	var changed bool
 	err = tx.QueryRowContext(ctx, q,
 		sc.ID, sc.Name, sc.DisplayName, sc.Description, sc.Category, sc.Source, paramsJSON,
-		sc.Scope, pq.Array(sc.Personas), sc.OwnerEmail, pq.Array(sc.Tags),
+		sc.OwnerEmail, pq.Array(sc.Tags),
 		sc.Enabled, sc.Status, sc.SupersededBy, sc.DeprecatedAt, sc.Version,
 		indexjobs.TextHash(script.IndexText(sc))).Scan(&changed)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -268,7 +264,7 @@ func updateTx(ctx context.Context, tx *sql.Tx, sc *script.Script) (bool, error) 
 
 // updateHashParam is updateTx's placeholder index for the new text hash, one
 // past its last column value.
-const updateHashParam = 17
+const updateHashParam = 15
 
 // Delete removes a script by ID. Its versions cascade.
 func (s *Store) Delete(ctx context.Context, id string) error {
@@ -320,12 +316,6 @@ func (q *listQuery) add(clause string, arg any) {
 
 // addEquality appends the plain equality filters.
 func (q *listQuery) addEquality(filter script.ListFilter) {
-	if filter.Scope != "" {
-		q.add("scope = $%d", filter.Scope)
-	}
-	if len(filter.Personas) > 0 {
-		q.add("personas && $%d", pq.Array(filter.Personas))
-	}
 	if filter.OwnerEmail != "" {
 		q.add("owner_email = $%d", filter.OwnerEmail)
 	}
@@ -340,26 +330,10 @@ func (q *listQuery) addEquality(filter script.ListFilter) {
 	}
 	if len(filter.Tags) > 0 {
 		// Overlap rather than containment: naming two tags asks for the scripts
-		// carrying either, which is the union of two shelves. It is the same
-		// match the persona axis above uses, over the same array type and the
-		// same GIN-indexable operator.
+		// carrying either, which is the union of two shelves, over a
+		// GIN-indexable operator.
 		q.add("tags && $%d", pq.Array(filter.Tags))
 	}
-}
-
-// addVisibility appends the query-side form of script.VisibleTo: global
-// scripts, the persona-scoped scripts of one persona, and one owner's personal
-// scripts. It is one clause so the list a caller sees and the scripts they may
-// read cannot diverge.
-func (q *listQuery) addVisibility(filter script.ListFilter) {
-	if filter.VisibleTo == "" {
-		return
-	}
-	q.args = append(q.args, filter.VisibleTo, pq.Array([]string{filter.VisiblePersona}))
-	owner, persona := len(q.args)-1, len(q.args)
-	q.where = append(q.where, fmt.Sprintf(
-		"(scope = 'global' OR (scope = 'persona' AND personas && $%d) OR (scope = 'personal' AND owner_email = $%d))",
-		persona, owner))
 }
 
 // addSearch appends the substring filter: one bound argument matched against
@@ -382,7 +356,6 @@ func joinAnd(where []string) string { return strings.Join(where, " AND ") }
 func buildListQuery(filter script.ListFilter) (query string, args []any) {
 	q := &listQuery{}
 	q.addEquality(filter)
-	q.addVisibility(filter)
 	q.addSearch(filter)
 
 	query = scriptSelect

@@ -67,8 +67,6 @@ type manageScriptInput struct {
 	Category   *string        `json:"category,omitempty"`
 	Source     string         `json:"source,omitempty"`
 	Params     []script.Param `json:"params,omitempty"`
-	Scope      string         `json:"scope,omitempty"`
-	Personas   []string       `json:"personas,omitempty"`
 	OwnerEmail string         `json:"owner_email,omitempty"`
 	Tags       []string       `json:"tags,omitempty"`
 	// Enabled is a pointer so "not sent" (leave it alone) is distinct from
@@ -269,15 +267,7 @@ func manageScriptSchema() any {
 				"A connection parameter takes the name of a platform connection; the surfaces that ask for one offer the set this script may reach.",
 			keyItems: map[string]any{keyType: valObject},
 		},
-		"scope": map[string]any{
-			keyType: valString, keyEnum: []string{script.ScopeGlobal, script.ScopePersona, script.ScopePersonal},
-			keyDescription: "Visibility. Defaults to personal; only admins create shared scripts.",
-		},
-		"personas": map[string]any{
-			keyType: valArray, keyItems: map[string]any{keyType: valString},
-			keyDescription: "Personas a persona-scoped script is visible to.",
-		},
-		"owner_email": map[string]any{keyType: valString, keyDescription: "Owner of the script; admins use it to address another owner's personal script."},
+		"owner_email": map[string]any{keyType: valString, keyDescription: "Owner of the script; admins use it to address another person's script."},
 		"tags": map[string]any{
 			keyType: valArray, keyItems: map[string]any{keyType: valString},
 			keyDescription: "Free-form tags. On list they narrow the result to the scripts carrying any of them.",

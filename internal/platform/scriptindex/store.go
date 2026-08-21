@@ -34,7 +34,7 @@ var errNotIndexable = errors.New("scriptindex: script missing or disabled")
 
 // GetIndexText returns the composed embed text for an enabled script. Every
 // enabled script is embedded regardless of status: search visibility is decided
-// at query time (the store's own scope predicate and discoverable-status
+// at query time (the store's own ownership predicate and discoverable-status
 // filter), so the index must cover what any caller can rank. A script disabled
 // or deleted between enqueue and claim yields errNotIndexable so the Source
 // returns an empty item set (a clean "nothing to index" completion).

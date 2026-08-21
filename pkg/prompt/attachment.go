@@ -32,28 +32,26 @@ type Attachment struct {
 	AttachedBy string `json:"attached_by,omitempty" example:"analyst@example.com"`
 }
 
-// Attachment kinds. A prompt attaches material of more than one kind — managed
-// resources (#1013) and managed scripts (#1289) — and the kind appears only in
-// the wording of a refusal, never in the rule: both are governed by one
-// audience test, because the failure they prevent is identical.
-const (
-	AttachKindResource = "resource"
-	AttachKindScript   = "script"
-)
+// AttachKindResource is the kind of material this rule governs: the managed
+// resources a prompt attaches (#1013). The kind appears only in the wording of
+// a refusal, never in the rule. A prompt also references managed scripts
+// (#1289), which this rule does not govern: a script is one person's, so a
+// reference resolves for its owner at every prompt scope and cannot be
+// narrower than the prompt carrying it (#1404).
+const AttachKindResource = "resource"
 
 // AttachmentScope is the subset of an attachment's identity the attach-time
 // scope rule needs. It exists so the rule can live in pkg/prompt without
 // importing pkg/resource or pkg/script: the caller reads the material and
 // passes its visibility through.
 //
-// Scope uses the resource vocabulary ("global", "persona", "user") for every
-// kind, and a kind whose own vocabulary differs is translated at the projection
-// that builds this value — a personal script is a "user"-scoped attachment
-// here. One vocabulary is what keeps one rule; two would be two rules wearing
+// Scope uses the resource vocabulary ("global", "persona", "user"), and a kind
+// whose own vocabulary differs is translated at the projection that builds this
+// value. One vocabulary is what keeps one rule; two would be two rules wearing
 // the same name.
 type AttachmentScope struct {
-	// Kind is what sort of material this is (AttachKindResource,
-	// AttachKindScript), used only to word a refusal.
+	// Kind is what sort of material this is (AttachKindResource), used only to
+	// word a refusal.
 	Kind string
 	// ID identifies the material in error messages.
 	ID string

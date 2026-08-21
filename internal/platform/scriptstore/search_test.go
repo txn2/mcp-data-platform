@@ -43,17 +43,15 @@ func TestSearch_NoQueryTextIsNoQuery(t *testing.T) {
 func TestSearch_AppliesVisibilityAndLifecycleInSQL(t *testing.T) {
 	s, mock := newMock(t)
 	mock.ExpectQuery(regexp.QuoteMeta("script_fts(display_name, name, description, category, tags, params)")).
-		WithArgs("sales report", sqlmock.AnyArg(), sqlmock.AnyArg(), "jane@example.com", script.DefaultSearchLimit).
+		WithArgs("sales report", sqlmock.AnyArg(), "jane@example.com", script.DefaultSearchLimit).
 		WillReturnRows(sqlmock.NewRows(scoredSelectColumns).
 			AddRow(scoredRow(rowSpec{
-				id: "script_1", name: "daily-sales", scope: "global",
-				owner: "jane@example.com", paramsJSON: emptyParams(t),
+				id: "script_1", name: "daily-sales", owner: "jane@example.com", paramsJSON: emptyParams(t),
 			}, 0.75)...))
 
 	got, err := s.Search(context.Background(), script.SearchQuery{
 		QueryText:  "sales report",
 		OwnerEmail: "jane@example.com",
-		Personas:   []string{"analyst"},
 	})
 
 	require.NoError(t, err)
@@ -90,8 +88,7 @@ func TestContract_ComposesTheWholeDocument(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta("FROM scripts WHERE id = $1")).
 		WillReturnRows(sqlmock.NewRows(scriptSelectColumns).
 			AddRow(scriptRow(rowSpec{
-				id: "script_1", name: "daily-sales", scope: "global",
-				owner:      "jane@example.com",
+				id: "script_1", name: "daily-sales", owner: "jane@example.com",
 				paramsJSON: []byte(`[{"name":"report_date","type":"date","required":true}]`),
 			})...))
 	mock.ExpectQuery(regexp.QuoteMeta("FROM script_schedules WHERE script_id = $1")).
@@ -139,8 +136,7 @@ func TestContract_ToleratesNoScheduleAndNoRun(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta("FROM scripts WHERE id = $1")).
 		WillReturnRows(sqlmock.NewRows(scriptSelectColumns).
 			AddRow(scriptRow(rowSpec{
-				id: "script_1", name: "daily-sales", scope: "global",
-				owner: "jane@example.com", paramsJSON: emptyParams(t),
+				id: "script_1", name: "daily-sales", owner: "jane@example.com", paramsJSON: emptyParams(t),
 			})...))
 	mock.ExpectQuery(regexp.QuoteMeta("FROM script_schedules")).
 		WillReturnRows(sqlmock.NewRows(scheduleSelectColumns))
@@ -165,8 +161,7 @@ func TestContract_ScheduleReadFailureIsAFailure(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta("FROM scripts WHERE id = $1")).
 		WillReturnRows(sqlmock.NewRows(scriptSelectColumns).
 			AddRow(scriptRow(rowSpec{
-				id: "script_1", name: "daily-sales", scope: "global",
-				owner: "jane@example.com", paramsJSON: emptyParams(t),
+				id: "script_1", name: "daily-sales", owner: "jane@example.com", paramsJSON: emptyParams(t),
 			})...))
 	mock.ExpectQuery(regexp.QuoteMeta("FROM script_schedules")).WillReturnError(errors.New("down"))
 
@@ -207,16 +202,14 @@ func hybridRow(spec rowSpec, vecScore float64, lexMatch bool) []driver.Value {
 func TestSearch_HybridRunsBothIndexBackedArms(t *testing.T) {
 	s, mock := newMock(t)
 	both := rowSpec{
-		id: "script_1", name: "daily-sales", scope: "global",
-		owner: "jane@example.com", paramsJSON: emptyParams(t),
+		id: "script_1", name: "daily-sales", owner: "jane@example.com", paramsJSON: emptyParams(t),
 	}
 	vectorOnly := rowSpec{
-		id: "script_2", name: "weekly-churn", scope: "global",
-		owner: "jane@example.com", paramsJSON: emptyParams(t),
+		id: "script_2", name: "weekly-churn", owner: "jane@example.com", paramsJSON: emptyParams(t),
 	}
 	mock.ExpectQuery(regexp.QuoteMeta("UNION ALL")).
 		WithArgs(sqlmock.AnyArg(), "refresh the regional sales numbers",
-			sqlmock.AnyArg(), sqlmock.AnyArg(), "jane@example.com").
+			sqlmock.AnyArg(), "jane@example.com").
 		WillReturnRows(sqlmock.NewRows(hybridSelectColumns).
 			AddRow(hybridRow(both, 0.8, false)...).
 			AddRow(hybridRow(vectorOnly, 0.6, false)...).
@@ -243,8 +236,8 @@ func TestSearch_HybridRunsBothIndexBackedArms(t *testing.T) {
 // still returned, and a script that also matches the words outranks it.
 func TestSearch_HybridOrdersSemanticOnlyBelowAnExactMatch(t *testing.T) {
 	s, mock := newMock(t)
-	lexical := rowSpec{id: "script_1", name: "a-lexical", scope: "global", paramsJSON: emptyParams(t)}
-	semantic := rowSpec{id: "script_2", name: "b-semantic", scope: "global", paramsJSON: emptyParams(t)}
+	lexical := rowSpec{id: "script_1", name: "a-lexical", paramsJSON: emptyParams(t)}
+	semantic := rowSpec{id: "script_2", name: "b-semantic", paramsJSON: emptyParams(t)}
 	mock.ExpectQuery(regexp.QuoteMeta("UNION ALL")).
 		WillReturnRows(sqlmock.NewRows(hybridSelectColumns).
 			// The semantically nearer script, with no term in common.
@@ -281,7 +274,7 @@ func TestSearch_HybridQueryErrorIsWrapped(t *testing.T) {
 // ranking as a complete one.
 func TestSearch_HybridRowErrorIsSurfaced(t *testing.T) {
 	s, mock := newMock(t)
-	spec := rowSpec{id: "script_1", name: "daily", scope: "global", paramsJSON: emptyParams(t)}
+	spec := rowSpec{id: "script_1", name: "daily", paramsJSON: emptyParams(t)}
 	mock.ExpectQuery(regexp.QuoteMeta("UNION ALL")).
 		WillReturnRows(sqlmock.NewRows(hybridSelectColumns).
 			AddRow(hybridRow(spec, 0.5, true)...).RowError(0, errors.New("boom")))
@@ -297,7 +290,7 @@ func TestSearch_HybridRowErrorIsSurfaced(t *testing.T) {
 // read, which is a different failure from the iteration one above.
 func TestSearch_HybridScanErrorIsSurfaced(t *testing.T) {
 	s, mock := newMock(t)
-	spec := rowSpec{id: "script_1", name: "daily", scope: "global", paramsJSON: []byte("not json")}
+	spec := rowSpec{id: "script_1", name: "daily", paramsJSON: []byte("not json")}
 	mock.ExpectQuery(regexp.QuoteMeta("UNION ALL")).
 		WillReturnRows(sqlmock.NewRows(hybridSelectColumns).AddRow(hybridRow(spec, 0.5, true)...))
 
@@ -316,7 +309,7 @@ func TestSearch_HybridTruncatesToTheEffectiveLimit(t *testing.T) {
 	rows := sqlmock.NewRows(hybridSelectColumns)
 	for _, id := range []string{"script_1", "script_2", "script_3"} {
 		rows.AddRow(hybridRow(rowSpec{
-			id: id, name: id, scope: "global", paramsJSON: emptyParams(t),
+			id: id, name: id, paramsJSON: emptyParams(t),
 		}, 0.5, true)...)
 	}
 	mock.ExpectQuery(regexp.QuoteMeta("UNION ALL")).WillReturnRows(rows)
@@ -331,7 +324,7 @@ func TestSearch_HybridTruncatesToTheEffectiveLimit(t *testing.T) {
 
 // TestSearch_HybridOrdersTiesDeterministically pins the last tie-break. The
 // fused set is collected from a map, so two scripts with the same score and the
-// same name — names are unique only within a scope — would otherwise come back
+// same name — names are unique only within an owner — would otherwise come back
 // in map iteration order, and a search that reorders itself between identical
 // calls is a search an agent cannot cite.
 func TestSearch_HybridOrdersTiesDeterministically(t *testing.T) {
@@ -339,7 +332,7 @@ func TestSearch_HybridOrdersTiesDeterministically(t *testing.T) {
 		r := sqlmock.NewRows(hybridSelectColumns)
 		for _, id := range []string{"script_b", "script_a"} {
 			r.AddRow(hybridRow(rowSpec{
-				id: id, name: "same-name", scope: "global", paramsJSON: emptyParams(t),
+				id: id, name: "same-name", paramsJSON: emptyParams(t),
 			}, 0.5, true)...)
 		}
 		return r

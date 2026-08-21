@@ -139,8 +139,6 @@ export interface ScriptContract {
   display_name?: string;
   description?: string;
   owner_email?: string;
-  scope: string;
-  personas?: string[];
   // category files the script under one lowercase slug (#1369), empty for a
   // script nobody has filed.
   category?: string;
@@ -273,6 +271,30 @@ export function useSaveScriptMetadata(scriptID: string) {
       apiFetch<ScriptMetadataOutcome>(`/scripts/${scriptID}/metadata`, {
         method: "PUT",
         body: JSON.stringify(body),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: scriptsKey }),
+  });
+}
+
+// ScriptOwnerOutcome is a completed transfer: where the script landed, the
+// version the move recorded, and what it means for the next run.
+export interface ScriptOwnerOutcome {
+  owner_email: string;
+  version: number;
+  message: string;
+}
+
+// useTransferScriptOwner moves a script to another person. It is an
+// administrator's action: ownership is the whole of what a script is, so
+// handing it over hands over everything at once, and the run identity is
+// re-captured from the administrator making the move.
+export function useTransferScriptOwner(scriptID: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (ownerEmail: string) =>
+      apiFetch<ScriptOwnerOutcome>(`/scripts/${scriptID}/owner`, {
+        method: "PUT",
+        body: JSON.stringify({ owner_email: ownerEmail }),
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: scriptsKey }),
   });

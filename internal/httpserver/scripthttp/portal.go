@@ -16,14 +16,9 @@ import (
 // these routes the humans the feature is for can work with their own
 // automations only by asking an agent to call a tool.
 //
-// Two visibility rules apply, and they are different rules:
-//
-//   - What a script IS (the contract: name, owner, parameters, cadence)
-//     follows script.VisibleTo, so anyone entitled to see the script sees it.
-//   - What a script DID and what it is made of (its runs, their logs, its
-//     source) is the owner's and the administrator's. A log is the script's
-//     own account of a working system; it is not implied by being allowed to
-//     know the script exists.
+// One visibility rule applies throughout: a script is its owner's. What it is,
+// what it did, and what it is made of are all read by the person who owns it
+// and by an administrator, and by nobody else.
 
 // portalRunListLimit caps a portal run listing that names no limit. The store
 // clamps to its own ceiling above this, so a caller cannot widen it.
@@ -103,6 +98,10 @@ func (h *Handler) RegisterPortal(mux *http.ServeMux, wrap func(http.Handler) htt
 	// Documenting the script is the owner's too: what a script SAYS about
 	// itself is not what it does (#1369).
 	mux.Handle("PUT /api/v1/portal/scripts/{id}/metadata", wrap(h.portalHandler(h.portalSetMetadata)))
+	// Moving it to somebody else is an administrator's, and the handler is what
+	// refuses everybody else: it is mounted here because it is the same detail
+	// page, not because every caller of that page may use it (#1404).
+	mux.Handle("PUT /api/v1/portal/scripts/{id}/owner", wrap(h.portalHandler(h.portalTransferOwner)))
 	// Checking an edit before saving it (#1364). Validating parses and
 	// reports; it executes nothing, needs no collaborator, and is therefore
 	// always available where the editor is.
@@ -235,13 +234,17 @@ func (h *Handler) portalListScripts(w http.ResponseWriter, r *http.Request, user
 	httpjson.WriteJSON(w, http.StatusOK, portalScriptListResponse{Data: rows, Total: len(rows)})
 }
 
-// reportableScript is a script row as its reader may have it. Everything that
-// makes a script discoverable — what it is, what it takes, whether anything
-// will execute it — is readable by anyone the scope rules admit; its SOURCE is
-// not. Reading the code is what the version history is for, and that is the
-// owner's and the administrator's, so the listing does not hand the source to
-// every caller who may merely see the script. The tool listing projects its
-// fields and never carried it.
+// reportableScript is a script row as its reader may have it: complete, except
+// that a row the reader does not own carries no SOURCE. Reading the code is
+// what the version history and the editor are for, and both are the owner's and
+// the administrator's.
+//
+// The predicate already limits a non-admin to their own scripts, so the guard
+// bites only where a row could arrive unowned — an administrator's unfiltered
+// listing, where owned is true and the source is theirs to read. It is kept as
+// the listing's own answer to the question rather than as an inference from the
+// predicate: a listing that grew a second population would otherwise hand out
+// code silently. The tool listing projects its fields and never carried it.
 func reportableScript(sc script.Script, owned bool) script.Script {
 	if !owned {
 		sc.Source = ""
@@ -280,7 +283,7 @@ func portalListFilter(user *PortalIdentity, query url.Values) script.ListFilter 
 	if user.IsAdmin {
 		return filter
 	}
-	filter.VisibleTo, filter.VisiblePersona = user.owner(), user.Persona
+	filter.OwnerEmail = user.owner()
 	return filter
 }
 
@@ -372,9 +375,9 @@ type portalScriptResponse struct {
 	Contract script.Contract `json:"contract"`
 	Owned    bool            `json:"owned" example:"true"`
 	// Source is the live script's code, present only for the owner and an
-	// administrator: it is what the editor on that page opens (#1307), and the
+	// administrator: it is what the editor on that page opens (#1307). The
 	// contract document deliberately does not carry it, because that document
-	// is served to everyone the scope rules admit.
+	// is what a reference to the script resolves to.
 	Source string `json:"source,omitempty"`
 	// DraftParams is the LIVE record's parameter contract, which is not always
 	// the contract above only in freshness: it is read with the source, so the
@@ -406,7 +409,7 @@ func (h *Handler) portalGetScript(w http.ResponseWriter, r *http.Request, user *
 	}
 	// A script the caller may not see is answered exactly as a script that does
 	// not exist, so the difference cannot be used to learn that one exists.
-	if contract == nil || (!user.IsAdmin && !contract.VisibleToAny(user.owner(), []string{user.Persona})) {
+	if contract == nil || (!user.IsAdmin && !contract.OwnedBy(user.owner())) {
 		httpjson.WriteError(w, http.StatusNotFound, errScriptNot)
 		return
 	}

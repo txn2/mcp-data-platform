@@ -28,7 +28,7 @@ var testAuthor = script.Author{Email: "jane@example.com", Roles: []string{"analy
 // scriptColumns order.
 var scriptSelectColumns = []string{
 	"id", "name", "display_name", "description", "category", "source_code", "params",
-	"scope", "personas", "owner_email", "tags", "enabled", "status",
+	"owner_email", "tags", "enabled", "status",
 	"superseded_by", "deprecated_at", "version",
 	"created_at", "updated_at",
 }
@@ -39,7 +39,6 @@ var rowTime = time.Unix(1700000000, 0).UTC()
 type rowSpec struct {
 	id         string
 	name       string
-	scope      string
 	owner      string
 	paramsJSON []byte
 	source     string
@@ -54,7 +53,7 @@ func scriptRow(spec rowSpec) []driver.Value {
 	}
 	return []driver.Value{
 		spec.id, spec.name, "Daily", "A daily report", spec.category, source, spec.paramsJSON,
-		spec.scope, pq.Array([]string{}), spec.owner, pq.Array([]string{}), true, "active",
+		spec.owner, pq.Array([]string{}), true, "active",
 		"", nil, 1, rowTime, rowTime,
 	}
 }
@@ -90,34 +89,33 @@ func expectLiveRowUpdateMissing(mock sqlmock.Sqlmock) {
 		WillReturnRows(sqlmock.NewRows([]string{"changed"}))
 }
 
-func TestGet_ResolvesSharedByName(t *testing.T) {
+// TestGetByName_ResolvesWithinTheOwner proves a name lookup names an owner: two
+// people may each keep a "daily", and neither reaches the other's.
+func TestGetByName_ResolvesWithinTheOwner(t *testing.T) {
 	s, mock := newMock(t)
-	mock.ExpectQuery(regexp.QuoteMeta("FROM scripts WHERE name = $1 AND scope <> 'personal'")).
-		WithArgs("daily").
+	mock.ExpectQuery(regexp.QuoteMeta("FROM scripts WHERE name = $1 AND owner_email = $2")).
+		WithArgs("daily", "jane@example.com").
 		WillReturnRows(sqlmock.NewRows(scriptSelectColumns).
-			AddRow(scriptRow(rowSpec{id: "script_1", name: "daily", scope: "global", owner: "jane@example.com", paramsJSON: emptyParams(t)})...))
+			AddRow(scriptRow(rowSpec{id: "script_1", name: "daily", owner: "jane@example.com", paramsJSON: emptyParams(t)})...))
 
-	got, err := s.Get(context.Background(), "daily")
+	got, err := s.GetByName(context.Background(), "jane@example.com", "daily")
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, "daily", got.Name)
+	assert.Equal(t, "jane@example.com", got.OwnerEmail)
 	assert.Equal(t, []script.Param{}, got.Params, "a nil params slice is normalized so JSON carries [] not null")
-	assert.Equal(t, []string{}, got.Personas)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-func TestGetPersonal_NeedsAnOwner(t *testing.T) {
+// TestGetByName_UnidentifiedCallerReachesNothing proves the ownerless rows a
+// transfer exists to adopt are not addressable by a name lookup: the query is
+// never issued.
+func TestGetByName_UnidentifiedCallerReachesNothing(t *testing.T) {
 	s, mock := newMock(t)
-	mock.ExpectQuery(regexp.QuoteMeta("WHERE name = $1 AND owner_email = $2 AND scope = 'personal'")).
-		WithArgs("daily", "jane@example.com").
-		WillReturnRows(sqlmock.NewRows(scriptSelectColumns).
-			AddRow(scriptRow(rowSpec{id: "script_1", name: "daily", scope: "personal", owner: "jane@example.com", paramsJSON: emptyParams(t)})...))
 
-	got, err := s.GetPersonal(context.Background(), "jane@example.com", "daily")
+	got, err := s.GetByName(context.Background(), "", "daily")
 	require.NoError(t, err)
-	require.NotNil(t, got)
-	assert.Equal(t, script.ScopePersonal, got.Scope)
-	assert.Equal(t, "jane@example.com", got.OwnerEmail)
+	assert.Nil(t, got)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -126,7 +124,7 @@ func TestGet_NotFoundIsNilNil(t *testing.T) {
 	s, mock := newMock(t)
 	mock.ExpectQuery("FROM scripts").WillReturnRows(sqlmock.NewRows(scriptSelectColumns))
 
-	got, err := s.Get(context.Background(), "missing")
+	got, err := s.GetByName(context.Background(), "jane@example.com", "missing")
 	require.NoError(t, err)
 	assert.Nil(t, got)
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -146,9 +144,9 @@ func TestGet_MalformedParamsAreReported(t *testing.T) {
 	s, mock := newMock(t)
 	mock.ExpectQuery("FROM scripts").
 		WillReturnRows(sqlmock.NewRows(scriptSelectColumns).
-			AddRow(scriptRow(rowSpec{id: "script_1", name: "daily", scope: "global", owner: "j@example.com", paramsJSON: []byte("{not json")})...))
+			AddRow(scriptRow(rowSpec{id: "script_1", name: "daily", owner: "j@example.com", paramsJSON: []byte("{not json")})...))
 
-	_, err := s.Get(context.Background(), "daily")
+	_, err := s.GetByName(context.Background(), "jane@example.com", "daily")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unmarshal script params")
 }
@@ -165,7 +163,7 @@ func TestCreate_WritesTheRowAndItsFirstSnapshot(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
-	sc := &script.Script{Name: "daily", Scope: script.ScopePersonal, Source: "print(1)", OwnerEmail: "j@example.com"}
+	sc := &script.Script{Name: "daily", Source: "print(1)", OwnerEmail: "j@example.com"}
 	require.NoError(t, s.Create(context.Background(), sc, testAuthor))
 	assert.Equal(t, "script_1", sc.ID)
 	assert.Equal(t, 1, sc.Version)
@@ -182,7 +180,7 @@ func TestCreate_RollsBackWhenTheSnapshotFails(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO script_versions")).WillReturnError(errors.New("boom"))
 	mock.ExpectRollback()
 
-	err := s.Create(context.Background(), &script.Script{Name: "daily", Scope: script.ScopePersonal}, testAuthor)
+	err := s.Create(context.Background(), &script.Script{Name: "daily"}, testAuthor)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "insert script version")
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -221,32 +219,23 @@ func TestDelete(t *testing.T) {
 func TestBuildListQuery(t *testing.T) {
 	enabled := true
 	query, args := buildListQuery(script.ListFilter{
-		Scope: "personal", Personas: []string{"analyst"}, OwnerEmail: "j@example.com",
-		Enabled: &enabled, Status: "active", Search: "sales", Limit: 10,
+		OwnerEmail: "j@example.com",
+		Enabled:    &enabled, Status: "active", Search: "sales", Limit: 10,
 	})
-	assert.Contains(t, query, "scope = $1")
-	assert.Contains(t, query, "personas && $2")
-	assert.Contains(t, query, "owner_email = $3")
-	assert.Contains(t, query, "enabled = $4")
-	assert.Contains(t, query, "status = $5")
-	assert.Contains(t, query, "(name ILIKE $6 OR display_name ILIKE $6 OR description ILIKE $6)")
-	assert.Contains(t, query, "LIMIT $7")
+	assert.Contains(t, query, "owner_email = $1")
+	assert.Contains(t, query, "enabled = $2")
+	assert.Contains(t, query, "status = $3")
+	assert.Contains(t, query, "(name ILIKE $4 OR display_name ILIKE $4 OR description ILIKE $4)")
+	assert.Contains(t, query, "LIMIT $5")
 	assert.NotContains(t, query, "MISSING", "every placeholder must be numbered")
-	require.Len(t, args, 7)
-	assert.Equal(t, "%sales%", args[5])
-	assert.Equal(t, 10, args[6])
+	require.Len(t, args, 5)
+	assert.Equal(t, "%sales%", args[3])
+	assert.Equal(t, 10, args[4])
 
+	// No owner is the administrator's listing: every script, unfiltered.
 	query, args = buildListQuery(script.ListFilter{})
 	assert.NotContains(t, query, "WHERE")
 	assert.Equal(t, []any{defaultListLimit}, args)
-
-	// The visibility predicate is one clause naming both bound values, which is
-	// what keeps the listing and the read path answering the same question.
-	query, args = buildListQuery(script.ListFilter{VisibleTo: "j@example.com", VisiblePersona: "analyst"})
-	assert.Contains(t, query,
-		"(scope = 'global' OR (scope = 'persona' AND personas && $2) OR (scope = 'personal' AND owner_email = $1))")
-	require.Len(t, args, 3)
-	assert.Equal(t, "j@example.com", args[0])
 
 	// An over-large limit is clamped rather than honored.
 	_, args = buildListQuery(script.ListFilter{Limit: 100000})
@@ -284,8 +273,7 @@ func TestScanScript_ReadsTheCategory(t *testing.T) {
 	s, mock := newMock(t)
 	mock.ExpectQuery(regexp.QuoteMeta("FROM scripts WHERE id = $1")).
 		WillReturnRows(sqlmock.NewRows(scriptSelectColumns).AddRow(scriptRow(rowSpec{
-			id: "script_1", name: "daily", scope: "personal",
-			owner: "jane@example.com", paramsJSON: emptyParams(t), category: "reporting",
+			id: "script_1", name: "daily", owner: "jane@example.com", paramsJSON: emptyParams(t), category: "reporting",
 		})...))
 
 	got, err := s.GetByID(context.Background(), "script_1")
@@ -302,8 +290,8 @@ func TestList(t *testing.T) {
 	s, mock := newMock(t)
 	mock.ExpectQuery("FROM scripts").
 		WillReturnRows(sqlmock.NewRows(scriptSelectColumns).
-			AddRow(scriptRow(rowSpec{id: "script_1", name: "a", scope: "personal", owner: "j@example.com", paramsJSON: emptyParams(t)})...).
-			AddRow(scriptRow(rowSpec{id: "script_2", name: "b", scope: "personal", owner: "j@example.com", paramsJSON: emptyParams(t)})...))
+			AddRow(scriptRow(rowSpec{id: "script_1", name: "a", owner: "j@example.com", paramsJSON: emptyParams(t)})...).
+			AddRow(scriptRow(rowSpec{id: "script_2", name: "b", owner: "j@example.com", paramsJSON: emptyParams(t)})...))
 
 	got, err := s.List(context.Background(), script.ListFilter{})
 	require.NoError(t, err)
@@ -319,7 +307,7 @@ func TestList_ScanErrorPropagates(t *testing.T) {
 	s, mock := newMock(t)
 	mock.ExpectQuery("FROM scripts").
 		WillReturnRows(sqlmock.NewRows(scriptSelectColumns).
-			AddRow(scriptRow(rowSpec{id: "script_1", name: "a", scope: "personal", owner: "j@example.com", paramsJSON: []byte("{bad")})...))
+			AddRow(scriptRow(rowSpec{id: "script_1", name: "a", owner: "j@example.com", paramsJSON: []byte("{bad")})...))
 
 	_, err := s.List(context.Background(), script.ListFilter{})
 	assert.ErrorContains(t, err, "unmarshal script params")

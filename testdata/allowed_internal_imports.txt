@@ -111,6 +111,7 @@ internal/httpserver/notifyhttp -> pkg/notification/smtp
 internal/httpserver/scripthttp -> internal/httpjson
 internal/httpserver/scripthttp -> internal/platform/scriptdraft
 internal/httpserver/scripthttp -> internal/platform/scriptrun
+internal/httpserver/scripthttp -> pkg/audit
 internal/httpserver/scripthttp -> pkg/script
 internal/httpserver/scripthttp -> pkg/session
 internal/httpserver/sources -> pkg/toolkits/gateway/enrichment
@@ -652,6 +653,7 @@ pkg/resource -> internal/logsan
 pkg/resource -> pkg/blobserve
 pkg/resource -> pkg/contenttype
 pkg/resource -> pkg/indexjobs
+pkg/script -> pkg/user
 pkg/semantic/datahub -> pkg/observability
 pkg/semantic/datahub -> pkg/semantic
 pkg/semantic/datahub -> pkg/urnbuild

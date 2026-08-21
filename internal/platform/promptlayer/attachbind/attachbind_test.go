@@ -42,12 +42,12 @@ func (s *stubContracts) Contract(context.Context, string) (*script.Contract, err
 	return s.contract, nil
 }
 
-// personaScript is visible only to the analyst persona, so whether the binder
-// passes the caller's membership decides whether it resolves at all.
-func personaScript() *script.Contract {
+// janesScript is Jane's, so whether the binder derives the caller's address
+// from the request context decides whether it resolves at all.
+func janesScript() *script.Contract {
 	return &script.Contract{
 		ID: scriptID, Name: "daily-sales", DisplayName: "Daily Sales",
-		Scope: script.ScopePersona, Personas: []string{"analyst"},
+		OwnerEmail: "jane@example.com",
 	}
 }
 
@@ -121,75 +121,59 @@ func TestUnboundBinderServesNothing(t *testing.T) {
 	assert.Nil(t, b.Scripts(), "an unbound binder offers no script resolver")
 	pr := &prompt.Prompt{ID: "p1", Scope: prompt.ScopeGlobal}
 	assert.Nil(t, b.ResolveResources(context.Background(), pr, nil))
-	assert.Nil(t, b.ResolveScripts(context.Background(), pr, nil))
+	assert.Nil(t, b.ResolveScripts(context.Background(), pr))
 	require.NoError(t, b.GuardScope(context.Background(), pr))
 }
 
 // TestScriptsReturnsTheBoundResolver proves the accessor the attach/detach
 // commands act through hands back what was bound.
 func TestScriptsReturnsTheBoundResolver(t *testing.T) {
-	assert.NotNil(t, binderWithScripts(t, personaScript()).Scripts())
+	assert.NotNil(t, binderWithScripts(t, janesScript()).Scripts())
 }
 
-// TestResolveScriptsUsesTheRequestPersonaAsMembership proves the binder derives
-// the caller's identity from the request context: without it a persona-scoped
-// script resolves for nobody, and the serve payload would report every
-// automation as out of reach.
-func TestResolveScriptsUsesTheRequestPersonaAsMembership(t *testing.T) {
-	b := binderWithScripts(t, personaScript())
+// TestResolveScriptsUsesTheRequestIdentity proves the binder derives the
+// caller's address from the request context: without it every reference would
+// resolve for nobody and the serve payload would report every automation as out
+// of reach.
+func TestResolveScriptsUsesTheRequestIdentity(t *testing.T) {
+	b := binderWithScripts(t, janesScript())
 	pr := &prompt.Prompt{ID: "p1", Scope: prompt.ScopePersona}
 
-	got := b.ResolveScripts(ctxWith("jane@example.com", "analyst"), pr, nil)
+	got := b.ResolveScripts(ctxWith("jane@example.com", "analyst"), pr)
 	require.Len(t, got, 1)
 	assert.Equal(t, attachserve.AvailableEmbedded, got[0].Availability)
 
-	other := b.ResolveScripts(ctxWith("bob@example.com", "engineer"), pr, nil)
+	other := b.ResolveScripts(ctxWith("bob@example.com", "engineer"), pr)
 	require.Len(t, other, 1)
 	assert.Equal(t, attachserve.UnavailableForbidden, other[0].Availability)
 }
 
-// TestResolveScriptsPrefersTheKnownMembershipSet proves the full persona set,
-// where the serving path knows it, replaces the single acting persona — so a
-// member of two personas is not refused their own second persona's automation.
-func TestResolveScriptsPrefersTheKnownMembershipSet(t *testing.T) {
-	b := binderWithScripts(t, personaScript())
-	pr := &prompt.Prompt{ID: "p1", Scope: prompt.ScopePersona}
-
-	got := b.ResolveScripts(ctxWith("jane@example.com", "engineer"), pr, []string{"engineer", "analyst"})
-
-	require.Len(t, got, 1)
-	assert.Equal(t, attachserve.AvailableEmbedded, got[0].Availability)
-}
-
-// TestResolveScriptsWithoutIdentityResolvesOnlyGlobal proves an anonymous
-// request sees exactly what an unauthenticated reader already sees.
-func TestResolveScriptsWithoutIdentityResolvesOnlyGlobal(t *testing.T) {
+// TestResolveScriptsWithoutIdentityResolvesNothing proves an anonymous request
+// reaches no script: a script is its owner's, and a request the platform cannot
+// name owns none.
+func TestResolveScriptsWithoutIdentityResolvesNothing(t *testing.T) {
 	pr := &prompt.Prompt{ID: "p1", Scope: prompt.ScopeGlobal}
 
-	restricted := binderWithScripts(t, personaScript()).ResolveScripts(context.Background(), pr, nil)
-	require.Len(t, restricted, 1)
-	assert.Equal(t, attachserve.UnavailableForbidden, restricted[0].Availability)
+	got := binderWithScripts(t, janesScript()).ResolveScripts(context.Background(), pr)
 
-	global := binderWithScripts(t, &script.Contract{ID: scriptID, Name: "n", Scope: script.ScopeGlobal}).
-		ResolveScripts(context.Background(), pr, nil)
-	require.Len(t, global, 1)
-	assert.Equal(t, attachserve.AvailableEmbedded, global[0].Availability)
+	require.Len(t, got, 1)
+	assert.Equal(t, attachserve.UnavailableForbidden, got[0].Availability)
 }
 
 // TestResolveSkipsPromptsThatCannotCarryMaterial proves a static or file prompt
 // (no stored id) costs no store read.
 func TestResolveSkipsPromptsThatCannotCarryMaterial(t *testing.T) {
-	b := binderWithScripts(t, personaScript())
+	b := binderWithScripts(t, janesScript())
 
-	assert.Nil(t, b.ResolveScripts(ctxWith("jane@example.com", "analyst"), &prompt.Prompt{Name: "static"}, nil))
-	assert.Nil(t, b.ResolveScripts(ctxWith("jane@example.com", "analyst"), nil, nil))
+	assert.Nil(t, b.ResolveScripts(ctxWith("jane@example.com", "analyst"), &prompt.Prompt{Name: "static"}))
+	assert.Nil(t, b.ResolveScripts(ctxWith("jane@example.com", "analyst"), nil))
 }
 
 // TestAppendContentAddsOneMessagePerContentItem proves referenced automations
 // reach a prompts/get result as their own user-role messages, which is what
 // lets a client render or elide them independently of the procedure.
 func TestAppendContentAddsOneMessagePerContentItem(t *testing.T) {
-	b := binderWithScripts(t, &script.Contract{ID: scriptID, Name: "daily-sales", Scope: script.ScopeGlobal})
+	b := binderWithScripts(t, janesScript())
 	res := &mcp.GetPromptResult{Messages: []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: "procedure"}}}}
 
 	b.AppendContent(ctxWith("jane@example.com", ""), res, &prompt.Prompt{ID: "p1", Scope: prompt.ScopeGlobal}, nil)
@@ -197,44 +181,24 @@ func TestAppendContentAddsOneMessagePerContentItem(t *testing.T) {
 	require.Len(t, res.Messages, 2)
 	text, ok := res.Messages[1].Content.(*mcp.TextContent)
 	require.True(t, ok)
-	assert.Contains(t, text.Text, "daily-sales")
+	assert.Contains(t, text.Text, "Daily Sales")
 	assert.Equal(t, mcp.Role(promptRoleUser), res.Messages[1].Role)
 
 	b.AppendContent(context.Background(), nil, &prompt.Prompt{ID: "p1"}, nil) // must not panic
 }
 
-// TestGuardScopeChecksBothKinds proves one guard covers both kinds of attached
-// material: a referenced script that is narrower than the prompt blocks the
-// write exactly as a narrow resource does.
-func TestGuardScopeChecksBothKinds(t *testing.T) {
-	b := binderWithScripts(t, personaScript())
+// TestGuardScopeIgnoresReferencedScripts proves promoting a prompt is not
+// blocked by the automations it references: a script resolves for its owner at
+// every prompt scope, so widening the prompt cannot outrun it. The author was
+// told what the reference serves when they made it.
+func TestGuardScopeIgnoresReferencedScripts(t *testing.T) {
+	b := binderWithScripts(t, janesScript())
 
-	err := b.GuardScope(context.Background(), &prompt.Prompt{ID: "p1", Scope: prompt.ScopeGlobal})
-
-	require.ErrorIs(t, err, prompt.ErrAttachmentScope)
-	assert.Contains(t, err.Error(), "script")
-}
-
-// TestGuardScopeChecksThePendingPromotion proves the author is refused at
-// request time, not at approval: they are the only person who can fix it.
-func TestGuardScopeChecksThePendingPromotion(t *testing.T) {
-	b := binderWithScripts(t, personaScript())
-
-	err := b.GuardScope(context.Background(), &prompt.Prompt{
+	require.NoError(t, b.GuardScope(context.Background(), &prompt.Prompt{ID: "p1", Scope: prompt.ScopeGlobal}))
+	require.NoError(t, b.GuardScope(context.Background(), &prompt.Prompt{
 		ID: "p1", Scope: prompt.ScopePersonal, OwnerEmail: "jane@example.com",
 		ReviewRequested: true, RequestedScope: prompt.ScopeGlobal,
-	})
-
-	require.ErrorIs(t, err, prompt.ErrAttachmentScope)
-}
-
-// TestGuardScopeAdmitsACompatibleAudience proves the guard is not a blanket
-// refusal: a persona prompt whose personas the script serves is allowed.
-func TestGuardScopeAdmitsACompatibleAudience(t *testing.T) {
-	b := binderWithScripts(t, personaScript())
-
-	require.NoError(t, b.GuardScope(context.Background(),
-		&prompt.Prompt{ID: "p1", Scope: prompt.ScopePersona, Personas: []string{"analyst"}}))
+	}))
 }
 
 // TestGuardScopeFailsClosedOnAResolverError proves a store outage blocks the

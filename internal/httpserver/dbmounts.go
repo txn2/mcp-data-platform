@@ -207,7 +207,7 @@ func scriptDeps(p *platform.Platform) (scripthttp.Deps, bool) {
 		return scripthttp.Deps{}, false
 	}
 	store := scriptstore.New(p.DB())
-	return scripthttp.Deps{
+	deps := scripthttp.Deps{
 		Scripts:    store,
 		Versions:   store,
 		Schedules:  store,
@@ -215,7 +215,11 @@ func scriptDeps(p *platform.Platform) (scripthttp.Deps, bool) {
 		DryRuns:    store,
 		Contracts:  store,
 		LatestRuns: store,
-	}, true
+	}
+	if auditStore := p.Audit().Store(); auditStore != nil {
+		deps.Audit = auditStore
+	}
+	return deps, true
 }
 
 // scriptPortalIdentity resolves the portal caller for the script routes: who

@@ -16,10 +16,10 @@ import (
 // both apply to the live row and are captured as versions: saving a version
 // makes it the version that runs.
 //
-// Neither route touches scope, personas, status, or the parameter contract.
-// Those are structured decisions with their own rules, so the page that shows
-// the code changes the code, and the page that shows the document changes the
-// document.
+// Neither route touches the status or the parameter contract, which are
+// structured decisions with their own rules, nor the owner, which is the
+// administrator's transfer (#1404). The page that shows the code changes the
+// code, and the page that shows the document changes the document.
 
 // maxSourceBodyBytes bounds an edit request. script.MaxSourceLength bounds the
 // source itself; this is the envelope around it, generous enough that a body

@@ -27,10 +27,29 @@ vi.mock("@/api/portal/hooks/scripts", () => ({
   useDryRunScript: vi.fn(),
   useScriptConnections: vi.fn(),
   useRunScript: vi.fn(),
+  // The owner transfer's hook (#1404). The control has its own tests; here it
+  // only has to answer, so the page composes with the administrator's section.
+  useTransferScriptOwner: vi.fn(),
   // The page size is the module's own constant, not a hook: the run history
   // states it when a result fills it.
   RUN_PAGE_SIZE: 25,
 }));
+
+// The transfer control offers the known-users directory as type-ahead. It has
+// its own tests; here it only has to answer, so the page renders without a
+// query client.
+vi.mock("@/api/portal/hooks", () => ({
+  useDirectoryUsers: () => ({ data: undefined }),
+}));
+
+// The transfer section is an administrator's, so the page reads the auth
+// store. Drive is_admin per test.
+vi.mock("@/stores/auth", () => ({
+  useAuthStore: (selector: (s: { isAdmin: () => boolean }) => unknown) =>
+    selector({ isAdmin: () => admin }),
+}));
+
+let admin = false;
 
 import {
   useDryRunScript,
@@ -44,10 +63,12 @@ import {
   useScriptSchedule,
   useSetScriptSchedule,
   useSetScriptSchedulePaused,
+  useTransferScriptOwner,
   useValidateScriptSource,
 } from "@/api/portal/hooks/scripts";
 
 const mockContract = vi.mocked(useScriptContract);
+const mockTransfer = vi.mocked(useTransferScriptOwner);
 const mockVersions = vi.mocked(usePortalScriptVersions);
 const mockRuns = vi.mocked(useScriptRuns);
 const mockRun = vi.mocked(useScriptRun);
@@ -73,7 +94,6 @@ const contract: ScriptContract = {
   display_name: "Daily Sales Report",
   description: "Yesterday's sales by region.",
   owner_email: "sarah.chen@example.com",
-  scope: "global",
   status: "active",
   enabled: true,
   params: [
@@ -196,6 +216,7 @@ beforeEach(() => {
   mockValidateSource.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
   mockDryRun.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
   mockRunScript.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
+  mockTransfer.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
   mockConnections.mockReturnValue(query(undefined));
 });
 
@@ -269,7 +290,21 @@ describe("ScriptDetailPage: what an owner may read", () => {
     renderPage();
     expect(screen.queryByText("Version history")).not.toBeInTheDocument();
     expect(screen.queryByText("Run history")).not.toBeInTheDocument();
-    expect(screen.getByText(/belongs to sarah.chen@example.com/)).toBeInTheDocument();
+  });
+
+  // Moving a script to somebody else is the one control on this page that is
+  // not the owner's own (#1404).
+  it("offers the owner transfer to an administrator and to nobody else", () => {
+    renderPage();
+    expect(screen.queryByRole("button", { name: "Transfer ownership" })).not.toBeInTheDocument();
+
+    admin = true;
+    cleanup();
+    renderPage();
+
+    expect(screen.getByRole("button", { name: "Transfer ownership" })).toBeInTheDocument();
+    expect(screen.getByText(/only person who sees it/)).toBeInTheDocument();
+    admin = false;
   });
 
   it("opens the executing version's source and the roles a run of it presents", () => {

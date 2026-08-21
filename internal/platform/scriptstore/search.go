@@ -83,8 +83,8 @@ func NewDiscoveryStore(db *sql.DB) script.Store {
 
 // Search ranks scripts by relevance to the query within the caller's
 // visibility. Visibility is applied in SQL, before ranking, so a script the
-// caller cannot see never reaches the ranker; see script.SearchQuery for why
-// the persona arm scopes on membership rather than on the acting persona.
+// caller cannot see never reaches the ranker; a script is its owner's, so that
+// predicate is the caller's own address.
 //
 // A non-nil q.Embedding selects hybrid (semantic + lexical) ranking over the
 // vectors the indexjobs scripts consumer writes, so a script is found by what it
@@ -102,17 +102,18 @@ func (s *Store) Search(ctx context.Context, q script.SearchQuery) ([]script.Scor
 }
 
 // visibilityPredicate is the SQL the ranker applies before ranking: only
-// enabled scripts, only the discoverable lifecycle states, and only the scopes
-// the caller is entitled to. The status, persona and owner placeholders are the
+// enabled scripts, only the discoverable lifecycle states, and only the
+// caller's own scripts. It is script.Script.OwnedBy expressed in SQL, down to
+// requiring both sides to be identified, so an unnamed caller and an ownerless
+// script never match each other. The status and owner placeholders are the
 // caller's; the arm binding them starts at statusIdx.
 func visibilityPredicate(statusIdx int) string {
 	// #nosec G201 -- the only interpolation is a sanitized parameter index.
 	return fmt.Sprintf(`enabled = true
 		  AND status = ANY($%d)
-		  AND (scope = 'global'
-		       OR (scope = 'persona' AND personas && $%d)
-		       OR (scope = 'personal' AND owner_email <> '' AND owner_email = $%d))`,
-		statusIdx, statusIdx+1, statusIdx+2)
+		  AND owner_email <> ''
+		  AND owner_email = $%d`,
+		statusIdx, statusIdx+1)
 }
 
 // searchHybrid runs two index-backed arms and fuses in Go rather than ordering
@@ -147,7 +148,7 @@ func (s *Store) searchHybrid(ctx context.Context, q script.SearchQuery) ([]scrip
 
 	rows, err := s.db.QueryContext(ctx, query,
 		pgvector.NewVector(q.Embedding), q.QueryText, pq.Array(discoverableStatuses),
-		pq.Array(q.Personas), q.OwnerEmail)
+		q.OwnerEmail)
 	if err != nil {
 		return nil, fmt.Errorf("search scripts (hybrid): %w", err)
 	}
@@ -203,7 +204,7 @@ func collectHybridScored(rows *sql.Rows) ([]script.ScoredScript, error) {
 		if scored[i].Script.Name != scored[j].Script.Name {
 			return scored[i].Script.Name < scored[j].Script.Name
 		}
-		// Names are unique only within a scope, so two scripts can share one.
+		// Names are unique only within an owner, so two scripts can share one.
 		// The id breaks the last tie, because the fused set is collected from a
 		// map and would otherwise order by map iteration.
 		return scored[i].Script.ID < scored[j].Script.ID
@@ -251,12 +252,12 @@ func (s *Store) searchLexical(ctx context.Context, q script.SearchQuery) ([]scri
 		WHERE %s
 		  AND %s @@ %s
 		ORDER BY score DESC, updated_at DESC
-		LIMIT $5`,
+		LIMIT $4`,
 		scriptColumns, scriptFTSExpr, scriptFTSQuery, lexRankNormalization,
 		visibilityPredicate(lexicalStatusParam), scriptFTSExpr, scriptFTSQuery)
 
 	rows, err := s.db.QueryContext(ctx, query,
-		q.QueryText, pq.Array(discoverableStatuses), pq.Array(q.Personas), q.OwnerEmail, q.EffectiveLimit())
+		q.QueryText, pq.Array(discoverableStatuses), q.OwnerEmail, q.EffectiveLimit())
 	if err != nil {
 		return nil, fmt.Errorf("search scripts: %w", err)
 	}

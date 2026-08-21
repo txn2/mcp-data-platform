@@ -11,12 +11,14 @@
 package scripthttp
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"strconv"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
+	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -55,6 +57,11 @@ type Deps struct {
 	// leaves the choices route unmounted.
 	Connections ConnectionEnumerator
 
+	// Audit records administrative script writes — today the owner transfer
+	// (#1404). Nil leaves the transfer working and unrecorded, which is what a
+	// deployment with no audit store has for every other write too.
+	Audit AuditRecorder
+
 	// AdminEmail returns the authenticated administrator's email, recorded as
 	// the author of an admin-made edit.
 	AdminEmail func(r *http.Request) string
@@ -62,6 +69,14 @@ type Deps struct {
 	// request carries no user. Nil leaves the portal routes unmounted, which is
 	// what the admin surface passes.
 	PortalUser func(r *http.Request) *PortalIdentity
+}
+
+// AuditRecorder writes one audit event. It is the write half of audit.Logger:
+// this surface records administrative writes and never reads the log back, and
+// a narrower dependency is one less thing a deployment has to supply to mount
+// these routes.
+type AuditRecorder interface {
+	Log(ctx context.Context, event audit.Event) error
 }
 
 // Handler serves the script routes.

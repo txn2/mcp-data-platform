@@ -44,7 +44,6 @@ const contract: ScriptContract = {
   display_name: "Daily Sales Report",
   description: MARKDOWN_DESCRIPTION,
   owner_email: "sarah.chen@example.com",
-  scope: "global",
   category: "reporting",
   tags: ["sales", "weekly"],
   status: "active",

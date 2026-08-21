@@ -1,6 +1,7 @@
 import {
   openScriptDocumentation,
   openScriptDryRun,
+  openScriptOwner,
   openScriptRunHistory,
   openScriptRunLog,
   openScriptRunPanel,
@@ -130,6 +131,16 @@ export const adminScriptRoutes: ScreenshotRoute[] = [
     path: "/portal/admin/scripts/script-001",
     category: "admin",
     beforeCapture: openScriptVersionHistory,
+  },
+  {
+    // The one control on a script's page that is an administrator's rather
+    // than its owner's (#1404): moving the script to another person, which
+    // hands over what its owner sees, edits, runs, and schedules, and
+    // re-captures the authority its runs present.
+    slug: "admin-script-owner",
+    path: "/portal/admin/scripts/script-001",
+    category: "admin",
+    beforeCapture: openScriptOwner,
   },
   {
     // What the platform has been running unattended (#1307): the metrics the

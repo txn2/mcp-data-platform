@@ -65,7 +65,7 @@ func TestCreateEnqueuesItsOwnIndexJob(t *testing.T) {
 	mock.ExpectCommit()
 
 	require.NoError(t, s.Create(context.Background(),
-		&script.Script{Name: "daily", Scope: script.ScopePersonal}, testAuthor))
+		&script.Script{Name: "daily"}, testAuthor))
 
 	assert.Equal(t, []indexjobs.Key{{SourceKind: "scripts", SourceID: "script_1"}}, enq.enqueued())
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -80,7 +80,7 @@ func TestCreateThatFailedEnqueuesNothing(t *testing.T) {
 	mock.ExpectRollback()
 
 	require.Error(t, s.Create(context.Background(),
-		&script.Script{Name: "daily", Scope: script.ScopePersonal}, testAuthor))
+		&script.Script{Name: "daily"}, testAuthor))
 
 	assert.Empty(t, enq.enqueued())
 }

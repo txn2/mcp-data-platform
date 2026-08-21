@@ -121,7 +121,7 @@ func TestScheduleSet_StoresTheCadenceAndSaysWhatWillHappen(t *testing.T) {
 	assert.Contains(t, fields["message"], "latest saved version")
 	assert.Contains(t, fields["message"], "as the script's own principal")
 
-	sc, err := store.GetPersonal(context.Background(), "jane@example.com", "daily")
+	sc, err := store.GetByName(context.Background(), "jane@example.com", "daily")
 	require.NoError(t, err)
 	stored, err := store.GetSchedule(context.Background(), sc.ID)
 	require.NoError(t, err)
@@ -236,67 +236,23 @@ func TestScheduleEnable_WithNoScheduleSaysHowToSetOne(t *testing.T) {
 	assert.Contains(t, resultText(res), cmdScheduleSet)
 }
 
-// shareScript promotes the fixture's script to the given scope, keeping its
-// owner. It is how the scope half of the schedule rule is exercised: the
-// interesting caller is a non-admin who owns a script everyone can see.
-func shareScript(t *testing.T, store *memStore, scope string, personas ...string) {
-	t.Helper()
-	for _, sc := range store.scripts {
-		if sc.Name == "daily" {
-			sc.Scope, sc.Personas = scope, personas
-			return
-		}
-	}
-	t.Fatal("the fixture script is missing")
-}
-
-// TestScheduleSet_AnOwnerRetimesTheirOwnSharedScript pins the rule this command
-// answers to. Changing what a script DOES is the edit rule's, which confines a
-// non-admin to their personal scripts; changing WHEN it runs is the owner's at
-// every scope, because a cadence carries no authority and the owner of a shared
-// report should not have to ask an administrator to pause it.
-func TestScheduleSet_AnOwnerRetimesTheirOwnSharedScript(t *testing.T) {
-	for _, scope := range []string{script.ScopeGlobal, script.ScopePersona} {
-		t.Run(scope, func(t *testing.T) {
-			h, store, _ := runnableHandle(t)
-			shareScript(t, store, scope, "analyst")
-
-			set := scheduleSet(t, h, authorCtx(), manageScriptInput{Cron: weekdayMornings})
-			require.NotContains(t, set, "error", set)
-			assert.Equal(t, weekdayMornings, set["cron"])
-
-			off := resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdScheduleDisable, Name: "daily"}))
-			assert.Equal(t, false, off["enabled"])
-			on := resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdScheduleEnable, Name: "daily"}))
-			assert.Equal(t, true, on["enabled"])
-
-			// The delta is the cadence and nothing else: what the script does
-			// still goes through the edit rule and the review gate behind it.
-			edit := call(t, h, authorCtx(), manageScriptInput{
-				Command: cmdUpdate, Name: "daily", Source: "print(2)\n",
-			})
-			require.True(t, edit.IsError)
-			assert.Contains(t, resultText(edit), "only admins can change shared")
-		})
-	}
-}
-
-// TestScheduleSet_ANonOwnerIsRefused pins the other half: seeing a script and
-// deciding when it runs are different entitlements, and an administrator is
-// unrestricted as everywhere else.
+// TestScheduleSet_ANonOwnerIsRefused pins who decides when a script runs: its
+// owner, and an administrator, who is unrestricted as everywhere else. Anybody
+// else is not told the script is there.
 func TestScheduleSet_ANonOwnerIsRefused(t *testing.T) {
-	h, store, _ := runnableHandle(t)
-	shareScript(t, store, script.ScopeGlobal)
+	h, _, _ := runnableHandle(t)
 
 	refused := scheduleSet(t, h, callerCtx("bob@example.com", "analyst"), manageScriptInput{Cron: "@daily"})
-	assert.Contains(t, refused["error"], "only the owner")
+	assert.Contains(t, refused["error"], "not found")
 
 	paused := call(t, h, callerCtx("bob@example.com", "analyst"),
 		manageScriptInput{Command: cmdScheduleDisable, Name: "daily"})
 	require.True(t, paused.IsError)
-	assert.Contains(t, resultText(paused), "only the owner")
+	assert.Contains(t, resultText(paused), "not found")
 
-	byAdmin := scheduleSet(t, h, adminCtx(), manageScriptInput{Cron: "@daily"})
+	byAdmin := scheduleSet(t, h, adminCtx(), manageScriptInput{
+		Cron: "@daily", OwnerEmail: "jane@example.com",
+	})
 	assert.NotContains(t, byAdmin, "error", byAdmin)
 }
 
@@ -363,12 +319,12 @@ func (s *scheduleless) Create(ctx context.Context, sc *script.Script, a script.A
 	return s.inner.Create(ctx, sc, a)
 }
 
-func (s *scheduleless) Get(ctx context.Context, name string) (*script.Script, error) {
-	return s.inner.Get(ctx, name)
+func (s *scheduleless) GetByName(ctx context.Context, owner, name string) (*script.Script, error) {
+	return s.inner.GetByName(ctx, owner, name)
 }
 
-func (s *scheduleless) GetPersonal(ctx context.Context, owner, name string) (*script.Script, error) {
-	return s.inner.GetPersonal(ctx, owner, name)
+func (s *scheduleless) Transfer(ctx context.Context, id, newOwner string, a script.Author) error {
+	return s.inner.Transfer(ctx, id, newOwner, a)
 }
 
 func (s *scheduleless) GetByID(ctx context.Context, id string) (*script.Script, error) {
@@ -446,8 +402,7 @@ func TestScheduleList_ResolvesAScriptTheListingCutOff(t *testing.T) {
 
 	// And one whose script exists but belongs to somebody else.
 	other := &script.Script{
-		ID: "script_other", Name: "theirs", Scope: script.ScopePersonal,
-		OwnerEmail: "bob@example.com", Enabled: true, Status: script.StatusActive,
+		ID: "script_other", Name: "theirs", OwnerEmail: "bob@example.com", Enabled: true, Status: script.StatusActive,
 	}
 	store.scripts[other.ID] = other
 	store.schedules[other.ID] = &script.Schedule{ID: "sched_other", ScriptID: other.ID, CronSpec: "@daily"}

@@ -17,10 +17,9 @@ import (
 // already reach. Nothing here can widen what a run reaches, and nothing can
 // change what a script does.
 //
-// Who may set one is therefore the script's owner and an administrator, at
-// every scope — the same rule the tool applies (internal/platform/scriptlayer,
-// schedulable). The owner of a shared report should not have to ask an
-// administrator to pause it.
+// Who may set one is therefore the script's owner and an administrator — the
+// same rule the tool applies (internal/platform/scriptlayer, schedulable), and
+// the same rule reading it answers to.
 //
 // The routes run under the portal's own authentication and CSRF handling,
 // because they are mounted inside the same wrapper the read routes are, and

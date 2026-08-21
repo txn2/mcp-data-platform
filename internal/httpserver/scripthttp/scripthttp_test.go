@@ -32,6 +32,10 @@ type stubStore struct {
 	listErr    error
 	getErr     error
 	versionErr error
+	// The transfer half (#1404): what the store was told to do and what it
+	// should answer with.
+	transferErr   error
+	transferredBy script.Author
 	// The schedule half, served by the methods in schedules_test.go.
 	schedule         *script.Schedule
 	scheduleErr      error
@@ -39,11 +43,7 @@ type stubStore struct {
 }
 
 func (*stubStore) Create(context.Context, *script.Script, script.Author) error { return nil }
-func (*stubStore) Get(context.Context, string) (*script.Script, error) {
-	return nil, nil //nolint:nilnil // Store contract: nil, nil means not found
-}
-
-func (*stubStore) GetPersonal(context.Context, string, string) (*script.Script, error) {
+func (*stubStore) GetByName(context.Context, string, string) (*script.Script, error) {
 	return nil, nil //nolint:nilnil // Store contract: nil, nil means not found
 }
 
@@ -60,7 +60,29 @@ func (s *stubStore) GetByID(_ context.Context, id string) (*script.Script, error
 }
 
 func (*stubStore) Update(context.Context, *script.Script) error { return nil }
-func (*stubStore) Delete(context.Context, string) error         { return nil }
+
+// Transfer records the move the way the real store does — the owner on the live
+// row and a new version number — so a handler test can assert what the caller
+// is told about the script afterwards.
+func (s *stubStore) Transfer(_ context.Context, id, newOwner string, author script.Author) error {
+	if s.transferErr != nil {
+		return s.transferErr
+	}
+	s.transferredBy = author
+	for i := range s.scripts {
+		if s.scripts[i].ID != id {
+			continue
+		}
+		if err := s.scripts[i].Transfer(newOwner); err != nil {
+			return err //nolint:wrapcheck // the fake mirrors the store: the domain refusal is the caller's message
+		}
+		s.scripts[i].Version++
+		return nil
+	}
+	return errors.New("script not found")
+}
+
+func (*stubStore) Delete(context.Context, string) error { return nil }
 func (s *stubStore) List(_ context.Context, filter script.ListFilter) ([]script.Script, error) {
 	s.lastFilter = filter
 	return s.scripts, s.listErr
@@ -101,7 +123,7 @@ func (s *stubStore) GetVersionByID(_ context.Context, _ string) (*script.Version
 func newStore() *stubStore {
 	return &stubStore{
 		scripts: []script.Script{{
-			ID: "script_1", Name: "daily", Scope: script.ScopePersonal,
+			ID: "script_1", Name: "daily",
 			OwnerEmail: "jane@example.com", Enabled: true, Status: script.StatusActive,
 			Version: 1,
 		}},

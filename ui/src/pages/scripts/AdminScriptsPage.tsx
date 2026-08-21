@@ -20,6 +20,12 @@ import { ScriptRunsTab } from "./ScriptRunsTab";
 // AdminScriptsPage is the administrator's script listing: every script on the
 // platform, and what has been running (#1307).
 //
+// The Owner column is the fact an administrator wants: a script is one
+// person's, so its owner is who sees it, who may run it, and whose authority a
+// scheduled run presents. A script showing no owner belongs to nobody — it was
+// authored by a principal carrying no address — and the transfer action on the
+// script's own page is how it gets one (#1404).
+//
 // A row opens the script itself, on the same detail page its owner opens: an
 // administrator runs, edits, dry-runs, schedules and reads the history of
 // every script exactly as its owner does. This page lists; that page acts.
@@ -114,7 +120,6 @@ function ScriptTable({
         <TableRow>
           <TableHead>Script</TableHead>
           <TableHead>Owner</TableHead>
-          <TableHead>Visible to</TableHead>
           <TableHead>Executing</TableHead>
         </TableRow>
       </TableHeader>
@@ -134,8 +139,7 @@ function ScriptTable({
                 className="mt-1"
               />
             </TableCell>
-            <TableCell className="text-xs">{script.owner_email || "—"}</TableCell>
-            <TableCell className="text-xs">{audience(script)}</TableCell>
+            <TableCell className="text-xs">{script.owner_email || "nobody"}</TableCell>
             <TableCell>
               <ExecutionState script={script} />
             </TableCell>
@@ -146,12 +150,6 @@ function ScriptTable({
   );
 }
 
-// audience renders a script's scope in the reader's terms.
-function audience(script: Script): string {
-  if (script.scope === "global") return "everyone";
-  if (script.scope === "persona") return (script.personas ?? []).join(", ") || "no persona";
-  return "its owner";
-}
 
 // ExecutionState says what the script is running, which is the only status
 // that matters on this page: a saved script runs its latest version unless it

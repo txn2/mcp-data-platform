@@ -55,8 +55,9 @@ interactive session gets, so the script can reach exactly what you can reach
 and nothing more. A disabled, deprecated, or superseded script is the only
 thing the run gate refuses.
 
-Editing a `global` or `persona`-scoped script is an administrator's action;
-your own personal scripts are yours to edit and delete.
+A script is yours: you are the only person who sees it, edits it, runs it, and
+schedules it, and administrators do all four on every script. An administrator
+can also move a script to another owner, which hands over all of that at once.
 
 ## The dialect contract
 

@@ -74,15 +74,9 @@ func ExecutionNote(s *Script) string {
 //
 // Visibility is applied before ranking, as a predicate rather than a filter over
 // the answer: a script the caller cannot see must cost neither a row nor a
-// decision. The rule is Script.VisibleTo expressed in SQL — global scripts,
-// persona-scoped scripts of a persona the caller belongs to, and the caller's
-// own personal scripts — with one deliberate difference from the manage_script
-// listing, which scopes on the single persona a request resolved to. Discovery
-// scopes on the whole membership set for the same reason the managed-resources
-// provider does: membership is an entitlement the caller holds, while the acting
-// persona is a property of one request. An empty set therefore means "belongs to
-// no persona", which is the fail-closed answer and also what a deployment that
-// never wires a persona resolver gets.
+// decision. The rule is Script.OwnedBy expressed in SQL — the caller's own
+// scripts and nothing else. An unidentified caller therefore matches nothing,
+// which is the fail-closed answer.
 type SearchQuery struct {
 	// Embedding is the query vector. A nil Embedding selects lexical-only
 	// ranking, which is exactly the behavior a deployment with no embedding
@@ -91,12 +85,9 @@ type SearchQuery struct {
 	Embedding []float32
 	// QueryText is the raw intent text the lexical ranking matches.
 	QueryText string
-	// OwnerEmail is the caller identity, for personal-scope visibility. Empty
-	// leaves the caller seeing no personal scripts at all, including their own.
+	// OwnerEmail is the caller identity, which is the whole visibility
+	// predicate. Empty matches no script at all.
 	OwnerEmail string
-	// Personas is every persona the caller belongs to, for persona-scope
-	// visibility.
-	Personas []string
 	// Limit caps the candidates returned; see EffectiveLimit.
 	Limit int
 }

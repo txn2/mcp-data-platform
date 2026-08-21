@@ -4801,12 +4801,6 @@ definitions:
         items:
           $ref: '#/definitions/script.Param'
         type: array
-      personas:
-        example:
-        - analyst
-        items:
-          type: string
-        type: array
       refusal:
         description: |-
           Refusal states why a run requested now would be refused, and is empty
@@ -4818,9 +4812,6 @@ definitions:
         - $ref: '#/definitions/script.ContractSchedule'
         description: Schedule is the cadence this script fires on, nil when it has
           none.
-      scope:
-        example: personal
-        type: string
       status:
         example: active
         type: string
@@ -5157,21 +5148,16 @@ definitions:
         example: daily-sales-report
         type: string
       owner_email:
+        description: |-
+          OwnerEmail is the one person a script belongs to: the only caller who
+          sees, edits, runs, and schedules it, administrators aside. An
+          administrator can move it to another owner (Transfer).
         example: jane@example.com
         type: string
       params:
         items:
           $ref: '#/definitions/script.Param'
         type: array
-      personas:
-        example:
-        - analyst
-        items:
-          type: string
-        type: array
-      scope:
-        example: personal
-        type: string
       source:
         example: rows = platform.query(connection='primary', sql='SELECT 1')
         type: string
@@ -5413,6 +5399,30 @@ definitions:
         example: 4
         type: integer
     type: object
+  scripthttp.ownerRequest:
+    properties:
+      owner_email:
+        example: admin@example.com
+        type: string
+    type: object
+  scripthttp.ownerResponse:
+    properties:
+      message:
+        description: Message states the consequence in the administrator's terms.
+        example: daily-sales-report now belongs to admin@example.com and runs with
+          your access.
+        type: string
+      owner_email:
+        description: OwnerEmail is the address the script now belongs to, normalized.
+        example: admin@example.com
+        type: string
+      version:
+        description: |-
+          Version is the version the transfer recorded, which is the version a run
+          now executes and whose captured roles it presents.
+        example: 4
+        type: integer
+    type: object
   scripthttp.portalRun:
     properties:
       duration_ms:
@@ -5565,9 +5575,9 @@ definitions:
       source:
         description: |-
           Source is the live script's code, present only for the owner and an
-          administrator: it is what the editor on that page opens (#1307), and the
+          administrator: it is what the editor on that page opens (#1307). The
           contract document deliberately does not carry it, because that document
-          is served to everyone the scope rules admit.
+          is what a reference to the script resolves to.
         type: string
     type: object
   scripthttp.portalScriptRow:
@@ -15317,6 +15327,65 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Edit what a script says about itself
+      tags:
+      - Scripts
+  /portal/scripts/{id}/owner:
+    put:
+      consumes:
+      - application/json
+      description: Moves a managed script to another person. Restricted to administrators.
+        The move is recorded as a new version authored by the administrator, and a
+        run of the script from now on presents the roles that administrator held,
+        so transferring a script to an administrator is how it comes to run with administrative
+        reach. Refused with 409 when the new owner already keeps a script of the same
+        name.
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: New owner
+        in: body
+        name: owner
+        required: true
+        schema:
+          $ref: '#/definitions/scripthttp.ownerRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/scripthttp.ownerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Transfer a script to a new owner
       tags:
       - Scripts
   /portal/scripts/{id}/runs:

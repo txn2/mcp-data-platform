@@ -20,7 +20,6 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"slices"
 	"time"
 )
 
@@ -41,20 +40,6 @@ const (
 
 // validNamePattern matches lowercase letters, digits, hyphens, and underscores.
 var validNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
-
-// Scope constants define script visibility levels, matching prompt scopes.
-const (
-	ScopeGlobal   = "global"
-	ScopePersona  = "persona"
-	ScopePersonal = "personal"
-)
-
-// validScopes is the set of allowed scope values.
-var validScopes = map[string]bool{
-	ScopeGlobal:   true,
-	ScopePersona:  true,
-	ScopePersonal: true,
-}
 
 // Status constants define the script lifecycle.
 //
@@ -113,14 +98,6 @@ func ValidateTags(tags []string) error {
 	return nil
 }
 
-// ValidateScope checks that a scope value is allowed.
-func ValidateScope(scope string) error {
-	if !validScopes[scope] {
-		return fmt.Errorf("invalid scope %q: must be global, persona, or personal", scope)
-	}
-	return nil
-}
-
 // ValidateSource checks that Starlark source is present and within bounds. It
 // is a size and presence check only; parsing is the engine's job.
 func ValidateSource(src string) error {
@@ -154,15 +131,16 @@ func ValidateStatusTransition(from, to string) error {
 // currently served source and parameter contract, which are what a run
 // executes.
 type Script struct {
-	ID          string   `json:"id" example:"script_a1b2c3d4"`
-	Name        string   `json:"name" example:"daily-sales-report"`
-	DisplayName string   `json:"display_name" example:"Daily Sales Report"`
-	Description string   `json:"description" example:"Summarize yesterday's sales by region"`
-	Source      string   `json:"source" example:"rows = platform.query(connection='primary', sql='SELECT 1')"`
-	Params      []Param  `json:"params"`
-	Scope       string   `json:"scope" example:"personal"`
-	Personas    []string `json:"personas" example:"analyst"`
-	OwnerEmail  string   `json:"owner_email" example:"jane@example.com"`
+	ID          string  `json:"id" example:"script_a1b2c3d4"`
+	Name        string  `json:"name" example:"daily-sales-report"`
+	DisplayName string  `json:"display_name" example:"Daily Sales Report"`
+	Description string  `json:"description" example:"Summarize yesterday's sales by region"`
+	Source      string  `json:"source" example:"rows = platform.query(connection='primary', sql='SELECT 1')"`
+	Params      []Param `json:"params"`
+	// OwnerEmail is the one person a script belongs to: the only caller who
+	// sees, edits, runs, and schedules it, administrators aside. An
+	// administrator can move it to another owner (Transfer).
+	OwnerEmail string `json:"owner_email" example:"jane@example.com"`
 	// Category files the script under one lowercase slug, the axis a listing
 	// filters on and a reader scans. It is the same axis a resource and an
 	// insight carry, written the same way (#1369).
@@ -184,60 +162,22 @@ type Script struct {
 	UpdatedAt time.Time `json:"updated_at" example:"2026-08-13T14:30:00Z"`
 }
 
-// VisibleTo reports whether a caller identified by email and holding persona
-// may see this script. It is the one definition of script visibility, shared by
-// the read path and by the list predicate, so a script can never be listable
-// but unreadable or the reverse. Admin authority is applied by the caller, not
-// here: this answers only what the scope rules say.
-func (s *Script) VisibleTo(email, persona string) bool {
-	return scopeVisible(s.Scope, s.Personas, s.OwnerEmail, email, persona)
+// OwnedBy reports whether the named caller owns this script, which is the
+// whole of script visibility: a script is one person's, and only that person
+// (and an administrator, an authority the caller applies, not this method)
+// sees it, edits it, runs it, or schedules it.
+//
+// Both sides must be identified. A script whose owner is empty — one authored
+// by a principal carrying no email, such as an API key, or one whose owner
+// predates this rule — would otherwise belong to every caller the platform
+// cannot name either. Such a script is nobody's until an administrator
+// transfers it. The store's list and search predicates require the same, so a
+// caller can never fetch what a listing would have hidden.
+func (s *Script) OwnedBy(email string) bool {
+	return s != nil && s.OwnerEmail != "" && s.OwnerEmail == email
 }
 
-// VisibleToAny reports whether a caller who BELONGS TO any of personas may see
-// this script. It is the discovery arity of the same rule: a listing scopes on
-// the single persona a request resolved to act as, while search and fetch scope
-// on the caller's whole membership set, which is an entitlement they hold
-// rather than a property of one request. An empty set means "belongs to no
-// persona", so persona-scoped scripts are invisible — the fail-closed answer.
-func (s *Script) VisibleToAny(email string, personas []string) bool {
-	return scopeVisibleToAny(s.Scope, s.Personas, s.OwnerEmail, email, personas)
-}
-
-// scopeVisible is the one definition of script visibility, over the three
-// fields that carry it. Every surface answers through it — the record, the
-// contract document, and the store predicate — so a script can never be
-// listable but unreadable, or findable but unfetchable.
-func scopeVisible(scope string, scriptPersonas []string, ownerEmail, email, persona string) bool {
-	switch scope {
-	case ScopeGlobal:
-		return true
-	case ScopePersona:
-		return persona != "" && slices.Contains(scriptPersonas, persona)
-	default:
-		// Both sides must be identified. A script whose owner is empty — one
-		// authored by a principal carrying no email, such as an API key — would
-		// otherwise match a caller who is equally unidentified, and a personal
-		// script would be readable by anyone holding its id. The store's list
-		// and search predicates require the same, so a caller can never fetch
-		// what a listing would have hidden.
-		return ownerEmail != "" && ownerEmail == email
-	}
-}
-
-// scopeVisibleToAny applies scopeVisible across a persona membership set.
-func scopeVisibleToAny(scope string, scriptPersonas []string, ownerEmail, email string, personas []string) bool {
-	if scope != ScopePersona {
-		return scopeVisible(scope, scriptPersonas, ownerEmail, email, "")
-	}
-	for _, p := range personas {
-		if scopeVisible(scope, scriptPersonas, ownerEmail, email, p) {
-			return true
-		}
-	}
-	return false
-}
-
-// Validate checks the whole record: name, scope, source, parameter contract,
+// Validate checks the whole record: name, source, parameter contract,
 // tags, the fields that document the script (display name, description,
 // category), and status. Mutation surfaces call it on the FINAL state rather than
 // field by field as arguments arrive, so a record that was valid before an edit
@@ -246,9 +186,6 @@ func scopeVisibleToAny(scope string, scriptPersonas []string, ownerEmail, email 
 // sent.
 func (s *Script) Validate() error {
 	if err := ValidateName(s.Name); err != nil {
-		return err
-	}
-	if err := ValidateScope(s.Scope); err != nil {
 		return err
 	}
 	if err := ValidateSource(s.Source); err != nil {
@@ -269,22 +206,7 @@ func (s *Script) Validate() error {
 	if err := validateCategory(s.Category); err != nil {
 		return err
 	}
-	if s.Scope == ScopePersona && len(s.Personas) == 0 {
-		return errors.New("a persona-scoped script must name at least one persona")
-	}
 	return ValidateStatus(s.Status)
-}
-
-// OwnedPersonally reports whether the named caller is this script's entire
-// audience: it is personal, and it is theirs. That shape is what makes a
-// script its owner's to delete outright, since nothing anybody else can see or
-// run disappears with it.
-//
-// Both sides must be identified, for the reason scopeVisible gives: a script
-// whose owner could not be established would otherwise belong to every caller
-// the platform cannot name either.
-func (s *Script) OwnedPersonally(email string) bool {
-	return s != nil && s.Scope == ScopePersonal && s.OwnerEmail != "" && s.OwnerEmail == email
 }
 
 // PrincipalPrefix marks a user id belonging to a managed script rather than a
@@ -328,47 +250,33 @@ func (s *Script) ApplyStatusTransition(newStatus, supersededBy string, now time.
 
 // ListFilter controls which scripts are returned by List.
 type ListFilter struct {
-	Scope      string   // "global", "persona", "personal", or "" for all
-	Personas   []string // filter by persona membership (OR match)
-	OwnerEmail string   // filter by owner
-	Enabled    *bool    // filter by enabled state
-	Status     string   // filter by lifecycle status; "" for all
+	// OwnerEmail narrows the listing to one person's scripts, which is the
+	// whole of visibility: a caller lists their own, and an administrator
+	// leaves it empty to list every script on the platform.
+	OwnerEmail string
+	Enabled    *bool  // filter by enabled state
+	Status     string // filter by lifecycle status; "" for all
 	// Category narrows to one category slug; "" for all. Tags narrows to the
-	// scripts carrying ANY of the named tags, which is the same OR match the
-	// persona axis uses: a reader filtering by two tags is asking for the union
-	// of two shelves, not for the scripts on both.
+	// scripts carrying ANY of the named tags: a reader filtering by two tags is
+	// asking for the union of two shelves, not for the scripts on both.
 	Category string
 	Tags     []string
 	Search   string // free-text search on name, display_name, description
 	Limit    int    // cap the number of rows returned; 0 means the store default
-
-	// VisibleTo and VisiblePersona apply the scope rules of Script.VisibleTo as
-	// a query predicate: global scripts, the persona-scoped scripts of
-	// VisiblePersona, and the personal scripts of VisibleTo. They exist as a
-	// pair because filtering by owner alone would hide the shared scripts a
-	// caller is entitled to see, and filtering by nothing would list the
-	// persona-scoped scripts of personas they do not hold. Empty VisibleTo
-	// disables the predicate, which is the admin case.
-	VisibleTo      string
-	VisiblePersona string
 }
 
-// Store defines the interface for script persistence. It mirrors the prompt
-// store's resolution contract: shared names are globally unique and resolve
-// with Get, personal names are unique only within an owner and need GetPersonal.
+// Store defines the interface for script persistence. A script name is unique
+// within its owner and nowhere else, so every lookup by name names an owner
+// too: two analysts may each keep their own "daily-sales".
 type Store interface {
 	// Create persists a new script and its first version, assigning ID when
 	// empty. The author is recorded on that version along with the authority
 	// they held, which is what a run of that version presents.
 	Create(ctx context.Context, s *Script, author Author) error
 
-	// Get retrieves a shared (global or persona) script by its globally unique
-	// name. Returns nil, nil if not found.
-	Get(ctx context.Context, name string) (*Script, error)
-
-	// GetPersonal retrieves a personal script by owner and name. Returns
-	// nil, nil if not found.
-	GetPersonal(ctx context.Context, ownerEmail, name string) (*Script, error)
+	// GetByName retrieves one owner's script by name. Returns nil, nil if not
+	// found.
+	GetByName(ctx context.Context, ownerEmail, name string) (*Script, error)
 
 	// GetByID retrieves a script by ID. Returns nil, nil if not found.
 	GetByID(ctx context.Context, id string) (*Script, error)
@@ -381,4 +289,11 @@ type Store interface {
 
 	// List returns scripts matching the filter, newest first.
 	List(ctx context.Context, filter ListFilter) ([]Script, error)
+
+	// Transfer moves a script to a new owner and records the move as a version
+	// authored by the administrator making it, whose roles the new version
+	// carries: a run presents the authority captured on the version it
+	// executes, so a transfer that left the old authority in place would keep
+	// running the script as the person who no longer owns it.
+	Transfer(ctx context.Context, id, newOwnerEmail string, author Author) error
 }

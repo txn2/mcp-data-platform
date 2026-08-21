@@ -15,14 +15,14 @@
 // unit yields exactly one Item whose text is script.IndexText.
 //
 // What is embedded is the script's description card and never its Starlark.
-// docs/scripts/security.md admits the contract to anyone the scope rules admit
-// and the source only to the owner and to administrators; one vector per row,
+// docs/scripts/security.md admits the contract to the script's owner and the
+// source to that owner and to administrators; one vector per row,
 // stored inline, cannot be split along that line, so a vector built partly from
 // source would let code a caller may not read decide how their results rank.
 //
 // Every enabled script is indexed regardless of lifecycle status, mirroring
 // prompts: ranked search decides visibility at query time — the store's Search
-// applies the scope predicate and the discoverable-status filter itself — so the
+// applies the ownership predicate and the discoverable-status filter itself — so the
 // index covers what any caller can rank. Gap detection and coverage filter on
 // enabled only; a disabled script is never embedded and never counted as
 // missing coverage.
