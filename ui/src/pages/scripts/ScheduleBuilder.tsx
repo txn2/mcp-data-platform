@@ -19,7 +19,7 @@ import {
 // Cron is a precise notation for people who already know it, and the owner of a
 // report is not required to be one of them.
 //
-// The expression is still reachable: "Custom" is an escape hatch for a cadence
+// The expression is still reachable: "Custom" is an escape hatch for a schedule
 // the builder cannot express, and it is where an expression an agent wrote
 // through manage_script lands rather than being silently rewritten into
 // something the builder does understand.
@@ -30,7 +30,7 @@ const KINDS: { value: CadenceKind; label: string; text: string }[] = [
   { value: "weekdays", label: "Every weekday, Monday to Friday", text: "Weekdays" },
   { value: "weekly", label: "On chosen days of the week", text: "Weekly" },
   { value: "monthly", label: "On one day of each month", text: "Monthly" },
-  { value: "custom", label: "A cron expression, for a cadence the choices above cannot express", text: "Custom" },
+  { value: "custom", label: "A cron expression, for a schedule the choices above cannot express", text: "Custom" },
 ];
 
 interface Props {

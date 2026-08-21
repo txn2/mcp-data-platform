@@ -27,6 +27,10 @@ import {
 // new versions of the SAME portal asset rather than a new asset each time, so
 // this list read next to that asset's version history is the whole story of
 // what the dashboard has been showing.
+//
+// It sits directly under the source (#1406), because an error here is answered
+// by the text above it, and nothing in it holds the page open sideways: every
+// cell that can carry a long message wraps instead.
 
 // RUN_COLUMNS is the width of the run table, named once so the error line and
 // the expanded detail keep spanning all of it.
@@ -194,14 +198,21 @@ function RunRows({
       </TableRow>
       {run.error && !open && (
         <TableRow>
-          <TableCell colSpan={RUN_COLUMNS} className="pt-0 text-xs text-red-700 dark:text-red-300">
+          {/* The reason a run failed is the whole reason to open this history,
+              so it wraps to as many lines as it needs. A table cell does not
+              wrap by default, which put a Starlark traceback on one line and
+              left the page scrolling sideways to read it (#1406). */}
+          <TableCell
+            colSpan={RUN_COLUMNS}
+            className="pt-0 text-xs break-words whitespace-normal text-red-700 dark:text-red-300"
+          >
             {run.error}
           </TableCell>
         </TableRow>
       )}
       {open && (
         <TableRow>
-          <TableCell colSpan={RUN_COLUMNS} className="bg-muted/30">
+          <TableCell colSpan={RUN_COLUMNS} className="bg-muted/30 whitespace-normal">
             <RunDetail scriptId={scriptId} runId={run.id} onNavigate={onNavigate} />
           </TableCell>
         </TableRow>

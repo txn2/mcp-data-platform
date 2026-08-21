@@ -230,15 +230,20 @@ export async function openPersonaScopeTab(page: Page): Promise<void> {
 }
 
 /**
- * openScriptVersionHistory scrolls a script's detail page to its version
- * history, which sits below the contract and the parameters. The served
- * version's source is already open there: what is running right now is the
- * question the section is usually opened with.
+ * openScriptVersionHistory opens the version history, which is folded into the
+ * Source section behind a reveal (#1406), and expands one version in it. The
+ * editor above already holds the version that runs, so what this documents is
+ * the versions before it and the roles each of them runs under.
  */
 export async function openScriptVersionHistory(page: Page): Promise<void> {
-  // Scroll to the authority line rather than the section heading: the heading
-  // is already above the fold on this page, so stopping there captures the
-  // contract again under the version-history name and documents nothing new.
+  await page.getByRole("button", { name: /Version history/ }).click({ timeout: 3_000 });
+  // The OLDEST version in the list, not the newest: the newest is the text in
+  // the editor directly above, and a capture of the same source twice on one
+  // page documents nothing.
+  await page.getByText(/^v\d+$/).last().click({ timeout: 3_000 });
+  // Scroll to the authority line rather than the reveal: the reveal is what
+  // was clicked, and the source and the roles under it are what the capture is
+  // for.
   await page
     .getByText("A run of this version presents")
     .first()
@@ -247,11 +252,13 @@ export async function openScriptVersionHistory(page: Page): Promise<void> {
 }
 
 /**
- * openScriptSource scrolls to the code, which is the section an owner edits.
- * The editor is above the cadence controls, so the capture frames the code
- * itself rather than the contract above it.
+ * openScriptSource scrolls to the code, which is the section an owner edits,
+ * runs, and dry-runs (#1406). The parameters one form binds for both runs are
+ * filled first, so the capture frames the controls in the state somebody
+ * actually presses them in rather than greyed out.
  */
 export async function openScriptSource(page: Page): Promise<void> {
+  await bindRunParameters(page);
   await page
     .getByText("Saving makes this the version that runs")
     .scrollIntoViewIfNeeded({ timeout: 3_000 })
@@ -273,35 +280,22 @@ export async function openScriptDocumentation(page: Page): Promise<void> {
 }
 
 /**
- * openScriptRunPanel scrolls to the control an owner runs their automation
- * with (#1363), which is the first thing on the page they own: the parameters
- * the approved version declares, with a connection offered as a choice.
+ * bindRunParameters supplies the fixture script's two required values on the
+ * Source section's parameter form, which is the one form a run and a dry run
+ * both bind (#1406). Its control ids are scoped to that form, which is what
+ * lets a capture drive it without touching the schedule's bindings below it.
+ *
+ * The form is filled the way a person fills it, so a capture shows the control
+ * a connection parameter actually is: a choice from the set this script may
+ * reach, rather than a box somebody has to spell a name into.
  */
-export async function openScriptRunPanel(page: Page): Promise<void> {
-  // The form is filled the way a person fills it, so the capture shows the
-  // control the whole change is about: a connection CHOSEN from the set this
-  // script may reach, rather than a box somebody has to spell a name into.
-  await bindRunParameters(page, "run");
+async function bindRunParameters(page: Page): Promise<void> {
   await page
-    .getByRole("button", { name: "Run" })
-    .scrollIntoViewIfNeeded({ timeout: 3_000 })
-    .catch(() => {});
-  await page.waitForTimeout(600);
-}
-
-/**
- * bindRunParameters supplies the fixture script's two required values on one
- * of the page's parameter forms. Each form scopes its control ids, which is
- * what lets a capture drive the run form without touching the dry-run form
- * below it or the schedule's bindings below that.
- */
-async function bindRunParameters(page: Page, form: string): Promise<void> {
-  await page
-    .locator(`#script-param-${form}-report_date`)
+    .locator("#script-param-run-report_date")
     .fill("2026-08-17", { timeout: 3_000 })
     .catch(() => {});
   await page
-    .locator(`#script-param-${form}-source`)
+    .locator("#script-param-run-source")
     .click({ timeout: 3_000 })
     .catch(() => {});
   await page
@@ -319,7 +313,7 @@ async function bindRunParameters(page: Page, form: string): Promise<void> {
 export async function openScriptDryRun(page: Page): Promise<void> {
   // A dry run binds the same values a real one does, so the required ones are
   // supplied first: the control is deliberately unavailable until they are.
-  await bindRunParameters(page, "draft");
+  await bindRunParameters(page);
   await page
     .getByRole("button", { name: "Dry run" })
     .click({ timeout: 3_000 })
@@ -345,12 +339,12 @@ export async function openScriptRunsTab(page: Page): Promise<void> {
 }
 
 /**
- * openScriptSchedule scrolls to the cadence controls, which are the only thing
- * an owner changes on these pages: the expression, the zone it is read in, the
- * binding every fire passes, and the pause that retires it.
+ * openScriptSchedule scrolls to the schedule controls: how often it repeats,
+ * the zone the time is read in, the binding every fire passes, and the pause
+ * that retires it.
  */
 export async function openScriptSchedule(page: Page): Promise<void> {
-  // The builder's first control, which is where the cadence is chosen — the
+  // The builder's first control, which is where the schedule is chosen — the
   // page no longer has a cron field to scroll to (#1307).
   await page
     .getByRole("group", { name: "How often this script runs" })

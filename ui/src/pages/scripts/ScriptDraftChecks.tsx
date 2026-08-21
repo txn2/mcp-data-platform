@@ -16,9 +16,9 @@ import { dryRunOutputPhrase } from "./runFormat";
 // are read together, are laid out together.
 
 // ValidationReport is what the edited source would reach, and what is wrong
-// with it. The capability lists are the reviewer's diff material, shown to the
-// author first: a capability change is theirs to notice, not a surprise in
-// somebody else's queue.
+// with it. The capability lists say what the edit touches — which host calls,
+// which connections, where it writes — so a change in any of them is something
+// the author notices here rather than in a run somebody else is watching.
 export function ValidationReport({
   report,
   contract,

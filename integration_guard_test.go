@@ -86,11 +86,18 @@ func TestIntegrationTestsAreExecuted(t *testing.T) {
 }
 
 // skipWalkDir reports whether a directory should be pruned from the walk:
-// version control, dependency trees, and hidden directories hold no
-// first-party Go tests.
+// version control, dependency trees, build output, and hidden directories hold
+// no first-party Go tests.
+//
+// "dist" is pruned because it is deleted underneath this walk. `make verify`
+// runs release-check concurrently with the Go lane, and goreleaser's --clean
+// removes and recreates the project's dist/ while it works — so walking into
+// it fails the guard with "lstat dist: no such file or directory" on a
+// directory that never held a test. This is the node_modules race the Makefile
+// documents, one directory over.
 func skipWalkDir(name string) bool {
 	switch name {
-	case ".git", "node_modules", "vendor", "testdata":
+	case ".git", "node_modules", "vendor", "testdata", "dist":
 		return true
 	}
 	return strings.HasPrefix(name, ".")
@@ -167,4 +174,18 @@ func integrationOrphanMessage(rel, name string) string {
 			"integration_guard_test.go (allowlistedIntegrationDirs or allowlistedIntegrationFuncs) "+
 			"with a one-line reason.",
 		name, rel, name)
+}
+
+// TestSkipWalkDir pins the directories the guard's walk prunes. "dist" is the
+// one that matters for reliability rather than speed: `make verify` runs
+// release-check beside the Go lane, and goreleaser's --clean deletes and
+// recreates dist/ while this test is walking it, so a walk that descends there
+// fails on a directory that never held a first-party test.
+func TestSkipWalkDir(t *testing.T) {
+	for _, name := range []string{".git", "node_modules", "vendor", "testdata", "dist", ".idea"} {
+		require.True(t, skipWalkDir(name), "%s should be pruned from the walk", name)
+	}
+	for _, name := range []string{"pkg", "internal", "cmd", "distributed"} {
+		require.False(t, skipWalkDir(name), "%s holds first-party source and must be walked", name)
+	}
 }

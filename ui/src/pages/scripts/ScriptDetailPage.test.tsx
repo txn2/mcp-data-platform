@@ -226,20 +226,52 @@ function renderPage() {
   render(<ScriptDetailPage scriptId="script-001" onBack={onBack} onNavigate={onNavigate} />);
 }
 
-describe("ScriptDetailPage: the contract", () => {
-  it("states what will execute, on what cadence, and what it takes", () => {
+describe("ScriptDetailPage: the details", () => {
+  it("states what will execute, on what schedule, and what it takes", () => {
     renderPage();
     expect(screen.getByText("Daily Sales Report")).toBeInTheDocument();
     // The badge is the run gate's answer: the latest saved version runs.
     expect(screen.getByText("Runs v2")).toBeInTheDocument();
     expect(screen.getByText("v2, the latest saved version")).toBeInTheDocument();
     expect(screen.getByText(/0 7 \* \* 1-5 \(America\/Los_Angeles\)/)).toBeInTheDocument();
-    // Scoped to the parameter table, which is the first on the page: the
-    // schedule editor below also names the parameter, because that is the box
-    // its binding goes in.
-    const params = within(screen.getAllByRole("table")[0]!);
-    expect(params.getByText("report_date")).toBeInTheDocument();
-    expect(params.getByText("required")).toBeInTheDocument();
+    // The parameters are read in the same section as the facts (#1406), not in
+    // a card of their own below them. Scoped to that table: the schedule
+    // editor below also names the parameter, because that is the box its
+    // binding goes in.
+    const details = within(screen.getByRole("heading", { name: "Details" }).closest("div[data-slot=card]")!);
+    expect(details.getByText("report_date")).toBeInTheDocument();
+    expect(details.getByText("required")).toBeInTheDocument();
+  });
+
+  // The section used to be titled "Contract", which is the platform's word for
+  // it and not a word anybody debugging a script would reach for (#1406).
+  it("calls the summary facts what they are", () => {
+    renderPage();
+    expect(screen.getByRole("heading", { name: "Details" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Contract" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Parameters" })).not.toBeInTheDocument();
+  });
+
+  // The order is the order somebody debugging a script reads in: what it is,
+  // when it fires, what it says about itself, the code, and what the code has
+  // been doing. Source and run history are adjacent on purpose — an error in
+  // the history is answered by the text above it (#1406).
+  it("orders the sections for the person debugging the script", () => {
+    renderPage();
+    const sections = screen
+      .getAllByRole("heading", { level: 3 })
+      .map((h) => h.textContent);
+    expect(sections).toEqual(["Details", "Schedule", "About", "Source", "Run history"]);
+  });
+
+  // Running the script lives with the code it executes (#1406). There is no
+  // "Run now" section any more, and no second parameter form to fill.
+  it("runs the script from the section that holds its code", () => {
+    renderPage();
+    const source = within(screen.getByRole("heading", { name: "Source" }).closest("div[data-slot=card]")!);
+    expect(source.getByRole("button", { name: "Run" })).toBeInTheDocument();
+    expect(source.getByRole("button", { name: "Dry run" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Run now" })).not.toBeInTheDocument();
   });
 
   it("carries the gate's own refusal when nothing will run the script", () => {
@@ -304,14 +336,22 @@ describe("ScriptDetailPage: what an owner may read", () => {
 
     expect(screen.getByRole("button", { name: "Transfer ownership" })).toBeInTheDocument();
     expect(screen.getByText(/only person who sees it/)).toBeInTheDocument();
+    // It is the last section on the page: an administrator's control comes
+    // after everything the owner reads and does (#1406).
+    expect(
+      screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent),
+    ).toEqual(["Details", "Schedule", "About", "Source", "Run history", "Owner"]);
     admin = false;
   });
 
-  it("opens the executing version's source and the roles a run of it presents", () => {
+  // The version history is folded into Source behind a reveal (#1406): the
+  // editor already holds the version that runs, so what the history adds is
+  // the versions before it.
+  it("opens a version's source and the roles a run of it presents", () => {
     renderPage();
-    expect(screen.getByText("Version history")).toBeInTheDocument();
-    // The executing version — the latest saved one — opens by default, so the
-    // code that is running is on screen without a click.
+    fireEvent.click(screen.getByRole("button", { name: /Version history/ }));
+    fireEvent.click(screen.getByText("v2"));
+
     expect(screen.getByText(/rows = platform\.query/)).toBeInTheDocument();
     // The authority line: a run presents the roles its author held at the save.
     expect(screen.getByText("analyst")).toBeInTheDocument();
@@ -323,6 +363,9 @@ describe("ScriptDetailPage: what an owner may read", () => {
       query({ data: [{ ...version, author_roles: [] }], total: 1 }),
     );
     renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /Version history/ }));
+    fireEvent.click(screen.getByText("v2"));
+
     expect(screen.getByText("no roles")).toBeInTheDocument();
     expect(screen.getByText(/deny-all persona and could call nothing/)).toBeInTheDocument();
   });
@@ -457,6 +500,20 @@ describe("ScriptDetailPage: the run history", () => {
     renderPage();
     expect(screen.getByText("1 output")).toBeInTheDocument();
     expect(screen.getAllByText("nothing").length).toBe(2);
+  });
+
+  // A table cell does not wrap by default, so a Starlark traceback sat on one
+  // line and the page scrolled sideways to read the message somebody opened
+  // the history for (#1406).
+  it("wraps a failure message rather than holding the page open sideways", () => {
+    renderPage();
+    const failure = screen.getByText(/relation does not exist/);
+    expect(failure.className).toContain("whitespace-normal");
+    expect(failure.className).not.toContain("whitespace-nowrap");
+
+    fireEvent.click(screen.getAllByRole("row", { name: /succeeded/ })[0]!);
+    const detail = screen.getByText("Requested by").closest("td")!;
+    expect(detail.className).toContain("whitespace-normal");
   });
 
   // The expanded detail and the failure line span the table however wide it is;

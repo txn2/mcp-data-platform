@@ -597,7 +597,7 @@ tabs: **Scripts** and **Runs**.
 ![Scripts](../images/screenshots/light/user-scripts-light.webp#only-light)![Scripts](../images/screenshots/dark/user-scripts-dark.webp#only-dark)
 
 Above the table are three numbers, and each of them is also the control that shows what
-it counted: **Scripts**, **Scheduled** (anything with a cadence, paused or not), and
+it counted: **Scripts**, **Scheduled** (anything with a schedule, paused or not), and
 **Failing** — the scripts whose last run failed, which is the number most people open
 this page for. Pressing a tile narrows the table to the scripts it counted; pressing it
 again, or pressing **Scripts**, shows all of them.
@@ -608,7 +608,7 @@ how one arrives here that you did not write.
 
 Each row states the four things worth knowing at a glance: what the script is executing
 (the latest saved version, or plainly that it is disabled or retired and nothing will
-run), its cadence and next fire, and how its most recent run ended. Opening a row opens the
+run), its schedule and next fire, and how its most recent run ended. Opening a row opens the
 script, the way every other list in the portal opens a record. A script with no schedule
 runs on demand; a paused schedule says so rather than showing a next fire that will not
 happen.
@@ -619,10 +619,10 @@ second row. The search matches what a script is called and what it says about it
 pressing an active chip again clears it. All three are applied by the server, so they
 cover every script you can see rather than only the ones already on screen.
 
-The cadence is stated in words, always — "Every weekday at 7:00 AM,
+The schedule is stated in words, always — "Every weekday at 7:00 AM,
 America/Los_Angeles", "Every 30 minutes, UTC" — because this is the column you scan to
 answer what is running and when, and a cron expression is not an answer to that. A
-cadence with no phrase for it is named as a custom cadence; the expression itself is in
+schedule with no phrase for it is named as a custom schedule; the expression itself is in
 the schedule editor on the script's own page, which is where one is read and written.
 
 Before an agent has written anything for you, the page says so rather than showing an
@@ -645,18 +645,60 @@ listing that fills its cap says so, and each script's own page carries its full 
 
 ### One script
 
-Opening a script shows its contract: who owns it, who can see it, which version runs,
-the cadence it fires on, and the parameters a run binds against.
-This is the same document an agent gets when it resolves a reference to the script, so
-the page and your agent describe the script identically.
+Opening a script shows its **Details**: who owns it, which version runs, the schedule it
+fires on, when it fires next, and the parameters a run binds against. These are the same
+facts an agent gets when it resolves a reference to the script, so the page and your
+agent describe the script identically.
+
+The page is ordered the way a script is debugged. Details first, then the schedule, then
+what the script says about itself, then the code — and the run history directly under the
+code, so an error in the history is answered by the text above it.
 
 ![Script detail](../images/screenshots/light/user-script-detail-light.webp#only-light)![Script detail](../images/screenshots/dark/user-script-detail-dark.webp#only-dark)
 
-At the top of the page is what the script says about itself, written as a document rather
-than a caption: markdown, rendered the way an asset's description and a knowledge page
-are, with the category and tags it is filed under above it. On a script you own, **Edit**
-opens the four fields together — display name, category, tags, and the description, with
-a live preview beside what you type.
+When a run would be refused — the script disabled or retired — the page carries the
+platform's own reason for the refusal rather than leaving you to work it out from the
+status.
+
+### The schedule
+
+Below the details, on a script you own, is when it runs. Pick how often — hourly, daily,
+weekdays, chosen days of the week, or a day of the month — set the time and the timezone
+it is read in, bind the value every fire passes, and pause or resume the whole thing.
+
+You do not have to know cron. The page states what it will save in words ("Every weekday
+at 7:00 AM, America/Los_Angeles") and shows the expression it produces underneath, and
+there is a **Custom** choice for a schedule the builder cannot express. A schedule an
+agent wrote through `manage_script` that the builder cannot express opens there, as
+itself, rather than being rewritten into something near it.
+
+The time is read in the zone beside it, so a report keeps its wall clock across a
+daylight-saving change, and the floor is one fire a minute. A monthly schedule past the
+28th says plainly that the months without that day are skipped rather than moved.
+
+A date parameter usually wants `${fire_date}`, which expands to the day the schedule
+fires rather than to the day you typed it — that is what makes a scheduled run
+reproducible, because the run records the date it was computing for.
+
+Pausing is its own control rather than a schedule you have to clear and retype. A paused
+schedule resumes on the fire it was parked on, and there is no way to delete one: the
+schedule is part of the explanation of the runs it produced. Fires that came due while
+the platform was not running them are counted and stated rather than caught up on, so a
+gap in a script's schedule is visible instead of turning into a burst of stale reports.
+
+![Paused schedule](../images/screenshots/light/user-script-schedule-paused-light.webp#only-light)![Paused schedule](../images/screenshots/dark/user-script-schedule-paused-dark.webp#only-dark)
+
+A schedule on a disabled or retired script saves, and fires nothing until the script is
+back in service, which the page says plainly rather than leaving you waiting on a run
+that was never going to happen.
+
+### About
+
+What the script says about itself, written as a document rather than a caption:
+markdown, rendered the way an asset's description and a knowledge page are, with the
+category and tags it is filed under above it. On a script you own, **Edit** opens the
+four fields together — display name, category, tags, and the description, with a live
+preview beside what you type.
 
 ![Documenting a script](../images/screenshots/light/user-script-documentation-light.webp#only-light)![Documenting a script](../images/screenshots/dark/user-script-documentation-dark.webp#only-dark)
 
@@ -668,30 +710,7 @@ search matches the script on. A description long enough to be a document in its 
 is still saved, with a suggestion that the background might belong in a knowledge page you
 link to.
 
-When a run would be refused — the script disabled or retired — the page carries the
-platform's own reason for the refusal rather than leaving you to work it out from the
-status.
-
-### Running it now
-
-On a script you own, **Run now** produces fresh output without waiting for the next
-scheduled fire. The form is built from the parameters the script declares, and pressing
-Run queues exactly what an agent's `run_script` queues: the platform executes it the
-same way a scheduled fire is executed, and it appears in the run history below and
-updates as it goes.
-
-Where a value comes from a set the platform already knows, the form offers the set
-rather than asking you to remember the spelling. A parameter naming a connection is a
-list of the connections your access reaches, each with what it is; a parameter with
-declared choices is those choices. A box is for a value the platform genuinely cannot
-enumerate.
-
-![Run a script now](../images/screenshots/light/user-script-run-now-light.webp#only-light)![Run a script now](../images/screenshots/dark/user-script-run-now-dark.webp#only-dark)
-
-A script nothing would execute has no Run control at all, for the reason stated at the
-top of the page, rather than a button that fails when you press it.
-
-### The code
+### The code, and running it
 
 On a script you own, the source is editable in place, with Starlark highlighted as the
 Python dialect it is. Saving makes the edit the version that runs: `run_script` executes
@@ -702,9 +721,28 @@ it, any schedule fires it, and it runs under the access you hold when you save.
 Source that does not parse is refused when you save it, naming what to fix, rather than
 failing at the next run with nobody watching.
 
+**Run** and **Dry run** sit side by side above the editor, because they are the same
+question asked of two texts: Run executes the saved version, a dry run executes what is
+on screen. One parameter form below the editor supplies the values for both.
+
+Run produces fresh output without waiting for the next scheduled fire, and queues exactly
+what an agent's `run_script` queues: the platform executes it the same way a scheduled
+fire is executed, and it appears in the run history directly below and updates as it
+goes.
+
+Where a value comes from a set the platform already knows, the form offers the set
+rather than asking you to remember the spelling. A parameter naming a connection is a
+list of the connections your access reaches, each with what it is; a parameter with
+declared choices is those choices. A box is for a value the platform genuinely cannot
+enumerate.
+
+A script nothing would execute has no Run control at all, for the reason stated at the
+top of the page, rather than a button that fails when you press it. Editing, checking and
+saving stay available, because fixing the script is how it comes back into service.
+
 ### Checking a change before you send it
 
-Beside Save are the two things you would otherwise have had to ask an agent for.
+Beside Run are the two things you would otherwise have had to ask an agent for.
 
 **Validate** parses what is on screen and tells you what it would reach — which
 capabilities, which connections, where it writes — and, if it does not parse, what to fix
@@ -723,49 +761,13 @@ more. The record of the run is kept with the script, so anyone reading a version
 can see that its exact code was executed, by whom, and what it produced — and a version
 nobody has dry-run says so.
 
-### The cadence
-
-Below that, on a script you own, is when it runs. Pick how often — hourly, daily,
-weekdays, chosen days of the week, or a day of the month — set the time and the timezone
-it is read in, bind the value every fire passes, and pause or resume the whole thing.
-
-You do not have to know cron. The page states what it will save in words ("Every weekday
-at 7:00 AM, America/Los_Angeles") and shows the expression it produces underneath, and
-there is a **Custom** choice for a cadence the builder cannot express. A schedule an
-agent wrote through `manage_script` that the builder cannot express opens there, as
-itself, rather than being rewritten into something near it.
-
-The time is read in the zone beside it, so a report keeps its wall clock across a
-daylight-saving change, and the floor is one fire a minute. A monthly cadence past the
-28th says plainly that the months without that day are skipped rather than moved.
-
-A date parameter usually wants `${fire_date}`, which expands to the day the schedule
-fires rather than to the day you typed it — that is what makes a scheduled run
-reproducible, because the run records the date it was computing for.
-
-Changing the cadence changes nothing else. Every fire executes the latest saved
-version, authorized against the access captured at that save, and re-timing a script
-changes neither — so a report you own is yours to move, slow down, or pause, whether it
-is your own or shared with everyone.
-
-Pausing is its own control rather than a cadence you have to clear and retype. A paused
-schedule resumes on the fire it was parked on, and there is no way to delete one: the
-schedule is part of the explanation of the runs it produced. Fires that came due while
-the platform was not running them are counted and stated rather than caught up on, so a
-gap in a script's cadence is visible instead of turning into a burst of stale reports.
-
-![Paused schedule](../images/screenshots/light/user-script-schedule-paused-light.webp#only-light)![Paused schedule](../images/screenshots/dark/user-script-schedule-paused-dark.webp#only-dark)
-
-A schedule on a disabled or retired script saves, and fires nothing until the script is
-back in service, which the page says plainly rather than leaving you waiting on a run
-that was never going to happen.
-
 ### Version history
 
-Below the contract is every version of the script, each with its author and the roles
-they held at the save, which are the roles a run of that version presents. The version
-that runs — the latest saved one — opens by default, because what is running right now
-is the usual question.
+Folded into the Source section is every version of the script, each with its author and
+the roles they held at the save, which are the roles a run of that version presents. It
+opens on a reveal rather than standing as a section of its own: the editor above it
+already holds the version that runs, so what the history adds is the versions before
+that one.
 
 ![Version history](../images/screenshots/light/user-script-versions-light.webp#only-light)![Version history](../images/screenshots/dark/user-script-versions-dark.webp#only-dark)
 
@@ -786,6 +788,10 @@ The section header carries what the history adds up to — the share that succee
 many failed or were skipped, and the median duration — over the runs actually loaded,
 which the sentence names rather than implying it covers all time.
 
+It sits directly under the code, because an error here is answered by the text above it,
+and nothing in it holds the page open sideways: a failure message wraps to as many lines
+as it needs rather than running off the edge.
+
 ![Run history](../images/screenshots/light/user-script-runs-light.webp#only-light)![Run history](../images/screenshots/dark/user-script-runs-dark.webp#only-dark)
 
 Opening a run shows what it was given, what it cost, what it wrote, and the log it
@@ -800,9 +806,9 @@ asset's version history is the history of what the dashboard has been showing. A
 delivered to a bucket names where it was written and is not a link: those bytes left the
 platform, and nothing here will serve them back.
 
-The cadence controls, the source, the capability grant, and the run history of a script
-belong to its owner and to administrators. A script you can see but do not own shows its
-contract and says so.
+The schedule controls, the source, and the run history of a script belong to its owner
+and to administrators. A script you can see but do not own shows its details and what it
+says about itself, and nothing else.
 
 ### Asking for the pages
 
