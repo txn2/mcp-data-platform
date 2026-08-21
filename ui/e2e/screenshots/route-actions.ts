@@ -344,6 +344,12 @@ export async function openScriptRunsTab(page: Page): Promise<void> {
  * that retires it.
  */
 export async function openScriptSchedule(page: Page): Promise<void> {
+  // The section is folded by default (#1407): its header states what the
+  // script runs, and the builder is behind the reveal this opens.
+  await page
+    .getByRole("button", { name: /^Schedule/ })
+    .click({ timeout: 3_000 })
+    .catch(() => {});
   // The builder's first control, which is where the schedule is chosen — the
   // page no longer has a cron field to scroll to (#1307).
   await page
@@ -360,7 +366,15 @@ export async function openScriptSchedule(page: Page): Promise<void> {
  */
 export async function openScriptOwner(page: Page): Promise<void> {
   await page.getByText("Transfer ownership").scrollIntoViewIfNeeded({ timeout: 3_000 });
-  await page.waitForTimeout(500);
+  // The new owner is CHOSEN, from the people who have actually signed in
+  // (#1407), so the capture is of the choice rather than of a closed control:
+  // an address nobody has authenticated with cannot open the portal, and a
+  // script handed to one would be visible to administrators alone.
+  await page
+    .getByLabel("New owner")
+    .click({ timeout: 3_000 })
+    .catch(() => {});
+  await page.waitForTimeout(600);
 }
 
 /**

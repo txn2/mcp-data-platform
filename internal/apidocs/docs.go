@@ -13910,6 +13910,12 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "type": "string",
+                        "description": "Narrow the listing to one script",
+                        "name": "script_id",
+                        "in": "query"
+                    },
+                    {
                         "type": "integer",
                         "description": "Maximum rows to return",
                         "name": "per_page",
@@ -16133,6 +16139,12 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Case-insensitive match on email or name",
                         "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Return only people who have signed in at least once",
+                        "name": "confirmed",
                         "in": "query"
                     },
                     {

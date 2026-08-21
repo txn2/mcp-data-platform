@@ -13,6 +13,7 @@ import {
   DEFAULT_CADENCE,
   describeCron,
   fromCron,
+  scheduleLine,
   scheduleState,
   toCron,
   type Cadence,
@@ -126,8 +127,16 @@ function ScheduleControls({
   };
 
   return (
+    // Folded by default (#1407). The cadence is set once and read constantly,
+    // so the fact belongs in the header and the builder that changes it behind
+    // a reveal: a page whose second section is a form nobody is filling in
+    // pushes the code and the run history — what a person opens a script for —
+    // off the screen.
     <SectionCard
       title="Schedule"
+      collapsible
+      defaultOpen={false}
+      summary={scheduleHeadline(schedule)}
       action={<PauseButton schedule={schedule} busy={busy} onToggle={togglePause} />}
     >
       <div className="space-y-4">
@@ -170,6 +179,17 @@ function ScheduleControls({
       </div>
     </SectionCard>
   );
+}
+
+// scheduleHeadline is what the folded section says in place of the builder:
+// what this script does now, in the words the listing states it in, so the two
+// surfaces cannot describe the same cadence differently. A paused schedule is
+// named as paused rather than as what it would do, because what it does is
+// nothing.
+function scheduleHeadline(schedule: ScriptSchedule | null): string {
+  if (!schedule) return "Not scheduled";
+  const line = scheduleLine(schedule.cron_spec, schedule.timezone);
+  return schedule.enabled ? `Runs: ${line}` : `Paused: ${line}`;
 }
 
 // PauseButton is the retirement control, absent until there is a schedule to

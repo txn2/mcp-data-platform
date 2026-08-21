@@ -21,8 +21,10 @@ test.describe("Portal script pages", () => {
     await gotoScripts(page);
 
     await expect(page.getByText("Daily Sales Report")).toBeVisible();
-    await expect(page.getByText("Runs v2").first()).toBeVisible();
     await expect(page.getByText("succeeded").first()).toBeVisible();
+    // The version a run executes is a fact about every healthy script, so it
+    // is on the script's own page rather than in a column here (#1407).
+    await expect(page.getByText("Runs v2")).toHaveCount(0);
 
     // The schedule in the words the editor two clicks away states it in, rather
     // than the expression the platform stores it as (#1358).
@@ -59,9 +61,12 @@ test.describe("Portal script pages", () => {
     // schedule and names the same parameter, because that is the box its
     // binding goes in.
     await expect(page.getByRole("cell", { name: "report_date" })).toBeVisible();
+    // In words, as every surface states a cadence (#1407): the expression is
+    // read and written in the schedule editor, and nowhere else.
     await expect(
-      page.getByText("0 7 * * 1-5 (America/Los_Angeles)", { exact: true }),
+      page.getByText("Every weekday at 7:00 AM, America/Los_Angeles", { exact: true }),
     ).toBeVisible();
+    await expect(page.getByText("0 7 * * 1-5", { exact: true })).toHaveCount(0);
 
     // The sections in the order somebody debugging a script reads them, with
     // the run history directly under the code it is explained by (#1406).
@@ -74,6 +79,10 @@ test.describe("Portal script pages", () => {
       "Run history",
       "Owner",
     ]);
+
+    // The bindings every fire passes are inside the folded schedule section.
+    await page.getByRole("button", { name: /^Schedule/ }).click();
+    await expect(page.locator("#script-param-schedule-report_date")).toHaveValue("${fire_date}");
 
     // The version that runs is the text in the editor, without a click.
     await expect(page.getByText(/platform\.export/).first()).toBeVisible();
@@ -113,6 +122,14 @@ test.describe("Portal script pages", () => {
     await gotoScripts(page);
     await page.getByRole("row").filter({ hasText: "Daily Sales Report" }).click();
 
+    // The section is folded, and says what the script does without being
+    // opened (#1407). The builder is behind the reveal.
+    await expect(
+      page.getByText("Runs: Every weekday at 7:00 AM, America/Los_Angeles"),
+    ).toBeVisible();
+    await expect(page.getByLabel("Time", { exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: /^Schedule/ }).click();
+
     // The schedule in force, as choices rather than as an expression, and the
     // binding every fire passes.
     await expect(page.getByRole("button", { name: "Weekdays" })).toHaveAttribute(
@@ -135,6 +152,7 @@ test.describe("Portal script pages", () => {
 
     await page.getByRole("button", { name: "Pause" }).click();
     await expect(page.getByText(/paused, and firing nothing/)).toBeVisible();
+    // The folded header would say the same thing: what it does is nothing.
     await expect(page.getByRole("button", { name: "Resume" })).toBeVisible();
   });
 
@@ -221,6 +239,8 @@ test.describe("Portal script pages", () => {
     await gotoScripts(page);
     await page.getByRole("row").filter({ hasText: "Dormant Accounts" }).click();
 
+    await expect(page.getByText("Not scheduled")).toBeVisible();
+    await page.getByRole("button", { name: /^Schedule/ }).click();
     await expect(page.getByText(/runs only when someone asks/)).toBeVisible();
 
     await page.getByRole("button", { name: "Daily" }).click();
@@ -300,7 +320,11 @@ test.describe("Portal script pages", () => {
     // The section states who has it before it offers to move it.
     await expect(page.getByText(/only person who sees it/)).toBeVisible();
 
-    await page.getByPlaceholder("New owner's email").fill("marcus.webb@example.com");
+    // The new owner is chosen from the people who have actually signed in
+    // (#1407): an address nobody has authenticated with cannot open the portal,
+    // so a script handed to one would be visible to administrators alone.
+    await page.getByLabel("New owner").click();
+    await page.getByRole("option", { name: /marcus.johnson@example.com/ }).click();
     await page.getByRole("button", { name: "Transfer ownership" }).click();
 
     // Both ends of the move are named before it is made, because the person
@@ -308,9 +332,9 @@ test.describe("Portal script pages", () => {
     await expect(page.getByText(/will no longer see it/)).toBeVisible();
     await page.getByRole("button", { name: "Transfer", exact: true }).click();
 
-    await expect(page.getByText(/now belongs to marcus.webb@example.com/)).toBeVisible();
+    await expect(page.getByText(/now belongs to marcus.johnson@example.com/)).toBeVisible();
     // The page re-reads the script, so the contract shows where it landed.
-    await expect(page.getByText("marcus.webb@example.com").first()).toBeVisible();
+    await expect(page.getByText("marcus.johnson@example.com").first()).toBeVisible();
   });
 
   // Editing the code is the second mutation on this surface, and there is one

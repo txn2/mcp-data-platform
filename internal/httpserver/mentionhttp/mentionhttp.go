@@ -78,6 +78,7 @@ const (
 	paramOffset     = "offset"
 	paramTargetType = "target_type"
 	paramTargetID   = "target_id"
+	paramConfirmed  = "confirmed"
 
 	defaultLimit = 50
 )
@@ -123,9 +124,10 @@ type directoryUsersResponse struct {
 // @Description  Returns the known-users directory so a user can pick a teammate to share with. Includes admin-added people who have not logged in yet (confirmed=false). Any authenticated user may call this.
 // @Tags         User
 // @Produce      json
-// @Param        q       query  string   false  "Case-insensitive match on email or name"
-// @Param        limit   query  integer  false  "Results per page (default: 50, max: 100)"
-// @Param        offset  query  integer  false  "Offset for pagination (default: 0)"
+// @Param        q          query  string   false  "Case-insensitive match on email or name"
+// @Param        confirmed  query  boolean  false  "Return only people who have signed in at least once"
+// @Param        limit      query  integer  false  "Results per page (default: 50, max: 100)"
+// @Param        offset     query  integer  false  "Offset for pagination (default: 0)"
 // @Success      200  {object}  directoryUsersResponse
 // @Failure      401  {object}  errorBody
 // @Failure      500  {object}  errorBody
@@ -137,9 +139,14 @@ func (h *Handler) listDirectoryUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	users, total, err := h.deps.Directory.List(r.Context(), userdir.Filter{
-		Query:  r.URL.Query().Get(paramQuery),
-		Limit:  intParam(r, paramLimit, defaultLimit),
-		Offset: intParam(r, paramOffset, 0),
+		Query: r.URL.Query().Get(paramQuery),
+		// A caller asking for the confirmed people is handing something over to
+		// one of them (#1407), so the narrowing is the store's rather than the
+		// page's: filtering the returned rows would let the row cap fill with
+		// people who have never signed in and report the rest as nobody.
+		ConfirmedOnly: r.URL.Query().Get(paramConfirmed) == "true",
+		Limit:         intParam(r, paramLimit, defaultLimit),
+		Offset:        intParam(r, paramOffset, 0),
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list users")

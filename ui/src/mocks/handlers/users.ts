@@ -19,13 +19,27 @@ const directoryUsers: DirectoryUser[] = JSON.parse(
 
 // Filter by the optional ?q= search param the hooks send (matches name or
 // email, case-insensitive), mirroring the server-side directory search.
+// ?confirmed=true narrows to the people who have actually signed in (#1407),
+// which is the set a control handing something over offers; the server applies
+// it in the store, so the mock applies it before the cap for the same reason.
 function searchUsers(url: URL): DirectoryUser[] {
   const q = url.searchParams.get("q")?.trim().toLowerCase();
-  if (!q) return directoryUsers;
-  return directoryUsers.filter((u) => {
-    const name = `${u.first_name} ${u.last_name}`.toLowerCase();
-    return name.includes(q) || u.email.toLowerCase().includes(q);
-  });
+  const confirmedOnly = url.searchParams.get("confirmed") === "true";
+  return directoryUsers
+    .filter((u) => !confirmedOnly || u.confirmed)
+    .filter((u) => {
+      if (!q) return true;
+      const name = `${u.first_name} ${u.last_name}`.toLowerCase();
+      return name.includes(q) || u.email.toLowerCase().includes(q);
+    });
+}
+
+// pageLimit is the page size the directory answers under: the caller's, capped
+// at the store's own ceiling, defaulting to what the route defaults to.
+function pageLimit(url: URL): number {
+  const asked = Number(url.searchParams.get("limit") ?? "");
+  if (!Number.isFinite(asked) || asked <= 0) return 50;
+  return Math.min(asked, 100);
 }
 
 export const userHandlers = [
@@ -77,13 +91,19 @@ export const userHandlers = [
 
   // --- Portal: directory for the share picker (#614) ---
   http.get(`${PORTAL_BASE}/users`, ({ request }) => {
-    const users = searchUsers(new URL(request.url)).map((u) => ({
+    const url = new URL(request.url);
+    const matched = searchUsers(url);
+    // The server answers a PAGE and the count of everything that matched, which
+    // is what lets a picker say its list was cut off rather than presenting
+    // part of the directory as the whole of it (#1407).
+    const limit = pageLimit(url);
+    const users = matched.slice(0, limit).map((u) => ({
       email: u.email,
       first_name: u.first_name,
       last_name: u.last_name,
       confirmed: u.confirmed,
     }));
-    const body: DirectoryUsersResponse = { users, total: users.length };
+    const body: DirectoryUsersResponse = { users, total: matched.length };
     return HttpResponse.json(body);
   }),
 

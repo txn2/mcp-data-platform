@@ -405,6 +405,30 @@ func TestPortalListOwnRuns_AdministratorIsUnscoped(t *testing.T) {
 	assert.Empty(t, runs.lastFilter.ScriptID)
 }
 
+// Naming one script narrows the listing to it (#1407), which is the run log a
+// metric that names a script links to.
+func TestPortalListOwnRuns_NarrowsToOneScript(t *testing.T) {
+	runs := &stubRuns{}
+	rec := servePortal(t, portalDeps(portalStore(), runs, nil, admin),
+		"/api/v1/portal/scripts/runs?script_id=script_1")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	assert.Equal(t, "script_1", runs.lastFilter.ScriptID)
+}
+
+// The named script is ANDed with the visibility predicate rather than
+// replacing it: naming somebody else's script must not read its runs.
+func TestPortalListOwnRuns_ANamedScriptStaysInsideVisibility(t *testing.T) {
+	runs := &stubRuns{}
+	rec := servePortal(t, portalDeps(portalStore(), runs, nil, owner),
+		"/api/v1/portal/scripts/runs?script_id=someone_elses_script")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	assert.Equal(t, "someone_elses_script", runs.lastFilter.ScriptID)
+	assert.NotNil(t, runs.lastFilter.ScriptIDs)
+	assert.NotContains(t, runs.lastFilter.ScriptIDs, "someone_elses_script")
+}
+
 // The status and the cap are the caller's to name, and the cap is the store's
 // own ceiling however large a number is asked for.
 func TestPortalListOwnRuns_StatusAndCap(t *testing.T) {

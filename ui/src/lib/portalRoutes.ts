@@ -79,7 +79,13 @@ const KNOWN_PATTERNS: readonly RegExp[] = [
   /^\/admin\/collections\/.+$/,
   /^\/admin\/sessions\/.+$/,
   /^\/admin\/calls\/.+$/,
-  /^\/admin\/scripts\/.+$/,
+  // The administrator's script section matches the same two shapes the
+  // owner's does (#1407): one script, and one run of one script. Both are
+  // matched exactly rather than as "anything under /admin/scripts", so a path
+  // under a script that names no page gets the not-found page instead of a
+  // blank one.
+  /^\/admin\/scripts\/[^/]+$/,
+  /^\/admin\/scripts\/[^/]+\/runs\/[^/]+$/,
 ];
 
 // ALIASES are paths that named a real surface and no longer do. Each redirects

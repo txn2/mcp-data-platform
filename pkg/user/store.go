@@ -233,19 +233,27 @@ func scanUser(row rowScanner) (*User, error) {
 
 // buildUserWhere builds an optional WHERE clause for the search filter.
 func buildUserWhere(filter Filter) (where string, args []any) {
-	if strings.TrimSpace(filter.Query) == "" {
+	var clauses []string
+	if q := strings.TrimSpace(filter.Query); q != "" {
+		// Escape the LIKE escape character (backslash) first, then the wildcards.
+		// strings.NewReplacer applies the leftmost-longest match in a single pass
+		// and never re-scans replacement output, so the inserted backslashes are
+		// not themselves re-escaped. Omitting the backslash escape lets a query
+		// ending in "\" produce a dangling escape that Postgres rejects ("LIKE
+		// pattern must not end with escape character") — a user-triggerable 500.
+		escaped := strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(q)
+		args = append(args, "%"+escaped+"%")
+		clauses = append(clauses, fmt.Sprintf(
+			"(email ILIKE $%d OR first_name ILIKE $%d OR last_name ILIKE $%d)",
+			len(args), len(args), len(args)))
+	}
+	if filter.ConfirmedOnly {
+		clauses = append(clauses, "confirmed = TRUE")
+	}
+	if len(clauses) == 0 {
 		return "", nil
 	}
-	// Escape the LIKE escape character (backslash) first, then the wildcards.
-	// strings.NewReplacer applies the leftmost-longest match in a single pass
-	// and never re-scans replacement output, so the inserted backslashes are
-	// not themselves re-escaped. Omitting the backslash escape lets a query
-	// ending in "\" produce a dangling escape that Postgres rejects ("LIKE
-	// pattern must not end with escape character") — a user-triggerable 500.
-	escaped := strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(strings.TrimSpace(filter.Query))
-	pattern := "%" + escaped + "%"
-	where = " WHERE (email ILIKE $1 OR first_name ILIKE $1 OR last_name ILIKE $1)"
-	return where, []any{pattern}
+	return " WHERE " + strings.Join(clauses, " AND "), args
 }
 
 // Verify interface compliance.

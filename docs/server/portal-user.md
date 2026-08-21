@@ -606,12 +606,13 @@ Every script here is yours: a script is one person's, so this page needs no owne
 and shows nobody else's. An administrator can move a script to another owner, which is
 how one arrives here that you did not write.
 
-Each row states the four things worth knowing at a glance: what the script is executing
-(the latest saved version, or plainly that it is disabled or retired and nothing will
-run), its schedule and next fire, and how its most recent run ended. Opening a row opens the
-script, the way every other list in the portal opens a record. A script with no schedule
-runs on demand; a paused schedule says so rather than showing a next fire that will not
-happen.
+Each row states what is worth knowing at a glance: what the script is called, its
+schedule and next fire, and how its most recent run ended. A script that will execute
+nothing carries a badge beside its name — **disabled**, or its lifecycle status — because
+that is the exception you scan a list for; the version a run executes is true of every
+healthy script and is stated on the script's own page. Opening a row opens the script, the
+way every other list in the portal opens a record. A script with no schedule runs on
+demand; a paused schedule says so rather than showing a next fire that will not happen.
 
 Each row also shows how the script is filed: the category it belongs to and the tags it
 carries. Under the tiles are a search box and a chip per category, with the tags on a
@@ -654,6 +655,12 @@ The page is ordered the way a script is debugged. Details first, then the schedu
 what the script says about itself, then the code — and the run history directly under the
 code, so an error in the history is answered by the text above it.
 
+The schedule is folded, and says what the script runs without being opened: "Runs: Every
+weekday at 7:00 AM, America/Los_Angeles", or "Not scheduled". Open it to change the
+cadence; pausing and resuming are on the header either way. **About** starts open, because
+what a script is for is what you came to read, and folds away when the document is long
+enough to be in the way.
+
 ![Script detail](../images/screenshots/light/user-script-detail-light.webp#only-light)![Script detail](../images/screenshots/dark/user-script-detail-dark.webp#only-dark)
 
 When a run would be refused — the script disabled or retired — the page carries the
@@ -662,7 +669,8 @@ status.
 
 ### The schedule
 
-Below the details, on a script you own, is when it runs. Pick how often — hourly, daily,
+Below the details, on a script you own, is when it runs — folded, with what it does now in
+the header. Open it and pick how often — hourly, daily,
 weekdays, chosen days of the week, or a day of the month — set the time and the timezone
 it is read in, bind the value every fire passes, and pause or resume the whole thing.
 
