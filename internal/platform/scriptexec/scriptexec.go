@@ -1,19 +1,19 @@
-// Package scriptexec executes approved managed scripts: the run worker that
-// claims due runs off the queue, the per-run script principal it executes them
-// under, and the writer that turns a script's output into a portal asset.
+// Package scriptexec executes managed scripts: the run worker that claims due
+// runs off the queue, the per-run script principal it executes them under, and
+// the writer that turns a script's output into a portal asset.
 //
 // It is the half of the managed-script feature that runs with nobody present.
-// The authoring half (internal/platform/scriptlayer) is interactive and runs as
-// whoever is typing; everything here runs later, unattended, which is why the
-// execution gate exists and why this package reads it on every run rather than
-// trusting the queue row that got here:
+// The authoring half (internal/platform/scriptlayer) is interactive and runs
+// as whoever is typing; everything here runs later, unattended, which is why
+// the run gate is re-read on every run rather than trusted from the queue row
+// that got here:
 //
-//   - code comes from scripts.approved_version_id and nothing else, so a run
-//     enqueued against a version that is no longer the approved one fails
-//     instead of executing code that lost its approval;
-//   - authority comes from the grant bound to that version at approval, which
-//     carries the roles the version's AUTHOR held, so an unattended run can
-//     never exceed what the person who wrote the code could do;
+//   - code comes from the version the run was queued against, the latest saved
+//     version at the moment of the request, so a run always executes an
+//     immutable snapshot a person saved;
+//   - authority is the roles that version's AUTHOR held when they saved it, so
+//     an unattended run can never exceed what the person who wrote the code
+//     could do;
 //   - every capability call goes through the assembled MCP server over an
 //     in-memory session, so persona and connection authorization, rate limiting,
 //     and audit apply to a script exactly as they apply to an agent.
@@ -88,6 +88,10 @@ type Config struct {
 	// incomplete set leaves scripts able to query and unable to persist, which
 	// each affected run reports.
 	Export ExportDeps
+
+	// Destinations is the deployment's configured bucket destinations, which a
+	// run resolves platform.export names against at run time.
+	Destinations []script.Destination
 
 	// Metrics records what the run queue is doing: runs by script, trigger and
 	// status, their duration, how many are executing on this replica, and the

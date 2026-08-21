@@ -11,28 +11,19 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
-// The portal surface is the read half of managed scripts, for the people who
-// own the automations rather than the administrators who approve them. Every
-// other script route is admin-only, and a script's owner is frequently not an
-// administrator: without these routes the humans the feature is for can read
-// their own automations only by asking an agent to call a tool.
-//
-// It grants nothing. The one thing it mutates is a script's cadence (#1307,
-// portalschedule.go), which carries no authority at all, and approval stays
-// where it was — on the admin surface, behind admin authentication — so a wider
-// audience can read what already exists, re-time their own automations, and
-// still cannot change what executes.
+// The portal surface is managed scripts for the people who own the
+// automations. A script's owner is frequently not an administrator: without
+// these routes the humans the feature is for can work with their own
+// automations only by asking an agent to call a tool.
 //
 // Two visibility rules apply, and they are different rules:
 //
-//   - What a script IS (the contract: name, owner, parameters, approval state,
-//     cadence) follows script.VisibleTo, so anyone entitled to see the script
-//     sees it.
+//   - What a script IS (the contract: name, owner, parameters, cadence)
+//     follows script.VisibleTo, so anyone entitled to see the script sees it.
 //   - What a script DID and what it is made of (its runs, their logs, its
-//     source, the capability grant bound to it) is the owner's and the
-//     administrator's. A log is the script's own account of a working system,
-//     and the grant names the connections it reaches; neither is implied by
-//     being allowed to know the script exists.
+//     source) is the owner's and the administrator's. A log is the script's
+//     own account of a working system; it is not implied by being allowed to
+//     know the script exists.
 
 // portalRunListLimit caps a portal run listing that names no limit. The store
 // clamps to its own ceiling above this, so a caller cannot widen it.
@@ -48,9 +39,9 @@ type PortalIdentity struct {
 	Persona string
 	IsAdmin bool
 	// Roles is the authority this caller holds. It is recorded on any version
-	// they author (#1307): approving a version binds exactly the roles its
-	// author held, which is what keeps approval from being a way to hand a
-	// script more access than the person who wrote it.
+	// they author (#1307): a run of that version presents exactly these roles,
+	// which is what keeps a script from holding more access than the person
+	// who wrote it.
 	Roles []string
 	// AuthType is HOW this caller was authenticated. It matters because the
 	// dry-run route opens a session on their behalf (#1364): that session must
@@ -74,11 +65,10 @@ func (p *PortalIdentity) owner() string {
 	return p.UserID
 }
 
-// ContractReader composes one script's contract document: the record, the
-// approved version's parameter contract and approval stamp, the cadence, and
-// the last successful run. It is the same document a reference to a script
-// resolves to (#1302), so the portal page and an agent's fetch describe a
-// script identically.
+// ContractReader composes one script's contract document: the record, its
+// parameter contract, the cadence, and the last successful run. It is the same
+// document a reference to a script resolves to (#1302), so the portal page and
+// an agent's fetch describe a script identically.
 type ContractReader interface {
 	Contract(ctx context.Context, id string) (*script.Contract, error)
 }
@@ -107,15 +97,15 @@ func (h *Handler) RegisterPortal(mux *http.ServeMux, wrap func(http.Handler) htt
 		mux.Handle("GET /api/v1/portal/scripts/{id}", wrap(h.portalHandler(h.portalGetScript)))
 	}
 	mux.Handle("GET /api/v1/portal/scripts/{id}/versions", wrap(h.portalHandler(h.portalListVersions)))
-	// Editing the code is the owner's, and it crosses the same review gate the
-	// tool crosses: an approved script's edit becomes a draft (#1307).
+	// Editing the code is the owner's, and it crosses the same edit funnel the
+	// tool crosses (#1307).
 	mux.Handle("PUT /api/v1/portal/scripts/{id}/source", wrap(h.portalHandler(h.portalSetSource)))
-	// Documenting the script is the owner's too, and it is not review-gated:
-	// what a script SAYS about itself is not what it does (#1369).
+	// Documenting the script is the owner's too: what a script SAYS about
+	// itself is not what it does (#1369).
 	mux.Handle("PUT /api/v1/portal/scripts/{id}/metadata", wrap(h.portalHandler(h.portalSetMetadata)))
-	// Checking an edit before asking anyone to approve it (#1364). Validating
-	// parses and reports; it executes nothing, needs no collaborator, and is
-	// therefore always available where the editor is.
+	// Checking an edit before saving it (#1364). Validating parses and
+	// reports; it executes nothing, needs no collaborator, and is therefore
+	// always available where the editor is.
 	mux.Handle("POST /api/v1/portal/scripts/{id}/validate", wrap(h.portalHandler(h.portalValidateSource)))
 	if h.deps.Drafts != nil {
 		mux.Handle("POST /api/v1/portal/scripts/{id}/dry-run", wrap(h.portalHandler(h.portalDryRunSource)))
@@ -203,9 +193,9 @@ type portalScriptRow struct {
 	// run and when the caller does not own it — a run is owner-and-admin
 	// reading, and so is the fact that one failed.
 	LastRun *portalRun `json:"last_run,omitempty"`
-	// Owned reports whether this caller may read the script's runs, source, and
-	// grant, so the page offers those surfaces rather than linking a reader to
-	// a refusal.
+	// Owned reports whether this caller may read the script's runs and source,
+	// so the page offers those surfaces rather than linking a reader to a
+	// refusal.
 	Owned bool `json:"owned" example:"true"`
 }
 
@@ -387,12 +377,10 @@ type portalScriptResponse struct {
 	// is served to everyone the scope rules admit.
 	Source string `json:"source,omitempty"`
 	// DraftParams is the LIVE record's parameter contract, which is not always
-	// the contract above: that one is the APPROVED version's, because that is
-	// what a run binds against. A draft run binds against this one, because a
-	// draft is the code that does not match the approved version yet (#1364),
-	// and a form built from the wrong one would offer parameters the dry run
-	// then refuses. It travels with the source for the same audience and for
-	// the same reason.
+	// the contract above only in freshness: it is read with the source, so the
+	// dry-run form binds against exactly the contract the code beside it was
+	// written against (#1364). It travels with the source for the same
+	// audience and for the same reason.
 	DraftParams []script.Param `json:"draft_params,omitempty"`
 }
 
@@ -432,10 +420,10 @@ func (h *Handler) portalGetScript(w http.ResponseWriter, r *http.Request, user *
 	})
 }
 
-// liveRecord is what the script would run if it were approved today — its code
-// and the parameter contract that code was written against — read for the owner
-// alone. A read that fails leaves the editor closed rather than failing the
-// whole page: the contract above it is still worth showing.
+// liveRecord is the script's current code and the parameter contract that
+// code was written against, read for the owner alone. A read that fails leaves
+// the editor closed rather than failing the whole page: the contract above it
+// is still worth showing.
 func (h *Handler) liveRecord(r *http.Request, id string, owned bool) (string, []script.Param) {
 	if !owned {
 		return "", nil
@@ -450,7 +438,7 @@ func (h *Handler) liveRecord(r *http.Request, id string, owned bool) (string, []
 // portalListVersions returns an owned script's version history.
 //
 // @Summary      List a script's versions
-// @Description  Returns every version of a script the caller owns, with its source, its author, and the approval stamp and capability grant bound to it. Restricted to the script's owner and to administrators.
+// @Description  Returns every version of a script the caller owns, with its source, its author, and the roles that author held. Restricted to the script's owner and to administrators.
 // @Tags         Scripts
 // @Produce      json
 // @Param        id  path  string  true  "Script ID"
@@ -625,8 +613,8 @@ func (h *Handler) ownedScript(w http.ResponseWriter, r *http.Request, user *Port
 	return sc, true
 }
 
-// ownsScript reports whether the caller may read a script's runs, source, and
-// grant: its owner, or an administrator.
+// ownsScript reports whether the caller may read a script's runs and source:
+// its owner, or an administrator.
 func ownsScript(sc *script.Script, user *PortalIdentity) bool {
 	return user.IsAdmin || ownsEmail(sc.OwnerEmail, user.owner())
 }

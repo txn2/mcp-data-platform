@@ -15,14 +15,13 @@ import (
 // schedulable resolves the script a schedule command names and checks the
 // caller may set its cadence: its owner, or an administrator.
 //
-// It is deliberately NOT the edit rule. Editing changes what a script does and
-// sends the result back through review, so it is confined to a personal script
-// unless an admin makes it; a schedule changes only when an already-approved
-// version runs and with which parameters, and the execution gate and the
-// capability grant are re-read at every fire. Re-timing therefore cannot reach
-// anything the script could not already reach, and there is no reason the owner
-// of a global or persona script must ask an administrator to pause their own
-// report.
+// It is deliberately NOT the edit rule. Editing changes what a script does, so
+// it is confined to a personal script unless an admin makes it; a schedule
+// changes only when the script runs and with which parameters, and the run
+// gate and the persona filter are re-read at every fire. Re-timing therefore
+// cannot reach anything the script could not already reach, and there is no
+// reason the owner of a global or persona script must ask an administrator to
+// pause their own report.
 func (h *Handle) schedulable(ctx context.Context, input manageScriptInput) (*script.Script, *mcp.CallToolResult) {
 	sc, errResult := h.readable(ctx, input)
 	if errResult != nil {
@@ -36,11 +35,9 @@ func (h *Handle) schedulable(ctx context.Context, input manageScriptInput) (*scr
 
 // handleScheduleSet creates or replaces a script's schedule.
 //
-// It is an owner-or-admin action, not a reviewer's, and that is the whole
-// authority story: a schedule says when an already-approved version runs and
-// with which parameters, and can no more widen what that version reaches than
-// calling run_script can. What executes and what it may touch were both decided
-// at approval.
+// It is an owner-or-admin action: a schedule says when the script runs and
+// with which parameters, and can no more widen what a run reaches than calling
+// run_script can — the persona filter decides that at every fire.
 func (h *Handle) handleScheduleSet(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
 	sc, errResult := h.schedulable(ctx, input)
 	if errResult != nil {
@@ -49,16 +46,12 @@ func (h *Handle) handleScheduleSet(ctx context.Context, input manageScriptInput)
 	if h.schedules == nil {
 		return errorResult("this deployment cannot store schedules"), nil, nil
 	}
-	approved, errResult := h.approvedVersionOrNil(ctx, sc)
-	if errResult != nil {
-		return errResult, nil, nil
-	}
 	prev, err := h.existingSchedule(ctx, sc.ID)
 	if err != nil {
 		slog.Error("failed to read a script schedule", fieldName, sc.Name, logKeyError, err)
 		return errorResult("failed to read the current schedule"), nil, nil
 	}
-	sched, err := script.BuildSchedule(sc, approved, prev, script.ScheduleRequest{
+	sched, err := script.BuildSchedule(sc, prev, script.ScheduleRequest{
 		CronSpec: input.Cron, Timezone: input.Timezone,
 		Params: input.Args, Actor: resolveEmail(ctx),
 	}, time.Now())
@@ -72,20 +65,6 @@ func (h *Handle) handleScheduleSet(ctx context.Context, input manageScriptInput)
 	out := scheduleFields(sc, sched)
 	out["message"] = scheduleNote(sc, sched)
 	return jsonResult(out)
-}
-
-// approvedVersionOrNil loads the version a schedule's fires will execute, or
-// nil when the script has none yet.
-func (h *Handle) approvedVersionOrNil(ctx context.Context, sc *script.Script) (*script.Version, *mcp.CallToolResult) {
-	if !sc.Executable() || h.versions == nil {
-		return nil, nil
-	}
-	v, err := h.versions.GetVersionByID(ctx, sc.ApprovedVersionID)
-	if err != nil {
-		slog.Error("failed to read an approved script version", fieldName, sc.Name, logKeyError, err)
-		return nil, errorResult("failed to read the approved version")
-	}
-	return v, nil
 }
 
 // existingSchedule reads the schedule being replaced, treating "there is none"
@@ -249,12 +228,11 @@ func (h *Handle) setScheduleEnabled(ctx context.Context, input manageScriptInput
 // scheduleFields renders one schedule for a response.
 func scheduleFields(sc *script.Script, sched *script.Schedule) map[string]any {
 	out := map[string]any{
-		fieldName:    sc.Name,
-		"cron":       sched.CronSpec,
-		"timezone":   sched.Timezone,
-		"args":       sched.Params,
-		"enabled":    sched.Enabled,
-		"executable": sc.Executable(),
+		fieldName:  sc.Name,
+		"cron":     sched.CronSpec,
+		"timezone": sched.Timezone,
+		"args":     sched.Params,
+		"enabled":  sched.Enabled,
 		// missed_fires is surfaced because it is the only place a gap shows.
 		// The misfire policy collapses a run of missed fires into one run, so
 		// the count is what tells an owner the automation was not running.
@@ -277,11 +255,11 @@ func scheduleFields(sc *script.Script, sched *script.Schedule) map[string]any {
 // execute.
 func scheduleNote(sc *script.Script, sched *script.Schedule) string {
 	switch {
-	case !sc.Executable():
-		return "The schedule is saved, but this script has no approved version, so nothing will execute it. Ask an administrator to review and approve a version."
+	case script.RefuseRun(sc) != nil:
+		return "The schedule is saved, but nothing will execute this script: " + script.RefuseRun(sc).Error() + "."
 	case !sched.Enabled:
 		return "The schedule is saved and disabled; enable it with command=schedule_enable."
 	default:
-		return "The platform will run the approved version on this cadence, with these parameters, as the script's own principal under the capabilities its approval granted."
+		return "The platform will run the latest saved version on this cadence, with these parameters, as the script's own principal presenting your captured roles."
 	}
 }

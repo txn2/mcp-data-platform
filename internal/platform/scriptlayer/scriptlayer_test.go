@@ -8,7 +8,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
@@ -20,8 +19,7 @@ import (
 
 // memStore is an in-memory script.Store + script.VersionStore, modeled on the
 // PostgreSQL store's contracts: a miss is nil, nil; an edit that changes a
-// versioned field snapshots a new applied version; a draft leaves the live row
-// untouched.
+// versioned field snapshots a new applied version and advances the live row.
 type memStore struct {
 	scripts  map[string]*script.Script
 	versions map[string][]script.Version
@@ -32,7 +30,7 @@ type memStore struct {
 	// scheduleReadErr fails only the read-back, so a write that landed can be
 	// distinguished from one that did not.
 	scheduleReadErr error
-	// versionErr fails the approved-version lookup, enabledErr the
+	// versionErr fails the current-version lookup, enabledErr the
 	// enable/disable write.
 	versionErr error
 	enabledErr error
@@ -52,7 +50,9 @@ func (m *memStore) Create(_ context.Context, sc *script.Script, author script.Au
 	sc.ID = fmt.Sprintf("script_%d", m.nextID)
 	sc.Version = 1
 	if sc.Status == "" {
-		sc.Status = script.StatusDraft
+		// The real store's Create defaults the status: every script starts in
+		// service.
+		sc.Status = script.StatusActive
 	}
 	stored := *sc
 	m.scripts[sc.ID] = &stored
@@ -148,7 +148,7 @@ func (m *memStore) List(_ context.Context, filter script.ListFilter) ([]script.S
 	return out, nil
 }
 
-func (m *memStore) UpdateWithVersion(ctx context.Context, sc *script.Script, author script.Author, _ bool) error {
+func (m *memStore) UpdateWithVersion(ctx context.Context, sc *script.Script, author script.Author) error {
 	before, ok := m.scripts[sc.ID]
 	if !ok {
 		return fmt.Errorf("script %s not found", sc.ID)
@@ -160,22 +160,11 @@ func (m *memStore) UpdateWithVersion(ctx context.Context, sc *script.Script, aut
 	return m.Update(ctx, sc)
 }
 
-func (m *memStore) CreateDraftVersion(_ context.Context, scriptID string, proposed *script.Script, author script.Author) (int, error) {
-	n := len(m.versions[scriptID]) + 1
-	draft := *proposed
-	draft.ID, draft.Version = scriptID, n
-	m.snapshot(&draft, author, script.VersionStatusDraft)
-	return n, nil
-}
-
 func (m *memStore) ListVersions(_ context.Context, scriptID string) ([]script.Version, error) {
 	return slices.Clone(m.versions[scriptID]), nil
 }
 
 func (m *memStore) GetVersionByID(_ context.Context, id string) (*script.Version, error) {
-	if m.versionErr != nil {
-		return nil, m.versionErr
-	}
 	for _, versions := range m.versions {
 		for _, v := range versions {
 			if v.ID == id {
@@ -188,6 +177,9 @@ func (m *memStore) GetVersionByID(_ context.Context, id string) (*script.Version
 }
 
 func (m *memStore) GetVersion(_ context.Context, scriptID string, version int) (*script.Version, error) {
+	if m.versionErr != nil {
+		return nil, m.versionErr
+	}
 	for _, v := range m.versions[scriptID] {
 		if v.Version == version {
 			out := v
@@ -197,75 +189,10 @@ func (m *memStore) GetVersion(_ context.Context, scriptID string, version int) (
 	return nil, nil //nolint:nilnil // VersionStore contract: nil, nil means not found
 }
 
-// ApproveVersion models the store-side approval action: it copies the version
-// author's roles into the grant (never the caller's request), stamps the
-// approval, and points the script's execution gate at that version. A fake that
-// took the roles from the request would let a test pass while the real store
-// refused to widen authority.
-func (m *memStore) ApproveVersion(_ context.Context, scriptID string, version int, approver string, grants script.Grants) (*script.Version, error) {
-	sc, ok := m.scripts[scriptID]
-	if !ok {
-		return nil, fmt.Errorf("script %s not found", scriptID)
-	}
-	for i, v := range m.versions[scriptID] {
-		if v.Version != version {
-			continue
-		}
-		approvedAt := time.Now().UTC()
-		grants.Roles = v.AuthorRoles
-		if err := grants.Validate(); err != nil {
-			return nil, fmt.Errorf("this version cannot be approved with that capability set: %w (%w)", err, script.ErrInvalidGrant)
-		}
-		m.versions[scriptID][i].ApprovedBy = approver
-		m.versions[scriptID][i].ApprovedAt = &approvedAt
-		m.versions[scriptID][i].Grants = grants
-		m.versions[scriptID][i].Status = script.VersionStatusApplied
-		// Approving applies the version's snapshot to the live row and resolves
-		// the other pending drafts, exactly as the real store does: the code
-		// being served and the code being executed are the same code.
-		applied := m.versions[scriptID][i]
-		sc.Source, sc.Params, sc.Version = applied.Source, applied.Params, applied.Version
-		sc.DisplayName, sc.Description, sc.Tags = applied.DisplayName, applied.Description, applied.Tags
-		for j := range m.versions[scriptID] {
-			if m.versions[scriptID][j].ID != applied.ID &&
-				m.versions[scriptID][j].Status == script.VersionStatusDraft {
-				m.versions[scriptID][j].Status = script.VersionStatusSuperseded
-			}
-		}
-		sc.ApprovedVersionID = applied.ID
-		if sc.Status == script.StatusDraft {
-			sc.Status = script.StatusActive
-		}
-		out := m.versions[scriptID][i]
-		return &out, nil
-	}
-	return nil, fmt.Errorf("script %s has no version %d: %w", scriptID, version, script.ErrVersionConflict)
-}
-
-// AutoApproveVersion models the store-side automatic approval (#1367). It is
-// deliberately ApproveVersion with one extra recorded fact, because that is what
-// the real store is: the same transaction body, marking that nobody reviewed it.
-func (m *memStore) AutoApproveVersion(
-	ctx context.Context, scriptID string, version int, owner string, grants script.Grants,
-) (*script.Version, error) {
-	v, err := m.ApproveVersion(ctx, scriptID, version, owner, grants)
-	if err != nil {
-		return nil, err
-	}
-	for i := range m.versions[scriptID] {
-		if m.versions[scriptID][i].ID == v.ID {
-			m.versions[scriptID][i].AutoApproved = true
-			out := m.versions[scriptID][i]
-			return &out, nil
-		}
-	}
-	return v, nil
-}
-
 // callerCtx returns a context carrying an authenticated caller. The roles are
 // part of the identity rather than decoration: every version an author writes
-// records the roles they held, and those roles are the ceiling on what
-// approving that version can grant.
+// records the roles they held, and a run of that version presents exactly
+// those roles.
 func callerCtx(email, persona string) context.Context {
 	pc := middleware.NewPlatformContext("req_1")
 	pc.UserID, pc.UserEmail, pc.PersonaName = "user-"+email, email, persona
@@ -317,9 +244,7 @@ func createDaily(t *testing.T, h *Handle) *mcp.CallToolResult {
 	})
 }
 
-// createShared creates a global script an administrator wrote, which is the
-// shape of a script nothing approves on save: automatic approval covers only a
-// personal script its own owner authored (#1367).
+// createShared creates a global script an administrator wrote.
 func createShared(t *testing.T, h *Handle) *mcp.CallToolResult {
 	t.Helper()
 	return call(t, h, adminCtx(), manageScriptInput{
@@ -328,49 +253,44 @@ func createShared(t *testing.T, h *Handle) *mcp.CallToolResult {
 	})
 }
 
-// TestCreate_ApprovesTheOwnersOwnPersonalScript is #1367 at the create surface:
-// a script only its author can see and only its author can run is executable
-// without asking anybody, under a grant minted from what its code reaches.
-func TestCreate_ApprovesTheOwnersOwnPersonalScript(t *testing.T) {
+// TestCreate_StartsActiveAndRuns pins that a saved script is a runnable script:
+// there is no draft state and nothing to approve, so create lands version 1 as
+// the version run_script executes.
+func TestCreate_StartsActiveAndRuns(t *testing.T) {
 	h, store := newHandle()
 	res := createDaily(t, h)
 	require.False(t, res.IsError, resultText(res))
 
 	fields := resultFields(t, res)
 	assert.Equal(t, "created", fields["status"])
-	assert.Equal(t, true, fields["executable"])
-	assert.Contains(t, fields["next"], "approved it for you")
+	assert.EqualValues(t, 1, fields["version"])
+	assert.Contains(t, fields["next"], "run_script")
 	require.Len(t, store.scripts, 1)
 	for _, sc := range store.scripts {
 		assert.Equal(t, script.StatusActive, sc.Status)
-		require.NotEmpty(t, sc.ApprovedVersionID)
 		assert.Equal(t, "jane@example.com", sc.OwnerEmail)
 		assert.Equal(t, script.ScopePersonal, sc.Scope)
 
-		v, err := store.GetVersionByID(context.Background(), sc.ApprovedVersionID)
+		v, err := store.GetVersion(context.Background(), sc.ID, sc.Version)
 		require.NoError(t, err)
-		assert.True(t, v.AutoApproved, "the record says nobody reviewed it")
-		assert.Equal(t, "jane@example.com", v.ApprovedBy)
-		assert.Equal(t, []string{"analyst"}, v.Grants.Roles,
-			"the grant carries the author's own authority and no more")
+		require.NotNil(t, v, "the version run_script loads exists from the first save")
+		assert.Equal(t, script.VersionStatusApplied, v.Status)
+		assert.Equal(t, []string{"analyst"}, v.AuthorRoles,
+			"the version records the authority its runs present")
 	}
 }
 
-// TestCreate_StoresASharedScriptAsADraftNothingExecutes keeps the gate exactly
-// where it was for a script with an audience: nothing runs it until a reviewer
-// says so.
-func TestCreate_StoresASharedScriptAsADraftNothingExecutes(t *testing.T) {
+// TestCreate_SharedScriptStartsActiveToo pins that scope does not change the
+// lifecycle: a global script an administrator saves is in service on save.
+func TestCreate_SharedScriptStartsActiveToo(t *testing.T) {
 	h, store := newHandle()
 	res := createShared(t, h)
 	require.False(t, res.IsError, resultText(res))
 
-	fields := resultFields(t, res)
-	assert.Equal(t, false, fields["executable"])
-	assert.Contains(t, fields["next"], "run_draft")
 	require.Len(t, store.scripts, 1)
 	for _, sc := range store.scripts {
-		assert.Equal(t, script.StatusDraft, sc.Status)
-		assert.Empty(t, sc.ApprovedVersionID, "a shared script waits for a reviewer")
+		assert.Equal(t, script.StatusActive, sc.Status)
+		assert.NoError(t, script.RefuseRun(sc), "nothing gates a freshly saved script")
 	}
 }
 
@@ -419,7 +339,10 @@ func TestCreate_AdminCanCreateShared(t *testing.T) {
 	require.False(t, res.IsError, resultText(res))
 }
 
-func TestUpdate_AppliesAndVersions(t *testing.T) {
+// TestUpdate_AppliesToTheLiveRowAndAdvancesTheVersion pins the one-edit-path
+// rule: an edit lands on the live record, the version advances to it, and the
+// saved source is the source a run executes.
+func TestUpdate_AppliesToTheLiveRowAndAdvancesTheVersion(t *testing.T) {
 	h, store := newHandle()
 	createDaily(t, h)
 
@@ -430,38 +353,41 @@ func TestUpdate_AppliesAndVersions(t *testing.T) {
 	fields := resultFields(t, res)
 	assert.Equal(t, "updated", fields["status"])
 	assert.EqualValues(t, 2, fields["version"])
+	assert.Contains(t, fields["message"], "this version is what runs now")
 	for _, sc := range store.scripts {
 		assert.Equal(t, "print(\"changed\")\n", sc.Source)
+		assert.Equal(t, 2, sc.Version)
+
+		v, err := store.GetVersion(context.Background(), sc.ID, sc.Version)
+		require.NoError(t, err)
+		require.NotNil(t, v)
+		assert.Equal(t, "print(\"changed\")\n", v.Source,
+			"the version the run gate points at carries the edited source")
 	}
 }
 
-// TestUpdate_ApprovedScriptDefersToADraft is the gate as an author sees it: the
-// live row keeps its source and the response says the change is waiting.
-func TestUpdate_ApprovedScriptDefersToADraft(t *testing.T) {
+// TestUpdate_AppliesDirectlyToASharedScript pins that an admin's edit of a
+// shared script lands live rather than waiting on anything: there is no review
+// state between a save and the version that runs.
+func TestUpdate_AppliesDirectlyToASharedScript(t *testing.T) {
 	h, store := newHandle()
 	createShared(t, h)
-	for _, sc := range store.scripts {
-		sc.ApprovedVersionID = "sver_1"
-		sc.Status = script.StatusActive
-	}
 
 	res := call(t, h, adminCtx(), manageScriptInput{
 		Command: cmdUpdate, Name: "shared", Source: "print(\"changed\")\n",
 	})
 	require.False(t, res.IsError, resultText(res))
 	fields := resultFields(t, res)
-	assert.Equal(t, "pending_approval", fields["status"])
-	assert.EqualValues(t, 2, fields["pending_version"])
+	assert.Equal(t, "updated", fields["status"])
+	assert.EqualValues(t, 2, fields["version"])
 	for _, sc := range store.scripts {
-		assert.Equal(t, "print(\"hello\")\n", sc.Source, "the live row keeps serving the approved source")
+		assert.Equal(t, "print(\"changed\")\n", sc.Source, "the live row serves the edited source")
 	}
 }
 
-// TestUpdate_MixedEditRefusedThroughTheTool proves the funnel's refusal reaches
-// the caller rather than being swallowed into a generic failure.
 // TestUpdate_DoesNotClaimADisabledScriptRuns keeps the tool's answer honest:
-// the execution gate refuses a disabled script whatever is approved on it, so a
-// save that said it runs would be a false statement an author acts on.
+// the run gate refuses a disabled script whatever was just saved, so a save
+// that said it runs would be a false statement an author acts on.
 func TestUpdate_DoesNotClaimADisabledScriptRuns(t *testing.T) {
 	h, _ := newHandle()
 	createDaily(t, h)
@@ -477,31 +403,8 @@ func TestUpdate_DoesNotClaimADisabledScriptRuns(t *testing.T) {
 	assert.NotContains(t, message, "executes now")
 }
 
-// TestUpdate_SaysWhyAnOwnersEditWasNotApproved puts the reason on the response
-// that saved it, rather than leaving an author to discover at the next run that
-// nothing will execute their script.
-func TestUpdate_SaysWhyAnOwnersEditWasNotApproved(t *testing.T) {
-	h, _ := newHandle()
-	// A computed connection cannot be read off the source, so the grant cannot
-	// be derived and the version waits for a reviewer.
-	res := call(t, h, authorCtx(), manageScriptInput{
-		Command: cmdCreate, Name: "daily",
-		Source: "name = \"ware\" + \"house\"\nrows = platform.query(connection=name, sql=\"SELECT 1\")\n",
-	})
-	require.False(t, res.IsError, resultText(res))
-	assert.Equal(t, false, resultFields(t, res)["executable"])
-
-	res = call(t, h, authorCtx(), manageScriptInput{
-		Command: cmdUpdate, Name: "daily", Description: "still computed",
-	})
-	require.False(t, res.IsError, resultText(res))
-	message, _ := resultFields(t, res)["message"].(string)
-	assert.Contains(t, message, "computes a connection or a destination")
-	assert.Contains(t, message, "run_draft")
-}
-
-// TestUpdate_DoesNotClaimADeprecatedScriptRuns is the other state the gate
-// refuses whatever is approved on it.
+// TestUpdate_DoesNotClaimADeprecatedScriptRuns is the other state the run gate
+// refuses whatever was just saved.
 func TestUpdate_DoesNotClaimADeprecatedScriptRuns(t *testing.T) {
 	h, _ := newHandle()
 	createDaily(t, h)
@@ -517,40 +420,6 @@ func TestUpdate_DoesNotClaimADeprecatedScriptRuns(t *testing.T) {
 	require.False(t, res.IsError, resultText(res))
 	message, _ := resultFields(t, res)["message"].(string)
 	assert.Contains(t, message, "is deprecated")
-}
-
-// TestRunScript_RefusalNamesTheOwnersOwnPath pins that a personal script's owner
-// is not sent to an administrator for a state the platform normally resolves on
-// save (#1367).
-func TestRunScript_RefusalNamesTheOwnersOwnPath(t *testing.T) {
-	h, store, _ := runnableHandle(t)
-	for _, sc := range store.scripts {
-		sc.ApprovedVersionID = ""
-	}
-
-	out := runScriptCall(t, h, runScriptInput{Name: "daily"})
-	assert.Contains(t, out["error"], "yours alone")
-	assert.Contains(t, out["error"], "Save it again")
-}
-
-func TestUpdate_MixedEditRefusedThroughTheTool(t *testing.T) {
-	h, store := newHandle()
-	createDaily(t, h)
-	for _, sc := range store.scripts {
-		sc.ApprovedVersionID = "sver_1"
-		sc.Status = script.StatusActive
-	}
-
-	res := call(t, h, adminCtx(), manageScriptInput{
-		Command: cmdUpdate, Name: "daily", OwnerEmail: "jane@example.com",
-		Source: "print(\"changed\")\n", Scope: script.ScopeGlobal,
-	})
-	require.True(t, res.IsError, resultText(res))
-	assert.Contains(t, resultText(res), "cannot be combined with")
-	for _, sc := range store.scripts {
-		assert.Equal(t, script.ScopePersonal, sc.Scope, "a refused edit lands nothing")
-		assert.Equal(t, "print(\"hello\")\n", sc.Source)
-	}
 }
 
 func TestUpdate_Authorization(t *testing.T) {
@@ -619,31 +488,33 @@ func TestUpdate_AdminStatusTransition(t *testing.T) {
 		assert.Equal(t, script.StatusDeprecated, sc.Status)
 	}
 
-	// Activation is refused because there is no approved version to activate.
+	// Deprecation is an operational judgement an operator can reverse.
 	res = call(t, h, adminCtx(), manageScriptInput{
 		Command: cmdUpdate, Name: "shared", Status: script.StatusActive,
 	})
-	assert.True(t, res.IsError)
-	assert.Contains(t, resultText(res), "no approved version")
+	require.False(t, res.IsError, resultText(res))
+	for _, sc := range store.scripts {
+		assert.Equal(t, script.StatusActive, sc.Status)
+	}
 }
 
-func TestDelete(t *testing.T) {
+// TestDelete_AnOwnerDeletesTheirOwnPersonalScript: nobody else could see it,
+// run it, or notice it go, so it takes its schedule and history with it.
+func TestDelete_AnOwnerDeletesTheirOwnPersonalScript(t *testing.T) {
 	h, store := newHandle()
-	createShared(t, h)
+	createDaily(t, h)
 
-	res := call(t, h, adminCtx(), manageScriptInput{Command: cmdDelete, Name: "shared"})
+	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdDelete, Name: "daily"})
 	require.False(t, res.IsError, resultText(res))
 	assert.Empty(t, store.scripts)
 }
 
-// TestDelete_RefusedForAnApprovedSharedScript keeps a script that the platform
-// may be executing for somebody else from vanishing out from under its runs.
-func TestDelete_RefusedForAnApprovedSharedScript(t *testing.T) {
+// TestDelete_RefusedForASharedScript keeps a script that may be executing on a
+// schedule for somebody else from vanishing out from under its runs: the
+// refusal points at deprecation instead.
+func TestDelete_RefusedForASharedScript(t *testing.T) {
 	h, store := newHandle()
 	createShared(t, h)
-	for _, sc := range store.scripts {
-		sc.ApprovedVersionID = "sver_1"
-	}
 
 	res := call(t, h, adminCtx(), manageScriptInput{Command: cmdDelete, Name: "shared"})
 	assert.True(t, res.IsError)
@@ -651,26 +522,10 @@ func TestDelete_RefusedForAnApprovedSharedScript(t *testing.T) {
 	assert.Len(t, store.scripts, 1)
 }
 
-// TestDelete_AnOwnerDeletesTheirOwnApprovedScript is the other side of that
-// rule. Every personal script is approved on save now (#1367), so refusing to
-// delete an approved one would leave an owner unable to delete anything they
-// wrote — and there is nobody else whose automation would disappear.
-func TestDelete_AnOwnerDeletesTheirOwnApprovedScript(t *testing.T) {
-	h, store := newHandle()
-	createDaily(t, h)
-	for _, sc := range store.scripts {
-		require.NotEmpty(t, sc.ApprovedVersionID, "a personal script is approved on save")
-	}
-
-	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdDelete, Name: "daily"})
-	require.False(t, res.IsError, resultText(res))
-	assert.Empty(t, store.scripts)
-}
-
-// TestDelete_RefusedForAnotherPersonsApprovedScript keeps the refusal where it
-// still means something: an administrator is not the audience of somebody
-// else's automation, so they deprecate it rather than deleting it.
-func TestDelete_RefusedForAnotherPersonsApprovedScript(t *testing.T) {
+// TestDelete_RefusedForAnotherPersonsScript: an administrator is not the
+// audience of somebody else's automation, so they deprecate it rather than
+// deleting it.
+func TestDelete_RefusedForAnotherPersonsScript(t *testing.T) {
 	h, store := newHandle()
 	createDaily(t, h)
 
@@ -682,20 +537,23 @@ func TestDelete_RefusedForAnotherPersonsApprovedScript(t *testing.T) {
 	assert.Len(t, store.scripts, 1)
 }
 
+// TestGet_ReportsTheExecutionGate pins the executable_note: it answers with
+// the run gate's own reading, so a reader learns whether run_script would
+// execute the script and why not when it would refuse.
 func TestGet_ReportsTheExecutionGate(t *testing.T) {
 	h, store := newHandle()
 	createShared(t, h)
 
 	fields := resultFields(t, call(t, h, adminCtx(), manageScriptInput{Command: cmdGet, Name: "shared"}))
-	assert.Equal(t, false, fields["executable"])
-	assert.Contains(t, fields["executable_note"], "no approved version")
+	assert.Contains(t, fields["executable_note"], "run_script",
+		"a saved script runs, and the note says with what")
 
 	for _, sc := range store.scripts {
-		sc.ApprovedVersionID = "sver_1"
+		sc.Enabled = false
 	}
 	fields = resultFields(t, call(t, h, adminCtx(), manageScriptInput{Command: cmdGet, Name: "shared"}))
-	assert.Equal(t, true, fields["executable"])
-	assert.Contains(t, fields["executable_note"], "may execute it")
+	assert.Contains(t, fields["executable_note"], "disabled",
+		"the note carries the run gate's refusal in its own words")
 }
 
 // TestGet_ResolvesABuiltInExample covers the seeded examples: an author reads a
@@ -873,15 +731,11 @@ func TestCreate_RefusesACategoryThatIsNotASlug(t *testing.T) {
 	assert.Contains(t, resultText(res), "category must be at most 31 characters")
 }
 
-// TestUpdate_CarriesTheCategoryAndDoesNotDeferIt proves the ticket's
-// governance claim at the tool surface: filing an APPROVED script applies
-// directly rather than becoming a draft somebody has to approve.
-func TestUpdate_CarriesTheCategoryAndDoesNotDeferIt(t *testing.T) {
+// TestUpdate_CarriesTheCategory proves the filing axis reaches the record from
+// the tool: filing a script applies directly, as every edit does (#1369).
+func TestUpdate_CarriesTheCategory(t *testing.T) {
 	h, store := newHandle()
 	createShared(t, h)
-	for _, sc := range store.scripts {
-		sc.ApprovedVersionID = "sver_1"
-	}
 
 	res := call(t, h, adminCtx(), manageScriptInput{
 		Command: cmdUpdate, Name: "shared", Category: new("reporting"),
@@ -889,11 +743,9 @@ func TestUpdate_CarriesTheCategoryAndDoesNotDeferIt(t *testing.T) {
 
 	require.False(t, res.IsError, resultText(res))
 	fields := resultFields(t, res)
-	assert.Equal(t, "updated", fields["status"], "documenting a script is not a review")
-	assert.NotContains(t, fields, "pending_version")
+	assert.Equal(t, "updated", fields["status"])
 	for _, sc := range store.scripts {
 		assert.Equal(t, "reporting", sc.Category)
-		assert.Equal(t, "sver_1", sc.ApprovedVersionID, "the executing version is untouched")
 	}
 }
 

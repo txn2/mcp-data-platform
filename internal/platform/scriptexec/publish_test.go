@@ -264,11 +264,6 @@ func TestPublishData_EndToEndThroughTheInterpreter(t *testing.T) {
 		Source: `res = platform.publish_data("dash", {"regions": [{"name": "west", "total": 12}]})
 print("v%d" % res["asset_version"])`,
 		Name: "test", RunID: h.run.ID,
-		Grants: &script.Grants{
-			Roles:        []string{"analyst"},
-			Capabilities: []string{script.CapabilityPublishData},
-			Destinations: []script.Destination{script.PortalDestination()},
-		},
 		Exporter: h.writer,
 	})
 	require.NoError(t, err)

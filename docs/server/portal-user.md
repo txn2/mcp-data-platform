@@ -82,7 +82,7 @@ Deriving the outcome rather than storing it means it can never be stale with res
 Two limits on the rule are worth stating, because their absence produced wrong outcomes:
 
 - **Naming, not proximity.** An asset saved without a `sources` argument still records every call the session made in its [provenance](provenance.md), and that record is not a claim about any one of them. Those calls read `ran`. What makes a call `satisfied` is an artifact naming it.
-- **Supersession is read-shaped, over a resolved resource.** A later read of the same thing is a better answer to the same question; a mutation is not a better version of an earlier mutation. And the resource a call addressed includes the values it resolved its path with, so approving one script is never reported as having been replaced by approving another. A call whose target cannot tell it apart from a different call is never declared superseded.
+- **Supersession is read-shaped, over a resolved resource.** A later read of the same thing is a better answer to the same question; a mutation is not a better version of an earlier mutation. And the resource a call addressed includes the values it resolved its path with, so a call against one script is never reported as having been replaced by the same call against another. A call whose target cannot tell it apart from a different call is never declared superseded.
 
 **Reuse** is the other column worth reading. It counts the later sessions that found the record and then ran what it holds: the same statement, or the same API resource, over the same connection. A session running its own query again does not count, and neither does an identical query written independently: without the sighting, nothing says this record led to it. It is the one signal on a record that a stranger, and not its author, found it worth running.
 
@@ -371,7 +371,7 @@ One query returns results grouped by source (catalog, knowledge pages, insights,
 
 #### Built-in pages
 
-The platform ships a set of its own knowledge pages — the rationale behind the advanced features that is not readable from tool schemas: writing managed scripts (the Starlark dialect's deliberate absences, DECIMAL columns arriving as strings, when a script is approved without a reviewer), script outputs and export identity (a stable name is a refresh, a dated name is an archive), the semi-dynamic dashboard pattern (`platform.publish_data` and the data region), and provenance, call references, and the capture loop. They are embedded in the binary and reconciled into the knowledge-page store at startup, so a release that changes them updates every deployment on its next start. Once reconciled they are ordinary pages: `search` ranks them, `fetch` dereferences them, the portal renders them, and feedback threads work on them.
+The platform ships a set of its own knowledge pages — the rationale behind the advanced features that is not readable from tool schemas: writing managed scripts (the Starlark dialect's deliberate absences, DECIMAL columns arriving as strings, the save being the version that runs), script outputs and export identity (a stable name is a refresh, a dated name is an archive), the semi-dynamic dashboard pattern (`platform.publish_data` and the data region), and provenance, call references, and the capture loop. They are embedded in the binary and reconciled into the knowledge-page store at startup, so a release that changes them updates every deployment on its next start. Once reconciled they are ordinary pages: `search` ranks them, `fetch` dereferences them, the portal renders them, and feedback threads work on them.
 
 Each carries a **Built-in** badge and is read-only where people edit: the portal offers no Edit, and the update paths refuse a change that the next start would overwrite anyway. A deployment that wants its own version of a topic hides the built-in page (**Hide**, the same action Remove is on an ordinary page) and writes its own — the startup reconcile respects the hide instead of resurrecting the page, and a deployment page holding the topic's slug is left alone. Hiding is not a one-way door: **Restore built-in** on the Knowledge list (apply_knowledge access, also `POST /api/v1/portal/knowledge-pages/restore-builtin`) brings hidden built-in pages back, refreshed to the running release; a hidden page whose topic a deployment page has since taken stays hidden, since that page owns the slug. An unchanged release touches nothing, so a page's version history records exactly the releases that changed it, and a page a release stops shipping is retired everywhere — which, unlike a hide, does not survive the page being shipped again later.
 
@@ -590,22 +590,22 @@ You never need to type these names. Ask your agent to run a prompt by whatever h
 
 Scripts are the automations the platform runs for you: an agent writes one once, and from
 then on it produces the same report, dashboard refresh, or export on a schedule or on
-request. A script only you can see and only you can run starts working as soon as it is
-saved; one that other people can use is approved by an administrator first. The Scripts
-page is where you see what you have, what is scheduled, and how it has been going.
+request. A script runs as soon as it is saved, under the access its author holds. The
+Scripts page is where you see what you have, what is scheduled, and how it has been
+going.
 
 ![Scripts](../images/screenshots/light/user-scripts-light.webp#only-light)![Scripts](../images/screenshots/dark/user-scripts-dark.webp#only-dark)
 
 Above the table, four numbers say how the automations are doing: how many scripts are
-visible to you, how many have an approved version and so can run at all, how many are
-firing on a cadence, and how many last ended in a failure. The last one is the number
+visible to you, how many are in service, how many are firing on a cadence, and how many
+last ended in a failure. The last one is the number
 most people open this page for, and its caption names the smaller set it is counted
 over: a run belongs to the script's owner, so a script somebody else owns carries no
 last run here and cannot be counted as failing.
 
 Each row states the four things worth knowing at a glance: what the script is executing
-(the approved version, or plainly that nothing is approved and so nothing will run),
-its cadence and next fire, and how its most recent run ended. Opening a row opens the
+(the latest saved version, or plainly that it is disabled or retired and nothing will
+run), its cadence and next fire, and how its most recent run ended. Opening a row opens the
 script, the way every other list in the portal opens a record. A script with no schedule
 runs on demand; a paused schedule says so rather than showing a next fire that will not
 happen.
@@ -628,8 +628,8 @@ empty table.
 
 ### One script
 
-Opening a script shows its contract: who owns it, who can see it, which version was
-approved and by whom, the cadence it fires on, and the parameters a run binds against.
+Opening a script shows its contract: who owns it, who can see it, which version runs,
+the cadence it fires on, and the parameters a run binds against.
 This is the same document an agent gets when it resolves a reference to the script, so
 the page and your agent describe the script identically.
 
@@ -651,21 +651,21 @@ search matches the script on. A description long enough to be a document in its 
 is still saved, with a suggestion that the background might belong in a knowledge page you
 link to.
 
-When a run would be refused — nothing approved, the script disabled or deprecated — the
-page carries the platform's own reason for the refusal rather than leaving you to work it
-out from the status.
+When a run would be refused — the script disabled or retired — the page carries the
+platform's own reason for the refusal rather than leaving you to work it out from the
+status.
 
 ### Running it now
 
 On a script you own, **Run now** produces fresh output without waiting for the next
-scheduled fire. The form is built from the parameters the approved version declares, and
-pressing Run queues exactly what an agent's `run_script` queues: the platform executes it
-the same way a scheduled fire is executed, and it appears in the run history below and
+scheduled fire. The form is built from the parameters the script declares, and pressing
+Run queues exactly what an agent's `run_script` queues: the platform executes it the
+same way a scheduled fire is executed, and it appears in the run history below and
 updates as it goes.
 
-Where a value comes from a set the platform already knows, the form offers the set rather
-than asking you to remember the spelling. A parameter naming a connection is a list of
-the connections this script was approved to reach, each with what it is; a parameter with
+Where a value comes from a set the platform already knows, the form offers the set
+rather than asking you to remember the spelling. A parameter naming a connection is a
+list of the connections your access reaches, each with what it is; a parameter with
 declared choices is those choices. A box is for a value the platform genuinely cannot
 enumerate.
 
@@ -677,32 +677,13 @@ top of the page, rather than a button that fails when you press it.
 ### The code
 
 On a script you own, the source is editable in place, with Starlark highlighted as the
-Python dialect it is. Saving does not mean the same thing for every script, and the
-editor says which it means before you save:
-
-- **This script is yours alone**: saving approves it. The platform works out what the
-  code reaches — which capabilities, which connections, where it writes — grants exactly
-  that, and runs it under the access you hold. Nobody else is asked.
-- **Nothing approved yet**: the edit applies directly. The script still executes nothing
-  unattended until an administrator approves a version.
-- **A version is approved**: that version keeps running, and your edit is saved as a
-  draft in the review queue. Editing is not an approval, and no control on these pages
-  can approve anything.
+Python dialect it is. Saving makes the edit the version that runs: `run_script` executes
+it, any schedule fires it, and it runs under the access you hold when you save.
 
 ![Script source](../images/screenshots/light/user-script-source-light.webp#only-light)![Script source](../images/screenshots/dark/user-script-source-dark.webp#only-dark)
 
-![Your own script](../images/screenshots/light/user-script-personal-auto-approved-light.webp#only-light)![Your own script](../images/screenshots/dark/user-script-personal-auto-approved-dark.webp#only-dark)
-
-A few things send even your own script to an administrator, and the save says which: code
-that does not parse, a call that works out its connection or its destination instead of
-naming one, and a place to write that no approval has ever given an address to. The first
-delivery to a bucket is always reviewed, because where that bucket is is a decision
-nothing in your code states; after that, your edits are approved against the address that
-review pinned. The contract at the top of the page names an approval nobody reviewed as
-one, rather than letting your own address there read as somebody's decision.
-
-The source that does not parse is refused when you save it, naming what to fix, rather
-than failing at the next run with nobody watching.
+Source that does not parse is refused when you save it, naming what to fix, rather than
+failing at the next run with nobody watching.
 
 ### Checking a change before you send it
 
@@ -720,13 +701,10 @@ a failure is reported with the same detail a success is.
 
 ![Dry-run a change](../images/screenshots/light/user-script-dry-run-light.webp#only-light)![Dry-run a change](../images/screenshots/dark/user-script-dry-run-dark.webp#only-dark)
 
-Because a dry run is you running it, it reaches exactly what you reach and nothing more.
-The connections offered to a dry run are your own, which is why they can differ from the
-ones a Run now offers: an approved run is confined to what its approval granted.
-
-The administrator reviewing your change sees that you ran it, when, and what it produced.
-A version nobody has dry-run says so on their screen, which is the thing most worth
-knowing before agreeing that code should run unattended.
+Because a dry run is you running it, it reaches exactly what you reach and nothing
+more. The record of the run is kept with the script, so anyone reading a version later
+can see that its exact code was executed, by whom, and what it produced — and a version
+nobody has dry-run says so.
 
 ### The cadence
 
@@ -748,10 +726,10 @@ A date parameter usually wants `${fire_date}`, which expands to the day the sche
 fires rather than to the day you typed it — that is what makes a scheduled run
 reproducible, because the run records the date it was computing for.
 
-Changing the cadence changes nothing else. The version that executes and the
-capabilities it holds were both decided when an administrator approved it, and re-timing
-a script does not send it back for review — so a report you own is yours to move, slow
-down, or pause, whether it is your own or shared with everyone.
+Changing the cadence changes nothing else. Every fire executes the latest saved
+version, authorized against the access captured at that save, and re-timing a script
+changes neither — so a report you own is yours to move, slow down, or pause, whether it
+is your own or shared with everyone.
 
 Pausing is its own control rather than a cadence you have to clear and retype. A paused
 schedule resumes on the fire it was parked on, and there is no way to delete one: the
@@ -761,25 +739,18 @@ gap in an automation is visible instead of turning into a burst of stale reports
 
 ![Paused schedule](../images/screenshots/light/user-script-schedule-paused-light.webp#only-light)![Paused schedule](../images/screenshots/dark/user-script-schedule-paused-dark.webp#only-dark)
 
-You can give a schedule to a script that has not been approved yet. It saves, and it
-fires nothing until a version is approved, which the page says plainly rather than
-leaving you waiting on an automation that was never going to run.
-
-![Schedule on an unapproved script](../images/screenshots/light/user-script-schedule-unapproved-light.webp#only-light)![Schedule on an unapproved script](../images/screenshots/dark/user-script-schedule-unapproved-dark.webp#only-dark)
+A schedule on a disabled or retired script saves, and fires nothing until the script is
+back in service, which the page says plainly rather than leaving you waiting on an
+automation that was never going to run.
 
 ### Version history
 
-Below the contract is every version of the script, each with its author, its approval
-provenance, and the capability grant that approval bound: the capabilities it may call,
-the connections it may query, where it may write, and the authority it runs with. The
-version behind the execution gate opens by default, because what is running right now is
-the usual question.
+Below the contract is every version of the script, each with its author and the roles
+they held at the save, which are the roles a run of that version presents. The version
+that runs — the latest saved one — opens by default, because what is running right now
+is the usual question.
 
 ![Version history](../images/screenshots/light/user-script-versions-light.webp#only-light)![Version history](../images/screenshots/dark/user-script-versions-dark.webp#only-dark)
-
-Approving a version is an administrator's decision and is made in the
-[review queue](admin-portal.md); the version history is read-only, and so is everything
-on this page except the cadence.
 
 ### Run history
 

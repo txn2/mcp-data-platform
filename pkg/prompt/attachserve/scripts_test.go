@@ -58,13 +58,15 @@ func (f *fakeContracts) Contract(_ context.Context, id string) (*script.Contract
 	return f.byID[id], nil
 }
 
-// globalContract is a visible, runnable script.
+// globalContract is a visible, runnable script: active, enabled, latest saved
+// version 3, with no run refusal.
 func globalContract() *script.Contract {
 	return &script.Contract{
 		ID: scriptID, Name: "daily-sales", DisplayName: "Daily Sales",
 		Description: "Yesterday's sales by region", Scope: script.ScopeGlobal,
-		Params:   []script.Param{{Name: "report_date", Required: true}},
-		Approval: script.ContractApproval{Approved: true, Version: 3, ApprovedBy: "admin@example.com"},
+		Status: script.StatusActive, Enabled: true,
+		Params:  []script.Param{{Name: "report_date", Required: true}},
+		Version: 3,
 	}
 }
 
@@ -176,7 +178,7 @@ func TestScriptContentFramesTheAutomations(t *testing.T) {
 	assert.Contains(t, text.Text, "The following managed script is referenced by this prompt")
 	assert.Contains(t, text.Text, "run_script")
 	assert.Contains(t, text.Text, "Daily Sales")
-	assert.Contains(t, text.Text, "Approval: version 3")
+	assert.Contains(t, text.Text, "Runs: version 3, the latest saved version")
 	assert.Contains(t, text.Text, "Reference: "+scriptRef)
 	assert.Nil(t, ScriptContent(nil))
 }

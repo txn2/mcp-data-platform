@@ -20,7 +20,7 @@ import (
 var versionSelectColumns = []string{
 	"id", "script_id", "version", "display_name", "description", "category",
 	"source_code", "params", "tags", "author", "author_roles", "status",
-	"approved_by", "approved_at", "auto_approved", "grants", "created_at",
+	"created_at",
 }
 
 // versionRow returns one full version row in versionColumns order.
@@ -28,33 +28,8 @@ func versionRow(version int, source, status string, paramsJSON []byte) []driver.
 	return []driver.Value{
 		"sver_1", "script_1", version, "Daily", "A daily report", "",
 		source, paramsJSON, pq.Array([]string{}), "jane@example.com",
-		pq.Array([]string{"analyst"}), status, "", nil, false, []byte("{}"), rowTime,
+		pq.Array([]string{"analyst"}), status, rowTime,
 	}
-}
-
-// versionRowAuthorIndex is the author column's position in versionSelectColumns,
-// named so a column added ahead of it moves one constant rather than every
-// numeric index in this file.
-const (
-	versionRowAuthorIndex     = 9
-	versionRowApprovedByIndex = 12
-	versionRowGrantsIndex     = 15
-)
-
-// versionRowBy returns a version row written by a named author, for the rules
-// that turn on WHO wrote a version rather than on what it contains.
-func versionRowBy(author, status string) []driver.Value {
-	row := versionRow(2, "print(1)", status, []byte("[]"))
-	row[versionRowAuthorIndex] = author
-	return row
-}
-
-// versionRowWithoutRoles returns a version row whose author held no roles, the
-// shape a version written before the author-roles column existed carries.
-func versionRowWithoutRoles(version int, status string) []driver.Value {
-	row := versionRow(version, "print(1)", status, []byte("[]"))
-	row[versionRowAuthorIndex+1] = pq.Array([]string{})
-	return row
 }
 
 // expectLockedScript queues the FOR UPDATE read every version write starts with.
@@ -88,7 +63,7 @@ func TestUpdateWithVersion_SnapshotsOnlyWhenTheSubstanceMoved(t *testing.T) {
 		mock.ExpectCommit()
 
 		sc := &script.Script{ID: "script_1", Name: "daily", Scope: script.ScopePersonal, Source: "print(2)"}
-		require.NoError(t, s.UpdateWithVersion(context.Background(), sc, testAuthor, false))
+		require.NoError(t, s.UpdateWithVersion(context.Background(), sc, testAuthor))
 		assert.Equal(t, 2, sc.Version)
 		require.NoError(t, mock.ExpectationsWereMet())
 	})
@@ -104,30 +79,9 @@ func TestUpdateWithVersion_SnapshotsOnlyWhenTheSubstanceMoved(t *testing.T) {
 			ID: "script_1", Name: "daily", Scope: script.ScopePersonal, Source: "print(1)",
 			DisplayName: "Daily", Description: "A daily report", Params: []script.Param{}, Tags: []string{},
 		}
-		require.NoError(t, s.UpdateWithVersion(context.Background(), sc, testAuthor, false))
+		require.NoError(t, s.UpdateWithVersion(context.Background(), sc, testAuthor))
 		require.NoError(t, mock.ExpectationsWereMet())
 	})
-}
-
-// TestUpdateWithVersion_RejectsAnEditRacingAnApproval is the row-lock
-// re-validation the ticket calls for: the gate is decided from an unlocked read,
-// so it is checked again against the row as locked, and an edit that would swap
-// approved source out from under a live approval is refused as a conflict.
-func TestUpdateWithVersion_RejectsAnEditRacingAnApproval(t *testing.T) {
-	s, mock := newMock(t)
-	mock.ExpectBegin()
-	// The locked row now has an approved version, which the caller's earlier
-	// unlocked read did not see.
-	locked := scriptRow(rowSpec{id: "script_1", name: "daily", scope: "personal", owner: "jane@example.com", paramsJSON: emptyParams(t), approvedVersion: "sver_1"})
-	mock.ExpectQuery(regexp.QuoteMeta("FROM scripts WHERE id = $1 FOR UPDATE")).
-		WillReturnRows(sqlmock.NewRows(scriptSelectColumns).AddRow(locked...))
-	mock.ExpectRollback()
-
-	sc := &script.Script{ID: "script_1", Name: "daily", Scope: script.ScopePersonal, Source: "print(2)"}
-	err := s.UpdateWithVersion(context.Background(), sc, testAuthor, false)
-	require.ErrorIs(t, err, script.ErrVersionConflict)
-	assert.Contains(t, err.Error(), "re-read and retry")
-	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 func TestUpdateWithVersion_MissingScript(t *testing.T) {
@@ -136,7 +90,7 @@ func TestUpdateWithVersion_MissingScript(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta("FOR UPDATE")).WillReturnRows(sqlmock.NewRows(scriptSelectColumns))
 	mock.ExpectRollback()
 
-	err := s.UpdateWithVersion(context.Background(), &script.Script{ID: "gone"}, testAuthor, false)
+	err := s.UpdateWithVersion(context.Background(), &script.Script{ID: "gone"}, testAuthor)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -148,7 +102,7 @@ func TestUpdateWithVersion_LockErrorIsWrapped(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta("FOR UPDATE")).WillReturnError(errors.New("boom"))
 	mock.ExpectRollback()
 
-	err := s.UpdateWithVersion(context.Background(), &script.Script{ID: "script_1"}, testAuthor, false)
+	err := s.UpdateWithVersion(context.Background(), &script.Script{ID: "script_1"}, testAuthor)
 	assert.ErrorContains(t, err, "lock script")
 }
 
@@ -161,37 +115,8 @@ func TestUpdateWithVersion_VersionNumberErrorIsWrapped(t *testing.T) {
 
 	err := s.UpdateWithVersion(context.Background(),
 		&script.Script{ID: "script_1", Name: "daily", Scope: script.ScopePersonal, Source: "print(2)"},
-		testAuthor, false)
+		testAuthor)
 	assert.ErrorContains(t, err, "next version number")
-}
-
-// TestCreateDraftVersion_LeavesTheLiveRowAlone is the gate's other half: a
-// deferred edit writes history and nothing else.
-func TestCreateDraftVersion_LeavesTheLiveRowAlone(t *testing.T) {
-	s, mock := newMock(t)
-	mock.ExpectBegin()
-	expectLockedScript(t, mock)
-	expectNextVersion(mock, 3)
-	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO script_versions")).
-		WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectCommit()
-
-	n, err := s.CreateDraftVersion(context.Background(), "script_1",
-		&script.Script{Source: "print(2)"}, testAuthor)
-	require.NoError(t, err)
-	assert.Equal(t, 3, n)
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestCreateDraftVersion_Errors(t *testing.T) {
-	s, mock := newMock(t)
-	mock.ExpectBegin()
-	mock.ExpectQuery(regexp.QuoteMeta("FOR UPDATE")).WillReturnRows(sqlmock.NewRows(scriptSelectColumns))
-	mock.ExpectRollback()
-
-	_, err := s.CreateDraftVersion(context.Background(), "gone", &script.Script{}, testAuthor)
-	assert.ErrorContains(t, err, "not found")
-	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 func TestListVersions(t *testing.T) {
@@ -199,16 +124,18 @@ func TestListVersions(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta("FROM script_versions WHERE script_id = $1 ORDER BY version DESC")).
 		WithArgs("script_1").
 		WillReturnRows(sqlmock.NewRows(versionSelectColumns).
-			AddRow(versionRow(2, "print(2)", script.VersionStatusDraft, emptyParams(t))...).
-			AddRow(versionRow(1, "print(1)", script.VersionStatusApplied, emptyParams(t))...))
+			AddRow(versionRow(2, "print(2)", script.VersionStatusApplied, emptyParams(t))...).
+			AddRow(versionRow(1, "print(1)", script.VersionStatusSuperseded, emptyParams(t))...))
 
 	got, err := s.ListVersions(context.Background(), "script_1")
 	require.NoError(t, err)
 	require.Len(t, got, 2)
 	assert.Equal(t, 2, got[0].Version)
-	assert.Equal(t, script.VersionStatusDraft, got[0].Status)
+	assert.Equal(t, script.VersionStatusApplied, got[0].Status)
 	assert.Equal(t, []script.Param{}, got[0].Params)
 	assert.Equal(t, []string{}, got[0].Tags)
+	assert.Equal(t, []string{"analyst"}, got[0].AuthorRoles,
+		"the snapshot carries the authority a run of this version presents")
 	require.NoError(t, mock.ExpectationsWereMet())
 
 	mock.ExpectQuery("FROM script_versions").WillReturnError(errors.New("boom"))
@@ -246,5 +173,69 @@ func TestGetVersion(t *testing.T) {
 	mock.ExpectQuery("FROM script_versions").WillReturnError(errors.New("boom"))
 	_, err = s.GetVersion(context.Background(), "script_1", 1)
 	assert.ErrorContains(t, err, "get script version")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestScanVersion_NormalizesNullColumns pins the read-side contract for rows
+// whose array columns come back NULL and whose params JSON is a literal null:
+// every slice field is an empty slice, so JSON output carries [] and pq.Array
+// on a later write cannot bind NULL into a NOT NULL column.
+func TestScanVersion_NormalizesNullColumns(t *testing.T) {
+	s, mock := newMock(t)
+	row := versionRow(1, "print(1)", script.VersionStatusApplied, []byte(`null`))
+	row[8] = nil  // tags
+	row[10] = nil // author_roles
+	mock.ExpectQuery(regexp.QuoteMeta("WHERE script_id = $1 AND version = $2")).
+		WillReturnRows(sqlmock.NewRows(versionSelectColumns).AddRow(row...))
+
+	got, err := s.GetVersion(context.Background(), "script_1", 1)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, []script.Param{}, got.Params)
+	assert.Equal(t, []string{}, got.Tags)
+	assert.Equal(t, []string{}, got.AuthorRoles)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestCreate_SnapshotsAnAuthorWithNoRoles covers the write-side half of the
+// same rule: an author who holds no roles still produces a valid snapshot row,
+// with an empty array rather than a NULL bound into author_roles.
+func TestCreate_SnapshotsAnAuthorWithNoRoles(t *testing.T) {
+	s, mock := newMock(t)
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO scripts")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).
+			AddRow("script_1", rowTime, rowTime))
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO script_versions")).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	sc := &script.Script{Name: "daily", Scope: script.ScopePersonal, Source: "print(1)"}
+	require.NoError(t, s.Create(context.Background(), sc, script.Author{Email: "jane@example.com"}))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestGetVersionByID covers the worker's read: a queued run names the exact
+// snapshot it executes by id, and only an id survives later saves unchanged.
+func TestGetVersionByID(t *testing.T) {
+	s, mock := newMock(t)
+	mock.ExpectQuery(regexp.QuoteMeta("FROM script_versions WHERE id = $1")).
+		WithArgs("sver_1").
+		WillReturnRows(sqlmock.NewRows(versionSelectColumns).
+			AddRow(versionRow(2, "print(2)", script.VersionStatusApplied, emptyParams(t))...))
+
+	got, err := s.GetVersionByID(context.Background(), "sver_1")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "print(2)", got.Source)
+
+	mock.ExpectQuery("FROM script_versions").WillReturnRows(sqlmock.NewRows(versionSelectColumns))
+	got, err = s.GetVersionByID(context.Background(), "gone")
+	require.NoError(t, err)
+	assert.Nil(t, got, "VersionStore contract: a missing version is nil, nil")
+
+	mock.ExpectQuery("FROM script_versions").WillReturnError(errors.New("boom"))
+	_, err = s.GetVersionByID(context.Background(), "sver_1")
+	assert.ErrorContains(t, err, "get script version by id")
 	require.NoError(t, mock.ExpectationsWereMet())
 }

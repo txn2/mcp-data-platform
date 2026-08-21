@@ -44,7 +44,7 @@ type Formatter interface {
 // a managed script's platform.export writes the same four from rows it computed
 // itself, and it writes them with this implementation rather than a second one
 // that would drift. The format an author sees in a draft preview is therefore
-// byte-for-byte the format an approved run persists.
+// byte-for-byte the format a platform run persists.
 func NewFormatter(format string) (Formatter, error) {
 	return newFormatter(format)
 }

@@ -24,14 +24,13 @@ func requestAuthor(r *http.Request) string {
 // settingsapi subpackage.
 func (h *Handler) registerSettingsRoutes() {
 	settingsapi.Register(h.mux, settingsapi.Config{
-		Settings:          h.deps.NotificationSettings,
-		SendTest:          h.deps.SendTestEmail,
-		Prefs:             h.deps.NotificationPrefs,
-		ReviewAlert:       h.deps.ReviewQueueAlert,
-		ScriptReviewAlert: h.deps.ScriptReviewAlert,
-		Mutable:           h.isMutable(),
-		Author:            requestAuthor,
-		Decode:            decodeStrict,
-		ReadOnly:          h.readOnlyMethod(),
+		Settings:    h.deps.NotificationSettings,
+		SendTest:    h.deps.SendTestEmail,
+		Prefs:       h.deps.NotificationPrefs,
+		ReviewAlert: h.deps.ReviewQueueAlert,
+		Mutable:     h.isMutable(),
+		Author:      requestAuthor,
+		Decode:      decodeStrict,
+		ReadOnly:    h.readOnlyMethod(),
 	})
 }

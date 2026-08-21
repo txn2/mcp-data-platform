@@ -14,8 +14,8 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
-// outputWriter persists one run's outputs, to the portal or to a granted
-// bucket.
+// outputWriter persists one run's outputs, to the portal or to a configured
+// bucket destination.
 //
 // Portal output identity is stable across runs: the pair (script, output name)
 // maps to ONE asset, and each run writes a new VERSION of it. A daily report
@@ -25,9 +25,9 @@ import (
 // producing one asset and producing three hundred and sixty-five.
 //
 // Delivery to a bucket shares everything up to the bytes: the same formatter,
-// the same size ceiling, the same exactly-once rule, the same record on the run.
-// Only the sink differs, and the sink an output goes to is decided by the
-// destination its approval bound — never by the script's own address.
+// the same size ceiling, the same exactly-once rule, the same record on the
+// run. Only the sink differs, and the sink an output goes to is decided by the
+// destination configuration — never by the script's own address.
 type outputWriter struct {
 	deps   ExportDeps
 	runs   script.RunStore
@@ -61,7 +61,7 @@ func newOutputWriter(deps ExportDeps, runs script.RunStore, run *script.Run, sc 
 	}
 }
 
-// Export writes one output to the destination its approval bound, and records
+// Export writes one output to the destination the host resolved, and records
 // it on the run.
 func (w *outputWriter) Export(ctx context.Context, req scriptrun.ExportRequest) (*scriptrun.ExportResult, error) {
 	if err := w.refuseRepeat(req.Name, req.Destination.Name); err != nil {

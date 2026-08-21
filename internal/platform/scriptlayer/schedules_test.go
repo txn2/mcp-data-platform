@@ -117,8 +117,8 @@ func TestScheduleSet_StoresTheCadenceAndSaysWhatWillHappen(t *testing.T) {
 	assert.Equal(t, weekdayMornings, fields["cron"])
 	assert.Equal(t, "America/Los_Angeles", fields["timezone"])
 	assert.Equal(t, true, fields["enabled"])
-	assert.Equal(t, true, fields["executable"])
 	assert.NotEmpty(t, fields["next_run_at"])
+	assert.Contains(t, fields["message"], "latest saved version")
 	assert.Contains(t, fields["message"], "as the script's own principal")
 
 	sc, err := store.GetPersonal(context.Background(), "jane@example.com", "daily")
@@ -129,35 +129,32 @@ func TestScheduleSet_StoresTheCadenceAndSaysWhatWillHappen(t *testing.T) {
 	assert.True(t, stored.NextRunAt.After(time.Now()))
 }
 
-// TestScheduleSet_OnAnUnapprovedScriptSaysNothingWillRunIt pins the honest
-// report: the schedule is stored, and the author is told plainly that the
-// execution gate still refuses it.
-func TestScheduleSet_OnAnUnapprovedScriptSaysNothingWillRunIt(t *testing.T) {
-	h := unapprovedHandle(t)
+// TestScheduleSet_OnAScriptTheRunGateRefusesSaysNothingWillRunIt pins the
+// honest report: the schedule is stored, and the author is told plainly that
+// the run gate still refuses the script, in its own words.
+func TestScheduleSet_OnAScriptTheRunGateRefusesSaysNothingWillRunIt(t *testing.T) {
+	h, _, _ := runnableHandle(t)
+	no := false
+	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdUpdate, Name: "daily", Enabled: &no})
+	require.False(t, res.IsError, resultText(res))
 
-	// The unapproved fixture is a global script an administrator wrote, and a
-	// cadence is the owner's to set.
-	fields := scheduleSet(t, h, adminCtx(), manageScriptInput{Cron: "@daily"})
+	fields := scheduleSet(t, h, authorCtx(), manageScriptInput{Cron: "@daily"})
 	require.NotContains(t, fields, "error", fields)
-	assert.Equal(t, false, fields["executable"])
-	assert.Contains(t, fields["message"], "no approved version")
+	assert.Contains(t, fields["message"], "nothing will execute this script")
+	assert.Contains(t, fields["message"], "the script is disabled")
 }
 
-// TestScheduleSet_BindsAgainstTheApprovedContract pins that a schedule's
-// parameters are checked when it is set, not silently at the first fire with
-// nobody watching.
-func TestScheduleSet_BindsAgainstTheApprovedContract(t *testing.T) {
-	h, store := newHandle()
+// TestScheduleSet_BindsAgainstTheLiveContract pins that a schedule's
+// parameters are checked against the live record — what its fires will bind
+// against — when it is set, not silently at the first fire with nobody
+// watching.
+func TestScheduleSet_BindsAgainstTheLiveContract(t *testing.T) {
+	h, _ := newHandle()
 	res := call(t, h, authorCtx(), manageScriptInput{
 		Command: cmdCreate, Name: "daily", Source: "print(1)\n",
 		Params: []script.Param{{Name: "report_date", Type: script.ParamTypeDate, Required: true}},
 	})
 	require.False(t, res.IsError, resultText(res))
-	sc, err := store.GetPersonal(context.Background(), "jane@example.com", "daily")
-	require.NoError(t, err)
-	_, err = store.ApproveVersion(context.Background(), sc.ID, sc.Version, "admin@example.com",
-		script.Grants{Capabilities: script.Capabilities, Destinations: []script.Destination{script.PortalDestination()}})
-	require.NoError(t, err)
 
 	t.Run("the fire-date token satisfies a date parameter", func(t *testing.T) {
 		fields := scheduleSet(t, h, authorCtx(), manageScriptInput{
@@ -402,17 +399,6 @@ func TestScheduleSet_StoreFailuresAreReportedNotPanicked(t *testing.T) {
 	assert.True(t, res.IsError)
 }
 
-// TestScheduleSet_AnUnreadableApprovedVersionIsReported pins that a schedule is
-// not bound against a contract the layer could not read.
-func TestScheduleSet_AnUnreadableApprovedVersionIsReported(t *testing.T) {
-	h, store, _ := runnableHandle(t)
-	store.versionErr = errors.New("boom")
-
-	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdScheduleSet, Name: "daily", Cron: "@daily"})
-	assert.True(t, res.IsError)
-	assert.Contains(t, resultText(res), "approved version")
-}
-
 // TestScheduleDisable_ReportsTheChangeWhenTheReadBackFails pins that a change
 // that landed is reported as landed: re-reading it is a courtesy, not the
 // outcome.
@@ -428,9 +414,9 @@ func TestScheduleDisable_ReportsTheChangeWhenTheReadBackFails(t *testing.T) {
 }
 
 // TestScheduleNote_SaysWhatADisabledScheduleWillDo pins the third state an
-// author can be in: approved, saved, and switched off.
+// author can be in: the script runs, and its schedule is switched off.
 func TestScheduleNote_SaysWhatADisabledScheduleWillDo(t *testing.T) {
-	sc := &script.Script{ApprovedVersionID: "sver_1"}
+	sc := &script.Script{Enabled: true, Status: script.StatusActive}
 	assert.Contains(t, scheduleNote(sc, &script.Schedule{Enabled: false}), cmdScheduleEnable)
 }
 
@@ -461,7 +447,7 @@ func TestScheduleList_ResolvesAScriptTheListingCutOff(t *testing.T) {
 	// And one whose script exists but belongs to somebody else.
 	other := &script.Script{
 		ID: "script_other", Name: "theirs", Scope: script.ScopePersonal,
-		OwnerEmail: "bob@example.com", Enabled: true, Status: script.StatusDraft,
+		OwnerEmail: "bob@example.com", Enabled: true, Status: script.StatusActive,
 	}
 	store.scripts[other.ID] = other
 	store.schedules[other.ID] = &script.Schedule{ID: "sched_other", ScriptID: other.ID, CronSpec: "@daily"}

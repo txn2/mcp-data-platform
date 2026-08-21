@@ -1,6 +1,5 @@
 import { useState } from "react";
 import {
-  SCRIPT_RUN_AUDIENCE,
   useScriptConnections,
   useScriptSchedule,
   useSetScriptSchedule,
@@ -31,15 +30,14 @@ import {
 // ScriptScheduleEditor is where the owner of an automation says when it runs
 // (#1307). It is the only thing on these pages that changes anything.
 //
-// A cadence carries no authority: the execution gate and the capability grant
-// are re-read at every fire, so re-timing a script cannot make it reach
-// anything it could not already reach. That is why this control belongs to the
-// person who owns the script rather than to an administrator, and why nothing
-// here approves, rejects, or edits a version.
+// A cadence carries no authority: the run gate and the persona filter are
+// re-read at every fire, so re-timing a script cannot make it reach anything
+// it could not already reach. That is why this control belongs to the person
+// who owns the script rather than to an administrator, and why nothing here
+// edits a version.
 //
-// The one thing it must never do is imply an approval it cannot grant. A
-// schedule on a script nothing will execute saves and stays inert, and the page
-// says so in the gate's own words.
+// A schedule on a script nothing will execute — disabled, retired — saves and
+// stays inert, and the page says so in the gate's own words.
 
 interface Props {
   scriptId: string;
@@ -89,13 +87,12 @@ function ScheduleControls({
 }: Props & { schedule: ScriptSchedule | null }) {
   const save = useSetScriptSchedule(scriptId);
   const pause = useSetScriptSchedulePaused(scriptId);
-  // Every fire binds these values through the approved version's grant, so the
-  // set a connection parameter offers here is the granted one — the same set
-  // the fire is checked against (#1361).
+  // The set a connection parameter offers is what the caller's persona
+  // reaches; every fire is authorized against the roles captured at the
+  // script's last save (#1361).
   const { data: connections } = useScriptConnections(
     scriptId,
     declaresConnection(contract.params ?? []),
-    SCRIPT_RUN_AUDIENCE.run,
   );
   // draft holds the owner's edits and nothing else, so a background refetch
   // cannot discard a cadence somebody is part-way through typing.
@@ -169,8 +166,8 @@ function ScheduleControls({
               {schedule ? "Update schedule" : "Set schedule"}
             </Button>
             <p className="text-xs text-muted-foreground">
-              Changing the cadence does not change what runs: the approved version and the
-              capabilities it holds are the same before and after.
+              Changing the cadence does not change what runs: every fire executes the
+              latest saved version, under the access captured at that save.
             </p>
           </div>
         </form>
@@ -275,21 +272,19 @@ function cadenceState(schedule: ScriptSchedule): string {
   }
 }
 
-// InertNotice says that a cadence on this script fires nothing. It is driven by
-// the execution gate's own refusal rather than by a second reading of the
-// approval, so the page cannot disagree with what run_script would answer; the
-// refusal itself is stated once, at the top of the page, and repeating the
-// sentence here would only make it easier to end up with two of them.
+// InertNotice says that a cadence on this script fires nothing. It is driven
+// by the run gate's own refusal rather than by a second reading of it, so the
+// page cannot disagree with what run_script would answer; the refusal itself
+// is stated once, at the top of the page, and repeating the sentence here
+// would only make it easier to end up with two of them.
 function InertNotice({ contract, scheduled }: { contract: ScriptContract; scheduled: boolean }) {
-  if (!contract.approval.refusal) return null;
+  if (!contract.refusal) return null;
   return (
     <Alert>
       <AlertDescription>
         {scheduled
           ? "This schedule is saved, but nothing will execute it, for the reason stated above."
-          : "A schedule set here saves, and stays inert: nothing will execute it, for the reason stated above."}{" "}
-        Approving a version is an administrator's decision, and setting a cadence does not ask
-        for one.
+          : "A schedule set here saves, and stays inert: nothing will execute it, for the reason stated above."}
       </AlertDescription>
     </Alert>
   );

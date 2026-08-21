@@ -96,8 +96,7 @@ func portalStore() *stubStore {
 // portalDeps assembles the portal handler dependencies for one caller.
 func portalDeps(store *stubStore, runs *stubRuns, contracts *stubContracts, user *PortalIdentity) Deps {
 	deps := Deps{
-		Scripts: store, Versions: store, Approvals: store, Schedules: store,
-		Reviews: store, Rejections: store,
+		Scripts: store, Versions: store, Schedules: store,
 		PortalUser: func(*http.Request) *PortalIdentity { return user },
 	}
 	if runs != nil {
@@ -240,7 +239,7 @@ func TestPortalRoutesUnmountedWithoutAnIdentityAccessor(t *testing.T) {
 func TestPortalGetScript_ReturnsTheContract(t *testing.T) {
 	contracts := &stubContracts{contract: &script.Contract{
 		ID: "script_1", Name: "daily", Scope: script.ScopePersonal, OwnerEmail: "jane@example.com",
-		Approval: script.ContractApproval{Approved: true, Version: 3, ApprovedBy: "admin@example.com"},
+		Version: 3,
 	}}
 	rec := servePortal(t, portalDeps(portalStore(), nil, contracts, owner), "/api/v1/portal/scripts/script_1")
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -248,7 +247,7 @@ func TestPortalGetScript_ReturnsTheContract(t *testing.T) {
 	var body portalScriptResponse
 	decodeInto(t, rec, &body)
 	assert.Equal(t, "daily", body.Contract.Name)
-	assert.Equal(t, 3, body.Contract.Approval.Version)
+	assert.Equal(t, 3, body.Contract.Version)
 	assert.True(t, body.Owned)
 }
 
@@ -301,8 +300,8 @@ func TestPortalListVersions_OwnerReadsTheSource(t *testing.T) {
 	assert.Equal(t, reportSource, body.Data[0].Source)
 }
 
-// The source and the grant are the owner's and the administrator's. A caller
-// who may see the script gets the same answer as one who may not: not found.
+// The source is the owner's and the administrator's. A caller who may see the
+// script gets the same answer as one who may not: not found.
 func TestPortalListVersions_RefusedForANonOwner(t *testing.T) {
 	rec := servePortal(t, portalDeps(portalStore(), nil, nil, stranger), "/api/v1/portal/scripts/script_2/versions")
 	require.Equal(t, http.StatusNotFound, rec.Code)
@@ -492,10 +491,10 @@ func TestPortalGetRun_RefusedForANonOwner(t *testing.T) {
 }
 
 // TestPortalGetScript_CarriesTheLiveParameterContractForTheOwner is the pair
-// the dry-run form is built from (#1364). The contract above it is the APPROVED
-// version's, because that is what a run binds against; a draft binds against
-// the live record's, and a form built from the wrong one would offer parameters
-// the dry run then refuses.
+// the dry-run form is built from (#1364). The contract's parameters come from
+// the contract document; DraftParams are read with the source, so the dry-run
+// form binds against exactly the contract the code beside it was written
+// against.
 func TestPortalGetScript_CarriesTheLiveParameterContractForTheOwner(t *testing.T) {
 	store := portalStore()
 	store.scripts[1].Source = "x = 1\n"
@@ -516,7 +515,7 @@ func TestPortalGetScript_CarriesTheLiveParameterContractForTheOwner(t *testing.T
 	assert.Equal(t, "region", body.DraftParams[0].Name)
 	require.Len(t, body.Contract.Params, 1)
 	assert.Equal(t, "report_date", body.Contract.Params[0].Name,
-		"the contract keeps the approved version's, which is what a run binds")
+		"the contract document's parameters pass through unchanged")
 }
 
 // TestPortalGetScript_WithholdsTheLiveRecordFromAReader keeps both halves on the

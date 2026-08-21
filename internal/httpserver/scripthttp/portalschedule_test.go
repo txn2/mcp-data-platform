@@ -38,20 +38,20 @@ func servePortalRequest(t *testing.T, deps Deps, method, path, body string) *htt
 	return rec
 }
 
-// approvedPortalStore returns the portal store with the global script
-// executable and its approved version declaring one required date parameter.
-func approvedPortalStore() *stubStore {
+// datedPortalStore returns the portal store with the global script's live
+// contract declaring one required date parameter, which is what a schedule's
+// bindings are validated against.
+func datedPortalStore() *stubStore {
 	store := portalStore()
-	store.scripts[1].ApprovedVersionID = "sver_1"
-	store.version.Params = []script.Param{{Name: "report_date", Type: script.ParamTypeDate, Required: true}}
+	store.scripts[1].Params = []script.Param{{Name: "report_date", Type: script.ParamTypeDate, Required: true}}
 	return store
 }
 
 // TestPortalSetSchedule_AnOwnerRetimesTheirOwnSharedScript is the point of the
 // change: the cadence of a GLOBAL script is set by the person who owns it,
-// without an administrator and without going back through review.
+// without an administrator.
 func TestPortalSetSchedule_AnOwnerRetimesTheirOwnSharedScript(t *testing.T) {
-	store := approvedPortalStore()
+	store := datedPortalStore()
 	rec := servePortalRequest(t, portalDeps(store, nil, nil, carol), http.MethodPut, portalSchedulePath,
 		`{"cron":"0 7 * * 1-5","timezone":"America/Los_Angeles","params":{"report_date":"${fire_date}"}}`)
 
@@ -69,25 +69,23 @@ func TestPortalSetSchedule_AnOwnerRetimesTheirOwnSharedScript(t *testing.T) {
 		"the token is stored unexpanded; it means the day of the fire, not today")
 }
 
-// TestPortalSetSchedule_OnAnUnapprovedScriptSavesAndStaysInert pins that a
-// cadence may be prepared before review. It saves, and nothing executes it —
-// the page reports the gate's own refusal rather than implying an approval it
-// cannot grant.
-func TestPortalSetSchedule_OnAnUnapprovedScriptSavesAndStaysInert(t *testing.T) {
+// TestPortalSetSchedule_AScriptWithNoParamsTakesABareCadence pins the simplest
+// request: a script declaring no parameters is scheduled with a cadence alone.
+func TestPortalSetSchedule_AScriptWithNoParamsTakesABareCadence(t *testing.T) {
 	store := portalStore()
 	rec := servePortalRequest(t, portalDeps(store, nil, nil, carol), http.MethodPut, portalSchedulePath,
 		`{"cron":"@daily"}`)
 
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	require.NotNil(t, store.schedule)
-	assert.False(t, store.scripts[1].Executable(), "nothing is approved, so nothing will fire it")
+	assert.Equal(t, "@daily", store.schedule.CronSpec)
 }
 
 // TestPortalSetSchedule_RefusedForANonOwner pins that the caller who may READ a
 // global script still may not re-time it, and is answered exactly as a caller
 // who named a script that does not exist.
 func TestPortalSetSchedule_RefusedForANonOwner(t *testing.T) {
-	store := approvedPortalStore()
+	store := datedPortalStore()
 	notYours := servePortalRequest(t, portalDeps(store, nil, nil, stranger), http.MethodPut, portalSchedulePath,
 		`{"cron":"@daily","params":{"report_date":"${fire_date}"}}`)
 	require.Equal(t, http.StatusNotFound, notYours.Code)
@@ -104,7 +102,7 @@ func TestPortalSetSchedule_RefusedForANonOwner(t *testing.T) {
 // into this surface is what it is everywhere else: they may re-time a script
 // they do not own.
 func TestPortalSetSchedule_AdminIsUnrestricted(t *testing.T) {
-	store := approvedPortalStore()
+	store := datedPortalStore()
 	rec := servePortalRequest(t, portalDeps(store, nil, nil, admin), http.MethodPut, portalSchedulePath,
 		`{"cron":"@daily","params":{"report_date":"${fire_date}"}}`)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
@@ -129,7 +127,7 @@ func TestPortalSetSchedule_RefusesWhatWouldNeverFire(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rec := servePortalRequest(t, portalDeps(approvedPortalStore(), nil, nil, carol),
+			rec := servePortalRequest(t, portalDeps(datedPortalStore(), nil, nil, carol),
 				http.MethodPut, portalSchedulePath, tt.body)
 			require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 			assert.Contains(t, rec.Body.String(), tt.wantErr)
@@ -137,7 +135,7 @@ func TestPortalSetSchedule_RefusesWhatWouldNeverFire(t *testing.T) {
 	}
 
 	t.Run("an unreadable body", func(t *testing.T) {
-		rec := servePortalRequest(t, portalDeps(approvedPortalStore(), nil, nil, carol),
+		rec := servePortalRequest(t, portalDeps(datedPortalStore(), nil, nil, carol),
 			http.MethodPut, portalSchedulePath, "{not json")
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 	})
@@ -145,7 +143,7 @@ func TestPortalSetSchedule_RefusesWhatWouldNeverFire(t *testing.T) {
 	// The route is reachable by every authenticated user rather than only by
 	// administrators, so the decoder is not handed whatever it was sent.
 	t.Run("a body past the bound", func(t *testing.T) {
-		store := approvedPortalStore()
+		store := datedPortalStore()
 		body := `{"cron":"@daily","params":{"report_date":"` +
 			strings.Repeat("x", maxScheduleBodyBytes) + `"}}`
 		rec := servePortalRequest(t, portalDeps(store, nil, nil, carol),
@@ -160,7 +158,7 @@ func TestPortalSetSchedule_RefusesWhatWouldNeverFire(t *testing.T) {
 // not move.
 func TestPortalScheduleEnableDisable(t *testing.T) {
 	parked := time.Now().Add(2 * time.Hour).UTC().Truncate(time.Second)
-	store := approvedPortalStore()
+	store := datedPortalStore()
 	store.schedule = &script.Schedule{
 		ID: "sched_1", ScriptID: "script_2", CronSpec: "@daily", Timezone: "UTC",
 		Enabled: true, NextRunAt: parked, CreatedBy: "carol@example.com",
@@ -185,13 +183,13 @@ func TestPortalScheduleEnableDisable(t *testing.T) {
 
 func TestPortalScheduleEnable_Failures(t *testing.T) {
 	t.Run("a script with no schedule is a 404", func(t *testing.T) {
-		rec := servePortalRequest(t, portalDeps(approvedPortalStore(), nil, nil, carol),
+		rec := servePortalRequest(t, portalDeps(datedPortalStore(), nil, nil, carol),
 			http.MethodPost, portalSchedulePath+"/enable", "")
 		assert.Equal(t, http.StatusNotFound, rec.Code)
 	})
 
 	t.Run("a script the caller does not own is a 404", func(t *testing.T) {
-		store := approvedPortalStore()
+		store := datedPortalStore()
 		store.schedule = &script.Schedule{ID: "sched_1", ScriptID: "script_2", Enabled: true}
 		rec := servePortalRequest(t, portalDeps(store, nil, nil, stranger),
 			http.MethodPost, portalSchedulePath+"/disable", "")
@@ -200,7 +198,7 @@ func TestPortalScheduleEnable_Failures(t *testing.T) {
 	})
 
 	t.Run("a store failure is a 500", func(t *testing.T) {
-		store := approvedPortalStore()
+		store := datedPortalStore()
 		store.schedule = &script.Schedule{ID: "sched_1", ScriptID: "script_2"}
 		store.scheduleWriteErr = errors.New("boom")
 		rec := servePortalRequest(t, portalDeps(store, nil, nil, carol),
@@ -213,7 +211,7 @@ func TestPortalScheduleEnable_Failures(t *testing.T) {
 // and its bindings: everyone entitled to see a script sees when it runs, and
 // only its owner sees the values it runs WITH.
 func TestPortalListScripts_BindingsAreTheOwners(t *testing.T) {
-	store := approvedPortalStore()
+	store := datedPortalStore()
 	store.schedule = &script.Schedule{
 		ID: "sched_1", ScriptID: "script_2", CronSpec: "@daily", Timezone: "UTC", Enabled: true,
 		Params: map[string]any{"account_id": "acct-9"}, CreatedBy: "carol@example.com",
@@ -241,7 +239,7 @@ func TestPortalListScripts_BindingsAreTheOwners(t *testing.T) {
 // line: a caller entitled to know a script exists is not thereby entitled to
 // read the code the platform executes for its owner.
 func TestPortalListScripts_SourceIsTheOwners(t *testing.T) {
-	store := approvedPortalStore()
+	store := datedPortalStore()
 	store.scripts[0].Source, store.scripts[1].Source = reportSource, reportSource
 
 	rec := servePortalRequest(t, portalDeps(store, nil, nil, stranger), http.MethodGet,
@@ -279,7 +277,7 @@ func scheduleOf(t *testing.T, body portalScriptListResponse, scriptID string) *s
 
 func TestPortalGetSchedule(t *testing.T) {
 	t.Run("the owner reads the bindings their editor prefills from", func(t *testing.T) {
-		store := approvedPortalStore()
+		store := datedPortalStore()
 		store.schedule = &script.Schedule{
 			ID: "sched_1", ScriptID: "script_2", CronSpec: "@daily", Timezone: "UTC",
 			Enabled: true, Params: map[string]any{"report_date": script.FireDateToken},
@@ -294,13 +292,13 @@ func TestPortalGetSchedule(t *testing.T) {
 	})
 
 	t.Run("a script with no schedule is a 404", func(t *testing.T) {
-		rec := servePortalRequest(t, portalDeps(approvedPortalStore(), nil, nil, carol),
+		rec := servePortalRequest(t, portalDeps(datedPortalStore(), nil, nil, carol),
 			http.MethodGet, portalSchedulePath, "")
 		assert.Equal(t, http.StatusNotFound, rec.Code)
 	})
 
 	t.Run("a script the caller does not own is a 404", func(t *testing.T) {
-		store := approvedPortalStore()
+		store := datedPortalStore()
 		store.schedule = &script.Schedule{ID: "sched_1", ScriptID: "script_2", CronSpec: "@daily"}
 		rec := servePortalRequest(t, portalDeps(store, nil, nil, stranger),
 			http.MethodGet, portalSchedulePath, "")
@@ -309,7 +307,7 @@ func TestPortalGetSchedule(t *testing.T) {
 	})
 
 	t.Run("a store failure is a 500", func(t *testing.T) {
-		store := approvedPortalStore()
+		store := datedPortalStore()
 		store.scheduleErr = errors.New("boom")
 		rec := servePortalRequest(t, portalDeps(store, nil, nil, carol),
 			http.MethodGet, portalSchedulePath, "")
@@ -318,7 +316,7 @@ func TestPortalGetSchedule(t *testing.T) {
 }
 
 func TestPortalScheduleRoutesRequireAuthentication(t *testing.T) {
-	deps := portalDeps(approvedPortalStore(), nil, nil, nil)
+	deps := portalDeps(datedPortalStore(), nil, nil, nil)
 	for _, route := range []struct{ method, path string }{
 		{http.MethodGet, portalSchedulePath},
 		{http.MethodPut, portalSchedulePath},
@@ -334,7 +332,7 @@ func TestPortalScheduleRoutesRequireAuthentication(t *testing.T) {
 // a portal that cannot keep a schedule offers no cadence controls, rather than
 // offering controls that fail per request.
 func TestPortalScheduleRoutesUnmountedWithoutAStore(t *testing.T) {
-	deps := portalDeps(approvedPortalStore(), nil, nil, carol)
+	deps := portalDeps(datedPortalStore(), nil, nil, carol)
 	deps.Schedules = nil
 	for _, route := range []struct{ method, path string }{
 		{http.MethodGet, portalSchedulePath},

@@ -25,23 +25,25 @@ const (
 )
 
 // Capability names. A capability is one host binding, and the set is closed:
-// review means being able to enumerate everything a script can reach, which is
-// only possible while the surface stays small enough to list. Nondeterministic
-// tools (search, memory, catalog mutation) are deliberately absent — they have
-// no place inside an automation whose value proposition is reproducibility.
-//
-// The names live in the domain (pkg/script) because a grant is written in them:
-// the vocabulary a reviewer approves and the vocabulary this engine enforces
-// have to be one list, not two that agree by convention.
+// a reader of a script must be able to enumerate everything it can reach,
+// which is only possible while the surface stays small enough to list.
+// Nondeterministic tools (search, memory, catalog mutation) are deliberately
+// absent — they have no place inside an automation whose value proposition is
+// reproducibility.
 const (
-	CapabilityQuery       = script.CapabilityQuery
-	CapabilityExport      = script.CapabilityExport
-	CapabilityPublishData = script.CapabilityPublishData
+	CapabilityQuery  = "platform.query"
+	CapabilityExport = "platform.export"
+	// CapabilityPublishData replaces the data region of a portal document this
+	// script already publishes, and touches nothing else in it. It is separate
+	// from CapabilityExport, whose document arm composes whole documents,
+	// because the two describe different behavior a reader should be able to
+	// tell apart.
+	CapabilityPublishData = "platform.publish_data"
 )
 
 // Capabilities is the full host surface, in the order help and validate report
 // it.
-var Capabilities = script.Capabilities
+var Capabilities = []string{CapabilityQuery, CapabilityExport, CapabilityPublishData}
 
 // The formats platform.export accepts, split by what serializes them. A format
 // may appear in both sets: markdown and text are sometimes a table computed
@@ -106,84 +108,36 @@ type hostState struct {
 	exports []ExportRecord
 }
 
-// allowCapability refuses a host binding the run's grant does not cover.
-//
-// This is the first of two independent checks, and the weaker one. It exists
-// because it fails fast, inside the interpreter, with a message naming what was
-// granted — an author reads why their script stopped instead of an
-// authorization denial from three layers down. The authority of record is the
-// middleware chain, which enforces the same call under the run's own principal
-// whatever this function decides.
-//
-// A nil grant means no grant layer applies, which is the draft case: a draft
-// runs as its author, with the author's own authority, and there is nothing to
-// narrow because nothing was widened.
-func (h *hostState) allowCapability(name string) error {
-	if h.opts.Grants == nil || h.opts.Grants.AllowsCapability(name) {
-		return nil
-	}
-	return fmt.Errorf("the %s binding is not in this script's approved grant (granted: %s); widening what a script may reach requires approving it again",
-		name, orNone(h.opts.Grants.Capabilities))
-}
-
-// allowConnection refuses a connection the run's grant does not cover.
-//
-// An unnamed connection is refused rather than defaulted. The platform would
-// resolve "" to whichever connection is configured as the default, which is a
-// connection the approval never named and which can change underneath an
-// approved script; requiring the name keeps the grant checkable and the script
-// reproducible.
-func (h *hostState) allowConnection(name string) error {
-	if h.opts.Grants == nil {
-		return nil
-	}
-	if name == "" {
-		return fmt.Errorf("an approved script must name the connection to query (granted: %s); the platform's default connection is not what was approved",
-			orNone(h.opts.Grants.Connections))
-	}
-	if !h.opts.Grants.AllowsConnection(name) {
-		return fmt.Errorf("connection %q is not in this script's approved grant (granted: %s); widening what a script may reach requires approving it again",
-			name, orNone(h.opts.Grants.Connections))
-	}
-	return nil
-}
-
-// resolveDestination turns the destination a script named into the address its
-// approval pinned, refusing one the grant does not cover.
-//
-// A grant with no destinations is a script approved to compute and not to
-// persist, which is a deliberate and useful state, so it gets its own message
-// rather than reading as a misconfiguration.
-//
-// A nil grant is the draft case. A draft has no approval to resolve an address
-// from and writes nothing anyway, so it gets the KIND alone: enough for the
-// argument checks a draft must answer the same way an approved run will — a key
-// aimed at the portal is a mistake in both — and nothing that would let a draft
-// address a place nobody has granted.
+// resolveDestination turns the destination a script named into the address the
+// deployment's configuration declares for it, refusing a name nothing
+// declares. The portal is built in; every other destination comes from the
+// scripts.destinations configuration, resolved here at run time so repointing
+// one takes effect on the next run. A draft resolves through the same set, so
+// a destination a real run would refuse fails while the author is iterating.
 func (h *hostState) resolveDestination(name string) (script.Destination, error) {
-	if h.opts.Grants == nil {
-		if name == script.DestinationPortal {
-			return script.PortalDestination(), nil
+	if name == script.DestinationPortal {
+		return script.PortalDestination(), nil
+	}
+	for _, d := range h.opts.Destinations {
+		if d.Name == name {
+			return d, nil
 		}
-		return script.Destination{Name: name, Kind: script.DestinationKindS3}, nil
 	}
-	if d, ok := h.opts.Grants.Destination(name); ok {
-		return d, nil
+	if len(h.opts.Destinations) == 0 {
+		return script.Destination{}, fmt.Errorf("destination %q is not configured: this deployment declares no bucket destinations, so %q is the only place a script can write",
+			name, script.DestinationPortal)
 	}
-	if len(h.opts.Grants.Destinations) == 0 {
-		return script.Destination{}, fmt.Errorf("this script was approved with no output destinations, so it may compute but not write; approving it again with the %q destination would let it write", name)
-	}
-	return script.Destination{}, fmt.Errorf("destination %q is not in this script's approved grant (granted: %s); widening what a script may reach requires approving it again",
-		name, orNone(h.opts.Grants.DestinationNames()))
+	return script.Destination{}, fmt.Errorf("destination %q is not configured; this deployment declares %s, and %q is always available",
+		name, strings.Join(destinationNames(h.opts.Destinations), ", "), script.DestinationPortal)
 }
 
-// orNone renders a granted list for an error message, naming the empty case
-// rather than printing an empty bracket pair.
-func orNone(values []string) string {
-	if len(values) == 0 {
-		return "none"
+// destinationNames lists the configured destinations for a refusal.
+func destinationNames(destinations []script.Destination) []string {
+	out := make([]string, 0, len(destinations))
+	for _, d := range destinations {
+		out = append(out, d.Name)
 	}
-	return strings.Join(values, ", ")
+	return out
 }
 
 // runValue builds the frozen run record — the script's ONLY source of time and
@@ -231,12 +185,6 @@ func (h *hostState) query(_ *starlark.Thread, b *starlark.Builtin, args starlark
 	}
 	if h.opts.Caller == nil {
 		return nil, fmt.Errorf("host binding %s is not available in this context", b.Name())
-	}
-	if err := h.allowCapability(CapabilityQuery); err != nil {
-		return nil, argErr(b, err)
-	}
-	if err := h.allowConnection(connection); err != nil {
-		return nil, argErr(b, err)
 	}
 	bound, err := bindSQL(sql, params)
 	if err != nil {
@@ -326,26 +274,20 @@ func (h *hostState) queryResult(name string, out map[string]any) (starlark.Value
 // export implements platform.export: validate the output contract, then either
 // persist the output or report the shape it would have.
 //
-// Which of the two happens is decided by the caller, not by the script. A draft
-// run is given no Exporter, so it previews: an author iterating on a report
-// sees the shape long before an approval exists to make it real, and a draft
-// still writes no state. An approved run is given one, and the same call writes
-// a new version of the run's output asset, or delivers an object to a granted
-// bucket. The arguments are identical either way, so the script an author
-// finishes is the script that runs.
+// Which of the two happens is decided by the caller, not by the script. A
+// draft run is given no Exporter, so it previews: an author iterating on a
+// report sees the shape before anything persists, and a draft still writes no
+// state. A platform run is given one, and the same call writes a new version
+// of the run's output asset, or delivers an object to a configured bucket
+// destination. The arguments are identical either way, so the script an
+// author finishes is the script that runs.
 //
 // One binding covers both, rather than a second one for delivery. The
 // difference between refreshing a dashboard and dropping a CSV for another
-// system is WHERE the output goes, which is the destination axis of the grant;
-// splitting it into two bindings would put the grant check, the audit record,
-// and the exactly-once rule in two places to drift apart.
+// system is WHERE the output goes, which is the destination axis; splitting it
+// into two bindings would put the resolution, the audit record, and the
+// exactly-once rule in two places to drift apart.
 func (h *hostState) export(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	// The capability is checked before anything about this particular output,
-	// because it is the coarser question: a script that may not export at all
-	// should read that, not a complaint about where it was going to write.
-	if err := h.allowCapability(CapabilityExport); err != nil {
-		return nil, argErr(b, err)
-	}
 	req, err := h.exportRequest(b, args, kwargs)
 	if err != nil {
 		return nil, err
@@ -364,10 +306,10 @@ func (h *hostState) export(_ *starlark.Thread, b *starlark.Builtin, args starlar
 // admitOutput enforces the two rules every output-producing binding shares:
 // the per-run output budget, and the once-per-destination rule.
 //
-// The once-per-destination rule is checked here, not only by the writer,
-// so a draft run refuses exactly what an approved run refuses: a script
-// that writes one name to one place twice must fail while the author is
-// iterating, not at the first fire after somebody approved it.
+// The once-per-destination rule is checked here, not only by the writer, so a
+// draft run refuses exactly what a platform run refuses: a script that writes
+// one name to one place twice must fail while the author is iterating, not at
+// the first scheduled fire.
 func (h *hostState) admitOutput(b *starlark.Builtin, name, destination string) error {
 	if len(h.exports) >= maxExports {
 		return fmt.Errorf("in %s: a run may produce at most %d outputs", b.Name(), maxExports)
@@ -389,12 +331,9 @@ func (h *hostState) admitOutput(b *starlark.Builtin, name, destination string) e
 // this binding exists for keeps the template in the asset and the data in the
 // script, so a layout edit made in the portal survives the next scheduled fire
 // instead of being overwritten by a whole-document re-emit, and changing the
-// presentation never requires a script edit and a re-approval. Composing the
-// whole document is platform.export's document arm.
+// presentation never requires a script edit. Composing the whole document is
+// platform.export's document arm.
 func (h *hostState) publishData(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	if err := h.allowCapability(CapabilityPublishData); err != nil {
-		return nil, argErr(b, err)
-	}
 	var (
 		name string
 		data starlark.Value
@@ -413,20 +352,8 @@ func (h *hostState) publishData(_ *starlark.Thread, b *starlark.Builtin, args st
 		return nil, err
 	}
 	// A data region is a property of a portal document, so the write is always
-	// against the granted portal destination; a grant without it refuses here
-	// with the same messages an export gets.
-	resolved, err := h.resolveDestination(script.DestinationPortal)
-	if err != nil {
-		return nil, argErr(b, err)
-	}
-	// The kind is checked as well as the name. Grants written before the name
-	// was reserved could carry a bucket destination called "portal", and this
-	// binding must never turn that into an asset write nobody approved.
-	if !resolved.IsPortal() {
-		return nil, fmt.Errorf("in %s: this script's %q destination is a bucket, not the platform's asset store; a data region is a property of a portal document, so approving a portal destination is what lets this call write",
-			b.Name(), script.DestinationPortal)
-	}
-	if err := h.admitOutput(b, name, resolved.Name); err != nil {
+	// against the portal destination, which is built in.
+	if err := h.admitOutput(b, name, script.DestinationPortal); err != nil {
 		return nil, err
 	}
 	record, err := h.persistOrPreviewPublish(b, PublishRequest{Name: name, Data: payload})
@@ -457,8 +384,8 @@ func publishPayload(b *starlark.Builtin, data starlark.Value) (any, error) {
 
 // persistOrPreviewPublish writes the refresh through the run's Exporter, or
 // measures it when the run has none. The preview serializes through the same
-// FormatDataPayload the writer uses, so the size a draft reports is the size an
-// approved run splices.
+// FormatDataPayload the writer uses, so the size a draft reports is the size a
+// platform run splices.
 func (h *hostState) persistOrPreviewPublish(b *starlark.Builtin, req PublishRequest) (ExportRecord, error) {
 	record := ExportRecord{
 		Name: req.Name, Destination: script.DestinationPortal, Format: PublishFormat,
@@ -510,7 +437,7 @@ func PublishRowCount(data any) int {
 
 // exportRequest unpacks and checks one platform.export call: the output's name
 // and format, the destination it names, the key it asks for beneath that
-// destination's granted prefix, and the rows themselves.
+// destination's configured prefix, and the rows themselves.
 func (h *hostState) exportRequest(b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (ExportRequest, error) {
 	var (
 		name        string
@@ -573,8 +500,8 @@ func (h *hostState) exportRequest(b *starlark.Builtin, args starlark.Tuple, kwar
 // platform's, and its identity across runs is the output name — so a key aimed
 // at it is a misunderstanding worth reporting rather than ignoring. Everywhere
 // else the key is the contract between this script and whatever consumes its
-// output, so it is checked against the rules that keep it under the granted
-// prefix and left exactly as written.
+// output, so it is checked against the rules that keep it under the
+// destination's prefix and left exactly as written.
 func checkExportKey(b *starlark.Builtin, destination script.Destination, key string) error {
 	if key == "" {
 		return nil
@@ -641,10 +568,10 @@ func exportRows(b *starlark.Builtin, rows starlark.Value) ([]any, error) {
 //
 // A preview measures by serializing: it runs the same formatter the writer
 // would, and reports the length of what that produced. The documented loop is
-// create, validate, run_draft, then ask for approval, and sizing an output
-// against a cap is one of the few things the number is for — so the number a
-// draft reports has to be the number a real run would write, not a
-// format-independent estimate of it.
+// create, validate, run_draft, then save, and sizing an output against a cap
+// is one of the few things the number is for — so the number a draft reports
+// has to be the number a real run would write, not a format-independent
+// estimate of it.
 func (h *hostState) persistOrPreview(b *starlark.Builtin, req ExportRequest) (ExportRecord, error) {
 	record := ExportRecord{
 		Name: req.Name, Destination: req.Destination.Name, Format: req.Format,
@@ -772,11 +699,11 @@ type OutputIdentity struct {
 // against the output ceiling, and returns the identity the bytes are stored
 // under.
 //
-// It is the single serializer for a script's output, and the ceiling is applied
-// here rather than by the writer so that the two runs of a script agree: an
-// approved run persists exactly these bytes, and a draft run measures them, so
-// an output too large to write is refused while the author is still iterating
-// rather than at the first fire after somebody approved it.
+// It is the single serializer for a script's output, and the ceiling is
+// applied here rather than by the writer so that the two runs of a script
+// agree: a platform run persists exactly these bytes, and a draft run measures
+// them, so an output too large to write is refused while the author is still
+// iterating rather than at the first scheduled fire.
 func FormatOutput(req ExportRequest) ([]byte, OutputIdentity, error) {
 	if req.Body != nil {
 		return formatDocument(req)
@@ -800,7 +727,7 @@ func FormatOutput(req ExportRequest) ([]byte, OutputIdentity, error) {
 // region will hold, checked against the same output ceiling every export is.
 //
 // It is the single serializer for the payload — a draft measures exactly the
-// bytes an approved run splices — and it keeps encoding/json's default
+// bytes a platform run splices — and it keeps encoding/json's default
 // escaping, which writes <, > and & as \u escapes, so no string in the payload
 // can ever terminate the <script> element it lands inside. Go serializes map
 // keys in sorted order, so the bytes are deterministic for a given payload.

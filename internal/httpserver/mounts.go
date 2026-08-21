@@ -710,7 +710,6 @@ func buildAdminHandler(p *platform.Platform, notify *notifydelivery.Handle) http
 	deps.NotificationHistory = notify.History()
 	deps.NotificationRetention = notifydelivery.HistoryRetention
 	deps.ReviewQueueAlert = reviewAlertSettings(p, reviewalert.KnowledgeTarget())
-	deps.ScriptReviewAlert = reviewAlertSettings(p, reviewalert.ScriptTarget())
 
 	return admin.NewHandler(deps, buildAdminAuth(p))
 }

@@ -80,7 +80,7 @@ func TestValidate_BoundsTheDocumentationFields(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			sc := &Script{
 				Name: "daily-sales", Scope: ScopePersonal,
-				Source: "print(1)", Status: StatusDraft,
+				Source: "print(1)", Status: StatusActive,
 			}
 			tt.mutate(sc)
 
@@ -111,7 +111,7 @@ func TestDescriptionNotice(t *testing.T) {
 
 	// And the advisory is not a refusal: the same description validates.
 	sc := &Script{
-		Name: "daily-sales", Scope: ScopePersonal, Source: "print(1)", Status: StatusDraft,
+		Name: "daily-sales", Scope: ScopePersonal, Source: "print(1)", Status: StatusActive,
 		Description: strings.Repeat("x", longDescriptionBytes),
 	}
 	require.NoError(t, sc.Validate())
@@ -126,17 +126,14 @@ func TestSnapshotChanged_CarriesTheCategory(t *testing.T) {
 	after.Category = "reporting"
 
 	assert.True(t, SnapshotChanged(before, &after))
-	assert.False(t, RequiresReview(before, &after),
-		"filing a script is not a change to what it does, so it must not go to review")
 }
 
-// TestRequiresReview_DocumentingAnApprovedScriptIsNotAReview is the ticket's
-// governance claim, proved against the gate rather than asserted in prose: an
-// owner documenting a script the platform is executing does not send that
-// script back to a reviewer, and the version being executed is untouched.
-func TestRequiresReview_DocumentingAnApprovedScriptIsNotAReview(t *testing.T) {
+// TestSnapshotChanged_DocumentingAScriptIsCaptured proves an edit that touches
+// only what the script says about itself still produces a version, so a reader
+// of the history can see what the script claimed to be at the time a run ran.
+func TestSnapshotChanged_DocumentingAScriptIsCaptured(t *testing.T) {
 	before := &Script{
-		Name: "daily", Source: "print(1)", ApprovedVersionID: "sver_1",
+		Name: "daily", Source: "print(1)",
 		DisplayName: "Daily", Description: "old", Category: "old-cat", Tags: []string{"a"},
 	}
 	after := *before
@@ -145,9 +142,7 @@ func TestRequiresReview_DocumentingAnApprovedScriptIsNotAReview(t *testing.T) {
 	after.Category = "reporting"
 	after.Tags = []string{"sales"}
 
-	assert.False(t, RequiresReview(before, &after))
-	assert.True(t, SnapshotChanged(before, &after), "the change is still captured as a version")
-	assert.Equal(t, "sver_1", after.ApprovedVersionID, "the executing version is untouched")
+	assert.True(t, SnapshotChanged(before, &after))
 }
 
 // TestIndexText_CarriesTheCategory proves the category reaches the text a

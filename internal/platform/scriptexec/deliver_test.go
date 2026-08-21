@@ -14,7 +14,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
-// acmeDrop is a granted external destination: a named platform connection, a
+// acmeDrop is a configured external destination: a named platform connection, a
 // bucket, and the prefix everything written there sits under.
 func acmeDrop() script.Destination {
 	return script.Destination{
@@ -23,7 +23,7 @@ func acmeDrop() script.Destination {
 	}
 }
 
-// deliveryRequest is one output addressed to a granted bucket.
+// deliveryRequest is one output addressed to a configured bucket.
 func deliveryRequest(name, key string) scriptrun.ExportRequest {
 	req := csvRequest(name)
 	req.Destination = acmeDrop()
@@ -33,7 +33,7 @@ func deliveryRequest(name, key string) scriptrun.ExportRequest {
 
 // TestOutputWriter_DeliversThroughThePlatformSession is the delivery path end to
 // end: the bytes go out as an ordinary platform tool call, addressed only by
-// what the approval pinned.
+// what the configured destination pins.
 func TestOutputWriter_DeliversThroughThePlatformSession(t *testing.T) {
 	h := newWriterHarness(t)
 	h.caller.result = map[string]any{"bucket": "acme-exports", "key": "weekly/2026/sales.csv", "size": float64(41)}
@@ -48,7 +48,7 @@ func TestOutputWriter_DeliversThroughThePlatformSession(t *testing.T) {
 	require.Len(t, h.caller.calls, 1)
 	call := h.caller.calls[0]
 	assert.Equal(t, "s3_put_object", call.tool)
-	assert.Equal(t, "acme-s3", call.args["connection"], "the connection comes from the grant, never from the script")
+	assert.Equal(t, "acme-s3", call.args["connection"], "the connection comes from the destination, never from the script")
 	assert.Equal(t, "acme-exports", call.args["bucket"])
 	assert.Equal(t, "weekly/2026/sales.csv", call.args["key"])
 	assert.Equal(t, "text/csv", call.args["content_type"])
@@ -160,7 +160,7 @@ func TestOutputWriter_DeliveryFailures(t *testing.T) {
 			deliveryRequest("daily", ""), "not authorized",
 		},
 		{
-			"a key climbing out of the granted prefix", func(writerHarness) {},
+			"a key climbing out of the configured prefix", func(writerHarness) {},
 			deliveryRequest("daily", "../../elsewhere/sales.csv"), "'.' or '..'",
 		},
 		{
@@ -208,7 +208,7 @@ func TestOutputWriter_PortalOutputNeedsItsStores(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no portal asset store or object storage")
 
-	// The same deployment can still deliver: a run that only writes to a granted
+	// The same deployment can still deliver: a run that only writes to a configured
 	// bucket needs no portal at all.
 	_, err = h.writer.Export(context.Background(), deliveryRequest("daily", ""))
 	require.NoError(t, err)
@@ -248,7 +248,7 @@ func TestOutputWriter_RefusesTwoOutputsOnOneObject(t *testing.T) {
 	assert.Len(t, h.runs.outputs, 1)
 
 	// And the same collision reached deliberately, by naming one key twice. The
-	// key is relative to the granted prefix, which is what the destination adds.
+	// key is relative to the configured prefix, which is what the destination adds.
 	_, err = h.writer.Export(ctx, deliveryRequest("other", "Q1-Sales.csv"))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "already wrote")

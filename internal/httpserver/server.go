@@ -160,13 +160,6 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	reviewAlert.Start(ctx)
 	defer reviewAlert.Stop()
 
-	// Scheduled managed-script review-queue check (#1287), on the same terms:
-	// a separate checker rather than a second queue inside one, so each queue
-	// keeps its own threshold, recipients, and cooldown.
-	scriptReviewAlert := buildScriptReviewAlert(p, notify)
-	scriptReviewAlert.Start(ctx)
-	defer scriptReviewAlert.Stop()
-
 	mux := http.NewServeMux()
 	hcfg := extractHTTPConfig(p)
 	hc := health.NewChecker()

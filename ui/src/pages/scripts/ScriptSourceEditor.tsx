@@ -1,6 +1,5 @@
 import { useState } from "react";
 import {
-  SCRIPT_RUN_AUDIENCE,
   useDryRunScript,
   useSaveScriptSource,
   useScriptConnections,
@@ -16,7 +15,6 @@ import type {
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { SourceEditor } from "@/components/SourceEditor";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { approvesOnSave, useViewerIdentity } from "./approval";
 import { Button } from "@/components/ui/button";
 import { CT } from "@/lib/contentType";
 import { DryRunReport, ValidationReport } from "./ScriptDraftChecks";
@@ -29,7 +27,7 @@ import {
 } from "./ScriptParameterForm";
 
 // ScriptSourceEditor is the code, editable by the person who owns it (#1307),
-// and checkable by them before anyone is asked to approve it (#1364).
+// and checkable by them before saving the version that runs (#1364).
 //
 // Until this existed, changing a script meant asking an agent to do it — an odd
 // thing to require of the owner of an automation who is looking straight at the
@@ -37,28 +35,18 @@ import {
 // (components/SourceEditor over lib/codemirror), told the content is Python:
 // Starlark is a Python dialect, so the highlighting is the language's own.
 //
-// Editing is not an approval and cannot become one. A script with an approved
-// version keeps running that version, and the edit is saved as a draft for a
-// reviewer; the page says which of the two happened, in those words, because
-// "Saved" alone would leave an owner believing their change is live.
-//
-// Validate and dry-run are not approvals either, and neither introduces
-// authority: validate executes nothing at all, and a dry run is the author's
-// own session, reaching exactly what they reach and persisting nothing. What
-// they change is that the version a reviewer receives has been parsed, its
-// capability change is known to its author, and somebody has run it.
+// Validate and dry-run introduce no authority: validate executes nothing at
+// all, and a dry run is the author's own session, reaching exactly what they
+// reach and persisting nothing. What they change is that a saved version has
+// been parsed, what it reaches is known to its author, and somebody has run
+// it.
 
 interface Props {
   scriptId: string;
   contract: ScriptContract;
   /** The live script's code, served to its owner with the contract. */
   source: string;
-  /**
-   * The LIVE record's parameter contract, which is what a dry run binds
-   * against. It is not always the contract's: that one is the approved
-   * version's, because that is what a RUN binds, and a draft is precisely the
-   * code that does not match the approved version yet.
-   */
+  /** The parameter contract a dry run binds against, read beside the source. */
   draftParams: ScriptParam[];
 }
 
@@ -69,10 +57,8 @@ export function ScriptSourceEditor({ scriptId, contract, source, draftParams }: 
   // draft is the unsaved edit. Null means "no edit in progress", which is what
   // keeps a background refetch of the contract from discarding typing.
   const [draft, setDraft] = useState<string | null>(null);
-  // submitted is the text the last save sent. It is what makes an edit queued
-  // for review stay on screen: the LIVE source is still the approved version's,
-  // so resetting to it would wipe the change the owner just made and leave them
-  // looking at the code they were replacing.
+  // submitted is the text the last save sent, so the editor can tell a real
+  // change from a re-save of identical text before the contract refetches.
   const [submitted, setSubmitted] = useState<string | null>(null);
   // results holds what the last action said, as one value. Each action replaces
   // the whole of it, because a validate report next to a dry run of different
@@ -82,14 +68,9 @@ export function ScriptSourceEditor({ scriptId, contract, source, draftParams }: 
   const [values, setValues] = useState<Values>({});
 
   const params = draftParams;
-  // A dry run executes as the author with no grant layer, so the connections it
-  // may name are the ones the author's persona reaches — not the set an
-  // approved run is confined to (#1361).
-  const { data: connections } = useScriptConnections(
-    scriptId,
-    declaresConnection(params),
-    SCRIPT_RUN_AUDIENCE.draft,
-  );
+  // A dry run executes as the author, so the connections it may name are the
+  // ones the author's persona reaches (#1361).
+  const { data: connections } = useScriptConnections(scriptId, declaresConnection(params));
 
   const current = draft ?? source;
   const changed = current !== (submitted ?? source);
@@ -105,8 +86,8 @@ export function ScriptSourceEditor({ scriptId, contract, source, draftParams }: 
       onSuccess: (res) => {
         setResults({ ...NOTHING_YET, outcome: res.message });
         setSubmitted(sent);
-        // An applied edit IS the live source now, so the draft is dropped and
-        // the editor follows the record. A queued draft is not, so it stays.
+        // The applied edit IS the live source now, so the draft is dropped and
+        // the editor follows the record.
         if (res.applied) setDraft(null);
       },
       onError: fail("The source could not be saved"),
@@ -157,7 +138,7 @@ export function ScriptSourceEditor({ scriptId, contract, source, draftParams }: 
       }
     >
       <div className="space-y-3">
-        <ReviewNotice contract={contract} />
+        <SaveNotice />
 
         <SourceEditor
           content={current}
@@ -306,39 +287,13 @@ function EditorResults({
   );
 }
 
-// ReviewNotice says what saving will do before it is done. The two outcomes are
-// genuinely different — one changes what runs tonight, the other queues a
-// decision for somebody else — and which one applies is a property of the
-// script, not of the edit.
-function ReviewNotice({ contract }: { contract: ScriptContract }) {
-  const viewer = useViewerIdentity();
-  const checks =
-    " Validate and dry run check the edit first — a dry run executes it as you, and persists nothing.";
-  if (approvesOnSave(contract, viewer)) {
-    return (
-      <p className="text-xs text-muted-foreground">
-        This script is yours alone, so saving approves it: it runs under the access you hold,
-        and nobody else is asked. An edit whose connections or destinations cannot be read
-        from its source goes to an administrator instead, and the save says so.
-        {checks}
-      </p>
-    );
-  }
-  if (contract.approval.approved) {
-    return (
-      <p className="text-xs text-muted-foreground">
-        Version {contract.approval.version} is approved and keeps running. Saving a change here
-        does not touch it: the edit is queued as a draft, and an administrator decides whether
-        it becomes what executes.
-        {checks}
-      </p>
-    );
-  }
+// SaveNotice says what saving will do before it is done.
+function SaveNotice() {
   return (
     <p className="text-xs text-muted-foreground">
-      Nothing is approved for this script, so saving changes it directly. It still executes
-      nothing unattended until an administrator approves a version.
-      {checks}
+      Saving makes this the version that runs: run_script executes it and any schedule fires
+      it, presenting the roles you hold when you save. Validate and dry run check the edit
+      first — a dry run executes it as you, and persists nothing.
     </p>
   );
 }

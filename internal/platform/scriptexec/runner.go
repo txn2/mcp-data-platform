@@ -17,7 +17,7 @@ import (
 	pkgsession "github.com/txn2/mcp-data-platform/pkg/session"
 )
 
-// surfaceRunScript is what an approved run records as its tool name in audit,
+// surfaceRunScript is what a platform run records as its tool name in audit,
 // alongside the script_run event kind. It names the surface that asked for the
 // run, matching how a served prompt records prompts/get or manage_prompt.
 const surfaceRunScript = "run_script"
@@ -34,21 +34,25 @@ func generateWorkerToken() (string, error) {
 	return "worker-" + hex.EncodeToString(b), nil
 }
 
-// runner executes one approved run end to end.
+// runner executes one platform run end to end.
 type runner struct {
-	runs   script.RunStore
-	server *mcp.Server
-	export ExportDeps
-	audit  middleware.AuditLogger
+	runs         script.RunStore
+	server       *mcp.Server
+	export       ExportDeps
+	audit        middleware.AuditLogger
+	destinations []script.Destination
 }
 
 // newRunner builds the executor the worker drives.
 func newRunner(runs script.RunStore, cfg Config) *runner {
-	return &runner{runs: runs, server: cfg.Server, export: cfg.Export, audit: cfg.Audit}
+	return &runner{
+		runs: runs, server: cfg.Server, export: cfg.Export,
+		audit: cfg.Audit, destinations: cfg.Destinations,
+	}
 }
 
-// execute runs one claimed run: open a session as the script principal, execute
-// the approved source under the version's grant, and report the outcome.
+// execute runs one claimed run: open a session as the script principal,
+// execute the queued version's source, and report the outcome.
 func (r *runner) execute(ctx context.Context, run *script.Run, sc *script.Script, v *script.Version) attempt {
 	caller, cleanup, err := r.connect(ctx, run, sc, v)
 	if err != nil {
@@ -58,8 +62,7 @@ func (r *runner) execute(ctx context.Context, run *script.Run, sc *script.Script
 	}
 	defer cleanup()
 
-	grants := v.Grants
-	opts := scriptrun.ApprovedLimits()
+	opts := scriptrun.RunLimits()
 	opts.Source = v.Source
 	opts.Name = sc.Name
 	opts.RunID = run.ID
@@ -70,7 +73,7 @@ func (r *runner) execute(ctx context.Context, run *script.Run, sc *script.Script
 	opts.FireTime = run.FireTime.UTC()
 	opts.Params = run.Params
 	opts.Caller = caller
-	opts.Grants = &grants
+	opts.Destinations = r.destinations
 	opts.Exporter = r.exporter(run, sc, caller)
 
 	result, runErr := scriptrun.Run(ctx, opts)
@@ -111,10 +114,9 @@ func attemptFrom(result *scriptrun.Result, runErr error) attempt {
 //     limiter, and audit row can separate a governed automation from the person
 //     who owns it, with that person's address carried alongside for
 //     accountability;
-//   - the authority: the roles the approval bound, which are the roles the
-//     version's AUTHOR held. The middleware resolves them to a persona exactly
-//     as it does for a human caller, so the persona — not the grant struct — is
-//     the authority of record, and the grant can only narrow it;
+//   - the authority: the roles the version's AUTHOR held when they saved it.
+//     The middleware resolves them to a persona exactly as it does for a human
+//     caller, so the persona is the authority of record;
 //   - the session: the run id itself, threaded on so all of a run's calls share
 //     one session id in audit and none of them touch the owner's own discovery
 //     or gate state.
@@ -124,7 +126,7 @@ func (r *runner) connect(ctx context.Context, run *script.Run, sc *script.Script
 	serverCtx = middleware.WithPreAuthenticatedUser(serverCtx, &middleware.UserInfo{
 		UserID:   sc.Principal(),
 		Email:    sc.OwnerEmail,
-		Roles:    v.Grants.Roles,
+		Roles:    v.AuthorRoles,
 		AuthType: middleware.AuthTypeScript,
 	})
 	caller, cleanup, err := scriptrun.Connect(serverCtx, r.server, "script-run")
@@ -136,13 +138,13 @@ func (r *runner) connect(ctx context.Context, run *script.Run, sc *script.Script
 
 // exporter builds the output writer for one run.
 //
-// An approved run always gets one, whatever this deployment can store. A
+// A platform run always gets one, whatever this deployment can store. A
 // missing dependency is reported by the destination that needs it — a portal
 // output on a deployment with no asset store FAILS, and fails the run — rather
-// than by refusing every output up front, because a run that only delivers to a
-// granted bucket needs no portal at all. What must never happen is the third
-// option: an approved run that quietly previews and is recorded as a success
-// that wrote nothing.
+// than by refusing every output up front, because a run that only delivers to
+// a configured bucket needs no portal at all. What must never happen is the
+// third option: a run that quietly previews and is recorded as a success that
+// wrote nothing.
 //
 // (A draft run still previews everywhere: that is decided by the authoring
 // path, which passes no exporter at all.)
@@ -186,29 +188,10 @@ func (r *runner) recordAudit(ctx context.Context, run *script.Run, sc *script.Sc
 			"trigger":      run.Trigger,
 			"requested_by": run.RequestedBy,
 			"attempt":      run.Attempt,
-			"approval":     approvalKind(v),
 		},
 		ErrorMessage: res.Error,
 	}
 	if err := r.audit.Log(ctx, event); err != nil {
 		slog.Warn("scripts: recording the run audit event failed", logKeyRunID, run.ID, logKeyError, err)
 	}
-}
-
-// Approval kinds recorded on a run's lifecycle event.
-const (
-	// approvalReviewed marks a version a person decided to approve.
-	approvalReviewed = "reviewed"
-	// approvalAutomatic marks one the platform approved for a personal script's
-	// own owner (#1367), which nobody reviewed. An operator reading the audit
-	// history can separate the two without joining back to the version row.
-	approvalAutomatic = "auto"
-)
-
-// approvalKind names who admitted the version this run executed.
-func approvalKind(v *script.Version) string {
-	if v != nil && v.AutoApproved {
-		return approvalAutomatic
-	}
-	return approvalReviewed
 }

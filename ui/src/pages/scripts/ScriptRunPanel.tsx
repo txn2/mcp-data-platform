@@ -1,9 +1,5 @@
 import { useState } from "react";
-import {
-  SCRIPT_RUN_AUDIENCE,
-  useRunScript,
-  useScriptConnections,
-} from "@/api/portal/hooks/scripts";
+import { useRunScript, useScriptConnections } from "@/api/portal/hooks/scripts";
 import type { ScriptContract } from "@/api/portal/hooks/scripts";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -18,17 +14,17 @@ import {
 
 // ScriptRunPanel is where an owner runs their automation now (#1363).
 //
-// Until this existed the page showed the contract, the parameters, the
-// approval and the run history, and ran nothing: an owner who wanted fresh
-// output before the next scheduled fire had to leave the portal and ask an
-// agent. This is that action, and it is deliberately the same action — the run
-// is queued and executed by a worker under the script's own identity, exactly
-// as a scheduled fire is.
+// Until this existed the page showed the contract, the parameters, and the
+// run history, and ran nothing: an owner who wanted fresh output before the
+// next scheduled fire had to leave the portal and ask an agent. This is that
+// action, and it is deliberately the same action — the run is queued and
+// executed by a worker under the script's own identity, exactly as a
+// scheduled fire is.
 //
 // It cannot make a script run that the platform would refuse. Whether a run
 // would be admitted is the contract's own refusal, stated at the top of the
-// page, and this panel reads it rather than deciding for itself: a script with
-// nothing approved says so instead of offering a control that cannot work.
+// page, and this panel reads it rather than deciding for itself: a disabled
+// or retired script says so instead of offering a control that cannot work.
 
 interface Props {
   scriptId: string;
@@ -36,17 +32,17 @@ interface Props {
 }
 
 export function ScriptRunPanel({ scriptId, contract }: Props) {
-  // The refusal is the execution gate's own, carried on the contract. Reading
-  // it rather than re-deriving the rules is what keeps this page from offering
-  // a run the platform would decline. The refusal itself is stated once, at the
+  // The refusal is the run gate's own, carried on the contract. Reading it
+  // rather than re-deriving the rules is what keeps this page from offering a
+  // run the platform would decline. The refusal itself is stated once, at the
   // top of the page, and repeating the sentence here would only make it easier
   // to end up with two of them.
-  if (contract.approval.refusal) {
+  if (contract.refusal) {
     return (
       <SectionCard title="Run now">
         <p className="text-sm text-muted-foreground">
           A run asked for now would be refused, for the reason stated above. This control
-          appears once a version is approved; approving one is an administrator's decision.
+          returns when the script is back in service.
         </p>
       </SectionCard>
     );
@@ -54,20 +50,16 @@ export function ScriptRunPanel({ scriptId, contract }: Props) {
   return <RunForm scriptId={scriptId} contract={contract} />;
 }
 
-// RunForm is the request itself. It is separate from the refusal above so that
-// it always has an approved version to run: a form for a script nothing
-// executes would be a control that cannot work.
+// RunForm is the request itself. It is separate from the refusal above so
+// that it always has a runnable script: a form for a script nothing executes
+// would be a control that cannot work.
 function RunForm({ scriptId, contract }: Props) {
   const params = contract.params ?? [];
   const run = useRunScript(scriptId);
-  // The set a connection parameter offers is the APPROVED version's grant, not
-  // the caller's own connections: an approved run is confined to what its
-  // approval granted, whatever the person asking for it can reach (#1361).
-  const { data: connections } = useScriptConnections(
-    scriptId,
-    declaresConnection(params),
-    SCRIPT_RUN_AUDIENCE.run,
-  );
+  // The set a connection parameter offers is what the caller's persona
+  // reaches; the run itself is authorized against the roles captured at the
+  // script's last save (#1361).
+  const { data: connections } = useScriptConnections(scriptId, declaresConnection(params));
   const [values, setValues] = useState<Values>({});
   const [queued, setQueued] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
@@ -89,9 +81,9 @@ function RunForm({ scriptId, contract }: Props) {
     <SectionCard title="Run now">
       <form className="space-y-4" onSubmit={submit}>
         <p className="text-sm text-muted-foreground">
-          This runs version {contract.approval.version} — the approved one — under the script's
-          own identity, with the capabilities its approval granted. It is the same run the
-          schedule produces, asked for now.
+          This runs version {contract.version} — the latest saved one — under the script's
+          own identity, presenting the roles its author held at the last save. It is the
+          same run the schedule produces, asked for now.
         </p>
 
         <ScriptParameterForm

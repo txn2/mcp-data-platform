@@ -7,10 +7,9 @@ import type {
 } from "@/api/admin/types";
 import { ApiError, apiFetch } from "../client";
 
-// Portal script hooks (#1290): the read surface for the people who own the
-// automations. Approving a version is an administrator's action and lives on
-// the admin API; the one thing an owner changes here is the cadence (#1307),
-// which carries no authority at all.
+// Portal script hooks (#1290): the surface for the people who own the
+// automations. Saving a version makes it the version that runs, and the
+// cadence an owner sets here (#1307) carries no authority at all.
 
 // ScriptSchedule is a script's cadence as the portal reports it.
 export interface ScriptSchedule {
@@ -30,8 +29,9 @@ export interface ScriptSchedule {
 }
 
 // ScriptScheduleInput is a cadence as its owner submits it. It carries no
-// roles, connections, or capabilities, and could not usefully: what a scheduled
-// run executes and what it may reach were bound when the version was approved.
+// roles, connections, or capabilities, and could not usefully: every fire
+// executes the latest saved version, authorized against the roles captured at
+// that save.
 export interface ScriptScheduleInput {
   cron: string;
   timezone?: string;
@@ -123,22 +123,6 @@ export interface ScriptParam {
   values?: string[];
 }
 
-// ScriptContractApproval is the execution gate as a reader sees it: whether a
-// version is approved, and whether a run requested right now would be admitted
-// at all. The refusal is the gate's own answer, so a page never reports a
-// script as runnable that run_script would decline.
-export interface ScriptContractApproval {
-  approved: boolean;
-  version?: number;
-  approved_by?: string;
-  approved_at?: string;
-  // automatic reports that the platform approved this version itself, because
-  // the script is personal and its owner wrote it (#1367). Nobody reviewed it,
-  // and a reader is told so rather than reading approved_by as a decision.
-  automatic?: boolean;
-  refusal?: string;
-}
-
 // ScriptContractRun is what the script last successfully produced.
 export interface ScriptContractRun {
   run_id: string;
@@ -164,7 +148,12 @@ export interface ScriptContract {
   status: string;
   enabled: boolean;
   params: ScriptParam[];
-  approval: ScriptContractApproval;
+  // version is the version a run executes: the latest saved one.
+  version: number;
+  // refusal is the run gate's own answer to "would a run be admitted now",
+  // empty when one would be. A page never reports a script as runnable that
+  // run_script would decline.
+  refusal?: string;
   schedule?: { cron_spec: string; timezone: string; enabled: boolean; next_run_at?: string };
   last_successful_run?: ScriptContractRun;
 }
@@ -176,8 +165,8 @@ export interface PortalScriptRow {
   // last_run is present only for the scripts this caller owns: a run is
   // owner-and-admin reading, and so is the fact that one failed.
   last_run?: ScriptRun;
-  // owned reports whether this caller may read the script's runs, source, and
-  // grant, so the page offers those surfaces rather than linking to a refusal.
+  // owned reports whether this caller may read the script's runs and source,
+  // so the page offers those surfaces rather than linking to a refusal.
   owned: boolean;
 }
 
@@ -221,10 +210,9 @@ export function useScriptContract(scriptID: string | null) {
   return useQuery({
     queryKey: [...scriptsKey, scriptID, "contract"],
     // source is the live code, served only to the script's owner: it is what
-    // the editor on that page opens (#1307).
-    // draft_params is the LIVE record's parameter contract, which is not always
-    // the contract's: that one is the approved version's, because that is what
-    // a run binds against, and a draft binds against the code it actually is.
+    // the editor on that page opens (#1307). draft_params is the parameter
+    // contract read beside it, so the dry-run form binds against exactly the
+    // contract the code was written against.
     queryFn: () =>
       apiFetch<{
         contract: ScriptContract;
@@ -236,21 +224,15 @@ export function useScriptContract(scriptID: string | null) {
   });
 }
 
-// ScriptSourceOutcome is where an edit landed: on the live script, or in the
-// review queue as a draft. The two are different enough that the page states
-// which one happened rather than saying "saved".
+// ScriptSourceOutcome is the saved edit: the live script now carries this
+// source, and it is the version a run executes.
 export interface ScriptSourceOutcome {
   applied: boolean;
-  pending_version?: number;
-  // approved is true when the saved version is now the one the platform
-  // executes, because this is the owner's own personal script (#1367).
-  approved?: boolean;
   message: string;
 }
 
-// useSaveScriptSource saves new Starlark for a script. An edit to a script with
-// an approved version becomes a draft awaiting review — the platform's rule,
-// not this hook's — so the caller reports the outcome rather than assuming one.
+// useSaveScriptSource saves new Starlark for a script. The saved version is
+// what runs from here on.
 export function useSaveScriptSource(scriptID: string) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -282,9 +264,8 @@ export interface ScriptMetadataOutcome {
 }
 
 // useSaveScriptMetadata saves the display name, description, category and tags
-// of a script. None of them is review-gated — what a script SAYS about itself
-// is not what it does — so this never produces a draft awaiting approval and
-// never disturbs the version that is executing.
+// of a script: what it SAYS about itself, not what it does. The change is
+// still captured as a version.
 export function useSaveScriptMetadata(scriptID: string) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -408,36 +389,24 @@ export interface ScriptConnectionChoice {
 }
 
 // ScriptConnectionChoices is the set a connection parameter chooses from, and
-// where it came from. The source matters: an approved run is confined to what
-// its approval granted, while a dry run reaches what the caller reaches, so the
-// same parameter has two different sets depending on which is being asked for.
+// where it came from: the connections the caller's persona reaches, narrowed
+// to the kind the parameter binds. A run is authorized at query time against
+// the roles captured at the script's last save.
 export interface ScriptConnectionChoices {
   data: ScriptConnectionChoice[];
   source: string;
   note: string;
 }
 
-// SCRIPT_RUN_AUDIENCE names the two sets. Passing one is not optional in
-// practice: a form that asked for the wrong set would offer values the run then
-// refuses, which is the failure the picker exists to remove.
-export const SCRIPT_RUN_AUDIENCE = { run: "run", draft: "draft" } as const;
-
-export type ScriptRunAudience =
-  (typeof SCRIPT_RUN_AUDIENCE)[keyof typeof SCRIPT_RUN_AUDIENCE];
-
 // useScriptConnections reads the connections a parameter of this script may
 // name. It is requested only for an owned script that actually declares a
 // connection parameter: every other script has no use for the set, and asking
 // for it would put a request on every script page.
-export function useScriptConnections(
-  scriptID: string | null,
-  enabled: boolean,
-  audience: ScriptRunAudience,
-) {
+export function useScriptConnections(scriptID: string | null, enabled: boolean) {
   return useQuery({
-    queryKey: [...scriptsKey, scriptID, "connections", audience],
+    queryKey: [...scriptsKey, scriptID, "connections"],
     queryFn: () =>
-      apiFetch<ScriptConnectionChoices>(`/scripts/${scriptID}/connections?audience=${audience}`),
+      apiFetch<ScriptConnectionChoices>(`/scripts/${scriptID}/connections`),
     enabled: !!scriptID && enabled,
   });
 }
@@ -452,10 +421,10 @@ export interface ScriptRunQueued {
   message: string;
 }
 
-// useRunScript queues one run of a script's approved version (#1363). It is the
-// same action run_script performs — the run is executed by a worker under the
-// script's own identity — so this hook cannot make a script run that the
-// execution gate refuses.
+// useRunScript queues one run of a script's latest saved version (#1363). It
+// is the same action run_script performs — the run is executed by a worker
+// under the script's own identity — so this hook cannot make a script run that
+// the run gate refuses.
 //
 // Every script query is invalidated on success, because the run belongs in the
 // history immediately: a queued run that does not appear until the next poll

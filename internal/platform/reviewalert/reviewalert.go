@@ -51,19 +51,10 @@ const (
 	// stale review debt (#764) rather than inventing a second number, so the
 	// alert fires on exactly the rows the portal already badges.
 	DefaultKnowledgeOldestDays = knowledgekit.PendingStalenessThresholdDays
-	// DefaultScriptOldestDays is the script queue's default age threshold, in
-	// days. It is far shorter than the knowledge queue's because the two queues
-	// hold different debts: an unreviewed insight is knowledge nobody can use
-	// yet, while an unreviewed script version is either automation that is not
-	// running or a correction to automation that is still running the old code.
-	DefaultScriptOldestDays = 7
 )
 
-// Portal deep links the alerts point at.
-const (
-	knowledgeQueueRoute = "/knowledge#review"
-	scriptQueueRoute    = "/admin/scripts"
-)
+// knowledgeQueueRoute is the portal deep link the alert points at.
+const knowledgeQueueRoute = "/knowledge#review"
 
 // Target names one review queue: where its configuration and its last-alert
 // marker live, and what the email it raises says.
@@ -107,19 +98,6 @@ func KnowledgeTarget() Target {
 		Title:             "Knowledge review queue",
 		Route:             knowledgeQueueRoute,
 		DefaultOldestDays: DefaultKnowledgeOldestDays,
-	}
-}
-
-// ScriptTarget describes the managed-script review queue (#1287).
-func ScriptTarget() Target {
-	return Target{
-		Queue:             "script_review",
-		SettingsSection:   "script_review_alert",
-		Category:          notification.CategoryScriptReview,
-		Kind:              notification.KindScriptReview,
-		Title:             "Script review queue",
-		Route:             scriptQueueRoute,
-		DefaultOldestDays: DefaultScriptOldestDays,
 	}
 }
 

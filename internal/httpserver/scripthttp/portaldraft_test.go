@@ -17,8 +17,8 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
-// Checking an edit before asking anyone to approve it (#1364). Validate reports
-// and executes nothing; a dry run executes as the caller and persists nothing.
+// Checking an edit before saving it (#1364). Validate reports and executes
+// nothing; a dry run executes as the caller and persists nothing.
 // The assertions here are about what identity the run carried, what it was
 // bound against, and that the account kept of it names the source that ran.
 
@@ -50,7 +50,7 @@ func (f *fakeRunner) Run(_ context.Context, req scriptdraft.Request) (*scriptdra
 }
 
 // recordingDryRuns is the account store, which the route writes to and the
-// review surface reads from.
+// version detail reads from.
 type recordingDryRuns struct {
 	recorded  *script.DryRun
 	latest    *script.DryRun
@@ -110,8 +110,8 @@ func TestPortalValidateSource_ReportsWhatTheEditReaches(t *testing.T) {
 	decodeInto(t, rec, &body)
 	assert.True(t, body.OK)
 	assert.Contains(t, body.Connections, "warehouse")
-	assert.Contains(t, body.Capabilities, script.CapabilityQuery)
-	assert.Contains(t, body.Capabilities, script.CapabilityExport)
+	assert.Contains(t, body.Capabilities, scriptrun.CapabilityQuery)
+	assert.Contains(t, body.Capabilities, scriptrun.CapabilityExport)
 	assert.Empty(t, body.Note, "nothing about this source is computed")
 }
 
@@ -245,8 +245,8 @@ func TestPortalDryRunSource_AnswersWhenTheAccountCannotBeKept(t *testing.T) {
 }
 
 // TestPortalDryRunSource_BindsAgainstTheLiveContract pins which contract a
-// draft binds against: the live record's, because a draft is precisely the code
-// that does not match the approved version yet.
+// draft binds against: the live record's, which is the contract the code
+// being run was written against.
 func TestPortalDryRunSource_BindsAgainstTheLiveContract(t *testing.T) {
 	store := portalStore()
 	store.scripts[1].Params = []script.Param{
@@ -285,8 +285,8 @@ func TestPortalDryRunSource_RefusesSourceThatDoesNotParse(t *testing.T) {
 }
 
 // TestPortalDryRunSource_RefusesADisabledScript is the same refusal the tool
-// surface gives, in the same words: a draft run is the only execution path an
-// unapproved script has, so without it "disabled" would disable nothing.
+// surface gives, in the same words: "disabled" must disable the draft path
+// too, or the word means less than it says.
 func TestPortalDryRunSource_RefusesADisabledScript(t *testing.T) {
 	store := portalStore()
 	store.scripts[1].Enabled = false
@@ -336,7 +336,7 @@ func TestPortalDryRun_IsUnmountedWithoutARunner(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code, "validate must survive a runnerless deployment")
 }
 
-// TestGetVersion_CarriesTheDryRunAccount is the reviewer's half of #1364: the
+// TestGetVersion_CarriesTheDryRunAccount is the reader's half of #1364: the
 // account is looked up by the version's own source, and its ABSENCE is the
 // answer when nobody ran it.
 func TestGetVersion_CarriesTheDryRunAccount(t *testing.T) {
@@ -347,7 +347,7 @@ func TestGetVersion_CarriesTheDryRunAccount(t *testing.T) {
 	rec := serveVersionReview(t, store, accounts)
 
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	var body versionReviewResponse
+	var body versionDetailResponse
 	decodeInto(t, rec, &body)
 	require.NotNil(t, body.DryRun)
 	assert.Equal(t, "run_draft_9", body.DryRun.ID)
@@ -359,7 +359,7 @@ func TestGetVersion_ReportsNoAccountWhenNobodyRanIt(t *testing.T) {
 	rec := serveVersionReview(t, newStore(), &recordingDryRuns{})
 
 	require.Equal(t, http.StatusOK, rec.Code)
-	var body versionReviewResponse
+	var body versionDetailResponse
 	decodeInto(t, rec, &body)
 	assert.Nil(t, body.DryRun)
 }
@@ -371,18 +371,17 @@ func TestGetVersion_SurvivesAnUnreadableAccount(t *testing.T) {
 	rec := serveVersionReview(t, newStore(), accounts)
 
 	require.Equal(t, http.StatusOK, rec.Code)
-	var body versionReviewResponse
+	var body versionDetailResponse
 	decodeInto(t, rec, &body)
 	assert.Nil(t, body.DryRun)
 }
 
-// serveVersionReview runs the admin version-review route with an account store.
+// serveVersionReview runs the admin version detail route with an account store.
 func serveVersionReview(t *testing.T, store *stubStore, accounts script.DryRunStore) *httptest.ResponseRecorder {
 	t.Helper()
 	mux := http.NewServeMux()
 	New(Deps{
-		Scripts: store, Versions: store, Approvals: store, Schedules: store,
-		Reviews: store, Rejections: store, DryRuns: accounts,
+		Scripts: store, Versions: store, Schedules: store, DryRuns: accounts,
 		AdminEmail: func(*http.Request) string { return "admin@example.com" },
 	}).RegisterAdmin(mux, "/api/v1/admin", func(h http.Handler) http.Handler { return h })
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,

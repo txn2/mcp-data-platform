@@ -31,22 +31,12 @@ vi.mock("@/components/MarkdownEditor", () => ({
 
 vi.mock("@/api/portal/hooks/scripts", () => ({
   useSaveScriptMetadata: vi.fn(),
-  usePortalScriptVersions: vi.fn(),
 }));
 
-import { usePortalScriptVersions, useSaveScriptMetadata } from "@/api/portal/hooks/scripts";
+import { useSaveScriptMetadata } from "@/api/portal/hooks/scripts";
 
 const mockSave = vi.mocked(useSaveScriptMetadata);
-const mockVersions = vi.mocked(usePortalScriptVersions);
 const save = vi.fn();
-
-// versionsAnswering builds the version-history answer the form reads to know
-// whether a version is waiting for a reviewer.
-function versionsAnswering(statuses: string[]) {
-  return {
-    data: { data: statuses.map((status, i) => ({ version: i + 2, status })), total: statuses.length },
-  } as never;
-}
 
 const contract: ScriptContract = {
   id: "script-001",
@@ -60,13 +50,12 @@ const contract: ScriptContract = {
   status: "active",
   enabled: true,
   params: [],
-  approval: { approved: true, version: 2 },
+  version: 2,
 };
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockSave.mockReturnValue({ mutate: save, isPending: false } as never);
-  mockVersions.mockReturnValue(versionsAnswering(["applied"]));
 });
 
 afterEach(cleanup);
@@ -178,24 +167,6 @@ describe("ScriptDocumentation: what the owner writes", () => {
     expect(screen.getByText(/consider moving the background to a knowledge page/)).toBeInTheDocument();
     expect(screen.getByLabelText("Script description")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Done" })).toBeInTheDocument();
-  });
-
-  // Approving a version applies that version's whole snapshot to the live row,
-  // documentation included. An owner writing into that window would otherwise
-  // watch their writing disappear at the approval with nothing having said so.
-  it("warns that a pending draft will replace what is written here", () => {
-    mockVersions.mockReturnValue(versionsAnswering(["applied", "draft"]));
-    renderSection();
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
-
-    expect(screen.getByText(/Version 3 of this script is waiting for a reviewer/)).toBeInTheDocument();
-  });
-
-  it("says nothing about drafts when none is waiting", () => {
-    renderSection();
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
-
-    expect(screen.queryByText(/waiting for a reviewer/)).not.toBeInTheDocument();
   });
 
   it("reports a refusal without closing the form", () => {

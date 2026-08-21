@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -40,14 +39,16 @@ func (f *fakeScriptSearcher) Contract(_ context.Context, id string) (*script.Con
 	return f.contract, nil
 }
 
-// approvedContract is a visible, runnable script's contract.
-func approvedContract() *script.Contract {
-	at := time.Date(2026, 8, 14, 9, 0, 0, 0, time.UTC)
+// runnableContract is a visible, runnable script's contract: an active,
+// enabled script whose latest saved version is 3 and whose run gate refuses
+// nothing.
+func runnableContract() *script.Contract {
 	return &script.Contract{
 		ID: "script_1", Name: "daily-sales", DisplayName: "Daily Sales",
 		Description: "Yesterday's sales by region", Scope: script.ScopeGlobal,
-		Params:   []script.Param{{Name: "report_date", Required: true}},
-		Approval: script.ContractApproval{Approved: true, Version: 3, ApprovedBy: "admin@example.com", ApprovedAt: &at},
+		Status: script.StatusActive, Enabled: true,
+		Params:  []script.Param{{Name: "report_date", Required: true}},
+		Version: 3,
 	}
 }
 
@@ -129,7 +130,7 @@ func TestScriptsProvider_HitTextIsTheEmbeddedText(t *testing.T) {
 	sc := script.Script{
 		ID: "script_1", Name: "daily-sales", DisplayName: "Daily Sales",
 		Description: "Yesterday's sales by region", Tags: []string{"revenue"},
-		ApprovedVersionID: "sver_3",
+		Status: script.StatusActive, Enabled: true,
 	}
 	s := &fakeScriptSearcher{scored: []script.ScoredScript{{Score: 0.9, Script: sc}}}
 
@@ -149,11 +150,11 @@ func TestScriptsProvider_HitCarriesContractAndExecutionState(t *testing.T) {
 		{Score: 0.9, Script: script.Script{
 			ID: "script_1", Name: "daily-sales", DisplayName: "Daily Sales",
 			Description: "Yesterday's sales by region", Status: script.StatusActive,
-			OwnerEmail: "jane@example.com", ApprovedVersionID: "sver_3",
+			OwnerEmail: "jane@example.com", Enabled: true,
 			Params: []script.Param{{Name: "report_date", Required: true}},
 		}},
 		{Score: 0.4, Script: script.Script{
-			ID: "script_2", Name: "draft-thing", Status: script.StatusDraft,
+			ID: "script_2", Name: "disabled-thing", Status: script.StatusActive, Enabled: false,
 		}},
 	}}
 
@@ -168,9 +169,9 @@ func TestScriptsProvider_HitCarriesContractAndExecutionState(t *testing.T) {
 	assert.Equal(t, "jane@example.com", hits[0].CapturedBy)
 	assert.Contains(t, hits[0].Text, "Daily Sales")
 	assert.Contains(t, hits[0].Text, "parameters: report_date (required)")
-	assert.Contains(t, hits[0].Text, "call run_script")
-	assert.Contains(t, hits[1].Text, "No version of this script is approved",
-		"an unapproved hit must say so: it is something to get reviewed, not something to run")
+	assert.Contains(t, hits[0].Text, "Call run_script")
+	assert.Contains(t, hits[1].Text, "Nothing will execute this script: the script is disabled",
+		"a hit the run gate refuses must say so, not read as something to run")
 }
 
 func TestScriptsProvider_SearchError(t *testing.T) {
@@ -202,7 +203,7 @@ func TestScriptsProvider_FetchDeclinesForeignReferences(t *testing.T) {
 // document is the contract, carried both as prose and structured, and never the
 // script's source.
 func TestScriptsProvider_FetchReturnsTheContractDocument(t *testing.T) {
-	s := &fakeScriptSearcher{contract: approvedContract()}
+	s := &fakeScriptSearcher{contract: runnableContract()}
 
 	doc, owned, err := NewScriptsProvider(s).Fetch(context.Background(), "mcp:script:script_1", Caller{Email: "anyone@example.com"})
 
@@ -213,15 +214,15 @@ func TestScriptsProvider_FetchReturnsTheContractDocument(t *testing.T) {
 	assert.Equal(t, "mcp:script:script_1", doc.Reference)
 	assert.Equal(t, SourceScripts, doc.Source)
 	assert.Equal(t, "Daily Sales", doc.Title)
-	assert.Contains(t, doc.Body, "Approval: version 3, approved by admin@example.com.")
-	assert.Equal(t, approvedContract(), doc.Content)
+	assert.Contains(t, doc.Body, "Runs: version 3, the latest saved version")
+	assert.Equal(t, runnableContract(), doc.Content)
 }
 
 // TestScriptsProvider_FetchHidesWhatSearchWouldHide proves fetch re-applies the
 // visibility rule the store predicate enforces. Without it, a reference would
 // be a way to read a script the same caller could never have searched.
 func TestScriptsProvider_FetchHidesWhatSearchWouldHide(t *testing.T) {
-	c := approvedContract()
+	c := runnableContract()
 	c.Scope = script.ScopePersonal
 	c.OwnerEmail = "jane@example.com"
 	s := &fakeScriptSearcher{contract: c}
@@ -261,9 +262,9 @@ func TestScriptsProvider_FetchStoreError(t *testing.T) {
 // deprecated script gets the document, whose refusal says it will not run. A
 // not-found would read as though the script had never existed.
 func TestScriptsProvider_FetchServesARetiredScript(t *testing.T) {
-	c := approvedContract()
+	c := runnableContract()
 	c.Status = script.StatusDeprecated
-	c.Approval.Refusal = "the script is deprecated and must not be executed"
+	c.Refusal = "the script is deprecated and must not be executed"
 	s := &fakeScriptSearcher{contract: c}
 
 	doc, _, err := NewScriptsProvider(s).Fetch(context.Background(), "mcp:script:script_1", Caller{})

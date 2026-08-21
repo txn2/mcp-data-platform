@@ -53,7 +53,7 @@ func TestValidateScopeAndStatus(t *testing.T) {
 	assert.ErrorContains(t, script.ValidateScope("team"), "invalid scope")
 	assert.NoError(t, script.ValidateStatus(script.StatusActive))
 	assert.ErrorContains(t, script.ValidateStatus("retired"), "invalid status")
-	assert.NoError(t, script.ValidateStatusTransition(script.StatusDraft, script.StatusDeprecated))
+	assert.NoError(t, script.ValidateStatusTransition(script.StatusActive, script.StatusDeprecated))
 	assert.ErrorContains(t, script.ValidateStatusTransition(script.StatusSuperseded, script.StatusActive), "invalid status transition")
 }
 
@@ -64,7 +64,7 @@ func TestValidate_WholeRecord(t *testing.T) {
 	base := func() *script.Script {
 		return &script.Script{
 			Name: "daily", Scope: script.ScopePersonal, Source: "x = 1",
-			Status: script.StatusDraft,
+			Status: script.StatusActive,
 		}
 	}
 	assert.NoError(t, base().Validate())
@@ -99,39 +99,16 @@ func TestValidate_WholeRecord(t *testing.T) {
 	}
 }
 
-func TestExecutable(t *testing.T) {
-	sc := &script.Script{}
-	assert.False(t, sc.Executable())
-	sc.ApprovedVersionID = "sver_1"
-	assert.True(t, sc.Executable())
-}
-
-// TestApplyStatusTransition_ActivationNeedsAnApprovedVersion pins the rule that
-// keeps status a report of the execution gate rather than a way around it.
-func TestApplyStatusTransition_ActivationNeedsAnApprovedVersion(t *testing.T) {
-	now := time.Now().UTC()
-
-	sc := &script.Script{Status: script.StatusDraft}
-	assert.ErrorContains(t, sc.ApplyStatusTransition(script.StatusActive, "", now),
-		"no approved version")
-	assert.Equal(t, script.StatusDraft, sc.Status, "a refused transition must not land")
-
-	sc.ApprovedVersionID = "sver_1"
-	require.NoError(t, sc.ApplyStatusTransition(script.StatusActive, "", now))
-	assert.Equal(t, script.StatusActive, sc.Status)
-}
-
 func TestApplyStatusTransition_LifecycleStamps(t *testing.T) {
 	now := time.Date(2026, 8, 13, 0, 0, 0, 0, time.UTC)
 
-	sc := &script.Script{Status: script.StatusDraft}
+	sc := &script.Script{Status: script.StatusActive}
 	require.NoError(t, sc.ApplyStatusTransition(script.StatusDeprecated, "", now))
 	require.NotNil(t, sc.DeprecatedAt)
 	assert.Equal(t, now, *sc.DeprecatedAt)
 
 	// Reactivating clears the deprecation stamp, so a reactivated script does
 	// not read as both active and deprecated.
-	sc.ApprovedVersionID = "sver_1"
 	require.NoError(t, sc.ApplyStatusTransition(script.StatusActive, "", now))
 	assert.Nil(t, sc.DeprecatedAt)
 

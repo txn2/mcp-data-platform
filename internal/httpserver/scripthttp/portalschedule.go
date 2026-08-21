@@ -12,10 +12,9 @@ import (
 // are deliberately the only ones (#1307).
 //
 // A cadence carries no authority. It is a row of expression, timezone, and
-// bound parameters; the execution gate and the capability grant are re-read at
-// every fire, so re-timing a script cannot make it reach anything it could not
-// already reach. The control that carries authority is approval, and it stays
-// on the admin surface: nothing here can approve a version, reject one, or
+// bound parameters; the run gate and the persona filter are re-read at every
+// fire, so re-timing a script cannot make it reach anything it could not
+// already reach. Nothing here can widen what a run reaches, and nothing can
 // change what a script does.
 //
 // Who may set one is therefore the script's owner and an administrator, at
@@ -80,14 +79,8 @@ func (h *Handler) portalGetSchedule(w http.ResponseWriter, r *http.Request, user
 
 // portalSetSchedule creates or replaces an owned script's cadence.
 //
-// A schedule saved against a script with no approved version saves and stays
-// inert: the parameters are checked against the live record's contract, which
-// is the only contract there is until something is approved, and nothing
-// executes it. That is the same answer the tool gives, so the page never
-// implies an approval it cannot grant.
-//
 // @Summary      Set a script's schedule
-// @Description  Creates or replaces the cadence a script the caller owns runs on, with the parameters every fire binds. A schedule grants no authority: which version runs and what it may reach were both bound at approval. Restricted to the script's owner and to administrators.
+// @Description  Creates or replaces the cadence a script the caller owns runs on, with the parameters every fire binds. A schedule grants no authority: every fire executes the latest saved version, authorized against the roles captured at that save. Restricted to the script's owner and to administrators.
 // @Tags         Scripts
 // @Accept       json
 // @Produce      json

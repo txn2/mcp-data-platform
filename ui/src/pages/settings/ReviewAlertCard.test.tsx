@@ -293,18 +293,10 @@ describe("ReviewAlertCard: read-only file mode", () => {
 });
 
 describe("AdminSettingsPage composition", () => {
-  it("renders every settings section, with one alert card per review queue", () => {
+  it("renders the SMTP section and the knowledge review-queue alert", () => {
     render(<AdminSettingsPage />);
     expect(screen.getByText("Email (SMTP)")).toBeInTheDocument();
     expect(screen.getByText("Knowledge review queue alert")).toBeInTheDocument();
-    expect(screen.getByText("Script review queue alert")).toBeInTheDocument();
-  });
-
-  it("gives each queue its own settings, so configuring one never writes the other", () => {
-    render(<AdminSettingsPage />);
-    // Both cards read through the same parameterized hook; the queue is what
-    // separates them, and it is the settings path as well as the cache key.
     expect(mockUseAlert).toHaveBeenCalledWith("review-queue-alert");
-    expect(mockUseAlert).toHaveBeenCalledWith("script-review-alert");
   });
 });

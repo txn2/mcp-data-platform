@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/pkg/notification"
-	"github.com/txn2/mcp-data-platform/pkg/script"
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
 
@@ -34,42 +33,5 @@ func (s InsightSource) Pending(ctx context.Context, now time.Time) (notification
 	return q, nil
 }
 
-// ScriptSource reports the managed-script review queue: versions no reviewer
-// has decided on yet (#1287).
-//
-// It counts the same rows the review surface lists rather than a second
-// definition of "pending", so the number in the email is the number of rows an
-// operator finds when they open the queue.
-type ScriptSource struct {
-	Reviews script.ReviewStore
-}
-
-// Pending returns the script review queue's rollup.
-//
-// It reports no stale count: unlike insights, the platform has no second,
-// established staleness window for script reviews, and inventing one to fill
-// the field would put a number in the email that means nothing elsewhere. The
-// age of the oldest review is the signal.
-func (s ScriptSource) Pending(ctx context.Context, now time.Time) (notification.ReviewQueue, error) {
-	pending, err := s.Reviews.ListPendingReviews(ctx)
-	if err != nil {
-		return notification.ReviewQueue{}, fmt.Errorf("reading the script review queue: %w", err)
-	}
-	q := notification.ReviewQueue{Pending: len(pending)}
-	// The store returns the queue oldest first, but the oldest is computed here
-	// rather than read off the first row: a rollup that silently depends on a
-	// query's ORDER BY becomes wrong the moment somebody reorders the listing
-	// for the UI's benefit.
-	for _, p := range pending {
-		if age := p.AgeDays(now); age > q.OldestAgeDays {
-			q.OldestAgeDays = age
-		}
-	}
-	return q, nil
-}
-
 // Verify interface compliance.
-var (
-	_ Source = InsightSource{}
-	_ Source = ScriptSource{}
-)
+var _ Source = InsightSource{}

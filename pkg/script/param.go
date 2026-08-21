@@ -26,11 +26,10 @@ const (
 
 	// ParamTypeConnection is a connection name (#1361). It binds as a string,
 	// and it is a type of its own because the platform knows the whole set of
-	// values it can take and an approved version's grant names the subset this
-	// script may use. That is the difference from a string: a surface asking
-	// for one can OFFER the set instead of asking somebody to remember the
-	// spelling, and a value outside it is refused where it was entered rather
-	// than at the run it would have failed.
+	// values it can take. That is the difference from a string: a surface
+	// asking for one can OFFER the connections the caller's persona reaches
+	// instead of asking somebody to remember the spelling, and a value outside
+	// that set is refused by the middleware at the query it names.
 	ParamTypeConnection = "connection"
 )
 
@@ -38,16 +37,13 @@ const (
 // names.
 //
 // A connection is identified by kind and name together, and a deployment may
-// legitimately carry one name across several kinds. A grant records names
-// alone, which left the surface offering the value unable to say which
-// connection a granted name meant (#1384). It does not have to infer one: the
-// kind is a property of the binding the value is passed to, not of the grant.
-// The one host binding that takes a connection is platform.query, which runs
-// its statement through the Trino toolkit (internal/platform/scriptrun/host.go
-// calls trino_query), so the connection a run reaches under a granted name is
-// the Trino one, whatever else carries that name. platform.export names a
-// destination the approval pinned rather than a connection, so it does not
-// widen this.
+// legitimately carry one name across several kinds (#1384). The kind is a
+// property of the binding the value is passed to. The one host binding that
+// takes a connection is platform.query, which runs its statement through the
+// Trino toolkit (internal/platform/scriptrun/host.go calls trino_query), so
+// the connection a run reaches under a given name is the Trino one, whatever
+// else carries that name. platform.export names a configured destination
+// rather than a connection, so it does not widen this.
 //
 // Adding a binding that takes a connection of another kind means this stops
 // being one constant, and the picker route that reads it is where that would
@@ -169,8 +165,8 @@ func validateParamShape(p Param) error {
 // requiresDefault reports whether a type has no meaningful empty value, so an
 // optional parameter of it must state what it means when nobody supplies one.
 // A connection joins the list for the same reason a date does: "" is not a
-// connection, and a run that binds it is refused by the grant, which turns an
-// omitted optional parameter into a failed run.
+// connection, and a query that names none resolves to whichever connection the
+// deployment defaults, which is not what a typed parameter meant.
 func requiresDefault(paramType string) bool {
 	switch paramType {
 	case ParamTypeEnum, ParamTypeDate, ParamTypeConnection:
@@ -306,9 +302,8 @@ func coerceParam(p Param, raw any) (any, error) {
 }
 
 // coerceConnection accepts a non-empty connection name. Emptiness is refused
-// here rather than passed on because the grant refuses an unnamed connection
-// too (Grants.AllowsConnection), and a value the run is certain to reject is
-// worth rejecting while somebody is still looking at the form.
+// while somebody is still looking at the form: "" would resolve to a default
+// the parameter never meant.
 func coerceConnection(raw any) (any, error) {
 	s, ok := raw.(string)
 	if !ok {

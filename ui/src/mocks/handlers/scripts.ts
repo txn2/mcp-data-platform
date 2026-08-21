@@ -1,20 +1,14 @@
 import { http, HttpResponse } from "msw";
-import type {
-  PendingReview,
-  ScriptApproveInput,
-  ScriptVersion,
-} from "@/api/admin/types";
+import type { ScriptVersion } from "@/api/admin/types";
 import type { ScriptSchedule } from "@/api/portal/hooks/scripts";
 import {
   mockBindableConnections,
   mockConnectionNames,
   mockScriptContracts,
-  mockScriptReviewAlert,
-  mockScriptReviewPayloads,
-  mockScriptReviews,
   mockScriptRunDetails,
   mockScriptRuns,
   mockScriptSchedules,
+  mockScriptVersionDetails,
   mockScriptVersions,
   mockScripts,
 } from "../data/scripts";
@@ -29,17 +23,16 @@ function referencedIn(source: string, candidates: string[]): string[] {
 const ADMIN_BASE = "/api/v1/admin";
 const PORTAL_BASE = "/api/v1/portal";
 
-// Mutable copies so approving and rejecting move a row out of the queue within
-// one mock-server session, which is what the demo and the screenshots read.
+// Mutable copies so saving an edit within one mock-server session is what the
+// page reads back, which is what the demo and the screenshots read.
 const scripts = JSON.parse(JSON.stringify(mockScripts)) as typeof mockScripts;
-const reviews = JSON.parse(JSON.stringify(mockScriptReviews)) as PendingReview[];
 const versions = JSON.parse(JSON.stringify(mockScriptVersions)) as Record<
   string,
   ScriptVersion[]
 >;
-const alert = JSON.parse(JSON.stringify(mockScriptReviewAlert));
 // Contracts are mutable for the same reason the records are: documenting a
-// script on its own page has to be what the page reads back (#1369).
+// script on its own page has to be what the page reads back (#1369), and a
+// saved edit has to be the version the contract says runs.
 const contracts = JSON.parse(JSON.stringify(mockScriptContracts)) as typeof mockScriptContracts;
 
 // LONG_DESCRIPTION_BYTES mirrors the server's advisory threshold: a description
@@ -63,13 +56,6 @@ const schedules = JSON.parse(JSON.stringify(mockScriptSchedules)) as Record<
   string,
   ScriptSchedule
 >;
-
-// resolveDecision removes the decided version from the queue, which is what the
-// server's queue predicate does once a version is no longer pending.
-function resolveDecision(scriptID: string, version: number) {
-  const at = reviews.findIndex((r) => r.script_id === scriptID && r.version === version);
-  if (at >= 0) reviews.splice(at, 1);
-}
 
 // emptyDemoRequested reports whether the page URL asks this surface to answer
 // as though the caller had nothing: ?empty=scripts. It is a fixture control, so
@@ -106,31 +92,8 @@ function reportable(schedule: ScriptSchedule): ScriptSchedule {
   return rest;
 }
 
-// alertWarnings mirrors the server's check for a configuration that saves
-// cleanly and delivers nothing.
-function alertWarnings(): string[] {
-  if (!alert.enabled) return [];
-  const out: string[] = [];
-  if (alert.recipients.length === 0) {
-    out.push(
-      "no recipients are configured, so no alert will be delivered; add at least one address",
-    );
-  }
-  if (alert.pending_threshold <= 0 && alert.oldest_pending_days <= 0) {
-    out.push(
-      "both thresholds are 0, so nothing can cross; set a pending count, an age in days, or both",
-    );
-  }
-  return out;
-}
-
-// Managed-script review handlers (#1287), mirroring
-// internal/httpserver/scripthttp.
+// Managed-script handlers, mirroring internal/httpserver/scripthttp.
 export const scriptHandlers = [
-  http.get(`${ADMIN_BASE}/scripts/reviews`, () =>
-    HttpResponse.json({ data: reviews, total: reviews.length }),
-  ),
-
   http.get(`${ADMIN_BASE}/scripts`, () =>
     HttpResponse.json({ data: scripts, total: scripts.length }),
   ),
@@ -151,73 +114,15 @@ export const scriptHandlers = [
     return HttpResponse.json({ data: list, total: list.length });
   }),
 
+  // One version in full: the snapshot, what a static read of its source found,
+  // and the account of somebody having executed this exact source, when one
+  // exists (#1364).
   http.get(`${ADMIN_BASE}/scripts/:id/versions/:version`, ({ params }) => {
-    const payload = mockScriptReviewPayloads[`${params.id}/${params.version}`];
+    const payload = mockScriptVersionDetails[`${params.id}/${params.version}`];
     if (!payload) {
       return HttpResponse.json({ detail: "version not found" }, { status: 404 });
     }
     return HttpResponse.json(payload);
-  }),
-
-  http.post(`${ADMIN_BASE}/scripts/:id/versions/:version/approve`, async ({ params, request }) => {
-    const body = (await request.json()) as ScriptApproveInput;
-    const scriptID = String(params.id);
-    const version = Number(params.version);
-    const list = versions[scriptID] ?? [];
-    const target = list.find((v) => v.version === version);
-    if (!target) {
-      return HttpResponse.json({ detail: "version not found" }, { status: 404 });
-    }
-    // The server refuses a grant the code would outrun, so the mock does too:
-    // approving into a grant that covers nothing is the error state the
-    // surface has to be able to show.
-    if (!(body.capabilities ?? []).length) {
-      return HttpResponse.json(
-        {
-          detail:
-            "the grant does not cover capabilities this version calls: platform.query, platform.export",
-        },
-        { status: 400 },
-      );
-    }
-    target.status = "applied";
-    target.approved_by = "sarah.chen@example.com";
-    target.approved_at = new Date().toISOString();
-    // Roles come from the version's author, never from the request.
-    target.grants = {
-      roles: target.author_roles ?? [],
-      connections: body.connections ?? [],
-      capabilities: body.capabilities ?? [],
-      destinations: body.destinations ?? [],
-    };
-    const script = scripts.find((s) => s.id === scriptID);
-    if (script) {
-      script.approved_version_id = target.id;
-      script.version = target.version;
-      script.status = script.status === "draft" ? "active" : script.status;
-    }
-    resolveDecision(scriptID, version);
-    return HttpResponse.json(target);
-  }),
-
-  http.post(`${ADMIN_BASE}/scripts/:id/versions/:version/reject`, ({ params }) => {
-    const scriptID = String(params.id);
-    const version = Number(params.version);
-    const target = (versions[scriptID] ?? []).find((v) => v.version === version);
-    if (!target || target.status !== "draft") {
-      return HttpResponse.json(
-        { detail: `version ${version} is not a pending draft, so there is nothing to reject` },
-        { status: 409 },
-      );
-    }
-    target.status = "rejected";
-    resolveDecision(scriptID, version);
-    return HttpResponse.json({ status: "rejected" });
-  }),
-
-  http.get(`${ADMIN_BASE}/settings/script-review-alert`, () => {
-    alert.warnings = alertWarnings();
-    return HttpResponse.json(alert);
   }),
 
   // Portal script pages (#1290). The mock caller is an administrator, so every
@@ -263,9 +168,9 @@ export const scriptHandlers = [
     }
     // The live source and the contract that code was written against travel
     // with the document for the owner: the editor opens the one and the dry-run
-    // form binds the other. In these fixtures the live and approved parameter
-    // contracts agree, which is the ordinary case.
-    const live = (versions[id] ?? []).find((v) => v.status === "applied");
+    // form binds the other. The live version is the latest saved one, which is
+    // the version a run executes.
+    const live = (versions[id] ?? [])[0];
     return HttpResponse.json({
       contract,
       owned: true,
@@ -274,9 +179,9 @@ export const scriptHandlers = [
     });
   }),
 
-  // Documenting the script (#1369). It is not review-gated, so it applies at
-  // once and never produces a draft; the record and the contract both move,
-  // because the page reads the contract and the listing reads the record.
+  // Documenting the script (#1369). It applies at once; the record and the
+  // contract both move, because the page reads the contract and the listing
+  // reads the record.
   http.put(`${PORTAL_BASE}/scripts/:id/metadata`, async ({ params, request }) => {
     const id = String(params.id);
     const body = (await request.json()) as {
@@ -317,19 +222,20 @@ export const scriptHandlers = [
       if (body.category !== undefined) target.category = body.category;
       if (body.tags !== undefined) target.tags = body.tags;
     }
-    if (moved) script.version += 1;
+    if (moved) {
+      script.version += 1;
+      contract.version = script.version;
+    }
     return HttpResponse.json({
       version: script.version,
       description_notice: descriptionNotice(script.description),
-      message:
-        "Saved. This changes what the script says about itself and not what it does, " +
-        "so nothing was sent for review.",
+      message: "Saved. This changes what the script says about itself and not what it does.",
     });
   }),
 
-  // Editing the code (#1307). An approved script's edit becomes a draft the
-  // review queue then holds, which is the server's rule and the reason the
-  // page reports an outcome rather than saying "saved".
+  // Editing the code (#1307). Every save applies: the saved version is the
+  // version a run executes, which is the server's rule and what the editor's
+  // outcome message states.
   http.put(`${PORTAL_BASE}/scripts/:id/source`, async ({ params, request }) => {
     const id = String(params.id);
     const body = (await request.json()) as { source?: string };
@@ -339,123 +245,73 @@ export const scriptHandlers = [
         { status: 400 },
       );
     }
-    const list = versions[id] ?? [];
     const script = scripts.find((s) => s.id === id);
+    const contract = contracts[id];
+    if (!script || !contract) {
+      return HttpResponse.json({ detail: "script not found" }, { status: 404 });
+    }
+    const list = versions[id] ?? [];
     const next = Math.max(0, ...list.map((v) => v.version)) + 1;
-    // A personal script its own owner edits is approved by the save itself
-    // (#1367): the platform mints the grant from what the source reaches, and
-    // no reviewer is asked — so this is answered BEFORE the review branch,
-    // which is what an approved shared script's edit takes. The demo caller is
-    // sarah.chen, so the fixture's personal script is hers.
-    if (script?.scope === "personal" && script.owner_email === "sarah.chen@example.com") {
-      if (list[0]) {
-        list[0].source = body.source;
-        list[0].auto_approved = true;
-      }
-      return HttpResponse.json({
-        applied: true,
-        approved: true,
-        message:
-          "Saved and approved. This script is yours alone, so the platform approved this version " +
-          "for you and runs it under the access you hold. It runs now, and on its schedule.",
-      });
-    }
-    if (script?.approved_version_id) {
-      list.unshift({
-        ...list[0]!,
-        id: `${id}-v${next}`,
-        version: next,
-        source: body.source,
-        status: "draft",
-        approved_by: "",
-        approved_at: undefined,
-        created_at: new Date().toISOString(),
-      });
-      versions[id] = list;
-      reviews.unshift({
-        script_id: id,
-        script_name: script.name,
-        display_name: script.display_name,
-        description: script.description,
-        version: next,
-        author: "sarah.chen@example.com",
-        author_roles: script.version ? ["analyst"] : [],
-        created_at: new Date().toISOString(),
-        first_approval: false,
-      } as PendingReview);
-      return HttpResponse.json({
-        applied: false,
-        pending_version: next,
-        message:
-          "This script has an approved version, so the change was saved as a draft awaiting review. " +
-          "The approved version keeps running until the draft is approved.",
-      });
-    }
-    if (list[0]) list[0].source = body.source;
+    list.unshift({
+      ...list[0]!,
+      id: `${id}-v${next}`,
+      version: next,
+      source: body.source,
+      status: "applied",
+      author: "sarah.chen@example.com",
+      created_at: new Date().toISOString(),
+    });
+    versions[id] = list;
+    script.version = next;
+    contract.version = next;
     return HttpResponse.json({
       applied: true,
-      message: "Saved. Nothing is approved for this script yet, so nothing executes it unattended.",
+      message:
+        "Saved. This is the version that runs: run_script executes it and any schedule " +
+        "fires it, presenting the roles you held at this save.",
     });
   }),
 
   // The owner's exercise loop (#1361, #1363, #1364): the connections a
-  // parameter may name, a run of the approved version, and the two checks an
-  // author makes before asking anybody to approve an edit.
+  // parameter may name, a run of the latest saved version, and the two checks
+  // an author makes before saving an edit.
 
-  // The set a connection parameter chooses from. Which set depends on what will
-  // execute: an approved run is confined to the grant, while a dry run reaches
-  // what its caller reaches, and answering with the wrong one would offer values
-  // the run then refuses.
-  http.get(`${PORTAL_BASE}/scripts/:id/connections`, ({ params, request }) => {
+  // The set a connection parameter chooses from: the connections the caller's
+  // persona reaches, narrowed to the kind the parameter binds. One set for
+  // every form on the page — a run and a dry run are both authorized by the
+  // persona filter at query time.
+  http.get(`${PORTAL_BASE}/scripts/:id/connections`, ({ params }) => {
     const id = String(params.id);
     if (!mockScriptContracts[id]) {
       return HttpResponse.json({ detail: "script not found" }, { status: 404 });
     }
-    if (new URL(request.url).searchParams.get("audience") === "draft") {
-      return HttpResponse.json({
-        data: mockBindableConnections,
-        source: "persona",
-        note:
-          "A dry run executes as you, so these are the connections you reach " +
-          "that a script may query. An approved run is confined to what its " +
-          "approval granted instead.",
-      });
-    }
-    // The approved version is the one the execution gate points at, resolved by
-    // id rather than by status: an approved version's status is "applied", so a
-    // status test would find none and offer an empty set.
-    const gate = scripts.find((sc) => sc.id === id)?.approved_version_id;
-    const granted = (versions[id] ?? []).find((v) => v.id === gate)?.grants?.connections;
-    const data = mockBindableConnections.filter((c) => (granted ?? []).includes(c.name));
     return HttpResponse.json({
-      data,
-      source: "grant",
-      note: data.length
-        ? "These are the connections this script's approved version may reach. " +
-          "A run naming any other is refused."
-        : "Nothing is approved for this script, or its approval granted no connection, " +
-          "so a run of it can name none.",
+      data: mockBindableConnections,
+      source: "persona",
+      note:
+        "These are the connections your persona reaches that a script may query. " +
+        "A run is authorized at query time, so a connection you cannot reach is not offered.",
     });
   }),
 
-  // Running the approved version now. It queues what run_script queues; the
-  // response carries the run id and never a result, because a worker executes
-  // it and the history is where it is followed.
+  // Running the script now. It queues what run_script queues; the response
+  // carries the run id and never a result, because a worker executes it and
+  // the history is where it is followed.
   http.post(`${PORTAL_BASE}/scripts/:id/runs`, async ({ params, request }) => {
     const id = String(params.id);
     const contract = contracts[id];
     if (!contract) {
       return HttpResponse.json({ detail: "script not found" }, { status: 404 });
     }
-    if (contract.approval.refusal) {
-      return HttpResponse.json({ detail: contract.approval.refusal }, { status: 400 });
+    if (contract.refusal) {
+      return HttpResponse.json({ detail: contract.refusal }, { status: 400 });
     }
     await request.json();
     return HttpResponse.json(
       {
         run_id: `dpx_${Date.now().toString(36)}`,
         status: "pending",
-        version: contract.approval.version ?? 0,
+        version: contract.version,
         message: "Queued. It appears in this script's run history and updates as it progresses.",
       },
       { status: 202 },
@@ -602,20 +458,5 @@ export const scriptHandlers = [
       return HttpResponse.json({ detail: "run not found" }, { status: 404 });
     }
     return HttpResponse.json(run);
-  }),
-
-  http.put(`${ADMIN_BASE}/settings/script-review-alert`, async ({ request }) => {
-    const body = (await request.json()) as Record<string, unknown>;
-    alert.enabled = Boolean(body.enabled);
-    alert.pending_threshold = Number(body.pending_threshold ?? 0);
-    alert.oldest_pending_days = Number(body.oldest_pending_days ?? 0);
-    alert.cooldown_hours = Number(body.cooldown_hours ?? 24);
-    alert.recipients = (Array.isArray(body.recipients) ? body.recipients : []).map((r) =>
-      String(r).trim().toLowerCase(),
-    );
-    alert.updated_by = "sarah.chen@example.com";
-    alert.updated_at = new Date().toISOString();
-    alert.warnings = alertWarnings();
-    return HttpResponse.json(alert);
   }),
 ];

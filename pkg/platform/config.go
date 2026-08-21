@@ -24,6 +24,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/toolkitcfg"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
+	"github.com/txn2/mcp-data-platform/pkg/script"
 	datahubsemantic "github.com/txn2/mcp-data-platform/pkg/semantic/datahub"
 )
 
@@ -1327,7 +1328,8 @@ func (c *WorkflowConfig) IsRequireSearchEnabled() bool {
 
 // ScriptsConfig configures managed-script execution. Authoring needs no
 // configuration; what a deployment chooses here is how long the record of what
-// its automations did is kept.
+// its automations did is kept, and which bucket destinations scripts may
+// write to.
 type ScriptsConfig struct {
 	// RunRetentionDays is how long a finished run row is kept. It defaults to
 	// a year, far beyond the queue-shaped retention of the notification table,
@@ -1336,9 +1338,31 @@ type ScriptsConfig struct {
 	// Zero or negative takes the default.
 	RunRetentionDays int `yaml:"run_retention_days"`
 
+	// Destinations declares the named bucket destinations a script's
+	// platform.export may write to, each a complete address: the platform S3
+	// connection, the bucket, and an optional key prefix. A run resolves the
+	// name a script writes against this list at run time, so repointing a
+	// destination here takes effect on the next run. The portal is built in
+	// and never declared.
+	Destinations []script.Destination `yaml:"destinations"`
+
 	// Worker decides whether this replica executes queued runs or only
 	// enqueues them for another deployment to execute.
 	Worker ScriptsWorkerConfig `yaml:"worker"`
+}
+
+// ScriptDestinations returns the configured destinations normalized, with the
+// kind defaulted to s3: configuration declares only bucket destinations.
+func (c *ScriptsConfig) ScriptDestinations() []script.Destination {
+	out := make([]script.Destination, 0, len(c.Destinations))
+	for _, d := range c.Destinations {
+		d = d.Normalized()
+		if d.Kind == "" {
+			d.Kind = script.DestinationKindS3
+		}
+		out = append(out, d)
+	}
+	return out
 }
 
 // ScriptsWorkerConfig configures the run worker on this replica.
@@ -2017,6 +2041,7 @@ func (c *Config) Validate() error {
 	errs = c.validateSessions(errs)
 	errs = c.validateBrowserSession(errs)
 	errs = c.validatePersonas(errs)
+	errs = c.validateScriptDestinations(errs)
 
 	if err := c.Audit.ValidateDelivery(); err != nil {
 		errs = append(errs, err.Error())
@@ -2027,6 +2052,15 @@ func (c *Config) Validate() error {
 	}
 
 	return nil
+}
+
+// validateScriptDestinations checks the configured script destinations
+// against the domain's declaration rules.
+func (c *Config) validateScriptDestinations(errs []string) []string {
+	if err := script.ValidateDeclaredDestinations(c.Scripts.ScriptDestinations()); err != nil {
+		errs = append(errs, "scripts.destinations: "+err.Error())
+	}
+	return errs
 }
 
 // validateOAuth checks OAuth configuration validity and appends any errors.

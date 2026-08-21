@@ -612,8 +612,9 @@ func (s *PostgresStore) RecordFetch(ctx context.Context, recordID string, by Fet
 //
 // The API arm compares resolved targets rather than the operation id, for the
 // reason supersession does: an operation id names an endpoint, and a session
-// that read one script's record and then approved a different script re-ran
-// nothing (#1352). A call with no target that distinguishes it credits nothing.
+// that read one record and then invoked the same endpoint against a different
+// resource re-ran nothing (#1352). A call with no target that distinguishes it
+// credits nothing.
 //
 // #nosec G101 -- the reuse-credit INSERT, not a credential: the scanner is
 // matching on the column names (user_id, session_id) the statement selects.

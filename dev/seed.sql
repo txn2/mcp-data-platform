@@ -14,7 +14,7 @@
 --   6 curated portal assets (with versions and shares) + 120 generated demo
 --     assets so the library exercises pagination (126 total under "Mine")
 --   3 portal collections with sections, items, and a public share
---   3 managed scripts: a running automation and an unapproved one owned by
+--   3 managed scripts: a scheduled automation and an on-demand one owned by
 --     analyst@example.com, plus a paused one owned by the admin, with their
 --     versions, cadences, and run history
 
@@ -1815,15 +1815,13 @@ ON CONFLICT (id) DO NOTHING;
 -- rule the cadence controls answer to is OWNERSHIP rather than admin — two of
 -- them are owned by analyst@example.com, who is not an administrator:
 --
---   daily-sales-report   global, owned by the analyst, approved, running on a
---                        cadence with a ${fire_date} binding. This is the
---                        #1307 case: a shared report its owner may re-time and
---                        pause without an administrator.
---   dormant-accounts     personal to the analyst, nothing approved. A cadence
---                        set here saves and fires nothing, which is what the
---                        page has to say.
---   warehouse-freshness  global, owned by the ADMIN, approved, schedule paused
---                        with missed fires. For the analyst it is the
+--   daily-sales-report   global, owned by the analyst, running on a cadence
+--                        with a ${fire_date} binding. This is the #1307 case:
+--                        a shared report its owner may re-time and pause
+--                        without an administrator.
+--   dormant-accounts     personal to the analyst, on demand: no schedule.
+--   warehouse-freshness  global, owned by the ADMIN, schedule paused with
+--                        missed fires. For the analyst it is the
 --                        visible-but-not-owned case: contract only, no source,
 --                        no runs, no cadence controls.
 --
@@ -1831,17 +1829,12 @@ ON CONFLICT (id) DO NOTHING;
 -- reference them. A re-run resets them to this state, as the rest of this file
 -- does with its demo data.
 --
--- The sources are the real Starlark the engine runs, and each approved grant
--- covers exactly what its source reaches for, so the review screen's capability
--- diff reads as it would for a script an agent actually wrote.
+-- The sources are the real Starlark the engine runs, and each version carries
+-- the roles its author held, which are the roles a run of it presents.
 -- ============================================================================
 
 DELETE FROM script_runs      WHERE id LIKE 'dpx_seed_%';
 DELETE FROM script_schedules WHERE script_id IN (
-  'e1e1e1e1-0000-4000-8000-000000000001',
-  'e1e1e1e1-0000-4000-8000-000000000002',
-  'e1e1e1e1-0000-4000-8000-000000000003');
-UPDATE scripts SET approved_version_id = NULL WHERE id IN (
   'e1e1e1e1-0000-4000-8000-000000000001',
   'e1e1e1e1-0000-4000-8000-000000000002',
   'e1e1e1e1-0000-4000-8000-000000000003');
@@ -1869,7 +1862,7 @@ INSERT INTO scripts (
   'Accounts with no orders since a cutoff date, for the retention review.',
   E'rows = platform.query(\n    connection="acme",\n    sql="SELECT account_id, last_order_at FROM warehouse.public.accounts WHERE last_order_at < :cutoff",\n    params={"cutoff": run.params["cutoff"]},\n)["rows"]\n\nplatform.export(name="dormant-accounts", rows=rows, format="csv")\n',
   '[{"name":"cutoff","type":"date","description":"Accounts idle since this date.","required":true}]'::jsonb,
-  'personal', '{}', 'analyst@example.com', '{retention}', true, 'draft', 1,
+  'personal', '{}', 'analyst@example.com', '{retention}', true, 'active', 1,
   NOW() - interval '3 days', NOW() - interval '3 days'
 ),
 (
@@ -1890,12 +1883,11 @@ ON CONFLICT (id) DO UPDATE SET
   updated_at = EXCLUDED.updated_at;
 
 -- Version history. The analyst authored their own scripts, so their versions
--- carry the analyst's roles — which is the ceiling on what approving one can
--- ever grant, and why the grants below name the analyst's role rather than an
--- administrator's.
+-- carry the analyst's roles — which are the roles a run of each version
+-- presents.
 INSERT INTO script_versions (
   id, script_id, version, display_name, description, source_code, params, tags,
-  author, author_roles, status, approved_by, approved_at, grants, created_at
+  author, author_roles, status, created_at
 ) VALUES
 (
   'e2e2e2e2-0000-4000-8000-000000000011',
@@ -1903,8 +1895,7 @@ INSERT INTO script_versions (
   'Daily Sales Report', 'First cut: totals with no regional split.',
   E'rows = platform.query(connection="acme", sql="SELECT sum(amount) AS revenue FROM warehouse.public.sales")["rows"]\nplatform.export(name="daily-sales", rows=rows, format="csv")\n',
   '[]'::jsonb, '{sales}', 'analyst@example.com', '{dp_analyst}',
-  'superseded', 'admin@example.com', NOW() - interval '38 days',
-  '{"roles":["dp_analyst"],"connections":["acme"],"capabilities":["platform.query","platform.export"],"destinations":[{"name":"portal","kind":"portal"}]}'::jsonb,
+  'superseded',
   NOW() - interval '40 days'
 ),
 (
@@ -1914,12 +1905,9 @@ INSERT INTO script_versions (
   E'rows = platform.query(\n    connection="acme",\n    sql="SELECT region, sum(amount) AS revenue FROM warehouse.public.sales WHERE sale_date = :d GROUP BY region",\n    params={"d": run.params["report_date"]},\n)["rows"]\n\nplatform.export(name="daily-sales", rows=rows, format="csv")\nprint("wrote %d regions for %s" % (len(rows), run.params["report_date"]))\n',
   '[{"name":"report_date","type":"date","description":"The business date to report on; the schedule pins it to the fire time.","required":true}]'::jsonb,
   '{sales,reporting}', 'analyst@example.com', '{dp_analyst}',
-  'applied', 'admin@example.com', NOW() - interval '30 days',
-  '{"roles":["dp_analyst"],"connections":["acme"],"capabilities":["platform.query","platform.export"],"destinations":[{"name":"portal","kind":"portal"}]}'::jsonb,
+  'applied',
   NOW() - interval '31 days'
 ),
--- Never approved: this is what the review queue holds and what the schedule
--- editor reports as inert.
 (
   'e2e2e2e2-0000-4000-8000-000000000021',
   'e1e1e1e1-0000-4000-8000-000000000002', 1,
@@ -1927,7 +1915,7 @@ INSERT INTO script_versions (
   E'rows = platform.query(\n    connection="acme",\n    sql="SELECT account_id, last_order_at FROM warehouse.public.accounts WHERE last_order_at < :cutoff",\n    params={"cutoff": run.params["cutoff"]},\n)["rows"]\n\nplatform.export(name="dormant-accounts", rows=rows, format="csv")\n',
   '[{"name":"cutoff","type":"date","description":"Accounts idle since this date.","required":true}]'::jsonb,
   '{retention}', 'analyst@example.com', '{dp_analyst}',
-  'applied', '', NULL, '{}'::jsonb,
+  'applied',
   NOW() - interval '3 days'
 ),
 (
@@ -1936,17 +1924,9 @@ INSERT INTO script_versions (
   'Warehouse Freshness Check', 'Row counts and max load timestamps per warehouse table.',
   E'rows = platform.query(\n    connection="acme",\n    sql="SELECT table_name, row_count, max_loaded_at FROM warehouse.public.table_stats",\n)["rows"]\n\nplatform.export(name="freshness", rows=rows, format="csv")\n',
   '[]'::jsonb, '{operations}', 'admin@example.com', '{dp_admin}',
-  'applied', 'admin@example.com', NOW() - interval '21 days',
-  '{"roles":["dp_admin"],"connections":["acme"],"capabilities":["platform.query","platform.export"],"destinations":[{"name":"portal","kind":"portal"}]}'::jsonb,
+  'applied',
   NOW() - interval '22 days'
 );
-
--- The execution gate, set after the versions exist: this pointer is the one
--- thing that decides what the platform may execute unattended.
-UPDATE scripts SET approved_version_id = 'e2e2e2e2-0000-4000-8000-000000000012'
-  WHERE id = 'e1e1e1e1-0000-4000-8000-000000000001';
-UPDATE scripts SET approved_version_id = 'e2e2e2e2-0000-4000-8000-000000000035'
-  WHERE id = 'e1e1e1e1-0000-4000-8000-000000000003';
 
 -- Cadences. The bound value keeps its token: ${fire_date} expands at the fire,
 -- so the run records the date it computed for.

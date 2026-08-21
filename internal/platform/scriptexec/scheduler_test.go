@@ -186,6 +186,11 @@ func TestScheduler_ADueFireBecomesARun(t *testing.T) {
 	require.Len(t, runs, 1)
 	assert.Equal(t, script.TriggerSchedule, runs[0].Trigger)
 	assert.Equal(t, "sched_1", runs[0].ScheduleID)
+	// The fake's GetVersion answers only the script's current number, so these
+	// ids prove the fire was materialized against the current version — the
+	// latest saved one — not against whatever version the schedule once saw.
+	assert.Equal(t, "sver_1", runs[0].VersionID, "the run is queued against the script's current version")
+	assert.Equal(t, 3, runs[0].Version)
 	assert.True(t, runs[0].FireTime.Equal(fire), "the run computes against the fire, not against now")
 	assert.Equal(t, "2026-08-14", runs[0].Params["report_date"], "the token is expanded onto the run row")
 	assert.Equal(t, "jane@example.com", runs[0].RequestedBy)
@@ -258,10 +263,11 @@ func TestScheduler_ARefusedFireProducesNoRunAndCountsAsMissed(t *testing.T) {
 		name   string
 		mutate func(*script.Script, *script.Version)
 	}{
-		{"no approved version", func(sc *script.Script, _ *script.Version) { sc.ApprovedVersionID = "" }},
 		{"the script is disabled", func(sc *script.Script, _ *script.Version) { sc.Enabled = false }},
 		{"the script is deprecated", func(sc *script.Script, _ *script.Version) { sc.Status = script.StatusDeprecated }},
-		{"the approved version lost its grant", func(_ *script.Script, v *script.Version) { v.Grants = script.Grants{} }},
+		{"the script was superseded", func(sc *script.Script, _ *script.Version) {
+			sc.Status, sc.SupersededBy = script.StatusSuperseded, "daily-v2"
+		}},
 		{"the bindings no longer fit the contract", func(_ *script.Script, v *script.Version) {
 			v.Params = []script.Param{{Name: "as_of", Type: script.ParamTypeDate, Required: true}}
 		}},
@@ -296,7 +302,7 @@ func TestScheduler_AMissingScriptOrVersionIsRefused(t *testing.T) {
 	}{
 		{"the script is gone", &fakeScripts{}, &fakeVersions{version: v}},
 		{"reading the script failed", &fakeScripts{err: errors.New("boom")}, &fakeVersions{version: v}},
-		{"the approved version is gone", &fakeScripts{script: sc}, &fakeVersions{}},
+		{"the current version is gone", &fakeScripts{script: sc}, &fakeVersions{}},
 		{"reading the version failed", &fakeScripts{script: sc}, &fakeVersions{err: errors.New("boom")}},
 	}
 	for _, tt := range tests {

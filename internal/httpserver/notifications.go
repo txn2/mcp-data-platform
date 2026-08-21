@@ -10,7 +10,6 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/branding"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
 	"github.com/txn2/mcp-data-platform/internal/platform/reviewalert"
-	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/portal/mention"
@@ -68,30 +67,6 @@ func buildReviewAlert(p *platform.Platform, notify *notifydelivery.Handle) *revi
 	})
 	if checker != nil {
 		log.Println("Knowledge review-queue staleness alert enabled")
-	}
-	return checker
-}
-
-// buildScriptReviewAlert assembles the scheduled managed-script review-queue
-// check (#1287). It reads the same queue the review surface lists, over the
-// same pool the script store uses, so the number an operator is mailed is the
-// number they find when they open the queue.
-func buildScriptReviewAlert(p *platform.Platform, notify *notifydelivery.Handle) *reviewalert.Checker {
-	target := reviewalert.ScriptTarget()
-	store := reviewAlertStore(p, target)
-	if store == nil {
-		return nil
-	}
-	checker := reviewalert.New(reviewalert.Config{
-		Target:   target,
-		Settings: store,
-		State:    store,
-		Source:   reviewalert.ScriptSource{Reviews: scriptstore.New(p.DB())},
-		Enqueuer: notify.Enqueuer(),
-		BaseURL:  p.Config().Portal.PublicBaseURL,
-	})
-	if checker != nil {
-		log.Println("Managed-script review-queue alert enabled")
 	}
 	return checker
 }

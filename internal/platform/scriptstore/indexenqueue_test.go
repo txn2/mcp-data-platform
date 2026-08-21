@@ -113,34 +113,6 @@ func TestUpdateEnqueuesOnlyWhenTheIndexedTextMoved(t *testing.T) {
 	}
 }
 
-// TestApprovalConvergesThroughTheReconcilerNotAnEnqueue pins where approval's
-// index job comes from. Approval rewrites the card's last line, but the store
-// the approval route is built on carries no producer: the write clears the
-// vector (pointExecutionGate's invalidation, proved against real Postgres in
-// TestRealDB_ApprovalClearsTheVector) and the reconciler picks the row up as a
-// gap. Nothing is enqueued here, and a test that expected one would be
-// describing wiring the deployment does not have.
-func TestApprovalConvergesThroughTheReconcilerNotAnEnqueue(t *testing.T) {
-	s, mock, enq := newIndexedMock(t)
-	mock.ExpectBegin()
-	expectLockedScript(t, mock)
-	expectVersionLock(mock, script.VersionStatusDraft)
-	mock.ExpectExec(regexp.QuoteMeta("UPDATE script_versions")).WillReturnResult(sqlmock.NewResult(0, 1))
-	expectLiveRowUpdate(mock, false)
-	mock.ExpectExec(regexp.QuoteMeta("UPDATE script_versions SET status = $3")).
-		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(regexp.QuoteMeta("UPDATE scripts SET approved_version_id")).
-		WillReturnResult(sqlmock.NewResult(0, 1))
-	expectApprovedReread(mock, []byte(`{}`))
-	mock.ExpectCommit()
-
-	_, err := s.ApproveVersion(context.Background(), "script_1", 2, "admin@example.com", approvalGrant())
-	require.NoError(t, err)
-
-	assert.Empty(t, enq.enqueued())
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
 // TestWritesSurviveAnUnwiredQueue is the no-database / no-worker shape: the
 // store is built without a producer and every write path must still commit,
 // leaving the row for the reconciler.

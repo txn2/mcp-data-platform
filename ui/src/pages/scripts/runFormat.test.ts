@@ -116,25 +116,16 @@ describe("outputs", () => {
 });
 
 describe("execution state", () => {
-  it("reports a script nothing has approved as running nothing", () => {
-    const state = executionState({ approval: { approved: false } });
-    expect(state.label).toBe("Nothing approved");
-    expect(state.variant).toBe("muted");
-    expect(state.detail).toMatch(/No version is approved/);
-  });
-
-  it("carries the gate's own refusal over an approved version that still will not run", () => {
-    const state = executionState({
-      approval: { approved: true, version: 3, refusal: "the script is disabled" },
-    });
-    expect(state.label).toBe("Approved v3");
+  it("carries the gate's own refusal when a run would be declined", () => {
+    const state = executionState({ version: 3, refusal: "the script is disabled" });
+    expect(state.label).toBe("Not running");
     expect(state.variant).toBe("warning");
     expect(state.detail).toBe("the script is disabled");
   });
 
-  it("reports an approved, admissible script with no caveat", () => {
-    const state = executionState({ approval: { approved: true, version: 3 } });
-    expect(state.label).toBe("Approved v3");
+  it("reports an admissible script as running its latest saved version", () => {
+    const state = executionState({ version: 3 });
+    expect(state.label).toBe("Runs v3");
     expect(state.variant).toBe("success");
     expect(state.detail).toBeUndefined();
   });

@@ -2,7 +2,6 @@ package script_test
 
 import (
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -10,64 +9,40 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
-// executable returns a script, its approved version, and a run queued against
-// that version — the state the execution gate must admit.
-func executable() (*script.Script, *script.Version, *script.Run) {
-	approvedAt := time.Now().UTC()
-	v := &script.Version{
-		ID: "sver_1", ScriptID: "script_1", Version: 3,
-		Source: "print(1)", ApprovedBy: "admin@example.com", ApprovedAt: &approvedAt,
-		Grants: fullGrant(),
-	}
-	sc := &script.Script{
+// runnable returns a script in the one state the run gate admits.
+func runnable() *script.Script {
+	return &script.Script{
 		ID: "script_1", Name: "daily-sales", Scope: script.ScopePersonal,
 		OwnerEmail: "jane@example.com", Enabled: true, Status: script.StatusActive,
-		ApprovedVersionID: v.ID, Version: v.Version,
+		Version: 3,
 	}
-	run := &script.Run{
-		ID: "dpx_1", ScriptID: sc.ID, VersionID: v.ID, Version: v.Version,
-		Trigger: script.TriggerTool, Status: script.RunStatusRunning,
-	}
-	return sc, v, run
 }
 
-// TestRefuseRun is the execution gate. Each case is a state in which the
-// platform must not run a script on its own, and the last is the one state in
-// which it may.
+// TestRefuseRun is the run gate. Each case is a state in which the platform
+// must not run a script on its own, and the first is the one state in which it
+// may.
 func TestRefuseRun(t *testing.T) {
 	tests := []struct {
 		name    string
-		mutate  func(*script.Script, *script.Version, *script.Run)
+		mutate  func(*script.Script)
 		wantErr string
 	}{
-		{"admitted", func(*script.Script, *script.Version, *script.Run) {}, ""},
-		{"disabled", func(sc *script.Script, _ *script.Version, _ *script.Run) {
+		{"admitted", func(*script.Script) {}, ""},
+		{"disabled", func(sc *script.Script) {
 			sc.Enabled = false
 		}, "disabled"},
-		{"superseded", func(sc *script.Script, _ *script.Version, _ *script.Run) {
+		{"superseded", func(sc *script.Script) {
 			sc.Status, sc.SupersededBy = script.StatusSuperseded, "daily-sales-v2"
 		}, "superseded by"},
-		{"deprecated", func(sc *script.Script, _ *script.Version, _ *script.Run) {
+		{"deprecated", func(sc *script.Script) {
 			sc.Status = script.StatusDeprecated
 		}, "deprecated"},
-		{"no approved version", func(sc *script.Script, _ *script.Version, _ *script.Run) {
-			sc.ApprovedVersionID = ""
-		}, "no approved version"},
-		{"approval moved to another version", func(sc *script.Script, _ *script.Version, _ *script.Run) {
-			sc.ApprovedVersionID = "sver_2"
-		}, "is not any more"},
-		{"version carries no approval stamp", func(_ *script.Script, v *script.Version, _ *script.Run) {
-			v.ApprovedAt = nil
-		}, "no approval grant"},
-		{"version carries an empty grant", func(_ *script.Script, v *script.Version, _ *script.Run) {
-			v.Grants = script.Grants{}
-		}, "no approval grant"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			sc, v, run := executable()
-			tt.mutate(sc, v, run)
-			err := script.RefuseRun(sc, v, run)
+			sc := runnable()
+			tt.mutate(sc)
+			err := script.RefuseRun(sc)
 			if tt.wantErr == "" {
 				require.NoError(t, err)
 				return
@@ -76,6 +51,12 @@ func TestRefuseRun(t *testing.T) {
 			assert.Contains(t, err.Error(), tt.wantErr)
 		})
 	}
+}
+
+// TestRefuseRunRejectsAMissingScript proves the nil case is an answer, not a
+// panic: every discovery surface asks the gate about whatever it just read.
+func TestRefuseRunRejectsAMissingScript(t *testing.T) {
+	require.Error(t, script.RefuseRun(nil))
 }
 
 func TestRun_Terminal(t *testing.T) {
@@ -132,9 +113,9 @@ func TestScript_Principal(t *testing.T) {
 	assert.True(t, len(sc.Principal()) > len(script.PrincipalPrefix))
 }
 
-// TestRefuseDraftRun is the gate a DRAFT crosses, which is not the approved-run
-// gate: a draft executes as its author with no grant, so approval has nothing
-// to say about it — but a script taken out of service must still not run.
+// TestRefuseDraftRun is the gate a DRAFT crosses, which is not the run gate: a
+// draft executes as its author, inline, while they iterate — but a script
+// taken out of service must still not run.
 func TestRefuseDraftRun(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -142,8 +123,8 @@ func TestRefuseDraftRun(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name: "an unapproved script may still be dry-run: that is the whole point",
-			sc:   &script.Script{Enabled: true, Status: script.StatusDraft},
+			name: "a deprecated script may still be dry-run by the person fixing it",
+			sc:   &script.Script{Enabled: true, Status: script.StatusDeprecated},
 		},
 		{
 			name:    "a disabled script runs nothing, including a draft",

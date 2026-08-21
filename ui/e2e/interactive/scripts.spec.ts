@@ -21,7 +21,7 @@ test.describe("Portal script pages", () => {
     await gotoScripts(page);
 
     await expect(page.getByText("Daily Sales Report")).toBeVisible();
-    await expect(page.getByText("Approved v2").first()).toBeVisible();
+    await expect(page.getByText("Runs v2").first()).toBeVisible();
     await expect(page.getByText("succeeded").first()).toBeVisible();
 
     // The cadence in the words the editor two clicks away states it in, rather
@@ -32,8 +32,6 @@ test.describe("Portal script pages", () => {
     // An expression the builder cannot express is shown as itself.
     await expect(page.getByText("*/30 * * * *")).toBeVisible();
 
-    // A script nothing has approved runs nothing, whatever else is true of it.
-    await expect(page.getByText("Nothing approved")).toBeVisible();
     // A disabled cadence says so rather than showing a fire that will not happen.
     await expect(page.getByText("Paused")).toBeVisible();
   });
@@ -62,8 +60,8 @@ test.describe("Portal script pages", () => {
       page.getByText("0 7 * * 1-5 (America/Los_Angeles)", { exact: true }),
     ).toBeVisible();
 
-    // The served version's source, open without a click.
-    await expect(page.getByText("Executing")).toBeVisible();
+    // The version that runs, open without a click.
+    await expect(page.getByText("Runs", { exact: true }).first()).toBeVisible();
     await expect(page.getByText(/platform\.export/).first()).toBeVisible();
 
     // Every terminal state a run can end in.
@@ -161,8 +159,7 @@ test.describe("Portal script pages", () => {
 
     await page.getByRole("button", { name: "Validate" }).click();
     await expect(page.getByText("Parses")).toBeVisible();
-    // What the edit reaches, which is the capability change a reviewer would
-    // otherwise be the first to see.
+    // What the edit reaches, which is what its author is otherwise guessing at.
     await expect(page.getByText("platform.query, platform.export").first()).toBeVisible();
 
     // A dry run binds the live contract's values, and is unavailable until the
@@ -180,20 +177,18 @@ test.describe("Portal script pages", () => {
     await expect(page.getByText(/1,284 rows for 2026-08-17/)).toBeVisible();
   });
 
-  // A cadence on a script nothing has approved saves and fires nothing, and
-  // the page has to say so: the owner cannot approve it themselves.
-  test("says a schedule on an unapproved script will execute nothing", async ({ page }) => {
+  // A script with no cadence runs on demand, and the owner gives it one here
+  // without asking anybody: every fire executes the latest saved version.
+  test("an owner gives an on-demand script a cadence", async ({ page }) => {
     await gotoScripts(page);
     await page.getByRole("row").filter({ hasText: "Dormant Accounts" }).click();
 
     await expect(page.getByText(/runs only when someone asks/)).toBeVisible();
-    await expect(page.getByText(/stays inert/)).toBeVisible();
 
     await page.getByRole("button", { name: "Daily" }).click();
     await page.getByLabel("Time", { exact: true }).fill("05:00");
     await page.locator("#script-param-schedule-cutoff").fill("2026-01-01");
     await page.getByRole("button", { name: "Set schedule" }).click();
-    await expect(page.getByText(/nothing will execute it/)).toBeVisible();
     await expect(page.getByText(/Every day at 5:00 AM/).first()).toBeVisible();
   });
 
@@ -208,46 +203,28 @@ test.describe("Portal script pages", () => {
     // Each caption states what its number counts and over what population, and
     // the failure tile names the smaller population it is computed over (#1360).
     await expect(page.getByText("scripts visible to you")).toBeVisible();
-    await expect(page.getByText("have a version the platform may execute")).toBeVisible();
+    await expect(
+      page.getByText("enabled and active; a run executes the latest saved version"),
+    ).toBeVisible();
     await expect(page.getByText("run on a schedule, unattended")).toBeVisible();
     await expect(page.getByText(/of the \d+ you own/)).toBeVisible();
   });
 
-  // Editing the code is the second mutation on this surface, and the outcome
-  // depends on the script: an approved one goes to review, an unapproved one
-  // applies.
-  test("an owner edits the code, and an approved script's edit goes to review", async ({
+  // Editing the code is the second mutation on this surface, and there is one
+  // outcome: the save IS the version that runs from then on.
+  test("an owner edits the code, and the save becomes the version that runs", async ({
     page,
   }) => {
     await gotoScripts(page);
     await page.getByRole("row").filter({ hasText: "Daily Sales Report" }).click();
 
-    await expect(page.getByText(/Version 2 is approved and keeps running/)).toBeVisible();
+    await expect(page.getByText(/Saving makes this the version that runs/)).toBeVisible();
     const editor = page.locator(".cm-content").first();
     await editor.click();
     await page.keyboard.type("\n# checked by the owner\n");
     await page.getByRole("button", { name: "Save" }).click();
 
-    await expect(page.getByText(/saved as a draft awaiting review/)).toBeVisible();
-  });
-
-  // The third outcome (#1367): the owner's own personal script is approved by
-  // the save itself, so the page says it runs rather than that somebody will
-  // decide.
-  test("an owner edits their own personal script, and the save approves it", async ({ page }) => {
-    await gotoScripts(page);
-    await page.getByRole("row").filter({ hasText: "My Margin Check" }).click();
-
-    await expect(page.getByText(/This script is yours alone, so saving approves it/)).toBeVisible();
-    // The contract says who admitted it, and that nobody reviewed it.
-    await expect(page.getByText(/v1 automatically on .* nobody reviewed it/)).toBeVisible();
-
-    const editor = page.locator(".cm-content").first();
-    await editor.click();
-    await page.keyboard.type("\n# checked by the owner\n");
-    await page.getByRole("button", { name: "Save" }).click();
-
-    await expect(page.getByText(/It runs now, and on its schedule/)).toBeVisible();
+    await expect(page.getByText(/This is the version that runs/)).toBeVisible();
   });
 
   test("says a run history's success rate over the runs it actually loaded", async ({ page }) => {

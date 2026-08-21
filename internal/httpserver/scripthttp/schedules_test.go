@@ -72,18 +72,17 @@ func (*stubStore) AdvanceSchedule(context.Context, script.ScheduleAdvance) (bool
 // schedulePath is the route under test.
 const schedulePath = "/api/v1/admin/scripts/script_1/schedule"
 
-// approvedStore returns a store whose script is executable and whose approved
-// version declares one required date parameter.
-func approvedStore() *stubStore {
+// datedStore returns a store whose script's live contract declares one
+// required date parameter, which is what a schedule's bindings are validated
+// against.
+func datedStore() *stubStore {
 	store := newStore()
-	store.scripts[0].ApprovedVersionID = "sver_1"
-	store.scripts[0].Status = script.StatusActive
-	store.version.Params = []script.Param{{Name: "report_date", Type: script.ParamTypeDate, Required: true}}
+	store.scripts[0].Params = []script.Param{{Name: "report_date", Type: script.ParamTypeDate, Required: true}}
 	return store
 }
 
 func TestSetSchedule(t *testing.T) {
-	store := approvedStore()
+	store := datedStore()
 	rec := serve(t, store, http.MethodPut, schedulePath,
 		`{"cron":"0 7 * * 1-5","timezone":"America/Los_Angeles","params":{"report_date":"${fire_date}"}}`)
 
@@ -100,10 +99,10 @@ func TestSetSchedule(t *testing.T) {
 		"the token is stored unexpanded; it means the day of the fire, not today")
 }
 
-// TestSetSchedule_ValidatesAgainstTheApprovedContract pins that a schedule
+// TestSetSchedule_ValidatesAgainstTheLiveContract pins that a schedule
 // which could never bind is refused when it is set, rather than failing every
 // night with nobody watching.
-func TestSetSchedule_ValidatesAgainstTheApprovedContract(t *testing.T) {
+func TestSetSchedule_ValidatesAgainstTheLiveContract(t *testing.T) {
 	tests := []struct {
 		name    string
 		body    string
@@ -119,7 +118,7 @@ func TestSetSchedule_ValidatesAgainstTheApprovedContract(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rec := serve(t, approvedStore(), http.MethodPut, schedulePath, tt.body)
+			rec := serve(t, datedStore(), http.MethodPut, schedulePath, tt.body)
 			require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 			assert.Contains(t, rec.Body.String(), tt.wantErr)
 		})
@@ -128,32 +127,25 @@ func TestSetSchedule_ValidatesAgainstTheApprovedContract(t *testing.T) {
 
 func TestSetSchedule_Failures(t *testing.T) {
 	t.Run("an unreadable body", func(t *testing.T) {
-		rec := serve(t, approvedStore(), http.MethodPut, schedulePath, "{not json")
+		rec := serve(t, datedStore(), http.MethodPut, schedulePath, "{not json")
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 	})
 
 	t.Run("an unknown script", func(t *testing.T) {
-		rec := serve(t, approvedStore(), http.MethodPut,
+		rec := serve(t, datedStore(), http.MethodPut,
 			"/api/v1/admin/scripts/nope/schedule", `{"cron":"@daily"}`)
 		assert.Equal(t, http.StatusNotFound, rec.Code)
 	})
 
-	t.Run("an unreadable approved version", func(t *testing.T) {
-		store := approvedStore()
-		store.versionErr = errors.New("boom")
-		rec := serve(t, store, http.MethodPut, schedulePath, `{"cron":"@daily"}`)
-		assert.Equal(t, http.StatusInternalServerError, rec.Code)
-	})
-
 	t.Run("an unreadable current schedule", func(t *testing.T) {
-		store := approvedStore()
+		store := datedStore()
 		store.scheduleErr = errors.New("boom")
 		rec := serve(t, store, http.MethodPut, schedulePath, `{"cron":"@daily"}`)
 		assert.Equal(t, http.StatusInternalServerError, rec.Code)
 	})
 
 	t.Run("the write failed", func(t *testing.T) {
-		store := approvedStore()
+		store := datedStore()
 		store.scheduleWriteErr = errors.New("boom")
 		rec := serve(t, store, http.MethodPut, schedulePath,
 			`{"cron":"@daily","params":{"report_date":"${fire_date}"}}`)
@@ -161,10 +153,9 @@ func TestSetSchedule_Failures(t *testing.T) {
 	})
 }
 
-// TestSetSchedule_OnAnUnapprovedScriptBindsAgainstTheLiveRecord pins that an
-// author may prepare a schedule before review; it simply will not fire until a
-// version is approved.
-func TestSetSchedule_OnAnUnapprovedScriptBindsAgainstTheLiveRecord(t *testing.T) {
+// TestSetSchedule_AScriptWithNoParamsTakesABareCadence pins the simplest
+// request: a script declaring no parameters is scheduled with a cadence alone.
+func TestSetSchedule_AScriptWithNoParamsTakesABareCadence(t *testing.T) {
 	rec := serve(t, newStore(), http.MethodPut, schedulePath, `{"cron":"@daily"}`)
 	assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 }
@@ -172,7 +163,7 @@ func TestSetSchedule_OnAnUnapprovedScriptBindsAgainstTheLiveRecord(t *testing.T)
 // TestSetSchedule_KeepsTheDisabledState pins that editing the cadence of a
 // paused automation does not quietly restart it.
 func TestSetSchedule_KeepsTheDisabledState(t *testing.T) {
-	store := approvedStore()
+	store := datedStore()
 	store.schedule = &script.Schedule{ID: "sched_1", ScriptID: "script_1", Enabled: false, CreatedBy: "jane@example.com"}
 
 	rec := serve(t, store, http.MethodPut, schedulePath,
@@ -189,7 +180,7 @@ func TestSetSchedule_KeepsTheDisabledState(t *testing.T) {
 
 func TestGetSchedule(t *testing.T) {
 	t.Run("found", func(t *testing.T) {
-		store := approvedStore()
+		store := datedStore()
 		store.schedule = &script.Schedule{ID: "sched_1", ScriptID: "script_1", CronSpec: "@daily", Enabled: true}
 		rec := serve(t, store, http.MethodGet, schedulePath, "")
 		require.Equal(t, http.StatusOK, rec.Code)
@@ -197,17 +188,17 @@ func TestGetSchedule(t *testing.T) {
 	})
 
 	t.Run("none is a 404", func(t *testing.T) {
-		rec := serve(t, approvedStore(), http.MethodGet, schedulePath, "")
+		rec := serve(t, datedStore(), http.MethodGet, schedulePath, "")
 		assert.Equal(t, http.StatusNotFound, rec.Code)
 	})
 
 	t.Run("an unknown script is a 404", func(t *testing.T) {
-		rec := serve(t, approvedStore(), http.MethodGet, "/api/v1/admin/scripts/nope/schedule", "")
+		rec := serve(t, datedStore(), http.MethodGet, "/api/v1/admin/scripts/nope/schedule", "")
 		assert.Equal(t, http.StatusNotFound, rec.Code)
 	})
 
 	t.Run("a store failure is a 500", func(t *testing.T) {
-		store := approvedStore()
+		store := datedStore()
 		store.scheduleErr = errors.New("boom")
 		rec := serve(t, store, http.MethodGet, schedulePath, "")
 		assert.Equal(t, http.StatusInternalServerError, rec.Code)
@@ -215,7 +206,7 @@ func TestGetSchedule(t *testing.T) {
 }
 
 func TestListSchedules(t *testing.T) {
-	store := approvedStore()
+	store := datedStore()
 	store.schedule = &script.Schedule{ID: "sched_1", ScriptID: "script_1", CronSpec: "@daily"}
 	rec := serve(t, store, http.MethodGet, "/api/v1/admin/scripts/schedules", "")
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -229,10 +220,10 @@ func TestListSchedules(t *testing.T) {
 // TestScheduleRoutesAreUnmountedWithoutAStore pins the degraded deployment: a
 // route that cannot keep a schedule is absent rather than failing per request.
 func TestScheduleRoutesAreUnmountedWithoutAStore(t *testing.T) {
-	store := approvedStore()
+	store := datedStore()
 	mux := http.NewServeMux()
 	New(Deps{
-		Scripts: store, Versions: store, Approvals: store,
+		Scripts: store, Versions: store,
 		AdminEmail: func(*http.Request) string { return "admin@example.com" },
 	}).RegisterAdmin(mux, "/api/v1/admin", func(h http.Handler) http.Handler { return h })
 
@@ -249,7 +240,7 @@ func TestScheduleRoutesAreUnmountedWithoutAStore(t *testing.T) {
 		assert.Equal(t, http.StatusNotFound, rec.Code, route.path)
 	}
 
-	// The review routes are still there: approving does not depend on
+	// The script routes are still there: reading scripts does not depend on
 	// scheduling.
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/scripts", http.NoBody)
 	rec := httptest.NewRecorder()
@@ -262,7 +253,7 @@ func TestScheduleRoutesAreUnmountedWithoutAStore(t *testing.T) {
 // is exactly what sending the cadence back through PUT would do.
 func TestEnableDisableSchedule(t *testing.T) {
 	parked := time.Now().Add(2 * time.Hour).UTC().Truncate(time.Second)
-	store := approvedStore()
+	store := datedStore()
 	store.schedule = &script.Schedule{
 		ID: "sched_1", ScriptID: "script_1", CronSpec: "@daily", Timezone: "UTC",
 		Enabled: true, NextRunAt: parked, CreatedBy: "jane@example.com",
@@ -291,7 +282,7 @@ func TestEnableDisableSchedule(t *testing.T) {
 // pause route: the rule belongs to the schedule, so every surface that serves
 // one states it, not only the route that turned it off.
 func TestGetSchedule_PausedReportsNoNextRun(t *testing.T) {
-	store := approvedStore()
+	store := datedStore()
 	store.schedule = &script.Schedule{
 		ID: "sched_1", ScriptID: "script_1", CronSpec: "@daily", Timezone: "UTC",
 		Enabled: false, NextRunAt: time.Now().Add(time.Hour).UTC(),
@@ -311,17 +302,17 @@ func TestGetSchedule_PausedReportsNoNextRun(t *testing.T) {
 
 func TestEnableSchedule_Failures(t *testing.T) {
 	t.Run("no schedule is a 404", func(t *testing.T) {
-		rec := serve(t, approvedStore(), http.MethodPost, schedulePath+"/enable", "")
+		rec := serve(t, datedStore(), http.MethodPost, schedulePath+"/enable", "")
 		assert.Equal(t, http.StatusNotFound, rec.Code)
 	})
 
 	t.Run("an unknown script is a 404", func(t *testing.T) {
-		rec := serve(t, approvedStore(), http.MethodPost, "/api/v1/admin/scripts/nope/schedule/disable", "")
+		rec := serve(t, datedStore(), http.MethodPost, "/api/v1/admin/scripts/nope/schedule/disable", "")
 		assert.Equal(t, http.StatusNotFound, rec.Code)
 	})
 
 	t.Run("a store failure is a 500", func(t *testing.T) {
-		store := approvedStore()
+		store := datedStore()
 		store.schedule = &script.Schedule{ID: "sched_1", ScriptID: "script_1"}
 		store.scheduleWriteErr = errors.New("boom")
 		rec := serve(t, store, http.MethodPost, schedulePath+"/enable", "")

@@ -27,23 +27,10 @@ vi.mock("@/api/portal/hooks/scripts", () => ({
   useDryRunScript: vi.fn(),
   useScriptConnections: vi.fn(),
   useRunScript: vi.fn(),
-  SCRIPT_RUN_AUDIENCE: { run: "run", draft: "draft" },
   // The page size is the module's own constant, not a hook: the run history
   // states it when a result fills it.
   RUN_PAGE_SIZE: 25,
 }));
-
-vi.mock("@/api/admin/hooks", () => ({
-  useScriptVersionReview: vi.fn(),
-  useApproveScriptVersion: vi.fn(),
-  useRejectScriptVersion: vi.fn(),
-}));
-
-import {
-  useApproveScriptVersion,
-  useRejectScriptVersion,
-  useScriptVersionReview,
-} from "@/api/admin/hooks";
 
 import {
   useDryRunScript,
@@ -72,9 +59,6 @@ const mockValidateSource = vi.mocked(useValidateScriptSource);
 const mockDryRun = vi.mocked(useDryRunScript);
 const mockConnections = vi.mocked(useScriptConnections);
 const mockRunScript = vi.mocked(useRunScript);
-const mockReview = vi.mocked(useScriptVersionReview);
-const mockApprove = vi.mocked(useApproveScriptVersion);
-const mockReject = vi.mocked(useRejectScriptVersion);
 
 const onBack = vi.fn();
 const onNavigate = vi.fn();
@@ -95,12 +79,7 @@ const contract: ScriptContract = {
   params: [
     { name: "report_date", type: "date", description: "The business date.", required: true },
   ],
-  approval: {
-    approved: true,
-    version: 2,
-    approved_by: "admin@acme.example.com",
-    approved_at: "2026-07-15T09:00:00Z",
-  },
+  version: 2,
   schedule: {
     cron_spec: "0 7 * * 1-5",
     timezone: "America/Los_Angeles",
@@ -119,14 +98,6 @@ const version: ScriptVersion = {
   author: "sarah.chen@example.com",
   author_roles: ["analyst"],
   status: "applied",
-  approved_by: "admin@acme.example.com",
-  approved_at: "2026-07-15T09:00:00Z",
-  grants: {
-    roles: ["analyst"],
-    connections: ["acme-warehouse"],
-    capabilities: ["platform.query", "platform.export"],
-    destinations: [{ name: "portal", kind: "portal" }],
-  },
   created_at: "2026-07-14T09:00:00Z",
 };
 
@@ -226,21 +197,6 @@ beforeEach(() => {
   mockDryRun.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
   mockRunScript.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
   mockConnections.mockReturnValue(query(undefined));
-  mockReview.mockReturnValue(
-    query({
-      version,
-      referenced: {
-        capabilities: ["platform.query"],
-        connections: ["acme-warehouse"],
-        destinations: [],
-        dynamic_connections: false,
-        dynamic_destinations: false,
-      },
-      findings: [],
-    }),
-  );
-  mockApprove.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
-  mockReject.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
 });
 
 afterEach(cleanup);
@@ -253,7 +209,9 @@ describe("ScriptDetailPage: the contract", () => {
   it("states what will execute, on what cadence, and what it takes", () => {
     renderPage();
     expect(screen.getByText("Daily Sales Report")).toBeInTheDocument();
-    expect(screen.getByText("Approved v2")).toBeInTheDocument();
+    // The badge is the run gate's answer: the latest saved version runs.
+    expect(screen.getByText("Runs v2")).toBeInTheDocument();
+    expect(screen.getByText("v2, the latest saved version")).toBeInTheDocument();
     expect(screen.getByText(/0 7 \* \* 1-5 \(America\/Los_Angeles\)/)).toBeInTheDocument();
     // Scoped to the parameter table, which is the first on the page: the
     // schedule editor below also names the parameter, because that is the box
@@ -266,19 +224,13 @@ describe("ScriptDetailPage: the contract", () => {
   it("carries the gate's own refusal when nothing will run the script", () => {
     mockContract.mockReturnValue(
       query({
-        contract: {
-          ...contract,
-          approval: {
-            approved: false,
-            refusal: "the script has no approved version, so nothing may execute it",
-          },
-        },
+        contract: { ...contract, enabled: false, refusal: "the script is disabled" },
         owned: true,
       }),
     );
     renderPage();
-    expect(screen.getByText("Nothing approved")).toBeInTheDocument();
-    expect(screen.getByText(/no approved version/)).toBeInTheDocument();
+    expect(screen.getByText("Not running")).toBeInTheDocument();
+    expect(screen.getByText("the script is disabled")).toBeInTheDocument();
   });
 
   it("says a script takes no parameters rather than showing an empty table", () => {
@@ -320,30 +272,24 @@ describe("ScriptDetailPage: what an owner may read", () => {
     expect(screen.getByText(/belongs to sarah.chen@example.com/)).toBeInTheDocument();
   });
 
-  it("shows the served version's source and the grant approving it bound", () => {
+  it("opens the executing version's source and the roles a run of it presents", () => {
     renderPage();
     expect(screen.getByText("Version history")).toBeInTheDocument();
-    expect(screen.getByText("Executing")).toBeInTheDocument();
-    // The served version opens by default, so the code that is running is on
-    // screen without a click.
+    // The executing version — the latest saved one — opens by default, so the
+    // code that is running is on screen without a click.
     expect(screen.getByText(/rows = platform\.query/)).toBeInTheDocument();
-    expect(screen.getByText("platform.query, platform.export")).toBeInTheDocument();
-    expect(screen.getByText("acme-warehouse")).toBeInTheDocument();
+    // The authority line: a run presents the roles its author held at the save.
+    expect(screen.getByText("analyst")).toBeInTheDocument();
+    expect(screen.getByText(/the roles its author held at the save/)).toBeInTheDocument();
   });
 
-  it("says a version nothing approved carries no grant", () => {
+  it("says a version whose author held no roles could call nothing", () => {
     mockVersions.mockReturnValue(
-      query({
-        data: [{ ...version, approved_by: undefined, approved_at: undefined, status: "draft" }],
-        total: 1,
-      }),
-    );
-    mockContract.mockReturnValue(
-      query({ contract: { ...contract, approval: { approved: false } }, owned: true }),
+      query({ data: [{ ...version, author_roles: [] }], total: 1 }),
     );
     renderPage();
-    fireEvent.click(screen.getByRole("button", { name: /v2/ }));
-    expect(screen.getByText(/No grant is bound to this version/)).toBeInTheDocument();
+    expect(screen.getByText("no roles")).toBeInTheDocument();
+    expect(screen.getByText(/deny-all persona and could call nothing/)).toBeInTheDocument();
   });
 });
 
@@ -443,53 +389,5 @@ describe("ScriptDetailPage: the run history", () => {
     expect(
       screen.getByText("Requested by").closest("td")?.getAttribute("colspan"),
     ).toBe("3");
-  });
-});
-
-// The admin surface is this same page with review turned on (#1367): an
-// administrator does everything an owner does, plus decides whether a version
-// executes.
-describe("ScriptDetailPage: the admin surface", () => {
-  it("offers no decision to an owner", () => {
-    renderPage();
-    fireEvent.click(screen.getByRole("button", { name: /v2/ }));
-    expect(screen.queryByRole("button", { name: /Review/ })).not.toBeInTheDocument();
-  });
-
-  it("opens the decision on any version, which is how a rollback is approved", async () => {
-    render(
-      <ScriptDetailPage
-        scriptId="script-001"
-        review
-        backLabel="All scripts"
-        onBack={onBack}
-        onNavigate={onNavigate}
-      />,
-    );
-
-    // Every owner section is still here: an administrator runs, edits and
-    // schedules every script exactly as its owner does.
-    expect(screen.getByRole("button", { name: "Run" })).toBeInTheDocument();
-    expect(screen.getByText("Source")).toBeInTheDocument();
-    expect(screen.getAllByText("Schedule").length).toBeGreaterThan(0);
-
-    fireEvent.click(screen.getByRole("button", { name: /Review the grant/ }));
-    // The drawer is loaded on demand, so an owner never downloads it.
-    expect(await screen.findByRole("dialog")).toBeInTheDocument();
-  });
-
-  it("says who admitted a version, and when nobody did", () => {
-    mockVersions.mockReturnValue(
-      query({
-        data: [{ ...version, approved_by: "sarah.chen@example.com", auto_approved: true }],
-        total: 1,
-      }),
-    );
-    renderPage();
-
-    expect(screen.getByText("Nobody reviewed it")).toBeInTheDocument();
-    expect(
-      screen.getByText(/approved automatically .* because sarah\.chen@example\.com owns this script/),
-    ).toBeInTheDocument();
   });
 });

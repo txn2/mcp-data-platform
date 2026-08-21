@@ -27,7 +27,7 @@ func seedScript(t *testing.T, s *Store, name, scope, owner string, personas []st
 		Name: name, DisplayName: "Daily Sales Report",
 		Description: "Summarize yesterday's revenue by region",
 		Source:      "print(1)\n", Scope: scope, Personas: personas, OwnerEmail: owner,
-		Params: params, Enabled: true, Status: script.StatusDraft,
+		Params: params, Enabled: true,
 		Tags: []string{"revenue"},
 	}
 	require.NoError(t, s.Create(context.Background(), sc, testAuthor))
@@ -97,15 +97,14 @@ func TestRealDB_SearchAppliesVisibility(t *testing.T) {
 }
 
 // TestRealDB_SearchExcludesDeadEnds proves the lifecycle filter: a disabled
-// script and a retired one are not ranked, while a draft is — an unapproved
-// script is a solved process waiting for a reviewer, and the contract says
-// plainly that nothing will execute it.
+// script and a retired one are not ranked, while an active one is — and the
+// contract on a retired script says plainly that nothing will execute it.
 func TestRealDB_SearchExcludesDeadEnds(t *testing.T) {
 	db := testdb.New(t)
 	s := New(db)
 	ctx := context.Background()
 
-	draft := seedScript(t, s, "draft-report", script.ScopeGlobal, "admin@example.com", nil, nil)
+	active := seedScript(t, s, "live-report", script.ScopeGlobal, "admin@example.com", nil, nil)
 	disabled := seedScript(t, s, "off-report", script.ScopeGlobal, "admin@example.com", nil, nil)
 	disabled.Enabled = false
 	require.NoError(t, s.Update(ctx, disabled))
@@ -116,7 +115,7 @@ func TestRealDB_SearchExcludesDeadEnds(t *testing.T) {
 	got, err := s.Search(ctx, script.SearchQuery{QueryText: "revenue by region"})
 	require.NoError(t, err)
 	require.Len(t, got, 1)
-	assert.Equal(t, draft.Name, got[0].Script.Name)
+	assert.Equal(t, active.Name, got[0].Script.Name)
 
 	// The retired script is still reachable by reference: discovery hides a dead
 	// end, but a caller holding a reference to one gets the document that says
@@ -124,12 +123,12 @@ func TestRealDB_SearchExcludesDeadEnds(t *testing.T) {
 	c, err := s.Contract(ctx, retired.ID)
 	require.NoError(t, err)
 	require.NotNil(t, c)
-	assert.Contains(t, c.Approval.Refusal, "deprecated")
+	assert.Contains(t, c.Refusal, "deprecated")
 }
 
-// TestRealDB_ContractComposesFromTheRealSchema proves the four reads behind one
-// contract line up against real rows, including the approved version behind the
-// execution gate.
+// TestRealDB_ContractComposesFromTheRealSchema proves the reads behind one
+// contract line up against real rows: the live record's parameter contract and
+// version, and the run gate's own refusal once the script is retired.
 func TestRealDB_ContractComposesFromTheRealSchema(t *testing.T) {
 	db := testdb.New(t)
 	s := New(db)
@@ -141,23 +140,21 @@ func TestRealDB_ContractComposesFromTheRealSchema(t *testing.T) {
 	before, err := s.Contract(ctx, sc.ID)
 	require.NoError(t, err)
 	require.NotNil(t, before)
-	assert.False(t, before.Approval.Approved)
-	assert.Contains(t, before.Approval.Refusal, "no approved version")
+	assert.Empty(t, before.Refusal, "a saved script admits a run with no approval step")
+	assert.Equal(t, 1, before.Version, "the version a run executes is the latest saved one")
+	require.Len(t, before.Params, 1)
+	assert.Equal(t, "report_date", before.Params[0].Name)
 	assert.Nil(t, before.Schedule)
 	assert.Nil(t, before.LastRun)
 
-	_, err = s.ApproveVersion(ctx, sc.ID, 1, "admin@example.com",
-		script.Grants{Connections: []string{"warehouse"}})
-	require.NoError(t, err)
+	sc.Status = script.StatusDeprecated
+	require.NoError(t, s.Update(ctx, sc))
 
 	after, err := s.Contract(ctx, sc.ID)
 	require.NoError(t, err)
 	require.NotNil(t, after)
-	assert.True(t, after.Approval.Approved)
-	assert.Equal(t, 1, after.Approval.Version)
-	assert.Equal(t, "admin@example.com", after.Approval.ApprovedBy)
-	require.Len(t, after.Params, 1)
-	assert.Equal(t, "report_date", after.Params[0].Name)
+	assert.Contains(t, after.Refusal, "deprecated",
+		"the contract reports the run gate's own refusal, not a second reading of it")
 
 	missing, err := s.Contract(ctx, "00000000-0000-0000-0000-000000000000")
 	require.NoError(t, err)

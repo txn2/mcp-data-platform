@@ -16,7 +16,7 @@ import (
 )
 
 // Finding severities. An error means the script cannot run as written; a
-// warning means it will run but a reviewer should look.
+// warning means it will run but somebody should look.
 const (
 	SeverityError   = "error"
 	SeverityWarning = "warning"
@@ -41,25 +41,22 @@ type Report struct {
 	Findings []Finding `json:"findings"`
 	// Capabilities is the set of host bindings the source references,
 	// Connections the connection names it names literally, and Destinations
-	// the output destinations it names literally. Together they are the raw
-	// material for the grants diff a reviewer will be shown: what the code
-	// reaches, next to what it was granted.
+	// the output destinations it names literally. Together they state what the
+	// code reaches, so a reader learns it without reading the Starlark.
 	Capabilities []string `json:"capabilities"`
 	Connections  []string `json:"connections"`
 	Destinations []string `json:"destinations"`
 	// RefreshTargets is the output names platform.publish_data refreshes, read
-	// literally from the calls, so a reviewer sees WHICH asset's data region a
-	// script rewrites — the name is not a granted axis, but it is the half of
-	// the claim "this script refreshes that dashboard" a grant alone cannot
-	// state.
+	// literally from the calls, so a reader sees WHICH asset's data region a
+	// script rewrites.
 	RefreshTargets []string `json:"refresh_targets"`
 	// DynamicConnections is true when a platform.query call computes its
 	// connection instead of naming one literally, DynamicDestinations when
 	// a platform.export call computes its destination, and DynamicRefreshTargets
 	// when a platform.publish_data call computes the name it refreshes, so the
 	// list in question is known to be incomplete. Reporting the gap is the
-	// point: a reviewer reading a list that silently omitted a computed name
-	// would be reading a false statement.
+	// point: a reader shown a list that silently omitted a computed name would
+	// be reading a false statement.
 	DynamicConnections    bool `json:"dynamic_connections"`
 	DynamicDestinations   bool `json:"dynamic_destinations"`
 	DynamicRefreshTargets bool `json:"dynamic_refresh_targets"`
@@ -73,8 +70,8 @@ func hasErrors(findings []Finding) bool {
 // Validate parses and resolves a script without executing it, and reports what
 // it would reach. It is the fast half of the authoring loop: an author gets
 // interpreter-accurate errors, the Python-isms their instincts produce get a
-// specific correction, and the capability set is extracted for review — all
-// without a query running or a row moving.
+// specific correction, and what the script reaches is extracted for a reader —
+// all without a query running or a row moving.
 func Validate(source string) Report {
 	report := Report{
 		Capabilities: []string{}, Connections: []string{},
@@ -255,8 +252,8 @@ var sourcePatterns = []sourcePattern{
 // secretPattern is a credential-shaped string that must never appear in script
 // source. Connections are named and their credentials stay in platform
 // connection config, so a literal here is either a mistake or an attempt to
-// carry authority the script was never granted; either way a reviewer must see
-// it before approval.
+// carry authority the script was never given; either way it must be surfaced
+// before the source is stored.
 //
 // Severity follows confidence. A pattern that matches a specific credential
 // FORMAT (a private-key header, an AWS key id, a provider token) is an error
@@ -378,8 +375,7 @@ func inspect(file *syntax.File) inspection {
 			collectExportDestination(call, destSet, &dynamicDestinations)
 		case CapabilityPublishData:
 			// A refresh writes to the portal and nowhere else, so the call
-			// contributes the portal to the destination diff a reviewer reads —
-			// and the grant check refuses an approval that does not cover it.
+			// contributes the portal to the destination list a reader sees.
 			destSet[script.DestinationPortal] = true
 			collectRefreshTarget(call, refreshSet, &dynamicRefreshTargets)
 		}
@@ -433,12 +429,12 @@ func isKeywordArg(arg syntax.Expr) bool {
 // refusePositionalDestination reports a platform.export call that passes its
 // destination or key by position rather than by name.
 //
-// It is an error rather than a note because of what the alternative costs: this
-// validator reads keyword arguments, so a positional destination would be
-// invisible to it, and the review surface would state positively that a script
-// writing to a bucket writes to the portal. A wrong statement in a capability
-// diff is worse than no statement, so the shape that produces one is refused —
-// by the engine at run time and here, in the same words.
+// It is an error rather than a note because of what the alternative costs:
+// this validator reads keyword arguments, so a positional destination would be
+// invisible to it, and the surface reporting what a script reaches would state
+// positively that a script writing to a bucket writes to the portal. A wrong
+// statement there is worse than no statement, so the shape that produces one
+// is refused — by the engine at run time and here, in the same words.
 func refusePositionalDestination(call *syntax.CallExpr, line int) (Finding, bool) {
 	positional := 0
 	for _, arg := range call.Args {
@@ -460,14 +456,13 @@ func refusePositionalDestination(call *syntax.CallExpr, line int) (Finding, bool
 
 // collectExportDestination records where one platform.export call writes. A
 // call naming no destination writes to the portal, which is the default the
-// engine applies, so the reviewer is shown the same destination the run will
+// engine applies, so the reader is shown the same destination the run will
 // use rather than an empty list that reads as "writes nowhere".
 //
-// Whether the call named one is read from the CALL, never inferred from whether
-// the set grew: a second export to a destination already in the set adds
-// nothing to it, and reading that as "this one defaulted" would report a portal
-// write no line of the script performs — and then refuse the approval for not
-// granting it.
+// Whether the call named one is read from the CALL, never inferred from
+// whether the set grew: a second export to a destination already in the set
+// adds nothing to it, and reading that as "this one defaulted" would report a
+// portal write no line of the script performs.
 func collectExportDestination(call *syntax.CallExpr, destSet map[string]bool, dynamic *bool) {
 	if !collectKeyword(call, "destination", destSet, dynamic) {
 		destSet[script.DestinationPortal] = true

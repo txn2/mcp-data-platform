@@ -27,11 +27,12 @@ import (
 // crosses the middleware chain as its author; what has to be proved here is the
 // half that runs with nobody present:
 //
-//   - an approved version, and only an approved version, executes;
-//   - it executes as the script principal, with the roles its approval bound;
+//   - a run executes the script's latest saved version, as the script
+//     principal, presenting the roles its author held at the save;
 //   - its output lands as a new VERSION of one stable portal asset;
-//   - a reviewer's grant is enforced twice, once inside the interpreter and once
-//     by the authorization middleware, so neither layer is load-bearing alone;
+//   - a delivery resolves against the deployment's configured destination set,
+//     and the authorization middleware is the authority over every connection
+//     the run touches;
 //   - the run and every capability call it made are audited under one run id.
 //
 // The stack is real: the platform's own middleware in the platform's own order,
@@ -269,10 +270,10 @@ func (*memS3) GetObject(context.Context, string, string) (data []byte, contentTy
 func (*memS3) DeleteObject(context.Context, string, string) error { return nil }
 func (*memS3) Close() error                                       { return nil }
 
-// connectionAuthz is the authorization middleware's half of the layered check.
-// It authorizes tools for the analyst persona but only on the connections that
-// persona is granted, which is how the middleware refuses a call the host
-// facade's grant check would also refuse — independently of it.
+// connectionAuthz is the authorization middleware standing in for the persona
+// filter: it authorizes tools for the analyst persona but only on the
+// connections that persona holds, which is the entire authorization boundary a
+// run answers to.
 type connectionAuthz struct{ allowed map[string]bool }
 
 func (a *connectionAuthz) IsAuthorized(_ context.Context, _ string, _ []string, _, connection string) (authorized bool, persona, reason string) {
@@ -331,7 +332,9 @@ type execHarness struct {
 
 // executionServer wires the whole feature: manage_script and run_script over
 // the real middleware chain, a Trino-shaped query tool, and the real run worker
-// executing whatever run_script enqueues.
+// executing whatever run_script enqueues. The deployment declares one bucket
+// destination, acme-drop, which is the configured set delivery tests resolve
+// against.
 func executionServer(t *testing.T, allowedConnections ...string) execHarness {
 	t.Helper()
 	return execServerWithWorker(t, true, allowedConnections...)
@@ -408,6 +411,7 @@ func execServerWithWorker(t *testing.T, workerOn bool, allowedConnections ...str
 		Runs: runs, Scripts: store, Versions: store,
 		Server: server, Audit: audit,
 		Export:         scriptexec.ExportDeps{Assets: assets, Versions: versions, S3: s3, Bucket: "assets", Prefix: "portal"},
+		Destinations:   []script.Destination{acmeDrop()},
 		WorkerDisabled: !workerOn,
 	})
 	require.NotNil(t, worker)
@@ -432,31 +436,16 @@ print("rows: %d" % res["row_count"])
 platform.export(name="daily-sales", rows=res["rows"], format="csv")
 `
 
-// authorAndApprove creates a script through the real tool and approves its
-// current version with the given grant, which is what the admin REST action
-// does. It returns the approved version.
-func authorAndApprove(ctx context.Context, t *testing.T, h execHarness, source string, grants script.Grants) *script.Version {
+// authorScript creates a script through the real tool. Saving is all it takes
+// for the script to run: the version create wrote is the version a run
+// executes.
+func authorScript(t *testing.T, h execHarness, source string) {
 	t.Helper()
 	res := call(t, h.handle, authorCtx(), manageScriptInput{
 		Command: cmdCreate, Name: "daily", DisplayName: "Daily", Source: source,
 		Params: []script.Param{{Name: "day", Type: script.ParamTypeString, Required: true}},
 	})
 	require.False(t, res.IsError, resultText(res))
-
-	sc, err := h.store.GetPersonal(ctx, "jane@example.com", "daily")
-	require.NoError(t, err)
-	version, err := h.store.ApproveVersion(ctx, sc.ID, sc.Version, "admin@example.com", grants)
-	require.NoError(t, err)
-	return version
-}
-
-// analystGrant is what a reviewer binds for the report script.
-func analystGrant() script.Grants {
-	return script.Grants{
-		Connections:  []string{"warehouse"},
-		Capabilities: script.Capabilities,
-		Destinations: []script.Destination{script.PortalDestination()},
-	}
 }
 
 // runScript calls the run_script tool over a real client session.
@@ -473,13 +462,13 @@ func runScript(ctx context.Context, t *testing.T, session *mcp.ClientSession, ar
 	return out, false
 }
 
-// TestIntegration_ApprovedRunWritesAnAssetVersion is the #1284 definition of
-// done: approve a version, call run_script, and get a real query and a real
-// portal asset version, executed by the worker as the script principal.
-func TestIntegration_ApprovedRunWritesAnAssetVersion(t *testing.T) {
+// TestIntegration_RunWritesAnAssetVersion is the #1284 definition of done:
+// save a script, call run_script, and get a real query and a real portal asset
+// version, executed by the worker as the script principal.
+func TestIntegration_RunWritesAnAssetVersion(t *testing.T) {
 	ctx := context.Background()
 	h := executionServer(t, "warehouse")
-	authorAndApprove(ctx, t, h, reportSource, analystGrant())
+	authorScript(t, h, reportSource)
 	session := connectAgent(ctx, t, h.server)
 
 	out, isErr := runScript(ctx, t, session, map[string]any{
@@ -517,7 +506,7 @@ func TestIntegration_ApprovedRunWritesAnAssetVersion(t *testing.T) {
 func TestIntegration_SecondRunIsANewVersionOfTheSameAsset(t *testing.T) {
 	ctx := context.Background()
 	h := executionServer(t, "warehouse")
-	authorAndApprove(ctx, t, h, reportSource, analystGrant())
+	authorScript(t, h, reportSource)
 	session := connectAgent(ctx, t, h.server)
 
 	for i := 1; i <= 2; i++ {
@@ -533,24 +522,38 @@ func TestIntegration_SecondRunIsANewVersionOfTheSameAsset(t *testing.T) {
 	assert.Len(t, h.s3.objects, 2, "each version keeps its own object")
 }
 
-// TestIntegration_UnapprovedScriptRefuses is the execution gate seen from the
-// tool: without an approval there is nothing the platform may run.
-func TestIntegration_UnapprovedScriptRefuses(t *testing.T) {
+// TestIntegration_RunExecutesTheLatestSavedVersion pins the versioning rule
+// end to end: a run executes the version sc.Version names — the latest saved
+// one — so an edit is what the very next run executes.
+func TestIntegration_RunExecutesTheLatestSavedVersion(t *testing.T) {
 	ctx := context.Background()
 	h := executionServer(t, "warehouse")
-	// A GLOBAL script an administrator wrote: a personal script its own owner
-	// wrote is approved on save (#1367), so it would no longer exercise the gate.
-	res := call(t, h.handle, adminCtx(), manageScriptInput{
-		Command: cmdCreate, Name: "daily", Source: reportSource, Scope: script.ScopeGlobal,
-		Params: []script.Param{{Name: "day", Type: script.ParamTypeString}},
-	})
-	require.False(t, res.IsError, resultText(res))
+	authorScript(t, h, reportSource)
 	session := connectAgent(ctx, t, h.server)
 
-	out, isErr := runScript(ctx, t, session, map[string]any{"name": "daily"})
-	require.True(t, isErr)
-	assert.Contains(t, out["error"], "no approved version")
-	assert.Contains(t, out["error"], "run_draft", "the refusal names the path that does work")
+	out, isErr := runScript(ctx, t, session, map[string]any{
+		"name": "daily", "args": map[string]any{"day": "2026-08-12"},
+	})
+	require.False(t, isErr, out["error"])
+	require.Equal(t, script.RunStatusSucceeded, out["status"], out)
+	assert.EqualValues(t, 1, out["version"])
+	assert.Contains(t, out["log"], "rows: 2")
+
+	edited := strings.Replace(reportSource,
+		`print("rows: %d" % res["row_count"])`,
+		`print("v2 rows: %d" % res["row_count"])`, 1)
+	res := call(t, h.handle, authorCtx(), manageScriptInput{
+		Command: cmdUpdate, Name: "daily", Source: edited,
+	})
+	require.False(t, res.IsError, resultText(res))
+
+	out, isErr = runScript(ctx, t, session, map[string]any{
+		"name": "daily", "args": map[string]any{"day": "2026-08-12"},
+	})
+	require.False(t, isErr, out["error"])
+	require.Equal(t, script.RunStatusSucceeded, out["status"], out)
+	assert.EqualValues(t, 2, out["version"], "the run records the version it executed")
+	assert.Contains(t, out["log"], "v2 rows: 2", "the edited source is what ran")
 }
 
 // deliverySource is a script that computes one result and both refreshes its
@@ -571,8 +574,8 @@ platform.export(
 )
 `
 
-// acmeDrop is the granted external destination: a named platform connection, a
-// bucket, and the prefix everything this script writes sits under.
+// acmeDrop is the configured external destination: a named platform
+// connection, a bucket, and the prefix everything written here sits under.
 func acmeDrop() script.Destination {
 	return script.Destination{
 		Name: "acme-drop", Kind: script.DestinationKindS3,
@@ -580,21 +583,14 @@ func acmeDrop() script.Destination {
 	}
 }
 
-// deliveryGrant is what a reviewer binds for a script that also delivers.
-func deliveryGrant() script.Grants {
-	grant := analystGrant()
-	grant.Destinations = append(grant.Destinations, acmeDrop())
-	return grant
-}
-
-// TestIntegration_ApprovedRunDeliversToAGrantedBucket is external delivery end
-// to end: one computed result becomes a new version of the script's portal
-// asset AND an object in the bucket its approval named, written as an ordinary
-// platform tool call under the script's own principal.
-func TestIntegration_ApprovedRunDeliversToAGrantedBucket(t *testing.T) {
+// TestIntegration_RunDeliversToAConfiguredBucket is external delivery end to
+// end: one computed result becomes a new version of the script's portal asset
+// AND an object in the bucket the deployment's configuration names, written as
+// an ordinary platform tool call under the script's own principal.
+func TestIntegration_RunDeliversToAConfiguredBucket(t *testing.T) {
 	ctx := context.Background()
 	h := executionServer(t, "warehouse", "acme-s3")
-	authorAndApprove(ctx, t, h, deliverySource, deliveryGrant())
+	authorScript(t, h, deliverySource)
 	session := connectAgent(ctx, t, h.server)
 
 	out, isErr := runScript(ctx, t, session, map[string]any{
@@ -603,8 +599,8 @@ func TestIntegration_ApprovedRunDeliversToAGrantedBucket(t *testing.T) {
 	require.False(t, isErr, out["error"])
 	require.Equal(t, script.RunStatusSucceeded, out["status"], out)
 
-	// The object landed under the granted prefix, at the key the script chose
-	// beneath it, over the connection the approval named.
+	// The object landed under the configured prefix, at the key the script
+	// chose beneath it, over the connection the destination names.
 	puts := h.puts.calls()
 	require.Len(t, puts, 1)
 	assert.Equal(t, "acme-s3", puts[0].Connection)
@@ -647,7 +643,7 @@ func TestIntegration_DeliveryUsesTheOutputNameWhenTheScriptNamesNoKey(t *testing
 	ctx := context.Background()
 	h := executionServer(t, "warehouse", "acme-s3")
 	source := strings.Replace(deliverySource, "    key = \"2026/08/sales.csv\",\n", "", 1)
-	authorAndApprove(ctx, t, h, source, deliveryGrant())
+	authorScript(t, h, source)
 	session := connectAgent(ctx, t, h.server)
 
 	out, isErr := runScript(ctx, t, session, map[string]any{
@@ -661,73 +657,39 @@ func TestIntegration_DeliveryUsesTheOutputNameWhenTheScriptNamesNoKey(t *testing
 	assert.Equal(t, "weekly/daily-sales.csv", puts[0].Key)
 }
 
-// TestIntegration_UndeclaredDestinationIsRefusedAtBothLayers is the layered
-// enforcement claim for the sharpest surface in the feature: the facade refuses
-// a destination the approval did not name, and the middleware refuses the write
-// independently of whatever the approval said.
-func TestIntegration_UndeclaredDestinationIsRefusedAtBothLayers(t *testing.T) {
+// TestIntegration_UnconfiguredDestinationIsRefused pins destination
+// resolution: a name the deployment's configuration does not declare is
+// refused inside the host, naming the configured set, and nothing leaves the
+// platform.
+func TestIntegration_UnconfiguredDestinationIsRefused(t *testing.T) {
 	ctx := context.Background()
+	h := executionServer(t, "warehouse", "acme-s3")
+	source := strings.Replace(deliverySource, `destination = "acme-drop"`, `destination = "nowhere"`, 1)
+	authorScript(t, h, source)
+	session := connectAgent(ctx, t, h.server)
 
-	t.Run("the grant refuses it inside the interpreter", func(t *testing.T) {
-		// The middleware would allow this connection; the approval never named
-		// the destination, so nothing is issued at all.
-		h := executionServer(t, "warehouse", "acme-s3")
-		authorAndApprove(ctx, t, h, deliverySource, analystGrant())
-		session := connectAgent(ctx, t, h.server)
-
-		out, isErr := runScript(ctx, t, session, map[string]any{
-			"name": "daily", "args": map[string]any{"day": "2026-08-12"},
-		})
-		require.False(t, isErr, out["error"])
-		assert.Equal(t, script.RunStatusFailed, out["status"], out)
-		assert.Contains(t, out["error"], `destination "acme-drop" is not in this script's approved grant`)
-		assert.Empty(t, h.puts.calls(), "nothing left the platform")
+	out, isErr := runScript(ctx, t, session, map[string]any{
+		"name": "daily", "args": map[string]any{"day": "2026-08-12"},
 	})
-
-	t.Run("the middleware refuses the write independently of the grant", func(t *testing.T) {
-		// The approval named the destination and its connection; the persona
-		// the script's roles resolve to does not hold that connection.
-		h := executionServer(t, "warehouse")
-		authorAndApprove(ctx, t, h, deliverySource, deliveryGrant())
-		session := connectAgent(ctx, t, h.server)
-
-		out, isErr := runScript(ctx, t, session, map[string]any{
-			"name": "daily", "args": map[string]any{"day": "2026-08-12"},
-		})
-		require.False(t, isErr, out["error"])
-		assert.Equal(t, script.RunStatusFailed, out["status"], out)
-		assert.Contains(t, out["error"], "not authorized",
-			"the authorization middleware is the authority of record, whatever the grant says")
-		assert.Empty(t, h.puts.calls(), "the refusal happened before the tool ran")
-	})
+	require.False(t, isErr, out["error"])
+	assert.Equal(t, script.RunStatusFailed, out["status"], out)
+	assert.Contains(t, out["error"], `destination "nowhere" is not configured`)
+	assert.Contains(t, out["error"], "acme-drop", "the refusal names the configured set")
+	assert.Empty(t, h.puts.calls(), "nothing left the platform")
 }
 
-// TestIntegration_UngrantedConnectionIsRefusedAtBothLayers is the layered
-// enforcement claim, proved by removing one layer at a time.
-func TestIntegration_UngrantedConnectionIsRefusedAtBothLayers(t *testing.T) {
+// TestIntegration_MiddlewareRefusesAConnectionThePersonaLacks pins where
+// authorization lives: the run presents its author's roles, the middleware
+// resolves the persona those roles hold, and a connection outside that
+// persona's reach is refused before the tool runs — for a delivery and for a
+// query alike.
+func TestIntegration_MiddlewareRefusesAConnectionThePersonaLacks(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("the grant refuses it inside the interpreter", func(t *testing.T) {
-		// The middleware would allow this connection; the approval did not.
-		h := executionServer(t, "warehouse", "finance")
-		grant := analystGrant()
-		source := strings.Replace(reportSource, `connection = "warehouse"`, `connection = "finance"`, 1)
-		authorAndApprove(ctx, t, h, source, grant)
-		session := connectAgent(ctx, t, h.server)
-
-		out, isErr := runScript(ctx, t, session, map[string]any{
-			"name": "daily", "args": map[string]any{"day": "2026-08-12"},
-		})
-		require.False(t, isErr, out["error"])
-		assert.Equal(t, script.RunStatusFailed, out["status"], out)
-		assert.Contains(t, out["error"], "not in this script's approved grant")
-		assert.Empty(t, h.queries.calls(), "the call never reached the warehouse")
-	})
-
-	t.Run("the middleware refuses it independently of the grant", func(t *testing.T) {
-		// The approval granted this connection; the persona does not hold it.
-		h := executionServer(t) // no connections allowed by the authorizer
-		authorAndApprove(ctx, t, h, reportSource, analystGrant())
+	t.Run("a delivery over a connection the persona does not hold", func(t *testing.T) {
+		// acme-drop is configured, but the authorizer does not allow acme-s3.
+		h := executionServer(t, "warehouse")
+		authorScript(t, h, deliverySource)
 		session := connectAgent(ctx, t, h.server)
 
 		out, isErr := runScript(ctx, t, session, map[string]any{
@@ -736,7 +698,22 @@ func TestIntegration_UngrantedConnectionIsRefusedAtBothLayers(t *testing.T) {
 		require.False(t, isErr, out["error"])
 		assert.Equal(t, script.RunStatusFailed, out["status"], out)
 		assert.Contains(t, out["error"], "not authorized",
-			"the authorization middleware is the authority of record, whatever the grant says")
+			"the authorization middleware is the authority of record")
+		assert.Empty(t, h.puts.calls(), "the refusal happened before the tool ran")
+	})
+
+	t.Run("a query over a connection the persona does not hold", func(t *testing.T) {
+		h := executionServer(t) // no connections allowed by the authorizer
+		authorScript(t, h, reportSource)
+		session := connectAgent(ctx, t, h.server)
+
+		out, isErr := runScript(ctx, t, session, map[string]any{
+			"name": "daily", "args": map[string]any{"day": "2026-08-12"},
+		})
+		require.False(t, isErr, out["error"])
+		assert.Equal(t, script.RunStatusFailed, out["status"], out)
+		assert.Contains(t, out["error"], "not authorized")
+		assert.Empty(t, h.queries.calls(), "the call never reached the warehouse")
 	})
 }
 
@@ -746,7 +723,7 @@ func TestIntegration_UngrantedConnectionIsRefusedAtBothLayers(t *testing.T) {
 func TestIntegration_RunIsAuditedUnderTheScriptPrincipal(t *testing.T) {
 	ctx := context.Background()
 	h := executionServer(t, "warehouse")
-	authorAndApprove(ctx, t, h, reportSource, analystGrant())
+	authorScript(t, h, reportSource)
 	session := connectAgent(ctx, t, h.server)
 
 	out, isErr := runScript(ctx, t, session, map[string]any{
@@ -775,7 +752,7 @@ func TestIntegration_RunIsAuditedUnderTheScriptPrincipal(t *testing.T) {
 func TestIntegration_RunHistoryIsReadableThroughTheTool(t *testing.T) {
 	ctx := context.Background()
 	h := executionServer(t, "warehouse")
-	authorAndApprove(ctx, t, h, reportSource, analystGrant())
+	authorScript(t, h, reportSource)
 	session := connectAgent(ctx, t, h.server)
 
 	out, isErr := runScript(ctx, t, session, map[string]any{
@@ -803,7 +780,7 @@ func TestIntegration_RunHistoryIsReadableThroughTheTool(t *testing.T) {
 func TestIntegration_ScriptFailureIsReportedAndNotRetried(t *testing.T) {
 	ctx := context.Background()
 	h := executionServer(t, "warehouse")
-	authorAndApprove(ctx, t, h, `fail("this report is broken")`, analystGrant())
+	authorScript(t, h, `fail("this report is broken")`)
 	session := connectAgent(ctx, t, h.server)
 
 	out, isErr := runScript(ctx, t, session, map[string]any{
@@ -821,7 +798,7 @@ func TestIntegration_ScriptFailureIsReportedAndNotRetried(t *testing.T) {
 func TestIntegration_WaitTimeoutHandsBackTheRunID(t *testing.T) {
 	ctx := context.Background()
 	h := executionServer(t, "warehouse")
-	authorAndApprove(ctx, t, h, reportSource, analystGrant())
+	authorScript(t, h, reportSource)
 
 	// Stop the worker so nothing can claim the run inside the wait.
 	require.NoError(t, h.worker.Stop(ctx))
@@ -844,7 +821,7 @@ func TestIntegration_WaitTimeoutHandsBackTheRunID(t *testing.T) {
 func TestIntegration_SplitDeploymentEnqueuesWithoutExecuting(t *testing.T) {
 	ctx := context.Background()
 	h := execServerWithWorker(t, false, "warehouse")
-	authorAndApprove(ctx, t, h, reportSource, analystGrant())
+	authorScript(t, h, reportSource)
 	session := connectAgent(ctx, t, h.server)
 
 	out, isErr := runScript(ctx, t, session, map[string]any{

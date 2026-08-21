@@ -320,14 +320,6 @@ export function AdminSettingsPage() {
         itemNoun="insight"
         isReadOnly={isReadOnly}
       />
-      <ReviewAlertCard
-        queue="script-review-alert"
-        title="Script review queue alert"
-        description="Email when script versions are left waiting for approval"
-        enabledHelp="Check the script review queue hourly and alert when it crosses a threshold. Nothing runs unattended until a version is approved, so an unworked queue is automation that is not happening."
-        itemNoun="script version"
-        isReadOnly={isReadOnly}
-      />
     </div>
   );
 }

@@ -73,21 +73,6 @@ func TestForPersona_DeniesAnUnresolvedPersona(t *testing.T) {
 	assert.Empty(t, connreach.New(fixture(t)).ForPersona(context.Background(), "nobody", false))
 }
 
-// TestForRoles_ResolvesThePersonaFromTheAuthoritySaved is the arity an
-// unattended run needs: a version remembers the ROLES its author held, and the
-// persona is resolved from exactly those.
-func TestForRoles_ResolvesThePersonaFromTheAuthoritySaved(t *testing.T) {
-	l := connreach.New(fixture(t))
-
-	assert.Equal(t, []connreach.Connection{{Name: "warehouse", Kind: "trino"}},
-		l.ForRoles(context.Background(), []string{"dp_analyst"}),
-		"the kind travels with the name: a membership test by name alone matches "+
-			"a different connection that happens to share it")
-	assert.Empty(t, l.ForRoles(context.Background(), []string{"dp_nobody"}),
-		"roles that resolve to no persona reach nothing")
-	assert.Empty(t, l.ForRoles(context.Background(), nil))
-}
-
 // TestForPersona_FallsBackToTheInstanceName covers a toolkit configured with no
 // connection name of its own: there is nothing else for a caller to name it by,
 // so the instance name is the value.
@@ -109,10 +94,4 @@ func TestNilListerAnswersNothing(t *testing.T) {
 	l := connreach.New(connreach.Deps{Personas: persona.NewRegistry()})
 	require.Nil(t, l, "no toolkit registry means no enumeration at all")
 	assert.Nil(t, l.ForPersona(context.Background(), "analyst", false))
-	assert.Nil(t, l.ForRoles(context.Background(), []string{"dp_analyst"}))
-
-	// A registry with no persona registry cannot resolve roles to a persona.
-	noPersonas := connreach.New(connreach.Deps{Toolkits: registry.NewRegistry()})
-	require.NotNil(t, noPersonas)
-	assert.Nil(t, noPersonas.ForRoles(context.Background(), []string{"dp_analyst"}))
 }

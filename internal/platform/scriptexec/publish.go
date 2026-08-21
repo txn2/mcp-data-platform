@@ -29,8 +29,7 @@ import (
 // old version still shows exactly the data it showed.
 func (w *outputWriter) PublishData(ctx context.Context, req scriptrun.PublishRequest) (*scriptrun.ExportResult, error) {
 	// A data region is a property of a portal document, so the destination is
-	// the portal by construction; the host has already checked the grant covers
-	// it before this writer is reached.
+	// the portal by construction.
 	destination := script.DestinationPortal
 	if err := w.refuseRepeat(req.Name, destination); err != nil {
 		return nil, err

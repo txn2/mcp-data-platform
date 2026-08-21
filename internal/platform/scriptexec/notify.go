@@ -3,7 +3,6 @@ package scriptexec
 import (
 	"context"
 	"log/slog"
-	"slices"
 	"strings"
 	"time"
 
@@ -34,12 +33,12 @@ const (
 // own failure in the tool response they are already reading, and mailing that
 // as well would be telling a person something they just read. A schedule is the
 // case with nobody present, which is the whole reason this exists.
-func (w *worker) notifyFailure(ctx context.Context, run *script.Run, sc *script.Script, v *script.Version, res script.RunResult) {
+func (w *worker) notifyFailure(ctx context.Context, run *script.Run, sc *script.Script, res script.RunResult) {
 	if w.cfg.notifier == nil || sc == nil ||
 		run.Trigger != script.TriggerSchedule || res.Status != script.RunStatusFailed {
 		return
 	}
-	recipients := alertRecipients(sc, v)
+	recipients := alertRecipients(sc)
 	if len(recipients) == 0 {
 		slog.Warn("scripts: a scheduled run failed and there is nobody to tell",
 			logKeyRunID, run.ID, "script", logsan.SanitizeForLog(sc.Name))
@@ -74,30 +73,13 @@ func (w *worker) notifyFailure(ctx context.Context, run *script.Run, sc *script.
 }
 
 // alertRecipients is who hears about a failed automation: the script's owner,
-// and the administrator who approved the version that failed.
-//
-// Both, because the two hold different halves of the answer. The owner wrote
-// the script and can fix it; the approver decided this version and this
-// capability set may run unattended, and a version failing every night is
-// information that belongs to that decision. Duplicates collapse for the common
-// case where they are the same person.
-func alertRecipients(sc *script.Script, v *script.Version) []string {
-	out := []string{}
-	for _, addr := range []string{sc.OwnerEmail, approverOf(v)} {
-		addr = strings.TrimSpace(addr)
-		if addr != "" && !slices.Contains(out, addr) {
-			out = append(out, addr)
-		}
+// who is accountable for it and can fix it.
+func alertRecipients(sc *script.Script) []string {
+	addr := strings.TrimSpace(sc.OwnerEmail)
+	if addr == "" {
+		return []string{}
 	}
-	return out
-}
-
-// approverOf returns who approved a version, tolerating an unread one.
-func approverOf(v *script.Version) string {
-	if v == nil {
-		return ""
-	}
-	return v.ApprovedBy
+	return []string{addr}
 }
 
 // alertDetail composes what the alert carries: the failure, and the tail of

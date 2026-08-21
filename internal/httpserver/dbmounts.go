@@ -28,7 +28,6 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/knowledgebuiltin"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourceaudit"
-	"github.com/txn2/mcp-data-platform/internal/platform/scriptauto"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
@@ -192,7 +191,7 @@ func mountScriptPortalAPI(mux *http.ServeMux, p *platform.Platform, wrap func(ht
 		Toolkits: p.ToolkitRegistry(), Personas: p.PersonaRegistry(),
 	})
 	deps.Connections = scriptConnectionEnumerator(lister)
-	deps.Drafts = scriptdraft.New(p.MCPServer())
+	deps.Drafts = scriptdraft.New(p.MCPServer(), p.Config().Scripts.ScriptDestinations())
 	scripthttp.New(deps).RegisterPortal(mux, wrap)
 }
 
@@ -211,23 +210,11 @@ func scriptDeps(p *platform.Platform) (scripthttp.Deps, bool) {
 	return scripthttp.Deps{
 		Scripts:    store,
 		Versions:   store,
-		Approvals:  store,
-		Reviews:    store,
-		Rejections: store,
 		Schedules:  store,
 		Runs:       store,
 		DryRuns:    store,
 		Contracts:  store,
 		LatestRuns: store,
-		// A personal script its owner edits is approved on save (#1367), against
-		// the same connection enumeration the parameter picker is filled from, so
-		// the set a form offers and the set an approval admits are one set.
-		Auto: scriptauto.New(scriptauto.Deps{
-			Approvals: store, Versions: store,
-			Reach: connreach.New(connreach.Deps{
-				Toolkits: p.ToolkitRegistry(), Personas: p.PersonaRegistry(),
-			}).ForRoles,
-		}),
 	}, true
 }
 

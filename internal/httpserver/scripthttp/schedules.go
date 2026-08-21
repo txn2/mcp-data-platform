@@ -75,7 +75,7 @@ func (h *Handler) getSchedule(w http.ResponseWriter, r *http.Request) {
 //
 // It carries no roles, connections, or capabilities, and could not usefully:
 // what a scheduled run executes and what it may reach were bound when the
-// version was approved. A schedule adds cadence to that grant and nothing else.
+// version runs. A schedule adds cadence and nothing else.
 type scheduleRequest struct {
 	// Cron is a standard five-field expression or a descriptor (@daily).
 	Cron string `json:"cron" example:"0 7 * * 1-5"`
@@ -92,7 +92,7 @@ type scheduleRequest struct {
 // setSchedule creates or replaces a script's schedule.
 //
 // @Summary      Set a script's schedule
-// @Description  Creates or replaces the cadence a script runs on. The parameters are validated against the approved version's contract, or the live record's when nothing is approved yet. A schedule grants no authority: the version that runs and the capabilities it holds were both bound at approval.
+// @Description  Creates or replaces the cadence a script runs on. The parameters are validated against the script's contract. A schedule grants no authority: every fire executes the latest saved version, authorized against the roles captured at that save.
 // @Tags         Scripts
 // @Accept       json
 // @Produce      json
@@ -129,15 +129,11 @@ func (h *Handler) writeSchedule(w http.ResponseWriter, r *http.Request, sc *scri
 		httpjson.WriteError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	approved, ok := h.approvedVersion(w, r, sc)
-	if !ok {
-		return
-	}
 	prev, ok := h.currentSchedule(w, r, sc.ID)
 	if !ok {
 		return
 	}
-	sched, err := script.BuildSchedule(sc, approved, prev, script.ScheduleRequest{
+	sched, err := script.BuildSchedule(sc, prev, script.ScheduleRequest{
 		CronSpec: req.Cron, Timezone: req.Timezone, Params: req.Params,
 		Enabled: req.Enabled, Actor: actor,
 	}, time.Now())
@@ -215,20 +211,6 @@ func (h *Handler) writeScheduleEnabled(w http.ResponseWriter, r *http.Request, s
 		return
 	}
 	httpjson.WriteJSON(w, http.StatusOK, sched)
-}
-
-// approvedVersion loads the version a schedule's fires would execute, or nil
-// when the script has none.
-func (h *Handler) approvedVersion(w http.ResponseWriter, r *http.Request, sc *script.Script) (*script.Version, bool) {
-	if !sc.Executable() {
-		return nil, true
-	}
-	v, err := h.deps.Versions.GetVersionByID(r.Context(), sc.ApprovedVersionID)
-	if err != nil {
-		httpjson.WriteError(w, http.StatusInternalServerError, "failed to read the approved version")
-		return nil, false
-	}
-	return v, true
 }
 
 // currentSchedule loads the schedule being replaced, treating its absence as

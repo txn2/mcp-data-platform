@@ -42,7 +42,7 @@ function diffLineClass(line: string): string {
   return "text-muted-foreground";
 }
 
-// SourceView renders a version's whole source, which is what a first approval
+// SourceView renders a version's whole source, which is what a first reading
 // is: there is no earlier version to diff against, so the change is the file.
 export function SourceView({ source }: { source: string }) {
   return (

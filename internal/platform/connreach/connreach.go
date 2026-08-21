@@ -88,28 +88,6 @@ func (l *Lister) ForPersona(ctx context.Context, personaName string, unrestricte
 	return conns
 }
 
-// ForRoles lists what the authority carried by a set of roles reaches, each
-// connection identified by kind and name together.
-//
-// It is the arity an unattended run needs. A person acting has a persona their
-// request resolved to; a version's author is remembered as the ROLES they held,
-// which is what an approved run presents, so the persona is resolved here from
-// exactly those roles. Roles that resolve to no persona reach nothing.
-//
-// The kind travels with the name because the caller is testing membership. A
-// set of names alone admitted a granted connection whenever a different
-// connection of another kind happened to share its name (#1384).
-func (l *Lister) ForRoles(ctx context.Context, roles []string) []Connection {
-	if l == nil || l.personas == nil {
-		return nil
-	}
-	per, ok := l.personas.GetForRoles(roles)
-	if !ok || per == nil {
-		return nil
-	}
-	return l.ForPersona(ctx, per.Name, false)
-}
-
 // value is the name a call actually binds, which is not always the name the
 // enumeration leads with: a single-connection toolkit's entry carries its
 // INSTANCE name in Name and its connection name in Connection, and the

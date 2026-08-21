@@ -117,7 +117,7 @@ type manageScriptInput struct {
 }
 
 // RegisterTool registers manage_script; where the deployment can execute
-// approved versions, run_script; and the presentation-only show_scripts. It
+// saved scripts, run_script; and the presentation-only show_scripts. It
 // also captures the server the two run paths open their in-memory sessions
 // against. No-op on a nil Handle or a no-database deployment (there is nowhere
 // to keep a script).

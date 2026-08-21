@@ -43,16 +43,15 @@ func (f *fakeNotifier) queued() []string {
 type failedRun struct {
 	run    *script.Run
 	script *script.Script
-	verz   *script.Version
 	result script.RunResult
 }
 
 // failedScheduledRun builds that state.
 func failedScheduledRun() failedRun {
-	sc, v, run := executableState()
+	sc, _, run := executableState()
 	run.Trigger = script.TriggerSchedule
 	run.ScheduleID = "sched_1"
-	return failedRun{run: run, script: sc, verz: v, result: script.RunResult{
+	return failedRun{run: run, script: sc, result: script.RunResult{
 		Status: script.RunStatusFailed,
 		Error:  "Traceback:\n  in main\nError: division by zero",
 		Log:    "starting\nquerying warehouse\n",
@@ -65,17 +64,18 @@ func notifierWorker(n Notifier) *worker {
 	return newWorker(workerConfig{runs: &fakeRuns{}, notifier: n})
 }
 
-// TestNotifyFailure_TellsTheOwnerAndTheApprover pins who hears about an
-// automation nobody is watching, and what they are told.
-func TestNotifyFailure_TellsTheOwnerAndTheApprover(t *testing.T) {
+// TestNotifyFailure_TellsTheOwner pins who hears about an automation nobody is
+// watching — the owner, who is accountable for it and can fix it — and what
+// they are told.
+func TestNotifyFailure_TellsTheOwner(t *testing.T) {
 	f := failedScheduledRun()
 	n := &fakeNotifier{}
 
-	notifierWorker(n).notifyFailure(context.Background(), f.run, f.script, f.verz, f.result)
+	notifierWorker(n).notifyFailure(context.Background(), f.run, f.script, f.result)
 
-	assert.Equal(t, []string{"jane@example.com", "admin@example.com"}, n.queued(),
-		"the owner can fix it and the approver decided it may run unattended")
-	require.Len(t, n.payloads, 2)
+	assert.Equal(t, []string{"jane@example.com"}, n.queued(),
+		"the owner, and only the owner, is told")
+	require.Len(t, n.payloads, 1)
 	assert.Equal(t, notification.KindScriptRun, n.payloads[0].Kind)
 	assert.Equal(t, notification.CategoryScriptRun, n.categories[0])
 	assert.Equal(t, f.run.ID, n.payloads[0].ItemID)
@@ -109,7 +109,7 @@ func TestNotifyFailure_OnlyForAScheduledFailure(t *testing.T) {
 			tt.mutate(f.run, &f.result)
 			n := &fakeNotifier{}
 
-			notifierWorker(n).notifyFailure(context.Background(), f.run, f.script, f.verz, f.result)
+			notifierWorker(n).notifyFailure(context.Background(), f.run, f.script, f.result)
 			assert.Empty(t, n.queued())
 		})
 	}
@@ -121,29 +121,29 @@ func TestNotifyFailure_OnlyForAScheduledFailure(t *testing.T) {
 func TestNotifyFailure_DegradesQuietly(t *testing.T) {
 	t.Run("no notifier wired", func(*testing.T) {
 		f := failedScheduledRun()
-		notifierWorker(nil).notifyFailure(context.Background(), f.run, f.script, f.verz, f.result)
+		notifierWorker(nil).notifyFailure(context.Background(), f.run, f.script, f.result)
 	})
 
 	t.Run("the script is gone, so there is nobody to tell", func(t *testing.T) {
 		f := failedScheduledRun()
 		n := &fakeNotifier{}
-		notifierWorker(n).notifyFailure(context.Background(), f.run, nil, f.verz, f.result)
+		notifierWorker(n).notifyFailure(context.Background(), f.run, nil, f.result)
 		assert.Empty(t, n.queued())
 	})
 
-	t.Run("an ownerless script with an unread version", func(t *testing.T) {
+	t.Run("an ownerless script", func(t *testing.T) {
 		f := failedScheduledRun()
 		f.script.OwnerEmail = ""
 		n := &fakeNotifier{}
-		notifierWorker(n).notifyFailure(context.Background(), f.run, f.script, nil, f.result)
+		notifierWorker(n).notifyFailure(context.Background(), f.run, f.script, f.result)
 		assert.Empty(t, n.queued())
 	})
 
 	t.Run("the enqueue failed", func(t *testing.T) {
 		f := failedScheduledRun()
 		n := &fakeNotifier{err: errors.New("boom")}
-		notifierWorker(n).notifyFailure(context.Background(), f.run, f.script, f.verz, f.result)
-		assert.Len(t, n.queued(), 2, "one bad address does not silence the other recipient")
+		notifierWorker(n).notifyFailure(context.Background(), f.run, f.script, f.result)
+		assert.Len(t, n.queued(), 1, "the write was attempted; its failure is logged, not raised")
 	})
 
 	t.Run("a canceled context still queues the alert", func(t *testing.T) {
@@ -151,17 +151,17 @@ func TestNotifyFailure_DegradesQuietly(t *testing.T) {
 		n := &fakeNotifier{}
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		notifierWorker(n).notifyFailure(ctx, f.run, f.script, f.verz, f.result)
-		assert.Len(t, n.queued(), 2, "the run is already recorded; the alert about it survives the cancel")
+		notifierWorker(n).notifyFailure(ctx, f.run, f.script, f.result)
+		assert.Len(t, n.queued(), 1, "the run is already recorded; the alert about it survives the cancel")
 	})
 }
 
-// TestAlertRecipients_CollapsesTheSelfApprovedCase pins that an admin who owns
-// and approved their own script is mailed once.
-func TestAlertRecipients_CollapsesTheSelfApprovedCase(t *testing.T) {
-	sc := &script.Script{OwnerEmail: "admin@example.com"}
-	v := &script.Version{ApprovedBy: " admin@example.com "}
-	assert.Equal(t, []string{"admin@example.com"}, alertRecipients(sc, v))
+// TestAlertRecipients_IsTheOwnerOnly pins who the alert set is: the script's
+// owner, trimmed, and nobody when the script has no owner address.
+func TestAlertRecipients_IsTheOwnerOnly(t *testing.T) {
+	assert.Equal(t, []string{"jane@example.com"},
+		alertRecipients(&script.Script{OwnerEmail: " jane@example.com "}))
+	assert.Empty(t, alertRecipients(&script.Script{OwnerEmail: "  "}))
 }
 
 // TestAlertDetail_TruncatesFromTheRightEnd pins the two directions: an error
@@ -211,7 +211,7 @@ func TestWorker_AFailedScheduledRunNotifies(t *testing.T) {
 
 	w.drain()
 
-	assert.Len(t, n.queued(), 2)
+	assert.Equal(t, []string{"jane@example.com"}, n.queued())
 }
 
 // TestWorker_ARetriedRunDoesNotNotify pins that a platform fault the worker is
@@ -238,8 +238,8 @@ func TestWorker_ARetriedRunDoesNotNotify(t *testing.T) {
 }
 
 // TestWorker_AGateRefusalStillReachesTheOwner pins why load returns what it
-// read alongside a refusal: a schedule attached to a script that lost its
-// approval must reach the person who owns it.
+// read alongside a refusal: a schedule attached to a script that was disabled
+// after queueing must reach the person who owns it.
 func TestWorker_AGateRefusalStillReachesTheOwner(t *testing.T) {
 	sc, v, run := executableState()
 	run.Trigger = script.TriggerSchedule
@@ -254,7 +254,8 @@ func TestWorker_AGateRefusalStillReachesTheOwner(t *testing.T) {
 
 	w.drain()
 
-	require.Len(t, n.queued(), 2)
+	assert.Equal(t, []string{"jane@example.com"}, n.queued())
+	require.Len(t, n.payloads, 1)
 	assert.Contains(t, n.payloads[0].Message, "disabled")
 }
 

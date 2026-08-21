@@ -285,16 +285,14 @@ platform.export(name = "daily-sales", rows = res["rows"], format = "csv")
 	assert.Equal(t, "warehouse", calls[0].Connection)
 	assert.Positive(t, calls[0].Limit)
 
-	// The script is the author's own, so creating it approved it (#1367), and
-	// the record says nobody reviewed that. What run_draft did is unchanged: it
-	// holds no approval and produced none — the version executing is the one
-	// create wrote.
+	// The draft run persisted nothing: the version a platform run would
+	// execute is still the one create wrote.
 	for _, sc := range h.store.scripts {
-		require.NotEmpty(t, sc.ApprovedVersionID)
-		v, err := h.store.GetVersionByID(ctx, sc.ApprovedVersionID)
+		assert.Equal(t, 1, sc.Version)
+		v, err := h.store.GetVersion(ctx, sc.ID, sc.Version)
 		require.NoError(t, err)
-		assert.True(t, v.AutoApproved)
-		assert.Equal(t, 1, v.Version)
+		require.NotNil(t, v)
+		assert.Equal(t, script.VersionStatusApplied, v.Status)
 	}
 }
 

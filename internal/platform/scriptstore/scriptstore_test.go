@@ -20,8 +20,8 @@ import (
 )
 
 // testAuthor is the author every write in these tests is attributed to. It
-// carries roles because a version's author roles are the ceiling on what
-// approving that version can grant.
+// carries roles because a version snapshots the authority its author held,
+// which is what a run of that version presents.
 var testAuthor = script.Author{Email: "jane@example.com", Roles: []string{"analyst"}}
 
 // scriptSelectColumns is the result-set shape a SELECT mock must return, in
@@ -29,7 +29,7 @@ var testAuthor = script.Author{Email: "jane@example.com", Roles: []string{"analy
 var scriptSelectColumns = []string{
 	"id", "name", "display_name", "description", "category", "source_code", "params",
 	"scope", "personas", "owner_email", "tags", "enabled", "status",
-	"superseded_by", "deprecated_at", "version", "approved_version_id",
+	"superseded_by", "deprecated_at", "version",
 	"created_at", "updated_at",
 }
 
@@ -37,14 +37,13 @@ var rowTime = time.Unix(1700000000, 0).UTC()
 
 // rowSpec describes the script row a SELECT mock should return.
 type rowSpec struct {
-	id              string
-	name            string
-	scope           string
-	owner           string
-	paramsJSON      []byte
-	approvedVersion string
-	source          string
-	category        string
+	id         string
+	name       string
+	scope      string
+	owner      string
+	paramsJSON []byte
+	source     string
+	category   string
 }
 
 // scriptRow returns one full result row in scriptColumns order.
@@ -55,8 +54,8 @@ func scriptRow(spec rowSpec) []driver.Value {
 	}
 	return []driver.Value{
 		spec.id, spec.name, "Daily", "A daily report", spec.category, source, spec.paramsJSON,
-		spec.scope, pq.Array([]string{}), spec.owner, pq.Array([]string{}), true, "draft",
-		"", nil, 1, spec.approvedVersion, rowTime, rowTime,
+		spec.scope, pq.Array([]string{}), spec.owner, pq.Array([]string{}), true, "active",
+		"", nil, 1, rowTime, rowTime,
 	}
 }
 
@@ -96,7 +95,7 @@ func TestGet_ResolvesSharedByName(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta("FROM scripts WHERE name = $1 AND scope <> 'personal'")).
 		WithArgs("daily").
 		WillReturnRows(sqlmock.NewRows(scriptSelectColumns).
-			AddRow(scriptRow(rowSpec{id: "script_1", name: "daily", scope: "global", owner: "jane@example.com", paramsJSON: emptyParams(t), approvedVersion: ""})...))
+			AddRow(scriptRow(rowSpec{id: "script_1", name: "daily", scope: "global", owner: "jane@example.com", paramsJSON: emptyParams(t)})...))
 
 	got, err := s.Get(context.Background(), "daily")
 	require.NoError(t, err)
@@ -104,7 +103,6 @@ func TestGet_ResolvesSharedByName(t *testing.T) {
 	assert.Equal(t, "daily", got.Name)
 	assert.Equal(t, []script.Param{}, got.Params, "a nil params slice is normalized so JSON carries [] not null")
 	assert.Equal(t, []string{}, got.Personas)
-	assert.False(t, got.Executable())
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -113,12 +111,13 @@ func TestGetPersonal_NeedsAnOwner(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta("WHERE name = $1 AND owner_email = $2 AND scope = 'personal'")).
 		WithArgs("daily", "jane@example.com").
 		WillReturnRows(sqlmock.NewRows(scriptSelectColumns).
-			AddRow(scriptRow(rowSpec{id: "script_1", name: "daily", scope: "personal", owner: "jane@example.com", paramsJSON: emptyParams(t), approvedVersion: "sver_9"})...))
+			AddRow(scriptRow(rowSpec{id: "script_1", name: "daily", scope: "personal", owner: "jane@example.com", paramsJSON: emptyParams(t)})...))
 
 	got, err := s.GetPersonal(context.Background(), "jane@example.com", "daily")
 	require.NoError(t, err)
 	require.NotNil(t, got)
-	assert.True(t, got.Executable(), "the approved-version pointer is read back as the execution gate")
+	assert.Equal(t, script.ScopePersonal, got.Scope)
+	assert.Equal(t, "jane@example.com", got.OwnerEmail)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -147,7 +146,7 @@ func TestGet_MalformedParamsAreReported(t *testing.T) {
 	s, mock := newMock(t)
 	mock.ExpectQuery("FROM scripts").
 		WillReturnRows(sqlmock.NewRows(scriptSelectColumns).
-			AddRow(scriptRow(rowSpec{id: "script_1", name: "daily", scope: "global", owner: "j@example.com", paramsJSON: []byte("{not json"), approvedVersion: ""})...))
+			AddRow(scriptRow(rowSpec{id: "script_1", name: "daily", scope: "global", owner: "j@example.com", paramsJSON: []byte("{not json")})...))
 
 	_, err := s.Get(context.Background(), "daily")
 	require.Error(t, err)
@@ -170,7 +169,7 @@ func TestCreate_WritesTheRowAndItsFirstSnapshot(t *testing.T) {
 	require.NoError(t, s.Create(context.Background(), sc, testAuthor))
 	assert.Equal(t, "script_1", sc.ID)
 	assert.Equal(t, 1, sc.Version)
-	assert.Equal(t, script.StatusDraft, sc.Status)
+	assert.Equal(t, script.StatusActive, sc.Status, "a saved script runs: creation defaults straight to active")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -223,7 +222,7 @@ func TestBuildListQuery(t *testing.T) {
 	enabled := true
 	query, args := buildListQuery(script.ListFilter{
 		Scope: "personal", Personas: []string{"analyst"}, OwnerEmail: "j@example.com",
-		Enabled: &enabled, Status: "draft", Search: "sales", Limit: 10,
+		Enabled: &enabled, Status: "active", Search: "sales", Limit: 10,
 	})
 	assert.Contains(t, query, "scope = $1")
 	assert.Contains(t, query, "personas && $2")
@@ -303,8 +302,8 @@ func TestList(t *testing.T) {
 	s, mock := newMock(t)
 	mock.ExpectQuery("FROM scripts").
 		WillReturnRows(sqlmock.NewRows(scriptSelectColumns).
-			AddRow(scriptRow(rowSpec{id: "script_1", name: "a", scope: "personal", owner: "j@example.com", paramsJSON: emptyParams(t), approvedVersion: ""})...).
-			AddRow(scriptRow(rowSpec{id: "script_2", name: "b", scope: "personal", owner: "j@example.com", paramsJSON: emptyParams(t), approvedVersion: ""})...))
+			AddRow(scriptRow(rowSpec{id: "script_1", name: "a", scope: "personal", owner: "j@example.com", paramsJSON: emptyParams(t)})...).
+			AddRow(scriptRow(rowSpec{id: "script_2", name: "b", scope: "personal", owner: "j@example.com", paramsJSON: emptyParams(t)})...))
 
 	got, err := s.List(context.Background(), script.ListFilter{})
 	require.NoError(t, err)
@@ -320,7 +319,7 @@ func TestList_ScanErrorPropagates(t *testing.T) {
 	s, mock := newMock(t)
 	mock.ExpectQuery("FROM scripts").
 		WillReturnRows(sqlmock.NewRows(scriptSelectColumns).
-			AddRow(scriptRow(rowSpec{id: "script_1", name: "a", scope: "personal", owner: "j@example.com", paramsJSON: []byte("{bad"), approvedVersion: ""})...))
+			AddRow(scriptRow(rowSpec{id: "script_1", name: "a", scope: "personal", owner: "j@example.com", paramsJSON: []byte("{bad")})...))
 
 	_, err := s.List(context.Background(), script.ListFilter{})
 	assert.ErrorContains(t, err, "unmarshal script params")

@@ -43,9 +43,9 @@ administrator — because that is the caller the owner-side controls are for:
 
 | Script | Owner | State |
 |---|---|---|
-| `daily-sales-report` | analyst@example.com | Global, approved, running weekday mornings with a `${fire_date}` binding, four runs of history |
-| `dormant-accounts` | analyst@example.com | Personal, nothing approved — a cadence set here saves and fires nothing |
-| `warehouse-freshness` | admin@example.com | Global, approved, cadence paused with two missed fires |
+| `daily-sales-report` | analyst@example.com | Global, running weekday mornings with a `${fire_date}` binding, four runs of history |
+| `dormant-accounts` | analyst@example.com | Personal, on demand — no schedule set |
+| `warehouse-freshness` | admin@example.com | Global, cadence paused with two missed fires |
 
 Sign in as `analyst@example.com` / `analyst-password` to set, re-time, pause,
 and resume a cadence as the owner rather than as an administrator; the same

@@ -11,15 +11,15 @@ import (
 
 // Running a script from the portal (#1363).
 //
-// The page already showed the contract, the parameters, the approval and the
-// run history, and offered no way to run any of it: an owner who wanted fresh
-// output before the next scheduled fire had to leave and ask an agent to call
-// run_script. This route is that action, and it is deliberately the same
-// action — it queues a run of the APPROVED version and returns its id, so the
-// worker executes it under the script principal exactly as a scheduled fire is
+// The page already showed the contract, the parameters, and the run history,
+// and offered no way to run any of it: an owner who wanted fresh output before
+// the next scheduled fire had to leave and ask an agent to call run_script.
+// This route is that action, and it is deliberately the same action — it
+// queues a run of the latest saved version and returns its id, so the worker
+// executes it under the script principal exactly as a scheduled fire is
 // executed. There is one path into execution, and this is not a second one.
 //
-// It grants nothing. Whether a run is admitted at all is script.RefuseNewRun's
+// It grants nothing. Whether a run is admitted at all is script.RefuseRun's
 // answer, the same one the contract document reports and run_script obeys, so
 // this route cannot run something those two call unrunnable.
 
@@ -30,14 +30,13 @@ import (
 const maxRunBodyBytes = 64 << 10
 
 // runRequest is a request for one run: the values to bind, and nothing else.
-// What executes and what it may reach were both decided at approval.
 type runRequest struct {
 	Params map[string]any `json:"params,omitempty"`
 }
 
 // runResponse identifies the queued run. It carries no result: a run is
 // executed by a worker, and the page follows it through the run history rather
-// than holding a request open for the ten minutes an approved run may take.
+// than holding a request open for the ten minutes a run may take.
 type runResponse struct {
 	RunID   string `json:"run_id" example:"run_a1b2c3d4"`
 	Status  string `json:"status" example:"pending"`
@@ -46,10 +45,10 @@ type runResponse struct {
 	Message string `json:"message"`
 }
 
-// portalRunScript queues one run of a script's approved version.
+// portalRunScript queues one run of a script's latest saved version.
 //
 // @Summary      Run a script
-// @Description  Queues one run of the approved version of a script the caller owns, binding the supplied parameters against that version's contract. The run is executed by a worker under the script's own identity, exactly as a scheduled fire is, and appears in the script's run history. A script with nothing approved is refused, in the execution gate's own words.
+// @Description  Queues one run of the latest saved version of a script the caller owns, binding the supplied parameters against its contract. The run is executed by a worker under the script's own identity, exactly as a scheduled fire is, and appears in the script's run history. A disabled or retired script is refused, in the run gate's own words.
 // @Tags         Scripts
 // @Accept       json
 // @Produce      json
@@ -76,15 +75,8 @@ func (h *Handler) portalRunScript(w http.ResponseWriter, r *http.Request, user *
 	if !ok {
 		return
 	}
-	// Parameters bind against the APPROVED version's contract rather than the
-	// live record's: a pending draft may have added or renamed a parameter, and
-	// the code that will execute knows nothing about it.
 	params, err := script.BindParams(version.Params, req.Params)
 	if err != nil {
-		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if err := script.CheckConnectionParams(version.Params, params, version.Grants); err != nil {
 		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -115,28 +107,28 @@ func decodeRunRequest(w http.ResponseWriter, r *http.Request) (runRequest, bool)
 	return req, true
 }
 
-// admittedVersion is the version a run requested right now would execute, or a
-// refusal written to w.
+// admittedVersion is the version a run requested right now would execute —
+// the script's latest saved version — or a refusal written to w.
 //
-// The refusal is script.RefuseNewRun's, verbatim. It is the gate's own reading
-// of the same question — disabled, superseded, deprecated, nothing approved, an
-// approval whose grant is missing — so this route and the contract document the
-// page is rendered from cannot disagree about whether a run would happen.
+// The refusal is script.RefuseRun's, verbatim. It is the gate's own reading of
+// the same question — disabled, superseded, deprecated — so this route and the
+// contract document the page is rendered from cannot disagree about whether a
+// run would happen.
 func (h *Handler) admittedVersion(w http.ResponseWriter, r *http.Request, sc *script.Script) (*script.Version, bool) {
-	var approved *script.Version
-	if sc.Executable() {
-		v, err := h.deps.Versions.GetVersionByID(r.Context(), sc.ApprovedVersionID)
-		if err != nil {
-			httpjson.WriteError(w, http.StatusInternalServerError, "failed to read the approved version")
-			return nil, false
-		}
-		approved = v
-	}
-	if err := script.RefuseNewRun(sc, approved); err != nil {
+	if err := script.RefuseRun(sc); err != nil {
 		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
 		return nil, false
 	}
-	return approved, true
+	v, err := h.deps.Versions.GetVersion(r.Context(), sc.ID, sc.Version)
+	if err != nil {
+		httpjson.WriteError(w, http.StatusInternalServerError, "failed to read the script's current version")
+		return nil, false
+	}
+	if v == nil {
+		httpjson.WriteError(w, http.StatusInternalServerError, "the script's current version is missing from its history")
+		return nil, false
+	}
+	return v, true
 }
 
 // queuedRun is what one run request resolved to: which code, with which

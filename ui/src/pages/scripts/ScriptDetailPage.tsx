@@ -1,4 +1,3 @@
-import { lazy, Suspense, useState } from "react";
 import { FileCode2 } from "lucide-react";
 import { useScriptContract } from "@/api/portal/hooks/scripts";
 import type { ScriptContract, ScriptParam } from "@/api/portal/hooks/scripts";
@@ -14,7 +13,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { approvalFact } from "./approval";
 import { executionState, formatWhen } from "./runFormat";
 import { ScriptDocumentation } from "./ScriptDocumentation";
 import { ScriptRunHistory } from "./ScriptRunHistory";
@@ -23,28 +21,18 @@ import { ScriptScheduleEditor } from "./ScriptScheduleEditor";
 import { ScriptSourceEditor } from "./ScriptSourceEditor";
 import { ScriptVersionHistory } from "./ScriptVersionHistory";
 
-// The decision surface is loaded only when somebody opens one. It carries the
-// grant editor and the diff view, and an owner — who can never approve anything
-// — would otherwise download all of it to read their own script (#1351).
-const ScriptReviewDrawer = lazy(() =>
-  import("./ScriptReviewDrawer").then((m) => ({ default: m.ScriptReviewDrawer })),
-);
-
 // ScriptDetailPage is one script in full: what it is and what it takes, what
-// will execute it, on what cadence, and — for its owner — everything it has run
-// (#1290), plus what the owner does here. They run it now (#1363), which is the
-// same run the schedule produces; they change the code, which for a personal
-// script is approved on save and for a shared one goes to review (#1307,
-// #1367), after checking it against the interpreter and running it once as
-// themselves (#1364); and they change the cadence, which carries no authority
-// at all.
+// will execute it, on what cadence, and — for its owner — everything it has
+// run (#1290), plus what the owner does here. They run it now (#1363), which
+// is the same run the schedule produces; they change the code, and the saved
+// version is the version that runs (#1307), after checking it against the
+// interpreter and running it once as themselves (#1364); and they change the
+// cadence, which carries no authority at all.
 //
-// It is ONE page for both surfaces. The admin section mounts it with review
-// turned on, which adds the approve-and-reject decision to the version history
-// and nothing else: an administrator reads and does everything an owner does,
-// on every script, plus the one thing only they do. Two pages would have meant
-// two answers to "what can I do with this script", and the answer differing by
-// which menu somebody came in through is the defect this avoids.
+// It is ONE page for both surfaces: an administrator reads and does everything
+// an owner does, on every script. Two pages would have meant two answers to
+// "what can I do with this script", and the answer differing by which menu
+// somebody came in through is the defect this avoids.
 //
 // The top of the page is the contract document, the same one a reference to
 // this script resolves to for an agent. There is deliberately not a second
@@ -57,19 +45,11 @@ interface Props {
   scriptId: string;
   onBack: () => void;
   onNavigate: (path: string) => void;
-  /** review adds the approve-and-reject decision, for the admin surface. */
-  review?: boolean;
   /** backLabel names where onBack goes, which differs between the two sections. */
   backLabel?: string;
 }
 
-export function ScriptDetailPage({
-  scriptId,
-  onBack,
-  onNavigate,
-  review,
-  backLabel = "Scripts",
-}: Props) {
+export function ScriptDetailPage({ scriptId, onBack, onNavigate, backLabel = "Scripts" }: Props) {
   const { data, isLoading, error } = useScriptContract(scriptId);
 
   if (isLoading) {
@@ -84,7 +64,6 @@ export function ScriptDetailPage({
       data={data}
       onBack={onBack}
       onNavigate={onNavigate}
-      review={review}
       backLabel={backLabel}
     />
   );
@@ -98,17 +77,14 @@ function ScriptDetail({
   data,
   onBack,
   onNavigate,
-  review,
   backLabel,
 }: {
   scriptId: string;
   data: { contract: ScriptContract; owned: boolean; source?: string; draft_params?: ScriptParam[] };
   onBack: () => void;
   onNavigate: (path: string) => void;
-  review?: boolean;
   backLabel: string;
 }) {
-  const [reviewing, setReviewing] = useState<number | null>(null);
   const { contract, owned, source } = data;
   const state = executionState(contract);
 
@@ -146,22 +122,9 @@ function ScriptDetail({
           source={source ?? ""}
           draftParams={draftParamsOf(data)}
           onNavigate={onNavigate}
-          onReview={review ? setReviewing : undefined}
         />
       ) : (
         <UnownedNotice ownerEmail={contract.owner_email} />
-      )}
-
-      {reviewing !== null && (
-        <Suspense fallback={null}>
-          <ScriptReviewDrawer
-            key={`${scriptId}-${reviewing}`}
-            scriptID={scriptId}
-            scriptName={contract.display_name || contract.name}
-            version={reviewing}
-            onClose={() => setReviewing(null)}
-          />
-        </Suspense>
       )}
     </div>
   );
@@ -189,17 +152,15 @@ function UnreadableScript({ backLabel, onBack }: { backLabel: string; onBack: ()
 function UnownedNotice({ ownerEmail }: { ownerEmail?: string }) {
   return (
     <p className="text-xs text-muted-foreground">
-      This script belongs to {ownerEmail || "someone else"}. Its cadence, its source, its
-      capability grant, and its run history are theirs and the administrators' to read.
+      This script belongs to {ownerEmail || "someone else"}. Its cadence, its source, and
+      its run history are theirs and the administrators' to read.
     </p>
   );
 }
 
-// draftParamsOf is the contract a dry run binds against: the LIVE record's,
+// draftParamsOf is the contract a dry run binds against: the live record's,
 // which the detail route serves to the owner beside the source. It falls back
-// to the contract's own parameters for a deployment that predates the field —
-// the two agree except on a script whose approved version and live record carry
-// different parameter contracts, which is what the field exists for.
+// to the contract's own parameters for a deployment that predates the field.
 function draftParamsOf(data: {
   contract: ScriptContract;
   draft_params?: ScriptParam[];
@@ -221,7 +182,6 @@ function OwnerSections({
   source,
   draftParams,
   onNavigate,
-  onReview,
 }: {
   scriptId: string;
   contract: ScriptContract;
@@ -229,8 +189,6 @@ function OwnerSections({
   /** The live record's parameter contract, which is what a dry run binds. */
   draftParams: ScriptParam[];
   onNavigate: (path: string) => void;
-  /** onReview opens the decision surface, on the admin surface only. */
-  onReview?: (version: number) => void;
 }) {
   return (
     <>
@@ -242,16 +200,15 @@ function OwnerSections({
         draftParams={draftParams}
       />
       <ScriptScheduleEditor scriptId={scriptId} contract={contract} />
-      <ScriptVersionHistory scriptId={scriptId} contract={contract} onReview={onReview} />
+      <ScriptVersionHistory scriptId={scriptId} contract={contract} />
       <ScriptRunHistory scriptId={scriptId} onNavigate={onNavigate} />
     </>
   );
 }
 
 // ContractFacts is the summary every surface agrees on: who owns it, who may
-// see it, what approved it, and when it next fires.
+// see it, which version runs, and when it next fires.
 function ContractFacts({ contract }: { contract: ScriptContract }) {
-  const approval = approvalFact(contract);
   const cadence = contract.schedule
     ? `${contract.schedule.cron_spec} (${contract.schedule.timezone})${contract.schedule.enabled ? "" : " — paused"}`
     : "on demand";
@@ -259,7 +216,7 @@ function ContractFacts({ contract }: { contract: ScriptContract }) {
     <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
       <Fact label="Owner" value={contract.owner_email || "—"} />
       <Fact label="Visible to" value={visibility(contract)} />
-      <Fact label="Approved" value={approval} />
+      <Fact label="Runs" value={`v${contract.version}, the latest saved version`} />
       <Fact label="Schedule" value={cadence} />
       <Fact
         label="Next run"
@@ -290,8 +247,8 @@ function visibility(contract: ScriptContract): string {
   return contract.owner_email || "its owner";
 }
 
-// ParameterTable is the contract a run binds against: the approved version's
-// parameters, because that is the version anything will execute.
+// ParameterTable is the contract a run binds against: the live record's
+// parameters, which are the latest saved version's.
 function ParameterTable({ contract }: { contract: ScriptContract }) {
   const params = contract.params ?? [];
   if (params.length === 0) {

@@ -205,29 +205,6 @@ recipient list, so removing an address there is how you stop sending it.
 A recipient still opts out for themselves with delivery mode `off`, including
 through the unsubscribe link the email carries like any other.
 
-## Script review queue alerts
-
-A managed script runs nothing until an administrator approves a version, so an
-unworked script review queue is not debt that accumulates quietly: it is
-automation that is not happening, or a correction sitting behind the code it
-was meant to replace. The same mechanism as the knowledge queue watches it —
-one hourly check, one alert per cooldown window, one replica winning a given
-window — over its own settings section, thresholds, and recipients.
-
-```
-GET /api/v1/admin/settings/script-review-alert    read the threshold, cooldown, and recipients
-PUT /api/v1/admin/settings/script-review-alert    update them
-```
-
-The fields are the ones above, counting script versions awaiting approval
-rather than insights. The age default is shorter (7 days rather than 30),
-because the two queues hold different debts. What the email says is the pending
-count, the age of the oldest decision outstanding, and a deep link to the
-review queue (`<portal>/admin/scripts`) — where a reviewer sees the capability
-diff and the code diff before deciding. Like the knowledge alert, this category
-has no per-user toggle: the operator chose the recipient list, and a recipient
-still opts out for themselves with delivery mode `off`.
-
 ## User notification preferences
 
 Each user manages their own preferences in the portal under **Settings**
@@ -238,8 +215,7 @@ ever read or write their own preferences.
   `daily` (one digest email per day), or `off`.
 - **Category toggles**: shares, comments/feedback, and mentions, each individually
   switchable. Review queue alerts have no toggle here; see
-  [Review queue alerts](#review-queue-alerts) and [Script review queue
-  alerts](#script-review-queue-alerts).
+  [Review queue alerts](#review-queue-alerts).
 
 Users with no stored preferences get the defaults: immediate delivery with
 all categories enabled. Turning notifications off drops events at enqueue

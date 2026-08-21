@@ -23,9 +23,8 @@ const (
 // with blank lines.
 //
 // The execution note is part of the document rather than decoration: it changes
-// what the script IS FOR. An approved script is something to run; an unapproved
-// one is something to ask a reviewer about, and reading a result should not
-// leave that ambiguous.
+// what the script IS FOR. A script in service is something to run; a disabled
+// or retired one is not, and reading a result should not leave that ambiguous.
 //
 // The source code is deliberately absent. docs/scripts/security.md admits the
 // contract to anyone the scope rules admit and the source only to the owner and
@@ -65,10 +64,10 @@ func Title(s *Script) string {
 
 // ExecutionNote states a script's execution state in one sentence.
 func ExecutionNote(s *Script) string {
-	if s.Executable() {
-		return "An approved version exists; call run_script to execute it."
+	if err := RefuseRun(s); err != nil {
+		return "Nothing will execute this script: " + err.Error() + "."
 	}
-	return "No version of this script is approved, so nothing will execute it."
+	return "Call run_script to execute it."
 }
 
 // SearchQuery describes a relevance ranking request over the script library.
@@ -129,8 +128,8 @@ type Searcher interface {
 	Search(ctx context.Context, q SearchQuery) ([]ScoredScript, error)
 
 	// Contract composes the contract document for one script: the script's own
-	// record, the approved version's parameter contract and approval stamp, its
-	// cadence when it has one, and its last successful run. It applies no
+	// record and parameter contract, its cadence when it has one, and its last
+	// successful run. It applies no
 	// visibility rule of its own — the caller has already established that this
 	// script may be seen.
 	Contract(ctx context.Context, id string) (*Contract, error)

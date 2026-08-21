@@ -108,8 +108,8 @@ func requestedBy(run *script.Run, caller string) bool {
 // readable by anyone the scope rules admit, because that is what makes a script
 // discoverable. A run carries more: the parameters it bound, the error it
 // failed with, and the log it printed, which is free text a script emitted
-// while holding ITS grant and may echo rows the reader has no access to of
-// their own. That is the owner's and the administrator's to read.
+// while presenting its author's captured roles and may echo rows the reader has no
+// access to of their own. That is the owner's and the administrator's to read.
 func (h *Handle) runReadable(ctx context.Context, input manageScriptInput) (*script.Script, *mcp.CallToolResult) {
 	sc, errResult := h.readable(ctx, input)
 	if errResult != nil {

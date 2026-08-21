@@ -64,7 +64,7 @@ func TestRealDB_TwoRacingMaterializersProduceExactlyOneRun(t *testing.T) {
 	s := New(db)
 	ctx := context.Background()
 
-	sc, v := approvedScript(ctx, t, s, "daily")
+	sc, v := savedScript(ctx, t, s, "daily")
 	fire := pastFire()
 	sched := scheduledFor(ctx, t, s, sc, fire)
 
@@ -118,7 +118,7 @@ func TestRealDB_ARetryCannotUnpinTheFire(t *testing.T) {
 	s := New(db)
 	ctx := context.Background()
 
-	sc, v := approvedScript(ctx, t, s, "daily")
+	sc, v := savedScript(ctx, t, s, "daily")
 	fire := pastFire()
 	sched := scheduledFor(ctx, t, s, sc, fire)
 
@@ -151,7 +151,7 @@ func TestRealDB_AnOverlappingFireIsRecordedAsASkip(t *testing.T) {
 	s := New(db)
 	ctx := context.Background()
 
-	sc, v := approvedScript(ctx, t, s, "daily")
+	sc, v := savedScript(ctx, t, s, "daily")
 	first := pastFire()
 	sched := scheduledFor(ctx, t, s, sc, first)
 
@@ -193,7 +193,7 @@ func TestRealDB_ScheduleLifecycleAgainstTheRealSchema(t *testing.T) {
 	s := New(db)
 	ctx := context.Background()
 
-	sc, _ := approvedScript(ctx, t, s, "daily")
+	sc, _ := savedScript(ctx, t, s, "daily")
 	due := time.Now().Add(-time.Minute)
 	sched := scheduledFor(ctx, t, s, sc, due)
 
@@ -282,7 +282,7 @@ func TestRealDB_DeletingAScriptRemovesItsScheduleAndRuns(t *testing.T) {
 	s := New(db)
 	ctx := context.Background()
 
-	sc, v := approvedScript(ctx, t, s, "daily")
+	sc, v := savedScript(ctx, t, s, "daily")
 	fire := pastFire()
 	sched := scheduledFor(ctx, t, s, sc, fire)
 	_, err := s.MaterializeRun(ctx, fireRun(sc, v, sched, "dpx_1", fire))

@@ -86,14 +86,17 @@ func (*allowAuthz) IsAuthorized(context.Context, string, []string, string, strin
 }
 
 // TestRunner_ExecutesAsTheScriptPrincipal is the identity property: the run
-// authenticates as script:<name>, carrying the roles the approval bound and the
-// run id as its session, with the owner's address alongside for attribution.
+// authenticates as script:<name>, presenting the roles the version's author
+// held when they saved it and the run id as its session, with the owner's
+// address alongside for attribution.
 func TestRunner_ExecutesAsTheScriptPrincipal(t *testing.T) {
 	var seen middleware.PlatformContext
 	sc, v, run := executableState()
 	run.LockedBy, run.Attempt = "worker-a", 1
 	v.Source = `platform.query(connection="warehouse", sql="SELECT 1")`
-	v.Grants.Connections = []string{"warehouse"}
+	// Distinct from anything else in the fixture, so the assertion below can
+	// only be satisfied by the version's captured roles.
+	v.AuthorRoles = []string{"dp_author_role"}
 
 	runs := &fakeRuns{}
 	require.NoError(t, runs.Enqueue(context.Background(), run))
@@ -106,7 +109,8 @@ func TestRunner_ExecutesAsTheScriptPrincipal(t *testing.T) {
 	require.Equal(t, script.RunStatusSucceeded, out.result.Status, out.result.Error)
 	assert.Equal(t, "script:daily", seen.UserID)
 	assert.Equal(t, "jane@example.com", seen.UserEmail)
-	assert.Equal(t, []string{"analyst"}, seen.Roles, "the roles the approval bound, not the requester's")
+	assert.Equal(t, []string{"dp_author_role"}, seen.Roles,
+		"the roles the version's author held when they saved it, not the requester's")
 	assert.Equal(t, middleware.AuthTypeScript, seen.AuthType)
 	assert.Equal(t, middleware.SourceScript, seen.Source)
 	assert.Equal(t, run.ID, seen.SessionID, "one run is one session")
@@ -117,27 +121,7 @@ func TestRunner_ExecutesAsTheScriptPrincipal(t *testing.T) {
 	assert.Equal(t, "script:daily", events[0].UserID)
 	assert.Equal(t, run.ID, events[0].SessionID)
 	assert.Equal(t, 3, events[0].Parameters["version"])
-	assert.Equal(t, "reviewed", events[0].Parameters["approval"],
-		"a version a person approved is recorded as one")
 	assert.True(t, events[0].Success)
-}
-
-// TestRunner_RecordsThatNobodyReviewedAnAutomaticApproval keeps the audit
-// history able to answer which unattended runs executed code no second person
-// looked at (#1367), without joining back to the version row.
-func TestRunner_RecordsThatNobodyReviewedAnAutomaticApproval(t *testing.T) {
-	var seen middleware.PlatformContext
-	sc, v, run := executableState()
-	v.AutoApproved = true
-	run.LockedBy, run.Attempt = "worker-a", 1
-
-	audit := &recordingAudit{}
-	r := newRunner(&fakeRuns{}, Config{Server: identityServer(t, &seen), Audit: audit})
-	r.recordAudit(context.Background(), run, sc, v, script.RunResult{Status: script.RunStatusSucceeded})
-
-	events := audit.all()
-	require.Len(t, events, 1)
-	assert.Equal(t, "auto", events[0].Parameters["approval"])
 }
 
 // TestRunner_PinsTheFireTimeToWhatTheRunWasCreatedFor pins that a delayed run
@@ -209,8 +193,6 @@ func TestRunner_WithoutPortalDepsFailsAnExportingRun(t *testing.T) {
 	sc, v, run := executableState()
 	run.LockedBy, run.Attempt = "worker-a", 1
 	v.Source = `platform.export(name="daily", rows=[{"a": 1}])`
-	v.Grants.Capabilities = script.Capabilities
-	v.Grants.Destinations = []script.Destination{script.PortalDestination()}
 
 	runs := &fakeRuns{}
 	require.NoError(t, runs.Enqueue(context.Background(), run))

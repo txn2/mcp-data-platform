@@ -9,110 +9,43 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// approvedAt is the approval stamp every contract test reuses.
-var approvedAt = time.Date(2026, 8, 14, 9, 0, 0, 0, time.UTC)
-
-// liveScript returns an approved, in-service script whose live record has
-// drifted from the approved version, which is the case the contract has to get
-// right.
+// liveScript returns an in-service script whose live record is what a run
+// executes.
 func liveScript() *Script {
 	return &Script{
 		ID: "script_1", Name: "daily-sales", DisplayName: "Daily Sales",
 		Description: "Yesterday's sales by region",
 		Scope:       ScopeGlobal, OwnerEmail: "jane@example.com", Enabled: true,
-		Status:            StatusActive,
-		ApprovedVersionID: "sver_3",
-		Params:            []Param{{Name: "draft_only", Type: ParamTypeString}},
+		Status:  StatusActive,
+		Version: 3,
+		Params:  []Param{{Name: "report_date", Type: ParamTypeDate, Required: true}},
 	}
 }
 
-// approvedVersion returns the version behind the gate, carrying a parameter
-// contract the live record no longer has.
-func approvedVersion() *Version {
-	return &Version{
-		ID: "sver_3", ScriptID: "script_1", Version: 3,
-		Status: VersionStatusApplied, ApprovedBy: "admin@example.com", ApprovedAt: &approvedAt,
-		Params: []Param{{Name: "report_date", Type: ParamTypeDate, Required: true}},
-		Grants: Grants{Connections: []string{"warehouse"}},
-	}
-}
-
-// TestBuildContractReportsTheApprovedParameterContract proves the contract
-// describes what a run would actually bind against. A caller reads it to decide
-// what to pass to run_script, and run_script executes the APPROVED version, so
-// reporting the live record's edited parameters would hand the caller arguments
-// the execution path rejects.
-func TestBuildContractReportsTheApprovedParameterContract(t *testing.T) {
-	c := BuildContract(liveScript(), approvedVersion(), nil, nil)
+// TestBuildContractReportsTheLiveParameterContract proves the contract
+// describes what a run would actually bind against: the live record's
+// parameters, which are the latest saved version's.
+func TestBuildContractReportsTheLiveParameterContract(t *testing.T) {
+	c := BuildContract(liveScript(), nil, nil)
 
 	require.Len(t, c.Params, 1)
-	assert.Equal(t, "report_date", c.Params[0].Name, "params must come from the approved version")
-	assert.True(t, c.Approval.Approved)
-	assert.Equal(t, 3, c.Approval.Version)
-	assert.Equal(t, "admin@example.com", c.Approval.ApprovedBy)
-	assert.Empty(t, c.Approval.Refusal, "an approved, enabled, active script is runnable")
+	assert.Equal(t, "report_date", c.Params[0].Name)
+	assert.Equal(t, 3, c.Version)
+	assert.Empty(t, c.Refusal, "an enabled, active script is runnable")
 }
 
-// TestBuildContractFallsBackToTheLiveParameterContract proves an unapproved
-// script still reports parameters: an author preparing one needs to see the
-// contract they are proposing, even though nothing will execute it yet.
-func TestBuildContractFallsBackToTheLiveParameterContract(t *testing.T) {
-	sc := liveScript()
-	sc.ApprovedVersionID = ""
-	sc.Status = StatusDraft
-
-	c := BuildContract(sc, nil, nil, nil)
-
-	require.Len(t, c.Params, 1)
-	assert.Equal(t, "draft_only", c.Params[0].Name)
-	assert.False(t, c.Approval.Approved)
-	assert.Zero(t, c.Approval.Version)
-	assert.Contains(t, c.Approval.Refusal, "no approved version")
-}
-
-// TestBuildContractReportsAGateRefusalOnAnApprovedScript proves the refusal is
-// the gate's own answer rather than a re-reading of it: a disabled script has an
-// approved version and still will not run, and a contract that reported only
-// "approved" would tell a caller to run something run_script refuses.
-func TestBuildContractReportsAGateRefusalOnAnApprovedScript(t *testing.T) {
+// TestBuildContractReportsAGateRefusal proves the refusal is the gate's own
+// answer rather than a re-reading of it: a disabled script will not run, and a
+// contract that omitted that would tell a caller to run something run_script
+// refuses.
+func TestBuildContractReportsAGateRefusal(t *testing.T) {
 	sc := liveScript()
 	sc.Enabled = false
 
-	c := BuildContract(sc, approvedVersion(), nil, nil)
+	c := BuildContract(sc, nil, nil)
 
-	assert.True(t, c.Approval.Approved, "the version is still approved")
-	assert.Equal(t, "the script is disabled", c.Approval.Refusal)
-	assert.Contains(t, c.Text(), "A run requested now would be refused: the script is disabled.")
-}
-
-// TestBuildContractRefusesAnUnreadableApprovedVersion proves a live row
-// pointing at a version the caller could not read is never reported as
-// runnable. Promising execution against a version nothing has seen is worse
-// than saying the read failed.
-func TestBuildContractRefusesAnUnreadableApprovedVersion(t *testing.T) {
-	c := BuildContract(liveScript(), nil, nil, nil)
-
-	assert.False(t, c.Approval.Approved)
-	assert.Contains(t, c.Approval.Refusal, "could not be read")
-}
-
-// TestRefuseNewRunRejectsAMismatchedVersion proves the gate refuses when the
-// version handed to it is not the one the execution pointer names, rather than
-// reporting a runnable script on the strength of some other approved version.
-func TestRefuseNewRunRejectsAMismatchedVersion(t *testing.T) {
-	other := approvedVersion()
-	other.ID = "sver_9"
-
-	err := RefuseNewRun(liveScript(), other)
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "could not be read")
-}
-
-// TestRefuseNewRunRejectsAMissingScript proves the nil case is an answer, not a
-// panic: every discovery surface asks the gate about whatever it just read.
-func TestRefuseNewRunRejectsAMissingScript(t *testing.T) {
-	require.Error(t, RefuseNewRun(nil, nil))
+	assert.Equal(t, "the script is disabled", c.Refusal)
+	assert.Contains(t, c.Text(), "a run requested now would be refused: the script is disabled.")
 }
 
 // TestContractScheduleReportsCadenceAndNextFire proves an enabled schedule
@@ -126,14 +59,14 @@ func TestContractScheduleReportsCadenceAndNextFire(t *testing.T) {
 		Enabled: true, NextRunAt: next,
 	}
 
-	c := BuildContract(liveScript(), approvedVersion(), sched, nil)
+	c := BuildContract(liveScript(), sched, nil)
 	require.NotNil(t, c.Schedule)
 	require.NotNil(t, c.Schedule.NextRunAt)
 	assert.Equal(t, next, *c.Schedule.NextRunAt)
 	assert.Contains(t, c.Text(), "next fire 2026-08-17 14:00 UTC")
 
 	sched.Enabled = false
-	c = BuildContract(liveScript(), approvedVersion(), sched, nil)
+	c = BuildContract(liveScript(), sched, nil)
 	require.NotNil(t, c.Schedule)
 	assert.Nil(t, c.Schedule.NextRunAt)
 	assert.Contains(t, c.Text(), "disabled")
@@ -142,7 +75,7 @@ func TestContractScheduleReportsCadenceAndNextFire(t *testing.T) {
 	// rather than reading as a cadence that simply has not fired yet.
 	sched.Enabled = true
 	sched.NextRunAt = time.Time{}
-	c = BuildContract(liveScript(), approvedVersion(), sched, nil)
+	c = BuildContract(liveScript(), sched, nil)
 	require.NotNil(t, c.Schedule)
 	assert.Nil(t, c.Schedule.NextRunAt)
 	assert.Contains(t, c.Text(), "no further fire")
@@ -162,7 +95,7 @@ func TestContractNamesEachOutputShape(t *testing.T) {
 		},
 	}
 
-	c := BuildContract(liveScript(), approvedVersion(), nil, run)
+	c := BuildContract(liveScript(), nil, run)
 
 	require.NotNil(t, c.LastRun)
 	require.Len(t, c.LastRun.Outputs, 2)
@@ -181,37 +114,21 @@ func TestContractNamesEachOutputShape(t *testing.T) {
 // rather than omitted: "no output recorded" and "no section about output" read
 // very differently to an agent deciding whether to trust the automation.
 func TestContractTextReportsNeverHavingRun(t *testing.T) {
-	text := BuildContract(liveScript(), approvedVersion(), nil, nil).Text()
+	text := BuildContract(liveScript(), nil, nil).Text()
 
 	assert.Contains(t, text, "Last successful run: none")
-	assert.Contains(t, text, "Approval: version 3, approved by admin@example.com.")
+	assert.Contains(t, text, "Runs: version 3, the latest saved version")
 	assert.Contains(t, text, "Parameters: report_date (required)")
-}
-
-// TestContractTextSaysNobodyReviewedAnAutomaticApproval keeps the contract from
-// reading an automatic approval as a decision somebody made (#1367): the owner
-// is named because they are accountable for the script, and a reader is told
-// plainly that nobody else looked at it.
-func TestContractTextSaysNobodyReviewedAnAutomaticApproval(t *testing.T) {
-	v := approvedVersion()
-	v.ApprovedBy = "jane@example.com"
-	v.AutoApproved = true
-
-	c := BuildContract(liveScript(), v, nil, nil)
-
-	assert.True(t, c.Approval.Automatic)
-	assert.Contains(t, c.Text(), "approved automatically because jane@example.com owns it and wrote it")
-	assert.Contains(t, c.Text(), "nobody reviewed it")
 }
 
 // TestContractTextOmitsTheSource proves the document a reference resolves to
 // never carries the script's code. Discovery answers "what is this and can I
-// use it"; the code is what a reviewer reads.
+// use it"; the code is what manage_script's get is for.
 func TestContractTextOmitsTheSource(t *testing.T) {
 	sc := liveScript()
 	sc.Source = "SECRET_MARKER = 1"
 
-	assert.NotContains(t, BuildContract(sc, approvedVersion(), nil, nil).Text(), "SECRET_MARKER")
+	assert.NotContains(t, BuildContract(sc, nil, nil).Text(), "SECRET_MARKER")
 }
 
 // TestContractTitleFallsBackToName proves a script authored without a display
@@ -220,13 +137,13 @@ func TestContractTitleFallsBackToName(t *testing.T) {
 	sc := liveScript()
 	sc.DisplayName = ""
 
-	assert.Equal(t, "daily-sales", BuildContract(sc, approvedVersion(), nil, nil).Title())
+	assert.Equal(t, "daily-sales", BuildContract(sc, nil, nil).Title())
 }
 
 // TestBuildContractOfNothing proves the nil script is an empty document rather
 // than a panic, since callers pass whatever their store returned.
 func TestBuildContractOfNothing(t *testing.T) {
-	assert.Empty(t, BuildContract(nil, nil, nil, nil).ID)
+	assert.Empty(t, BuildContract(nil, nil, nil).ID)
 }
 
 // TestParamSummaryMarksRequiredParameters proves the one-line contract an agent
@@ -265,7 +182,7 @@ func TestContractVisibilityMatchesTheRecord(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			sc := &Script{Scope: tc.scope, Personas: tc.personas, OwnerEmail: tc.owner}
-			c := BuildContract(sc, nil, nil, nil)
+			c := BuildContract(sc, nil, nil)
 
 			assert.Equal(t, tc.want, c.VisibleToAny(tc.email, tc.callerP))
 			assert.Equal(t, tc.want, sc.VisibleToAny(tc.email, tc.callerP),
@@ -291,7 +208,7 @@ func TestVisibleToAnyMatchesVisibleToPerPersona(t *testing.T) {
 // title and carries each section on its own line, which is the shape both the
 // fetch body and the prompt serve payload depend on.
 func TestContractTextIsOneDocument(t *testing.T) {
-	lines := strings.Split(BuildContract(liveScript(), approvedVersion(), nil, nil).Text(), "\n")
+	lines := strings.Split(BuildContract(liveScript(), nil, nil).Text(), "\n")
 
 	require.GreaterOrEqual(t, len(lines), 4)
 	assert.Equal(t, "Daily Sales", lines[0])
@@ -302,7 +219,7 @@ func TestContractTextIsOneDocument(t *testing.T) {
 // nothing is reported as such rather than as a run with an empty list, which
 // reads as missing data.
 func TestContractRunWithoutOutputsSaysSo(t *testing.T) {
-	c := BuildContract(liveScript(), approvedVersion(), nil, &Run{ID: "run_2", Version: 3})
+	c := BuildContract(liveScript(), nil, &Run{ID: "run_2", Version: 3})
 
 	require.NotNil(t, c.LastRun)
 	assert.Nil(t, c.LastRun.Outputs)
@@ -312,7 +229,7 @@ func TestContractRunWithoutOutputsSaysSo(t *testing.T) {
 // TestContractOutputOfUnknownShape proves an output that names neither an asset
 // nor a bucket still reports its destination rather than rendering as blank.
 func TestContractOutputOfUnknownShape(t *testing.T) {
-	c := BuildContract(liveScript(), approvedVersion(), nil, &Run{
+	c := BuildContract(liveScript(), nil, &Run{
 		ID: "run_3", Outputs: []RunOutput{{Name: "odd", Destination: "elsewhere"}},
 	})
 

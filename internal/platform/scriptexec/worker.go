@@ -23,7 +23,7 @@ const (
 	defaultPollEvery = 5 * time.Second
 
 	// defaultLease bounds one attempt. It must exceed the longest a run can
-	// take (scriptrun.ApprovedTimeout) or a still-running run would look
+	// take (scriptrun.RunTimeout) or a still-running run would look
 	// abandoned and be claimed a second time while the first is mid-flight; the
 	// margin above that ceiling is what a crashed worker's run waits before
 	// another replica reclaims it.
@@ -69,11 +69,13 @@ type ScriptReader interface {
 	GetByID(ctx context.Context, id string) (*script.Script, error)
 }
 
-// VersionReader is the version lookup the execution side needs. It reads by id
-// because the execution gate stores an id: only an id names one immutable
-// snapshot for the life of a script.
+// VersionReader is the version lookup the execution side needs. The worker
+// reads by id because a run is queued against one — only an id names one
+// immutable snapshot for the life of a script — and the scheduler reads the
+// script's current version by number to build the run it materializes.
 type VersionReader interface {
 	GetVersionByID(ctx context.Context, id string) (*script.Version, error)
+	GetVersion(ctx context.Context, scriptID string, version int) (*script.Version, error)
 }
 
 // executor runs one claimed run and reports how it ended.
@@ -381,7 +383,7 @@ func (w *worker) processRun(ctx context.Context, run *script.Run) {
 		w.cfg.metrics.RecordScriptRun(ctx, observability.ScriptRunAttrs{
 			Script: scriptName(sc, run), Trigger: run.Trigger, Status: outcome.result.Status,
 		}, time.Since(started))
-		w.notifyFailure(ctx, run, sc, v, outcome.result)
+		w.notifyFailure(ctx, run, sc, outcome.result)
 	}
 }
 
@@ -395,8 +397,8 @@ func scriptName(sc *script.Script, run *script.Run) string {
 	return run.ScriptID
 }
 
-// load reads the script and the version the run names, and puts both back
-// through the execution gate (script.RefuseRun) before anything executes.
+// load reads the script and the version the run names, and puts the script
+// back through the run gate (script.RefuseRun) before anything executes.
 //
 // Whatever it managed to read is returned alongside the refusal, not discarded
 // with it. A run refused at the gate still belongs to a script with an owner,
@@ -417,7 +419,7 @@ func (w *worker) load(ctx context.Context, run *script.Run) (*script.Script, *sc
 	if v == nil {
 		return sc, nil, terminal("the version this run was queued against no longer exists")
 	}
-	if refusal := script.RefuseRun(sc, v, run); refusal != nil {
+	if refusal := script.RefuseRun(sc); refusal != nil {
 		return sc, v, terminal(refusal.Error())
 	}
 	return sc, v, nil

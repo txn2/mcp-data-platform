@@ -110,8 +110,8 @@ func (h *Handle) handlePatch(ctx context.Context, input manageScriptInput) (*mcp
 }
 
 // handleDiff compares two versions of a script. With no versions named it
-// compares the newest pending draft against the snapshot the live row carries,
-// which is the question a reviewer actually has.
+// compares the live version against the one before it, which is the question a
+// reader of a recent edit actually has.
 func (h *Handle) handleDiff(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
 	sc, errResult := h.readable(ctx, input)
 	if errResult != nil {
@@ -151,9 +151,6 @@ func (h *Handle) handleDiff(ctx context.Context, input manageScriptInput) (*mcp.
 func resolveDiffVersions(history []script.Version, sc *script.Script, input manageScriptInput) (from, to int, err error) {
 	from, to = input.FromVersion, input.ToVersion
 	if to <= 0 {
-		to = pendingDraftVersion(history)
-	}
-	if to <= 0 {
 		to = sc.Version
 	}
 	if from <= 0 {
@@ -166,18 +163,6 @@ func resolveDiffVersions(history []script.Version, sc *script.Script, input mana
 		return 0, 0, errors.New("this script has no earlier version to compare against")
 	}
 	return from, to, nil
-}
-
-// pendingDraftVersion returns the newest draft version awaiting approval, or 0
-// when the script has none.
-func pendingDraftVersion(history []script.Version) int {
-	best := 0
-	for _, v := range history {
-		if v.Status == script.VersionStatusDraft && v.Version > best {
-			best = v.Version
-		}
-	}
-	return best
 }
 
 // versionSource returns one version's source, preferring the already-listed

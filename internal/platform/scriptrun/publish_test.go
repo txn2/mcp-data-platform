@@ -8,12 +8,44 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
-// draftPublish executes source as a draft: no grant layer, no exporter, so
-// every platform.publish_data call previews.
+// recordingExporter stands in for the portal writer, recording what it was
+// asked to persist.
+type recordingExporter struct {
+	requests  []ExportRequest
+	published []PublishRequest
+	err       error
+}
+
+func (e *recordingExporter) Export(_ context.Context, req ExportRequest) (*ExportResult, error) {
+	e.requests = append(e.requests, req)
+	if e.err != nil {
+		return nil, e.err
+	}
+	return &ExportResult{AssetID: "asset_1", AssetVersion: len(e.requests), Bytes: 512}, nil
+}
+
+func (e *recordingExporter) PublishData(_ context.Context, req PublishRequest) (*ExportResult, error) {
+	e.published = append(e.published, req)
+	if e.err != nil {
+		return nil, e.err
+	}
+	return &ExportResult{AssetID: "asset_1", AssetVersion: len(e.published), Bytes: 256}, nil
+}
+
+// exporterRun executes source under a platform run's shape: an exporter that
+// persists what the script produces.
+func exporterRun(t *testing.T, source string, exporter Exporter) (*Result, error) {
+	t.Helper()
+	return Run(context.Background(), Options{
+		Source: source, Name: "test", RunID: "dpx_1", FireTime: fireTime,
+		Caller: &recordingCaller{}, Exporter: exporter,
+	})
+}
+
+// draftPublish executes source as a draft: no exporter, so every
+// platform.publish_data call previews.
 func draftPublish(t *testing.T, source string) (*Result, error) {
 	t.Helper()
 	return Run(context.Background(), Options{
@@ -23,13 +55,13 @@ func draftPublish(t *testing.T, source string) (*Result, error) {
 }
 
 func TestPublishData_PersistsThroughTheExporter(t *testing.T) {
-	// Acceptance: an approved run's publish_data reaches the exporter with the
+	// Acceptance: a platform run's publish_data reaches the exporter with the
 	// converted payload, and the script reads back where the version landed.
 	exporter := &recordingExporter{}
-	result, err := grantedRun(t,
+	result, err := exporterRun(t,
 		`res = platform.publish_data("dash", {"regions": [{"name": "west", "total": 12}]})
 print(res["asset_version"])`,
-		fullGrant(), exporter)
+		exporter)
 	require.NoError(t, err)
 
 	require.Len(t, exporter.published, 1)
@@ -110,45 +142,13 @@ func TestPublishData_ArgumentRefusals(t *testing.T) {
 	}
 }
 
-func TestPublishData_GrantRefusals(t *testing.T) {
-	// The capability and the portal destination are both grant axes: a run
-	// missing either is refused inside the interpreter, naming what was granted.
-	source := `platform.publish_data("dash", {"a": 1})`
-
-	grants := fullGrant()
-	grants.Capabilities = []string{script.CapabilityQuery, script.CapabilityExport}
-	_, err := grantedRun(t, source, grants, &recordingExporter{})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "platform.publish_data binding is not in this script's approved grant")
-
-	grants = fullGrant()
-	grants.Destinations = nil
-	_, err = grantedRun(t, source, grants, &recordingExporter{})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "approved with no output destinations")
-}
-
-func TestPublishData_RefusesABucketWearingThePortalName(t *testing.T) {
-	// A grant written before the name was reserved can carry a bucket
-	// destination called "portal"; the refresh must refuse it rather than turn
-	// a bucket-delivery approval into an asset write nobody granted.
-	grants := fullGrant()
-	grants.Destinations = []script.Destination{{
-		Name: script.DestinationPortal, Kind: script.DestinationKindS3,
-		Connection: "s3-main", Bucket: "acme-exports",
-	}}
-	_, err := grantedRun(t, `platform.publish_data("dash", {"a": 1})`, grants, &recordingExporter{})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "is a bucket, not the platform's asset store")
-}
-
 func TestPublishData_SharesTheOutputBudgetAndNameSpaceWithExport(t *testing.T) {
 	// An export and a refresh of one name aim at one asset, so the pair is
 	// refused exactly as two exports of one name are.
 	exporter := &recordingExporter{}
-	_, err := grantedRun(t,
+	_, err := exporterRun(t,
 		"platform.export(\"dash\", \"<html><body/></html>\", \"html\")\nplatform.publish_data(\"dash\", {\"a\": 1})",
-		fullGrant(), exporter)
+		exporter)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "already written")
 }

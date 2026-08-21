@@ -4766,8 +4766,6 @@ definitions:
     type: object
   script.Contract:
     properties:
-      approval:
-        $ref: '#/definitions/script.ContractApproval'
       category:
         example: reporting
         type: string
@@ -4798,8 +4796,8 @@ definitions:
         type: string
       params:
         description: |-
-          Params is the typed parameter contract a run binds against: the approved
-          version's when one is approved, the live record's otherwise.
+          Params is the typed parameter contract a run binds against: the live
+          record's, which is the latest saved version's.
         items:
           $ref: '#/definitions/script.Param'
         type: array
@@ -4809,6 +4807,12 @@ definitions:
         items:
           type: string
         type: array
+      refusal:
+        description: |-
+          Refusal states why a run requested now would be refused, and is empty
+          when one would be admitted.
+        example: the script is disabled
+        type: string
       schedule:
         allOf:
         - $ref: '#/definitions/script.ContractSchedule'
@@ -4827,38 +4831,8 @@ definitions:
         items:
           type: string
         type: array
-    type: object
-  script.ContractApproval:
-    properties:
-      approved:
-        description: Approved reports whether a version is approved for execution.
-        example: true
-        type: boolean
-      approved_at:
-        type: string
-      approved_by:
-        description: ApprovedBy and ApprovedAt stamp who admitted that version and
-          when.
-        example: admin@example.com
-        type: string
-      automatic:
-        description: |-
-          Automatic reports that the platform approved this version itself, because
-          the script is personal and its owner wrote it (#1367). Nobody reviewed it,
-          and a reader of the contract is told so rather than reading ApprovedBy as
-          a decision somebody made.
-        example: false
-        type: boolean
-      refusal:
-        description: |-
-          Refusal states why a run requested now would be refused, and is empty when
-          one would be admitted. It is the gate's own answer (RefuseNewRun), not a
-          second reading of it, so a caller is never told a script is runnable that
-          run_script would then decline.
-        example: the script has no approved version, so nothing may execute it
-        type: string
       version:
-        description: Version is the approved version number, zero when none is approved.
+        description: 'Version is the version a run executes: the latest saved one.'
         example: 3
         type: integer
     type: object
@@ -4880,7 +4854,7 @@ definitions:
         type: integer
       destination:
         description: |-
-          Destination is the granted destination the output went to; "portal" for an
+          Destination is the named destination the output went to; "portal" for an
           output that named none.
         example: portal
         type: string
@@ -4937,38 +4911,6 @@ definitions:
         type: string
       timezone:
         example: America/Los_Angeles
-        type: string
-    type: object
-  script.Destination:
-    properties:
-      bucket:
-        description: Bucket is the bucket objects land in, empty for the portal.
-        example: acme-exports
-        type: string
-      connection:
-        description: |-
-          Connection is the named platform S3 connection the object is written
-          over, empty for the portal. It is also the name the authorization
-          middleware checks independently when the write is issued, so a
-          destination whose connection the script's persona cannot reach is
-          refused a second time, by the authority of record.
-        example: acme-s3
-        type: string
-      kind:
-        description: Kind is one of DestinationKinds.
-        example: s3
-        type: string
-      name:
-        description: Name is what a script writes as destination="...", unique within
-          a grant.
-        example: acme-drop
-        type: string
-      prefix:
-        description: |-
-          Prefix is the key prefix every object written here sits under, empty for
-          the portal and optional for a bucket. It is the boundary of the grant:
-          the script chooses a key beneath it and can never write outside it.
-        example: weekly
         type: string
     type: object
   script.DryRun:
@@ -5043,39 +4985,6 @@ definitions:
         example: 1200
         type: integer
     type: object
-  script.Grants:
-    properties:
-      capabilities:
-        description: Capabilities is the set of host bindings the script may call.
-        items:
-          type: string
-        type: array
-      connections:
-        description: |-
-          Connections is the set of named connections the script may query. A
-          query that names no connection is refused rather than defaulted: the
-          grant cannot verify a connection the call did not name.
-        items:
-          type: string
-        type: array
-      destinations:
-        description: |-
-          Destinations is the set of places the script may write output, each one a
-          resolved address rather than a label. An empty list means the script may
-          compute but not persist.
-        items:
-          $ref: '#/definitions/script.Destination'
-        type: array
-      roles:
-        description: |-
-          Roles is the authority the run presents to the authorization middleware,
-          copied from the approved version's author. The middleware resolves them
-          to a persona exactly as it does for a human caller, and that persona —
-          not this struct — is the authority of record.
-        items:
-          type: string
-        type: array
-    type: object
   script.Param:
     properties:
       default:
@@ -5107,66 +5016,6 @@ definitions:
           type: string
         type: array
     type: object
-  script.PendingReview:
-    properties:
-      author:
-        description: |-
-          Author is who wrote the version and AuthorRoles is the authority
-          approving it would bind, which approval copies rather than accepts.
-        example: jane@example.com
-        type: string
-      author_roles:
-        example:
-        - analyst
-        items:
-          type: string
-        type: array
-      created_at:
-        description: |-
-          CreatedAt is when the version was authored, which is how long the
-          decision has been outstanding.
-        example: "2026-08-14T09:00:00Z"
-        type: string
-      description:
-        example: Summarize yesterday's sales by region
-        type: string
-      display_name:
-        example: Daily Sales Report
-        type: string
-      first_approval:
-        description: |-
-          FirstApproval marks a script that has never had an approved version, so
-          nothing of it executes today. The distinction matters to a reviewer:
-          approving a change alters what already runs unattended, while approving a
-          first version starts something running.
-        example: true
-        type: boolean
-      owner_email:
-        example: jane@example.com
-        type: string
-      scope:
-        example: global
-        type: string
-      script_id:
-        example: script_a1b2c3d4
-        type: string
-      script_name:
-        example: daily-sales-report
-        type: string
-      version:
-        description: |-
-          Version is the number a reviewer would approve, and VersionStatus is that
-          version's row status — "draft" for a proposed change, "applied" for the
-          snapshot a never-approved script is already serving.
-        example: 3
-        type: integer
-      version_id:
-        example: sver_a1b2c3d4
-        type: string
-      version_status:
-        example: draft
-        type: string
-    type: object
   script.RunMetrics:
     properties:
       duration_ms:
@@ -5192,7 +5041,7 @@ definitions:
         type: integer
       destination:
         description: |-
-          Destination is the granted destination's name. It is empty on rows
+          Destination is the named destination's name. It is empty on rows
           written before destinations existed, which Destination() reads as the
           portal.
         type: string
@@ -5280,16 +5129,6 @@ definitions:
     type: object
   script.Script:
     properties:
-      approved_version_id:
-        description: |-
-          ApprovedVersionID is THE execution gate: the id of the one version the
-          platform may execute. Empty means the script has no approved version and
-          nothing will run it — which is every script today, because the approval
-          action and the runner that reads this pointer arrive with the execution
-          gate. Draft execution (manage_script run_draft) deliberately never reads
-          it: a draft runs under its author's own identity and authority, so it
-          needs no approval, and it also cannot stand in for one.
-        type: string
       category:
         description: |-
           Category files the script under one lowercase slug, the axis a listing
@@ -5338,7 +5177,7 @@ definitions:
         type: string
       status:
         description: Lifecycle.
-        example: draft
+        example: active
         type: string
       superseded_by:
         example: daily-sales-report-v2
@@ -5355,41 +5194,26 @@ definitions:
         type: string
       version:
         description: |-
-          Version is the number of the snapshot the live row currently carries.
-          Pending draft versions above this number exist in the history and are not
-          served.
+          Version is the number of the snapshot the live row currently carries,
+          which is the version a run executes: saving a version makes it the
+          version that runs.
         example: 3
         type: integer
     type: object
   script.Version:
     properties:
-      approved_at:
-        type: string
-      approved_by:
-        example: admin@example.com
-        type: string
       author:
         example: jane@example.com
         type: string
       author_roles:
         description: |-
           AuthorRoles is the authority the author held when this snapshot was
-          written — the ceiling on what approving it can grant. See Author.
+          written, and the roles a run of this version presents. See Author.
         example:
         - analyst
         items:
           type: string
         type: array
-      auto_approved:
-        description: |-
-          AutoApproved marks an approval the PLATFORM made rather than a person
-          (#1367): a personal script's own owner wrote this version, so the grant
-          was minted from what its code reaches instead of being asked of a
-          reviewer. ApprovedBy still names the owner, because they are accountable
-          for it; this is what separates their authorship from somebody's decision,
-          so an operator reading the history can tell which scripts nobody reviewed.
-        example: false
-        type: boolean
       category:
         example: reporting
         type: string
@@ -5402,15 +5226,6 @@ definitions:
       display_name:
         example: Daily Sales Report
         type: string
-      grants:
-        allOf:
-        - $ref: '#/definitions/script.Grants'
-        description: |-
-          Grants is the capability set bound to this version at approval: what the
-          approver approved this code to be able to do. It is empty on every
-          version that was never approved, and the approval action is the only
-          writer — changing what a script may reach means approving it again, which
-          re-stamps the approval alongside the new grant.
       id:
         example: sver_a1b2c3d4
         type: string
@@ -5443,9 +5258,7 @@ definitions:
         example: Production Trino cluster
         type: string
       kind:
-        description: |-
-          Kind is the toolkit serving it, empty for a granted connection the caller
-          cannot themselves enumerate.
+        description: Kind is the toolkit serving it.
         example: trino
         type: string
       name:
@@ -5515,49 +5328,6 @@ definitions:
         example: 42
         type: integer
     type: object
-  scripthttp.approveRequest:
-    properties:
-      capabilities:
-        items:
-          type: string
-        type: array
-      connections:
-        items:
-          type: string
-        type: array
-      destinations:
-        items:
-          $ref: '#/definitions/script.Destination'
-        type: array
-    type: object
-  scripthttp.approvedBaseline:
-    properties:
-      approved_at:
-        type: string
-      approved_by:
-        description: ApprovedBy and ApprovedAt are who bound that grant and when.
-        example: admin@example.com
-        type: string
-      grants:
-        allOf:
-        - $ref: '#/definitions/script.Grants'
-        description: |-
-          Grants is the capability set that version executes under today: what the
-          script already holds, against which the proposed grant is read.
-      source_diff:
-        description: |-
-          SourceDiff is the unified diff from the approved source to the version
-          under review. It is empty when the two carry identical source, which is
-          what re-approving a version to widen its grant looks like.
-        type: string
-      version:
-        description: Version is the approved version's number, and VersionID its id.
-        example: 2
-        type: integer
-      version_id:
-        example: sver_a1b2c3d4
-        type: string
-    type: object
   scripthttp.connectionChoicesResponse:
     properties:
       data:
@@ -5570,10 +5340,8 @@ definitions:
           the control without composing the sentence itself.
         type: string
       source:
-        description: |-
-          Source is "grant" when the set is what the approved version was approved
-          to reach, and "persona" when it is what the caller reaches themselves.
-        example: grant
+        description: Source names the boundary the set was drawn from.
+        example: persona
         type: string
     type: object
   scripthttp.draftRequest:
@@ -5643,16 +5411,6 @@ definitions:
           edit moved anything the snapshot holds and stays put when it did not, so a
           client can tell a real change from a re-save of identical text.
         example: 4
-        type: integer
-    type: object
-  scripthttp.pendingReviewResponse:
-    properties:
-      data:
-        items:
-          $ref: '#/definitions/script.PendingReview'
-        type: array
-      total:
-        example: 2
         type: integer
     type: object
   scripthttp.portalRun:
@@ -5794,12 +5552,10 @@ definitions:
       draft_params:
         description: |-
           DraftParams is the LIVE record's parameter contract, which is not always
-          the contract above: that one is the APPROVED version's, because that is
-          what a run binds against. A draft run binds against this one, because a
-          draft is the code that does not match the approved version yet (#1364),
-          and a form built from the wrong one would offer parameters the dry run
-          then refuses. It travels with the source for the same audience and for
-          the same reason.
+          the contract above only in freshness: it is read with the source, so the
+          dry-run form binds against exactly the contract the code beside it was
+          written against (#1364). It travels with the source for the same
+          audience and for the same reason.
         items:
           $ref: '#/definitions/script.Param'
         type: array
@@ -5825,9 +5581,9 @@ definitions:
           reading, and so is the fact that one failed.
       owned:
         description: |-
-          Owned reports whether this caller may read the script's runs, source, and
-          grant, so the page offers those surfaces rather than linking a reader to
-          a refusal.
+          Owned reports whether this caller may read the script's runs and source,
+          so the page offers those surfaces rather than linking a reader to a
+          refusal.
         example: true
         type: boolean
       schedule:
@@ -5862,8 +5618,7 @@ definitions:
           DynamicConnections is true when at least one call computes its connection
           instead of naming one, DynamicDestinations when one computes its
           destination, and DynamicRefreshTargets when a publish_data call computes
-          the name it refreshes. Any of them makes that list incomplete — and means
-          the grant cannot be checked against the code by reading it.
+          the name it refreshes. Any of them makes that list incomplete.
         type: boolean
       dynamic_destinations:
         type: boolean
@@ -5872,7 +5627,7 @@ definitions:
       refresh_targets:
         description: |-
           RefreshTargets are the output names platform.publish_data refreshes, so
-          the reviewer sees which asset's data region this script rewrites.
+          a reader sees which asset's data region this script rewrites.
         items:
           type: string
         type: array
@@ -5949,25 +5704,15 @@ definitions:
   scripthttp.sourceResponse:
     properties:
       applied:
-        description: Applied is true when the live script now carries this source.
-        example: false
-        type: boolean
-      approved:
         description: |-
-          Approved is true when the saved version is now the version the platform
-          executes, because this is the owner's own personal script and the platform
-          approved it for them (#1367).
+          Applied is true when the live script now carries this source, which is
+          every successful save.
         example: true
         type: boolean
       message:
         description: Message states the outcome in the owner's terms.
-        example: Saved as version 4, awaiting review.
+        example: Saved, and this version is what runs now.
         type: string
-      pending_version:
-        description: PendingVersion is the draft version awaiting review, zero when
-          applied.
-        example: 4
-        type: integer
     type: object
   scripthttp.validateResponse:
     properties:
@@ -6017,56 +5762,18 @@ definitions:
           type: string
         type: array
     type: object
-  scripthttp.versionListResponse:
+  scripthttp.versionDetailResponse:
     properties:
-      data:
-        items:
-          $ref: '#/definitions/script.Version'
-        type: array
-      total:
-        example: 4
-        type: integer
-    type: object
-  scripthttp.versionReviewResponse:
-    properties:
-      approved:
-        allOf:
-        - $ref: '#/definitions/scripthttp.approvedBaseline'
-        description: |-
-          Approved is the version the script executes today, with the grant it
-          holds and the diff from its source to this one. It is absent when the
-          script has never had a version approved, which is what makes this a first
-          approval rather than a change to something already running.
       dry_run:
         allOf:
         - $ref: '#/definitions/script.DryRun'
         description: |-
           DryRun is the account of somebody having executed this exact source, and
-          what it did (#1364). It is absent when nobody has, which is a fact a
-          reviewer should have: approving is agreeing to run code unattended, and
-          "the author never ran this" is the single most useful thing to know
-          before doing so.
+          what it did (#1364). It is absent when nobody has.
       findings:
         description: Findings are the validator's complaints about the source.
         items:
           $ref: '#/definitions/scriptrun.Finding'
-        type: array
-      missing_capabilities:
-        description: |-
-          MissingCapabilities, MissingConnections and MissingDestinations are what
-          the code reaches for that the current grant does not cover. On an
-          unapproved version that is everything, which is the point: it is the
-          grant a reviewer would have to bind for this code to work.
-        items:
-          type: string
-        type: array
-      missing_connections:
-        items:
-          type: string
-        type: array
-      missing_destinations:
-        items:
-          type: string
         type: array
       referenced:
         allOf:
@@ -6076,6 +5783,16 @@ definitions:
           which connections it names, and where it writes.
       version:
         $ref: '#/definitions/script.Version'
+    type: object
+  scripthttp.versionListResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/script.Version'
+        type: array
+      total:
+        example: 4
+        type: integer
     type: object
   scriptrun.Finding:
     properties:
@@ -10935,9 +10652,8 @@ paths:
       - Prompts
   /admin/scripts:
     get:
-      description: Returns every managed script with its lifecycle status and the
-        id of the version the platform is allowed to execute (empty when nothing is
-        approved).
+      description: Returns every managed script with its lifecycle status and current
+        version.
       produces:
       - application/json
       responses:
@@ -10990,9 +10706,9 @@ paths:
       consumes:
       - application/json
       description: 'Creates or replaces the cadence a script runs on. The parameters
-        are validated against the approved version''s contract, or the live record''s
-        when nothing is approved yet. A schedule grants no authority: the version
-        that runs and the capabilities it holds were both bound at approval.'
+        are validated against the script''s contract. A schedule grants no authority:
+        every fire executes the latest saved version, authorized against the roles
+        captured at that save.'
       parameters:
       - description: Script ID
         in: path
@@ -11095,9 +10811,8 @@ paths:
       - Scripts
   /admin/scripts/{id}/versions:
     get:
-      description: Returns every version of a script with its source, its author and
-        the roles that author held, and the approval stamp and capability grant bound
-        to it.
+      description: Returns every version of a script with its source, its author,
+        and the roles that author held.
       parameters:
       - description: Script ID
         in: path
@@ -11127,9 +10842,8 @@ paths:
       - Scripts
   /admin/scripts/{id}/versions/{version}:
     get:
-      description: Returns one version's snapshot together with the capabilities and
-        connections its source reaches for, and which of those the version's current
-        grant does not cover.
+      description: Returns one version's snapshot together with the capabilities,
+        connections, and destinations its source reaches for.
       parameters:
       - description: Script ID
         in: path
@@ -11147,7 +10861,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/scripthttp.versionReviewResponse'
+            $ref: '#/definitions/scripthttp.versionDetailResponse'
         "404":
           description: Not Found
           schema:
@@ -11159,128 +10873,7 @@ paths:
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
-      summary: Get a script version for review
-      tags:
-      - Scripts
-  /admin/scripts/{id}/versions/{version}/approve:
-    post:
-      consumes:
-      - application/json
-      description: Stamps the version approved, binds the capability grant it executes
-        under, and points the script's execution gate at it. The granted roles are
-        the roles the version's author held and cannot be set by the request. Approving
-        a pending draft also applies its snapshot to the live script.
-      parameters:
-      - description: Script ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Version number
-        in: path
-        name: version
-        required: true
-        type: integer
-      - description: Capability grant
-        in: body
-        name: grant
-        required: true
-        schema:
-          $ref: '#/definitions/scripthttp.approveRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/script.Version'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "409":
-          description: Conflict
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      summary: Approve a script version
-      tags:
-      - Scripts
-  /admin/scripts/{id}/versions/{version}/reject:
-    post:
-      description: 'Marks a pending draft rejected. The live script and its approved
-        version are untouched, so nothing about what executes changes. Only a pending
-        draft can be rejected: declining the live version of a never-approved script
-        means leaving it unapproved, which is already its state.'
-      parameters:
-      - description: Script ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Version number
-        in: path
-        name: version
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "409":
-          description: Conflict
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      summary: Reject a script version
-      tags:
-      - Scripts
-  /admin/scripts/reviews:
-    get:
-      description: 'Returns the versions waiting for a reviewer''s decision across
-        every script, oldest first: pending drafts, and the live version of any script
-        that has never had an approved version. One row per script, because approving
-        a version supersedes that script''s other pending drafts.'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/scripthttp.pendingReviewResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      summary: List script versions awaiting review
+      summary: Get a script version
       tags:
       - Scripts
   /admin/scripts/runs:
@@ -11475,55 +11068,6 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Update knowledge review-queue alert settings
-      tags:
-      - Settings
-  /admin/settings/script-review-alert:
-    get:
-      description: 'Returns the managed-script review-queue alert configuration: when
-        to alert that script versions are waiting for approval, and who hears about
-        it. Before an operator has written one, the platform defaults are returned
-        with no recipients.'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/reviewalert.SettingsView'
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      summary: Get script review-queue alert settings
-      tags:
-      - Settings
-    put:
-      consumes:
-      - application/json
-      description: 'Upserts the managed-script review-queue alert configuration: the
-        pending-count and age thresholds, the re-alert cooldown, and the recipients
-        the alert is delivered to.'
-      parameters:
-      - description: Script review alert settings
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/reviewalert.SettingsInput'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/reviewalert.SettingsView'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/settingsapi.problemDetail'
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      summary: Update script review-queue alert settings
       tags:
       - Settings
   /admin/settings/smtp:
@@ -15644,19 +15188,14 @@ paths:
       - Scripts
   /portal/scripts/{id}/connections:
     get:
-      description: Returns the set a `connection` parameter chooses from. By default
-        that is what the approved version was granted, which is the only set an approved
-        run can use; `audience=draft` returns what a dry run executing as the caller
-        would reach instead. Restricted to the script's owner and to administrators.
+      description: 'Returns the set a `connection` parameter chooses from: the connections
+        the caller''s persona reaches, narrowed to the kind the parameter binds. Restricted
+        to the script''s owner and to administrators.'
       parameters:
       - description: Script ID
         in: path
         name: id
         required: true
-        type: string
-      - description: run (default) or draft
-        in: query
-        name: audience
         type: string
       produces:
       - application/json
@@ -15689,10 +15228,9 @@ paths:
       - application/json
       description: 'Executes Starlark for a script the caller owns, under the caller''s
         own identity and persona and with tighter limits, persisting nothing: platform.export
-        reports the shape of each output instead of writing it, and no approval is
-        touched. An empty source runs the script''s saved code. The account of the
-        run is kept so a reviewer can see that the version they are approving was
-        executed, and by whom.'
+        reports the shape of each output instead of writing it. An empty source runs
+        the script''s saved code. The account of the run is kept, so a later reader
+        can see that this exact source was executed, and by whom.'
       parameters:
       - description: Script ID
         in: path
@@ -15738,9 +15276,8 @@ paths:
       consumes:
       - application/json
       description: Saves the display name, markdown description, category and tags
-        of a script the caller owns. None of these is review-gated, so the change
-        applies immediately and the approved version keeps executing untouched; it
-        is still captured as a version. Restricted to the script's owner and to administrators.
+        of a script the caller owns. The change applies immediately and is captured
+        as a version. Restricted to the script's owner and to administrators.
       parameters:
       - description: Script ID
         in: path
@@ -15829,11 +15366,11 @@ paths:
     post:
       consumes:
       - application/json
-      description: Queues one run of the approved version of a script the caller owns,
-        binding the supplied parameters against that version's contract. The run is
-        executed by a worker under the script's own identity, exactly as a scheduled
-        fire is, and appears in the script's run history. A script with nothing approved
-        is refused, in the execution gate's own words.
+      description: Queues one run of the latest saved version of a script the caller
+        owns, binding the supplied parameters against its contract. The run is executed
+        by a worker under the script's own identity, exactly as a scheduled fire is,
+        and appears in the script's run history. A disabled or retired script is refused,
+        in the run gate's own words.
       parameters:
       - description: Script ID
         in: path
@@ -15956,8 +15493,8 @@ paths:
       - application/json
       description: 'Creates or replaces the cadence a script the caller owns runs
         on, with the parameters every fire binds. A schedule grants no authority:
-        which version runs and what it may reach were both bound at approval. Restricted
-        to the script''s owner and to administrators.'
+        every fire executes the latest saved version, authorized against the roles
+        captured at that save. Restricted to the script''s owner and to administrators.'
       parameters:
       - description: Script ID
         in: path
@@ -16075,11 +15612,9 @@ paths:
     put:
       consumes:
       - application/json
-      description: Saves new Starlark for a script the caller owns. A script with
-        an approved version keeps executing that version and the edit becomes a draft
-        awaiting review; a script with nothing approved yet applies the edit directly.
-        The source is parsed before anything is stored. Restricted to the script's
-        owner and to administrators.
+      description: Saves new Starlark for a script the caller owns; the saved version
+        is the version that runs. The source is parsed before anything is stored.
+        Restricted to the script's owner and to administrators.
       parameters:
       - description: Script ID
         in: path
@@ -16169,8 +15704,8 @@ paths:
   /portal/scripts/{id}/versions:
     get:
       description: Returns every version of a script the caller owns, with its source,
-        its author, and the approval stamp and capability grant bound to it. Restricted
-        to the script's owner and to administrators.
+        its author, and the roles that author held. Restricted to the script's owner
+        and to administrators.
       parameters:
       - description: Script ID
         in: path

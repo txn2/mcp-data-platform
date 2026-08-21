@@ -35,6 +35,7 @@ func wireScripts(p *Platform) *scriptexec.Handle {
 		},
 		Audit:                 p.audit.Logger(),
 		Metrics:               p.obs.Metrics(),
+		Destinations:          p.config.Scripts.ScriptDestinations(),
 		RunRetention:          p.config.Scripts.RunRetention(),
 		WorkerDisabled:        !p.config.Scripts.IsWorkerEnabled(),
 		NotificationsDisabled: !p.config.Notifications.IsEnabled(),
@@ -45,8 +46,7 @@ func wireScripts(p *Platform) *scriptexec.Handle {
 		Runs:         scripts.Runs(),
 		AdminPersona: p.config.Admin.Persona,
 		PortalURL:    p.config.Portal.PublicBaseURL,
-		Toolkits:     p.toolkitRegistry,
-		Personas:     p.personaRegistry,
+		Destinations: p.config.Scripts.ScriptDestinations(),
 	})
 	p.scripts.RegisterTool(p.mcpServer)
 	return scripts

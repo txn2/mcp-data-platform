@@ -55,9 +55,6 @@ func TestBuildReviewAlert_NoDatabase(t *testing.T) {
 	if got := buildReviewAlert(nil, nil); got != nil {
 		t.Error("nil platform must yield no checker")
 	}
-	if got := buildScriptReviewAlert(nil, nil); got != nil {
-		t.Error("nil platform must yield no script review checker")
-	}
 	if got := reviewAlertSettings(nil, reviewalert.KnowledgeTarget()); got != nil {
 		t.Error("nil platform must yield no settings store")
 	}
@@ -68,21 +65,12 @@ func TestBuildReviewAlert_NoDatabase(t *testing.T) {
 	if got := buildReviewAlert(p, nil); got != nil {
 		t.Error("no database must yield no checker")
 	}
-	if got := buildScriptReviewAlert(p, nil); got != nil {
-		t.Error("no database must yield no script review checker")
-	}
-	for _, target := range []reviewalert.Target{
-		reviewalert.KnowledgeTarget(), reviewalert.ScriptTarget(),
-	} {
-		if got := reviewAlertSettings(p, target); got != nil {
-			t.Errorf("no database must yield no %s settings store", target.Queue)
-		}
+	if got := reviewAlertSettings(p, reviewalert.KnowledgeTarget()); got != nil {
+		t.Error("no database must yield no settings store")
 	}
 	// The composition root brackets Start/Stop on whatever it got back.
 	buildReviewAlert(p, nil).Start(context.Background())
 	buildReviewAlert(p, nil).Stop()
-	buildScriptReviewAlert(p, nil).Start(context.Background())
-	buildScriptReviewAlert(p, nil).Stop()
 }
 
 // TestReviewAlertSettings_NotificationsDisabled: with notifications off in
@@ -96,12 +84,8 @@ func TestReviewAlertSettings_NotificationsDisabled(t *testing.T) {
 	p := newTestPlatform(t, cfg)
 	defer func() { _ = p.Close() }()
 
-	for _, target := range []reviewalert.Target{
-		reviewalert.KnowledgeTarget(), reviewalert.ScriptTarget(),
-	} {
-		if got := reviewAlertSettings(p, target); got != nil {
-			t.Errorf("disabled notifications must yield no %s settings store", target.Queue)
-		}
+	if got := reviewAlertSettings(p, reviewalert.KnowledgeTarget()); got != nil {
+		t.Error("disabled notifications must yield no settings store")
 	}
 }
 

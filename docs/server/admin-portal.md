@@ -401,68 +401,33 @@ Features:
 
 ## Scripts (Admin)
 
-The Scripts page is where a managed script that other people can use becomes
-something the platform will run. Nothing shared executes unattended except a
-version an administrator approved, so this page is the control that rests on:
-it lists what is waiting for a decision, and it shows a reviewer what they would
-be agreeing to.
-
-One kind of script never reaches this queue. A script at `personal` scope,
-written by the person who owns it, is approved when they save it: its only
-caller is its author, and an approved run has always presented that author's own
-roles, so there was no authority for a reviewer to decide about. See
-[Managed Scripts: Security Model](../scripts/security.md#a-personal-script-is-approved-for-its-owner)
-for what that accepts and what still sends such a version here.
+The Scripts page is the operator's view of the platform's managed scripts:
+every script that exists, and what has been running. A saved script runs — the
+latest saved version is what `run_script` and a schedule execute, presenting
+the roles its author held at the save — so this page lists and explains rather
+than gating anything. See
+[Managed Scripts: Security Model](../scripts/security.md).
 
 ![Admin Scripts](../images/screenshots/light/admin-admin-scripts-light.webp#only-light)![Admin Scripts](../images/screenshots/dark/admin-admin-scripts-dark.webp#only-dark)
 
-**Awaiting approval** is the queue. A row is a version the platform is not
-executing, which happens two ways, and the badge says which:
-
-- **First approval** — the script has never had a version approved, so none of
-  it runs. Approving starts something running.
-- **Change to a running script** — a proposed edit is waiting while the
-  approved version keeps executing. Until it is approved, the script is still
-  running the code the change was meant to replace.
-
-Each row names the author and the roles they held, because those roles are the
-authority approving binds, and how long the decision has been outstanding —
-the same age the [script review alert](notifications.md#script-review-queue-alerts)
-fires on.
-
-A script the platform would refuse to run anyway — disabled, deprecated, or
-superseded — is not in the queue: approving it would change nothing. Re-enabling
-it brings its decision back.
-
-**Whether anybody has run it.** A version opened for review states whether its
-exact source has been dry-run, by whom, when, how it ended, and the shape of the
-outputs it would have written. The account is matched by the source itself
-rather than by a version number, so it describes the code in front of the
-reviewer and no other version.
-
-![A version somebody ran](../images/screenshots/light/admin-admin-script-dry-run-account-light.webp#only-light)![A version somebody ran](../images/screenshots/dark/admin-admin-script-dry-run-account-dark.webp#only-dark)
-
-A version nobody has dry-run says so, because approving one means that code
-first executes unattended.
-
-**All scripts** lists every script with who owns it, who can see it, and what it
-is executing: an approved version, or **Nothing approved**. Opening a row opens
-the script.
+**All scripts** lists every script with who owns it, who can see it, and what
+it is executing: **Runs vN** for a script in service, or its lifecycle state
+(disabled, deprecated, superseded) when nothing will execute it. Opening a row
+opens the script.
 
 ### One script
 
-The script page an administrator opens is the page its owner opens, with the
-decision added.
+The script page an administrator opens is the page its owner opens.
 
 ![One script](../images/screenshots/light/admin-admin-script-detail-light.webp#only-light)![One script](../images/screenshots/dark/admin-admin-script-detail-dark.webp#only-dark)
 
-Everything an owner does is here for every script — run it now, edit the source,
-validate and dry-run the edit, set or pause the cadence, read the version history
-and the run history — and so is the one thing only an administrator does: any
-version can be opened for review from the history, and approving an earlier one
-is a rollback, which points the execution gate back at it. The version history
-also says which approvals nobody reviewed, because a personal script's own owner
-approved it by saving it.
+Everything an owner does is here for every script — run it now, edit the
+source, validate and dry-run the edit, set or pause the cadence, read the
+version history and the run history. The version history shows each version's
+author and the roles they held, which are the roles a run of that version
+presents. A version's detail states whether its exact source has been dry-run,
+by whom, and how it ended — the account is matched by the source itself, so it
+describes the code in front of the reader and no other version.
 
 There is deliberately one script page rather than two. Two would have meant the
 administrator's and the owner's answers to "what can I do with this script"
@@ -470,8 +435,8 @@ drifting apart, one feature at a time.
 
 ### Runs
 
-The other question an operator has is not what needs a decision but what has
-been running. The **Runs** tab answers it across every script.
+The other question an operator has is what has been running. The **Runs** tab
+answers it across every script.
 
 ![Script runs](../images/screenshots/light/admin-admin-script-runs-light.webp#only-light)![Script runs](../images/screenshots/dark/admin-admin-script-runs-dark.webp#only-dark)
 
@@ -493,60 +458,6 @@ that whole window whatever the table holds. The two sources are deliberate —
 the metrics survive run retention and aggregate across replicas, and the rows
 carry the reason a particular run failed. A deployment with no metrics backend
 configured says so and still shows the history.
-
-### Reviewing a version
-
-![Script Review](../images/screenshots/light/admin-admin-script-review-light.webp#only-light)![Script Review](../images/screenshots/dark/admin-admin-script-review-dark.webp#only-dark)
-
-The review drawer answers three questions in the order a reviewer asks them.
-
-**What authority would this run with?** The roles are shown and cannot be
-changed here. Approval copies them from the version's author, so a script can
-never do what the person who wrote it could not; a control that let an approver
-set them would be a way to hand a script more access than its author had.
-
-**What would it be able to reach?** The grant is edited on three axes — host
-functions, connections, and output destinations — each marked against what the
-script holds today. A **Widens authority** badge appears when the proposal
-reaches anywhere the approved version does not, and the connection editor
-offers the connections this version's source names, since a script queries
-nothing it was not granted. Three states are called out rather than left to be
-noticed: a version whose code computes a connection or destination name instead
-of naming one (the list cannot be complete, and the drawer says so), and a
-script that executes nothing today (every grant is new).
-
-![Delivery Grant](../images/screenshots/light/admin-admin-script-delivery-grant-light.webp#only-light)![Delivery Grant](../images/screenshots/dark/admin-admin-script-delivery-grant-dark.webp#only-dark)
-
-**Where would its output go?** The portal — a versioned asset the platform
-owns — is a single toggle, because there is no address to decide. A destination
-that sends data to a bucket is different: the script names it and nothing more,
-and the reviewer supplies the connection, the bucket, and the prefix everything
-written there sits under. That address is bound to the version, so what the
-reviewer agreed to cannot be repointed at another bucket without approving
-again, and a destination the code names but nobody has addressed is marked
-**Needs an address** and blocks the approval until it has one. A prefix is the
-boundary: a script chooses the key beneath it and can write nothing outside it.
-
-**What changed in the code?** The diff runs from the version executing today to
-the one under review. It comes from the same response as the grant, so the two
-always describe the same pair of versions. A first approval has no earlier
-version to diff against, so the whole source is shown instead.
-
-![First Approval](../images/screenshots/light/admin-admin-script-first-approval-light.webp#only-light)![First Approval](../images/screenshots/dark/admin-admin-script-first-approval-dark.webp#only-dark)
-
-**Approve and bind this grant** stamps the version, binds the grant, and points
-the execution gate at it. An approval whose grant does not cover what the code
-plainly calls is refused, naming what is missing: approving a script that will
-refuse itself on its first query is not a decision anybody meant to make.
-**Reject** takes a pending draft out of consideration and changes nothing about
-what runs. It is offered only for a draft — declining the live version of a
-never-approved script means leaving it unapproved, which is already its state.
-
-Approving means "this version is what executes now", not "this version ran":
-the gate is re-read at execution, so a disabled, deprecated, or superseded
-script still refuses a queued run. See the [managed-script security
-model](../scripts/security.md) and [running managed
-scripts](../scripts/running.md).
 
 ## Agent Instructions
 
@@ -774,18 +685,12 @@ requires database config mode. Email branding (footer text, legal links,
 Reply-To) is implementor-owned YAML, not part of this page; see the
 [portal configuration](configuration.md).
 
-Two **review queue alert** sections follow, one per queue: **Knowledge
-review queue alert** for unreviewed insights, and **Script review queue
-alert** for script versions left waiting for approval. Each decides when
-the platform emails an operator about its own queue — the pending-count
-and oldest-age thresholds, the re-alert cooldown, and the recipients —
-and each keeps its own settings, so configuring one never changes the
-other. A section that would deliver nothing (enabled with no recipients,
-or with both thresholds cleared) says so in a banner rather than saving
-silently. See [review queue
-alerts](notifications.md#review-queue-alerts).
-
-![Script Review Alert](../images/screenshots/light/admin-admin-settings-script-alert-light.webp#only-light)![Script Review Alert](../images/screenshots/dark/admin-admin-settings-script-alert-dark.webp#only-dark)
+A **Knowledge review queue alert** section follows: it decides when the
+platform emails an operator about unreviewed insights — the pending-count
+and oldest-age thresholds, the re-alert cooldown, and the recipients. A
+section that would deliver nothing (enabled with no recipients, or with
+both thresholds cleared) says so in a banner rather than saving silently.
+See [review queue alerts](notifications.md#review-queue-alerts).
 
 ## Change Log
 

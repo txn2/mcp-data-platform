@@ -180,7 +180,7 @@ mcp-data-platform/
 │   ├── connid/                     # Connection identity: the instance a connection is stored under, the name a call binds it by, the toolkit serving it, and which half of the config owns it — one Resolver, distinct types
 │   ├── connview/                   # Builds the list_connections view (configured + discovered)
 │   ├── contenttype/                # Media-type detection and normalization for every content write path
-│   ├── database/                   # Database utilities (migrate/ = golang-migrate runner + 117 embedded SQL migrations)
+│   ├── database/                   # Database utilities (migrate/ = golang-migrate runner + 118 embedded SQL migrations)
 │   ├── embedding/                  # Text embedding generation for memory vector search
 │   ├── indexjobs/                  # Postgres-backed, source-kind-agnostic background indexer
 │   ├── knowledge/                  # Unified read path for platform knowledge (federation/ = live toolkit registry adapter)
@@ -408,16 +408,22 @@ calls:
 ### Managed Scripts
 
 Authoring needs no configuration and is available wherever there is a database.
-Execution is governed rather than configured: a version runs only once an admin
-approves it, which binds the capability grant it runs under. The two knobs are
-how long the record of a run is kept and whether this replica executes runs at
-all.
+A saved script runs: `run_script` and a schedule execute the latest saved
+version, presenting the roles its author held at the save, and the persona
+filter authorizes every call at run time. The knobs are how long the record of
+a run is kept, whether this replica executes runs at all, and which bucket
+destinations a script's output may be delivered to.
 
 ```yaml
 scripts:
   run_retention_days: 365   # how long a FINISHED run is kept (default 365)
   worker:
     enabled: false          # this replica enqueues runs but never claims them
+  destinations:             # named bucket destinations platform.export may write to
+    - name: acme-drop
+      connection: acme-s3
+      bucket: acme-exports
+      prefix: weekly
 ```
 
 A run still pending or running is never swept. The default is far longer than
@@ -425,7 +431,9 @@ the notification queue's because a scheduled script's run history is its refresh
 history — product surface, not queue residue. `worker.enabled` is a `*bool`
 defaulting to on: one process serves and executes unless a deployment splits
 them, and a worker-off replica still registers `run_script`, enqueues, and waits
-on the result a worker deployment produces. See `docs/scripts/running.md` and
+on the result a worker deployment produces. A destination is resolved by name at
+run time, so repointing one here takes effect on the next run; the portal is
+built in and never declared. See `docs/scripts/running.md` and
 `docs/scripts/security.md`.
 
 ### Progress, Client Logging, Icons & Elicitation
