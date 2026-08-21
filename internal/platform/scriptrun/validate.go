@@ -62,6 +62,60 @@ type Report struct {
 	DynamicRefreshTargets bool `json:"dynamic_refresh_targets"`
 }
 
+// CheckDestinations reports each destination a source names literally that the
+// deployment does not declare.
+//
+// Validate itself is deployment-independent — it parses source and reads what
+// the code reaches — so this is a separate pass over its report, applied by the
+// surfaces that know the configured set. Splitting it that way keeps a save
+// working when configuration changes underneath a stored script, while the
+// surface whose job is answering "would this run" answers it (#1415).
+//
+// It reads report.Destinations, which holds only the destinations named as
+// string literals in the source. A call that computes its destination is
+// invisible there and is reported by report.DynamicDestinations instead: its
+// address is not readable from the source, so there is nothing to check.
+//
+// The refusal is ResolveDestination's, so validate and the run say the same
+// thing about the same script.
+func CheckDestinations(report Report, declared []script.Destination) []Finding {
+	var findings []Finding
+	for _, name := range report.Destinations {
+		if _, err := ResolveDestination(name, declared); err != nil {
+			findings = append(findings, Finding{
+				Severity: SeverityError,
+				Message:  err.Error(),
+				Hint: "Name a destination this deployment declares, or write to " +
+					script.DestinationPortal + ", which is always available. " +
+					"A destination is deployment configuration (scripts.destinations), " +
+					"not something the script can add.",
+			})
+		}
+	}
+	return findings
+}
+
+// WithDestinationCheck returns report with CheckDestinations' findings folded
+// in and OK recomputed, which is the whole of what a validating surface does
+// with them. It exists so the tool arm and the portal editor cannot fold them
+// in differently.
+func WithDestinationCheck(report Report, declared []script.Destination) Report {
+	found := CheckDestinations(report, declared)
+	if len(found) == 0 {
+		return report
+	}
+	// Built fresh rather than appended onto the caller's slice: the two share a
+	// backing array, and sorting in place would reorder findings the caller
+	// still holds.
+	merged := make([]Finding, 0, len(report.Findings)+len(found))
+	merged = append(merged, report.Findings...)
+	merged = append(merged, found...)
+	sortFindings(merged)
+	report.Findings = merged
+	report.OK = !hasErrors(merged)
+	return report
+}
+
 // hasErrors reports whether any finding blocks execution.
 func hasErrors(findings []Finding) bool {
 	return slices.ContainsFunc(findings, func(f Finding) bool { return f.Severity == SeverityError })
@@ -107,15 +161,10 @@ func Validate(source string) Report {
 }
 
 // isPredeclaredName reports whether a name is part of the script environment.
-// It is the one definition of that environment, shared by validation and by
-// execution through predeclared().
+// It answers from PredeclaredNames, which is also what predeclared() binds, so
+// a name resolves here exactly when a run can call it.
 func isPredeclaredName(name string) bool {
-	switch name {
-	case "platform", "json", "date", "run":
-		return true
-	default:
-		return false
-	}
+	return slices.Contains(PredeclaredNames, name)
 }
 
 // sortFindings orders findings by line so a report reads top to bottom.
@@ -149,6 +198,31 @@ func resolveFindings(err error) []Finding {
 	return []Finding{{Severity: SeverityError, Message: err.Error()}}
 }
 
+// undefinedNameHint lists the environment for an author who reached for a name
+// that is not in it. It is composed from PredeclaredNames rather than written
+// out, so a global the platform adds or drops cannot leave the hint naming a
+// set the resolver disagrees with.
+var undefinedNameHint = fmt.Sprintf(
+	"Only %s are available, plus the Starlark built-ins. There are no imports and no standard library beyond that.",
+	quotedList(PredeclaredNames))
+
+// quotedList renders names as a backticked English list ("`a`, `b`, and `c`").
+func quotedList(names []string) string {
+	quoted := make([]string, 0, len(names))
+	for _, n := range names {
+		quoted = append(quoted, "`"+n+"`")
+	}
+	switch len(quoted) {
+	case 0:
+		return ""
+	case 1:
+		return quoted[0]
+	case 2:
+		return quoted[0] + " and " + quoted[1]
+	}
+	return strings.Join(quoted[:len(quoted)-1], ", ") + ", and " + quoted[len(quoted)-1]
+}
+
 // dialectCorrection maps a fragment of an interpreter message to the hint that
 // tells an author what to write instead. Keyed on a fragment rather than on
 // the whole message so a wording change upstream degrades to a bare error
@@ -159,7 +233,7 @@ var dialectCorrections = []struct {
 }{
 	{"does not support while loops", "Unbounded loops are disabled so a script's cost is predictable from its source. Iterate over a list with `for`, or express the repetition in SQL."},
 	{"called recursively", "Recursion is disabled for the same reason as `while`. Flatten the work into a loop over a list, or do it in SQL."},
-	{"undefined: ", "Only `platform`, `json`, `date`, and `run` are available, plus the Starlark built-ins. There are no imports and no standard library beyond that."},
+	{"undefined: ", undefinedNameHint},
 	{`got import\b`, "There is no `import`. Query results come from `platform.query`; JSON is the predeclared `json` module; dates are the predeclared `date` module."},
 	{`got (?:try|except|finally)\b`, "There is no `try`/`except`. An error fails the run by design, so the failure is visible in the run record instead of being swallowed."},
 	{`got class\b`, "There are no classes. Use dicts for structured values and functions for behavior."},

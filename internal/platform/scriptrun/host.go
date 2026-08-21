@@ -115,20 +115,33 @@ type hostState struct {
 // one takes effect on the next run. A draft resolves through the same set, so
 // a destination a real run would refuse fails while the author is iterating.
 func (h *hostState) resolveDestination(name string) (script.Destination, error) {
+	return ResolveDestination(name, h.opts.Destinations)
+}
+
+// ResolveDestination turns a destination name into the address it stands for,
+// against the set a deployment declares. The portal is built in; every other
+// name comes from the scripts.destinations configuration.
+//
+// It is exported because the run is no longer the only caller: validate
+// reports a script that names a destination this deployment does not declare
+// (#1415), and the two must refuse in the same words for the same reason. A
+// script whose export was accepted by validate and then refused at run time
+// had already executed its queries by the time it learned.
+func ResolveDestination(name string, declared []script.Destination) (script.Destination, error) {
 	if name == script.DestinationPortal {
 		return script.PortalDestination(), nil
 	}
-	for _, d := range h.opts.Destinations {
+	for _, d := range declared {
 		if d.Name == name {
 			return d, nil
 		}
 	}
-	if len(h.opts.Destinations) == 0 {
+	if len(declared) == 0 {
 		return script.Destination{}, fmt.Errorf("destination %q is not configured: this deployment declares no bucket destinations, so %q is the only place a script can write",
 			name, script.DestinationPortal)
 	}
 	return script.Destination{}, fmt.Errorf("destination %q is not configured; this deployment declares %s, and %q is always available",
-		name, strings.Join(destinationNames(h.opts.Destinations), ", "), script.DestinationPortal)
+		name, strings.Join(destinationNames(declared), ", "), script.DestinationPortal)
 }
 
 // destinationNames lists the configured destinations for a refusal.

@@ -416,9 +416,21 @@ func classifyExecError(ctx context.Context, err error, overStep bool, maxSteps u
 	}
 }
 
+// PredeclaredNames are the globals the platform adds on top of the Starlark
+// universe, in the order the dialect contract introduces them.
+//
+// It is the one definition of that set. predeclared() builds the bindings and
+// isPredeclaredName answers for them while validating, and a name present in
+// one and absent from the other is the defect that let the contract advertise
+// a built-in the environment did not have (#1414): validation would resolve a
+// name the run cannot bind, or refuse one it can.
+var PredeclaredNames = []string{"platform", "json", "date", "run", sumBuiltinName}
+
 // predeclared builds the global environment a script sees. Everything absent
 // from this dict is absent from the language: no imports, no filesystem, no
 // clock, no randomness, no network.
+//
+// Its keys are PredeclaredNames, which TestPredeclaredMatchesNames pins.
 func predeclared(host *hostState) starlark.StringDict {
 	return starlark.StringDict{
 		"platform": &starlarkstruct.Module{
@@ -429,8 +441,9 @@ func predeclared(host *hostState) starlark.StringDict {
 				"publish_data": starlark.NewBuiltin("platform.publish_data", host.publishData),
 			},
 		},
-		"json": json.Module,
-		"date": dateModule,
-		"run":  host.runValue(),
+		"json":         json.Module,
+		"date":         dateModule,
+		"run":          host.runValue(),
+		sumBuiltinName: sumBuiltin,
 	}
 }

@@ -16,6 +16,11 @@ examples you can copy.
 3. `command=run_draft` executes the draft for real under your own identity and
    persona, with tighter limits, persisting nothing: `platform.export` reports
    the shape and size of each output instead of writing it.
+
+Steps 2 and 3 act on the `source` you send with the call, and on the saved
+version when you send none. That is what makes them a loop: a save is
+immediately the version `run_script` executes and a schedule fires, so sending
+the edit is how you try a change without making it live.
 4. Once saved, `run_script` executes the latest saved version — on demand or
    on a schedule — as the script's own principal, presenting the roles you held
    at the save.
@@ -45,6 +50,11 @@ as `manage_script command=help` states it, is appended below.
   write only through `platform.export`; INSERT, UPDATE, DELETE, CREATE, and
   DROP never execute.
 - **f-strings do not exist.** Use `"{}".format(x)` or `"%s" % x`.
+- **A destination has to be one this deployment declares.** `platform.export`
+  writes to `portal` unless it names a bucket destination the operator
+  configured under `scripts.destinations`. `validate` reports a name the
+  deployment cannot serve, which is worth checking after an upgrade: the
+  declared set changes without the script changing.
 
 ## A saved script runs
 

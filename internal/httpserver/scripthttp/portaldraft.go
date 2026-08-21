@@ -102,7 +102,7 @@ func (h *Handler) portalValidateSource(w http.ResponseWriter, r *http.Request, u
 	if !ok {
 		return
 	}
-	report := scriptrun.Validate(sourceOr(req.Source, sc))
+	report := scriptrun.WithDestinationCheck(scriptrun.Validate(script.DraftSource(req.Source, sc)), h.deps.Destinations)
 	httpjson.WriteJSON(w, http.StatusOK, validateResponse{
 		OK:                    report.OK,
 		Findings:              report.Findings,
@@ -165,8 +165,8 @@ func (h *Handler) portalDryRunSource(w http.ResponseWriter, r *http.Request, use
 	if !ok {
 		return
 	}
-	source := sourceOr(req.Source, sc)
-	if detail := refuseSource(source); detail != "" {
+	source := script.DraftSource(req.Source, sc)
+	if detail := refuseDraftSource(source, h.deps.Destinations); detail != "" {
 		httpjson.WriteError(w, http.StatusBadRequest, detail)
 		return
 	}
@@ -215,15 +215,6 @@ func decodeDraftRequest(w http.ResponseWriter, r *http.Request) (draftRequest, b
 		return req, false
 	}
 	return req, true
-}
-
-// sourceOr resolves the source to act on: the edit when one was sent, and the
-// stored code otherwise.
-func sourceOr(sent string, sc *script.Script) string {
-	if sent != "" {
-		return sent
-	}
-	return sc.Source
 }
 
 // incompleteNote states that a validate report's lists are known to be short,

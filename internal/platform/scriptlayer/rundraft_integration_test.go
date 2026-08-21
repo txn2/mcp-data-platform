@@ -134,10 +134,17 @@ func (q *recordingQueries) calls() []queryInput {
 // manage_script and a Trino-shaped query tool.
 func assembledServer(t *testing.T) harness {
 	t.Helper()
+	return assembledServerWith(t, nil)
+}
+
+// assembledServerWith is assembledServer over a declared destination set, for
+// the tests that assert what validate and run_draft say about a destination.
+func assembledServerWith(t *testing.T, destinations []script.Destination) harness {
+	t.Helper()
 	const authorID = "user-jane@example.com"
 
 	store := newMemStore()
-	h := New(Config{Store: store, AdminPersona: "admin"})
+	h := New(Config{Store: store, AdminPersona: "admin", Destinations: destinations})
 	audit := &recordingAudit{}
 	queries := &recordingQueries{rows: []map[string]any{
 		{"region": "west", "total": float64(120)},
@@ -499,4 +506,186 @@ func TestIntegration_DisabledScriptDoesNotRun(t *testing.T) {
 	require.True(t, isErr)
 	assert.Contains(t, res["error"], "disabled")
 	assert.Empty(t, h.queries.calls())
+}
+
+// TestIntegration_RunDraftExecutesTheSourceItWasGiven is #1413. run_draft
+// exists so an author can execute an edit that has not been saved; before this
+// it read the record and ran the stored version, reported success, and handed
+// back a log the submitted source never produced.
+func TestIntegration_RunDraftExecutesTheSourceItWasGiven(t *testing.T) {
+	ctx := context.Background()
+	h := assembledServer(t)
+	session := connectAgent(ctx, t, h.server)
+
+	created, isErr := callTool(ctx, t, session, map[string]any{
+		"command": "create", "name": "probe", "source": "print(\"saved\")\n",
+	})
+	require.False(t, isErr, created)
+
+	ran, isErr := callTool(ctx, t, session, map[string]any{
+		"command": "run_draft", "name": "probe",
+		"source": "print(\"submitted\")\n",
+	})
+	require.False(t, isErr, ran)
+	assert.Equal(t, "succeeded", ran["status"], ran["error"])
+
+	log, _ := ran["log"].(string)
+	assert.Equal(t, "submitted\n", log, "the source sent with the call is what ran")
+	assert.NotContains(t, log, "saved")
+
+	// The stored version is untouched: a draft is not a save.
+	for _, sc := range h.store.scripts {
+		assert.Equal(t, "print(\"saved\")\n", sc.Source)
+		assert.Equal(t, 1, sc.Version)
+	}
+}
+
+// TestIntegration_RunDraftWithNoSourceRunsTheSavedVersion is the other half of
+// the same rule, and the behavior every existing case relied on: dry-running a
+// script nobody has edited needs no source.
+func TestIntegration_RunDraftWithNoSourceRunsTheSavedVersion(t *testing.T) {
+	ctx := context.Background()
+	h := assembledServer(t)
+	session := connectAgent(ctx, t, h.server)
+
+	created, isErr := callTool(ctx, t, session, map[string]any{
+		"command": "create", "name": "probe", "source": "print(\"saved\")\n",
+	})
+	require.False(t, isErr, created)
+
+	ran, isErr := callTool(ctx, t, session, map[string]any{
+		"command": "run_draft", "name": "probe",
+	})
+	require.False(t, isErr, ran)
+	assert.Equal(t, "succeeded", ran["status"], ran["error"])
+	assert.Equal(t, "saved\n", ran["log"])
+}
+
+// TestIntegration_RunDraftRefusesASubmittedSourceThatDoesNotValidate keeps the
+// static read in front of the interpreter on this surface too, which is where
+// the portal editor already had it.
+func TestIntegration_RunDraftRefusesASubmittedSourceThatDoesNotValidate(t *testing.T) {
+	ctx := context.Background()
+	h := assembledServer(t)
+	session := connectAgent(ctx, t, h.server)
+
+	created, isErr := callTool(ctx, t, session, map[string]any{
+		"command": "create", "name": "probe", "source": "print(\"saved\")\n",
+	})
+	require.False(t, isErr, created)
+
+	ran, isErr := callTool(ctx, t, session, map[string]any{
+		"command": "run_draft", "name": "probe", "source": "def f(:\n",
+	})
+	require.True(t, isErr, ran)
+	assert.Contains(t, ran["error"], "was not run")
+}
+
+// TestIntegration_ValidateRefusesAnUndeclaredDestination is #1415: on a
+// deployment declaring no bucket destinations, a script naming one reported
+// ok and failed at the export, after its queries had already run.
+func TestIntegration_ValidateRefusesAnUndeclaredDestination(t *testing.T) {
+	ctx := context.Background()
+	h := assembledServer(t)
+	session := connectAgent(ctx, t, h.server)
+
+	const source = `res = platform.query(connection = "warehouse", sql = "SELECT region, total FROM sales")
+platform.export("top-stores", res["rows"], "csv", destination = "drop", key = "top-stores.csv")
+`
+	created, isErr := callTool(ctx, t, session, map[string]any{
+		"command": "create", "name": "top-stores", "source": source,
+	})
+	require.False(t, isErr, created, "the source is storable; only this deployment cannot serve it")
+
+	validated, isErr := callTool(ctx, t, session, map[string]any{
+		"command": "validate", "name": "top-stores",
+	})
+	require.False(t, isErr, validated)
+	assert.Equal(t, false, validated["ok"])
+
+	findings, _ := validated["findings"].([]any)
+	require.Len(t, findings, 1)
+	finding, _ := findings[0].(map[string]any)
+	assert.Equal(t, "error", finding["severity"])
+	assert.Contains(t, finding["message"], `destination "drop" is not configured`)
+
+	// And the refusal arrives before the queries, not after them.
+	ran, isErr := callTool(ctx, t, session, map[string]any{
+		"command": "run_draft", "name": "top-stores",
+	})
+	require.True(t, isErr, ran)
+	assert.Contains(t, ran["error"], `destination "drop" is not configured`)
+	assert.Empty(t, h.queries.calls(), "nothing was queried on the way to a known refusal")
+}
+
+// TestIntegration_ValidateAcceptsADeclaredDestination is the same script on the
+// deployment that declares the destination: validate must not invent a stricter
+// set than the run resolves against.
+func TestIntegration_ValidateAcceptsADeclaredDestination(t *testing.T) {
+	ctx := context.Background()
+	h := assembledServerWith(t, []script.Destination{{
+		Name: "drop", Kind: script.DestinationKindS3,
+		Connection: "acme-s3", Bucket: "acme-exports", Prefix: "weekly",
+	}})
+	session := connectAgent(ctx, t, h.server)
+
+	const source = `platform.export("top-stores", [], "csv", destination = "drop", key = "top-stores.csv")` + "\n"
+	created, isErr := callTool(ctx, t, session, map[string]any{
+		"command": "create", "name": "top-stores", "source": source,
+	})
+	require.False(t, isErr, created)
+
+	validated, isErr := callTool(ctx, t, session, map[string]any{
+		"command": "validate", "name": "top-stores",
+	})
+	require.False(t, isErr, validated)
+	assert.Equal(t, true, validated["ok"], validated["findings"])
+	assert.Equal(t, []any{"drop"}, validated["destinations"])
+}
+
+// TestIntegration_ValidateChecksAnInlineSourcesDestinations covers the shape an
+// agent actually uses while iterating: validate carrying the edit, with no
+// stored script involved.
+func TestIntegration_ValidateChecksAnInlineSourcesDestinations(t *testing.T) {
+	ctx := context.Background()
+	h := assembledServer(t)
+	session := connectAgent(ctx, t, h.server)
+
+	validated, isErr := callTool(ctx, t, session, map[string]any{
+		"command": "validate",
+		"source":  `platform.export("x", [], "csv", destination = "drop", key = "x.csv")` + "\n",
+	})
+	require.False(t, isErr, validated)
+	assert.Equal(t, false, validated["ok"])
+	assert.NotEmpty(t, validated["help"])
+}
+
+// TestIntegration_SumIsAvailableToAScript is #1414: the contract prescribes
+// sum() as the fix for a DECIMAL column arriving as a string, and a script
+// written from the platform's own documentation has to run.
+func TestIntegration_SumIsAvailableToAScript(t *testing.T) {
+	ctx := context.Background()
+	h := assembledServer(t)
+	session := connectAgent(ctx, t, h.server)
+
+	const source = `res = platform.query(connection = "warehouse", sql = "SELECT region, total FROM sales")
+print("total %d" % sum([float(r["total"]) for r in res["rows"]]))
+`
+	created, isErr := callTool(ctx, t, session, map[string]any{
+		"command": "create", "name": "totals", "source": source,
+	})
+	require.False(t, isErr, created)
+
+	validated, isErr := callTool(ctx, t, session, map[string]any{
+		"command": "validate", "name": "totals",
+	})
+	require.False(t, isErr, validated)
+	assert.Equal(t, true, validated["ok"], validated["findings"])
+
+	ran, isErr := callTool(ctx, t, session, map[string]any{
+		"command": "run_draft", "name": "totals",
+	})
+	require.False(t, isErr, ran)
+	assert.Equal(t, "succeeded", ran["status"], ran["error"])
+	assert.Contains(t, ran["log"], "total 200")
 }

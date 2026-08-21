@@ -103,7 +103,10 @@ WHAT IS AVAILABLE
   date.of, date.parse, date.format, date.add_days, date.add_months,
       date.diff_days, date.start_of_month, date.weekday  All dates are
       YYYY-MM-DD strings. date.format uses YYYY, MM and DD tokens.
-  The Starlark built-ins: len, range, sorted, min, max, sum, enumerate, zip,
+  sum(iterable, start=0)  Adds numbers left to right. Starlark's own universe
+      has no sum, so the platform predeclares it; a non-number element is
+      refused by position rather than concatenated.
+  The Starlark built-ins: len, range, sorted, min, max, enumerate, zip,
       str, int, float, dict, list, set, any, all, fail, and the string, list and
       dict methods (including "{}".format(x) and "%d" % x).
 
@@ -132,7 +135,12 @@ WHAT DETERMINISTIC MEANS HERE
 THE LOOP
   create -> validate -> run_draft -> patch -> validate -> run_draft. validate
   parses and reports the capabilities, connections and destinations the script
-  reaches; run_draft executes it under your own identity with nothing persisted.`
+  reaches; run_draft executes it under your own identity with nothing persisted.
+  Both act on the source you send with the call, and on the saved version when
+  you send none: a save is immediately the version run_script executes and a
+  schedule fires, so sending the edit is how you try it without making it live.
+  validate also reports a destination this deployment does not declare, which
+  the run would otherwise refuse only after your queries had already run.`
 
 // example is one built-in worked script, retrievable by name through get.
 type example struct {

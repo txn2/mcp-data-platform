@@ -52,6 +52,13 @@ type Deps struct {
 	// source and stays either way.
 	Drafts DraftRunner
 
+	// Destinations is the deployment's declared bucket destination set, which
+	// validate and dry-run check a source's named destinations against so an
+	// undeclared one is reported before the script's queries run (#1415).
+	// Empty means the portal is the only place a script may write, which is
+	// what the runtime already reports.
+	Destinations []script.Destination
+
 	// Connections enumerates the connections the portal caller's own persona
 	// reaches, which a connection-typed parameter is chosen from (#1361). Nil
 	// leaves the choices route unmounted.

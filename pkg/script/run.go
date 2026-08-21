@@ -251,6 +251,25 @@ func RefuseRun(sc *Script) error {
 	return nil
 }
 
+// DraftSource resolves the code a draft acts on: the edit when one was sent,
+// and the stored version otherwise.
+//
+// It is the domain's rule rather than each surface's because the two surfaces
+// that ask for a draft — manage_script and the portal editor — disagreed about
+// it: the tool arm passed the stored version and ignored the source it was
+// given, so an author iterating over MCP read a log produced by code they had
+// not submitted (#1413). Executing an unsaved edit is the whole purpose of a
+// draft, and sending no source is how a script nobody has edited is dry-run.
+func DraftSource(sent string, sc *Script) string {
+	if sent != "" {
+		return sent
+	}
+	if sc == nil {
+		return ""
+	}
+	return sc.Source
+}
+
 // RefuseDraftRun reports why a draft run of this script would be refused, or
 // nil when one would be admitted.
 //
