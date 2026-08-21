@@ -36,8 +36,7 @@ func versionRow(version int, source, status string, paramsJSON []byte) []driver.
 func expectLockedScript(t *testing.T, mock sqlmock.Sqlmock) {
 	t.Helper()
 	row := scriptRow(rowSpec{
-		id: "script_1", name: "daily", scope: "personal",
-		owner: "jane@example.com", paramsJSON: emptyParams(t), source: "print(1)",
+		id: "script_1", name: "daily", owner: "jane@example.com", paramsJSON: emptyParams(t), source: "print(1)",
 	})
 	mock.ExpectQuery(regexp.QuoteMeta("FROM scripts WHERE id = $1 FOR UPDATE")).
 		WillReturnRows(sqlmock.NewRows(scriptSelectColumns).AddRow(row...))
@@ -62,7 +61,7 @@ func TestUpdateWithVersion_SnapshotsOnlyWhenTheSubstanceMoved(t *testing.T) {
 		expectLiveRowUpdate(mock, true)
 		mock.ExpectCommit()
 
-		sc := &script.Script{ID: "script_1", Name: "daily", Scope: script.ScopePersonal, Source: "print(2)"}
+		sc := &script.Script{ID: "script_1", Name: "daily", Source: "print(2)"}
 		require.NoError(t, s.UpdateWithVersion(context.Background(), sc, testAuthor))
 		assert.Equal(t, 2, sc.Version)
 		require.NoError(t, mock.ExpectationsWereMet())
@@ -76,7 +75,7 @@ func TestUpdateWithVersion_SnapshotsOnlyWhenTheSubstanceMoved(t *testing.T) {
 		mock.ExpectCommit()
 
 		sc := &script.Script{
-			ID: "script_1", Name: "daily", Scope: script.ScopePersonal, Source: "print(1)",
+			ID: "script_1", Name: "daily", Source: "print(1)",
 			DisplayName: "Daily", Description: "A daily report", Params: []script.Param{}, Tags: []string{},
 		}
 		require.NoError(t, s.UpdateWithVersion(context.Background(), sc, testAuthor))
@@ -114,7 +113,7 @@ func TestUpdateWithVersion_VersionNumberErrorIsWrapped(t *testing.T) {
 	mock.ExpectRollback()
 
 	err := s.UpdateWithVersion(context.Background(),
-		&script.Script{ID: "script_1", Name: "daily", Scope: script.ScopePersonal, Source: "print(2)"},
+		&script.Script{ID: "script_1", Name: "daily", Source: "print(2)"},
 		testAuthor)
 	assert.ErrorContains(t, err, "next version number")
 }
@@ -210,7 +209,7 @@ func TestCreate_SnapshotsAnAuthorWithNoRoles(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
-	sc := &script.Script{Name: "daily", Scope: script.ScopePersonal, Source: "print(1)"}
+	sc := &script.Script{Name: "daily", Source: "print(1)"}
 	require.NoError(t, s.Create(context.Background(), sc, script.Author{Email: "jane@example.com"}))
 	require.NoError(t, mock.ExpectationsWereMet())
 }

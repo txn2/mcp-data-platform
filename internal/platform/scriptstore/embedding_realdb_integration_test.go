@@ -35,7 +35,7 @@ func TestRealDB_IndexedTextChangeClearsTheVector(t *testing.T) {
 	ctx := context.Background()
 	idx := scriptindex.NewStore(db)
 
-	sc := seedScript(t, s, "daily-sales", script.ScopeGlobal, "jane@example.com", nil, nil)
+	sc := seedScript(t, s, "daily-sales", "jane@example.com", nil)
 	require.NoError(t, idx.UpsertVectors(ctx, sc.ID, []indexjobs.Vector{{
 		ItemID: sc.ID, Embedding: unitVector(0.9), Model: "test-model",
 		TextHash: indexjobs.TextHash(script.IndexText(sc)),
@@ -71,7 +71,7 @@ func TestRealDB_StatusChangeClearsTheVector(t *testing.T) {
 	ctx := context.Background()
 	idx := scriptindex.NewStore(db)
 
-	sc := seedScript(t, s, "daily-sales", script.ScopeGlobal, "jane@example.com", nil, nil)
+	sc := seedScript(t, s, "daily-sales", "jane@example.com", nil)
 	require.NoError(t, idx.UpsertVectors(ctx, sc.ID, []indexjobs.Vector{{
 		ItemID: sc.ID, Embedding: unitVector(0.9), Model: "test-model",
 		TextHash: indexjobs.TextHash(script.IndexText(sc)),
@@ -100,7 +100,7 @@ func TestRealDB_HybridSearchRanksSemanticallyAndLexically(t *testing.T) {
 	idx := scriptindex.NewStore(db)
 
 	// The script whose words nobody typed, but whose vector is near the query.
-	near := seedScript(t, s, "near-neighbour", script.ScopeGlobal, "jane@example.com", nil, nil)
+	near := seedScript(t, s, "near-neighbour", "jane@example.com", nil)
 	near.Description = "Refresh the numbers finance looks at every morning"
 	require.NoError(t, s.Update(ctx, near))
 	require.NoError(t, idx.UpsertVectors(ctx, near.ID, []indexjobs.Vector{{
@@ -111,10 +111,11 @@ func TestRealDB_HybridSearchRanksSemanticallyAndLexically(t *testing.T) {
 	// The script nothing has embedded yet, findable only by its words. It proves
 	// the lexical arm still surfaces rows the vector arm cannot see, which is
 	// what keeps a freshly written script findable while its job is queued.
-	worded := seedScript(t, s, "kubernetes-ingress", script.ScopeGlobal, "jane@example.com", nil, nil)
+	worded := seedScript(t, s, "kubernetes-ingress", "jane@example.com", nil)
 
 	hybrid, err := s.Search(ctx, script.SearchQuery{
 		Embedding: unitVector(1), QueryText: "revenue by region",
+		OwnerEmail: "jane@example.com",
 	})
 	require.NoError(t, err)
 	ids := scriptIDs(hybrid)
@@ -124,22 +125,24 @@ func TestRealDB_HybridSearchRanksSemanticallyAndLexically(t *testing.T) {
 	// The same query with no vector is the lexical-only path a deployment with
 	// no embedding provider gets: the semantic-only script drops out, and
 	// nothing else changes.
-	lexical, err := s.Search(ctx, script.SearchQuery{QueryText: "revenue by region"})
+	lexical, err := s.Search(ctx, script.SearchQuery{
+		QueryText: "revenue by region", OwnerEmail: "jane@example.com",
+	})
 	require.NoError(t, err)
 	assert.NotContains(t, scriptIDs(lexical), near.ID)
 	assert.Contains(t, scriptIDs(lexical), worded.ID)
 }
 
-// TestRealDB_HybridSearchAppliesTheSameVisibility proves the scope predicate is
-// on BOTH arms: a vector arm without it would return another owner's personal
-// script to anyone whose query happened to sit near it.
+// TestRealDB_HybridSearchAppliesTheSameVisibility proves the ownership
+// predicate is on BOTH arms: a vector arm without it would return another
+// person's script to anyone whose query happened to sit near it.
 func TestRealDB_HybridSearchAppliesTheSameVisibility(t *testing.T) {
 	db := testdb.New(t)
 	s := New(db)
 	ctx := context.Background()
 	idx := scriptindex.NewStore(db)
 
-	theirs := seedScript(t, s, "their-private", script.ScopePersonal, "carol@example.com", nil, nil)
+	theirs := seedScript(t, s, "their-private", "carol@example.com", nil)
 	require.NoError(t, idx.UpsertVectors(ctx, theirs.ID, []indexjobs.Vector{{
 		ItemID: theirs.ID, Embedding: unitVector(1), Model: "test-model",
 		TextHash: indexjobs.TextHash(script.IndexText(theirs)),
@@ -170,9 +173,9 @@ func TestRealDB_CoverageCountsEveryEnabledScript(t *testing.T) {
 	ctx := context.Background()
 	idx := scriptindex.NewStore(db)
 
-	embedded := seedScript(t, s, "embedded", script.ScopeGlobal, "jane@example.com", nil, nil)
-	seedScript(t, s, "pending", script.ScopeGlobal, "jane@example.com", nil, nil)
-	off := seedScript(t, s, "disabled", script.ScopeGlobal, "jane@example.com", nil, nil)
+	embedded := seedScript(t, s, "embedded", "jane@example.com", nil)
+	seedScript(t, s, "pending", "jane@example.com", nil)
+	off := seedScript(t, s, "disabled", "jane@example.com", nil)
 	off.Enabled = false
 	require.NoError(t, s.Update(ctx, off))
 

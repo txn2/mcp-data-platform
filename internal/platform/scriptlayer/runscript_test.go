@@ -93,7 +93,7 @@ func TestRunScript_RefusesWhatMustNotExecute(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h, store, runs := runnableHandle(t)
-			sc, err := store.GetPersonal(context.Background(), "jane@example.com", "daily")
+			sc, err := store.GetByName(context.Background(), "jane@example.com", "daily")
 			require.NoError(t, err)
 			tt.mutate(sc)
 			require.NoError(t, store.Update(context.Background(), sc))
@@ -110,7 +110,7 @@ func TestRunScript_RefusesWhatMustNotExecute(t *testing.T) {
 // a run nothing can load.
 func TestRunScript_MissingCurrentVersionIsReported(t *testing.T) {
 	h, store, _ := runnableHandle(t)
-	sc, err := store.GetPersonal(context.Background(), "jane@example.com", "daily")
+	sc, err := store.GetByName(context.Background(), "jane@example.com", "daily")
 	require.NoError(t, err)
 	sc.Version = 99
 	require.NoError(t, store.Update(context.Background(), sc))
@@ -274,7 +274,7 @@ func TestRunCommands_Failures(t *testing.T) {
 		queued := runScriptCall(t, h, runScriptInput{Name: "daily", WaitSeconds: -1})
 		runID, ok := queued["run_id"].(string)
 		require.True(t, ok)
-		sc, err := store.GetPersonal(context.Background(), "jane@example.com", "daily")
+		sc, err := store.GetByName(context.Background(), "jane@example.com", "daily")
 		require.NoError(t, err)
 		require.NoError(t, store.Delete(context.Background(), sc.ID))
 		assert.NotNil(t, runs)
@@ -334,7 +334,7 @@ func TestRunScript_ExecutesTheCurrentVersion(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 2, run.Version)
 
-	sc, err := store.GetPersonal(context.Background(), "jane@example.com", "daily")
+	sc, err := store.GetByName(context.Background(), "jane@example.com", "daily")
 	require.NoError(t, err)
 	v, err := store.GetVersion(context.Background(), sc.ID, sc.Version)
 	require.NoError(t, err)
@@ -375,12 +375,8 @@ func (s *unversionedStore) Create(ctx context.Context, sc *script.Script, author
 	return s.inner.Create(ctx, sc, author)
 }
 
-func (s *unversionedStore) Get(ctx context.Context, name string) (*script.Script, error) {
-	return s.inner.Get(ctx, name)
-}
-
-func (s *unversionedStore) GetPersonal(ctx context.Context, owner, name string) (*script.Script, error) {
-	return s.inner.GetPersonal(ctx, owner, name)
+func (s *unversionedStore) GetByName(ctx context.Context, owner, name string) (*script.Script, error) {
+	return s.inner.GetByName(ctx, owner, name)
 }
 
 func (s *unversionedStore) GetByID(ctx context.Context, id string) (*script.Script, error) {
@@ -397,6 +393,10 @@ func (s *unversionedStore) Delete(ctx context.Context, id string) error {
 
 func (s *unversionedStore) List(ctx context.Context, filter script.ListFilter) ([]script.Script, error) {
 	return s.inner.List(ctx, filter)
+}
+
+func (s *unversionedStore) Transfer(ctx context.Context, id, newOwner string, author script.Author) error {
+	return s.inner.Transfer(ctx, id, newOwner, author)
 }
 
 // TestRunScriptSchema_ClosedAndInSyncWithTheInputStruct holds run_script to the
@@ -432,51 +432,41 @@ func TestRunScriptSchema_ClosedAndInSyncWithTheInputStruct(t *testing.T) {
 	}
 }
 
-// TestRunReads_AreTheOwnersAndTheAdmins pins who may read what a script did,
-// which is a narrower entitlement than seeing that the script exists: a run
-// carries the parameters it bound, the error it failed with, and free text the
-// script printed while presenting its author's captured roles.
+// TestRunReads_AreTheOwnersAndTheAdmins pins who may read what a script did: a
+// run carries the parameters it bound, the error it failed with, and free text
+// the script printed while presenting its author's captured roles.
 func TestRunReads_AreTheOwnersAndTheAdmins(t *testing.T) {
-	h, store, _ := runnableHandle(t)
-	// Make the script visible to every analyst, so a colleague can see it and
-	// still not be its owner.
-	sc, err := store.GetPersonal(context.Background(), "jane@example.com", "daily")
-	require.NoError(t, err)
-	sc.Scope, sc.Personas = script.ScopePersona, []string{"analyst"}
-	require.NoError(t, store.Update(context.Background(), sc))
+	h, _, _ := runnableHandle(t)
 
 	colleague := callerCtx("marcus@example.com", "analyst")
-	res := call(t, h, colleague, manageScriptInput{Command: cmdGet, Name: "daily"})
-	require.False(t, res.IsError, "a colleague can see the script itself")
-
-	res = call(t, h, colleague, manageScriptInput{Command: cmdRuns, Name: "daily"})
+	res := call(t, h, colleague, manageScriptInput{Command: cmdRuns, Name: "daily"})
 	assert.True(t, res.IsError)
-	assert.Contains(t, resultText(res), "only the owner of a script can read its runs")
+	assert.Contains(t, resultText(res), "not found",
+		"a colleague is not told the script is there at all")
 
 	// The owner and an admin read them.
 	assert.False(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdRuns, Name: "daily"}).IsError)
-	assert.False(t, call(t, h, adminCtx(), manageScriptInput{Command: cmdRuns, Name: "daily"}).IsError)
+	assert.False(t, call(t, h, adminCtx(),
+		manageScriptInput{Command: cmdRuns, Name: "daily", OwnerEmail: "jane@example.com"}).IsError)
 }
 
-// TestGetRun_ReadableByWhoeverAskedForIt covers the third entitlement: a
+// TestGetRun_ReadableByWhoeverAskedForIt covers the second entitlement: a
 // caller who ran the script gets the result when they ask for it, so a run id
-// they were handed must stay followable even though the script is not theirs.
+// they were handed stays followable, while another session's is not.
 func TestGetRun_ReadableByWhoeverAskedForIt(t *testing.T) {
-	h, store, runs := runnableHandle(t)
-	sc, err := store.GetPersonal(context.Background(), "jane@example.com", "daily")
-	require.NoError(t, err)
-	sc.Scope, sc.Personas = script.ScopePersona, []string{"analyst"}
-	require.NoError(t, store.Update(context.Background(), sc))
+	h, _, runs := runnableHandle(t)
 
-	colleague := callerCtx("marcus@example.com", "analyst")
-	res, _, err := h.handleRunScript(colleague, runScriptInput{Name: "daily", WaitSeconds: -1})
+	// The owner runs it; the run id they were handed stays followable, and
+	// nobody else's session can follow it.
+	owner := authorCtx()
+	res, _, err := h.handleRunScript(owner, runScriptInput{Name: "daily", WaitSeconds: -1})
 	require.NoError(t, err)
 	require.False(t, res.IsError, resultText(res))
 	runID, ok := resultFields(t, res)["run_id"].(string)
 	require.True(t, ok)
 	assert.NotNil(t, runs)
 
-	own := call(t, h, colleague, manageScriptInput{Command: cmdGetRun, RunID: runID})
+	own := call(t, h, owner, manageScriptInput{Command: cmdGetRun, RunID: runID})
 	assert.False(t, own.IsError, resultText(own))
 
 	// Somebody else's run of the same script stays out of reach.
@@ -510,7 +500,7 @@ func TestEmaillessCallersAreDistinctOwners(t *testing.T) {
 	res := call(t, h, sarah, manageScriptInput{Command: cmdCreate, Name: "daily", Source: "print(1)\n"})
 	require.False(t, res.IsError, resultText(res))
 
-	sc, err := store.GetPersonal(context.Background(), "oidc|sarah", "daily")
+	sc, err := store.GetByName(context.Background(), "oidc|sarah", "daily")
 	require.NoError(t, err)
 	require.NotNil(t, sc, "the script is owned by the caller's own identity, not by a shared sentinel")
 
@@ -561,7 +551,7 @@ func TestRunScript_OffersADraftRunOnlyWhereOneWouldBeAdmitted(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h, store, _ := runnableHandle(t)
-			sc, err := store.GetPersonal(context.Background(), "jane@example.com", "daily")
+			sc, err := store.GetByName(context.Background(), "jane@example.com", "daily")
 			require.NoError(t, err)
 			tt.mutate(sc)
 			require.NoError(t, store.Update(context.Background(), sc))

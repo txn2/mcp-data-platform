@@ -22,21 +22,14 @@ const logKeyError = "error"
 // is not a draft, it is a typo, and keeping it out means every stored version
 // is one a reviewer could meaningfully read.
 func (h *Handle) handleCreate(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
-	scope := input.Scope
-	if scope == "" {
-		scope = script.ScopePersonal
-	}
 	sc := &script.Script{
 		Name: input.Name, DisplayName: input.DisplayName, Description: input.Description,
-		Category: derefOr(input.Category), Source: input.Source, Params: input.Params, Scope: scope,
-		Personas: orEmpty(input.Personas), Tags: orEmpty(input.Tags),
+		Category: derefOr(input.Category), Source: input.Source, Params: input.Params,
+		Tags:       orEmpty(input.Tags),
 		OwnerEmail: resolveEmail(ctx), Enabled: true, Status: script.StatusActive,
 	}
 	if err := sc.Validate(); err != nil {
 		return errorResult(err.Error()), nil, nil
-	}
-	if !h.isAdminPersona(ctx) && scope != script.ScopePersonal {
-		return errorResult("only admins can create global or persona-scoped scripts"), nil, nil
 	}
 	if report := scriptrun.Validate(sc.Source); !report.OK {
 		return jsonResult(refusedReport("the source does not parse, so it was not saved", report))
@@ -116,7 +109,7 @@ func (h *Handle) applyUpdates(ctx context.Context, sc *script.Script, input mana
 	if input.Enabled != nil {
 		sc.Enabled = *input.Enabled
 	}
-	if errResult := h.applyScopeAndStatus(ctx, sc, input); errResult != nil {
+	if errResult := h.applyStatus(ctx, sc, input); errResult != nil {
 		return errResult
 	}
 	if err := sc.Validate(); err != nil {
@@ -136,23 +129,13 @@ func applyStringFields(sc *script.Script, input manageScriptInput) {
 	if input.Category != nil {
 		sc.Category = *input.Category
 	}
-	if input.Personas != nil {
-		sc.Personas = input.Personas
-	}
 }
 
-// applyScopeAndStatus applies the two changes that need an authority check or a
-// lifecycle rule.
-func (h *Handle) applyScopeAndStatus(ctx context.Context, sc *script.Script, input manageScriptInput) *mcp.CallToolResult {
-	if input.Scope != "" && input.Scope != sc.Scope {
-		if err := script.ValidateScope(input.Scope); err != nil {
-			return errorResult(err.Error())
-		}
-		if !h.isAdminPersona(ctx) {
-			return errorResult("only admins can change a script's scope")
-		}
-		sc.Scope = input.Scope
-	}
+// applyStatus applies the lifecycle change, the one edit that needs an
+// authority check and a transition rule. Ownership is not editable here: moving
+// a script to another person is an administrator's action with its own route
+// and its own record (script.Script.Transfer).
+func (h *Handle) applyStatus(ctx context.Context, sc *script.Script, input manageScriptInput) *mcp.CallToolResult {
 	if input.Status != "" && input.Status != sc.Status {
 		if !h.isAdminPersona(ctx) {
 			return errorResult("only admins can change a script's lifecycle status")
@@ -210,19 +193,14 @@ func editError(err error) *mcp.CallToolResult {
 	}
 }
 
-// handleDelete removes a script and its version history.
+// handleDelete removes a script and its version history. A script is one
+// person's, so a delete takes its schedule and its history with it and nobody
+// else loses anything; the caller has already been established as its owner or
+// an administrator by editable.
 func (h *Handle) handleDelete(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
 	existing, errResult := h.editable(ctx, input)
 	if errResult != nil {
 		return errResult, nil, nil
-	}
-	// A shared script may be executing on a schedule for somebody, so deleting
-	// it is refused in favor of deprecating it — except where the caller is its
-	// entire audience. A personal script its owner deletes takes its schedule
-	// and its history with it, and nobody else could see it, run it, or notice
-	// it go.
-	if !existing.OwnedPersonally(resolveEmail(ctx)) {
-		return errorResult("this script may be executing on a schedule for others; deprecate it with update status=deprecated instead of deleting it"), nil, nil
 	}
 	if err := h.store.Delete(ctx, existing.ID); err != nil {
 		slog.Error("failed to delete script", fieldName, existing.Name, logKeyError, err)
@@ -252,26 +230,23 @@ func scriptFields(sc *script.Script) map[string]any {
 	return map[string]any{
 		"id": sc.ID, fieldName: sc.Name, "display_name": sc.DisplayName,
 		"description": sc.Description, fieldSource: sc.Source, "params": sc.Params,
-		"scope": sc.Scope, "personas": sc.Personas, "owner_email": sc.OwnerEmail,
-		"category": sc.Category, "tags": sc.Tags, "enabled": sc.Enabled, fieldStatus: sc.Status,
+		"owner_email": sc.OwnerEmail,
+		"category":    sc.Category, "tags": sc.Tags, "enabled": sc.Enabled, fieldStatus: sc.Status,
 		fieldVersion:      sc.Version,
 		"executable_note": script.ExecutionNote(sc),
 		"created_at":      sc.CreatedAt, "updated_at": sc.UpdatedAt,
 	}
 }
 
-// handleList returns the scripts the caller may see. A non-admin sees their own
-// scripts and the shared ones; an admin sees everything.
+// handleList returns the scripts the caller may see: their own, or every script
+// on the platform for an admin.
 func (h *Handle) handleList(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
 	filter := script.ListFilter{
-		Scope: input.Scope, Status: input.Status, Search: input.Search, Limit: input.Limit,
+		Status: input.Status, Search: input.Search, Limit: input.Limit,
 		Category: derefOr(input.Category), Tags: input.Tags,
 	}
 	if !h.isAdminPersona(ctx) {
-		// Scope the listing by the same rule the read path applies, not by
-		// ownership: filtering on the owner alone would hide the shared scripts
-		// the caller is entitled to see and could run.
-		filter.VisibleTo, filter.VisiblePersona = resolveEmail(ctx), personaName(ctx)
+		filter.OwnerEmail = resolveEmail(ctx)
 	}
 	scripts, err := h.store.List(ctx, filter)
 	if err != nil {
@@ -283,7 +258,7 @@ func (h *Handle) handleList(ctx context.Context, input manageScriptInput) (*mcp.
 		sc := &scripts[i]
 		items = append(items, map[string]any{
 			fieldName: sc.Name, "display_name": sc.DisplayName, "description": sc.Description,
-			"scope": sc.Scope, "owner_email": sc.OwnerEmail, fieldStatus: sc.Status,
+			"owner_email": sc.OwnerEmail, fieldStatus: sc.Status,
 			fieldVersion: sc.Version,
 			"category":   sc.Category, "tags": sc.Tags,
 		})

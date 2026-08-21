@@ -74,18 +74,18 @@ func seedOwnedPrompt(t *testing.T, store *mockPromptStore) {
 	}))
 }
 
-// globalScript is a script every caller can see.
-func globalScript() *script.Contract {
+// janesScript is the script the seeded prompt's owner keeps.
+func janesScript() *script.Contract {
 	return &script.Contract{
 		ID: cmdScriptID, Name: "daily-sales", DisplayName: "Daily Sales",
-		Scope: script.ScopeGlobal,
+		OwnerEmail: "jane@example.com",
 	}
 }
 
 // TestAttachScriptCommandStoresTheReference proves the command records the
 // canonical reference against the prompt, and reports the action it took.
 func TestAttachScriptCommandStoresTheReference(t *testing.T) {
-	h, store, links := handleWithScripts(t, globalScript())
+	h, store, links := handleWithScripts(t, janesScript())
 	seedOwnedPrompt(t, store)
 
 	res, _, err := h.handleManagePrompt(userCtx("jane@example.com", "analyst"), managePromptInput{
@@ -104,7 +104,7 @@ func TestAttachScriptCommandStoresTheReference(t *testing.T) {
 // TestDetachScriptCommandRemovesTheReference proves the reverse command, and
 // that "not referenced" is reported as such rather than as a failure.
 func TestDetachScriptCommandRemovesTheReference(t *testing.T) {
-	h, store, links := handleWithScripts(t, globalScript())
+	h, store, links := handleWithScripts(t, janesScript())
 	seedOwnedPrompt(t, store)
 	ctx := userCtx("jane@example.com", "analyst")
 
@@ -129,7 +129,7 @@ func TestDetachScriptCommandRemovesTheReference(t *testing.T) {
 // failure rather than as "that was not attached", which would tell an author
 // the repair already happened.
 func TestDetachScriptReportsAStoreFailure(t *testing.T) {
-	h, store, links := handleWithScripts(t, globalScript())
+	h, store, links := handleWithScripts(t, janesScript())
 	seedOwnedPrompt(t, store)
 	links.detachEr = errors.New("db down")
 
@@ -145,7 +145,7 @@ func TestDetachScriptReportsAStoreFailure(t *testing.T) {
 // TestAttachScriptRefusesAnotherOwnersPrompt proves referencing is an edit to
 // the prompt and takes the same authority every other prompt mutation takes.
 func TestAttachScriptRefusesAnotherOwnersPrompt(t *testing.T) {
-	h, store, links := handleWithScripts(t, globalScript())
+	h, store, links := handleWithScripts(t, janesScript())
 	seedOwnedPrompt(t, store)
 
 	res, _, err := h.handleManagePrompt(userCtx("bob@example.com", "analyst"), managePromptInput{
@@ -157,16 +157,17 @@ func TestAttachScriptRefusesAnotherOwnersPrompt(t *testing.T) {
 	assert.Empty(t, links.attached)
 }
 
-// TestAttachScriptSurfacesTheScopeRefusalVerbatim proves an author who is
-// blocked reads the sentence that says what to fix, rather than a generic
-// failure they cannot act on.
-func TestAttachScriptSurfacesTheScopeRefusalVerbatim(t *testing.T) {
-	narrow := globalScript()
-	narrow.Scope = script.ScopePersona
-	narrow.Personas = []string{"analyst"}
-	h, store, links := handleWithScripts(t, narrow)
+// TestAttachScriptWarnsAboutAWiderPrompt proves an author referencing their own
+// script from a shared prompt is told who the reference will resolve for, at
+// the moment they make it: every other reader receives a note saying part of
+// the procedure was unavailable, which the author would otherwise never see.
+func TestAttachScriptWarnsAboutAWiderPrompt(t *testing.T) {
+	adminsScript := janesScript()
+	adminsScript.OwnerEmail = "admin@example.com"
+	h, store, links := handleWithScripts(t, adminsScript)
 	require.NoError(t, store.Create(context.Background(), &prompt.Prompt{
-		Name: "shared-sop", Content: "x", Scope: prompt.ScopeGlobal, Enabled: true,
+		Name: "shared-sop", Content: "x", Scope: prompt.ScopeGlobal,
+		OwnerEmail: "admin@example.com", Enabled: true,
 	}))
 
 	res, _, err := h.handleManagePrompt(adminCtx(), managePromptInput{
@@ -174,16 +175,34 @@ func TestAttachScriptSurfacesTheScopeRefusalVerbatim(t *testing.T) {
 	})
 
 	require.NoError(t, err)
+	require.False(t, res.IsError, resultText(res))
+	assert.Contains(t, resultText(res), "audience_note")
+	assert.Contains(t, resultText(res), "admin@example.com")
+	assert.Len(t, links.attached, 1)
+}
+
+// TestAttachScriptRefusesSomebodyElsesScript proves a reference is not a way to
+// reach a script the author cannot see.
+func TestAttachScriptRefusesSomebodyElsesScript(t *testing.T) {
+	theirs := janesScript()
+	theirs.OwnerEmail = "someone@example.com"
+	h, store, links := handleWithScripts(t, theirs)
+	seedOwnedPrompt(t, store)
+
+	res, _, err := h.handleManagePrompt(userCtx("jane@example.com", "analyst"), managePromptInput{
+		Command: cmdAttachScript, Name: "sop", Script: cmdScriptRef,
+	})
+
+	require.NoError(t, err)
 	assert.True(t, res.IsError)
-	assert.Contains(t, resultText(res), "cannot be attached")
-	assert.Contains(t, resultText(res), "the prompt is global")
+	assert.Contains(t, resultText(res), "belongs to somebody else")
 	assert.Empty(t, links.attached)
 }
 
 // TestScriptCommandsValidateTheirInputs proves each missing argument is named,
 // so an agent can correct the call without guessing.
 func TestScriptCommandsValidateTheirInputs(t *testing.T) {
-	h, store, _ := handleWithScripts(t, globalScript())
+	h, store, _ := handleWithScripts(t, janesScript())
 	seedOwnedPrompt(t, store)
 	ctx := userCtx("jane@example.com", "analyst")
 
@@ -224,7 +243,7 @@ func TestScriptCommandsOnADeploymentWithoutScripts(t *testing.T) {
 // TestAttachScriptRefusesAConfigDefinedPrompt proves a prompt that lives in
 // server configuration has no row to hang a reference on, and says so.
 func TestAttachScriptRefusesAConfigDefinedPrompt(t *testing.T) {
-	h, store, _ := handleWithScripts(t, globalScript())
+	h, store, _ := handleWithScripts(t, janesScript())
 	require.NoError(t, store.Create(context.Background(), &prompt.Prompt{
 		Name: "builtin", Content: "x", Scope: prompt.ScopeGlobal, Enabled: true,
 		Source: prompt.SourceSystem,
@@ -242,7 +261,7 @@ func TestAttachScriptRefusesAConfigDefinedPrompt(t *testing.T) {
 // TestAttachScriptReportsAMissingScript proves a reference to nothing is
 // refused at authoring time rather than stored as a broken link.
 func TestAttachScriptReportsAMissingScript(t *testing.T) {
-	h, store, links := handleWithScripts(t, globalScript())
+	h, store, links := handleWithScripts(t, janesScript())
 	seedOwnedPrompt(t, store)
 
 	res, _, err := h.handleManagePrompt(userCtx("jane@example.com", "analyst"), managePromptInput{

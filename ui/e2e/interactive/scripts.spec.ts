@@ -200,14 +200,39 @@ test.describe("Portal script pages", () => {
     await expect(page.getByText("On a cadence")).toBeVisible();
     await expect(page.getByText("Last run failed")).toBeVisible();
 
-    // Each caption states what its number counts and over what population, and
-    // the failure tile names the smaller population it is computed over (#1360).
-    await expect(page.getByText("scripts visible to you")).toBeVisible();
+    // Each caption states what its number counts, over the one population this
+    // page has: the reader's own scripts (#1360, #1404).
+    await expect(page.getByText("scripts you own", { exact: true })).toBeVisible();
     await expect(
       page.getByText("enabled and active; a run executes the latest saved version"),
     ).toBeVisible();
     await expect(page.getByText("run on a schedule, unattended")).toBeVisible();
-    await expect(page.getByText(/of the \d+ you own/)).toBeVisible();
+    await expect(page.getByText("of the scripts you own")).toBeVisible();
+  });
+
+  // Moving a script to another person is the administrator's mutation on this
+  // surface (#1404), and the one that changes who the script is for. It goes
+  // through the mock server because the outcome the page reports — where the
+  // script landed and what it means for the next run — comes back from the
+  // route rather than from the form.
+  test("an administrator moves a script to another owner", async ({ page }) => {
+    await gotoScripts(page);
+    await page.getByRole("row").filter({ hasText: "Daily Sales Report" }).click();
+
+    // The section states who has it before it offers to move it.
+    await expect(page.getByText(/only person who sees it/)).toBeVisible();
+
+    await page.getByPlaceholder("New owner's email").fill("marcus.webb@example.com");
+    await page.getByRole("button", { name: "Transfer ownership" }).click();
+
+    // Both ends of the move are named before it is made, because the person
+    // losing the script is the part an administrator can overlook.
+    await expect(page.getByText(/will no longer see it/)).toBeVisible();
+    await page.getByRole("button", { name: "Transfer", exact: true }).click();
+
+    await expect(page.getByText(/now belongs to marcus.webb@example.com/)).toBeVisible();
+    // The page re-reads the script, so the contract shows where it landed.
+    await expect(page.getByText("marcus.webb@example.com").first()).toBeVisible();
   });
 
   // Editing the code is the second mutation on this surface, and there is one

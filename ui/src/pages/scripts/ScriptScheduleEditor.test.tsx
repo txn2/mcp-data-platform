@@ -37,7 +37,6 @@ const contract: ScriptContract = {
   name: "daily-sales-report",
   display_name: "Daily Sales Report",
   owner_email: "sarah.chen@example.com",
-  scope: "global",
   status: "active",
   enabled: true,
   params: [

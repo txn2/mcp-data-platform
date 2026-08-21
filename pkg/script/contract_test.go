@@ -15,7 +15,7 @@ func liveScript() *Script {
 	return &Script{
 		ID: "script_1", Name: "daily-sales", DisplayName: "Daily Sales",
 		Description: "Yesterday's sales by region",
-		Scope:       ScopeGlobal, OwnerEmail: "jane@example.com", Enabled: true,
+		OwnerEmail:  "jane@example.com", Enabled: true,
 		Status:  StatusActive,
 		Version: 3,
 		Params:  []Param{{Name: "report_date", Type: ParamTypeDate, Required: true}},
@@ -158,50 +158,31 @@ func TestParamSummaryMarksRequiredParameters(t *testing.T) {
 
 // TestContractVisibilityMatchesTheRecord proves the contract answers the
 // visibility question exactly as the script record does. The fetch path holds
-// only the contract, and a second, drifting rule there would be a scope leak
-// that no test of the record would catch.
+// only the contract, and a second, drifting rule there would leak a script to a
+// caller no test of the record would catch.
 func TestContractVisibilityMatchesTheRecord(t *testing.T) {
 	cases := []struct {
-		name     string
-		scope    string
-		personas []string
-		owner    string
-		email    string
-		callerP  []string
-		want     bool
+		name  string
+		owner string
+		email string
+		want  bool
 	}{
-		{"global reaches everyone", ScopeGlobal, nil, "jane@example.com", "", nil, true},
-		{"persona reaches a member", ScopePersona, []string{"analyst"}, "", "bob@example.com", []string{"analyst"}, true},
-		{"persona refuses a non-member", ScopePersona, []string{"analyst"}, "", "bob@example.com", []string{"engineer"}, false},
-		{"persona refuses no membership at all", ScopePersona, []string{"analyst"}, "", "bob@example.com", nil, false},
-		{"personal reaches its owner", ScopePersonal, nil, "jane@example.com", "jane@example.com", nil, true},
-		{"personal refuses everyone else", ScopePersonal, nil, "jane@example.com", "bob@example.com", nil, false},
-		{"personal refuses an unidentified caller", ScopePersonal, nil, "jane@example.com", "", nil, false},
-		{"an ownerless personal script reaches nobody", ScopePersonal, nil, "", "", nil, false},
+		{"its owner", "jane@example.com", "jane@example.com", true},
+		{"anybody else", "jane@example.com", "bob@example.com", false},
+		{"an unidentified caller", "jane@example.com", "", false},
+		{"an ownerless script reaches nobody", "", "", false},
+		{"an ownerless script and a named caller", "", "bob@example.com", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			sc := &Script{Scope: tc.scope, Personas: tc.personas, OwnerEmail: tc.owner}
+			sc := &Script{OwnerEmail: tc.owner}
 			c := BuildContract(sc, nil, nil)
 
-			assert.Equal(t, tc.want, c.VisibleToAny(tc.email, tc.callerP))
-			assert.Equal(t, tc.want, sc.VisibleToAny(tc.email, tc.callerP),
+			assert.Equal(t, tc.want, c.OwnedBy(tc.email))
+			assert.Equal(t, tc.want, sc.OwnedBy(tc.email),
 				"the record and its contract must answer identically")
 		})
 	}
-}
-
-// TestVisibleToAnyMatchesVisibleToPerPersona proves the membership arity is the
-// single-persona rule applied across a set, so the listing surface and the
-// discovery surface cannot disagree about one persona.
-func TestVisibleToAnyMatchesVisibleToPerPersona(t *testing.T) {
-	sc := &Script{Scope: ScopePersona, Personas: []string{"analyst", "engineer"}}
-
-	for _, persona := range []string{"analyst", "engineer", "auditor"} {
-		assert.Equal(t, sc.VisibleTo("", persona), sc.VisibleToAny("", []string{persona}), persona)
-	}
-	assert.True(t, sc.VisibleToAny("", []string{"auditor", "engineer"}),
-		"one matching membership is enough")
 }
 
 // TestContractTextIsOneDocument proves the rendered document leads with the

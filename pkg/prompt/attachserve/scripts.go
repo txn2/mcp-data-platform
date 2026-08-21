@@ -73,10 +73,15 @@ type ResolvedScript struct {
 }
 
 // Resolve returns a prompt's referenced scripts in authored order, each
-// evaluated for the caller identified by email and the personas they belong to.
-// It returns nil when the prompt references none, and nil rather than an error
-// when the link read fails: a store outage must not take down prompt serving.
-func (r *ScriptResolver) Resolve(ctx context.Context, promptID, email string, personas []string) []ResolvedScript {
+// evaluated for the caller identified by email. It returns nil when the prompt
+// references none, and nil rather than an error when the link read fails: a
+// store outage must not take down prompt serving.
+//
+// A script is one person's, so a reference resolves for its owner and for
+// nobody else. A prompt served to a wider audience still serves — every other
+// reader is told an automation was referenced and is out of their reach, which
+// is what AudienceNote warns its author about at the moment they attach it.
+func (r *ScriptResolver) Resolve(ctx context.Context, promptID, email string) []ResolvedScript {
 	if r == nil || promptID == "" {
 		return nil
 	}
@@ -91,13 +96,13 @@ func (r *ScriptResolver) Resolve(ctx context.Context, promptID, email string, pe
 	}
 	out := make([]ResolvedScript, 0, len(links))
 	for _, link := range links {
-		out = append(out, r.resolveOne(ctx, link.ScriptRef, email, personas))
+		out = append(out, r.resolveOne(ctx, link.ScriptRef, email))
 	}
 	return out
 }
 
 // resolveOne evaluates a single reference for the caller.
-func (r *ScriptResolver) resolveOne(ctx context.Context, ref, email string, personas []string) ResolvedScript {
+func (r *ScriptResolver) resolveOne(ctx context.Context, ref, email string) ResolvedScript {
 	id, err := scriptIDFromRef(ref)
 	if err != nil {
 		// A stored reference the parser rejects can only have come from an
@@ -117,7 +122,7 @@ func (r *ScriptResolver) resolveOne(ctx context.Context, ref, email string, pers
 		// attachment row deliberately outlives the script so the broken
 		// reference stays visible.
 		return ResolvedScript{Reference: ref, Availability: UnavailableMissing}
-	case !c.VisibleToAny(email, personas):
+	case !c.OwnedBy(email):
 		// Report only that something is referenced and out of reach. Returning
 		// the name or description would make a reference a channel for reading
 		// metadata the caller has no access to.
@@ -172,69 +177,85 @@ const scriptRefPrefix = "mcp:script:"
 // ScriptAttachRequest is one request to reference a script from a prompt.
 type ScriptAttachRequest struct {
 	// Prompt is the prompt gaining the reference, read for the audience the
-	// scope rule tests against.
+	// note reports on.
 	Prompt *prompt.Prompt
 	// Ref is the script reference or bare id the caller supplied.
 	Ref string
-	// CallerSub and CallerEmail identify the author, for the ownership half of
-	// the rule (a personal script may only be referenced by its owner, from
-	// their own prompt).
-	CallerSub, CallerEmail string
+	// CallerEmail identifies the author, who must be able to see the script
+	// they are referencing: a script is its owner's, so referencing one is
+	// something its owner does.
+	CallerEmail string
+	// CallerIsAdmin lifts that requirement, as administrative authority lifts
+	// every other script rule.
+	CallerIsAdmin bool
 }
 
-// Attach references a script from a prompt, after the scope rule admits it.
+// Attach references a script from a prompt.
 //
-// Two audiences are checked, not one. The prompt's current scope covers what it
-// serves today; a pending promotion request covers what its author has already
-// asked for, because the author is the only person who can re-scope the script
-// or drop the reference, and discovering the conflict at approval time would
-// put it in front of a reviewer who cannot fix it.
-func (r *ScriptResolver) Attach(ctx context.Context, req ScriptAttachRequest) error {
+// The one rule is that the caller can see what they are referencing. A wider
+// prompt is not refused: a reference resolves for the script's owner only, and
+// a prompt that also serves other people is a normal thing to write — the
+// automation is simply not part of what those readers receive. AudienceNote
+// states that where the caller can act on it, at the moment they attach, and it
+// is returned so the surface that took the request can show it.
+func (r *ScriptResolver) Attach(ctx context.Context, req ScriptAttachRequest) (string, error) {
 	if r == nil {
-		return errors.New("managed scripts are not available on this deployment")
+		return "", errors.New("managed scripts are not available on this deployment")
 	}
 	if req.Prompt == nil || req.Prompt.ID == "" {
-		return errors.New("a stored prompt is required to reference a script")
+		return "", errors.New("a stored prompt is required to reference a script")
 	}
 	ref, id, err := normalizeScriptRef(req.Ref)
 	if err != nil {
-		return err
+		return "", err
 	}
 	c, err := r.deps.Scripts.Contract(ctx, id)
 	if err != nil {
-		return fmt.Errorf("reading script %s: %w", id, err)
+		return "", fmt.Errorf("reading script %s: %w", id, err)
 	}
 	if c == nil {
-		return fmt.Errorf("script %s does not exist", strconv.Quote(id))
+		return "", fmt.Errorf("script %s does not exist", strconv.Quote(id))
 	}
-	if err := checkAttachAudience(req, scopeOfScript(c)); err != nil {
-		return err
+	if !req.CallerIsAdmin && !c.OwnedBy(req.CallerEmail) {
+		// Wrapped in the shared attachment sentinel so the surfaces that pass a
+		// refusal through verbatim keep passing this one through: it is a
+		// complete sentence the author can act on.
+		return "", fmt.Errorf("script %s cannot be attached: it belongs to somebody else: %w",
+			strconv.Quote(c.Title()), prompt.ErrAttachmentScope)
 	}
 	if err := r.deps.Attachments.AttachScript(ctx, prompt.ScriptAttachment{
 		PromptID:   req.Prompt.ID,
 		ScriptRef:  ref,
 		AttachedBy: req.CallerEmail,
 	}); err != nil {
-		return fmt.Errorf("attaching script to prompt: %w", err)
+		return "", fmt.Errorf("attaching script to prompt: %w", err)
 	}
-	return nil
+	return AudienceNote(req.Prompt, c), nil
 }
 
-// checkAttachAudience applies the shared scope rule to the prompt's current and
-// requested audiences. Errors are returned unwrapped: each is a complete
-// author-facing sentence naming the script to fix.
-func checkAttachAudience(req ScriptAttachRequest, scope prompt.AttachmentScope) error {
-	p := req.Prompt
-	if err := prompt.CheckAttachScope(p.Scope, p.Personas, scope); err != nil {
-		return err //nolint:wrapcheck // caller-facing message, deliberately verbatim
+// AudienceNote states what a reference means for the people this prompt serves,
+// or "" when every reader of the prompt is the script's owner.
+//
+// It exists because the mismatch is invisible from the authoring side: the
+// author sees their own automation resolve perfectly, while every other reader
+// of a shared prompt receives a note saying part of the procedure was
+// unavailable. Saying so where the reference is made is the difference between
+// a prompt whose author knows what it serves and one that quietly serves less
+// than it reads.
+func AudienceNote(p *prompt.Prompt, c *script.Contract) string {
+	if p == nil || c == nil {
+		return ""
 	}
-	if err := prompt.CheckAttachOwnership(req.CallerSub, req.CallerEmail, p.OwnerEmail, scope); err != nil {
-		return err //nolint:wrapcheck // caller-facing message, deliberately verbatim
+	if p.Scope == prompt.ScopePersonal && strings.EqualFold(p.OwnerEmail, c.OwnerEmail) {
+		return ""
 	}
-	if p.ReviewRequested && p.RequestedScope != "" {
-		return prompt.CheckAttachScope(p.RequestedScope, p.RequestedPersonas, scope) //nolint:wrapcheck // caller-facing message, deliberately verbatim
+	owner := c.OwnerEmail
+	if owner == "" {
+		owner = "nobody"
 	}
-	return nil
+	return fmt.Sprintf(
+		"This reference resolves only for %s, who owns the script. Anyone else this prompt "+
+			"serves is told an automation was referenced and is out of their reach.", owner)
 }
 
 // Detach removes one script reference from a prompt, returning
@@ -253,92 +274,6 @@ func (r *ScriptResolver) Detach(ctx context.Context, promptID, ref string) error
 		return fmt.Errorf("detaching script from prompt: %w", err)
 	}
 	return nil
-}
-
-// Scopes returns the visibility of every script a prompt references, for the
-// authoring-time rule in prompt.CheckAttachScope. It is caller-independent: the
-// rule asks how widely a script is visible, not whether one reader can see it.
-//
-// A script that no longer exists is skipped rather than reported: a broken
-// reference cannot violate a scope rule, and blocking a promotion on it would
-// freeze the prompt against every edit until someone detached a reference the
-// portal already flags. Any other read failure does block, because an unknown
-// scope is not a safe scope.
-func (r *ScriptResolver) Scopes(ctx context.Context, promptID string) ([]prompt.AttachmentScope, error) {
-	if r == nil || promptID == "" {
-		return nil, nil
-	}
-	links, err := r.deps.Attachments.ListScriptsByPrompt(ctx, promptID)
-	if err != nil {
-		return nil, fmt.Errorf("reading prompt script references: %w", err)
-	}
-	out := make([]prompt.AttachmentScope, 0, len(links))
-	for _, link := range links {
-		id, refErr := scriptIDFromRef(link.ScriptRef)
-		if refErr != nil {
-			continue
-		}
-		c, getErr := r.deps.Scripts.Contract(ctx, id)
-		if getErr != nil {
-			return nil, fmt.Errorf("reading referenced script %s: %w", id, getErr)
-		}
-		if c == nil {
-			continue
-		}
-		out = append(out, scopeOfScript(c))
-	}
-	return out, nil
-}
-
-// scopeOfScript projects a script contract onto the fields the shared scope rule
-// needs, translating the script vocabulary into the rule's: a personal script is
-// a "user"-scoped attachment owned by its author, and a persona-scoped script
-// names every persona it serves, which is the set the rule tests the prompt's
-// audience against.
-func scopeOfScript(c *script.Contract) prompt.AttachmentScope {
-	out := prompt.AttachmentScope{
-		Kind:        prompt.AttachKindScript,
-		ID:          c.ID,
-		DisplayName: c.Title(),
-		Scope:       scriptScopeWord(c.Scope),
-	}
-	switch c.Scope {
-	case script.ScopePersona:
-		out.ScopeIDs = c.Personas
-	case script.ScopePersonal:
-		if c.OwnerEmail != "" {
-			out.ScopeIDs = []string{c.OwnerEmail}
-		}
-	}
-	return out
-}
-
-// scriptScopeWord maps a script scope onto the shared rule's vocabulary. Only
-// the personal/user pair differs; an unrecognized scope is passed through so the
-// rule refuses it as unknown rather than silently reading it as global.
-func scriptScopeWord(scope string) string {
-	if scope == script.ScopePersonal {
-		return userScopeWord
-	}
-	return scope
-}
-
-// userScopeWord is the shared rule's name for a scope owned by one person. It
-// is stated here rather than imported because pkg/prompt keeps the constant
-// unexported; TestScriptScopeWordsMatchRule pins the two together.
-const userScopeWord = "user"
-
-// CheckPromotion reports whether a prompt's referenced scripts would still
-// satisfy the scope rule at the target scope. It fails closed: a store error
-// blocks the promotion rather than letting it through unchecked.
-func (r *ScriptResolver) CheckPromotion(ctx context.Context, promptID, targetScope string, targetPersonas []string) error {
-	scopes, err := r.Scopes(ctx, promptID)
-	if err != nil {
-		return err
-	}
-	// Unwrapped by design: the rule's error is written for the author and is
-	// surfaced verbatim by every caller.
-	return prompt.CheckPromotionAttachments(targetScope, targetPersonas, scopes) //nolint:wrapcheck // caller-facing message, deliberately verbatim
 }
 
 // ScriptContent renders resolved references as MCP prompt-message content: one

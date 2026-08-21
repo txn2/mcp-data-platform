@@ -14133,6 +14133,91 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/scripts/{id}/owner": {
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Moves a managed script to another person. Restricted to administrators. The move is recorded as a new version authored by the administrator, and a run of the script from now on presents the roles that administrator held, so transferring a script to an administrator is how it comes to run with administrative reach. Refused with 409 when the new owner already keeps a script of the same name.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Transfer a script to a new owner",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "New owner",
+                        "name": "owner",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/scripthttp.ownerRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/scripthttp.ownerResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/scripts/{id}/runs": {
             "get": {
                 "security": [
@@ -23292,15 +23377,6 @@ const docTemplate = `{
                         "$ref": "#/definitions/script.Param"
                     }
                 },
-                "personas": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    },
-                    "example": [
-                        "analyst"
-                    ]
-                },
                 "refusal": {
                     "description": "Refusal states why a run requested now would be refused, and is empty\nwhen one would be admitted.",
                     "type": "string",
@@ -23313,10 +23389,6 @@ const docTemplate = `{
                             "$ref": "#/definitions/script.ContractSchedule"
                         }
                     ]
-                },
-                "scope": {
-                    "type": "string",
-                    "example": "personal"
                 },
                 "status": {
                     "type": "string",
@@ -23702,6 +23774,7 @@ const docTemplate = `{
                     "example": "daily-sales-report"
                 },
                 "owner_email": {
+                    "description": "OwnerEmail is the one person a script belongs to: the only caller who\nsees, edits, runs, and schedules it, administrators aside. An\nadministrator can move it to another owner (Transfer).",
                     "type": "string",
                     "example": "jane@example.com"
                 },
@@ -23710,19 +23783,6 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/script.Param"
                     }
-                },
-                "personas": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    },
-                    "example": [
-                        "analyst"
-                    ]
-                },
-                "scope": {
-                    "type": "string",
-                    "example": "personal"
                 },
                 "source": {
                     "type": "string",
@@ -24024,6 +24084,35 @@ const docTemplate = `{
                 }
             }
         },
+        "scripthttp.ownerRequest": {
+            "type": "object",
+            "properties": {
+                "owner_email": {
+                    "type": "string",
+                    "example": "admin@example.com"
+                }
+            }
+        },
+        "scripthttp.ownerResponse": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "description": "Message states the consequence in the administrator's terms.",
+                    "type": "string",
+                    "example": "daily-sales-report now belongs to admin@example.com and runs with your access."
+                },
+                "owner_email": {
+                    "description": "OwnerEmail is the address the script now belongs to, normalized.",
+                    "type": "string",
+                    "example": "admin@example.com"
+                },
+                "version": {
+                    "description": "Version is the version the transfer recorded, which is the version a run\nnow executes and whose captured roles it presents.",
+                    "type": "integer",
+                    "example": 4
+                }
+            }
+        },
         "scripthttp.portalRun": {
             "type": "object",
             "properties": {
@@ -24200,7 +24289,7 @@ const docTemplate = `{
                     "example": true
                 },
                 "source": {
-                    "description": "Source is the live script's code, present only for the owner and an\nadministrator: it is what the editor on that page opens (#1307), and the\ncontract document deliberately does not carry it, because that document\nis served to everyone the scope rules admit.",
+                    "description": "Source is the live script's code, present only for the owner and an\nadministrator: it is what the editor on that page opens (#1307). The\ncontract document deliberately does not carry it, because that document\nis what a reference to the script resolves to.",
                     "type": "string"
                 }
             }

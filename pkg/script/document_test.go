@@ -79,8 +79,7 @@ func TestValidate_BoundsTheDocumentationFields(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			sc := &Script{
-				Name: "daily-sales", Scope: ScopePersonal,
-				Source: "print(1)", Status: StatusActive,
+				Name: "daily-sales", Source: "print(1)", Status: StatusActive,
 			}
 			tt.mutate(sc)
 
@@ -111,7 +110,7 @@ func TestDescriptionNotice(t *testing.T) {
 
 	// And the advisory is not a refusal: the same description validates.
 	sc := &Script{
-		Name: "daily-sales", Scope: ScopePersonal, Source: "print(1)", Status: StatusActive,
+		Name: "daily-sales", Source: "print(1)", Status: StatusActive,
 		Description: strings.Repeat("x", longDescriptionBytes),
 	}
 	require.NoError(t, sc.Validate())

@@ -18,7 +18,7 @@ func (h *Handle) handleRuns(ctx context.Context, input manageScriptInput) (*mcp.
 	if h.runs == nil {
 		return errorResult("this deployment keeps no script runs"), nil, nil
 	}
-	sc, errResult := h.runReadable(ctx, input)
+	sc, errResult := h.readable(ctx, input)
 	if errResult != nil {
 		return errResult, nil, nil
 	}
@@ -100,34 +100,10 @@ func requestedBy(run *script.Run, caller string) bool {
 	return run.RequestedBy != "" && run.RequestedBy == caller
 }
 
-// runReadable resolves the script a run command names and checks the caller may
-// read its runs.
-//
-// Seeing a script and reading what it did are different entitlements. The
-// contract of a script — what it is, what it takes, what it last produced — is
-// readable by anyone the scope rules admit, because that is what makes a script
-// discoverable. A run carries more: the parameters it bound, the error it
-// failed with, and the log it printed, which is free text a script emitted
-// while presenting its author's captured roles and may echo rows the reader has no
-// access to of their own. That is the owner's and the administrator's to read.
-func (h *Handle) runReadable(ctx context.Context, input manageScriptInput) (*script.Script, *mcp.CallToolResult) {
-	sc, errResult := h.readable(ctx, input)
-	if errResult != nil {
-		return nil, errResult
-	}
-	if !h.ownsScript(ctx, sc) {
-		return nil, errorResult("only the owner of a script can read its runs")
-	}
-	return sc, nil
-}
-
-// ownsScript reports whether the caller may read a script's runs: its owner, or
-// an admin. Both sides must be identified, so a script authored by a principal
-// carrying no email is not owned by every caller the platform cannot name.
+// ownsScript reports whether the caller owns a script or is an administrator.
+// It is the same rule the read path applies, stated separately because one
+// caller admits somebody else as well: whoever requested a run may read that
+// run back.
 func (h *Handle) ownsScript(ctx context.Context, sc *script.Script) bool {
-	if h.isAdminPersona(ctx) {
-		return true
-	}
-	caller := resolveEmail(ctx)
-	return sc.OwnerEmail != "" && sc.OwnerEmail == caller
+	return h.isAdminPersona(ctx) || sc.OwnedBy(resolveEmail(ctx))
 }

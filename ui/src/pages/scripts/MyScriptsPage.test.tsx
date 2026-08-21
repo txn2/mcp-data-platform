@@ -23,7 +23,6 @@ function row(overrides: Partial<PortalScriptRow> = {}): PortalScriptRow {
       name: "daily-sales-report",
       display_name: "Daily Sales Report",
       description: "Yesterday's sales by region.",
-      scope: "global",
       owner_email: "sarah.chen@example.com",
       status: "active",
       enabled: true,
@@ -150,30 +149,25 @@ describe("MyScriptsPage", () => {
   });
 
   // #1360: the captions used to be asides ("you can see", "worth opening").
-  // Each now states what its number counts, and the failure tile states the
-  // population it counts over, which is NOT the one the other three count over:
-  // a last run is absent from a row this caller does not own.
-  it("states what each summary number counts and over what population", () => {
+  // Each now states what its number counts, over the one population this page
+  // has since #1404: the reader's own scripts.
+  it("states what each summary number counts", () => {
     mockScripts.mockReturnValue(
       query({
         data: [
           row({ last_run: { ...row().last_run!, status: "failed" } }),
-          row({
-            script: { ...row().script, id: "script-002", display_name: "Someone Else's" },
-            owned: false,
-            last_run: undefined,
-          }),
+          row({ script: { ...row().script, id: "script-002", display_name: "Second Report" } }),
         ],
         total: 2,
       }),
     );
     render(<MyScriptsPage onNavigate={onNavigate} />);
-    expect(screen.getByText("scripts visible to you")).toBeInTheDocument();
+    expect(screen.getByText("scripts you own")).toBeInTheDocument();
     expect(
       screen.getByText("enabled and active; a run executes the latest saved version"),
     ).toBeInTheDocument();
     expect(screen.getByText("run on a schedule, unattended")).toBeInTheDocument();
-    expect(screen.getByText("of the 1 you own")).toBeInTheDocument();
+    expect(screen.getByText("of the scripts you own")).toBeInTheDocument();
   });
 
   // The row is the target, as it is on every other listing in the portal.

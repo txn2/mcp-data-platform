@@ -8,7 +8,6 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 	"github.com/txn2/mcp-data-platform/pkg/prompt/attachserve"
 )
@@ -29,32 +28,36 @@ const fieldScript = "script"
 //
 // Authorization is the prompt's, not the script's: referencing is an edit to
 // the prompt, so it takes the same authority every other prompt mutation takes.
-// What the script's own visibility governs is the audience rule the resolver
-// applies — a prompt must never carry an automation most of its readers cannot
-// see.
+// The script's own visibility governs one thing more — a caller may only
+// reference a script they can see — and the response carries the note saying
+// who the reference will resolve for.
 func (h *Handle) handlePromptAttachScript(ctx context.Context, input managePromptInput) (*mcp.CallToolResult, any, error) {
 	pr, res := h.resolveForScriptEdit(ctx, input, "attach a script to")
 	if res != nil {
 		return res, nil, nil
 	}
-	var sub string
-	if pc := middleware.GetPlatformContext(ctx); pc != nil {
-		sub = pc.UserID
-	}
-	err := h.attach.Scripts().Attach(ctx, attachserve.ScriptAttachRequest{
-		Prompt:      pr,
-		Ref:         input.Script,
-		CallerSub:   sub,
-		CallerEmail: resolveEmail(ctx),
+	note, err := h.attach.Scripts().Attach(ctx, attachserve.ScriptAttachRequest{
+		Prompt:        pr,
+		Ref:           input.Script,
+		CallerEmail:   resolveEmail(ctx),
+		CallerIsAdmin: h.isAdminPersona(ctx),
 	})
 	if err != nil {
 		return h.scriptRefError(ctx, "failed to attach script", input.Script, err), nil, nil
 	}
-	return promptJSONResult(map[string]any{
+	out := map[string]any{
 		fieldStatus: "attached",
 		fieldName:   pr.Name,
 		fieldScript: input.Script,
-	})
+	}
+	// The note is present exactly when this prompt serves somebody the script
+	// does not, which is what its author needs to hear at the moment they made
+	// the reference rather than from a reader who received less than the prompt
+	// reads.
+	if note != "" {
+		out["audience_note"] = note
+	}
+	return promptJSONResult(out)
 }
 
 // handlePromptDetachScript removes one script reference from a prompt.

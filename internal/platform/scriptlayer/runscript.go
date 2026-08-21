@@ -278,7 +278,7 @@ func runScriptSchema() any {
 			},
 			"owner_email": map[string]any{
 				keyType:        valString,
-				keyDescription: "Owner of the script; admins use it to address another owner's personal script.",
+				keyDescription: "Owner of the script; admins use it to address another person's script.",
 			},
 			"args": map[string]any{
 				keyType:        valObject,

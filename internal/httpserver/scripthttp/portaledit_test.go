@@ -230,13 +230,12 @@ func TestPortalSetSource_RequiresAuthentication(t *testing.T) {
 }
 
 // TestPortalGetScript_CarriesTheLiveSourceForItsOwner pins where the editor
-// gets what it opens, and that it is not served to a reader who may only see
-// the script.
+// gets what it opens, and that nobody else is served it.
 func TestPortalGetScript_CarriesTheLiveSourceForItsOwner(t *testing.T) {
 	store := portalStore()
 	store.scripts[1].Source = reportSource
 	contracts := &stubContracts{contract: &script.Contract{
-		ID: "script_2", Name: "shared-report", Scope: script.ScopeGlobal,
+		ID: "script_2", Name: "carols-report",
 		OwnerEmail: "carol@example.com",
 	}}
 
@@ -247,8 +246,6 @@ func TestPortalGetScript_CarriesTheLiveSourceForItsOwner(t *testing.T) {
 	assert.Equal(t, reportSource, owned.Source)
 
 	rec = servePortal(t, portalDeps(store, nil, contracts, stranger), "/api/v1/portal/scripts/script_2")
-	require.Equal(t, http.StatusOK, rec.Code)
-	var seen portalScriptResponse
-	decodeInto(t, rec, &seen)
-	assert.Empty(t, seen.Source, "the code is the owner's, not everyone who may see the script")
+	assert.Equal(t, http.StatusNotFound, rec.Code,
+		"the code is the owner's, and so is knowing the script is there at all")
 }

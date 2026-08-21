@@ -359,6 +359,17 @@ export async function openScriptSchedule(page: Page): Promise<void> {
 }
 
 /**
+ * openScriptOwner scrolls to the owner section, the one control on a script's
+ * page that belongs to an administrator rather than to its owner (#1404):
+ * moving the script to another person, which hands over everything the owner
+ * has at once.
+ */
+export async function openScriptOwner(page: Page): Promise<void> {
+  await page.getByText("Transfer ownership").scrollIntoViewIfNeeded({ timeout: 3_000 });
+  await page.waitForTimeout(500);
+}
+
+/**
  * openScriptRunHistory scrolls to the run history, the refresh record of the
  * automation: a success, the failure that woke somebody, and a fire skipped
  * because the previous run was still going.

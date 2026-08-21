@@ -23,13 +23,11 @@ type plainStore struct {
 }
 
 func (*plainStore) Create(context.Context, *script.Script, script.Author) error { return nil }
-func (*plainStore) Get(context.Context, string) (*script.Script, error) {
+func (*plainStore) GetByName(context.Context, string, string) (*script.Script, error) {
 	return nil, nil //nolint:nilnil // Store contract: nil, nil means not found
 }
 
-func (*plainStore) GetPersonal(context.Context, string, string) (*script.Script, error) {
-	return nil, nil //nolint:nilnil // Store contract: nil, nil means not found
-}
+func (*plainStore) Transfer(context.Context, string, string, script.Author) error { return nil }
 
 func (*plainStore) GetByID(context.Context, string) (*script.Script, error) {
 	return nil, nil //nolint:nilnil // Store contract: nil, nil means not found
@@ -90,7 +88,7 @@ func (*versioningStore) GetVersionByID(context.Context, string) (*script.Version
 // inService returns a script in ordinary service.
 func inService() *script.Script {
 	return &script.Script{
-		ID: "script_1", Name: "daily", Scope: script.ScopePersonal,
+		ID: "script_1", Name: "daily",
 		Source: "x = 1", Status: script.StatusActive,
 		Params: []script.Param{{Name: "day", Type: script.ParamTypeDate}},
 	}
@@ -113,9 +111,9 @@ func TestSnapshotChanged(t *testing.T) {
 	}
 
 	// A field a snapshot cannot carry is not a snapshot change.
-	scoped := inService()
-	scoped.Scope = script.ScopeGlobal
-	assert.False(t, script.SnapshotChanged(base, scoped))
+	moved := inService()
+	moved.OwnerEmail = "someone@example.com"
+	assert.False(t, script.SnapshotChanged(base, moved))
 }
 
 // TestApplyEdit_EveryEditAppliesWithAVersion pins the funnel's one path: an

@@ -18,6 +18,7 @@ type failingStore struct {
 	deleteErr       error
 	listErr         error
 	createErr       error
+	transferErr     error
 	listVersionsErr error
 }
 
@@ -47,6 +48,13 @@ func (f *failingStore) List(ctx context.Context, filter script.ListFilter) ([]sc
 		return nil, f.listErr
 	}
 	return f.memStore.List(ctx, filter)
+}
+
+func (f *failingStore) Transfer(ctx context.Context, id, newOwner string, author script.Author) error {
+	if f.transferErr != nil {
+		return f.transferErr
+	}
+	return f.memStore.Transfer(ctx, id, newOwner, author)
 }
 
 func (f *failingStore) UpdateWithVersion(ctx context.Context, sc *script.Script, author script.Author) error {

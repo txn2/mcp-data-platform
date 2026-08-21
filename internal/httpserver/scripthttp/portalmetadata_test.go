@@ -215,5 +215,5 @@ func TestPortalListScripts_FacetsNarrowAnAdministratorToo(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "reporting", store.lastFilter.Category)
-	assert.Empty(t, store.lastFilter.VisibleTo, "an administrator carries no visibility predicate")
+	assert.Empty(t, store.lastFilter.OwnerEmail, "an administrator carries no visibility predicate")
 }

@@ -596,12 +596,13 @@ going.
 
 ![Scripts](../images/screenshots/light/user-scripts-light.webp#only-light)![Scripts](../images/screenshots/dark/user-scripts-dark.webp#only-dark)
 
-Above the table, four numbers say how the automations are doing: how many scripts are
-visible to you, how many are in service, how many are firing on a cadence, and how many
-last ended in a failure. The last one is the number
-most people open this page for, and its caption names the smaller set it is counted
-over: a run belongs to the script's owner, so a script somebody else owns carries no
-last run here and cannot be counted as failing.
+Above the table, four numbers say how the automations are doing: how many scripts you
+have, how many are in service, how many are firing on a cadence, and how many
+last ended in a failure. The last one is the number most people open this page for.
+
+Every script here is yours: a script is one person's, so this page needs no owner
+column and shows nobody else's automations. An administrator can move a script to
+another owner, which is how one arrives here that you did not write.
 
 Each row states the four things worth knowing at a glance: what the script is executing
 (the latest saved version, or plainly that it is disabled or retired and nothing will

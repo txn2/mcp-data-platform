@@ -20,13 +20,13 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
-// seedScript writes one script with the given identity and searchable text.
-func seedScript(t *testing.T, s *Store, name, scope, owner string, personas []string, params []script.Param) *script.Script {
+// seedScript writes one script with the given owner and searchable text.
+func seedScript(t *testing.T, s *Store, name, owner string, params []script.Param) *script.Script {
 	t.Helper()
 	sc := &script.Script{
 		Name: name, DisplayName: "Daily Sales Report",
 		Description: "Summarize yesterday's revenue by region",
-		Source:      "print(1)\n", Scope: scope, Personas: personas, OwnerEmail: owner,
+		Source:      "print(1)\n", OwnerEmail: owner,
 		Params: params, Enabled: true,
 		Tags: []string{"revenue"},
 	}
@@ -43,36 +43,37 @@ func TestRealDB_SearchRanksOnTheIndexedDocument(t *testing.T) {
 	s := New(db)
 	ctx := context.Background()
 
-	seedScript(t, s, "daily-sales", script.ScopeGlobal, "jane@example.com", nil,
+	seedScript(t, s, "daily-sales", "jane@example.com",
 		[]script.Param{{
 			Name: "report_date", Type: script.ParamTypeDate, Required: true,
 			Description: "The business date to report on",
 		}})
 
 	for _, intent := range []string{"revenue by region", "daily sales report", "report_date", "business date"} {
-		got, err := s.Search(ctx, script.SearchQuery{QueryText: intent})
+		got, err := s.Search(ctx, script.SearchQuery{QueryText: intent, OwnerEmail: "jane@example.com"})
 		require.NoError(t, err, intent)
 		require.Len(t, got, 1, "intent %q should match the seeded script", intent)
 		assert.Greater(t, got[0].Score, 0.0, "a match must carry a positive relevance score")
 	}
 
-	none, err := s.Search(ctx, script.SearchQuery{QueryText: "kubernetes ingress"})
+	none, err := s.Search(ctx, script.SearchQuery{
+		QueryText: "kubernetes ingress", OwnerEmail: "jane@example.com",
+	})
 	require.NoError(t, err)
 	assert.Empty(t, none, "an unrelated intent must match nothing")
 }
 
-// TestRealDB_SearchAppliesVisibility proves the scope predicate runs in SQL:
-// another owner's personal script is absent, a persona script appears only for
-// a member, and global scripts reach everyone.
+// TestRealDB_SearchAppliesVisibility proves the ownership predicate runs in
+// SQL: a caller ranks their own scripts and nobody else's, and an unidentified
+// caller ranks nothing at all.
 func TestRealDB_SearchAppliesVisibility(t *testing.T) {
 	db := testdb.New(t)
 	s := New(db)
 	ctx := context.Background()
 
-	seedScript(t, s, "global-report", script.ScopeGlobal, "admin@example.com", nil, nil)
-	seedScript(t, s, "analyst-report", script.ScopePersona, "admin@example.com", []string{"analyst"}, nil)
-	seedScript(t, s, "janes-report", script.ScopePersonal, "jane@example.com", nil, nil)
-	seedScript(t, s, "bobs-report", script.ScopePersonal, "bob@example.com", nil, nil)
+	seedScript(t, s, "admins-report", "admin@example.com", nil)
+	seedScript(t, s, "janes-report", "jane@example.com", nil)
+	seedScript(t, s, "bobs-report", "bob@example.com", nil)
 
 	names := func(q script.SearchQuery) []string {
 		got, err := s.Search(ctx, q)
@@ -84,16 +85,15 @@ func TestRealDB_SearchAppliesVisibility(t *testing.T) {
 		return out
 	}
 
-	jane := names(script.SearchQuery{QueryText: "revenue by region", OwnerEmail: "jane@example.com", Personas: []string{"analyst"}})
-	assert.ElementsMatch(t, []string{"global-report", "analyst-report", "janes-report"}, jane,
-		"a caller sees global scripts, their persona's, and their own — never another owner's personal script")
+	jane := names(script.SearchQuery{QueryText: "revenue by region", OwnerEmail: "jane@example.com"})
+	assert.Equal(t, []string{"janes-report"}, jane,
+		"a caller ranks their own scripts and never another person's")
 
 	anon := names(script.SearchQuery{QueryText: "revenue by region"})
-	assert.Equal(t, []string{"global-report"}, anon,
-		"a caller with no identity and no persona membership sees only global scripts")
+	assert.Empty(t, anon, "a caller the platform cannot name owns nothing to rank")
 
-	nonMember := names(script.SearchQuery{QueryText: "revenue by region", OwnerEmail: "bob@example.com", Personas: []string{"engineer"}})
-	assert.ElementsMatch(t, []string{"global-report", "bobs-report"}, nonMember)
+	bob := names(script.SearchQuery{QueryText: "revenue by region", OwnerEmail: "bob@example.com"})
+	assert.Equal(t, []string{"bobs-report"}, bob)
 }
 
 // TestRealDB_SearchExcludesDeadEnds proves the lifecycle filter: a disabled
@@ -104,15 +104,17 @@ func TestRealDB_SearchExcludesDeadEnds(t *testing.T) {
 	s := New(db)
 	ctx := context.Background()
 
-	active := seedScript(t, s, "live-report", script.ScopeGlobal, "admin@example.com", nil, nil)
-	disabled := seedScript(t, s, "off-report", script.ScopeGlobal, "admin@example.com", nil, nil)
+	active := seedScript(t, s, "live-report", "admin@example.com", nil)
+	disabled := seedScript(t, s, "off-report", "admin@example.com", nil)
 	disabled.Enabled = false
 	require.NoError(t, s.Update(ctx, disabled))
-	retired := seedScript(t, s, "old-report", script.ScopeGlobal, "admin@example.com", nil, nil)
+	retired := seedScript(t, s, "old-report", "admin@example.com", nil)
 	retired.Status = script.StatusDeprecated
 	require.NoError(t, s.Update(ctx, retired))
 
-	got, err := s.Search(ctx, script.SearchQuery{QueryText: "revenue by region"})
+	got, err := s.Search(ctx, script.SearchQuery{
+		QueryText: "revenue by region", OwnerEmail: "admin@example.com",
+	})
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	assert.Equal(t, active.Name, got[0].Script.Name)
@@ -134,7 +136,7 @@ func TestRealDB_ContractComposesFromTheRealSchema(t *testing.T) {
 	s := New(db)
 	ctx := context.Background()
 
-	sc := seedScript(t, s, "daily-sales", script.ScopeGlobal, "jane@example.com", nil,
+	sc := seedScript(t, s, "daily-sales", "jane@example.com",
 		[]script.Param{{Name: "report_date", Type: script.ParamTypeDate, Required: true}})
 
 	before, err := s.Contract(ctx, sc.ID)
@@ -168,9 +170,11 @@ func TestRealDB_SearchSurvivesAScriptWithNoParameters(t *testing.T) {
 	db := testdb.New(t)
 	s := New(db)
 
-	seedScript(t, s, "no-params", script.ScopeGlobal, "admin@example.com", nil, nil)
+	seedScript(t, s, "no-params", "admin@example.com", nil)
 
-	got, err := s.Search(context.Background(), script.SearchQuery{QueryText: "revenue"})
+	got, err := s.Search(context.Background(), script.SearchQuery{
+		QueryText: "revenue", OwnerEmail: "admin@example.com",
+	})
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	assert.Equal(t, "no-params", got[0].Script.Name)

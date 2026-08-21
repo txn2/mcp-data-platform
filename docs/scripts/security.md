@@ -95,27 +95,38 @@ What platform execution DOES add, and what this document does not minimize:
   to unattended automation, and the controls over it are the script lifecycle
   (disable, deprecate, supersede — each refused by the run gate at execution
   time), the persona filter's live resolution of the captured roles, and audit.
-- **Definer rights.** Anyone who can *see* a script can run it, and it runs
-  with its own authority rather than theirs, so its output can reach a caller
-  who could not have produced it. Visibility is therefore the control: a global
-  script is runnable by everyone who can see it, and changing a script's scope
-  is an administrator's action.
+- **Definer rights.** A script runs with the authority its executed version
+  captured rather than with the caller's, so its output can reach somebody who
+  could not have produced it. Ownership is therefore the control: a script is
+  one person's, that person is who can run it, and moving it to somebody else
+  is an administrator's action (#1404) that re-captures the run identity from
+  the administrator making the move.
 
-  Because visibility is the control, widening WHERE a script can be seen is a
-  security-relevant change even when it grants nothing. A script is reachable
-  from `search` and `fetch` (`mcp:script:<id>`), from a prompt that references
-  it, and from the portal's own script pages, in addition to `manage_script
-  list`. Each of those surfaces applies the script's own scope rule as a store
-  predicate rather than a filter over the answer, so a caller sees exactly the
-  set `manage_script list` would show them and nothing more: a personal script
-  belonging to somebody else has neither a hit, nor a fetchable document, nor a
-  resolvable reference from a prompt. Discovery reports; it grants nothing.
-  Finding a script says it exists and what it takes, and running it is still
-  `run_script` under the run gate. What the surfaces return is the script's
-  contract — name, description, owner, typed parameters, whether a run would be
-  admitted, cadence, last successful run — never its source, which stays behind
-  `manage_script get` and the portal script page, both the owner's and the
-  administrator's.
+  Because ownership is the control, a transfer is a security-relevant change
+  even though it grants nothing directly: the receiving owner can run the
+  script, from the transfer on a run presents the transferring administrator's
+  roles rather than the previous owner's, and the script's history moves with
+  it — its run records and dry-run accounts, whose logs are free text those runs
+  printed and may echo rows the new owner has no access to of their own. That is
+  why the action is an administrator's and not something an owner can do to
+  hand their work along. Transfers are
+  recorded in the audit log as `script_transfer_owner` events of kind `admin`,
+  naming the script and both ends of the move, whether they succeeded or were
+  refused.
+
+  A script is reachable from `search` and `fetch` (`mcp:script:<id>`), from a
+  prompt that references it, and from the portal's own script pages, in
+  addition to `manage_script list`. Each of those surfaces applies the same
+  ownership rule as a store predicate rather than a filter over the answer, so
+  a caller sees exactly the set `manage_script list` would show them and
+  nothing more: somebody else's script has neither a hit, nor a fetchable
+  document, nor a resolvable reference from a prompt. Discovery reports; it
+  grants nothing. Finding a script says it exists and what it takes, and
+  running it is still `run_script` under the run gate. What the surfaces return
+  is the script's contract — name, description, owner, typed parameters,
+  whether a run would be admitted, cadence, last successful run — never its
+  source, which stays behind `manage_script get` and the portal script page,
+  both the owner's and the administrator's.
 
 `middleware.SourceScript` is a label on a call, not a capability. It records how
 the call arrived so audit can separate populations, and it selects three
@@ -139,10 +150,10 @@ behaviors described below; it grants nothing (`pkg/middleware/mcp.go`).
 
 | Actor | Capability at this revision |
 |---|---|
-| Script author (any authenticated caller) | Creates and edits their own personal scripts; runs drafts as themselves. Saving a version makes it the version that runs, presenting their own captured roles |
-| Admin persona | The above at every scope, plus scope and lifecycle changes |
+| Script author (any authenticated caller) | Creates, edits, runs, and schedules their own scripts; runs drafts as themselves. Saving a version makes it the version that runs, presenting their own captured roles |
+| Admin persona | The above on every script, plus lifecycle changes and the owner transfer, which re-captures the run identity from the administrator making it |
 | Operator (deployment configuration) | Declares the bucket destinations scripts may deliver to (`scripts.destinations`), and decides which replicas execute (`scripts.worker.enabled`) |
-| Schedule owner (the script's owner at any scope, or an admin) | Sets the cadence, timezone, and bound parameters of a script's schedule, and turns it on or off, from `manage_script` or from the portal; grants nothing |
+| Schedule owner (the script's owner, or an admin) | Sets the cadence, timezone, and bound parameters of a script's schedule, and turns it on or off, from `manage_script` or from the portal; grants nothing |
 | Script principal (`script:<name>`) | Exists only inside a platform run; presents the version author's captured roles and nothing else |
 | The script itself | Only the host functions listed below, only through the running identity |
 
@@ -276,24 +287,28 @@ author's own:
   `internal/platform/scriptdraft`). Discussed on its own below.
 - What a script SAYS about itself — display name, markdown description,
   category, tags (`portaledit.go`, #1369). None of the four is an input to any
-  decision the platform makes: visibility is scope plus owner, and a
-  description cannot move either. The edit is still captured as a version, so
+  decision the platform makes: visibility is ownership, and a description
+  cannot move it. The edit is still captured as a version, so
   what a script claimed to do at the time one of its runs ran is on record.
 
 **Who a caller is, before who may read.** Every rule below compares an owner
-with a caller, so the identity being compared has to be specific to one person.
+with a caller, so the identity being compared has to be specific to one
+person.
 It is the caller's email; their user id when the credential carries no email,
 which an OIDC token without an `email` claim does not; and the name `anonymous`
 only when no identity was presented at all. Collapsing the second case onto the
-third would make every email-less caller the same owner, and a personal script
-is exactly as private as that comparison is specific. A script whose owner
-cannot be established matches nobody but an administrator.
+third would make every email-less caller the same owner, and a script is
+exactly as private as that comparison is specific. A script whose owner cannot
+be established belongs to nobody: it is visible only to administrators, and the
+owner transfer is how it gets an owner.
 
-**Three tiers, one rule each, applied by every surface.**
+**Three tiers, one rule each, applied by every surface.** The first tier is
+the widest, and since #1404 it is still one person: a script is its owner's,
+and an administrator's.
 
 | What | Who | Why |
 |---|---|---|
-| That a script exists, and its contract: name, owner, typed parameters, whether a run would be admitted, cadence, and the outputs of its last successful run | Anyone the scope rules admit (`Script.VisibleTo`) | This is what makes a script discoverable and usable, and it is what `search`, `fetch`, and a prompt reference already serve |
+| That a script exists, and its contract: name, owner, typed parameters, whether a run would be admitted, cadence, and the outputs of its last successful run | Its owner (`Script.OwnedBy`), and administrators | This is what makes a script discoverable and usable to the person whose script it is, and it is what `search`, `fetch`, and a prompt reference serve them |
 | Its source, its run history, and the values its schedule BINDS | The script's owner, and administrators | The source is the code; a run's log is free text the script printed while presenting its author's captured roles and may echo rows the reader has no access to of their own; a schedule's bindings are what the owner configured this automation to ask about |
 | One run in particular | The above, plus whoever requested that run | The result was handed to them when they asked for it, so a run id they hold stays followable |
 | Setting, re-timing, pausing, and resuming its cadence | The script's owner, and administrators | A cadence is not an authority: the run gate and the persona filter are re-read at every fire, so re-timing reaches nothing new |
@@ -314,11 +329,11 @@ and the one line stating whether anything will execute it. It is exactly the
 first tier of the table above, and it is the same text a caller is shown as the
 search snippet. The source is excluded because it belongs to a narrower tier:
 one vector per script row cannot be split along a line that admits the contract
-to everyone the scope rules admit and the source only to the owner and to
-administrators, and a vector built partly from source would let code a caller
-may not read decide how their results rank. The store applies the same scope
-predicate to both the semantic and the lexical arm before ranking, so a script
-the caller cannot see reaches neither.
+to the owner and the source only to the owner and to administrators, and a
+vector built partly from source would let code a caller may not read decide how
+their results rank. The store applies the same ownership predicate to both the
+semantic and the lexical arm before ranking, so a script the caller does not own
+reaches neither.
 
 **`show_scripts` performs no data work.** It is presentation-only, following
 the `show_prompts` split. It returns a confirmation and, where the deployment
@@ -383,17 +398,9 @@ A schedule confers no authority. It names when the script runs and with which
 parameters, and every other property of that run — which code executes, which
 roles it presents, which connections it may reach — comes from the latest saved
 version and the persona filter, which a schedule cannot touch. Setting one is
-therefore an owner-or-admin action, at every scope
+therefore an owner-or-admin action, the same rule reading a script answers to
 (`internal/platform/scriptlayer/schedules.go`, `schedulable`;
 `internal/httpserver/scripthttp/portalschedule.go`).
-
-**That rule is deliberately weaker than the edit rule, and only in one
-direction.** Changing what a script DOES crosses `editable`, which confines a
-non-admin to their personal scripts. Changing WHEN it runs crosses ownership
-alone, because the run gate and the persona filter are re-read at every fire:
-re-timing a global or persona script cannot make it reach anything it could not
-already reach, and requiring an administrator for it would mean the owner of a
-shared report cannot pause their own report.
 
 The consequences:
 

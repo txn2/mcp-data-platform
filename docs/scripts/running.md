@@ -28,11 +28,24 @@ as it does for a person, and the persona filter decides which connections the
 run may reach — at run time, with no script-side allowlist. Narrowing a
 persona's rules takes effect on the script's next run.
 
-Who may save is the edit rule: a non-admin edits only their own personal
-scripts, and editing a `global` or `persona`-scoped script is an
-administrator's action. A personal script is its owner's to delete outright;
-`manage_script delete` refuses a shared script in favour of deprecating it,
-because it may be executing on a schedule for somebody else.
+Who may save is the edit rule: a script is one person's, so its owner saves it
+and so does an administrator. Deleting it is the same rule, and it takes the
+script's schedule and history with it — nobody else could see it, run it, or
+notice it go.
+
+An administrator can move a script to another owner, from the script's page in
+the portal (`PUT /api/v1/portal/scripts/{id}/owner`). Ownership is the whole of
+what a script is, so the transfer hands over what its owner sees, edits, runs,
+and schedules, all at once — including its history: the new owner reads the run
+records and dry-run accounts the previous owner produced, whose logs are free
+text those runs printed. That is the reason a transfer is an administrator's
+action and not an owner's to give away.
+
+The move is recorded as a new version authored by the administrator making it,
+and from then on a run presents THAT administrator's roles: moving a script to
+an administrator is how it comes to run with an administrator's reach. It is
+refused when the receiving owner already keeps a script of the same name, and
+it is recorded in the audit log like any other administrative write.
 
 ### Where output may go
 
@@ -190,8 +203,9 @@ own editor, and the edit crosses the same gate a `manage_script update` crosses
 is the version that runs from then on. The save says so, and says instead when
 the script is disabled or retired and nothing will execute it. The route is
 `PUT /api/v1/portal/scripts/{id}/source`, restricted to the script's owner and
-to administrators, and it edits the SOURCE only — scope, personas, status, and
-the parameter contract are structured decisions the tool owns.
+to administrators, and it edits the SOURCE only — the status and the parameter
+contract are structured decisions the tool owns, and the owner is the
+administrator's transfer.
 
 The source is parsed before anything is stored, so code that cannot run is
 refused at the keyboard rather than at the next fire.
@@ -291,12 +305,10 @@ pressed the button.
 
 ### Who sets a cadence
 
-The owner of a script sets its cadence, at every scope, and so does an
-administrator. That is a different rule from the one that governs editing: what
-a script DOES is confined to a personal script unless an administrator changes
-it. When it runs carries no authority to confine — the run gate and the persona
-filter are re-read at every fire — so the owner of a shared report re-times or
-pauses it without asking anyone.
+The owner of a script sets its cadence, and so does an administrator: it is the
+same rule reading and editing answer to. A cadence carries no authority of its
+own — the run gate and the persona filter are re-read at every fire — so
+re-timing a script reaches nothing the script could not already reach.
 
 The portal asks for a cadence in the terms a person has it in — hourly, daily,
 weekdays, chosen days, a day of the month, a time, a zone — and derives the cron

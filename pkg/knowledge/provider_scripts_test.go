@@ -45,7 +45,7 @@ func (f *fakeScriptSearcher) Contract(_ context.Context, id string) (*script.Con
 func runnableContract() *script.Contract {
 	return &script.Contract{
 		ID: "script_1", Name: "daily-sales", DisplayName: "Daily Sales",
-		Description: "Yesterday's sales by region", Scope: script.ScopeGlobal,
+		Description: "Yesterday's sales by region", OwnerEmail: "jane@example.com",
 		Status: script.StatusActive, Enabled: true,
 		Params:  []script.Param{{Name: "report_date", Required: true}},
 		Version: 3,
@@ -56,9 +56,9 @@ func TestScriptsProvider_Metadata(t *testing.T) {
 	p := NewScriptsProvider(&fakeScriptSearcher{})
 
 	assert.Equal(t, SourceScripts, p.Name())
-	// Shared: global scripts are visible to everyone, and the store predicate
-	// self-filters persona and personal ones to the caller.
-	assert.Equal(t, ScopeShared, p.Scope())
+	// Per-user: a script is its owner's, so a caller the platform cannot name
+	// has nothing here to find.
+	assert.Equal(t, ScopePerUser, p.Scope())
 }
 
 // TestScriptsProvider_NoIntentSkips proves the provider is text-path only: an
@@ -74,10 +74,9 @@ func TestScriptsProvider_NoIntentSkips(t *testing.T) {
 	assert.False(t, s.searched)
 }
 
-// TestScriptsProvider_ForwardsCallerVisibility proves the caller's identity and
-// persona MEMBERSHIP reach the store, which is where visibility is applied. A
-// provider that filtered afterwards would have already paid for rows the caller
-// may not see.
+// TestScriptsProvider_ForwardsCallerVisibility proves the caller's identity
+// reaches the store, which is where visibility is applied. A provider that
+// filtered afterwards would have already paid for rows the caller may not see.
 func TestScriptsProvider_ForwardsCallerVisibility(t *testing.T) {
 	s := &fakeScriptSearcher{}
 
@@ -90,8 +89,6 @@ func TestScriptsProvider_ForwardsCallerVisibility(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "sales report", s.got.QueryText)
 	assert.Equal(t, "jane@example.com", s.got.OwnerEmail)
-	assert.Equal(t, []string{"analyst", "engineer"}, s.got.Personas,
-		"visibility scopes on membership, never on the persona a request claims to act as")
 	assert.Equal(t, 7, s.got.Limit)
 }
 
@@ -205,7 +202,8 @@ func TestScriptsProvider_FetchDeclinesForeignReferences(t *testing.T) {
 func TestScriptsProvider_FetchReturnsTheContractDocument(t *testing.T) {
 	s := &fakeScriptSearcher{contract: runnableContract()}
 
-	doc, owned, err := NewScriptsProvider(s).Fetch(context.Background(), "mcp:script:script_1", Caller{Email: "anyone@example.com"})
+	doc, owned, err := NewScriptsProvider(s).Fetch(context.Background(), "mcp:script:script_1",
+		Caller{Email: "jane@example.com"})
 
 	require.NoError(t, err)
 	assert.True(t, owned)
@@ -222,10 +220,7 @@ func TestScriptsProvider_FetchReturnsTheContractDocument(t *testing.T) {
 // visibility rule the store predicate enforces. Without it, a reference would
 // be a way to read a script the same caller could never have searched.
 func TestScriptsProvider_FetchHidesWhatSearchWouldHide(t *testing.T) {
-	c := runnableContract()
-	c.Scope = script.ScopePersonal
-	c.OwnerEmail = "jane@example.com"
-	s := &fakeScriptSearcher{contract: c}
+	s := &fakeScriptSearcher{contract: runnableContract()}
 
 	doc, owned, err := NewScriptsProvider(s).Fetch(context.Background(), "mcp:script:script_1",
 		Caller{Email: "bob@example.com"})
@@ -267,7 +262,8 @@ func TestScriptsProvider_FetchServesARetiredScript(t *testing.T) {
 	c.Refusal = "the script is deprecated and must not be executed"
 	s := &fakeScriptSearcher{contract: c}
 
-	doc, _, err := NewScriptsProvider(s).Fetch(context.Background(), "mcp:script:script_1", Caller{})
+	doc, _, err := NewScriptsProvider(s).Fetch(context.Background(), "mcp:script:script_1",
+		Caller{Email: "jane@example.com"})
 
 	require.NoError(t, err)
 	require.NotNil(t, doc)

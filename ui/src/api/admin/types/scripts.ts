@@ -8,10 +8,8 @@ export interface Script {
   name: string;
   display_name: string;
   description: string;
-  scope: string;
-  // personas are the personas a persona-scoped script serves, and are empty at
-  // every other scope.
-  personas?: string[];
+  // owner_email is the one person the script belongs to: the only caller who
+  // sees it, edits it, runs it, and schedules it, administrators aside.
   owner_email: string;
   status: string;
   enabled: boolean;

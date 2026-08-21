@@ -13,8 +13,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useAuthStore } from "@/stores/auth";
 import { executionState, formatWhen } from "./runFormat";
 import { ScriptDocumentation } from "./ScriptDocumentation";
+import { ScriptOwnerTransfer } from "./ScriptOwnerTransfer";
 import { ScriptRunHistory } from "./ScriptRunHistory";
 import { ScriptRunPanel } from "./ScriptRunPanel";
 import { ScriptScheduleEditor } from "./ScriptScheduleEditor";
@@ -87,6 +89,9 @@ function ScriptDetail({
 }) {
   const { contract, owned, source } = data;
   const state = executionState(contract);
+  // Moving a script to another person is an administrator's, and the only
+  // control on this page that is not the owner's own (#1404).
+  const isAdmin = useAuthStore((s) => s.isAdmin());
 
   return (
     <div className="space-y-4">
@@ -115,7 +120,9 @@ function ScriptDetail({
         <ParameterTable contract={contract} />
       </SectionCard>
 
-      {owned ? (
+      {isAdmin && <ScriptOwnerTransfer scriptId={scriptId} contract={contract} />}
+
+      {owned && (
         <OwnerSections
           scriptId={scriptId}
           contract={contract}
@@ -123,8 +130,6 @@ function ScriptDetail({
           draftParams={draftParamsOf(data)}
           onNavigate={onNavigate}
         />
-      ) : (
-        <UnownedNotice ownerEmail={contract.owner_email} />
       )}
     </div>
   );
@@ -144,17 +149,6 @@ function UnreadableScript({ backLabel, onBack }: { backLabel: string; onBack: ()
         </AlertDescription>
       </Alert>
     </div>
-  );
-}
-
-// UnownedNotice states what a reader who is not this script's owner does not
-// get, rather than leaving four missing sections to be inferred.
-function UnownedNotice({ ownerEmail }: { ownerEmail?: string }) {
-  return (
-    <p className="text-xs text-muted-foreground">
-      This script belongs to {ownerEmail || "someone else"}. Its cadence, its source, and
-      its run history are theirs and the administrators' to read.
-    </p>
   );
 }
 
@@ -206,16 +200,16 @@ function OwnerSections({
   );
 }
 
-// ContractFacts is the summary every surface agrees on: who owns it, who may
-// see it, which version runs, and when it next fires.
+// ContractFacts is the summary every surface agrees on: who owns it, which
+// version runs, and when it next fires. Ownership is the whole of who may see
+// it, so there is no second visibility line to read (#1404).
 function ContractFacts({ contract }: { contract: ScriptContract }) {
   const cadence = contract.schedule
     ? `${contract.schedule.cron_spec} (${contract.schedule.timezone})${contract.schedule.enabled ? "" : " — paused"}`
     : "on demand";
   return (
     <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-      <Fact label="Owner" value={contract.owner_email || "—"} />
-      <Fact label="Visible to" value={visibility(contract)} />
+      <Fact label="Owner" value={contract.owner_email || "nobody"} />
       <Fact label="Runs" value={`v${contract.version}, the latest saved version`} />
       <Fact label="Schedule" value={cadence} />
       <Fact
@@ -234,17 +228,6 @@ function Fact({ label, value }: { label: string; value: string }) {
       <dd className="truncate">{value}</dd>
     </div>
   );
-}
-
-// visibility renders the script's scope in the reader's terms rather than the
-// store's: "personal" means its owner, and a persona-scoped script names the
-// personas it serves.
-function visibility(contract: ScriptContract): string {
-  if (contract.scope === "global") return "everyone";
-  if (contract.scope === "persona") {
-    return (contract.personas ?? []).join(", ") || "no persona";
-  }
-  return contract.owner_email || "its owner";
 }
 
 // ParameterTable is the contract a run binds against: the live record's

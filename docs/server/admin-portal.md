@@ -410,10 +410,13 @@ than gating anything. See
 
 ![Admin Scripts](../images/screenshots/light/admin-admin-scripts-light.webp#only-light)![Admin Scripts](../images/screenshots/dark/admin-admin-scripts-dark.webp#only-dark)
 
-**All scripts** lists every script with who owns it, who can see it, and what
-it is executing: **Runs vN** for a script in service, or its lifecycle state
-(disabled, deprecated, superseded) when nothing will execute it. Opening a row
-opens the script.
+**All scripts** lists every script with who owns it and what it is executing:
+**Runs vN** for a script in service, or its lifecycle state (disabled,
+deprecated, superseded) when nothing will execute it. A script is one person's,
+so its owner is who sees it, runs it, and under whose authority a scheduled run
+executes; a script showing **nobody** as its owner was authored by a principal
+carrying no address and is visible only to administrators. Opening a row opens
+the script.
 
 ### One script
 
@@ -423,7 +426,20 @@ The script page an administrator opens is the page its owner opens.
 
 Everything an owner does is here for every script — run it now, edit the
 source, validate and dry-run the edit, set or pause the cadence, read the
-version history and the run history. The version history shows each version's
+version history and the run history — plus the one thing only an administrator
+does: **Owner**, which moves the script to another person.
+
+![Transferring a script](../images/screenshots/light/admin-admin-script-owner-light.webp#only-light)![Transferring a script](../images/screenshots/dark/admin-admin-script-owner-dark.webp#only-dark)
+
+A transfer hands over everything at once, since ownership is the whole of what a
+script is: what its owner sees, edits, runs, and schedules. It is recorded as a
+new version authored by the administrator making it, and from then on a run
+presents THAT administrator's roles — which is how a script comes to run with an
+administrator's reach, and the reason to move one to an administrator in the
+first place. The move is refused when the receiving owner already keeps a script
+of the same name, and it is recorded in the audit log as a `script_transfer_owner`
+event naming both ends of the move. It is also how an ownerless script gets an
+owner. The version history shows each version's
 author and the roles they held, which are the roles a run of that version
 presents. A version's detail states whether its exact source has been dry-run,
 by whom, and how it ended — the account is matched by the source itself, so it

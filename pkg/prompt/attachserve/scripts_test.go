@@ -58,12 +58,12 @@ func (f *fakeContracts) Contract(_ context.Context, id string) (*script.Contract
 	return f.byID[id], nil
 }
 
-// globalContract is a visible, runnable script: active, enabled, latest saved
+// ownedContract is Jane's runnable script: active, enabled, latest saved
 // version 3, with no run refusal.
-func globalContract() *script.Contract {
+func ownedContract() *script.Contract {
 	return &script.Contract{
 		ID: scriptID, Name: "daily-sales", DisplayName: "Daily Sales",
-		Description: "Yesterday's sales by region", Scope: script.ScopeGlobal,
+		Description: "Yesterday's sales by region", OwnerEmail: "jane@example.com",
 		Status: script.StatusActive, Enabled: true,
 		Params:  []script.Param{{Name: "report_date", Required: true}},
 		Version: 3,
@@ -92,16 +92,16 @@ func TestNewScriptsRequiresBothHalves(t *testing.T) {
 // lets every serving site skip a nil check.
 func TestResolveNilResolverIsEmpty(t *testing.T) {
 	var r *ScriptResolver
-	assert.Nil(t, r.Resolve(context.Background(), "p1", "", nil))
+	assert.Nil(t, r.Resolve(context.Background(), "p1", ""))
 }
 
 // TestResolveDeliversTheContract proves a visible reference resolves to the
 // contract the serve payload renders.
 func TestResolveDeliversTheContract(t *testing.T) {
 	r, _ := resolverWith(t, []prompt.ScriptAttachment{{PromptID: "p1", ScriptRef: scriptRef}},
-		map[string]*script.Contract{scriptID: globalContract()})
+		map[string]*script.Contract{scriptID: ownedContract()})
 
-	got := r.Resolve(context.Background(), "p1", "jane@example.com", nil)
+	got := r.Resolve(context.Background(), "p1", "jane@example.com")
 
 	require.Len(t, got, 1)
 	assert.Equal(t, AvailableEmbedded, got[0].Availability)
@@ -110,16 +110,13 @@ func TestResolveDeliversTheContract(t *testing.T) {
 }
 
 // TestResolveWithholdsAScriptTheCallerCannotSee proves a reference is not a
-// side channel: a caller outside the script's scope learns only that something
+// side channel: a caller who does not own the script learns only that something
 // is referenced and out of reach, never its name or parameters.
 func TestResolveWithholdsAScriptTheCallerCannotSee(t *testing.T) {
-	c := globalContract()
-	c.Scope = script.ScopePersonal
-	c.OwnerEmail = "jane@example.com"
 	r, _ := resolverWith(t, []prompt.ScriptAttachment{{PromptID: "p1", ScriptRef: scriptRef}},
-		map[string]*script.Contract{scriptID: c})
+		map[string]*script.Contract{scriptID: ownedContract()})
 
-	got := r.Resolve(context.Background(), "p1", "bob@example.com", nil)
+	got := r.Resolve(context.Background(), "p1", "bob@example.com")
 
 	require.Len(t, got, 1)
 	assert.Equal(t, UnavailableForbidden, got[0].Availability)
@@ -139,7 +136,7 @@ func TestResolveReportsTheThreeFailures(t *testing.T) {
 		{PromptID: "p1", ScriptRef: "garbage"},
 	}, map[string]*script.Contract{})
 
-	got := r.Resolve(context.Background(), "p1", "jane@example.com", nil)
+	got := r.Resolve(context.Background(), "p1", "jane@example.com")
 	require.Len(t, got, 2)
 	assert.Equal(t, UnavailableMissing, got[0].Availability, "a deleted script")
 	assert.Equal(t, UnavailableMissing, got[1].Availability, "an unparseable stored reference")
@@ -148,7 +145,7 @@ func TestResolveReportsTheThreeFailures(t *testing.T) {
 		"p1": {{PromptID: "p1", ScriptRef: scriptRef}},
 	}}
 	broken := NewScripts(ScriptDeps{Attachments: store, Scripts: &fakeContracts{err: errors.New("down")}})
-	got = broken.Resolve(context.Background(), "p1", "jane@example.com", nil)
+	got = broken.Resolve(context.Background(), "p1", "jane@example.com")
 	require.Len(t, got, 1)
 	assert.Equal(t, UnavailableUnreadable, got[0].Availability,
 		"a read failure must not be reported as a deleted script")
@@ -161,14 +158,14 @@ func TestResolveSurvivesALinkStoreOutage(t *testing.T) {
 	store := &fakeScriptLinks{listErr: errors.New("down")}
 	r := NewScripts(ScriptDeps{Attachments: store, Scripts: &fakeContracts{}})
 
-	assert.Nil(t, r.Resolve(context.Background(), "p1", "jane@example.com", nil))
+	assert.Nil(t, r.Resolve(context.Background(), "p1", "jane@example.com"))
 }
 
 // TestScriptContentFramesTheAutomations proves the served text tells the agent
 // what to do with a referenced script — run it rather than re-derive its output
 // — and carries the contract plus the reference that dereferences it.
 func TestScriptContentFramesTheAutomations(t *testing.T) {
-	items := []ResolvedScript{{Reference: scriptRef, Availability: AvailableEmbedded, Contract: globalContract()}}
+	items := []ResolvedScript{{Reference: scriptRef, Availability: AvailableEmbedded, Contract: ownedContract()}}
 
 	content := ScriptContent(items)
 
@@ -187,7 +184,7 @@ func TestScriptContentFramesTheAutomations(t *testing.T) {
 // so, counting by reason without naming the material.
 func TestScriptContentNotesWhatWasNotDelivered(t *testing.T) {
 	content := ScriptContent([]ResolvedScript{
-		{Reference: scriptRef, Availability: AvailableEmbedded, Contract: globalContract()},
+		{Reference: scriptRef, Availability: AvailableEmbedded, Contract: ownedContract()},
 		{Reference: "mcp:script:a", Availability: UnavailableForbidden},
 		{Reference: "mcp:script:b", Availability: UnavailableMissing},
 		{Reference: "mcp:script:c", Availability: UnavailableUnreadable},
@@ -218,7 +215,7 @@ func TestScriptContentWithNothingDeliverable(t *testing.T) {
 // agent state exactly which automations it received.
 func TestScriptSummaryCarriesTheContract(t *testing.T) {
 	summary := ScriptSummary([]ResolvedScript{
-		{Reference: scriptRef, Availability: AvailableEmbedded, Contract: globalContract()},
+		{Reference: scriptRef, Availability: AvailableEmbedded, Contract: ownedContract()},
 	})
 
 	require.Len(t, summary, 1)
@@ -256,48 +253,13 @@ func TestScriptIDFromRefRejectsOtherEntities(t *testing.T) {
 	assert.Contains(t, err.Error(), "not a managed script")
 }
 
-// TestScopeOfScriptTranslatesTheVocabulary proves a script's scope reaches the
-// shared rule in the rule's own words, with the whole persona set as the
-// audience and the owner as the user-scope id.
-func TestScopeOfScriptTranslatesTheVocabulary(t *testing.T) {
-	persona := &script.Contract{ID: "s1", Name: "n", Scope: script.ScopePersona, Personas: []string{"analyst", "engineer"}}
-	got := scopeOfScript(persona)
-	assert.Equal(t, prompt.AttachKindScript, got.Kind)
-	assert.Equal(t, "persona", got.Scope)
-	assert.Equal(t, []string{"analyst", "engineer"}, got.ScopeIDs)
+// TestAttachStoresTheCanonicalReference proves the caller may reference the
+// script they own, whatever the prompt's audience, and that what lands in the
+// row is the canonical reference rather than the bare id a tool hands out.
+func TestAttachStoresTheCanonicalReference(t *testing.T) {
+	r, store := resolverWith(t, nil, map[string]*script.Contract{scriptID: ownedContract()})
 
-	personal := &script.Contract{ID: "s2", Name: "n", Scope: script.ScopePersonal, OwnerEmail: "jane@example.com"}
-	got = scopeOfScript(personal)
-	assert.Equal(t, userScopeWord, got.Scope, "a personal script is a user-scoped attachment")
-	assert.Equal(t, []string{"jane@example.com"}, got.ScopeIDs)
-
-	global := scopeOfScript(&script.Contract{ID: "s3", Name: "n", Scope: script.ScopeGlobal})
-	assert.Equal(t, script.ScopeGlobal, global.Scope)
-	assert.Empty(t, global.ScopeIDs, "a global script names no audience because it reaches everyone")
-}
-
-// TestScriptScopeWordsMatchRule pins the translated vocabulary to the rule's
-// own, which pkg/prompt keeps unexported: a personal script must land on the
-// user branch, not fall through to "unknown scope".
-func TestScriptScopeWordsMatchRule(t *testing.T) {
-	personal := scopeOfScript(&script.Contract{
-		ID: "s", Name: "n", Scope: script.ScopePersonal,
-		OwnerEmail: "jane@example.com",
-	})
-
-	// The user branch admits only a personal prompt; an unknown scope would be
-	// refused everywhere, so this distinguishes translation from fall-through.
-	require.NoError(t, prompt.CheckAttachScope(prompt.ScopePersonal, nil, personal))
-	require.Error(t, prompt.CheckAttachScope(prompt.ScopeGlobal, nil, personal))
-}
-
-// TestAttachAppliesTheAudienceRule proves a reference is admitted only when the
-// script is at least as visible as the prompt carrying it, and that the stored
-// value is the canonical reference.
-func TestAttachAppliesTheAudienceRule(t *testing.T) {
-	r, store := resolverWith(t, nil, map[string]*script.Contract{scriptID: globalContract()})
-
-	err := r.Attach(context.Background(), ScriptAttachRequest{
+	note, err := r.Attach(context.Background(), ScriptAttachRequest{
 		Prompt:      &prompt.Prompt{ID: "p1", Name: "sop", Scope: prompt.ScopeGlobal},
 		Ref:         scriptID,
 		CallerEmail: "jane@example.com",
@@ -307,46 +269,53 @@ func TestAttachAppliesTheAudienceRule(t *testing.T) {
 	require.Len(t, store.attached, 1)
 	assert.Equal(t, scriptRef, store.attached[0].ScriptRef, "the reference is stored, never a bare id")
 	assert.Equal(t, "jane@example.com", store.attached[0].AttachedBy)
+	assert.Contains(t, note, "jane@example.com",
+		"a shared prompt tells its author who the reference resolves for")
 }
 
-// TestAttachRefusesANarrowerScript proves the failure this rule exists to
-// prevent: a shared prompt whose automation most of its readers cannot see.
-func TestAttachRefusesANarrowerScript(t *testing.T) {
-	c := globalContract()
-	c.Scope = script.ScopePersona
-	c.Personas = []string{"analyst"}
-	r, store := resolverWith(t, nil, map[string]*script.Contract{scriptID: c})
+// TestAttachRefusesSomebodyElsesScript proves a reference is not a way to read
+// a script the caller cannot see, and that an administrator is not held to it.
+func TestAttachRefusesSomebodyElsesScript(t *testing.T) {
+	r, store := resolverWith(t, nil, map[string]*script.Contract{scriptID: ownedContract()})
+	p := &prompt.Prompt{ID: "p1", Name: "sop", Scope: prompt.ScopeGlobal}
 
-	err := r.Attach(context.Background(), ScriptAttachRequest{
-		Prompt: &prompt.Prompt{ID: "p1", Name: "sop", Scope: prompt.ScopeGlobal},
-		Ref:    scriptRef,
+	_, err := r.Attach(context.Background(), ScriptAttachRequest{
+		Prompt: p, Ref: scriptRef, CallerEmail: "bob@example.com",
 	})
 
 	require.ErrorIs(t, err, prompt.ErrAttachmentScope)
+	assert.Contains(t, err.Error(), "belongs to somebody else")
 	assert.Empty(t, store.attached)
+
+	_, err = r.Attach(context.Background(), ScriptAttachRequest{
+		Prompt: p, Ref: scriptRef, CallerEmail: "bob@example.com", CallerIsAdmin: true,
+	})
+	require.NoError(t, err)
+	assert.Len(t, store.attached, 1)
 }
 
-// TestAttachRefusesAgainstAPendingPromotion proves the author is told at
-// request time. The author is the only person who can re-scope the script or
-// drop the reference, so a conflict discovered at approval would land in front
-// of a reviewer who cannot fix it.
-func TestAttachRefusesAgainstAPendingPromotion(t *testing.T) {
-	c := globalContract()
-	c.Scope = script.ScopePersonal
-	c.OwnerEmail = "jane@example.com"
-	r, store := resolverWith(t, nil, map[string]*script.Contract{scriptID: c})
+// TestAudienceNoteSaysWhoAReferenceResolvesFor proves the author is told what
+// their prompt's readers will actually receive: nothing where the prompt serves
+// somebody other than the script's owner, and no note at all where it does not.
+func TestAudienceNoteSaysWhoAReferenceResolvesFor(t *testing.T) {
+	c := ownedContract()
 
-	err := r.Attach(context.Background(), ScriptAttachRequest{
-		Prompt: &prompt.Prompt{
-			ID: "p1", Name: "sop", Scope: prompt.ScopePersonal, OwnerEmail: "jane@example.com",
-			ReviewRequested: true, RequestedScope: prompt.ScopeGlobal,
-		},
-		Ref:         scriptRef,
-		CallerEmail: "jane@example.com",
-	})
+	own := &prompt.Prompt{Scope: prompt.ScopePersonal, OwnerEmail: "jane@example.com"}
+	assert.Empty(t, AudienceNote(own, c), "the author is the only reader, so there is nothing to warn about")
 
-	require.ErrorIs(t, err, prompt.ErrAttachmentScope)
-	assert.Empty(t, store.attached)
+	shared := &prompt.Prompt{Scope: prompt.ScopeGlobal, OwnerEmail: "jane@example.com"}
+	assert.Contains(t, AudienceNote(shared, c), "jane@example.com")
+
+	someoneElses := &prompt.Prompt{Scope: prompt.ScopePersonal, OwnerEmail: "bob@example.com"}
+	assert.Contains(t, AudienceNote(someoneElses, c), "jane@example.com",
+		"a personal prompt somebody else owns is still a reader the script does not reach")
+
+	orphan := ownedContract()
+	orphan.OwnerEmail = ""
+	assert.Contains(t, AudienceNote(shared, orphan), "nobody")
+
+	assert.Empty(t, AudienceNote(nil, c))
+	assert.Empty(t, AudienceNote(shared, nil))
 }
 
 // TestAttachRefusesAMissingScript proves a reference to nothing is refused at
@@ -354,7 +323,7 @@ func TestAttachRefusesAgainstAPendingPromotion(t *testing.T) {
 func TestAttachRefusesAMissingScript(t *testing.T) {
 	r, store := resolverWith(t, nil, map[string]*script.Contract{})
 
-	err := r.Attach(context.Background(), ScriptAttachRequest{
+	_, err := r.Attach(context.Background(), ScriptAttachRequest{
 		Prompt: &prompt.Prompt{ID: "p1", Name: "sop", Scope: prompt.ScopeGlobal},
 		Ref:    scriptRef,
 	})
@@ -367,9 +336,9 @@ func TestAttachRefusesAMissingScript(t *testing.T) {
 // TestAttachRequiresAStoredPrompt proves a static or file prompt cannot carry a
 // reference: there is no row to hang it on.
 func TestAttachRequiresAStoredPrompt(t *testing.T) {
-	r, _ := resolverWith(t, nil, map[string]*script.Contract{scriptID: globalContract()})
+	r, _ := resolverWith(t, nil, map[string]*script.Contract{scriptID: ownedContract()})
 
-	err := r.Attach(context.Background(), ScriptAttachRequest{Prompt: &prompt.Prompt{Name: "sop"}, Ref: scriptRef})
+	_, err := r.Attach(context.Background(), ScriptAttachRequest{Prompt: &prompt.Prompt{Name: "sop"}, Ref: scriptRef})
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "stored prompt")
@@ -379,7 +348,8 @@ func TestAttachRequiresAStoredPrompt(t *testing.T) {
 // answers rather than panicking.
 func TestAttachAndDetachOnANilResolver(t *testing.T) {
 	var r *ScriptResolver
-	require.Error(t, r.Attach(context.Background(), ScriptAttachRequest{}))
+	_, attachErr := r.Attach(context.Background(), ScriptAttachRequest{})
+	require.Error(t, attachErr)
 	require.Error(t, r.Detach(context.Background(), "p1", scriptRef))
 }
 
@@ -387,7 +357,7 @@ func TestAttachAndDetachOnANilResolver(t *testing.T) {
 // stored under the canonical reference, so an agent holding either form can
 // repair a prompt.
 func TestDetachNormalizesTheReference(t *testing.T) {
-	r, store := resolverWith(t, nil, map[string]*script.Contract{scriptID: globalContract()})
+	r, store := resolverWith(t, nil, map[string]*script.Contract{scriptID: ownedContract()})
 
 	require.NoError(t, r.Detach(context.Background(), "p1", scriptID))
 
@@ -396,58 +366,4 @@ func TestDetachNormalizesTheReference(t *testing.T) {
 
 	require.Error(t, r.Detach(context.Background(), "p1", "mcp:asset:a1"),
 		"another entity's reference names no script to detach")
-}
-
-// TestScopesSkipsBrokenReferences proves a deleted script cannot freeze a
-// prompt against every edit: a broken reference violates no scope rule, while
-// an unknown scope (a read failure) still blocks.
-func TestScopesSkipsBrokenReferences(t *testing.T) {
-	r, _ := resolverWith(t, []prompt.ScriptAttachment{
-		{PromptID: "p1", ScriptRef: scriptRef},
-		{PromptID: "p1", ScriptRef: "mcp:script:gone"},
-		{PromptID: "p1", ScriptRef: "garbage"},
-	}, map[string]*script.Contract{scriptID: globalContract()})
-
-	got, err := r.Scopes(context.Background(), "p1")
-
-	require.NoError(t, err)
-	require.Len(t, got, 1)
-	assert.Equal(t, scriptID, got[0].ID)
-}
-
-// TestScopesFailsClosedOnAReadError proves an unknown scope blocks a promotion
-// rather than letting it through unchecked.
-func TestScopesFailsClosedOnAReadError(t *testing.T) {
-	store := &fakeScriptLinks{byPrompt: map[string][]prompt.ScriptAttachment{
-		"p1": {{PromptID: "p1", ScriptRef: scriptRef}},
-	}}
-	r := NewScripts(ScriptDeps{Attachments: store, Scripts: &fakeContracts{err: errors.New("down")}})
-
-	_, err := r.Scopes(context.Background(), "p1")
-	require.Error(t, err)
-
-	require.Error(t, r.CheckPromotion(context.Background(), "p1", prompt.ScopeGlobal, nil))
-
-	linkErr := NewScripts(ScriptDeps{
-		Attachments: &fakeScriptLinks{listErr: errors.New("down")},
-		Scripts:     &fakeContracts{},
-	})
-	_, err = linkErr.Scopes(context.Background(), "p1")
-	require.Error(t, err)
-}
-
-// TestCheckPromotionUsesTheSharedRule proves promoting a prompt to an audience
-// wider than its referenced script is refused, and that a compatible promotion
-// passes.
-func TestCheckPromotionUsesTheSharedRule(t *testing.T) {
-	c := globalContract()
-	c.Scope = script.ScopePersona
-	c.Personas = []string{"analyst"}
-	r, _ := resolverWith(t, []prompt.ScriptAttachment{{PromptID: "p1", ScriptRef: scriptRef}},
-		map[string]*script.Contract{scriptID: c})
-
-	require.NoError(t, r.CheckPromotion(context.Background(), "p1", prompt.ScopePersona, []string{"analyst"}))
-
-	err := r.CheckPromotion(context.Background(), "p1", prompt.ScopeGlobal, nil)
-	require.ErrorIs(t, err, prompt.ErrAttachmentScope)
 }

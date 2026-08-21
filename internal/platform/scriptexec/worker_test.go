@@ -234,7 +234,7 @@ func executableState() (*script.Script, *script.Version, *script.Run) {
 		Author: "jane@example.com", AuthorRoles: []string{"analyst"},
 	}
 	sc := &script.Script{
-		ID: "script_1", Name: "daily", Scope: script.ScopePersonal, OwnerEmail: "jane@example.com",
+		ID: "script_1", Name: "daily", OwnerEmail: "jane@example.com",
 		Enabled: true, Status: script.StatusActive, Version: v.Version,
 	}
 	run := &script.Run{

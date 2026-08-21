@@ -8,22 +8,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// scriptScope is a persona-scoped script's projection onto the shared rule,
-// serving two personas — the shape a resource can never have and the reason the
-// rule tests a SET rather than one id.
-func scriptScope(personas ...string) AttachmentScope {
+// personaMaterial is a persona-scoped attachment's projection onto the shared
+// rule. It carries a SET of personas because the rule tests a set: material
+// serving two personas satisfies a prompt serving either or both.
+func personaMaterial(personas ...string) AttachmentScope {
 	return AttachmentScope{
-		Kind: AttachKindScript, ID: "script_1", DisplayName: "Daily Sales",
+		Kind: AttachKindResource, ID: "resource_1", DisplayName: "Daily Sales Rubric",
 		Scope: "persona", ScopeIDs: personas,
 	}
 }
 
 // TestCheckAttachScope_PersonaSetContainsThePromptAudience proves the
 // generalized rule: every persona the prompt serves must be one the material
-// reaches. A script serving analysts and engineers may go on a prompt serving
+// reaches. Material serving analysts and engineers may go on a prompt serving
 // either or both, and must be refused on a prompt that also serves a third.
 func TestCheckAttachScope_PersonaSetContainsThePromptAudience(t *testing.T) {
-	material := scriptScope("analyst", "engineer")
+	material := personaMaterial("analyst", "engineer")
 
 	require.NoError(t, CheckAttachScope(ScopePersona, []string{"analyst"}, material))
 	require.NoError(t, CheckAttachScope(ScopePersona, []string{"analyst", "engineer"}, material))
@@ -40,21 +40,13 @@ func TestCheckAttachScope_PersonaSetContainsThePromptAudience(t *testing.T) {
 	assert.Contains(t, err.Error(), "the prompt is global")
 }
 
-// TestCheckAttachScope_NamesTheKind proves a refusal says what sort of material
-// is at fault. An author reading "script ... cannot be attached" knows which
-// surface to go fix; "resource" would send them to the wrong one.
+// TestCheckAttachScope_NamesTheKind proves a refusal names the material at
+// fault, so an author knows which surface to go fix, and that material carrying
+// no kind at all still reads as something rather than as a blank.
 func TestCheckAttachScope_NamesTheKind(t *testing.T) {
-	err := CheckAttachScope(ScopeGlobal, nil, scriptScope("analyst"))
+	err := CheckAttachScope(ScopeGlobal, nil, personaMaterial("analyst"))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), `script "Daily Sales" cannot be attached`)
-
-	res := AttachmentScope{
-		Kind: AttachKindResource, ID: "r1", DisplayName: "Rubric",
-		Scope: "persona", ScopeIDs: []string{"analyst"},
-	}
-	err = CheckAttachScope(ScopeGlobal, nil, res)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), `resource "Rubric" cannot be attached`)
+	assert.Contains(t, err.Error(), `resource "Daily Sales Rubric" cannot be attached`)
 
 	unkinded := AttachmentScope{ID: "x", Scope: "team"}
 	err = CheckAttachScope(ScopePersonal, nil, unkinded)
@@ -67,21 +59,21 @@ func TestCheckAttachScope_NamesTheKind(t *testing.T) {
 // material naming no persona is refused rather than quietly admitted: it
 // reaches nobody, so it can satisfy no prompt's audience.
 func TestCheckAttachScope_PersonaMaterialWithNoAudience(t *testing.T) {
-	err := CheckAttachScope(ScopePersona, []string{"analyst"}, scriptScope())
+	err := CheckAttachScope(ScopePersona, []string{"analyst"}, personaMaterial())
 	require.ErrorIs(t, err, ErrAttachmentScope)
 	assert.Contains(t, err.Error(), "no persona")
 
-	err = CheckAttachScope(ScopePersona, nil, scriptScope("analyst"))
+	err = CheckAttachScope(ScopePersona, nil, personaMaterial("analyst"))
 	require.ErrorIs(t, err, ErrAttachmentScope)
 	assert.Contains(t, err.Error(), "the prompt names no persona")
 }
 
-// TestCheckAttachOwnership_PersonalScript proves a personal script may only be
-// referenced by its owner, from their own prompt — the script counterpart of the
-// private-resource rule, answered by the same function.
-func TestCheckAttachOwnership_PersonalScript(t *testing.T) {
+// TestCheckAttachOwnership_PrivateMaterial proves private material may only be
+// attached by its owner, to their own prompt: a shared prompt carrying it would
+// serve readers who receive nothing.
+func TestCheckAttachOwnership_PrivateMaterial(t *testing.T) {
 	mine := AttachmentScope{
-		Kind: AttachKindScript, ID: "script_1", DisplayName: "My Draft",
+		Kind: AttachKindResource, ID: "resource_1", DisplayName: "My Draft",
 		Scope: "user", ScopeIDs: []string{"jane@example.com"},
 	}
 
@@ -89,7 +81,7 @@ func TestCheckAttachOwnership_PersonalScript(t *testing.T) {
 
 	err := CheckAttachOwnership("sub-2", "bob@example.com", "bob@example.com", mine)
 	require.ErrorIs(t, err, ErrAttachmentScope)
-	assert.Contains(t, err.Error(), "another user's private script")
+	assert.Contains(t, err.Error(), "another user's private resource")
 
 	err = CheckAttachOwnership("sub-1", "jane@example.com", "bob@example.com", mine)
 	require.ErrorIs(t, err, ErrAttachmentScope)

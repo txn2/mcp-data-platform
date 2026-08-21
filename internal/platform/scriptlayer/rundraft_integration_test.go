@@ -410,7 +410,7 @@ func TestIntegration_RunDraftNeedsAnAuthenticatedCaller(t *testing.T) {
 	server := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "v0"}, nil)
 	h.RegisterTool(server)
 	require.NoError(t, store.Create(context.Background(), &script.Script{
-		Name: "x", Scope: script.ScopePersonal, OwnerEmail: "jane@example.com",
+		Name: "x", OwnerEmail: "jane@example.com",
 		Source: "print(1)", Enabled: true,
 	}, script.Author{Email: "jane@example.com", Roles: []string{"analyst"}}))
 
@@ -432,7 +432,7 @@ func authorCtxWithoutUserID() context.Context {
 func TestIntegration_RunDraftWithoutAServerIsRefused(t *testing.T) {
 	h, store := newHandle()
 	require.NoError(t, store.Create(context.Background(), &script.Script{
-		Name: "x", Scope: script.ScopePersonal, OwnerEmail: "jane@example.com",
+		Name: "x", OwnerEmail: "jane@example.com",
 		Source: "print(1)", Enabled: true,
 	}, script.Author{Email: "jane@example.com", Roles: []string{"analyst"}}))
 

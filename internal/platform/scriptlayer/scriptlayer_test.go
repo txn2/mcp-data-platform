@@ -69,19 +69,12 @@ func (m *memStore) snapshot(sc *script.Script, author script.Author, status stri
 	})
 }
 
-func (m *memStore) Get(_ context.Context, name string) (*script.Script, error) {
-	for _, sc := range m.scripts {
-		if sc.Name == name && sc.Scope != script.ScopePersonal {
-			out := *sc
-			return &out, nil
-		}
+func (m *memStore) GetByName(_ context.Context, owner, name string) (*script.Script, error) {
+	if owner == "" {
+		return nil, nil //nolint:nilnil // Store contract: nil, nil means not found
 	}
-	return nil, nil //nolint:nilnil // Store contract: nil, nil means not found
-}
-
-func (m *memStore) GetPersonal(_ context.Context, owner, name string) (*script.Script, error) {
 	for _, sc := range m.scripts {
-		if sc.Name == name && sc.Scope == script.ScopePersonal && sc.OwnerEmail == owner {
+		if sc.Name == name && sc.OwnerEmail == owner {
 			out := *sc
 			return &out, nil
 		}
@@ -123,15 +116,6 @@ func (m *memStore) List(_ context.Context, filter script.ListFilter) ([]script.S
 		if filter.OwnerEmail != "" && sc.OwnerEmail != filter.OwnerEmail {
 			continue
 		}
-		if filter.Scope != "" && sc.Scope != filter.Scope {
-			continue
-		}
-		// The fake models the real predicate, not a convenient subset: a store
-		// that ignored VisibleTo would let a listing test pass while the
-		// PostgreSQL store returned a different set.
-		if filter.VisibleTo != "" && !sc.VisibleTo(filter.VisibleTo, filter.VisiblePersona) {
-			continue
-		}
 		// The facet axes model the real store's operators: the category is an
 		// equality and the tags are an OVERLAP, so naming two tags asks for the
 		// scripts carrying either (#1369).
@@ -146,6 +130,30 @@ func (m *memStore) List(_ context.Context, filter script.ListFilter) ([]script.S
 		out = append(out, *sc)
 	}
 	return out, nil
+}
+
+// Transfer models the real store: the owner moves and the move is snapshotted
+// unconditionally, because the roles captured on that version are what the
+// script now runs with.
+func (m *memStore) Transfer(_ context.Context, id, newOwner string, author script.Author) error {
+	stored, ok := m.scripts[id]
+	if !ok {
+		return fmt.Errorf("script %s not found", id)
+	}
+	moved := *stored
+	if err := moved.Transfer(newOwner); err != nil {
+		return err //nolint:wrapcheck // the fake mirrors the store: the domain refusal is the caller's message
+	}
+	for _, other := range m.scripts {
+		if other.ID != id && other.Name == moved.Name && other.OwnerEmail == moved.OwnerEmail {
+			return fmt.Errorf("a script named %q already belongs to %s: %w",
+				moved.Name, moved.OwnerEmail, script.ErrNameTaken)
+		}
+	}
+	moved.Version++
+	m.scripts[id] = &moved
+	m.snapshot(&moved, author, script.VersionStatusApplied)
+	return nil
 }
 
 func (m *memStore) UpdateWithVersion(ctx context.Context, sc *script.Script, author script.Author) error {
@@ -244,12 +252,12 @@ func createDaily(t *testing.T, h *Handle) *mcp.CallToolResult {
 	})
 }
 
-// createShared creates a global script an administrator wrote.
-func createShared(t *testing.T, h *Handle) *mcp.CallToolResult {
+// createAdmins creates a script an administrator wrote and owns.
+func createAdmins(t *testing.T, h *Handle) *mcp.CallToolResult {
 	t.Helper()
 	return call(t, h, adminCtx(), manageScriptInput{
 		Command: cmdCreate, Name: "shared", DisplayName: "Shared",
-		Source: "print(\"hello\")\n", Scope: script.ScopeGlobal,
+		Source: "print(\"hello\")\n",
 	})
 }
 
@@ -269,7 +277,6 @@ func TestCreate_StartsActiveAndRuns(t *testing.T) {
 	for _, sc := range store.scripts {
 		assert.Equal(t, script.StatusActive, sc.Status)
 		assert.Equal(t, "jane@example.com", sc.OwnerEmail)
-		assert.Equal(t, script.ScopePersonal, sc.Scope)
 
 		v, err := store.GetVersion(context.Background(), sc.ID, sc.Version)
 		require.NoError(t, err)
@@ -284,7 +291,7 @@ func TestCreate_StartsActiveAndRuns(t *testing.T) {
 // lifecycle: a global script an administrator saves is in service on save.
 func TestCreate_SharedScriptStartsActiveToo(t *testing.T) {
 	h, store := newHandle()
-	res := createShared(t, h)
+	res := createAdmins(t, h)
 	require.False(t, res.IsError, resultText(res))
 
 	require.Len(t, store.scripts, 1)
@@ -318,7 +325,6 @@ func TestCreate_Refusals(t *testing.T) {
 		{"no name", authorCtx(), manageScriptInput{Command: cmdCreate, Source: "x = 1"}, "name is required"},
 		{"no source", authorCtx(), manageScriptInput{Command: cmdCreate, Name: "a"}, "source is required"},
 		{"bad params", authorCtx(), manageScriptInput{Command: cmdCreate, Name: "a", Source: "x = 1", Params: []script.Param{{Name: "A"}}}, "lowercase letter"},
-		{"shared scope needs admin", authorCtx(), manageScriptInput{Command: cmdCreate, Name: "a", Source: "x = 1", Scope: script.ScopeGlobal}, "only admins"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -330,13 +336,18 @@ func TestCreate_Refusals(t *testing.T) {
 	}
 }
 
-func TestCreate_AdminCanCreateShared(t *testing.T) {
-	h, _ := newHandle()
-	res := call(t, h, adminCtx(), manageScriptInput{
-		Command: cmdCreate, Name: "shared", Source: "x = 1",
-		Scope: script.ScopePersona, Personas: []string{"analyst"},
+// TestCreate_NamesAreUniquePerOwner proves two people may each keep a script
+// under the same name, which is what makes a name their own to choose.
+func TestCreate_NamesAreUniquePerOwner(t *testing.T) {
+	h, store := newHandle()
+	createDaily(t, h)
+
+	res := call(t, h, callerCtx("bob@example.com", "analyst"), manageScriptInput{
+		Command: cmdCreate, Name: "daily", Source: "x = 1",
 	})
+
 	require.False(t, res.IsError, resultText(res))
+	assert.Len(t, store.scripts, 2)
 }
 
 // TestUpdate_AppliesToTheLiveRowAndAdvancesTheVersion pins the one-edit-path
@@ -371,7 +382,7 @@ func TestUpdate_AppliesToTheLiveRowAndAdvancesTheVersion(t *testing.T) {
 // state between a save and the version that runs.
 func TestUpdate_AppliesDirectlyToASharedScript(t *testing.T) {
 	h, store := newHandle()
-	createShared(t, h)
+	createAdmins(t, h)
 
 	res := call(t, h, adminCtx(), manageScriptInput{
 		Command: cmdUpdate, Name: "shared", Source: "print(\"changed\")\n",
@@ -437,11 +448,7 @@ func TestUpdate_Authorization(t *testing.T) {
 	assert.True(t, res.IsError)
 	assert.Contains(t, resultText(res), "only address your own")
 
-	// Scope and status are admin-only even for the owner.
-	res = call(t, h, authorCtx(), manageScriptInput{Command: cmdUpdate, Name: "daily", Scope: script.ScopeGlobal})
-	assert.True(t, res.IsError)
-	assert.Contains(t, resultText(res), "only admins can change a script's scope")
-
+	// The lifecycle status is admin-only even for the owner.
 	res = call(t, h, authorCtx(), manageScriptInput{Command: cmdUpdate, Name: "daily", Status: script.StatusDeprecated})
 	assert.True(t, res.IsError)
 	assert.Contains(t, resultText(res), "only admins can change a script's lifecycle status")
@@ -478,7 +485,7 @@ func TestUpdate_FieldsAndFlags(t *testing.T) {
 
 func TestUpdate_AdminStatusTransition(t *testing.T) {
 	h, store := newHandle()
-	createShared(t, h)
+	createAdmins(t, h)
 
 	res := call(t, h, adminCtx(), manageScriptInput{
 		Command: cmdUpdate, Name: "shared", Status: script.StatusDeprecated,
@@ -509,32 +516,35 @@ func TestDelete_AnOwnerDeletesTheirOwnPersonalScript(t *testing.T) {
 	assert.Empty(t, store.scripts)
 }
 
-// TestDelete_RefusedForASharedScript keeps a script that may be executing on a
-// schedule for somebody else from vanishing out from under its runs: the
-// refusal points at deprecation instead.
-func TestDelete_RefusedForASharedScript(t *testing.T) {
+// TestDelete_TakesTheScriptAndItsHistory: a script is one person's, so its
+// owner deleting it costs nobody else a schedule or a history.
+func TestDelete_TakesTheScriptAndItsHistory(t *testing.T) {
 	h, store := newHandle()
-	createShared(t, h)
+	createDaily(t, h)
 
-	res := call(t, h, adminCtx(), manageScriptInput{Command: cmdDelete, Name: "shared"})
-	assert.True(t, res.IsError)
-	assert.Contains(t, resultText(res), "deprecate it")
-	assert.Len(t, store.scripts, 1)
+	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdDelete, Name: "daily"})
+
+	require.False(t, res.IsError, resultText(res))
+	assert.Empty(t, store.scripts)
 }
 
-// TestDelete_RefusedForAnotherPersonsScript: an administrator is not the
-// audience of somebody else's automation, so they deprecate it rather than
-// deleting it.
+// TestDelete_RefusedForAnotherPersonsScript: somebody who does not own a script
+// is not told it is there, while an administrator is unrestricted.
 func TestDelete_RefusedForAnotherPersonsScript(t *testing.T) {
 	h, store := newHandle()
 	createDaily(t, h)
 
-	res := call(t, h, adminCtx(), manageScriptInput{
+	res := call(t, h, callerCtx("bob@example.com", "analyst"),
+		manageScriptInput{Command: cmdDelete, Name: "daily"})
+	assert.True(t, res.IsError)
+	assert.Contains(t, resultText(res), "not found")
+	assert.Len(t, store.scripts, 1)
+
+	res = call(t, h, adminCtx(), manageScriptInput{
 		Command: cmdDelete, Name: "daily", OwnerEmail: "jane@example.com",
 	})
-	assert.True(t, res.IsError)
-	assert.Contains(t, resultText(res), "deprecate it")
-	assert.Len(t, store.scripts, 1)
+	require.False(t, res.IsError, resultText(res))
+	assert.Empty(t, store.scripts)
 }
 
 // TestGet_ReportsTheExecutionGate pins the executable_note: it answers with
@@ -542,7 +552,7 @@ func TestDelete_RefusedForAnotherPersonsScript(t *testing.T) {
 // execute the script and why not when it would refuse.
 func TestGet_ReportsTheExecutionGate(t *testing.T) {
 	h, store := newHandle()
-	createShared(t, h)
+	createAdmins(t, h)
 
 	fields := resultFields(t, call(t, h, adminCtx(), manageScriptInput{Command: cmdGet, Name: "shared"}))
 	assert.Contains(t, fields["executable_note"], "run_script",
@@ -578,33 +588,23 @@ func TestGet_NotFound(t *testing.T) {
 	assert.Contains(t, resultText(res), "name is required")
 }
 
-// TestList_AppliesTheSameScopeRuleAsTheReadPath: a listing filtered by owner
-// alone would hide the shared scripts a caller is entitled to see and could
-// run, and a listing filtered by nothing would leak the persona-scoped scripts
-// of personas they do not hold.
-func TestList_AppliesTheSameScopeRuleAsTheReadPath(t *testing.T) {
+// TestList_ShowsTheCallersOwnScripts proves the listing answers the same
+// question the read path answers: a caller lists what they own, and an
+// administrator lists every script on the platform.
+func TestList_ShowsTheCallersOwnScripts(t *testing.T) {
 	h, _ := newHandle()
-	createDaily(t, h) // personal, owned by jane
+	createDaily(t, h) // jane's
 	call(t, h, adminCtx(), manageScriptInput{Command: cmdCreate, Name: "admin-private", Source: "x = 1"})
-	call(t, h, adminCtx(), manageScriptInput{
-		Command: cmdCreate, Name: "shared-global", Source: "x = 1", Scope: script.ScopeGlobal,
-	})
-	call(t, h, adminCtx(), manageScriptInput{
-		Command: cmdCreate, Name: "for-analysts", Source: "x = 1",
-		Scope: script.ScopePersona, Personas: []string{"analyst"},
-	})
-	call(t, h, adminCtx(), manageScriptInput{
-		Command: cmdCreate, Name: "for-engineers", Source: "x = 1",
-		Scope: script.ScopePersona, Personas: []string{"data-engineer"},
+	call(t, h, callerCtx("bob@example.com", "analyst"), manageScriptInput{
+		Command: cmdCreate, Name: "bobs-report", Source: "x = 1",
 	})
 
 	fields := resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdList}))
-	names := listedNames(t, fields)
-	assert.ElementsMatch(t, []string{"daily", "shared-global", "for-analysts"}, names,
-		"the analyst sees their own, the global one, and the one scoped to their persona")
+	assert.Equal(t, []string{"daily"}, listedNames(t, fields),
+		"a caller lists their own scripts and nobody else's")
 
 	fields = resultFields(t, call(t, h, adminCtx(), manageScriptInput{Command: cmdList}))
-	assert.EqualValues(t, 5, fields["count"], "an admin sees every script")
+	assert.EqualValues(t, 3, fields["count"], "an admin sees every script")
 }
 
 // listedNames extracts the script names from a list response.
@@ -622,22 +622,22 @@ func listedNames(t *testing.T, fields map[string]any) []string {
 	return names
 }
 
-// TestRead_HidesAPersonaScopedScriptFromOtherPersonas keeps the read path and
-// the list path answering the same question, with a message that does not
-// confirm the script exists.
-func TestRead_HidesAPersonaScopedScriptFromOtherPersonas(t *testing.T) {
+// TestRead_HidesAnotherPersonsScript keeps the read path and the list path
+// answering the same question, with a message that does not confirm the script
+// exists, and proves an administrator is not held to it.
+func TestRead_HidesAnotherPersonsScript(t *testing.T) {
 	h, _ := newHandle()
-	call(t, h, adminCtx(), manageScriptInput{
-		Command: cmdCreate, Name: "for-engineers", Source: "x = 1",
-		Scope: script.ScopePersona, Personas: []string{"data-engineer"},
+	call(t, h, callerCtx("bob@example.com", "data-engineer"), manageScriptInput{
+		Command: cmdCreate, Name: "bobs-report", Source: "x = 1",
 	})
 
-	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdGet, Name: "for-engineers"})
+	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdGet, Name: "bobs-report"})
 	require.True(t, res.IsError)
 	assert.Contains(t, resultText(res), "not found")
 
-	engineer := callerCtx("bob@example.com", "data-engineer")
-	res = call(t, h, engineer, manageScriptInput{Command: cmdGet, Name: "for-engineers"})
+	res = call(t, h, adminCtx(), manageScriptInput{
+		Command: cmdGet, Name: "bobs-report", OwnerEmail: "bob@example.com",
+	})
 	assert.False(t, res.IsError, resultText(res))
 }
 
@@ -735,7 +735,7 @@ func TestCreate_RefusesACategoryThatIsNotASlug(t *testing.T) {
 // the tool: filing a script applies directly, as every edit does (#1369).
 func TestUpdate_CarriesTheCategory(t *testing.T) {
 	h, store := newHandle()
-	createShared(t, h)
+	createAdmins(t, h)
 
 	res := call(t, h, adminCtx(), manageScriptInput{
 		Command: cmdUpdate, Name: "shared", Category: new("reporting"),

@@ -91,22 +91,18 @@ func (b *Binder) ResolveResources(ctx context.Context, pr *prompt.Prompt, person
 // caller, on the same terms: nil without a resolver, without a stored prompt,
 // or when the prompt references none.
 //
-// Script visibility scopes on persona MEMBERSHIP. Where the full set is known
-// (the prompts/get path resolves it to decide visibility) it is used; otherwise
-// the single persona the request resolved to is the only membership evidence
-// this path has.
-func (b *Binder) ResolveScripts(ctx context.Context, pr *prompt.Prompt, personas []string) []attachserve.ResolvedScript {
+// A script is its owner's, so the only identity this needs is the caller's
+// address. A request carrying no PlatformContext resolves as nobody, which
+// reaches no script at all.
+func (b *Binder) ResolveScripts(ctx context.Context, pr *prompt.Prompt) []attachserve.ResolvedScript {
 	if b == nil || b.scripts == nil || pr == nil || pr.ID == "" {
 		return nil
 	}
 	pc := middleware.GetPlatformContext(ctx)
 	if pc == nil {
-		return b.scripts.Resolve(ctx, pr.ID, "", nil)
+		return b.scripts.Resolve(ctx, pr.ID, "")
 	}
-	if len(personas) == 0 && pc.PersonaName != "" {
-		personas = []string{pc.PersonaName}
-	}
-	return b.scripts.Resolve(ctx, pr.ID, pc.UserEmail, personas)
+	return b.scripts.Resolve(ctx, pr.ID, pc.UserEmail)
 }
 
 // AppendContent adds a prompt's material to a prompts/get result as additional
@@ -124,7 +120,7 @@ func (b *Binder) AppendContent(ctx context.Context, res *mcp.GetPromptResult, pr
 		return
 	}
 	contents := attachserve.Content(b.ResolveResources(ctx, pr, personas))
-	contents = append(contents, attachserve.ScriptContent(b.ResolveScripts(ctx, pr, personas))...)
+	contents = append(contents, attachserve.ScriptContent(b.ResolveScripts(ctx, pr))...)
 	for _, c := range contents {
 		res.Messages = append(res.Messages, &mcp.PromptMessage{Role: promptRoleUser, Content: c})
 	}
@@ -141,9 +137,10 @@ func (b *Binder) AppendContent(ctx context.Context, res *mcp.GetPromptResult, pr
 // can re-scope or detach the material, so they must be told at request time
 // rather than the reviewer discovering it at approval.
 //
-// Both kinds answer to one rule. A referenced script fails the same audience
-// test a narrow resource does, for the same reason — the prompt would reach
-// readers the material does not.
+// Only attached reference material is checked. A referenced script resolves for
+// its owner alone at every prompt scope, so promoting a prompt cannot widen it
+// past a script's audience; the author is told what a reference serves when
+// they attach it.
 //
 // It fails closed. A resolver error blocks the write, because the alternative
 // is silently publishing a shared procedure whose material nobody but its
@@ -178,9 +175,6 @@ func (b *Binder) promotionChecks() []promotionCheck {
 	var checks []promotionCheck
 	if b.resources != nil {
 		checks = append(checks, b.resources.CheckPromotion)
-	}
-	if b.scripts != nil {
-		checks = append(checks, b.scripts.CheckPromotion)
 	}
 	return checks
 }

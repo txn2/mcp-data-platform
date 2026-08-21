@@ -8,7 +8,7 @@ import type {
 } from "@/api/portal/hooks/scripts";
 
 // Managed-script fixtures. The set is chosen to show the states the surfaces
-// exist for: a scheduled report with a mixed run history, a persona-scoped
+// exist for: a scheduled report with a mixed run history, a second owner's
 // script that has never run, a personal script, and a paused freshness check.
 
 const now = new Date("2026-08-14T09:00:00Z");
@@ -77,7 +77,6 @@ export const mockScripts: Script[] = [
     name: "daily-sales-report",
     display_name: "Daily Sales Report",
     description: salesDescription,
-    scope: "global",
     owner_email: "sarah.chen@example.com",
     status: "active",
     enabled: true,
@@ -91,7 +90,6 @@ export const mockScripts: Script[] = [
     name: "dormant-accounts",
     display_name: "Dormant Accounts",
     description: "Accounts with no orders in 90 days, for the retention review.",
-    scope: "persona",
     owner_email: "marcus.webb@example.com",
     status: "active",
     enabled: true,
@@ -105,7 +103,6 @@ export const mockScripts: Script[] = [
     name: "my-margin-check",
     display_name: "My Margin Check",
     description: "Margin by product line, for my own morning read.",
-    scope: "personal",
     owner_email: "sarah.chen@example.com",
     status: "active",
     enabled: true,
@@ -119,7 +116,6 @@ export const mockScripts: Script[] = [
     name: "warehouse-freshness",
     display_name: "Warehouse Freshness Check",
     description: "Row counts and max load timestamps per warehouse table.",
-    scope: "global",
     owner_email: "sarah.chen@example.com",
     status: "active",
     enabled: true,
@@ -556,7 +552,6 @@ export const mockScriptContracts: Record<string, ScriptContract> = {
     display_name: "Daily Sales Report",
     description: salesDescription,
     owner_email: "sarah.chen@example.com",
-    scope: "global",
     category: "reporting",
     tags: ["sales", "weekly"],
     status: "active",
@@ -606,8 +601,6 @@ export const mockScriptContracts: Record<string, ScriptContract> = {
     display_name: "Dormant Accounts",
     description: "Accounts with no orders in 90 days, for the retention review.",
     owner_email: "marcus.webb@example.com",
-    scope: "persona",
-    personas: ["analyst"],
     category: "reporting",
     tags: ["retention"],
     status: "active",
@@ -623,7 +616,6 @@ export const mockScriptContracts: Record<string, ScriptContract> = {
     display_name: "My Margin Check",
     description: "Margin by product line, for my own morning read.",
     owner_email: "sarah.chen@example.com",
-    scope: "personal",
     category: "finance",
     tags: ["margins"],
     status: "active",
@@ -637,7 +629,6 @@ export const mockScriptContracts: Record<string, ScriptContract> = {
     display_name: "Warehouse Freshness Check",
     description: "Row counts and max load timestamps per warehouse table.",
     owner_email: "sarah.chen@example.com",
-    scope: "global",
     category: "operations",
     tags: ["freshness"],
     status: "active",

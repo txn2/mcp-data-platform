@@ -69,7 +69,7 @@ func (h *Handle) servePromptUse(ctx context.Context, pr *prompt.Prompt, args map
 	h.auditPromptServe(ctx, pr, serveSurfaceUse, resolveEmail(ctx))
 	// The tool path has no resolved persona list of its own; PlatformContext's
 	// single persona is the caller's identity there.
-	return promptUseResult(pr, args, h.attach.ResolveResources(ctx, pr, nil), h.attach.ResolveScripts(ctx, pr, nil))
+	return promptUseResult(pr, args, h.attach.ResolveResources(ctx, pr, nil), h.attach.ResolveScripts(ctx, pr))
 }
 
 // canViewPrompt applies the same visibility rule as manage_prompt get: global

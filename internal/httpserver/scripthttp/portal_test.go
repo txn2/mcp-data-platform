@@ -80,14 +80,13 @@ func (s *stubContracts) Contract(context.Context, string) (*script.Contract, err
 	return s.contract, s.err
 }
 
-// portalStore returns a store holding two scripts: one personal script owned by
-// jane, and one global script owned by somebody else. The pair is what separates
-// "may see" from "owns" — every caller can see the global one, and only its
-// owner may read what it did.
+// portalStore returns a store holding two scripts: jane's, and one carol
+// keeps. The pair is what separates the caller's own scripts from everybody
+// else's, which is the whole of what the portal surface may show.
 func portalStore() *stubStore {
 	s := newStore()
 	s.scripts = append(s.scripts, script.Script{
-		ID: "script_2", Name: "shared-report", Scope: script.ScopeGlobal,
+		ID: "script_2", Name: "carols-report",
 		OwnerEmail: "carol@example.com", Enabled: true, Status: script.StatusActive,
 	})
 	return s
@@ -130,14 +129,13 @@ func TestPortalListScripts_ScopesToTheCaller(t *testing.T) {
 	rec := servePortal(t, portalDeps(store, nil, nil, owner), "/api/v1/portal/scripts")
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	assert.Equal(t, "jane@example.com", store.lastFilter.VisibleTo)
-	assert.Equal(t, "analyst", store.lastFilter.VisiblePersona)
+	assert.Equal(t, "jane@example.com", store.lastFilter.OwnerEmail)
 
 	var body portalScriptListResponse
 	decodeInto(t, rec, &body)
 	require.Len(t, body.Data, 2)
 	assert.True(t, body.Data[0].Owned, "jane owns her own script")
-	assert.False(t, body.Data[1].Owned, "the shared script belongs to somebody else")
+	assert.False(t, body.Data[1].Owned, "carol's script belongs to somebody else")
 }
 
 func TestPortalListScripts_AdminCarriesNoPredicate(t *testing.T) {
@@ -145,8 +143,7 @@ func TestPortalListScripts_AdminCarriesNoPredicate(t *testing.T) {
 	rec := servePortal(t, portalDeps(store, nil, nil, admin), "/api/v1/portal/scripts")
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	assert.Empty(t, store.lastFilter.VisibleTo, "an administrator sees every script")
-	assert.Empty(t, store.lastFilter.VisiblePersona)
+	assert.Empty(t, store.lastFilter.OwnerEmail, "an administrator sees every script")
 
 	var body portalScriptListResponse
 	decodeInto(t, rec, &body)
@@ -238,7 +235,7 @@ func TestPortalRoutesUnmountedWithoutAnIdentityAccessor(t *testing.T) {
 
 func TestPortalGetScript_ReturnsTheContract(t *testing.T) {
 	contracts := &stubContracts{contract: &script.Contract{
-		ID: "script_1", Name: "daily", Scope: script.ScopePersonal, OwnerEmail: "jane@example.com",
+		ID: "script_1", Name: "daily", OwnerEmail: "jane@example.com",
 		Version: 3,
 	}}
 	rec := servePortal(t, portalDeps(portalStore(), nil, contracts, owner), "/api/v1/portal/scripts/script_1")
@@ -251,23 +248,23 @@ func TestPortalGetScript_ReturnsTheContract(t *testing.T) {
 	assert.True(t, body.Owned)
 }
 
-// Seeing a script and owning it are different entitlements: a global script is
-// readable by everyone and owned by one person.
-func TestPortalGetScript_VisibleButNotOwned(t *testing.T) {
+// An administrator reads another person's script in full, which is the one way
+// a caller who does not own a script reaches it.
+func TestPortalGetScript_AdminReadsAnotherPersonsScript(t *testing.T) {
 	contracts := &stubContracts{contract: &script.Contract{
-		ID: "script_2", Name: "shared-report", Scope: script.ScopeGlobal, OwnerEmail: "carol@example.com",
+		ID: "script_2", Name: "carols-report", OwnerEmail: "carol@example.com",
 	}}
-	rec := servePortal(t, portalDeps(portalStore(), nil, contracts, stranger), "/api/v1/portal/scripts/script_2")
+	rec := servePortal(t, portalDeps(portalStore(), nil, contracts, admin), "/api/v1/portal/scripts/script_2")
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var body portalScriptResponse
 	decodeInto(t, rec, &body)
-	assert.False(t, body.Owned)
+	assert.True(t, body.Owned)
 }
 
 func TestPortalGetScript_InvisibleAnswersAsMissing(t *testing.T) {
 	contracts := &stubContracts{contract: &script.Contract{
-		ID: "script_1", Name: "daily", Scope: script.ScopePersonal, OwnerEmail: "jane@example.com",
+		ID: "script_1", Name: "daily", OwnerEmail: "jane@example.com",
 	}}
 	rec := servePortal(t, portalDeps(portalStore(), nil, contracts, stranger), "/api/v1/portal/scripts/script_1")
 	require.Equal(t, http.StatusNotFound, rec.Code)
@@ -470,7 +467,7 @@ func TestPortalIdentity_EmaillessCallersAreDistinct(t *testing.T) {
 
 	// And the listing scopes on that identity rather than on an empty string.
 	servePortal(t, portalDeps(store, nil, nil, sarah), "/api/v1/portal/scripts")
-	assert.Equal(t, "oidc|sarah", store.lastFilter.VisibleTo)
+	assert.Equal(t, "oidc|sarah", store.lastFilter.OwnerEmail)
 }
 
 // A caller the platform cannot name at all owns nothing here: an empty
@@ -500,7 +497,7 @@ func TestPortalGetScript_CarriesTheLiveParameterContractForTheOwner(t *testing.T
 	store.scripts[1].Source = "x = 1\n"
 	store.scripts[1].Params = []script.Param{{Name: "region", Type: script.ParamTypeString}}
 	contracts := &stubContracts{contract: &script.Contract{
-		ID: "script_2", Name: "shared-report", Scope: script.ScopeGlobal,
+		ID: "script_2", Name: "carols-report",
 		OwnerEmail: "carol@example.com",
 		Params:     []script.Param{{Name: "report_date", Type: script.ParamTypeDate, Required: true}},
 	}}
@@ -518,24 +515,20 @@ func TestPortalGetScript_CarriesTheLiveParameterContractForTheOwner(t *testing.T
 		"the contract document's parameters pass through unchanged")
 }
 
-// TestPortalGetScript_WithholdsTheLiveRecordFromAReader keeps both halves on the
-// same side of the line: the source is the owner's, and so is the contract the
-// draft it would run binds against.
-func TestPortalGetScript_WithholdsTheLiveRecordFromAReader(t *testing.T) {
+// TestPortalGetScript_WithholdsAnotherPersonsScriptEntirely keeps every half on
+// the same side of the line: a caller who does not own a script learns nothing
+// about it, not its contract, its code, or that it exists.
+func TestPortalGetScript_WithholdsAnotherPersonsScriptEntirely(t *testing.T) {
 	store := portalStore()
 	store.scripts[1].Source = "x = 1\n"
 	store.scripts[1].Params = []script.Param{{Name: "region", Type: script.ParamTypeString}}
 	contracts := &stubContracts{contract: &script.Contract{
-		ID: "script_2", Name: "shared-report", Scope: script.ScopeGlobal,
+		ID: "script_2", Name: "carols-report",
 		OwnerEmail: "carol@example.com",
 	}}
 
 	rec := servePortal(t, portalDeps(store, nil, contracts, stranger), "/api/v1/portal/scripts/script_2")
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
-	var body portalScriptResponse
-	decodeInto(t, rec, &body)
-	assert.False(t, body.Owned)
-	assert.Empty(t, body.Source)
-	assert.Empty(t, body.DraftParams)
+	require.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Contains(t, rec.Body.String(), errScriptNot)
 }

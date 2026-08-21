@@ -42,8 +42,8 @@ type Config struct {
 	// run commands read. nil leaves run_script unregistered, which is the
 	// correct shape for a deployment that cannot execute scripts at all.
 	Runs script.RunStore
-	// AdminPersona is the persona name that grants authority over scripts at
-	// every scope; matched against the caller's persona in each command.
+	// AdminPersona is the persona name that grants authority over every
+	// script; matched against the caller's persona in each command.
 	AdminPersona string
 	// PortalURL is the deployment's public portal address, used by show_scripts
 	// to name where the script pages are. Empty leaves the tool registered and
@@ -121,7 +121,7 @@ func (h *Handle) IndexProducer() *indexjobs.Producer {
 // The user-id fallback is load-bearing rather than cosmetic. An OIDC token
 // without an email claim leaves UserEmail empty, so falling straight through to
 // the "anonymous" sentinel would give every such caller the SAME owner string,
-// and a personal script is exactly as private as that comparison is specific:
+// and a script is exactly as private as that comparison is specific:
 // two different people would read, edit, and run each other's scripts. A user
 // id is distinct per caller wherever a credential identifies one at all.
 //
@@ -169,31 +169,23 @@ func (h *Handle) isAdminPersona(ctx context.Context) bool {
 	return pc.PersonaName == h.adminPersona
 }
 
-// resolveScript finds the script a command names. A shared name is globally
-// unique; a personal name is unique only within its owner, so a personal lookup
-// needs one. Admins may address another owner's personal script by naming that
-// owner explicitly. Returns nil, nil when nothing matches.
+// resolveScript finds the script a command names. A name is unique only within
+// its owner, so every lookup names one: the caller, or the person an admin
+// addressed explicitly. Returns nil, nil when nothing matches.
 func (h *Handle) resolveScript(ctx context.Context, name, ownerEmail string) (*script.Script, error) {
 	caller := resolveEmail(ctx)
 	owner := caller
 	if ownerEmail != "" {
 		if ownerEmail != caller && !h.isAdminPersona(ctx) {
-			return nil, errors.New("you can only address your own personal scripts")
+			return nil, errors.New("you can only address your own scripts")
 		}
 		owner = ownerEmail
 	}
-	sc, err := h.store.GetPersonal(ctx, owner, name)
+	sc, err := h.store.GetByName(ctx, owner, name)
 	if err != nil {
-		return nil, fmt.Errorf("looking up a personal script: %w", err)
+		return nil, fmt.Errorf("looking up a script: %w", err)
 	}
-	if sc != nil {
-		return sc, nil
-	}
-	shared, err := h.store.Get(ctx, name)
-	if err != nil {
-		return nil, fmt.Errorf("looking up a shared script: %w", err)
-	}
-	return shared, nil
+	return sc, nil
 }
 
 // readable resolves the script a read command names and checks the caller may
@@ -209,22 +201,12 @@ func (h *Handle) readable(ctx context.Context, input manageScriptInput) (*script
 	if sc == nil {
 		return nil, errorResult(fmt.Sprintf("script %q not found", input.Name))
 	}
-	if !h.isAdminPersona(ctx) && !sc.VisibleTo(resolveEmail(ctx), personaName(ctx)) {
-		// The same message for "not yours" and "not your persona": naming which
-		// one would confirm the script exists to a caller who may not see it.
+	if !h.isAdminPersona(ctx) && !sc.OwnedBy(resolveEmail(ctx)) {
+		// "Not found" rather than "not yours": naming the difference would
+		// confirm the script exists to a caller who may not see it.
 		return nil, errorResult(fmt.Sprintf("script %q not found", input.Name))
 	}
 	return sc, nil
-}
-
-// personaName returns the caller's resolved persona, or "" when the call
-// carries none.
-func personaName(ctx context.Context) string {
-	pc := middleware.GetPlatformContext(ctx)
-	if pc == nil {
-		return ""
-	}
-	return pc.PersonaName
 }
 
 // editable resolves the script a mutation names and checks the caller may
@@ -238,11 +220,8 @@ func (h *Handle) editable(ctx context.Context, input manageScriptInput) (*script
 	if h.isAdminPersona(ctx) {
 		return sc, nil
 	}
-	if sc.OwnerEmail != resolveEmail(ctx) {
+	if !sc.OwnedBy(resolveEmail(ctx)) {
 		return nil, errorResult("you can only change scripts you own")
-	}
-	if sc.Scope != script.ScopePersonal {
-		return nil, errorResult("only admins can change shared (global or persona) scripts")
 	}
 	return sc, nil
 }

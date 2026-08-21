@@ -15,22 +15,14 @@ import (
 // schedulable resolves the script a schedule command names and checks the
 // caller may set its cadence: its owner, or an administrator.
 //
-// It is deliberately NOT the edit rule. Editing changes what a script does, so
-// it is confined to a personal script unless an admin makes it; a schedule
-// changes only when the script runs and with which parameters, and the run
-// gate and the persona filter are re-read at every fire. Re-timing therefore
-// cannot reach anything the script could not already reach, and there is no
-// reason the owner of a global or persona script must ask an administrator to
-// pause their own report.
+// That is the read rule, and it is stated here rather than inlined because it
+// is a distinct question with the same answer: a cadence says only when the
+// script runs and with which parameters, and the run gate and the persona
+// filter are re-read at every fire, so re-timing reaches nothing the script
+// could not already reach. Nothing narrower would be justified, and nothing
+// wider exists — a script is one person's.
 func (h *Handle) schedulable(ctx context.Context, input manageScriptInput) (*script.Script, *mcp.CallToolResult) {
-	sc, errResult := h.readable(ctx, input)
-	if errResult != nil {
-		return nil, errResult
-	}
-	if !h.ownsScript(ctx, sc) {
-		return nil, errorResult("only the owner of a script can change its schedule")
-	}
-	return sc, nil
+	return h.readable(ctx, input)
 }
 
 // handleScheduleSet creates or replaces a script's schedule.
@@ -142,7 +134,7 @@ func (h *Handle) visibleScript(ctx context.Context, scriptID string) *script.Scr
 	if err != nil || sc == nil {
 		return nil
 	}
-	if h.isAdminPersona(ctx) || sc.VisibleTo(resolveEmail(ctx), personaName(ctx)) {
+	if h.isAdminPersona(ctx) || sc.OwnedBy(resolveEmail(ctx)) {
 		return sc
 	}
 	return nil
@@ -152,7 +144,7 @@ func (h *Handle) visibleScript(ctx context.Context, scriptID string) *script.Scr
 func (h *Handle) visibleScripts(ctx context.Context, limit int) (map[string]*script.Script, error) {
 	filter := script.ListFilter{Limit: limit}
 	if !h.isAdminPersona(ctx) {
-		filter.VisibleTo, filter.VisiblePersona = resolveEmail(ctx), personaName(ctx)
+		filter.OwnerEmail = resolveEmail(ctx)
 	}
 	scripts, err := h.store.List(ctx, filter)
 	if err != nil {

@@ -1845,7 +1845,7 @@ DELETE FROM script_versions WHERE script_id IN (
 
 INSERT INTO scripts (
   id, name, display_name, description, source_code, params,
-  scope, personas, owner_email, tags, enabled, status, version, created_at, updated_at
+  owner_email, tags, enabled, status, version, created_at, updated_at
 ) VALUES
 (
   'e1e1e1e1-0000-4000-8000-000000000001',
@@ -1853,7 +1853,7 @@ INSERT INTO scripts (
   'Yesterday''s sales by region, exported for the morning review.',
   E'rows = platform.query(\n    connection="acme",\n    sql="SELECT region, sum(amount) AS revenue FROM warehouse.public.sales WHERE sale_date = :d GROUP BY region",\n    params={"d": run.params["report_date"]},\n)["rows"]\n\nplatform.export(name="daily-sales", rows=rows, format="csv")\nprint("wrote %d regions for %s" % (len(rows), run.params["report_date"]))\n',
   '[{"name":"report_date","type":"date","description":"The business date to report on; the schedule pins it to the fire time.","required":true}]'::jsonb,
-  'global', '{}', 'analyst@example.com', '{sales,reporting}', true, 'active', 2,
+  'analyst@example.com', '{sales,reporting}', true, 'active', 2,
   NOW() - interval '40 days', NOW() - interval '30 days'
 ),
 (
@@ -1862,7 +1862,7 @@ INSERT INTO scripts (
   'Accounts with no orders since a cutoff date, for the retention review.',
   E'rows = platform.query(\n    connection="acme",\n    sql="SELECT account_id, last_order_at FROM warehouse.public.accounts WHERE last_order_at < :cutoff",\n    params={"cutoff": run.params["cutoff"]},\n)["rows"]\n\nplatform.export(name="dormant-accounts", rows=rows, format="csv")\n',
   '[{"name":"cutoff","type":"date","description":"Accounts idle since this date.","required":true}]'::jsonb,
-  'personal', '{}', 'analyst@example.com', '{retention}', true, 'active', 1,
+  'analyst@example.com', '{retention}', true, 'active', 1,
   NOW() - interval '3 days', NOW() - interval '3 days'
 ),
 (
@@ -1871,13 +1871,13 @@ INSERT INTO scripts (
   'Row counts and max load timestamps per warehouse table.',
   E'rows = platform.query(\n    connection="acme",\n    sql="SELECT table_name, row_count, max_loaded_at FROM warehouse.public.table_stats",\n)["rows"]\n\nplatform.export(name="freshness", rows=rows, format="csv")\n',
   '[]'::jsonb,
-  'global', '{}', 'admin@example.com', '{operations}', true, 'active', 5,
+  'admin@example.com', '{operations}', true, 'active', 5,
   NOW() - interval '60 days', NOW() - interval '21 days'
 )
 ON CONFLICT (id) DO UPDATE SET
   name = EXCLUDED.name, display_name = EXCLUDED.display_name,
   description = EXCLUDED.description, source_code = EXCLUDED.source_code,
-  params = EXCLUDED.params, scope = EXCLUDED.scope, personas = EXCLUDED.personas,
+  params = EXCLUDED.params,
   owner_email = EXCLUDED.owner_email, tags = EXCLUDED.tags,
   enabled = EXCLUDED.enabled, status = EXCLUDED.status, version = EXCLUDED.version,
   updated_at = EXCLUDED.updated_at;

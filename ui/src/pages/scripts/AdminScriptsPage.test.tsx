@@ -33,7 +33,6 @@ const script: Script = {
   name: "daily-sales-report",
   display_name: "Daily Sales Report",
   description: "Yesterday's sales by region.",
-  scope: "global",
   owner_email: "sarah.chen@example.com",
   status: "active",
   enabled: true,
@@ -102,22 +101,34 @@ describe("AdminScriptsPage: opening a script", () => {
     expect(navigate).toHaveBeenCalledWith("/admin/scripts/script-001");
   });
 
-  it("names the audience each script serves", () => {
+  it("names who each script belongs to", () => {
     mockScripts.mockReturnValue(
       query({
         data: [
           script,
-          { ...script, id: "script-002", name: "mine", display_name: "My Own Report", scope: "personal" },
-          { ...script, id: "script-003", name: "theirs", display_name: "Analyst Report", scope: "persona", personas: ["analyst"] },
+          {
+            ...script,
+            id: "script-002",
+            name: "theirs",
+            display_name: "Marcus Report",
+            owner_email: "marcus.webb@example.com",
+          },
+          { ...script, id: "script-003", name: "orphan", display_name: "Orphan Report", owner_email: "" },
         ],
         total: 3,
       }),
     );
     render(<AdminScriptsPage onNavigate={navigate} />);
 
-    expect(screen.getByRole("row", { name: /Daily Sales Report/ })).toHaveTextContent("everyone");
-    expect(screen.getByRole("row", { name: /My Own Report/ })).toHaveTextContent("its owner");
-    expect(screen.getByRole("row", { name: /Analyst Report/ })).toHaveTextContent("analyst");
+    expect(screen.getByRole("row", { name: /Daily Sales Report/ })).toHaveTextContent(
+      "sarah.chen@example.com",
+    );
+    expect(screen.getByRole("row", { name: /Marcus Report/ })).toHaveTextContent(
+      "marcus.webb@example.com",
+    );
+    // A script authored by a principal carrying no address belongs to nobody
+    // until an administrator transfers it (#1404).
+    expect(screen.getByRole("row", { name: /Orphan Report/ })).toHaveTextContent("nobody");
   });
 });
 
