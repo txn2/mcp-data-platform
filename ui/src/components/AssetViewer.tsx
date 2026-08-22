@@ -13,6 +13,12 @@ import { ThumbnailGeneratorWithInvalidation } from "./assetviewer/ThumbnailGener
 import { AssetViewerToolbar } from "./assetviewer/AssetViewerToolbar";
 import { AssetContentView } from "./assetviewer/AssetContentView";
 import { AssetMetadataSidebar } from "./assetviewer/AssetMetadataSidebar";
+import {
+  retentionModeFor,
+  retentionUnchanged,
+  retentionValue,
+  type RetentionMode,
+} from "./assetviewer/AssetRetentionField";
 import { AssetViewerModals } from "./assetviewer/AssetViewerModals";
 
 export type { AssetViewerProps } from "./assetviewer/types";
@@ -47,6 +53,8 @@ export function AssetViewer({
   const [editName, setEditName] = useState("");
   const [editDesc, setEditDesc] = useState("");
   const [editTags, setEditTags] = useState("");
+  const [editRetentionMode, setEditRetentionMode] = useState<RetentionMode>("default");
+  const [editRetentionCustom, setEditRetentionCustom] = useState("");
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [sharedSaveWarningOpen, setSharedSaveWarningOpen] = useState(false);
   const [changeSummaryOpen, setChangeSummaryOpen] = useState(false);
@@ -173,6 +181,12 @@ export function AssetViewer({
     setEditName(asset.name);
     setEditDesc(asset.description ?? "");
     setEditTags(asset.tags.join(", "));
+    setEditRetentionMode(retentionModeFor(asset.max_versions));
+    // A custom count seeds the box; the other two modes leave the last typed
+    // value alone rather than blanking a number the person may switch back to.
+    if (asset.max_versions !== undefined && asset.max_versions > 0) {
+      setEditRetentionCustom(String(asset.max_versions));
+    }
     setEditing(true);
   }
 
@@ -182,8 +196,20 @@ export function AssetViewer({
       .split(",")
       .map((t) => t.trim())
       .filter(Boolean);
+    // Retention is sent only when it moved. The server reserves that field to
+    // the owner and an admin, so an editor saving a rename must not restate a
+    // setting they never touched and be refused for it.
+    const retentionMoved = !retentionUnchanged(editRetentionMode, editRetentionCustom, asset.max_versions);
     updateMutation.mutate(
-      { id: asset.id, name: editName, description: editDesc, tags },
+      {
+        id: asset.id,
+        name: editName,
+        description: editDesc,
+        tags,
+        ...(retentionMoved
+          ? { max_versions: retentionValue(editRetentionMode, editRetentionCustom) }
+          : {}),
+      },
       { onSuccess: () => setEditing(false) },
     );
   }
@@ -264,9 +290,14 @@ export function AssetViewer({
           editName={editName}
           editDesc={editDesc}
           editTags={editTags}
+          editRetentionMode={editRetentionMode}
+          editRetentionCustom={editRetentionCustom}
+          canSetRetention={isOwner}
           onEditNameChange={setEditName}
           onEditDescChange={setEditDesc}
           onEditTagsChange={setEditTags}
+          onEditRetentionModeChange={setEditRetentionMode}
+          onEditRetentionCustomChange={setEditRetentionCustom}
           onStartEdit={startEdit}
           onSaveEdit={saveEdit}
           onCancelEdit={() => setEditing(false)}

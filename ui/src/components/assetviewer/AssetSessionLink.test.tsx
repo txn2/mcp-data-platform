@@ -51,9 +51,14 @@ function renderSidebar(props: Partial<Parameters<typeof AssetMetadataSidebar>[0]
       editName=""
       editDesc=""
       editTags=""
+      editRetentionMode="default"
+      editRetentionCustom=""
+      canSetRetention
       onEditNameChange={vi.fn()}
       onEditDescChange={vi.fn()}
       onEditTagsChange={vi.fn()}
+      onEditRetentionModeChange={vi.fn()}
+      onEditRetentionCustomChange={vi.fn()}
       onStartEdit={vi.fn()}
       onSaveEdit={vi.fn()}
       onCancelEdit={vi.fn()}

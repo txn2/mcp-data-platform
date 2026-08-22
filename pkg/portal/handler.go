@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/txn2/mcp-data-platform/internal/contentviewer"
+	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/portal/access"
 	"github.com/txn2/mcp-data-platform/internal/portal/feedbackapi"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
@@ -972,7 +973,7 @@ func (h *Handler) getThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	thumbKey := resolveThumbnailKey(asset, variant)
+	thumbKey := asset.StoredThumbnailKey(variant)
 	if thumbKey == "" {
 		writeError(w, http.StatusNotFound, "no thumbnail available")
 		return
@@ -1004,10 +1005,10 @@ func (h *Handler) getThumbnail(w http.ResponseWriter, r *http.Request) {
 // default/shared variant (used by single-theme content and public shares); dark
 // is captured only for content rendered on a forced background (markdown, CSV).
 const (
-	thumbnailVariantLight  = "light"
-	thumbnailVariantDark   = "dark"
-	thumbnailLightFilename = "thumbnail.png"
-	thumbnailDarkFilename  = "thumbnail_dark.png"
+	// The variant names are the domain's, so the request parser and the key
+	// derivation cannot drift apart.
+	thumbnailVariantLight = portaldomain.ThumbnailVariantLight
+	thumbnailVariantDark  = portaldomain.ThumbnailVariantDark
 )
 
 // parseThumbnailVariant reads the optional ?variant= query parameter. An empty
@@ -1026,16 +1027,6 @@ func parseThumbnailVariant(w http.ResponseWriter, r *http.Request) (string, bool
 	}
 }
 
-// resolveThumbnailKey returns the stored S3 key to serve for the requested
-// variant. The dark variant falls back to the light/default key when no dark
-// variant has been captured (built-in-theme types only ever store light).
-func resolveThumbnailKey(asset *Asset, variant string) string {
-	if variant == thumbnailVariantDark && asset.ThumbnailDarkS3Key != "" {
-		return asset.ThumbnailDarkS3Key
-	}
-	return asset.ThumbnailS3Key
-}
-
 // DeriveThumbnailKey replaces the filename in an S3 key with "thumbnail.png"
 // (the light/default variant).
 func DeriveThumbnailKey(s3Key string) string {
@@ -1046,15 +1037,7 @@ func DeriveThumbnailKey(s3Key string) string {
 // thumbnail filename for the given variant ("dark" -> thumbnail_dark.png,
 // anything else -> thumbnail.png).
 func DeriveThumbnailKeyVariant(s3Key, variant string) string {
-	filename := thumbnailLightFilename
-	if variant == thumbnailVariantDark {
-		filename = thumbnailDarkFilename
-	}
-	idx := strings.LastIndex(s3Key, "/")
-	if idx < 0 {
-		return filename
-	}
-	return s3Key[:idx+1] + filename
+	return portaldomain.DeriveThumbnailKeyVariant(s3Key, variant)
 }
 
 // updateAssetRequest is the request body for updating an asset.
@@ -1062,6 +1045,10 @@ type updateAssetRequest struct {
 	Name        *string  `json:"name,omitempty" example:"Q4 Revenue Report"`
 	Description *string  `json:"description,omitempty" example:"Updated quarterly revenue analysis"`
 	Tags        []string `json:"tags,omitempty" example:"finance,quarterly"`
+	// MaxVersions caps how many versions this asset keeps. Omit to leave the
+	// current setting alone, send null to go back to the deployment default,
+	// 0 to keep every version, or N to keep the newest N.
+	MaxVersions httpjson.OptionalInt `json:"max_versions" swaggertype:"integer" example:"100"`
 }
 
 // updateAsset handles PUT /api/v1/portal/assets/{id}.
@@ -1115,6 +1102,20 @@ func (h *Handler) updateAsset(w http.ResponseWriter, r *http.Request) {
 		Name:        req.Name,
 		Description: req.Description,
 		Tags:        req.Tags,
+	}
+	updates.MaxVersions, updates.ClearMaxVersions = req.MaxVersions.Resolve()
+
+	// Retention is the one field on this route that destroys the owner's data:
+	// lowering the cap deletes history and its stored content at the next
+	// write, and nothing brings it back. An editor share is a license to change
+	// the asset, not to decide how much of the owner's history survives, so
+	// this field alone is owner-or-admin -- which is also what the manage_asset
+	// update action allows.
+	if updates.MaxVersions != nil || updates.ClearMaxVersions {
+		if !h.access.CanManage(asset.OwnerID, user) {
+			writeError(w, http.StatusForbidden, "only the owner or an administrator can change version retention")
+			return
+		}
 	}
 
 	if err := validateUpdateRequest(updates); err != nil {
@@ -2287,6 +2288,11 @@ type statusResponse struct {
 
 // validateUpdateRequest validates the fields in an update request.
 func validateUpdateRequest(updates AssetUpdate) error {
+	if updates.MaxVersions != nil {
+		if err := ValidateMaxVersions(*updates.MaxVersions); err != nil {
+			return err
+		}
+	}
 	if updates.Name != nil {
 		if err := ValidateAssetName(*updates.Name); err != nil {
 			return err

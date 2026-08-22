@@ -1783,6 +1783,12 @@ export const handlers = [
       portalAssets[idx]!.description = body.description as string;
     if (body.tags !== undefined)
       portalAssets[idx]!.tags = body.tags as string[];
+    // max_versions is tri-state on the wire (#1421): absent leaves the override
+    // alone, null clears it, a number sets it.
+    if (body.max_versions !== undefined) {
+      portalAssets[idx]!.max_versions =
+        body.max_versions === null ? undefined : (body.max_versions as number);
+    }
     portalAssets[idx]!.updated_at = new Date().toISOString();
     return HttpResponse.json(portalAssets[idx]);
   }),
@@ -2041,6 +2047,12 @@ export const handlers = [
       portalAssets[idx]!.description = body.description as string;
     if (body.tags !== undefined)
       portalAssets[idx]!.tags = body.tags as string[];
+    // max_versions is tri-state on the wire (#1421): absent leaves the override
+    // alone, null clears it, a number sets it.
+    if (body.max_versions !== undefined) {
+      portalAssets[idx]!.max_versions =
+        body.max_versions === null ? undefined : (body.max_versions as number);
+    }
     portalAssets[idx]!.updated_at = new Date().toISOString();
     return HttpResponse.json(portalAssets[idx]);
   }),

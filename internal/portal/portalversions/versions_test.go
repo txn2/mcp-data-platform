@@ -2,6 +2,8 @@ package portalversions
 
 import (
 	"context"
+	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"testing"
 	"time"
@@ -13,12 +15,34 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 )
 
+// expectSurvivingKeys sets up the in-transaction read of the keys the versions
+// that outlived the prune still own. It runs only when the prune removed a row.
+func expectSurvivingKeys(mock sqlmock.Sqlmock, assetID string, keys ...string) {
+	rows := sqlmock.NewRows([]string{"s3_key"})
+	for _, k := range keys {
+		rows.AddRow(k)
+	}
+	mock.ExpectQuery("SELECT DISTINCT s3_key FROM portal_asset_versions").
+		WithArgs(assetID).
+		WillReturnRows(rows)
+}
+
+// prunedRows is an empty result in the shape the prune's RETURNING clause
+// produces.
+func prunedRows(rows ...[]driver.Value) *sqlmock.Rows {
+	r := sqlmock.NewRows([]string{"version", "s3_bucket", "s3_key"})
+	for _, row := range rows {
+		r.AddRow(row...)
+	}
+	return r
+}
+
 func TestPostgresVersionStoreCreateVersion(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgres(db)
+	store := NewPostgres(db, nil, nil)
 
 	version := portaldomain.AssetVersion{
 		ID:            "v1",
@@ -33,9 +57,9 @@ func TestPostgresVersionStoreCreateVersion(t *testing.T) {
 	}
 
 	mock.ExpectBegin()
-	mock.ExpectQuery("SELECT current_version FROM portal_assets").
+	mock.ExpectQuery("SELECT current_version, max_versions FROM portal_assets").
 		WithArgs("abc123").
-		WillReturnRows(sqlmock.NewRows([]string{"current_version"}).AddRow(1))
+		WillReturnRows(sqlmock.NewRows([]string{"current_version", "max_versions"}).AddRow(1, nil))
 	mock.ExpectExec("INSERT INTO portal_asset_versions").
 		WithArgs(version.ID, version.AssetID, version.Version, version.S3Key, version.S3Bucket,
 			version.ContentType, version.SizeBytes, version.CreatedBy, version.ChangeSummary).
@@ -43,6 +67,9 @@ func TestPostgresVersionStoreCreateVersion(t *testing.T) {
 	mock.ExpectExec("UPDATE portal_assets").
 		WithArgs(version.Version, version.S3Key, version.ContentType, version.SizeBytes, version.AssetID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	// No override and no configured default, so the cap is
+	// portaldomain.DefaultMaxVersions -- which version 2 is nowhere near, so no
+	// prune statement is issued at all. Any DELETE here would fail the mock.
 	mock.ExpectCommit()
 
 	assignedVersion, err := store.CreateVersion(context.Background(), version)
@@ -56,12 +83,12 @@ func TestPostgresVersionStoreCreateVersionInsertError(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgres(db)
+	store := NewPostgres(db, nil, nil)
 
 	mock.ExpectBegin()
-	mock.ExpectQuery("SELECT current_version FROM portal_assets").
+	mock.ExpectQuery("SELECT current_version, max_versions FROM portal_assets").
 		WithArgs("").
-		WillReturnRows(sqlmock.NewRows([]string{"current_version"}).AddRow(0))
+		WillReturnRows(sqlmock.NewRows([]string{"current_version", "max_versions"}).AddRow(0, nil))
 	mock.ExpectExec("INSERT INTO portal_asset_versions").
 		WillReturnError(errors.New("db error"))
 	mock.ExpectRollback()
@@ -77,12 +104,12 @@ func TestPostgresVersionStoreCreateVersionUpdateError(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgres(db)
+	store := NewPostgres(db, nil, nil)
 
 	mock.ExpectBegin()
-	mock.ExpectQuery("SELECT current_version FROM portal_assets").
+	mock.ExpectQuery("SELECT current_version, max_versions FROM portal_assets").
 		WithArgs("").
-		WillReturnRows(sqlmock.NewRows([]string{"current_version"}).AddRow(0))
+		WillReturnRows(sqlmock.NewRows([]string{"current_version", "max_versions"}).AddRow(0, nil))
 	mock.ExpectExec("INSERT INTO portal_asset_versions").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("UPDATE portal_assets").
@@ -100,7 +127,7 @@ func TestPostgresVersionStoreCreateVersionBeginError(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgres(db)
+	store := NewPostgres(db, nil, nil)
 
 	mock.ExpectBegin().WillReturnError(errors.New("db error"))
 
@@ -115,7 +142,7 @@ func TestPostgresVersionStoreListByAsset(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgres(db)
+	store := NewPostgres(db, nil, nil)
 	now := time.Now()
 
 	mock.ExpectQuery("SELECT COUNT").
@@ -147,7 +174,7 @@ func TestPostgresVersionStoreListByAssetCountError(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgres(db)
+	store := NewPostgres(db, nil, nil)
 
 	mock.ExpectQuery("SELECT COUNT").
 		WithArgs("abc123").
@@ -164,7 +191,7 @@ func TestPostgresVersionStoreListByAssetQueryError(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgres(db)
+	store := NewPostgres(db, nil, nil)
 
 	mock.ExpectQuery("SELECT COUNT").
 		WithArgs("abc123").
@@ -185,7 +212,7 @@ func TestPostgresVersionStoreListByAssetDefaults(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgres(db)
+	store := NewPostgres(db, nil, nil)
 
 	mock.ExpectQuery("SELECT COUNT").
 		WithArgs("abc123").
@@ -210,7 +237,7 @@ func TestPostgresVersionStoreGetByVersion(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgres(db)
+	store := NewPostgres(db, nil, nil)
 	now := time.Now()
 
 	rows := sqlmock.NewRows([]string{
@@ -236,7 +263,7 @@ func TestPostgresVersionStoreGetByVersionNotFound(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgres(db)
+	store := NewPostgres(db, nil, nil)
 
 	mock.ExpectQuery("SELECT .+ FROM portal_asset_versions").
 		WithArgs("abc123", 99).
@@ -253,7 +280,7 @@ func TestPostgresVersionStoreGetLatest(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgres(db)
+	store := NewPostgres(db, nil, nil)
 	now := time.Now()
 
 	rows := sqlmock.NewRows([]string{
@@ -278,7 +305,7 @@ func TestPostgresVersionStoreGetLatestNotFound(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgres(db)
+	store := NewPostgres(db, nil, nil)
 
 	mock.ExpectQuery("SELECT .+ FROM portal_asset_versions").
 		WithArgs("abc123").
@@ -288,4 +315,299 @@ func TestPostgresVersionStoreGetLatestNotFound(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "querying latest version")
 	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// --- Retention (#1421) ---
+
+// countingDeleter records the keys a prune asked to remove.
+type countingDeleter struct{ keys []string }
+
+func (d *countingDeleter) DeleteObject(_ context.Context, bucket, key string) error {
+	d.keys = append(d.keys, bucket+"/"+key)
+	return nil
+}
+
+// failingDeleter refuses every delete, so the best-effort contract can be pinned.
+type failingDeleter struct{ calls int }
+
+func (d *failingDeleter) DeleteObject(_ context.Context, _, _ string) error {
+	d.calls++
+	return errors.New("storage unavailable")
+}
+
+// expectVersionWrite sets up the lock/insert/update the create path always runs,
+// with maxVersions as the asset's stored override.
+func expectVersionWrite(mock sqlmock.Sqlmock, v portaldomain.AssetVersion, currentVersion int, maxVersions any) {
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT current_version, max_versions FROM portal_assets").
+		WithArgs(v.AssetID).
+		WillReturnRows(sqlmock.NewRows([]string{"current_version", "max_versions"}).
+			AddRow(currentVersion, maxVersions))
+	mock.ExpectExec("INSERT INTO portal_asset_versions").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE portal_assets").WillReturnResult(sqlmock.NewResult(0, 1))
+}
+
+func retentionVersion() portaldomain.AssetVersion {
+	return portaldomain.AssetVersion{
+		ID: "v-new", AssetID: "abc123", S3Key: "artifacts/o/abc123/new/content.html",
+		S3Bucket: "portal-assets", ContentType: "text/html", SizeBytes: 10,
+		CreatedBy: "u@example.com", ChangeSummary: "write",
+	}
+}
+
+// TestCreateVersion_UnlimitedRunsNoPrune pins that an asset asking to keep every
+// version issues no DELETE at all -- not a DELETE that matches nothing.
+func TestCreateVersion_UnlimitedRunsNoPrune(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	objects := &countingDeleter{}
+	store := NewPostgres(db, objects, nil)
+	v := retentionVersion()
+
+	expectVersionWrite(mock, v, 40, portaldomain.MaxVersionsUnlimited)
+	mock.ExpectCommit()
+
+	assigned, err := store.CreateVersion(context.Background(), v)
+	require.NoError(t, err)
+	assert.Equal(t, 41, assigned)
+	assert.NoError(t, mock.ExpectationsWereMet())
+	assert.Empty(t, objects.keys)
+}
+
+// TestCreateVersion_PruneCutoffAndObjects pins the cutoff arithmetic the DELETE
+// binds, and that every object a pruned version owned is deleted after commit.
+func TestCreateVersion_PruneCutoffAndObjects(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	objects := &countingDeleter{}
+	store := NewPostgres(db, objects, nil)
+	v := retentionVersion()
+
+	expectVersionWrite(mock, v, 9, 3)
+	// The version just assigned is 10, so a cap of 3 keeps 8, 9 and 10 and the
+	// cutoff is 7.
+	mock.ExpectQuery("DELETE FROM portal_asset_versions").
+		WithArgs(v.AssetID, 7).
+		WillReturnRows(prunedRows(
+			[]driver.Value{6, "portal-assets", "artifacts/o/abc123/v6/content.html"},
+			[]driver.Value{7, "portal-assets", "artifacts/o/abc123/v7/content.html"},
+		))
+	expectSurvivingKeys(mock, v.AssetID,
+		"artifacts/o/abc123/v8/content.html",
+		"artifacts/o/abc123/v9/content.html",
+		v.S3Key)
+	mock.ExpectCommit()
+
+	_, err = store.CreateVersion(context.Background(), v)
+	require.NoError(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+	assert.Equal(t, []string{
+		"portal-assets/artifacts/o/abc123/v6/content.html",
+		"portal-assets/artifacts/o/abc123/v6/thumbnail.png",
+		"portal-assets/artifacts/o/abc123/v6/thumbnail_dark.png",
+		"portal-assets/artifacts/o/abc123/v7/content.html",
+		"portal-assets/artifacts/o/abc123/v7/thumbnail.png",
+		"portal-assets/artifacts/o/abc123/v7/thumbnail_dark.png",
+	}, objects.keys)
+}
+
+// TestCreateVersion_PruneFailureRollsBackTheWrite pins that the prune is inside
+// the transaction: a failed DELETE takes the version with it rather than leaving
+// a committed version beside an unenforced cap.
+func TestCreateVersion_PruneFailureRollsBackTheWrite(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgres(db, &countingDeleter{}, nil)
+	v := retentionVersion()
+
+	expectVersionWrite(mock, v, 200, nil)
+	mock.ExpectQuery("DELETE FROM portal_asset_versions").
+		WillReturnError(errors.New("deadlock detected"))
+	mock.ExpectRollback()
+
+	_, err = store.CreateVersion(context.Background(), v)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pruning asset versions")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestCreateVersion_ObjectDeleteFailureDoesNotFailTheWrite pins the best-effort
+// contract: the version has committed, and an object that could not be removed
+// is a storage-cleanup problem, not a failed save.
+func TestCreateVersion_ObjectDeleteFailureDoesNotFailTheWrite(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	objects := &failingDeleter{}
+	store := NewPostgres(db, objects, nil)
+	v := retentionVersion()
+
+	expectVersionWrite(mock, v, 100, 1)
+	mock.ExpectQuery("DELETE FROM portal_asset_versions").
+		WillReturnRows(prunedRows([]driver.Value{1, "portal-assets", "artifacts/o/abc123/v1/content.html"}))
+	expectSurvivingKeys(mock, v.AssetID, v.S3Key)
+	mock.ExpectCommit()
+
+	assigned, err := store.CreateVersion(context.Background(), v)
+	require.NoError(t, err)
+	assert.Equal(t, 101, assigned)
+	assert.Equal(t, 3, objects.calls, "content and both thumbnails were each attempted")
+}
+
+// TestCreateVersion_NoObjectClientStillPrunes covers database-only mode.
+func TestCreateVersion_NoObjectClientStillPrunes(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgres(db, nil, nil)
+	v := retentionVersion()
+
+	expectVersionWrite(mock, v, 100, 1)
+	mock.ExpectQuery("DELETE FROM portal_asset_versions").
+		WillReturnRows(prunedRows([]driver.Value{1, "portal-assets", "k"}))
+	expectSurvivingKeys(mock, v.AssetID, v.S3Key)
+	mock.ExpectCommit()
+
+	_, err = store.CreateVersion(context.Background(), v)
+	require.NoError(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestCreateVersion_PruneScanError covers the per-row scan failure branch.
+func TestCreateVersion_PruneScanError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgres(db, nil, nil)
+	v := retentionVersion()
+
+	expectVersionWrite(mock, v, 100, 1)
+	mock.ExpectQuery("DELETE FROM portal_asset_versions").
+		WillReturnRows(prunedRows([]driver.Value{"not-a-number", "portal-assets", "k"}))
+	mock.ExpectRollback()
+
+	_, err = store.CreateVersion(context.Background(), v)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "scanning pruned version row")
+}
+
+// TestCreateVersion_KeepsAnObjectASurvivingVersionStillOwns is the managed-script
+// shape: scriptexec keys an output object by RUN, not by version, so a run that
+// exports a document and then publishes data into the same asset writes two
+// version rows at one key. Pruning the older row must not delete the object the
+// newer one is still reading from.
+func TestCreateVersion_KeepsAnObjectASurvivingVersionStillOwns(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	const sharedKey = "artifacts/scripts/s1/abc123/run-7.html"
+	objects := &countingDeleter{}
+	store := NewPostgres(db, objects, nil)
+	v := retentionVersion()
+
+	expectVersionWrite(mock, v, 9, 2)
+	mock.ExpectQuery("DELETE FROM portal_asset_versions").
+		WillReturnRows(prunedRows([]driver.Value{7, "portal-assets", sharedKey}))
+	// Version 8 survives and names the same object version 7 did.
+	expectSurvivingKeys(mock, v.AssetID, sharedKey, v.S3Key)
+	mock.ExpectCommit()
+
+	_, err = store.CreateVersion(context.Background(), v)
+	require.NoError(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+	assert.Empty(t, objects.keys,
+		"an object a surviving version still points at is never deleted")
+}
+
+// TestCreateVersion_KeepsTheCurrentThumbnailOfASharedDirectory is the second half
+// of the same shape: every version of a script-written asset lives in one
+// directory, so a pruned version's DERIVED thumbnail key is the current
+// version's thumbnail key. Only the content object may go.
+func TestCreateVersion_KeepsTheCurrentThumbnailOfASharedDirectory(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	const dir = "artifacts/scripts/s1/abc123/"
+	objects := &countingDeleter{}
+	store := NewPostgres(db, objects, nil)
+	v := retentionVersion()
+	v.S3Key = dir + "run-9.html"
+
+	expectVersionWrite(mock, v, 9, 1)
+	mock.ExpectQuery("DELETE FROM portal_asset_versions").
+		WillReturnRows(prunedRows([]driver.Value{9, "portal-assets", dir + "run-8.html"}))
+	expectSurvivingKeys(mock, v.AssetID, v.S3Key)
+	mock.ExpectCommit()
+
+	_, err = store.CreateVersion(context.Background(), v)
+	require.NoError(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+	assert.Equal(t, []string{"portal-assets/" + dir + "run-8.html"}, objects.keys,
+		"the pruned content goes; the thumbnails the current version still serves stay")
+}
+
+// TestCreateVersion_BelowTheCapIssuesNoStatement pins the common case: most
+// assets never approach the cap, and a write that cannot prune anything must not
+// pay for a DELETE that can never match.
+func TestCreateVersion_BelowTheCapIssuesNoStatement(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgres(db, &countingDeleter{}, nil)
+	v := retentionVersion()
+
+	// Version 5 under a cap of 5: the oldest kept version is 1, so nothing is
+	// past the cap. Any statement between the update and the commit fails here.
+	expectVersionWrite(mock, v, 4, 5)
+	mock.ExpectCommit()
+
+	assigned, err := store.CreateVersion(context.Background(), v)
+	require.NoError(t, err)
+	assert.Equal(t, 5, assigned)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestCreateVersion_SurvivingKeyReadFailureRollsBackTheWrite covers the error
+// branch of the in-transaction read.
+func TestCreateVersion_SurvivingKeyReadFailureRollsBackTheWrite(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgres(db, &countingDeleter{}, nil)
+	v := retentionVersion()
+
+	expectVersionWrite(mock, v, 100, 1)
+	mock.ExpectQuery("DELETE FROM portal_asset_versions").
+		WillReturnRows(prunedRows([]driver.Value{1, "portal-assets", "k"}))
+	mock.ExpectQuery("SELECT DISTINCT s3_key FROM portal_asset_versions").
+		WillReturnError(errors.New("connection reset"))
+	mock.ExpectRollback()
+
+	_, err = store.CreateVersion(context.Background(), v)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "reading surviving version keys")
+}
+
+// TestEffectiveCap resolves the asset override against the deployment default.
+func TestEffectiveCap(t *testing.T) {
+	five := 5
+	assert.Equal(t, 7, (&store{platformMaxVersions: &five}).
+		effectiveCap(sql.NullInt64{Int64: 7, Valid: true}), "the asset override wins")
+	assert.Equal(t, 5, (&store{platformMaxVersions: &five}).
+		effectiveCap(sql.NullInt64{}), "a NULL column inherits the deployment default")
+	assert.Equal(t, portaldomain.DefaultMaxVersions, (&store{}).
+		effectiveCap(sql.NullInt64{}), "with neither set, the platform default applies")
 }

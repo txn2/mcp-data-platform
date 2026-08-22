@@ -51,17 +51,22 @@ type Asset struct {
 	// for content types rendered on a forced background (markdown, CSV); types
 	// with a built-in theme (HTML, JSX, SVG) reuse ThumbnailS3Key in both modes.
 	// Empty means callers should fall back to ThumbnailS3Key.
-	ThumbnailDarkS3Key string               `json:"thumbnail_dark_s3_key,omitempty" example:"assets/01HK7R8Z/thumbnail_dark.png"`
-	SizeBytes          int64                `json:"size_bytes" example:"4200"`
-	Tags               []string             `json:"tags"`
-	Provenance         Provenance           `json:"provenance"`
-	SessionID          string               `json:"session_id,omitempty" example:"sess_abc123"`
-	IdempotencyKey     string               `json:"idempotency_key,omitempty" example:"export-2026-04-18-abc123"`
-	CurrentVersion     int                  `json:"current_version" example:"1"`
-	Collections        []AssetCollectionRef `json:"collections,omitempty"`
-	CreatedAt          time.Time            `json:"created_at"`
-	UpdatedAt          time.Time            `json:"updated_at"`
-	DeletedAt          *time.Time           `json:"deleted_at,omitempty"`
+	ThumbnailDarkS3Key string     `json:"thumbnail_dark_s3_key,omitempty" example:"assets/01HK7R8Z/thumbnail_dark.png"`
+	SizeBytes          int64      `json:"size_bytes" example:"4200"`
+	Tags               []string   `json:"tags"`
+	Provenance         Provenance `json:"provenance"`
+	SessionID          string     `json:"session_id,omitempty" example:"sess_abc123"`
+	IdempotencyKey     string     `json:"idempotency_key,omitempty" example:"export-2026-04-18-abc123"`
+	CurrentVersion     int        `json:"current_version" example:"1"`
+	// MaxVersions is the asset's own version-retention cap. Nil means the
+	// asset has no opinion and inherits the deployment's portal.max_versions;
+	// 0 means it keeps every version; N means it keeps the newest N. See
+	// EffectiveMaxVersions.
+	MaxVersions *int                 `json:"max_versions,omitempty" example:"100"`
+	Collections []AssetCollectionRef `json:"collections,omitempty"`
+	CreatedAt   time.Time            `json:"created_at"`
+	UpdatedAt   time.Time            `json:"updated_at"`
+	DeletedAt   *time.Time           `json:"deleted_at,omitempty"`
 }
 
 // AssetVersion records a single version of an asset's content.
@@ -76,6 +81,13 @@ type AssetVersion struct {
 	CreatedBy     string    `json:"created_by" example:"alice@example.com"`
 	ChangeSummary string    `json:"change_summary" example:"Updated regional breakdown chart"`
 	CreatedAt     time.Time `json:"created_at"`
+}
+
+// ObjectKeys returns every object key this version owns: its stored content and
+// the thumbnails that sit beside it. It is what a retention prune deletes, and
+// what any other cleanup of a version has to cover to leave nothing behind.
+func (v AssetVersion) ObjectKeys() []string {
+	return append([]string{v.S3Key}, ThumbnailKeysFor(v.S3Key)...)
 }
 
 // ExtensionForContentType returns the file extension used in an asset's object
@@ -403,6 +415,14 @@ type AssetUpdate struct {
 	ThumbnailS3Key     *string  `json:"thumbnail_s3_key,omitempty"`
 	ThumbnailDarkS3Key *string  `json:"thumbnail_dark_s3_key,omitempty"`
 	HasContent         bool     `json:"-"` // set when content replacement provides SizeBytes (even if 0)
+	// MaxVersions sets the asset's version-retention cap; nil leaves the
+	// column as it is. Zero is a legitimate value (keep every version), which
+	// is why this is a pointer and why clearing the override back to "inherit
+	// the platform default" needs its own field rather than a magic number.
+	MaxVersions *int `json:"max_versions,omitempty"`
+	// ClearMaxVersions sets max_versions back to NULL, returning the asset to
+	// the deployment default. It wins over MaxVersions if both are set.
+	ClearMaxVersions bool `json:"-"`
 }
 
 // MaxNameLength is the maximum length for asset names.
@@ -480,6 +500,110 @@ func ValidateDescription(desc string) error {
 		return fmt.Errorf("description exceeds %d characters", MaxDescriptionLength)
 	}
 	return nil
+}
+
+// Thumbnail variants and the filenames they take beside a content object. A
+// version's thumbnails live in the same directory as its content, so the whole
+// set of objects a version owns is derivable from its content key -- which is
+// what lets a prune remove them without a row that records them.
+const (
+	// ThumbnailVariantLight is the default thumbnail variant.
+	ThumbnailVariantLight = "light"
+	// ThumbnailVariantDark is the dark-mode thumbnail variant.
+	ThumbnailVariantDark = "dark"
+
+	thumbnailLightFilename = "thumbnail.png"
+	thumbnailDarkFilename  = "thumbnail_dark.png"
+)
+
+// DeriveThumbnailKeyVariant replaces the filename in an S3 key with the
+// thumbnail filename for the given variant. Any variant other than
+// ThumbnailVariantDark takes the light filename.
+func DeriveThumbnailKeyVariant(s3Key, variant string) string {
+	filename := thumbnailLightFilename
+	if variant == ThumbnailVariantDark {
+		filename = thumbnailDarkFilename
+	}
+	idx := strings.LastIndex(s3Key, "/")
+	if idx < 0 {
+		return filename
+	}
+	return s3Key[:idx+1] + filename
+}
+
+// StoredThumbnailKey returns the thumbnail key stored for a variant, or the
+// empty string when none has been captured yet. The dark variant falls back to
+// the light/default key: content types with a built-in theme (HTML, JSX, SVG)
+// only ever store one thumbnail and serve it in both modes.
+func (a Asset) StoredThumbnailKey(variant string) string {
+	if variant == ThumbnailVariantDark && a.ThumbnailDarkS3Key != "" {
+		return a.ThumbnailDarkS3Key
+	}
+	return a.ThumbnailS3Key
+}
+
+// ThumbnailKeysFor returns every thumbnail object key that sits beside a
+// content key. Thumbnails are regenerated per version and never recorded in a
+// version row, so a prune that removed only the content object would cap the
+// table and the content bytes while leaving two PNGs per version in the bucket
+// forever.
+func ThumbnailKeysFor(contentKey string) []string {
+	return []string{
+		DeriveThumbnailKeyVariant(contentKey, ThumbnailVariantLight),
+		DeriveThumbnailKeyVariant(contentKey, ThumbnailVariantDark),
+	}
+}
+
+// DefaultMaxVersions is how many versions an asset keeps when neither the asset
+// nor the deployment says otherwise. It bounds the one history the platform
+// left unbounded: a managed script refreshing one asset hourly writes 24
+// versions a day, and nothing else was going to stop it.
+const DefaultMaxVersions = 100
+
+// MaxVersionsUnlimited is the retention value that disables pruning entirely.
+// It is spelled 0 rather than a negative number so the column can carry a
+// non-negative CHECK and every entry point can refuse a negative outright.
+const MaxVersionsUnlimited = 0
+
+// ValidateMaxVersions checks a retention cap supplied by a caller. Negative is
+// the only rejected value: 0 asks for unlimited history and any positive number
+// is a cap the platform will honor, however small.
+func ValidateMaxVersions(n int) error {
+	if n < 0 {
+		return fmt.Errorf("max_versions must be 0 (unlimited) or greater, got %d", n)
+	}
+	return nil
+}
+
+// EffectiveMaxVersions resolves the retention cap that applies to one asset:
+// the asset's own override when it has one, the deployment's configured default
+// when it does not, and DefaultMaxVersions when the deployment is silent too. A
+// returned 0 means unlimited.
+//
+// Both arguments are pointers because both layers need to distinguish "keep
+// every version" (0) from "I have no opinion" (unset), and an int cannot carry
+// both.
+func EffectiveMaxVersions(assetOverride, platformDefault *int) int {
+	if assetOverride != nil {
+		return normalizeMaxVersions(*assetOverride)
+	}
+	if platformDefault != nil {
+		return normalizeMaxVersions(*platformDefault)
+	}
+	return DefaultMaxVersions
+}
+
+// normalizeMaxVersions folds a stored or configured value into the two states
+// the prune understands. A negative value cannot be entered through any surface
+// and cannot pass the column's CHECK, so reaching one here means the value was
+// written by something that bypassed both; it is read as unlimited, because
+// deleting history on the strength of a value nobody could have meant is the
+// worse of the two failures.
+func normalizeMaxVersions(n int) int {
+	if n < 0 {
+		return MaxVersionsUnlimited
+	}
+	return n
 }
 
 // DefaultNoticeText is the notice shown on public shares when no custom text

@@ -7,7 +7,10 @@
 // and the config loader reduces to a sequence of calls.
 package portalcfg
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // DefaultTitle is the portal title of a deployment that names no brand.
 const DefaultTitle = "MCP Data Platform"
@@ -95,4 +98,21 @@ func S3Location(bucket, prefix string) (s3Bucket, s3Prefix string) {
 		s3Prefix = DefaultS3Prefix
 	}
 	return s3Bucket, s3Prefix
+}
+
+// MaxVersionsError reports why a configured asset version-retention default is
+// unusable, or "" when it is fine. Only a negative value is rejected: 0 asks for
+// unlimited history and any positive number is a cap.
+//
+// It exists because nothing downstream would refuse one. The per-asset column's
+// CHECK guards an override, not this value, and the resolver reads a negative
+// cap as "keep everything" rather than deleting history on the strength of a
+// number nobody could have meant — which would silently invert the ask. The
+// per-asset counterpart is portaldomain.ValidateMaxVersions; the two carry
+// different messages because they name different things to different readers.
+func MaxVersionsError(configured *int) string {
+	if configured != nil && *configured < 0 {
+		return fmt.Sprintf("portal.max_versions must be 0 (keep every version) or greater, got %d", *configured)
+	}
+	return ""
 }

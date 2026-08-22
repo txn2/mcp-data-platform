@@ -115,6 +115,11 @@ var manageAssetSchemaBase = json.RawMessage(`{
       "type": "string",
       "description": "New content (for update action only — replaces S3 object)"
     },
+    "max_versions": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "How many versions this asset keeps (update action). Omit to leave the setting alone, send null to go back to the deployment default, 0 to keep every version, or N to keep the newest N. Older versions are deleted with their stored content when a new version pushes them past the cap — set this on an asset a scheduled script rewrites, which would otherwise accumulate a version per run forever."
+    },
     "name": {
       "type": "string",
       "description": "Name (for update, create_collection, update_collection)"

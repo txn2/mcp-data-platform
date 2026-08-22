@@ -233,6 +233,11 @@ func ValidateTags(tags []string) error { return portaldomain.ValidateTags(tags) 
 // ValidateDescription checks that a description is within length limits.
 func ValidateDescription(desc string) error { return portaldomain.ValidateDescription(desc) }
 
+// ValidateMaxVersions checks a per-asset version-retention cap: 0 asks for
+// unlimited history, any positive number is a cap, and a negative number is
+// refused.
+func ValidateMaxVersions(n int) error { return portaldomain.ValidateMaxVersions(n) }
+
 // ValidateNoticeText checks that notice text is within length limits.
 func ValidateNoticeText(text string) error { return portaldomain.ValidateNoticeText(text) }
 

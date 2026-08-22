@@ -372,30 +372,34 @@ type StalenessConfig struct {
 // PortalConfig configures the asset portal for saving AI-generated assets.
 // Enabled by default when a database is available. Set enabled: false to disable.
 type PortalConfig struct {
-	Enabled         *bool                 `yaml:"enabled"`
-	Title           string                `yaml:"title"`             // sidebar/branding title (default: "<brand_name> Portal", or "MCP Data Platform" with no brand)
-	BrandName       string                `yaml:"brand_name"`        // deployment brand (e.g. "ACME"); falls back to the mcpapps platform-info brand_name
-	BrandURL        string                `yaml:"brand_url"`         // brand home page the portal's brand mark links to; falls back to the mcpapps platform-info brand_url
-	VersionURL      string                `yaml:"version_url"`       // optional link target for the version number in the portal header (e.g. a changelog)
-	Tagline         string                `yaml:"tagline"`           // login-screen subtitle (default: "Sign in to access the platform.")
-	OIDCButtonLabel string                `yaml:"oidc_button_label"` // login-screen SSO button text (default: "Sign in with OIDC")
-	Logo            string                `yaml:"logo"`              // URL to logo (fallback for both themes)
-	LogoLight       string                `yaml:"logo_light"`        // URL to logo for light theme
-	LogoDark        string                `yaml:"logo_dark"`         // URL to logo for dark theme
-	LogoEmail       string                `yaml:"logo_email"`        // URL to raster PNG logo for notification emails (clients strip SVG); unset renders the text wordmark alone
-	S3Connection    string                `yaml:"s3_connection"`     // name of the S3 toolkit instance to use
-	S3Bucket        string                `yaml:"s3_bucket"`         // bucket for asset storage (default: "portal-assets")
-	S3Prefix        string                `yaml:"s3_prefix"`         // key prefix within the bucket (default: "artifacts/")
-	PublicBaseURL   string                `yaml:"public_base_url"`   // base URL for portal links (e.g., "https://portal.example.com")
-	MaxContentSize  int                   `yaml:"max_content_size"`  // max asset size in bytes (default: 10MB)
-	Implementor     ImplementorConfig     `yaml:"implementor"`       // optional implementor brand (far-left header zone)
-	TermsURL        string                `yaml:"terms_url"`         // optional terms-of-service link rendered in notification email footers
-	PrivacyURL      string                `yaml:"privacy_url"`       // optional privacy-policy link rendered in notification email footers
-	AboutText       string                `yaml:"about_text"`        // optional sentence or two about the platform, rendered as a footer block on all outgoing email
-	SupportContact  string                `yaml:"support_contact"`   // optional help contact (email address or http(s) URL) rendered with about_text in email footers
-	ReplyTo         string                `yaml:"reply_to"`          // optional Reply-To address applied to all outgoing email; unset leaves the header off
-	RateLimit       PortalRateLimitConfig `yaml:"rate_limit"`
-	Export          PortalExportConfig    `yaml:"export"` // trino_export configuration
+	Enabled         *bool  `yaml:"enabled"`
+	Title           string `yaml:"title"`             // sidebar/branding title (default: "<brand_name> Portal", or "MCP Data Platform" with no brand)
+	BrandName       string `yaml:"brand_name"`        // deployment brand (e.g. "ACME"); falls back to the mcpapps platform-info brand_name
+	BrandURL        string `yaml:"brand_url"`         // brand home page the portal's brand mark links to; falls back to the mcpapps platform-info brand_url
+	VersionURL      string `yaml:"version_url"`       // optional link target for the version number in the portal header (e.g. a changelog)
+	Tagline         string `yaml:"tagline"`           // login-screen subtitle (default: "Sign in to access the platform.")
+	OIDCButtonLabel string `yaml:"oidc_button_label"` // login-screen SSO button text (default: "Sign in with OIDC")
+	Logo            string `yaml:"logo"`              // URL to logo (fallback for both themes)
+	LogoLight       string `yaml:"logo_light"`        // URL to logo for light theme
+	LogoDark        string `yaml:"logo_dark"`         // URL to logo for dark theme
+	LogoEmail       string `yaml:"logo_email"`        // URL to raster PNG logo for notification emails (clients strip SVG); unset renders the text wordmark alone
+	S3Connection    string `yaml:"s3_connection"`     // name of the S3 toolkit instance to use
+	S3Bucket        string `yaml:"s3_bucket"`         // bucket for asset storage (default: "portal-assets")
+	S3Prefix        string `yaml:"s3_prefix"`         // key prefix within the bucket (default: "artifacts/")
+	PublicBaseURL   string `yaml:"public_base_url"`   // base URL for portal links (e.g., "https://portal.example.com")
+	MaxContentSize  int    `yaml:"max_content_size"`  // max asset size in bytes (default: 10MB)
+	// MaxVersions: versions an asset keeps by default. 0 keeps every version,
+	// unset selects 100, negative is refused at startup; *int because 0 and
+	// unset differ. Any asset overrides it (docs/server/portal-user.md).
+	MaxVersions    *int                  `yaml:"max_versions"`
+	Implementor    ImplementorConfig     `yaml:"implementor"`     // optional implementor brand (far-left header zone)
+	TermsURL       string                `yaml:"terms_url"`       // optional terms-of-service link rendered in notification email footers
+	PrivacyURL     string                `yaml:"privacy_url"`     // optional privacy-policy link rendered in notification email footers
+	AboutText      string                `yaml:"about_text"`      // optional sentence or two about the platform, rendered as a footer block on all outgoing email
+	SupportContact string                `yaml:"support_contact"` // optional help contact (email address or http(s) URL) rendered with about_text in email footers
+	ReplyTo        string                `yaml:"reply_to"`        // optional Reply-To address applied to all outgoing email; unset leaves the header off
+	RateLimit      PortalRateLimitConfig `yaml:"rate_limit"`
+	Export         PortalExportConfig    `yaml:"export"` // trino_export configuration
 }
 
 // PortalExportConfig configures the trino_export tool.
@@ -2042,6 +2046,9 @@ func (c *Config) Validate() error {
 	errs = c.validateBrowserSession(errs)
 	errs = c.validatePersonas(errs)
 	errs = c.validateScriptDestinations(errs)
+	if msg := portalcfg.MaxVersionsError(c.Portal.MaxVersions); msg != "" {
+		errs = append(errs, msg)
+	}
 
 	if err := c.Audit.ValidateDelivery(); err != nil {
 		errs = append(errs, err.Error())

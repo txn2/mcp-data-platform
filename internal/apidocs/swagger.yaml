@@ -215,6 +215,13 @@ definitions:
     properties:
       description:
         type: string
+      max_versions:
+        description: |-
+          MaxVersions caps how many versions this asset keeps. Omit to leave the
+          current setting alone, send null to go back to the deployment default,
+          0 to keep every version, or N to keep the newest N.
+        example: 100
+        type: integer
       name:
         type: string
       tags:
@@ -3212,6 +3219,14 @@ definitions:
       idempotency_key:
         example: export-2026-04-18-abc123
         type: string
+      max_versions:
+        description: |-
+          MaxVersions is the asset's own version-retention cap. Nil means the
+          asset has no opinion and inherits the deployment's portal.max_versions;
+          0 means it keeps every version; N means it keeps the newest N. See
+          EffectiveMaxVersions.
+        example: 100
+        type: integer
       name:
         example: Q4 Revenue Dashboard
         type: string
@@ -3481,6 +3496,14 @@ definitions:
       is_owner:
         example: true
         type: boolean
+      max_versions:
+        description: |-
+          MaxVersions is the asset's own version-retention cap. Nil means the
+          asset has no opinion and inherits the deployment's portal.max_versions;
+          0 means it keeps every version; N means it keeps the newest N. See
+          EffectiveMaxVersions.
+        example: 100
+        type: integer
       name:
         example: Q4 Revenue Dashboard
         type: string
@@ -4089,6 +4112,13 @@ definitions:
       description:
         example: Updated quarterly revenue analysis
         type: string
+      max_versions:
+        description: |-
+          MaxVersions caps how many versions this asset keeps. Omit to leave the
+          current setting alone, send null to go back to the deployment default,
+          0 to keep every version, or N to keep the newest N.
+        example: 100
+        type: integer
       name:
         example: Q4 Revenue Report
         type: string

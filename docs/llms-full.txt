@@ -620,6 +620,7 @@ rate_limit:
 | `portal.s3_prefix` | string | `artifacts/` | Key prefix within the bucket |
 | `portal.public_base_url` | string | `""` | Base URL for portal links in save_asset responses |
 | `portal.max_content_size` | int | `10485760` | Maximum asset size in bytes (10 MB) |
+| `portal.max_versions` | int | `100` | Versions an asset keeps when it carries no override of its own. A version pushed past the cap is deleted along with its stored content and thumbnails; the current version is never pruned. `0` keeps every version, and a negative value is refused at startup. Applied at the write, so an asset already over the cap is trimmed the next time it is written. An asset's owner (or an admin) can override it, from the portal metadata form, `manage_asset` action `update` with `max_versions`, or the admin asset route |
 | `portal.implementor.name` | string | `""` | Implementor display name shown in the left zone of the public viewer header |
 | `portal.implementor.logo` | string | `""` | URL to implementor SVG logo (fetched once at startup, max 1 MB) |
 | `portal.implementor.url` | string | `""` | Clickable link wrapping the implementor name and logo |
@@ -1939,6 +1940,7 @@ List, retrieve, update, delete, share, or relevance-search saved assets (and man
 | `name` | string | No | - | New name (for update) |
 | `description` | string | No | - | New description (for update) |
 | `tags` | array | No | - | New tags (for update) |
+| `max_versions` | integer \| null | No | - | How many versions this asset keeps (update). Omit to leave the setting alone, `null` to go back to the deployment's `portal.max_versions`, `0` to keep every version, `N` to keep the newest N. Negative is refused |
 | `content_type` | string | No | - | New content type (for update, only when replacing content) |
 | `sources` | array | No | session window | The calls behind a content edit (update and patch), as `call_id` values or `mcp:call:<id>` references. Recorded as a new capture beside the ones earlier versions carry |
 | `query` | string | Conditional | - | Free-text relevance query (required for search) |
@@ -1950,6 +1952,22 @@ List, retrieve, update, delete, share, or relevance-search saved assets (and man
 | `share_id` | string | Conditional | - | Share to end (required for revoke_share) |
 
 The `search` action ranks the caller's own assets by relevance to `query` using the shared hybrid (vector + lexical) ranking — weighted hybrid when an embedding provider is configured, automatic lexical-only fallback otherwise — and returns each match with a `score` plus a `ranking` field (`hybrid` or `lexical`). It is scoped server-side to the caller's own assets by `owner_id` — the same ownership key the asset library list and the update/delete checks use, so search returns exactly the assets the caller can list (note: `owner_email` is a secondary display field that can diverge from `owner_id` across API-key vs OIDC identities, so it is deliberately NOT the scope key) — and fails closed when the caller has no identity. The Portal exposes the same ranking over HTTP at `GET /api/v1/portal/assets/search?q=...` and `GET /api/v1/portal/collections/search?q=...` (each row carries a `score`), mirroring the Knowledge & Memory and prompt search endpoints.
+
+### Version retention (max_versions)
+
+Every write to an asset records a version, and the version trail was the one history on the platform with no bound: `portal_asset_versions` had INSERT and SELECT and nothing else, no sweeper, and an asset delete that is a soft delete, so the `ON DELETE CASCADE` never fired. A managed script refreshing one dashboard hourly writes 24 versions a day, each with its own stored object, indefinitely.
+
+An asset keeps its newest `portal.max_versions` versions (100 unless configured; `0` keeps every version, and a negative default is refused at startup by `portalcfg.MaxVersionsError`), and may override that with its own `max_versions`: NULL inherits the deployment value, `0` keeps every version, `N` keeps the newest N. Three surfaces write the same column — the portal's asset metadata form, `manage_asset action=update`, and `PUT /api/v1/admin/assets/{id}` — and all three refuse a negative value where it was entered; the column carries a non-negative CHECK behind them.
+
+Retention is owner-or-admin on every surface. The portal's asset update route otherwise admits an editor-share recipient, and this one field is excluded from that grant: lowering the cap deletes the owner's history and its stored content at the next write, which is not a decision an edit grant carries. The portal form omits the field entirely from an update that did not move it, so an editor saving a rename never sends it.
+
+The prune runs inside the transaction `portalversions.CreateVersion` already takes the asset row lock in, which is the single door every asset write passes through (portal handlers, admin routes, the asset toolkit, managed-script output, and both export adapters), so the cap converges at the write and needs no schedule. It is skipped entirely when the asset's history has not reached the cap, which is the common case on every write. A pruned version's stored object is deleted with its row, along with the thumbnails derived beside it — no row records a thumbnail, so a prune that removed only the content would cap the table while the bucket kept growing. The object deletes happen after the commit and are best-effort: the version the caller asked for has already committed, and an object that could not be removed is logged rather than turned into a failed save.
+
+**A version's key is not private to it, and the cleanup must not assume it is.** `scriptexec` keys a managed script's output object by RUN (`internal/platform/scriptexec/export.go`), so a run that exports a document and then publishes data into the same asset writes two version rows at one key, and every version of such an asset shares one directory — which is also where its thumbnails are derived. The cleanup therefore reads the keys the surviving versions still own (`survivingObjectKeys`, inside the same transaction, after the delete) and skips every one of them. Deleting by key shape alone would take the live content object or the current thumbnail with the pruned row.
+
+The prune also never deletes the key the asset row points at. Version 1 of an asset created before it had a second version carries the flat content key the asset itself still names, so the DELETE joins `portal_assets` and excludes `v.s3_key = a.s3_key`, exactly as `resource.PruneVersions` does.
+
+Retention applies at the next write, not on a migration: an asset already carrying more history than the cap is untouched until it is written again, then trimmed. Knowledge page versions (`portal_knowledge_page_versions`) are the same shape and are not yet bounded.
 
 ### Sharing an asset from the session (share, list_shares, revoke_share)
 

@@ -1098,6 +1098,112 @@ func TestUpdateAssetSuccess(t *testing.T) {
 	assert.Equal(t, "updated", resp.Status)
 }
 
+// TestUpdateAsset_MaxVersions covers the retention override on the route a
+// person's metadata form drives: a value is written, an explicit null returns
+// the asset to the deployment default, an absent field leaves it alone, and a
+// negative number is refused where it was entered (#1421).
+func TestUpdateAsset_MaxVersions(t *testing.T) {
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+		assert     func(t *testing.T, u *AssetUpdate)
+	}{
+		{
+			name: "a value is written through", body: `{"max_versions":25}`, wantStatus: http.StatusOK,
+			assert: func(t *testing.T, u *AssetUpdate) {
+				t.Helper()
+				require.NotNil(t, u.MaxVersions)
+				assert.Equal(t, 25, *u.MaxVersions)
+				assert.False(t, u.ClearMaxVersions)
+			},
+		},
+		{
+			name: "zero asks for unlimited history", body: `{"max_versions":0}`, wantStatus: http.StatusOK,
+			assert: func(t *testing.T, u *AssetUpdate) {
+				t.Helper()
+				require.NotNil(t, u.MaxVersions)
+				assert.Equal(t, 0, *u.MaxVersions)
+			},
+		},
+		{
+			name: "null returns the asset to the deployment default",
+			body: `{"max_versions":null}`, wantStatus: http.StatusOK,
+			assert: func(t *testing.T, u *AssetUpdate) {
+				t.Helper()
+				assert.Nil(t, u.MaxVersions)
+				assert.True(t, u.ClearMaxVersions)
+			},
+		},
+		{
+			name: "an absent field leaves the setting alone",
+			body: `{"name":"New Name"}`, wantStatus: http.StatusOK,
+			assert: func(t *testing.T, u *AssetUpdate) {
+				t.Helper()
+				assert.Nil(t, u.MaxVersions)
+				assert.False(t, u.ClearMaxVersions)
+			},
+		},
+		{
+			name: "a negative number is refused", body: `{"max_versions":-1}`,
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &mockAssetStore{getAsset: &Asset{ID: "a1", OwnerID: "u1"}}
+			h := newTestHandler(store, &mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"})
+
+			req := httptest.NewRequestWithContext(context.Background(), "PUT",
+				"/api/v1/portal/assets/a1", strings.NewReader(tc.body))
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+
+			assert.Equal(t, tc.wantStatus, w.Code)
+			if tc.assert == nil {
+				assert.Nil(t, store.lastUpdate, "a refused update never reaches the store")
+				return
+			}
+			require.NotNil(t, store.lastUpdate)
+			tc.assert(t, store.lastUpdate)
+		})
+	}
+}
+
+// TestUpdateAsset_MaxVersionsIsOwnerOnly pins that an editor share does not
+// carry the retention setting. An editor may change the asset; deciding how much
+// of the owner's history survives the next write is the owner's call (#1421).
+func TestUpdateAsset_MaxVersionsIsOwnerOnly(t *testing.T) {
+	shares := &mockShareStore{listByAsset: []Share{{SharedWithUserID: "u1", Permission: PermissionEditor}}}
+	store := &mockAssetStore{getAsset: &Asset{ID: "a1", OwnerID: "other"}}
+	h := newTestHandler(store, shares, &mockS3Client{}, &User{UserID: "u1"})
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT",
+		"/api/v1/portal/assets/a1", strings.NewReader(`{"max_versions":1}`))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Nil(t, store.lastUpdate, "the refused update never reaches the store")
+}
+
+// TestUpdateAsset_EditorMayStillEditEverythingElse is the other half: the gate
+// is on the one destructive field, not on the route.
+func TestUpdateAsset_EditorMayStillEditEverythingElse(t *testing.T) {
+	shares := &mockShareStore{listByAsset: []Share{{SharedWithUserID: "u1", Permission: PermissionEditor}}}
+	store := &mockAssetStore{getAsset: &Asset{ID: "a1", OwnerID: "other"}}
+	h := newTestHandler(store, shares, &mockS3Client{}, &User{UserID: "u1"})
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT",
+		"/api/v1/portal/assets/a1", strings.NewReader(`{"name":"Edited by editor"}`))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	require.NotNil(t, store.lastUpdate)
+	assert.Nil(t, store.lastUpdate.MaxVersions)
+}
+
 func TestUpdateAssetNotOwner(t *testing.T) {
 	asset := &Asset{ID: "a1", OwnerID: "other"}
 	h := newTestHandler(

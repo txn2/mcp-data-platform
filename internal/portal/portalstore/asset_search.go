@@ -19,7 +19,7 @@ var _ portaldomain.AssetSearcher = (*postgresAssetStore)(nil)
 // list-path projection (queryAssets) plus the COALESCE on idempotency_key.
 const assetSearchColumns = `id, owner_id, owner_email, name, description, content_type, ` +
 	`s3_bucket, s3_key, thumbnail_s3_key, thumbnail_dark_s3_key, size_bytes, tags, provenance, session_id, ` +
-	`current_version, created_at, updated_at, deleted_at, COALESCE(idempotency_key, '')`
+	`current_version, created_at, updated_at, deleted_at, COALESCE(idempotency_key, ''), max_versions`
 
 // assetFTSExpr is the full-text expression the lexical arm matches and ranks
 // against. It calls portal_asset_fts() (migration 000063) with the same
@@ -114,17 +114,18 @@ func collectHybridAssets(rows *sql.Rows, limit int) ([]portaldomain.ScoredAsset,
 	byID := make(map[string]portaldomain.ScoredAsset)
 	for rows.Next() {
 		var (
-			asset      portaldomain.Asset
-			tags, prov []byte
-			deletedAt  sql.NullTime
-			vecScore   float64
-			lexMatch   bool
+			asset       portaldomain.Asset
+			tags, prov  []byte
+			deletedAt   sql.NullTime
+			maxVersions sql.NullInt64
+			vecScore    float64
+			lexMatch    bool
 		)
-		dest := append(assetScanDest(&asset, &tags, &prov, &deletedAt), &vecScore, &lexMatch)
+		dest := append(assetScanDest(&asset, &tags, &prov, &deletedAt, &maxVersions), &vecScore, &lexMatch)
 		if err := rows.Scan(dest...); err != nil {
 			return nil, fmt.Errorf("scanning hybrid asset row: %w", err)
 		}
-		if err := finishScannedAsset(&asset, tags, prov, deletedAt); err != nil {
+		if err := finishScannedAsset(&asset, tags, prov, deletedAt, maxVersions); err != nil {
 			return nil, err
 		}
 		score := fuseHybridScore(vecScore, lexMatch)
@@ -177,16 +178,17 @@ func (s *postgresAssetStore) searchAssetsLexical(ctx context.Context, q portaldo
 	var scored []portaldomain.ScoredAsset
 	for rows.Next() {
 		var (
-			asset      portaldomain.Asset
-			tags, prov []byte
-			deletedAt  sql.NullTime
-			lexRank    float64
+			asset       portaldomain.Asset
+			tags, prov  []byte
+			deletedAt   sql.NullTime
+			maxVersions sql.NullInt64
+			lexRank     float64
 		)
-		dest := append(assetScanDest(&asset, &tags, &prov, &deletedAt), &lexRank)
+		dest := append(assetScanDest(&asset, &tags, &prov, &deletedAt, &maxVersions), &lexRank)
 		if err := rows.Scan(dest...); err != nil {
 			return nil, fmt.Errorf("scanning lexical asset row: %w", err)
 		}
-		if err := finishScannedAsset(&asset, tags, prov, deletedAt); err != nil {
+		if err := finishScannedAsset(&asset, tags, prov, deletedAt, maxVersions); err != nil {
 			return nil, err
 		}
 		scored = append(scored, portaldomain.ScoredAsset{Asset: asset, Score: lexRank})

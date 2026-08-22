@@ -688,7 +688,7 @@ func (s *inMemoryAssetStore) Update(_ context.Context, id string, updates portal
 	// real Postgres rejects, hiding the content-only update bug (#573).
 	if updates.Name == nil && updates.Description == nil && updates.Tags == nil &&
 		updates.ContentType == "" && updates.S3Key == "" && !updates.HasContent &&
-		updates.ThumbnailS3Key == nil {
+		updates.ThumbnailS3Key == nil && updates.MaxVersions == nil && !updates.ClearMaxVersions {
 		return fmt.Errorf("no fields to update")
 	}
 	if updates.Name != nil {
@@ -699,6 +699,14 @@ func (s *inMemoryAssetStore) Update(_ context.Context, id string, updates portal
 	}
 	if updates.Tags != nil {
 		a.Tags = updates.Tags
+	}
+	// Mirror applyScalarUpdates' retention arm, clear winning over set, so a
+	// retention-only edit is a complete update here as it is in Postgres.
+	switch {
+	case updates.ClearMaxVersions:
+		a.MaxVersions = nil
+	case updates.MaxVersions != nil:
+		a.MaxVersions = updates.MaxVersions
 	}
 	// Mirror applyScalarUpdates: the real store writes content_type. Dropping
 	// it here would hide a content-type move that the viewer depends on.

@@ -3,15 +3,24 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { AssetRetentionField, retentionCountValid, type RetentionMode } from "./AssetRetentionField";
 
-/** The sidebar's edit mode: an asset's name, description and tags. */
+/**
+ * The sidebar's edit mode: an asset's name, description, tags and how much
+ * version history it keeps.
+ */
 export function AssetMetadataForm({
   name,
   description,
   tags,
+  retentionMode,
+  retentionCustom,
+  canSetRetention,
   onNameChange,
   onDescriptionChange,
   onTagsChange,
+  onRetentionModeChange,
+  onRetentionCustomChange,
   onSave,
   onCancel,
   saving,
@@ -20,9 +29,17 @@ export function AssetMetadataForm({
   description: string;
   /** Tags as the comma-separated string the field edits. */
   tags: string;
+  retentionMode: RetentionMode;
+  retentionCustom: string;
+  /** Whether retention is this reader's to set; an editor-share recipient may
+   * change everything else about the asset but not how much of the owner's
+   * history survives. */
+  canSetRetention: boolean;
   onNameChange: (v: string) => void;
   onDescriptionChange: (v: string) => void;
   onTagsChange: (v: string) => void;
+  onRetentionModeChange: (m: RetentionMode) => void;
+  onRetentionCustomChange: (v: string) => void;
   onSave: () => void;
   onCancel: () => void;
   saving: boolean;
@@ -55,8 +72,21 @@ export function AssetMetadataForm({
         </Label>
         <Input id={`${id}-tags`} type="text" value={tags} onChange={(e) => onTagsChange(e.target.value)} />
       </div>
+      {canSetRetention && (
+        <AssetRetentionField
+          id={id}
+          mode={retentionMode}
+          custom={retentionCustom}
+          onModeChange={onRetentionModeChange}
+          onCustomChange={onRetentionCustomChange}
+        />
+      )}
       <div className="flex gap-2">
-        <Button size="sm" onClick={onSave} disabled={saving}>
+        <Button
+          size="sm"
+          onClick={onSave}
+          disabled={saving || (canSetRetention && !retentionCountValid(retentionMode, retentionCustom))}
+        >
           Save
         </Button>
         <Button variant="secondary" size="sm" onClick={onCancel}>

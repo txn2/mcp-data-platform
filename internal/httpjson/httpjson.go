@@ -1,5 +1,7 @@
 // Package httpjson holds the JSON and RFC 9457 Problem Details responders
-// shared by the admin and portal REST decomposition seams.
+// shared by the admin and portal REST decomposition seams, and the request-side
+// JSON field types (see OptionalInt) that the REST routes and the MCP tools
+// accepting the same field decode through.
 //
 // pkg/admin and pkg/portal each carry their own unexported copy of this
 // responder, and the first seam extracted out of pkg/admin

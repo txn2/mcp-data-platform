@@ -93,6 +93,9 @@ export const mockAssets: Asset[] = [
     },
     session_id: agentSessions[0]!,
     current_version: 5,
+    // A dashboard a scheduled script refreshes: it carries its own retention
+    // cap rather than inheriting the deployment default (#1421).
+    max_versions: 25,
     created_at: daysAgo(3),
     updated_at: daysAgo(1),
   },

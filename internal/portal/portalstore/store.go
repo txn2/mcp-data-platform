@@ -114,28 +114,22 @@ func (s *postgresAssetStore) Get(ctx context.Context, id string) (*portaldomain.
 	query := `
 		SELECT id, owner_id, owner_email, name, description, content_type, s3_bucket, s3_key,
 		       thumbnail_s3_key, thumbnail_dark_s3_key, size_bytes, tags, provenance, session_id, current_version,
-		       created_at, updated_at, deleted_at, COALESCE(idempotency_key, '')
+		       created_at, updated_at, deleted_at, COALESCE(idempotency_key, ''), max_versions
 		FROM portal_assets WHERE id = $1
 	`
 	var asset portaldomain.Asset
 	var tags, prov []byte
 	var deletedAt sql.NullTime
+	var maxVersions sql.NullInt64
 
 	err := s.db.QueryRowContext(ctx, query, id).Scan(
-		&asset.ID, &asset.OwnerID, &asset.OwnerEmail, &asset.Name, &asset.Description,
-		&asset.ContentType, &asset.S3Bucket, &asset.S3Key, &asset.ThumbnailS3Key, &asset.ThumbnailDarkS3Key, &asset.SizeBytes,
-		&tags, &prov, &asset.SessionID, &asset.CurrentVersion, &asset.CreatedAt, &asset.UpdatedAt, &deletedAt,
-		&asset.IdempotencyKey,
+		assetScanDest(&asset, &tags, &prov, &deletedAt, &maxVersions)...,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("querying asset: %w", err)
 	}
 
-	if deletedAt.Valid {
-		asset.DeletedAt = &deletedAt.Time
-	}
-
-	if err := unmarshalAssetJSON(&asset, tags, prov); err != nil {
+	if err := finishScannedAsset(&asset, tags, prov, deletedAt, maxVersions); err != nil {
 		return nil, err
 	}
 
@@ -146,29 +140,23 @@ func (s *postgresAssetStore) GetByIdempotencyKey(ctx context.Context, ownerID, k
 	query := `
 		SELECT id, owner_id, owner_email, name, description, content_type, s3_bucket, s3_key,
 		       thumbnail_s3_key, thumbnail_dark_s3_key, size_bytes, tags, provenance, session_id, current_version,
-		       created_at, updated_at, deleted_at, COALESCE(idempotency_key, '')
+		       created_at, updated_at, deleted_at, COALESCE(idempotency_key, ''), max_versions
 		FROM portal_assets
 		WHERE owner_id = $1 AND idempotency_key = $2 AND deleted_at IS NULL
 	`
 	var asset portaldomain.Asset
 	var tags, prov []byte
 	var deletedAt sql.NullTime
+	var maxVersions sql.NullInt64
 
 	err := s.db.QueryRowContext(ctx, query, ownerID, key).Scan(
-		&asset.ID, &asset.OwnerID, &asset.OwnerEmail, &asset.Name, &asset.Description,
-		&asset.ContentType, &asset.S3Bucket, &asset.S3Key, &asset.ThumbnailS3Key, &asset.ThumbnailDarkS3Key, &asset.SizeBytes,
-		&tags, &prov, &asset.SessionID, &asset.CurrentVersion, &asset.CreatedAt, &asset.UpdatedAt, &deletedAt,
-		&asset.IdempotencyKey,
+		assetScanDest(&asset, &tags, &prov, &deletedAt, &maxVersions)...,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("querying asset by idempotency key: %w", err)
 	}
 
-	if deletedAt.Valid {
-		asset.DeletedAt = &deletedAt.Time
-	}
-
-	if err := unmarshalAssetJSON(&asset, tags, prov); err != nil {
+	if err := finishScannedAsset(&asset, tags, prov, deletedAt, maxVersions); err != nil {
 		return nil, err
 	}
 
@@ -183,7 +171,7 @@ func (s *postgresAssetStore) GetByIDs(ctx context.Context, ids []string) (map[st
 	query := `
 		SELECT id, owner_id, owner_email, name, description, content_type, s3_bucket, s3_key,
 		       thumbnail_s3_key, thumbnail_dark_s3_key, size_bytes, tags, provenance, session_id, current_version,
-		       created_at, updated_at, deleted_at, COALESCE(idempotency_key, '')
+		       created_at, updated_at, deleted_at, COALESCE(idempotency_key, ''), max_versions
 		FROM portal_assets WHERE id = ANY($1) AND deleted_at IS NULL
 	`
 	rows, err := s.db.QueryContext(ctx, query, pq.Array(ids))
@@ -197,20 +185,15 @@ func (s *postgresAssetStore) GetByIDs(ctx context.Context, ids []string) (map[st
 		var asset portaldomain.Asset
 		var tags, prov []byte
 		var deletedAt sql.NullTime
+		var maxVersions sql.NullInt64
 
 		if err := rows.Scan(
-			&asset.ID, &asset.OwnerID, &asset.OwnerEmail, &asset.Name, &asset.Description,
-			&asset.ContentType, &asset.S3Bucket, &asset.S3Key, &asset.ThumbnailS3Key, &asset.ThumbnailDarkS3Key, &asset.SizeBytes,
-			&tags, &prov, &asset.SessionID, &asset.CurrentVersion, &asset.CreatedAt, &asset.UpdatedAt, &deletedAt,
-			&asset.IdempotencyKey,
+			assetScanDest(&asset, &tags, &prov, &deletedAt, &maxVersions)...,
 		); err != nil {
 			return nil, fmt.Errorf("scanning asset row: %w", err)
 		}
 
-		if deletedAt.Valid {
-			asset.DeletedAt = &deletedAt.Time
-		}
-		if err := unmarshalAssetJSON(&asset, tags, prov); err != nil {
+		if err := finishScannedAsset(&asset, tags, prov, deletedAt, maxVersions); err != nil {
 			return nil, err
 		}
 
@@ -263,7 +246,7 @@ func (s *postgresAssetStore) queryAssets(ctx context.Context, filter portaldomai
 	selectQB := applyAssetFilter(psq.Select(
 		"id", "owner_id", "owner_email", "name", "description", "content_type", "s3_bucket", "s3_key",
 		"thumbnail_s3_key", "thumbnail_dark_s3_key", "size_bytes", "tags", "provenance", "session_id", "current_version",
-		"created_at", "updated_at", "deleted_at", "COALESCE(idempotency_key, '')",
+		"created_at", "updated_at", "deleted_at", "COALESCE(idempotency_key, '')", "max_versions",
 	).From("portal_assets"), filter).
 		Where("deleted_at IS NULL").
 		OrderBy(filter.Order()...)
@@ -451,6 +434,17 @@ func applyScalarUpdates(qb sq.UpdateBuilder, updates portaldomain.AssetUpdate) (
 	}
 	if updates.ThumbnailDarkS3Key != nil {
 		qb = qb.Set("thumbnail_dark_s3_key", *updates.ThumbnailDarkS3Key)
+		changed = true
+	}
+	// Clearing wins over setting: an update that says both "inherit the
+	// platform default" and "keep N" is contradictory, and inheriting is the
+	// state a caller can always get back out of.
+	switch {
+	case updates.ClearMaxVersions:
+		qb = qb.Set("max_versions", nil)
+		changed = true
+	case updates.MaxVersions != nil:
+		qb = qb.Set("max_versions", *updates.MaxVersions)
 		changed = true
 	}
 	return qb, changed
@@ -1128,21 +1122,25 @@ func applyAssetFilter(qb sq.SelectBuilder, filter portaldomain.AssetFilter) sq.S
 // order shared by the list query (queryAssets) and the ranked-search queries
 // (which append their score columns). It is the single definition of that order,
 // so the scan cannot drift from the projection across call sites.
-func assetScanDest(a *portaldomain.Asset, tags, prov *[]byte, deletedAt *sql.NullTime) []any {
+func assetScanDest(a *portaldomain.Asset, tags, prov *[]byte, deletedAt *sql.NullTime, maxVersions *sql.NullInt64) []any {
 	return []any{
 		&a.ID, &a.OwnerID, &a.OwnerEmail, &a.Name, &a.Description,
 		&a.ContentType, &a.S3Bucket, &a.S3Key, &a.ThumbnailS3Key, &a.ThumbnailDarkS3Key, &a.SizeBytes,
 		tags, prov, &a.SessionID, &a.CurrentVersion, &a.CreatedAt, &a.UpdatedAt, deletedAt,
-		&a.IdempotencyKey,
+		&a.IdempotencyKey, maxVersions,
 	}
 }
 
 // finishScannedAsset applies the nullable deleted_at and unmarshals the tags +
 // provenance JSON for a freshly scanned asset. Shared by scanAssetRow and the
 // ranked-search scanners.
-func finishScannedAsset(asset *portaldomain.Asset, tags, prov []byte, deletedAt sql.NullTime) error {
+func finishScannedAsset(asset *portaldomain.Asset, tags, prov []byte, deletedAt sql.NullTime, maxVersions sql.NullInt64) error {
 	if deletedAt.Valid {
 		asset.DeletedAt = &deletedAt.Time
+	}
+	if maxVersions.Valid {
+		n := int(maxVersions.Int64)
+		asset.MaxVersions = &n
 	}
 	return unmarshalAssetJSON(asset, tags, prov)
 }
@@ -1151,11 +1149,12 @@ func scanAssetRow(rows *sql.Rows) (portaldomain.Asset, error) {
 	var asset portaldomain.Asset
 	var tags, prov []byte
 	var deletedAt sql.NullTime
+	var maxVersions sql.NullInt64
 
-	if err := rows.Scan(assetScanDest(&asset, &tags, &prov, &deletedAt)...); err != nil {
+	if err := rows.Scan(assetScanDest(&asset, &tags, &prov, &deletedAt, &maxVersions)...); err != nil {
 		return asset, fmt.Errorf("scanning asset row: %w", err)
 	}
-	if err := finishScannedAsset(&asset, tags, prov, deletedAt); err != nil {
+	if err := finishScannedAsset(&asset, tags, prov, deletedAt, maxVersions); err != nil {
 		return asset, err
 	}
 	return asset, nil

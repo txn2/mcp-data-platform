@@ -17369,6 +17369,11 @@ const docTemplate = `{
                 "description": {
                     "type": "string"
                 },
+                "max_versions": {
+                    "description": "MaxVersions caps how many versions this asset keeps. Omit to leave the\ncurrent setting alone, send null to go back to the deployment default,\n0 to keep every version, or N to keep the newest N.",
+                    "type": "integer",
+                    "example": 100
+                },
                 "name": {
                     "type": "string"
                 },
@@ -21328,6 +21333,11 @@ const docTemplate = `{
                     "type": "string",
                     "example": "export-2026-04-18-abc123"
                 },
+                "max_versions": {
+                    "description": "MaxVersions is the asset's own version-retention cap. Nil means the\nasset has no opinion and inherits the deployment's portal.max_versions;\n0 means it keeps every version; N means it keeps the newest N. See\nEffectiveMaxVersions.",
+                    "type": "integer",
+                    "example": 100
+                },
                 "name": {
                     "type": "string",
                     "example": "Q4 Revenue Dashboard"
@@ -21716,6 +21726,11 @@ const docTemplate = `{
                 "is_owner": {
                     "type": "boolean",
                     "example": true
+                },
+                "max_versions": {
+                    "description": "MaxVersions is the asset's own version-retention cap. Nil means the\nasset has no opinion and inherits the deployment's portal.max_versions;\n0 means it keeps every version; N means it keeps the newest N. See\nEffectiveMaxVersions.",
+                    "type": "integer",
+                    "example": 100
                 },
                 "name": {
                     "type": "string",
@@ -22539,6 +22554,11 @@ const docTemplate = `{
                 "description": {
                     "type": "string",
                     "example": "Updated quarterly revenue analysis"
+                },
+                "max_versions": {
+                    "description": "MaxVersions caps how many versions this asset keeps. Omit to leave the\ncurrent setting alone, send null to go back to the deployment default,\n0 to keep every version, or N to keep the newest N.",
+                    "type": "integer",
+                    "example": 100
                 },
                 "name": {
                     "type": "string",

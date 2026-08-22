@@ -1053,6 +1053,7 @@ List, retrieve, update, delete, or share saved assets, and edit an asset's conte
 | `name` | string | No | - | New name (for update) |
 | `description` | string | No | - | New description (for update) |
 | `tags` | array | No | - | New tags (for update) |
+| `max_versions` | integer \| null | No | - | How many versions this asset keeps (update). Omit to leave the setting alone, `null` to go back to the deployment default, `0` to keep every version, `N` to keep the newest N. A negative value is refused. Sent with `content` in one call, the new cap applies to the version that call writes |
 | `content_type` | string | No | - | New content type (for update, only when replacing content). Same accepted set as `save_asset`; omit it to keep the type the asset already carries |
 | `change_summary` | string | No | - | Summary recorded on the new version (update and patch) |
 | `sources` | array | No | session window | The calls behind a content edit (update and patch), as `call_id` values or `mcp:call:<id>` references. Recorded as a new capture beside the ones earlier versions carry |
@@ -1070,7 +1071,7 @@ The patch and navigation arguments (`edits`, `base_version`, `dry_run`, `find`, 
 
 - **list**: Show the current user's assets with metadata
 - **get**: Retrieve full asset metadata by ID (the metadata row, not the body)
-- **update**: Change name, description, tags, or replace the whole content
+- **update**: Change name, description, tags, version retention, or replace the whole content. A version pushed past `max_versions` is deleted along with its stored content, which is what makes the setting worth reaching for on an asset a schedule rewrites; see [Version retention](portal-user.md#version-retention)
 - **delete**: Soft-delete an asset
 - **search**: Rank the caller's own assets by relevance to `query`. Uses the same hybrid (vector + lexical) ranking as the prompt and Knowledge & Memory search: weighted hybrid when an embedding provider is configured, automatic lexical-only fallback otherwise. Returns each match with a `score` and reports `ranking` (`hybrid` or `lexical`). Scoped server-side to the caller's own assets by `owner_id`, the same ownership key the asset library and update/delete checks use, so search returns exactly what you see in the library, and fails closed when the caller has no identity, so a user can never find an asset they cannot view.
 - **patch / locate / get_content / outline / stats / diff**: read and edit the body without moving the whole document. See below.

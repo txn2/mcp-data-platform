@@ -468,6 +468,64 @@ func TestUpdateAdminAssetSuccess(t *testing.T) {
 	assert.Equal(t, "updated", resp.Status)
 }
 
+// TestUpdateAdminAsset_MaxVersions covers the retention override on the admin
+// route: it reaches the same column as the portal route and the tool, an
+// explicit null clears it, and a negative number is refused (#1421).
+func TestUpdateAdminAsset_MaxVersions(t *testing.T) {
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+		assert     func(t *testing.T, u *portal.AssetUpdate)
+	}{
+		{
+			name: "a value is written through", body: `{"max_versions": 10}`, wantStatus: http.StatusOK,
+			assert: func(t *testing.T, u *portal.AssetUpdate) {
+				t.Helper()
+				require.NotNil(t, u.MaxVersions)
+				assert.Equal(t, 10, *u.MaxVersions)
+			},
+		},
+		{
+			name: "null returns the asset to the deployment default",
+			body: `{"max_versions": null}`, wantStatus: http.StatusOK,
+			assert: func(t *testing.T, u *portal.AssetUpdate) {
+				t.Helper()
+				assert.Nil(t, u.MaxVersions)
+				assert.True(t, u.ClearMaxVersions)
+			},
+		},
+		{
+			name: "a negative number is refused", body: `{"max_versions": -5}`,
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			now := time.Now()
+			store := &mockAdminAssetStore{getAsset: &portal.Asset{
+				ID: "a1", OwnerID: "u1", Name: "Test",
+				Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+			}}
+			h := newAdminTestHandler(store, &mockAdminShareStore{}, &mockAdminS3Client{})
+
+			req := httptest.NewRequestWithContext(context.Background(), "PUT",
+				"/api/v1/admin/assets/a1", strings.NewReader(tc.body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+
+			assert.Equal(t, tc.wantStatus, w.Code)
+			if tc.assert == nil {
+				assert.Nil(t, store.lastUpdate, "a refused update never reaches the store")
+				return
+			}
+			require.NotNil(t, store.lastUpdate)
+			tc.assert(t, store.lastUpdate)
+		})
+	}
+}
+
 func TestUpdateAdminAssetNotFound(t *testing.T) {
 	h := newAdminTestHandler(
 		&mockAdminAssetStore{getErr: fmt.Errorf("not found")},
