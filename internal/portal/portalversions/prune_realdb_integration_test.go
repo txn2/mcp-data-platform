@@ -128,9 +128,9 @@ func TestAssetVersionPrune_RealDB_ConvergesOnTheCap(t *testing.T) {
 		"the cap keeps the newest 3 and the oldest are the ones that go")
 	assert.Contains(t, objects.keys(), "portal-assets/"+versionKey(id, 2),
 		"a pruned version's content object goes with its row")
-	assert.Contains(t, objects.keys(), "portal-assets/artifacts/owner/"+id+"/v2/thumbnail.png",
+	assert.Contains(t, objects.keys(), "portal-assets/artifacts/owner/"+id+"/v2/.thumbnail.png",
 		"and so do the thumbnails that sat beside it")
-	assert.Contains(t, objects.keys(), "portal-assets/artifacts/owner/"+id+"/v2/thumbnail_dark.png")
+	assert.Contains(t, objects.keys(), "portal-assets/artifacts/owner/"+id+"/v2/.thumbnail_dark.png")
 }
 
 // TestAssetVersionPrune_RealDB_NeverDeletesTheLiveKey pins the guard. Version 1
@@ -156,8 +156,12 @@ func TestAssetVersionPrune_RealDB_NeverDeletesTheLiveKey(t *testing.T) {
 	// no longer live and the cap of 1 may take it.
 	writeVersion(t, store, id, 2)
 	assert.Equal(t, []int{2}, liveVersions(t, db, id))
+	// Both thumbnail spellings are attempted: a version captured before
+	// thumbnails took hidden names still has PNGs under the old ones (#1327).
 	assert.Equal(t, []string{
 		"portal-assets/" + flatKey(id),
+		"portal-assets/artifacts/owner/" + id + "/.thumbnail.png",
+		"portal-assets/artifacts/owner/" + id + "/.thumbnail_dark.png",
 		"portal-assets/artifacts/owner/" + id + "/thumbnail.png",
 		"portal-assets/artifacts/owner/" + id + "/thumbnail_dark.png",
 	}, objects.keys())
@@ -286,9 +290,9 @@ func TestAssetVersionPrune_RealDB_SharedKeyAcrossVersions(t *testing.T) {
 	assert.Equal(t, []int{4, 5}, liveVersions(t, db, id))
 
 	deleted := objects.keys()
-	assert.NotContains(t, deleted, "portal-assets/"+dir+"thumbnail.png",
+	assert.NotContains(t, deleted, "portal-assets/"+dir+".thumbnail.png",
 		"the current version's thumbnail lives in the same directory and must survive")
-	assert.NotContains(t, deleted, "portal-assets/"+dir+"thumbnail_dark.png")
+	assert.NotContains(t, deleted, "portal-assets/"+dir+".thumbnail_dark.png")
 	assert.Contains(t, deleted, "portal-assets/"+runKey,
 		"the shared key goes once both rows naming it are gone")
 	assert.NotContains(t, deleted, "portal-assets/"+dir+"run-8.html",

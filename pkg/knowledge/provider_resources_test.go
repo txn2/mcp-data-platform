@@ -440,3 +440,58 @@ func TestResourcesProvider_FetchWithoutARecorder(t *testing.T) {
 		t.Fatalf("fetch with audit disabled: %v", err)
 	}
 }
+
+// TestResourcesProvider_CarriesTheTableReference is the cross-component
+// assertion for the resource half: the lookup bound by the composition root
+// reaches a search hit and a fetched document through the real provider, with
+// the subject built from the resource's configured bucket and its head key, so
+// a revision that moved the head can be reported as stale (#1327).
+func TestResourcesProvider_CarriesTheTableReference(t *testing.T) {
+	p := resourcesProvider()
+	lookup := &stubLookup{tables: map[string]*HitTable{
+		"res_g": {Connection: "scratch", Table: "scratch.uploads.analyst_dict", Stale: true},
+	}}
+	p.SetTableLookup(lookup)
+
+	hits, err := p.Search(context.Background(), Query{Intent: "gross_margin_pct"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(hits) != 1 || hits[0].Table == nil {
+		t.Fatalf("hit carries no table reference: %+v", hits)
+	}
+	if hits[0].Table.Table != "scratch.uploads.analyst_dict" || !hits[0].Table.Stale {
+		t.Errorf("table = %+v", hits[0].Table)
+	}
+
+	if len(lookup.seen) != 1 {
+		t.Fatalf("subjects = %+v", lookup.seen)
+	}
+	if lookup.seen[0].Kind != TableKindResource {
+		t.Errorf("kind = %q; want %q", lookup.seen[0].Kind, TableKindResource)
+	}
+	// The bucket is the one the provider was configured with, and the key is
+	// the resource's own head; a registration is judged stale against both.
+	if lookup.seen[0].Bucket != "bucket" || lookup.seen[0].HeadKey != "k-global" {
+		t.Errorf("subject = %+v; want the configured bucket and the head key", lookup.seen[0])
+	}
+
+	doc, owned, err := p.Fetch(context.Background(), "mcp:resource:res_g", Caller{})
+	if err != nil || !owned {
+		t.Fatalf("Fetch: owned=%v err=%v", owned, err)
+	}
+	if doc.Table == nil || doc.Table.Table != "scratch.uploads.analyst_dict" {
+		t.Errorf("document carries no table reference: %+v", doc.Table)
+	}
+}
+
+// TestResourcesProvider_WithoutALookupServesTheHitsItAlwaysDid.
+func TestResourcesProvider_WithoutALookup(t *testing.T) {
+	hits, err := resourcesProvider().Search(context.Background(), Query{Intent: "gross_margin_pct"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(hits) != 1 || hits[0].Table != nil {
+		t.Errorf("a deployment with no registration mechanism carries no reference: %+v", hits)
+	}
+}

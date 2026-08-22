@@ -204,3 +204,75 @@ func TestAssetsProvider_Fetch(t *testing.T) {
 		}
 	})
 }
+
+// TestAssetsProvider_CarriesTheTableReference is the cross-component
+// assertion: the lookup bound by the composition root actually reaches a
+// search hit and a fetched document through the real provider, with the
+// subject built from the asset's own bucket and key so staleness can be judged
+// against them (#1327).
+func TestAssetsProvider_CarriesTheTableReference(t *testing.T) {
+	asset := portal.Asset{
+		ID: "a1", Name: "Vendor keys", OwnerID: "u1",
+		S3Bucket: "portal-assets", S3Key: "artifacts/u1/a1/content.csv",
+		ContentType: "text/csv",
+	}
+	searcher := &fakeAssetSearcher{
+		scored: []portal.ScoredAsset{{Asset: asset, Score: 0.9}},
+		asset:  &asset,
+	}
+	lookup := &stubLookup{tables: map[string]*HitTable{
+		"a1": {Connection: "scratch", Table: "scratch.uploads.analyst_vendor_keys"},
+	}}
+
+	p := NewAssetsProvider(searcher)
+	p.SetTableLookup(lookup)
+
+	hits, err := p.Search(context.Background(),
+		Query{Intent: "vendor keys", Caller: Caller{UserID: "u1"}})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(hits) != 1 || hits[0].Table == nil {
+		t.Fatalf("hit carries no table reference: %+v", hits)
+	}
+	if hits[0].Table.Table != "scratch.uploads.analyst_vendor_keys" {
+		t.Errorf("table = %q", hits[0].Table.Table)
+	}
+
+	// The subject is built from the asset's own location, which is what lets a
+	// moved head key be reported as stale.
+	if len(lookup.seen) != 1 || lookup.seen[0].Bucket != "portal-assets" ||
+		lookup.seen[0].HeadKey != "artifacts/u1/a1/content.csv" {
+		t.Errorf("subject = %+v; want the asset's bucket and head key", lookup.seen)
+	}
+	if lookup.seen[0].Kind != TableKindAsset {
+		t.Errorf("kind = %q; want %q", lookup.seen[0].Kind, TableKindAsset)
+	}
+
+	// Fetch carries the same marker, so a record read in full says it can be
+	// joined as plainly as its snippet did.
+	doc, owned, err := p.Fetch(context.Background(), "mcp:asset:a1", Caller{UserID: "u1"})
+	if err != nil || !owned {
+		t.Fatalf("Fetch: owned=%v err=%v", owned, err)
+	}
+	if doc.Table == nil || doc.Table.Table != "scratch.uploads.analyst_vendor_keys" {
+		t.Errorf("document carries no table reference: %+v", doc.Table)
+	}
+}
+
+// TestAssetsProvider_WithoutALookupServesTheHitsItAlwaysDid.
+func TestAssetsProvider_WithoutALookup(t *testing.T) {
+	asset := portal.Asset{ID: "a1", Name: "Vendor keys", OwnerID: "u1"}
+	p := NewAssetsProvider(&fakeAssetSearcher{
+		scored: []portal.ScoredAsset{{Asset: asset, Score: 0.9}},
+	})
+
+	hits, err := p.Search(context.Background(),
+		Query{Intent: "vendor keys", Caller: Caller{UserID: "u1"}})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(hits) != 1 || hits[0].Table != nil {
+		t.Errorf("a deployment with no registration mechanism carries no reference: %+v", hits)
+	}
+}

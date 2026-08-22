@@ -2,6 +2,7 @@ package resource
 
 import (
 	"cmp"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -40,6 +41,12 @@ type Deps struct {
 	URIScheme string          // defaults to "mcp" if empty
 	OnCreate  func(*Resource) // called after successful create to register with MCP
 	OnDelete  func(string)    // called after successful delete with URI to unregister
+	// OnDeleteID is called after a successful delete with the resource's ID,
+	// so a consumer keyed on the record rather than on its MCP URI can clean
+	// up after it -- the tables registered over its file (#1327). Separate
+	// from OnDelete because that one exists to unregister an MCP resource and
+	// is keyed on the URI it was registered under.
+	OnDeleteID func(context.Context, string)
 
 	// Versions records content revisions. Absent on a deployment whose store
 	// does not implement VersionStore, which disables the revision and version
@@ -104,6 +111,13 @@ func (h *Handler) notifyDelete(uri string) {
 	if h.deps.OnDelete != nil {
 		slog.Debug("resource handler: notifying delete") //nolint:gosec // removed URI from log to satisfy taint analysis
 		h.deps.OnDelete(uri)
+	}
+}
+
+// notifyDeleteID reports a deleted resource to the consumers keyed on its ID.
+func (h *Handler) notifyDeleteID(ctx context.Context, id string) {
+	if h.deps.OnDeleteID != nil {
+		h.deps.OnDeleteID(ctx, id)
 	}
 }
 
@@ -702,6 +716,7 @@ func (h *Handler) handleDelete(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusNoContent)
 	h.notifyDelete(res.URI)
+	h.notifyDeleteID(r.Context(), id)
 }
 
 // conflictError signals a 409 Conflict (e.g. duplicate URI).

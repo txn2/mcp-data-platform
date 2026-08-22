@@ -405,11 +405,17 @@ func TestCreateVersion_PruneCutoffAndObjects(t *testing.T) {
 	_, err = store.CreateVersion(context.Background(), v)
 	require.NoError(t, err)
 	assert.NoError(t, mock.ExpectationsWereMet())
+	// Both thumbnail spellings go: a version captured before thumbnails took
+	// hidden names still has PNGs under the old ones (#1327).
 	assert.Equal(t, []string{
 		"portal-assets/artifacts/o/abc123/v6/content.html",
+		"portal-assets/artifacts/o/abc123/v6/.thumbnail.png",
+		"portal-assets/artifacts/o/abc123/v6/.thumbnail_dark.png",
 		"portal-assets/artifacts/o/abc123/v6/thumbnail.png",
 		"portal-assets/artifacts/o/abc123/v6/thumbnail_dark.png",
 		"portal-assets/artifacts/o/abc123/v7/content.html",
+		"portal-assets/artifacts/o/abc123/v7/.thumbnail.png",
+		"portal-assets/artifacts/o/abc123/v7/.thumbnail_dark.png",
 		"portal-assets/artifacts/o/abc123/v7/thumbnail.png",
 		"portal-assets/artifacts/o/abc123/v7/thumbnail_dark.png",
 	}, objects.keys)
@@ -458,7 +464,8 @@ func TestCreateVersion_ObjectDeleteFailureDoesNotFailTheWrite(t *testing.T) {
 	assigned, err := store.CreateVersion(context.Background(), v)
 	require.NoError(t, err)
 	assert.Equal(t, 101, assigned)
-	assert.Equal(t, 3, objects.calls, "content and both thumbnails were each attempted")
+	assert.Equal(t, 5, objects.calls,
+		"content and both thumbnail spellings, light and dark, were each attempted")
 }
 
 // TestCreateVersion_NoObjectClientStillPrunes covers database-only mode.

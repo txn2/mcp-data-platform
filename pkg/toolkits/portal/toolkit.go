@@ -75,6 +75,13 @@ const (
 	actionListShares  = "list_shares"
 	actionRevokeShare = "revoke_share"
 
+	// Table-registration actions (#1327). Registering puts an asset's stored
+	// CSV in a schema everyone granted the connection can read, so like
+	// sharing they are owner authority.
+	actionRegisterTable   = "register_table"
+	actionUnregisterTable = "unregister_table"
+	actionListTables      = "list_tables"
+
 	// Content editing and navigation actions (#1033). These make the cost of
 	// an edit proportional to the size of the edit rather than the size of
 	// the document; the grammar is shared with manage_prompt via
@@ -162,6 +169,14 @@ type manageAssetInput struct {
 	AccessMode string `json:"access_mode,omitempty"`
 	ExpiresIn  string `json:"expires_in,omitempty"`
 	ShareID    string `json:"share_id,omitempty"`
+
+	// Table-registration arguments (#1327). Connection names the Trino
+	// connection whose scratch schema holds the table; TableName is optional
+	// and defaults to a slug of the asset's filename. RegistrationID selects
+	// the registration unregister_table drops.
+	Connection     string `json:"connection,omitempty"`
+	TableName      string `json:"table_name,omitempty"`
+	RegistrationID string `json:"registration_id,omitempty"`
 
 	// Content editing and navigation arguments (#1033). Edits carries the
 	// ordered patch; the rest select what to read or search.
@@ -289,6 +304,10 @@ type Toolkit struct {
 
 	captureProvenance portal.ProvenanceCapturer
 	directory         DirectoryReader
+	// tables registers an asset's stored CSV as a query-engine table. Nil on a
+	// deployment with no Trino connection carrying a scratch target, which
+	// leaves the table actions reporting that rather than failing.
+	tables TableRegistrar
 
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
@@ -358,6 +377,7 @@ const manageToolDescription = "Manages saved assets and collections. " +
 	"Asset actions: list, get, update, delete, list_versions, revert, search. " +
 	"Content actions: patch, locate, get_content, outline, stats, diff. " +
 	"Sharing actions: share, list_shares, revoke_share. " +
+	"Table actions: register_table, unregister_table, list_tables. " +
 	"Collection actions: create_collection, list_collections, get_collection, " +
 	"update_collection, delete_collection, set_sections. " +
 	"Use 'share' to give a person access to an asset you own — name them with " +
@@ -365,6 +385,10 @@ const manageToolDescription = "Manages saved assets and collections. " +
 	"and they get an email with the link; omit 'recipient' for a link instead, " +
 	"which any signed-in user can open (access_mode public makes it open to " +
 	"anyone holding it and requires expires_in). " +
+	"Use 'register_table' on a CSV asset to make it queryable: it creates an " +
+	"external table over the file where it already sits, so trino_query can " +
+	"join it to warehouse tables. Every column is VARCHAR, so a join to a " +
+	"typed column needs a CAST. " +
 	"Note: 'list' returns full metadata including provenance for each asset. " +
 	"Use 'get' with a specific asset_id for the metadata row and 'get_content' for the body. " +
 	"Use 'search' with a 'query' to rank your assets by relevance (semantic + " +
@@ -636,6 +660,9 @@ func (t *Toolkit) buildActions() map[string]manageActionHandler {
 		actionShare:            t.handleShare,
 		actionListShares:       t.handleListShares,
 		actionRevokeShare:      t.handleRevokeShare,
+		actionRegisterTable:    t.handleRegisterTable,
+		actionUnregisterTable:  t.handleUnregisterTable,
+		actionListTables:       t.handleListTables,
 	}
 }
 
@@ -659,6 +686,7 @@ func (t *Toolkit) handleManageAsset(ctx context.Context, _ *mcp.CallToolRequest,
 			"invalid action %q: must be one of: list, get, update, delete, list_versions, revert, search, "+
 				"patch, locate, get_content, outline, stats, diff, "+
 				"share, list_shares, revoke_share, "+
+				"register_table, unregister_table, list_tables, "+
 				"create_collection, list_collections, get_collection, update_collection, delete_collection, set_sections",
 			input.Action)), nil, nil
 	}
@@ -892,6 +920,10 @@ func (t *Toolkit) handleDelete(ctx context.Context, input manageAssetInput) (*mc
 	if err := t.assetStore.SoftDelete(ctx, input.AssetID); err != nil {
 		return toolkit.ErrorResult("failed to delete asset: " + err.Error()), nil, nil
 	}
+	// A delete is soft, so the asset's object survives it. A table still
+	// pointing at that object would keep serving its rows to everyone granted
+	// the connection, out of a schema the owner can no longer see (#1327).
+	t.dropTablesFor(ctx, input.AssetID)
 
 	return toolkit.JSONResultTyped(map[string]any{
 		fieldAssetID: input.AssetID,

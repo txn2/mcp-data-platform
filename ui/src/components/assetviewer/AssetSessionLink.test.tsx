@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Asset } from "@/api/portal/types";
 import { AssetMetadataSidebar } from "./AssetMetadataSidebar";
 import { shortSessionId } from "@/pages/sessions/kind";
@@ -42,33 +43,40 @@ function asset(overrides: Partial<Asset> = {}): Asset {
   } as Asset;
 }
 
-function renderSidebar(props: Partial<Parameters<typeof AssetMetadataSidebar>[0]> = {}) {
+function renderSidebar(
+  props: Partial<Parameters<typeof AssetMetadataSidebar>[0]> = {},
+) {
   const onNavigate = vi.fn();
+  // The sidebar queries what tables are registered over the asset (#1327), so
+  // it needs a client even in a test about the session walk.
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
-    <AssetMetadataSidebar
-      asset={asset()}
-      editing={false}
-      editName=""
-      editDesc=""
-      editTags=""
-      editRetentionMode="default"
-      editRetentionCustom=""
-      canSetRetention
-      onEditNameChange={vi.fn()}
-      onEditDescChange={vi.fn()}
-      onEditTagsChange={vi.fn()}
-      onEditRetentionModeChange={vi.fn()}
-      onEditRetentionCustomChange={vi.fn()}
-      onStartEdit={vi.fn()}
-      onSaveEdit={vi.fn()}
-      onCancelEdit={vi.fn()}
-      updateMutation={{ isPending: false, mutate: vi.fn() }}
-      isOwner
-      isSharedEditor={false}
-      onNavigate={onNavigate}
-      sessionPath={(id) => `/activity/sessions/${id}`}
-      {...props}
-    />,
+    <QueryClientProvider client={qc}>
+      <AssetMetadataSidebar
+        asset={asset()}
+        editing={false}
+        editName=""
+        editDesc=""
+        editTags=""
+        editRetentionMode="default"
+        editRetentionCustom=""
+        canSetRetention
+        onEditNameChange={vi.fn()}
+        onEditDescChange={vi.fn()}
+        onEditTagsChange={vi.fn()}
+        onEditRetentionModeChange={vi.fn()}
+        onEditRetentionCustomChange={vi.fn()}
+        onStartEdit={vi.fn()}
+        onSaveEdit={vi.fn()}
+        onCancelEdit={vi.fn()}
+        updateMutation={{ isPending: false, mutate: vi.fn() }}
+        isOwner
+        isSharedEditor={false}
+        onNavigate={onNavigate}
+        sessionPath={(id) => `/activity/sessions/${id}`}
+        {...props}
+      />
+    </QueryClientProvider>,
   );
   return { onNavigate };
 }

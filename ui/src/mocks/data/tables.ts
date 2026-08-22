@@ -1,0 +1,118 @@
+import type {
+  TableConnection,
+  TableRegistration,
+} from "@/api/tables/types";
+
+// Table registrations (#1327). The fixtures cover the three states the panel
+// renders differently: a current registration, one whose file has moved on
+// since, and a file with none at all.
+
+// scratchConnection is the one connection the fixtures register onto, named
+// separately so the register helper can fall back to it without an
+// index-into-a-list that the type system has to be told is populated.
+const scratchConnection: TableConnection = {
+  name: "scratch",
+  description: "Writable scratch catalog beside the warehouse",
+  catalog: "scratch",
+  schema: "uploads",
+};
+
+export const mockTableConnections: TableConnection[] = [scratchConnection];
+
+export const mockTableRegistrations: Record<string, TableRegistration[]> = {
+  "res-002": [
+    {
+      id: "reg_2f1c8a",
+      source_kind: "resource",
+      source_id: "res-002",
+      connection: "scratch",
+      catalog: "scratch",
+      schema: "uploads",
+      table: "analyst_vendor_rebates",
+      location: "s3://managed-resources/resources/global/global/res-002/",
+      columns: [
+        { name: "store_id", type: "VARCHAR" },
+        { name: "vendor_code", type: "VARCHAR" },
+        { name: "rebate_pct", type: "VARCHAR" },
+      ],
+      registered_by: "alice@example.com",
+      registered_at: "2026-08-20T14:12:00Z",
+      query_table: "scratch.uploads.analyst_vendor_rebates",
+      sample_sql:
+        'SELECT * FROM scratch.uploads.analyst_vendor_rebates\n-- every column is VARCHAR, so a join to a typed column casts:\n-- JOIN scratch.uploads.analyst_vendor_rebates t ON w.id = CAST(t."store_id" AS BIGINT)',
+      stale: false,
+    },
+  ],
+  // A registration left behind by an earlier revision: the file has a newer
+  // version than the table points at, which is the one state a reader cannot
+  // discover from the rows themselves.
+  "ast-002": [
+    {
+      id: "reg_7b3d90",
+      source_kind: "asset",
+      source_id: "ast-002",
+      connection: "scratch",
+      catalog: "scratch",
+      schema: "uploads",
+      table: "analyst_q3_revenue",
+      location: "s3://portal-assets/artifacts/user-alice/ast-002/",
+      columns: [
+        { name: "region", type: "VARCHAR" },
+        { name: "revenue", type: "VARCHAR" },
+      ],
+      registered_by: "alice@example.com",
+      registered_at: "2026-08-18T09:30:00Z",
+      query_table: "scratch.uploads.analyst_q3_revenue",
+      stale: true,
+    },
+  ],
+};
+
+// mockRegisterTable adds a registration the way the backend would: the
+// persona-prefixed name, the columns of the file's header, and the location of
+// the directory the file already sits in.
+export async function mockRegisterTable(
+  kind: "resource" | "asset",
+  sourceID: string,
+  request: Request,
+): Promise<TableRegistration> {
+  const body = (await request.json()) as { connection: string; table_name?: string };
+  const conn = mockTableConnections.find((c) => c.name === body.connection) ?? scratchConnection;
+  const slug = (body.table_name || "uploaded_file")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  const table = slug.startsWith("analyst_") ? slug : `analyst_${slug}`;
+
+  const reg: TableRegistration = {
+    id: `reg_${Math.random().toString(16).slice(2, 8)}`,
+    source_kind: kind,
+    source_id: sourceID,
+    connection: conn.name,
+    catalog: conn.catalog,
+    schema: conn.schema,
+    table,
+    location: `s3://portal-assets/${kind}s/${sourceID}/`,
+    columns: [
+      { name: "store_id", type: "VARCHAR" },
+      { name: "vendor_code", type: "VARCHAR" },
+      { name: "rebate_pct", type: "VARCHAR" },
+    ],
+    registered_by: "alice@example.com",
+    registered_at: new Date("2026-08-22T10:00:00Z").toISOString(),
+    query_table: `${conn.catalog}.${conn.schema}.${table}`,
+    stale: false,
+  };
+  mockTableRegistrations[sourceID] = [reg, ...(mockTableRegistrations[sourceID] ?? [])];
+  return reg;
+}
+
+// mockDropTable removes one registration, leaving the file itself alone -- the
+// same thing a real DROP of an external table does.
+export function mockDropTable(sourceID: string, registrationID: string): void {
+  const rows = mockTableRegistrations[sourceID];
+  if (!rows) {
+    return;
+  }
+  mockTableRegistrations[sourceID] = rows.filter((r) => r.id !== registrationID);
+}

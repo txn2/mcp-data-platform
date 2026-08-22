@@ -600,7 +600,7 @@ func TestCreateToolkit_WithElicitation(t *testing.T) {
 		MaxLimit:     trinoTestDefMaxLimit,
 	}
 
-	tk := createToolkit(client, cfg, em)
+	tk := createToolkit(client, cfg, em, nil)
 	if tk == nil {
 		t.Fatal("expected non-nil toolkit")
 	}
@@ -630,7 +630,7 @@ func TestCreateToolkit_WithProgressAndElicitation(t *testing.T) {
 		ProgressEnabled: true,
 	}
 
-	tk := createToolkit(client, cfg, em)
+	tk := createToolkit(client, cfg, em, nil)
 	if tk == nil {
 		t.Fatal("expected non-nil toolkit")
 	}

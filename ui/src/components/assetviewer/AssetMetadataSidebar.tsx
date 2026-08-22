@@ -3,6 +3,7 @@ import { Pencil } from "lucide-react";
 import type { Asset, AssetVersion } from "@/api/portal/types";
 import { ProvenancePanel } from "@/components/ProvenancePanel";
 import { CollapsibleMarkdown } from "@/components/renderers/CollapsibleMarkdown";
+import { TablesPanel } from "@/components/tables/TablesPanel";
 import { VersionHistoryPanel } from "@/components/VersionHistoryPanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -159,6 +160,21 @@ export function AssetMetadataSidebar({
             />
           </div>
 
+          {/*
+            Registering an asset's file as a table puts its contents in a
+            schema everyone with the connection can read, so it is the owner's
+            call and an editor share does not carry it (#1327). The panel is
+            absent entirely unless the asset is a CSV and somewhere can hold
+            the table.
+          */}
+          <TablesPanel
+            kind="asset"
+            id={asset.id}
+            contentType={asset.content_type}
+            filename={fileNameOf(asset.s3_key)}
+            canModify={isOwner}
+          />
+
           {versions && versions.length > 0 && (
             <div className="border-t pt-4">
               <VersionHistoryPanel
@@ -172,6 +188,13 @@ export function AssetMetadataSidebar({
       )}
     </Card>
   );
+}
+
+/** fileNameOf is the last segment of an object key, which is what the file is
+ * called and what a suggested table name is built from. */
+function fileNameOf(key: string): string {
+  const idx = key.lastIndexOf("/");
+  return idx >= 0 ? key.slice(idx + 1) : key;
 }
 
 /**

@@ -51,7 +51,7 @@ type Asset struct {
 	// for content types rendered on a forced background (markdown, CSV); types
 	// with a built-in theme (HTML, JSX, SVG) reuse ThumbnailS3Key in both modes.
 	// Empty means callers should fall back to ThumbnailS3Key.
-	ThumbnailDarkS3Key string     `json:"thumbnail_dark_s3_key,omitempty" example:"assets/01HK7R8Z/thumbnail_dark.png"`
+	ThumbnailDarkS3Key string     `json:"thumbnail_dark_s3_key,omitempty" example:"assets/01HK7R8Z/.thumbnail_dark.png"`
 	SizeBytes          int64      `json:"size_bytes" example:"4200"`
 	Tags               []string   `json:"tags"`
 	Provenance         Provenance `json:"provenance"`
@@ -512,14 +512,25 @@ func ValidateDescription(desc string) error {
 // version's thumbnails live in the same directory as its content, so the whole
 // set of objects a version owns is derivable from its content key -- which is
 // what lets a prune remove them without a row that records them.
+//
+// The filenames lead with a dot because that directory is also what a table
+// registration points Trino at (#1327). Hive reads every non-hidden object
+// under an external location and parses it as CSV, so a thumbnail beside a
+// CSV asset's content used to come back as rows of PNG bytes; it skips names
+// beginning with "." or "_". Nothing derives a key to read one -- an asset row
+// records the key that was written -- so thumbnails captured under the older
+// names keep serving, and ThumbnailKeysFor covers both spellings for cleanup.
 const (
 	// ThumbnailVariantLight is the default thumbnail variant.
 	ThumbnailVariantLight = "light"
 	// ThumbnailVariantDark is the dark-mode thumbnail variant.
 	ThumbnailVariantDark = "dark"
 
-	thumbnailLightFilename = "thumbnail.png"
-	thumbnailDarkFilename  = "thumbnail_dark.png"
+	thumbnailLightFilename = ".thumbnail.png"
+	thumbnailDarkFilename  = ".thumbnail_dark.png"
+
+	legacyThumbnailLightFilename = "thumbnail.png"
+	legacyThumbnailDarkFilename  = "thumbnail_dark.png"
 )
 
 // DeriveThumbnailKeyVariant replaces the filename in an S3 key with the
@@ -553,10 +564,20 @@ func (a Asset) StoredThumbnailKey(variant string) string {
 // version row, so a prune that removed only the content object would cap the
 // table and the content bytes while leaving two PNGs per version in the bucket
 // forever.
+//
+// Both the current hidden filenames and the ones written before them are
+// returned: a version captured under the older names is still in the bucket,
+// and a prune that covered only the current spelling would leave it there.
 func ThumbnailKeysFor(contentKey string) []string {
+	dir := ""
+	if idx := strings.LastIndex(contentKey, "/"); idx >= 0 {
+		dir = contentKey[:idx+1]
+	}
 	return []string{
-		DeriveThumbnailKeyVariant(contentKey, ThumbnailVariantLight),
-		DeriveThumbnailKeyVariant(contentKey, ThumbnailVariantDark),
+		dir + thumbnailLightFilename,
+		dir + thumbnailDarkFilename,
+		dir + legacyThumbnailLightFilename,
+		dir + legacyThumbnailDarkFilename,
 	}
 }
 

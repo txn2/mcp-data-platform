@@ -769,6 +769,9 @@ toolkits:
         default_limit: 1000
         max_limit: 10000
         read_only: false
+        scratch:                 # Where a registered table is created (#1327)
+          catalog: scratch
+          schema: uploads
     default: primary
 ```
 
@@ -786,6 +789,8 @@ toolkits:
 | `default_limit` | int | `1000` | Default row limit for queries |
 | `max_limit` | int | `10000` | Maximum allowed row limit |
 | `read_only` | bool | `false` | Reject write SQL on this connection. Set per instance: the other instances of the same toolkit are unaffected, and a call that omits `connection` is judged by the default instance's setting |
+| `scratch.catalog` | string | - | Catalog a [registered table](registered-tables.md) is created in on this connection. Unset (or set without `schema`) means registration is unavailable here |
+| `scratch.schema` | string | - | Schema a registered table is created in. Required alongside `catalog`; a block naming only one is ignored with a warning |
 | `connection_name` | string | - | No effect; accepted for compatibility and warned about at startup. Trino routes by the `instances:` key, so that key is the name `list_connections` advertises, a `connection` parameter carries, an audit row records and a persona rule matches. See [Connection Names](multi-provider.md#connection-names) |
 | `descriptions` | map | `{}` | Override tool descriptions for this instance (key: tool name, value: description text) |
 
@@ -801,6 +806,12 @@ Connections stored in the database (Admin > Connections) carry the same key,
 with a **Read Only** toggle in the Trino connection form. A connection the
 toolkit holds no setting for — one just added, or a name that is not
 configured — refuses write SQL until its setting is recorded.
+
+`scratch:` names a target, not a boundary. Nothing in the toolkit restricts a
+catalog or a schema, and `catalog`/`schema` on a connection are session
+defaults; what keeps a registration off the warehouse is the Trino identity the
+connection authenticates as. See
+[Registered Tables](registered-tables.md#what-the-scratch-schema-is).
 
 ### DataHub
 

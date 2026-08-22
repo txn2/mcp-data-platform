@@ -21,7 +21,18 @@ type API interface {
 	PutObjectStream(ctx context.Context, input *s3client.PutObjectStreamInput) (*s3client.PutObjectOutput, error)
 	GetObject(ctx context.Context, bucket, key string) (*s3client.ObjectContent, error)
 	DeleteObject(ctx context.Context, bucket, key string) error
+	ListObjects(
+		ctx context.Context, bucket, prefix, delimiter string, maxKeys int32, continueToken string,
+	) (*s3client.ListObjectsOutput, error)
 	Close() error
+}
+
+// ObjectEntry names one object a listing returned. It carries only what a
+// caller deciding about a directory needs, so the mcp-s3 client's own shape
+// stays behind this adapter.
+type ObjectEntry struct {
+	Key  string
+	Size int64
 }
 
 // ClientAdapter wraps an mcp-s3 Client to satisfy portal.S3Client. It is
@@ -90,6 +101,40 @@ func (a *ClientAdapter) GetObject(ctx context.Context, bucket, key string) (body
 		return nil, "", fmt.Errorf("s3 get: %w", err)
 	}
 	return obj.Body, obj.ContentType, nil
+}
+
+// maxDirectoryEntries caps a directory listing. A registration only needs to
+// know whether anything sits beside the object it points at and what that is,
+// so a directory with more entries than this is already refused several times
+// over; the cap keeps a caller from paging a bucket that turned out to be one
+// flat prefix.
+const maxDirectoryEntries = 100
+
+// ListDirectory returns the objects directly under prefix, excluding anything
+// in a subdirectory below it.
+//
+// The delimiter is what makes this a directory listing rather than a prefix
+// walk, and it matches what Trino's Hive connector sees: with
+// hive.recursive-directories false, an external location holds exactly the
+// objects returned here. A truncated listing is reported as such so a caller
+// never reads "no more entries" out of a page boundary.
+func (a *ClientAdapter) ListDirectory(
+	ctx context.Context, bucket, prefix string,
+) (entries []ObjectEntry, truncated bool, err error) {
+	out, err := a.client.ListObjects(ctx, bucket, prefix, "/", maxDirectoryEntries, "")
+	if err != nil {
+		return nil, false, fmt.Errorf("s3 list: %w", err)
+	}
+	entries = make([]ObjectEntry, 0, len(out.Objects))
+	for _, obj := range out.Objects {
+		// The prefix itself comes back as a zero-length key on stores that
+		// materialize directory markers. It is not an object anything reads.
+		if obj.Key == prefix {
+			continue
+		}
+		entries = append(entries, ObjectEntry{Key: obj.Key, Size: obj.Size})
+	}
+	return entries, out.IsTruncated, nil
 }
 
 // DeleteObject removes the object at the given bucket and key.

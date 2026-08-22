@@ -83,7 +83,7 @@ var manageAssetSchemaBase = json.RawMessage(`{
   "properties": {
     "action": {
       "type": "string",
-      "description": "Action to perform. Asset actions: list, get, update, delete, list_versions, revert, search. Content actions: patch, locate, get_content, outline, stats, diff. Sharing actions: share, list_shares, revoke_share. Collection actions: create_collection, list_collections, get_collection, update_collection, delete_collection, set_sections. (Human feedback on assets is handled by the separate manage_feedback tool.)"
+      "description": "Action to perform. Asset actions: list, get, update, delete, list_versions, revert, search. Content actions: patch, locate, get_content, outline, stats, diff. Sharing actions: share, list_shares, revoke_share. Table actions: register_table, unregister_table, list_tables. Collection actions: create_collection, list_collections, get_collection, update_collection, delete_collection, set_sections. (Human feedback on assets is handled by the separate manage_feedback tool.)"
     },
     "asset_id": {
       "type": "string",
@@ -110,6 +110,18 @@ var manageAssetSchemaBase = json.RawMessage(`{
     "share_id": {
       "type": "string",
       "description": "Share ID to revoke (required for revoke_share). Call list_shares to see the shares on an asset."
+    },
+    "connection": {
+      "type": "string",
+      "description": "Trino connection whose scratch schema the table is created in (required for register_table). Call list_connections to see the connections you can reach; only a connection an administrator has given a scratch catalog and schema can hold a table."
+    },
+    "table_name": {
+      "type": "string",
+      "description": "Name for the registered table (register_table). Optional: the default is a slug of the asset's filename. Either way the name is prefixed with your persona, because the scratch schema is shared by everyone granted the connection."
+    },
+    "registration_id": {
+      "type": "string",
+      "description": "Registration to drop (required for unregister_table). Call list_tables to see the tables registered over an asset."
     },
     "content": {
       "type": "string",

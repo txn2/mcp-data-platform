@@ -144,8 +144,11 @@ func TestBuild_GatesOnAccessibleTools(t *testing.T) {
 		wantEmpty   bool
 	}{
 		{
+			// Tools the baseline has nothing to say about. trino_query is
+			// deliberately not among them any more: it carries the
+			// inline-VALUES bullet (#1326).
 			name:      "no accessible tools yields empty baseline",
-			tools:     []string{"trino_query", "datahub_get_entity"},
+			tools:     []string{"datahub_get_entity", "s3_list_objects"},
 			wantEmpty: true,
 		},
 		{
@@ -306,5 +309,25 @@ func TestBuild_NamesTheCaptureRoute(t *testing.T) {
 	// It is named only where the tool that performs it is available.
 	if strings.Contains(Build([]string{toolSearch, toolFetch}), "call_id") {
 		t.Error("a caller without memory_capture must not be told to use it")
+	}
+}
+
+// A short list of outside keys joins inline and needs no table (#1326).
+// Without the hint the agent either asks for a table it cannot create or
+// refuses the request outright, so what is asserted is that the baseline says
+// so, and says where the bound is.
+func TestBuild_NamesTheInlineJoin(t *testing.T) {
+	baseline := Build([]string{toolTrinoQuery})
+
+	for _, want := range []string{"VALUES", "IN (...)", "register it as a table"} {
+		if !strings.Contains(baseline, want) {
+			t.Errorf("baseline is missing %q:\n%s", want, baseline)
+		}
+	}
+
+	// It is named only where the tool that performs it is available: a caller
+	// with no query tool has nothing to join anything with.
+	if strings.Contains(Build([]string{toolSearch, toolFetch}), "VALUES") {
+		t.Error("a caller without trino_query must not be told to join inline")
 	}
 }

@@ -3260,7 +3260,7 @@ definitions:
           for content types rendered on a forced background (markdown, CSV); types
           with a built-in theme (HTML, JSX, SVG) reuse ThumbnailS3Key in both modes.
           Empty means callers should fall back to ThumbnailS3Key.
-        example: assets/01HK7R8Z/thumbnail_dark.png
+        example: assets/01HK7R8Z/.thumbnail_dark.png
         type: string
       thumbnail_s3_key:
         example: assets/01HK7R8Z/thumb.png
@@ -3541,7 +3541,7 @@ definitions:
           for content types rendered on a forced background (markdown, CSV); types
           with a built-in theme (HTML, JSX, SVG) reuse ThumbnailS3Key in both modes.
           Empty means callers should fall back to ThumbnailS3Key.
-        example: assets/01HK7R8Z/thumbnail_dark.png
+        example: assets/01HK7R8Z/.thumbnail_dark.png
         type: string
       thumbnail_s3_key:
         example: assets/01HK7R8Z/thumb.png

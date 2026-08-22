@@ -187,6 +187,12 @@ type Deps struct {
 	// (internal/httpserver/datahubapi.Handler.Register) so the DataHub feature lives in its
 	// own package; nil leaves the /api/v1/portal/datahub/* routes unregistered.
 	DataHubRegistrar func(*http.ServeMux)
+	// OnAssetDeleted, when set, is called after an asset is deleted so the
+	// tables registered over its file are dropped (#1327). A delete is soft
+	// and leaves the object in place, so a table still pointing at it would
+	// keep serving rows out of a schema the owner can no longer see. Nil on a
+	// deployment that cannot register tables.
+	OnAssetDeleted func(context.Context, string)
 	// CatalogLabeler names the DataHub governance entities a knowledge page
 	// references (#1159), so a citation to a glossary term, a tag, or a domain
 	// renders as its display name instead of the generated key inside its URN.
@@ -1027,15 +1033,15 @@ func parseThumbnailVariant(w http.ResponseWriter, r *http.Request) (string, bool
 	}
 }
 
-// DeriveThumbnailKey replaces the filename in an S3 key with "thumbnail.png"
+// DeriveThumbnailKey replaces the filename in an S3 key with ".thumbnail.png"
 // (the light/default variant).
 func DeriveThumbnailKey(s3Key string) string {
 	return DeriveThumbnailKeyVariant(s3Key, thumbnailVariantLight)
 }
 
 // DeriveThumbnailKeyVariant replaces the filename in an S3 key with the
-// thumbnail filename for the given variant ("dark" -> thumbnail_dark.png,
-// anything else -> thumbnail.png).
+// thumbnail filename for the given variant ("dark" -> .thumbnail_dark.png,
+// anything else -> .thumbnail.png).
 func DeriveThumbnailKeyVariant(s3Key, variant string) string {
 	return portaldomain.DeriveThumbnailKeyVariant(s3Key, variant)
 }
@@ -1167,6 +1173,9 @@ func (h *Handler) deleteAsset(w http.ResponseWriter, r *http.Request) {
 	if err := h.deps.AssetStore.SoftDelete(r.Context(), id); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete asset")
 		return
+	}
+	if h.deps.OnAssetDeleted != nil {
+		h.deps.OnAssetDeleted(r.Context(), id)
 	}
 
 	writeJSON(w, http.StatusOK, statusResponse{Status: statusDeleted})

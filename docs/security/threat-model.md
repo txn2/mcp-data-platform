@@ -385,6 +385,37 @@ account.
   can do. That containment is only as good as the split: a single broad
   credential shared by every persona makes the boundary a formality.
 
+### Registered tables and the scratch schema
+
+Reachable surface: the contents of a file registered as a query-engine table
+(see [Registered Tables](../server/registered-tables.md)).
+
+- Registration publishes into a shared schema (Information disclosure). The
+  scratch catalog and schema a registration writes into are visible to every
+  persona granted that connection. Resource scopes and asset ownership are
+  **not** carried into Trino: a person who registers a user-scoped resource
+  makes its rows readable by everyone with the connection. Table names are
+  prefixed with the registering persona, which avoids collisions and says whose
+  table it is; it is not an access boundary and does not act as one.
+- The scratch connection's Trino identity is the warehouse boundary. The
+  platform's `read_only` flag is a statement-prefix denylist evaluated per
+  connection (`pkg/toolkits/trino/readonly.go`), and nothing in the toolkit
+  restricts a catalog or a schema — `catalog`/`schema` on a connection are
+  session defaults, not bounds. A write-capable scratch connection
+  authenticating as the same Trino user as the warehouse connection can write
+  to the warehouse. Give it a distinct Trino identity whose access-control
+  rules allow DDL only on the scratch catalog.
+- Registration DDL runs through the same read-only check the MCP tools run
+  (`pkg/toolkits/trino/exec.go`), so a `read_only: true` connection refuses it,
+  and through the persona connection boundary
+  (`internal/platform/tableregister/registrar.go`), so a persona not granted
+  the connection can neither register onto it nor query it.
+- A directory holding anything besides the registered file is refused, naming
+  the object in the way. Trino's Hive connector reads every non-hidden object
+  under an external location and parses it as CSV without erroring, so a stray
+  file would otherwise be returned as rows; the refusal is the only protection,
+  which is why portal thumbnails are written under hidden names.
+
 ## Mitigations
 
 Each row maps a threat to the mechanism that addresses it and the code or
@@ -407,6 +438,8 @@ configuration that implements it.
 | Forged unsubscribe (opting someone else out) | Footer token is an HMAC over the recipient address under a key derived from the browser-session signing key; only a holder of the emailed link can opt that address out | `internal/httpserver/unsubhttp/unsubscribe.go` |
 | Silent unsubscribe by mail-scanner prefetch (Safe Links, Proofpoint, and similar GETting footer URLs) | GET renders a confirmation page and mutates nothing; the opt-out records only on the confirmation form POST or the RFC 8058 one-click POST, which providers fire only on a real user action | `internal/httpserver/unsubhttp/unsubscribe.go` |
 | The model acting on injected instructions to mutate data | Trino read-only mode rejects write SQL on the connections that set it | `pkg/toolkits/trino/readonly.go` (opt-in per connection via `read_only`) |
+| Registering a table on a connection the caller may not reach | The persona connection boundary is applied before any DDL, and the DDL itself runs the per-connection read-only check | `internal/platform/tableregister/registrar.go`, `pkg/toolkits/trino/exec.go` |
+| A stray object beside a registered file being returned as rows | A directory holding anything besides the file is refused, naming the object; derived thumbnails take hidden filenames Hive skips | `internal/platform/tableregister/registrar.go`, `internal/portal/portaldomain/types.go` |
 | Premature or over-broad tool use | Search-first gate refuses query tools until `search` runs; `SEARCH_REQUIRED` short-circuit | `pkg/middleware/mcp_workflow_gate.go` |
 | Unbounded large scans / unconsented PII access | Cost-estimation and PII-consent elicitation prompts (Trino toolkit) | `pkg/toolkits/trino/elicitation.go` |
 | SSRF via catalog spec fetch by URL | https-only, DNS pre-check plus dial-time re-check blocking private/link-local/CGNAT ranges and the metadata endpoint, redirects disabled, body capped | `pkg/toolkits/apigateway/catalog/fetch.go`, applied in `pkg/admin/catalog_handler.go` |

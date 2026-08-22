@@ -90,6 +90,7 @@ nav:
     - Managed Scripts:
       - Running Scripts: scripts/running.md
       - Security Model: scripts/security.md
+    - Registered Tables: server/registered-tables.md
     - Administration:
       - User Portal: server/portal-user.md
       - Content Types and Viewers: server/content-viewers.md
