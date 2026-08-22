@@ -185,6 +185,27 @@ type Hit struct {
 	// pointer the model has to dereference. Nil for sources with no file behind
 	// the hit.
 	Link *HitLink `json:"link,omitempty"`
+	// Table names the query-engine table a registered file is readable as
+	// (#1327). A search hit for an uploaded CSV otherwise says only that the
+	// file exists; this says it can be joined, and to what. Nil for a source
+	// with no file behind it and for a file nobody has registered.
+	Table *HitTable `json:"table,omitempty"`
+}
+
+// HitTable is the queryable table behind a Hit: the connection to run against
+// and the name to write in the FROM clause.
+//
+// Sample carries a statement showing the CAST a join needs, because a table
+// registered over a CSV has VARCHAR for every column and the obvious join
+// fails with a type error that explains nothing. Stale says the file has moved
+// on since the table was registered, so the rows are the revision that was
+// current then; it is reported rather than hidden because correct SQL over
+// stale bytes is the failure nothing else would surface.
+type HitTable struct {
+	Connection string `json:"connection"`
+	Table      string `json:"query_table"`
+	Sample     string `json:"sample_sql,omitempty"`
+	Stale      bool   `json:"stale,omitempty"`
 }
 
 // HitLink is the client-attachable file behind a Hit: the canonical resource URI

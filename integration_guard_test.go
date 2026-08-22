@@ -189,3 +189,104 @@ func TestSkipWalkDir(t *testing.T) {
 		require.False(t, skipWalkDir(name), "%s holds first-party source and must be walked", name)
 	}
 }
+
+// allowlistedOwnContainerFiles maps a repo-relative test file to why the tests
+// in it must start a Postgres container of their own instead of taking the
+// shared one from internal/testdb.
+var allowlistedOwnContainerFiles = map[string]string{
+	"pkg/database/migrate/migrate_test.go": "tests the migration runner itself and a single migration in isolation, " +
+		"so both need a virgin database; testdb.New hands back an already-migrated one",
+}
+
+// TestIntegrationTestsUseTheSharedServer fails when a test starts a Postgres
+// container of its own rather than taking the shared server from
+// internal/testdb.
+//
+// A test that calls postgres.Run directly starts a container AND a
+// testcontainers Ryuk reaper on every run, while every testdb.New caller clones
+// a template database on the one server `make test-realdb` already started. The
+// reaper is the part that times out under load: TestIndexJobsProgress_EndToEnd_RealDB
+// failed on main twice in two days with "wait for reaper: context deadline
+// exceeded" while every assertion in it was fine, and
+// TestEmbeddingNoop_EndToEnd_RealDB had failed the same way before it.
+//
+// The pattern was fixed one test at a time each time it surfaced, which left
+// the other copies in place to fail later. This turns "somebody remembers" into
+// a gate: a new test cannot reintroduce the reaper dependency without an
+// allowlist entry saying why it genuinely needs a database nothing has migrated.
+func startsOwnPostgres(file *ast.File) bool {
+	found := false
+	ast.Inspect(file, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok || sel.Sel.Name != "Run" {
+			return true
+		}
+		pkg, ok := sel.X.(*ast.Ident)
+		if ok && pkg.Name == "postgres" {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
+}
+
+func TestIntegrationTestsUseTheSharedServer(t *testing.T) {
+	projectRoot, err := filepath.Abs(".")
+	require.NoError(t, err)
+
+	var offenders []string
+	walkErr := filepath.Walk(projectRoot, func(path string, info os.FileInfo, fErr error) error {
+		if fErr != nil {
+			return fErr
+		}
+		if info.IsDir() {
+			if path != projectRoot && skipWalkDir(info.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(info.Name(), "_test.go") {
+			return nil
+		}
+		// Parsed rather than string-matched: the literal appears in this
+		// file's own explanation, and a grep-shaped guard that flags its own
+		// prose is a guard nobody keeps.
+		parsed, parseErr := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+		if parseErr != nil {
+			// A file this walk cannot parse is the other guard's problem, and
+			// silently passing it here would let an unparseable file hide a
+			// container start. Report it rather than skipping.
+			return fmt.Errorf("parsing %s: %w", path, parseErr)
+		}
+		if !startsOwnPostgres(parsed) {
+			return nil
+		}
+		rel, relErr := filepath.Rel(projectRoot, path)
+		if relErr != nil {
+			return fmt.Errorf("resolving %s against the project root: %w", path, relErr)
+		}
+		rel = filepath.ToSlash(rel)
+		// internal/testdb is the shared harness; starting the container is its job.
+		if strings.HasPrefix(rel, "internal/testdb/") {
+			return nil
+		}
+		if _, allowed := allowlistedOwnContainerFiles[rel]; allowed {
+			return nil
+		}
+		offenders = append(offenders, rel)
+		return nil
+	})
+	require.NoError(t, walkErr)
+
+	require.Empty(t, offenders, "these tests start a Postgres container of their own instead of "+
+		"internal/testdb.New, which makes them depend on a testcontainers reaper the rest of the "+
+		"gate does not need:\n  %s\n\nTake testdb.New (or NewWithDSN when the test hands a DSN to a "+
+		"component that opens its own pool). If the test genuinely needs a database nothing has "+
+		"migrated, add it to allowlistedOwnContainerFiles with the reason.",
+		strings.Join(offenders, "\n  "))
+}

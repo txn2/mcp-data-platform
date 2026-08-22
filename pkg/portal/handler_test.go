@@ -2860,10 +2860,10 @@ func TestDeriveThumbnailKey(t *testing.T) {
 		input string
 		want  string
 	}{
-		{"portal/owner/asset/content.html", "portal/owner/asset/thumbnail.png"},
-		{"portal/owner/asset/dashboard.jsx", "portal/owner/asset/thumbnail.png"},
-		{"simple.html", "thumbnail.png"},
-		{"a/b/c", "a/b/thumbnail.png"},
+		{"portal/owner/asset/content.html", "portal/owner/asset/.thumbnail.png"},
+		{"portal/owner/asset/dashboard.jsx", "portal/owner/asset/.thumbnail.png"},
+		{"simple.html", ".thumbnail.png"},
+		{"a/b/c", "a/b/.thumbnail.png"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
@@ -2879,10 +2879,10 @@ func TestDeriveThumbnailKeyVariant(t *testing.T) {
 		variant string
 		want    string
 	}{
-		{"light prefixed", "portal/u1/a1/content.html", "light", "portal/u1/a1/thumbnail.png"},
-		{"dark prefixed", "portal/u1/a1/content.html", "dark", "portal/u1/a1/thumbnail_dark.png"},
-		{"dark no prefix", "content.html", "dark", "thumbnail_dark.png"},
-		{"unknown variant defaults to light", "a/b/c.md", "weird", "a/b/thumbnail.png"},
+		{"light prefixed", "portal/u1/a1/content.html", "light", "portal/u1/a1/.thumbnail.png"},
+		{"dark prefixed", "portal/u1/a1/content.html", "dark", "portal/u1/a1/.thumbnail_dark.png"},
+		{"dark no prefix", "content.html", "dark", ".thumbnail_dark.png"},
+		{"unknown variant defaults to light", "a/b/c.md", "weird", "a/b/.thumbnail.png"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -2909,7 +2909,7 @@ func TestUploadThumbnailSuccess(t *testing.T) {
 	h.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, "portal/u1/a1/thumbnail.png", s3.putKey, "light upload writes the default key")
+	assert.Equal(t, "portal/u1/a1/.thumbnail.png", s3.putKey, "light upload writes the default key")
 }
 
 func TestUploadThumbnailDarkVariant(t *testing.T) {
@@ -2929,10 +2929,10 @@ func TestUploadThumbnailDarkVariant(t *testing.T) {
 	h.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, "portal/u1/a1/thumbnail_dark.png", s3.putKey, "dark upload writes the dark key")
+	assert.Equal(t, "portal/u1/a1/.thumbnail_dark.png", s3.putKey, "dark upload writes the dark key")
 	require.NotNil(t, store.lastUpdate)
 	require.NotNil(t, store.lastUpdate.ThumbnailDarkS3Key)
-	assert.Equal(t, "portal/u1/a1/thumbnail_dark.png", *store.lastUpdate.ThumbnailDarkS3Key)
+	assert.Equal(t, "portal/u1/a1/.thumbnail_dark.png", *store.lastUpdate.ThumbnailDarkS3Key)
 	assert.Nil(t, store.lastUpdate.ThumbnailS3Key, "dark upload must not touch the light key")
 }
 

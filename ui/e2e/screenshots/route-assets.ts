@@ -3,6 +3,7 @@ import {
   openAssetProvenance,
   openAssetProvenanceCall,
   openAssetProvenanceEarlier,
+  openAssetTables,
   openAssetVersionPicker,
 } from "./route-actions";
 import { type ScreenshotRoute } from "./route-types";
@@ -88,6 +89,14 @@ export const assetViewerRoutes: ScreenshotRoute[] = [
     slug: "asset-csv",
     path: "/portal/assets/ast-008",
     category: "user",
+  },
+  {
+    // The registered-table panel on a CSV asset: where to query the file, the
+    // columns it came back with, and the way to drop it again (#1327).
+    slug: "asset-table",
+    path: "/portal/assets/ast-008",
+    category: "user",
+    beforeCapture: openAssetTables,
   },
   {
     // Asset shared with the current user — opens in the standard viewer.

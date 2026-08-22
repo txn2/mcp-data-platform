@@ -46,6 +46,7 @@ type ResourcesProvider struct {
 	blobs    ResourceContentReader
 	bucket   string
 	reads    resource.ReadRecorder
+	tables   TableLookup
 }
 
 // NewResourcesProvider builds the resources provider over a resource searcher.
@@ -63,6 +64,14 @@ func NewResourcesProvider(searcher ResourceSearcher, blobs ResourceContentReader
 // gets. Search is deliberately not recorded: a ranked hit is not a read.
 func (p *ResourcesProvider) SetReadRecorder(rec resource.ReadRecorder) {
 	p.reads = rec
+}
+
+// SetTableLookup binds the lookup that tells a hit whether the resource behind
+// it is readable as a query-engine table (#1327). Called after construction for
+// the same reason the read recorder is: registration wiring resolves later than
+// search federation. A provider with no lookup serves the hits it always did.
+func (p *ResourcesProvider) SetTableLookup(lookup TableLookup) {
+	p.tables = lookup
 }
 
 // Name returns the provenance label.
@@ -91,8 +100,10 @@ func (p *ResourcesProvider) Search(ctx context.Context, q Query) ([]Hit, error) 
 	}
 
 	hits := make([]Hit, 0, len(scored))
+	byID := make(map[string]resource.Resource, len(scored))
 	for i := range scored {
 		r := scored[i].Resource
+		byID[r.ID] = r
 		hits = append(hits, Hit{
 			Text:      resourceHitText(r),
 			Source:    SourceResources,
@@ -107,6 +118,15 @@ func (p *ResourcesProvider) Search(ctx context.Context, q Query) ([]Hit, error) 
 			},
 		})
 	}
+	attachTables(ctx, p.tables, hits, func(h Hit) (TableSubject, bool) {
+		r, ok := byID[h.Ref]
+		if !ok {
+			return TableSubject{}, false
+		}
+		return TableSubject{
+			Kind: TableKindResource, ID: r.ID, Bucket: p.bucket, HeadKey: r.S3Key,
+		}, true
+	})
 	return hits, nil
 }
 
@@ -155,6 +175,9 @@ func (p *ResourcesProvider) Fetch(ctx context.Context, ref string, caller Caller
 		Title:     res.DisplayName,
 		Body:      p.inlineContent(ctx, res),
 		Content:   res,
+		Table: lookupOneTable(ctx, p.tables, TableSubject{
+			Kind: TableKindResource, ID: res.ID, Bucket: p.bucket, HeadKey: res.S3Key,
+		}),
 	}
 	p.recordRead(ctx, res, caller)
 	return doc, true, nil

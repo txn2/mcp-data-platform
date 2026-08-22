@@ -1,4 +1,5 @@
 import { assetViewerRoutes } from "./route-assets";
+import { adminResourceRoutes } from "./route-resources";
 import { drawerRoutes } from "./route-drawers";
 import { adminScriptRoutes, userScriptRoutes } from "./route-scripts";
 import {
@@ -7,8 +8,6 @@ import {
   openKnowledgeGraph,
   openKnowledgeGraphCorpus,
   openPersonaScopeTab,
-  openResourceDetail,
-  openResourceLifecycle,
   openShareDialog,
   openShareDialogPublicLink,
   openShareDialogWithRecipient,
@@ -457,26 +456,7 @@ export const routes: ScreenshotRoute[] = [
       await page.waitForTimeout(500);
     },
   },
-  {
-    // Resource detail as it opens: what the resource is, its metadata, and the
-    // inline preview. The dialog caps at the viewport and scrolls its body
-    // (#1233), so the lifecycle panels below the fold are a second capture
-    // rather than more of this one.
-    slug: "resource-detail",
-    path: "/portal/admin/resources",
-    category: "admin",
-    beforeCapture: openResourceDetail,
-  },
-  {
-    // The same dialog scrolled to the lifecycle surfaces: the usage rollup, the
-    // version history with its restore actions, and the prompts attaching the
-    // resource (#1014). Opened on the fixture that carries a revision trail and
-    // read activity, so those surfaces are populated rather than empty.
-    slug: "resource-lifecycle",
-    path: "/portal/admin/resources",
-    category: "admin",
-    beforeCapture: openResourceLifecycle,
-  },
+  ...adminResourceRoutes,
   {
     slug: "admin-prompts",
     path: "/portal/admin/prompts",

@@ -1,0 +1,297 @@
+// Package tablehttp serves the register / unregister actions that make an
+// uploaded file readable as a query-engine table (#1327).
+//
+// One handler serves both kinds. A managed resource and a portal asset reach
+// the registrar through different records and different authorization -- a
+// resource is visible by persona scope, an asset belongs to one person -- but
+// the action, the request body, and the response are the same, so the parts
+// that differ are a Subject resolver per kind and nothing else.
+//
+// It sits beside the resource and portal handlers rather than inside them: the
+// routes it registers are more specific than the prefix mounts those handlers
+// occupy, so ServeMux gives them precedence, and neither public package gains
+// a dependency on the registrar.
+package tablehttp
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"net/http"
+	"strings"
+
+	"github.com/txn2/mcp-data-platform/internal/httpjson"
+	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/platform/tableregister"
+	"github.com/txn2/mcp-data-platform/pkg/portal"
+)
+
+// Subject resolves the record a route's {id} names into what the registrar
+// needs, and decides whether this caller may act on it. Returning ok=false
+// means the caller may not see the record at all, which is answered as a
+// not-found so the surface never reveals a record the caller could not read.
+type Subject func(ctx context.Context, id string, user *portal.User) (tableregister.Source, bool)
+
+// ConnectionChoice is one connection a person can register onto.
+type ConnectionChoice struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Catalog     string `json:"catalog"`
+	Schema      string `json:"schema"`
+}
+
+// ConnectionEnumerator lists the connections this caller may register onto:
+// granted to their persona and carrying a scratch target. It is the picker's
+// only source, so a connection the form offers is one the registrar accepts.
+type ConnectionEnumerator func(ctx context.Context, user *portal.User) []ConnectionChoice
+
+// Deps is what the handler needs.
+type Deps struct {
+	Registrar *tableregister.Registrar
+	// Resources and Assets resolve the two kinds. Either may be nil, which
+	// leaves that kind's routes unregistered rather than answering an error.
+	Resources Subject
+	Assets    Subject
+	// Connections fills the picker. Nil serves an empty list, which a form
+	// renders as "no connection here can hold a table".
+	Connections ConnectionEnumerator
+	// Caller builds the registrar's view of the authenticated user: their
+	// persona and whether they are an administrator.
+	Caller func(*portal.User) tableregister.Caller
+}
+
+// Handler serves the table routes.
+type Handler struct {
+	deps Deps
+}
+
+// New builds a Handler, or nil when nothing can be registered -- no registrar,
+// or neither kind resolvable. Nil is meaningful: Routes on a nil handler
+// registers nothing, so a deployment with no Trino toolkit or no database
+// never advertises an action that would always refuse.
+func New(deps Deps) *Handler {
+	if !deps.Registrar.Available() || (deps.Resources == nil && deps.Assets == nil) {
+		return nil
+	}
+	return &Handler{deps: deps}
+}
+
+// Routes registers the table routes on a mux, each wrapped by the portal
+// authentication middleware the surrounding surface uses.
+func (h *Handler) Routes(mux *http.ServeMux, wrap func(http.Handler) http.Handler) {
+	if h == nil {
+		return
+	}
+	register := func(pattern string, fn http.HandlerFunc) {
+		mux.Handle(pattern, wrap(fn))
+	}
+
+	register("GET /api/v1/table-connections", h.listConnections)
+
+	if h.deps.Resources != nil {
+		h.kindRoutes(register, "resources", tableregister.KindResource, h.deps.Resources)
+	}
+	if h.deps.Assets != nil {
+		h.kindRoutes(register, "portal/assets", tableregister.KindAsset, h.deps.Assets)
+	}
+}
+
+// kindRoutes registers one kind's three routes.
+func (h *Handler) kindRoutes(
+	register func(string, http.HandlerFunc), prefix, kind string, subject Subject,
+) {
+	base := "/api/v1/" + prefix + "/{id}/tables"
+	register("GET "+base, h.list(kind, subject))
+	register("POST "+base, h.register(subject))
+	register("DELETE "+base+"/{regID}", h.unregister(subject))
+}
+
+// registerRequest is the body of a register call.
+type registerRequest struct {
+	Connection string `json:"connection"`
+	// TableName is optional; empty derives one from the filename.
+	TableName string `json:"table_name,omitempty"`
+}
+
+// registrationView is one registration as a surface renders it. It carries the
+// sample SQL and the stale flag the record itself does not hold, because both
+// are what a reader needs and neither is worth storing.
+type registrationView struct {
+	tableregister.Registration
+	QueryTable string `json:"query_table"`
+	SampleSQL  string `json:"sample_sql,omitempty"`
+	Stale      bool   `json:"stale"`
+}
+
+func viewOf(reg tableregister.Registration, src tableregister.Source) registrationView {
+	return registrationView{
+		Registration: reg,
+		QueryTable:   reg.QualifiedName(),
+		SampleSQL:    tableregister.SampleJoinSQL(reg),
+		Stale:        reg.IsStale(src.Bucket, src.HeadKey),
+	}
+}
+
+func (h *Handler) list(kind string, subject Subject) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		_, src, ok := resolve(w, r, subject)
+		if !ok {
+			return
+		}
+		regs, err := h.deps.Registrar.BySource(r.Context(), kind, src.ID)
+		if err != nil {
+			problem(w, http.StatusInternalServerError, "could not read the registrations of this file")
+			slog.Warn("table registrations: list failed", "error", logsan.SanitizeForLog(err.Error()))
+			return
+		}
+		views := make([]registrationView, 0, len(regs))
+		for _, reg := range regs {
+			views = append(views, viewOf(reg, src))
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"registrations": views})
+	}
+}
+
+func (h *Handler) register(subject Subject) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, src, ok := resolve(w, r, subject)
+		if !ok {
+			return
+		}
+		var req registerRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			problem(w, http.StatusBadRequest, "the request body is not valid JSON")
+			return
+		}
+		if strings.TrimSpace(req.Connection) == "" {
+			problem(w, http.StatusBadRequest, "name the connection to register the table on")
+			return
+		}
+
+		reg, err := h.deps.Registrar.Register(r.Context(), h.callerOf(user), src, tableregister.Request{
+			Connection: req.Connection,
+			TableName:  req.TableName,
+			Source:     "portal",
+		})
+		if err != nil {
+			status := statusFor(err)
+			if status == http.StatusInternalServerError {
+				slog.Warn("table registration failed", "error", logsan.SanitizeForLog(err.Error()))
+			}
+			problem(w, status, detailFor(err, status))
+			return
+		}
+		writeJSON(w, http.StatusCreated, viewOf(*reg, src))
+	}
+}
+
+func (h *Handler) unregister(subject Subject) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, _, ok := resolve(w, r, subject)
+		if !ok {
+			return
+		}
+		err := h.deps.Registrar.Unregister(r.Context(), h.callerOf(user), r.PathValue("regID"), "portal")
+		if err != nil {
+			status := statusFor(err)
+			if status == http.StatusInternalServerError {
+				slog.Warn("dropping a registered table failed", "error", logsan.SanitizeForLog(err.Error()))
+			}
+			problem(w, status, detailFor(err, status))
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func (h *Handler) listConnections(w http.ResponseWriter, r *http.Request) {
+	user := portal.GetUser(r.Context())
+	if user == nil {
+		problem(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	var choices []ConnectionChoice
+	if h.deps.Connections != nil {
+		choices = h.deps.Connections(r.Context(), user)
+	}
+	if choices == nil {
+		choices = []ConnectionChoice{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"connections": choices})
+}
+
+// resolve authenticates the caller and reads the record the route names.
+func resolve(
+	w http.ResponseWriter, r *http.Request, subject Subject,
+) (user *portal.User, src tableregister.Source, ok bool) {
+	user = portal.GetUser(r.Context())
+	if user == nil {
+		problem(w, http.StatusUnauthorized, "authentication required")
+		return nil, tableregister.Source{}, false
+	}
+	src, ok = subject(r.Context(), r.PathValue("id"), user)
+	if !ok {
+		problem(w, http.StatusNotFound, "no such file")
+		return nil, tableregister.Source{}, false
+	}
+	return user, src, true
+}
+
+// callerOf builds the registrar's view of the authenticated user.
+func (h *Handler) callerOf(user *portal.User) tableregister.Caller {
+	if h.deps.Caller != nil {
+		return h.deps.Caller(user)
+	}
+	return tableregister.Caller{UserID: user.UserID, Email: user.Email, Roles: user.Roles}
+}
+
+// statusFor maps a registrar refusal onto the status that describes it.
+//
+// A refusal the caller can act on -- a name already taken, a sibling object in
+// the way, a file that is not a CSV -- is a 4xx: the request was understood and
+// declined, and the message says what to do next. Anything the registrar did
+// not mark as a refusal is a failure of the platform (a store outage, an
+// unreachable coordinator) and is a 500, so a database that stopped answering
+// is not reported to the caller as a conflict they could resolve.
+func statusFor(err error) int {
+	switch {
+	case errors.Is(err, tableregister.ErrConnectionDenied):
+		return http.StatusForbidden
+	case errors.Is(err, tableregister.ErrNoIdentity):
+		return http.StatusUnauthorized
+	case errors.Is(err, tableregister.ErrNotFound):
+		return http.StatusNotFound
+	case errors.Is(err, tableregister.ErrUnavailable):
+		return http.StatusServiceUnavailable
+	case errors.Is(err, tableregister.ErrNoScratchTarget),
+		errors.Is(err, tableregister.ErrNotCSV),
+		errors.Is(err, tableregister.ErrEmptyHeader):
+		return http.StatusBadRequest
+	case errors.Is(err, tableregister.ErrNameTaken), errors.Is(err, tableregister.ErrRefused):
+		return http.StatusConflict
+	default:
+		return http.StatusInternalServerError
+	}
+}
+
+// detailFor is what the caller is told. A refusal names what to do next and is
+// passed through as written; a platform failure is not, because its text is a
+// wrapped store or driver error that says nothing a caller can act on and may
+// carry topology they should not see.
+func detailFor(err error, status int) string {
+	if status == http.StatusInternalServerError {
+		return "the registration could not be completed"
+	}
+	return err.Error()
+}
+
+// problem writes an RFC 9457 Problem Details response, the form every other
+// seam in this decomposition answers with.
+func problem(w http.ResponseWriter, status int, detail string) {
+	httpjson.WriteError(w, status, detail)
+}
+
+func writeJSON(w http.ResponseWriter, status int, body any) {
+	httpjson.WriteJSON(w, status, body)
+}

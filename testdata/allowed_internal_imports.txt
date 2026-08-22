@@ -44,12 +44,14 @@ internal/httpserver -> internal/httpserver/mentionhttp
 internal/httpserver -> internal/httpserver/notifyhttp
 internal/httpserver -> internal/httpserver/scripthttp
 internal/httpserver -> internal/httpserver/sources
+internal/httpserver -> internal/httpserver/tablehttp
 internal/httpserver -> internal/httpserver/unsubhttp
 internal/httpserver -> internal/httpserver/versionhttp
 internal/httpserver -> internal/notification/notifyrender
 internal/httpserver -> internal/platform/branding
 internal/httpserver -> internal/platform/callrecord
 internal/httpserver -> internal/platform/connreach
+internal/httpserver -> internal/platform/connscope
 internal/httpserver -> internal/platform/knowledgebuiltin
 internal/httpserver -> internal/platform/notifydelivery
 internal/httpserver -> internal/platform/resourceaudit
@@ -57,6 +59,7 @@ internal/httpserver -> internal/platform/reviewalert
 internal/httpserver -> internal/platform/scriptdraft
 internal/httpserver -> internal/platform/scriptstore
 internal/httpserver -> internal/platform/sessionview
+internal/httpserver -> internal/platform/tableregister
 internal/httpserver -> internal/ui
 internal/httpserver -> pkg/admin
 internal/httpserver -> pkg/audit
@@ -71,6 +74,7 @@ internal/httpserver -> pkg/pkcestore
 internal/httpserver -> pkg/platform
 internal/httpserver -> pkg/portal
 internal/httpserver -> pkg/portal/mention
+internal/httpserver -> pkg/portal/s3adapter
 internal/httpserver -> pkg/portal/shareaccess
 internal/httpserver -> pkg/portal/shareguest
 internal/httpserver -> pkg/prompt
@@ -84,6 +88,7 @@ internal/httpserver -> pkg/toolkits/datahub
 internal/httpserver -> pkg/toolkits/gateway
 internal/httpserver -> pkg/toolkits/gateway/enrichment
 internal/httpserver -> pkg/toolkits/knowledge
+internal/httpserver -> pkg/toolkits/portal
 internal/httpserver -> pkg/toolkits/trino
 internal/httpserver/accessgate -> internal/logsan
 internal/httpserver/accessgate -> pkg/portal
@@ -115,6 +120,10 @@ internal/httpserver/scripthttp -> pkg/audit
 internal/httpserver/scripthttp -> pkg/script
 internal/httpserver/scripthttp -> pkg/session
 internal/httpserver/sources -> pkg/toolkits/gateway/enrichment
+internal/httpserver/tablehttp -> internal/httpjson
+internal/httpserver/tablehttp -> internal/logsan
+internal/httpserver/tablehttp -> internal/platform/tableregister
+internal/httpserver/tablehttp -> pkg/portal
 internal/httpserver/unsubhttp -> pkg/notification
 internal/httpserver/versionhttp -> pkg/prompt
 internal/notification/notifyprefs -> pkg/notification
@@ -341,6 +350,14 @@ internal/platform/sessionview -> internal/httpjson
 internal/platform/sessionview -> pkg/memory
 internal/platform/sessionview -> pkg/session
 internal/platform/sessionview -> pkg/toolkits/knowledge
+internal/platform/tableregister -> internal/logsan
+internal/platform/tableregister -> pkg/audit
+internal/platform/tableregister -> pkg/contenttype
+internal/platform/tableregister -> pkg/knowledge
+internal/platform/tableregister -> pkg/middleware
+internal/platform/tableregister -> pkg/portal
+internal/platform/tableregister -> pkg/toolkits/portal
+internal/platform/tableregister -> pkg/toolkits/trino
 internal/platform/toolargs -> pkg/middleware
 internal/platform/toolkitcfg -> internal/platform/cfgmap
 internal/platform/toolkitcfg -> pkg/platform/fieldcrypt

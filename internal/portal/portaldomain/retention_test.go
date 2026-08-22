@@ -46,24 +46,32 @@ func TestEffectiveMaxVersions_NegativeReadsAsUnlimited(t *testing.T) {
 	assert.Equal(t, MaxVersionsUnlimited, EffectiveMaxVersions(nil, &neg))
 }
 
+// TestDeriveThumbnailKeyVariant pins the hidden filenames a capture writes. The
+// leading dot is what keeps a thumbnail out of a table registered over the
+// asset's directory: Hive parses every non-hidden object under an external
+// location as CSV (#1327).
 func TestDeriveThumbnailKeyVariant(t *testing.T) {
 	const content = "artifacts/owner/asset_1/v/rev2/content.html"
-	assert.Equal(t, "artifacts/owner/asset_1/v/rev2/thumbnail.png",
+	assert.Equal(t, "artifacts/owner/asset_1/v/rev2/.thumbnail.png",
 		DeriveThumbnailKeyVariant(content, ThumbnailVariantLight))
-	assert.Equal(t, "artifacts/owner/asset_1/v/rev2/thumbnail_dark.png",
+	assert.Equal(t, "artifacts/owner/asset_1/v/rev2/.thumbnail_dark.png",
 		DeriveThumbnailKeyVariant(content, ThumbnailVariantDark))
-	assert.Equal(t, "artifacts/owner/asset_1/v/rev2/thumbnail.png",
+	assert.Equal(t, "artifacts/owner/asset_1/v/rev2/.thumbnail.png",
 		DeriveThumbnailKeyVariant(content, "sideways"), "an unknown variant takes the light filename")
-	assert.Equal(t, "thumbnail.png", DeriveThumbnailKeyVariant("content.html", ""),
+	assert.Equal(t, ".thumbnail.png", DeriveThumbnailKeyVariant("content.html", ""),
 		"a key with no directory yields the bare filename")
 }
 
 // TestAssetVersionObjectKeys pins what a retention prune deletes: the version's
 // content and the thumbnails beside it, all inside that version's own directory.
+// Both spellings are covered, because a version captured before the hidden
+// names still has PNGs in the bucket under the old ones.
 func TestAssetVersionObjectKeys(t *testing.T) {
 	v := AssetVersion{S3Key: "artifacts/owner/asset_1/v/rev2/content.html"}
 	assert.Equal(t, []string{
 		"artifacts/owner/asset_1/v/rev2/content.html",
+		"artifacts/owner/asset_1/v/rev2/.thumbnail.png",
+		"artifacts/owner/asset_1/v/rev2/.thumbnail_dark.png",
 		"artifacts/owner/asset_1/v/rev2/thumbnail.png",
 		"artifacts/owner/asset_1/v/rev2/thumbnail_dark.png",
 	}, v.ObjectKeys())

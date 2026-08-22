@@ -21378,7 +21378,7 @@ const docTemplate = `{
                 "thumbnail_dark_s3_key": {
                     "description": "ThumbnailDarkS3Key holds the dark-mode thumbnail variant. Only populated\nfor content types rendered on a forced background (markdown, CSV); types\nwith a built-in theme (HTML, JSX, SVG) reuse ThumbnailS3Key in both modes.\nEmpty means callers should fall back to ThumbnailS3Key.",
                     "type": "string",
-                    "example": "assets/01HK7R8Z/thumbnail_dark.png"
+                    "example": "assets/01HK7R8Z/.thumbnail_dark.png"
                 },
                 "thumbnail_s3_key": {
                     "type": "string",
@@ -21780,7 +21780,7 @@ const docTemplate = `{
                 "thumbnail_dark_s3_key": {
                     "description": "ThumbnailDarkS3Key holds the dark-mode thumbnail variant. Only populated\nfor content types rendered on a forced background (markdown, CSV); types\nwith a built-in theme (HTML, JSX, SVG) reuse ThumbnailS3Key in both modes.\nEmpty means callers should fall back to ThumbnailS3Key.",
                     "type": "string",
-                    "example": "assets/01HK7R8Z/thumbnail_dark.png"
+                    "example": "assets/01HK7R8Z/.thumbnail_dark.png"
                 },
                 "thumbnail_s3_key": {
                     "type": "string",

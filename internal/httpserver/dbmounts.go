@@ -105,6 +105,9 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 		ImplementorLogoSVG: p.ResolveImplementorLogo(),
 		ImplementorURL:     p.Config().Portal.Implementor.URL,
 	}
+	// A deleted asset must not leave a table serving its file (#1327).
+	deps.OnAssetDeleted = tableCleanupHooks(p).AssetDeleted
+
 	wirePortalNotifications(&deps, p, notify)
 
 	wirePortalOptionalDeps(&deps, p)
@@ -127,6 +130,10 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 	mountPromptVersionPortalAPI(mux, p, wrap, adminRoles)
 	mountScriptPortalAPI(mux, p, wrap, adminRoles)
 	mountMentionAPI(mux, p, wrap, adminRoles)
+	// Table registration serves both the portal's assets and the managed
+	// resources API, so it is mounted once here rather than beside each.
+	mountTableAPI(mux, p, wrap, adminRoles)
+	wireTableToolRegistrar(p, adminRoles)
 	log.Println("Portal API enabled on /api/v1/portal/ (persona required)")
 	return nil
 }
@@ -344,6 +351,8 @@ func mountResourcesAPI(mux *http.ServeMux, p *platform.Platform) {
 		MaxVersions: p.Config().Resources.Managed.MaxVersions,
 		OnCreate:    p.RegisterManagedResource,
 		OnDelete:    p.UnregisterManagedResource,
+		// A deleted resource must not leave a table serving its file (#1327).
+		OnDeleteID: tableCleanupHooks(p).ResourceDeleted,
 	}
 	// Content revision and version history are a capability of the store, not a
 	// requirement of it: the Postgres store implements VersionStore, and a store

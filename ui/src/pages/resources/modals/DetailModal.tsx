@@ -13,6 +13,7 @@ import { ResourcePreview } from "./ResourcePreview";
 import { UsedByPrompts } from "./UsedByPrompts";
 import { UsagePanel } from "./UsagePanel";
 import { VersionsPanel } from "./VersionsPanel";
+import { TablesPanel } from "@/components/tables/TablesPanel";
 
 // downloadResource pulls the current content and hands it to the browser under
 // the resource's own filename.
@@ -138,6 +139,14 @@ export function DetailModal({ resource, onClose, onEdit, onDelete, admin }: { re
       )}
 
       <UsagePanel usage={r.usage} lastReadAt={r.last_read_at} createdAt={r.created_at} />
+
+      <TablesPanel
+        kind="resource"
+        id={r.id}
+        contentType={r.mime_type}
+        filename={r.filename}
+        canModify={canModify}
+      />
 
       <VersionsPanel resource={r} canModify={canModify} />
 

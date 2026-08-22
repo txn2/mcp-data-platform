@@ -88,6 +88,16 @@ const ALLOWLIST = new Set<string>([
   // pkg/observability/proxy/handler.go: authenticated PromQL proxy mux.
   "GET /observability/query",
   "GET /observability/query_range",
+  // internal/httpserver/tablehttp/tablehttp.go Routes (#1327). Registered on
+  // the main mux beside the resources and portal prefix mounts, with no swagger
+  // annotations of their own.
+  "GET /table-connections",
+  "GET /resources/{}/tables",
+  "POST /resources/{}/tables",
+  "DELETE /resources/{}/tables/{}",
+  "GET /portal/assets/{}/tables",
+  "POST /portal/assets/{}/tables",
+  "DELETE /portal/assets/{}/tables/{}",
 ]);
 
 // Spec routes, keyed by method + normalized path (basePath included in the key).

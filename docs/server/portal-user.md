@@ -214,6 +214,16 @@ All content types are rendered inline:
 
     ![CSV Asset](../images/screenshots/light/user-asset-csv-light.webp#only-light)![CSV Asset](../images/screenshots/dark/user-asset-csv-dark.webp#only-dark)
 
+### Querying a CSV asset as a table
+
+A CSV asset can be registered as a table and joined to warehouse tables from then on. The viewer's **Query as a table** panel offers the connections you can register onto, and lists what is already registered with the columns each table has.
+
+![Registered table on a CSV asset](../images/screenshots/light/user-asset-table-light.webp#only-light)![Registered table on a CSV asset](../images/screenshots/dark/user-asset-table-dark.webp#only-dark)
+
+Nothing is copied. The table reads the file where it already sits, so re-running the export that produced the asset changes what the table returns. Every column comes back as text, so a join to a typed warehouse column needs a `CAST` — the panel shows the table's name to copy into a query, and the platform's `search` results carry a sample statement.
+
+The panel is absent unless the asset is a CSV and an administrator has given a Trino connection a scratch catalog and schema. Registering is the owner's call: it puts the file's contents in a schema everyone with that connection can read. See [Registered Tables](registered-tables.md).
+
 ## Collections
 
 Collections let you organize related assets into curated, shareable groups with rich descriptions and ordered sections.
@@ -300,6 +310,18 @@ Scrolling the dialog reaches its lifecycle surfaces: the read-activity rollup, t
 Every revision is recorded in **Version history** with its number, who uploaded it, when, and how large it was. Any version can be downloaded, and any prior version can be **restored** — which re-promotes that version's exact bytes as a new head revision rather than rewinding, so the trail stays append-only and the restored content is itself restorable. A restored revision is labeled with the version it came from.
 
 History is bounded: a resource keeps its most recent 10 revisions by default ([`resources.managed.max_versions`](configuration.md#managed-resources)), and a revision past the cap deletes the oldest version's stored file. The live content is never pruned.
+
+### Querying a CSV resource as a table
+
+A CSV resource carries the same **Query as a table** panel the asset viewer does. Registering asks for two things: the connection the table is created on, and what to call it. The name is optional and defaults to a slug of the file name; either way your persona is added as a prefix, because the schema it lands in is shared with everyone else who has that connection.
+
+![Registering a resource as a table](../images/screenshots/light/admin-resource-table-register-light.webp#only-light)![Registering a resource as a table](../images/screenshots/dark/admin-resource-table-register-dark.webp#only-dark)
+
+Uploading a new revision moves the file, and the table keeps serving the revision it was registered against. The panel says so, and registering again moves the table to the current revision.
+
+![A registration the file has moved on from](../images/screenshots/light/admin-resource-table-light.webp#only-light)![A registration the file has moved on from](../images/screenshots/dark/admin-resource-table-dark.webp#only-dark)
+
+See [Registered Tables](registered-tables.md).
 
 ### Seeing what is actually used
 

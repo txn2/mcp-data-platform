@@ -30,11 +30,20 @@ type AssetSearcher interface {
 // rather than the email the memory and insight providers use.
 type AssetsProvider struct {
 	searcher AssetSearcher
+	tables   TableLookup
 }
 
 // NewAssetsProvider builds the assets provider over an asset searcher.
 func NewAssetsProvider(searcher AssetSearcher) *AssetsProvider {
 	return &AssetsProvider{searcher: searcher}
+}
+
+// SetTableLookup binds the lookup that tells a hit whether the asset behind it
+// is readable as a query-engine table (#1327). Called after construction
+// because registration wiring resolves later than search federation; a
+// provider with no lookup serves the hits it always did.
+func (p *AssetsProvider) SetTableLookup(lookup TableLookup) {
+	p.tables = lookup
 }
 
 // Name returns the provenance label.
@@ -62,7 +71,9 @@ func (p *AssetsProvider) Search(ctx context.Context, q Query) ([]Hit, error) {
 	}
 
 	hits := make([]Hit, 0, len(scored))
+	byID := make(map[string]portal.Asset, len(scored))
 	for i := range scored {
+		byID[scored[i].Asset.ID] = scored[i].Asset
 		hits = append(hits, Hit{
 			Text:      assetHitText(scored[i].Asset),
 			Source:    SourceAssets,
@@ -71,6 +82,15 @@ func (p *AssetsProvider) Search(ctx context.Context, q Query) ([]Hit, error) {
 			Reference: knowledgepage.AssetRef(scored[i].Asset.ID),
 		})
 	}
+	attachTables(ctx, p.tables, hits, func(h Hit) (TableSubject, bool) {
+		a, ok := byID[h.Ref]
+		if !ok {
+			return TableSubject{}, false
+		}
+		return TableSubject{
+			Kind: TableKindAsset, ID: a.ID, Bucket: a.S3Bucket, HeadKey: a.S3Key,
+		}, true
+	})
 	return hits, nil
 }
 
@@ -115,6 +135,9 @@ func (p *AssetsProvider) Fetch(ctx context.Context, ref string, caller Caller) (
 		Title:      asset.Name,
 		Content:    asset,
 		References: assetOutboundRefs(*asset),
+		Table: lookupOneTable(ctx, p.tables, TableSubject{
+			Kind: TableKindAsset, ID: asset.ID, Bucket: asset.S3Bucket, HeadKey: asset.S3Key,
+		}),
 	}, true, nil
 }
 

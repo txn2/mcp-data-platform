@@ -679,6 +679,96 @@ storage:
   instance: aws  # Use AWS S3 for storage checks
 ```
 
+### Read-only warehouse beside a writable scratch schema
+
+A person with a list of keys that came from outside the warehouse wants to join
+them to warehouse tables. The warehouse itself must stay read-only. Two Trino
+connections to the same cluster do this, and the difference between them is the
+**Trino identity**, not the platform flag.
+
+```yaml
+toolkits:
+  trino:
+    enabled: true
+    instances:
+      warehouse:
+        host: trino.example.com
+        port: 443
+        ssl: true
+        # A Trino account whose access-control rules grant SELECT and nothing
+        # else, on the warehouse catalogs only.
+        user: "${TRINO_READONLY_USER}"
+        password: "${TRINO_READONLY_PASSWORD}"
+        catalog: warehouse
+        schema: public
+        read_only: true
+        description: "Curated warehouse tables, read-only"
+
+      scratch:
+        host: trino.example.com          # the SAME cluster
+        port: 443
+        ssl: true
+        # A DISTINCT Trino account. Its rules allow SELECT on the warehouse
+        # catalogs and DDL/DML only on the scratch catalog. This is what keeps
+        # a write off the warehouse.
+        user: "${TRINO_SCRATCH_USER}"
+        password: "${TRINO_SCRATCH_PASSWORD}"
+        catalog: scratch
+        schema: uploads
+        read_only: false
+        description: "Working schema for uploaded files"
+        # Where a registered table is created on this connection.
+        scratch:
+          catalog: scratch
+          schema: uploads
+    default: warehouse
+
+personas:
+  analyst:
+    display_name: "Data Analyst"
+    roles: ["analyst"]
+    tools:
+      allow: ["*"]
+    connections:
+      # Connections are deny-by-default, so scratch is granted explicitly.
+      allow: ["warehouse", "scratch"]
+```
+
+**What the platform's `read_only` does and does not guard.** It is a
+statement-prefix denylist evaluated per connection name
+(`pkg/toolkits/trino/readonly.go`). There is no catalog or schema restriction
+anywhere in the toolkit, and `catalog`/`schema` on a connection are session
+defaults rather than bounds. A `scratch` connection with `read_only: false`
+that authenticates as the same Trino user as `warehouse` can write
+`INSERT INTO warehouse.sales.orders ...`. The warehouse guard has to be the
+Trino identity bound to the scratch connection.
+
+Adding a catalog allow-list to the toolkit is deliberately not done: parsing
+SQL to decide what a statement touches is the wrong layer for a boundary the
+query engine already enforces on its own identities.
+
+**The scratch catalog.** Point it at the same object store the platform's
+managed resources and portal assets live in, and an uploaded CSV becomes a
+table without being copied. One properties file is the whole setup; the recipe
+and the surfaces that use it are in
+[Registered Tables](../server/registered-tables.md). Trino's dynamic catalog
+management (`catalog.management=dynamic`, `CREATE CATALOG`) is not needed here
+and is not recommended: it creates connector instances, it is marked
+experimental, and the full statement including credentials is logged.
+
+**A short list needs none of this.** A few hundred keys join inline through
+`trino_query` on the read-only connection:
+
+```sql
+SELECT s.store_id, s.store_name, k.tier
+FROM warehouse.public.stores s
+JOIN (VALUES ('101','gold'), ('102','silver')) AS k(store_id, tier)
+  ON CAST(s.store_id AS varchar) = k.store_id
+```
+
+The platform tells agents this in its instruction baseline, so a short list is
+joined rather than refused or turned into a request for a table.
+
 ### Custom Toolkit Development
 
 Example structure for adding a custom toolkit.

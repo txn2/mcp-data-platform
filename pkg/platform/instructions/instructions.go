@@ -25,6 +25,7 @@ const (
 	toolApplyKnowledge = "apply_knowledge"
 	toolManagePrompt   = "manage_prompt"
 	toolManageFeedback = "manage_feedback"
+	toolTrinoQuery     = "trino_query"
 )
 
 // Build returns the platform-owned "how to operate this platform" instruction
@@ -63,6 +64,16 @@ func Build(accessibleTools []string) string {
 				"names, mcp:prompt:<id> references, and free text, returns the ready-to-run prompt "+
 				"content with its arguments, and lists candidates when ambiguous, so resolve rather "+
 				"than enumerate.")
+	}
+	if has[toolTrinoQuery] {
+		bullets = append(bullets,
+			"A short list of outside keys needs no table. When the user brings keys that are not "+
+				"in the warehouse -- a pasted list of ids, a handful of codes -- join them inline: "+
+				"`JOIN (VALUES ('a'),('b')) AS t(id)` or `WHERE id IN (...)` through `trino_query` on "+
+				"a read-only connection. Do not ask for a table to be created and do not refuse; a "+
+				"few thousand rows join this way. Above that, the file belongs in the platform: "+
+				"upload it as a resource or save it as an asset, register it as a table, and join "+
+				"the registered table by name.")
 	}
 	if has[toolMemoryCapture] {
 		bullets = append(bullets,

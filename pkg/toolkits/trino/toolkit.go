@@ -86,6 +86,26 @@ type Config struct {
 	// Elicitation configures user confirmation for expensive operations.
 	// Injected by the platform from elicitation config.
 	Elicitation ElicitationConfig `yaml:"elicitation"`
+
+	// Scratch names the catalog and schema table registrations are written
+	// into on this connection. Unset means registration is unavailable here.
+	Scratch ScratchConfig `yaml:"scratch"`
+}
+
+// ScratchConfig names where a table registration writes on a connection.
+//
+// It is a target, not a boundary: the platform's read_only flag is a
+// statement-prefix denylist and nothing in this toolkit restricts a catalog or
+// schema, so what keeps a registration off the warehouse is the Trino identity
+// the connection authenticates as, not these two fields.
+type ScratchConfig struct {
+	Catalog string `yaml:"catalog"`
+	Schema  string `yaml:"schema"`
+}
+
+// Configured reports whether this target names somewhere to write.
+func (s ScratchConfig) Configured() bool {
+	return s.Catalog != "" && s.Schema != ""
 }
 
 // ElicitationConfig configures elicitation triggers for the Trino toolkit.
@@ -133,10 +153,16 @@ type Toolkit struct {
 	// connectionDescriptions maps connection name → description (multi-connection mode).
 	connectionDescriptions map[string]string
 
-	// readOnly holds the per-connection read-only interceptor so connections
-	// added or removed at runtime keep their read_only setting enforced
-	// (multi-connection mode; nil in single-connection mode).
+	// readOnly holds the read-only interceptor so connections added or removed
+	// at runtime keep their read_only setting enforced. Nil only when no
+	// connection restricts writes.
 	readOnly *ReadOnlyInterceptor
+
+	// scratch maps connection name -> the catalog and schema table
+	// registrations write into on it. Per-instance Config is discarded after
+	// NewMulti, so the target is kept here the way read_only is, and
+	// maintained by AddConnection and RemoveConnection. Guarded by connMu.
+	scratch map[string]ScratchConfig
 
 	// exportDeps holds portal dependencies for trino_export (nil = export disabled).
 	exportDeps *ExportDeps
@@ -157,9 +183,10 @@ func New(name string, cfg Config) (*Toolkit, error) {
 	}
 
 	t := &Toolkit{
-		name:   name,
-		config: cfg,
-		client: client,
+		name:    name,
+		config:  cfg,
+		client:  client,
+		scratch: buildScratchTargets(map[string]Config{name: cfg}),
 	}
 
 	// Create elicitation middleware before toolkit so it can be passed as an option.
@@ -170,7 +197,14 @@ func New(name string, cfg Config) (*Toolkit, error) {
 		}
 	}
 
-	t.trinoToolkit = createToolkit(client, cfg, t.elicitation)
+	// A single-connection toolkit routes every call to the one client whatever
+	// the connection argument says, so read_only holds for all of them. The
+	// interceptor is kept on the toolkit as well as handed to the tools so
+	// Exec runs the same check the MCP path runs.
+	if cfg.ReadOnly {
+		t.readOnly = NewReadOnlyInterceptor()
+	}
+	t.trinoToolkit = createToolkit(client, cfg, t.elicitation, t.readOnly)
 
 	return t, nil
 }
@@ -227,6 +261,7 @@ func NewMulti(cfg MultiConfig) (*Toolkit, error) {
 		manager:                mgr,
 		connectionDescriptions: descs,
 		readOnly:               buildReadOnlyInterceptor(defaultName, cfg.Instances),
+		scratch:                buildScratchTargets(cfg.Instances),
 	}
 
 	connRequired := buildConnectionRequired(defaultName, cfg.Instances)
@@ -289,6 +324,19 @@ func buildReadOnlyInterceptor(defaultName string, instances map[string]Config) *
 		readOnly[name] = instCfg.ReadOnly
 	}
 	return NewConnectionReadOnlyInterceptor(defaultName, readOnly)
+}
+
+// buildScratchTargets collects each instance's registration target. Only
+// instances that name one get an entry, so a lookup that misses is the
+// unconfigured answer rather than an empty target.
+func buildScratchTargets(instances map[string]Config) map[string]ScratchConfig {
+	targets := make(map[string]ScratchConfig, len(instances))
+	for name, instCfg := range instances {
+		if instCfg.Scratch.Configured() {
+			targets[name] = instCfg.Scratch
+		}
+	}
+	return targets
 }
 
 // buildMultiserverConfig constructs a multiserver.Config from instance configs.
@@ -467,13 +515,12 @@ func toTrinoToolNames(m map[string]string) map[trinotools.ToolName]string {
 }
 
 // createToolkit creates the mcp-trino toolkit with appropriate options.
-func createToolkit(client *trinoclient.Client, cfg Config, elicit *ElicitationMiddleware) *trinotools.Toolkit {
-	// A single-connection toolkit routes every call to the one client whatever
-	// the connection argument says, so read_only holds for all of them.
-	var readOnly *ReadOnlyInterceptor
-	if cfg.ReadOnly {
-		readOnly = NewReadOnlyInterceptor()
-	}
+func createToolkit(
+	client *trinoclient.Client,
+	cfg Config,
+	elicit *ElicitationMiddleware,
+	readOnly *ReadOnlyInterceptor,
+) *trinotools.Toolkit {
 	opts := buildToolkitOptions(cfg, elicit, nil, readOnly)
 	return trinotools.NewToolkit(client, trinotools.Config{
 		DefaultLimit: cfg.DefaultLimit,
@@ -633,6 +680,17 @@ func (t *Toolkit) AddConnection(name string, config map[string]any) error {
 		t.readOnly.SetConnection(name, getBool(config, "read_only"))
 	}
 
+	// Same reasoning for the registration target: without this the connection
+	// would register nothing until the next restart.
+	if scratch := getScratchConfig(config); scratch.Configured() {
+		if t.scratch == nil {
+			t.scratch = make(map[string]ScratchConfig)
+		}
+		t.scratch[name] = scratch
+	} else {
+		delete(t.scratch, name)
+	}
+
 	return nil
 }
 
@@ -649,6 +707,7 @@ func (t *Toolkit) RemoveConnection(name string) error {
 	t.connMu.Lock()
 	defer t.connMu.Unlock()
 	delete(t.connectionDescriptions, name)
+	delete(t.scratch, name)
 	if t.readOnly != nil {
 		t.readOnly.ForgetConnection(name)
 	}

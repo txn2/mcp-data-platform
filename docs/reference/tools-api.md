@@ -1190,7 +1190,7 @@ List, retrieve, update, delete, or share saved assets. All mutations enforce own
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `action` | string | Yes | - | One of: `list`, `get`, `update`, `delete`, `search`, `share`, `list_shares`, `revoke_share` |
+| `action` | string | Yes | - | One of: `list`, `get`, `update`, `delete`, `search`, `share`, `list_shares`, `revoke_share`, `register_table`, `list_tables`, `unregister_table` |
 | `asset_id` | string | Conditional | - | Required for `get`, `update`, `delete`, `share`, `list_shares` |
 | `content` | string | No | - | New content (for `update` — replaces S3 object) |
 | `name` | string | No | - | New name (for `update`) |
@@ -1205,6 +1205,9 @@ List, retrieve, update, delete, or share saved assets. All mutations enforce own
 | `access_mode` | string | No | `authenticated` | Who a link share admits (`share`, no recipient): `authenticated` or `public` |
 | `expires_in` | string | Conditional | - | Duration bounding a public link (`24h`). Required for `access_mode: public`, refused for every other share |
 | `share_id` | string | Conditional | - | Share to end (required for `revoke_share`) |
+| `connection` | string | Conditional | - | Trino connection whose scratch schema holds the table (required for `register_table`) |
+| `table_name` | string | No | filename slug | Name for the registered table; persona-prefixed either way |
+| `registration_id` | string | Conditional | - | Registration to drop (required for `unregister_table`) |
 
 **Actions:**
 
@@ -1218,6 +1221,9 @@ List, retrieve, update, delete, or share saved assets. All mutations enforce own
 | `share` | Grant access to an asset you own. With `recipient`: a restricted share addressed to that person, who is emailed the link. Without: a link, `authenticated` by default. Owner (or admin) only; anonymous callers refused. | `asset_id` |
 | `list_shares` | The shares that currently grant access to the asset — revoked and expired ones excluded — with recipient, permission, access mode, view URL, and access count | `asset_id` |
 | `revoke_share` | End one share by ID. Its token stops opening the asset immediately | `share_id` |
+| `register_table` | Make a CSV asset queryable as an external table, without copying it. Every column is `VARCHAR` | `connection` |
+| `list_tables` | The tables registered over an asset, each with its columns and whether the file has moved on since | `asset_id` |
+| `unregister_table` | Drop one registered table. The asset's file is unchanged | `registration_id` |
 
 **Response Schema (list):**
 

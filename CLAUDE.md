@@ -95,11 +95,18 @@ AI-generated prose (PR descriptions, commit messages, reviews, explanations) is 
    - Linting (`golangci-lint run ./...` plus `--new-from-rev=$MERGE_BASE` to mirror CI's `only-new-issues: true`) — cyclomatic complexity ≤10, cognitive complexity ≤15
    - Security scanning (`gosec ./...` + `govulncheck`, whose report is judged against `.govulncheck-allow.txt` by `scripts/govulncheck-gate.py`: an advisory with no patched release may be accepted with a written reason, and the gate fails when an accepted advisory gains a fix or stops being reported)
    - Semgrep SAST — `p/golang` ruleset + custom `.semgrep/` rules (unbounded allocations, etc.)
-   - CodeQL analysis — `security-and-quality` query suite, fails on error-level findings
    - Documentation check — warns when documentation-worthy changes lack doc updates (soft warning)
    - Dead code analysis
    - GoReleaser dry-run — validates build, Docker, and release config
    - All checks must pass locally before considering code "tested"
+
+   CodeQL is deliberately **not** part of `make verify`, and this list claimed it was until #1327. The Makefile removed it: ~4 minutes of serial wall clock, more than the whole concurrent phase, on the reasoning that `.github/workflows/codeql.yml` runs the same suite on every pull request.
+
+   **Running `make codeql` locally is not a substitute, and does not clear you to push.** On #1327 GitHub Code Scanning reported `go/log-injection` (medium) at `internal/httpserver/tablehttp/tablehttp.go:179`; a local `make codeql` on the identical unsanitized source produced **zero** log-injection results and exited 0. The file was in the database (it is listed in the SARIF artifacts), so this is not a coverage gap — the local CLI's bundled query pack does not reproduce what GitHub's scanning reports. Treat local CodeQL as advisory for this class.
+
+   **A GHAS finding is a review comment, not a failing check.** `gh pr checks` showed CodeQL `pass` on #1427 while `go/log-injection` was open against the diff. After every push, read `gh api repos/<owner>/<repo>/pulls/<n>/comments` and look for `github-advanced-security[bot]`; a green check list does not mean Advanced Security is clean.
+
+   Sanitize every value that reaches a log sink with `internal/logsan.SanitizeForLog` — including `err.Error()`, since a wrapped error carries whatever caller-supplied names the layers below put in it.
 
    Mutation testing (`gremlins unleash --threshold-efficacy 60`, ≥60% kill rate) is deliberately **not** part of `make verify` — it is too slow for a per-commit gate (the Makefile `verify` target carries a comment forbidding its re-addition). It runs in `make verify-release` (pre-tag, local) and on a weekly schedule in CI via `.github/workflows/mutation.yml`; gremlins is version-pinned by `GREMLINS_VERSION` and enforced by tools-check like the other tools.
 
@@ -180,7 +187,7 @@ mcp-data-platform/
 │   ├── connid/                     # Connection identity: the instance a connection is stored under, the name a call binds it by, the toolkit serving it, and which half of the config owns it — one Resolver, distinct types
 │   ├── connview/                   # Builds the list_connections view (configured + discovered)
 │   ├── contenttype/                # Media-type detection and normalization for every content write path
-│   ├── database/                   # Database utilities (migrate/ = golang-migrate runner + 120 embedded SQL migrations)
+│   ├── database/                   # Database utilities (migrate/ = golang-migrate runner + 121 embedded SQL migrations)
 │   ├── embedding/                  # Text embedding generation for memory vector search
 │   ├── indexjobs/                  # Postgres-backed, source-kind-agnostic background indexer
 │   ├── knowledge/                  # Unified read path for platform knowledge (federation/ = live toolkit registry adapter)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -64,6 +65,12 @@ type fakeS3API struct {
 
 	delErr   error
 	closeErr error
+
+	listErr    error
+	listOut    *s3client.ListObjectsOutput
+	listPrefix string
+	listDelim  string
+	listMax    int32
 }
 
 func (f *fakeS3API) PutObject(_ context.Context, in *s3client.PutObjectInput) (*s3client.PutObjectOutput, error) {
@@ -90,6 +97,21 @@ func (f *fakeS3API) GetObject(_ context.Context, _, _ string) (*s3client.ObjectC
 	}
 	return &s3client.ObjectContent{Body: f.getBody, ContentType: f.getCT}, nil
 }
+
+//nolint:revive // argument-limit: the signature mirrors the mcp-s3 client's
+func (f *fakeS3API) ListObjects(
+	_ context.Context, _, prefix, delimiter string, maxKeys int32, _ string,
+) (*s3client.ListObjectsOutput, error) {
+	f.listPrefix, f.listDelim, f.listMax = prefix, delimiter, maxKeys
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	if f.listOut != nil {
+		return f.listOut, nil
+	}
+	return &s3client.ListObjectsOutput{}, nil
+}
+
 func (f *fakeS3API) DeleteObject(_ context.Context, _, _ string) error { return f.delErr }
 func (f *fakeS3API) Close() error                                      { return f.closeErr }
 
@@ -212,5 +234,73 @@ func TestS3ClientAdapter_PutObjectStream_Error(t *testing.T) {
 	// The adapter still reports the bytes that were pulled before failure.
 	if n != int64(len("data")) {
 		t.Errorf("returned size = %d; want %d", n, len("data"))
+	}
+}
+
+func TestS3ClientAdapter_ListDirectory(t *testing.T) {
+	fake := &fakeS3API{listOut: &s3client.ListObjectsOutput{
+		Objects: []s3client.ObjectInfo{
+			// A store that materializes directory markers returns the prefix
+			// itself; it is not an object anything reads.
+			{Key: "artifacts/u1/a1/", Size: 0},
+			{Key: "artifacts/u1/a1/content.csv", Size: 128},
+			{Key: "artifacts/u1/a1/notes.txt", Size: 12},
+		},
+	}}
+	adapter := &ClientAdapter{client: fake}
+
+	entries, truncated, err := adapter.ListDirectory(context.Background(), "bucket", "artifacts/u1/a1/")
+	if err != nil {
+		t.Fatalf("ListDirectory: %v", err)
+	}
+	if truncated {
+		t.Error("truncated = true; want false for a listing that fit")
+	}
+	want := []ObjectEntry{
+		{Key: "artifacts/u1/a1/content.csv", Size: 128},
+		{Key: "artifacts/u1/a1/notes.txt", Size: 12},
+	}
+	if !reflect.DeepEqual(entries, want) {
+		t.Errorf("entries = %v; want %v", entries, want)
+	}
+
+	// The delimiter is what keeps a subdirectory's contents out of the answer,
+	// which is what makes this listing match what Hive sees under an external
+	// location (#1327).
+	if fake.listDelim != "/" {
+		t.Errorf("delimiter = %q; want %q", fake.listDelim, "/")
+	}
+	if fake.listPrefix != "artifacts/u1/a1/" {
+		t.Errorf("prefix = %q; want the directory", fake.listPrefix)
+	}
+	if fake.listMax != maxDirectoryEntries {
+		t.Errorf("maxKeys = %d; want %d", fake.listMax, maxDirectoryEntries)
+	}
+}
+
+// TestS3ClientAdapter_ListDirectory_Truncated pins that a page boundary is
+// reported rather than read as "nothing else is there".
+func TestS3ClientAdapter_ListDirectory_Truncated(t *testing.T) {
+	fake := &fakeS3API{listOut: &s3client.ListObjectsOutput{
+		Objects:     []s3client.ObjectInfo{{Key: "d/one.csv", Size: 1}},
+		IsTruncated: true,
+	}}
+	adapter := &ClientAdapter{client: fake}
+
+	_, truncated, err := adapter.ListDirectory(context.Background(), "bucket", "d/")
+	if err != nil {
+		t.Fatalf("ListDirectory: %v", err)
+	}
+	if !truncated {
+		t.Error("truncated = false; want the page boundary reported")
+	}
+}
+
+func TestS3ClientAdapter_ListDirectory_Error(t *testing.T) {
+	adapter := &ClientAdapter{client: &fakeS3API{listErr: errors.New("s3 unavailable")}}
+
+	if _, _, err := adapter.ListDirectory(context.Background(), "bucket", "d/"); err == nil ||
+		!strings.Contains(err.Error(), "s3 list") {
+		t.Errorf("error = %v; want it wrapped with 's3 list'", err)
 	}
 }

@@ -64,6 +64,12 @@ type Document struct {
 	// can deliberately deep-crawl the knowledge graph (fetch the index, follow into
 	// the relevant branch) instead of re-parsing links out of the markdown body.
 	References []DocumentRef `json:"references,omitempty"`
+	// Table names the query-engine table the fetched file is readable as, when
+	// one has been registered over it (#1327). It is the fetched record's copy
+	// of the same marker search puts on a Hit, so a file read in full says it
+	// can be joined as plainly as its snippet did. Nil when nothing is
+	// registered over it.
+	Table *HitTable `json:"table,omitempty"`
 }
 
 // DocumentRef is one outbound link a Document declares (#705): a reference string a

@@ -73,6 +73,12 @@ import {
 } from "./data/prompts";
 import { mockResources, mockResourceUsage, mockResourceVersions } from "./data/resources";
 import {
+  mockDropTable,
+  mockRegisterTable,
+  mockTableConnections,
+  mockTableRegistrations,
+} from "./data/tables";
+import {
   mentionedThreadIDs,
   mockThreadChains,
   mockThreadEvents,
@@ -2828,6 +2834,50 @@ export const handlers = [
     return new HttpResponse(`contents of version ${version.version}`, {
       headers: { "Content-Type": "text/plain" },
     });
+  }),
+
+  // =========================================================================
+  // Table registrations (#1327) — shared by resources and portal assets
+  //
+  // Register and drop mutate the fixture map so a demo, a screenshot run, and
+  // an e2e walk all see the panel change rather than a control that appears to
+  // do nothing.
+  // =========================================================================
+
+  http.get("/api/v1/table-connections", () =>
+    HttpResponse.json({ connections: mockTableConnections }),
+  ),
+
+  http.get("/api/v1/resources/:id/tables", ({ params }) =>
+    HttpResponse.json({ registrations: mockTableRegistrations[params.id as string] ?? [] }),
+  ),
+
+  http.post("/api/v1/resources/:id/tables", async ({ params, request }) =>
+    HttpResponse.json(
+      await mockRegisterTable("resource", params.id as string, request),
+      { status: 201 },
+    ),
+  ),
+
+  http.delete("/api/v1/resources/:id/tables/:regId", ({ params }) => {
+    mockDropTable(params.id as string, params.regId as string);
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.get("/api/v1/portal/assets/:id/tables", ({ params }) =>
+    HttpResponse.json({ registrations: mockTableRegistrations[params.id as string] ?? [] }),
+  ),
+
+  http.post("/api/v1/portal/assets/:id/tables", async ({ params, request }) =>
+    HttpResponse.json(
+      await mockRegisterTable("asset", params.id as string, request),
+      { status: 201 },
+    ),
+  ),
+
+  http.delete("/api/v1/portal/assets/:id/tables/:regId", ({ params }) => {
+    mockDropTable(params.id as string, params.regId as string);
+    return new HttpResponse(null, { status: 204 });
   }),
 
   // =========================================================================

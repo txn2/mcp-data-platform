@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
@@ -74,6 +75,9 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 	c.SSLVerify = getBoolDefault(cfg, "ssl_verify", true)
 	c.ReadOnly = getBool(cfg, "read_only")
 
+	// Where table registrations land on this connection.
+	c.Scratch = getScratchConfig(cfg)
+
 	// Timeout with duration parsing
 	if timeout, err := getDuration(cfg, "timeout"); err != nil {
 		return c, fmt.Errorf("invalid timeout: %w", err)
@@ -92,6 +96,30 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 	c.Elicitation = getElicitationConfig(cfg)
 
 	return c, nil
+}
+
+// getScratchConfig extracts the scratch registration target from a config map.
+// A block that names only one of the two is not a usable target and is dropped
+// with a warning rather than half-honored: a registration built on it would
+// name a catalog with no schema, or the reverse, and fail at the DDL.
+func getScratchConfig(cfg map[string]any) ScratchConfig {
+	raw, ok := cfg["scratch"].(map[string]any)
+	if !ok {
+		return ScratchConfig{}
+	}
+	sc := ScratchConfig{
+		Catalog: getString(raw, "catalog"),
+		Schema:  getString(raw, "schema"),
+	}
+	if sc.Catalog == "" || sc.Schema == "" {
+		if sc.Catalog != "" || sc.Schema != "" {
+			slog.Warn("ignoring trino scratch target: both catalog and schema are required",
+				"catalog", logsan.SanitizeForLog(sc.Catalog),
+				"schema", logsan.SanitizeForLog(sc.Schema))
+		}
+		return ScratchConfig{}
+	}
+	return sc
 }
 
 // getElicitationConfig extracts elicitation configuration from a config map.

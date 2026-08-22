@@ -924,8 +924,8 @@ func TestAdminDeriveThumbnailKeyUsesPortal(t *testing.T) {
 		input string
 		want  string
 	}{
-		{"portal/owner/asset/content.html", "portal/owner/asset/thumbnail.png"},
-		{"simple.html", "thumbnail.png"},
+		{"portal/owner/asset/content.html", "portal/owner/asset/.thumbnail.png"},
+		{"simple.html", ".thumbnail.png"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {

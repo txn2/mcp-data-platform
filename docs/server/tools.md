@@ -46,7 +46,7 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | Knowledge | `apply_knowledge` | Review and promote reviewed captures to the catalog (admin-only) |
 | Memory | `memory_manage` | Manage existing memories: update, forget, list, review_stale, review_duplicates, consolidate (opt-in per persona) |
 | Portal | `save_asset` | Save AI-generated content as an asset (JSX, HTML, SVG, etc.) |
-| Portal | `manage_asset` | List, get, update, delete, or relevance-search saved assets and collections, edit asset content in place (patch, locate, get_content, outline, stats, diff), and share an asset with a person or as a link (share, list_shares, revoke_share) |
+| Portal | `manage_asset` | List, get, update, delete, or relevance-search saved assets and collections, edit asset content in place (patch, locate, get_content, outline, stats, diff), share an asset with a person or as a link (share, list_shares, revoke_share), and register a CSV asset as a queryable table (register_table, list_tables, unregister_table) |
 | Portal | `manage_feedback` | Review and respond to human feedback (list pending across everything, get, reply, resolve, request/respond validation) |
 | Platform | `platform_find_tools` | Find the most relevant tools for a natural-language task, ranked by semantic similarity (persona-scoped) |
 | Platform | `manage_prompt` | Resolve and run prompts by any handle (`use`), plus create, update, delete, list, get, the script-reference commands (attach_script, detach_script), and the content verbs (patch, locate, get_content, outline, stats, diff) |
@@ -1047,7 +1047,7 @@ List, retrieve, update, delete, or share saved assets, and edit an asset's conte
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `action` | string | Yes | - | Action to perform: list, get, update, delete, search, patch, locate, get_content, outline, stats, diff, share, list_shares, revoke_share |
+| `action` | string | Yes | - | Action to perform: list, get, update, delete, search, patch, locate, get_content, outline, stats, diff, share, list_shares, revoke_share, register_table, list_tables, unregister_table |
 | `asset_id` | string | Conditional | - | Required for get, update, delete, share, list_shares, and every content action |
 | `content` | string | No | - | New content (for update; replaces the whole body) |
 | `name` | string | No | - | New name (for update) |
@@ -1064,6 +1064,9 @@ List, retrieve, update, delete, or share saved assets, and edit an asset's conte
 | `access_mode` | string | No | authenticated | Who a link admits (share, no recipient): `authenticated` or `public` |
 | `expires_in` | string | Conditional | - | Duration bounding a public link (`24h`). Required for `access_mode: public`, refused otherwise |
 | `share_id` | string | Conditional | - | Share to end (required for revoke_share) |
+| `connection` | string | Conditional | - | Trino connection whose scratch schema holds the table (required for register_table) |
+| `table_name` | string | No | filename slug | Name for the registered table; prefixed with your persona either way |
+| `registration_id` | string | Conditional | - | Registration to drop (required for unregister_table) |
 
 The patch and navigation arguments (`edits`, `base_version`, `dry_run`, `find`, `pattern`, `section`, `selector`, `occurrence`, `line_start`, `line_end`, `context_bytes`, `from_version`, `to_version`) are the shared content-editing grammar documented in [Editing content in place](#editing-content-in-place). Inside `edits`, `occurrence` is a per-edit field; at the top level it disambiguates a `selector` used to scope `locate` or `get_content`.
 
@@ -1076,6 +1079,7 @@ The patch and navigation arguments (`edits`, `base_version`, `dry_run`, `find`, 
 - **search**: Rank the caller's own assets by relevance to `query`. Uses the same hybrid (vector + lexical) ranking as the prompt and Knowledge & Memory search: weighted hybrid when an embedding provider is configured, automatic lexical-only fallback otherwise. Returns each match with a `score` and reports `ranking` (`hybrid` or `lexical`). Scoped server-side to the caller's own assets by `owner_id`, the same ownership key the asset library and update/delete checks use, so search returns exactly what you see in the library, and fails closed when the caller has no identity, so a user can never find an asset they cannot view.
 - **patch / locate / get_content / outline / stats / diff**: read and edit the body without moving the whole document. See below.
 - **share / list_shares / revoke_share**: give someone access to an asset, see who has it, and take it back. See [Sharing an asset from the session](#sharing-an-asset-from-the-session).
+- **register_table / list_tables / unregister_table**: make a CSV asset queryable as a table, see what is registered over it, and drop one. Nothing is copied: the table reads the file where it already sits, so `trino_query` can join it to warehouse tables. Every column comes back as `VARCHAR`, so a join to a typed column needs a `CAST`. See [Registered Tables](registered-tables.md).
 
 A patch writes an ordinary new version, so `list_versions` and `revert` keep working, and the version's change summary is the caller's `change_summary` (or a generated "3 edits via patch") instead of a fixed constant.
 
