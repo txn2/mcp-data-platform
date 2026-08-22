@@ -133,12 +133,25 @@ registering it are one turn apart.
 
 ## What is refused, and why
 
-**A directory holding anything besides the file.** Trino reads every
-non-hidden object under an external location and parses it as CSV. A stray file
-beside the content does not fail the query - it comes back as rows of that
-file's bytes. Registration therefore refuses a directory with a sibling and
-names it. Thumbnails the portal captures are written under hidden names, so
-they are invisible to Trino and never in the way.
+**A directory holding a file Trino would read.** Trino reads every non-hidden
+object under an external location and parses it as CSV. A stray file beside the
+content does not fail the query - it comes back as rows of that file's bytes.
+Registration therefore refuses a directory with such a sibling and names it. A
+name beginning with `.` or `_` is hidden: Trino skips it, and so does the
+check. Thumbnails the portal captures are written under those names, so a CSV
+asset that has been rendered in the portal registers with its thumbnails in
+place.
+
+Thumbnails captured before those names were adopted are stored as
+`thumbnail.png` and `thumbnail_dark.png` - ordinary files that Trino does read,
+so an asset still carrying them is refused. Opening the assets list captures
+that asset again under the hidden names and removes the objects it supersedes,
+after which it registers. Nothing has to be run against the bucket.
+
+**A file whose own name Trino skips.** The same `.`/`_` rule applies to the
+file being registered. A table over a hidden object is created, recorded and
+queried without any error and returns nothing, so a source under such a name is
+refused and the reason is stated. Upload the file under another name.
 
 **A file that is not a CSV.** There is no header row to take column names
 from.

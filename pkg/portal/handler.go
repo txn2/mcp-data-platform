@@ -889,16 +889,36 @@ func (h *Handler) uploadThumbnail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := r.PathValue(pathKeyID)
+	superseded := asset.ThumbnailS3Key
 	updates := AssetUpdate{ThumbnailS3Key: &thumbKey}
 	if variant == thumbnailVariantDark {
+		superseded = asset.ThumbnailDarkS3Key
 		updates = AssetUpdate{ThumbnailDarkS3Key: &thumbKey}
 	}
 	if err := h.deps.AssetStore.Update(r.Context(), id, updates); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update asset metadata")
 		return
 	}
+	h.removeSupersededThumbnail(r.Context(), asset.S3Bucket, superseded, thumbKey)
 
 	writeJSON(w, http.StatusOK, statusResponse{Status: statusUpdated})
+}
+
+// removeSupersededThumbnail deletes a thumbnail written under the spelling
+// used before the leading-dot rename, once the capture that replaced it has
+// been recorded.
+//
+// It is deliberately narrow: only a legacy name is removed, and only after the
+// asset row points at the new key, so a failed delete leaves an unreferenced
+// object rather than an asset with no thumbnail. Leaving it in place is not
+// harmless -- Trino reads a non-hidden object beside a CSV as rows, so an
+// asset thumbnailed before the rename stays unregisterable until the object
+// is gone.
+func (h *Handler) removeSupersededThumbnail(ctx context.Context, bucket, superseded, current string) {
+	if superseded == "" || superseded == current || !portaldomain.IsLegacyThumbnailKey(superseded) {
+		return
+	}
+	h.cleanupOrphanedS3(ctx, bucket, superseded)
 }
 
 // requireManageableAsset validates auth, fetches the asset, checks deletion, and

@@ -229,17 +229,26 @@ func mayReplace(caller Caller, existing *Registration, target trino.ScratchConfi
 }
 
 // locationFor returns the directory the external table points at, refusing a
-// directory that holds anything besides the source object.
+// directory that holds anything besides the source object and the files Hive
+// skips.
 //
 // The refusal is the whole protection. Hive reads every non-hidden object
 // under an external location and parses it as CSV, so a stray file beside the
-// content does not fail the query -- it comes back as rows. Thumbnails are
-// written under hidden names for exactly this reason and so are invisible
-// here; anything else is named back to the caller.
+// content does not fail the query -- it comes back as rows. A hidden file is
+// not read at all, which is why an asset's thumbnails are written under
+// leading-dot names; anything Hive would read is named back to the caller.
+//
+// The rule cuts both ways: a source object under a hidden name of its own is
+// refused, because a table over it would be built, recorded and queried
+// without error and return nothing.
 func (r *Registrar) locationFor(ctx context.Context, src Source) (string, error) {
 	dir := DirectoryOf(src.HeadKey)
 	if dir == "" {
 		return "", refusedf("this file is not stored under a directory of its own, so no table can be pointed at it")
+	}
+	if hiddenToHive(fileNameOf(src.HeadKey)) {
+		return "", refusedf(
+			"a name beginning with \".\" or \"_\" is skipped by Trino, so a table over this file would return no rows; upload it under another name and register that")
 	}
 	objects := r.objectsFor(src.Kind)
 	if objects == nil {
@@ -259,7 +268,11 @@ func (r *Registrar) locationFor(ctx context.Context, src Source) (string, error)
 		if e.Key == src.HeadKey {
 			continue
 		}
-		siblings = append(siblings, strings.TrimPrefix(e.Key, dir))
+		name := fileNameOf(e.Key)
+		if hiddenToHive(name) {
+			continue
+		}
+		siblings = append(siblings, name)
 	}
 	if len(siblings) > 0 {
 		sort.Strings(siblings)
@@ -269,6 +282,16 @@ func (r *Registrar) locationFor(ctx context.Context, src Source) (string, error)
 	}
 
 	return LocationURI(src.Bucket, dir), nil
+}
+
+// hiddenToHive reports whether Hive skips a file of this name. The Hive
+// connector's hidden-file filter drops any name beginning with "." or "_",
+// confirmed on Trino 476, so such a file sits in an external location without
+// contributing rows. An asset's thumbnails are written under those names for
+// exactly this reason, and every CSV asset rendered in the portal holds two of
+// them beside its content.
+func hiddenToHive(name string) bool {
+	return strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_")
 }
 
 // joinAnd renders a short list in prose so a refusal names what is in the way

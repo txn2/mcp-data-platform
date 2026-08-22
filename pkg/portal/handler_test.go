@@ -180,8 +180,9 @@ type mockS3Client struct {
 	getErr    error
 	putErr    error
 	deleteErr error
-	putKey    string // captures the key of the most recent PutObject
-	getKey    string // captures the key of the most recent GetObject
+	putKey    string   // captures the key of the most recent PutObject
+	getKey    string   // captures the key of the most recent GetObject
+	deleted   []string // captures every key passed to DeleteObject, in order
 }
 
 func (m *mockS3Client) PutObject(_ context.Context, _, key string, _ []byte, _ string) error {
@@ -198,8 +199,11 @@ func (m *mockS3Client) GetObject(_ context.Context, _, key string) (body []byte,
 	m.getKey = key
 	return m.getData, m.getCT, m.getErr
 }
-func (m *mockS3Client) DeleteObject(_ context.Context, _, _ string) error { return m.deleteErr }
-func (*mockS3Client) Close() error                                        { return nil }
+func (m *mockS3Client) DeleteObject(_ context.Context, _, key string) error {
+	m.deleted = append(m.deleted, key)
+	return m.deleteErr
+}
+func (*mockS3Client) Close() error { return nil }
 
 type mockVersionStore struct {
 	createVersion int
@@ -2934,6 +2938,81 @@ func TestUploadThumbnailDarkVariant(t *testing.T) {
 	require.NotNil(t, store.lastUpdate.ThumbnailDarkS3Key)
 	assert.Equal(t, "portal/u1/a1/.thumbnail_dark.png", *store.lastUpdate.ThumbnailDarkS3Key)
 	assert.Nil(t, store.lastUpdate.ThumbnailS3Key, "dark upload must not touch the light key")
+}
+
+// TestUploadThumbnailRemovesLegacyObject is what makes a CSV asset
+// thumbnailed before the leading-dot rename registrable as a table: the legacy
+// object is an ordinary file beside the content, so re-capturing under the
+// hidden name has to take the old one out of the directory.
+func TestUploadThumbnailRemovesLegacyObject(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "Test", S3Bucket: "b", S3Key: "portal/u1/a1/content.csv",
+		ContentType: "text/csv", ThumbnailS3Key: "portal/u1/a1/thumbnail.png",
+		Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	s3 := &mockS3Client{}
+	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, s3, &User{UserID: "u1"})
+
+	body := strings.NewReader(strings.Repeat("x", 100))
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/thumbnail", body)
+	req.Header.Set("Content-Type", "image/png")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "portal/u1/a1/.thumbnail.png", s3.putKey)
+	assert.Equal(t, []string{"portal/u1/a1/thumbnail.png"}, s3.deleted,
+		"the superseded legacy object is removed from the directory")
+}
+
+// TestUploadThumbnailKeepsHiddenPredecessor pins the other side: a re-capture
+// over the current spelling overwrites the object in place, and deleting the
+// key the row now points at would leave the asset with no thumbnail at all.
+func TestUploadThumbnailKeepsHiddenPredecessor(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "Test", S3Bucket: "b", S3Key: "portal/u1/a1/content.csv",
+		ContentType: "text/csv", ThumbnailS3Key: "portal/u1/a1/.thumbnail.png",
+		Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	s3 := &mockS3Client{}
+	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, s3, &User{UserID: "u1"})
+
+	body := strings.NewReader(strings.Repeat("x", 100))
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/thumbnail", body)
+	req.Header.Set("Content-Type", "image/png")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Empty(t, s3.deleted, "nothing is deleted when the recorded key is already hidden")
+}
+
+// TestUploadThumbnailDarkRemovesLegacyDark covers the variant the light
+// capture never touches: a themeable asset records both keys, so both legacy
+// objects have to go before the directory is clean.
+func TestUploadThumbnailDarkRemovesLegacyDark(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "Test", S3Bucket: "b", S3Key: "portal/u1/a1/content.csv",
+		ContentType: "text/csv", ThumbnailS3Key: "portal/u1/a1/thumbnail.png",
+		ThumbnailDarkS3Key: "portal/u1/a1/thumbnail_dark.png",
+		Tags:               []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	s3 := &mockS3Client{}
+	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, s3, &User{UserID: "u1"})
+
+	body := strings.NewReader(strings.Repeat("x", 100))
+	req := httptest.NewRequestWithContext(context.Background(), "PUT",
+		"/api/v1/portal/assets/a1/thumbnail?variant=dark", body)
+	req.Header.Set("Content-Type", "image/png")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, []string{"portal/u1/a1/thumbnail_dark.png"}, s3.deleted,
+		"the dark capture removes the dark legacy object, not the light one")
 }
 
 func TestUploadThumbnailInvalidVariant(t *testing.T) {

@@ -3,7 +3,12 @@ import { useQueryClient } from "@tanstack/react-query";
 import { apiFetchRaw } from "@/api/portal/client";
 import type { Asset } from "@/api/portal/types";
 import { useIdleGate } from "@/lib/idle";
-import { isThumbnailSupported, isThemeable, THUMBNAIL_SOURCE_LIMIT } from "@/lib/thumbnailSupport";
+import {
+  isThumbnailSupported,
+  isThemeable,
+  isLegacyThumbnailKey,
+  THUMBNAIL_SOURCE_LIMIT,
+} from "@/lib/thumbnailSupport";
 
 // The capturer pulls in html2canvas, the markdown renderer and the diagram
 // engine — roughly 200 KB that the assets home has no use for until it finds
@@ -145,11 +150,18 @@ export function ThumbnailQueue({ assets }: Props) {
  * Whether this asset is worth capturing on this visit: a supported type, not
  * already attempted, missing a variant, and small enough to render twice
  * without stalling the page.
+ *
+ * A variant recorded under a legacy filename counts as missing. The object is
+ * a non-hidden file beside the content, which is what a CSV asset registered
+ * as a table must not have, and nothing else replaces it: capture is the only
+ * writer of a thumbnail key.
  */
 function needsCapture(a: Asset, processed: ReadonlySet<string>): boolean {
   if (!isThumbnailSupported(a.content_type) || processed.has(a.id)) return false;
   if (a.size_bytes > THUMBNAIL_SOURCE_LIMIT) return false;
-  const missingLight = !a.thumbnail_s3_key;
-  const missingDark = isThemeable(a.content_type) && !a.thumbnail_dark_s3_key;
+  const missingLight = !a.thumbnail_s3_key || isLegacyThumbnailKey(a.thumbnail_s3_key);
+  const missingDark =
+    isThemeable(a.content_type) &&
+    (!a.thumbnail_dark_s3_key || isLegacyThumbnailKey(a.thumbnail_dark_s3_key));
   return missingLight || missingDark;
 }

@@ -293,19 +293,62 @@ func TestRegister_NamesTheSiblingThatBlocksIt(t *testing.T) {
 
 // TestRegister_HiddenThumbnailsDoNotBlockIt is the other half: thumbnails are
 // written under hidden names precisely so Hive skips them, and a listing that
-// carries them must not turn every viewed CSV asset into a refusal.
+// carries them must not turn every viewed CSV asset into a refusal. The
+// filenames are the ones DeriveThumbnailKeyVariant writes.
 func TestRegister_HiddenThumbnailsDoNotBlockIt(t *testing.T) {
 	h := newHarness(t, func(h *harness) {
-		// The adapter's delimiter listing returns what Hive sees; a hidden
-		// object is still an object in the directory.
+		// The adapter's delimiter listing returns every object in the
+		// directory, hidden or not; the registrar applies Hive's rule to them.
 		h.objects.entries = []ObjectEntry{
 			{Key: "artifacts/u1/asset_1/content.csv", Size: int64(len(csvBody))},
+			{Key: "artifacts/u1/asset_1/.thumbnail.png", Size: 2048},
+			{Key: "artifacts/u1/asset_1/.thumbnail_dark.png", Size: 2048},
+			{Key: "artifacts/u1/asset_1/_SUCCESS", Size: 0},
+		}
+	})
+
+	reg, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch"})
+	require.NoError(t, err)
+	assert.Equal(t, "s3://portal-assets/artifacts/u1/asset_1/", reg.Location)
+}
+
+// TestRegister_NamesOnlyTheSiblingHiveReads pins that a hidden file next to an
+// ordinary one neither suppresses the refusal nor appears in it: the caller is
+// told to move the file that would come back as rows, and nothing else.
+func TestRegister_NamesOnlyTheSiblingHiveReads(t *testing.T) {
+	h := newHarness(t, func(h *harness) {
+		h.objects.entries = []ObjectEntry{
+			{Key: "artifacts/u1/asset_1/content.csv", Size: int64(len(csvBody))},
+			{Key: "artifacts/u1/asset_1/.thumbnail.png", Size: 2048},
+			{Key: "artifacts/u1/asset_1/notes.txt", Size: 10},
 		}
 	})
 
 	_, err := h.reg.Register(context.Background(), testCaller(), testSource(),
 		Request{Connection: "scratch"})
-	require.NoError(t, err)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "notes.txt")
+	assert.NotContains(t, err.Error(), "thumbnail")
+	assert.Empty(t, h.trino.statements, "nothing runs when the directory is refused")
+}
+
+// TestRegister_HiddenSourceNameRefuses is the same rule applied to the object
+// the table is built over: Trino skips it, so the table would be created,
+// recorded and queried without error and return nothing at all.
+func TestRegister_HiddenSourceNameRefuses(t *testing.T) {
+	src := testSource()
+	src.HeadKey = "resources/user/u1/res_1/_vendor_keys.csv"
+	h := newHarness(t, func(h *harness) {
+		h.objects.entries = []ObjectEntry{{Key: src.HeadKey, Size: int64(len(csvBody))}}
+	})
+
+	_, err := h.reg.Register(context.Background(), testCaller(), src,
+		Request{Connection: "scratch"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "would return no rows")
+	assert.Empty(t, h.trino.statements, "nothing runs when the source name is refused")
+	assert.Empty(t, h.store.rows, "no registration is recorded")
 }
 
 // TestRegister_TruncatedListingRefuses pins that a page boundary is never read
@@ -794,11 +837,11 @@ func TestColumnsFor_ReadFailures(t *testing.T) {
 }
 
 // TestTableNameFor_FallsBackToTheRecordsName when the filename slugifies to
-// nothing, which a key like "d/_.csv" does.
+// nothing, which a key like "d/-.csv" does.
 func TestTableNameFor_FallsBackToTheRecordsName(t *testing.T) {
 	h := newHarness(t)
 	src := testSource()
-	src.HeadKey = "artifacts/u1/asset_1/_.csv"
+	src.HeadKey = "artifacts/u1/asset_1/-.csv"
 	src.Name = "Vendor keys"
 	h.objects.entries = []ObjectEntry{{Key: src.HeadKey}}
 
@@ -812,7 +855,7 @@ func TestTableNameFor_FallsBackToTheRecordsName(t *testing.T) {
 func TestTableNameFor_NothingDerivable(t *testing.T) {
 	h := newHarness(t)
 	src := testSource()
-	src.HeadKey = "artifacts/u1/asset_1/_.csv"
+	src.HeadKey = "artifacts/u1/asset_1/-.csv"
 	src.Name = "..."
 	h.objects.entries = []ObjectEntry{{Key: src.HeadKey}}
 

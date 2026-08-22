@@ -559,6 +559,22 @@ func (a Asset) StoredThumbnailKey(variant string) string {
 	return a.ThumbnailS3Key
 }
 
+// IsLegacyThumbnailKey reports whether a key names a thumbnail written under
+// the spelling used before the leading-dot rename.
+//
+// Those objects are ordinary files to Trino, which reads every non-hidden
+// object under an external location as CSV rows, so a CSV asset thumbnailed
+// under them cannot be registered as a table while they sit beside its
+// content. Re-capturing under the hidden name and removing the object it
+// supersedes is what clears that.
+func IsLegacyThumbnailKey(key string) bool {
+	name := key
+	if idx := strings.LastIndex(key, "/"); idx >= 0 {
+		name = key[idx+1:]
+	}
+	return name == legacyThumbnailLightFilename || name == legacyThumbnailDarkFilename
+}
+
 // ThumbnailKeysFor returns every thumbnail object key that sits beside a
 // content key. Thumbnails are regenerated per version and never recorded in a
 // version row, so a prune that removed only the content object would cap the
