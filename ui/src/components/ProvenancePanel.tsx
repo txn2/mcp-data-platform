@@ -1,16 +1,5 @@
 import { useState } from "react";
-import {
-  Database,
-  Globe,
-  Search,
-  FileText,
-  Info,
-  Terminal,
-  Copy,
-  Check,
-  History,
-  type LucideIcon,
-} from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import {
   Dialog,
   DialogClose,
@@ -26,10 +15,17 @@ import type {
   Provenance,
   ProvenanceCall,
   ProvenanceCapture,
-  ProvenanceToolCall,
 } from "@/api/portal/types";
 import { formatToolName } from "@/lib/formatToolName";
 import { formatDuration } from "@/lib/formatDuration";
+import { LegacyProvenance } from "./provenance/LegacyProvenance";
+import {
+  CopyButton,
+  OpenSessionButton,
+  getToolIcon,
+  relativeTime,
+  truncate,
+} from "./provenance/parts";
 
 interface Props {
   provenance: Provenance;
@@ -42,41 +38,11 @@ interface Props {
   onOpenSession?: () => void;
 }
 
-/** Map tool name prefixes to icons for provenance display. */
-const TOOL_ICONS: Record<string, LucideIcon> = {
-  trino_: Database,
-  datahub_: Search,
-  s3_: FileText,
-  api_: Globe,
-  platform_: Info,
-};
-
-function getToolIcon(toolName: string): LucideIcon {
-  for (const [prefix, icon] of Object.entries(TOOL_ICONS)) {
-    if (toolName.startsWith(prefix)) return icon;
-  }
-  return Terminal;
-}
-
 const KIND_LABELS: Record<string, string> = {
   sql: "SQL",
   api: "API",
   tool: "Tool",
 };
-
-function relativeTime(timestamp: string): string {
-  const now = Date.now();
-  const then = new Date(timestamp).getTime();
-  const diff = Math.max(0, now - then);
-  const seconds = Math.floor(diff / 1000);
-  if (seconds < 60) return "just now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
 
 /** The one line that says what a call did: the statement, the request, or what it addressed. */
 function callSummary(call: ProvenanceCall): string {
@@ -93,61 +59,6 @@ function callDetail(call: ProvenanceCall): string {
   const summary = callSummary(call);
   if (summary) return summary;
   return call.operation_id || call.tool;
-}
-
-function truncate(text: string, max = 120): string {
-  return text.length > max ? text.slice(0, max) + "..." : text;
-}
-
-/** Copy control shared by the call detail and the call reference. */
-function CopyButton({ text, label }: { text: string; label: string }) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = () => {
-    const done = () => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    };
-    const writeFallback = () => {
-      const el = document.createElement("textarea");
-      el.value = text;
-      document.body.appendChild(el);
-      el.select();
-      document.execCommand("copy");
-      document.body.removeChild(el);
-      done();
-    };
-
-    if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(text).then(done, writeFallback);
-    } else {
-      writeFallback();
-    }
-  };
-
-  return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="xs"
-      onClick={handleCopy}
-      className="text-muted-foreground"
-      title={label}
-      aria-label={label}
-    >
-      {copied ? (
-        <>
-          <Check className="text-emerald-600 dark:text-emerald-400" />
-          Copied
-        </>
-      ) : (
-        <>
-          <Copy />
-          Copy
-        </>
-      )}
-    </Button>
-  );
 }
 
 function CallCard({
@@ -349,6 +260,121 @@ function CaptureHeading({ capture }: { capture: ProvenanceCapture }) {
   );
 }
 
+/** One capture's calls, and what the capture says about the calls it left out. */
+function CaptureCalls({
+  capture,
+  onSelect,
+}: {
+  capture: ProvenanceCapture;
+  onSelect: (call: ProvenanceCall) => void;
+}) {
+  return (
+    <>
+      {(capture.calls ?? []).map((call, i) => (
+        <CallCard
+          key={call.event_id ?? `call-${i}`}
+          call={call}
+          named={!capture.explicit && call.cited}
+          onClick={() => onSelect(call)}
+        />
+      ))}
+      {capture.truncated && (
+        <p className="text-[11px] text-muted-foreground">
+          {capture.explicit
+            ? "Some cited calls were not found and are not recorded."
+            : "More calls were made than this capture records."}
+        </p>
+      )}
+    </>
+  );
+}
+
+/** An earlier capture, shown as its heading alone until a reader opens it. */
+function CollapsedCapture({
+  capture,
+  onSelect,
+}: {
+  capture: ProvenanceCapture;
+  onSelect: (call: ProvenanceCall) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const Chevron = open ? ChevronDown : ChevronRight;
+
+  return (
+    <div className="space-y-2">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-1.5 rounded-sm text-left hover:text-foreground/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <Chevron className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <div className="min-w-0 flex-1">
+          <CaptureHeading capture={capture} />
+        </div>
+      </button>
+      {open && <CaptureCalls capture={capture} onSelect={onSelect} />}
+    </div>
+  );
+}
+
+/**
+ * Every capture but the newest, behind one disclosure, each opening on its own.
+ *
+ * One capture is written per content write, so an asset a scheduled script
+ * refreshes hourly carries one an hour; rendering them all expanded makes the
+ * panel as long as the asset's history (#1422). The captures arrive here
+ * already reversed, newest first, each paired with its position in the
+ * unreversed list. That position is the key: it does not move when a capture
+ * is appended, whereas a position in the reversed list shifts by one and would
+ * hand a reader's open disclosure to the capture that took its place.
+ */
+function EarlierCaptures({
+  captures,
+  onSelect,
+}: {
+  captures: { capture: ProvenanceCapture; index: number }[];
+  onSelect: (call: ProvenanceCall) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  if (captures.length === 0) return null;
+
+  const label = `${captures.length} earlier ${captures.length === 1 ? "capture" : "captures"}`;
+  const Chevron = open ? ChevronDown : ChevronRight;
+
+  return (
+    <div className="space-y-2">
+      <Button
+        type="button"
+        variant="link"
+        size="xs"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="px-0"
+      >
+        <Chevron />
+        {label}
+      </Button>
+      {open && (
+        <div className="space-y-2 border-l pl-2.5">
+          {captures.map(({ capture, index }) => (
+            <CollapsedCapture
+              key={index}
+              capture={capture}
+              onSelect={onSelect}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** How many calls the asset's whole history records, expanded or not. */
+function countCalls(captures: ProvenanceCapture[]): number {
+  return captures.reduce((n, c) => n + (c.calls?.length ?? 0), 0);
+}
+
 export function ProvenancePanel({ provenance, onOpenSession }: Props) {
   const captures = provenance.captures ?? [];
   const legacyCalls = provenance.tool_calls ?? [];
@@ -363,7 +389,15 @@ export function ProvenancePanel({ provenance, onOpenSession }: Props) {
     return <NoProvenance onOpenSession={onOpenSession} />;
   }
 
-  const total = captures.reduce((n, c) => n + (c.calls?.length ?? 0), 0);
+  const total = countCalls(captures);
+  // A capture is appended per write, so the last one is the newest. The panel
+  // leads with it and reverses the rest, which puts the whole list in
+  // newest-first order rather than making a reader scroll to the current state.
+  const newest = captures[captures.length - 1]!;
+  const earlier = captures
+    .slice(0, -1)
+    .map((capture, index) => ({ capture, index }))
+    .reverse();
 
   return (
     <div className="space-y-3">
@@ -374,26 +408,12 @@ export function ProvenancePanel({ provenance, onOpenSession }: Props) {
         </span>
       </div>
 
-      {captures.map((capture, ci) => (
-        <div key={ci} className="space-y-2">
-          <CaptureHeading capture={capture} />
-          {(capture.calls ?? []).map((call, i) => (
-            <CallCard
-              key={call.event_id ?? `${ci}-${i}`}
-              call={call}
-              named={!capture.explicit && call.cited}
-              onClick={() => setSelected(call)}
-            />
-          ))}
-          {capture.truncated && (
-            <p className="text-[11px] text-muted-foreground">
-              {capture.explicit
-                ? "Some cited calls were not found and are not recorded."
-                : "More calls were made than this capture records."}
-            </p>
-          )}
-        </div>
-      ))}
+      <div className="space-y-2">
+        <CaptureHeading capture={newest} />
+        <CaptureCalls capture={newest} onSelect={setSelected} />
+      </div>
+
+      <EarlierCaptures captures={earlier} onSelect={setSelected} />
 
       {onOpenSession && <OpenSessionButton onClick={onOpenSession} />}
 
@@ -409,131 +429,6 @@ export function ProvenancePanel({ provenance, onOpenSession }: Props) {
 }
 
 /**
- * Assets written before #1320 carry a flat list of tool calls with their raw
- * parameters and no outcome, duration, or identity. They are still shown, as
- * what they are.
- */
-function LegacyProvenance({
-  calls,
-  onOpenSession,
-}: {
-  calls: ProvenanceToolCall[];
-  onOpenSession?: () => void;
-}) {
-  const [selected, setSelected] = useState<ProvenanceToolCall | null>(null);
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium">Provenance</h3>
-        <span className="text-xs text-muted-foreground">
-          {calls.length} {calls.length === 1 ? "call" : "calls"}
-        </span>
-      </div>
-
-      <div className="space-y-2">
-        {calls.map((call, i) => {
-          const Icon = getToolIcon(call.tool_name);
-          return (
-            <button
-              type="button"
-              key={i}
-              onClick={() => setSelected(call)}
-              className="w-full text-left rounded-md border bg-card p-3 transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <div className="flex items-start gap-2.5">
-                <div className="mt-0.5 rounded bg-muted p-1.5">
-                  <Icon className="h-3.5 w-3.5 text-muted-foreground" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="truncate text-sm font-medium">
-                      {formatToolName(call.tool_name)}
-                    </span>
-                    <span
-                      className="shrink-0 text-[11px] text-muted-foreground"
-                      title={new Date(call.timestamp).toLocaleString()}
-                    >
-                      {relativeTime(call.timestamp)}
-                    </span>
-                  </div>
-                  {legacySummary(call) && (
-                    <p className="mt-0.5 truncate text-xs text-muted-foreground font-mono">
-                      {truncate(legacySummary(call))}
-                    </p>
-                  )}
-                </div>
-              </div>
-            </button>
-          );
-        })}
-      </div>
-
-      {onOpenSession && <OpenSessionButton onClick={onOpenSession} />}
-
-      <Dialog
-        open={selected !== null}
-        onOpenChange={(open) => {
-          if (!open) setSelected(null);
-        }}
-      >
-        <DialogContent showCloseButton={false}>
-          <DialogHeader>
-            <DialogTitle>
-              {selected ? formatToolName(selected.tool_name) : ""}
-            </DialogTitle>
-            <DialogDescription className="text-xs">
-              {selected
-                ? `${selected.tool_name} · ${new Date(selected.timestamp).toLocaleString()}`
-                : ""}
-            </DialogDescription>
-          </DialogHeader>
-          <div>
-            <div className="mb-1.5 flex items-center justify-between">
-              <p className="text-xs font-medium text-muted-foreground">
-                Parameters
-              </p>
-              <CopyButton
-                text={legacyDetail(selected)}
-                label="Copy parameters"
-              />
-            </div>
-            <pre className="max-h-96 overflow-auto rounded-md bg-muted p-3 text-xs font-mono whitespace-pre-wrap break-words">
-              {legacyDetail(selected)}
-            </pre>
-          </div>
-          <DialogFooter>
-            <DialogClose asChild>
-              <Button type="button" variant="secondary">
-                Close
-              </Button>
-            </DialogClose>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
-
-function legacySummary(call: ProvenanceToolCall): string {
-  const params = call.parameters;
-  if (!params) return "";
-  for (const key of ["sql", "query", "urn", "table", "path", "bucket"]) {
-    const value = params[key];
-    if (typeof value === "string" && value) return value;
-  }
-  return "";
-}
-
-function legacyDetail(call: ProvenanceToolCall | null): string {
-  if (!call?.parameters || Object.keys(call.parameters).length === 0) {
-    return "(no parameters)";
-  }
-  if (typeof call.parameters.sql === "string") return call.parameters.sql;
-  return JSON.stringify(call.parameters, null, 2);
-}
-
-/**
  * An asset that captured no calls. It still came from a session, and that
  * session is where the calls this asset does not carry are recorded — so this
  * is exactly where the walk to it matters most.
@@ -546,21 +441,5 @@ function NoProvenance({ onOpenSession }: { onOpenSession?: () => void }) {
       </p>
       {onOpenSession && <OpenSessionButton onClick={onOpenSession} />}
     </div>
-  );
-}
-
-/** Walks from what the asset captured to the whole session that made it. */
-function OpenSessionButton({ onClick }: { onClick: () => void }) {
-  return (
-    <Button
-      type="button"
-      variant="outline"
-      size="xs"
-      onClick={onClick}
-      className="w-full text-muted-foreground"
-    >
-      <History />
-      Open session
-    </Button>
   );
 }

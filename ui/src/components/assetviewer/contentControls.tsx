@@ -40,6 +40,36 @@ export function ViewModeToggle({
   );
 }
 
+/** How a version names itself, in the trigger and in the list alike. */
+function versionLabel(version: number, currentVersion: number): string {
+  return `v${version}${version === currentVersion ? " (current)" : ""}`;
+}
+
+/**
+ * When a version was written, for the picker's option list.
+ *
+ * A scheduled script refreshes an asset hourly, so the version number alone
+ * does not say which entry to open (#1422). Compact by design: the seconds go,
+ * and the rest is left to the reader's locale, since this sits beside the
+ * version number in a dropdown. The year is carried only for a version not
+ * from the current one — a history long enough to span a new year is exactly
+ * where a bare month and day stops identifying anything. A timestamp that will
+ * not parse renders as nothing rather than "Invalid Date".
+ */
+function versionTime(iso: string): string {
+  if (!iso) return "";
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return "";
+  const thisYear = at.getFullYear() === new Date().getFullYear();
+  return at.toLocaleString(undefined, {
+    year: thisYear ? undefined : "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 /** Version picker plus the revert action for an older version. */
 export function VersionControls({
   asset,
@@ -60,10 +90,12 @@ export function VersionControls({
 }) {
   if (!versions || versions.length === 0 || !onSelectVersion) return null;
 
+  const shown = selectedVersion ?? asset.current_version;
+
   return (
     <>
       <Select
-        value={String(selectedVersion ?? asset.current_version)}
+        value={String(shown)}
         onValueChange={(v) => {
           const version = Number(v);
           // The current version is the viewer's default state, not a selection,
@@ -72,15 +104,33 @@ export function VersionControls({
         }}
       >
         <SelectTrigger size="sm" aria-label="Asset version" className="w-36">
-          <SelectValue />
+          {/*
+            Giving SelectValue children stops Radix portaling the selected
+            item's text into the trigger, which is what keeps the timestamp in
+            the list and out of a trigger only 36 units wide.
+          */}
+          <SelectValue>{versionLabel(shown, asset.current_version)}</SelectValue>
         </SelectTrigger>
         <SelectContent>
-          {versions.map((v) => (
-            <SelectItem key={v.version} value={String(v.version)}>
-              v{v.version}
-              {v.version === asset.current_version ? " (current)" : ""}
-            </SelectItem>
-          ))}
+          {versions.map((v) => {
+            const at = versionTime(v.created_at);
+            return (
+              <SelectItem
+                key={v.version}
+                value={String(v.version)}
+                className="[&>span:last-child]:w-full [&>span:last-child]:justify-between"
+              >
+                <span className="whitespace-nowrap">
+                  {versionLabel(v.version, asset.current_version)}
+                </span>
+                {at && (
+                  <span className="whitespace-nowrap text-xs text-muted-foreground">
+                    {at}
+                  </span>
+                )}
+              </SelectItem>
+            );
+          })}
         </SelectContent>
       </Select>
       {viewingOldVersion && canRevert && (

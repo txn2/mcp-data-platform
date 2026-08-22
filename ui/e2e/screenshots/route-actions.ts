@@ -40,14 +40,38 @@ export async function openAssetMetadataEdit(page: Page): Promise<void> {
 }
 
 /**
+ * openAssetProvenanceEarlier opens the disclosure every capture but the newest
+ * sits behind, and then one of those captures. It is the only state showing an
+ * earlier write's calls, which the panel no longer renders all at once (#1422).
+ */
+export async function openAssetProvenanceEarlier(page: Page): Promise<void> {
+  await openAssetProvenance(page);
+  await page.getByRole("button", { name: /earlier capture/ }).click();
+  await page.getByRole("button", { name: /Version \d/ }).first().click();
+  await page.waitForTimeout(400);
+}
+
+/**
  * openAssetProvenanceCall opens one captured call from the provenance panel,
  * which is the only state showing the statement, the stated purpose, the
- * outcome, and the mcp:call: reference an agent cites (#1320).
+ * outcome, and the mcp:call: reference an agent cites (#1320). The call it
+ * opens belongs to an earlier capture, so it walks through the disclosure.
  */
 export async function openAssetProvenanceCall(page: Page): Promise<void> {
-  await openAssetProvenance(page);
+  await openAssetProvenanceEarlier(page);
   await page.getByRole("button", { name: /Trino Query/ }).first().click();
   await page.getByRole("dialog").waitFor();
+  await page.waitForTimeout(400);
+}
+
+/**
+ * openAssetVersionPicker opens the asset viewer's version list, the only state
+ * showing when each version was written. A scheduled script refreshes an asset
+ * hourly, so the version number alone does not identify one (#1422).
+ */
+export async function openAssetVersionPicker(page: Page): Promise<void> {
+  await page.getByRole("combobox", { name: "Asset version" }).click();
+  await page.getByRole("listbox").waitFor();
   await page.waitForTimeout(400);
 }
 

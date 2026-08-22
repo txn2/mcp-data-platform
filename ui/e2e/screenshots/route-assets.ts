@@ -2,6 +2,8 @@ import {
   openAssetMetadataEdit,
   openAssetProvenance,
   openAssetProvenanceCall,
+  openAssetProvenanceEarlier,
+  openAssetVersionPicker,
 } from "./route-actions";
 import { type ScreenshotRoute } from "./route-types";
 
@@ -27,12 +29,29 @@ export const assetViewerRoutes: ScreenshotRoute[] = [
     beforeCapture: openAssetProvenance,
   },
   {
+    // The captures behind the disclosure, with one of them opened. An asset a
+    // scheduled script refreshes gets a capture per run, so the panel leads
+    // with the newest and opens the rest one at a time (#1422).
+    slug: "asset-provenance-earlier",
+    path: "/portal/assets/ast-001",
+    category: "user",
+    beforeCapture: openAssetProvenanceEarlier,
+  },
+  {
     // One captured call opened: the statement, the purpose the agent stated
     // for it, the outcome, and the reference that names it in the audit log.
     slug: "asset-provenance-call",
     path: "/portal/assets/ast-003",
     category: "user",
     beforeCapture: openAssetProvenanceCall,
+  },
+  {
+    // The version list open: every version dated, so an asset written on a
+    // schedule can be navigated by when rather than by number (#1422).
+    slug: "asset-versions",
+    path: "/portal/assets/ast-001",
+    category: "user",
+    beforeCapture: openAssetVersionPicker,
   },
   {
     // The metadata sidebar in edit mode on an asset that keeps a cap of its

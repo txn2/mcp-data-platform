@@ -128,7 +128,15 @@ The viewer provides:
 
 The **Provenance** panel groups those calls by capture — one per time the asset was written, so a revised asset shows what fed each of its versions. Each call names its kind (a SQL statement, an API request, or another data call), the connection it ran against, the purpose the agent stated for it, how long it took, and whether it failed; a failed call is shown, not hidden, because it is part of how the answer was reached. Opening a call shows the full statement or request with a copy action and the `mcp:call:` reference that names it in the audit log. A capture marked **Cited** is one where the agent named its sources itself rather than the platform taking the session's recent calls. See [Provenance](provenance.md).
 
+The newest capture is shown expanded and every earlier one sits behind a disclosure naming how many there are, each opening on its own. An asset a scheduled script refreshes accumulates a capture per run, and the panel leads with the write that produced what is on screen rather than making you scroll past a year of them. The call count in the panel header still covers every capture.
+
 ![Provenance panel](../images/screenshots/light/user-asset-provenance-light.webp#only-light)![Provenance panel](../images/screenshots/dark/user-asset-provenance-dark.webp#only-dark)
+
+#### Reading an older version
+
+The version picker beside the Preview / Source toggle lists every version the asset keeps, each with the time it was written. A number alone does not identify a version of an asset written on a schedule, where two entries can be an hour apart. Selecting an older version shows its content read-only and offers a revert to it.
+
+![The version picker, with every version dated](../images/screenshots/light/user-asset-versions-light.webp#only-light)![The version picker, with every version dated](../images/screenshots/dark/user-asset-versions-dark.webp#only-dark)
 
 #### Version retention
 

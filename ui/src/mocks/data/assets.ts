@@ -1,6 +1,6 @@
 import type { Asset, Share, SharedAsset } from "@/api/portal/types";
 import { agentSessions } from "./audit";
-import { citationsFor } from "./calls";
+import { citationsFor, citedProvenanceCalls } from "./calls";
 
 // The first assets are attributed to sessions the audit mock actually
 // recorded, so a session opened in the admin UI shows the asset it saved
@@ -69,7 +69,7 @@ export const mockAssets: Asset[] = [
         {
           tool: "manage_asset",
           captured_at: daysAgo(1),
-          version: 5,
+          version: 4,
           session_id: agentSessions[0]!,
           explicit: true,
           event_ids: ["evt-q4-3"],
@@ -177,7 +177,9 @@ export const mockAssets: Asset[] = [
       ],
     },
     session_id: agentSessions[2]!,
-    current_version: 1,
+    // Two writes: the save that made it, and the export appended by the
+    // citation loop below. One write is one version, so this is 2.
+    current_version: 2,
     created_at: daysAgo(2),
     updated_at: daysAgo(2),
   },
@@ -419,6 +421,14 @@ for (const asset of mockAssets) {
   const citation = citationsFor(asset.id);
   if (!citation) continue;
   const { eventIDs, kind } = citation;
+  // A capture is taken by the write, after every call it records, so it can
+  // never predate one of them. The export arm below stamps its own calls at the
+  // write; the save arm's come from real audit records with their own clock.
+  const cited = citedProvenanceCalls(asset.id);
+  const savedAt = cited.reduce(
+    (latest, c) => (c.timestamp > latest ? c.timestamp : latest),
+    asset.updated_at,
+  );
   asset.provenance = {
     ...(asset.provenance ?? {}),
     captures: [
@@ -447,12 +457,12 @@ for (const asset of mockAssets) {
             // A save that named its sources: the whole capture is cited, which
             // is what `explicit` records.
             tool: "save_asset",
-            captured_at: asset.updated_at,
+            captured_at: savedAt,
             version: asset.current_version,
             session_id: asset.session_id ?? "",
             explicit: true,
             event_ids: eventIDs,
-            calls: [],
+            calls: cited,
           },
     ],
   };

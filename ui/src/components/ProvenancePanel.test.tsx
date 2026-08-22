@@ -6,6 +6,10 @@ import { ProvenancePanel } from "./ProvenancePanel";
 // The panel answers "what produced this, and what was it for". Since #1320
 // that answer is grouped by capture — one per write — and each call carries
 // its kind, outcome, stated purpose, and the reference an agent can cite.
+//
+// Captures are appended, so the last one is the newest write. Since #1422 the
+// panel leads with that one and puts every earlier capture behind a disclosure,
+// each opening on its own; the fixture below is oldest-first as the API sends it.
 
 const captured: Provenance = {
   session_id: "dps_abc",
@@ -80,13 +84,22 @@ const legacy: Provenance = {
 
 afterEach(cleanup);
 
+/** Open the disclosure the earlier captures sit behind. */
+function openEarlier(label: string) {
+  fireEvent.click(screen.getByRole("button", { name: label }));
+}
+
+/** Open one earlier capture, by the version it produced. */
+function openCapture(heading: RegExp) {
+  fireEvent.click(screen.getByRole("button", { name: heading }));
+}
+
 describe("ProvenancePanel", () => {
-  it("groups calls by the write that captured them", () => {
+  it("leads with the newest capture and counts every capture's calls", () => {
     render(<ProvenancePanel provenance={captured} />);
 
-    expect(screen.getByText("Version 1")).toBeInTheDocument();
+    // Version 2 is the last capture in the fixture, so it is the newest write.
     expect(screen.getByText("Version 2")).toBeInTheDocument();
-    expect(screen.getByText("3 calls")).toBeInTheDocument();
     expect(screen.getByText("Cited")).toBeInTheDocument();
     // The truncated capture here is a cited one, where truncation means an id
     // the agent named resolved to no call of theirs — not that the platform
@@ -94,6 +107,71 @@ describe("ProvenancePanel", () => {
     expect(
       screen.getByText("Some cited calls were not found and are not recorded."),
     ).toBeInTheDocument();
+
+    // Version 1 is behind the disclosure, but its two calls are still counted.
+    expect(screen.queryByText("Version 1")).not.toBeInTheDocument();
+    expect(screen.getByText("3 calls")).toBeInTheDocument();
+
+    openEarlier("1 earlier capture");
+    expect(
+      screen.getByRole("button", { name: /Version 1/ }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("3 calls")).toBeInTheDocument();
+  });
+
+  // A page a scheduled script refreshes hourly gets one capture an hour. All of
+  // them expanded made the sidebar scroll for as long as the asset had existed.
+  it("collapses many earlier captures behind one disclosure, each opening alone", () => {
+    const hourly: Provenance = {
+      captures: Array.from({ length: 30 }, (_, i) => ({
+        tool: "manage_asset",
+        captured_at: `2026-08-16T${String(i % 24).padStart(2, "0")}:00:00Z`,
+        version: i + 1,
+        calls: [
+          {
+            event_id: `evt-${i}`,
+            kind: "sql" as const,
+            tool: "trino_query",
+            statement: `SELECT ${i}`,
+            outcome: "success" as const,
+            timestamp: `2026-08-16T${String(i % 24).padStart(2, "0")}:00:00Z`,
+          },
+        ],
+      })),
+    };
+    render(<ProvenancePanel provenance={hourly} />);
+
+    // Only the newest capture's heading and calls are on the page.
+    expect(screen.getByText("Version 30")).toBeInTheDocument();
+    expect(screen.getAllByText("Trino Query")).toHaveLength(1);
+    expect(screen.getByText("SELECT 29")).toBeInTheDocument();
+    expect(screen.getByText("30 calls")).toBeInTheDocument();
+
+    openEarlier("29 earlier captures");
+
+    // Every earlier capture is now listed, newest first, and still collapsed.
+    const headings = screen.getAllByRole("button", { name: /Version \d+/ });
+    expect(headings).toHaveLength(29);
+    expect(headings[0]).toHaveAccessibleName(/Version 29/);
+    expect(headings[28]).toHaveAccessibleName(/Version 1/);
+    expect(screen.getAllByText("Trino Query")).toHaveLength(1);
+
+    // Opening one shows that capture's heading and its calls, and only those.
+    openCapture(/Version 17/);
+    expect(screen.getAllByText("Trino Query")).toHaveLength(2);
+    expect(screen.getByText("SELECT 16")).toBeInTheDocument();
+    expect(screen.queryByText("SELECT 15")).not.toBeInTheDocument();
+  });
+
+  it("offers no disclosure when the asset has a single capture", () => {
+    const one: Provenance = { captures: [captured.captures![0]!] };
+    render(<ProvenancePanel provenance={one} />);
+
+    expect(screen.getByText("Version 1")).toBeInTheDocument();
+    expect(screen.getByText("Trino Query")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /earlier capture/ }),
+    ).not.toBeInTheDocument();
   });
 
   // An export's capture holds the window it swept up AND the statement it
@@ -176,6 +254,8 @@ describe("ProvenancePanel", () => {
 
   it("shows each call's kind, purpose, and failure", () => {
     render(<ProvenancePanel provenance={captured} />);
+    openEarlier("1 earlier capture");
+    openCapture(/Version 1/);
 
     expect(screen.getByText("SQL")).toBeInTheDocument();
     expect(screen.getByText("API")).toBeInTheDocument();
@@ -192,6 +272,8 @@ describe("ProvenancePanel", () => {
 
   it("opens a call and shows why it ran, how it ended, and how to cite it", () => {
     render(<ProvenancePanel provenance={captured} />);
+    openEarlier("1 earlier capture");
+    openCapture(/Version 1/);
 
     fireEvent.click(screen.getByText("Trino Query"));
     const dialog = screen.getByRole("dialog");
@@ -211,6 +293,8 @@ describe("ProvenancePanel", () => {
     Object.assign(navigator, { clipboard: { writeText } });
 
     render(<ProvenancePanel provenance={captured} />);
+    openEarlier("1 earlier capture");
+    openCapture(/Version 1/);
     fireEvent.click(screen.getByText("Api Invoke Endpoint"));
     fireEvent.click(screen.getByLabelText("Copy request"));
 

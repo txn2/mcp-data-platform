@@ -1,4 +1,5 @@
 import type { AuditEvent, CallKind, CallRecord } from "@/api/admin/types";
+import type { ProvenanceCall } from "@/api/portal/types";
 import { MOCK_CALLER_EMAIL, mockAuditEvents } from "./audit";
 
 // The mock call catalog is derived from the mock audit events exactly as the
@@ -183,6 +184,34 @@ export function citedEventIDs(assetId: string): string[] {
   return mockCallRecords
     .filter((r) => r.artifacts?.some((a) => a.id === assetId))
     .map((r) => r.event_id);
+}
+
+/**
+ * The captured calls an asset's citation names, built from the very records it
+ * cites. Every producer of a capture drops one whose call list is empty
+ * (pkg/toolkits/portal, internal/platform/exportadapters), so a capture that
+ * named event ids and carried no calls modelled a state the server cannot
+ * write — and the asset viewer now leads with the newest capture, where an
+ * empty one would render as a heading over nothing (#1422).
+ */
+export function citedProvenanceCalls(assetId: string): ProvenanceCall[] {
+  return mockCallRecords
+    .filter((r) => r.artifacts?.some((a) => a.id === assetId))
+    .map((r) => ({
+      event_id: r.event_id,
+      kind: r.kind,
+      tool: r.tool_name,
+      connection: r.connection,
+      statement: r.statement,
+      method: r.method,
+      path: r.path,
+      operation_id: r.operation_id,
+      purpose: r.purpose,
+      outcome: r.success ? ("success" as const) : ("error" as const),
+      error: r.error_message,
+      duration_ms: r.duration_ms,
+      timestamp: r.created_at,
+    }));
 }
 
 /**
