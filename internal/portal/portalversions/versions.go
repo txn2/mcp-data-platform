@@ -98,9 +98,17 @@ func (s *store) createVersionTx(ctx context.Context, version portaldomain.AssetV
 		return 0, pruneResult{}, fmt.Errorf("inserting version: %w", err)
 	}
 
+	// The thumbnail pointers are deliberately untouched. Blanking them was what
+	// sent an asset a managed script rewrites back to the placeholder icon on
+	// every run and left it there: nothing regenerates a thumbnail on the
+	// server, so the only capturer is a portal tab, and the asset had no image
+	// until somebody happened to open the page it was listed on. The row now
+	// keeps the capture it has and records the version it came from
+	// (thumbnail_version, migration 000122), so it stays behind rather than
+	// blank and the refresh queue can find it (#1431).
 	updateQuery := `
 		UPDATE portal_assets
-		SET current_version = $1, s3_key = $2, content_type = $3, size_bytes = $4, thumbnail_s3_key = '', thumbnail_dark_s3_key = '', updated_at = NOW()
+		SET current_version = $1, s3_key = $2, content_type = $3, size_bytes = $4, updated_at = NOW()
 		WHERE id = $5
 	`
 	_, err = tx.ExecContext(ctx, updateQuery,
@@ -198,8 +206,9 @@ func prune(ctx context.Context, tx *sql.Tx, assetID string, latestVersion, keep 
 	return pruneResult{removed: removed}, nil
 }
 
-// survivingObjectKeys returns every object key the asset's remaining versions
-// still own: their content, and the thumbnails derived beside it.
+// survivingObjectKeys returns every object key the asset still owns: the
+// content of the versions that outlived the prune, the thumbnails derived
+// beside them, and the thumbnails the asset row itself points at.
 //
 // A version's key is not private to it. A managed script keys its output by run
 // (internal/platform/scriptexec/export.go), so a run that exports a document and
@@ -208,6 +217,12 @@ func prune(ctx context.Context, tx *sql.Tx, assetID string, latestVersion, keep 
 // its thumbnails are derived. Deleting a pruned version's objects by key shape
 // alone would take the live content or the current thumbnail with them. The
 // cleanup asks what is still referenced instead.
+//
+// The asset row is read for the same reason and a sharper one: since #1431 a
+// version write leaves the thumbnail pointers alone, so the image an asset is
+// serving can be one captured beside a version this prune just deleted. Its key
+// is derivable from no surviving row, and without this it would be deleted out
+// from under the pointer that still names it.
 func survivingObjectKeys(ctx context.Context, tx *sql.Tx, assetID string) (map[string]struct{}, error) {
 	rows, err := tx.QueryContext(ctx,
 		`SELECT DISTINCT s3_key FROM portal_asset_versions WHERE asset_id = $1`, assetID)
@@ -230,7 +245,28 @@ func survivingObjectKeys(ctx context.Context, tx *sql.Tx, assetID string) (map[s
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterating surviving version keys: %w", err)
 	}
+	if err := addStoredThumbnailKeys(ctx, tx, assetID, retained); err != nil {
+		return nil, err
+	}
 	return retained, nil
+}
+
+// addStoredThumbnailKeys adds the thumbnail keys the asset row points at to the
+// retained set. An empty pointer records no object and adds nothing.
+func addStoredThumbnailKeys(ctx context.Context, tx *sql.Tx, assetID string, retained map[string]struct{}) error {
+	var light, dark string
+	err := tx.QueryRowContext(ctx,
+		`SELECT thumbnail_s3_key, thumbnail_dark_s3_key FROM portal_assets WHERE id = $1`, assetID).
+		Scan(&light, &dark)
+	if err != nil {
+		return fmt.Errorf("reading stored thumbnail keys: %w", err)
+	}
+	for _, key := range []string{light, dark} {
+		if key != "" {
+			retained[key] = struct{}{}
+		}
+	}
+	return nil
 }
 
 // deletePrunedObjects removes the content object of every pruned version and
@@ -240,12 +276,12 @@ func survivingObjectKeys(ctx context.Context, tx *sql.Tx, assetID string) (map[s
 // removed would turn a storage-cleanup problem into a failed save. An object
 // left behind is logged so it can be reclaimed.
 //
-// A thumbnail is derived rather than looked up because no row records one --
-// CreateVersion blanks the asset's thumbnail pointers on every write and the
-// next viewer regenerates them beside the current content key. Deriving is safe
-// only because the retained set is consulted: on an asset whose versions share a
-// directory, a pruned version's derived thumbnail key is the current version's
-// thumbnail key.
+// A pruned version's thumbnails are derived rather than looked up because no
+// version row records one: a capture is written beside the content key that was
+// current when it was taken, and only the asset row names it. Deriving is safe
+// only because the retained set is consulted -- it holds the keys the asset row
+// still points at, and on an asset whose versions share a directory a pruned
+// version's derived thumbnail key is the current version's thumbnail key.
 func (s *store) deletePrunedObjects(ctx context.Context, assetID string, pruned pruneResult) {
 	if s.objects == nil {
 		return

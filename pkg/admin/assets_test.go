@@ -953,6 +953,30 @@ func TestUploadAdminThumbnailSuccess(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
+// The capture is dated to the version the asset is on: the image was rendered
+// from the body this request is about. Without the stamp the asset would read as
+// never captured and be offered to the portal's refresh queue forever (#1431).
+func TestUploadAdminThumbnailStampsTheVersion(t *testing.T) {
+	now := time.Now()
+	asset := &portal.Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "portal/u1/a1/v4/content.html",
+		CurrentVersion: 4, Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	store := &mockAdminAssetStore{getAsset: asset}
+	h := newAdminTestHandler(store, &mockAdminShareStore{}, &mockAdminS3Client{})
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT",
+		"/api/v1/admin/assets/a1/thumbnail", strings.NewReader("PNG-DATA"))
+	req.Header.Set("Content-Type", "image/png")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.NotNil(t, store.lastUpdate)
+	require.NotNil(t, store.lastUpdate.ThumbnailVersion)
+	assert.Equal(t, 4, *store.lastUpdate.ThumbnailVersion)
+}
+
 func TestUploadAdminThumbnailNoS3(t *testing.T) {
 	h := newAdminTestHandler(&mockAdminAssetStore{}, &mockAdminShareStore{}, nil)
 

@@ -63,3 +63,62 @@ export function isLegacyThumbnailKey(key: string): boolean {
   const name = key.slice(key.lastIndexOf("/") + 1);
   return LEGACY_THUMBNAIL_FILENAMES.includes(name);
 }
+
+/** The parts of an asset that say whether its capture is current. */
+interface ThumbnailState {
+  content_type: string;
+  current_version: number;
+  thumbnail_s3_key?: string;
+  thumbnail_dark_s3_key?: string;
+  thumbnail_version: number;
+  thumbnail_dark_version: number;
+}
+
+/**
+ * The URL an asset's thumbnail is served from, with the capture's version on it.
+ *
+ * The endpoint answers under one URL per asset and variant, and its response is
+ * cacheable for an hour, so a re-captured image would not reach a browser that
+ * already holds the old one until that hour was up -- which is most of the point
+ * of refreshing it (#1431). The version the capture was taken from is the
+ * identity of the image, so putting it in the query string makes a new capture a
+ * new URL and leaves an unchanged one cached. The server does not read it.
+ *
+ * Returns undefined when no capture has been recorded, which is what tells the
+ * card to show its content-type icon instead.
+ */
+export function assetThumbnailSrc(
+  asset: ThumbnailState & { id: string },
+  isDark = false,
+): string | undefined {
+  if (!asset.thumbnail_s3_key) return undefined;
+  const dark = isDark && !!asset.thumbnail_dark_s3_key;
+  const version = dark ? asset.thumbnail_dark_version : asset.thumbnail_version;
+  const variant = dark ? "variant=dark&" : "";
+  return `/api/v1/portal/assets/${asset.id}/thumbnail?${variant}c=${version}`;
+}
+
+/**
+ * Whether this asset's thumbnail has fallen behind what the asset now holds:
+ * never captured, captured from an earlier version, or written under a legacy
+ * filename that has to be replaced before the asset can be registered as a
+ * table (#1327).
+ *
+ * A version write leaves the recorded capture in place, so an asset that has
+ * been rewritten still shows an image — of the body it had one or more versions
+ * ago. This is the question that says so. The dark variant is asked only of the
+ * types that carry one; a type with its own colors serves the single capture in
+ * both modes, so its empty dark key is not a gap.
+ *
+ * The refresh queue asks the same question of every asset at once, in SQL
+ * (internal/portal/portalstore); this copy is for the one asset on screen.
+ */
+export function thumbnailBehind(a: ThumbnailState): boolean {
+  const light = a.thumbnail_s3_key ?? "";
+  const dark = a.thumbnail_dark_s3_key ?? "";
+  const lightBehind = !light || a.thumbnail_version < a.current_version || isLegacyThumbnailKey(light);
+  const darkBehind =
+    isThemeable(a.content_type) &&
+    (!dark || a.thumbnail_dark_version < a.current_version || isLegacyThumbnailKey(dark));
+  return lightBehind || darkBehind;
+}

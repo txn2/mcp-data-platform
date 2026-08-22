@@ -13,11 +13,14 @@ export function ThumbnailGeneratorWithInvalidation({
   assetId,
   content,
   contentType,
+  version,
   onDone,
 }: {
   assetId: string;
   content: string;
   contentType: string;
+  /** The asset version `content` was read at; recorded with the capture. */
+  version?: number;
   onDone?: () => void;
 }) {
   const qc = useQueryClient();
@@ -37,6 +40,7 @@ export function ThumbnailGeneratorWithInvalidation({
         assetId={assetId}
         content={content}
         contentType={contentType}
+        version={version}
         onCaptured={handleCaptured}
         onFailed={handleFailed}
       />

@@ -94,6 +94,8 @@ export const mockAssets: Asset[] = [
     },
     session_id: agentSessions[0]!,
     current_version: 5,
+    thumbnail_version: 5,
+    thumbnail_dark_version: 0,
     // A dashboard a scheduled script refreshes: it carries its own retention
     // cap rather than inheriting the deployment default (#1421).
     max_versions: 25,
@@ -124,6 +126,8 @@ export const mockAssets: Asset[] = [
     },
     session_id: agentSessions[1]!,
     current_version: 3,
+    thumbnail_version: 3,
+    thumbnail_dark_version: 0,
     created_at: daysAgo(5),
     updated_at: daysAgo(5),
   },
@@ -181,6 +185,9 @@ export const mockAssets: Asset[] = [
     // Two writes: the save that made it, and the export appended by the
     // citation loop below. One write is one version, so this is 2.
     current_version: 2,
+    thumbnail_dark_s3_key: "thumbnails/ast-003_dark.png",
+    thumbnail_version: 2,
+    thumbnail_dark_version: 2,
     created_at: daysAgo(2),
     updated_at: daysAgo(2),
   },
@@ -207,6 +214,8 @@ export const mockAssets: Asset[] = [
     },
     session_id: "sess-ddd",
     current_version: 1,
+    thumbnail_version: 1,
+    thumbnail_dark_version: 0,
     created_at: daysAgo(7),
     updated_at: daysAgo(4),
   },
@@ -233,6 +242,8 @@ export const mockAssets: Asset[] = [
     },
     session_id: "sess-eee",
     current_version: 1,
+    thumbnail_version: 1,
+    thumbnail_dark_version: 0,
     created_at: daysAgo(10),
     updated_at: daysAgo(10),
   },
@@ -258,6 +269,9 @@ export const mockAssets: Asset[] = [
     },
     session_id: "sess-fff",
     current_version: 1,
+    thumbnail_dark_s3_key: "thumbnails/ast-006_dark.png",
+    thumbnail_version: 1,
+    thumbnail_dark_version: 1,
     created_at: daysAgo(1),
     updated_at: daysAgo(1),
   },
@@ -284,6 +298,8 @@ export const mockAssets: Asset[] = [
     },
     session_id: "sess-ggg",
     current_version: 2,
+    thumbnail_version: 2,
+    thumbnail_dark_version: 0,
     created_at: daysAgo(1),
     updated_at: daysAgo(1),
   },
@@ -309,6 +325,9 @@ export const mockAssets: Asset[] = [
     },
     session_id: "sess-hhh",
     current_version: 1,
+    thumbnail_dark_s3_key: "thumbnails/ast-008_dark.png",
+    thumbnail_version: 1,
+    thumbnail_dark_version: 1,
     created_at: daysAgo(2),
     updated_at: daysAgo(2),
   },
@@ -377,6 +396,8 @@ export const mockSharedWithMe: SharedAsset[] = [
       provenance: { session_id: "sess-ext1", user_id: "user-carol" },
       session_id: "sess-ext1",
       current_version: 1,
+      thumbnail_version: 1,
+      thumbnail_dark_version: 0,
       created_at: daysAgo(4),
       updated_at: daysAgo(4),
     },
@@ -401,6 +422,8 @@ export const mockSharedWithMe: SharedAsset[] = [
       provenance: { session_id: "sess-ext2", user_id: "user-dave" },
       session_id: "sess-ext2",
       current_version: 1,
+      thumbnail_version: 1,
+      thumbnail_dark_version: 0,
       created_at: daysAgo(6),
       updated_at: daysAgo(6),
     },
@@ -467,4 +490,32 @@ for (const asset of mockAssets) {
           },
     ],
   };
+}
+
+/**
+ * Marks an asset's thumbnail as one version behind its content, the state a
+ * rewrite leaves since #1431.
+ *
+ * The fixture library is otherwise settled: every asset in it has a current
+ * capture, so no page in the portal finds work for the refresh queue. That is
+ * deliberate. The queue runs in the shell now, so a permanently stale fixture
+ * would have every spec in the suite fetch the capturer (html2canvas, the
+ * markdown renderer and the diagram engine) and rasterize an asset it is not
+ * testing -- which took the e2e suite from 1.3 to 5 minutes and timed out the
+ * chunk loads of pages that had nothing to do with thumbnails.
+ *
+ * A spec that IS testing the queue sets `__STALE_THUMBNAILS__` before the app
+ * boots, and pays that cost on purpose.
+ */
+const stale = (globalThis as { __STALE_THUMBNAILS__?: string[] }).__STALE_THUMBNAILS__;
+if (stale) {
+  for (const id of stale) {
+    const asset = mockAssets.find((a) => a.id === id);
+    if (asset) {
+      asset.thumbnail_version = Math.max(0, asset.current_version - 1);
+      asset.thumbnail_dark_version = asset.thumbnail_dark_s3_key
+        ? Math.max(0, asset.current_version - 1)
+        : 0;
+    }
+  }
 }

@@ -130,6 +130,36 @@ export function useAssetContent(id: string, sizeBytes?: number) {
   });
 }
 
+/**
+ * How often a tab asks the server what still needs a thumbnail.
+ *
+ * The queue is drained by whichever tab happens to be open, so the poll is what
+ * connects an asset a script rewrote in the background to a browser that can
+ * rasterize it. Five minutes is slow enough to be invisible next to the rest of
+ * the portal's traffic and fast enough that an asset refreshed on an hourly
+ * schedule has an up-to-date image long before anyone looks at it.
+ */
+const THUMBNAIL_PENDING_POLL_MS = 5 * 60_000;
+
+/**
+ * usePendingThumbnails lists the caller's assets whose thumbnail is missing or
+ * has not caught up with the current version.
+ *
+ * The server decides what is pending -- from the asset row, not from queue
+ * state -- so a tab does not have to be displaying an asset, or even be on the
+ * assets page, to capture one. Refetching on focus is deliberate: a tab left
+ * open all day is the one most likely to be holding a stale answer.
+ */
+export function usePendingThumbnails() {
+  return useQuery({
+    queryKey: ["thumbnails-pending"],
+    queryFn: () => apiFetch<PaginatedResponse<Asset>>("/thumbnails/pending"),
+    refetchInterval: THUMBNAIL_PENDING_POLL_MS,
+    refetchOnWindowFocus: true,
+    staleTime: THUMBNAIL_PENDING_POLL_MS,
+  });
+}
+
 export function useShares(assetId: string) {
   return useQuery({
     queryKey: ["shares", assetId],
@@ -256,24 +286,6 @@ export function useUpdateAssetContent() {
       void qc.invalidateQueries({ queryKey: ["asset"] });
       void qc.invalidateQueries({ queryKey: ["assets"] });
       void qc.invalidateQueries({ queryKey: ["asset-versions"] });
-    },
-  });
-}
-
-export function useUploadThumbnail() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, blob }: { id: string; blob: Blob }) => {
-      const res = await apiFetchRaw(`/assets/${id}/thumbnail`, {
-        method: "PUT",
-        headers: { "Content-Type": "image/png" },
-        body: blob,
-      });
-      if (!res.ok) throw new Error("Failed to upload thumbnail");
-    },
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["assets"] });
-      void qc.invalidateQueries({ queryKey: ["asset"] });
     },
   });
 }

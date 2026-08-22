@@ -16110,6 +16110,51 @@
                 }
             }
         },
+        "/portal/thumbnails/pending": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the caller's assets whose thumbnail is missing or has\nnot caught up with the current version, newest change first.\nNothing renders a thumbnail on the server, so this is how a\nportal tab is told what to capture next -- including for assets\nit is not displaying, which is what a managed script rewriting\nan asset on a schedule depends on.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Assets"
+                ],
+                "summary": "List assets awaiting a thumbnail",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Maximum assets to return",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.paginatedResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/users": {
             "get": {
                 "security": [
@@ -21374,9 +21419,18 @@
                     "type": "string",
                     "example": "assets/01HK7R8Z/.thumbnail_dark.png"
                 },
+                "thumbnail_dark_version": {
+                    "type": "integer",
+                    "example": 3
+                },
                 "thumbnail_s3_key": {
                     "type": "string",
                     "example": "assets/01HK7R8Z/thumb.png"
+                },
+                "thumbnail_version": {
+                    "description": "ThumbnailVersion is the asset version ThumbnailS3Key was captured from,\nand ThumbnailDarkVersion the same for the dark variant. Below\nCurrentVersion means the capture has not caught up with the content: the\nimage still serves, and the asset is what a refresh queue looks for. Zero\nwith a key recorded cannot occur -- see migration 000122 -- so it means\nno capture has ever been taken.\n\nThe two variants are stamped independently because they are captured and\nuploaded independently, and a pass that lands one and throws on the other\nleaves exactly that state.",
+                    "type": "integer",
+                    "example": 3
                 },
                 "updated_at": {
                     "type": "string"
@@ -21776,9 +21830,18 @@
                     "type": "string",
                     "example": "assets/01HK7R8Z/.thumbnail_dark.png"
                 },
+                "thumbnail_dark_version": {
+                    "type": "integer",
+                    "example": 3
+                },
                 "thumbnail_s3_key": {
                     "type": "string",
                     "example": "assets/01HK7R8Z/thumb.png"
+                },
+                "thumbnail_version": {
+                    "description": "ThumbnailVersion is the asset version ThumbnailS3Key was captured from,\nand ThumbnailDarkVersion the same for the dark variant. Below\nCurrentVersion means the capture has not caught up with the content: the\nimage still serves, and the asset is what a refresh queue looks for. Zero\nwith a key recorded cannot occur -- see migration 000122 -- so it means\nno capture has ever been taken.\n\nThe two variants are stamped independently because they are captured and\nuploaded independently, and a pass that lands one and throws on the other\nleaves exactly that state.",
+                    "type": "integer",
+                    "example": 3
                 },
                 "updated_at": {
                     "type": "string"

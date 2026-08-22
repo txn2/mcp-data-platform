@@ -92,9 +92,18 @@ export async function uploadThumbnail(
   assetId: string,
   blob: Blob,
   variant: ThumbnailVariant = "light",
+  version?: number,
 ): Promise<void> {
-  const query = variant === "dark" ? "?variant=dark" : "";
-  const res = await apiFetchRaw(`/assets/${assetId}/thumbnail${query}`, {
+  // The version the capture was rendered from travels with it, so the asset row
+  // records what the image actually shows. Without it the server can only date
+  // the capture to whatever version the asset is on when the upload lands, and
+  // an asset rewritten mid-capture would be marked current while showing the
+  // version before it (#1431).
+  const params = new URLSearchParams();
+  if (variant === "dark") params.set("variant", "dark");
+  if (version != null) params.set("version", String(version));
+  const query = params.toString();
+  const res = await apiFetchRaw(`/assets/${assetId}/thumbnail${query ? `?${query}` : ""}`, {
     method: "PUT",
     headers: { "Content-Type": "image/png" },
     body: blob,

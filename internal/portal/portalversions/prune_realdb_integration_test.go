@@ -339,3 +339,60 @@ func TestAssetVersionPrune_RealDB_NegativeOverrideIsRefusedByTheColumn(t *testin
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "portal_assets_max_versions_nonneg")
 }
+
+// TestAssetVersionWrite_RealDB_KeepsTheThumbnailPointers is the change #1431
+// turns on: a version write used to blank both pointers, which sent an asset a
+// managed script rewrites hourly back to the placeholder icon on every run. The
+// row now keeps the capture it has -- one version behind is worth more than no
+// image -- and the version columns are what say it has not caught up.
+func TestAssetVersionWrite_RealDB_KeepsTheThumbnailPointers(t *testing.T) {
+	db := testdb.New(t)
+	store := NewPostgres(db, &recordingDeleter{}, nil)
+	id := seedAsset(t, db, nil)
+
+	thumb := "artifacts/owner/" + id + "/.thumbnail.png"
+	_, err := db.ExecContext(context.Background(), `
+		UPDATE portal_assets
+		SET thumbnail_s3_key = $1, thumbnail_version = 1
+		WHERE id = $2`, thumb, id)
+	require.NoError(t, err)
+
+	writeVersion(t, store, id, 2)
+
+	var key string
+	var capturedAt, currentVersion int
+	require.NoError(t, db.QueryRowContext(context.Background(),
+		`SELECT thumbnail_s3_key, thumbnail_version, current_version FROM portal_assets WHERE id = $1`, id).
+		Scan(&key, &capturedAt, &currentVersion))
+	assert.Equal(t, thumb, key, "the asset keeps serving the image it has")
+	assert.Equal(t, 1, capturedAt)
+	assert.Equal(t, 2, currentVersion,
+		"and the row says the capture is a version behind, which is what the queue looks for")
+}
+
+// TestAssetVersionPrune_RealDB_KeepsTheThumbnailTheAssetPointsAt pins the other
+// half. Now that a capture outlives the version it was taken from, the image an
+// asset is serving can sit in a directory the prune is deleting; the retained
+// set has to cover the key the asset row still names, not just what a surviving
+// version's key derives.
+func TestAssetVersionPrune_RealDB_KeepsTheThumbnailTheAssetPointsAt(t *testing.T) {
+	db := testdb.New(t)
+	objects := &recordingDeleter{}
+	store := NewPostgres(db, objects, intPtr(1))
+	id := seedAsset(t, db, nil)
+
+	// A capture taken beside version 2's content, which version 3 then prunes.
+	writeVersion(t, store, id, 2)
+	thumb := "artifacts/owner/" + id + "/v2/.thumbnail.png"
+	_, err := db.ExecContext(context.Background(), `
+		UPDATE portal_assets SET thumbnail_s3_key = $1, thumbnail_version = 2 WHERE id = $2`, thumb, id)
+	require.NoError(t, err)
+
+	writeVersion(t, store, id, 3)
+
+	assert.Equal(t, []int{3}, liveVersions(t, db, id), "the cap of 1 took version 2's row")
+	assert.Contains(t, objects.keys(), "portal-assets/"+versionKey(id, 2),
+		"its content object goes with it")
+	assert.NotContains(t, objects.keys(), "portal-assets/"+thumb,
+		"but not the image the asset row still points at")
+}

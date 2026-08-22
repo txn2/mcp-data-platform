@@ -57,6 +57,7 @@ const UserSettingsPage = lazy(() =>
 
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { ThumbnailQueue } from "@/components/ThumbnailQueue";
 import { AdminPages } from "./AdminPages";
 import { AdminOnlyNotice, PageNotFound } from "./RouteFallbacks";
 import { canonicalRoute, isAdminRoute, isInSection, isKnownRoute } from "@/lib/portalRoutes";
@@ -500,6 +501,14 @@ export function AppShell() {
           </ErrorBoundary>
         </main>
       </div>
+
+      {/* Renders nothing. It asks the server which of the reader's assets are
+          missing a thumbnail or holding one from an older version and captures
+          them while the browser is idle. It sits in the shell rather than on
+          the assets page because an asset a managed script rewrites on a
+          schedule is exactly the one nobody is looking at when it changes
+          (#1431). */}
+      <ThumbnailQueue />
     </div>
   );
 }

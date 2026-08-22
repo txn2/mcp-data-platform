@@ -372,6 +372,7 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("PUT /api/v1/portal/assets/{id}/content", h.updateAssetContent)
 	h.mux.HandleFunc("PUT /api/v1/portal/assets/{id}/thumbnail", h.uploadThumbnail)
 	h.mux.HandleFunc("GET /api/v1/portal/assets/{id}/thumbnail", h.getThumbnail)
+	h.mux.HandleFunc("GET /api/v1/portal/thumbnails/pending", h.listPendingThumbnails)
 	h.mux.HandleFunc("PUT /api/v1/portal/assets/{id}", h.updateAsset)
 	h.mux.HandleFunc("DELETE /api/v1/portal/assets/{id}", h.deleteAsset)
 	h.mux.HandleFunc("GET /api/v1/portal/assets/{id}/versions", h.listVersions)
@@ -882,6 +883,11 @@ func (h *Handler) uploadThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	capturedVersion, ok := parseCapturedVersion(w, r, asset.CurrentVersion)
+	if !ok {
+		return
+	}
+
 	thumbKey := DeriveThumbnailKeyVariant(asset.S3Key, variant)
 	if err := h.deps.S3Client.PutObject(r.Context(), asset.S3Bucket, thumbKey, data, mimeTypePNG); err != nil {
 		writeError(w, http.StatusServiceUnavailable, "failed to upload thumbnail")
@@ -890,10 +896,10 @@ func (h *Handler) uploadThumbnail(w http.ResponseWriter, r *http.Request) {
 
 	id := r.PathValue(pathKeyID)
 	superseded := asset.ThumbnailS3Key
-	updates := AssetUpdate{ThumbnailS3Key: &thumbKey}
+	updates := AssetUpdate{ThumbnailS3Key: &thumbKey, ThumbnailVersion: &capturedVersion}
 	if variant == thumbnailVariantDark {
 		superseded = asset.ThumbnailDarkS3Key
-		updates = AssetUpdate{ThumbnailDarkS3Key: &thumbKey}
+		updates = AssetUpdate{ThumbnailDarkS3Key: &thumbKey, ThumbnailDarkVersion: &capturedVersion}
 	}
 	if err := h.deps.AssetStore.Update(r.Context(), id, updates); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update asset metadata")
@@ -904,18 +910,108 @@ func (h *Handler) uploadThumbnail(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, statusResponse{Status: statusUpdated})
 }
 
-// removeSupersededThumbnail deletes a thumbnail written under the spelling
-// used before the leading-dot rename, once the capture that replaced it has
-// been recorded.
+// parseCapturedVersion reads the optional ?version= parameter: the asset
+// version the capturer rendered. It is what the stored capture is dated by, so
+// an asset rewritten while a capture was in flight is left pending rather than
+// stamped current with an image of the version before it.
 //
-// It is deliberately narrow: only a legacy name is removed, and only after the
-// asset row points at the new key, so a failed delete leaves an unreferenced
-// object rather than an asset with no thumbnail. Leaving it in place is not
-// harmless -- Trino reads a non-hidden object beside a CSV as rows, so an
-// asset thumbnailed before the rename stays unregisterable until the object
-// is gone.
+// Absent, it falls back to the asset's current version, which is what a caller
+// that does not track versions means and what the endpoint did before the
+// parameter existed. A version above the current one is refused: it would date
+// a capture to content that does not exist yet and put the asset beyond the
+// reach of the refresh queue for good. Below it is accepted and left pending --
+// a capture of an older version is still an image worth serving.
+func parseCapturedVersion(w http.ResponseWriter, r *http.Request, currentVersion int) (int, bool) {
+	raw := r.URL.Query().Get("version")
+	if raw == "" {
+		return currentVersion, true
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil || v < 1 {
+		writeError(w, http.StatusBadRequest, "version must be a positive integer")
+		return 0, false
+	}
+	if v > currentVersion {
+		writeError(w, http.StatusBadRequest, "version is ahead of the asset's current version")
+		return 0, false
+	}
+	return v, true
+}
+
+// thumbnailPendingLimit is how many assets one poll of the refresh queue is
+// offered. Capture is a long main-thread task per asset in whichever tab picks
+// the work up, so the batch is small enough that a browser can work through it
+// between idle periods; the rest are offered on the next poll, and an asset
+// leaves the set by having a current capture.
+const thumbnailPendingLimit = 25
+
+// listPendingThumbnails handles GET /api/v1/portal/thumbnails/pending.
+//
+// @Summary      List assets awaiting a thumbnail
+// @Description  Returns the caller's assets whose thumbnail is missing or has
+// @Description  not caught up with the current version, newest change first.
+// @Description  Nothing renders a thumbnail on the server, so this is how a
+// @Description  portal tab is told what to capture next -- including for assets
+// @Description  it is not displaying, which is what a managed script rewriting
+// @Description  an asset on a schedule depends on.
+// @Tags         Assets
+// @Produce      json
+// @Param        limit  query  int  false  "Maximum assets to return"
+// @Success      200  {object}  paginatedResponse
+// @Failure      401  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     BearerAuth
+// @Router       /portal/thumbnails/pending [get]
+func (h *Handler) listPendingThumbnails(w http.ResponseWriter, r *http.Request) {
+	user := GetUser(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, errAuthRequired)
+		return
+	}
+
+	// Scoped to the caller's own assets, administrator or not: capture reads
+	// the whole body of every asset it is offered, and a background task that
+	// pulls other people's documents into a browser because of who is signed in
+	// is not what an admin asked for by opening the portal.
+	filter := AssetFilter{
+		OwnerID:          user.UserID,
+		ThumbnailPending: true,
+		Limit:            intParam(r, paramLimit, thumbnailPendingLimit),
+	}
+
+	assets, total, err := h.deps.AssetStore.List(r.Context(), filter)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list assets")
+		return
+	}
+	if assets == nil {
+		assets = []Asset{}
+	}
+
+	writeJSON(w, http.StatusOK, paginatedResponse{
+		Data: assets, Total: total, Limit: filter.EffectiveLimit(),
+	})
+}
+
+// removeSupersededThumbnail deletes the thumbnail object the capture just
+// recorded replaced, once the asset row points at the new key.
+//
+// Nothing but the asset row ever names a thumbnail -- a version row records
+// only content -- so an object the pointer has moved off is unreferenced the
+// moment the row is updated, whichever version's directory it sits in. The
+// delete is ordered after the update so a failure leaves an unreferenced object
+// rather than an asset with no thumbnail.
+//
+// Two cases reach here. One is the spelling used before the leading-dot rename:
+// leaving it is not harmless, because Trino reads a non-hidden object beside a
+// CSV as rows and the asset stays unregisterable until it is gone (#1327). The
+// other arrived with #1431: a capture now outlives the version it was taken
+// from, so a re-capture after several version writes supersedes an object in an
+// older version's directory, and if that version's row has already been pruned
+// nothing else would ever remove it. A re-capture that lands on the same key
+// overwrites it in place and deletes nothing.
 func (h *Handler) removeSupersededThumbnail(ctx context.Context, bucket, superseded, current string) {
-	if superseded == "" || superseded == current || !portaldomain.IsLegacyThumbnailKey(superseded) {
+	if superseded == "" || superseded == current {
 		return
 	}
 	h.cleanupOrphanedS3(ctx, bucket, superseded)

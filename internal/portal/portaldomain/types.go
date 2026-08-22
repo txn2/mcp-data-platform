@@ -51,13 +51,25 @@ type Asset struct {
 	// for content types rendered on a forced background (markdown, CSV); types
 	// with a built-in theme (HTML, JSX, SVG) reuse ThumbnailS3Key in both modes.
 	// Empty means callers should fall back to ThumbnailS3Key.
-	ThumbnailDarkS3Key string     `json:"thumbnail_dark_s3_key,omitempty" example:"assets/01HK7R8Z/.thumbnail_dark.png"`
-	SizeBytes          int64      `json:"size_bytes" example:"4200"`
-	Tags               []string   `json:"tags"`
-	Provenance         Provenance `json:"provenance"`
-	SessionID          string     `json:"session_id,omitempty" example:"sess_abc123"`
-	IdempotencyKey     string     `json:"idempotency_key,omitempty" example:"export-2026-04-18-abc123"`
-	CurrentVersion     int        `json:"current_version" example:"1"`
+	ThumbnailDarkS3Key string `json:"thumbnail_dark_s3_key,omitempty" example:"assets/01HK7R8Z/.thumbnail_dark.png"`
+	// ThumbnailVersion is the asset version ThumbnailS3Key was captured from,
+	// and ThumbnailDarkVersion the same for the dark variant. Below
+	// CurrentVersion means the capture has not caught up with the content: the
+	// image still serves, and the asset is what a refresh queue looks for. Zero
+	// with a key recorded cannot occur -- see migration 000122 -- so it means
+	// no capture has ever been taken.
+	//
+	// The two variants are stamped independently because they are captured and
+	// uploaded independently, and a pass that lands one and throws on the other
+	// leaves exactly that state.
+	ThumbnailVersion     int        `json:"thumbnail_version" example:"3"`
+	ThumbnailDarkVersion int        `json:"thumbnail_dark_version" example:"3"`
+	SizeBytes            int64      `json:"size_bytes" example:"4200"`
+	Tags                 []string   `json:"tags"`
+	Provenance           Provenance `json:"provenance"`
+	SessionID            string     `json:"session_id,omitempty" example:"sess_abc123"`
+	IdempotencyKey       string     `json:"idempotency_key,omitempty" example:"export-2026-04-18-abc123"`
+	CurrentVersion       int        `json:"current_version" example:"1"`
 	// MaxVersions is the asset's own version-retention cap. Nil means the
 	// asset has no opinion and inherits the deployment's portal.max_versions;
 	// 0 means it keeps every version; N means it keeps the newest N. See
@@ -384,6 +396,18 @@ type AssetFilter struct {
 	SortBy string `json:"sort_by,omitempty"`
 	// SortDir is SortAsc or SortDesc. Anything else falls back to SortDesc.
 	SortDir string `json:"sort_dir,omitempty"`
+	// ThumbnailPending narrows the result to assets whose thumbnail is missing
+	// or has not caught up with the current version, and which the portal can
+	// actually rasterize. It is how a browser is told what to capture next:
+	// nothing regenerates a thumbnail server-side, so the work has to be found
+	// by a query rather than waiting for somebody to open the page an asset
+	// happens to be listed on (#1431).
+	//
+	// The condition is derived from the asset row on every read rather than
+	// recorded as queue state, so it cannot drift: an asset leaves the set by
+	// having a current capture and no other way, and a capture that fails is
+	// still pending on the next read.
+	ThumbnailPending bool `json:"thumbnail_pending,omitempty"`
 }
 
 // Order returns the ORDER BY clauses for this filter, with unknown columns and
@@ -420,7 +444,13 @@ type AssetUpdate struct {
 	SizeBytes          int64    `json:"size_bytes,omitempty"`
 	ThumbnailS3Key     *string  `json:"thumbnail_s3_key,omitempty"`
 	ThumbnailDarkS3Key *string  `json:"thumbnail_dark_s3_key,omitempty"`
-	HasContent         bool     `json:"-"` // set when content replacement provides SizeBytes (even if 0)
+	// ThumbnailVersion and ThumbnailDarkVersion stamp the asset version a
+	// capture was taken from, alongside the key it was written to. A caller
+	// setting one of the key fields without its version would record a capture
+	// nothing can date, so the thumbnail-upload path sets both together.
+	ThumbnailVersion     *int `json:"thumbnail_version,omitempty"`
+	ThumbnailDarkVersion *int `json:"thumbnail_dark_version,omitempty"`
+	HasContent           bool `json:"-"` // set when content replacement provides SizeBytes (even if 0)
 	// MaxVersions sets the asset's version-retention cap; nil leaves the
 	// column as it is. Zero is a legitimate value (keep every version), which
 	// is why this is a pointer and why clearing the override back to "inherit
@@ -573,6 +603,18 @@ func IsLegacyThumbnailKey(key string) bool {
 		name = key[idx+1:]
 	}
 	return name == legacyThumbnailLightFilename || name == legacyThumbnailDarkFilename
+}
+
+// LegacyThumbnailFilenameFor returns the filename a variant's thumbnail was
+// written under before the leading-dot rename. It is what a caller matching
+// recorded keys against the old spelling compares to -- the refresh queue asks
+// it in SQL, IsLegacyThumbnailKey asks it in Go -- so the two cannot answer
+// differently about the same object.
+func LegacyThumbnailFilenameFor(variant string) string {
+	if variant == ThumbnailVariantDark {
+		return legacyThumbnailDarkFilename
+	}
+	return legacyThumbnailLightFilename
 }
 
 // ThumbnailKeysFor returns every thumbnail object key that sits beside a

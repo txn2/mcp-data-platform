@@ -8,6 +8,7 @@ import { SharePermissionBadge } from "@/components/SharePermissionBadge";
 import { Badge } from "@/components/ui/badge";
 import { formatBytes } from "@/lib/format";
 import { markdownToPlainText } from "@/lib/markdownText";
+import { assetThumbnailSrc } from "@/lib/thumbnailSupport";
 import { dateLabelFor, type DateColumn } from "@/components/listSort";
 import type { DisplayAsset } from "./types";
 
@@ -69,7 +70,7 @@ function AssetCard({
   return (
     <ThumbCard
       onClick={() => onNavigate(`/assets/${asset.id}`)}
-      thumbnailSrc={thumbnailSrc(asset, isDark)}
+      thumbnailSrc={assetThumbnailSrc(asset, isDark)}
       fallbackIcon={Icon}
       overlay={
         // Share state belongs to the owner's own view of an asset; on one
@@ -128,13 +129,3 @@ function AssetCard({
   );
 }
 
-/**
- * The thumbnail endpoint for an asset, or undefined while none has been
- * rendered. An asset whose renderer produces a dark variant serves it when the
- * portal is dark, so a light-on-white chart is not shown on a dark page.
- */
-function thumbnailSrc(asset: DisplayAsset["asset"], isDark: boolean): string | undefined {
-  if (!asset.thumbnail_s3_key) return undefined;
-  const variant = isDark && asset.thumbnail_dark_s3_key ? "?variant=dark" : "";
-  return `/api/v1/portal/assets/${asset.id}/thumbnail${variant}`;
-}

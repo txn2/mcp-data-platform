@@ -23,6 +23,12 @@ interface Props {
   assetId: string;
   content: string;
   contentType: string;
+  /**
+   * The asset version `content` was read at. Recorded with the capture so the
+   * asset row dates the image to what it actually shows; omitted, the server
+   * dates it to whatever version the asset is on when the upload lands.
+   */
+  version?: number;
   onCaptured?: () => void;
   onFailed?: () => void;
 }
@@ -34,7 +40,7 @@ interface Props {
  * Calls onFailed (or onCaptured) after CAPTURE_TIMEOUT_MS if capture hasn't
  * completed, so the caller can move on.
  */
-export function ThumbnailGenerator({ assetId, content, contentType, onCaptured, onFailed }: Props) {
+export function ThumbnailGenerator({ assetId, content, contentType, version, onCaptured, onFailed }: Props) {
   const ct = contentType.toLowerCase();
   const isIframeType = ct.includes("html") || ct.includes("jsx");
   const isMarkdown = ct.includes("markdown");
@@ -47,6 +53,7 @@ export function ThumbnailGenerator({ assetId, content, contentType, onCaptured, 
         assetId={assetId}
         content={content}
         contentType={contentType}
+        version={version}
         onCaptured={onCaptured}
         onFailed={onFailed}
       />
@@ -59,6 +66,7 @@ export function ThumbnailGenerator({ assetId, content, contentType, onCaptured, 
         assetId={assetId}
         content={content}
         contentType={contentType}
+        version={version}
         onCaptured={onCaptured}
         onFailed={onFailed}
       />
@@ -77,12 +85,14 @@ function IframeCapture({
   assetId,
   content,
   contentType,
+  version,
   onCaptured,
   onFailed,
 }: {
   assetId: string;
   content: string;
   contentType: string;
+  version?: number;
   onCaptured?: () => void;
   onFailed?: () => void;
 }) {
@@ -101,12 +111,12 @@ function IframeCapture({
     capturedRef.current = true;
     try {
       const blob = await captureIframe(iframeRef.current);
-      await uploadThumbnail(assetId, blob);
+      await uploadThumbnail(assetId, blob, "light", version);
       onCaptured?.();
     } catch {
       onFailed?.();
     }
-  }, [assetId, onCaptured, onFailed]);
+  }, [assetId, version, onCaptured, onFailed]);
 
   useEffect(() => {
     function handleMessage(e: MessageEvent) {
@@ -329,12 +339,14 @@ function DomCapture({
   assetId,
   content,
   contentType,
+  version,
   onCaptured,
   onFailed,
 }: {
   assetId: string;
   content: string;
   contentType: string;
+  version?: number;
   onCaptured?: () => void;
   onFailed?: () => void;
 }) {
@@ -393,7 +405,7 @@ function DomCapture({
         // Let layout settle after mermaid SVGs are inserted
         await new Promise((r) => requestAnimationFrame(r));
         const blob = await captureContainer(container, scheme.tokens.bg);
-        await uploadThumbnail(assetId, blob, scheme.variant);
+        await uploadThumbnail(assetId, blob, scheme.variant, version);
         anySucceeded = true;
       } catch {
         // Skip this variant; other variants and a later retry can still fill it.
@@ -404,7 +416,7 @@ function DomCapture({
     } else {
       onFailed?.();
     }
-  }, [assetId, schemes, onCaptured, onFailed]);
+  }, [assetId, schemes, version, onCaptured, onFailed]);
 
   useEffect(() => {
     void doCapture();

@@ -28,6 +28,8 @@ const asset = {
   provenance: {},
   session_id: "dps_abc",
   current_version: 3,
+  thumbnail_version: 0,
+  thumbnail_dark_version: 0,
   created_at: "2026-08-20T09:00:00Z",
   updated_at: "2026-08-21T11:05:00Z",
 } as Asset;

@@ -12,7 +12,6 @@ import {
 } from "@/components/listSort";
 import { getStoredViewMode, storeViewMode, type ViewMode } from "@/components/listView";
 import { getStoredScope, storeScope, type Scope } from "@/components/ScopeFilter";
-import { ThumbnailQueue } from "@/components/ThumbnailQueue";
 import { useResolvedDark } from "@/stores/theme";
 import { AssetFilterBar } from "./browse/AssetFilterBar";
 import { AssetGrid } from "./browse/AssetGrid";
@@ -94,8 +93,6 @@ export function MyAssetsPage({ onNavigate }: Props) {
       />
 
       <ResultCount browse={browse} scope={scope} />
-
-      <ThumbnailQueue assets={browse.assets} />
 
       {previewing && (
         <AssetPreviewModal
