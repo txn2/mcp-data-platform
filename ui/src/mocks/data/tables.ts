@@ -11,7 +11,7 @@ import type {
 // separately so the register helper can fall back to it without an
 // index-into-a-list that the type system has to be told is populated.
 const scratchConnection: TableConnection = {
-  name: "scratch",
+  name: "acme-scratch",
   description: "Writable scratch catalog beside the warehouse",
   catalog: "scratch",
   schema: "uploads",
@@ -20,49 +20,51 @@ const scratchConnection: TableConnection = {
 export const mockTableConnections: TableConnection[] = [scratchConnection];
 
 export const mockTableRegistrations: Record<string, TableRegistration[]> = {
-  "res-002": [
+  "ast-008": [
     {
       id: "reg_2f1c8a",
-      source_kind: "resource",
-      source_id: "res-002",
-      connection: "scratch",
+      source_kind: "asset",
+      source_id: "ast-008",
+      connection: "acme-scratch",
       catalog: "scratch",
       schema: "uploads",
-      table: "analyst_vendor_rebates",
-      location: "s3://managed-resources/resources/global/global/res-002/",
+      table: "analyst_regional_sales_summary",
+      location: "s3://portal-assets/assets/",
       columns: [
-        { name: "store_id", type: "VARCHAR" },
-        { name: "vendor_code", type: "VARCHAR" },
-        { name: "rebate_pct", type: "VARCHAR" },
+        { name: "region", type: "VARCHAR" },
+        { name: "quarter", type: "VARCHAR" },
+        { name: "revenue", type: "VARCHAR" },
+        { name: "units", type: "VARCHAR" },
       ],
       registered_by: "alice@example.com",
       registered_at: "2026-08-20T14:12:00Z",
-      query_table: "scratch.uploads.analyst_vendor_rebates",
+      query_table: "scratch.uploads.analyst_regional_sales_summary",
       sample_sql:
-        'SELECT * FROM scratch.uploads.analyst_vendor_rebates\n-- every column is VARCHAR, so a join to a typed column casts:\n-- JOIN scratch.uploads.analyst_vendor_rebates t ON w.id = CAST(t."store_id" AS BIGINT)',
+        'SELECT * FROM scratch.uploads.analyst_regional_sales_summary\n-- every column is VARCHAR, so a join to a typed column casts:\n-- JOIN scratch.uploads.analyst_regional_sales_summary t ON w.id = CAST(t."region" AS BIGINT)',
       stale: false,
     },
   ],
   // A registration left behind by an earlier revision: the file has a newer
   // version than the table points at, which is the one state a reader cannot
   // discover from the rows themselves.
-  "ast-002": [
+  "res-015": [
     {
       id: "reg_7b3d90",
-      source_kind: "asset",
-      source_id: "ast-002",
-      connection: "scratch",
+      source_kind: "resource",
+      source_id: "res-015",
+      connection: "acme-scratch",
       catalog: "scratch",
       schema: "uploads",
-      table: "analyst_q3_revenue",
-      location: "s3://portal-assets/artifacts/user-alice/ast-002/",
+      table: "analyst_glossary",
+      location: "s3://managed-resources/resources/global/reference/v/rev-1/",
       columns: [
-        { name: "region", type: "VARCHAR" },
-        { name: "revenue", type: "VARCHAR" },
+        { name: "term", type: "VARCHAR" },
+        { name: "definition", type: "VARCHAR" },
+        { name: "owner", type: "VARCHAR" },
       ],
-      registered_by: "alice@example.com",
+      registered_by: "marcus.johnson@example.com",
       registered_at: "2026-08-18T09:30:00Z",
-      query_table: "scratch.uploads.analyst_q3_revenue",
+      query_table: "scratch.uploads.analyst_glossary",
       stale: true,
     },
   ],
@@ -94,9 +96,9 @@ export async function mockRegisterTable(
     table,
     location: `s3://portal-assets/${kind}s/${sourceID}/`,
     columns: [
-      { name: "store_id", type: "VARCHAR" },
-      { name: "vendor_code", type: "VARCHAR" },
-      { name: "rebate_pct", type: "VARCHAR" },
+      { name: "region", type: "VARCHAR" },
+      { name: "quarter", type: "VARCHAR" },
+      { name: "revenue", type: "VARCHAR" },
     ],
     registered_by: "alice@example.com",
     registered_at: new Date("2026-08-22T10:00:00Z").toISOString(),

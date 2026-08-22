@@ -181,7 +181,14 @@ function RegistrationRow({
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <code className="block truncate font-mono text-sm text-foreground">{reg.query_table}</code>
+          {/*
+            The qualified name is what a reader came for and what they type
+            into a query, so it wraps rather than truncating: the asset
+            viewer's sidebar is narrow enough that "scratch.uploads..." was all
+            of it a CSV asset ever showed. It has no spaces, so the break has
+            to be allowed mid-token.
+          */}
+          <code className="block font-mono text-sm break-all text-foreground">{reg.query_table}</code>
           <p className="mt-0.5 text-muted-foreground">
             on <span className="font-medium text-foreground">{reg.connection}</span> · registered by{" "}
             {reg.registered_by}

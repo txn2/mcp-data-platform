@@ -447,3 +447,59 @@ export async function openCollectionDetailsDialog(page: Page): Promise<void> {
   await page.getByLabel("Name").waitFor({ state: "visible", timeout: 5_000 });
   await page.waitForTimeout(400);
 }
+
+/**
+ * showTablesPanel scrolls the "Query as a table" section into view. It sits
+ * below the preview in the resource dialog and below the provenance panel in
+ * the asset viewer's sidebar, so a capture of either as it opens cannot reach
+ * it (#1327).
+ */
+export async function showTablesPanel(page: Page): Promise<void> {
+  await page
+    .getByText("Query as a table", { exact: true })
+    .first()
+    .scrollIntoViewIfNeeded({ timeout: 5_000 });
+  // Scrolling the heading into view leaves the registration itself below the
+  // fold, and the registration is the substance of the capture.
+  const registration = page.locator('[data-testid^="table-registration-"]').first();
+  if (await registration.isVisible().catch(() => false)) {
+    await registration.scrollIntoViewIfNeeded({ timeout: 3_000 }).catch(() => {});
+  }
+  await page.waitForTimeout(500);
+}
+
+/**
+ * openAssetTables opens the asset viewer's metadata sidebar and scrolls to the
+ * registered-table panel. The sidebar is closed until "Show details" is
+ * pressed, so the panel is not merely below the fold -- it is not mounted.
+ */
+export async function openAssetTables(page: Page): Promise<void> {
+  await openAssetProvenance(page);
+  await showTablesPanel(page);
+}
+
+/**
+ * openGlossaryResourceTables opens the CSV resource carrying a stale
+ * registration and scrolls to it: the file has a newer revision than the table
+ * points at, which is the one state a reader cannot discover from the rows.
+ */
+export async function openGlossaryResourceTables(page: Page): Promise<void> {
+  await page
+    .getByText("Business Glossary Export", { exact: true })
+    .first()
+    .click({ timeout: 3_000 })
+    .catch(() => {});
+  await page.waitForTimeout(700);
+  await showTablesPanel(page);
+}
+
+/**
+ * openTableRegisterForm opens the register form over that same dialog: which
+ * connection the table is created on, and what it is called.
+ */
+export async function openTableRegisterForm(page: Page): Promise<void> {
+  await openGlossaryResourceTables(page);
+  await page.getByRole("button", { name: "Register", exact: true }).first().click({ timeout: 3_000 });
+  await page.getByLabel("Connection").waitFor({ state: "visible", timeout: 5_000 });
+  await page.waitForTimeout(400);
+}
