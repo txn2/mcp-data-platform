@@ -393,7 +393,7 @@ func (r *Registrar) Unregister(ctx context.Context, caller Caller, id, source st
 		slog.Warn("table registration: dropping the table failed; the record is removed anyway",
 			"registration", logsan.SanitizeForLog(reg.ID),
 			logFieldTable, logsan.SanitizeForLog(reg.QualifiedName()),
-			logFieldError, execErr)
+			logFieldError, logsan.SanitizeForLog(execErr.Error()))
 	}
 	if err := r.deps.Store.Delete(ctx, reg.ID); err != nil {
 		return fmt.Errorf("removing the registration: %w", err)
@@ -440,17 +440,17 @@ func (r *Registrar) UnregisterAllForSource(ctx context.Context, kind, sourceID s
 	regs, err := r.deps.Store.BySource(ctx, kind, sourceID)
 	if err != nil {
 		slog.Warn("table registration: could not list registrations of a deleted source",
-			"kind", logsan.SanitizeForLog(kind), "source", logsan.SanitizeForLog(sourceID), logFieldError, err)
+			"kind", logsan.SanitizeForLog(kind), "source", logsan.SanitizeForLog(sourceID), logFieldError, logsan.SanitizeForLog(err.Error()))
 		return
 	}
 	for _, reg := range regs {
 		if err := r.deps.Trino.Exec(ctx, reg.Connection, "DROP TABLE IF EXISTS "+qualified(reg)); err != nil {
 			slog.Warn("table registration: dropping the table of a deleted source failed",
-				logFieldTable, logsan.SanitizeForLog(reg.QualifiedName()), logFieldError, err)
+				logFieldTable, logsan.SanitizeForLog(reg.QualifiedName()), logFieldError, logsan.SanitizeForLog(err.Error()))
 		}
 		if err := r.deps.Store.Delete(ctx, reg.ID); err != nil {
 			slog.Warn("table registration: removing the record of a deleted source failed",
-				"registration", logsan.SanitizeForLog(reg.ID), logFieldError, err)
+				"registration", logsan.SanitizeForLog(reg.ID), logFieldError, logsan.SanitizeForLog(err.Error()))
 		}
 	}
 }
@@ -507,7 +507,7 @@ func (r *Registrar) audit(ctx context.Context, rec auditRecord) {
 		ev.ErrorMessage = rec.err.Error()
 	}
 	if err := r.deps.Audit.Log(ctx, *ev); err != nil {
-		slog.Warn("table registration audit log failed", logFieldError, err,
+		slog.Warn("table registration audit log failed", logFieldError, logsan.SanitizeForLog(err.Error()),
 			logFieldTable, logsan.SanitizeForLog(rec.reg.QualifiedName()))
 	}
 }

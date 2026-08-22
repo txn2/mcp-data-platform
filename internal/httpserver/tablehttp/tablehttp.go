@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/tableregister"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 )
@@ -141,7 +142,7 @@ func (h *Handler) list(kind string, subject Subject) http.HandlerFunc {
 		regs, err := h.deps.Registrar.BySource(r.Context(), kind, src.ID)
 		if err != nil {
 			problem(w, http.StatusInternalServerError, "could not read the registrations of this file")
-			slog.Warn("table registrations: list failed", "error", err)
+			slog.Warn("table registrations: list failed", "error", logsan.SanitizeForLog(err.Error()))
 			return
 		}
 		views := make([]registrationView, 0, len(regs))
@@ -176,7 +177,7 @@ func (h *Handler) register(subject Subject) http.HandlerFunc {
 		if err != nil {
 			status := statusFor(err)
 			if status == http.StatusInternalServerError {
-				slog.Warn("table registration failed", "error", err)
+				slog.Warn("table registration failed", "error", logsan.SanitizeForLog(err.Error()))
 			}
 			problem(w, status, detailFor(err, status))
 			return
@@ -195,7 +196,7 @@ func (h *Handler) unregister(subject Subject) http.HandlerFunc {
 		if err != nil {
 			status := statusFor(err)
 			if status == http.StatusInternalServerError {
-				slog.Warn("dropping a registered table failed", "error", err)
+				slog.Warn("dropping a registered table failed", "error", logsan.SanitizeForLog(err.Error()))
 			}
 			problem(w, status, detailFor(err, status))
 			return

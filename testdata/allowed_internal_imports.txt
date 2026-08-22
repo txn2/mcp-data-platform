@@ -121,6 +121,7 @@ internal/httpserver/scripthttp -> pkg/script
 internal/httpserver/scripthttp -> pkg/session
 internal/httpserver/sources -> pkg/toolkits/gateway/enrichment
 internal/httpserver/tablehttp -> internal/httpjson
+internal/httpserver/tablehttp -> internal/logsan
 internal/httpserver/tablehttp -> internal/platform/tableregister
 internal/httpserver/tablehttp -> pkg/portal
 internal/httpserver/unsubhttp -> pkg/notification
