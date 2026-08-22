@@ -4,18 +4,14 @@ package platform_test
 
 import (
 	"context"
-	"database/sql"
 	"testing"
 	"time"
 
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/postgres"
-	"github.com/testcontainers/testcontainers-go/wait"
 
-	"github.com/txn2/mcp-data-platform/pkg/database/migrate"
+	"github.com/txn2/mcp-data-platform/internal/testdb"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 )
 
@@ -88,34 +84,20 @@ func (*inMemorySink) FindGaps(_ context.Context) ([]string, error)              
 // UPDATE to the List read path (#430), now against the generic
 // index_jobs queue.
 func TestIndexJobsProgress_EndToEnd_RealDB(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
 	ctx := context.Background()
 
-	pgContainer, err := postgres.Run(ctx,
-		"pgvector/pgvector:pg16",
-		postgres.WithDatabase("testdb"),
-		postgres.WithUsername("test"),
-		postgres.WithPassword("test"),
-		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").
-				WithOccurrence(2).
-				WithStartupTimeout(5*time.Minute),
-		),
-	)
-	require.NoError(t, err)
-	defer func() { _ = pgContainer.Terminate(ctx) }()
-
-	dsn, err := pgContainer.ConnectionString(ctx, "sslmode=disable")
-	require.NoError(t, err)
-	db, err := sql.Open("postgres", dsn)
-	require.NoError(t, err)
-	defer db.Close() //nolint:errcheck // test cleanup
-	require.NoError(t, migrate.Run(db))
+	// testdb.New rather than a container of this test's own: with TESTDB_DSN
+	// set, every other real-DB test clones a template database on one shared
+	// server, while a test that calls postgres.Run directly starts its own
+	// container AND its own Ryuk reaper on every run. That reaper is what
+	// times out under load -- this test failed on main twice in two days with
+	// "wait for reaper ...: context deadline exceeded" and nothing else in the
+	// gate did. The harness still falls back to a container per test when
+	// TESTDB_DSN is unset, so `go test -tags=integration ./...` is unaffected.
+	db := testdb.New(t)
 
 	store := indexjobs.NewPostgresStore(db)
-	_, err = store.Enqueue(ctx, indexjobs.Key{SourceKind: "test_progress", SourceID: "unit1"}, indexjobs.TriggerWrite)
+	_, err := store.Enqueue(ctx, indexjobs.Key{SourceKind: "test_progress", SourceID: "unit1"}, indexjobs.TriggerWrite)
 	require.NoError(t, err)
 
 	reg := indexjobs.NewRegistry()
