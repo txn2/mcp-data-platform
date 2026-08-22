@@ -2,11 +2,11 @@ package portal
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
@@ -18,23 +18,31 @@ type TableRegistration struct {
 	Columns        []string `json:"columns,omitempty"`
 	SampleSQL      string   `json:"sample_sql,omitempty"`
 	RegisteredBy   string   `json:"registered_by,omitempty"`
-	// Stale means the asset has a newer version than the one the table points
-	// at, so the rows are the version that was current when it was registered.
+	// Stale means the file has a newer revision or version than the one the
+	// table points at, so the rows are the content that was current when it
+	// was registered.
 	Stale bool `json:"stale"`
 }
 
-// TableRegistrar makes an asset's stored CSV readable as a query-engine table
-// (#1327). The registrar seam satisfies it; the capability is declared here so
-// the toolkit does not depend on the registrar.
+// TableRegistrar makes a stored CSV readable as a query-engine table (#1327),
+// whichever kind of stored file it is (#1428). The registrar seam satisfies
+// it; the capability is declared here so the toolkit does not depend on the
+// registrar, and does not learn what a managed resource is.
+//
+// Every method is keyed by the canonical reference a caller already holds --
+// the string `search` emits and `fetch` dereferences -- rather than by the id
+// of one kind of record. That is what lets one tool serve every kind: the kind
+// travels inside the reference, so there is no per-kind argument and no second
+// tool.
 //
 // The acting caller is not a parameter. Every method resolves identity from
 // the context exactly as this toolkit does, so the tool cannot present an
 // identity the rest of the platform would refuse, and the connection boundary
 // a tool call meets is the one a registration meets.
 type TableRegistrar interface {
-	RegisterAsset(ctx context.Context, asset portal.Asset, connection, tableName string) (*TableRegistration, error)
-	UnregisterAsset(ctx context.Context, registrationID string) error
-	AssetTables(ctx context.Context, asset portal.Asset) ([]TableRegistration, error)
+	Register(ctx context.Context, reference, connection, tableName string) (*TableRegistration, error)
+	Unregister(ctx context.Context, registrationID string) error
+	Tables(ctx context.Context, reference string) ([]TableRegistration, error)
 	// DropAssetTables removes every table registered over an asset. It is what
 	// a delete calls: the asset is going, and a table over where its file used
 	// to be would answer queries from a schema its owner can no longer see.
@@ -43,57 +51,92 @@ type TableRegistrar interface {
 	DropAssetTables(ctx context.Context, assetID string)
 }
 
-// SetTableRegistrar binds the registrar behind register_table and
-// unregister_table. Called by the composition root once the Trino toolkit and
-// the registration store exist; without it those two actions report that the
-// deployment cannot register tables, which is what a deployment with no Trino
-// scratch connection can do.
+// SetTableRegistrar binds the registrar behind manage_table. Called by the
+// composition root once the Trino toolkit and the registration store exist;
+// without it the tool reports that the deployment cannot register tables,
+// which is what a deployment with no Trino scratch connection can do.
 func (t *Toolkit) SetTableRegistrar(reg TableRegistrar) {
 	t.tables = reg
 }
 
-// tableRegistrationOutput is the result of register_table.
+// manageTableInput defines the input for manage_table.
+type manageTableInput struct {
+	Action string `json:"action"`
+	// Reference names the stored file, in the same vocabulary every other tool
+	// uses: mcp:resource:<id> for uploaded reference material, mcp:asset:<id>
+	// for a saved asset.
+	Reference string `json:"reference,omitempty"`
+	// Connection names the Trino connection whose scratch schema holds the
+	// table; TableName is optional and defaults to a slug of the filename.
+	Connection string `json:"connection,omitempty"`
+	TableName  string `json:"table_name,omitempty"`
+	// RegistrationID selects the registration unregister drops.
+	RegistrationID string `json:"registration_id,omitempty"`
+}
+
+// tableRegistrationOutput is the result of the register action.
 type tableRegistrationOutput struct {
-	AssetID string `json:"asset_id"`
+	Reference string `json:"reference"`
 	TableRegistration
 	Message string `json:"message"`
 }
 
-// tableListOutput is the result of list_tables.
+// tableListOutput is the result of the list action.
 type tableListOutput struct {
-	AssetID       string              `json:"asset_id"`
+	Reference     string              `json:"reference"`
 	Registrations []TableRegistration `json:"registrations"`
 	Total         int                 `json:"total"`
 }
 
-// handleRegisterTable makes the asset's stored CSV queryable.
-//
-// Nothing is copied: the table points at the directory the asset's current
-// content already sits in, so a new version of the asset means re-registering
-// rather than re-loading. Registration is owner authority, like sharing: it
-// puts the file's contents in a schema everyone granted the connection can
-// read.
-func (t *Toolkit) handleRegisterTable(ctx context.Context, input manageAssetInput) (*mcp.CallToolResult, any, error) {
-	asset, denial := t.loadOwnedAsset(ctx, input.AssetID, actionRegisterTable, "register this asset as a table")
-	if denial != nil {
-		return denial, nil, nil
-	}
+// handleManageTable dispatches a manage_table call.
+func (t *Toolkit) handleManageTable(
+	ctx context.Context, _ *mcp.CallToolRequest, input manageTableInput,
+) (*mcp.CallToolResult, any, error) {
 	if t.tables == nil {
 		return toolkit.ErrorResult(tableRegistrationUnavailable), nil, nil
 	}
+	if resolveOwnerID(ctx) == anonymousUserName {
+		return toolkit.ErrorResult(tableIdentityRequired), nil, nil
+	}
+	switch input.Action {
+	case tableActionRegister:
+		return t.handleRegisterTable(ctx, input)
+	case tableActionUnregister:
+		return t.handleUnregisterTable(ctx, input)
+	case tableActionList:
+		return t.handleListTables(ctx, input)
+	default:
+		return toolkit.ErrorResult(fmt.Sprintf(
+			"invalid action %q: must be one of: register, list, unregister", input.Action)), nil, nil
+	}
+}
+
+// handleRegisterTable makes the referenced file's stored CSV queryable.
+//
+// Nothing is copied: the table points at the directory the file already sits
+// in, so a new revision or version means re-registering rather than
+// re-loading. Registration is the authority to change the file, not the
+// authority to read it: it puts the contents in a schema everyone granted the
+// connection can read.
+func (t *Toolkit) handleRegisterTable(
+	ctx context.Context, input manageTableInput,
+) (*mcp.CallToolResult, any, error) {
+	if denial := requireReference(input.Reference, tableActionRegister); denial != nil {
+		return denial, nil, nil
+	}
 	if strings.TrimSpace(input.Connection) == "" {
 		return toolkit.ErrorResult(
-			"connection is required for register_table: name the Trino connection whose scratch schema the table goes in. " +
+			"connection is required for register: name the Trino connection whose scratch schema the table goes in. " +
 				"Call list_connections to see the connections you can reach."), nil, nil
 	}
 
-	reg, err := t.tables.RegisterAsset(ctx, *asset, input.Connection, input.TableName)
+	reg, err := t.tables.Register(ctx, input.Reference, input.Connection, input.TableName)
 	if err != nil {
 		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
 
 	return toolkit.JSONResultTyped(tableRegistrationOutput{
-		AssetID:           asset.ID,
+		Reference:         input.Reference,
 		TableRegistration: *reg,
 		Message: "Registered as " + reg.QueryTable + " on connection " + reg.Connection +
 			". Every column is VARCHAR, so a join to a typed column needs a CAST.",
@@ -102,41 +145,33 @@ func (t *Toolkit) handleRegisterTable(ctx context.Context, input manageAssetInpu
 
 // handleUnregisterTable drops a registered table.
 //
-// The asset's file is untouched: dropping an external table removes the
-// catalog entry and nothing else.
-func (t *Toolkit) handleUnregisterTable(ctx context.Context, input manageAssetInput) (*mcp.CallToolResult, any, error) {
-	asset, denial := t.loadOwnedAsset(ctx, input.AssetID, actionUnregisterTable, "unregister this asset's table")
-	if denial != nil {
-		return denial, nil, nil
-	}
-	if t.tables == nil {
-		return toolkit.ErrorResult(tableRegistrationUnavailable), nil, nil
-	}
+// The file is untouched: dropping an external table removes the catalog entry
+// and nothing else.
+func (t *Toolkit) handleUnregisterTable(
+	ctx context.Context, input manageTableInput,
+) (*mcp.CallToolResult, any, error) {
 	if strings.TrimSpace(input.RegistrationID) == "" {
 		return toolkit.ErrorResult(
-			"registration_id is required for unregister_table: call manage_asset action=list_tables to see them."), nil, nil
+			"registration_id is required for unregister: call manage_table action=list to see them."), nil, nil
 	}
 
-	if err := t.tables.UnregisterAsset(ctx, input.RegistrationID); err != nil {
+	if err := t.tables.Unregister(ctx, input.RegistrationID); err != nil {
 		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
 	return toolkit.JSONResultTyped(map[string]any{
-		fieldAssetID: asset.ID,
-		fieldMessage: "The table was dropped. The asset's file is unchanged.",
+		fieldMessage: "The table was dropped. The file itself is unchanged.",
 	})
 }
 
-// handleListTables reports the tables registered over an asset.
-func (t *Toolkit) handleListTables(ctx context.Context, input manageAssetInput) (*mcp.CallToolResult, any, error) {
-	asset, denial := t.loadOwnedAsset(ctx, input.AssetID, actionListTables, "see this asset's tables")
-	if denial != nil {
+// handleListTables reports the tables registered over a stored file.
+func (t *Toolkit) handleListTables(
+	ctx context.Context, input manageTableInput,
+) (*mcp.CallToolResult, any, error) {
+	if denial := requireReference(input.Reference, tableActionList); denial != nil {
 		return denial, nil, nil
 	}
-	if t.tables == nil {
-		return toolkit.ErrorResult(tableRegistrationUnavailable), nil, nil
-	}
 
-	regs, err := t.tables.AssetTables(ctx, *asset)
+	regs, err := t.tables.Tables(ctx, input.Reference)
 	if err != nil {
 		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
@@ -144,10 +179,21 @@ func (t *Toolkit) handleListTables(ctx context.Context, input manageAssetInput) 
 		regs = []TableRegistration{}
 	}
 	return toolkit.JSONResultTyped(tableListOutput{
-		AssetID:       asset.ID,
+		Reference:     input.Reference,
 		Registrations: regs,
 		Total:         len(regs),
 	})
+}
+
+// requireReference refuses an action that names no file, pointing at where a
+// reference comes from rather than restating the schema.
+func requireReference(reference, action string) *mcp.CallToolResult {
+	if strings.TrimSpace(reference) != "" {
+		return nil
+	}
+	return toolkit.ErrorResult(
+		"reference is required for " + action + ": pass the mcp:resource: or mcp:asset: reference from a " +
+			"search hit, verbatim.")
 }
 
 // dropTablesFor removes the tables registered over an asset being deleted.
@@ -159,8 +205,14 @@ func (t *Toolkit) dropTablesFor(ctx context.Context, assetID string) {
 	t.tables.DropAssetTables(ctx, assetID)
 }
 
-// tableRegistrationUnavailable is what every table action says on a deployment
-// with nothing to register onto. It names the missing piece rather than
-// reporting a generic failure, because the reader can do something about it.
+// tableRegistrationUnavailable is what manage_table says on a deployment with
+// nothing to register onto. It names the missing piece rather than reporting a
+// generic failure, because the reader can do something about it.
 const tableRegistrationUnavailable = "This deployment cannot register tables: it needs a Trino connection with a " +
 	"scratch catalog and schema configured. Ask an administrator to configure one."
+
+// tableIdentityRequired is what an unauthenticated call is told. A
+// registration records who made it and decides replacement on that, so there
+// is nobody to register under.
+const tableIdentityRequired = "Registering a table needs a signed-in identity. This session has none, so there is " +
+	"no owner to record the registration under."

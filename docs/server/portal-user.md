@@ -222,7 +222,7 @@ A CSV asset can be registered as a table and joined to warehouse tables from the
 
 Nothing is copied. The table reads the file where it already sits, so re-running the export that produced the asset changes what the table returns. Every column comes back as text, so a join to a typed warehouse column needs a `CAST` — the panel shows the table's name to copy into a query, and the platform's `search` results carry a sample statement.
 
-The panel is absent unless the asset is a CSV and an administrator has given a Trino connection a scratch catalog and schema. Registering is the owner's call: it puts the file's contents in a schema everyone with that connection can read. See [Registered Tables](registered-tables.md).
+The panel is absent unless the asset is a CSV and an administrator has given a Trino connection a scratch catalog and schema. Registering is the owner's call: it puts the file's contents in a schema everyone with that connection can read. An agent can do it for you without the portal step, with `manage_table`. See [Registered Tables](registered-tables.md).
 
 ## Collections
 
@@ -316,6 +316,8 @@ History is bounded: a resource keeps its most recent 10 revisions by default ([`
 A CSV resource carries the same **Query as a table** panel the asset viewer does. Registering asks for two things: the connection the table is created on, and what to call it. The name is optional and defaults to a slug of the file name; either way your persona is added as a prefix, because the schema it lands in is shared with everyone else who has that connection.
 
 ![Registering a resource as a table](../images/screenshots/light/admin-resource-table-register-light.webp#only-light)![Registering a resource as a table](../images/screenshots/dark/admin-resource-table-register-dark.webp#only-dark)
+
+Registering a resource is the uploader's call, the same way registering an asset is the owner's — or an administrator's, including the administrator of the persona a persona-scoped resource belongs to. An agent you are working with can do it for you without the portal step, with `manage_table`, under the same rule.
 
 Uploading a new revision moves the file, and the table keeps serving the revision it was registered against. The panel says so, and registering again moves the table to the current revision.
 

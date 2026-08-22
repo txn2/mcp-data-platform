@@ -9,7 +9,7 @@
 // same thing about either.
 //
 // What the registrar does NOT do is decide who may register. Every entry point
-// -- the resources REST API, the asset REST API, the manage_asset tool --
+// -- the resources REST API, the asset REST API, the manage_table tool --
 // resolves its own caller and hands one in; the registrar applies the persona
 // connection boundary to that caller and refuses on anything it cannot
 // establish.
@@ -148,6 +148,21 @@ var (
 	// anonymous registration would be one nobody owns and anyone could take
 	// over.
 	ErrNoIdentity = errors.New("registering a table needs a signed-in identity")
+
+	// ErrBadReference means the reference a caller passed is not one this
+	// platform issues, or names something that is not a stored file. It is
+	// separate from ErrNoSuchFile because the caller can see the difference
+	// themselves: the string they sent is malformed, so telling them so
+	// discloses nothing they did not already have.
+	ErrBadReference = errors.New("not a reference to a stored file")
+
+	// ErrNoSuchFile is the one answer to a reference that resolves to a record
+	// this caller may not register: one that does not exist, one that was
+	// deleted, and one that exists but belongs to somebody else are answered
+	// identically, so the surface never confirms the existence of a record the
+	// caller cannot act on. It is what `fetch` does with a reference outside
+	// the caller's reach, held to here for the same reason.
+	ErrNoSuchFile = errors.New("that reference names no stored file you can register")
 
 	// ErrRefused marks a refusal the caller can act on -- a name already
 	// taken, a sibling object in the way -- as opposed to a failure of the

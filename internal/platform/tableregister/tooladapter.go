@@ -2,42 +2,65 @@ package tableregister
 
 import (
 	"context"
+	"fmt"
 	"slices"
 
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
-	"github.com/txn2/mcp-data-platform/pkg/portal"
 	portaltoolkit "github.com/txn2/mcp-data-platform/pkg/toolkits/portal"
 )
 
-// AssetAdapter satisfies the asset toolkit's TableRegistrar over a Registrar.
+// Subject resolves the record an id names into what the registrar needs, and
+// decides whether this caller may act on it. Returning ok=false means the
+// caller may not act on the record at all, which every surface answers as a
+// not-found so none of them reveals a record the caller cannot reach.
+//
+// One resolver per kind serves both surfaces: the REST routes convert their
+// authenticated portal user into a Caller and the tool reads one from the
+// platform context, so the authorization rule for a kind is written once and
+// cannot drift between the two doors.
+type Subject func(ctx context.Context, id string, caller Caller) (Source, bool)
+
+// ToolAdapter satisfies the asset toolkit's TableRegistrar over a Registrar,
+// keyed by the canonical reference a caller already holds rather than by the
+// id of one kind of record.
 //
 // It exists because the tool's contract carries no caller: the acting identity
 // belongs on the PlatformContext the middleware chain put in the request's
 // context, and reading it here rather than taking it as an argument is what
 // keeps a tool call from presenting an identity the rest of the platform would
 // refuse.
-type AssetAdapter struct {
+type ToolAdapter struct {
 	reg *Registrar
 	// adminRoles are the roles that make a caller an administrator, resolved
 	// from the admin persona the way every other surface resolves it.
 	adminRoles []string
+	// subjects resolves a reference's kind to the records of that kind. A kind
+	// with no entry cannot be registered through the tool, which is what a
+	// deployment with no resource store or no asset store gets.
+	subjects map[string]Subject
 }
 
-// NewAssetAdapter adapts a Registrar for the asset toolkit. A nil or unwired
-// Registrar yields nil, which the toolkit renders as "this deployment cannot
-// register tables" rather than as a failure.
-func NewAssetAdapter(reg *Registrar, adminRoles []string) *AssetAdapter {
-	if !reg.Available() {
+// NewToolAdapter adapts a Registrar for the table tool. A nil or unwired
+// Registrar, or one with no kind to resolve, yields nil, which the toolkit
+// renders as "this deployment cannot register tables" rather than as a
+// failure.
+func NewToolAdapter(reg *Registrar, adminRoles []string, subjects map[string]Subject) *ToolAdapter {
+	if !reg.Available() || len(subjects) == 0 {
 		return nil
 	}
-	return &AssetAdapter{reg: reg, adminRoles: adminRoles}
+	return &ToolAdapter{reg: reg, adminRoles: adminRoles, subjects: subjects}
 }
 
-// RegisterAsset registers a table over an asset's current content.
-func (a *AssetAdapter) RegisterAsset(
-	ctx context.Context, asset portal.Asset, connection, tableName string,
+// Register registers a table over the current content of the file a reference
+// names.
+func (a *ToolAdapter) Register(
+	ctx context.Context, reference, connection, tableName string,
 ) (*portaltoolkit.TableRegistration, error) {
-	reg, err := a.reg.Register(ctx, a.callerFrom(ctx), sourceFromAsset(asset), Request{
+	src, err := a.resolve(ctx, reference)
+	if err != nil {
+		return nil, err
+	}
+	reg, err := a.reg.Register(ctx, a.callerFrom(ctx), src, Request{
 		Connection: connection,
 		TableName:  tableName,
 		Source:     "mcp",
@@ -45,45 +68,57 @@ func (a *AssetAdapter) RegisterAsset(
 	if err != nil {
 		return nil, err
 	}
-	view := toolView(*reg, asset)
+	view := toolView(*reg, src)
 	return &view, nil
 }
 
-// UnregisterAsset drops a registered table.
-func (a *AssetAdapter) UnregisterAsset(ctx context.Context, registrationID string) error {
+// Unregister drops a registered table.
+func (a *ToolAdapter) Unregister(ctx context.Context, registrationID string) error {
 	return a.reg.Unregister(ctx, a.callerFrom(ctx), registrationID, "mcp")
 }
 
-// AssetTables reports what is registered over an asset.
-func (a *AssetAdapter) AssetTables(ctx context.Context, asset portal.Asset) ([]portaltoolkit.TableRegistration, error) {
-	regs, err := a.reg.BySource(ctx, KindAsset, asset.ID)
+// Tables reports what is registered over the file a reference names.
+func (a *ToolAdapter) Tables(ctx context.Context, reference string) ([]portaltoolkit.TableRegistration, error) {
+	src, err := a.resolve(ctx, reference)
+	if err != nil {
+		return nil, err
+	}
+	regs, err := a.reg.BySource(ctx, src.Kind, src.ID)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]portaltoolkit.TableRegistration, 0, len(regs))
 	for _, reg := range regs {
-		out = append(out, toolView(reg, asset))
+		out = append(out, toolView(reg, src))
 	}
 	return out, nil
 }
 
 // DropAssetTables removes every table registered over a deleted asset.
-func (a *AssetAdapter) DropAssetTables(ctx context.Context, assetID string) {
+func (a *ToolAdapter) DropAssetTables(ctx context.Context, assetID string) {
 	a.reg.UnregisterAllForSource(ctx, KindAsset, assetID)
 }
 
-// sourceFromAsset is the one place an asset becomes something the registrar
-// understands.
-func sourceFromAsset(asset portal.Asset) Source {
-	return Source{
-		Kind:        KindAsset,
-		ID:          asset.ID,
-		Name:        asset.Name,
-		Bucket:      asset.S3Bucket,
-		HeadKey:     asset.S3Key,
-		ContentType: asset.ContentType,
-		OwnerID:     asset.OwnerID,
+// resolve turns a reference into the source it names, refusing anything this
+// caller may not register.
+//
+// A reference that resolves to no record and one that resolves to a record
+// belonging to somebody else both come back as ErrNoSuchFile, so the tool
+// cannot be used to discover which files exist.
+func (a *ToolAdapter) resolve(ctx context.Context, reference string) (Source, error) {
+	kind, id, err := ParseReference(reference)
+	if err != nil {
+		return Source{}, err
 	}
+	subject := a.subjects[kind]
+	if subject == nil {
+		return Source{}, fmt.Errorf("this deployment stores no %s files (%w)", kind, ErrUnavailable)
+	}
+	src, ok := subject(ctx, id, a.callerFrom(ctx))
+	if !ok {
+		return Source{}, ErrNoSuchFile
+	}
+	return src, nil
 }
 
 // Record is what a caller already holds about a stored file, in the terms both
@@ -126,7 +161,7 @@ func sourceFrom(kind string, rec Record) Source {
 }
 
 // toolView renders a registration the way the tool reports it.
-func toolView(reg Registration, asset portal.Asset) portaltoolkit.TableRegistration {
+func toolView(reg Registration, src Source) portaltoolkit.TableRegistration {
 	names := make([]string, 0, len(reg.Columns))
 	for _, c := range reg.Columns {
 		names = append(names, c.Name)
@@ -138,7 +173,7 @@ func toolView(reg Registration, asset portal.Asset) portaltoolkit.TableRegistrat
 		Columns:        names,
 		SampleSQL:      SampleJoinSQL(reg),
 		RegisteredBy:   reg.RegisteredBy,
-		Stale:          reg.IsStale(asset.S3Bucket, asset.S3Key),
+		Stale:          reg.IsStale(src.Bucket, src.HeadKey),
 	}
 }
 
@@ -147,7 +182,7 @@ func toolView(reg Registration, asset portal.Asset) portaltoolkit.TableRegistrat
 // A call with no PlatformContext carries no identity, which leaves the persona
 // empty; the connection boundary denies every connection for an unresolvable
 // persona, so an unauthenticated call registers nothing.
-func (a *AssetAdapter) callerFrom(ctx context.Context) Caller {
+func (a *ToolAdapter) callerFrom(ctx context.Context) Caller {
 	pc := middleware.GetPlatformContext(ctx)
 	if pc == nil {
 		return Caller{}
@@ -172,4 +207,4 @@ func hasAnyRole(held, admin []string) bool {
 }
 
 // Verify the adapter satisfies the toolkit-side capability.
-var _ portaltoolkit.TableRegistrar = (*AssetAdapter)(nil)
+var _ portaltoolkit.TableRegistrar = (*ToolAdapter)(nil)

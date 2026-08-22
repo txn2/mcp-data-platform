@@ -58,7 +58,7 @@ func TestNew(t *testing.T) {
 	assert.Equal(t, "portal", tk.Kind())
 	assert.Equal(t, "test", tk.Name())
 	assert.Equal(t, "", tk.Connection())
-	assert.Equal(t, []string{SaveToolName, ManageToolName, feedbackToolName}, tk.Tools())
+	assert.Equal(t, []string{SaveToolName, ManageToolName, ManageTableToolName, feedbackToolName}, tk.Tools())
 	assert.NoError(t, tk.Close())
 }
 

@@ -32,6 +32,13 @@ import {
 // It renders nothing at all when the deployment cannot register -- no Trino
 // connection carries a scratch catalog and schema -- rather than showing a
 // control that always refuses.
+//
+// It is also absent for a reader who cannot act on the file. Registering is
+// authority over the file rather than access to it, so the routes behind this
+// panel answer a reader as if the file had no tables; rendering the panel for
+// them would say "not registered as a table yet" about a file that may well
+// be. Such a reader is not left in the dark: a registered file carries its
+// table on a search hit and on its fetch document.
 export function TablesPanel({
   kind,
   id,
@@ -45,10 +52,15 @@ export function TablesPanel({
   contentType: string;
   /** filename seeds the suggested table name. */
   filename?: string;
-  /** canModify gates the register and unregister controls, not the listing. */
+  /** canModify decides the whole panel: the routes behind it are owner-only. */
   canModify: boolean;
 }) {
-  const { visible, connections, registrations, isLoading } = usePanelData(kind, id, contentType);
+  const { visible, connections, registrations, isLoading } = usePanelData(
+    kind,
+    id,
+    contentType,
+    canModify,
+  );
   const [adding, setAdding] = useState(false);
 
   if (!visible) {
@@ -90,22 +102,29 @@ export function TablesPanel({
 // usePanelData reads what the panel needs and decides whether it appears at
 // all.
 //
-// A file that is not a CSV cannot be a table, and a deployment where no
+// A file that is not a CSV cannot be a table, a reader who cannot act on the
+// file is answered by the routes as if it had none, and a deployment where no
 // connection carries a scratch catalog and schema has nowhere to put one. In
-// both cases the panel is absent rather than empty: an explanation of an
+// all three cases the panel is absent rather than empty: an explanation of an
 // action that was never available is noise on a page about the file. A file
 // that IS registered stays visible either way, because a table someone can
 // still query must not vanish from the page just because the connection it
 // lives on stopped offering new ones.
-function usePanelData(kind: TableSourceKind, id: string, contentType: string) {
+function usePanelData(
+  kind: TableSourceKind,
+  id: string,
+  contentType: string,
+  canModify: boolean,
+) {
   const isCSV = contentType.toLowerCase().includes("csv");
-  const connectionQuery = useTableConnections(isCSV);
-  const registrationQuery = useTableRegistrations(kind, isCSV ? id : undefined);
+  const eligible = isCSV && canModify;
+  const connectionQuery = useTableConnections(eligible);
+  const registrationQuery = useTableRegistrations(kind, eligible ? id : undefined);
 
   const connections = connectionQuery.data?.connections ?? [];
   const registrations = registrationQuery.data?.registrations ?? [];
   return {
-    visible: isCSV && (connections.length > 0 || registrations.length > 0),
+    visible: eligible && (connections.length > 0 || registrations.length > 0),
     connections,
     registrations,
     isLoading: registrationQuery.isLoading,

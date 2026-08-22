@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -13,10 +14,11 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/tableregister"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/portal/s3adapter"
+	"github.com/txn2/mcp-data-platform/pkg/resource"
 	trinotoolkit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 )
 
-// TestAssetVisibleTo is the decision the table routes make before anything
+// TestAssetVisibleTo is the decision the table surfaces make before anything
 // else: an asset belongs to one person, and registering publishes its contents
 // into a shared schema, so this is owner authority the way sharing is.
 func TestAssetVisibleTo(t *testing.T) {
@@ -24,17 +26,22 @@ func TestAssetVisibleTo(t *testing.T) {
 	admins := []string{"admin"}
 
 	assert.True(t, assetVisibleTo(asset,
-		&portal.User{UserID: "u1", Email: "alice@example.com"}, admins), "the owner")
+		tableregister.Caller{UserID: "u1", Email: "alice@example.com"}, admins), "the owner")
 
-	// An administrator is unrestricted by design, everywhere.
+	// An administrator is unrestricted by design, everywhere. Both the
+	// resolved flag and the raw roles say so, because a caller may be built by
+	// a surface that resolves only one of them.
 	assert.True(t, assetVisibleTo(asset,
-		&portal.User{UserID: "u9", Email: "root@example.com", Roles: []string{"admin"}}, admins),
+		tableregister.Caller{UserID: "u9", Email: "root@example.com", Roles: []string{"admin"}}, admins),
 		"an administrator reaches every asset")
+	assert.True(t, assetVisibleTo(asset,
+		tableregister.Caller{UserID: "u9", IsAdmin: true}, admins),
+		"an administrator whose surface already resolved the flag")
 
 	assert.False(t, assetVisibleTo(asset,
-		&portal.User{UserID: "u2", Email: "bob@example.com"}, admins), "another person")
+		tableregister.Caller{UserID: "u2", Email: "bob@example.com"}, admins), "another person")
 
-	assert.False(t, assetVisibleTo(asset, nil, admins), "no caller")
+	assert.False(t, assetVisibleTo(asset, tableregister.Caller{}, admins), "no caller")
 }
 
 // TestAssetVisibleTo_MatchesOnlyOnANonEmptyIdentity. An unauthenticated
@@ -42,13 +49,13 @@ func TestAssetVisibleTo(t *testing.T) {
 // match on two empty strings would hand every unattributed asset to anybody.
 func TestAssetVisibleTo_MatchesOnlyOnANonEmptyIdentity(t *testing.T) {
 	unowned := portal.Asset{ID: "a1"}
-	assert.False(t, assetVisibleTo(unowned, &portal.User{}, nil))
-	assert.False(t, assetVisibleTo(unowned, &portal.User{UserID: "u1"}, nil))
+	assert.False(t, assetVisibleTo(unowned, tableregister.Caller{}, nil))
+	assert.False(t, assetVisibleTo(unowned, tableregister.Caller{UserID: "u1"}, nil))
 
 	// The address match holds only when both sides carry one.
 	byEmail := portal.Asset{ID: "a1", OwnerEmail: "alice@example.com"}
-	assert.False(t, assetVisibleTo(byEmail, &portal.User{UserID: "u2"}, nil))
-	assert.True(t, assetVisibleTo(byEmail, &portal.User{Email: "ALICE@example.com"}, nil),
+	assert.False(t, assetVisibleTo(byEmail, tableregister.Caller{UserID: "u2"}, nil))
+	assert.True(t, assetVisibleTo(byEmail, tableregister.Caller{Email: "ALICE@example.com"}, nil),
 		"an address is matched case-insensitively, as it is everywhere else")
 }
 
@@ -226,4 +233,145 @@ func TestScratchConnectionChoices_NoneReachable(t *testing.T) {
 	assert.Empty(t, scratchConnectionChoices(
 		[]connreach.Connection{{Name: "warehouse", Kind: "trino"}}, exec),
 		"a connection with no scratch target is not a choice")
+}
+
+// --- the resolvers behind both table surfaces ---
+
+// stubResourceStore answers Get with one resource and nothing else. The rest of
+// the contract is embedded rather than implemented, so a method this resolver
+// starts calling fails loudly instead of returning a zero value.
+type stubResourceStore struct {
+	resource.Store
+	res *resource.Resource
+	err error
+}
+
+func (s stubResourceStore) Get(context.Context, string) (*resource.Resource, error) {
+	return s.res, s.err
+}
+
+// stubAssetStore answers Get with one asset and nothing else.
+type stubAssetStore struct {
+	portal.AssetStore
+	asset *portal.Asset
+	err   error
+}
+
+func (s stubAssetStore) Get(context.Context, string) (*portal.Asset, error) {
+	return s.asset, s.err
+}
+
+// TestResourceSubject_RequiresAuthorityToChangeTheFile is the decision this
+// resolver makes. Registering publishes a resource's contents into a schema
+// everyone granted the connection can read, and resource scopes are not
+// carried into Trino, so being able to READ the file is not enough: the rule is
+// the one that governs updating and deleting it.
+func TestResourceSubject_RequiresAuthorityToChangeTheFile(t *testing.T) {
+	res := &resource.Resource{
+		ID: "res_1", DisplayName: "Vendor rebates", Scope: resource.ScopePersona, ScopeID: "finance",
+		S3Key: "resources/res_1/rebates.csv", MIMEType: "text/csv", UploaderSub: "u1",
+	}
+	subject := resourceSubject(stubResourceStore{res: res}, "resource-bucket")
+
+	src, ok := subject(context.Background(), "res_1", tableregister.Caller{UserID: "u1"})
+	require.True(t, ok, "the uploader")
+	assert.Equal(t, tableregister.KindResource, src.Kind)
+	assert.Equal(t, "resource-bucket", src.Bucket)
+	assert.Equal(t, "resources/res_1/rebates.csv", src.HeadKey)
+	assert.Equal(t, "u1", src.OwnerID)
+
+	// A member of the persona the resource is scoped to can READ it, which is
+	// deliberately not enough to publish it to everyone with the connection.
+	_, ok = subject(context.Background(), "res_1", tableregister.Caller{UserID: "u2", Persona: "finance"})
+	assert.False(t, ok, "a reader of the scope is not an owner of the file")
+
+	// Authority over the scope is: a platform administrator, and the
+	// administrator of the persona it lives in.
+	_, ok = subject(context.Background(), "res_1", tableregister.Caller{UserID: "u9", IsAdmin: true})
+	assert.True(t, ok, "a platform administrator")
+	_, ok = subject(context.Background(), "res_1",
+		tableregister.Caller{UserID: "u9", Roles: []string{"dp_persona-admin:finance"}})
+	assert.True(t, ok, "the administrator of the persona the resource belongs to")
+	_, ok = subject(context.Background(), "res_1",
+		tableregister.Caller{UserID: "u9", Roles: []string{"dp_persona-admin:sales"}})
+	assert.False(t, ok, "the administrator of some other persona")
+}
+
+// TestResourceSubject_AGlobalResourceIsStillItsUploadersToRegister: a global
+// resource is readable by every authenticated user, and the rule does not
+// soften for it -- one sentence describes who may register either kind.
+func TestResourceSubject_AGlobalResourceIsStillItsUploadersToRegister(t *testing.T) {
+	subject := resourceSubject(stubResourceStore{res: &resource.Resource{
+		ID: "res_1", Scope: resource.ScopeGlobal, S3Key: "resources/res_1/x.csv", UploaderSub: "u1",
+	}}, "b")
+
+	_, ok := subject(context.Background(), "res_1", tableregister.Caller{UserID: "u2"})
+	assert.False(t, ok)
+	_, ok = subject(context.Background(), "res_1", tableregister.Caller{UserID: "u1"})
+	assert.True(t, ok)
+}
+
+// TestResourceSubject_AbsentOrFailedReadsAreNotFound. A store that could not
+// answer is reported the same way a missing row is, because the surfaces above
+// turn ok=false into "no such file" and there is nothing else to say.
+func TestResourceSubject_AbsentOrFailedReadsAreNotFound(t *testing.T) {
+	_, ok := resourceSubject(stubResourceStore{}, "b")(
+		context.Background(), "res_1", tableregister.Caller{UserID: "u1"})
+	assert.False(t, ok, "no row")
+
+	_, ok = resourceSubject(stubResourceStore{err: errors.New("connection refused")}, "b")(
+		context.Background(), "res_1", tableregister.Caller{UserID: "u1"})
+	assert.False(t, ok, "a failed read")
+}
+
+// TestAssetSubject resolves the asset and applies the owner rule.
+func TestAssetSubject(t *testing.T) {
+	asset := &portal.Asset{
+		ID: "a1", Name: "Vendor keys", OwnerID: "u1", OwnerEmail: "alice@example.com",
+		S3Bucket: "portal-assets", S3Key: "artifacts/u1/a1/content.csv", ContentType: "text/csv",
+	}
+	subject := assetSubject(stubAssetStore{asset: asset}, []string{"admin"})
+
+	src, ok := subject(context.Background(), "a1", tableregister.Caller{UserID: "u1"})
+	require.True(t, ok)
+	assert.Equal(t, tableregister.KindAsset, src.Kind)
+	assert.Equal(t, "portal-assets", src.Bucket)
+	assert.Equal(t, "artifacts/u1/a1/content.csv", src.HeadKey)
+
+	_, ok = subject(context.Background(), "a1", tableregister.Caller{UserID: "u2"})
+	assert.False(t, ok, "somebody else's asset")
+}
+
+// TestAssetSubject_ADeletedAssetIsGone. An asset delete is soft, so the row
+// survives it; registering over one would build a table on a file its owner
+// can no longer see.
+func TestAssetSubject_ADeletedAssetIsGone(t *testing.T) {
+	deletedAt := time.Now()
+	subject := assetSubject(stubAssetStore{asset: &portal.Asset{
+		ID: "a1", OwnerID: "u1", DeletedAt: &deletedAt,
+	}}, nil)
+
+	_, ok := subject(context.Background(), "a1", tableregister.Caller{UserID: "u1"})
+	assert.False(t, ok)
+
+	_, ok = assetSubject(stubAssetStore{err: errors.New("connection refused")}, nil)(
+		context.Background(), "a1", tableregister.Caller{UserID: "u1"})
+	assert.False(t, ok, "a failed read")
+}
+
+// TestTableSubjects_OmitsAKindWithNoStore, so a deployment holding one kind
+// does not advertise the other on either surface.
+func TestTableSubjects_OmitsAKindWithNoStore(t *testing.T) {
+	both := tableSubjects(stubResourceStore{}, "b", stubAssetStore{}, nil)
+	assert.Len(t, both, 2)
+
+	resourcesOnly := tableSubjects(stubResourceStore{}, "b", nil, nil)
+	assert.Contains(t, resourcesOnly, tableregister.KindResource)
+	assert.NotContains(t, resourcesOnly, tableregister.KindAsset)
+
+	assetsOnly := tableSubjects(nil, "", stubAssetStore{}, nil)
+	assert.Contains(t, assetsOnly, tableregister.KindAsset)
+	assert.NotContains(t, assetsOnly, tableregister.KindResource)
+
+	assert.Empty(t, tableSubjects(nil, "", nil, nil))
 }

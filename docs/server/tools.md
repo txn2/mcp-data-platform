@@ -46,7 +46,8 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | Knowledge | `apply_knowledge` | Review and promote reviewed captures to the catalog (admin-only) |
 | Memory | `memory_manage` | Manage existing memories: update, forget, list, review_stale, review_duplicates, consolidate (opt-in per persona) |
 | Portal | `save_asset` | Save AI-generated content as an asset (JSX, HTML, SVG, etc.) |
-| Portal | `manage_asset` | List, get, update, delete, or relevance-search saved assets and collections, edit asset content in place (patch, locate, get_content, outline, stats, diff), share an asset with a person or as a link (share, list_shares, revoke_share), and register a CSV asset as a queryable table (register_table, list_tables, unregister_table) |
+| Portal | `manage_asset` | List, get, update, delete, or relevance-search saved assets and collections, edit asset content in place (patch, locate, get_content, outline, stats, diff), and share an asset with a person or as a link (share, list_shares, revoke_share) |
+| Portal | `manage_table` | Make a stored CSV queryable as a table and manage what is registered over it (register, list, unregister). Takes the `reference` a search hit carries, so it serves an uploaded resource and a saved asset through one action |
 | Portal | `manage_feedback` | Review and respond to human feedback (list pending across everything, get, reply, resolve, request/respond validation) |
 | Platform | `platform_find_tools` | Find the most relevant tools for a natural-language task, ranked by semantic similarity (persona-scoped) |
 | Platform | `manage_prompt` | Resolve and run prompts by any handle (`use`), plus create, update, delete, list, get, the script-reference commands (attach_script, detach_script), and the content verbs (patch, locate, get_content, outline, stats, diff) |
@@ -1047,7 +1048,7 @@ List, retrieve, update, delete, or share saved assets, and edit an asset's conte
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `action` | string | Yes | - | Action to perform: list, get, update, delete, search, patch, locate, get_content, outline, stats, diff, share, list_shares, revoke_share, register_table, list_tables, unregister_table |
+| `action` | string | Yes | - | Action to perform: list, get, update, delete, search, patch, locate, get_content, outline, stats, diff, share, list_shares, revoke_share |
 | `asset_id` | string | Conditional | - | Required for get, update, delete, share, list_shares, and every content action |
 | `content` | string | No | - | New content (for update; replaces the whole body) |
 | `name` | string | No | - | New name (for update) |
@@ -1064,9 +1065,6 @@ List, retrieve, update, delete, or share saved assets, and edit an asset's conte
 | `access_mode` | string | No | authenticated | Who a link admits (share, no recipient): `authenticated` or `public` |
 | `expires_in` | string | Conditional | - | Duration bounding a public link (`24h`). Required for `access_mode: public`, refused otherwise |
 | `share_id` | string | Conditional | - | Share to end (required for revoke_share) |
-| `connection` | string | Conditional | - | Trino connection whose scratch schema holds the table (required for register_table) |
-| `table_name` | string | No | filename slug | Name for the registered table; prefixed with your persona either way |
-| `registration_id` | string | Conditional | - | Registration to drop (required for unregister_table) |
 
 The patch and navigation arguments (`edits`, `base_version`, `dry_run`, `find`, `pattern`, `section`, `selector`, `occurrence`, `line_start`, `line_end`, `context_bytes`, `from_version`, `to_version`) are the shared content-editing grammar documented in [Editing content in place](#editing-content-in-place). Inside `edits`, `occurrence` is a per-edit field; at the top level it disambiguates a `selector` used to scope `locate` or `get_content`.
 
@@ -1079,9 +1077,36 @@ The patch and navigation arguments (`edits`, `base_version`, `dry_run`, `find`, 
 - **search**: Rank the caller's own assets by relevance to `query`. Uses the same hybrid (vector + lexical) ranking as the prompt and Knowledge & Memory search: weighted hybrid when an embedding provider is configured, automatic lexical-only fallback otherwise. Returns each match with a `score` and reports `ranking` (`hybrid` or `lexical`). Scoped server-side to the caller's own assets by `owner_id`, the same ownership key the asset library and update/delete checks use, so search returns exactly what you see in the library, and fails closed when the caller has no identity, so a user can never find an asset they cannot view.
 - **patch / locate / get_content / outline / stats / diff**: read and edit the body without moving the whole document. See below.
 - **share / list_shares / revoke_share**: give someone access to an asset, see who has it, and take it back. See [Sharing an asset from the session](#sharing-an-asset-from-the-session).
-- **register_table / list_tables / unregister_table**: make a CSV asset queryable as a table, see what is registered over it, and drop one. Nothing is copied: the table reads the file where it already sits, so `trino_query` can join it to warehouse tables. Every column comes back as `VARCHAR`, so a join to a typed column needs a `CAST`. See [Registered Tables](registered-tables.md).
+
+Registering an asset as a queryable table is the separate `manage_table` tool, which serves an uploaded resource on the same action.
 
 A patch writes an ordinary new version, so `list_versions` and `revert` keep working, and the version's change summary is the caller's `change_summary` (or a generated "3 edits via patch") instead of a fixed constant.
+
+---
+
+### manage_table
+
+Make a stored CSV readable as a query-engine table, so `trino_query` can join it to warehouse tables. Nothing is copied or ingested: the table is an external table over the directory the file already sits in.
+
+The file is named by its `reference` — the string a `search` hit and a `fetch` document carry — so one action serves every kind of stored file and there is no argument saying which kind it is. That is what closes the gap a person otherwise walks around: they upload a vendor CSV, and the agent that found it can register it in the same turn instead of sending them to the portal.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `action` | string | Yes | - | `register`, `list`, or `unregister` |
+| `reference` | string | Conditional | - | The file to act on: `mcp:resource:<id>` for uploaded reference material, `mcp:asset:<id>` for a saved asset. Pass it verbatim. Required for register and list |
+| `connection` | string | Conditional | - | Trino connection whose scratch schema holds the table (required for register). Call `list_connections` to see the ones you can reach |
+| `table_name` | string | No | filename slug | Name for the registered table; prefixed with your persona either way |
+| `registration_id` | string | Conditional | - | Registration to drop (required for unregister). `action=list` reports them |
+
+**Actions:**
+
+- **register**: create the table and report its qualified name, its columns, and a sample join showing the `CAST` a typed column needs. Every column is `VARCHAR`, which is the storage format's rule rather than a platform choice
+- **list**: what is registered over this file, each entry saying whether it has gone `stale` — the file has a newer revision or version than the table points at
+- **unregister**: drop one table. The file itself is unchanged
+
+Registering is the authority to change the file, not the authority to read it: an asset by its owner or an administrator, a resource by its uploader or an administrator of its scope. A reference naming a file you may not register is answered as absent, whether it is missing, deleted, or somebody else's. See [Registered Tables](registered-tables.md).
 
 ---
 

@@ -124,10 +124,25 @@ describe("registering a stored file as a table", () => {
     expect(await screen.findByText(/newer version than the table points at/i)).toBeInTheDocument();
   });
 
-  it("offers no register control to a reader who cannot modify the file", async () => {
+  // Registering is authority over the file, not access to it, so the routes
+  // behind this panel answer a reader as if the file had no tables. Showing
+  // them the panel would say "not registered as a table yet" about a file that
+  // may well be, so the panel is absent for them entirely.
+  it("is absent for a reader who cannot modify the file", async () => {
+    const requested: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        requested.push(String(input));
+        return Promise.resolve(new Response(JSON.stringify(REGISTERED), { status: 200 }));
+      }),
+    );
     renderPanel({ canModify: false });
-    expect(await screen.findByText("Query as a table")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /register/i })).not.toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.queryByText("Query as a table")).not.toBeInTheDocument();
+    });
+    expect(requested).toHaveLength(0);
   });
 
   it("opens a form naming where the table will be created", async () => {

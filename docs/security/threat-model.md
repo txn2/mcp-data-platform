@@ -405,6 +405,18 @@ Reachable surface: the contents of a file registered as a query-engine table
   authenticating as the same Trino user as the warehouse connection can write
   to the warehouse. Give it a distinct Trino identity whose access-control
   rules allow DDL only on the scratch catalog.
+- Who may register is authority over the file, not access to it (Elevation of
+  privilege). Because registration widens a file's audience to everyone with
+  the connection, it is gated on the right to change the file rather than the
+  right to read it: an asset by its owner or an administrator
+  (`assetVisibleTo`, `internal/httpserver/tablemounts.go`), a resource by
+  `resource.CanModifyResource` — its uploader, a platform administrator, or an
+  administrator of the scope it lives in. A read rule would let anyone who can
+  see a persona-scoped resource publish it to every persona granted the
+  connection. The portal panel, the REST routes and the `manage_table` tool
+  resolve a file through the same per-kind resolver, so the rule cannot differ
+  between them, and a file the caller may not register is reported as absent
+  rather than refused.
 - Registration DDL runs through the same read-only check the MCP tools run
   (`pkg/toolkits/trino/exec.go`), so a `read_only: true` connection refuses it,
   and through the persona connection boundary

@@ -182,10 +182,11 @@ func mountTableAPI(
 		return
 	}
 
+	subjects := platformTableSubjects(p, adminRoles)
 	handler := tablehttp.New(tablehttp.Deps{
 		Registrar:   registrar,
-		Resources:   resourceSubject(p),
-		Assets:      assetSubject(p, adminRoles),
+		Resources:   subjects[tableregister.KindResource],
+		Assets:      subjects[tableregister.KindAsset],
 		Connections: tableConnectionEnumerator(p, adminRoles),
 		Caller:      tableCaller(p, adminRoles),
 	})
@@ -221,12 +222,19 @@ func tableCleanupHooks(p *platform.Platform) TableCleanupHooks {
 }
 
 // wireTableToolRegistrar hands the asset toolkit the registrar behind
-// manage_asset's register_table, and the discovery layer the lookup that puts
-// a table reference on a search hit. Toolkits are built before this registrar
-// exists, so it runs here for the same reason the feedback notifications do.
+// manage_table, and the discovery layer the lookup that puts a table reference
+// on a search hit. Toolkits are built before this registrar exists, so it runs
+// here for the same reason the feedback notifications do.
+//
+// The tool is given the same per-kind resolvers the REST routes use, so the
+// rule for who may register a file is applied once and cannot differ between
+// the two doors.
 func wireTableToolRegistrar(p *platform.Platform, adminRoles []string) {
 	registrar := tableRegistrar(p)
-	adapter := tableregister.NewAssetAdapter(registrar, adminRoles)
+	if !registrar.Available() {
+		return
+	}
+	adapter := tableregister.NewToolAdapter(registrar, adminRoles, platformTableSubjects(p, adminRoles))
 	if adapter == nil {
 		return
 	}
@@ -260,26 +268,51 @@ func wireTableLookup(p *platform.Platform, lookup *tableregister.Lookup) {
 	}
 }
 
-// resourceSubject resolves a managed resource for the table routes, applying
-// the same visibility rule the resources API applies to a read: a resource
-// outside the caller's scopes is indistinguishable from one that never
-// existed.
-func resourceSubject(p *platform.Platform) tablehttp.Subject {
-	store := p.ResourceStore()
-	if store == nil {
-		return nil
+// tableSubjects is the one place a stored file is resolved and the caller's
+// authority over it is decided, per kind. Both surfaces take their resolvers
+// from here: the REST routes convert their authenticated portal user into a
+// Caller, and the tool reads one from the platform context.
+//
+// A kind whose store is absent has no entry, which leaves that kind
+// unregisterable on both surfaces rather than half-served on one.
+func tableSubjects(
+	resources resource.Store, resourceBucket string, assets portal.AssetStore, adminRoles []string,
+) map[string]tableregister.Subject {
+	subjects := make(map[string]tableregister.Subject, 2)
+	if resources != nil {
+		subjects[tableregister.KindResource] = resourceSubject(resources, resourceBucket)
 	}
-	bucket := p.Config().Resources.Managed.S3Bucket
-	pr := p.PersonaRegistry()
-	adminPersona := p.Config().Admin.Persona
+	if assets != nil {
+		subjects[tableregister.KindAsset] = assetSubject(assets, adminRoles)
+	}
+	return subjects
+}
 
-	return func(ctx context.Context, id string, user *portal.User) (tableregister.Source, bool) {
+// platformTableSubjects reads the two stores off the platform and builds the
+// resolvers over them.
+func platformTableSubjects(p *platform.Platform, adminRoles []string) map[string]tableregister.Subject {
+	return tableSubjects(
+		p.ResourceStore(), p.Config().Resources.Managed.S3Bucket, p.PortalAssetStore(), adminRoles)
+}
+
+// resourceSubject resolves a managed resource for the table surfaces.
+//
+// The rule is authority to CHANGE the resource, not authority to read it:
+// resource.CanModifyResource, which is the uploader, a platform administrator,
+// or an administrator of the scope the resource lives in -- the same rule that
+// governs updating and deleting it. Registering publishes the file's contents
+// into a schema everyone granted the connection can read, and resource scopes
+// are not carried into Trino (docs/security/threat-model.md), so a read rule
+// here would let anyone who can see a persona-scoped file widen its audience.
+// This matches the asset rule below, so one sentence describes both kinds.
+func resourceSubject(store resource.Store, bucket string) tableregister.Subject {
+	return func(ctx context.Context, id string, caller tableregister.Caller) (tableregister.Source, bool) {
 		res, err := store.Get(ctx, id)
 		if err != nil || res == nil {
 			return tableregister.Source{}, false
 		}
-		claims, err := buildResourceClaims(user, pr, adminPersona)
-		if err != nil || !resource.CanReadResource(*claims, res) {
+		claims := resource.BuildClaims(caller.UserID, caller.Email, caller.Persona, caller.Roles, caller.IsAdmin)
+		if !resource.CanModifyResource(claims, res) {
 			return tableregister.Source{}, false
 		}
 		return tableregister.SourceFromResource(tableregister.Record{
@@ -289,18 +322,14 @@ func resourceSubject(p *platform.Platform) tablehttp.Subject {
 	}
 }
 
-// assetSubject resolves a portal asset for the table routes.
-func assetSubject(p *platform.Platform, adminRoles []string) tablehttp.Subject {
-	store := p.PortalAssetStore()
-	if store == nil {
-		return nil
-	}
-	return func(ctx context.Context, id string, user *portal.User) (tableregister.Source, bool) {
+// assetSubject resolves a portal asset for the table surfaces.
+func assetSubject(store portal.AssetStore, adminRoles []string) tableregister.Subject {
+	return func(ctx context.Context, id string, caller tableregister.Caller) (tableregister.Source, bool) {
 		asset, err := store.Get(ctx, id)
 		if err != nil || asset == nil || asset.DeletedAt != nil {
 			return tableregister.Source{}, false
 		}
-		if !assetVisibleTo(*asset, user, adminRoles) {
+		if !assetVisibleTo(*asset, caller, adminRoles) {
 			return tableregister.Source{}, false
 		}
 		return tableregister.SourceFromAssetRecord(tableregister.Record{
@@ -311,7 +340,7 @@ func assetSubject(p *platform.Platform, adminRoles []string) tablehttp.Subject {
 }
 
 // assetVisibleTo reports whether this caller may act on an asset through the
-// table routes.
+// table surfaces.
 //
 // An asset belongs to one person, so the owner and an administrator reach it
 // and nobody else does; an editor share does not carry it, because registering
@@ -321,18 +350,20 @@ func assetSubject(p *platform.Platform, adminRoles []string) tablehttp.Subject {
 // Both halves of an identity match must be non-empty. A caller with no id and
 // an asset with no owner id are not the same person, and matching them would
 // hand an unauthenticated request every unattributed asset on the platform.
-func assetVisibleTo(asset portal.Asset, user *portal.User, adminRoles []string) bool {
-	if user == nil {
-		return false
-	}
-	if hasAnyRoleIn(user.Roles, adminRoles) {
+//
+// The administrator arm is checked twice on purpose: a caller assembled by a
+// surface that does not resolve IsAdmin still carries the roles it was
+// authenticated with, and an administrator is unrestricted whichever door they
+// came through.
+func assetVisibleTo(asset portal.Asset, caller tableregister.Caller, adminRoles []string) bool {
+	if caller.IsAdmin || hasAnyRoleIn(caller.Roles, adminRoles) {
 		return true
 	}
-	if asset.OwnerID != "" && asset.OwnerID == user.UserID {
+	if asset.OwnerID != "" && asset.OwnerID == caller.UserID {
 		return true
 	}
-	return asset.OwnerEmail != "" && user.Email != "" &&
-		strings.EqualFold(asset.OwnerEmail, user.Email)
+	return asset.OwnerEmail != "" && caller.Email != "" &&
+		strings.EqualFold(asset.OwnerEmail, caller.Email)
 }
 
 // tableConnectionEnumerator fills the connection picker with the connections

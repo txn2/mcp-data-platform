@@ -2,10 +2,10 @@
 // uploaded file readable as a query-engine table (#1327).
 //
 // One handler serves both kinds. A managed resource and a portal asset reach
-// the registrar through different records and different authorization -- a
-// resource is visible by persona scope, an asset belongs to one person -- but
-// the action, the request body, and the response are the same, so the parts
-// that differ are a Subject resolver per kind and nothing else.
+// the registrar through different records -- a resource is a person's upload,
+// an asset is what the platform wrote for them -- but the action, the request
+// body, and the response are the same, so the parts that differ are a Subject
+// resolver per kind and nothing else.
 //
 // It sits beside the resource and portal handlers rather than inside them: the
 // routes it registers are more specific than the prefix mounts those handlers
@@ -29,9 +29,13 @@ import (
 
 // Subject resolves the record a route's {id} names into what the registrar
 // needs, and decides whether this caller may act on it. Returning ok=false
-// means the caller may not see the record at all, which is answered as a
-// not-found so the surface never reveals a record the caller could not read.
-type Subject func(ctx context.Context, id string, user *portal.User) (tableregister.Source, bool)
+// means the caller may not act on the record at all, which is answered as a
+// not-found so the surface never reveals a record the caller could not reach.
+//
+// It is the registrar's own resolver type rather than one of this package's,
+// so the rule for who may register a file is written once and serves the tool
+// surface as well as these routes.
+type Subject = tableregister.Subject
 
 // ConnectionChoice is one connection a person can register onto.
 type ConnectionChoice struct {
@@ -135,7 +139,7 @@ func viewOf(reg tableregister.Registration, src tableregister.Source) registrati
 
 func (h *Handler) list(kind string, subject Subject) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		_, src, ok := resolve(w, r, subject)
+		_, src, ok := h.resolve(w, r, subject)
 		if !ok {
 			return
 		}
@@ -155,7 +159,7 @@ func (h *Handler) list(kind string, subject Subject) http.HandlerFunc {
 
 func (h *Handler) register(subject Subject) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		user, src, ok := resolve(w, r, subject)
+		caller, src, ok := h.resolve(w, r, subject)
 		if !ok {
 			return
 		}
@@ -169,7 +173,7 @@ func (h *Handler) register(subject Subject) http.HandlerFunc {
 			return
 		}
 
-		reg, err := h.deps.Registrar.Register(r.Context(), h.callerOf(user), src, tableregister.Request{
+		reg, err := h.deps.Registrar.Register(r.Context(), caller, src, tableregister.Request{
 			Connection: req.Connection,
 			TableName:  req.TableName,
 			Source:     "portal",
@@ -188,11 +192,11 @@ func (h *Handler) register(subject Subject) http.HandlerFunc {
 
 func (h *Handler) unregister(subject Subject) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		user, _, ok := resolve(w, r, subject)
+		caller, _, ok := h.resolve(w, r, subject)
 		if !ok {
 			return
 		}
-		err := h.deps.Registrar.Unregister(r.Context(), h.callerOf(user), r.PathValue("regID"), "portal")
+		err := h.deps.Registrar.Unregister(r.Context(), caller, r.PathValue("regID"), "portal")
 		if err != nil {
 			status := statusFor(err)
 			if status == http.StatusInternalServerError {
@@ -222,20 +226,25 @@ func (h *Handler) listConnections(w http.ResponseWriter, r *http.Request) {
 }
 
 // resolve authenticates the caller and reads the record the route names.
-func resolve(
+//
+// The caller is built before the record is resolved because the resolver
+// decides authority from it, which is what lets the same resolver serve a tool
+// call, where there is no portal user at all.
+func (h *Handler) resolve(
 	w http.ResponseWriter, r *http.Request, subject Subject,
-) (user *portal.User, src tableregister.Source, ok bool) {
-	user = portal.GetUser(r.Context())
+) (caller tableregister.Caller, src tableregister.Source, ok bool) {
+	user := portal.GetUser(r.Context())
 	if user == nil {
 		problem(w, http.StatusUnauthorized, "authentication required")
-		return nil, tableregister.Source{}, false
+		return tableregister.Caller{}, tableregister.Source{}, false
 	}
-	src, ok = subject(r.Context(), r.PathValue("id"), user)
+	caller = h.callerOf(user)
+	src, ok = subject(r.Context(), r.PathValue("id"), caller)
 	if !ok {
 		problem(w, http.StatusNotFound, "no such file")
-		return nil, tableregister.Source{}, false
+		return tableregister.Caller{}, tableregister.Source{}, false
 	}
-	return user, src, true
+	return caller, src, true
 }
 
 // callerOf builds the registrar's view of the authenticated user.
