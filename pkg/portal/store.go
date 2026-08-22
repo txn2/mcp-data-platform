@@ -50,8 +50,12 @@ func NewPostgresAssetStore(db *sql.DB, opts ...indexjobs.StoreOption) AssetStore
 func NewPostgresShareStore(db *sql.DB) ShareStore { return portalstore.NewPostgresShareStore(db) }
 
 // NewPostgresVersionStore creates a new PostgreSQL asset version store.
-func NewPostgresVersionStore(db *sql.DB) VersionStore {
-	return portalversions.NewPostgres(db)
+// s3Client deletes the objects of versions the retention cap prunes and may be
+// nil in database-only mode, where the prune still trims the table; maxVersions
+// is the deployment default a per-asset override supersedes, nil selecting the
+// platform default of 100.
+func NewPostgresVersionStore(db *sql.DB, s3Client S3Client, maxVersions *int) VersionStore {
+	return portalversions.NewPostgres(db, s3Client, maxVersions)
 }
 
 // NewPostgresCollectionStore creates a new PostgreSQL collection store. Pass

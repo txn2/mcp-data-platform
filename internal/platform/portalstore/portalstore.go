@@ -52,6 +52,10 @@ type Config struct {
 	BaseURL string
 	// MaxContentSize caps asset content size in bytes (0 = no limit).
 	MaxContentSize int
+	// MaxVersions is the deployment's asset version-retention default, applying
+	// to every asset that carries no override of its own. Nil selects the
+	// platform default (100); 0 keeps every version.
+	MaxVersions *int
 	// Directory is the known-users directory the toolkit's share action
 	// resolves a recipient's name against (#1280). Nil leaves sharing working
 	// by email address only.
@@ -122,7 +126,7 @@ func New(db *sql.DB, s3Client portal.S3Client, embedder embedding.Provider, cfg 
 	h := NewFromStores(Stores{
 		Asset:         portal.NewPostgresAssetStore(db, indexjobs.WithProducer(assets)),
 		Share:         portal.NewPostgresShareStore(db),
-		Version:       portal.NewPostgresVersionStore(db),
+		Version:       portal.NewPostgresVersionStore(db, s3Client, cfg.MaxVersions),
 		Collection:    portal.NewPostgresCollectionStore(db, indexjobs.WithProducer(collections)),
 		Thread:        portal.NewPostgresThreadStore(db),
 		KnowledgePage: knowledgepage.NewPostgresStore(db, indexjobs.WithProducer(pages)),

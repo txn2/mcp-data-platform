@@ -23,6 +23,11 @@ export interface Asset {
   provenance: Provenance;
   session_id: string;
   current_version: number;
+  // How many versions this asset keeps. Absent means the asset has no opinion
+  // and inherits the deployment's portal.max_versions; 0 keeps every version;
+  // N keeps the newest N. The API serializes it with `omitempty`, so an
+  // inheriting asset omits the field entirely.
+  max_versions?: number;
   collections?: AssetCollectionRef[];
   created_at: string;
   updated_at: string;

@@ -28,6 +28,18 @@ export async function openAssetProvenance(page: Page): Promise<void> {
 }
 
 /**
+ * openAssetMetadataEdit opens the asset viewer's metadata sidebar and puts it in
+ * edit mode, which is the only state showing the retention control: how much
+ * version history this asset keeps (#1421).
+ */
+export async function openAssetMetadataEdit(page: Page): Promise<void> {
+  await openAssetProvenance(page);
+  await page.getByRole("button", { name: "Edit" }).first().click();
+  await page.getByText("Version history").waitFor();
+  await page.waitForTimeout(400);
+}
+
+/**
  * openAssetProvenanceCall opens one captured call from the provenance panel,
  * which is the only state showing the statement, the stated purpose, the
  * outcome, and the mcp:call: reference an agent cites (#1320).

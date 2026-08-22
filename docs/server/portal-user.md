@@ -130,6 +130,26 @@ The **Provenance** panel groups those calls by capture — one per time the asse
 
 ![Provenance panel](../images/screenshots/light/user-asset-provenance-light.webp#only-light)![Provenance panel](../images/screenshots/dark/user-asset-provenance-dark.webp#only-dark)
 
+#### Version retention
+
+Every write to an asset records a version, and until a cap applies that history grows without end. A dashboard a scheduled script refreshes hourly writes twenty-four versions a day, each with its own stored content, for as long as the schedule runs.
+
+An asset keeps its most recent **100** versions by default. The deployment sets that default with [`portal.max_versions`](configuration.md#portal-configuration), and the asset's owner (or an administrator) can override it from the metadata sidebar's edit mode, under **Version history**:
+
+- **Deployment default** — the asset has no opinion and follows whatever the deployment is set to. This is where every asset starts.
+- **Keep the newest N** — the asset keeps N versions, however many the deployment keeps.
+- **Keep every version** — nothing is ever pruned from this asset.
+
+![Asset metadata edit with version retention](../images/screenshots/light/user-asset-metadata-edit-light.webp#only-light)![Asset metadata edit with version retention](../images/screenshots/dark/user-asset-metadata-edit-dark.webp#only-dark)
+
+A version pushed past the cap is deleted along with its stored content and its thumbnails, so the cap bounds storage and not only the list. The version the asset currently points at is never pruned, whatever the cap, so the content stays readable and the newest entry stays revertible-to.
+
+Retention applies when a version is written, not on a schedule. An asset that already carries more history than the cap is left alone until it is next written, and is trimmed to the cap then. Changing the setting never deletes anything by itself.
+
+Retention is the owner's to set. An editor share carries every other field on that form — name, description, tags, the content itself — but not this one: lowering the cap deletes the owner's history and its stored content at the next write, and nothing brings it back. The control is not shown to an editor, and the API refuses the field from one.
+
+Agents set the same thing through `manage_asset` action `update` with `max_versions` (owner or administrator, as with every other update through that tool), and administrators through the admin asset route; all three write the same value.
+
 The sidebar's **Session** row and the **Open session** action beneath the captured calls both open [the session that made this asset](#my-sessions): the panel shows only the calls captured at the moment the asset was saved, while the session holds every call that session made, before and after. Both appear only on your own assets — a session opens for the person who ran it, so on an asset shared with you there is nothing to link to. Administrators get the same walk on the admin asset viewer, into the admin sessions surface.
 
 The Share action opens a dialog to mint a link or a user-scoped share, with a copy-once token and a per-link access count. A public link takes an expiration, and must have one; every other share is now minted without one and grants access until the owner revokes it. Shares created before that rule keep the expiry they were given, whatever their mode, so an older link may still show a countdown. Every share carries an **access mode** that decides who the link opens for:

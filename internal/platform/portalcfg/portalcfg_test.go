@@ -128,3 +128,29 @@ func TestS3Location(t *testing.T) {
 		})
 	}
 }
+
+func TestMaxVersionsError(t *testing.T) {
+	ptr := func(n int) *int { return &n }
+	tests := []struct {
+		name       string
+		configured *int
+		wantErr    bool
+	}{
+		{name: "unset is the ordinary state"},
+		{name: "zero keeps every version", configured: ptr(0)},
+		{name: "a positive cap is accepted", configured: ptr(1)},
+		{name: "the platform default is accepted", configured: ptr(100)},
+		{name: "a negative cap is refused", configured: ptr(-1), wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := MaxVersionsError(tt.configured)
+			if tt.wantErr && got == "" {
+				t.Fatal("a negative retention default must be refused at startup")
+			}
+			if !tt.wantErr && got != "" {
+				t.Fatalf("MaxVersionsError(%v) = %q, want no error", tt.configured, got)
+			}
+		})
+	}
+}

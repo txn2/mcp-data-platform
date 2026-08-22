@@ -15,7 +15,16 @@ export interface AssetViewerProps {
   contentUrl: string;
   onBack: () => void;
   onNavigate: (path: string) => void;
-  updateMutation: MutationLike<{ id: string; name: string; description: string; tags: string[] }>;
+  updateMutation: MutationLike<{
+    id: string;
+    name: string;
+    description: string;
+    tags: string[];
+    // Optional: an update that did not move retention leaves the field out,
+    // which is how an editor-share recipient saves a rename without sending the
+    // one field the API reserves to the owner.
+    max_versions?: number | null;
+  }>;
   deleteMutation: MutationLike<string>;
   contentUpdateMutation?: MutationLike<{ id: string; content: string; changeSummary?: string }>;
   copyMutation?: MutationLike<string>;

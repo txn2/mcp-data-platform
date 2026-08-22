@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/pkg/blobserve"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 )
@@ -209,6 +210,10 @@ type adminUpdateAssetRequest struct {
 	Name        *string  `json:"name,omitempty"`
 	Description *string  `json:"description,omitempty"`
 	Tags        []string `json:"tags,omitempty"`
+	// MaxVersions caps how many versions this asset keeps. Omit to leave the
+	// current setting alone, send null to go back to the deployment default,
+	// 0 to keep every version, or N to keep the newest N.
+	MaxVersions httpjson.OptionalInt `json:"max_versions" swaggertype:"integer" example:"100"`
 }
 
 // updateAdminAsset updates any asset without owner restriction.
@@ -245,6 +250,7 @@ func (h *Handler) updateAdminAsset(w http.ResponseWriter, r *http.Request) {
 		Description: req.Description,
 		Tags:        req.Tags,
 	}
+	updates.MaxVersions, updates.ClearMaxVersions = req.MaxVersions.Resolve()
 
 	if err := validateAdminAssetUpdate(updates); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -685,6 +691,11 @@ func validateAdminAssetUpdate(updates portal.AssetUpdate) error {
 	if updates.Tags != nil {
 		if err := portal.ValidateTags(updates.Tags); err != nil {
 			return fmt.Errorf("invalid tags: %w", err)
+		}
+	}
+	if updates.MaxVersions != nil {
+		if err := portal.ValidateMaxVersions(*updates.MaxVersions); err != nil {
+			return fmt.Errorf("invalid max_versions: %w", err)
 		}
 	}
 	return nil

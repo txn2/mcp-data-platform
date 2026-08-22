@@ -174,6 +174,9 @@ export function useAdminUpdateAsset() {
       name?: string;
       description?: string;
       tags?: string[];
+      // null clears the per-asset retention override, returning the asset to
+      // the deployment default; omitting the field leaves it as it is.
+      max_versions?: number | null;
     }) =>
       apiFetch(`/assets/${id}`, {
         method: "PUT",

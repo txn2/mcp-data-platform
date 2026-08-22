@@ -14,6 +14,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
@@ -126,19 +127,23 @@ type saveAssetInput struct {
 
 // manageAssetInput defines the input for manage_asset.
 type manageAssetInput struct {
-	Action       string         `json:"action"`
-	AssetID      string         `json:"asset_id,omitempty"`
-	Content      string         `json:"content,omitempty"`
-	Name         string         `json:"name,omitempty"`
-	Description  string         `json:"description,omitempty"`
-	Tags         []string       `json:"tags,omitempty"`
-	ContentType  string         `json:"content_type,omitempty"`
-	Limit        int            `json:"limit,omitempty"`
-	Version      int            `json:"version,omitempty"`
-	CollectionID string         `json:"collection_id,omitempty"`
-	Sections     []sectionInput `json:"sections,omitempty"`
-	Search       string         `json:"search,omitempty"`
-	Offset       int            `json:"offset,omitempty"`
+	Action      string   `json:"action"`
+	AssetID     string   `json:"asset_id,omitempty"`
+	Content     string   `json:"content,omitempty"`
+	Name        string   `json:"name,omitempty"`
+	Description string   `json:"description,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
+	// MaxVersions caps how many versions the asset keeps (update action).
+	// Absent leaves the setting alone, null returns the asset to the
+	// deployment default, 0 keeps every version, N keeps the newest N.
+	MaxVersions  httpjson.OptionalInt `json:"max_versions"`
+	ContentType  string               `json:"content_type,omitempty"`
+	Limit        int                  `json:"limit,omitempty"`
+	Version      int                  `json:"version,omitempty"`
+	CollectionID string               `json:"collection_id,omitempty"`
+	Sections     []sectionInput       `json:"sections,omitempty"`
+	Search       string               `json:"search,omitempty"`
+	Offset       int                  `json:"offset,omitempty"`
 
 	// Sources are the calls behind a content edit, cited by call id or
 	// mcp:call: reference (#1320). Applies to the update and patch actions.
@@ -717,7 +722,24 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageAssetInput) (*mc
 	hasContent := input.Content != ""
 
 	if !hasContent && !hasMetadata {
-		return toolkit.ErrorResult("no fields to update: provide content, name, description, or tags"), nil, nil
+		return toolkit.ErrorResult("no fields to update: provide content, name, description, tags, or max_versions"), nil, nil
+	}
+
+	if updates.MaxVersions != nil {
+		if err := portal.ValidateMaxVersions(*updates.MaxVersions); err != nil {
+			return toolkit.ErrorResult(err.Error()), nil, nil
+		}
+	}
+
+	// Metadata first, content second, because one metadata field changes what
+	// the content write does: creating a version prunes history against the
+	// asset's retention cap, so a call that lowers max_versions and replaces the
+	// content in one breath must have the new cap in place before the version
+	// that triggers the prune is written.
+	if hasMetadata {
+		if err := t.assetStore.Update(ctx, input.AssetID, updates); err != nil {
+			return toolkit.ErrorResult("failed to update asset: " + err.Error()), nil, nil
+		}
 	}
 
 	if hasContent {
@@ -729,12 +751,6 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageAssetInput) (*mc
 		}
 		if _, contentErr := t.uploadContentUpdate(ctx, asset, edit); contentErr != nil {
 			return toolkit.ErrorResult("failed to upload new content: " + contentErr.Error()), nil, nil
-		}
-	}
-
-	if hasMetadata {
-		if err := t.assetStore.Update(ctx, input.AssetID, updates); err != nil {
-			return toolkit.ErrorResult("failed to update asset: " + err.Error()), nil, nil
 		}
 	}
 
@@ -758,7 +774,9 @@ func metadataUpdate(input manageAssetInput) (update portal.AssetUpdate, present 
 	if input.Description != "" {
 		update.Description = &input.Description
 	}
-	return update, update.Name != nil || update.Description != nil || update.Tags != nil
+	update.MaxVersions, update.ClearMaxVersions = input.MaxVersions.Resolve()
+	return update, update.Name != nil || update.Description != nil || update.Tags != nil ||
+		update.MaxVersions != nil || update.ClearMaxVersions
 }
 
 // uploadContentUpdate writes replacement content as a new version and returns

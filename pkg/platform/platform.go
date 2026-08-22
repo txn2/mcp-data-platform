@@ -1712,6 +1712,7 @@ func (p *Platform) initPortal() error {
 		S3Prefix:          p.config.Portal.S3Prefix,
 		BaseURL:           p.config.Portal.PublicBaseURL,
 		MaxContentSize:    p.config.Portal.MaxContentSize,
+		MaxVersions:       p.config.Portal.MaxVersions,
 		CaptureProvenance: p.captureProvenance,
 		Directory:         p.UserStore(),
 	})

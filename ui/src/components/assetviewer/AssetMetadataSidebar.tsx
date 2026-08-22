@@ -10,6 +10,7 @@ import { Card } from "@/components/ui/card";
 import { formatBytes } from "@/lib/format";
 import { shortSessionId } from "@/pages/sessions/kind";
 import { AssetMetadataForm } from "./AssetMetadataForm";
+import type { RetentionMode } from "./AssetRetentionField";
 import type { MutationLike } from "./types";
 
 interface AssetMetadataSidebarProps {
@@ -18,13 +19,29 @@ interface AssetMetadataSidebarProps {
   editName: string;
   editDesc: string;
   editTags: string;
+  editRetentionMode: RetentionMode;
+  editRetentionCustom: string;
+  /** Whether this reader may set retention: the owner and an admin, not an
+   * editor-share recipient, matching what the API allows. */
+  canSetRetention: boolean;
   onEditNameChange: (v: string) => void;
   onEditDescChange: (v: string) => void;
   onEditTagsChange: (v: string) => void;
+  onEditRetentionModeChange: (m: RetentionMode) => void;
+  onEditRetentionCustomChange: (v: string) => void;
   onStartEdit: () => void;
   onSaveEdit: () => void;
   onCancelEdit: () => void;
-  updateMutation: MutationLike<{ id: string; name: string; description: string; tags: string[] }>;
+  updateMutation: MutationLike<{
+    id: string;
+    name: string;
+    description: string;
+    tags: string[];
+    // Optional: an update that did not move retention leaves the field out,
+    // which is how an editor-share recipient saves a rename without sending the
+    // one field the API reserves to the owner.
+    max_versions?: number | null;
+  }>;
   isOwner: boolean;
   isSharedEditor: boolean;
   detailRows?: { label: string; value: ReactNode }[];
@@ -42,9 +59,14 @@ export function AssetMetadataSidebar({
   editName,
   editDesc,
   editTags,
+  editRetentionMode,
+  editRetentionCustom,
+  canSetRetention,
   onEditNameChange,
   onEditDescChange,
   onEditTagsChange,
+  onEditRetentionModeChange,
+  onEditRetentionCustomChange,
   onStartEdit,
   onSaveEdit,
   onCancelEdit,
@@ -65,9 +87,14 @@ export function AssetMetadataSidebar({
           name={editName}
           description={editDesc}
           tags={editTags}
+          retentionMode={editRetentionMode}
+          retentionCustom={editRetentionCustom}
+          canSetRetention={canSetRetention}
           onNameChange={onEditNameChange}
           onDescriptionChange={onEditDescChange}
           onTagsChange={onEditTagsChange}
+          onRetentionModeChange={onEditRetentionModeChange}
+          onRetentionCustomChange={onEditRetentionCustomChange}
           onSave={onSaveEdit}
           onCancel={onCancelEdit}
           saving={updateMutation.isPending}

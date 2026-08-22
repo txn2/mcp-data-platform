@@ -1,4 +1,5 @@
 import {
+  openAssetMetadataEdit,
   openAssetProvenance,
   openAssetProvenanceCall,
 } from "./route-actions";
@@ -32,6 +33,22 @@ export const assetViewerRoutes: ScreenshotRoute[] = [
     path: "/portal/assets/ast-003",
     category: "user",
     beforeCapture: openAssetProvenanceCall,
+  },
+  {
+    // The metadata sidebar in edit mode on an asset that keeps a cap of its
+    // own: the retention control in the one mode with a count behind it (#1421).
+    slug: "asset-metadata-edit",
+    path: "/portal/assets/ast-001",
+    category: "user",
+    beforeCapture: openAssetMetadataEdit,
+  },
+  {
+    // The same form on an asset with no override, where retention reads
+    // "Deployment default" and no count is asked for.
+    slug: "asset-metadata-edit-inherited",
+    path: "/portal/assets/ast-002",
+    category: "user",
+    beforeCapture: openAssetMetadataEdit,
   },
   {
     slug: "asset-svg",

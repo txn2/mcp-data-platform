@@ -2,42 +2,85 @@
 //
 // Version history is its own table (portal_asset_versions) with its own
 // projection and scanner; it touches portal_assets only to take the row lock
-// that serializes version numbering. It sits beside the asset store rather
-// than inside it because it shares no query builder, column list or scanner
-// with it.
+// that serializes version numbering and to read the retention cap that lock
+// protects. It sits beside the asset store rather than inside it because it
+// shares no query builder, column list or scanner with it.
+//
+// Retention is enforced here rather than by a sweeper because CreateVersion is
+// the single door every asset write already passes through -- the portal
+// handlers, the admin routes, the asset toolkit, managed-script output and both
+// export adapters all reach the table through it -- so a cap applied at the
+// write is a cap nothing can route around, and it needs no schedule to converge.
 package portalversions
 
 import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 )
 
 // --- PostgreSQL VersionStore ---
 
-type store struct {
-	db *sql.DB
+// ObjectDeleter is the slice of the portal's blob client a prune needs. It is
+// named here rather than taking portaldomain.S3Client whole so the store cannot
+// read or write content -- deleting the objects of rows it just deleted is the
+// only reason it touches storage at all.
+type ObjectDeleter interface {
+	DeleteObject(ctx context.Context, bucket, key string) error
 }
 
-// NewPostgres creates the PostgreSQL asset version store.
-func NewPostgres(db *sql.DB) portaldomain.VersionStore {
-	return &store{db: db}
+type store struct {
+	db *sql.DB
+	// objects deletes the blobs of pruned versions. Nil in database-only mode,
+	// where the prune still trims the table and there are no objects to lose.
+	objects ObjectDeleter
+	// platformMaxVersions is the deployment's portal.max_versions, applying to
+	// every asset that carries no override of its own. Nil selects
+	// portaldomain.DefaultMaxVersions.
+	platformMaxVersions *int
+}
+
+// NewPostgres creates the PostgreSQL asset version store. objects deletes the
+// blobs of versions the retention cap prunes and may be nil; platformMaxVersions
+// is the deployment default a per-asset override supersedes.
+func NewPostgres(db *sql.DB, objects ObjectDeleter, platformMaxVersions *int) portaldomain.VersionStore {
+	return &store{db: db, objects: objects, platformMaxVersions: platformMaxVersions}
 }
 
 func (s *store) CreateVersion(ctx context.Context, version portaldomain.AssetVersion) (int, error) { //nolint:revive // interface impl
+	nextVersion, pruned, err := s.createVersionTx(ctx, version)
+	if err != nil {
+		return 0, err
+	}
+	// After the commit, never before: the rows are already gone, and an object
+	// that outlives its row is reclaimable while a row whose object was deleted
+	// under a rolled-back transaction is a version that lists and cannot be read.
+	s.deletePrunedObjects(ctx, version.AssetID, pruned)
+	return nextVersion, nil
+}
+
+// createVersionTx records the version, moves the asset head, and prunes history
+// past the asset's effective cap -- all under the asset row lock, in one
+// transaction. It returns the assigned version number and the rows the prune
+// removed, whose blobs the caller deletes once the transaction has committed.
+func (s *store) createVersionTx(ctx context.Context, version portaldomain.AssetVersion) (int, pruneResult, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return 0, fmt.Errorf("beginning transaction: %w", err)
+		return 0, pruneResult{}, fmt.Errorf("beginning transaction: %w", err)
 	}
 	defer tx.Rollback() //nolint:errcheck // commit below on success
 
-	// Lock the asset row and determine the next version number atomically.
+	// Lock the asset row and determine the next version number atomically. The
+	// same read takes the retention override, so the cap applied is the one in
+	// force under this lock rather than one read before another writer moved it.
 	var currentVersion int
-	lockQuery := `SELECT current_version FROM portal_assets WHERE id = $1 FOR UPDATE`
-	if err := tx.QueryRowContext(ctx, lockQuery, version.AssetID).Scan(&currentVersion); err != nil {
-		return 0, fmt.Errorf("locking asset row: %w", err)
+	var maxVersions sql.NullInt64
+	lockQuery := `SELECT current_version, max_versions FROM portal_assets WHERE id = $1 FOR UPDATE`
+	if err := tx.QueryRowContext(ctx, lockQuery, version.AssetID).Scan(&currentVersion, &maxVersions); err != nil {
+		return 0, pruneResult{}, fmt.Errorf("locking asset row: %w", err)
 	}
 	nextVersion := currentVersion + 1
 
@@ -52,7 +95,7 @@ func (s *store) CreateVersion(ctx context.Context, version portaldomain.AssetVer
 		version.SizeBytes, version.CreatedBy, version.ChangeSummary,
 	)
 	if err != nil {
-		return 0, fmt.Errorf("inserting version: %w", err)
+		return 0, pruneResult{}, fmt.Errorf("inserting version: %w", err)
 	}
 
 	updateQuery := `
@@ -64,13 +107,161 @@ func (s *store) CreateVersion(ctx context.Context, version portaldomain.AssetVer
 		nextVersion, version.S3Key, version.ContentType, version.SizeBytes, version.AssetID,
 	)
 	if err != nil {
-		return 0, fmt.Errorf("updating asset version: %w", err)
+		return 0, pruneResult{}, fmt.Errorf("updating asset version: %w", err)
+	}
+
+	// Pruned after the head has moved, so the guard below reads the asset's new
+	// s3_key and the version just written is the one key the delete can never
+	// reach.
+	pruned, err := prune(ctx, tx, version.AssetID, nextVersion, s.effectiveCap(maxVersions))
+	if err != nil {
+		return 0, pruneResult{}, err
+	}
+	// Asked inside the transaction, after the delete, so the answer is the set
+	// of keys that outlive it.
+	if len(pruned.removed) > 0 {
+		pruned.retained, err = survivingObjectKeys(ctx, tx, version.AssetID)
+		if err != nil {
+			return 0, pruneResult{}, err
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
-		return 0, fmt.Errorf("committing version: %w", err)
+		return 0, pruneResult{}, fmt.Errorf("committing version: %w", err)
 	}
-	return nextVersion, nil
+	return nextVersion, pruned, nil
+}
+
+// pruneResult is what a prune leaves for the caller to clean up once the
+// transaction has committed: the version rows removed, and every object key the
+// versions that survived still own. The second half is not an optimization --
+// two version rows may legitimately name one object, so the cleanup has to ask
+// what is still referenced rather than infer it from the key.
+type pruneResult struct {
+	removed  []portaldomain.AssetVersion
+	retained map[string]struct{}
+}
+
+// effectiveCap resolves the retention cap for one asset from its stored
+// override and the deployment default. A returned 0 means unlimited.
+func (s *store) effectiveCap(stored sql.NullInt64) int {
+	var override *int
+	if stored.Valid {
+		n := int(stored.Int64)
+		override = &n
+	}
+	return portaldomain.EffectiveMaxVersions(override, s.platformMaxVersions)
+}
+
+// prune deletes every version of an asset older than the newest keep, returning
+// the rows removed. keep <= 0 means unlimited and prunes nothing, and an asset
+// whose history has not reached the cap issues no statement at all -- which is
+// the common case on every write, since most assets never approach 100 versions.
+//
+// The cutoff is computed from the version just assigned rather than from a
+// MAX(version) subquery: the insert above made it the highest, and it is already
+// in hand.
+//
+// The join onto portal_assets excludes the key the asset row points at. Version
+// 1 of an asset created before it had a second version carries the flat content
+// key the asset itself still names, so pruning it by row would take the live
+// content with it; every later version has a key of its own and is unaffected by
+// the guard.
+func prune(ctx context.Context, tx *sql.Tx, assetID string, latestVersion, keep int) (pruneResult, error) {
+	if keep <= portaldomain.MaxVersionsUnlimited || latestVersion <= keep {
+		return pruneResult{}, nil
+	}
+	rows, err := tx.QueryContext(ctx, `
+		DELETE FROM portal_asset_versions v
+		 USING portal_assets a
+		 WHERE v.asset_id = $1
+		   AND a.id = v.asset_id
+		   AND v.s3_key <> a.s3_key
+		   AND v.version <= $2
+		RETURNING v.version, v.s3_bucket, v.s3_key`, assetID, latestVersion-keep)
+	if err != nil {
+		return pruneResult{}, fmt.Errorf("pruning asset versions: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck // best-effort cleanup
+
+	var removed []portaldomain.AssetVersion
+	for rows.Next() {
+		var p portaldomain.AssetVersion
+		if err := rows.Scan(&p.Version, &p.S3Bucket, &p.S3Key); err != nil {
+			return pruneResult{}, fmt.Errorf("scanning pruned version row: %w", err)
+		}
+		removed = append(removed, p)
+	}
+	if err := rows.Err(); err != nil {
+		return pruneResult{}, fmt.Errorf("iterating pruned version rows: %w", err)
+	}
+	return pruneResult{removed: removed}, nil
+}
+
+// survivingObjectKeys returns every object key the asset's remaining versions
+// still own: their content, and the thumbnails derived beside it.
+//
+// A version's key is not private to it. A managed script keys its output by run
+// (internal/platform/scriptexec/export.go), so a run that exports a document and
+// then publishes data into the same asset writes two version rows at one key,
+// and every version of such an asset shares one directory -- which is also where
+// its thumbnails are derived. Deleting a pruned version's objects by key shape
+// alone would take the live content or the current thumbnail with them. The
+// cleanup asks what is still referenced instead.
+func survivingObjectKeys(ctx context.Context, tx *sql.Tx, assetID string) (map[string]struct{}, error) {
+	rows, err := tx.QueryContext(ctx,
+		`SELECT DISTINCT s3_key FROM portal_asset_versions WHERE asset_id = $1`, assetID)
+	if err != nil {
+		return nil, fmt.Errorf("reading surviving version keys: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck // best-effort cleanup
+
+	retained := make(map[string]struct{})
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return nil, fmt.Errorf("scanning surviving version key: %w", err)
+		}
+		retained[key] = struct{}{}
+		for _, thumb := range portaldomain.ThumbnailKeysFor(key) {
+			retained[thumb] = struct{}{}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating surviving version keys: %w", err)
+	}
+	return retained, nil
+}
+
+// deletePrunedObjects removes the content object of every pruned version and
+// the thumbnails that sat beside it, skipping every key a surviving version
+// still owns. It is best-effort on purpose: the version the caller asked for has
+// already committed, and failing that write because an old object could not be
+// removed would turn a storage-cleanup problem into a failed save. An object
+// left behind is logged so it can be reclaimed.
+//
+// A thumbnail is derived rather than looked up because no row records one --
+// CreateVersion blanks the asset's thumbnail pointers on every write and the
+// next viewer regenerates them beside the current content key. Deriving is safe
+// only because the retained set is consulted: on an asset whose versions share a
+// directory, a pruned version's derived thumbnail key is the current version's
+// thumbnail key.
+func (s *store) deletePrunedObjects(ctx context.Context, assetID string, pruned pruneResult) {
+	if s.objects == nil {
+		return
+	}
+	for _, p := range pruned.removed {
+		for _, key := range p.ObjectKeys() {
+			if _, stillOwned := pruned.retained[key]; stillOwned {
+				continue
+			}
+			if err := s.objects.DeleteObject(ctx, p.S3Bucket, key); err != nil {
+				slog.Warn("portal versions: pruned object not deleted",
+					"asset_id", assetID, // #nosec G706 -- server-generated ID
+					"version", p.Version, "error", err)
+			}
+		}
+	}
 }
 
 func (s *store) ListByAsset(ctx context.Context, assetID string, limit, offset int) ([]portaldomain.AssetVersion, int, error) { //nolint:revive // interface impl
