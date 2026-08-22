@@ -4,7 +4,6 @@ package platform_test
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"strings"
 	"testing"
@@ -12,12 +11,9 @@ import (
 
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/require"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/postgres"
-	"github.com/testcontainers/testcontainers-go/wait"
 
+	"github.com/txn2/mcp-data-platform/internal/testdb"
 	"github.com/txn2/mcp-data-platform/internal/testollama"
-	"github.com/txn2/mcp-data-platform/pkg/database/migrate"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	apigateway "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	apigatewaycatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
@@ -45,26 +41,10 @@ func TestEmbedJobs_RealOllama_BatchedPathCompletes(t *testing.T) {
 
 	ollama := testollama.Get(t)
 
-	pgContainer, err := postgres.Run(ctx,
-		"pgvector/pgvector:pg16",
-		postgres.WithDatabase("testdb"),
-		postgres.WithUsername("test"),
-		postgres.WithPassword("test"),
-		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").
-				WithOccurrence(2).
-				WithStartupTimeout(5*time.Minute),
-		),
-	)
-	require.NoError(t, err)
-	defer func() { _ = pgContainer.Terminate(ctx) }()
-
-	dsn, err := pgContainer.ConnectionString(ctx, "sslmode=disable")
-	require.NoError(t, err)
-	db, err := sql.Open("postgres", dsn)
-	require.NoError(t, err)
-	defer db.Close() //nolint:errcheck // test cleanup
-	require.NoError(t, migrate.Run(db))
+	// The shared harness rather than a container of this test's own: it clones
+	// the migrated template on the one server the gate starts, so no container
+	// and no testcontainers reaper. See internal/testdb.
+	db := testdb.New(t)
 
 	// Seed a catalog with one 30-operation spec. Forces the batched
 	// path (default batch size 32); a 30-text batch is the exact shape
@@ -74,7 +54,7 @@ func TestEmbedJobs_RealOllama_BatchedPathCompletes(t *testing.T) {
 		specName  = "wide"
 		ops       = 30
 	)
-	_, err = db.ExecContext(ctx, `
+	_, err := db.ExecContext(ctx, `
 		INSERT INTO api_catalogs (id, name, display_name, version, description, created_at, updated_at)
 		VALUES ($1, $1, $1, 'v1', '', NOW(), NOW())
 	`, catalogID)

@@ -4,20 +4,16 @@ package platform_test
 
 import (
 	"context"
-	"database/sql"
 	"testing"
 	"time"
 
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/postgres"
-	"github.com/testcontainers/testcontainers-go/wait"
 
+	"github.com/txn2/mcp-data-platform/internal/testdb"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	auditpostgres "github.com/txn2/mcp-data-platform/pkg/audit/postgres"
-	"github.com/txn2/mcp-data-platform/pkg/database/migrate"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 )
@@ -30,34 +26,12 @@ func TestAuditLogging_EndToEnd_RealDB(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Start PostgreSQL container
-	pgContainer, err := postgres.Run(ctx,
-		"pgvector/pgvector:pg16",
-		postgres.WithDatabase("testdb"),
-		postgres.WithUsername("test"),
-		postgres.WithPassword("test"),
-		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").
-				WithOccurrence(2).
-				WithStartupTimeout(5*time.Minute),
-		),
-	)
-	require.NoError(t, err, "failed to start postgres container")
-	defer func() { _ = pgContainer.Terminate(ctx) }()
-
-	dsn, err := pgContainer.ConnectionString(ctx, "sslmode=disable")
-	require.NoError(t, err, "failed to get connection string")
-
-	// Connect to database
-	db, err := sql.Open("postgres", dsn)
-	require.NoError(t, err, "failed to open database")
-	defer db.Close()
-
-	// Run migrations via the platform's embedded migration set. The
-	// older runMigrations helper that scanned a sibling directory has
-	// been retired: its fallback schema diverged from the canonical
-	// migrations once new columns (session_id, partitioning) landed.
-	err = migrate.Run(db)
+	// testdb.New rather than a container of this test's own: it clones a
+	// migrated template on the one server the gate starts, so no container
+	// and no Ryuk reaper per test. A reaper wait is what made the sibling
+	// progress test flaky under load.
+	db := testdb.New(t)
+	var err error
 	require.NoError(t, err, "failed to run migrations")
 
 	// Create audit store
@@ -105,34 +79,12 @@ func TestAuditAdapter_Integration_RealDB(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Start PostgreSQL container
-	pgContainer, err := postgres.Run(ctx,
-		"pgvector/pgvector:pg16",
-		postgres.WithDatabase("testdb"),
-		postgres.WithUsername("test"),
-		postgres.WithPassword("test"),
-		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").
-				WithOccurrence(2).
-				WithStartupTimeout(5*time.Minute),
-		),
-	)
-	require.NoError(t, err, "failed to start postgres container")
-	defer func() { _ = pgContainer.Terminate(ctx) }()
-
-	dsn, err := pgContainer.ConnectionString(ctx, "sslmode=disable")
-	require.NoError(t, err, "failed to get connection string")
-
-	// Connect to database
-	db, err := sql.Open("postgres", dsn)
-	require.NoError(t, err, "failed to open database")
-	defer db.Close()
-
-	// Run migrations via the platform's embedded migration set. The
-	// older runMigrations helper that scanned a sibling directory has
-	// been retired: its fallback schema diverged from the canonical
-	// migrations once new columns (session_id, partitioning) landed.
-	err = migrate.Run(db)
+	// testdb.New rather than a container of this test's own: it clones a
+	// migrated template on the one server the gate starts, so no container
+	// and no Ryuk reaper per test. A reaper wait is what made the sibling
+	// progress test flaky under load.
+	db := testdb.New(t)
+	var err error
 	require.NoError(t, err, "failed to run migrations")
 
 	// Create audit store and adapter
@@ -176,33 +128,12 @@ func TestPlatform_WithDatabase_RealDB(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
-
-	// Start PostgreSQL container
-	pgContainer, err := postgres.Run(ctx,
-		"pgvector/pgvector:pg16",
-		postgres.WithDatabase("testdb"),
-		postgres.WithUsername("test"),
-		postgres.WithPassword("test"),
-		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").
-				WithOccurrence(2).
-				WithStartupTimeout(5*time.Minute),
-		),
-	)
-	require.NoError(t, err, "failed to start postgres container")
-	defer func() { _ = pgContainer.Terminate(ctx) }()
-
-	dsn, err := pgContainer.ConnectionString(ctx, "sslmode=disable")
-	require.NoError(t, err, "failed to get connection string")
-
-	// The platform's initDatabase calls pkg/database/migrate.Run on the
-	// supplied DSN, so the migrations are applied as part of New. The
-	// older runMigrations helper that read .sql files from a sibling
-	// directory has been retired here: when findMigrationsDir cannot
-	// locate the dir (its hard-coded relative paths drift with test
-	// layouts), it fell through to a hand-written minimal schema that
-	// conflicted with migration 000001's partitioned audit_logs.
+	// NewWithDSN because platform.New opens its own pool from
+	// config.Database.DSN. It clones a migrated template on the one server
+	// the gate starts rather than running a container and a Ryuk reaper of
+	// this test's own; migrate.Run is idempotent, so the platform applying
+	// them again against the same schema is a no-op.
+	_, dsn := testdb.NewWithDSN(t)
 
 	// Create platform with database config
 	cfg := &platform.Config{
