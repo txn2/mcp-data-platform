@@ -672,6 +672,8 @@ func buildExportProvenance(uc *ExportUserContext, in exportInput, status int, de
 					"connection":      in.Connection,
 					"method":          in.Method,
 					"path":            in.Path,
+					"query_params":    in.Query,
+					"body":            in.Body,
 					"upstream_status": status,
 				},
 			},

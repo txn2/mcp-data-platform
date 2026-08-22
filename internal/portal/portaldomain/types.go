@@ -211,6 +211,12 @@ type ProvenanceCall struct {
 	Path   string `json:"path,omitempty" example:"/v1/orders"`
 	// OperationID is the catalog operation invoked, for an api call.
 	OperationID string `json:"operation_id,omitempty" example:"listOrders"`
+	// Request is what an api call asked for: the path it addressed with the
+	// values it passed substituted in, the query string it sent, and its
+	// request body on the line below. It is what tells two calls to the same
+	// operation apart, which the fields above alone do not (#1423). Bounded,
+	// because a request body is arbitrary size and this is stored on the asset.
+	Request string `json:"request,omitempty" example:"GET /v1/orders?status=open"`
 	// Summary describes a call whose kind carries neither a statement nor a
 	// request line (a catalog lookup, an object read).
 	Summary string `json:"summary,omitempty"`

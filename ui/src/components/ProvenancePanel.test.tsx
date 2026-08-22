@@ -71,6 +71,45 @@ const captured: Provenance = {
   ],
 };
 
+// Twelve calls to one operation, told apart by the request each made (#1423).
+const apiCalls: Provenance = {
+  session_id: "dpx_watch",
+  captures: [
+    {
+      tool: "manage_asset",
+      captured_at: "2026-08-22T06:00:10Z",
+      version: 9,
+      calls: [
+        {
+          event_id: "evt-w1",
+          kind: "api",
+          tool: "api_invoke_endpoint",
+          connection: "nws",
+          method: "GET",
+          path: "/gridpoints/LWX/96%2C72/forecast",
+          operation_id: "getGridpointForecast",
+          request: "GET /gridpoints/LWX/96%2C72/forecast",
+          outcome: "success",
+          duration_ms: 10,
+          timestamp: "2026-08-22T06:00:04Z",
+        },
+        {
+          event_id: "evt-w2",
+          kind: "api",
+          tool: "api_invoke_endpoint",
+          connection: "util",
+          operation_id: "fetch_url",
+          request:
+            'POST /fetch\n{"url":"https://example.com/outages.json"}',
+          outcome: "success",
+          duration_ms: 220,
+          timestamp: "2026-08-22T06:00:06Z",
+        },
+      ],
+    },
+  ],
+};
+
 const legacy: Provenance = {
   session_id: "dps_old",
   tool_calls: [
@@ -299,6 +338,32 @@ describe("ProvenancePanel", () => {
     fireEvent.click(screen.getByLabelText("Copy request"));
 
     expect(writeText).toHaveBeenCalledWith("GET /v1/accounts");
+  });
+
+  // Twelve rows reading "fetch_url" said which tool ran and nothing about what
+  // it did. Each one now carries the request it made.
+  it("tells apart two calls by the request each made", () => {
+    render(<ProvenancePanel provenance={apiCalls} />);
+
+    expect(
+      screen.getByText("GET /gridpoints/LWX/96%2C72/forecast"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/POST \/fetch.*outages\.json/),
+    ).toBeInTheDocument();
+  });
+
+  it("copies the whole request, body included, from the call it opened", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+
+    render(<ProvenancePanel provenance={apiCalls} />);
+    fireEvent.click(screen.getByText(/POST \/fetch/));
+    fireEvent.click(screen.getByLabelText("Copy request"));
+
+    expect(writeText).toHaveBeenCalledWith(
+      'POST /fetch\n{"url":"https://example.com/outages.json"}',
+    );
   });
 
   it("renders an asset saved before provenance was captured by reference", () => {

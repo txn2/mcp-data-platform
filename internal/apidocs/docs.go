@@ -22820,6 +22820,11 @@ const docTemplate = `{
                     "description": "Purpose is the reason the caller stated for the call (#1317).",
                     "type": "string"
                 },
+                "request": {
+                    "description": "Request is what an api call asked for: the path it addressed with the\nvalues it passed substituted in, the query string it sent, and its\nrequest body on the line below. It is what tells two calls to the same\noperation apart, which the fields above alone do not (#1423). Bounded,\nbecause a request body is arbitrary size and this is stored on the asset.",
+                    "type": "string",
+                    "example": "GET /v1/orders?status=open"
+                },
                 "statement": {
                     "description": "Statement is the query text, for a sql call.",
                     "type": "string"

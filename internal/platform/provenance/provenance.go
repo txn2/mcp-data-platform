@@ -88,17 +88,23 @@ type Flusher interface {
 
 // Capturer builds an asset write's provenance capture from the audit log.
 type Capturer struct {
-	events EventReader
-	flush  Flusher
-	now    func() time.Time
+	events   EventReader
+	flush    Flusher
+	now      func() time.Time
+	toolkits ToolkitLister
 }
 
 // New builds a Capturer over the audit log. A nil reader yields a Capturer
 // that records only what the caller states about itself, which is what a
 // deployment with audit disabled gets. The flusher is optional: a synchronous
-// audit writer has nothing to wait for.
-func New(events EventReader, flush Flusher) *Capturer {
-	return &Capturer{events: events, flush: flush, now: time.Now}
+// audit writer has nothing to wait for. WithToolkits supplies the registry an
+// api call's operation id is resolved against.
+func New(events EventReader, flush Flusher, opts ...Option) *Capturer {
+	c := &Capturer{events: events, flush: flush, now: time.Now}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
 
 // Capture resolves the calls behind one asset write.
@@ -143,7 +149,7 @@ func (c *Capturer) Capture(ctx context.Context, req portal.ProvenanceRequest) po
 
 	capture.Truncated = truncated
 	for i := range events {
-		call := callFromEvent(events[i])
+		call := c.callFromEvent(ctx, events[i])
 		// A cited call was named by the caller; a call the default window
 		// swept up was not. The distinction is what stops a save from
 		// declaring every call in the session to have answered something.
@@ -365,7 +371,7 @@ func contentAction(params map[string]any) bool {
 }
 
 // callFromEvent renders one audit row as a captured call.
-func callFromEvent(ev audit.Event) portal.ProvenanceCall {
+func (c *Capturer) callFromEvent(ctx context.Context, ev audit.Event) portal.ProvenanceCall {
 	call := portal.ProvenanceCall{
 		EventID:    ev.ID,
 		Kind:       KindFor(ev.ToolkitKind),
@@ -385,7 +391,7 @@ func callFromEvent(ev audit.Event) portal.ProvenanceCall {
 		call.Outcome = portal.ProvenanceOutcomeError
 		call.Error = ev.ErrorMessage
 	}
-	describe(&call, ev.Parameters)
+	c.describe(ctx, &call, ev.Parameters)
 	return call
 }
 
@@ -393,7 +399,7 @@ func callFromEvent(ev audit.Event) portal.ProvenanceCall {
 // Parameter capture can be disabled or redacted by policy, so every field here
 // is best-effort: a call with no arguments recorded is still a call, named by
 // its tool and its connection.
-func describe(call *portal.ProvenanceCall, params map[string]any) {
+func (c *Capturer) describe(ctx context.Context, call *portal.ProvenanceCall, params map[string]any) {
 	if len(params) == 0 {
 		return
 	}
@@ -401,9 +407,7 @@ func describe(call *portal.ProvenanceCall, params map[string]any) {
 	case portal.ProvenanceKindSQL:
 		call.Statement = stringParam(params, "sql")
 	case portal.ProvenanceKindAPI:
-		call.Method = stringParam(params, "method")
-		call.Path = stringParam(params, "path")
-		call.OperationID = stringParam(params, "operation_id")
+		c.describeAPI(ctx, call, params)
 	default:
 		call.Summary = toolSummary(params)
 	}

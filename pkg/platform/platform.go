@@ -1307,12 +1307,12 @@ func (p *Platform) initAudit(opts *Options) error {
 
 	delivery := p.config.Audit.DeliveryMode()
 	p.audit = auditwiring.Assemble(auditwiring.Config{
-		DB:            p.db,
-		RetentionDays: p.config.Audit.RetentionDays,
-		SyncDelivery:  delivery == AuditDeliverySync,
-		Metrics:       p.obs.Metrics(),
-		BuildURN:      p.datasetURNFor,
-
+		DB:                p.db,
+		RetentionDays:     p.config.Audit.RetentionDays,
+		SyncDelivery:      delivery == AuditDeliverySync,
+		Metrics:           p.obs.Metrics(),
+		BuildURN:          p.datasetURNFor,
+		Toolkits:          p.toolkitRegistry,
 		CallRetentionDays: p.config.Calls.RetentionDays,
 	})
 
