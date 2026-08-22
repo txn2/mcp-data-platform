@@ -145,7 +145,15 @@ export function AssetMetadataSidebar({
           )}
 
           <div className="border-t pt-4">
+            {/*
+              Keyed by asset so the panel's own state — which earlier captures
+              are open — belongs to the asset it was opened on. The viewer is
+              reached with an assetId prop rather than remounted per route, so
+              without this the panel carries one asset's disclosures onto the
+              next one's captures.
+            */}
             <ProvenancePanel
+              key={asset.id}
               provenance={asset.provenance}
               onOpenSession={openSession}
             />

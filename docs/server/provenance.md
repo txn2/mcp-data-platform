@@ -123,6 +123,14 @@ apart from the session's work around it.
 
 ![Provenance panel on the asset viewer](../images/screenshots/light/user-asset-provenance-light.webp#only-light)![Provenance panel on the asset viewer](../images/screenshots/dark/user-asset-provenance-dark.webp#only-dark)
 
+The newest capture is shown expanded. Every earlier one sits behind a
+disclosure that says how many there are, and each opens on its own. An asset a
+scheduled script refreshes gets a capture per run, so the panel would otherwise
+be as long as the asset's whole history. The call count in the panel header
+covers every capture, opened or not.
+
+![The earlier captures, with one of them opened](../images/screenshots/light/user-asset-provenance-earlier-light.webp#only-light)![The earlier captures, with one of them opened](../images/screenshots/dark/user-asset-provenance-earlier-dark.webp#only-dark)
+
 Opening a call shows the full statement or request, its outcome, and its
 `mcp:call:` reference, both copyable.
 
