@@ -48,6 +48,9 @@ const KIND_LABELS: Record<string, string> = {
 function callSummary(call: ProvenanceCall): string {
   if (call.kind === "sql") return call.statement ?? "";
   if (call.kind === "api") {
+    // The recorded request says which of several calls to one operation this
+    // was; the method and path are what a capture taken before #1423 holds.
+    if (call.request) return call.request;
     const request = [call.method, call.path].filter(Boolean).join(" ");
     return request || call.operation_id || "";
   }

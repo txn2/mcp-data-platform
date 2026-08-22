@@ -54,6 +54,12 @@ type Config struct {
 	// is kept. Zero takes the catalog's default; a record something was built
 	// from, promoted, declined, or re-run is never swept.
 	CallRetentionDays int
+
+	// Toolkits is the live toolkit registry, which a capture asks what request
+	// an api call addressed by an operation id made: the id and the values the
+	// caller passed are in the audit row, the path template they went into is
+	// in the connection's catalog (#1423). Optional.
+	Toolkits provenance.ToolkitLister
 }
 
 // Layer is the assembled audit layer. Every member is reached through a
@@ -166,7 +172,7 @@ func Assemble(cfg Config) *Layer {
 		store:    store,
 		logger:   logger,
 		calls:    calls,
-		capturer: provenance.New(store, AsFlusher(logger)),
+		capturer: provenance.New(store, AsFlusher(logger), provenance.WithToolkits(cfg.Toolkits)),
 	}
 }
 

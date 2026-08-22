@@ -166,6 +166,7 @@ internal/platform/datasetindex -> pkg/indexjobs
 internal/platform/datasetindex -> pkg/knowledge
 internal/platform/datasetindex -> pkg/semantic
 internal/platform/dedup -> pkg/middleware
+internal/platform/exportadapters -> internal/platform/provenance
 internal/platform/exportadapters -> pkg/portal
 internal/platform/exportadapters -> pkg/toolkits/apigateway
 internal/platform/exportadapters -> pkg/toolkits/trino
@@ -262,6 +263,7 @@ internal/platform/promptlayer/promptschema -> pkg/textpatch
 internal/platform/provenance -> pkg/audit
 internal/platform/provenance -> pkg/middleware
 internal/platform/provenance -> pkg/portal
+internal/platform/provenance -> pkg/registry
 internal/platform/reflexivecapture -> pkg/memory
 internal/platform/reflexivecapture -> pkg/middleware
 internal/platform/reflexivecapture -> pkg/toolkits/memory

@@ -27,6 +27,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/provenance"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
@@ -230,6 +231,7 @@ func apiOwnCall(calls []apigatewaykit.ExportProvenanceCall) *portal.ProvenanceCa
 		Outcome:    portal.ProvenanceOutcomeSuccess,
 		Timestamp:  parseTimestamp(c.Timestamp),
 	}
+	call.Request = provenance.APIRequestText(call, c.Parameters)
 	if status, ok := c.Parameters["upstream_status"].(int); ok && status >= httpErrorStatus {
 		call.Outcome = portal.ProvenanceOutcomeError
 		call.Error = fmt.Sprintf("upstream returned %d", status)

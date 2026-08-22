@@ -59,6 +59,13 @@ export interface ProvenanceCall {
   method?: string;
   path?: string;
   operation_id?: string;
+  /**
+   * What an api call asked for: the path it addressed with the values it
+   * passed substituted in, the query string it sent, and its request body on
+   * the line below. It is what tells two calls to the same operation apart
+   * (#1423). Absent on captures taken before it was recorded.
+   */
+  request?: string;
   /** What a call of any other kind addressed. */
   summary?: string;
   /** The reason the caller stated for the call (#1317). */

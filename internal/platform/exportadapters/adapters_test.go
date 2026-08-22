@@ -206,7 +206,24 @@ func TestAPIOwnCall(t *testing.T) {
 	assert.Equal(t, "GET", call.Method)
 	assert.Equal(t, "/v1/items", call.Path)
 	assert.Equal(t, "crm", call.Connection)
+	assert.Equal(t, "GET /v1/items", call.Request)
 	assert.Equal(t, portal.ProvenanceOutcomeSuccess, call.Outcome)
+}
+
+// The export's record of itself reads the way the calls captured around it do:
+// two exports of one endpoint differ in what they asked it for (#1423).
+func TestAPIOwnCallRecordsWhatItAskedFor(t *testing.T) {
+	call := apiOwnCall([]apigatewaykit.ExportProvenanceCall{
+		{ToolName: "api_export", Timestamp: "2026-01-01T00:00:00Z", Parameters: map[string]any{
+			"connection":   "crm",
+			"method":       "POST",
+			"path":         "/v1/reports",
+			"query_params": map[string]any{"segment": "enterprise"},
+			"body":         map[string]any{"quarter": "Q3"},
+		}},
+	})
+	require.NotNil(t, call)
+	assert.Equal(t, "POST /v1/reports?segment=enterprise\n{\"quarter\":\"Q3\"}", call.Request)
 }
 
 func TestAPIOwnCallUpstreamError(t *testing.T) {

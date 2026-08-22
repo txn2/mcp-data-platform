@@ -29,8 +29,18 @@ and from API invocations alike:
 | Kind | What it is | What the call carries |
 |------|-----------|-----------------------|
 | `sql` | A statement run against a query engine | `statement`, `connection` |
-| `api` | An HTTP invocation through the API gateway | `method`, `path`, `operation_id`, `connection` |
+| `api` | An HTTP invocation through the API gateway | `request`, `method`, `path`, `operation_id`, `connection` |
 | `tool` | Any other data-access call (catalog lookups, object reads, upstream MCP tools) | `summary` — what the call addressed |
+
+The **request** on an api call is what it asked for: the path it addressed with
+the values it passed substituted in, the query string it sent, and its request
+body on the line below. A call addressed by `operation_id` carries no path of
+its own — the template the values went into is in the connection's API catalog
+— so the capture resolves it there and records the path the call took. When the
+catalog no longer resolves the operation, the request records the operation and
+the values it was given, which still tells two calls to it apart. It is bounded:
+a large body is cut and marked, and the audit log keeps the full arguments for
+as long as the row is retained.
 
 A **failed** call is captured with `outcome: "error"` and its error message. A
 query that failed is part of how an answer was reached, and hiding it would
@@ -152,8 +162,9 @@ which holds everything that session did — before and after the write.
   are handed no `call_reference`.
 - With `audit.log_parameters: false` or a redacted argument
   (`audit.redact_keys`), a captured call still records its tool, connection,
-  purpose, outcome, and timing — but not the statement or path, which are
-  argument values the audit policy withheld.
+  purpose, outcome, and timing — but not the statement or request, which are
+  argument values the audit policy withheld. A redacted value renders as the
+  redaction rather than as what it was.
 - Assets written before provenance was recorded by reference carry a flat list
   of tool calls with their raw arguments. The portal renders both shapes; the
   older one is never written any more.

@@ -125,3 +125,76 @@ func TestResolveOperationID_NoBasePath(t *testing.T) {
 		t.Errorf("no-base-path getUser = %q, want getUser", got)
 	}
 }
+
+// ResolveOperationRequest is the inverse direction: a recorded operation id
+// and the values a call passed become the request that call made (#1423).
+func TestResolveOperationRequest(t *testing.T) {
+	tk := newResolverTestToolkit(t, "acme", "/v1")
+
+	tests := []struct {
+		name        string
+		connection  string
+		operationID string
+		spec        string
+		pathParams  map[string]string
+		wantMethod  string
+		wantPath    string
+		wantOK      bool
+	}{
+		{
+			name: "templated path takes its values", connection: "acme",
+			operationID: "getUser", pathParams: map[string]string{"id": "123"},
+			wantMethod: "GET", wantPath: "/v1/users/123", wantOK: true,
+		},
+		{
+			name: "collection needs no values", connection: "acme",
+			operationID: "listUsers",
+			wantMethod:  "GET", wantPath: "/v1/users", wantOK: true,
+		},
+		{
+			name: "spec filter names the catalog it came from", connection: "acme",
+			operationID: "createUser", spec: "users",
+			wantMethod: "POST", wantPath: "/v1/users", wantOK: true,
+		},
+		{
+			name: "unknown connection resolves nothing", connection: "nope",
+			operationID: "listUsers",
+		},
+		{
+			name: "unknown operation resolves nothing", connection: "acme",
+			operationID: "listOrders",
+		},
+		{
+			name: "a spec the connection does not carry resolves nothing", connection: "acme",
+			operationID: "listUsers", spec: "orders",
+		},
+		{
+			name: "a missing path value resolves nothing", connection: "acme",
+			operationID: "getUser",
+		},
+		{
+			name: "no operation id resolves nothing", connection: "acme",
+			pathParams: map[string]string{"id": "123"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			method, path, ok := tk.ResolveOperationRequest(
+				context.Background(), tc.connection, tc.operationID, tc.spec, tc.pathParams)
+			if ok != tc.wantOK || method != tc.wantMethod || path != tc.wantPath {
+				t.Errorf("got (%q, %q, %v); want (%q, %q, %v)",
+					method, path, ok, tc.wantMethod, tc.wantPath, tc.wantOK)
+			}
+		})
+	}
+}
+
+// A connection with no catalog resolves nothing rather than panicking on the
+// spec walk: a connection can be configured without one.
+func TestResolveOperationRequest_NoCatalog(t *testing.T) {
+	tk := New("test")
+	tk.connections["bare"] = &conn{}
+	if _, _, ok := tk.ResolveOperationRequest(context.Background(), "bare", "listUsers", "", nil); ok {
+		t.Error("a connection with no catalog must resolve nothing")
+	}
+}

@@ -193,3 +193,43 @@ func ensureLeadingSlash(p string) string {
 	}
 	return p
 }
+
+// ResolveOperationRequest rebuilds the concrete (method, path) a call
+// addressed when it named an operation by id and passed its path
+// template values separately. It is the inverse of ResolveOperationID:
+// that one names an operation from a request, this one rebuilds the
+// request from a recorded operation.
+//
+// It runs the same resolution api_invoke_endpoint performs, so the path
+// a record reads back is the path the call took, base path and
+// substitution included. ok is false when the connection is unknown,
+// carries no catalog, resolves the id to nothing or to more than one
+// operation, or has a placeholder with no value: the caller then keeps
+// the operation id the call was addressed by.
+//
+// It is read by an asset's provenance, which holds the operation and
+// the values a call passed but not the path template they went into
+// (issue #1423).
+func (t *Toolkit) ResolveOperationRequest(
+	_ context.Context, connection, operationID, spec string, pathParams map[string]string,
+) (method, path string, ok bool) {
+	if operationID == "" {
+		return "", "", false
+	}
+	t.mu.RLock()
+	c := t.connections[connection]
+	t.mu.RUnlock()
+	if c == nil {
+		return "", "", false
+	}
+
+	m, p, err := resolveOperationTarget(c, operationAddressing{
+		OperationID: operationID,
+		Spec:        spec,
+		PathParams:  pathParams,
+	})
+	if err != nil {
+		return "", "", false
+	}
+	return m, p, true
+}

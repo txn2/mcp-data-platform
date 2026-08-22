@@ -30,7 +30,9 @@ content, so those need no `sources`.
 
 A capture stores both references (the audit event ids) and a snapshot of the
 calls as they stood at write time: kind, tool, connection, statement or request
-line, stated purpose, outcome, and timing. Failed calls are captured too, with
+line, stated purpose, outcome, and timing. For an API call the request is the
+path it addressed with the values it passed substituted in, the query string it
+sent, and its request body, so two calls to one operation read differently. Failed calls are captured too, with
 their error — a query that failed is part of how an answer was reached. The
 snapshot outlives audit retention, so an old asset can still answer "what fed
 this?" after its audit rows aged out.
