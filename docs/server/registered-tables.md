@@ -82,17 +82,24 @@ not here.
 section offers the connections you can reach that can hold one, and shows what
 is already registered with the columns each table has.
 
-**From a session.** `manage_asset` carries three actions on an asset you own:
+**From a session.** `manage_table` carries three actions, on either kind of
+stored file:
 
 ```
-manage_asset action=register_table asset_id=... connection=scratch
-manage_asset action=list_tables asset_id=...
-manage_asset action=unregister_table asset_id=... registration_id=...
+manage_table action=register   reference=mcp:resource:... connection=scratch
+manage_table action=list       reference=mcp:asset:...
+manage_table action=unregister registration_id=...
 ```
 
-`table_name` is optional; the default is a slug of the file's name. Managed
-resources have no management tool, so they are registered through the portal or
-the REST API.
+`reference` is the string a `search` hit or a `fetch` document carries, passed
+verbatim: `mcp:resource:<id>` for material somebody uploaded, `mcp:asset:<id>`
+for a saved asset. The kind travels inside the reference, so one action serves
+both and there is no argument naming which is which. `table_name` is optional;
+the default is a slug of the file's name.
+
+A reference that names no file you may register - one that does not exist, one
+that was deleted, one belonging to somebody else - is answered the same way in
+every case, so the tool cannot be used to find out which files exist.
 
 **Over REST.**
 
@@ -121,6 +128,8 @@ JOIN scratch.uploads.analyst_vendor_keys u
 
 `search` carries the table reference on a hit for a registered file, and
 `fetch` carries it on the record, each with a sample statement showing the cast.
+Those are the same references `manage_table` takes, so finding a file and
+registering it are one turn apart.
 
 ## What is refused, and why
 
@@ -134,11 +143,29 @@ they are invisible to Trino and never in the way.
 **A file that is not a CSV.** There is no header row to take column names
 from.
 
+**A file that is not yours.** Registering is the authority to change the file,
+not the authority to read it. An asset is registrable by its owner or an
+administrator; a resource by its uploader, or by whoever may write to the scope
+it lives in - a platform administrator, or the administrator of that persona.
+That is the same rule that governs updating and deleting each kind, and it
+holds on every surface: the portal panel, the REST routes and `manage_table`
+resolve the file through one resolver per kind.
+
+The rule is authority to change rather than authority to read because
+registering publishes the file's contents into a schema everyone granted the
+connection can read, and resource scopes are not carried into Trino. A read
+rule would let anyone who can see a persona-scoped file widen its audience.
+
 **A connection your persona is not granted.** Registration meets the same
 connection boundary a tool call meets.
 
 **A read-only connection.** The DDL runs through the same read-only check
 `trino_execute` runs, so a connection with `read_only: true` refuses it.
+
+**Dropping a table you did not register.** Unregistering is the registrant's
+call, or an administrator's: the table lives in a schema everyone with the
+connection shares, and the person who put it there is the one who takes it out.
+Deleting the file itself drops every table over it, whoever registered them.
 
 **A table name someone else registered.** The scratch schema is shared, so the
 name is claimed on registration. Re-registering your own name replaces it;
@@ -151,7 +178,7 @@ A new revision of a resource, or a new version of an asset, writes to a new
 directory and moves the head. The table keeps serving the directory it was
 registered against - correct SQL over the version that was current then. The
 platform reports such a registration as **stale**: in the portal panel, on a
-`search` hit, and in `list_tables`. Registering again moves the table to the
+`search` hit, and in `manage_table action=list`. Registering again moves the table to the
 current version.
 
 Overwriting the file at the same key is not staleness. The table returns the

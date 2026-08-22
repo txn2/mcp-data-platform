@@ -1190,7 +1190,7 @@ List, retrieve, update, delete, or share saved assets. All mutations enforce own
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `action` | string | Yes | - | One of: `list`, `get`, `update`, `delete`, `search`, `share`, `list_shares`, `revoke_share`, `register_table`, `list_tables`, `unregister_table` |
+| `action` | string | Yes | - | One of: `list`, `get`, `update`, `delete`, `search`, `share`, `list_shares`, `revoke_share` |
 | `asset_id` | string | Conditional | - | Required for `get`, `update`, `delete`, `share`, `list_shares` |
 | `content` | string | No | - | New content (for `update` — replaces S3 object) |
 | `name` | string | No | - | New name (for `update`) |
@@ -1205,9 +1205,6 @@ List, retrieve, update, delete, or share saved assets. All mutations enforce own
 | `access_mode` | string | No | `authenticated` | Who a link share admits (`share`, no recipient): `authenticated` or `public` |
 | `expires_in` | string | Conditional | - | Duration bounding a public link (`24h`). Required for `access_mode: public`, refused for every other share |
 | `share_id` | string | Conditional | - | Share to end (required for `revoke_share`) |
-| `connection` | string | Conditional | - | Trino connection whose scratch schema holds the table (required for `register_table`) |
-| `table_name` | string | No | filename slug | Name for the registered table; persona-prefixed either way |
-| `registration_id` | string | Conditional | - | Registration to drop (required for `unregister_table`) |
 
 **Actions:**
 
@@ -1221,9 +1218,8 @@ List, retrieve, update, delete, or share saved assets. All mutations enforce own
 | `share` | Grant access to an asset you own. With `recipient`: a restricted share addressed to that person, who is emailed the link. Without: a link, `authenticated` by default. Owner (or admin) only; anonymous callers refused. | `asset_id` |
 | `list_shares` | The shares that currently grant access to the asset — revoked and expired ones excluded — with recipient, permission, access mode, view URL, and access count | `asset_id` |
 | `revoke_share` | End one share by ID. Its token stops opening the asset immediately | `share_id` |
-| `register_table` | Make a CSV asset queryable as an external table, without copying it. Every column is `VARCHAR` | `connection` |
-| `list_tables` | The tables registered over an asset, each with its columns and whether the file has moved on since | `asset_id` |
-| `unregister_table` | Drop one registered table. The asset's file is unchanged | `registration_id` |
+
+Registering an asset as a queryable table is the separate [`manage_table`](#manage_table) tool, which serves an uploaded resource through the same action.
 
 **Response Schema (list):**
 
@@ -1291,3 +1287,59 @@ List, retrieve, update, delete, or share saved assets. All mutations enforce own
 | Asset not found | `asset not found: ...` |
 | Wrong owner | `you can only {action} your own assets` |
 | Invalid action | `invalid action "...": must be one of: list, get, update, delete` |
+
+---
+
+### manage_table
+
+Make a stored CSV readable as a query-engine table over the directory the file already sits in, so `trino_query` can join it to warehouse tables. Nothing is copied or ingested.
+
+The file is named by its `reference`, the string a `search` hit and a `fetch` document carry, so one action serves every kind of stored file and no argument names the kind.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `action` | string | Yes | - | One of: `register`, `list`, `unregister` |
+| `reference` | string | Conditional | - | The file: `mcp:resource:<id>` (uploaded reference material) or `mcp:asset:<id>` (saved asset). Required for `register` and `list` |
+| `connection` | string | Conditional | - | Trino connection whose scratch schema holds the table (required for `register`) |
+| `table_name` | string | No | filename slug | Name for the registered table; persona-prefixed either way |
+| `registration_id` | string | Conditional | - | Registration to drop (required for `unregister`) |
+
+**Actions:**
+
+| Action | Description | Required Params |
+|--------|-------------|-----------------|
+| `register` | Create an external table over the file. Every column is `VARCHAR`, so the response carries a sample join showing the `CAST` | `reference`, `connection` |
+| `list` | The tables registered over this file, each with its columns and whether the file has moved on since (`stale`) | `reference` |
+| `unregister` | Drop one registered table. The file itself is unchanged | `registration_id` |
+
+**Response Schema (register):**
+
+```json
+{
+  "reference": "mcp:resource:res_01HK7R9F",
+  "registration_id": "reg_9f2c1d4b8a3e5602",
+  "connection": "scratch",
+  "query_table": "scratch.uploads.analyst_vendor_keys",
+  "columns": ["store_id", "vendor_code", "rebate_pct"],
+  "sample_sql": "SELECT ... CAST(u.store_id AS integer) ...",
+  "registered_by": "analyst@example.com",
+  "stale": false,
+  "message": "Registered as scratch.uploads.analyst_vendor_keys on connection scratch. Every column is VARCHAR, so a join to a typed column needs a CAST."
+}
+```
+
+**Error Codes:**
+
+| Condition | Error Message |
+|-----------|---------------|
+| Missing reference | `reference is required for {action}: pass the mcp:resource: or mcp:asset: reference from a search hit, verbatim.` |
+| Missing connection | `connection is required for register: ...` |
+| Missing registration_id | `registration_id is required for unregister: ...` |
+| Not a stored-file reference | `reference "..." is not a reference to a stored file: ...` |
+| Missing, deleted, or not yours | `that reference names no stored file you can register` |
+| No signed-in identity | `Registering a table needs a signed-in identity. ...` |
+| Deployment cannot register | `This deployment cannot register tables: it needs a Trino connection with a scratch catalog and schema configured. ...` |
+
+Who may register is authority to change the file, not to read it: an asset by its owner or an administrator, a resource by its uploader or an administrator of its scope. See [Registered Tables](../server/registered-tables.md).

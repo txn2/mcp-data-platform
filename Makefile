@@ -601,16 +601,29 @@ verify:
 	@$(MAKE) --no-print-directory -j4 verify-checks
 	@echo ""
 	@echo "=== All checks passed ==="
-	@# Write the gate sentinel: the short SHA-256 of the working-tree diff
-	@# (staged + unstaged) at the moment verify completed. The pre-commit
-	@# review gate (~/.claude/hooks/review-gate.sh) compares this hash to
-	@# the live diff at commit time — if they match, this verify run is
-	@# proof CI-equivalent checks passed on the exact code being committed.
+	@# Write the gate sentinel: the id of a tree built from the working copy at
+	@# the moment verify completed. The pre-commit review gate
+	@# (~/.claude/hooks/review-gate.sh) recomputes it at commit time — if they
+	@# match, this verify run is proof CI-equivalent checks passed on the exact
+	@# code being committed.
+	@#
+	@# It is a tree id rather than a hash of `git diff`, and that is not a style
+	@# choice: a diff does not mention an untracked file, so a brand-new source
+	@# file written after a green run left the old hash unchanged and was waved
+	@# through unverified, while `git add`-ing that same file changed the hash
+	@# and rejected a tree verify had passed on. A tree built with `git add -A`
+	@# sees the file either way.
+	@#
 	@# Hash computation MUST stay byte-identical to compute_diff_hash() in
-	@# review-gate.sh, otherwise the gate will reject every commit.
+	@# review-gate.sh. When the two drift, the sentinel becomes a value the two
+	@# readers disagree about and the gate rejects EVERY commit.
 	@mkdir -p .claude
-	@{ git diff --cached HEAD 2>/dev/null; git diff 2>/dev/null; } \
-		| shasum -a 256 | cut -c1-16 > .claude/.last-verify-passed
+	@dir=$$(mktemp -d); \
+		git read-tree --index-output=$$dir/index HEAD 2>/dev/null; \
+		GIT_INDEX_FILE=$$dir/index git add -A 2>/dev/null; \
+		GIT_INDEX_FILE=$$dir/index git write-tree 2>/dev/null \
+			| cut -c1-16 > .claude/.last-verify-passed; \
+		rm -rf $$dir
 	@echo "Wrote .claude/.last-verify-passed (gate sentinel)"
 
 ## verify-checks: the read-only half of `verify`, run concurrently by it.

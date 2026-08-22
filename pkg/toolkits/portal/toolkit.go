@@ -33,6 +33,10 @@ const (
 	SaveToolName = "save_asset"
 	// ManageToolName is the name of the asset-management tool.
 	ManageToolName = "manage_asset"
+	// ManageTableToolName is the name of the table-registration tool. It is
+	// not asset-keyed: it acts on any stored file a reference names, which is
+	// why it is its own tool rather than a set of manage_asset actions.
+	ManageTableToolName = "manage_table"
 )
 
 const (
@@ -75,12 +79,12 @@ const (
 	actionListShares  = "list_shares"
 	actionRevokeShare = "revoke_share"
 
-	// Table-registration actions (#1327). Registering puts an asset's stored
+	// manage_table action names (#1327, #1428). Registering puts a stored
 	// CSV in a schema everyone granted the connection can read, so like
-	// sharing they are owner authority.
-	actionRegisterTable   = "register_table"
-	actionUnregisterTable = "unregister_table"
-	actionListTables      = "list_tables"
+	// sharing it is owner authority.
+	tableActionRegister   = "register"
+	tableActionUnregister = "unregister"
+	tableActionList       = "list"
 
 	// Content editing and navigation actions (#1033). These make the cost of
 	// an edit proportional to the size of the edit rather than the size of
@@ -169,14 +173,6 @@ type manageAssetInput struct {
 	AccessMode string `json:"access_mode,omitempty"`
 	ExpiresIn  string `json:"expires_in,omitempty"`
 	ShareID    string `json:"share_id,omitempty"`
-
-	// Table-registration arguments (#1327). Connection names the Trino
-	// connection whose scratch schema holds the table; TableName is optional
-	// and defaults to a slug of the asset's filename. RegistrationID selects
-	// the registration unregister_table drops.
-	Connection     string `json:"connection,omitempty"`
-	TableName      string `json:"table_name,omitempty"`
-	RegistrationID string `json:"registration_id,omitempty"`
 
 	// Content editing and navigation arguments (#1033). Edits carries the
 	// ordered patch; the rest select what to read or search.
@@ -304,9 +300,9 @@ type Toolkit struct {
 
 	captureProvenance portal.ProvenanceCapturer
 	directory         DirectoryReader
-	// tables registers an asset's stored CSV as a query-engine table. Nil on a
+	// tables registers a stored CSV as a query-engine table. Nil on a
 	// deployment with no Trino connection carrying a scratch target, which
-	// leaves the table actions reporting that rather than failing.
+	// leaves manage_table reporting that rather than failing.
 	tables TableRegistrar
 
 	semanticProvider semantic.Provider
@@ -377,7 +373,6 @@ const manageToolDescription = "Manages saved assets and collections. " +
 	"Asset actions: list, get, update, delete, list_versions, revert, search. " +
 	"Content actions: patch, locate, get_content, outline, stats, diff. " +
 	"Sharing actions: share, list_shares, revoke_share. " +
-	"Table actions: register_table, unregister_table, list_tables. " +
 	"Collection actions: create_collection, list_collections, get_collection, " +
 	"update_collection, delete_collection, set_sections. " +
 	"Use 'share' to give a person access to an asset you own — name them with " +
@@ -385,10 +380,7 @@ const manageToolDescription = "Manages saved assets and collections. " +
 	"and they get an email with the link; omit 'recipient' for a link instead, " +
 	"which any signed-in user can open (access_mode public makes it open to " +
 	"anyone holding it and requires expires_in). " +
-	"Use 'register_table' on a CSV asset to make it queryable: it creates an " +
-	"external table over the file where it already sits, so trino_query can " +
-	"join it to warehouse tables. Every column is VARCHAR, so a join to a " +
-	"typed column needs a CAST. " +
+	"To make a CSV asset queryable, use the separate manage_table tool. " +
 	"Note: 'list' returns full metadata including provenance for each asset. " +
 	"Use 'get' with a specific asset_id for the metadata row and 'get_content' for the body. " +
 	"Use 'search' with a 'query' to rank your assets by relevance (semantic + " +
@@ -396,7 +388,27 @@ const manageToolDescription = "Manages saved assets and collections. " +
 	textpatch.VerbsDescription + " " +
 	"Human feedback on assets is handled by the separate manage_feedback tool."
 
-// RegisterTools registers save_asset and manage_asset with the MCP server.
+// manageTableToolDescription is the advertised description of manage_table.
+const manageTableToolDescription = "Makes a stored CSV file queryable as a table, so trino_query can join it to " +
+	"warehouse tables. Actions: register, list, unregister. " +
+	"Name the file with the 'reference' a search hit or fetch document carries -- mcp:resource:<id> for " +
+	"reference material somebody uploaded, mcp:asset:<id> for a saved asset. One action serves both: what " +
+	"kind of file it is travels inside the reference. " +
+	"Nothing is copied or ingested: 'register' creates an external table over the file where it already " +
+	"sits, on the scratch schema of the Trino connection you name (call list_connections to see which ones " +
+	"you can reach). Every column comes back as VARCHAR, which is the storage format's rule and not a " +
+	"platform choice, so a join to a typed warehouse column needs a CAST -- the response carries a sample " +
+	"statement showing it. " +
+	"A new revision or version of the file leaves the table serving the content that was current when it " +
+	"was registered; that is reported as stale, and registering again moves the table to the current " +
+	"content. Overwriting the same file in place needs no re-registration. " +
+	"'unregister' drops the table and leaves the file untouched. " +
+	"Registering is the authority to change the file, not the authority to read it: an asset's owner or an " +
+	"administrator, a resource's uploader or an administrator of its scope. The scratch schema is shared, " +
+	"so everyone granted the connection can read what you register."
+
+// RegisterTools registers save_asset, manage_asset, manage_table and
+// manage_feedback with the MCP server.
 func (t *Toolkit) RegisterTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        SaveToolName,
@@ -411,6 +423,13 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		Description: manageToolDescription,
 		InputSchema: manageAssetSchema,
 	}, t.handleManageAsset)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        ManageTableToolName,
+		Title:       "Manage Table",
+		Description: manageTableToolDescription,
+		InputSchema: manageTableSchema,
+	}, t.handleManageTable)
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:  feedbackToolName,
@@ -497,7 +516,7 @@ const showAssetsPromptContent = `List my saved assets.
 
 // Tools returns the list of tool names provided by this toolkit.
 func (*Toolkit) Tools() []string {
-	return []string{SaveToolName, ManageToolName, feedbackToolName}
+	return []string{SaveToolName, ManageToolName, ManageTableToolName, feedbackToolName}
 }
 
 // SetFeedbackNotifications installs the notification trigger and the mention
@@ -660,9 +679,6 @@ func (t *Toolkit) buildActions() map[string]manageActionHandler {
 		actionShare:            t.handleShare,
 		actionListShares:       t.handleListShares,
 		actionRevokeShare:      t.handleRevokeShare,
-		actionRegisterTable:    t.handleRegisterTable,
-		actionUnregisterTable:  t.handleUnregisterTable,
-		actionListTables:       t.handleListTables,
 	}
 }
 
@@ -686,7 +702,6 @@ func (t *Toolkit) handleManageAsset(ctx context.Context, _ *mcp.CallToolRequest,
 			"invalid action %q: must be one of: list, get, update, delete, list_versions, revert, search, "+
 				"patch, locate, get_content, outline, stats, diff, "+
 				"share, list_shares, revoke_share, "+
-				"register_table, unregister_table, list_tables, "+
 				"create_collection, list_collections, get_collection, update_collection, delete_collection, set_sections",
 			input.Action)), nil, nil
 	}

@@ -176,7 +176,7 @@ func newHarness(t *testing.T, opts ...func(*harness)) *harness {
 
 	handler := New(Deps{
 		Registrar: registrar,
-		Assets: func(_ context.Context, id string, _ *portal.User) (tableregister.Source, bool) {
+		Assets: func(_ context.Context, id string, _ tableregister.Caller) (tableregister.Source, bool) {
 			src, ok := h.assets[id]
 			return src, ok
 		},
@@ -353,7 +353,7 @@ func TestRegisterRoute_PlatformFailureIsNotAConflict(t *testing.T) {
 	})
 	handler := New(Deps{
 		Registrar: failing,
-		Assets: func(_ context.Context, id string, _ *portal.User) (tableregister.Source, bool) {
+		Assets: func(_ context.Context, id string, _ tableregister.Caller) (tableregister.Source, bool) {
 			src, ok := h.assets[id]
 			return src, ok
 		},
@@ -414,7 +414,7 @@ func TestKindRoutes_ResourcesAreServedToo(t *testing.T) {
 			Objects: map[string]tableregister.ObjectReader{tableregister.KindResource: objects},
 			NewID:   func() (string, error) { return "reg_a", nil },
 		}),
-		Resources: func(_ context.Context, id string, _ *portal.User) (tableregister.Source, bool) {
+		Resources: func(_ context.Context, id string, _ tableregister.Caller) (tableregister.Source, bool) {
 			if id != "res_1" {
 				return tableregister.Source{}, false
 			}
@@ -513,7 +513,7 @@ func TestConnectionsRoute_NoEnumerator(t *testing.T) {
 			Trino:   &fakeTrino{hasTarget: true},
 			Objects: map[string]tableregister.ObjectReader{tableregister.KindAsset: &fakeObjects{}},
 		}),
-		Assets: func(context.Context, string, *portal.User) (tableregister.Source, bool) {
+		Assets: func(context.Context, string, tableregister.Caller) (tableregister.Source, bool) {
 			return tableregister.Source{}, false
 		},
 	})

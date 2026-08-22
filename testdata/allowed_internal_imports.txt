@@ -355,7 +355,7 @@ internal/platform/tableregister -> pkg/audit
 internal/platform/tableregister -> pkg/contenttype
 internal/platform/tableregister -> pkg/knowledge
 internal/platform/tableregister -> pkg/middleware
-internal/platform/tableregister -> pkg/portal
+internal/platform/tableregister -> pkg/portal/knowledgepage
 internal/platform/tableregister -> pkg/toolkits/portal
 internal/platform/tableregister -> pkg/toolkits/trino
 internal/platform/toolargs -> pkg/middleware
