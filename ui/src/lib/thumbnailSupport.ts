@@ -44,3 +44,22 @@ export function isThemeable(contentType: string): boolean {
   const ct = contentType.toLowerCase();
   return ct.includes("markdown") || ct.includes("csv");
 }
+
+/**
+ * Thumbnail filenames written before the leading-dot rename.
+ *
+ * They are ordinary files to Trino, which reads every non-hidden object under
+ * an external location as CSV rows, so a CSV asset thumbnailed under them
+ * cannot be registered as a table until they are replaced. An asset carrying
+ * one is queued for capture again even though it already has a thumbnail; the
+ * capture endpoint removes the object it supersedes.
+ */
+const LEGACY_THUMBNAIL_FILENAMES = ["thumbnail.png", "thumbnail_dark.png"];
+
+/**
+ * Returns true if a recorded thumbnail key uses one of the legacy filenames.
+ */
+export function isLegacyThumbnailKey(key: string): boolean {
+  const name = key.slice(key.lastIndexOf("/") + 1);
+  return LEGACY_THUMBNAIL_FILENAMES.includes(name);
+}

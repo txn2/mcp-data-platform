@@ -86,6 +86,35 @@ describe("ThumbnailQueue invalidation batching", () => {
     expect(invalidate).toHaveBeenCalledTimes(1);
   });
 
+  it("re-queues an asset whose thumbnail was written under the legacy name", async () => {
+    const qc = new QueryClient();
+    const assets = [
+      // Already thumbnailed under the current hidden names: nothing to do.
+      asset("hidden", {
+        content_type: "text/csv",
+        thumbnail_s3_key: "k/hidden/.thumbnail.png",
+        thumbnail_dark_s3_key: "k/hidden/.thumbnail_dark.png",
+      }),
+      // Thumbnailed before the rename. The objects sit beside the content as
+      // ordinary files, which is what keeps the CSV from registering as a
+      // table, so this one is captured again.
+      asset("legacy", {
+        content_type: "text/csv",
+        thumbnail_s3_key: "k/legacy/thumbnail.png",
+        thumbnail_dark_s3_key: "k/legacy/thumbnail_dark.png",
+      }),
+    ];
+
+    render(
+      <QueryClientProvider client={qc}>
+        <ThumbnailQueue assets={assets} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(fetchRaw).toHaveBeenCalledTimes(1));
+    expect(fetchRaw).toHaveBeenCalledWith("/assets/legacy/content");
+  });
+
   it("does not invalidate when every capture fails (nothing to refresh)", async () => {
     captureMode.value = "failed";
     const qc = new QueryClient();

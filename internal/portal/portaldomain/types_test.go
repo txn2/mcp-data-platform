@@ -200,3 +200,25 @@ func TestValidateShareMessage(t *testing.T) {
 		})
 	}
 }
+
+// TestIsLegacyThumbnailKey pins the names a re-capture supersedes. The hidden
+// spellings must not match: deleting the key an asset row points at would take
+// the thumbnail away instead of clearing the directory.
+func TestIsLegacyThumbnailKey(t *testing.T) {
+	tests := []struct {
+		key  string
+		want bool
+	}{
+		{"portal/u1/a1/thumbnail.png", true},
+		{"portal/u1/a1/thumbnail_dark.png", true},
+		{"thumbnail.png", true},
+		{"portal/u1/a1/.thumbnail.png", false},
+		{"portal/u1/a1/.thumbnail_dark.png", false},
+		{"portal/u1/a1/content.csv", false},
+		{"portal/u1/a1/my_thumbnail.png", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		assert.Equal(t, tt.want, IsLegacyThumbnailKey(tt.key), tt.key)
+	}
+}
