@@ -27,6 +27,8 @@ func TestInspectCSV_LineSafeFilePasses(t *testing.T) {
 	assert.Nil(t, InspectCSV([]byte(csvBody)))
 	assert.Nil(t, InspectCSV([]byte("a,b\n\"x,y\",\"say \"\"hi\"\"\"\n")),
 		"a quoted comma and a doubled quote are read correctly by a line-based reader")
+	assert.Nil(t, InspectCSV([]byte("store,note\nMünchen,café ☕\n")),
+		"multi-byte UTF-8 is UTF-8; only the encodings a table cannot read are named")
 }
 
 // TestInspectCSV_NamesTheRowsAndTheColumns is the refusal a person reads: how
@@ -498,23 +500,50 @@ func TestInspectCSV_NamesAWideEncodingRatherThanGuessing(t *testing.T) {
 		name    string
 		content []byte
 		want    string
+		// says is the phrase the refusal has to carry. A file identified by a
+		// byte-order mark is told what it looks like; one identified only by
+		// the NUL in it is told about the NUL, since naming an encoding on
+		// that evidence alone would be a guess.
+		says string
 	}{
-		{"utf-16 little-endian", utf16LE("name,note\nalice,ok\n"), encodingUTF16},
-		{"utf-16 big-endian", append([]byte{0xFE, 0xFF}, 0x00, 'a', 0x00, ','), encodingUTF16},
-		{"utf-32 little-endian", []byte{0xFF, 0xFE, 0x00, 0x00, 'a', 0, 0, 0}, encodingUTF32},
-		{"utf-32 big-endian", []byte{0x00, 0x00, 0xFE, 0xFF, 0, 0, 0, 'a'}, encodingUTF32},
-		{"no mark, but not single-byte text", []byte("name\x00,note\x00\n\xff"), encodingWide},
+		{"utf-16 little-endian", utf16LE("name,note\nalice,ok\n"), encodingUTF16, encodingUTF16},
+		{"utf-16 big-endian", append([]byte{0xFE, 0xFF}, 0x00, 'a', 0x00, ','), encodingUTF16, encodingUTF16},
+		{"utf-32 little-endian", []byte{0xFF, 0xFE, 0x00, 0x00, 'a', 0, 0, 0}, encodingUTF32, encodingUTF32},
+		{"utf-32 big-endian", []byte{0x00, 0x00, 0xFE, 0xFF, 0, 0, 0, 'a'}, encodingUTF32, encodingUTF32},
+		{"no mark, but not single-byte text", []byte("name\x00,note\x00\n\xff"), encodingWide, "NUL byte"},
+		// A NUL is valid UTF-8, so a markless wide encoding whose content is
+		// all ASCII passes a UTF-8 test with a NUL beside every character.
+		// Nothing else in the file says what it is, so it is named for what it
+		// is not (#1447).
+		{
+			"utf-16 little-endian with no byte-order mark", utf16LEUnmarked("name,note\nalice,ok\n"),
+			encodingWide, "NUL byte",
+		},
 		// A carriage return is one byte here and part of a wider unit there,
 		// so the line endings are left alone rather than guessed at.
-		{"utf-16 little-endian, carriage-return endings", utf16LE("name,note\ralice,ok\r"), encodingUTF16},
+		{
+			"utf-16 little-endian, carriage-return endings", utf16LE("name,note\ralice,ok\r"),
+			encodingUTF16, encodingUTF16,
+		},
+		// A Windows ending in a wide encoding puts a carriage return beside a
+		// NUL, which a single-byte reader takes for a line break inside a
+		// cell. Nothing is said about it: the encoding is the whole answer.
+		{
+			"utf-16 little-endian, windows line endings", utf16LE("name,note\r\nalice,ok\r\n"),
+			encodingUTF16, encodingUTF16,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			defect := InspectCSV(tc.content)
 			require.NotNil(t, defect)
 			assert.Equal(t, tc.want, defect.Encoding)
 			assert.Empty(t, defect.LineEndings, "nothing is claimed about a file that is not single-byte text")
+			assert.Zero(t, defect.Rows, "nor how many of its rows are torn")
+			assert.Empty(t, defect.Columns,
+				"nor what its columns are called, which would be named out of bytes read in the wrong encoding")
+			assert.NotContains(t, defect.Reason(), "\x00", "so no NUL reaches the refusal a person reads")
 			assert.False(t, defect.Correctable(), "the platform does not convert this itself")
-			assert.Contains(t, defect.Reason(), tc.want)
+			assert.Contains(t, defect.Reason(), tc.says)
 
 			_, _, err := NormalizeCSV(tc.content)
 			require.Error(t, err, "and it refuses to rewrite the file into mojibake")
@@ -525,13 +554,19 @@ func TestInspectCSV_NamesAWideEncodingRatherThanGuessing(t *testing.T) {
 }
 
 // utf16LE encodes text the way a spreadsheet's "Unicode Text" export does:
-// little-endian, with a byte-order mark. Each code unit is masked to a byte
-// rather than converted, so the two halves are the ones the encoding puts
-// there and not whatever a narrowing conversion happens to keep.
+// little-endian, with a byte-order mark.
 func utf16LE(text string) []byte {
+	return append([]byte{0xFF, 0xFE}, utf16LEUnmarked(text)...)
+}
+
+// utf16LEUnmarked is the same encoding with no byte-order mark, which is what
+// an export written for a reader that was told the encoding looks like: no
+// byte in it announces what it is. Each code unit is masked to a byte rather
+// than converted, so the two halves are the ones the encoding puts there and
+// not whatever a narrowing conversion happens to keep.
+func utf16LEUnmarked(text string) []byte {
 	units := utf16.Encode([]rune(text))
-	out := make([]byte, 0, 2+2*len(units))
-	out = append(out, 0xFF, 0xFE)
+	out := make([]byte, 0, 2*len(units))
 	for _, unit := range units {
 		out = append(out, byte(unit&0xFF), byte((unit>>8)&0xFF))
 	}

@@ -1264,23 +1264,41 @@ func TestRegister_AuthorityIsSettledBeforeTheFileIsTouched(t *testing.T) {
 // "Unicode Text" export is UTF-16, whose every byte is valid windows-1252, so
 // a correction would replace the person's data with a character per byte and
 // report it as a repair. The refusal names the encoding and offers nothing,
-// even when the correction was asked for.
+// even when the correction was asked for. Both shapes of that export are
+// refused: the one that leads with a byte-order mark, and the one that does
+// not and is otherwise valid UTF-8 all the way through.
 func TestRegister_WideEncodingIsRefusedOutrightRatherThanOffered(t *testing.T) {
-	wide := utf16LE("store_id,note\n101,ok\n")
-	h := newHarness(t, func(h *harness) { h.objects.body = wide })
+	for _, tc := range []struct {
+		name string
+		body []byte
+		// appearsAs is what the refusal has to say about the file, so the
+		// person is told what was found in it rather than only that it is
+		// wrong.
+		appearsAs string
+	}{
+		{"with a byte-order mark", utf16LE("store_id,note\n101,ok\n"), "UTF-16"},
+		// The same export written without the mark. Its content is ASCII, so
+		// every one of its NULs is valid UTF-8 and nothing but the NULs
+		// themselves says it is not a UTF-8 file (#1447).
+		{"with none", utf16LEUnmarked("store_id,note\n101,ok\n"), "NUL byte"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t, func(h *harness) { h.objects.body = tc.body })
 
-	for _, repair := range []bool{false, true} {
-		_, err := h.reg.Register(context.Background(), testCaller(), testSource(),
-			Request{Connection: "scratch", Repair: repair})
-		require.Error(t, err)
-		assert.ErrorIs(t, err, ErrRefused)
-		assert.NotErrorIs(t, err, ErrNeedsRepair,
-			"nothing is offered that the platform cannot honestly do")
-		assert.Contains(t, err.Error(), "UTF-16")
-		assert.Contains(t, err.Error(), "Re-export it as UTF-8 CSV")
+			for _, repair := range []bool{false, true} {
+				_, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+					Request{Connection: "scratch", Repair: repair})
+				require.Error(t, err)
+				assert.ErrorIs(t, err, ErrRefused)
+				assert.NotErrorIs(t, err, ErrNeedsRepair,
+					"nothing is offered that the platform cannot honestly do")
+				assert.Contains(t, err.Error(), tc.appearsAs)
+				assert.Contains(t, err.Error(), "Re-export it as UTF-8 CSV")
+			}
+			assert.Empty(t, h.reviser.saved, "the file is never rewritten")
+			assert.Empty(t, h.trino.statements, "and no table is created over it")
+		})
 	}
-	assert.Empty(t, h.reviser.saved, "the file is never rewritten")
-	assert.Empty(t, h.trino.statements)
 }
 
 // TestRegister_ACorrectionThatARefusalFollowedIsStillReported. The correction

@@ -198,7 +198,9 @@ already reading it for the header row - and refuses three things:
 - **A line break inside a cell.** The refusal says how many rows carry one and
   which columns they are in.
 - **Bytes that are not UTF-8.** They reach every cell as replacement marks: a
-  cell reading `15%` in the source arrives as `15%` followed by mojibake.
+  cell reading `15%` in the source arrives as `15%` followed by mojibake. A NUL
+  byte is refused on the same ground even where the rest of the file is valid
+  UTF-8, for the reason under *Correcting the file* below.
 
 None of the three is refused silently and none leaves anything behind: no table
 is created and no registration is recorded.
@@ -275,16 +277,33 @@ mark, or a NUL byte, is therefore refused outright and no correction is offered
 for it: re-export it as UTF-8 CSV and upload that. Nothing is offered that the
 platform cannot honestly do.
 
+The NUL byte is looked for before the UTF-8 check rather than after it, because
+a NUL is itself valid UTF-8. The same *Unicode Text* export written without a
+byte-order mark, over content that is plain ASCII, is a valid UTF-8 file with a
+NUL beside every character; a UTF-8 check alone passes it, and the table it
+would register carries those NULs in its column names and in every cell.
+
+Such a file is then reported on its encoding alone. The refusal says nothing
+about its line endings, how many of its rows are torn, or what its columns are
+called, because each of those readings would be taken from bytes read in the
+wrong encoding: a Windows line ending in a UTF-16 file puts a carriage return
+beside a NUL, which a reader of single-byte text takes for a line break inside
+a cell, and the column it would name is the run of NUL-laden bytes around it
+rather than a name the file holds.
+
+Where the NUL is what identified the file, the refusal names the NUL rather
+than an encoding, since nothing else about those bytes says what they are.
+
 A correction is written before the last of the checks have run, so a refusal -
 or a coordinator that would not run the statement - can arrive after the file
 has already changed. The answer says so in that case, and the audit event
 records the correction whether or not the registration it was for succeeded.
 The file stays corrected; registering it again creates the table.
 
-A file that is already line-safe and valid UTF-8 registers exactly as it always
-did. No version is written, nothing is rewritten, and the result says nothing
-extra - including when the correction was asked for and turned out to be
-unnecessary.
+A file that is already line-safe and valid UTF-8 with no NUL in it registers
+exactly as it always did. No version is written, nothing is rewritten, and the
+result says nothing extra - including when the correction was asked for and
+turned out to be unnecessary.
 
 ## Changing the file: two cases that behave oppositely
 
@@ -354,7 +373,9 @@ refused and the reason is stated. Upload the file under another name.
 from.
 
 **A CSV a line-based reader cannot read.** Lines that end in a carriage return
-rather than a newline, a line break inside a cell, or bytes that are not UTF-8.
+rather than a newline, a line break inside a cell, or bytes that are not
+readable as UTF-8 text - which a NUL byte makes them, whether or not the rest
+of the file is valid UTF-8.
 See
 [A CSV a query engine cannot read](#a-csv-a-query-engine-cannot-read).
 

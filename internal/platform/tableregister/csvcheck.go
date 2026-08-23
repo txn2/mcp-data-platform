@@ -62,8 +62,9 @@ type CSVDefect struct {
 	Rows int `json:"rows,omitempty"`
 	// Columns names the columns those line breaks are in, in header order.
 	Columns []string `json:"columns,omitempty"`
-	// Encoding names what the bytes appear to be when they are not UTF-8, and
-	// is empty when they are.
+	// Encoding names what the bytes appear to be when they are not readable as
+	// UTF-8 text, and is empty when they are. A NUL byte is one of the ways
+	// they are not, whether or not the rest of the file is valid UTF-8.
 	Encoding string `json:"encoding,omitempty"`
 	// LineEndings names what the file's lines end in when that is not
 	// something a line-based reader splits on, and is empty when it is.
@@ -86,12 +87,17 @@ type CSVDefect struct {
 // it.
 func InspectCSV(content []byte) *CSVDefect {
 	defect := CSVDefect{Encoding: sourceEncoding(content)}
-	// Only where the bytes are single-byte text. A carriage return in a wide
-	// encoding is two bytes or more and the file is refused for its encoding
-	// anyway, so translating one byte of it would be a guess.
-	if defect.Correctable() {
-		content, defect.LineEndings = withLineFeeds(content)
+	// A file in an encoding the platform does not read is reported on its
+	// encoding alone. Everything below is a single-byte reader, and over a
+	// wide encoding it reads bytes that are not the characters the file holds:
+	// it takes a carriage return that is half of a wider unit for a line break
+	// inside a cell, and it names the column that break is in out of the
+	// NUL-laden bytes around it. Both would go into the refusal a person
+	// reads, and neither can be checked against the file.
+	if !defect.Correctable() {
+		return &defect
 	}
+	content, defect.LineEndings = withLineFeeds(content)
 	defect.Rows, defect.Columns = scanEmbeddedBreaks(content)
 	if defect.Rows == 0 && defect.Encoding == "" && defect.LineEndings == "" {
 		return nil
@@ -208,17 +214,21 @@ func wellFormedRecords(content []byte) int {
 }
 
 // sourceEncoding names what a file's bytes appear to be, or "" when they are
-// valid UTF-8.
+// valid UTF-8 with no NUL in them.
 //
-// The byte-order marks are checked before anything else and widest first,
-// since a UTF-32LE mark begins with a UTF-16LE one. A file with no mark and a
-// NUL byte in it is not single-byte text either, whatever it is: a CSV in a
-// code page has no NUL in it, and treating one as windows-1252 would turn
-// every character into two.
+// The UTF-8 test runs last, because passing it does not rule a wide encoding
+// out. A NUL is valid UTF-8, so a UTF-16 or UTF-32 file of ASCII content
+// written without a byte-order mark passes that test with a NUL beside every
+// character, and would reach Trino as a table whose column names and cells
+// carry them.
+//
+// The byte-order marks are read first and widest first, since a UTF-32LE mark
+// begins with a UTF-16LE one and a UTF-32BE mark begins with the NUL the case
+// below it looks for. A file with no mark and a NUL byte in it is not
+// single-byte text either, whatever it is: a CSV in a code page has no NUL in
+// it, and treating one as windows-1252 would turn every character into two.
 func sourceEncoding(content []byte) string {
 	switch {
-	case utf8.Valid(content):
-		return ""
 	case bytes.HasPrefix(content, []byte{0xFF, 0xFE, 0x00, 0x00}),
 		bytes.HasPrefix(content, []byte{0x00, 0x00, 0xFE, 0xFF}):
 		return encodingUTF32
@@ -226,6 +236,8 @@ func sourceEncoding(content []byte) string {
 		return encodingUTF16
 	case bytes.IndexByte(content, 0) >= 0:
 		return encodingWide
+	case utf8.Valid(content):
+		return ""
 	default:
 		return encodingWindows1252
 	}
@@ -346,9 +358,17 @@ func (d *CSVDefect) Reason() string {
 		parts = append(parts,
 			"this file's bytes are not UTF-8 and read as "+d.Encoding+
 				", so the characters outside plain ASCII would arrive in the table as replacement marks")
+	case d.Encoding == encodingWide:
+		// This label is reached on the NUL alone, so the NUL is what the
+		// sentence reports. "These bytes are not UTF-8" would be false for a
+		// markless UTF-16 export of ASCII, whose bytes are valid UTF-8, and
+		// naming an encoding on that evidence would be a guess.
+		parts = append(parts,
+			"this file has a NUL byte in it, which is not text, and a table would read it as part of"+
+				" whatever column name or cell it falls in")
 	case d.Encoding != "":
 		parts = append(parts,
-			"this file's bytes are not UTF-8 and look like "+d.Encoding+
+			"this file's bytes look like "+d.Encoding+
 				", which a table would read as one wrong character per byte")
 	}
 	return strings.Join(parts, "; ") + "."
@@ -440,7 +460,7 @@ func decodeToUTF8(content []byte) (decoded []byte, from string, err error) {
 	// mojibake and report it as a repair.
 	if !(&CSVDefect{Encoding: from}).Correctable() {
 		return nil, "", refusedf(
-			"this file's bytes are not UTF-8 and look like %s, which cannot be converted here without"+
+			"this file's bytes look like %s, which cannot be converted here without"+
 				" guessing at it; re-export it as UTF-8 CSV and upload that", from)
 	}
 	converted, err := charmap.Windows1252.NewDecoder().Bytes(content)
