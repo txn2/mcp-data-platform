@@ -12,6 +12,7 @@ export function ResourceResults({
   isLoading,
   filtering,
   admin,
+  readOnlyNote,
   onOpen,
   onUpload,
 }: {
@@ -21,6 +22,12 @@ export function ResourceResults({
   // from a library nobody has uploaded to.
   filtering: boolean;
   admin: boolean;
+  // Where this library's material comes from, set only when the caller has no
+  // write authority over the scope in view. It is the one signal for that: it
+  // replaces the Upload control rather than sitting beside it, so the empty
+  // state cannot end up offering an upload and naming a publisher at once. An
+  // empty library the reader may not fill is not a prompt to upload.
+  readOnlyNote?: string;
   onOpen: (resource: Resource) => void;
   onUpload: () => void;
 }) {
@@ -52,13 +59,20 @@ export function ResourceResults({
       icon={FolderOpen}
       data-testid="resources-empty"
       action={
-        <Button onClick={onUpload}>
-          <FileUp />
-          Upload Resource
-        </Button>
+        !readOnlyNote && (
+          <Button onClick={onUpload}>
+            <FileUp />
+            Upload Resource
+          </Button>
+        )
       }
     >
       <p className="font-medium text-foreground">No resources yet</p>
+      {readOnlyNote && (
+        <p data-testid="resources-read-only" className="mt-1 text-xs">
+          {readOnlyNote}
+        </p>
+      )}
       <p className="mt-1 max-w-lg text-xs">{RESOURCE_POSITIONING}</p>
     </EmptyState>
   );

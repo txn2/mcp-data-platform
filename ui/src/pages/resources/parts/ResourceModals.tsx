@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Resource } from "@/api/resources/types";
+import type { ScopeTarget } from "../scopes";
 import { UploadModal } from "../modals/UploadModal";
 import { DetailModal } from "../modals/DetailModal";
 import { EditModal } from "../modals/EditModal";
@@ -24,10 +25,15 @@ export function ResourceModals({
   state,
   admin,
   personaNames,
+  destination,
 }: {
   state: ResourceModalState;
   admin: boolean;
   personaNames: string[];
+  // The library the scope tab in view names, which is where an upload from
+  // this page lands when the caller is given no choice. Null on the admin
+  // "all" tab, where the dialog's own scope picker chooses.
+  destination: ScopeTarget | null;
 }) {
   const { uploading, setUploading, detail, setDetail, editing, setEditing, deleting, setDeleting } =
     state;
@@ -38,6 +44,7 @@ export function ResourceModals({
           onClose={() => setUploading(false)}
           admin={admin}
           personaNames={personaNames}
+          destination={destination}
         />
       )}
 
