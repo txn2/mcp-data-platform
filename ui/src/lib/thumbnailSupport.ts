@@ -28,10 +28,23 @@ export const THUMBNAIL_SOURCE_LIMIT = 1024 * 1024; // 1 MB
 
 /**
  * Returns true if the content type supports thumbnail generation.
+ *
+ * The "json" fragment covers both JSON families: every spelling of
+ * newline-delimited JSON contains it ("application/x-ndjson",
+ * "application/jsonl"), as do the vendor dialects ("application/vnd.acme+json").
+ * The capturer draws each family in its own form -- see domKind in
+ * components/ThumbnailGenerator.
  */
 export function isThumbnailSupported(contentType: string): boolean {
   const ct = contentType.toLowerCase();
-  return ct.includes("html") || ct.includes("jsx") || ct.includes("svg") || ct.includes("markdown") || ct.includes("csv");
+  return (
+    ct.includes("html") ||
+    ct.includes("jsx") ||
+    ct.includes("svg") ||
+    ct.includes("markdown") ||
+    ct.includes("csv") ||
+    ct.includes("json")
+  );
 }
 
 /**
@@ -42,7 +55,7 @@ export function isThumbnailSupported(contentType: string): boolean {
  */
 export function isThemeable(contentType: string): boolean {
   const ct = contentType.toLowerCase();
-  return ct.includes("markdown") || ct.includes("csv");
+  return ct.includes("markdown") || ct.includes("csv") || ct.includes("json");
 }
 
 /**

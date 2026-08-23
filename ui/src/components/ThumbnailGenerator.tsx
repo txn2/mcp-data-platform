@@ -16,8 +16,24 @@ import {
   captureIframe,
   uploadThumbnail,
   isThemeable,
-  type ThumbnailVariant,
 } from "@/lib/thumbnail";
+import { CT, normalizeContentType } from "@/lib/contentType";
+import {
+  LIGHT_SCHEME,
+  DARK_SCHEME,
+  csvProseCss,
+  markdownProseCss,
+  type ProseTokens,
+  type Scheme,
+} from "@/components/thumbnail/schemes";
+import {
+  buildJsonLines,
+  buildNdjsonRecords,
+  JsonThumbnailBody,
+  NdjsonThumbnailBody,
+  type JsonThumbnailLines,
+  type NdjsonThumbnailRecord,
+} from "@/components/thumbnail/JsonThumbnailBody";
 
 interface Props {
   assetId: string;
@@ -42,12 +58,8 @@ interface Props {
  */
 export function ThumbnailGenerator({ assetId, content, contentType, version, onCaptured, onFailed }: Props) {
   const ct = contentType.toLowerCase();
-  const isIframeType = ct.includes("html") || ct.includes("jsx");
-  const isMarkdown = ct.includes("markdown");
-  const isSvg = ct.includes("svg");
-  const isCsv = ct.includes("csv");
 
-  if (isIframeType) {
+  if (ct.includes("html") || ct.includes("jsx")) {
     return (
       <IframeCapture
         assetId={assetId}
@@ -60,7 +72,7 @@ export function ThumbnailGenerator({ assetId, content, contentType, version, onC
     );
   }
 
-  if (isMarkdown || isSvg || isCsv) {
+  if (domKind(contentType) !== null) {
     return (
       <DomCapture
         assetId={assetId}
@@ -73,6 +85,31 @@ export function ThumbnailGenerator({ assetId, content, contentType, version, onC
     );
   }
 
+  return null;
+}
+
+/** The families drawn into the page and rasterized, rather than into an iframe. */
+type DomKind = "csv" | "svg" | "json" | "ndjson" | "markdown";
+
+/**
+ * The family a content type is drawn as, or null when the capturer has no
+ * rendering for it. The tests are substring tests for the same reason
+ * lib/thumbnailSupport's are: a stored type carries parameters and vendor
+ * prefixes ("text/markdown; charset=utf-8", "application/vnd.acme+json").
+ *
+ * NDJSON is separated from JSON by the normalized type rather than by a
+ * substring, because it is a stream of independent documents drawn as a list of
+ * records and its spellings ("application/x-ndjson", "application/jsonl") both
+ * contain "json". What this returns must stay a subset of what
+ * isThumbnailSupported admits, or the queue offers an asset nothing can draw.
+ */
+function domKind(contentType: string): DomKind | null {
+  const ct = contentType.toLowerCase();
+  if (ct.includes("svg")) return "svg";
+  if (ct.includes("csv")) return "csv";
+  if (normalizeContentType(contentType) === CT.ndjson) return "ndjson";
+  if (ct.includes("json")) return "json";
+  if (ct.includes("markdown")) return "markdown";
   return null;
 }
 
@@ -171,105 +208,6 @@ function IframeCapture({
   );
 }
 
-/** Color tokens for one thumbnail color scheme. */
-interface ProseTokens {
-  bg: string;
-  fg: string;
-  codeBg: string;
-  border: string;
-  blockquoteBorder: string;
-  muted: string;
-  link: string;
-  thBg: string;
-  evenRow: string;
-}
-
-interface Scheme {
-  variant: ThumbnailVariant;
-  mermaidTheme: "default" | "dark";
-  tokens: ProseTokens;
-}
-
-const LIGHT_SCHEME: Scheme = {
-  variant: "light",
-  mermaidTheme: "default",
-  tokens: {
-    bg: "#ffffff",
-    fg: "#111827",
-    codeBg: "#f3f4f6",
-    border: "#d1d5db",
-    blockquoteBorder: "#d1d5db",
-    muted: "#6b7280",
-    link: "#2563eb",
-    thBg: "#f1f5f9",
-    evenRow: "#f8fafc",
-  },
-};
-
-// Dark tokens mirror the portal's shadcn dark palette so the captured thumbnail
-// blends into the dark card. html2canvas needs concrete colors (it cannot
-// resolve CSS custom properties off-DOM), so these are hardcoded; keep them in
-// sync with the `.dark` block in src/index.css (--card -> #131a25,
-// --card-foreground -> #f8fafc, --border/--muted/...) if that palette changes.
-// A stale value here is not self-correcting: the thumbnail is captured once and
-// stored as a blob, so it keeps the old backing forever.
-const DARK_SCHEME: Scheme = {
-  variant: "dark",
-  mermaidTheme: "dark",
-  tokens: {
-    bg: "#131a25",
-    fg: "#f8fafc",
-    codeBg: "#1e293b",
-    border: "#334155",
-    blockquoteBorder: "#475569",
-    muted: "#94a3b8",
-    link: "#60a5fa",
-    thBg: "#1e293b",
-    evenRow: "#0f172a",
-  },
-};
-
-// tableBaseCss is the table border/spacing shared by the markdown and CSV prose
-// variants; each adds its own cell sizing on top.
-//
-// All prose CSS is scoped to a caller-supplied `scope` class rather than a
-// shared `.thumb-prose`. The light and dark scheme containers are mounted into
-// the document at the same time, so a shared global selector would let the
-// later-rendered scheme's colors win for BOTH captures (the dark code/cell
-// backgrounds bled into the light thumbnail, rendering inline code as near-black
-// boxes). A unique scope per scheme keeps each capture's styles isolated.
-function tableBaseCss(t: ProseTokens, scope: string): string {
-  return `
-    .${scope} table { border-collapse: collapse; margin: 0.4em 0; }
-    .${scope} th, .${scope} td { border: 1px solid ${t.border}; padding: 0.25em 0.5em; }`;
-}
-
-function markdownProseCss(t: ProseTokens, scope: string): string {
-  return `
-    .${scope} h1 { font-size: 1.5em; font-weight: 700; margin: 0.5em 0 0.25em; }
-    .${scope} h2 { font-size: 1.25em; font-weight: 600; margin: 0.5em 0 0.25em; }
-    .${scope} h3 { font-size: 1.1em; font-weight: 600; margin: 0.4em 0 0.2em; }
-    .${scope} p { margin: 0.4em 0; }
-    .${scope} ul, .${scope} ol { padding-left: 1.5em; margin: 0.4em 0; }
-    .${scope} code { background: ${t.codeBg}; padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.9em; }
-    .${scope} pre { background: ${t.codeBg}; padding: 0.5em; border-radius: 4px; overflow: auto; margin: 0.4em 0; }
-    .${scope} blockquote { border-left: 3px solid ${t.blockquoteBorder}; padding-left: 0.75em; margin: 0.4em 0; color: ${t.muted}; }
-    .${scope} a { color: ${t.link}; text-decoration: underline; }
-    ${tableBaseCss(t, scope)}
-    .${scope} th, .${scope} td { font-size: 0.9em; }
-  `;
-}
-
-function csvProseCss(t: ProseTokens, scope: string): string {
-  return `
-    ${tableBaseCss(t, scope)}
-    .${scope} table { width: 100%; }
-    .${scope} th, .${scope} td { font-size: 0.85em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; }
-    .${scope} th { background: ${t.thBg}; font-weight: 600; }
-    .${scope} tr:nth-child(even) { background: ${t.evenRow}; }
-  `;
-}
-
 const SETTLE_SELECTOR = "p, h1, h2, h3, li, pre, blockquote, table, svg";
 
 /** Resolves once the container has rendered capturable content. */
@@ -331,8 +269,8 @@ async function captureContainer(container: HTMLElement, bg: string): Promise<Blo
 }
 
 /**
- * Captures same-origin DOM content (Markdown/CSV/SVG) using html2canvas.
- * Themeable types (markdown, CSV) are captured twice (light + dark) and uploaded
+ * Captures same-origin DOM content (Markdown, CSV, SVG, JSON, NDJSON) using
+ * html2canvas. Themeable families are captured twice (light + dark) and uploaded
  * to their respective variants; SVG carries its own colors and is captured once.
  */
 function DomCapture({
@@ -360,9 +298,9 @@ function DomCapture({
   // class name, so strip it.
   const scopeBase = `tg-${useId().replace(/:/g, "")}`;
 
-  const ct = contentType.toLowerCase();
-  const isSvg = ct.includes("svg");
-  const isCsvThumb = ct.includes("csv");
+  // Markdown is the fallback the dispatch above already ruled a family for; the
+  // coalesce is here only so the kind is not nullable downstream.
+  const kind = domKind(contentType) ?? "markdown";
 
   // Themeable types capture both schemes; single-theme types capture light only.
   const schemes = useMemo<Scheme[]>(
@@ -370,8 +308,10 @@ function DomCapture({
     [contentType],
   );
 
+  // The document is parsed once per capture, not once per scheme: both scheme
+  // containers are mounted at the same time and draw the same content.
   const csvTable = useMemo(() => {
-    if (!isCsvThumb) return null;
+    if (kind !== "csv") return null;
     const result = Papa.parse<Record<string, unknown>>(content, {
       header: true,
       skipEmptyLines: true,
@@ -380,11 +320,18 @@ function DomCapture({
     const cols = result.meta.fields ?? [];
     const rows = result.data.slice(0, 10);
     return { cols, rows };
-  }, [content, isCsvThumb]);
+  }, [content, kind]);
 
   const sanitizedSvg = useMemo(
-    () => (isSvg ? DOMPurify.sanitize(content, { USE_PROFILES: { svg: true, svgFilters: true } }) : ""),
-    [content, isSvg],
+    () => (kind === "svg" ? DOMPurify.sanitize(content, { USE_PROFILES: { svg: true, svgFilters: true } }) : ""),
+    [content, kind],
+  );
+
+  const jsonLines = useMemo(() => (kind === "json" ? buildJsonLines(content) : null), [content, kind]);
+
+  const ndjsonRecords = useMemo(
+    () => (kind === "ndjson" ? buildNdjsonRecords(content) : null),
+    [content, kind],
   );
 
   const doCapture = useCallback(async () => {
@@ -460,43 +407,89 @@ function DomCapture({
           }}
           aria-hidden="true"
         >
-          {isCsvThumb && csvTable ? (
-            <div>
-              <style>{csvProseCss(scheme.tokens, scope)}</style>
-              <div className={scope}>
-                <table>
-                  <thead>
-                    <tr>
-                      {csvTable.cols.map((col) => (
-                        <th key={col}>{col}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {csvTable.rows.map((row, ri) => (
-                      <tr key={ri}>
-                        {csvTable.cols.map((col) => (
-                          <td key={col}>{String(row[col] ?? "")}</td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ) : isSvg ? (
-            <div dangerouslySetInnerHTML={{ __html: sanitizedSvg }} />
-          ) : (
-            <div style={{ maxWidth: "none" }}>
-              <style>{markdownProseCss(scheme.tokens, scope)}</style>
-              <div className={scope}>
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
-              </div>
-            </div>
-          )}
+          <DomBody
+            kind={kind}
+            tokens={scheme.tokens}
+            scope={scope}
+            content={content}
+            csvTable={csvTable}
+            sanitizedSvg={sanitizedSvg}
+            jsonLines={jsonLines}
+            ndjsonRecords={ndjsonRecords}
+          />
         </div>
         );
       })}
     </>
+  );
+}
+
+/** One asset's content as the family it belongs to, for one color scheme. */
+function DomBody({
+  kind,
+  tokens,
+  scope,
+  content,
+  csvTable,
+  sanitizedSvg,
+  jsonLines,
+  ndjsonRecords,
+}: {
+  kind: DomKind;
+  tokens: ProseTokens;
+  scope: string;
+  content: string;
+  csvTable: CsvTable | null;
+  sanitizedSvg: string;
+  jsonLines: JsonThumbnailLines | null;
+  ndjsonRecords: NdjsonThumbnailRecord[] | null;
+}) {
+  if (kind === "csv" && csvTable) return <CsvBody table={csvTable} tokens={tokens} scope={scope} />;
+  if (kind === "svg") return <div dangerouslySetInnerHTML={{ __html: sanitizedSvg }} />;
+  if (kind === "json" && jsonLines) return <JsonThumbnailBody lines={jsonLines} tokens={tokens} scope={scope} />;
+  if (kind === "ndjson" && ndjsonRecords) {
+    return <NdjsonThumbnailBody records={ndjsonRecords} tokens={tokens} scope={scope} />;
+  }
+  return (
+    <div style={{ maxWidth: "none" }}>
+      <style>{markdownProseCss(tokens, scope)}</style>
+      <div className={scope}>
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      </div>
+    </div>
+  );
+}
+
+/** The parsed head of a CSV document: its header row and the rows drawn under it. */
+interface CsvTable {
+  cols: string[];
+  rows: Record<string, unknown>[];
+}
+
+function CsvBody({ table, tokens, scope }: { table: CsvTable; tokens: ProseTokens; scope: string }) {
+  return (
+    <div>
+      <style>{csvProseCss(tokens, scope)}</style>
+      <div className={scope}>
+        <table>
+          <thead>
+            <tr>
+              {table.cols.map((col) => (
+                <th key={col}>{col}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {table.rows.map((row, ri) => (
+              <tr key={ri}>
+                {table.cols.map((col) => (
+                  <td key={col}>{String(row[col] ?? "")}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }

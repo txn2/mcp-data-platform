@@ -1156,9 +1156,15 @@ const maxThumbnailSourceBytes = 1 << 20 // 1 MB
 // They live here, beside the only query that reads them, rather than with the
 // asset type: what a browser can rasterize is what the refresh queue is allowed
 // to offer, and nothing else in Go asks the question.
+//
+// The "json" fragment covers both JSON families at once: every spelling of
+// newline-delimited JSON contains it ("application/x-ndjson",
+// "application/jsonl"), as do the vendor dialects ("application/vnd.acme+json").
+// The browser draws each family in its own form; which one is a question only
+// the capturer asks.
 var (
-	thumbnailSupportedTypes = []string{"html", "jsx", "svg", "markdown", "csv"}
-	thumbnailThemeableTypes = []string{"markdown", "csv"}
+	thumbnailSupportedTypes = []string{"html", "jsx", "svg", "markdown", "csv", "json"}
+	thumbnailThemeableTypes = []string{"markdown", "csv", "json"}
 )
 
 // thumbnailPendingPredicate matches the assets a browser should capture a

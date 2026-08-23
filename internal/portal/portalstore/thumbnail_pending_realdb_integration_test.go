@@ -152,3 +152,26 @@ func TestThumbnailPending_RealDB_LegacyFilename(t *testing.T) {
 	assert.ElementsMatch(t,
 		[]string{"asset_legacy_light", "asset_legacy_dark"}, pendingIDs(t, store))
 }
+
+// TestThumbnailPending_RealDB_JSONFamilies covers the fragment that admits both
+// JSON families (#1432). One fragment matches "application/json" and every
+// spelling of newline-delimited JSON, and both are drawn on the platform's own
+// background, so both are asked for a dark variant as markdown and CSV are.
+func TestThumbnailPending_RealDB_JSONFamilies(t *testing.T) {
+	db := testdb.New(t)
+	store := &postgresAssetStore{db: db}
+
+	seedPendingAsset(t, db, store, "asset_json", "application/json", 100, 1, thumbState{})
+	seedPendingAsset(t, db, store, "asset_ndjson", "application/x-ndjson", 100, 1, thumbState{})
+	seedPendingAsset(t, db, store, "asset_vendor_json", "application/vnd.acme.report+json", 100, 1, thumbState{})
+	// A light capture that landed while the dark pass threw: the JSON families
+	// carry a dark variant, so this is still a gap.
+	seedPendingAsset(t, db, store, "asset_json_dark_missing", "application/json", 100, 2, thumbState{
+		light: "k/x/.thumbnail.png", lightVersion: 2,
+	})
+	seedPendingAsset(t, db, store, "asset_json_current", "application/json", 100, 1, current(1))
+
+	assert.ElementsMatch(t,
+		[]string{"asset_json", "asset_ndjson", "asset_vendor_json", "asset_json_dark_missing"},
+		pendingIDs(t, store))
+}

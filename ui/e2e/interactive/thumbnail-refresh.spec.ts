@@ -42,4 +42,37 @@ test.describe("Thumbnail refresh", () => {
     // capture that has caught up from one that has not.
     expect(uploaded[0]).toContain("version=3");
   });
+
+  // The JSON families were skipped before a capture ever started: neither
+  // capture site recognized them, so a JSON asset kept the placeholder icon
+  // (#1432). Both are drawn on the platform's own background, so each is
+  // captured twice -- once per color scheme -- and both variants are uploaded.
+  test("captures both color schemes for the JSON families", async ({ page }) => {
+    const uploaded: string[] = [];
+    page.on("request", (r) => {
+      const url = r.url();
+      if (r.method() === "PUT" && url.includes("/thumbnail")) uploaded.push(url);
+    });
+
+    await page.addInitScript(() => {
+      (globalThis as { __STALE_THUMBNAILS__?: string[] }).__STALE_THUMBNAILS__ = ["ast-009", "ast-010"];
+    });
+
+    await authenticate(page);
+    await page.goto("/portal/settings");
+    await expect(page.getByRole("heading", { name: "Settings", level: 1 })).toBeVisible();
+
+    for (const id of ["ast-009", "ast-010"]) {
+      await expect
+        .poll(() => uploaded.filter((u) => u.includes(id) && !u.includes("variant=dark")).length, {
+          timeout: 30_000,
+        })
+        .toBeGreaterThan(0);
+      await expect
+        .poll(() => uploaded.filter((u) => u.includes(id) && u.includes("variant=dark")).length, {
+          timeout: 30_000,
+        })
+        .toBeGreaterThan(0);
+    }
+  });
 });

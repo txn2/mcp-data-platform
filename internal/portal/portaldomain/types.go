@@ -48,8 +48,9 @@ type Asset struct {
 	S3Key          string `json:"s3_key" example:"assets/01HK7R8Z/content.html"`
 	ThumbnailS3Key string `json:"thumbnail_s3_key,omitempty" example:"assets/01HK7R8Z/thumb.png"`
 	// ThumbnailDarkS3Key holds the dark-mode thumbnail variant. Only populated
-	// for content types rendered on a forced background (markdown, CSV); types
-	// with a built-in theme (HTML, JSX, SVG) reuse ThumbnailS3Key in both modes.
+	// for content types rendered on a forced background (markdown, CSV, JSON,
+	// NDJSON); types with a built-in theme (HTML, JSX, SVG) reuse
+	// ThumbnailS3Key in both modes.
 	// Empty means callers should fall back to ThumbnailS3Key.
 	ThumbnailDarkS3Key string `json:"thumbnail_dark_s3_key,omitempty" example:"assets/01HK7R8Z/.thumbnail_dark.png"`
 	// ThumbnailVersion is the asset version ThumbnailS3Key was captured from,

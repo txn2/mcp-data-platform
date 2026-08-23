@@ -1125,7 +1125,8 @@ func (h *Handler) getThumbnail(w http.ResponseWriter, r *http.Request) {
 
 // Thumbnail variant identifiers and the S3 filenames they map to. Light is the
 // default/shared variant (used by single-theme content and public shares); dark
-// is captured only for content rendered on a forced background (markdown, CSV).
+// is captured only for content rendered on a forced background (markdown, CSV,
+// JSON, NDJSON).
 const (
 	// The variant names are the domain's, so the request parser and the key
 	// derivation cannot drift apart.
