@@ -328,8 +328,15 @@ function RegisterForm({
           placeholder={filename ? suggestName(filename) : "vendor_keys"}
           className="h-8 text-sm"
         />
+        {/*
+          The prefix separates personas, not people: two analysts share it. So
+          the hint has to say what actually happens on a name that is taken,
+          which the registrar decides by who registered it rather than by the
+          prefix (mayReplace, internal/platform/tableregister/registrar.go).
+        */}
         <p className="text-xs text-muted-foreground">
-          Your persona is added as a prefix, so your table cannot collide with someone else&rsquo;s.
+          Your persona is added as a prefix. The schema is shared, so reusing a name you registered
+          replaces that table, and a name someone else registered is refused.
         </p>
       </div>
 

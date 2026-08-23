@@ -2620,7 +2620,9 @@ Registering puts a file's contents in a schema everyone granted the connection c
 
 What keeps a registration off the warehouse is the Trino identity the scratch connection authenticates as. The platform's `read_only` is a statement-prefix denylist evaluated per connection name; nothing in the toolkit restricts a catalog or a schema, and `catalog`/`schema` on a connection are session defaults rather than bounds.
 
-## Staleness, and deleting
+## The lifecycle, staleness, and deleting
+
+A FILE IS NOT LIMITED TO ONE REGISTRATION, which is why the portal panel keeps its Register control available after the first one and lists registrations as a set. Registering under a different name, or onto a different connection, ADDS a table and leaves the existing ones alone; registering the SAME name on the same connection REPLACES that registration, which is the repair for staleness below and the reason the panel's warning says to register again rather than to unregister first. Unregistering is a separate act with a separate consequence, and neither it nor a replacement touches the file.
 
 A new revision of a resource or a new version of an asset writes to a new directory and moves the head key. The table keeps serving the directory it was registered against -- correct SQL over the version that was current then, with nothing about the table saying so -- so the registration's recorded location is compared against the directory of the head key the record carries NOW, and a mismatch is reported as stale on the portal panel, on a `search` hit, on a `fetch` document and in `manage_table action=list`. Re-registering targets the current head. An overwrite at the SAME key is not staleness: the table returns the new contents on the next query, which is what makes a repeating drop a re-upload rather than a chore.
 

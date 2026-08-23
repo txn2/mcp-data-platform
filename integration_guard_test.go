@@ -1,11 +1,13 @@
 package mcp_data_platform_test
 
 import (
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/build/constraint"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,6 +48,16 @@ func TestIntegrationTestsAreExecuted(t *testing.T) {
 	fset := token.NewFileSet()
 	walkErr := filepath.Walk(projectRoot, func(path string, info os.FileInfo, fErr error) error {
 		if fErr != nil {
+			// A pruned directory can vanish between its parent's ReadDir and
+			// its own lstat, which arrives here as an error on a path the walk
+			// was going to skip anyway. dist/ is the one that does it: `make
+			// verify` runs release-check concurrently with the Go lane, and
+			// goreleaser's --clean removes and recreates the project's dist/
+			// while it works. Pruning by name below cannot catch it, because
+			// there is no FileInfo to prune on.
+			if errors.Is(fErr, fs.ErrNotExist) && skipWalkDir(filepath.Base(path)) {
+				return filepath.SkipDir
+			}
 			return fErr
 		}
 		if info.IsDir() {
@@ -242,6 +254,16 @@ func TestIntegrationTestsUseTheSharedServer(t *testing.T) {
 	var offenders []string
 	walkErr := filepath.Walk(projectRoot, func(path string, info os.FileInfo, fErr error) error {
 		if fErr != nil {
+			// A pruned directory can vanish between its parent's ReadDir and
+			// its own lstat, which arrives here as an error on a path the walk
+			// was going to skip anyway. dist/ is the one that does it: `make
+			// verify` runs release-check concurrently with the Go lane, and
+			// goreleaser's --clean removes and recreates the project's dist/
+			// while it works. Pruning by name below cannot catch it, because
+			// there is no FileInfo to prune on.
+			if errors.Is(fErr, fs.ErrNotExist) && skipWalkDir(filepath.Base(path)) {
+				return filepath.SkipDir
+			}
 			return fErr
 		}
 		if info.IsDir() {
