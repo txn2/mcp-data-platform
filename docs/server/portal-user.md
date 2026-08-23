@@ -328,11 +328,11 @@ Uploading a new revision moves the file, and the table keeps serving the revisio
 
 ![A registration the file has moved on from](../images/screenshots/light/admin-resource-table-light.webp#only-light)![A registration the file has moved on from](../images/screenshots/dark/admin-resource-table-dark.webp#only-dark)
 
-A spreadsheet export often has a line break inside a cell — a multi-line address in one column. A query engine splits records on newlines before it looks at the quotes, so each of those rows would come back torn into fragments with every later field in the wrong column. Registering such a file is refused, and the refusal says how many rows are affected and which columns they are in.
+A spreadsheet export often has a line break inside a cell — a multi-line address in one column. A query engine splits records on newlines before it looks at the quotes, so each of those rows would come back torn into fragments with every later field in the wrong column. Registering such a file is refused, and the refusal says how many rows are affected and which columns they are in. A file whose lines end in a carriage return rather than a newline is refused for the same reason: the engine does not split on one, so the records that end in one are run together into a single row.
 
 ![A CSV that has to be corrected first](../images/screenshots/light/admin-resource-table-repair-offer-light.webp#only-light)![A CSV that has to be corrected first](../images/screenshots/dark/admin-resource-table-repair-offer-dark.webp#only-dark)
 
-**Save a corrected copy and register that** does the correction for you: every cell goes back onto one line and the text is converted to UTF-8 if it was not already. The result is a new version of the file itself, so the bytes you uploaded stay as the version before it and the correction can be undone from Version history like any other. The panel then says what changed.
+**Save a corrected copy and register that** does the correction for you: every record gets its own line, every cell goes back onto one line, and the text is converted to UTF-8 if it was not already. The result is a new version of the file itself, so the bytes you uploaded stay as the version before it and the correction can be undone from Version history like any other. The panel then says what changed.
 
 ![What the correction changed](../images/screenshots/light/admin-resource-table-repaired-light.webp#only-light)![What the correction changed](../images/screenshots/dark/admin-resource-table-repaired-dark.webp#only-dark)
 

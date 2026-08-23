@@ -37,9 +37,10 @@ export interface TableRegistration {
 }
 
 // CSV_NEEDS_REPAIR is the problem type a registration is refused with when the
-// file cannot be read as a table the way it is stored -- a line break inside a
-// cell, or bytes that are not UTF-8 -- but could be if a corrected version of
-// it were saved first. The detail carries the sentence a person reads; this is
+// file cannot be read as a table the way it is stored -- lines that end in a
+// carriage return rather than a newline, a line break inside a cell, or bytes
+// that are not UTF-8 -- but could be if a corrected version of it were saved
+// first. The detail carries the sentence a person reads; this is
 // the half the form matches on to offer that correction.
 export const CSV_NEEDS_REPAIR = "urn:mcp-data-platform:problem:csv-needs-repair";
 

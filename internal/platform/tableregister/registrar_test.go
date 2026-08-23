@@ -220,6 +220,10 @@ func (c *captureAudit) Log(_ context.Context, ev audit.Event) error {
 
 const csvBody = "store_id,vendor_code,rebate_pct\n101,ACME-NW,4.5\n"
 
+// macBody is a spreadsheet export whose lines end in a bare carriage return.
+// It holds three records and every reader on this path finds one in it.
+const macBody = "store_id,address\r101,12 Mill Rd\r102,9 Oak St\r"
+
 func testSource() Source {
 	return Source{
 		Kind:        KindAsset,
@@ -1039,6 +1043,54 @@ func TestRegister_RepairConvertsBytesThatAreNotUTF8(t *testing.T) {
 	require.NotNil(t, res.Repair)
 	assert.Equal(t, "windows-1252", res.Repair.FromEncoding)
 	assert.Zero(t, res.Repair.RowsRepaired)
+}
+
+// TestRegister_RefusesACSVWhoseLinesEndInACarriageReturn. A file the reader
+// splits into one record is the same failure as a torn one and is answered the
+// same way: nothing is created, and the refusal says what the lines end in.
+func TestRegister_RefusesACSVWhoseLinesEndInACarriageReturn(t *testing.T) {
+	h := newHarness(t, func(h *harness) { h.objects.body = []byte(macBody) })
+
+	_, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch"})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrNeedsRepair, "the refusal is one the surfaces can offer to correct")
+	assert.Contains(t, err.Error(), "carriage return")
+	assert.NotContains(t, err.Error(), "line break inside a cell",
+		"no cell holds a line break, and naming one would name columns the file does not have")
+
+	assert.Empty(t, h.trino.statements, "no table is created")
+	assert.Empty(t, h.store.rows, "and no registration is recorded")
+}
+
+// TestRegister_RepairGivesACarriageReturnFileTheRowsItHolds is the acceptance
+// assertion for a file the query engine would otherwise read whole: the
+// registered table declares the file's columns and reads one row per record.
+func TestRegister_RepairGivesACarriageReturnFileTheRowsItHolds(t *testing.T) {
+	h := newHarness(t, func(h *harness) { h.objects.body = []byte(macBody) })
+
+	res, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch", Repair: true})
+	require.NoError(t, err)
+
+	require.Len(t, h.reviser.saved, 1)
+	saved := h.reviser.saved[0]
+	assert.Equal(t, "rewrote the carriage return line endings as newlines", saved.summary)
+
+	records, err := csv.NewReader(bytes.NewReader(saved.content)).ReadAll()
+	require.NoError(t, err)
+	require.Len(t, records, 3, "the header and one row per source record, not one row holding the file")
+	assert.Equal(t, []string{"101", "12 Mill Rd"}, records[1])
+	assert.Equal(t, []string{"102", "9 Oak St"}, records[2])
+
+	assert.Equal(t, []Column{
+		{Name: "store_id", Type: "VARCHAR"},
+		{Name: "address", Type: "VARCHAR"},
+	}, res.Columns, "the table declares the file's own columns")
+
+	require.NotNil(t, res.Repair)
+	assert.Equal(t, "carriage return", res.Repair.FromLineEndings)
+	assert.Zero(t, res.Repair.RowsRepaired, "no cell held a line break")
 }
 
 // TestRegister_RepairRefusesARaggedFile: filling in a short record invents data
