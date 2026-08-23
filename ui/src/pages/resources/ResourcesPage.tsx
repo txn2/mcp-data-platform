@@ -17,6 +17,7 @@ import { CATEGORIES } from "./modals/shared";
 import { ResourceModals, useResourceModals } from "./parts/ResourceModals";
 import { ResourceResults } from "./parts/ResourceResults";
 import { useResourceLibrary, type ResourceSort } from "./parts/useResourceLibrary";
+import { canWriteScope, libraryCopy, targetForTab } from "./scopes";
 
 interface Props {
   admin?: boolean;
@@ -57,7 +58,8 @@ function scopeTabs(
 }
 
 export function ResourcesPage({ admin = false }: Props) {
-  const userPersona = useAuthStore((s) => s.user?.persona);
+  const user = useAuthStore((s) => s.user);
+  const userPersona = user?.persona;
   const { data: personaData } = usePersonas(admin);
   const personaNames = (personaData?.personas ?? []).map((p) => p.name);
 
@@ -91,62 +93,83 @@ export function ResourcesPage({ admin = false }: Props) {
 
       {/* One library body redrawn per scope: only the active tab's panel is
           mounted, so the filter bar and list below are written once. */}
-      {tabs.map((tab) => (
-        <TabsContent key={tab.key} value={tab.key} className="space-y-4">
-          <div className="flex flex-wrap items-center gap-3">
-            <SearchInput
-              className="min-w-[200px] flex-1"
-              value={library.searchInput}
-              onChange={(e) => library.setSearchInput(e.target.value)}
-              placeholder="Search resources..."
-              aria-label="Search resources"
-            />
-            <FilterSelect
-              label="Filter by category"
-              value={library.category}
-              onChange={library.setCategory}
-              options={CATEGORY_OPTIONS}
-              className="h-9 text-sm"
-            />
-            {admin && (
+      {tabs.map((tab) => {
+        // The Upload control is offered only on a tab the caller may actually
+        // add to, read from the same authority the server applies to the
+        // request. Where it is not offered, the note in its place says who
+        // fills this library instead.
+        const target = targetForTab(tab.key, user);
+        const writable = canWriteScope(user, target);
+        const source = libraryCopy(target).source;
+        return (
+          <TabsContent key={tab.key} value={tab.key} className="space-y-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <SearchInput
+                className="min-w-[200px] flex-1"
+                value={library.searchInput}
+                onChange={(e) => library.setSearchInput(e.target.value)}
+                placeholder="Search resources..."
+                aria-label="Search resources"
+              />
               <FilterSelect
-                label="Sort resources"
-                value={library.sort}
-                onChange={(v) => library.setSort(v as ResourceSort)}
-                options={SORT_OPTIONS}
+                label="Filter by category"
+                value={library.category}
+                onChange={library.setCategory}
+                options={CATEGORY_OPTIONS}
                 className="h-9 text-sm"
               />
+              {admin && (
+                <FilterSelect
+                  label="Sort resources"
+                  value={library.sort}
+                  onChange={(v) => library.setSort(v as ResourceSort)}
+                  options={SORT_OPTIONS}
+                  className="h-9 text-sm"
+                />
+              )}
+              {writable ? (
+                <Button onClick={() => modals.setUploading(true)}>
+                  <FileUp />
+                  Upload
+                </Button>
+              ) : (
+                <p data-testid="scope-read-only" className="text-xs text-muted-foreground">
+                  {source}
+                </p>
+              )}
+            </div>
+
+            <ResourceResults
+              resources={library.resources}
+              isLoading={library.isLoading}
+              filtering={library.filtering}
+              admin={admin}
+              readOnlyNote={writable ? undefined : source}
+              onOpen={modals.setDetail}
+              onUpload={() => modals.setUploading(true)}
+            />
+
+            <InfiniteFooter
+              hasMore={library.hasNextPage}
+              isLoadingMore={library.isFetchingNextPage}
+              onLoadMore={library.fetchNextPage}
+            />
+
+            {library.total > library.resources.length && (
+              <p className="text-center text-sm text-muted-foreground">
+                Showing {library.resources.length} of {library.total} resources
+              </p>
             )}
-            <Button onClick={() => modals.setUploading(true)}>
-              <FileUp />
-              Upload
-            </Button>
-          </div>
+          </TabsContent>
+        );
+      })}
 
-          <ResourceResults
-            resources={library.resources}
-            isLoading={library.isLoading}
-            filtering={library.filtering}
-            admin={admin}
-            onOpen={modals.setDetail}
-            onUpload={() => modals.setUploading(true)}
-          />
-
-          <InfiniteFooter
-            hasMore={library.hasNextPage}
-            isLoadingMore={library.isFetchingNextPage}
-            onLoadMore={library.fetchNextPage}
-          />
-
-          {library.total > library.resources.length && (
-            <p className="text-center text-sm text-muted-foreground">
-              Showing {library.resources.length} of {library.total} resources
-            </p>
-          )}
-        </TabsContent>
-      ))}
-
-      <ResourceModals state={modals} admin={admin} personaNames={personaNames} />
+      <ResourceModals
+        state={modals}
+        admin={admin}
+        personaNames={personaNames}
+        destination={targetForTab(library.activeTab, user)}
+      />
     </Tabs>
   );
 }

@@ -20,6 +20,7 @@ import { RESOURCE_POSITIONING } from "@/lib/positioning";
 import { ModalShell } from "@/components/ModalShell";
 import { CATEGORIES, CATEGORY_HINTS } from "./shared";
 import { UploadTargets } from "./UploadTargets";
+import { libraryCopy, type ScopeTarget } from "../scopes";
 
 const MAX_BYTES = 100 * 1024 * 1024;
 
@@ -72,11 +73,25 @@ function fanOutMessage(successes: string[], errors: string[], total: number): st
   return `Succeeded: ${successes.join(", ")}. Failed: ${errors.join("; ")}`;
 }
 
-export function UploadModal({ onClose, admin, personaNames }: { onClose: () => void; admin: boolean; personaNames: string[] }) {
+export function UploadModal({
+  onClose,
+  admin,
+  personaNames,
+  destination,
+}: {
+  onClose: () => void;
+  admin: boolean;
+  personaNames: string[];
+  // The library this upload lands in when the caller is given no choice: the
+  // scope tab the page is showing. The dialog states it before a file is
+  // chosen, so the file is never filed somewhere the reader did not expect.
+  destination: ScopeTarget | null;
+}) {
   const upload = useUploadResource();
   const user = useAuthStore((s) => s.user);
   const fileRef = useRef<HTMLInputElement>(null);
-  // Users can only upload to their own scope. Admins default to global.
+  // Only the admin page offers a choice of library; elsewhere the tab in view
+  // is the destination. The state below drives that picker alone.
   const [scope, setScope] = useState(admin ? "global" : "user");
   const [selectedPersonas, setSelectedPersonas] = useState<string[]>([]);
   const [userEmails, setUserEmails] = useState("");
@@ -90,6 +105,7 @@ export function UploadModal({ onClose, admin, personaNames }: { onClose: () => v
   const [uploading, setUploading] = useState(false);
 
   const effectiveCategory = cat === "custom" ? customCat : cat;
+  const fixedDestination = libraryCopy(destination);
 
   function togglePersona(name: string) {
     setSelectedPersonas((prev) =>
@@ -99,17 +115,17 @@ export function UploadModal({ onClose, admin, personaNames }: { onClose: () => v
 
   // Build the list of (scope, scope_id) pairs to upload to.
   const resolveTargets = useCallback((): { scope: string; scope_id: string }[] => {
+    // Off the admin page the destination is the library in view, which the
+    // caller already chose by selecting its tab and which the page only offers
+    // Upload on when they may write to it.
+    if (!admin) return [destination ?? { scope: "user", scope_id: user?.user_id || "" }];
     if (scope === "global") return [{ scope: "global", scope_id: "" }];
     if (scope === "persona") {
       return selectedPersonas.map((name) => ({ scope: "persona", scope_id: name }));
     }
-    if (scope === "user" && admin) {
-      const emails = userEmails.split(",").map((e) => e.trim()).filter(Boolean);
-      return emails.map((email) => ({ scope: "user", scope_id: email }));
-    }
-    // Non-admin user scope: always own user
-    return [{ scope: "user", scope_id: user?.user_id || "" }];
-  }, [scope, selectedPersonas, admin, userEmails, user]);
+    const emails = userEmails.split(",").map((e) => e.trim()).filter(Boolean);
+    return emails.map((email) => ({ scope: "user", scope_id: email }));
+  }, [scope, selectedPersonas, admin, userEmails, user, destination]);
 
   const submitting = useRef(false);
 
@@ -194,7 +210,7 @@ export function UploadModal({ onClose, admin, personaNames }: { onClose: () => v
       )}
 
       <div className="space-y-3">
-        {admin && (
+        {admin ? (
           <UploadTargets
             scope={scope}
             onScopeChange={(next) => {
@@ -208,6 +224,12 @@ export function UploadModal({ onClose, admin, personaNames }: { onClose: () => v
             userEmails={userEmails}
             onUserEmailsChange={setUserEmails}
           />
+        ) : (
+          <div data-testid="upload-destination" className="rounded-md border bg-muted/40 px-3 py-2">
+            <p className="text-xs text-muted-foreground">Destination</p>
+            <p className="text-sm font-medium text-foreground">{fixedDestination.name}</p>
+            <p className="text-xs text-muted-foreground">{fixedDestination.audience}</p>
+          </div>
         )}
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">

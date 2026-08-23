@@ -284,15 +284,17 @@ An uploaded resource is also **discoverable through `search`**, the front door a
 
 ![Resources](../images/screenshots/light/user-resources-light.webp#only-light)![Resources](../images/screenshots/dark/user-resources-dark.webp#only-dark)
 
+The tab you are on is the library an upload lands in, and the dialog states that destination and who will be able to see the file before you choose one. Upload is offered only on a tab you may add to: your own library always, a persona's library when you hold that persona's `persona-admin:{name}` role, and the global library only as a platform administrator. Where it is not offered, the tab says who publishes that library instead, so a read-only library reads as read-only rather than as an empty page. This is the same rule the server applies to the request, so what the page offers and what the request is allowed to do are the same thing.
+
 Uploading opens a modal for the file plus its category, display name, description, and tags. The category says how the agent should treat the file and the dialog spells each one out as you pick it: `templates` are layouts a deliverable must be produced in, `playbooks` are procedures to follow rather than summarize, `samples` are examples to pattern-match against, and `references` are documents to consult. A custom category is accepted for anything that fits none of the four. The file itself may be any format the library needs — documents, spreadsheets, images, media, archives, CAD exports — apart from executables, which are refused by both extension and MIME type ([Accepted types](content-viewers.md#accepted-types)).
 
 ![Upload resource](../images/screenshots/light/user-resource-upload-light.webp#only-light)![Upload resource](../images/screenshots/dark/user-resource-upload-dark.webp#only-dark)
 
 The Resources page provides:
 
-- **Scope tabs** — My Resources, admin, and Global tabs for filtering by visibility scope
+- **Scope tabs** — My Resources, your persona, and Global, each showing that library alone
 - **Search and filter** — Text search and category dropdown
-- **Upload** button — Upload new resources with name, description, category, and tags
+- **Upload** button — On a library you may add to: uploads a new resource with name, description, category, and tags, into the library the tab names
 - **Resource table** — Name, category, MIME type, tags, file size, uploader email, and last updated date
 - **Delete** — Trash icon to remove owned resources
 

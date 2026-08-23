@@ -17,8 +17,9 @@ const SCOPE_OPTIONS = [
 
 // UploadTargets is the admin-only half of the upload form: which library the
 // file lands in, and — for the fan-out scopes — which personas or which people.
-// A reader has no choice to make here (their own scope is the only one they may
-// write to), so the whole block is admin-only.
+// The user page has no picker because the scope tab in view already names the
+// destination; a fan-out across several libraries at once is what makes this
+// block admin-only.
 export function UploadTargets({
   scope,
   onScopeChange,
