@@ -85,7 +85,7 @@ func TestApplyDefaults(t *testing.T) {
 	})
 
 	t.Run("applies default port for SSL", func(t *testing.T) {
-		cfg := applyDefaults("test", Config{Host: trinoTestHost, User: "user", SSL: true})
+		cfg := applyDefaults("test", Config{Host: trinoTestHost, User: "user", SSL: new(true)})
 		if cfg.Port != trinoTestPort443 {
 			t.Errorf("Port = %d, want 443", cfg.Port)
 		}
@@ -210,7 +210,7 @@ func TestConfig_Defaults(t *testing.T) {
 	sslCfg := Config{
 		Host: trinoTestHost,
 		User: "testuser",
-		SSL:  true,
+		SSL:  new(true),
 	}
 	sslResult := applyDefaults("test", sslCfg)
 	if sslResult.Port != trinoTestPort443 {
@@ -226,8 +226,8 @@ func TestConfig_Fields(t *testing.T) {
 		Password:       "secret",
 		Catalog:        "hive",
 		Schema:         "default",
-		SSL:            true,
-		SSLVerify:      true,
+		SSL:            new(true),
+		SSLVerify:      new(true),
 		Timeout:        trinoTestTimeoutSec * time.Second,
 		DefaultLimit:   trinoTestDefaultLimit,
 		MaxLimit:       trinoTestMaxLimit,
@@ -253,10 +253,10 @@ func TestConfig_Fields(t *testing.T) {
 	if cfg.Schema != "default" {
 		t.Errorf("Schema = %q", cfg.Schema)
 	}
-	if !cfg.SSL {
+	if !cfg.IsSSLEnabled() {
 		t.Error("SSL = false")
 	}
-	if !cfg.SSLVerify {
+	if !cfg.IsSSLVerifyEnabled() {
 		t.Error("SSLVerify = false")
 	}
 	if cfg.Timeout != trinoTestTimeoutSec*time.Second {
@@ -705,9 +705,9 @@ func TestNewMulti(t *testing.T) {
 		tk, err := NewMulti(MultiConfig{
 			DefaultConnection: trinoTestWarehouse,
 			Instances: map[string]Config{
-				"warehouse":     {Host: "warehouse.example.com", User: "trino", Port: trinoTestPort443, SSL: true, Catalog: "hive"},
-				"elasticsearch": {Host: "es.example.com", User: "trino", Port: trinoTestPort443, SSL: true, Catalog: "elasticsearch"},
-				"cassandra":     {Host: "cass.example.com", User: "trino", Port: trinoTestPort443, SSL: true, Catalog: "cassandra"},
+				"warehouse":     {Host: "warehouse.example.com", User: "trino", Port: trinoTestPort443, SSL: new(true), Catalog: "hive"},
+				"elasticsearch": {Host: "es.example.com", User: "trino", Port: trinoTestPort443, SSL: new(true), Catalog: "elasticsearch"},
+				"cassandra":     {Host: "cass.example.com", User: "trino", Port: trinoTestPort443, SSL: new(true), Catalog: "cassandra"},
 			},
 		})
 		if err != nil {
@@ -794,8 +794,8 @@ func TestListConnections_MultiMode(t *testing.T) {
 	tk, err := NewMulti(MultiConfig{
 		DefaultConnection: trinoTestWarehouse,
 		Instances: map[string]Config{
-			"warehouse":     {Host: "wh.example.com", User: "trino", Port: trinoTestPort443, SSL: true, Description: "Analytics warehouse"},
-			"elasticsearch": {Host: "es.example.com", User: "trino", Port: trinoTestPort443, SSL: true, Description: "Sales data"},
+			"warehouse":     {Host: "wh.example.com", User: "trino", Port: trinoTestPort443, SSL: new(true), Description: "Analytics warehouse"},
+			"elasticsearch": {Host: "es.example.com", User: "trino", Port: trinoTestPort443, SSL: new(true), Description: "Sales data"},
 		},
 	})
 	if err != nil {
@@ -848,11 +848,11 @@ func TestBuildMultiserverConfig(t *testing.T) {
 	instances := map[string]Config{
 		"warehouse": {
 			Host: "warehouse.example.com", User: "trino", Port: trinoTestPort443,
-			SSL: true, Catalog: "hive", Schema: "default", Password: "pass1",
+			SSL: new(true), Catalog: "hive", Schema: "default", Password: "pass1",
 		},
 		"elasticsearch": {
 			Host: "es.example.com", User: "es-user", Catalog: "elasticsearch",
-			SSL: true, Password: "pass2",
+			SSL: new(true), Password: "pass2",
 		},
 		"cassandra": {
 			Host: "cass.example.com", Catalog: "cassandra",
@@ -1006,10 +1006,10 @@ func TestConnectionIsAdvertised(t *testing.T) {
 			DefaultConnection: trinoTestWarehouse,
 			Instances: map[string]Config{
 				"warehouse": {
-					Host: "wh.example.com", User: "trino", Port: trinoTestPort443, SSL: true,
+					Host: "wh.example.com", User: "trino", Port: trinoTestPort443, SSL: new(true),
 					ConnectionName: "Data Warehouse",
 				},
-				"staging": {Host: "st.example.com", User: "trino", Port: trinoTestPort443, SSL: true},
+				"staging": {Host: "st.example.com", User: "trino", Port: trinoTestPort443, SSL: new(true)},
 			},
 		})
 		if err != nil {
@@ -1073,4 +1073,96 @@ func assertAdvertised(t *testing.T, tk *Toolkit) {
 		}
 	}
 	t.Errorf("Connection() = %q is advertised by no entry of ListConnections()", conn)
+}
+
+// TestNewMulti_PlainHTTPNonDefaultConnection is the acceptance test for #1436:
+// a non-default connection that says `ssl: false` reaches Trino over HTTP.
+//
+// The assertion runs against the client the manager builds, not against the
+// intermediate config, because the defect was invisible one layer up: the
+// toolkit forwarded nil, which the manager reads as "auto-detect", and
+// auto-detect turns HTTPS on for every host that is not localhost.
+func TestNewMulti_PlainHTTPNonDefaultConnection(t *testing.T) {
+	multiCfg, err := ParseMultiConfig("warehouse", map[string]map[string]any{
+		"warehouse": {
+			"host": "trino.example.com", "user": "trino",
+			"port": trinoTestPort8080, "ssl": false,
+		},
+		"scratch": {
+			"host": "trino.example.com", "user": "trino",
+			"port": trinoTestPort8080, "ssl": false, "ssl_verify": false,
+		},
+		"remote": {
+			"host": "remote.example.com", "user": "trino",
+		},
+	})
+	if err != nil {
+		t.Fatalf("ParseMultiConfig error: %v", err)
+	}
+
+	tk, err := NewMulti(multiCfg)
+	if err != nil {
+		t.Fatalf("NewMulti error: %v", err)
+	}
+	defer func() { _ = tk.Close() }()
+
+	scratch, err := tk.manager.Client("scratch")
+	if err != nil {
+		t.Fatalf("Client(scratch) error: %v", err)
+	}
+	scratchCfg := scratch.Config()
+	if scratchCfg.SSL {
+		t.Error("scratch client SSL = true, want false for a connection that set ssl: false")
+	}
+	if scratchCfg.SSLVerify {
+		t.Error("scratch client SSLVerify = true, want false for a connection that set ssl_verify: false")
+	}
+	if scratchCfg.Port != trinoTestPort8080 {
+		t.Errorf("scratch client Port = %d, want %d", scratchCfg.Port, trinoTestPort8080)
+	}
+
+	// A connection that never mentioned SSL keeps auto-detect, so an existing
+	// remote-host config is not moved off HTTPS by the fix.
+	remote, err := tk.manager.Client("remote")
+	if err != nil {
+		t.Fatalf("Client(remote) error: %v", err)
+	}
+	if !remote.Config().SSL {
+		t.Error("remote client SSL = false, want auto-detected true for a config that never mentioned SSL")
+	}
+}
+
+// TestAddConnection_PlainHTTP covers the runtime half of #1436: a connection
+// stored in the database reaches the client under the SSL settings it carries,
+// including the two the YAML path can now express.
+func TestAddConnection_PlainHTTP(t *testing.T) {
+	tk, err := NewMulti(MultiConfig{
+		DefaultConnection: trinoTestWarehouse,
+		Instances: map[string]Config{
+			trinoTestWarehouse: {Host: "wh.example.com", User: "trino", SSL: new(true)},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewMulti error: %v", err)
+	}
+	defer func() { _ = tk.Close() }()
+
+	if addErr := tk.AddConnection("scratch", map[string]any{
+		"host": "trino.example.com", "user": "trino",
+		"port": trinoTestPort8080, "ssl": false, "ssl_verify": false,
+	}); addErr != nil {
+		t.Fatalf("AddConnection: %v", addErr)
+	}
+
+	client, err := tk.manager.Client("scratch")
+	if err != nil {
+		t.Fatalf("Client(scratch) error: %v", err)
+	}
+	cfg := client.Config()
+	if cfg.SSL {
+		t.Error("scratch client SSL = true, want false")
+	}
+	if cfg.SSLVerify {
+		t.Error("scratch client SSLVerify = true, want false")
+	}
 }

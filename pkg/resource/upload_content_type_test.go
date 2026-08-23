@@ -126,3 +126,83 @@ func uploadRequest(t *testing.T, declared, filename string, content []byte) *htt
 	req.Header.Set("Content-Type", w.FormDataContentType())
 	return req
 }
+
+// TestUploadStoredTypeFollowsFilename is the acceptance case from issue #1438:
+// what a .csv is stored as must not depend on what the uploader's machine
+// declares for the extension. A Windows or Excel-equipped client sends
+// application/vnd.ms-excel; the resource has to be a CSV all the same, or the
+// portal's table panel, the thumbnail path and manage_table all refuse it.
+//
+// The assertion is on the stored record, not on detection, because the defect
+// was in what the upload endpoint persisted.
+func TestUploadStoredTypeFollowsFilename(t *testing.T) {
+	csvBody := []byte("id,name,total\n1,acme,10\n2,globex,20\n3,initech,30\n")
+
+	tests := []struct {
+		name     string
+		declared string
+		filename string
+		content  []byte
+		want     string
+	}{
+		{
+			name:     "csv declared as excel by the uploading machine",
+			declared: "application/vnd.ms-excel",
+			filename: "vendors.csv",
+			content:  csvBody,
+			want:     "text/csv",
+		},
+		{
+			name:     "csv declared as excel with a charset parameter",
+			declared: "application/vnd.ms-excel; charset=utf-8",
+			filename: "vendors.csv",
+			content:  csvBody,
+			want:     "text/csv",
+		},
+		{
+			name:     "csv declared text/plain, the machine without excel",
+			declared: "text/plain",
+			filename: "vendors.csv",
+			content:  csvBody,
+			want:     "text/csv",
+		},
+		{
+			name:     "csv declared text/csv",
+			declared: "text/csv",
+			filename: "vendors.csv",
+			content:  csvBody,
+			want:     "text/csv",
+		},
+		{
+			name:     "a png named .csv keeps the type it was declared under",
+			declared: "text/csv",
+			filename: "chart.csv",
+			content:  []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 'I', 'H', 'D', 'R'},
+			want:     "text/csv",
+		},
+		{
+			name:     "a real document keeps its own vendor type",
+			declared: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+			filename: "vendors.xlsx",
+			content:  []byte("PK\x03\x04 not really an xlsx"),
+			want:     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newMockStore()
+			s3 := newMockS3()
+			h := newTestHandler(store, s3, okExtractor)
+
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, uploadRequest(t, tt.declared, tt.filename, tt.content))
+			require.Equal(t, http.StatusCreated, rec.Code, "body: %s", rec.Body.String())
+
+			require.Len(t, store.resources, 1)
+			for _, r := range store.resources {
+				assert.Equal(t, tt.want, r.MIMEType)
+			}
+		})
+	}
+}

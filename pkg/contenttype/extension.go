@@ -1,6 +1,9 @@
 package contenttype
 
-import "strings"
+import (
+	"path"
+	"strings"
+)
 
 // extensions maps a canonical media type to the file extension used for its
 // object key. Storage keys carry an extension so an object downloaded straight
@@ -71,4 +74,50 @@ func Extension(ct string) string {
 	default:
 		return ".bin"
 	}
+}
+
+// extensionTypes is the reverse of extensions: the canonical media type a
+// filename's extension names. It is derived from the same table so the two
+// cannot drift, and an extension claimed by more than one family is left out
+// because there is nothing to prefer between the claimants.
+//
+// Active types are excluded. Detection may never produce one from anything but
+// an explicit declaration, and a filename is not a declaration: naming a file
+// .html must not turn its bytes into a family whose renderer runs script.
+// Generic types are excluded because they say nothing a declaration does not
+// already say.
+var extensionTypes = newExtensionTypes()
+
+// newExtensionTypes inverts the extension table, dropping the extensions no
+// single family owns.
+func newExtensionTypes() map[string]string {
+	claims := make(map[string]int, len(extensions))
+	for ct, ext := range extensions {
+		if IsActive(ct) || IsGeneric(ct) {
+			continue
+		}
+		claims[ext]++
+	}
+	types := make(map[string]string, len(claims))
+	for ct, ext := range extensions {
+		if IsActive(ct) || IsGeneric(ct) || claims[ext] != 1 {
+			continue
+		}
+		types[ext] = ct
+	}
+	return types
+}
+
+// TypeForFilename returns the canonical media type a filename's extension
+// names, or the empty string when the name carries no extension, the extension
+// is unknown, or it names a family detection may not produce on its own.
+//
+// The answer is a claim about the name, not about the bytes. Nothing decides a
+// stored type on this alone; see DetectFile.
+func TypeForFilename(name string) string {
+	ext := strings.ToLower(path.Ext(name))
+	if ext == "" {
+		return ""
+	}
+	return extensionTypes[ext]
 }

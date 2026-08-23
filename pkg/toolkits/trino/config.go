@@ -47,7 +47,6 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 		DefaultLimit: defaultQueryLimit,
 		MaxLimit:     defaultMaxLimit,
 		Timeout:      defaultTrinoTimeout,
-		SSLVerify:    true,
 	}
 
 	// Required fields
@@ -71,8 +70,11 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 	c.MaxLimit = getInt(cfg, "max_limit", c.MaxLimit)
 
 	// Optional bool fields
-	c.SSL = getBool(cfg, "ssl")
-	c.SSLVerify = getBoolDefault(cfg, "ssl_verify", true)
+	// Tri-state: absent stays nil so a non-default connection can say plain
+	// HTTP without a connection that never mentioned SSL losing auto-detect.
+	// The defaults (SSL off, verification on) live in the Config accessors.
+	c.SSL = getBoolPtr(cfg, "ssl")
+	c.SSLVerify = getBoolPtr(cfg, "ssl_verify")
 	c.ReadOnly = getBool(cfg, "read_only")
 
 	// Where table registrations land on this connection.
@@ -223,12 +225,14 @@ func getBool(cfg map[string]any, key string) bool {
 	return false
 }
 
-// getBoolDefault extracts a bool value from a config map with a default.
-func getBoolDefault(cfg map[string]any, key string, defaultVal bool) bool {
+// getBoolPtr extracts a bool value from a config map, returning nil when the
+// key is absent or holds something else. It is what distinguishes a setting
+// left out of the config from one set to false.
+func getBoolPtr(cfg map[string]any, key string) *bool {
 	if v, ok := cfg[key].(bool); ok {
-		return v
+		return &v
 	}
-	return defaultVal
+	return nil
 }
 
 // getStringMap extracts a map[string]string value from a config map.

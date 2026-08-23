@@ -56,10 +56,10 @@ func assertTrinoConfigAllFields(t *testing.T, result Config) {
 	if result.Port != trinoTestPort8080 {
 		t.Errorf("expected port 8080, got %d", result.Port)
 	}
-	if !result.SSL {
+	if !result.IsSSLEnabled() {
 		t.Error("expected SSL to be true")
 	}
-	if result.SSLVerify {
+	if result.IsSSLVerifyEnabled() {
 		t.Error("expected SSLVerify to be false")
 	}
 	if !result.ReadOnly {
@@ -103,8 +103,14 @@ func TestParseConfig_DefaultsApplied(t *testing.T) {
 	if result.Timeout != trinoTestDefTimeoutSec*time.Second {
 		t.Errorf("expected default timeout 120s, got %v", result.Timeout)
 	}
-	if !result.SSLVerify {
+	if !result.IsSSLVerifyEnabled() {
 		t.Error("expected SSLVerify to default to true")
+	}
+	if result.SSL != nil {
+		t.Errorf("expected SSL to stay unset, got %v", *result.SSL)
+	}
+	if result.SSLVerify != nil {
+		t.Errorf("expected SSLVerify to stay unset, got %v", *result.SSLVerify)
 	}
 }
 
@@ -204,23 +210,26 @@ func TestGetBool(t *testing.T) {
 	}
 }
 
-func TestGetBoolDefault(t *testing.T) {
+func TestGetBoolPtr(t *testing.T) {
 	cfg := map[string]any{
-		"explicit_false": false,
-		"explicit_true":  true,
+		"explicit_false":   false,
+		"explicit_true":    true,
+		trinoCfgTestString: "yes",
 	}
 
-	if !getBoolDefault(cfg, trinoCfgTestMissing, true) {
-		t.Error("expected default true for missing key")
+	if got := getBoolPtr(cfg, trinoCfgTestMissing); got != nil {
+		t.Errorf("missing key = %v, want nil", *got)
 	}
-	if getBoolDefault(cfg, trinoCfgTestMissing, false) {
-		t.Error("expected default false for missing key")
+	if got := getBoolPtr(cfg, trinoCfgTestString); got != nil {
+		t.Errorf("non-bool value = %v, want nil", *got)
 	}
-	if getBoolDefault(cfg, "explicit_false", true) {
-		t.Error("expected false for explicit_false key")
+	got := getBoolPtr(cfg, "explicit_false")
+	if got == nil || *got {
+		t.Errorf("explicit_false = %v, want pointer to false", got)
 	}
-	if !getBoolDefault(cfg, "explicit_true", false) {
-		t.Error("expected true for explicit_true key")
+	got = getBoolPtr(cfg, "explicit_true")
+	if got == nil || !*got {
+		t.Errorf("explicit_true = %v, want pointer to true", got)
 	}
 }
 

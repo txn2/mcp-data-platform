@@ -27,6 +27,16 @@ Detection runs on every write path that accepts outside content:
 
 - **A specific declaration wins.** Detection only runs when the declaration is
   absent, `application/octet-stream`, or `text/plain`.
+- **Except where the filename and the content both contradict it.** A resource
+  upload carries a filename, and a declaration that disagrees with both the
+  extension and the bytes is wrong about what it labels: a `.csv` whose content
+  parses as CSV is stored as `text/csv` even when the uploading machine declared
+  `application/vnd.ms-excel`, which is what Windows sends for `.csv` when Excel
+  is installed. Neither signal counts alone -- a `.csv` holding a PNG keeps its
+  declaration, because the bytes do not back the name -- and an extension whose
+  family renders as executing markup (`.html`, `.js`, `.svg`) never wins,
+  because a filename is not a declaration. The other write paths carry no
+  filename and are unaffected.
 - **Binary families come from magic bytes.** Images, audio, video, PDF and
   archives are recognized from the first 512 bytes.
 - **Structured text is layered on top.** JSON, NDJSON, XML, YAML, CSV and TSV

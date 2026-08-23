@@ -49,6 +49,12 @@ toolkits:
           schema: uploads
 ```
 
+Both connections above reach the same coordinator over HTTPS. On a coordinator
+that speaks plain HTTP, each connection has to say so with `ssl: false` and its
+port: a connection that never mentions `ssl` is assumed to be HTTPS on 443
+unless it is the one named by `default:` or its host is localhost. See
+[`ssl`](configuration.md#trino).
+
 A connection with no `scratch:` block cannot hold a registration, and the
 surfaces do not offer one on it. Both keys are required: a block naming only
 one is ignored with a warning, because a registration built on it would fail at

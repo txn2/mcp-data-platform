@@ -783,8 +783,8 @@ toolkits:
 | `password` | string | - | Trino password (if auth enabled) |
 | `catalog` | string | - | Default catalog |
 | `schema` | string | - | Default schema |
-| `ssl` | bool | `false` | Enable SSL/TLS |
-| `ssl_verify` | bool | `true` | Verify SSL certificates |
+| `ssl` | bool | `false` on the default connection, auto-detected on the others | Enable SSL/TLS. Omitting it on a non-default connection leaves the choice to the host: any host that is not `localhost` or `127.0.0.1` is assumed to be HTTPS on port 443. Write `ssl: false` to say plain HTTP explicitly |
+| `ssl_verify` | bool | `true` on the default connection, inherited on the others | Verify SSL certificates. A non-default connection that omits it takes the default connection's setting |
 | `timeout` | duration | `120s` | Query timeout |
 | `default_limit` | int | `1000` | Default row limit for queries |
 | `max_limit` | int | `10000` | Maximum allowed row limit |
@@ -793,6 +793,13 @@ toolkits:
 | `scratch.schema` | string | - | Schema a registered table is created in. Required alongside `catalog`; a block naming only one is ignored with a warning |
 | `connection_name` | string | - | No effect; accepted for compatibility and warned about at startup. Trino routes by the `instances:` key, so that key is the name `list_connections` advertises, a `connection` parameter carries, an audit row records and a persona rule matches. See [Connection Names](multi-provider.md#connection-names) |
 | `descriptions` | map | `{}` | Override tool descriptions for this instance (key: tool name, value: description text) |
+
+A non-default connection could not be plain HTTP before #1436: `ssl: false`
+was indistinguishable from an absent `ssl`, so it reached the client as
+"auto-detect", and auto-detect turns HTTPS on for every host that is not
+localhost. Both keys are now forwarded as written, and only a connection that
+never mentions `ssl` gets auto-detect. A deployment whose non-default
+connections rely on that auto-detect is unaffected.
 
 `read_only` became per connection in #1269. Before that it was read from the
 default instance alone and applied to the whole Trino toolkit, which cut both
