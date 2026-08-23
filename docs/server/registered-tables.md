@@ -93,6 +93,7 @@ stored file:
 
 ```
 manage_table action=register   reference=mcp:resource:... connection=scratch
+manage_table action=register   reference=mcp:resource:... connection=scratch repair=true
 manage_table action=list       reference=mcp:asset:...
 manage_table action=unregister registration_id=...
 ```
@@ -101,7 +102,10 @@ manage_table action=unregister registration_id=...
 verbatim: `mcp:resource:<id>` for material somebody uploaded, `mcp:asset:<id>`
 for a saved asset. The kind travels inside the reference, so one action serves
 both and there is no argument naming which is which. `table_name` is optional;
-the default is a slug of the file's name.
+the default is a slug of the file's name. `repair` is what the second call
+above adds: it saves a corrected version of a file that cannot be read as a
+table the way it is stored, and registers that. See
+[A CSV a query engine cannot read](#a-csv-a-query-engine-cannot-read).
 
 A reference that names no file you may register - one that does not exist, one
 that was deleted, one belonging to somebody else - is answered the same way in
@@ -112,7 +116,7 @@ every case, so the tool cannot be used to find out which files exist.
 ```
 GET    /api/v1/table-connections
 GET    /api/v1/resources/{id}/tables
-POST   /api/v1/resources/{id}/tables       {"connection": "scratch", "table_name": "vendor_keys"}
+POST   /api/v1/resources/{id}/tables       {"connection": "scratch", "table_name": "vendor_keys", "repair": false}
 DELETE /api/v1/resources/{id}/tables/{registrationID}
 GET    /api/v1/portal/assets/{id}/tables
 POST   /api/v1/portal/assets/{id}/tables
@@ -153,6 +157,77 @@ the registrant's call or an administrator's.
 
 **Delete the file.** Deleting the resource or asset drops every table registered
 over it, whoever registered them, and forgets the registrations.
+
+## A CSV a query engine cannot read
+
+Trino's Hive CSV reader is line-based: the text input format splits records on
+newlines before the quote-aware serde sees them. A line break inside a quoted
+cell therefore tears one record into several, the first fragment ends on an
+unbalanced quote, and every field after it lands in the wrong column.
+
+This is the shape a spreadsheet export takes whenever one cell holds a
+multi-line value - an address, a note, a pasted paragraph. Such a file parses
+perfectly under every ordinary CSV reader, so nothing about it looks wrong, and
+a table over it is created without error and answers queries with rows. The
+rows are fragments.
+
+Registration therefore reads the whole file before it creates anything - it is
+already reading it for the header row - and refuses two things:
+
+- **A line break inside a cell.** The refusal says how many rows carry one and
+  which columns they are in.
+- **Bytes that are not UTF-8.** They reach every cell as replacement marks: a
+  cell reading `15%` in the source arrives as `15%` followed by mojibake.
+
+Neither is refused silently and neither leaves anything behind: no table is
+created and no registration is recorded.
+
+### Correcting the file
+
+The refusal offers the correction, and taking it is one control in the portal
+or `repair=true` on the tool call. What it does is a decode and a re-emit:
+
+- the bytes are read as UTF-8, or as windows-1252 when they are not valid
+  UTF-8, and a leading byte-order mark is dropped
+- each run of line breaks inside a cell becomes a single space, and the cell is
+  trimmed
+- the file is written back out as UTF-8 CSV with no byte-order mark
+
+The result is **a new version of the file itself**, written through the version
+trail its kind already has: a revision for a managed resource, a version for a
+portal asset. Nothing is copied to a second object beside the original, no
+mirror is kept, and the file as it was uploaded stays as the version before the
+correction - visible in the version panel and restorable from it. The
+registration is then built over the new version's directory, so the table is
+current from the moment it exists.
+
+The result says what changed, in the portal and in the tool's answer, because
+the person's file changed.
+
+A record whose field count differs from the header is refused rather than
+corrected, even with the correction asked for, and the refusal names the
+records. Filling in a short record invents data and dropping a field from a
+long one loses some, and neither is a correction the platform can make on
+somebody's behalf; that file has to be fixed where it was written.
+
+Only a single-byte code page is converted. A spreadsheet's *Unicode Text*
+export is UTF-16, and every byte of a UTF-16 file is also a valid windows-1252
+character, so reading one as a code page produces a character per byte -
+mojibake in every cell. A file whose bytes carry a UTF-16 or UTF-32 byte-order
+mark, or a NUL byte, is therefore refused outright and no correction is offered
+for it: re-export it as UTF-8 CSV and upload that. Nothing is offered that the
+platform cannot honestly do.
+
+A correction is written before the last of the checks have run, so a refusal -
+or a coordinator that would not run the statement - can arrive after the file
+has already changed. The answer says so in that case, and the audit event
+records the correction whether or not the registration it was for succeeded.
+The file stays corrected; registering it again creates the table.
+
+A file that is already line-safe and valid UTF-8 registers exactly as it always
+did. No version is written, nothing is rewritten, and the result says nothing
+extra - including when the correction was asked for and turned out to be
+unnecessary.
 
 ## Changing the file: two cases that behave oppositely
 
@@ -221,6 +296,10 @@ refused and the reason is stated. Upload the file under another name.
 **A file that is not a CSV.** There is no header row to take column names
 from.
 
+**A CSV a line-based reader cannot read.** A line break inside a cell, or bytes
+that are not UTF-8. See
+[A CSV a query engine cannot read](#a-csv-a-query-engine-cannot-read).
+
 **A file that is not yours.** Registering is the authority to change the file,
 not the authority to read it. An asset is registrable by its owner or an
 administrator; a resource by its uploader, or by whoever may write to the scope
@@ -282,7 +361,10 @@ scratch catalog.
 
 Every registration and unregistration writes an audit event: who, which
 connection, the statement that ran, and the table it named. Failed attempts are
-recorded too.
+recorded too. A registration that corrected the file first records what the
+correction changed on the same event, because it rewrote somebody's file on
+their behalf - and it records it even when the registration went on to be
+refused, since the file changed either way.
 
 ## Related
 

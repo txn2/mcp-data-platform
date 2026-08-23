@@ -120,7 +120,7 @@ func (h *Handler) handleReplaceContent(w http.ResponseWriter, r *http.Request) {
 	// embeds the resource's filename, and a revision that changed the URI would
 	// break every mcp:resource:<id> citation and prompt attachment pointing at
 	// it — the exact breakage this route exists to end.
-	updated, err := h.storeRevision(r.Context(), res, claims, revisionUpload{data: uf.data, mimeType: uf.mimeType})
+	updated, err := h.storeRevision(r.Context(), res, claims, RevisionUpload{Data: uf.data, MIMEType: uf.mimeType})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -133,43 +133,53 @@ func (h *Handler) handleReplaceContent(w http.ResponseWriter, r *http.Request) {
 	h.notifyCreate(updated)
 }
 
-// revisionUpload is the content a revision writes: the bytes, the type they are
-// stored under, and the version a restore re-promoted (nil for a fresh upload).
-type revisionUpload struct {
-	data         []byte
-	mimeType     string
-	restoredFrom *int
+// RevisionUpload is the content a revision writes: the bytes, the type they are
+// stored under, and the version a restore re-promoted (nil for fresh content).
+type RevisionUpload struct {
+	Data     []byte
+	MIMEType string
+	// RestoredFrom names the version a restore re-promoted, nil otherwise.
+	RestoredFrom *int
 }
 
-// storeRevision writes the bytes to a fresh per-revision key, records the
+// ReviseContent writes the bytes to a fresh per-revision key, records the
 // revision (which moves the head), prunes beyond the retention cap, and returns
 // the updated resource. A failure after the blob is written removes it, so a
 // failed revision leaves neither a dangling object nor a moved head.
-func (h *Handler) storeRevision(ctx context.Context, res *Resource, claims *Claims, up revisionUpload) (*Resource, error) {
+//
+// It is exported because the revision trail is where a corrected copy of a
+// resource belongs, and the surface that corrects one is not this handler: a
+// registration that has to rewrite a CSV before it can be read as a table
+// writes the corrected bytes through here (#1441), so a revision made on
+// somebody's behalf is the same kind of revision as one they uploaded, in the
+// same trail, with the same retention.
+func ReviseContent(
+	ctx context.Context, deps Deps, res *Resource, claims *Claims, up RevisionUpload,
+) (*Resource, *Version, error) {
 	revisionID, err := GenerateID()
 	if err != nil {
-		return nil, fmt.Errorf("generating revision ID: %w", err)
+		return nil, nil, fmt.Errorf("generating revision ID: %w", err)
 	}
 	key := BuildRevisionS3Key(res.Scope, res.ScopeID, res.ID, revisionID, res.Filename)
 
-	if err := h.deps.S3Client.PutObject(ctx, h.deps.S3Bucket, key, up.data, up.mimeType); err != nil {
+	if err := deps.S3Client.PutObject(ctx, deps.S3Bucket, key, up.Data, up.MIMEType); err != nil {
 		slog.Error("resource revision: s3 put failed", msgError, err)
-		return nil, fmt.Errorf("storing revision: %w", err)
+		return nil, nil, fmt.Errorf("storing revision: %w", err)
 	}
 
-	version, err := h.deps.Versions.AddRevision(ctx, Revision{
+	version, err := deps.Versions.AddRevision(ctx, Revision{
 		ResourceID:    res.ID,
-		MIMEType:      up.mimeType,
-		SizeBytes:     int64(len(up.data)),
+		MIMEType:      up.MIMEType,
+		SizeBytes:     int64(len(up.Data)),
 		S3Key:         key,
 		UploaderSub:   claims.Sub,
 		UploaderEmail: claims.Email,
-		RestoredFrom:  up.restoredFrom,
+		RestoredFrom:  up.RestoredFrom,
 	})
 	if err != nil {
-		_ = h.deps.S3Client.DeleteObject(ctx, h.deps.S3Bucket, key)
+		_ = deps.S3Client.DeleteObject(ctx, deps.S3Bucket, key)
 		slog.Error("resource revision: recording revision failed", msgError, err)
-		return nil, fmt.Errorf("recording revision: %w", err)
+		return nil, nil, fmt.Errorf("recording revision: %w", err)
 	}
 	slog.Info("resource revision recorded",
 		logKeyResourceID, res.ID, // #nosec G706 -- server-generated ID
@@ -177,29 +187,37 @@ func (h *Handler) storeRevision(ctx context.Context, res *Resource, claims *Clai
 		"size_bytes", version.SizeBytes,
 	)
 
-	h.pruneVersions(ctx, res.ID)
+	pruneRevisions(ctx, deps, res.ID)
 
-	updated, err := h.deps.Store.Get(ctx, res.ID)
+	updated, err := deps.Store.Get(ctx, res.ID)
 	if err != nil {
-		return nil, fmt.Errorf("reading revised resource: %w", err)
+		return nil, nil, fmt.Errorf("reading revised resource: %w", err)
 	}
-	return updated, nil
+	return updated, version, nil
 }
 
-// pruneVersions enforces the retention cap, deleting the blobs of the versions
+// storeRevision writes a revision through the handler's own dependencies. The
+// routes report the resource; the version number the revision took is what
+// only a caller acting on somebody's behalf has to say back to them.
+func (h *Handler) storeRevision(ctx context.Context, res *Resource, claims *Claims, up RevisionUpload) (*Resource, error) {
+	updated, _, err := ReviseContent(ctx, h.deps, res, claims, up)
+	return updated, err
+}
+
+// pruneRevisions enforces the retention cap, deleting the blobs of the versions
 // the store dropped. It is best-effort on purpose: the revision itself has
 // already committed, and failing the caller's request because an old object
 // could not be removed would turn a storage-cleanup problem into a failed edit.
 // A blob left behind is logged so it can be reclaimed.
-func (h *Handler) pruneVersions(ctx context.Context, resourceID string) {
-	pruned, err := h.deps.Versions.PruneVersions(ctx, resourceID, h.maxVersions())
+func pruneRevisions(ctx context.Context, deps Deps, resourceID string) {
+	pruned, err := deps.Versions.PruneVersions(ctx, resourceID, NormalizeMaxVersions(deps.MaxVersions))
 	if err != nil {
 		slog.Warn("resource revision: pruning old versions failed", msgError, err,
 			logKeyResourceID, resourceID) // #nosec G706 -- server-generated ID
 		return
 	}
 	for _, v := range pruned {
-		if err := h.deps.S3Client.DeleteObject(ctx, h.deps.S3Bucket, v.S3Key); err != nil {
+		if err := deps.S3Client.DeleteObject(ctx, deps.S3Bucket, v.S3Key); err != nil {
 			slog.Warn("resource revision: pruned version blob not deleted", msgError, err,
 				logKeyResourceID, resourceID, // #nosec G706 -- server-generated ID
 				pathParamVersion, v.Version)
@@ -381,7 +399,7 @@ func (h *Handler) handleRestoreVersion(w http.ResponseWriter, r *http.Request) {
 	// rewinding the head, so the trail stays append-only and the restored
 	// content is itself restorable.
 	updated, err := h.storeRevision(r.Context(), res, claims,
-		revisionUpload{data: body, mimeType: v.MIMEType, restoredFrom: &version})
+		RevisionUpload{Data: body, MIMEType: v.MIMEType, RestoredFrom: &version})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

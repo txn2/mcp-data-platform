@@ -54,21 +54,27 @@ func NewToolAdapter(reg *Registrar, adminRoles []string, subjects map[string]Sub
 // Register registers a table over the current content of the file a reference
 // names.
 func (a *ToolAdapter) Register(
-	ctx context.Context, reference, connection, tableName string,
+	ctx context.Context, reference, connection, tableName string, repair bool,
 ) (*portaltoolkit.TableRegistration, error) {
 	src, err := a.resolve(ctx, reference)
 	if err != nil {
 		return nil, err
 	}
-	reg, err := a.reg.Register(ctx, a.callerFrom(ctx), src, Request{
+	res, err := a.reg.Register(ctx, a.callerFrom(ctx), src, Request{
 		Connection: connection,
 		TableName:  tableName,
 		Source:     "mcp",
+		Repair:     repair,
 	})
 	if err != nil {
 		return nil, err
 	}
-	view := toolView(*reg, src)
+	// The source the registration was built over, not the one that was
+	// resolved: a file that had to be corrected first is registered over the
+	// version the correction wrote, and reporting staleness against the
+	// version it replaced would call a fresh registration stale.
+	view := toolView(res.Registration, res.Source)
+	view.Repaired = res.Repair.Summary()
 	return &view, nil
 }
 

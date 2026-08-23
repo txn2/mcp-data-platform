@@ -22,6 +22,12 @@ import (
 	"net/http"
 )
 
+// The response headers this package writes.
+const (
+	headerContentType = "Content-Type"
+	problemJSONType   = "application/problem+json"
+)
+
 // ProblemDetail is an RFC 9457 Problem Details response body. It mirrors the
 // admin and portal packages' unexported equivalents field for field, so a
 // seam's errors are indistinguishable on the wire from the routes that stayed
@@ -44,8 +50,8 @@ type StatusResponse struct {
 // the caller already set is preserved, which is what lets WriteError layer its
 // problem+json type on top of this.
 func WriteJSON(w http.ResponseWriter, status int, v any) {
-	if w.Header().Get("Content-Type") == "" {
-		w.Header().Set("Content-Type", "application/json")
+	if w.Header().Get(headerContentType) == "" {
+		w.Header().Set(headerContentType, "application/json")
 	}
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
@@ -55,9 +61,30 @@ func WriteJSON(w http.ResponseWriter, status int, v any) {
 // derived from the status text; msg becomes the detail and must already be
 // safe to return to the caller.
 func WriteError(w http.ResponseWriter, status int, msg string) {
-	w.Header().Set("Content-Type", "application/problem+json")
+	w.Header().Set(headerContentType, problemJSONType)
 	WriteJSON(w, status, ProblemDetail{
 		Type:   "about:blank",
+		Title:  http.StatusText(status),
+		Status: status,
+		Detail: msg,
+	})
+}
+
+// ProblemTypePrefix namespaces the platform's own problem types. It is a URN
+// rather than a URL because nothing is served at the other end: the value
+// exists to be compared, and a URL would promise a page that does not exist.
+const ProblemTypePrefix = "urn:mcp-data-platform:problem:"
+
+// WriteErrorCode writes a Problem Details response whose type names the
+// problem rather than leaving it "about:blank".
+//
+// It is for the refusals a caller can do something specific about. The detail
+// is the sentence a person reads; a surface offering the next step cannot key
+// a control off prose, and the type is the half it can match on.
+func WriteErrorCode(w http.ResponseWriter, status int, code, msg string) {
+	w.Header().Set(headerContentType, problemJSONType)
+	WriteJSON(w, status, ProblemDetail{
+		Type:   ProblemTypePrefix + code,
 		Title:  http.StatusText(status),
 		Status: status,
 		Detail: msg,

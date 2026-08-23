@@ -34,15 +34,17 @@ type fakeTableRegistrar struct {
 	lastRef       string
 	lastConn      string
 	lastName      string
+	lastRepair    bool
+	repaired      string
 	registerErr   error
 	unregisterErr error
 	listErr       error
 }
 
 func (f *fakeTableRegistrar) Register(
-	_ context.Context, reference, connection, tableName string,
+	_ context.Context, reference, connection, tableName string, repair bool,
 ) (*TableRegistration, error) {
-	f.lastRef, f.lastConn, f.lastName = reference, connection, tableName
+	f.lastRef, f.lastConn, f.lastName, f.lastRepair = reference, connection, tableName, repair
 	if f.registerErr != nil {
 		return nil, f.registerErr
 	}
@@ -53,6 +55,7 @@ func (f *fakeTableRegistrar) Register(
 		Columns:        []string{"store_id"},
 		SampleSQL:      "SELECT CAST(store_id AS BIGINT) FROM scratch.uploads.analyst_vendor_keys",
 		RegisteredBy:   ownerEmail,
+		Repaired:       f.repaired,
 	}
 	f.registered = append(f.registered, reg)
 	return &reg, nil
@@ -398,4 +401,40 @@ func TestTableActionsOverMCPSession(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.True(t, refused.IsError)
+}
+
+// TestRegisterTable_CarriesTheRepairAskAndReportsWhatChanged: a CSV whose cells
+// carry line breaks cannot be read as a table the way it is stored, and the
+// tool's part in the answer is to carry the ask through and to put what changed
+// in front of the registration it produced -- the file itself has a new
+// version, which is the more consequential half (#1441).
+func TestRegisterTable_CarriesTheRepairAskAndReportsWhatChanged(t *testing.T) {
+	reg := &fakeTableRegistrar{repaired: "Saved version 2 of this file, which put 2 rows back onto one line."}
+	tk := tableToolkit(t, reg)
+
+	res := callTable(ownerCtx(), t, tk, manageTableInput{
+		Action: tableActionRegister, Reference: assetReference,
+		Connection: "scratch", Repair: true,
+	})
+	require.False(t, res.IsError, resultText(t, res))
+	assert.True(t, reg.lastRepair, "the ask reaches the registrar")
+
+	body := decodeResult(t, res)
+	assert.Equal(t, reg.repaired, body["repaired"])
+	assert.Contains(t, body["message"], "Saved version 2 of this file")
+	assert.Contains(t, body["message"], "CAST", "and the registration is still described")
+}
+
+// TestRegisterTable_WithoutTheRepairAsk is the default: the platform does not
+// rewrite somebody's file on the way to something else they asked for.
+func TestRegisterTable_WithoutTheRepairAsk(t *testing.T) {
+	reg := &fakeTableRegistrar{}
+	tk := tableToolkit(t, reg)
+
+	res := callTable(ownerCtx(), t, tk, manageTableInput{
+		Action: tableActionRegister, Reference: assetReference, Connection: "scratch",
+	})
+	require.False(t, res.IsError, resultText(t, res))
+	assert.False(t, reg.lastRepair)
+	assert.NotContains(t, decodeResult(t, res), "repaired")
 }

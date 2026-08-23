@@ -10,10 +10,15 @@ import type {
 
 // TableApiError carries the status alongside the message so a caller can tell
 // "you cannot reach this connection" (403) from "that name is taken" (409).
+//
+// type is the RFC 9457 problem type. It is "about:blank" for most refusals and
+// names the problem for the ones a surface offers a next step on, which is
+// what lets a control be keyed off the refusal rather than off its prose.
 export class TableApiError extends Error {
   constructor(
     public status: number,
     public detail: string,
+    public type: string = "about:blank",
   ) {
     super(detail);
     this.name = "TableApiError";
@@ -43,7 +48,7 @@ async function tableError(res: Response): Promise<TableApiError> {
     useAuthStore.getState().expireSession();
   }
   const body = await res.json().catch(() => ({ detail: res.statusText }));
-  return new TableApiError(res.status, body.detail || body.error || res.statusText);
+  return new TableApiError(res.status, body.detail || body.error || res.statusText, body.type);
 }
 
 // tableFetch talks to the table routes, which live beside the resources and
@@ -94,7 +99,10 @@ export function useTableConnections(enabled = true) {
 export function useRegisterTable(kind: TableSourceKind, id: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: { connection: string; table_name?: string }) =>
+    // repair asks for a corrected version of the file to be saved and
+    // registered. It is the second submission of the form: the first is
+    // refused with what is wrong, and that refusal is what offers this.
+    mutationFn: (body: { connection: string; table_name?: string; repair?: boolean }) =>
       tableFetch<TableRegistration>(basePath(kind, id), {
         method: "POST",
         body: JSON.stringify(body),

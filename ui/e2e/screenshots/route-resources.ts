@@ -3,6 +3,8 @@ import {
   openResourceDetail,
   openResourceLifecycle,
   openTableRegisterForm,
+  openTableRepairOffer,
+  openTableRepaired,
 } from "./route-actions";
 import { type ScreenshotRoute } from "./route-types";
 
@@ -50,5 +52,23 @@ export const adminResourceRoutes: ScreenshotRoute[] = [
     path: "/portal/admin/resources",
     category: "admin",
     beforeCapture: openTableRegisterForm,
+  },
+  {
+    // A CSV a query engine cannot read the way it is stored: its cells carry
+    // line breaks, so every such row would be torn into fragments in a table
+    // that reported no problem at all. The refusal names what is wrong and
+    // offers the correction as a control (#1441).
+    slug: "resource-table-repair-offer",
+    path: "/portal/admin/resources",
+    category: "admin",
+    beforeCapture: openTableRepairOffer,
+  },
+  {
+    // The correction taken: the file has a new version, and the panel says what
+    // changed in it -- the part that outlives the registration.
+    slug: "resource-table-repaired",
+    path: "/portal/admin/resources",
+    category: "admin",
+    beforeCapture: openTableRepaired,
   },
 ];

@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -57,6 +58,56 @@ type Registration struct {
 	Columns      []Column  `json:"columns"`
 	RegisteredBy string    `json:"registered_by"`
 	RegisteredAt time.Time `json:"registered_at"`
+}
+
+// Result is one completed registration: the record, the source it was built
+// over, and what a correction of that source changed.
+//
+// Source is not always the source that was handed in. A file that had to be
+// corrected first is registered over the version the correction wrote, and a
+// surface reporting on the registration -- whether it is stale, which object
+// it reads -- has to be looking at that version rather than the one it asked
+// about.
+type Result struct {
+	Registration
+	Source Source `json:"-"`
+	// Repair is what saving a corrected version changed, or nil when the file
+	// was registered exactly as it was stored.
+	Repair *RepairReport `json:"repair,omitempty"`
+}
+
+// RepairReport is what saving a corrected version of a file changed, and which
+// version it was saved as.
+type RepairReport struct {
+	NormalizeReport
+	Version int `json:"version"`
+}
+
+// Summary renders the correction as the sentence a person whose file changed
+// is told, in both surfaces.
+func (r *RepairReport) Summary() string {
+	if r == nil {
+		return ""
+	}
+	return "Saved version " + strconv.Itoa(r.Version) + " of this file, which " + repairSummary(r.NormalizeReport) +
+		". The file as it was uploaded is still there as the version before it."
+}
+
+// repairSummary says what a correction did, in the terms the person who
+// uploaded the file would use. It is also the change summary the version trail
+// records, so the version panel and the registration message agree.
+func repairSummary(report NormalizeReport) string {
+	parts := make([]string, 0, 2)
+	if report.RowsRepaired > 0 {
+		parts = append(parts, "put "+plural(report.RowsRepaired, "row", "rows")+" back onto one line")
+	}
+	if report.FromEncoding != "" {
+		parts = append(parts, "converted the text from "+report.FromEncoding+" to UTF-8")
+	}
+	if len(parts) == 0 {
+		return "rewrote it as a plain UTF-8 CSV"
+	}
+	return joinAnd(parts)
 }
 
 // QualifiedName is the table as a query names it.
@@ -164,6 +215,12 @@ var (
 	// the caller's reach, held to here for the same reason.
 	ErrNoSuchFile = errors.New("that reference names no stored file you can register")
 
+	// ErrNeedsRepair marks the refusal of a file that cannot be read as a
+	// table the way it is stored but could be if a corrected version of it
+	// were saved first. Both surfaces match on it to offer that correction,
+	// rather than leaving a person with a refusal and nothing to do about it.
+	ErrNeedsRepair = errors.New("this file needs correcting before it can be read as a table")
+
 	// ErrRefused marks a refusal the caller can act on -- a name already
 	// taken, a sibling object in the way -- as opposed to a failure of the
 	// platform. Every such refusal wraps it, so a surface can answer with a
@@ -181,11 +238,24 @@ func refusedf(format string, args ...any) error {
 	return &refusal{reason: fmt.Sprintf(format, args...)}
 }
 
+// needsRepairf builds a refusal of a file the platform could register if it
+// saved a corrected version of it first. It answers to ErrNeedsRepair as well
+// as to ErrRefused, which is how a surface knows to offer the correction.
+func needsRepairf(format string, args ...any) error {
+	return &refusal{reason: fmt.Sprintf(format, args...), repairable: true}
+}
+
 // refusal is a caller-actionable refusal that reads as its own sentence and
 // still answers to ErrRefused.
-type refusal struct{ reason string }
+type refusal struct {
+	reason string
+	// repairable marks the subset the platform can offer a correction for.
+	repairable bool
+}
 
 func (e *refusal) Error() string { return e.reason }
 
-// Is reports the sentinel every surface matches on.
-func (*refusal) Is(target error) bool { return target == ErrRefused }
+// Is reports the sentinels a surface matches on.
+func (e *refusal) Is(target error) bool {
+	return target == ErrRefused || (e.repairable && target == ErrNeedsRepair)
+}
