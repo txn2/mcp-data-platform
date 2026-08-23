@@ -223,6 +223,10 @@ A CSV asset can be registered as a table and joined to warehouse tables from the
 
 Nothing is copied. The table reads the file where it already sits, so re-running the export that produced the asset changes what the table returns. Every column comes back as text, so a join to a typed warehouse column needs a `CAST` — the panel shows the table's name to copy into a query, and the platform's `search` results carry a sample statement.
 
+The **Register** control stays available after the first registration, because one file is not limited to one table. Registering under a different name, or onto a different connection, adds a second table over the same file and leaves the first alone. Registering the same name on the same connection replaces that registration, which is how a table is moved forward after the asset changes: editing an asset writes a new version, the table keeps serving the version it was registered against, and the panel says so and asks you to register again. Overwriting the file at the same key is different — the table returns the new contents on the next query with nothing to do.
+
+The trash control beside a table unregisters it. That drops the table and leaves the asset completely alone: the file is not deleted, not moved, and not changed. Deleting the asset itself is what drops every table over it.
+
 The panel is absent unless the asset is a CSV and an administrator has given a Trino connection a scratch catalog and schema. Registering is the owner's call: it puts the file's contents in a schema everyone with that connection can read. An agent can do it for you without the portal step, with `manage_table`. See [Registered Tables](registered-tables.md).
 
 ## Collections

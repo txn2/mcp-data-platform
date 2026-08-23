@@ -113,6 +113,64 @@ POST   /api/v1/portal/assets/{id}/tables
 DELETE /api/v1/portal/assets/{id}/tables/{registrationID}
 ```
 
+## The lifecycle
+
+Registration is a pointer and a name, not an import. Five things can happen to
+one, and the portal's *Query as a table* panel is where four of them are done.
+
+**Register.** Pick a connection and, optionally, a name. The platform reads the
+file's header for column names, creates the external table over the directory
+the file occupies, and records the registration.
+
+**Register again.** The control stays available after the first registration,
+because a file is not limited to one. Registering again does one of two things,
+depending on the name:
+
+- A *different* name, or the same name on a different connection, adds a second
+  table over the same file. Both stay listed, both work, and neither knows about
+  the other. This is how one CSV is queryable from two clusters, or under a name
+  that reads better in one team's queries than another's.
+- The *same* name on the same connection replaces the registration, provided it
+  is a name you registered. This is the repair for staleness below, and it is
+  why the panel's warning says to register again rather than to unregister
+  first. A name somebody else registered is refused and names who holds it, so
+  nothing is silently overwritten; an administrator is unrestricted and does
+  replace it.
+
+**Go stale.** See the next section. The table keeps working; it is serving
+content that is no longer current.
+
+**Unregister.** Drops the table and forgets the registration. The file is not
+touched: dropping a Hive external table removes the catalog entry and nothing
+else, and the object stays exactly where it was, byte for byte. Unregistering is
+the registrant's call or an administrator's.
+
+**Delete the file.** Deleting the resource or asset drops every table registered
+over it, whoever registered them, and forgets the registrations.
+
+## Changing the file: two cases that behave oppositely
+
+Both of these are "I changed the file", and they do not produce the same result,
+because a registration points at a directory rather than at a record id.
+
+| What happened | What the table does | What to do |
+|---|---|---|
+| The object is overwritten at the same key. A vendor drop replacing yesterday's file, a script writing over its own output. | The next query returns the new contents. | Nothing. |
+| A new version is written. Every portal asset edit does this, as does every revision of a managed resource: the new content goes to a new directory and the head moves. | The table keeps serving the directory it was registered against. That is correct SQL over the version that was current when it was registered, and it will not change on its own. | Register again, same connection and name. |
+
+The second case is reported as **stale** everywhere a registration is shown: in
+the portal panel, on a `search` hit, and in `manage_table action=list`. A stale
+table is not broken and is not dropped, so a report built on it keeps running;
+it is behind, and the platform will not decide on its own that you wanted it
+moved forward.
+
+This is worth knowing before pointing a table at an asset a
+[managed script](../scripts/running.md) rewrites on a schedule. Such an asset
+gains a version per run, so a table over it is stale from the first refresh
+onward and stays that way until somebody registers it again. A file the script
+overwrites in place instead has no such problem, and is the better shape when
+the table has to stay current by itself.
+
 ## Querying what you registered
 
 Every column of a registered table is `VARCHAR`. That is the Hive CSV storage
@@ -186,18 +244,6 @@ name is claimed on registration. Re-registering your own name replaces it;
 taking someone else's is refused, naming who holds it. Administrators are
 unrestricted.
 
-## When a file gets a new version
-
-A new revision of a resource, or a new version of an asset, writes to a new
-directory and moves the head. The table keeps serving the directory it was
-registered against - correct SQL over the version that was current then. The
-platform reports such a registration as **stale**: in the portal panel, on a
-`search` hit, and in `manage_table action=list`. Registering again moves the table to the
-current version.
-
-Overwriting the file at the same key is not staleness. The table returns the
-new contents on the next query.
-
 ## What the scratch schema is
 
 The scratch schema is a shared workspace. Everyone granted the connection can
@@ -205,9 +251,17 @@ read every table in it, and resource and asset permissions are **not** carried
 into Trino - see the [threat model](../security/threat-model.md).
 
 Table names are prefixed with the registering person's persona. That is a
-collision-avoidance measure and a legibility one, not a boundary: it keeps two
-people who both registered `vendors` from fighting over the name, and it tells a
-reader of the schema whose working table they are looking at.
+collision-avoidance measure and a legibility one, not a boundary: it keeps an
+analyst's `vendors` apart from an administrator's, and it tells a reader of the
+schema whose working table they are looking at.
+
+The prefix separates personas rather than people, so two analysts registering
+`vendors` do land on the same name, and the prefix is not what decides which of
+them gets it. The name is claimed in a unique index on the connection, catalog,
+schema and table, and the record of who registered it is what the platform
+checks: re-registering a name you hold replaces the table, and a name somebody
+else holds is refused rather than overwritten. Administrators are unrestricted,
+so an administrator does replace another person's table.
 
 What keeps a registration off the warehouse is the Trino identity the scratch
 connection authenticates as. The platform's `read_only` flag is a
@@ -217,12 +271,6 @@ session defaults rather than bounds. A scratch connection that authenticates as
 the same Trino user as the warehouse connection can write to the warehouse. Give
 it its own Trino user, with access-control rules allowing DDL only on the
 scratch catalog.
-
-## Deleting
-
-Deleting the resource or asset drops every table registered over it and forgets
-the registration. Unregistering drops the table and leaves the file alone -
-dropping a Hive external table removes the catalog entry and nothing else.
 
 ## What is recorded
 

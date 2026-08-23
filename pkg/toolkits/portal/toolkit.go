@@ -402,6 +402,9 @@ const manageTableToolDescription = "Makes a stored CSV file queryable as a table
 	"A new revision or version of the file leaves the table serving the content that was current when it " +
 	"was registered; that is reported as stale, and registering again moves the table to the current " +
 	"content. Overwriting the same file in place needs no re-registration. " +
+	"Registering the same name on the same connection replaces that registration, which is how a stale " +
+	"one is moved forward; a different name, or another connection, adds a second table over the same " +
+	"file rather than replacing anything. " +
 	"'unregister' drops the table and leaves the file untouched. " +
 	"Registering is the authority to change the file, not the authority to read it: an asset's owner or an " +
 	"administrator, a resource's uploader or an administrator of its scope. The scratch schema is shared, " +
