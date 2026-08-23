@@ -2,6 +2,15 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
+// The capturer is lazy and carries html2canvas, which does not run in jsdom.
+// Standing it in here is enough to see WHETHER the viewer asked for a capture,
+// and with what.
+vi.mock("./assetviewer/ThumbnailGeneratorWithInvalidation", () => ({
+  ThumbnailGeneratorWithInvalidation: ({ version }: { version?: number }) => (
+    <div data-testid="thumbnail-capture" data-version={version} />
+  ),
+}));
+
 import { AssetViewer } from "./AssetViewer";
 
 const stubMutation = () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false, isError: false }) as never;
@@ -156,5 +165,39 @@ describe("AssetViewer version retention (#1421)", () => {
       expect.objectContaining({ max_versions: 0 }),
       expect.anything(),
     );
+  });
+});
+
+// A version write leaves the recorded capture in place, so the image on the
+// card is of an older body until something captures again. Opening the asset is
+// one of the two things that does (#1431).
+describe("AssetViewer thumbnail capture", () => {
+  const behind = {
+    thumbnail_s3_key: "k/.thumbnail.png",
+    thumbnail_dark_s3_key: "k/.thumbnail_dark.png",
+    thumbnail_version: 3,
+    thumbnail_dark_version: 3,
+    current_version: 4,
+  };
+  const current = { ...behind, thumbnail_version: 4, thumbnail_dark_version: 4 };
+
+  it("captures again when the recorded one is older than the asset", async () => {
+    renderViewer({ asset: markdownAsset(behind) });
+    const capture = await screen.findByTestId("thumbnail-capture", {}, { timeout: 4000 });
+    expect(capture.getAttribute("data-version")).toBe("4");
+  });
+
+  it("leaves a current capture alone", async () => {
+    renderViewer({ asset: markdownAsset(current) });
+    await new Promise((r) => setTimeout(r, 1500));
+    expect(screen.queryByTestId("thumbnail-capture")).not.toBeInTheDocument();
+  });
+
+  // The capture endpoint takes an upload from the owner or an administrator, so
+  // on a shared asset the whole pass would end in a refused PUT.
+  it("does not capture on an asset shared with the reader", async () => {
+    renderViewer({ asset: markdownAsset(behind), isOwner: false, sharePermission: "editor" });
+    await new Promise((r) => setTimeout(r, 1500));
+    expect(screen.queryByTestId("thumbnail-capture")).not.toBeInTheDocument();
   });
 });

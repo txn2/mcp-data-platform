@@ -406,7 +406,11 @@ func (h *Handler) uploadAdminThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	updates := portal.AssetUpdate{ThumbnailS3Key: &thumbKey}
+	// Dated to the version the asset is on now. The capture was taken from the
+	// body this request was made about, and without the stamp the asset would
+	// read as never captured and be offered to the portal's refresh queue for
+	// as long as it existed (#1431).
+	updates := portal.AssetUpdate{ThumbnailS3Key: &thumbKey, ThumbnailVersion: &asset.CurrentVersion}
 	if err := h.deps.AssetStore.Update(r.Context(), id, updates); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update asset metadata")
 		return

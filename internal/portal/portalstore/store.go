@@ -113,7 +113,8 @@ func (s *postgresAssetStore) Insert(ctx context.Context, asset portaldomain.Asse
 func (s *postgresAssetStore) Get(ctx context.Context, id string) (*portaldomain.Asset, error) { //nolint:revive // interface impl
 	query := `
 		SELECT id, owner_id, owner_email, name, description, content_type, s3_bucket, s3_key,
-		       thumbnail_s3_key, thumbnail_dark_s3_key, size_bytes, tags, provenance, session_id, current_version,
+		       thumbnail_s3_key, thumbnail_dark_s3_key, thumbnail_version, thumbnail_dark_version,
+		       size_bytes, tags, provenance, session_id, current_version,
 		       created_at, updated_at, deleted_at, COALESCE(idempotency_key, ''), max_versions
 		FROM portal_assets WHERE id = $1
 	`
@@ -139,7 +140,8 @@ func (s *postgresAssetStore) Get(ctx context.Context, id string) (*portaldomain.
 func (s *postgresAssetStore) GetByIdempotencyKey(ctx context.Context, ownerID, key string) (*portaldomain.Asset, error) { //nolint:revive // interface impl
 	query := `
 		SELECT id, owner_id, owner_email, name, description, content_type, s3_bucket, s3_key,
-		       thumbnail_s3_key, thumbnail_dark_s3_key, size_bytes, tags, provenance, session_id, current_version,
+		       thumbnail_s3_key, thumbnail_dark_s3_key, thumbnail_version, thumbnail_dark_version,
+		       size_bytes, tags, provenance, session_id, current_version,
 		       created_at, updated_at, deleted_at, COALESCE(idempotency_key, ''), max_versions
 		FROM portal_assets
 		WHERE owner_id = $1 AND idempotency_key = $2 AND deleted_at IS NULL
@@ -170,7 +172,8 @@ func (s *postgresAssetStore) GetByIDs(ctx context.Context, ids []string) (map[st
 
 	query := `
 		SELECT id, owner_id, owner_email, name, description, content_type, s3_bucket, s3_key,
-		       thumbnail_s3_key, thumbnail_dark_s3_key, size_bytes, tags, provenance, session_id, current_version,
+		       thumbnail_s3_key, thumbnail_dark_s3_key, thumbnail_version, thumbnail_dark_version,
+		       size_bytes, tags, provenance, session_id, current_version,
 		       created_at, updated_at, deleted_at, COALESCE(idempotency_key, ''), max_versions
 		FROM portal_assets WHERE id = ANY($1) AND deleted_at IS NULL
 	`
@@ -245,7 +248,8 @@ func (s *postgresAssetStore) queryAssets(ctx context.Context, filter portaldomai
 	limit := filter.EffectiveLimit()
 	selectQB := applyAssetFilter(psq.Select(
 		"id", "owner_id", "owner_email", "name", "description", "content_type", "s3_bucket", "s3_key",
-		"thumbnail_s3_key", "thumbnail_dark_s3_key", "size_bytes", "tags", "provenance", "session_id", "current_version",
+		"thumbnail_s3_key", "thumbnail_dark_s3_key", "thumbnail_version", "thumbnail_dark_version",
+		"size_bytes", "tags", "provenance", "session_id", "current_version",
 		"created_at", "updated_at", "deleted_at", "COALESCE(idempotency_key, '')", "max_versions",
 	).From("portal_assets"), filter).
 		Where("deleted_at IS NULL").
@@ -434,6 +438,14 @@ func applyScalarUpdates(qb sq.UpdateBuilder, updates portaldomain.AssetUpdate) (
 	}
 	if updates.ThumbnailDarkS3Key != nil {
 		qb = qb.Set("thumbnail_dark_s3_key", *updates.ThumbnailDarkS3Key)
+		changed = true
+	}
+	if updates.ThumbnailVersion != nil {
+		qb = qb.Set("thumbnail_version", *updates.ThumbnailVersion)
+		changed = true
+	}
+	if updates.ThumbnailDarkVersion != nil {
+		qb = qb.Set("thumbnail_dark_version", *updates.ThumbnailDarkVersion)
 		changed = true
 	}
 	// Clearing wins over setting: an update that says both "inherit the
@@ -820,7 +832,8 @@ func (s *postgresShareStore) ListSharedWithUser(ctx context.Context, userID, ema
 
 	selectQuery := `
 		SELECT pa.id, pa.owner_id, pa.owner_email, pa.name, pa.description, pa.content_type,
-		       pa.s3_bucket, pa.s3_key, pa.thumbnail_s3_key, pa.thumbnail_dark_s3_key, pa.size_bytes, pa.tags, pa.provenance,
+		       pa.s3_bucket, pa.s3_key, pa.thumbnail_s3_key, pa.thumbnail_dark_s3_key,
+		       pa.thumbnail_version, pa.thumbnail_dark_version, pa.size_bytes, pa.tags, pa.provenance,
 		       pa.session_id, pa.current_version, pa.created_at, pa.updated_at, pa.deleted_at,
 		       COALESCE(pa.idempotency_key, ''),
 		       ps.id, COALESCE(NULLIF(pa.owner_email, ''), ps.created_by), ps.created_at, ps.permission
@@ -847,7 +860,8 @@ func (s *postgresShareStore) ListSharedWithUser(ctx context.Context, userID, ema
 
 		if err := rows.Scan(
 			&sa.Asset.ID, &sa.Asset.OwnerID, &sa.Asset.OwnerEmail, &sa.Asset.Name, &sa.Asset.Description,
-			&sa.Asset.ContentType, &sa.Asset.S3Bucket, &sa.Asset.S3Key, &sa.Asset.ThumbnailS3Key, &sa.Asset.ThumbnailDarkS3Key, &sa.Asset.SizeBytes,
+			&sa.Asset.ContentType, &sa.Asset.S3Bucket, &sa.Asset.S3Key, &sa.Asset.ThumbnailS3Key, &sa.Asset.ThumbnailDarkS3Key,
+			&sa.Asset.ThumbnailVersion, &sa.Asset.ThumbnailDarkVersion, &sa.Asset.SizeBytes,
 			&tags, &prov, &sa.Asset.SessionID, &sa.Asset.CurrentVersion,
 			&sa.Asset.CreatedAt, &sa.Asset.UpdatedAt, &deletedAt, &sa.Asset.IdempotencyKey,
 			&sa.ShareID, &sa.SharedBy, &sa.SharedAt, &sa.Permission,
@@ -1115,7 +1129,95 @@ func applyAssetFilter(qb sq.SelectBuilder, filter portaldomain.AssetFilter) sq.S
 			sq.Expr("tags::text ILIKE ?", like),
 		})
 	}
+	if filter.ThumbnailPending {
+		qb = qb.Where(thumbnailPendingPredicate())
+	}
 	return qb
+}
+
+// maxThumbnailSourceBytes is the largest asset body a thumbnail is captured
+// from. Capture renders the asset a second time and rasterizes it on the main
+// thread of whichever tab picks the work up, so its cost tracks the size of the
+// document; above this the asset keeps the placeholder icon rather than stall
+// the page it was found from (#1351). The portal applies the same limit before
+// it captures anything, and the queue query applies it so a document no browser
+// will ever accept is not offered forever.
+const maxThumbnailSourceBytes = 1 << 20 // 1 MB
+
+// thumbnailSupportedTypes are the content-type fragments the portal can
+// rasterize, and thumbnailThemeableTypes those it renders on a forced
+// background and therefore captures twice, once per color scheme. A type
+// carrying its own colors (HTML, JSX, SVG) stores one image and serves it in
+// both modes.
+//
+// They are fragments rather than exact media types because the stored type
+// carries parameters and vendor prefixes ("text/markdown; charset=utf-8",
+// "text/jsx"), and they are matched case-insensitively for the same reason.
+// They live here, beside the only query that reads them, rather than with the
+// asset type: what a browser can rasterize is what the refresh queue is allowed
+// to offer, and nothing else in Go asks the question.
+var (
+	thumbnailSupportedTypes = []string{"html", "jsx", "svg", "markdown", "csv"}
+	thumbnailThemeableTypes = []string{"markdown", "csv"}
+)
+
+// thumbnailPendingPredicate matches the assets a browser should capture a
+// thumbnail for: one the portal can rasterize, small enough to be worth
+// rendering twice, and carrying a capture that is missing, behind the current
+// version, or written under the pre-rename filename.
+//
+// The three reasons are one condition because they have one remedy. A missing
+// capture and a capture left behind by a version write are the same request to
+// the same capturer, and an asset thumbnailed under the old visible filename
+// has to be re-captured before it can be registered as a table at all (#1327),
+// so it is offered even though it has an image that serves.
+//
+// Light and dark are asked separately, and dark only of the types that carry
+// one: an HTML asset stores a single image and serves it in both modes, so
+// reading its empty dark key as "pending" would offer it forever.
+func thumbnailPendingPredicate() sq.Sqlizer {
+	return sq.And{
+		sq.Expr("content_type ILIKE ANY(?)", pq.Array(fragmentPatterns(thumbnailSupportedTypes))),
+		sq.LtOrEq{"size_bytes": maxThumbnailSourceBytes},
+		sq.Or{
+			variantPendingPredicate(portaldomain.ThumbnailVariantLight),
+			sq.And{
+				sq.Expr("content_type ILIKE ANY(?)", pq.Array(fragmentPatterns(thumbnailThemeableTypes))),
+				variantPendingPredicate(portaldomain.ThumbnailVariantDark),
+			},
+		},
+	}
+}
+
+// variantPendingPredicate is the per-variant half of the condition above: no
+// key recorded, a key recorded from an older version, or a key under the
+// superseded filename.
+//
+// The filename test extracts the basename with the same rule
+// portaldomain.IsLegacyThumbnailKey applies in Go -- everything after the last
+// slash, or the whole key when it holds none -- rather than matching a suffix,
+// so a key that ends in the current hidden name is not read as the visible one
+// it is a dot away from.
+func variantPendingPredicate(variant string) sq.Sqlizer {
+	keyCol, versionCol := "thumbnail_s3_key", "thumbnail_version"
+	if variant == portaldomain.ThumbnailVariantDark {
+		keyCol, versionCol = "thumbnail_dark_s3_key", "thumbnail_dark_version"
+	}
+	return sq.Or{
+		sq.Eq{keyCol: ""},
+		sq.Expr(versionCol + " < current_version"),
+		sq.Expr("substring("+keyCol+" from '[^/]*$') = ?", portaldomain.LegacyThumbnailFilenameFor(variant)),
+	}
+}
+
+// fragmentPatterns wraps content-type fragments as ILIKE patterns, which is how
+// the substring test the portal applies in JavaScript is asked of a column.
+func fragmentPatterns(fragments []string) []string {
+	patterns := make([]string, 0, len(fragments))
+	for _, f := range fragments {
+		patterns = append(patterns, "%"+f+"%")
+	}
+	return patterns
 }
 
 // assetScanDest returns the scan destinations for one asset row in the column
@@ -1125,7 +1227,8 @@ func applyAssetFilter(qb sq.SelectBuilder, filter portaldomain.AssetFilter) sq.S
 func assetScanDest(a *portaldomain.Asset, tags, prov *[]byte, deletedAt *sql.NullTime, maxVersions *sql.NullInt64) []any {
 	return []any{
 		&a.ID, &a.OwnerID, &a.OwnerEmail, &a.Name, &a.Description,
-		&a.ContentType, &a.S3Bucket, &a.S3Key, &a.ThumbnailS3Key, &a.ThumbnailDarkS3Key, &a.SizeBytes,
+		&a.ContentType, &a.S3Bucket, &a.S3Key, &a.ThumbnailS3Key, &a.ThumbnailDarkS3Key,
+		&a.ThumbnailVersion, &a.ThumbnailDarkVersion, &a.SizeBytes,
 		tags, prov, &a.SessionID, &a.CurrentVersion, &a.CreatedAt, &a.UpdatedAt, deletedAt,
 		&a.IdempotencyKey, maxVersions,
 	}

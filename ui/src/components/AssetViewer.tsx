@@ -6,7 +6,7 @@ import { ShareDialog } from "@/components/ShareDialog";
 import { Button } from "@/components/ui/button";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { useIdleGate } from "@/lib/idle";
-import { isThumbnailSupported, THUMBNAIL_SOURCE_LIMIT } from "@/lib/thumbnailSupport";
+import { isThumbnailSupported, thumbnailBehind, THUMBNAIL_SOURCE_LIMIT } from "@/lib/thumbnailSupport";
 import { isEditableContent } from "@/components/renderers/registry";
 import { type AssetViewerProps, type ViewMode } from "./assetviewer/types";
 import { ThumbnailGeneratorWithInvalidation } from "./assetviewer/ThumbnailGeneratorWithInvalidation";
@@ -65,20 +65,29 @@ export function AssetViewer({
   const [editedContent, setEditedContent] = useState<string>("");
   const [dirty, setDirty] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "error">("idle");
-  const [thumbnailStale, setThumbnailStale] = useState(false);
 
   // Capturing a thumbnail renders the asset a second time off-screen and
   // rasterizes it. Doing that while someone is reading the asset is what made
   // the detail page stop responding on a first visit (#1351), so it waits for
   // the browser to go idle with the tab in front, and is skipped entirely for
   // a document too large to render twice cheaply.
+  //
+  // Whether one is wanted is read off the asset row rather than tracked here:
+  // a capture dated below the current version is one the reader is looking past
+  // — the image on the card is of an older body — and a save the reader just
+  // made moves the version, so the same comparison covers both (#1431).
+  //
+  // Only for a reader who could store the result: the capture endpoint takes an
+  // upload from the asset's owner or an administrator, so on an asset shared
+  // with the reader the whole pass would end in a refused PUT.
   const thumbnailWanted =
+    isOwner &&
     typeof content === "string" &&
     content.length > 0 &&
     !!asset &&
     isThumbnailSupported(asset.content_type) &&
     asset.size_bytes <= THUMBNAIL_SOURCE_LIMIT &&
-    (!asset.thumbnail_s3_key || thumbnailStale);
+    thumbnailBehind(asset);
   const captureThumbnail = useIdleGate(thumbnailWanted);
   const isSharedEditor = !isOwner && sharePermission === "editor";
 
@@ -112,9 +121,6 @@ export function AssetViewer({
           setChangeSummary("");
           setViewMode("preview");
           onSelectVersion?.(null);
-          if (isThumbnailSupported(asset.content_type)) {
-            setThumbnailStale(true);
-          }
         },
         onError: () => setSaveStatus("error"),
       },
@@ -312,13 +318,19 @@ export function AssetViewer({
         />
       )}
 
+      {/* Remounted per version so a save, or a rewrite arriving on a refetch,
+          captures again rather than reusing the mounted capturer. The version
+          stamped is the asset's current one: the asset and its content are
+          refetched together, so a body older than the version it is dated to is
+          possible only in the moment between the two responses, and the next
+          write puts the asset back on the queue. */}
       {captureThumbnail && typeof content === "string" && (
         <ThumbnailGeneratorWithInvalidation
-          key={thumbnailStale ? "regen" : "initial"}
+          key={asset.current_version}
           assetId={asset.id}
-          content={thumbnailStale ? editedContent : content}
+          content={content}
           contentType={asset.content_type}
-          onDone={() => setThumbnailStale(false)}
+          version={asset.current_version}
         />
       )}
 

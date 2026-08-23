@@ -222,3 +222,20 @@ func TestIsLegacyThumbnailKey(t *testing.T) {
 		assert.Equal(t, tt.want, IsLegacyThumbnailKey(tt.key), tt.key)
 	}
 }
+
+// The refresh queue matches recorded keys against the superseded spelling in
+// SQL, so the name it compares to has to be the same one IsLegacyThumbnailKey
+// recognizes here -- a queue asking about a filename this package no longer
+// writes would offer every thumbnailed asset for capture, or none (#1431).
+func TestLegacyThumbnailFilenameFor(t *testing.T) {
+	for _, variant := range []string{ThumbnailVariantLight, ThumbnailVariantDark} {
+		name := LegacyThumbnailFilenameFor(variant)
+		assert.True(t, IsLegacyThumbnailKey("portal/u1/a1/"+name), variant)
+		assert.False(t, IsLegacyThumbnailKey(DeriveThumbnailKeyVariant("portal/u1/a1/content.csv", variant)),
+			"the current spelling is not the legacy one")
+	}
+	assert.Equal(t, "thumbnail.png", LegacyThumbnailFilenameFor("light"))
+	assert.Equal(t, "thumbnail_dark.png", LegacyThumbnailFilenameFor("dark"))
+	assert.Equal(t, "thumbnail.png", LegacyThumbnailFilenameFor("sepia"),
+		"an unknown variant takes the light filename, as every other variant helper does")
+}

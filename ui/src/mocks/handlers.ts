@@ -20,6 +20,11 @@ import { mockToolSchemas, generateMockResult } from "./data/tools";
 import { mockEnrichmentRules } from "./data/enrichment";
 import { mockAssets, mockShares, mockSharedWithMe } from "./data/assets";
 import { versionsForAsset } from "./data/assetVersions";
+import {
+  isThumbnailSupported,
+  thumbnailBehind,
+  THUMBNAIL_SOURCE_LIMIT,
+} from "@/lib/thumbnailSupport";
 import { catalogHandlers } from "./handlers/catalogs";
 import { userHandlers } from "./handlers/users";
 import { connectionInstanceHandlers } from "./handlers/connections";
@@ -1998,6 +2003,8 @@ export const handlers = [
       provenance: { tool_calls: [] },
       session_id: "",
       current_version: 1,
+      thumbnail_version: 0,
+      thumbnail_dark_version: 0,
       created_at: now,
       updated_at: now,
     };
@@ -2036,6 +2043,9 @@ export const handlers = [
     const body = await request.text();
     mockContent[id] = body;
     portalAssets[idx]!.size_bytes = body.length;
+    // Every write records a version and moves the head, which is what leaves
+    // the recorded thumbnail a version behind the body it shows (#1431).
+    portalAssets[idx]!.current_version += 1;
     portalAssets[idx]!.updated_at = new Date().toISOString();
     return HttpResponse.json({ status: "updated" });
   }),
@@ -2068,16 +2078,44 @@ export const handlers = [
     if (!asset) {
       return HttpResponse.json({ detail: "Not found" }, { status: 404 });
     }
-    const variant = new URL(request.url).searchParams.get("variant");
+    const url = new URL(request.url);
+    const variant = url.searchParams.get("variant");
+    // The capture is dated to the version it was rendered from, defaulting to
+    // the version the asset is on now, exactly as the server does. Without the
+    // stamp the mock would leave every captured asset pending and the queue
+    // would re-offer it on every poll.
+    const version = Number(url.searchParams.get("version") ?? asset.current_version);
     const buffer = await request.arrayBuffer();
     if (variant === "dark") {
       thumbnailStore.set(`${asset.id}:dark`, buffer);
       asset.thumbnail_dark_s3_key = `thumbnails/${asset.id}_dark.png`;
+      asset.thumbnail_dark_version = version;
     } else {
       thumbnailStore.set(asset.id, buffer);
       asset.thumbnail_s3_key = `thumbnails/${asset.id}.png`;
+      asset.thumbnail_version = version;
     }
     return new HttpResponse(null, { status: 204 });
+  }),
+
+  // The refresh queue's work list: the assets whose capture is missing or
+  // behind the version they now hold. The server derives it in SQL over every
+  // asset the caller owns; the mock asks the same question of the fixtures.
+  http.get(`${PORTAL_BASE}/thumbnails/pending`, ({ request }) => {
+    const limit = parseInt(new URL(request.url).searchParams.get("limit") ?? "25", 10);
+    const pending = portalAssets.filter(
+      (a) =>
+        !a.deleted_at &&
+        isThumbnailSupported(a.content_type) &&
+        a.size_bytes <= THUMBNAIL_SOURCE_LIMIT &&
+        thumbnailBehind(a),
+    );
+    return HttpResponse.json({
+      data: pending.slice(0, limit),
+      total: pending.length,
+      limit,
+      offset: 0,
+    });
   }),
 
   http.get(`${PORTAL_BASE}/assets/:id/thumbnail`, ({ params, request }) => {

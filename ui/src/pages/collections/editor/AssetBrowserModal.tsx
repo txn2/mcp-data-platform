@@ -5,6 +5,7 @@ import { AssetPreviewModal } from "@/components/AssetPreviewModal";
 import { AuthImg } from "@/components/AuthImg";
 import { ModalShell } from "@/components/ModalShell";
 import { SearchInput } from "@/components/patterns/SearchInput";
+import { assetThumbnailSrc } from "@/lib/thumbnailSupport";
 import { SortableHead } from "@/components/patterns/SortableHead";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -99,7 +100,7 @@ export function AssetBrowserModal({
                 <TableCell>
                   {a.thumbnail_s3_key ? (
                     <AuthImg
-                      src={`/api/v1/portal/assets/${a.id}/thumbnail`}
+                      src={assetThumbnailSrc(a)}
                       alt=""
                       className="h-6 w-8 rounded object-cover"
                     />

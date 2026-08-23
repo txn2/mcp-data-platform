@@ -25,6 +25,19 @@ func expectSurvivingKeys(mock sqlmock.Sqlmock, assetID string, keys ...string) {
 	mock.ExpectQuery("SELECT DISTINCT s3_key FROM portal_asset_versions").
 		WithArgs(assetID).
 		WillReturnRows(rows)
+	expectStoredThumbnails(mock, assetID, "", "")
+}
+
+// expectStoredThumbnails answers the read of the thumbnail keys the asset row
+// points at, which the prune consults so it cannot delete the image the asset
+// is currently serving. Every caller of expectSurvivingKeys gets the "no
+// capture recorded" answer; a test about a stored pointer calls this itself
+// after its own versions query.
+func expectStoredThumbnails(mock sqlmock.Sqlmock, assetID, light, dark string) {
+	mock.ExpectQuery("SELECT thumbnail_s3_key, thumbnail_dark_s3_key FROM portal_assets").
+		WithArgs(assetID).
+		WillReturnRows(sqlmock.NewRows([]string{"thumbnail_s3_key", "thumbnail_dark_s3_key"}).
+			AddRow(light, dark))
 }
 
 // prunedRows is an empty result in the shape the prune's RETURNING clause
@@ -562,6 +575,68 @@ func TestCreateVersion_KeepsTheCurrentThumbnailOfASharedDirectory(t *testing.T) 
 	assert.NoError(t, mock.ExpectationsWereMet())
 	assert.Equal(t, []string{"portal-assets/" + dir + "run-8.html"}, objects.keys,
 		"the pruned content goes; the thumbnails the current version still serves stay")
+}
+
+// A capture now outlives the version it was taken from, so the prune has to
+// know which object the asset row points at before it deletes anything in a
+// pruned version's directory (#1431). It is a keeper, not a hint: an asset whose
+// current image is a v8 capture and whose v8 row is being pruned loses the image
+// it is serving if this is skipped.
+func TestCreateVersion_KeepsTheThumbnailTheAssetRowPointsAt(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	objects := &countingDeleter{}
+	store := NewPostgres(db, objects, nil)
+	v := retentionVersion()
+	const prunedKey = "artifacts/o/abc123/v8/content.html"
+	const liveThumb = "artifacts/o/abc123/v8/.thumbnail.png"
+
+	expectVersionWrite(mock, v, 9, 1)
+	mock.ExpectQuery("DELETE FROM portal_asset_versions").
+		WillReturnRows(prunedRows([]driver.Value{8, "portal-assets", prunedKey}))
+	mock.ExpectQuery("SELECT DISTINCT s3_key FROM portal_asset_versions").
+		WithArgs(v.AssetID).
+		WillReturnRows(sqlmock.NewRows([]string{"s3_key"}).AddRow(v.S3Key))
+	expectStoredThumbnails(mock, v.AssetID, liveThumb, "")
+	mock.ExpectCommit()
+
+	_, err = store.CreateVersion(context.Background(), v)
+	require.NoError(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+	assert.NotContains(t, objects.keys, "portal-assets/"+liveThumb,
+		"the image the asset is serving survives the prune of the version it was captured from")
+	assert.Contains(t, objects.keys, "portal-assets/"+prunedKey)
+}
+
+// The read is inside the write's transaction, so it fails the write rather than
+// leaving the prune to guess. Deleting objects the asset might still point at is
+// the one outcome that cannot be undone.
+func TestCreateVersion_StoredThumbnailReadFailureFailsTheWrite(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	objects := &countingDeleter{}
+	store := NewPostgres(db, objects, nil)
+	v := retentionVersion()
+
+	expectVersionWrite(mock, v, 9, 1)
+	mock.ExpectQuery("DELETE FROM portal_asset_versions").
+		WillReturnRows(prunedRows([]driver.Value{8, "portal-assets", "artifacts/o/abc123/v8/content.html"}))
+	mock.ExpectQuery("SELECT DISTINCT s3_key FROM portal_asset_versions").
+		WithArgs(v.AssetID).
+		WillReturnRows(sqlmock.NewRows([]string{"s3_key"}).AddRow(v.S3Key))
+	mock.ExpectQuery("SELECT thumbnail_s3_key, thumbnail_dark_s3_key FROM portal_assets").
+		WithArgs(v.AssetID).
+		WillReturnError(errors.New("connection reset"))
+	mock.ExpectRollback()
+
+	_, err = store.CreateVersion(context.Background(), v)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "reading stored thumbnail keys")
+	assert.Empty(t, objects.keys, "nothing is deleted when the transaction did not commit")
 }
 
 // TestCreateVersion_BelowTheCapIssuesNoStatement pins the common case: most

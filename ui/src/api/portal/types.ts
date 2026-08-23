@@ -18,6 +18,11 @@ export interface Asset {
   // Dark-mode thumbnail variant. Only present for themeable content types
   // (markdown, CSV); other types reuse thumbnail_s3_key in both modes.
   thumbnail_dark_s3_key?: string;
+  // The asset version each thumbnail was captured from; below current_version
+  // means the image is of an older body. It still serves, and the asset is what
+  // the refresh queue picks up (#1431). Zero means never captured.
+  thumbnail_version: number;
+  thumbnail_dark_version: number;
   size_bytes: number;
   tags: string[];
   provenance: Provenance;
