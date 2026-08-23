@@ -32,6 +32,31 @@ type ObjectEntry struct {
 	Size int64
 }
 
+// Reviser saves corrected content as a new version of the source it came from,
+// through the version mechanism that kind already has, and reports where the
+// new head sits.
+//
+// It is a port rather than a copy of either version writer because the two
+// kinds keep their trails in different tables: a managed resource records a
+// revision, a portal asset records a version, and both move the head to a
+// fresh per-version directory in one transaction. That directory rule is what
+// the registrar needs and is the only thing it asks of either.
+//
+// The original object is never modified. A correction is the version on top of
+// it, so the file a person uploaded stays what they uploaded and the change is
+// revertible from the panel every other version is.
+type Reviser interface {
+	Revise(ctx context.Context, src Source, caller Caller, content []byte, summary string) (Revised, error)
+}
+
+// Revised is where a correction landed: the object the source's head now points
+// at, and the number the version trail gave it.
+type Revised struct {
+	Bucket  string
+	Key     string
+	Version int
+}
+
 // AuditLogger is the write half of audit.Logger. The registrar records events
 // and never reads them, so it names only what it uses; audit.Logger satisfies
 // it.

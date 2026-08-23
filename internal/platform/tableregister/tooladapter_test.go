@@ -96,7 +96,7 @@ func TestToolAdapter_RegisterReportsWhatTheToolShows(t *testing.T) {
 	adapter, h := newAdapterHarness(t)
 
 	got, err := adapter.Register(
-		callerContext("alice@example.com", "analyst"), assetRef, "scratch", "vendor keys")
+		callerContext("alice@example.com", "analyst"), assetRef, "scratch", "vendor keys", false)
 	require.NoError(t, err)
 
 	assert.Equal(t, "scratch", got.Connection)
@@ -133,7 +133,7 @@ func TestToolAdapter_ResolvesTheKindFromTheReference(t *testing.T) {
 	require.NotNil(t, adapter)
 	ctx := callerContext("alice@example.com", "analyst")
 
-	got, err := adapter.Register(ctx, resourceRef, "scratch", "")
+	got, err := adapter.Register(ctx, resourceRef, "scratch", "", false)
 	require.NoError(t, err)
 	assert.Equal(t, "scratch.uploads.analyst_glossary", got.QueryTable)
 
@@ -155,8 +155,8 @@ func TestToolAdapter_UnreachableReferenceIsNotFound(t *testing.T) {
 	})
 
 	_, missingErr := adapter.Register(
-		callerContext("alice@example.com", "analyst"), "mcp:asset:nope", "scratch", "")
-	_, strangerErr := adapter.Register(stranger, assetRef, "scratch", "")
+		callerContext("alice@example.com", "analyst"), "mcp:asset:nope", "scratch", "", false)
+	_, strangerErr := adapter.Register(stranger, assetRef, "scratch", "", false)
 
 	require.ErrorIs(t, missingErr, ErrNoSuchFile)
 	require.ErrorIs(t, strangerErr, ErrNoSuchFile)
@@ -172,11 +172,11 @@ func TestToolAdapter_RefusesAReferenceThatIsNotAStoredFile(t *testing.T) {
 	adapter, _ := newAdapterHarness(t)
 	ctx := callerContext("alice@example.com", "analyst")
 
-	_, err := adapter.Register(ctx, "mcp:knowledge_page:kp_1", "scratch", "")
+	_, err := adapter.Register(ctx, "mcp:knowledge_page:kp_1", "scratch", "", false)
 	require.ErrorIs(t, err, ErrBadReference)
 	assert.Contains(t, err.Error(), "knowledge_page")
 
-	_, err = adapter.Register(ctx, "not a reference", "scratch", "")
+	_, err = adapter.Register(ctx, "not a reference", "scratch", "", false)
 	assert.ErrorIs(t, err, ErrBadReference)
 }
 
@@ -186,7 +186,7 @@ func TestToolAdapter_RefusesAReferenceThatIsNotAStoredFile(t *testing.T) {
 func TestToolAdapter_KindWithNoStoreIsUnavailable(t *testing.T) {
 	adapter, _ := newAdapterHarness(t)
 
-	_, err := adapter.Register(callerContext("alice@example.com", "analyst"), resourceRef, "scratch", "")
+	_, err := adapter.Register(callerContext("alice@example.com", "analyst"), resourceRef, "scratch", "", false)
 	assert.ErrorIs(t, err, ErrUnavailable)
 }
 
@@ -207,7 +207,7 @@ func TestToolAdapter_AnonymousCallRegistersNothing(t *testing.T) {
 	})
 	require.NotNil(t, adapter)
 
-	_, err := adapter.Register(context.Background(), assetRef, "scratch", "")
+	_, err := adapter.Register(context.Background(), assetRef, "scratch", "", false)
 	assert.ErrorIs(t, err, ErrNoIdentity)
 	assert.Empty(t, h.trino.statements)
 }
@@ -229,14 +229,14 @@ func TestToolAdapter_AdminIsResolvedFromRoles(t *testing.T) {
 
 	// A non-admin cannot take the name.
 	_, err := adapter.Register(
-		callerContext("carol@example.com", "root"), assetRef, "scratch", "content")
+		callerContext("carol@example.com", "root"), assetRef, "scratch", "content", false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "bob@example.com")
 	assert.False(t, seen.IsAdmin)
 
 	// The same call from someone holding the admin role replaces it.
 	_, err = adapter.Register(
-		callerContext("carol@example.com", "root", "admin"), assetRef, "scratch", "content")
+		callerContext("carol@example.com", "root", "admin"), assetRef, "scratch", "content", false)
 	require.NoError(t, err)
 	assert.True(t, seen.IsAdmin, "the resolver decides authority from the caller the adapter built")
 }
@@ -245,7 +245,7 @@ func TestToolAdapter_ListAndDrop(t *testing.T) {
 	adapter, _ := newAdapterHarness(t)
 	ctx := callerContext("alice@example.com", "analyst")
 
-	reg, err := adapter.Register(ctx, assetRef, "scratch", "")
+	reg, err := adapter.Register(ctx, assetRef, "scratch", "", false)
 	require.NoError(t, err)
 
 	listed, err := adapter.Tables(ctx, assetRef)
@@ -278,7 +278,7 @@ func TestToolAdapter_DropAssetTables(t *testing.T) {
 	adapter, h := newAdapterHarness(t)
 	ctx := callerContext("alice@example.com", "analyst")
 
-	_, err := adapter.Register(ctx, assetRef, "scratch", "")
+	_, err := adapter.Register(ctx, assetRef, "scratch", "", false)
 	require.NoError(t, err)
 
 	adapter.DropAssetTables(ctx, "asset_1")
@@ -306,7 +306,7 @@ func TestToolAdapter_ReportsStale(t *testing.T) {
 	require.NotNil(t, adapter)
 	ctx := callerContext("alice@example.com", "analyst")
 
-	_, err := adapter.Register(ctx, assetRef, "scratch", "")
+	_, err := adapter.Register(ctx, assetRef, "scratch", "", false)
 	require.NoError(t, err)
 
 	current.S3Key = "artifacts/u1/asset_1/v2/content.csv"
@@ -370,4 +370,24 @@ func TestScratchConfigured(t *testing.T) {
 	assert.False(t, trino.ScratchConfig{Catalog: "c"}.Configured())
 	assert.False(t, trino.ScratchConfig{Schema: "s"}.Configured())
 	assert.False(t, trino.ScratchConfig{}.Configured())
+}
+
+// TestToolAdapter_RepairIsCarriedAndReported: the tool's ask reaches the
+// registrar, and what the correction changed comes back on the registration so
+// the agent can tell the person their file has a new version (#1441).
+func TestToolAdapter_RepairIsCarriedAndReported(t *testing.T) {
+	adapter, h := newAdapterHarness(t)
+	h.objects.body = []byte("store_id,address\n101,\"12 Mill Rd\nSuite 4\"\n")
+
+	ctx := callerContext("alice@example.com", "analyst")
+	_, err := adapter.Register(ctx, assetRef, "scratch", "", false)
+	require.Error(t, err, "unasked, a file a table cannot read is refused")
+	assert.ErrorIs(t, err, ErrNeedsRepair)
+
+	got, err := adapter.Register(ctx, assetRef, "scratch", "", true)
+	require.NoError(t, err)
+	assert.Contains(t, got.Repaired, "put 1 row back onto one line")
+	assert.False(t, got.Stale, "the registration points at the version the correction wrote")
+	require.Len(t, h.reviser.saved, 1)
+	assert.Contains(t, string(h.reviser.saved[0].content), "12 Mill Rd Suite 4")
 }

@@ -57,12 +57,13 @@ func buildTableRegistrar(p *platform.Platform) *tableregister.Registrar {
 	}
 
 	return tableregister.New(tableregister.Deps{
-		Store:   tableregister.NewPostgresStore(p.DB()),
-		Trino:   exec,
-		Objects: objects,
-		Scope:   connscope.New(connscope.Deps{Registry: p.PersonaRegistry()}),
-		Audit:   auditLogger,
-		NewID:   newRegistrationID,
+		Store:    tableregister.NewPostgresStore(p.DB()),
+		Trino:    exec,
+		Objects:  objects,
+		Revisers: tableRevisers(p),
+		Scope:    connscope.New(connscope.Deps{Registry: p.PersonaRegistry()}),
+		Audit:    auditLogger,
+		NewID:    newRegistrationID,
 	})
 }
 

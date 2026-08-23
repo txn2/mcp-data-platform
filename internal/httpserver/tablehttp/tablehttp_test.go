@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/platform/tableregister"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	trinotoolkit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
@@ -46,13 +47,40 @@ func (f *fakeObjects) GetObject(_ context.Context, _, _ string) (body []byte, co
 	return f.body, "text/csv", nil
 }
 
+// ListDirectory answers for the prefix it was asked about, the way the S3
+// adapter's delimiter listing does: a corrected version of a file sits in its
+// own directory, and a fake blind to the prefix would report the version it
+// replaced as a sibling of it.
 func (f *fakeObjects) ListDirectory(
-	_ context.Context, _, _ string,
+	_ context.Context, _, prefix string,
 ) (entries []tableregister.ObjectEntry, truncated bool, err error) {
 	if f.listErr != nil {
 		return nil, false, f.listErr
 	}
-	return f.entries, false, nil
+	var under []tableregister.ObjectEntry
+	for _, e := range f.entries {
+		if strings.HasPrefix(e.Key, prefix) {
+			under = append(under, e)
+		}
+	}
+	return under, false, nil
+}
+
+// fakeReviser stands in for the version trail an asset already has: it records
+// the corrected bytes, mints a per-version directory, and puts the new object
+// in the listing so the registrar sees the directory it will point at.
+type fakeReviser struct {
+	objects *fakeObjects
+	saved   [][]byte
+}
+
+func (f *fakeReviser) Revise(
+	_ context.Context, src tableregister.Source, _ tableregister.Caller, content []byte, _ string,
+) (tableregister.Revised, error) {
+	f.saved = append(f.saved, content)
+	key := tableregister.DirectoryOf(src.HeadKey) + "v/rev_1/content.csv"
+	f.objects.entries = append(f.objects.entries, tableregister.ObjectEntry{Key: key})
+	return tableregister.Revised{Bucket: src.Bucket, Key: key, Version: 2}, nil
 }
 
 // memStore is the in-memory Store the handler acts through, enforcing the same
@@ -133,12 +161,18 @@ const csvBody = "store_id,vendor_code\n101,ACME-NW\n"
 
 var owner = &portal.User{UserID: "u1", Email: "alice@example.com", Roles: []string{"analyst"}}
 
+// tornCSV is the shape a spreadsheet export takes: a multi-line address in one
+// quoted cell, which a line-based reader tears into fragments.
+const tornCSV = "store_id,address\n101,\"12 Mill Rd\nSuite 4\"\n"
+
 type harness struct {
-	mux    *http.ServeMux
-	store  *memStore
-	trino  *fakeTrino
-	assets map[string]tableregister.Source
-	user   *portal.User
+	mux     *http.ServeMux
+	store   *memStore
+	trino   *fakeTrino
+	assets  map[string]tableregister.Source
+	user    *portal.User
+	body    string
+	reviser *fakeReviser
 }
 
 func newHarness(t *testing.T, opts ...func(*harness)) *harness {
@@ -148,6 +182,7 @@ func newHarness(t *testing.T, opts ...func(*harness)) *harness {
 		store: newMemStore(),
 		trino: &fakeTrino{hasTarget: true},
 		user:  owner,
+		body:  csvBody,
 		assets: map[string]tableregister.Source{
 			"asset_1": tableregister.SourceFromAssetRecord(tableregister.Record{
 				ID: "asset_1", Name: "Vendor keys", Bucket: "portal-assets",
@@ -160,9 +195,10 @@ func newHarness(t *testing.T, opts ...func(*harness)) *harness {
 	}
 
 	objects := &fakeObjects{
-		body:    []byte(csvBody),
+		body:    []byte(h.body),
 		entries: []tableregister.ObjectEntry{{Key: "artifacts/u1/asset_1/content.csv"}},
 	}
+	h.reviser = &fakeReviser{objects: objects}
 	n := 0
 	registrar := tableregister.New(tableregister.Deps{
 		Store: h.store,
@@ -170,6 +206,10 @@ func newHarness(t *testing.T, opts ...func(*harness)) *harness {
 		Objects: map[string]tableregister.ObjectReader{
 			tableregister.KindAsset:    objects,
 			tableregister.KindResource: objects,
+		},
+		Revisers: map[string]tableregister.Reviser{
+			tableregister.KindAsset:    h.reviser,
+			tableregister.KindResource: h.reviser,
 		},
 		NewID: func() (string, error) { n++; return "reg_" + strconv.Itoa(n), nil },
 	})
@@ -529,4 +569,95 @@ func TestConnectionsRoute_NoEnumerator(t *testing.T) {
 	mux.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Body.String(), `"connections":[]`)
+}
+
+// --- a CSV a line-based reader cannot read (#1441) ---
+
+// TestRegisterRoute_RefusesATornCSVWithACodeTheFormCanOffer is what makes the
+// portal's offer possible: the detail is the sentence a person reads, and the
+// problem type is the half a control can be keyed off, since prose is free to
+// change.
+func TestRegisterRoute_RefusesATornCSVWithACodeTheFormCanOffer(t *testing.T) {
+	h := newHarness(t, func(h *harness) { h.body = tornCSV })
+
+	w := h.do(http.MethodPost, "/api/v1/portal/assets/asset_1/tables", `{"connection":"scratch"}`)
+	require.Equal(t, http.StatusConflict, w.Code, w.Body.String())
+	assert.Equal(t, "application/problem+json", w.Header().Get("Content-Type"))
+
+	var problem httpjson.ProblemDetail
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &problem))
+	assert.Equal(t, httpjson.ProblemTypePrefix+"csv-needs-repair", problem.Type)
+	assert.Contains(t, problem.Detail, "line break inside a cell")
+	assert.Contains(t, problem.Detail, "address")
+
+	assert.Empty(t, h.reviser.saved, "an unasked refusal does not rewrite the file")
+	assert.Empty(t, h.trino.statements)
+}
+
+// TestRegisterRoute_RepairSavesAVersionAndSaysWhatChanged is the second
+// submission of the form: the corrected bytes become a version of the file, the
+// table reads that version's directory, and the response says so.
+func TestRegisterRoute_RepairSavesAVersionAndSaysWhatChanged(t *testing.T) {
+	h := newHarness(t, func(h *harness) { h.body = tornCSV })
+
+	w := h.do(http.MethodPost, "/api/v1/portal/assets/asset_1/tables",
+		`{"connection":"scratch","repair":true}`)
+	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
+
+	var got registrationView
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.Contains(t, got.Repaired, "version 2")
+	assert.Contains(t, got.Repaired, "put 1 row back onto one line")
+	assert.Equal(t, "s3://portal-assets/artifacts/u1/asset_1/v/rev_1/", got.Location)
+	assert.False(t, got.Stale, "the registration points at the version it just wrote")
+
+	require.Len(t, h.reviser.saved, 1)
+	assert.Contains(t, string(h.reviser.saved[0]), "12 Mill Rd Suite 4")
+}
+
+// TestRegisterRoute_LineSafeFileSaysNothingExtra: the correction is reported
+// only when there was one, so an ordinary registration is unchanged.
+func TestRegisterRoute_LineSafeFileSaysNothingExtra(t *testing.T) {
+	h := newHarness(t)
+
+	w := h.do(http.MethodPost, "/api/v1/portal/assets/asset_1/tables",
+		`{"connection":"scratch","repair":true}`)
+	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
+
+	var got registrationView
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.Empty(t, got.Repaired)
+	assert.Empty(t, h.reviser.saved)
+}
+
+// A 500's text is replaced, because a wrapped driver error says nothing a
+// caller can act on -- but a correction that ran before the failure already
+// changed their file, and it stays changed. That half is kept.
+func TestRegisterRoute_APlatformFailureAfterACorrectionStillSaysTheFileChanged(t *testing.T) {
+	h := newHarness(t, func(h *harness) { h.body = tornCSV })
+	h.trino.err = errors.New("trino coordinator unreachable at 10.0.0.7:8080")
+
+	w := h.do(http.MethodPost, "/api/v1/portal/assets/asset_1/tables",
+		`{"connection":"scratch","repair":true}`)
+	require.Equal(t, http.StatusInternalServerError, w.Code, w.Body.String())
+
+	var problem httpjson.ProblemDetail
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &problem))
+	assert.Contains(t, problem.Detail, "Saved version 2 of this file")
+	assert.Contains(t, problem.Detail, "The table was not created")
+	assert.NotContains(t, problem.Detail, "10.0.0.7",
+		"the coordinator's address is still not repeated to the caller")
+
+	require.Len(t, h.reviser.saved, 1, "the file did change, which is why it is said")
+}
+
+// A failure with no correction behind it says only what it always said.
+func TestRegisterRoute_APlatformFailureWithNoCorrectionSaysNothingMore(t *testing.T) {
+	h := newHarness(t)
+	h.trino.err = errors.New("trino coordinator unreachable at 10.0.0.7:8080")
+
+	w := h.do(http.MethodPost, "/api/v1/portal/assets/asset_1/tables", `{"connection":"scratch"}`)
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Contains(t, w.Body.String(), "the registration could not be completed")
+	assert.NotContains(t, w.Body.String(), "10.0.0.7")
 }

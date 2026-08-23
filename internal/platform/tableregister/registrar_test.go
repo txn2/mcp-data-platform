@@ -1,7 +1,9 @@
 package tableregister
 
 import (
+	"bytes"
 	"context"
+	"encoding/csv"
 	"errors"
 	"strconv"
 	"strings"
@@ -53,13 +55,24 @@ func (f *fakeObjects) GetObject(_ context.Context, _, _ string) (body []byte, co
 	return f.body, f.bodyCT, nil
 }
 
+// ListDirectory answers for the prefix it was asked about, the way the S3
+// adapter's delimiter listing does. It matters once a registration can move to
+// a corrected version of the file: that version sits in its own directory, and
+// a fake that returned every object it holds whatever the prefix would report
+// the previous version as a sibling of it.
 func (f *fakeObjects) ListDirectory(
-	_ context.Context, _, _ string,
+	_ context.Context, _, prefix string,
 ) (entries []ObjectEntry, truncated bool, err error) {
 	if f.listErr != nil {
 		return nil, false, f.listErr
 	}
-	return f.entries, f.truncated, nil
+	var under []ObjectEntry
+	for _, e := range f.entries {
+		if strings.HasPrefix(e.Key, prefix) {
+			under = append(under, e)
+		}
+	}
+	return under, f.truncated, nil
 }
 
 // memStore is an in-memory Store that enforces the same unique name the
@@ -148,6 +161,48 @@ func (m *memStore) Delete(_ context.Context, id string) error {
 	return nil
 }
 
+// fakeReviser stands in for the version trail a source kind already has: it
+// records what it was asked to save, mints a per-version directory the way both
+// real trails do, and puts the new object in the listing so the registrar sees
+// the directory it will point the table at.
+type fakeReviser struct {
+	objects *fakeObjects
+	saved   []savedRevision
+	err     error
+	// afterSave runs once a version has been written, which is how a test
+	// arranges a refusal that arrives after the file has already changed.
+	afterSave func()
+}
+
+// savedRevision is one thing the reviser was asked to write.
+type savedRevision struct {
+	sourceKind string
+	sourceID   string
+	by         string
+	summary    string
+	content    []byte
+}
+
+func (f *fakeReviser) Revise(
+	_ context.Context, src Source, caller Caller, content []byte, summary string,
+) (Revised, error) {
+	if f.err != nil {
+		return Revised{}, f.err
+	}
+	f.saved = append(f.saved, savedRevision{
+		sourceKind: src.Kind, sourceID: src.ID, by: caller.Email, summary: summary, content: content,
+	})
+	version := len(f.saved) + 1
+	key := DirectoryOf(src.HeadKey) + "v/rev_" + strconv.Itoa(version) + "/" + fileNameOf(src.HeadKey)
+	if f.objects != nil {
+		f.objects.entries = append(f.objects.entries, ObjectEntry{Key: key, Size: int64(len(content))})
+	}
+	if f.afterSave != nil {
+		f.afterSave()
+	}
+	return Revised{Bucket: src.Bucket, Key: key, Version: version}, nil
+}
+
 // denyScope refuses one named connection and allows everything else.
 type denyScope struct{ denied string }
 
@@ -187,6 +242,7 @@ type harness struct {
 	objects *fakeObjects
 	store   *memStore
 	audit   *captureAudit
+	reviser *fakeReviser
 }
 
 func newHarness(t *testing.T, opts ...func(*harness)) *harness {
@@ -207,12 +263,14 @@ func newHarness(t *testing.T, opts ...func(*harness)) *harness {
 	for _, opt := range opts {
 		opt(h)
 	}
+	h.reviser = &fakeReviser{objects: h.objects}
 	n := 0
 	h.reg = New(Deps{
-		Store:   h.store,
-		Trino:   h.trino,
-		Objects: map[string]ObjectReader{KindAsset: h.objects, KindResource: h.objects},
-		Audit:   h.audit,
+		Store:    h.store,
+		Trino:    h.trino,
+		Objects:  map[string]ObjectReader{KindAsset: h.objects, KindResource: h.objects},
+		Revisers: map[string]Reviser{KindAsset: h.reviser, KindResource: h.reviser},
+		Audit:    h.audit,
 		NewID: func() (string, error) {
 			n++
 			return "reg_" + strconv.Itoa(n), nil
@@ -876,4 +934,302 @@ func TestLocationFor_KeyWithNoDirectory(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrRefused)
 	assert.Contains(t, err.Error(), "directory of its own")
+}
+
+// --- a CSV a line-based reader cannot read (#1441) ---
+
+// A Hive CSV table splits records on "\n" before the quote-aware serde sees
+// them, so a line break inside a quoted cell tears one record into fragments
+// and shifts every field after the tear into the wrong column. Nothing about
+// the created table says so -- the DDL succeeds, the row is written, and the
+// query returns rows. These are the assertions that such a file never reaches
+// a CREATE TABLE unanswered.
+
+// tornCSV is the shape a spreadsheet export takes: two records carrying a
+// multi-line address in one cell, one record already on a single line.
+const tornCSV = "store_id,address,rebate\n" +
+	"101,\"12 Mill Rd\nSuite 4\",\"$156,142.58 \"\n" +
+	"102,\"9 Bay St\nSeattle WA\",4.5\n" +
+	"103,880 Pine St,15%\n"
+
+// tornHarness serves a file whose records carry line breaks inside cells.
+func tornHarness(t *testing.T) *harness {
+	t.Helper()
+	return newHarness(t, func(h *harness) { h.objects.body = []byte(tornCSV) })
+}
+
+// TestRegister_RefusesACSVTornByLineBreaks: unasked, the platform does not
+// rewrite somebody's file, so the answer is a refusal that names what is wrong
+// with it in their terms.
+func TestRegister_RefusesACSVTornByLineBreaks(t *testing.T) {
+	h := tornHarness(t)
+
+	_, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch"})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrNeedsRepair, "the refusal is one the surfaces can offer to correct")
+	assert.ErrorIs(t, err, ErrRefused, "and it is still a refusal, not a platform failure")
+	assert.Contains(t, err.Error(), "2 rows")
+	assert.Contains(t, err.Error(), "address")
+
+	assert.Empty(t, h.trino.statements, "no table is created")
+	assert.Empty(t, h.store.rows, "and no registration is recorded")
+	assert.Empty(t, h.reviser.saved, "the file is not touched either")
+}
+
+// TestRegister_RepairSavesAVersionAndRegistersIt is the acceptance assertion:
+// the corrected bytes go into the source's own version trail, and the table is
+// built over that version's directory rather than the one it replaced.
+func TestRegister_RepairSavesAVersionAndRegistersIt(t *testing.T) {
+	h := tornHarness(t)
+
+	res, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch", Repair: true})
+	require.NoError(t, err)
+
+	require.Len(t, h.reviser.saved, 1, "exactly one version is written")
+	saved := h.reviser.saved[0]
+	assert.Equal(t, KindAsset, saved.sourceKind)
+	assert.Equal(t, "asset_1", saved.sourceID)
+	assert.Equal(t, "alice@example.com", saved.by, "the version is recorded against whoever asked")
+	assert.Equal(t, "put 2 rows back onto one line", saved.summary)
+
+	records, err := csv.NewReader(bytes.NewReader(saved.content)).ReadAll()
+	require.NoError(t, err)
+	require.Len(t, records, 4, "the header and one row per source record")
+	assert.Equal(t, []string{"101", "12 Mill Rd Suite 4", "$156,142.58 "}, records[1])
+	assert.Equal(t, []string{"102", "9 Bay St Seattle WA", "4.5"}, records[2])
+	assert.Equal(t, []string{"103", "880 Pine St", "15%"}, records[3])
+
+	// The table reads the corrected version's directory, which holds that one
+	// file, and not the directory the uploaded bytes are still in.
+	newDir := "s3://portal-assets/artifacts/u1/asset_1/v/rev_2/"
+	assert.Equal(t, newDir, res.Location)
+	assert.Contains(t, h.trino.statements[len(h.trino.statements)-1], "external_location = '"+newDir+"'")
+	assert.Equal(t, "artifacts/u1/asset_1/v/rev_2/content.csv", res.Source.HeadKey,
+		"the result reports the version the registration was built over")
+	assert.False(t, res.IsStale(res.Source.Bucket, res.Source.HeadKey),
+		"a registration made against the version it just wrote is not stale")
+
+	require.NotNil(t, res.Repair)
+	assert.Equal(t, 2, res.Repair.RowsRepaired)
+	assert.Equal(t, 2, res.Repair.Version)
+	assert.Contains(t, res.Repair.Summary(), "version 2")
+
+	stored, err := h.store.Get(context.Background(), res.ID)
+	require.NoError(t, err)
+	assert.Equal(t, newDir, stored.Location)
+}
+
+// TestRegister_RepairConvertsBytesThatAreNotUTF8 is the second defect on the
+// same path: the cell reads what it read in the source rather than arriving as
+// a replacement mark.
+func TestRegister_RepairConvertsBytesThatAreNotUTF8(t *testing.T) {
+	h := newHarness(t, func(h *harness) {
+		// 0xA9 is the copyright sign in windows-1252 and is not valid UTF-8.
+		h.objects.body = []byte("store_id,note\n101,15% \xa9 ACME\n")
+	})
+
+	res, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch", Repair: true})
+	require.NoError(t, err)
+
+	require.Len(t, h.reviser.saved, 1)
+	assert.Contains(t, string(h.reviser.saved[0].content), "15% © ACME")
+	require.NotNil(t, res.Repair)
+	assert.Equal(t, "windows-1252", res.Repair.FromEncoding)
+	assert.Zero(t, res.Repair.RowsRepaired)
+}
+
+// TestRegister_RepairRefusesARaggedFile: filling in a short record invents data
+// and dropping a field from a long one loses some, so a file the platform
+// cannot correct honestly is refused with nothing written.
+func TestRegister_RepairRefusesARaggedFile(t *testing.T) {
+	h := newHarness(t, func(h *harness) {
+		h.objects.body = []byte("a,b,c\n1,\"x\ny\",3\n4,5\n")
+	})
+
+	_, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch", Repair: true})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrRefused)
+	assert.Contains(t, err.Error(), "record 2 has 2")
+
+	assert.Empty(t, h.reviser.saved, "no version is written")
+	assert.Empty(t, h.trino.statements)
+	assert.Empty(t, h.store.rows)
+}
+
+// TestRegister_LineSafeFileIsRegisteredUntouched, whether or not a correction
+// was offered: a file that needed nothing gets no new version and the result
+// says nothing extra about it.
+func TestRegister_LineSafeFileIsRegisteredUntouched(t *testing.T) {
+	for _, repair := range []bool{false, true} {
+		h := newHarness(t)
+
+		res, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+			Request{Connection: "scratch", Repair: repair})
+		require.NoError(t, err)
+
+		assert.Empty(t, h.reviser.saved, "nothing was rewritten")
+		assert.Nil(t, res.Repair, "and nothing is reported")
+		assert.Equal(t, "s3://portal-assets/artifacts/u1/asset_1/", res.Location)
+		assert.Equal(t, "artifacts/u1/asset_1/content.csv", res.Source.HeadKey)
+	}
+}
+
+// TestRegister_RepairWithoutAVersionTrailRefuses: a deployment with nowhere to
+// put a corrected version says so and names the kind, rather than writing a
+// derived copy somewhere the version panel cannot show.
+func TestRegister_RepairWithoutAVersionTrailRefuses(t *testing.T) {
+	h := tornHarness(t)
+	h.reg = New(Deps{
+		Store: h.store, Trino: h.trino, Audit: h.audit,
+		Objects: map[string]ObjectReader{KindAsset: h.objects},
+		NewID:   func() (string, error) { return "reg_a", nil },
+	})
+
+	_, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch", Repair: true})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrRefused)
+	assert.Contains(t, err.Error(), "no version history for a stored asset")
+	assert.Empty(t, h.trino.statements)
+}
+
+// TestRegister_RepairFailureLeavesNothingBehind: the version write is the first
+// thing that changes the world, so its failure has to stop the registration
+// rather than being registered around.
+func TestRegister_RepairFailureLeavesNothingBehind(t *testing.T) {
+	h := tornHarness(t)
+	h.reviser.err = errors.New("version store unreachable")
+
+	_, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch", Repair: true})
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, ErrRefused, "a store outage is not something the caller can act on")
+	assert.Contains(t, err.Error(), "version store unreachable")
+	assert.Empty(t, h.trino.statements)
+	assert.Empty(t, h.store.rows)
+}
+
+// TestRegister_RepairIsAudited: a correction rewrote somebody's file on their
+// behalf, which is a write in its own right and belongs in the trail beside the
+// statement that followed it.
+func TestRegister_RepairIsAudited(t *testing.T) {
+	h := tornHarness(t)
+
+	_, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch", Repair: true, Source: "mcp"})
+	require.NoError(t, err)
+
+	require.Len(t, h.audit.events, 1)
+	repaired, ok := h.audit.events[0].Parameters["repaired"].(string)
+	require.True(t, ok, "the correction is recorded on the registration's own event")
+	assert.Contains(t, repaired, "put 2 rows back onto one line")
+}
+
+// TestRegister_AuthorityIsSettledBeforeTheFileIsTouched: a caller who may not
+// take the name never gets their file rewritten on the way to being told so.
+func TestRegister_AuthorityIsSettledBeforeTheFileIsTouched(t *testing.T) {
+	h := tornHarness(t)
+	require.NoError(t, h.store.Insert(context.Background(), Registration{
+		ID: "reg_existing", SourceKind: KindAsset, SourceID: "asset_9",
+		Connection: "scratch", Catalog: "scratch", Schema: "uploads",
+		Table: "analyst_content", RegisteredBy: "bob@example.com",
+	}))
+
+	_, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch", Repair: true})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "bob@example.com")
+	assert.Empty(t, h.reviser.saved, "the refusal came before the correction")
+}
+
+// TestRegister_WideEncodingIsRefusedOutrightRatherThanOffered: a spreadsheet's
+// "Unicode Text" export is UTF-16, whose every byte is valid windows-1252, so
+// a correction would replace the person's data with a character per byte and
+// report it as a repair. The refusal names the encoding and offers nothing,
+// even when the correction was asked for.
+func TestRegister_WideEncodingIsRefusedOutrightRatherThanOffered(t *testing.T) {
+	wide := utf16LE("store_id,note\n101,ok\n")
+	h := newHarness(t, func(h *harness) { h.objects.body = wide })
+
+	for _, repair := range []bool{false, true} {
+		_, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+			Request{Connection: "scratch", Repair: repair})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrRefused)
+		assert.NotErrorIs(t, err, ErrNeedsRepair,
+			"nothing is offered that the platform cannot honestly do")
+		assert.Contains(t, err.Error(), "UTF-16")
+		assert.Contains(t, err.Error(), "Re-export it as UTF-8 CSV")
+	}
+	assert.Empty(t, h.reviser.saved, "the file is never rewritten")
+	assert.Empty(t, h.trino.statements)
+}
+
+// TestRegister_ACorrectionThatARefusalFollowedIsStillReported. The correction
+// is written before the last of the checks have run, so a refusal can arrive
+// after the person's file has already changed. Both the answer they get and
+// the audit trail say so; an answer about the table alone would leave them not
+// knowing their file moved.
+func TestRegister_ACorrectionThatARefusalFollowedIsStillReported(t *testing.T) {
+	h := tornHarness(t)
+	// The directory the correction lands in is fine; the listing itself fails,
+	// which is the shape of any refusal that comes after the file was written.
+	h.reviser.afterSave = func() { h.objects.listErr = errors.New("bucket unreachable") }
+
+	_, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch", Repair: true})
+	require.Error(t, err)
+	require.Len(t, h.reviser.saved, 1, "the file was already corrected")
+
+	assert.Contains(t, err.Error(), "put 2 rows back onto one line")
+	assert.Contains(t, err.Error(), "The table was not created")
+	require.NotNil(t, RepairOf(err), "a surface that rewrites the message keeps the part about the file")
+	assert.Equal(t, 2, RepairOf(err).RowsRepaired)
+
+	require.Len(t, h.audit.events, 1, "the correction is a write and is recorded")
+	ev := h.audit.events[0]
+	assert.False(t, ev.Success)
+	assert.Contains(t, ev.Parameters["repaired"], "put 2 rows back onto one line")
+	assert.Equal(t, "scratch.uploads.analyst_content", ev.Parameters["table"],
+		"the event names the table it was for, not an empty one")
+}
+
+// TestRegister_ACorrectionThatAFailedDDLFollowedIsStillReported is the same
+// rule one step later: the coordinator refused the statement, and the file has
+// still changed.
+func TestRegister_ACorrectionThatAFailedDDLFollowedIsStillReported(t *testing.T) {
+	h := tornHarness(t)
+	h.trino.err = errors.New("trino unreachable")
+
+	_, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch", Repair: true})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "put 2 rows back onto one line")
+	assert.Contains(t, err.Error(), "trino unreachable")
+	require.NotNil(t, RepairOf(err))
+	assert.Equal(t, 2, RepairOf(err).Version)
+}
+
+// TestRepairOf_CarriesNothingWhenNothingWasCorrected, so a surface asking is
+// told plainly rather than having to know which errors can carry one.
+func TestRepairOf_CarriesNothingWhenNothingWasCorrected(t *testing.T) {
+	assert.Nil(t, RepairOf(nil))
+	assert.Nil(t, RepairOf(errors.New("trino unreachable")))
+	assert.Nil(t, RepairOf(repairedFailure(nil, errors.New("trino unreachable"))))
+}
+
+// TestRepairedFailure_KeepsWhatWentWrongMatchable. The correction is added to
+// the answer, not put in front of it: every surface that decides a status or a
+// retry from the underlying error still reaches it.
+func TestRepairedFailure_KeepsWhatWentWrongMatchable(t *testing.T) {
+	underlying := refusedf("the file is larger than the 100 MB a registration reads")
+	wrapped := repairedFailure(&RepairReport{Version: 2}, underlying)
+
+	assert.ErrorIs(t, wrapped, underlying)
+	assert.ErrorIs(t, wrapped, ErrRefused)
+	assert.Contains(t, wrapped.Error(), "larger than the 100 MB")
 }

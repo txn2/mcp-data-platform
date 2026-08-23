@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Table2, Trash2, Loader2, AlertTriangle, Plus } from "lucide-react";
+import { Table2, Trash2, Loader2, AlertTriangle, Plus, Wrench, FileCheck2 } from "lucide-react";
 import {
   useTableRegistrations,
   useTableConnections,
@@ -7,6 +7,7 @@ import {
   useUnregisterTable,
   TableApiError,
 } from "@/api/tables/hooks";
+import { CSV_NEEDS_REPAIR } from "@/api/tables/types";
 import type { TableRegistration, TableSourceKind } from "@/api/tables/types";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { EmptyState } from "@/components/patterns/EmptyState";
@@ -62,6 +63,10 @@ export function TablesPanel({
     canModify,
   );
   const [adding, setAdding] = useState(false);
+  // What a correction of the file changed, kept after the form closes: the
+  // file itself has a new version, which outlives the registration that caused
+  // it and is the part the person most needs to see.
+  const [repaired, setRepaired] = useState<string | null>(null);
 
   if (!visible) {
     return null;
@@ -84,8 +89,18 @@ export function TablesPanel({
           id={id}
           filename={filename}
           connections={connections}
-          onDone={() => setAdding(false)}
+          onDone={(note) => {
+            setRepaired(note ?? null);
+            setAdding(false);
+          }}
         />
+      )}
+
+      {repaired && (
+        <Alert className="py-2" data-testid="table-repair-notice">
+          <FileCheck2 />
+          <AlertDescription>{repaired}</AlertDescription>
+        </Alert>
       )}
 
       <RegistrationList
@@ -272,7 +287,8 @@ function RegisterForm({
   id: string;
   filename?: string;
   connections: { name: string; description?: string; catalog: string; schema: string }[];
-  onDone: () => void;
+  /** onDone closes the form, carrying what a correction of the file changed. */
+  onDone: (repaired?: string) => void;
 }) {
   const [connection, setConnection] = useState(connections[0]?.name ?? "");
   const [tableName, setTableName] = useState("");
@@ -280,12 +296,16 @@ function RegisterForm({
 
   const target = connections.find((c) => c.name === connection);
 
+  const send = (repair: boolean) => {
+    register.mutate(
+      { connection, table_name: tableName.trim() || undefined, repair: repair || undefined },
+      { onSuccess: (reg) => onDone(reg.repaired) },
+    );
+  };
+
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    register.mutate(
-      { connection, table_name: tableName.trim() || undefined },
-      { onSuccess: onDone },
-    );
+    send(false);
   };
 
   return (
@@ -343,12 +363,19 @@ function RegisterForm({
       {register.isError && (
         <Alert variant="destructive" className="py-2">
           <AlertTriangle />
-          <AlertDescription>{errorText(register.error)}</AlertDescription>
+          <AlertDescription className="space-y-2">
+            <span className="block">{errorText(register.error)}</span>
+            <RepairOffer
+              shown={needsRepair(register.error)}
+              pending={register.isPending}
+              onClick={() => send(true)}
+            />
+          </AlertDescription>
         </Alert>
       )}
 
       <div className="flex justify-end gap-2">
-        <Button type="button" variant="ghost" size="sm" onClick={onDone}>
+        <Button type="button" variant="ghost" size="sm" onClick={() => onDone()}>
           Cancel
         </Button>
         <Button type="submit" size="sm" disabled={!connection || register.isPending}>
@@ -358,6 +385,53 @@ function RegisterForm({
       </div>
     </form>
   );
+}
+
+// RepairOffer is the way out of a file that cannot be read as a table the way
+// it is stored. The refusal above it says what is wrong; this says what the
+// platform will do about it, and does it on one click.
+//
+// It is a control rather than an instruction because the correction is the
+// platform's to make: a person told "put every cell back on one line and save
+// it as UTF-8" has been handed the problem back.
+function RepairOffer({
+  shown,
+  pending,
+  onClick,
+}: {
+  shown: boolean;
+  pending: boolean;
+  onClick: () => void;
+}) {
+  if (!shown) {
+    return null;
+  }
+  return (
+    <span className="block space-y-1.5">
+      <Button
+        type="button"
+        variant="outline"
+        size="xs"
+        disabled={pending}
+        onClick={onClick}
+        data-testid="table-repair-button"
+      >
+        {pending ? <Loader2 className="animate-spin" /> : <Wrench />}
+        Save a corrected copy and register that
+      </Button>
+      <span className="block text-xs">
+        The file you uploaded is kept as the version before it, so the correction can be undone from
+        the version history.
+      </span>
+    </span>
+  );
+}
+
+// needsRepair reports whether a refusal is one the platform can offer to
+// correct. It matches the problem type rather than the message: the sentence a
+// person reads is prose and is free to change.
+function needsRepair(err: unknown): boolean {
+  return err instanceof TableApiError && err.type === CSV_NEEDS_REPAIR;
 }
 
 // suggestName renders the default table name the server would derive, so the

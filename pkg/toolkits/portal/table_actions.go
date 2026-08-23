@@ -22,6 +22,10 @@ type TableRegistration struct {
 	// table points at, so the rows are the content that was current when it
 	// was registered.
 	Stale bool `json:"stale"`
+	// Repaired says what a correction of the file changed before it could be
+	// registered, and is empty when none was needed (#1441). The file itself
+	// changed, so the person who asked for the registration is told so.
+	Repaired string `json:"repaired,omitempty"`
 }
 
 // TableRegistrar makes a stored CSV readable as a query-engine table (#1327),
@@ -40,7 +44,11 @@ type TableRegistration struct {
 // identity the rest of the platform would refuse, and the connection boundary
 // a tool call meets is the one a registration meets.
 type TableRegistrar interface {
-	Register(ctx context.Context, reference, connection, tableName string) (*TableRegistration, error)
+	// Register makes the referenced file queryable. repair asks for a
+	// corrected version of the file to be saved and registered when the file
+	// cannot be read as a table the way it is stored; without it such a file
+	// is refused and the refusal says what is wrong with it.
+	Register(ctx context.Context, reference, connection, tableName string, repair bool) (*TableRegistration, error)
 	Unregister(ctx context.Context, registrationID string) error
 	Tables(ctx context.Context, reference string) ([]TableRegistration, error)
 	// DropAssetTables removes every table registered over an asset. It is what
@@ -72,6 +80,10 @@ type manageTableInput struct {
 	TableName  string `json:"table_name,omitempty"`
 	// RegistrationID selects the registration unregister drops.
 	RegistrationID string `json:"registration_id,omitempty"`
+	// Repair asks for a corrected version of the file to be saved and
+	// registered when the file cannot be read as a table the way it is stored
+	// (#1441).
+	Repair bool `json:"repair,omitempty"`
 }
 
 // tableRegistrationOutput is the result of the register action.
@@ -130,16 +142,22 @@ func (t *Toolkit) handleRegisterTable(
 				"Call list_connections to see the connections you can reach."), nil, nil
 	}
 
-	reg, err := t.tables.Register(ctx, input.Reference, input.Connection, input.TableName)
+	reg, err := t.tables.Register(ctx, input.Reference, input.Connection, input.TableName, input.Repair)
 	if err != nil {
 		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
 
+	message := "Registered as " + reg.QueryTable + " on connection " + reg.Connection +
+		". Every column is VARCHAR, so a join to a typed column needs a CAST."
+	// A registration that corrected the file says so first: the file changed,
+	// and that is the more consequential half of what just happened.
+	if reg.Repaired != "" {
+		message = reg.Repaired + " " + message
+	}
 	return toolkit.JSONResultTyped(tableRegistrationOutput{
 		Reference:         input.Reference,
 		TableRegistration: *reg,
-		Message: "Registered as " + reg.QueryTable + " on connection " + reg.Connection +
-			". Every column is VARCHAR, so a join to a typed column needs a CAST.",
+		Message:           message,
 	})
 }
 

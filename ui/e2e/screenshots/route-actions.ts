@@ -503,3 +503,44 @@ export async function openTableRegisterForm(page: Page): Promise<void> {
   await page.getByLabel("Connection").waitFor({ state: "visible", timeout: 5_000 });
   await page.waitForTimeout(400);
 }
+
+/**
+ * openStoreListResourceTables opens the CSV resource whose cells carry line
+ * breaks -- a multi-line store address in one cell -- and scrolls to its
+ * registered-table panel (#1441).
+ */
+export async function openStoreListResourceTables(page: Page): Promise<void> {
+  await page
+    .getByText("Store List", { exact: true })
+    .first()
+    .click({ timeout: 3_000 })
+    .catch(() => {});
+  await page.waitForTimeout(700);
+  await showTablesPanel(page);
+}
+
+/**
+ * openTableRepairOffer submits the register form over that file and stops on
+ * the refusal: what is wrong with the file, and the control that corrects it.
+ * It is the state a person meets when their spreadsheet export cannot be read
+ * as a table the way it is stored (#1441).
+ */
+export async function openTableRepairOffer(page: Page): Promise<void> {
+  await openStoreListResourceTables(page);
+  await page.getByRole("button", { name: "Register", exact: true }).first().click({ timeout: 3_000 });
+  await page.getByLabel("Connection").waitFor({ state: "visible", timeout: 5_000 });
+  await page.getByRole("button", { name: "Register", exact: true }).last().click({ timeout: 3_000 });
+  await page.getByTestId("table-repair-button").waitFor({ state: "visible", timeout: 5_000 });
+  await page.waitForTimeout(400);
+}
+
+/**
+ * openTableRepaired takes the offer and stops on what the correction changed:
+ * the file has a new version, which outlives the registration that caused it.
+ */
+export async function openTableRepaired(page: Page): Promise<void> {
+  await openTableRepairOffer(page);
+  await page.getByTestId("table-repair-button").click({ timeout: 3_000 });
+  await page.getByTestId("table-repair-notice").waitFor({ state: "visible", timeout: 5_000 });
+  await page.waitForTimeout(400);
+}

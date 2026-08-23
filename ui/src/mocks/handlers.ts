@@ -82,7 +82,9 @@ import {
   mockRegisterTable,
   mockTableConnections,
   mockTableRegistrations,
+  tornCSVProblem,
 } from "./data/tables";
+import type { TableRegistration } from "@/api/tables/types";
 import {
   mentionedThreadIDs,
   mockThreadChains,
@@ -891,6 +893,21 @@ function parseDuration(s: string): number {
     default:
       return 24 * 60 * 60 * 1000;
   }
+}
+
+// tableRegisterResponse answers a register call with the registration it made,
+// or with the RFC 9457 refusal of a CSV a query engine cannot read the way it
+// is stored -- which is the state the portal offers to correct (#1441).
+function tableRegisterResponse(
+  result: Awaited<ReturnType<typeof mockRegisterTable>>,
+): HttpResponse<TableRegistration | typeof tornCSVProblem> {
+  if ("status" in result && result.status === tornCSVProblem.status) {
+    return HttpResponse.json(result, {
+      status: tornCSVProblem.status,
+      headers: { "Content-Type": "application/problem+json" },
+    });
+  }
+  return HttpResponse.json(result, { status: 201 });
 }
 
 // ---------------------------------------------------------------------------
@@ -2937,10 +2954,7 @@ export const handlers = [
   ),
 
   http.post("/api/v1/resources/:id/tables", async ({ params, request }) =>
-    HttpResponse.json(
-      await mockRegisterTable("resource", params.id as string, request),
-      { status: 201 },
-    ),
+    tableRegisterResponse(await mockRegisterTable("resource", params.id as string, request)),
   ),
 
   http.delete("/api/v1/resources/:id/tables/:regId", ({ params }) => {
@@ -2953,10 +2967,7 @@ export const handlers = [
   ),
 
   http.post("/api/v1/portal/assets/:id/tables", async ({ params, request }) =>
-    HttpResponse.json(
-      await mockRegisterTable("asset", params.id as string, request),
-      { status: 201 },
-    ),
+    tableRegisterResponse(await mockRegisterTable("asset", params.id as string, request)),
   ),
 
   http.delete("/api/v1/portal/assets/:id/tables/:regId", ({ params }) => {

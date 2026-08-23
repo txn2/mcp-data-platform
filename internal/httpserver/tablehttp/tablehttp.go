@@ -116,6 +116,11 @@ type registerRequest struct {
 	Connection string `json:"connection"`
 	// TableName is optional; empty derives one from the filename.
 	TableName string `json:"table_name,omitempty"`
+	// Repair asks for a corrected version of the file to be saved and
+	// registered when it cannot be read as a table the way it is stored. It is
+	// the second submission of the form: the first is refused with what is
+	// wrong, and the refusal is what offers this (#1441).
+	Repair bool `json:"repair,omitempty"`
 }
 
 // registrationView is one registration as a surface renders it. It carries the
@@ -126,6 +131,11 @@ type registrationView struct {
 	QueryTable string `json:"query_table"`
 	SampleSQL  string `json:"sample_sql,omitempty"`
 	Stale      bool   `json:"stale"`
+	// Repaired says what a correction of the file changed before it could be
+	// registered, and is absent when none was needed. It is only ever set on
+	// the registration that made the correction: it describes what happened
+	// just now, not a property of the record.
+	Repaired string `json:"repaired,omitempty"`
 }
 
 func viewOf(reg tableregister.Registration, src tableregister.Source) registrationView {
@@ -173,20 +183,23 @@ func (h *Handler) register(subject Subject) http.HandlerFunc {
 			return
 		}
 
-		reg, err := h.deps.Registrar.Register(r.Context(), caller, src, tableregister.Request{
+		res, err := h.deps.Registrar.Register(r.Context(), caller, src, tableregister.Request{
 			Connection: req.Connection,
 			TableName:  req.TableName,
 			Source:     "portal",
+			Repair:     req.Repair,
 		})
 		if err != nil {
-			status := statusFor(err)
-			if status == http.StatusInternalServerError {
-				slog.Warn("table registration failed", "error", logsan.SanitizeForLog(err.Error()))
-			}
-			problem(w, status, detailFor(err, status))
+			refuse(w, "registering a table", err)
 			return
 		}
-		writeJSON(w, http.StatusCreated, viewOf(*reg, src))
+		// The source the registration was built over, not the one that was
+		// resolved: a file corrected on the way in is registered over the
+		// version the correction wrote, and staleness measured against the
+		// version it replaced would mark a fresh registration stale.
+		view := viewOf(res.Registration, res.Source)
+		view.Repaired = res.Repair.Summary()
+		writeJSON(w, http.StatusCreated, view)
 	}
 }
 
@@ -196,13 +209,8 @@ func (h *Handler) unregister(subject Subject) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		err := h.deps.Registrar.Unregister(r.Context(), caller, r.PathValue("regID"), "portal")
-		if err != nil {
-			status := statusFor(err)
-			if status == http.StatusInternalServerError {
-				slog.Warn("dropping a registered table failed", "error", logsan.SanitizeForLog(err.Error()))
-			}
-			problem(w, status, detailFor(err, status))
+		if err := h.deps.Registrar.Unregister(r.Context(), caller, r.PathValue("regID"), "portal"); err != nil {
+			refuse(w, "dropping a registered table", err)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -255,6 +263,28 @@ func (h *Handler) callerOf(user *portal.User) tableregister.Caller {
 	return tableregister.Caller{UserID: user.UserID, Email: user.Email, Roles: user.Roles}
 }
 
+// refuse answers a registrar error: the status that describes it, the detail a
+// caller can act on, and -- for a file that could be registered if a corrected
+// version of it were saved first -- the code the form keys its offer of that
+// correction on. action names what was being attempted, for the log line a
+// platform failure leaves behind.
+func refuse(w http.ResponseWriter, action string, err error) {
+	status := statusFor(err)
+	if status == http.StatusInternalServerError {
+		slog.Warn(action+" failed", "error", logsan.SanitizeForLog(err.Error()))
+	}
+	if errors.Is(err, tableregister.ErrNeedsRepair) {
+		httpjson.WriteErrorCode(w, status, codeNeedsRepair, detailFor(err, status))
+		return
+	}
+	problem(w, status, detailFor(err, status))
+}
+
+// codeNeedsRepair is what the form matches on to offer the correction. The
+// detail carries the sentence a person reads; a surface cannot key a control
+// off prose, so the machine-readable half is here.
+const codeNeedsRepair = "csv-needs-repair"
+
 // statusFor maps a registrar refusal onto the status that describes it.
 //
 // A refusal the caller can act on -- a name already taken, a sibling object in
@@ -288,11 +318,18 @@ func statusFor(err error) int {
 // passed through as written; a platform failure is not, because its text is a
 // wrapped store or driver error that says nothing a caller can act on and may
 // carry topology they should not see.
+//
+// The one thing a platform failure does carry through is a correction that
+// preceded it: the file changed before the failure and stays changed after it,
+// so a message about the table alone would leave its owner not knowing that.
 func detailFor(err error, status int) string {
-	if status == http.StatusInternalServerError {
-		return "the registration could not be completed"
+	if status != http.StatusInternalServerError {
+		return err.Error()
 	}
-	return err.Error()
+	if repair := tableregister.RepairOf(err); repair != nil {
+		return repair.Summary() + " The table was not created; register it again."
+	}
+	return "the registration could not be completed"
 }
 
 // problem writes an RFC 9457 Problem Details response, the form every other

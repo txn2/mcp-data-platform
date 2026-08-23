@@ -49,6 +49,12 @@ type Request struct {
 	// Source names where the registration comes from: "portal" for a REST or
 	// UI action, "mcp" for a tool call. It is recorded on the audit event.
 	Source string
+	// Repair asks the platform to save a corrected version of the file when it
+	// cannot be read as a table the way it is stored, and to register that
+	// version. Without it such a file is refused and the refusal says what is
+	// wrong with it, because correcting somebody's file is not something to do
+	// on the way to something they asked for.
+	Repair bool
 }
 
 // Deps is what a Registrar needs.
@@ -60,7 +66,12 @@ type Deps struct {
 	// deployment names the portal's S3 connection and the managed-resources
 	// one separately, and reading a resource through the portal's client
 	// would look in the wrong bucket on any deployment that split them.
-	Objects  map[string]ObjectReader
+	Objects map[string]ObjectReader
+	// Revisers save a corrected copy of a source as a new version of itself,
+	// keyed by source kind the way Objects is and for the same reason: the two
+	// kinds keep their version trails in different places. A kind with no
+	// entry can be registered and refused, but not corrected.
+	Revisers map[string]Reviser
 	Scope    ConnectionScope
 	Audit    AuditLogger
 	NewID    func() (string, error)
@@ -118,7 +129,7 @@ func (r *Registrar) objectsFor(kind string) ObjectReader {
 // The record is written last, because a row naming a table that was never
 // created is worse than a table with no row -- the first is a lie a search hit
 // repeats, the second is an object in a scratch schema.
-func (r *Registrar) Register(ctx context.Context, caller Caller, src Source, req Request) (*Registration, error) {
+func (r *Registrar) Register(ctx context.Context, caller Caller, src Source, req Request) (*Result, error) {
 	if !r.Available() {
 		return nil, ErrUnavailable
 	}
@@ -126,78 +137,212 @@ func (r *Registrar) Register(ctx context.Context, caller Caller, src Source, req
 		return nil, ErrNoIdentity
 	}
 
-	reg, existing, err := r.plan(ctx, caller, src, req)
+	p, err := r.plan(ctx, caller, src, req)
 	if err != nil {
-		return nil, err
+		// A correction is written before the last of the checks have run, so a
+		// refusal can arrive after the person's file has already changed. It is
+		// audited either way, and the refusal says so, because a message about
+		// the table alone would leave them not knowing their file moved.
+		if p.repair != nil {
+			r.audit(ctx, auditRecord{caller: caller, reg: p.reg, source: req.Source, repair: p.repair, err: err})
+		}
+		return nil, repairedFailure(p.repair, err)
 	}
 
-	ddl := BuildDDL(reg, existing != nil)
+	ddl := BuildDDL(p.reg, p.existing != nil)
 	execErr := r.runDDL(ctx, req.Connection, ddl)
-	r.audit(ctx, auditRecord{caller: caller, reg: reg, ddl: ddl, source: req.Source, err: execErr})
+	r.audit(ctx, auditRecord{
+		caller: caller, reg: p.reg, ddl: ddl, source: req.Source, repair: p.repair, err: execErr,
+	})
 	if execErr != nil {
-		return nil, execErr
+		return nil, repairedFailure(p.repair, execErr)
 	}
 
 	// The DROP already removed the replaced table, so its row is stale
 	// whatever happens next; dropping it before the insert is also what frees
 	// the unique name for this one.
-	if existing != nil {
-		if err := r.deps.Store.Delete(ctx, existing.ID); err != nil {
+	if p.existing != nil {
+		if err := r.deps.Store.Delete(ctx, p.existing.ID); err != nil {
 			return nil, fmt.Errorf("replacing the previous registration: %w", err)
 		}
 	}
-	if err := r.deps.Store.Insert(ctx, reg); err != nil {
+	if err := r.deps.Store.Insert(ctx, p.reg); err != nil {
 		return nil, fmt.Errorf("recording the registration: %w", err)
 	}
-	return &reg, nil
+	return &Result{Registration: p.reg, Source: p.src, Repair: p.repair}, nil
+}
+
+// planned is one registration under construction: where it lands, the source
+// it is built over -- which is not the source that was handed in when the file
+// had to be corrected first -- the record to write, the registration it
+// replaces, and what a correction changed.
+type planned struct {
+	target   trino.ScratchConfig
+	src      Source
+	reg      Registration
+	existing *Registration
+	repair   *RepairReport
 }
 
 // plan works out everything a registration is made of and refuses on anything
-// it cannot establish, before any statement runs. It returns the registration
-// to create and the one it would replace, if any.
-func (r *Registrar) plan(
-	ctx context.Context, caller Caller, src Source, req Request,
-) (reg Registration, existing *Registration, err error) {
+// it cannot establish, before any statement runs.
+//
+// The order is what keeps a refusal from arriving after a write. Where the
+// table lands and what it is called are settled first, so a caller who is not
+// granted the connection, or who is asking for a name somebody else holds,
+// learns that before their file is read -- and long before a correction of it
+// would be saved.
+func (r *Registrar) plan(ctx context.Context, caller Caller, src Source, req Request) (*planned, error) {
+	// The plan is returned even when it fails, because part of it may already
+	// have happened: a correction is a write, and the caller has to be able to
+	// see one that a later refusal followed.
+	p := &planned{src: src}
+	if err := r.claim(ctx, caller, req, p); err != nil {
+		return p, err
+	}
+	body, err := r.contentFor(ctx, p.src)
+	if err != nil {
+		return p, err
+	}
+	body, err = r.correct(ctx, caller, req, body, p)
+	if err != nil {
+		return p, err
+	}
+	return p, r.describe(ctx, p.src, body, &p.reg)
+}
+
+// claim settles where the registration lands and what it is called, refusing a
+// name somebody else registered.
+func (r *Registrar) claim(ctx context.Context, caller Caller, req Request, p *planned) error {
 	target, err := r.resolveTarget(caller, req.Connection)
 	if err != nil {
-		return reg, nil, err
-	}
-	location, err := r.locationFor(ctx, src)
-	if err != nil {
-		return reg, nil, err
-	}
-	columns, err := r.columnsFor(ctx, src)
-	if err != nil {
-		return reg, nil, err
+		return err
 	}
 
-	table := tableNameFor(caller, src, req)
+	table := tableNameFor(caller, p.src, req)
 	if table == "" {
-		return reg, nil, refusedf("a table name could not be derived; give one explicitly")
-	}
-	existing, err = r.deps.Store.ByName(ctx, req.Connection, target.Catalog, target.Schema, table)
-	if err != nil {
-		return reg, nil, fmt.Errorf("checking the table name: %w", err)
-	}
-	if err := mayReplace(caller, existing, target, table); err != nil {
-		return reg, nil, err
+		return refusedf("a table name could not be derived; give one explicitly")
 	}
 
-	reg = Registration{
-		SourceKind:   src.Kind,
-		SourceID:     src.ID,
+	// Everything a registration is except what the file itself decides. It is
+	// filled in here rather than at the end so an audit event written for a
+	// correction that a later refusal followed names the table it was for.
+	p.target = target
+	p.reg = Registration{
+		SourceKind:   p.src.Kind,
+		SourceID:     p.src.ID,
 		Connection:   req.Connection,
 		Catalog:      target.Catalog,
 		Schema:       target.Schema,
 		Table:        table,
-		Location:     location,
-		Columns:      columns,
 		RegisteredBy: caller.Email,
 	}
-	if reg.ID, err = r.newID(); err != nil {
-		return reg, nil, err
+
+	p.existing, err = r.deps.Store.ByName(ctx, req.Connection, target.Catalog, target.Schema, table)
+	if err != nil {
+		return fmt.Errorf("checking the table name: %w", err)
 	}
-	return reg, existing, nil
+	return mayReplace(caller, p.existing, target, table)
+}
+
+// correct answers a file that cannot be read as a table the way it is stored.
+//
+// Unasked, the answer is a refusal naming what is wrong with it. Asked, a
+// corrected copy is saved as a new version of the file itself, through the
+// version mechanism the source kind already has: the bytes that were uploaded
+// stay as the version they are, the correction is the version on top of them,
+// and it is revertible from the same panel every other version is. The
+// registration is then built over the new version's directory, which holds
+// that one file.
+func (r *Registrar) correct(
+	ctx context.Context, caller Caller, req Request, body []byte, p *planned,
+) ([]byte, error) {
+	defect := InspectCSV(body)
+	if defect == nil {
+		return body, nil
+	}
+	// Nothing is offered that the platform cannot honestly do. Bytes in an
+	// encoding it does not convert are read wrongly by everything downstream,
+	// including the correction, so a repair of that file would replace the
+	// person's data with mojibake and report it as a fix.
+	if !defect.Correctable() {
+		return nil, refusedf("%s Re-export it as UTF-8 CSV and upload that.", defect.Reason())
+	}
+	if !req.Repair {
+		return nil, needsRepairf("%s Register it again asking for the file to be corrected, and a corrected"+
+			" version is saved and registered; the file as it was uploaded stays as the version before it.",
+			defect.Reason())
+	}
+	reviser := r.deps.Revisers[p.src.Kind]
+	if reviser == nil {
+		return nil, refusedf("%s This deployment keeps no version history for a stored %s, so there is nowhere to"+
+			" save a corrected version; correct the file where it was written and upload it again.",
+			defect.Reason(), p.src.Kind)
+	}
+
+	corrected, report, err := NormalizeCSV(body)
+	if err != nil {
+		return nil, err
+	}
+	revised, err := reviser.Revise(ctx, p.src, caller, corrected, repairSummary(report))
+	if err != nil {
+		return nil, fmt.Errorf("saving a corrected version of the file: %w", err)
+	}
+
+	p.src.Bucket, p.src.HeadKey, p.src.ContentType = revised.Bucket, revised.Key, contenttype.CSV
+	p.repair = &RepairReport{NormalizeReport: report, Version: revised.Version}
+	return corrected, nil
+}
+
+// describe fills in what only the file decides: the directory the table reads
+// and the columns it declares.
+func (r *Registrar) describe(ctx context.Context, src Source, body []byte, reg *Registration) error {
+	location, err := r.locationFor(ctx, src)
+	if err != nil {
+		return err
+	}
+	columns, err := ReadHeaderColumns(body)
+	if err != nil {
+		return err
+	}
+	reg.Location, reg.Columns = location, columns
+	reg.ID, err = r.newID()
+	return err
+}
+
+// repairedFailure keeps a correction visible when what it was made for failed
+// afterwards. The person's file changed either way, and an answer about the
+// table alone would leave them not knowing that.
+func repairedFailure(repair *RepairReport, err error) error {
+	if repair == nil {
+		return err
+	}
+	return &repaired{repair: repair, err: err}
+}
+
+// repaired is an error carrying the correction that preceded it, so a surface
+// can say what happened to the file even when it cannot repeat what happened
+// to the table.
+type repaired struct {
+	repair *RepairReport
+	err    error
+}
+
+func (e *repaired) Error() string {
+	return e.repair.Summary() + " The table was not created: " + e.err.Error()
+}
+
+func (e *repaired) Unwrap() error { return e.err }
+
+// RepairOf returns the correction an error carries, or nil when it carries
+// none. A surface that replaces a platform failure's text with its own uses it
+// to keep the part about the file.
+func RepairOf(err error) *RepairReport {
+	var carried *repaired
+	if errors.As(err, &carried) {
+		return carried.repair
+	}
+	return nil
 }
 
 // resolveTarget applies the connection boundary and finds where registrations
@@ -311,8 +456,12 @@ func joinAnd(items []string) string {
 	}
 }
 
-// columnsFor reads the object's header row.
-func (r *Registrar) columnsFor(ctx context.Context, src Source) ([]Column, error) {
+// contentFor reads the whole object a registration is built over.
+//
+// The whole body, not the first line: the header row is taken from it, and so
+// is the answer to whether a line-based reader can read the file at all, which
+// is a question only the rest of the bytes settle (#1441).
+func (r *Registrar) contentFor(ctx context.Context, src Source) ([]byte, error) {
 	if !isCSV(src.ContentType, src.HeadKey) {
 		return nil, ErrNotCSV
 	}
@@ -327,7 +476,7 @@ func (r *Registrar) columnsFor(ctx context.Context, src Source) ([]Column, error
 	if int64(len(body)) > r.deps.MaxBytes {
 		return nil, refusedf("the file is larger than the %d MB a registration reads", r.deps.MaxBytes>>20)
 	}
-	return ReadHeaderColumns(body)
+	return body, nil
 }
 
 // isCSV reports whether the source is a CSV. The stored content type decides
@@ -521,6 +670,11 @@ func (r *Registrar) audit(ctx context.Context, rec auditRecord) {
 		"source_kind": rec.reg.SourceKind,
 		"source_id":   rec.reg.SourceID,
 	}
+	// A correction rewrote somebody's file on their behalf, which is a write
+	// in its own right and is recorded beside the statement that followed it.
+	if rec.repair != nil {
+		ev.Parameters["repaired"] = rec.repair.Summary()
+	}
 	ev.Source = source
 	ev.Transport = "http"
 	ev.EventKind = audit.EventTypeMCPToolCall
@@ -542,5 +696,8 @@ type auditRecord struct {
 	reg    Registration
 	ddl    []string
 	source string
+	// repair is what a correction of the file changed, or nil when none was
+	// needed.
+	repair *RepairReport
 	err    error
 }

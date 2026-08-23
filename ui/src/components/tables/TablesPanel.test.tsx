@@ -37,6 +37,27 @@ const REGISTERED: TableRegistrationList = {
   ],
 };
 
+// stubRegister answers the panel's two reads and the register write, so a test
+// can drive the form to a refusal and back out of it.
+function stubRegister(register: () => Response) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/table-connections")) {
+        return Promise.resolve(new Response(JSON.stringify(CONNECTIONS), { status: 200 }));
+      }
+      if (url.includes("/tables") && (init?.method ?? "GET") === "POST") {
+        return Promise.resolve(register());
+      }
+      if (url.includes("/tables")) {
+        return Promise.resolve(new Response(JSON.stringify({ registrations: [] }), { status: 200 }));
+      }
+      return Promise.reject(new Error(`unexpected request: ${url}`));
+    }),
+  );
+}
+
 // stubFetch answers the panel's two reads. Each test declares what the two
 // routes return; anything else is a failure rather than a silent empty body.
 function stubFetch(connections: unknown, registrations: unknown) {
@@ -154,5 +175,88 @@ describe("registering a stored file as a table", () => {
     // The placeholder shows what leaving the name empty produces, rather than
     // an unrelated example.
     expect(screen.getByPlaceholderText("vendor_keys")).toBeInTheDocument();
+  });
+});
+
+// A CSV whose cells carry line breaks cannot be read by a query engine the way
+// it is stored: every such row is torn into fragments and the fields after the
+// tear land in the wrong columns, with nothing anywhere reporting a problem
+// (#1441). The registration is refused instead, and what the panel owes the
+// person is the way out of it -- a control, not an instruction to go and fix
+// the file themselves.
+describe("a CSV a query engine cannot read", () => {
+  const NEEDS_REPAIR = {
+    type: "urn:mcp-data-platform:problem:csv-needs-repair",
+    title: "Conflict",
+    status: 409,
+    detail:
+      "153 rows in this file have a line break inside a cell (in address), and a table reads a " +
+      "line break as the end of the row, so each of those rows would be torn into fragments.",
+  };
+
+  async function openFormAndRegister() {
+    renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: /^register$/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^register$/i }));
+  }
+
+  it("offers to correct the file rather than handing the problem back", async () => {
+    stubRegister(
+      () =>
+        new Response(JSON.stringify(NEEDS_REPAIR), {
+          status: 409,
+          headers: { "Content-Type": "application/problem+json" },
+        }),
+    );
+    await openFormAndRegister();
+
+    expect(await screen.findByText(/line break inside a cell/i)).toBeInTheDocument();
+    expect(await screen.findByTestId("table-repair-button")).toBeInTheDocument();
+    // The uploaded file is kept, so the correction can be undone.
+    expect(screen.getByText(/version before it/i)).toBeInTheDocument();
+  });
+
+  it("says what the correction changed once it is made", async () => {
+    let repairAsked = false;
+    stubRegister(() => {
+      if (!repairAsked) {
+        repairAsked = true;
+        return new Response(JSON.stringify(NEEDS_REPAIR), { status: 409 });
+      }
+      return new Response(
+        JSON.stringify({
+          ...REGISTERED.registrations[0],
+          repaired: "Saved version 2 of this file, which put 153 rows back onto one line.",
+        }),
+        { status: 201 },
+      );
+    });
+    await openFormAndRegister();
+
+    fireEvent.click(await screen.findByTestId("table-repair-button"));
+    expect(await screen.findByTestId("table-repair-notice")).toHaveTextContent(
+      /Saved version 2 of this file/,
+    );
+  });
+
+  // Every other refusal -- a name someone else holds, a connection this person
+  // cannot reach -- is a refusal the platform cannot correct, so the control is
+  // absent rather than offering something that would not help.
+  it("offers nothing on a refusal it cannot correct", async () => {
+    stubRegister(
+      () =>
+        new Response(
+          JSON.stringify({
+            type: "about:blank",
+            status: 409,
+            detail: "scratch.uploads.analyst_vendor_keys is already registered by bob@example.com",
+          }),
+          { status: 409 },
+        ),
+    );
+    await openFormAndRegister();
+
+    expect(await screen.findByText(/already registered by bob@example.com/)).toBeInTheDocument();
+    expect(screen.queryByTestId("table-repair-button")).not.toBeInTheDocument();
   });
 });

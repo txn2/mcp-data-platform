@@ -46,6 +46,17 @@ func ReadHeaderColumns(content []byte) ([]Column, error) {
 			len(record), maxColumns)
 	}
 
+	if allBlank(record) {
+		return nil, ErrEmptyHeader
+	}
+	return ColumnsFrom(record), nil
+}
+
+// ColumnsFrom names the columns a header record declares. It is separate from
+// ReadHeaderColumns so that a refusal describing a file calls its columns what
+// the table over that file would have called them, without parsing the header
+// a second time.
+func ColumnsFrom(record []string) []Column {
 	seen := make(map[string]int, len(record))
 	columns := make([]Column, 0, len(record))
 	for i, raw := range record {
@@ -53,19 +64,14 @@ func ReadHeaderColumns(content []byte) ([]Column, error) {
 		// A UTF-8 BOM leads the first field of a file many spreadsheet tools
 		// write, and it would otherwise become part of the first column's name.
 		if i == 0 {
-			name = strings.TrimPrefix(name, "\ufeff")
+			name = strings.TrimPrefix(name, bomUTF8)
 		}
 		if name == "" {
 			name = "column_" + strconv.Itoa(i+1)
 		}
-		name = uniqueName(name, seen)
-		columns = append(columns, Column{Name: name, Type: columnType})
+		columns = append(columns, Column{Name: uniqueName(name, seen), Type: columnType})
 	}
-
-	if allBlank(record) {
-		return nil, ErrEmptyHeader
-	}
-	return columns, nil
+	return columns
 }
 
 // allBlank reports whether every field of the header was empty, which is a

@@ -169,3 +169,35 @@ func TestParsePageOffset(t *testing.T) {
 		})
 	}
 }
+
+// TestWriteErrorCodeNamesTheProblem is what lets a surface offer the next step
+// on a particular refusal: the detail is the sentence a person reads and is
+// free to change, while the type is the half a control can be keyed off.
+func TestWriteErrorCodeNamesTheProblem(t *testing.T) {
+	w := httptest.NewRecorder()
+	WriteErrorCode(w, http.StatusConflict, "csv-needs-repair", "this file has a line break inside a cell")
+
+	if got := w.Code; got != http.StatusConflict {
+		t.Fatalf("status = %d, want %d", got, http.StatusConflict)
+	}
+	if got := w.Header().Get("Content-Type"); got != "application/problem+json" {
+		t.Fatalf("content type = %q, want application/problem+json", got)
+	}
+
+	var problem ProblemDetail
+	if err := json.Unmarshal(w.Body.Bytes(), &problem); err != nil {
+		t.Fatalf("decoding the body: %v", err)
+	}
+	if want := ProblemTypePrefix + "csv-needs-repair"; problem.Type != want {
+		t.Errorf("type = %q, want %q", problem.Type, want)
+	}
+	if problem.Detail != "this file has a line break inside a cell" {
+		t.Errorf("detail = %q", problem.Detail)
+	}
+	if problem.Status != http.StatusConflict {
+		t.Errorf("status field = %d", problem.Status)
+	}
+	if problem.Title != http.StatusText(http.StatusConflict) {
+		t.Errorf("title = %q", problem.Title)
+	}
+}

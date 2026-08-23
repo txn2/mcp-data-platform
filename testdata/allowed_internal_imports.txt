@@ -65,6 +65,7 @@ internal/httpserver -> pkg/admin
 internal/httpserver -> pkg/audit
 internal/httpserver -> pkg/browsersession
 internal/httpserver -> pkg/connoauth
+internal/httpserver -> pkg/contenttype
 internal/httpserver -> pkg/knowledge
 internal/httpserver -> pkg/middleware
 internal/httpserver -> pkg/notification
