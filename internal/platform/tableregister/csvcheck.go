@@ -49,6 +49,12 @@ const (
 	encodingWide = "a multi-byte encoding"
 )
 
+// lineEndingsCR names the line endings of a file whose lines end in a bare
+// carriage return -- the classic Mac ending some spreadsheet exports still
+// write. Every reader on this path splits records on "\n" and none of them
+// splits on "\r", so such a file is one record to all of them.
+const lineEndingsCR = "carriage return"
+
 // CSVDefect is why a CSV cannot be read as a table the way it is stored. A nil
 // *CSVDefect means it can.
 type CSVDefect struct {
@@ -59,22 +65,146 @@ type CSVDefect struct {
 	// Encoding names what the bytes appear to be when they are not UTF-8, and
 	// is empty when they are.
 	Encoding string `json:"encoding,omitempty"`
+	// LineEndings names what the file's lines end in when that is not
+	// something a line-based reader splits on, and is empty when it is.
+	LineEndings string `json:"line_endings,omitempty"`
 }
 
 // InspectCSV reports why a CSV cannot be read by a line-based reader, or nil
 // when it can.
 //
-// Two conditions refuse. A line break inside a field tears the record, and
-// bytes that are not UTF-8 reach every cell as replacement characters. Neither
-// is visible in the result of a query over the table, so both are answered
-// before one exists.
+// Three conditions refuse. Lines that end in something the reader does not
+// split on run the records that end in one together into a single record, a
+// line break inside a field tears the record, and bytes that are not UTF-8
+// reach every cell as replacement characters. None of them is visible in the result of a query over the table,
+// so all three are answered before one exists.
+//
+// The line endings are settled first and the record scan runs over the
+// translated bytes, because the scan is itself a line-based reader: over a
+// carriage-return file it sees one record, reports the file as a single torn
+// row, and names columns made out of the header line joined to the line after
+// it.
 func InspectCSV(content []byte) *CSVDefect {
 	defect := CSVDefect{Encoding: sourceEncoding(content)}
+	// Only where the bytes are single-byte text. A carriage return in a wide
+	// encoding is two bytes or more and the file is refused for its encoding
+	// anyway, so translating one byte of it would be a guess.
+	if defect.Correctable() {
+		content, defect.LineEndings = withLineFeeds(content)
+	}
 	defect.Rows, defect.Columns = scanEmbeddedBreaks(content)
-	if defect.Rows == 0 && defect.Encoding == "" {
+	if defect.Rows == 0 && defect.Encoding == "" && defect.LineEndings == "" {
 		return nil
 	}
 	return &defect
+}
+
+// withLineFeeds returns the content with carriage-return line endings
+// translated to "\n", and names the endings when it translated any.
+//
+// A carriage return that is not part of a "\r\n" is one of two things: the end
+// of a record, which no reader on this path splits on, or a line break inside
+// a cell, which is the defect the record scan is for. The bytes do not say
+// which, so the parse does: the translation is kept only where it recovers
+// records the reader could not see. Anything else is handed back exactly as it
+// came in, so a file that reads correctly today keeps doing so.
+func withLineFeeds(content []byte) (fed []byte, endings string) {
+	fed, found := replaceLoneCarriageReturns(content)
+	if !found || !recoversRecords(content, fed) {
+		return content, ""
+	}
+	return fed, lineEndingsCR
+}
+
+// recoversRecords reports whether translating the carriage returns gave a
+// line-based reader records it could not see before.
+//
+// Which measure answers that depends on what the file already is, and the two
+// regimes need different ones.
+//
+// A file with no line feed anywhere is one record to every reader on this
+// path, whatever is in it, and no ordinary CSV is written that way: a file
+// that ends its records with newlines has newlines in it. Nothing there is
+// ambiguous, so the plain count answers, and it has to -- a classic Mac file
+// whose rows do not match its header would score no better on the header's
+// width than the single record it starts as, and rejecting its translation
+// hands it back to the reader that merges the whole file into one row. Kept,
+// the same file is refused honestly by the field-count check instead.
+//
+// A file that already has newline-delimited records is the ambiguous one. A
+// lone carriage return in it is as likely to be a break inside a cell, and
+// splitting that cell raises the plain count exactly as a real line ending
+// does. There the records are counted by the header's width, because a record
+// recovered from a line ending has the columns the header declares and a
+// fragment torn out of one cell does not.
+func recoversRecords(content, fed []byte) bool {
+	if bytes.IndexByte(content, '\n') < 0 {
+		return recordCount(fed) > recordCount(content)
+	}
+	return wellFormedRecords(fed) > wellFormedRecords(content)
+}
+
+// recordCount is how many records a line-based reader finds in the content.
+// Only the count is read, so the reader's own record buffer is reused.
+func recordCount(content []byte) int {
+	reader := newCSVReader(content)
+	reader.ReuseRecord = true
+
+	count := 0
+	for {
+		if _, err := reader.Read(); err != nil {
+			return count
+		}
+		count++
+	}
+}
+
+// replaceLoneCarriageReturns rewrites every carriage return that is not part
+// of a "\r\n" as a line feed, and reports whether it found one. A "\r\n" is
+// left alone: every reader on this path already folds it to a line feed, so it
+// costs a file nothing. Content with none is returned untouched and uncopied.
+func replaceLoneCarriageReturns(content []byte) (fed []byte, found bool) {
+	fed = content
+	for i := range content {
+		if content[i] != '\r' || (i+1 < len(content) && content[i+1] == '\n') {
+			continue
+		}
+		if !found {
+			fed = make([]byte, len(content))
+			copy(fed, content)
+			found = true
+		}
+		fed[i] = '\n'
+	}
+	return fed, found
+}
+
+// wellFormedRecords is how many of the records a line-based reader finds in
+// the content have the field count the first of them declares, the header
+// counting as one of them.
+//
+// A parse it cannot finish counts what it read before it stopped, which is
+// what the comparison in recoversRecords needs: a file the reader gives up on
+// early counts low, and a translation that lets it read further counts high.
+//
+// Only the width of each record is read, so the reader's own buffer is reused
+// rather than a slice allocated per record; the header's width is taken before
+// the loop, since the reused slice is the one the header was returned in.
+func wellFormedRecords(content []byte) int {
+	reader := newCSVReader(content)
+	reader.ReuseRecord = true
+
+	header, err := reader.Read()
+	if err != nil {
+		return 0
+	}
+	want, count := len(header), 0
+	for record := header; err == nil; record, err = reader.Read() {
+		if len(record) == want {
+			count++
+		}
+	}
+	return count
 }
 
 // sourceEncoding names what a file's bytes appear to be, or "" when they are
@@ -189,11 +319,19 @@ func labelsFor(names []string, hit map[int]bool) []string {
 	return labels
 }
 
-// Reason is what the person is told: how many rows carry a line break inside a
-// cell, which columns those are in, and what the bytes appear to be when they
-// are not UTF-8.
+// Reason is what the person is told: what the file's lines end in when that is
+// not a newline, how many rows carry a line break inside a cell, which columns
+// those are in, and what the bytes appear to be when they are not UTF-8.
+//
+// The line endings come first, because they decide how the rest of the file is
+// read.
 func (d *CSVDefect) Reason() string {
-	parts := make([]string, 0, 2)
+	parts := make([]string, 0, 3)
+	if d.LineEndings != "" {
+		parts = append(parts,
+			"this file's lines end in a "+d.LineEndings+" rather than a newline, and a table splits records on"+
+				" the newline, so the records ending in one would be run together into a single row")
+	}
 	if d.Rows > 0 {
 		part := plural(d.Rows, "row", "rows") + " in this file " +
 			verb(d.Rows, "has", "have") + " a line break inside a cell"
@@ -239,10 +377,14 @@ type NormalizeReport struct {
 	// FromEncoding names the encoding the bytes were converted from, and is
 	// empty when they were already UTF-8.
 	FromEncoding string `json:"from_encoding,omitempty"`
+	// FromLineEndings names the line endings the file was rewritten from, and
+	// is empty when its records already ended in a newline.
+	FromLineEndings string `json:"from_line_endings,omitempty"`
 }
 
 // NormalizeCSV rewrites a CSV so a line-based reader gets the records the file
-// actually holds: UTF-8 with no byte-order mark, and every field on one line.
+// actually holds: UTF-8 with no byte-order mark, one record per newline, and
+// every field on one line.
 //
 // It is a decode and a re-emit, never a repair of the record structure. A
 // record whose field count differs from the header is refused rather than
@@ -254,6 +396,10 @@ func NormalizeCSV(content []byte) ([]byte, NormalizeReport, error) {
 	if err != nil {
 		return nil, NormalizeReport{}, err
 	}
+	// Before anything is counted, for the same reason InspectCSV does it: this
+	// reader splits on "\n" too, so a carriage-return file would be read here
+	// as the single record it is not, and written back out as one.
+	decoded, endings := withLineFeeds(decoded)
 	records, err := newCSVReader(decoded).ReadAll()
 	if err != nil {
 		return nil, NormalizeReport{}, refusedf(
@@ -266,7 +412,7 @@ func NormalizeCSV(content []byte) ([]byte, NormalizeReport, error) {
 		return nil, NormalizeReport{}, err
 	}
 
-	report := NormalizeReport{FromEncoding: from}
+	report := NormalizeReport{FromEncoding: from, FromLineEndings: endings}
 	for _, record := range records {
 		if flattenFields(record) {
 			report.RowsRepaired++

@@ -97,7 +97,10 @@ func (r *RepairReport) Summary() string {
 // uploaded the file would use. It is also the change summary the version trail
 // records, so the version panel and the registration message agree.
 func repairSummary(report NormalizeReport) string {
-	parts := make([]string, 0, 2)
+	parts := make([]string, 0, 3)
+	if report.FromLineEndings != "" {
+		parts = append(parts, "rewrote the "+report.FromLineEndings+" line endings as newlines")
+	}
 	if report.RowsRepaired > 0 {
 		parts = append(parts, "put "+plural(report.RowsRepaired, "row", "rows")+" back onto one line")
 	}

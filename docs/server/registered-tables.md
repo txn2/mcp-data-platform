@@ -171,16 +171,59 @@ perfectly under every ordinary CSV reader, so nothing about it looks wrong, and
 a table over it is created without error and answers queries with rows. The
 rows are fragments.
 
-Registration therefore reads the whole file before it creates anything - it is
-already reading it for the header row - and refuses two things:
+The same reader splits on the newline and on nothing else, so a file whose
+lines end in a bare carriage return - the classic Mac ending some spreadsheet
+exports still write - is one record to it: a table over that file has a single
+row holding the whole file, and it too is created and queried without error.
 
+Registration therefore reads the whole file before it creates anything - it is
+already reading it for the header row - and refuses three things:
+
+- **Lines that end in a carriage return.** The records that end in one are run
+  together into a single row, and the refusal says what the lines end in. A
+  Windows CRLF ending is not this: every reader on the path folds it to a
+  newline, and it costs nothing.
 - **A line break inside a cell.** The refusal says how many rows carry one and
   which columns they are in.
 - **Bytes that are not UTF-8.** They reach every cell as replacement marks: a
   cell reading `15%` in the source arrives as `15%` followed by mojibake.
 
-Neither is refused silently and neither leaves anything behind: no table is
-created and no registration is recorded.
+None of the three is refused silently and none leaves anything behind: no table
+is created and no registration is recorded.
+
+The line endings are settled before the rest of the file is read, so a refusal
+counts the records the file holds and names the columns it declares, rather
+than the single record a reader that splits on the newline alone found in it.
+Which carriage returns were line endings is decided from the parse rather than
+from the bytes: a lone carriage return is translated, and the translation is
+kept only where it recovers records the reader could not see. What counts as
+recovered depends on what the file already is.
+
+A file with **no newline anywhere** is one record to every reader on this path,
+and no ordinary CSV is written that way - a file that ends its records with
+newlines has newlines in it. Nothing about it is ambiguous, so any record the
+translation recovers is a record the file holds. This includes a classic Mac
+file whose rows do not match its header: it is read as the several records it
+is, and then refused by the field-count check below, which is the honest answer
+where merging it into one row is not.
+
+A file that **already has newline-delimited records** is the ambiguous one. A
+lone carriage return in it is as likely to be a break inside a cell, and
+splitting that cell adds a record exactly as a real line ending would. There
+the records are counted by the header's width, because a record recovered from
+a line ending has the columns the header declares and a fragment torn out of
+one cell does not. A carriage return that recovers nothing therefore stays what
+it is, a line break inside a cell, and nothing untrue is said about the file's
+lines - except in the one shape below, where the two readings cannot be told
+apart at all.
+
+One shape stays ambiguous and is decided rather than known: a **single-column**
+file with an unquoted carriage return in a value. Every fragment of a
+one-column record has the header's width, so field counts cannot separate the
+two readings, and the carriage return is taken as a line ending. The correction
+says what it did and the version before it is still there. A spreadsheet
+writing a multi-line value into a one-column file quotes it, and a quoted one
+is read as the cell break it is.
 
 ### Correcting the file
 
@@ -189,6 +232,8 @@ or `repair=true` on the tool call. What it does is a decode and a re-emit:
 
 - the bytes are read as UTF-8, or as windows-1252 when they are not valid
   UTF-8, and a leading byte-order mark is dropped
+- a carriage-return line ending becomes a newline, so each record is on its own
+  line
 - each run of line breaks inside a cell becomes a single space, and the cell is
   trimmed
 - the file is written back out as UTF-8 CSV with no byte-order mark
@@ -296,8 +341,9 @@ refused and the reason is stated. Upload the file under another name.
 **A file that is not a CSV.** There is no header row to take column names
 from.
 
-**A CSV a line-based reader cannot read.** A line break inside a cell, or bytes
-that are not UTF-8. See
+**A CSV a line-based reader cannot read.** Lines that end in a carriage return
+rather than a newline, a line break inside a cell, or bytes that are not UTF-8.
+See
 [A CSV a query engine cannot read](#a-csv-a-query-engine-cannot-read).
 
 **A file that is not yours.** Registering is the authority to change the file,

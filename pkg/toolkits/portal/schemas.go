@@ -307,7 +307,7 @@ var manageTableSchema = json.RawMessage(`{
     },
     "repair": {
       "type": "boolean",
-      "description": "For register: save a corrected version of the file and register that, when the file cannot be read as a table the way it is stored. A CSV with a line break inside a cell, or one whose bytes are a legacy code page rather than UTF-8, is refused without this and the refusal says what is wrong with it. With it, a corrected version is written through the file's own version history -- the uploaded bytes stay as the version before it and the correction is revertible -- and the result says what changed. A file in a wide encoding (UTF-16, UTF-32) is refused whether or not this is set: it has to be re-exported as UTF-8 CSV."
+      "description": "For register: save a corrected version of the file and register that, when the file cannot be read as a table the way it is stored. A CSV whose lines end in a carriage return rather than a newline, one with a line break inside a cell, or one whose bytes are a legacy code page rather than UTF-8, is refused without this and the refusal says what is wrong with it. With it, a corrected version is written through the file's own version history -- the uploaded bytes stay as the version before it and the correction is revertible -- and the result says what changed. A file in a wide encoding (UTF-16, UTF-32) is refused whether or not this is set: it has to be re-exported as UTF-8 CSV."
     }
   }
 }`)
