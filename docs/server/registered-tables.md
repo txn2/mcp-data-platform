@@ -277,6 +277,17 @@ mark, or a NUL byte, is therefore refused outright and no correction is offered
 for it: re-export it as UTF-8 CSV and upload that. Nothing is offered that the
 platform cannot honestly do.
 
+Nor is every file that is not UTF-8 a windows-1252 one. That code page leaves
+five of its 256 byte values with no character at all - `0x81`, `0x8D`, `0x8F`,
+`0x90` and `0x9D` - and a decoder asked to read one of them puts a replacement
+mark in its place and reports no error. A file holding one is in some other
+encoding, or is not text; converting it would write those marks into the
+person's new version and call it a conversion from windows-1252. So the code
+page is the answer only where every byte is one it defines, and a file carrying
+any of the five is refused with the same instruction: re-export it as UTF-8 CSV
+and upload that. The bytes on either side of them - `0x80`, `0x8E`, `0x9E` and
+`0x9F` - all have characters and still convert.
+
 The NUL byte is looked for before the UTF-8 check rather than after it, because
 a NUL is itself valid UTF-8. The same *Unicode Text* export written without a
 byte-order mark, over content that is plain ASCII, is a valid UTF-8 file with a

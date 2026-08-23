@@ -33,7 +33,9 @@ const bomUTF8 = "\ufeff"
 // on a machine with a legacy code page, whose printable range every
 // Latin-script export of that kind stays inside. It is the only one the
 // platform converts, because a single-byte code page maps byte for byte and
-// the conversion cannot invent a character that was not there.
+// the conversion cannot invent a character that was not there. That holds for
+// the 251 bytes windows-1252 defines and not for the other five, which is why
+// a file carrying one of those is encodingUnidentified rather than this.
 //
 // The rest are named so a refusal can say what the file appears to be. None of
 // them is converted: a wide encoding decoded as a code page produces a
@@ -47,6 +49,11 @@ const (
 	// called: not text in any single-byte encoding, and not identifiable
 	// beyond that.
 	encodingWide = "a multi-byte encoding"
+	// encodingUnidentified is what non-UTF-8 bytes are called when one of them
+	// is a value windows-1252 leaves undefined. The byte-for-byte mapping the
+	// conversion rests on does not reach those five values, so the file is in
+	// something else, and nothing in it says what.
+	encodingUnidentified = "an encoding this platform cannot identify"
 )
 
 // lineEndingsCR names the line endings of a file whose lines end in a bare
@@ -213,6 +220,24 @@ func wellFormedRecords(content []byte) int {
 	return count
 }
 
+// undefinedWindows1252 are the five byte values windows-1252 assigns no
+// character to. The decoder does not report them: it emits U+FFFD for each and
+// returns a nil error, so a file holding one converts without complaint into a
+// file carrying replacement marks where those bytes were. The source is
+// checked for them here instead.
+var undefinedWindows1252 = []byte{0x81, 0x8D, 0x8F, 0x90, 0x9D}
+
+// hasUndefinedWindows1252 reports whether the content holds a byte
+// windows-1252 leaves undefined.
+func hasUndefinedWindows1252(content []byte) bool {
+	for _, b := range undefinedWindows1252 {
+		if bytes.IndexByte(content, b) >= 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // sourceEncoding names what a file's bytes appear to be, or "" when they are
 // valid UTF-8 with no NUL in them.
 //
@@ -227,6 +252,12 @@ func wellFormedRecords(content []byte) int {
 // below it looks for. A file with no mark and a NUL byte in it is not
 // single-byte text either, whatever it is: a CSV in a code page has no NUL in
 // it, and treating one as windows-1252 would turn every character into two.
+//
+// windows-1252 is the last answer rather than the fallback for everything that
+// is not UTF-8. It is reached only when every byte is one that code page
+// defines, because the five it does not define decode to a replacement mark
+// without the decoder saying so, and a file holding one of them is in some
+// other encoding (#1448).
 func sourceEncoding(content []byte) string {
 	switch {
 	case bytes.HasPrefix(content, []byte{0xFF, 0xFE, 0x00, 0x00}),
@@ -238,6 +269,8 @@ func sourceEncoding(content []byte) string {
 		return encodingWide
 	case utf8.Valid(content):
 		return ""
+	case hasUndefinedWindows1252(content):
+		return encodingUnidentified
 	default:
 		return encodingWindows1252
 	}
@@ -358,6 +391,14 @@ func (d *CSVDefect) Reason() string {
 		parts = append(parts,
 			"this file's bytes are not UTF-8 and read as "+d.Encoding+
 				", so the characters outside plain ASCII would arrive in the table as replacement marks")
+	case d.Encoding == encodingUnidentified:
+		// Named for what it is not, like the markless wide case below it: the
+		// evidence is a byte windows-1252 has no character for, which rules
+		// that code page out without saying what the file is instead.
+		parts = append(parts,
+			"this file's bytes are not UTF-8 and hold a byte windows-1252 does not define, so they are in"+
+				" some other encoding, and reading them as windows-1252 would put a replacement mark"+
+				" where each of those bytes is")
 	case d.Encoding == encodingWide:
 		// This label is reached on the NUL alone, so the NUL is what the
 		// sentence reports. "These bytes are not UTF-8" would be false for a

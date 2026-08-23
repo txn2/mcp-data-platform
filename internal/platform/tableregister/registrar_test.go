@@ -1630,3 +1630,31 @@ func TestRepairedFailure_KeepsWhatWentWrongMatchable(t *testing.T) {
 	assert.ErrorIs(t, wrapped, ErrRefused)
 	assert.Contains(t, wrapped.Error(), "larger than the 100 MB")
 }
+
+// TestRegister_ByteWindows1252DoesNotDefineIsRefusedRatherThanCorrected. The
+// conversion the platform offers rests on windows-1252 mapping byte for byte,
+// which the five values it defines no character for break: the decoder puts a
+// replacement mark where each of them was and reports no error, so the person
+// would get a new version of their file with those marks in it and a summary
+// saying it was converted from windows-1252 (#1448). Nothing is offered, and
+// asking for the correction does not get one either.
+func TestRegister_ByteWindows1252DoesNotDefineIsRefusedRatherThanCorrected(t *testing.T) {
+	// 0xE9 is the e-acute windows-1252 defines and 0x81 is one of the five it
+	// does not, so the file is one this path would otherwise have converted.
+	h := newHarness(t, func(h *harness) {
+		h.objects.body = []byte("store_id,note\n101,caf\xe9\n102,\x81\n")
+	})
+
+	for _, repair := range []bool{false, true} {
+		_, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+			Request{Connection: "scratch", Repair: repair})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrRefused)
+		assert.NotErrorIs(t, err, ErrNeedsRepair,
+			"nothing is offered that the platform cannot honestly do")
+		assert.Contains(t, err.Error(), "a byte windows-1252 does not define")
+		assert.Contains(t, err.Error(), "Re-export it as UTF-8 CSV")
+	}
+	assert.Empty(t, h.reviser.saved, "the file is never rewritten")
+	assert.Empty(t, h.trino.statements, "and no table is created over it")
+}

@@ -2,9 +2,12 @@ package tableregister
 
 import (
 	"encoding/csv"
+	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -580,4 +583,77 @@ func TestCSVDefect_Correctable(t *testing.T) {
 	assert.True(t, (&CSVDefect{Encoding: encodingWindows1252}).Correctable())
 	assert.False(t, (&CSVDefect{Encoding: encodingUTF16}).Correctable())
 	assert.False(t, (&CSVDefect{Encoding: encodingWide}).Correctable())
+	assert.False(t, (&CSVDefect{Encoding: encodingUnidentified}).Correctable())
+}
+
+// TestInspectCSV_ByteWindows1252DoesNotDefineIsNotCalledWindows1252 covers the
+// five byte values that code page assigns no character to. The x/text decoder
+// emits a replacement mark for each of them and returns no error, so calling
+// the file windows-1252 would have it converted "cleanly" into a file with
+// replacement marks in it and the conversion reported as a repair (#1448).
+func TestInspectCSV_ByteWindows1252DoesNotDefineIsNotCalledWindows1252(t *testing.T) {
+	for _, undefined := range undefinedWindows1252 {
+		t.Run(fmt.Sprintf("%#x", undefined), func(t *testing.T) {
+			// The 0xE9 is a byte windows-1252 does define, so the file is one
+			// this path would otherwise have converted. Its lines end in a
+			// bare carriage return, a defect of its own, so a reading taken
+			// below the encoding would have something to report.
+			content := []byte("a,b\r1,caf\xe9\r2,x\r")
+			content[len(content)-2] = undefined
+
+			defect := InspectCSV(content)
+			require.NotNil(t, defect)
+			assert.Equal(t, encodingUnidentified, defect.Encoding)
+			assert.False(t, defect.Correctable(), "the platform does not convert what it cannot identify")
+			assert.Contains(t, defect.Reason(), "a byte windows-1252 does not define")
+			assert.NotContains(t, defect.Reason(), "�",
+				"and no replacement mark of its own reaches the sentence a person reads")
+			assert.Empty(t, defect.LineEndings,
+				"nothing under the encoding is claimed, since every reader below it is a single-byte one")
+			assert.Zero(t, defect.Rows)
+			assert.Empty(t, defect.Columns)
+
+			_, report, err := NormalizeCSV(content)
+			require.Error(t, err, "so the file is never rewritten")
+			assert.ErrorIs(t, err, ErrRefused)
+			assert.Contains(t, err.Error(), "re-export it as UTF-8 CSV")
+			assert.Empty(t, report.FromEncoding, "and nothing claims a conversion happened")
+		})
+	}
+}
+
+// TestInspectCSV_AnUndefinedByteInsideAValidUTF8SequenceIsNotAnEncodingDefect
+// covers the order the two tests run in. All five of those byte values are
+// also continuation bytes, so any of them can be the second or third byte of a
+// character a UTF-8 file legitimately holds -- U+0801 is E0 A0 81. The UTF-8
+// test therefore has to answer first, or a file that is exactly what the
+// platform asks for would be refused for carrying the character it holds.
+func TestInspectCSV_AnUndefinedByteInsideAValidUTF8SequenceIsNotAnEncodingDefect(t *testing.T) {
+	for _, r := range []rune{'ࠁ', 'ࠍ', 'ࠏ', 'ࠐ', 'ࠝ'} {
+		t.Run(strconv.QuoteRune(r), func(t *testing.T) {
+			content := []byte("store_id,note\n101," + string(r) + "\n")
+			require.True(t, utf8.Valid(content))
+			require.Contains(t, string(content), string(r))
+
+			assert.Nil(t, InspectCSV(content), "a UTF-8 file with nothing else wrong with it registers as it is")
+
+			out, report, err := NormalizeCSV(content)
+			require.NoError(t, err)
+			assert.Empty(t, report.FromEncoding, "and no conversion is claimed over it")
+			assert.Contains(t, string(out), string(r), "with the character it holds still in it")
+		})
+	}
+}
+
+// TestNormalizeCSV_ConvertsTheDefinedBytesAroundTheUndefinedOnes: the refusal
+// above is the five values and not the block they sit in. 0x80, 0x8E, 0x9E and
+// 0x9F sit beside them and all have characters, so a file made only of those
+// still converts and is still reported as windows-1252.
+func TestNormalizeCSV_ConvertsTheDefinedBytesAroundTheUndefinedOnes(t *testing.T) {
+	out, report, err := NormalizeCSV([]byte("store_id,note\n101,\x80 \x8e \x9e \x9f\n"))
+	require.NoError(t, err)
+
+	assert.Equal(t, encodingWindows1252, report.FromEncoding)
+	assert.Contains(t, string(out), "€ Ž ž Ÿ")
+	assert.NotContains(t, string(out), "�", "no replacement character survives the conversion")
 }
