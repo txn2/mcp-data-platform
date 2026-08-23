@@ -885,7 +885,8 @@ Explicit session handles (`sessions.handles`, issue #792) adopt the pattern the 
 | `password` | string | - | Trino password |
 | `catalog` | string | - | Default catalog |
 | `schema` | string | - | Default schema |
-| `ssl` | bool | false | Enable SSL/TLS |
+| `ssl` | bool | false on the default connection, auto-detected on the others | Enable SSL/TLS. Omitting it on a non-default connection leaves the choice to the host: anything that is not `localhost` or `127.0.0.1` is assumed HTTPS on 443. Write `ssl: false` for plain HTTP (#1436) |
+| `ssl_verify` | bool | true on the default connection, inherited on the others | Verify SSL certificates; a non-default connection that omits it takes the default connection's setting |
 | `timeout` | duration | 120s | Query timeout |
 | `default_limit` | int | 1000 | Default row limit |
 | `max_limit` | int | 10000 | Maximum row limit |
@@ -2645,6 +2646,7 @@ Detection runs on every write path that accepts outside content: `save_asset` (t
 Rules:
 
 - A specific declaration wins. Detection only runs when the declaration is absent, `application/octet-stream`, or `text/plain`.
+- The exception is a write path that carries a filename, which today is the resource upload: a declaration contradicted by both the extension and the bytes loses to what those two agree on, so a `.csv` whose content parses as CSV is stored as `text/csv` even when the uploading machine declared `application/vnd.ms-excel` (what Windows sends for `.csv` when Excel is installed). Neither signal counts alone -- a `.csv` holding a PNG keeps its declaration -- and an extension whose family renders as executing markup (`.html`, `.js`, `.svg`) never wins.
 - Binary families (images, audio, video, PDF, archives) come from the first 512 bytes of magic bytes.
 - Structured text is layered on top, because JSON, NDJSON, XML, YAML, CSV and TSV all look like plain text to a byte sniffer. Each has its own heuristic over a bounded 8 KB prefix: a JSON token scan, per-line JSON validity for NDJSON, an XML declaration or non-active root element, YAML document markers, and delimiter consistency across at least three whole lines for CSV/TSV.
 - Detection reads a prefix, never the whole payload, so a streaming export stays streaming: the prefix is replayed ahead of the untouched remainder.

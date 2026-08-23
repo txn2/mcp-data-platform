@@ -9,8 +9,12 @@
 //
 // # Detection contract
 //
-//   - A specific declared type wins unconditionally. Detection only runs when
-//     the declaration is empty or generic (see IsGeneric).
+//   - A specific declared type wins. Detection only runs when the declaration
+//     is empty or generic (see IsGeneric).
+//   - The one exception is a caller that has the filename and uses DetectFile:
+//     a declaration both the extension and the content contradict loses to
+//     what those two agree on. A .csv uploaded from a machine that declared
+//     application/vnd.ms-excel is stored as a CSV.
 //   - Binary families come from http.DetectContentType, which recognizes
 //     images, audio, video, PDF and archives from their magic bytes.
 //   - Structured text (JSON, NDJSON, XML, YAML, CSV, TSV) is layered on top,
@@ -277,30 +281,41 @@ func IsTextual(ct string) bool {
 // to StructuredSniffLen bytes for the structured-text heuristics; a shorter
 // prefix simply yields a less confident answer.
 func Detect(declared string, prefix []byte) string {
+	return DetectFile(declared, "", prefix)
+}
+
+// DetectFile is Detect for content that arrived under a filename.
+//
+// A specific declaration still wins, with one exception: when the filename's
+// extension and the content itself both name a different family, that family
+// wins. Neither signal is enough on its own -- a name is not evidence about
+// bytes, and content may not upgrade itself past a declaration -- but a
+// declaration contradicted by both is wrong about what it labels.
+//
+// This is what makes a .csv usable when the uploading machine declared
+// application/vnd.ms-excel, which is what Windows sends for .csv when Excel is
+// installed. It does not promote a mislabeled binary on the strength of its
+// name: a .csv holding a PNG sniffs as image/png, disagrees with the name, and
+// keeps its declaration.
+//
+// A filename of "" makes this identical to Detect.
+func DetectFile(declared, filename string, prefix []byte) string {
 	norm := Normalize(declared)
 	if norm != "" && !IsGeneric(norm) {
-		return norm
+		return declaredOrNamed(norm, filename, prefix)
 	}
 	if len(prefix) == 0 {
 		return fallback(norm)
 	}
 
 	sniffed := Normalize(http.DetectContentType(prefix))
-	switch {
-	case IsActive(sniffed):
+	if IsActive(sniffed) {
 		// Refuse the upgrade: keep the declaration, or plain text when the
 		// writer declared nothing. The content is textual either way.
 		return textFallback(norm)
-	case sniffed != PlainText && !IsGeneric(sniffed):
-		// A recognized binary family (image, audio, video, PDF, archive) or a
-		// passive text family the sniffer names outright, such as XML.
-		return sniffed
 	}
-
-	// http.DetectContentType reports JSON, NDJSON, XML, YAML, CSV and TSV all
-	// as text/plain, so the structured heuristics run over the wider prefix.
-	if structured := detectStructuredText(prefix); structured != "" {
-		return structured
+	if content := specificContentType(sniffed, prefix); content != "" {
+		return content
 	}
 	if sniffed == PlainText {
 		// Textual but unstructured. Upgrading application/octet-stream to
@@ -310,12 +325,64 @@ func Detect(declared string, prefix []byte) string {
 	return fallback(norm)
 }
 
+// declaredOrNamed resolves a specific declaration against the filename and the
+// content, returning the type the last two agree on when it contradicts the
+// declaration, and the declaration otherwise.
+func declaredOrNamed(norm, filename string, prefix []byte) string {
+	named := TypeForFilename(filename)
+	if named == "" || named == norm || len(prefix) == 0 {
+		return norm
+	}
+	// A declaration the extension table would spell the same way is not
+	// contradicting the name: application/rss+xml on a .xml, or a vendor
+	// `+json` type on a .json, is a narrower answer than the table holds
+	// rather than a wrong one, and it survives.
+	if Extension(norm) == Extension(named) {
+		return norm
+	}
+	if named != sniffType(prefix) {
+		return norm
+	}
+	return named
+}
+
+// sniffType names the family the bytes themselves identify, or the empty
+// string when they identify none -- unstructured text and unrecognized binary
+// both land there, as does content that sniffs active, which detection may
+// never name from content alone.
+func sniffType(prefix []byte) string {
+	sniffed := Normalize(http.DetectContentType(prefix))
+	if IsActive(sniffed) {
+		return ""
+	}
+	return specificContentType(sniffed, prefix)
+}
+
+// specificContentType returns the family the content identifies, given what
+// the binary sniffer already made of it, or "" when it identifies none.
+func specificContentType(sniffed string, prefix []byte) string {
+	if sniffed != PlainText && !IsGeneric(sniffed) {
+		// A recognized binary family (image, audio, video, PDF, archive) or a
+		// passive text family the sniffer names outright, such as XML.
+		return sniffed
+	}
+	// http.DetectContentType reports JSON, NDJSON, XML, YAML, CSV and TSV all
+	// as text/plain, so the structured heuristics run over the wider prefix.
+	return detectStructuredText(prefix)
+}
+
 // DetectBytes is Detect over a complete payload, truncating to the sniff window.
 func DetectBytes(declared string, data []byte) string {
+	return DetectFileBytes(declared, "", data)
+}
+
+// DetectFileBytes is DetectFile over a complete payload, truncating to the
+// sniff window.
+func DetectFileBytes(declared, filename string, data []byte) string {
 	if len(data) > StructuredSniffLen {
 		data = data[:StructuredSniffLen]
 	}
-	return Detect(declared, data)
+	return DetectFile(declared, filename, data)
 }
 
 // fallback picks the type to report when detection produced nothing usable.

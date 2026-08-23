@@ -257,7 +257,14 @@ func readUploadedFile(r *http.Request) (*uploadedFile, error) {
 	// Browsers send application/octet-stream for any extension they do not
 	// recognize, and non-browser clients often send nothing at all, so the
 	// declaration alone would leave most uploads without a usable preview.
-	mimeType := contenttype.DetectBytes(declared, data)
+	//
+	// The filename goes in with the bytes because a declaration can also be
+	// specific and wrong: a machine with Excel installed sends
+	// application/vnd.ms-excel for a .csv, and a resource stored under that
+	// type is not a CSV to the portal's table panel, to a thumbnail, or to
+	// manage_table. Detection prefers the name only where the content agrees
+	// with it (#1438).
+	mimeType := contenttype.DetectFileBytes(declared, filename, data)
 	if err := ValidateMIMEType(mimeType); err != nil {
 		return nil, err
 	}

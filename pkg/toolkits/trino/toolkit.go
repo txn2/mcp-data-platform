@@ -58,14 +58,22 @@ const (
 
 // Config holds Trino toolkit configuration.
 type Config struct {
-	Host         string        `yaml:"host"`
-	Port         int           `yaml:"port"`
-	User         string        `yaml:"user"`
-	Password     string        `yaml:"password"` // #nosec G117 -- Trino credential from admin YAML config
-	Catalog      string        `yaml:"catalog"`
-	Schema       string        `yaml:"schema"`
-	SSL          bool          `yaml:"ssl"`
-	SSLVerify    bool          `yaml:"ssl_verify"`
+	Host     string `yaml:"host"`
+	Port     int    `yaml:"port"`
+	User     string `yaml:"user"`
+	Password string `yaml:"password"` // #nosec G117 -- Trino credential from admin YAML config
+	Catalog  string `yaml:"catalog"`
+	Schema   string `yaml:"schema"`
+	// SSL and SSLVerify are tri-state: nil means the key was absent, which is
+	// what lets a non-default connection say plain HTTP. The multiserver
+	// manager reads a nil SSL as "auto-detect from the host", and its
+	// auto-detect turns HTTPS on for any host that is not localhost, so a
+	// connection that set `ssl: false` has to be distinguishable from one that
+	// never mentioned SSL. Read them through IsSSLEnabled and
+	// IsSSLVerifyEnabled, which supply the primary connection's defaults:
+	// SSL off, verification on.
+	SSL          *bool         `yaml:"ssl"`
+	SSLVerify    *bool         `yaml:"ssl_verify"`
 	Timeout      time.Duration `yaml:"timeout"`
 	DefaultLimit int           `yaml:"default_limit"`
 	MaxLimit     int           `yaml:"max_limit"`
@@ -90,6 +98,19 @@ type Config struct {
 	// Scratch names the catalog and schema table registrations are written
 	// into on this connection. Unset means registration is unavailable here.
 	Scratch ScratchConfig `yaml:"scratch"`
+}
+
+// IsSSLEnabled reports whether this connection speaks HTTPS. A config that
+// never mentioned SSL is plain HTTP, which is what the field has always meant
+// on the primary connection.
+func (c Config) IsSSLEnabled() bool {
+	return c.SSL != nil && *c.SSL
+}
+
+// IsSSLVerifyEnabled reports whether certificate verification is on,
+// defaulting to true when the config did not say.
+func (c Config) IsSSLVerifyEnabled() bool {
+	return c.SSLVerify == nil || *c.SSLVerify
 }
 
 // ScratchConfig names where a table registration writes on a connection.
@@ -353,8 +374,8 @@ func buildMultiserverConfig(
 		Password:  defaultCfg.Password,
 		Catalog:   defaultCfg.Catalog,
 		Schema:    defaultCfg.Schema,
-		SSL:       defaultCfg.SSL,
-		SSLVerify: defaultCfg.SSLVerify,
+		SSL:       defaultCfg.IsSSLEnabled(),
+		SSLVerify: defaultCfg.IsSSLVerifyEnabled(),
 		Timeout:   defaultCfg.Timeout,
 		Source:    trinoSourceName,
 	}
@@ -366,6 +387,14 @@ func buildMultiserverConfig(
 		}
 		cc := multiserver.ConnectionConfig{
 			Host: instCfg.Host,
+			// Both SSL fields are forwarded as written, nil included: a nil
+			// SSL asks the manager to auto-detect from the host, and a nil
+			// SSLVerify inherits the primary's. Copying `false` only when the
+			// key was present is what keeps a connection that set
+			// `ssl: false` off HTTPS without moving a connection that never
+			// mentioned SSL off it (#1436).
+			SSL:       instCfg.SSL,
+			SSLVerify: instCfg.SSLVerify,
 		}
 		if instCfg.Port != 0 {
 			cc.Port = instCfg.Port
@@ -381,10 +410,6 @@ func buildMultiserverConfig(
 		}
 		if instCfg.Schema != "" {
 			cc.Schema = instCfg.Schema
-		}
-		if instCfg.SSL {
-			ssl := true
-			cc.SSL = &ssl
 		}
 		connections[name] = cc
 	}
@@ -455,7 +480,7 @@ func validateConfig(cfg Config) error {
 // applyDefaults applies default values to the configuration.
 func applyDefaults(name string, cfg Config) Config {
 	if cfg.Port == 0 {
-		cfg.Port = defaultPort(cfg.SSL)
+		cfg.Port = defaultPort(cfg.IsSSLEnabled())
 	}
 	if cfg.DefaultLimit == 0 {
 		cfg.DefaultLimit = defaultQueryLimit
@@ -489,8 +514,8 @@ func createClient(cfg Config) (*trinoclient.Client, error) {
 		Password:  cfg.Password,
 		Catalog:   cfg.Catalog,
 		Schema:    cfg.Schema,
-		SSL:       cfg.SSL,
-		SSLVerify: cfg.SSLVerify,
+		SSL:       cfg.IsSSLEnabled(),
+		SSLVerify: cfg.IsSSLVerifyEnabled(),
 		Timeout:   cfg.Timeout,
 		Source:    trinoSourceName,
 	}
@@ -654,9 +679,11 @@ func (t *Toolkit) AddConnection(name string, config map[string]any) error {
 		Password: getString(config, "password"),
 		Catalog:  getString(config, "catalog"),
 		Schema:   getString(config, "schema"),
-	}
-	if ssl, ok := config["ssl"].(bool); ok {
-		conn.SSL = &ssl
+		// Absent stays nil, which is auto-detect for SSL and inherit-the-
+		// primary for verification. A connection stored in the database
+		// carries the same two keys as one in the YAML.
+		SSL:       getBoolPtr(config, "ssl"),
+		SSLVerify: getBoolPtr(config, "ssl_verify"),
 	}
 
 	if err := t.manager.AddConnection(name, conn); err != nil {

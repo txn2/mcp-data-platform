@@ -449,3 +449,136 @@ func TestDetectStream(t *testing.T) {
 type errReader struct{ err error }
 
 func (e errReader) Read([]byte) (int, error) { return 0, e.err }
+
+// TestTypeForFilename covers the name-only claim: what an extension names, and
+// what it deliberately does not.
+func TestTypeForFilename(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		file string
+		want string
+	}{
+		{"csv", "vendors.csv", contenttype.CSV},
+		{"json", "report.json", contenttype.JSON},
+		{"png", "chart.PNG", "image/png"},
+		{"pdf", "invoice.pdf", contenttype.PDF},
+		{"path with directories", "uploads/2026/vendors.csv", contenttype.CSV},
+		{"dotted name", "vendors.2026.q1.csv", contenttype.CSV},
+		{"no extension", "vendors", ""},
+		{"unknown extension", "vendors.xyzzy", ""},
+		{"active type is never named", "page.html", ""},
+		{"script is never named", "app.js", ""},
+		{"svg is never named", "logo.svg", ""},
+		{"generic extension is not named", "blob.bin", ""},
+		{"plain text is not named", "notes.txt", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tt.want, contenttype.TypeForFilename(tt.file))
+		})
+	}
+}
+
+// TestDetectFileNamedTypeOverridesWrongDeclaration is the acceptance case from
+// issue #1438: a .csv uploaded from a machine that declares
+// application/vnd.ms-excel is stored as a CSV, so the portal's table panel and
+// manage_table see it for what it is.
+//
+// The rule is narrow on purpose, and the cases below are its edges: the name
+// alone never decides (a .png declared text/csv keeps neither claim over the
+// bytes), and the content alone never overrides a declaration it agrees with
+// no filename about.
+func TestDetectFileNamedTypeOverridesWrongDeclaration(t *testing.T) {
+	t.Parallel()
+
+	csvBody := []byte("id,name,total\n1,acme,10\n2,globex,20\n3,initech,30\n")
+	jsonBody := []byte(`{"results":[{"id":1,"name":"acme"}],"total":1}`)
+	rssBody := []byte(`<?xml version="1.0"?><rss version="2.0"><channel/></rss>`)
+	prose := []byte("The quarterly report is attached.\nRegards,\nOps\n")
+	htmlBody := []byte("<!DOCTYPE html>\n<html><body><script>alert(1)</script></body></html>")
+	svgBody := []byte(`<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`)
+
+	tests := []struct {
+		name     string
+		declared string
+		filename string
+		content  []byte
+		want     string
+	}{
+		// The reported case, and the two declarations the same upload gets
+		// from a machine without Excel.
+		{"csv declared vnd.ms-excel", "application/vnd.ms-excel", "vendors.csv", csvBody, contenttype.CSV},
+		{"csv declared vnd.ms-excel with charset", "application/vnd.ms-excel; charset=utf-8", "vendors.csv", csvBody, contenttype.CSV},
+		{"csv declared text/csv", contenttype.CSV, "vendors.csv", csvBody, contenttype.CSV},
+		{"csv declared text/plain", contenttype.PlainText, "vendors.csv", csvBody, contenttype.CSV},
+		{"csv declared octet-stream", contenttype.OctetStream, "vendors.csv", csvBody, contenttype.CSV},
+		{"csv with no declaration", "", "vendors.csv", csvBody, contenttype.CSV},
+
+		// A mislabeled binary is not promoted on the strength of its name: the
+		// bytes disagree with the extension, so nothing changes hands.
+		{"png named csv keeps its declaration", contenttype.CSV, "chart.csv", pngBytes, contenttype.CSV},
+		{"png named png declared csv follows the bytes", contenttype.CSV, "chart.png", pngBytes, "image/png"},
+		{"prose named csv keeps its declaration", "application/vnd.ms-excel", "vendors.csv", prose, "application/vnd.ms-excel"},
+		// A saved error page under a .csv name: the bytes sniff active, which
+		// detection may never name, so the name has nothing to agree with.
+		{"html named csv keeps its declaration", "application/vnd.ms-excel", "vendors.csv", htmlBody, "application/vnd.ms-excel"},
+
+		// A name that says nothing leaves the declaration alone.
+		{"no extension", "application/vnd.ms-excel", "vendors", csvBody, "application/vnd.ms-excel"},
+		{"unknown extension", "application/vnd.ms-excel", "vendors.xyzzy", csvBody, "application/vnd.ms-excel"},
+		{"empty filename is plain Detect", "application/vnd.ms-excel", "", csvBody, "application/vnd.ms-excel"},
+
+		// An active extension never wins, whatever the bytes say: detection
+		// may not name a family whose renderer runs script.
+		{"html named page keeps its declaration", contenttype.PlainText, "page.html", htmlBody, contenttype.PlainText},
+		{"svg named logo keeps its declaration", contenttype.PlainText, "logo.svg", svgBody, contenttype.PlainText},
+
+		// A narrower declaration of the same family is kept: it is not a
+		// contradiction, and collapsing it to the family type would lose what
+		// the writer knew.
+		{"vendor json on a .json", "application/vnd.acme.report+json", "report.json", jsonBody, "application/vnd.acme.report+json"},
+		{"rss on a .xml", "application/rss+xml", "feed.xml", rssBody, "application/rss+xml"},
+
+		// Other families take the same rule.
+		{"json declared csv", contenttype.CSV, "report.json", jsonBody, contenttype.JSON},
+		{"png declared pdf", contenttype.PDF, "chart.png", pngBytes, "image/png"},
+
+		// Nothing to compare the name against.
+		{"empty content", "application/vnd.ms-excel", "vendors.csv", nil, "application/vnd.ms-excel"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tt.want, contenttype.DetectFileBytes(tt.declared, tt.filename, tt.content))
+			require.Equal(t, tt.want, contenttype.DetectFile(tt.declared, tt.filename, tt.content))
+		})
+	}
+}
+
+// TestDetectFileMatchesDetectWithoutAName pins the equivalence the package doc
+// claims: every existing caller keeps the behavior it had.
+func TestDetectFileMatchesDetectWithoutAName(t *testing.T) {
+	t.Parallel()
+
+	bodies := [][]byte{
+		[]byte("id,name\n1,acme\n2,globex\n3,initech\n"),
+		[]byte(`{"a":1}`),
+		pngBytes,
+		pdfBytes,
+		[]byte("plain words here\n"),
+		nil,
+	}
+	declarations := []string{"", contenttype.PlainText, contenttype.OctetStream, contenttype.CSV, "application/vnd.ms-excel"}
+
+	for _, declared := range declarations {
+		for _, body := range bodies {
+			require.Equal(t, contenttype.Detect(declared, body), contenttype.DetectFile(declared, "", body))
+			require.Equal(t, contenttype.DetectBytes(declared, body), contenttype.DetectFileBytes(declared, "", body))
+		}
+	}
+}
