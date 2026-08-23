@@ -73,7 +73,17 @@ describe("thumbnailBehind", () => {
 
 describe("thumbnail support", () => {
   it("recognizes the types the capturer renders", () => {
-    for (const ct of ["text/html", "text/jsx", "image/svg+xml", "text/markdown", "text/csv"]) {
+    for (const ct of [
+      "text/html",
+      "text/jsx",
+      "image/svg+xml",
+      "text/markdown",
+      "text/csv",
+      "application/json",
+      "application/x-ndjson",
+      "application/jsonl",
+      "application/vnd.acme.report+json",
+    ]) {
       expect(isThumbnailSupported(ct)).toBe(true);
     }
     expect(isThumbnailSupported("application/pdf")).toBe(false);
@@ -82,6 +92,9 @@ describe("thumbnail support", () => {
   it("marks only the forced-background types as themeable", () => {
     expect(isThemeable("text/markdown; charset=utf-8")).toBe(true);
     expect(isThemeable("text/csv")).toBe(true);
+    // Both JSON families are drawn on the platform's own background.
+    expect(isThemeable("application/json")).toBe(true);
+    expect(isThemeable("application/x-ndjson")).toBe(true);
     expect(isThemeable("text/html")).toBe(false);
   });
 });

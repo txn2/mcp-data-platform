@@ -1074,4 +1074,31 @@ West,Q2 2025,1720000,19800,86.87,11.7
 East,Q2 2025,1380000,15900,86.79,9.5
 Central,Q2 2025,960000,11200,85.71,7.9
 South,Q2 2025,580000,6700,86.57,13.7`,
+  "ast-009": JSON.stringify(
+    {
+      generated_at: "2026-08-19T06:00:00Z",
+      window: { from: "2026-08-12", to: "2026-08-18", grain: "day" },
+      totals: { revenue: 1284900.55, orders: 18422, refunds: 214, refund_rate: 0.0116 },
+      stores: [
+        { id: "STR-014", name: "Downtown", revenue: 412300.1, orders: 5921, open: true, manager: null },
+        { id: "STR-027", name: "Riverside", revenue: 388015.4, orders: 5488, open: true, manager: "r.diaz" },
+        { id: "STR-031", name: "Airport", revenue: 301422.05, orders: 4310, open: false, manager: "l.chen" },
+      ],
+      alerts: ["refund_rate above target in STR-031", "inventory sync delayed 42 minutes"],
+    },
+    null,
+    2,
+  ),
+
+  "ast-010": [
+    '{"event":"checkout_started","ts":"2026-08-18T14:02:11Z","store":"STR-014","cart_value":128.4,"items":3}',
+    '{"event":"payment_authorized","ts":"2026-08-18T14:02:44Z","store":"STR-014","amount":128.4,"method":"card"}',
+    '{"event":"checkout_completed","ts":"2026-08-18T14:02:51Z","store":"STR-014","order_id":"ORD-99120","coupon":null}',
+    '{"event":"checkout_started","ts":"2026-08-18T14:05:02Z","store":"STR-027","cart_value":64.99,"items":1}',
+    '{"event":"payment_declined","ts":"2026-08-18T14:05:30Z","store":"STR-027","amount":64.99,"retryable":true}',
+    '{"event":"checkout_abandoned","ts":"2026-08-18T14:09:30Z","store":"STR-027","order_id":null,"reason":"payment"}',
+    '{"event":"checkout_started","ts":"2026-08-18T14:11:17Z","store":"STR-031","cart_value":902.15,"items":11}',
+    '{"event":"checkout_completed","ts":"2026-08-18T14:12:03Z","store":"STR-031","order_id":"ORD-99121","coupon":"FALL10"}',
+  ].join("\n"),
+
 };
