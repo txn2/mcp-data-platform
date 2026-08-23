@@ -89,6 +89,10 @@ type memStore struct {
 	mu   sync.Mutex
 	rows map[string]tableregister.Registration
 	err  error
+	// insertErr and deleteErr stand in for a database that is not answering
+	// on the write that records a registration or removes the one it replaces.
+	insertErr error
+	deleteErr error
 }
 
 func newMemStore() *memStore {
@@ -98,6 +102,9 @@ func newMemStore() *memStore {
 func (m *memStore) Insert(_ context.Context, r tableregister.Registration) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.insertErr != nil {
+		return m.insertErr
+	}
 	m.rows[r.ID] = r
 	return nil
 }
@@ -148,6 +155,9 @@ func (*memStore) ForSources(
 func (m *memStore) Delete(_ context.Context, id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.deleteErr != nil {
+		return m.deleteErr
+	}
 	if _, ok := m.rows[id]; !ok {
 		return tableregister.ErrNotFound
 	}
@@ -633,22 +643,58 @@ func TestRegisterRoute_LineSafeFileSaysNothingExtra(t *testing.T) {
 // A 500's text is replaced, because a wrapped driver error says nothing a
 // caller can act on -- but a correction that ran before the failure already
 // changed their file, and it stays changed. That half is kept.
+//
+// It is kept wherever the failure lands. A registration can fail at the
+// statement, at the row that records it, or at the row of the registration it
+// replaces, and the file is the same file after all three.
 func TestRegisterRoute_APlatformFailureAfterACorrectionStillSaysTheFileChanged(t *testing.T) {
-	h := newHarness(t, func(h *harness) { h.body = tornCSV })
-	h.trino.err = errors.New("trino coordinator unreachable at 10.0.0.7:8080")
+	unreachable := errors.New("connection refused to 10.0.0.7:5432")
+	tests := []struct {
+		name string
+		fail func(*harness)
+	}{
+		{
+			name: "the statement",
+			fail: func(h *harness) {
+				h.trino.err = errors.New("trino coordinator unreachable at 10.0.0.7:8080")
+			},
+		},
+		{
+			name: "the row that records it",
+			fail: func(h *harness) { h.store.insertErr = unreachable },
+		},
+		{
+			name: "the row of the registration it replaces",
+			fail: func(h *harness) {
+				h.store.rows["reg_existing"] = tableregister.Registration{
+					ID: "reg_existing", SourceKind: tableregister.KindAsset, SourceID: "asset_1",
+					Connection: "scratch", Catalog: "scratch", Schema: "uploads",
+					Table: "analyst_content", RegisteredBy: owner.Email,
+				}
+				h.store.deleteErr = unreachable
+			},
+		},
+	}
 
-	w := h.do(http.MethodPost, "/api/v1/portal/assets/asset_1/tables",
-		`{"connection":"scratch","repair":true}`)
-	require.Equal(t, http.StatusInternalServerError, w.Code, w.Body.String())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t, func(h *harness) { h.body = tornCSV })
+			tt.fail(h)
 
-	var problem httpjson.ProblemDetail
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &problem))
-	assert.Contains(t, problem.Detail, "Saved version 2 of this file")
-	assert.Contains(t, problem.Detail, "The table was not created")
-	assert.NotContains(t, problem.Detail, "10.0.0.7",
-		"the coordinator's address is still not repeated to the caller")
+			w := h.do(http.MethodPost, "/api/v1/portal/assets/asset_1/tables",
+				`{"connection":"scratch","repair":true}`)
+			require.Equal(t, http.StatusInternalServerError, w.Code, w.Body.String())
 
-	require.Len(t, h.reviser.saved, 1, "the file did change, which is why it is said")
+			var problem httpjson.ProblemDetail
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &problem))
+			assert.Contains(t, problem.Detail, "Saved version 2 of this file")
+			assert.Contains(t, problem.Detail, "The table was not created")
+			assert.NotContains(t, problem.Detail, "10.0.0.7",
+				"neither address is repeated to the caller")
+
+			require.Len(t, h.reviser.saved, 1, "the file did change, which is why it is said")
+		})
+	}
 }
 
 // A failure with no correction behind it says only what it always said.

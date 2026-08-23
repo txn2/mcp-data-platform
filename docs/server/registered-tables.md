@@ -132,6 +132,18 @@ one, and the portal's *Query as a table* panel is where four of them are done.
 file's header for column names, creates the external table over the directory
 the file occupies, and records the registration.
 
+A registration that fails partway leaves nothing describing something that is
+not there, in either direction, and the answer tells the caller to register
+again. A table whose row could not be written is dropped: nothing would list
+it, and registering the same file again would meet it in Trino and fail on a
+name already taken. A table still recorded by the registration it was replacing
+is dropped for the opposite reason -- it now reads the new file with the new
+columns while the row that survived goes on naming the old ones, and nothing
+marks that. And a replacement whose CREATE failed after its DROP had already
+run forgets the row of the registration it took over, because the table that
+row named is gone. A replacement whose DROP is the statement that failed
+changed nothing and is left exactly as it was.
+
 **Register again.** The control stays available after the first registration,
 because a file is not limited to one. Registering again does one of two things,
 depending on the name:

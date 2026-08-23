@@ -25,10 +25,19 @@ func BuildDDL(r Registration, replacing bool) []string {
 	stmts = append(stmts,
 		"CREATE SCHEMA IF NOT EXISTS "+QuoteIdentifier(r.Catalog)+"."+QuoteIdentifier(r.Schema))
 	if replacing {
-		stmts = append(stmts, "DROP TABLE IF EXISTS "+qualified(r))
+		stmts = append(stmts, dropTableStatement(r))
 	}
 	stmts = append(stmts, createTableStatement(r))
 	return stmts
+}
+
+// dropTableStatement renders the drop of a registration's table. It is one
+// function because three callers have to agree on the exact text: BuildDDL
+// issues it as part of a replacement, Unregister issues it on its own, and
+// Register compares against it to learn whether a replacement's drop is among
+// the statements that ran before the DDL failed.
+func dropTableStatement(r Registration) string {
+	return "DROP TABLE IF EXISTS " + qualified(r)
 }
 
 // createTableStatement renders the CREATE TABLE for a registration.

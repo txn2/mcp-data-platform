@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/csv"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,6 +21,11 @@ import (
 
 // --- fakes ---
 
+const (
+	createTablePrefix = "CREATE TABLE "
+	dropTablePrefix   = "DROP TABLE IF EXISTS "
+)
+
 // fakeTrino records every statement it was asked to run, which is what the DDL
 // assertions read.
 type fakeTrino struct {
@@ -27,11 +33,51 @@ type fakeTrino struct {
 	hasTarget  bool
 	statements []string
 	err        error
+	// errFor decides the failure per statement, which is how a test makes the
+	// DDL of a registration succeed and the drop that rolls it back fail.
+	errFor func(sql string) error
+	// tables is what the coordinator holds, so a CREATE over a name that is
+	// still there fails the way Trino fails it.
+	tables map[string]bool
 }
 
-func (f *fakeTrino) Exec(_ context.Context, _, sql string) error {
+func (f *fakeTrino) Exec(ctx context.Context, _, sql string) error {
+	// A real client sends nothing on a context that is already done, which is
+	// what a test of cleanup after a canceled request depends on.
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("exec: %w", err)
+	}
 	f.statements = append(f.statements, sql)
-	return f.err
+	err := f.err
+	if f.errFor != nil {
+		err = f.errFor(sql)
+	}
+	if err != nil {
+		return err
+	}
+	return f.apply(sql)
+}
+
+// apply models the one thing about a coordinator that decides whether
+// registering the same name a second time works: CREATE TABLE refuses a table
+// that is already there, and DROP TABLE IF EXISTS takes it away. A fake that
+// accepted every CREATE would let a test claim a retry succeeds when against
+// Trino it would not.
+func (f *fakeTrino) apply(sql string) error {
+	switch {
+	case strings.HasPrefix(sql, createTablePrefix):
+		name, _, _ := strings.Cut(strings.TrimPrefix(sql, createTablePrefix), " (")
+		if f.tables[name] {
+			return errors.New("line 1:1: Table '" + name + "' already exists")
+		}
+		if f.tables == nil {
+			f.tables = map[string]bool{}
+		}
+		f.tables[name] = true
+	case strings.HasPrefix(sql, dropTablePrefix):
+		delete(f.tables, strings.TrimPrefix(sql, dropTablePrefix))
+	}
+	return nil
 }
 
 func (f *fakeTrino) ScratchTarget(string) (trino.ScratchConfig, bool) {
@@ -78,9 +124,16 @@ func (f *fakeObjects) ListDirectory(
 // memStore is an in-memory Store that enforces the same unique name the
 // migration's index does, so a test that expects a collision meets one.
 type memStore struct {
-	mu      sync.Mutex
-	rows    map[string]Registration
-	listErr error
+	mu   sync.Mutex
+	rows map[string]Registration
+	// listErr, insertErr and deleteErr stand in for a database that is not
+	// answering, each on the one call a test needs to fail.
+	listErr   error
+	insertErr error
+	deleteErr error
+	// onInsert runs just before Insert answers, which is how a test arranges
+	// the request to be canceled by the time the row is written.
+	onInsert func()
 }
 
 func newMemStore() *memStore { return &memStore{rows: map[string]Registration{}} }
@@ -88,6 +141,12 @@ func newMemStore() *memStore { return &memStore{rows: map[string]Registration{}}
 func (m *memStore) Insert(_ context.Context, r Registration) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.onInsert != nil {
+		m.onInsert()
+	}
+	if m.insertErr != nil {
+		return m.insertErr
+	}
 	for _, existing := range m.rows {
 		if existing.Connection == r.Connection && existing.Catalog == r.Catalog &&
 			existing.Schema == r.Schema && existing.Table == r.Table {
@@ -154,6 +213,9 @@ func (m *memStore) ForSources(_ context.Context, kind string, ids []string) (map
 func (m *memStore) Delete(_ context.Context, id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.deleteErr != nil {
+		return m.deleteErr
+	}
 	if _, ok := m.rows[id]; !ok {
 		return ErrNotFound
 	}
@@ -1264,6 +1326,271 @@ func TestRegister_ACorrectionThatAFailedDDLFollowedIsStillReported(t *testing.T)
 	assert.Contains(t, err.Error(), "trino unreachable")
 	require.NotNil(t, RepairOf(err))
 	assert.Equal(t, 2, RepairOf(err).Version)
+}
+
+// TestRegister_ACorrectionThatAFailedInsertFollowedIsStillReported is the same
+// rule one step later again: the table was made and the row recording it could
+// not be written. The file changed on the way there and stays changed.
+func TestRegister_ACorrectionThatAFailedInsertFollowedIsStillReported(t *testing.T) {
+	h := tornHarness(t)
+	h.store.insertErr = errors.New("connection refused to postgres:5432")
+
+	_, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch", Repair: true})
+	require.Error(t, err)
+	require.Len(t, h.reviser.saved, 1, "the file did change, which is why it is said")
+
+	assert.Contains(t, err.Error(), "put 2 rows back onto one line")
+	require.NotNil(t, RepairOf(err), "a surface that rewrites the message keeps the part about the file")
+	assert.Equal(t, 2, RepairOf(err).Version)
+}
+
+// TestRegister_ACorrectionThatAFailedDeleteFollowedIsStillReported covers the
+// last of the four ways a registration fails: the replaced registration's row
+// could not be removed.
+func TestRegister_ACorrectionThatAFailedDeleteFollowedIsStillReported(t *testing.T) {
+	h := tornHarness(t)
+	require.NoError(t, h.store.Insert(context.Background(), Registration{
+		ID: "reg_existing", SourceKind: KindAsset, SourceID: "asset_1",
+		Connection: "scratch", Catalog: "scratch", Schema: "uploads",
+		Table: "analyst_content", RegisteredBy: "alice@example.com",
+	}))
+	h.store.deleteErr = errors.New("connection refused to postgres:5432")
+
+	_, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch", Repair: true})
+	require.Error(t, err)
+	require.Len(t, h.reviser.saved, 1)
+
+	assert.Contains(t, err.Error(), "put 2 rows back onto one line")
+	require.NotNil(t, RepairOf(err))
+	assert.Equal(t, 2, RepairOf(err).Version)
+}
+
+// TestRegister_ARecordThatCouldNotBeWrittenTakesItsTableBackOut is why the
+// answer can tell the caller to register again: a table nothing records is one
+// no surface lists and one BuildDDL will not drop, so the second attempt would
+// meet it in Trino and fail. It is taken out with the failure that made it
+// unrecorded.
+func TestRegister_ARecordThatCouldNotBeWrittenTakesItsTableBackOut(t *testing.T) {
+	h := newHarness(t)
+	h.store.insertErr = errors.New("connection refused to postgres:5432")
+
+	_, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch", Source: "portal"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "recording the registration")
+	assert.Empty(t, h.store.rows)
+	assert.Equal(t, `DROP TABLE IF EXISTS "scratch"."uploads"."analyst_content"`,
+		h.trino.statements[len(h.trino.statements)-1])
+	assert.Empty(t, h.trino.tables, "nothing of the registration is left in the coordinator")
+
+	// The event written when the DDL ran says the table was made; the trail
+	// would end there and read as a table that exists.
+	require.Len(t, h.audit.events, 2)
+	assert.True(t, h.audit.events[0].Success)
+	last := h.audit.events[1]
+	assert.False(t, last.Success)
+	assert.Contains(t, last.Parameters["sql"], "DROP TABLE IF EXISTS")
+	assert.Contains(t, last.ErrorMessage, "connection refused")
+
+	// And so the answer it gives is true: registering again works.
+	h.store.insertErr = nil
+	reg, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch", Source: "portal"})
+	require.NoError(t, err)
+	assert.Equal(t, "scratch.uploads.analyst_content", reg.QualifiedName())
+}
+
+// TestRegister_AReplacementThatCouldNotBeRecordedTakesItsTableBackOut is the
+// same rule on the other store write, and the state it is for is the one
+// nothing else would report. The DDL has already re-pointed the table at the
+// new file with the new columns; a surviving row would go on advertising the
+// old ones, and because this replacement registers the same key it is not even
+// marked stale.
+func TestRegister_AReplacementThatCouldNotBeRecordedTakesItsTableBackOut(t *testing.T) {
+	h := newHarness(t)
+	previous := Registration{
+		ID: "reg_existing", SourceKind: KindAsset, SourceID: "asset_1",
+		Connection: "scratch", Catalog: "scratch", Schema: "uploads",
+		Table: "analyst_content", RegisteredBy: "alice@example.com",
+		Location: LocationURI("portal-assets", "artifacts/u1/asset_1/"),
+		Columns:  []Column{{Name: "store_id", Type: "VARCHAR"}},
+	}
+	require.NoError(t, h.store.Insert(context.Background(), previous))
+	h.store.deleteErr = errors.New("connection refused to postgres:5432")
+
+	_, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch", Source: "portal"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "replacing the previous registration")
+
+	kept, getErr := h.store.Get(context.Background(), "reg_existing")
+	require.NoError(t, getErr, "the row the delete could not remove is still there")
+	assert.False(t, kept.IsStale(testSource().Bucket, testSource().HeadKey),
+		"and nothing marks it, which is why the table it names must not be serving other columns")
+	assert.Empty(t, h.trino.tables, "so the table is taken back out")
+	assert.Equal(t, `DROP TABLE IF EXISTS "scratch"."uploads"."analyst_content"`,
+		h.trino.statements[len(h.trino.statements)-1])
+
+	// A query against the row now fails rather than answering with the wrong
+	// columns, and registering again is what repairs it.
+	h.store.deleteErr = nil
+	reg, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch", Source: "portal"})
+	require.NoError(t, err)
+	assert.Equal(t, []Column{
+		{Name: "store_id", Type: "VARCHAR"},
+		{Name: "vendor_code", Type: "VARCHAR"},
+		{Name: "rebate_pct", Type: "VARCHAR"},
+	}, reg.Columns)
+	_, getErr = h.store.Get(context.Background(), "reg_existing")
+	assert.ErrorIs(t, getErr, ErrNotFound)
+}
+
+// replacedHarness sets up the registration a replacement takes over, and the
+// table in the coordinator that it names.
+func replacedHarness(t *testing.T) (*harness, Registration) {
+	t.Helper()
+	h := newHarness(t)
+	previous := Registration{
+		ID: "reg_existing", SourceKind: KindAsset, SourceID: "asset_1",
+		Connection: "scratch", Catalog: "scratch", Schema: "uploads",
+		Table: "analyst_content", RegisteredBy: "alice@example.com",
+		Location: LocationURI("portal-assets", "artifacts/u1/asset_1/"),
+		Columns:  []Column{{Name: "store_id", Type: "VARCHAR"}},
+	}
+	require.NoError(t, h.store.Insert(context.Background(), previous))
+	h.trino.tables = map[string]bool{`"scratch"."uploads"."analyst_content"`: true}
+	return h, previous
+}
+
+// TestRegister_AReplacementWhoseCreateFailedForgetsTheTableItDropped. A
+// replacement drops before it creates, so a coordinator that refuses the
+// CREATE leaves the previous table gone and its row the only thing still
+// saying it exists -- listed, offered with a sample query, and not marked
+// stale, because the location it compares did not move.
+func TestRegister_AReplacementWhoseCreateFailedForgetsTheTableItDropped(t *testing.T) {
+	h, previous := replacedHarness(t)
+	assert.False(t, previous.IsStale(testSource().Bucket, testSource().HeadKey),
+		"nothing would mark the row, which is why it cannot be left behind")
+	h.trino.errFor = func(sql string) error {
+		if strings.HasPrefix(sql, createTablePrefix) {
+			return errors.New("trino coordinator unreachable")
+		}
+		return nil
+	}
+
+	_, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch", Source: "portal"})
+	require.Error(t, err)
+	assert.Empty(t, h.trino.tables, "the DROP ran, so the table it named is gone")
+	_, getErr := h.store.Get(context.Background(), "reg_existing")
+	assert.ErrorIs(t, getErr, ErrNotFound, "and the row that named it goes with it")
+
+	require.Len(t, h.audit.events, 2)
+	assert.Contains(t, h.audit.events[1].ErrorMessage, "trino coordinator unreachable")
+
+	// Registering again is what the answer says to do, and it is a fresh
+	// registration rather than a replacement of a record that is gone.
+	h.trino.errFor = nil
+	reg, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch", Source: "portal"})
+	require.NoError(t, err)
+	assert.NotEqual(t, "reg_existing", reg.ID)
+	assert.Equal(t, "scratch.uploads.analyst_content", reg.QualifiedName())
+}
+
+// TestRegister_ARecordThatCannotBeForgottenStillAnswers: removing the row is
+// reconciliation, so its failure does not replace the coordinator failure the
+// caller can act on, and the trail carries both.
+func TestRegister_ARecordThatCannotBeForgottenStillAnswers(t *testing.T) {
+	h, _ := replacedHarness(t)
+	h.trino.errFor = func(sql string) error {
+		if strings.HasPrefix(sql, createTablePrefix) {
+			return errors.New("trino coordinator unreachable")
+		}
+		return nil
+	}
+	h.store.deleteErr = errors.New("connection refused to postgres:5432")
+
+	_, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch", Source: "portal"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "trino coordinator unreachable")
+	assert.NotContains(t, err.Error(), "postgres:5432")
+
+	require.Len(t, h.audit.events, 2)
+	assert.Contains(t, h.audit.events[1].ErrorMessage, "trino coordinator unreachable")
+	assert.Contains(t, h.audit.events[1].ErrorMessage, "connection refused to postgres:5432")
+}
+
+// TestRegister_AReplacementWhoseDropFailedKeepsTheRecordItDescribes is the
+// other half of the same rule: the DROP is the statement that failed, so
+// nothing ran that changed anything and the previous registration is still
+// accurate. Removing it there is what would leave a table nothing records.
+func TestRegister_AReplacementWhoseDropFailedKeepsTheRecordItDescribes(t *testing.T) {
+	h, previous := replacedHarness(t)
+	h.trino.errFor = func(sql string) error {
+		if strings.HasPrefix(sql, dropTablePrefix) {
+			return errors.New("trino coordinator unreachable")
+		}
+		return nil
+	}
+
+	_, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch", Source: "portal"})
+	require.Error(t, err)
+
+	kept, getErr := h.store.Get(context.Background(), "reg_existing")
+	require.NoError(t, getErr)
+	assert.Equal(t, previous.Columns, kept.Columns)
+	assert.True(t, h.trino.tables[`"scratch"."uploads"."analyst_content"`],
+		"the table it describes is still there")
+	require.Len(t, h.audit.events, 1, "nothing was reconciled, so nothing else is recorded")
+}
+
+// TestRegister_ATableThatCannotBeTakenBackOutStillAnswers: the drop is
+// cleanup, so its failure does not replace the store failure the caller can
+// act on.
+func TestRegister_ATableThatCannotBeTakenBackOutStillAnswers(t *testing.T) {
+	h := newHarness(t)
+	h.store.insertErr = errors.New("connection refused to postgres:5432")
+	h.trino.errFor = func(sql string) error {
+		if strings.HasPrefix(sql, dropTablePrefix) {
+			return errors.New("trino coordinator unreachable")
+		}
+		return nil
+	}
+
+	_, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "connection refused to postgres:5432")
+	assert.NotContains(t, err.Error(), "coordinator unreachable")
+
+	// The trail has to say the table is still there, because nothing else
+	// records it now.
+	require.Len(t, h.audit.events, 2)
+	assert.Contains(t, h.audit.events[1].ErrorMessage, "connection refused to postgres:5432")
+	assert.Contains(t, h.audit.events[1].ErrorMessage, "coordinator unreachable")
+}
+
+// TestRegister_ARecordThatCouldNotBeWrittenIsCleanedUpAfterTheCallerLeaves:
+// the store write that failed may have failed because the request was
+// canceled, and the table it left behind is exactly what has to be removed
+// then.
+func TestRegister_ARecordThatCouldNotBeWrittenIsCleanedUpAfterTheCallerLeaves(t *testing.T) {
+	h := newHarness(t)
+	h.store.insertErr = context.Canceled
+
+	ctx, cancel := context.WithCancel(context.Background())
+	h.store.onInsert = cancel
+
+	_, err := h.reg.Register(ctx, testCaller(), testSource(), Request{Connection: "scratch"})
+	require.ErrorIs(t, err, context.Canceled)
+	require.NotEmpty(t, h.trino.statements, "the table was made before the request went away")
+	assert.Empty(t, h.trino.tables, "the drop ran on a context the cancellation does not reach")
 }
 
 // TestRepairOf_CarriesNothingWhenNothingWasCorrected, so a surface asking is

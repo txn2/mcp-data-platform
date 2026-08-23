@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
@@ -149,25 +151,44 @@ func (r *Registrar) Register(ctx context.Context, caller Caller, src Source, req
 		return nil, repairedFailure(p.repair, err)
 	}
 
+	a := attempt{caller: caller, req: req, p: p}
 	ddl := BuildDDL(p.reg, p.existing != nil)
-	execErr := r.runDDL(ctx, req.Connection, ddl)
+	ran, execErr := r.runDDL(ctx, req.Connection, ddl)
 	r.audit(ctx, auditRecord{
 		caller: caller, reg: p.reg, ddl: ddl, source: req.Source, repair: p.repair, err: execErr,
 	})
 	if execErr != nil {
+		r.forgetDroppedRegistration(ctx, a, ran, execErr)
 		return nil, repairedFailure(p.repair, execErr)
 	}
 
 	// The DROP already removed the replaced table, so its row is stale
 	// whatever happens next; dropping it before the insert is also what frees
 	// the unique name for this one.
+	//
+	// Neither store write can be undone by the one that follows it, so both
+	// take the table back out when they fail. The state that leaves -- a row
+	// naming a table that is gone, or neither -- is one a query fails loudly
+	// on and a second registration repairs. The state it avoids is the one
+	// nothing reports: the table now reads the new file with the new columns,
+	// and a surviving row would go on advertising the old ones from
+	// toolView and SampleJoinSQL. IsStale does not cover it, because a
+	// replacement that re-registers the same key to pick up a changed header
+	// leaves the location it compares identical.
+	//
+	// Both failures also carry the correction the way the two above them do.
+	// A file corrected on the way here stays corrected whatever the store
+	// does, and an answer about the registration alone would leave its owner
+	// not knowing a new version of their file exists.
 	if p.existing != nil {
 		if err := r.deps.Store.Delete(ctx, p.existing.ID); err != nil {
-			return nil, fmt.Errorf("replacing the previous registration: %w", err)
+			r.rollBackTable(ctx, a, err)
+			return nil, repairedFailure(p.repair, fmt.Errorf("replacing the previous registration: %w", err))
 		}
 	}
 	if err := r.deps.Store.Insert(ctx, p.reg); err != nil {
-		return nil, fmt.Errorf("recording the registration: %w", err)
+		r.rollBackTable(ctx, a, err)
+		return nil, repairedFailure(p.repair, fmt.Errorf("recording the registration: %w", err))
 	}
 	return &Result{Registration: p.reg, Source: p.src, Repair: p.repair}, nil
 }
@@ -532,14 +553,120 @@ func (r *Registrar) newID() (string, error) {
 	return id, nil
 }
 
-// runDDL issues the statements a registration is made of, in order.
-func (r *Registrar) runDDL(ctx context.Context, connection string, ddl []string) error {
+// runDDL issues the statements a registration is made of, in order, and
+// returns the ones that ran. What ran matters on a failure: a replacement
+// begins by dropping the table it takes over, so whether that statement is
+// among them decides whether the registration it replaces still describes
+// anything.
+func (r *Registrar) runDDL(ctx context.Context, connection string, ddl []string) ([]string, error) {
+	ran := make([]string, 0, len(ddl))
 	for _, stmt := range ddl {
 		if err := r.deps.Trino.Exec(ctx, connection, stmt); err != nil {
-			return fmt.Errorf("registering the table: %w", err)
+			return ran, fmt.Errorf("registering the table: %w", err)
 		}
+		ran = append(ran, stmt)
 	}
-	return nil
+	return ran, nil
+}
+
+// forgetDroppedRegistration removes the row of a registration whose table the
+// DDL already dropped before failing.
+//
+// A replacement runs DROP then CREATE. When the CREATE is the statement that
+// failed, the previous table is gone and its row is the only thing still
+// claiming it exists -- listed by toolView and hitTable, offered with a sample
+// query, and not marked stale, because a replacement registering the same key
+// leaves the location IsStale compares identical. Removing it is the same rule
+// rollBackTable applies from the other side: nothing describes what is not
+// there.
+//
+// When the DROP itself failed, nothing ran that changed anything and the row
+// is still accurate, so it is left alone. That is the whole reason runDDL
+// reports what it got through.
+//
+// A delete that fails is logged, not returned. It leaves the state this
+// function exists to avoid, which is also the state before it existed: the
+// answer already tells the caller to register again, and doing so replaces the
+// row and rebuilds the table.
+func (r *Registrar) forgetDroppedRegistration(ctx context.Context, a attempt, ran []string, cause error) {
+	replaced := a.p.existing
+	if replaced == nil || !slices.Contains(ran, dropTableStatement(a.p.reg)) {
+		return
+	}
+	ctx, cancel := cleanupContext(ctx)
+	defer cancel()
+	delErr := r.deps.Store.Delete(ctx, replaced.ID)
+	r.audit(ctx, auditRecord{
+		caller: a.caller, reg: *replaced, ddl: ran, source: a.req.Source, err: errors.Join(cause, delErr),
+	})
+	if delErr != nil {
+		slog.Warn("table registration: the replaced table was dropped and its record could not be removed",
+			"registration", logsan.SanitizeForLog(replaced.ID),
+			logFieldTable, logsan.SanitizeForLog(replaced.QualifiedName()),
+			logFieldError, logsan.SanitizeForLog(delErr.Error()))
+	}
+}
+
+// attempt is one registration in progress: who asked, what they asked for, and
+// the plan it was built from. Both halves of the reconciliation a partial
+// failure needs are answered from it.
+type attempt struct {
+	caller Caller
+	req    Request
+	p      *planned
+}
+
+// cleanupTimeout bounds the reconciliation a failed registration does. The
+// context it runs on has had cancellation taken off it, so this is the only
+// thing standing between a wedged database and a request goroutine that never
+// returns: the audit write goes to the same pool the write that failed came
+// from.
+const cleanupTimeout = 30 * time.Second
+
+// cleanupContext is the context a reconciliation runs on. Cancellation comes
+// off, because the write that failed may have failed BECAUSE the caller
+// disconnected, and cleaning up what the request already did is exactly the
+// work that has to outlive it; a deadline goes back on for the reason above.
+func cleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
+}
+
+// rollBackTable removes the table a registration just created when the row
+// recording it could not be written, or when the row of the registration it
+// replaces could not be removed.
+//
+// Without it a failed registration leaves the table in one of two states that
+// no surface reports. Unrecorded, it stands in the scratch schema with nothing
+// naming it: nothing lists it, and registering the same source again fails in
+// Trino, because BuildDDL issues a DROP only when replacing a registration
+// that exists and there is no longer one to find. Recorded by the registration
+// it was replacing, it is worse -- the row describes the file and columns of
+// the version before it while the table serves the one after.
+//
+// The drop is audited, because the event written a moment earlier says the
+// table was created and the trail would otherwise end there. It runs on a
+// context that is not the request's: a store write refused because the caller
+// disconnected cancels the request, and cleanup of what the request already
+// did is exactly the work that has to outlive it.
+//
+// A drop that fails is logged rather than returned, and joined onto the cause
+// on the event so the trail says the table is still there. The caller is being
+// told the registration failed either way, and the store error is the half of
+// it they can act on.
+func (r *Registrar) rollBackTable(ctx context.Context, a attempt, cause error) {
+	ctx, cancel := cleanupContext(ctx)
+	defer cancel()
+	reg := a.p.reg
+	stmt := dropTableStatement(reg)
+	execErr := r.deps.Trino.Exec(ctx, a.req.Connection, stmt)
+	r.audit(ctx, auditRecord{
+		caller: a.caller, reg: reg, ddl: []string{stmt}, source: a.req.Source, err: errors.Join(cause, execErr),
+	})
+	if execErr != nil {
+		slog.Warn("table registration: the record could not be written and the table it made could not be dropped",
+			logFieldTable, logsan.SanitizeForLog(reg.QualifiedName()),
+			logFieldError, logsan.SanitizeForLog(execErr.Error()))
+	}
 }
 
 // Unregister drops a registered table and forgets it.
@@ -558,7 +685,7 @@ func (r *Registrar) Unregister(ctx context.Context, caller Caller, id, source st
 		return err
 	}
 
-	stmt := "DROP TABLE IF EXISTS " + qualified(*reg)
+	stmt := dropTableStatement(*reg)
 	execErr := r.deps.Trino.Exec(ctx, reg.Connection, stmt)
 	r.audit(ctx, auditRecord{caller: caller, reg: *reg, ddl: []string{stmt}, source: source, err: execErr})
 	if execErr != nil {
@@ -616,7 +743,7 @@ func (r *Registrar) UnregisterAllForSource(ctx context.Context, kind, sourceID s
 		return
 	}
 	for _, reg := range regs {
-		if err := r.deps.Trino.Exec(ctx, reg.Connection, "DROP TABLE IF EXISTS "+qualified(reg)); err != nil {
+		if err := r.deps.Trino.Exec(ctx, reg.Connection, dropTableStatement(reg)); err != nil {
 			slog.Warn("table registration: dropping the table of a deleted source failed",
 				logFieldTable, logsan.SanitizeForLog(reg.QualifiedName()), logFieldError, logsan.SanitizeForLog(err.Error()))
 		}
