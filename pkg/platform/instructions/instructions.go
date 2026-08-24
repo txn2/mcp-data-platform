@@ -26,6 +26,7 @@ const (
 	toolManagePrompt   = "manage_prompt"
 	toolManageFeedback = "manage_feedback"
 	toolTrinoQuery     = "trino_query"
+	toolManageScript   = "manage_script"
 )
 
 // Build returns the platform-owned "how to operate this platform" instruction
@@ -74,6 +75,9 @@ func Build(accessibleTools []string) string {
 				"few thousand rows join this way. Above that, the file belongs in the platform: "+
 				"upload it as a resource or save it as an asset, register it as a table, and join "+
 				"the registered table by name.")
+	}
+	if has[toolManageScript] {
+		bullets = append(bullets, scriptsBullet(has[toolFetch]))
 	}
 	if has[toolMemoryCapture] {
 		bullets = append(bullets,
@@ -138,6 +142,31 @@ func reuseBullet(hasFetch bool) string {
 			"with the scoped tool a result points to, " + tail
 	}
 	return head + "drill in with the scoped tool a result points to, " + tail
+}
+
+// scriptsBullet returns the managed-script instruction: when a script is the
+// right shape of work at all, and where the platform's own authoring guidance
+// is. The pages are named by slug because a built-in page's row id is generated
+// per deployment at reconcile time, so the slug is the only identifier stable
+// enough to ship in this text (#1476). It names `fetch` as the way to read one
+// only when the caller can reach it, exactly as the reuse bullet does.
+func scriptsBullet(hasFetch bool) string {
+	const head = "Settled, repeating work becomes a script. When the logic is worked out and the " +
+		"work will repeat (a KPI report, a recurring export, a dashboard that refreshes on a " +
+		"schedule), write it as a managed script with `manage_script` so it is re-run rather than " +
+		"derived through a conversation again; keep using the query tools directly while you are " +
+		"still exploring. Call `manage_script` with command `help` before writing your first one, " +
+		"and read the platform's own authoring guidance rather than waiting for a search to " +
+		"surface it: "
+	const pages = "`mcp:knowledge_page:platform-writing-managed-scripts` for the dialect and the " +
+		"authoring loop, `mcp:knowledge_page:platform-script-outputs-and-export-identity` for " +
+		"where an output lands and what identity it keeps across runs, and " +
+		"`mcp:knowledge_page:platform-semi-dynamic-dashboards` for choosing between composing a " +
+		"whole document every run and refreshing only the data region of one a person can edit."
+	if hasFetch {
+		return head + "`fetch` " + pages
+	}
+	return head + "read the pages " + pages
 }
 
 // Compose joins the platform baseline above the rest of the instruction stack

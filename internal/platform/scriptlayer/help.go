@@ -53,6 +53,18 @@ WHAT IS AVAILABLE
       markdown page. Formats: csv, json, markdown, text, html, jsx. csv and
       json require rows, so a data feed stays well-formed by construction;
       html and jsx take only a string body; markdown and text accept either.
+      A document is produced two ways, and the choice is made here, not later.
+      Compose the whole document in the script when each run is its own kept
+      document (a dated archive series), when the structure varies with the
+      data (a section that appears only when a threshold trips), or when
+      nobody will edit the presentation. Publish the document once and refresh
+      only its data region with platform.publish_data when there is one
+      stable-named asset at one URL whose layout a person may edit and whose
+      numbers alone move per run. Both directions cost something: composing
+      the whole document every run overwrites the current version wholesale,
+      so a layout edit made in the portal is destroyed by the next fire, and
+      publish_data against a document whose structure must vary leaves a data
+      region the markup cannot render.
       name is the output's identity across runs: the same name from the same
       script is one portal asset, and every run adds a version of it, so a
       dashboard keeps its identity instead of a new asset appearing every
@@ -286,8 +298,65 @@ func (e example) fields() map[string]any {
 	}
 }
 
-// handleHelp returns the dialect contract, the capability surface, and the
-// example names.
+// knowledgePageRefPrefix is the fetchable form of a knowledge-page key. It is
+// written out rather than taken from pkg/portal/knowledgepage so the script
+// seam does not depend on the portal's page store to name a page it only
+// points at; the scheme is pinned by the drift test in knowledgebuiltin.
+const knowledgePageRefPrefix = "mcp:knowledge_page:"
+
+// KnowledgePage names one built-in knowledge page an author should read.
+type KnowledgePage struct {
+	// Slug is the page's reconcile key and the only identifier stable across
+	// deployments: a built-in page's row id is generated at reconcile time, so
+	// it differs per deployment and cannot be named in shipped text.
+	Slug string `json:"slug"`
+	// Reference is the slug in the form fetch takes.
+	Reference string `json:"reference"`
+	// Summary says what the page answers, so an author fetches the one that
+	// bears on the decision in front of it rather than all of them.
+	Summary string `json:"summary"`
+}
+
+// KnowledgePages is the reading `manage_script help` names, so the tool an
+// agent is told to call before writing its first script is the tool that
+// routes it to the platform's own authoring guidance instead of leaving that
+// guidance to whatever a search happens to rank (#1476).
+//
+// The slugs are declared here rather than in knowledgebuiltin because
+// knowledgebuiltin already imports this package for the dialect contract and
+// the reverse import would cycle; a test there fails when the two sets drift.
+var KnowledgePages = []KnowledgePage{
+	{
+		Slug:      "platform-writing-managed-scripts",
+		Reference: knowledgePageRefPrefix + "platform-writing-managed-scripts",
+		Summary: "The dialect and the authoring loop: what Starlark deliberately lacks, what a " +
+			"script may call and the persona that decides it, and what a save makes runnable.",
+	},
+	{
+		Slug:      "platform-script-outputs-and-export-identity",
+		Reference: knowledgePageRefPrefix + "platform-script-outputs-and-export-identity",
+		Summary: "Where an output lands and what identity it keeps across runs: a stable name " +
+			"refreshes one asset, a dated name builds an archive, and a bucket destination " +
+			"delivers the same bytes elsewhere.",
+	},
+	{
+		Slug:      "platform-semi-dynamic-dashboards",
+		Reference: knowledgePageRefPrefix + "platform-semi-dynamic-dashboards",
+		Summary: "Choosing between composing a whole document every run and publishing one " +
+			"document whose data region a schedule refreshes, and the mechanics of the " +
+			"second.",
+	},
+	{
+		Slug:      "platform-provenance-and-the-capture-loop",
+		Reference: knowledgePageRefPrefix + "platform-provenance-and-the-capture-loop",
+		Summary: "Naming sources with call references so an output's provenance is exact, and " +
+			"the loop that turns session knowledge into reviewed catalog knowledge.",
+	},
+}
+
+// handleHelp returns the dialect contract, the capability surface, the example
+// names, and the built-in pages that carry the reasoning the contract states
+// only in outline.
 func (*Handle) handleHelp(_ context.Context, _ manageScriptInput) (*mcp.CallToolResult, any, error) {
 	names := make([]map[string]any, 0, len(examples))
 	for _, ex := range examples {
@@ -307,5 +376,7 @@ func (*Handle) handleHelp(_ context.Context, _ manageScriptInput) (*mcp.CallTool
 		},
 		"examples":        names,
 		"read_an_example": "Call get with name=" + examples[0].name + " to read one.",
+		"see_also":        KnowledgePages,
+		"read_a_page":     "Call fetch with the reference to read one in full.",
 	})
 }

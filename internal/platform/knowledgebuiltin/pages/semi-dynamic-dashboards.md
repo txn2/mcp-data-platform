@@ -5,17 +5,29 @@ a schedule: one portal asset at one URL, authored once as an HTML, JSX, or
 markdown document with real visualizations, whose numbers a managed script
 refreshes on a cadence.
 
-## The split: template in the asset, data in the script
+## Which shape: a whole document per run, or template plus data
 
-The wrong way to build one is to make the script re-emit the whole document
-every run. That puts the markup inside the script's source, which costs twice:
-every fire overwrites the current version wholesale, so a layout edit made in
-the portal is destroyed by the next scheduled run; and changing anything about
-the presentation — a chart color, a heading — means editing the script.
+A script produces a document in one of two shapes, and the choice is made
+before the first line of it is written.
 
-The right split keeps the template in the asset, where a layout change is an
-ordinary document edit that survives the schedule, and the data in the script.
-`platform.publish_data` is that split:
+**Compose the whole document in the script** when each run is its own kept
+document (a dated archive series, where a run's output is never revised),
+when the structure varies with the data (a section that appears only if a
+threshold trips), or when nobody will hand-edit the presentation. The cost is
+that every fire overwrites the current version wholesale, so a layout edit made
+in the portal is destroyed by the next scheduled run, and changing a chart
+color or a heading means editing the script.
+
+**Publish the document once and refresh only its data region** when there is
+one stable-named asset at one URL whose layout a person may edit and whose
+numbers alone move per run. That is the semi-dynamic dashboard: the template
+stays in the asset, where a layout change is an ordinary document edit that
+survives the schedule, and the data stays in the script. The cost is that the
+structure is fixed by the document's author, so a report whose sections have to
+appear and disappear with the data leaves a data region the markup cannot
+render.
+
+`platform.publish_data` is the second shape:
 
 ```python
 data = {"regions": platform.query(connection="warehouse", sql="SELECT ...")["rows"]}

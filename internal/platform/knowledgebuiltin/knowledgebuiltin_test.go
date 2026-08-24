@@ -3,6 +3,7 @@ package knowledgebuiltin
 import (
 	"context"
 	"errors"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlayer"
+	"github.com/txn2/mcp-data-platform/pkg/platform/instructions"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 )
 
@@ -163,5 +165,43 @@ func TestStart_RunsTheReconcileInTheBackground(t *testing.T) {
 	case <-failing.done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("Start never ran the failing reconcile")
+	}
+}
+
+// The pages `manage_script help` points an author at are the pages this
+// package ships. The two sets are declared on opposite sides of the import
+// (knowledgebuiltin imports scriptlayer for the dialect contract, so the
+// reverse import would cycle), and this is the gate that fails when a slug is
+// added, removed, or renamed on either side (#1476).
+func TestKnowledgePages_HelpAndTheShippedSetAgree(t *testing.T) {
+	shipped := make([]string, 0, len(pageMetas))
+	for _, m := range pageMetas {
+		shipped = append(shipped, m.slug)
+	}
+	named := make([]string, 0, len(scriptlayer.KnowledgePages))
+	for _, p := range scriptlayer.KnowledgePages {
+		named = append(named, p.Slug)
+		assert.NotEmptyf(t, p.Summary, "%s: help names the page with no summary to choose it by", p.Slug)
+		assert.Equalf(t, "mcp:knowledge_page:"+p.Slug, p.Reference,
+			"%s: the reference must be the slug in the form fetch takes", p.Slug)
+	}
+	assert.ElementsMatch(t, shipped, named)
+}
+
+// The instruction baseline's scripts bullet names pages by slug, which only
+// resolves while those slugs are shipped. Every slug it names has to be one of
+// this package's, so a rename here cannot leave the baseline pointing at
+// nothing.
+func TestScriptsBullet_NamesOnlyShippedSlugs(t *testing.T) {
+	shipped := map[string]bool{}
+	for _, m := range pageMetas {
+		shipped[m.slug] = true
+	}
+
+	baseline := instructions.Build([]string{"manage_script", "fetch"})
+	named := regexp.MustCompile(`mcp:knowledge_page:([a-z0-9-]+)`).FindAllStringSubmatch(baseline, -1)
+	require.NotEmpty(t, named, "the scripts bullet names no page at all")
+	for _, m := range named {
+		assert.Truef(t, shipped[m[1]], "the baseline names %q, which this release does not ship", m[1])
 	}
 }

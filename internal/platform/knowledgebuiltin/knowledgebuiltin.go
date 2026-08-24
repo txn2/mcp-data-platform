@@ -66,7 +66,7 @@ var pageMetas = []pageMeta{
 	{
 		file:    "semi-dynamic-dashboards.md",
 		slug:    "platform-semi-dynamic-dashboards",
-		summary: "One dashboard asset whose numbers a scheduled script refreshes: the template stays in the asset, the data in the script, and platform.publish_data splices the id=\"data\" region.",
+		summary: "Choosing between composing a whole document every run and publishing one document whose data region a scheduled script refreshes: what each costs, and how platform.publish_data splices the id=\"data\" region.",
 		tags:    []string{"scripts", "dashboards", "assets"},
 	},
 	{

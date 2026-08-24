@@ -50,6 +50,11 @@ empty document body is refused rather than published, so a conditionally
 assembled document that ends up blank fails the run loudly instead of silently
 replacing the current version of a shared dashboard.
 
+Composing the whole document is one of two shapes a document output takes, and
+the other one leaves the presentation where a person can edit it. Which one
+fits is decided before the script is written; see
+`mcp:knowledge_page:platform-semi-dynamic-dashboards` for the discriminator.
+
 ## The zero-data guard
 
 The zero-rows case is yours to decide, and deciding it explicitly is the idiom:

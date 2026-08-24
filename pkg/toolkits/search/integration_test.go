@@ -226,6 +226,15 @@ func (globalKnowledgePages) Get(_ context.Context, id string) (*knowledgepage.Pa
 	return &knowledgepage.Page{ID: "g-page", Title: "global page", Body: "the full canonical page body"}, nil
 }
 
+// GetBySlug resolves the canonical page by its slug, the read that lets shipped
+// text name a page whose row id differs per deployment.
+func (globalKnowledgePages) GetBySlug(_ context.Context, slug string) (*knowledgepage.Page, error) {
+	if slug != "global-page" {
+		return nil, knowledgepage.ErrNotFound
+	}
+	return &knowledgepage.Page{ID: "g-page", Slug: slug, Title: "global page", Body: "the full canonical page body"}, nil
+}
+
 // List enumerates the canonical pages for browse, honoring offset/limit over a
 // fixed two-page corpus so a browse round-trip can assert pagination and total.
 func (globalKnowledgePages) List(_ context.Context, filter knowledgepage.Filter) ([]knowledgepage.Page, int, error) {
@@ -446,6 +455,26 @@ func TestFetch_KnowledgePageRoundTrip(t *testing.T) {
 	}
 	if got.Document.Source != "knowledge_pages" || got.Document.Reference != ref {
 		t.Errorf("document provenance wrong: %+v", got.Document)
+	}
+}
+
+// A page named by slug rather than by row id round-trips through the same
+// fetch tool (#1476). This is what lets shipped text (the instruction baseline,
+// `manage_script help`) name a built-in page at all: its row id is generated
+// per deployment at reconcile time, so only the slug is stable across them.
+func TestFetch_KnowledgePageBySlug(t *testing.T) {
+	tk := assembledToolkit()
+	ctx := ctxFor(userAID, userAEmail)
+
+	got := callFetch(ctx, t, tk, "mcp:knowledge_page:global-page")
+	if !got.Found {
+		t.Fatalf("fetch found=false for a live slug: %+v", got)
+	}
+	if got.Document == nil || got.Document.Body != "the full canonical page body" {
+		t.Errorf("fetch did not return the full page body: %+v", got.Document)
+	}
+	if got.Document.Reference != "mcp:knowledge_page:global-page" {
+		t.Errorf("document reference = %q, want the reference as asked for", got.Document.Reference)
 	}
 }
 

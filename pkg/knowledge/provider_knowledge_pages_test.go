@@ -20,6 +20,9 @@ type fakePageSearcher struct {
 	page       *knowledgepage.Page // Get result
 	getErr     error
 	gotGetID   string
+	slugPage   *knowledgepage.Page // GetBySlug result
+	slugErr    error
+	gotSlug    string
 	listPages  []knowledgepage.Page // List result
 	listTotal  int
 	listErr    error
@@ -40,6 +43,19 @@ func (f *fakePageSearcher) Get(_ context.Context, id string) (*knowledgepage.Pag
 		return nil, f.getErr
 	}
 	return f.page, nil
+}
+
+// GetBySlug models the real store: a slug no live page carries is ErrNotFound,
+// never a nil page with a nil error.
+func (f *fakePageSearcher) GetBySlug(_ context.Context, slug string) (*knowledgepage.Page, error) {
+	f.gotSlug = slug
+	if f.slugErr != nil {
+		return nil, f.slugErr
+	}
+	if f.slugPage == nil {
+		return nil, knowledgepage.ErrNotFound
+	}
+	return f.slugPage, nil
 }
 
 func (f *fakePageSearcher) List(_ context.Context, filter knowledgepage.Filter) ([]knowledgepage.Page, int, error) {
@@ -346,6 +362,108 @@ func TestPagesProvider_Browse(t *testing.T) {
 		s := &fakePageSearcher{listErr: errors.New("db down")}
 		if _, err := NewKnowledgePagesProvider(s).Browse(context.Background(), BrowseQuery{}); err == nil {
 			t.Error("expected the list error to surface")
+		}
+	})
+}
+
+// A built-in page's row id is generated per deployment at reconcile time, so
+// shipped text (the instruction baseline, `manage_script help`) can only name
+// the slug. Fetch resolves it (#1476).
+func TestPagesProvider_FetchBySlug(t *testing.T) {
+	t.Run("falls back to the slug when no row holds the key as an id", func(t *testing.T) {
+		s := &fakePageSearcher{
+			getErr: knowledgepage.ErrNotFound,
+			slugPage: &knowledgepage.Page{
+				ID:    "kp_generated_here",
+				Slug:  "platform-semi-dynamic-dashboards",
+				Title: "Semi-dynamic dashboards",
+				Body:  "the full page body",
+			},
+		}
+		ref := knowledgepage.PageReference("platform-semi-dynamic-dashboards")
+		doc, owned, err := NewKnowledgePagesProvider(s).Fetch(context.Background(), ref, Caller{})
+		if !owned || err != nil {
+			t.Fatalf("owned=%v err=%v, want owned, no error", owned, err)
+		}
+		if s.gotGetID != "platform-semi-dynamic-dashboards" {
+			t.Errorf("id read was skipped or given the wrong key: %q", s.gotGetID)
+		}
+		if s.gotSlug != "platform-semi-dynamic-dashboards" {
+			t.Errorf("slug read = %q", s.gotSlug)
+		}
+		if doc.Title != "Semi-dynamic dashboards" || doc.Body != "the full page body" {
+			t.Errorf("doc = %+v", doc)
+		}
+		if doc.Reference != ref {
+			t.Errorf("Reference = %q, want the reference as asked for", doc.Reference)
+		}
+		// Outbound edges are listed against the row the slug resolved to, not
+		// against the slug itself, which is no page id.
+		if s.gotRefsID != "kp_generated_here" {
+			t.Errorf("ListEntityRefs id = %q, want the resolved row id", s.gotRefsID)
+		}
+	})
+
+	t.Run("an id read is never shadowed by a slug read", func(t *testing.T) {
+		s := &fakePageSearcher{
+			page:     &knowledgepage.Page{ID: "collision", Title: "the page with that id", Body: "b"},
+			slugPage: &knowledgepage.Page{ID: "kp_other", Slug: "collision", Title: "the page with that slug"},
+		}
+		doc, _, err := NewKnowledgePagesProvider(s).Fetch(context.Background(), knowledgepage.PageReference("collision"), Caller{})
+		if err != nil {
+			t.Fatalf("err = %v", err)
+		}
+		if doc.Title != "the page with that id" {
+			t.Errorf("Title = %q, want the id read to win", doc.Title)
+		}
+		if s.gotSlug != "" {
+			t.Errorf("slug read ran after a successful id read: %q", s.gotSlug)
+		}
+	})
+
+	t.Run("a soft-deleted page found by id does not fall through to the slug", func(t *testing.T) {
+		del := time.Now()
+		s := &fakePageSearcher{
+			page:     &knowledgepage.Page{ID: "kp_1", DeletedAt: &del},
+			slugPage: &knowledgepage.Page{ID: "kp_other", Slug: "kp_1", Title: "another page"},
+		}
+		_, owned, err := NewKnowledgePagesProvider(s).Fetch(context.Background(), knowledgepage.PageReference("kp_1"), Caller{})
+		if !owned || !errors.Is(err, ErrNotFound) {
+			t.Errorf("owned=%v err=%v, want owned + ErrNotFound", owned, err)
+		}
+		if s.gotSlug != "" {
+			t.Errorf("slug read ran for a key the id read resolved: %q", s.gotSlug)
+		}
+	})
+
+	t.Run("a built-in slug an operator deleted is not-found, not an error", func(t *testing.T) {
+		// The reconcile respects a hide, so the slug stays unresolvable; the
+		// store's slug read filters soft-deleted rows and reports ErrNotFound.
+		s := &fakePageSearcher{getErr: knowledgepage.ErrNotFound}
+		_, owned, err := NewKnowledgePagesProvider(s).Fetch(
+			context.Background(), knowledgepage.PageReference("platform-semi-dynamic-dashboards"), Caller{})
+		if !owned || !errors.Is(err, ErrNotFound) {
+			t.Errorf("owned=%v err=%v, want owned + ErrNotFound", owned, err)
+		}
+	})
+
+	t.Run("a slug read failure surfaces as a real error", func(t *testing.T) {
+		s := &fakePageSearcher{getErr: knowledgepage.ErrNotFound, slugErr: errors.New("boom")}
+		_, owned, err := NewKnowledgePagesProvider(s).Fetch(
+			context.Background(), knowledgepage.PageReference("platform-semi-dynamic-dashboards"), Caller{})
+		if !owned || err == nil || errors.Is(err, ErrNotFound) {
+			t.Errorf("owned=%v err=%v, want owned + a non-not-found error", owned, err)
+		}
+	})
+
+	t.Run("an id read failure never reaches the slug read", func(t *testing.T) {
+		s := &fakePageSearcher{getErr: errors.New("boom")}
+		_, _, err := NewKnowledgePagesProvider(s).Fetch(context.Background(), knowledgepage.PageReference("kp_1"), Caller{})
+		if err == nil || errors.Is(err, ErrNotFound) {
+			t.Errorf("err = %v, want a real error", err)
+		}
+		if s.gotSlug != "" {
+			t.Errorf("slug read ran after a failed id read: %q", s.gotSlug)
 		}
 	})
 }
