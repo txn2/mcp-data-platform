@@ -311,3 +311,87 @@ func TestMigration050_UnifyOAuthRoundTrip_RealDB(t *testing.T) {
 		`SELECT config->'oauth2_scopes' FROM connection_instances WHERE name='legacy-ac'`).Scan(&scopesJSON))
 	require.JSONEq(t, `["openid","offline_access"]`, scopesJSON)
 }
+
+// TestMigration124_RepairsThumbnailStampedUpdatedAt_RealDB covers the data
+// repair in 000124 (#1466): rows whose updated_at was moved by a thumbnail
+// capture are reset to the date of their newest content version, and rows the
+// capture never reached are left alone.
+func TestMigration124_RepairsThumbnailStampedUpdatedAt_RealDB(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+	db, cleanup := startPostgres(t)
+	defer cleanup()
+
+	// Only the two tables the migration reads. The full chain needs the
+	// pgvector extension, which this image does not ship.
+	_, err := db.Exec(`
+		CREATE TABLE portal_assets (
+			id         TEXT        PRIMARY KEY,
+			created_at TIMESTAMPTZ NOT NULL,
+			updated_at TIMESTAMPTZ NOT NULL
+		);
+		CREATE TABLE portal_asset_versions (
+			id         TEXT        PRIMARY KEY,
+			asset_id   TEXT        NOT NULL REFERENCES portal_assets(id),
+			version    INT         NOT NULL,
+			created_at TIMESTAMPTZ NOT NULL
+		)`)
+	require.NoError(t, err)
+
+	const (
+		march  = "2026-03-10T19:59:55Z" // the real content date
+		june   = "2026-06-01T12:00:00Z"
+		august = "2026-08-22T09:14:00Z" // the day a capture pass ran
+	)
+
+	_, err = db.Exec(`
+		INSERT INTO portal_assets (id, created_at, updated_at) VALUES
+			('stamped',    $1, $3),
+			('untouched',  $1, $1),
+			('revised',    $1, $2),
+			('no_version', $1, $3)`, march, june, august)
+	require.NoError(t, err)
+
+	_, err = db.Exec(`
+		INSERT INTO portal_asset_versions (id, asset_id, version, created_at) VALUES
+			('stamped-v1',   'stamped',   1, $1),
+			('untouched-v1', 'untouched', 1, $1),
+			('revised-v1',   'revised',   1, $1),
+			('revised-v2',   'revised',   2, $2)`, march, june)
+	require.NoError(t, err)
+
+	updatedAt := func(id string) time.Time {
+		var got time.Time
+		require.NoError(t, db.QueryRow(
+			`SELECT updated_at FROM portal_assets WHERE id = $1`, id).Scan(&got))
+		return got.UTC()
+	}
+	mustParse := func(s string) time.Time {
+		parsed, parseErr := time.Parse(time.RFC3339, s)
+		require.NoError(t, parseErr)
+		return parsed
+	}
+
+	execMigrationFile(t, db, "000124_portal_asset_updated_at_repair.up.sql")
+
+	require.WithinDuration(t, mustParse(march), updatedAt("stamped"), time.Second,
+		"a row carrying the capture pass's date reads as its last content date again")
+	require.WithinDuration(t, mustParse(march), updatedAt("untouched"), time.Second,
+		"a row the pass never reached is left where it is")
+	require.WithinDuration(t, mustParse(june), updatedAt("revised"), time.Second,
+		"the newest version is what a repaired row is dated by, not the first")
+	require.WithinDuration(t, mustParse(august), updatedAt("no_version"), time.Second,
+		"an asset with no version row has nothing to be repaired from")
+
+	// Idempotent: after the repair no row is later than its newest version,
+	// so a second run has nothing to match.
+	execMigrationFile(t, db, "000124_portal_asset_updated_at_repair.up.sql")
+	require.WithinDuration(t, mustParse(march), updatedAt("stamped"), time.Second)
+	require.WithinDuration(t, mustParse(june), updatedAt("revised"), time.Second)
+
+	// The down migration is a no-op by design: what the column held before the
+	// repair was the artifact the repair removes, and nothing records it.
+	execMigrationFile(t, db, "000124_portal_asset_updated_at_repair.down.sql")
+	require.WithinDuration(t, mustParse(march), updatedAt("stamped"), time.Second)
+}

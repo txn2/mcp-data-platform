@@ -977,6 +977,31 @@ func TestUploadAdminThumbnailStampsTheVersion(t *testing.T) {
 	assert.Equal(t, 4, *store.lastUpdate.ThumbnailVersion)
 }
 
+// A capture taken on the admin path is platform state like any other, so the
+// update it hands the store is one the store will not date the asset for
+// (#1466). The store is what enforces that; this is the half that keeps the
+// handler from carrying an authored field along with the capture.
+func TestUploadAdminThumbnailIsNotAChangeToTheAsset(t *testing.T) {
+	now := time.Now()
+	asset := &portal.Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "portal/u1/a1/v4/content.html",
+		CurrentVersion: 4, Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	store := &mockAdminAssetStore{getAsset: asset}
+	h := newAdminTestHandler(store, &mockAdminShareStore{}, &mockAdminS3Client{})
+
+	req := httptest.NewRequestWithContext(context.Background(), "PUT",
+		"/api/v1/admin/assets/a1/thumbnail", strings.NewReader("PNG-DATA"))
+	req.Header.Set("Content-Type", "image/png")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.NotNil(t, store.lastUpdate)
+	assert.True(t, store.lastUpdate.IsThumbnailOnly(),
+		"the capture must not carry a field that would re-date the asset")
+}
+
 func TestUploadAdminThumbnailNoS3(t *testing.T) {
 	h := newAdminTestHandler(&mockAdminAssetStore{}, &mockAdminShareStore{}, nil)
 

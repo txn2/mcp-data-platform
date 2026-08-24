@@ -3034,6 +3034,37 @@ func TestUploadThumbnailStampsTheDarkVariantSeparately(t *testing.T) {
 	assert.Nil(t, store.lastUpdate.ThumbnailVersion)
 }
 
+// A capture is stored platform state, not something the asset's owner did, so
+// the update the endpoint builds is one the store will not stamp updated_at
+// for (#1466). The store is what enforces that; this is the half that keeps
+// the handler from carrying an authored field along with the capture.
+func TestUploadThumbnailIsNotAChangeToTheAsset(t *testing.T) {
+	for _, variant := range []string{"", "?variant=dark"} {
+		t.Run("variant"+variant, func(t *testing.T) {
+			now := time.Now()
+			asset := &Asset{
+				ID: "a1", OwnerID: "u1", Name: "Test", S3Bucket: "b", S3Key: "portal/u1/a1/v2/content.md",
+				ContentType: "text/markdown", CurrentVersion: 2, Tags: []string{}, Provenance: Provenance{},
+				CreatedAt: now, UpdatedAt: now,
+			}
+			store := &mockAssetStore{getAsset: asset}
+			h := newTestHandler(store, &mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"})
+
+			body := strings.NewReader(strings.Repeat("x", 100))
+			req := httptest.NewRequestWithContext(context.Background(), "PUT",
+				"/api/v1/portal/assets/a1/thumbnail"+variant, body)
+			req.Header.Set("Content-Type", "image/png")
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+
+			require.Equal(t, http.StatusOK, w.Code)
+			require.NotNil(t, store.lastUpdate)
+			assert.True(t, store.lastUpdate.IsThumbnailOnly(),
+				"the capture must not carry a field that would re-date the asset")
+		})
+	}
+}
+
 // --- listPendingThumbnails ---
 
 // The queue's work list. Nothing renders a thumbnail on the server, so this is

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -448,6 +449,77 @@ func TestPostgresAssetStoreUpdateClearThumbnail(t *testing.T) {
 	err = store.Update(context.Background(), "abc123", portaldomain.AssetUpdate{ThumbnailS3Key: &empty})
 	assert.NoError(t, err)
 	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// The column the portal's Updated sort orders by and every asset card shows.
+// A capture must not touch it, and everything else must (#1466).
+func TestPostgresAssetStoreUpdateStampsOnlyAuthoredChanges(t *testing.T) {
+	thumbKey := "portal/u1/a1/.thumbnail.png"
+	version := 3
+	name := "New Name"
+
+	tests := []struct {
+		name      string
+		update    portaldomain.AssetUpdate
+		wantStamp bool
+	}{
+		{
+			name:      "a light capture leaves updated_at alone",
+			update:    portaldomain.AssetUpdate{ThumbnailS3Key: &thumbKey, ThumbnailVersion: &version},
+			wantStamp: false,
+		},
+		{
+			name:      "a dark capture leaves updated_at alone",
+			update:    portaldomain.AssetUpdate{ThumbnailDarkS3Key: &thumbKey, ThumbnailDarkVersion: &version},
+			wantStamp: false,
+		},
+		{
+			name:      "a rename stamps it",
+			update:    portaldomain.AssetUpdate{Name: &name},
+			wantStamp: true,
+		},
+		{
+			name:      "a tag change stamps it",
+			update:    portaldomain.AssetUpdate{Tags: []string{"q4"}},
+			wantStamp: true,
+		},
+		{
+			name: "replaced content stamps it",
+			update: portaldomain.AssetUpdate{
+				ContentType: "text/csv", S3Key: "portal/u1/a1/v2/content.csv",
+				SizeBytes: 90, HasContent: true,
+			},
+			wantStamp: true,
+		},
+		{
+			name: "a content write that blanks the pointers stamps it",
+			update: portaldomain.AssetUpdate{
+				HasContent: true, ThumbnailS3Key: &thumbKey, ThumbnailVersion: &version,
+			},
+			wantStamp: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var executed string
+			db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(
+				sqlmock.QueryMatcherFunc(func(_, actualSQL string) error {
+					executed = actualSQL
+					return nil
+				})))
+			require.NoError(t, err)
+			defer db.Close() //nolint:errcheck // test cleanup
+
+			store := NewPostgresAssetStore(db)
+			mock.ExpectExec("UPDATE portal_assets").WillReturnResult(sqlmock.NewResult(0, 1))
+
+			require.NoError(t, store.Update(context.Background(), "abc123", tt.update))
+			assert.Equal(t, tt.wantStamp, strings.Contains(executed, "updated_at"),
+				"statement executed: %s", executed)
+			assert.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
 }
 
 func TestPostgresAssetStoreUpdateNoFields(t *testing.T) {
