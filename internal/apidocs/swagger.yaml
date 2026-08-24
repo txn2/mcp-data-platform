@@ -4726,6 +4726,15 @@ definitions:
     type: object
   resource.Version:
     properties:
+      change_summary:
+        description: |-
+          ChangeSummary says why the content changed, for a revision written on the
+          uploader's behalf rather than picked by them. Empty for an upload, where
+          the uploader is the answer. It is what the version panel shows beside the
+          revision, so a reader of the history sees the reason without having to
+          find the operation that caused it.
+        example: put 3 rows back onto one line
+        type: string
       created_at:
         type: string
       mime_type:

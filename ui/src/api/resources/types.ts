@@ -43,6 +43,9 @@ export interface ResourceVersion {
   uploader_sub: string;
   uploader_email: string;
   restored_from?: number;
+  // change_summary says why the content changed, for a revision the platform
+  // wrote on the uploader's behalf. Absent for a revision somebody uploaded.
+  change_summary?: string;
   created_at: string;
 }
 

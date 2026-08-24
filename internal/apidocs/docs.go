@@ -23339,6 +23339,11 @@ const docTemplate = `{
         "resource.Version": {
             "type": "object",
             "properties": {
+                "change_summary": {
+                    "description": "ChangeSummary says why the content changed, for a revision written on the\nuploader's behalf rather than picked by them. Empty for an upload, where\nthe uploader is the answer. It is what the version panel shows beside the\nrevision, so a reader of the history sees the reason without having to\nfind the operation that caused it.",
+                    "type": "string",
+                    "example": "put 3 rows back onto one line"
+                },
                 "created_at": {
                     "type": "string"
                 },

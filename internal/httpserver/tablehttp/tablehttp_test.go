@@ -176,13 +176,16 @@ var owner = &portal.User{UserID: "u1", Email: "alice@example.com", Roles: []stri
 const tornCSV = "store_id,address\n101,\"12 Mill Rd\nSuite 4\"\n"
 
 type harness struct {
-	mux     *http.ServeMux
-	store   *memStore
-	trino   *fakeTrino
-	assets  map[string]tableregister.Source
-	user    *portal.User
-	body    string
-	reviser *fakeReviser
+	mux    *http.ServeMux
+	store  *memStore
+	trino  *fakeTrino
+	assets map[string]tableregister.Source
+	user   *portal.User
+	body   string
+	// siblings are objects the listing reports beside the file, which is what
+	// a directory holding one is refused for.
+	siblings []tableregister.ObjectEntry
+	reviser  *fakeReviser
 }
 
 func newHarness(t *testing.T, opts ...func(*harness)) *harness {
@@ -205,8 +208,9 @@ func newHarness(t *testing.T, opts ...func(*harness)) *harness {
 	}
 
 	objects := &fakeObjects{
-		body:    []byte(h.body),
-		entries: []tableregister.ObjectEntry{{Key: "artifacts/u1/asset_1/content.csv"}},
+		body: []byte(h.body),
+		entries: append(
+			[]tableregister.ObjectEntry{{Key: "artifacts/u1/asset_1/content.csv"}}, h.siblings...),
 	}
 	h.reviser = &fakeReviser{objects: objects}
 	n := 0
@@ -691,13 +695,20 @@ func TestRegisterRoute_APlatformFailureAfterACorrectionStillSaysTheFileChanged(t
 			assert.Contains(t, problem.Detail, "The table was not created")
 			assert.NotContains(t, problem.Detail, "10.0.0.7",
 				"neither address is repeated to the caller")
+			// The type is the half a surface can act on. A page showing the
+			// file has a version trail and a record on it that are both behind
+			// what is stored now, and it cannot be asked to find that out by
+			// matching the detail prose (#1450).
+			assert.Equal(t, httpjson.ProblemTypePrefix+"file-corrected", problem.Type)
 
 			require.Len(t, h.reviser.saved, 1, "the file did change, which is why it is said")
 		})
 	}
 }
 
-// A failure with no correction behind it says only what it always said.
+// A failure with no correction behind it says only what it always said, and
+// carries no type: nothing about the file changed, so no surface showing it has
+// anything to refresh.
 func TestRegisterRoute_APlatformFailureWithNoCorrectionSaysNothingMore(t *testing.T) {
 	h := newHarness(t)
 	h.trino.err = errors.New("trino coordinator unreachable at 10.0.0.7:8080")
@@ -706,4 +717,34 @@ func TestRegisterRoute_APlatformFailureWithNoCorrectionSaysNothingMore(t *testin
 	require.Equal(t, http.StatusInternalServerError, w.Code)
 	assert.Contains(t, w.Body.String(), "the registration could not be completed")
 	assert.NotContains(t, w.Body.String(), "10.0.0.7")
+
+	var problem httpjson.ProblemDetail
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &problem))
+	assert.Equal(t, "about:blank", problem.Type)
+}
+
+// A refusal can follow a correction too -- the correction is written before the
+// last of the checks -- and it carries the same type for the same reason: the
+// registration did not happen, and the file changed anyway.
+func TestRegisterRoute_ARefusalAfterACorrectionCarriesTheCorrectedType(t *testing.T) {
+	h := newHarness(t, func(h *harness) {
+		h.body = tornCSV
+		// A sibling object in the corrected version's directory. Trino reads
+		// every non-hidden object under an external location and parses it as
+		// CSV, so the directory is refused by name -- after the correction that
+		// created it has already been written.
+		h.siblings = []tableregister.ObjectEntry{
+			{Key: "artifacts/u1/asset_1/v/rev_1/notes.txt", Size: 12},
+		}
+	})
+
+	w := h.do(http.MethodPost, "/api/v1/portal/assets/asset_1/tables",
+		`{"connection":"scratch","repair":true}`)
+	require.Equal(t, http.StatusConflict, w.Code, w.Body.String())
+
+	var problem httpjson.ProblemDetail
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &problem))
+	assert.Equal(t, httpjson.ProblemTypePrefix+"file-corrected", problem.Type)
+	assert.Contains(t, problem.Detail, "Saved version 2 of this file")
+	require.Len(t, h.reviser.saved, 1, "the correction ran before the refusal")
 }

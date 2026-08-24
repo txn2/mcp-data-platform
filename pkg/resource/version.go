@@ -35,8 +35,14 @@ type Version struct {
 	// RestoredFrom names the version this revision re-promoted, or nil when the
 	// revision was a fresh upload. A restore is recorded as a new head revision
 	// rather than a rewind so the trail stays append-only.
-	RestoredFrom *int      `json:"restored_from,omitempty" example:"1"`
-	CreatedAt    time.Time `json:"created_at"`
+	RestoredFrom *int `json:"restored_from,omitempty" example:"1"`
+	// ChangeSummary says why the content changed, for a revision written on the
+	// uploader's behalf rather than picked by them. Empty for an upload, where
+	// the uploader is the answer. It is what the version panel shows beside the
+	// revision, so a reader of the history sees the reason without having to
+	// find the operation that caused it.
+	ChangeSummary string    `json:"change_summary,omitempty" example:"put 3 rows back onto one line"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 // Revision is a new content revision to record: the blob that was just written
@@ -53,6 +59,10 @@ type Revision struct {
 	// RestoredFrom names the version a restore re-promoted, or nil for a fresh
 	// upload.
 	RestoredFrom *int
+	// ChangeSummary says why the content changed. Empty for an upload; set by a
+	// caller revising on somebody's behalf, which is the case the version panel
+	// cannot otherwise explain.
+	ChangeSummary string
 }
 
 // VersionStore persists the content-revision trail of a resource and moves the
@@ -121,13 +131,13 @@ func NormalizeMaxVersions(configured int) int {
 // versionColumns is the projection every version read shares, in the order
 // scanVersion consumes.
 const versionColumns = `resource_id, version, mime_type, size_bytes, s3_key,
-	uploader_sub, uploader_email, restored_from, created_at`
+	uploader_sub, uploader_email, restored_from, change_summary, created_at`
 
 // versionColumnsQualified is the same projection under the alias `v`, for the
 // prune statement, whose join with `resources` makes six of these column names
 // ambiguous on their own.
 const versionColumnsQualified = `v.resource_id, v.version, v.mime_type, v.size_bytes, v.s3_key,
-	v.uploader_sub, v.uploader_email, v.restored_from, v.created_at`
+	v.uploader_sub, v.uploader_email, v.restored_from, v.change_summary, v.created_at`
 
 // lockResourceQuery takes the resource row's write lock for the duration of the
 // revision transaction. It is what makes the version number safe to derive: two
@@ -143,10 +153,10 @@ const lockResourceQuery = `SELECT id FROM resources WHERE id = $1 FOR UPDATE`
 const insertRevisionQuery = `
 	INSERT INTO resource_versions
 	(resource_id, version, mime_type, size_bytes, s3_key,
-	 uploader_sub, uploader_email, restored_from, created_at)
+	 uploader_sub, uploader_email, restored_from, change_summary, created_at)
 	SELECT $1,
 	       COALESCE((SELECT MAX(version) FROM resource_versions WHERE resource_id = $1), 0) + 1,
-	       $2, $3, $4, $5, $6, $7, $8
+	       $2, $3, $4, $5, $6, $7, $8, $9
 	RETURNING ` + versionColumns
 
 // updateHeadQuery points the resource at the revision's blob. Both search-index
@@ -182,7 +192,7 @@ func (s *postgresStore) AddRevision(ctx context.Context, rev Revision) (*Version
 
 	v, err := scanVersion(tx.QueryRowContext(ctx, insertRevisionQuery,
 		rev.ResourceID, rev.MIMEType, rev.SizeBytes, rev.S3Key,
-		rev.UploaderSub, rev.UploaderEmail, restoredFrom, now))
+		rev.UploaderSub, rev.UploaderEmail, restoredFrom, rev.ChangeSummary, now))
 	if err != nil {
 		return nil, fmt.Errorf("recording resource revision: %w", err)
 	}
@@ -289,7 +299,7 @@ func scanVersion(sc rowScanner) (*Version, error) {
 	var v Version
 	var restoredFrom sql.NullInt64
 	if err := sc.Scan(&v.ResourceID, &v.Version, &v.MIMEType, &v.SizeBytes, &v.S3Key,
-		&v.UploaderSub, &v.UploaderEmail, &restoredFrom, &v.CreatedAt); err != nil {
+		&v.UploaderSub, &v.UploaderEmail, &restoredFrom, &v.ChangeSummary, &v.CreatedAt); err != nil {
 		return nil, fmt.Errorf("scanning resource version: %w", err)
 	}
 	if restoredFrom.Valid {

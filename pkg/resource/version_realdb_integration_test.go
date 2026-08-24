@@ -96,6 +96,60 @@ func TestResourceVersions_RealDB_RestoredFromRoundTrips(t *testing.T) {
 	assert.Nil(t, fresh.RestoredFrom, "a fresh upload records no source version")
 }
 
+// TestResourceVersions_RealDB_ChangeSummaryRoundTrips: a revision written on
+// somebody's behalf says why, and one they uploaded themselves says nothing --
+// the uploader is the answer there. The column defaults to the empty string
+// rather than NULL, so a revision with no reason scans as a blank rather than a
+// NULL the scanner would have to model (#1450).
+func TestResourceVersions_RealDB_ChangeSummaryRoundTrips(t *testing.T) {
+	store, id := seedRevisableResource(t, "res_rev_summary")
+	versions := store.(VersionStore)
+	ctx := context.Background()
+
+	_, err := versions.AddRevision(ctx, Revision{ResourceID: id, MIMEType: "text/csv", S3Key: "k1"})
+	require.NoError(t, err)
+	corrected, err := versions.AddRevision(ctx, Revision{
+		ResourceID: id, MIMEType: "text/csv", S3Key: "k2",
+		ChangeSummary: "put 2 rows back onto one line",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "put 2 rows back onto one line", corrected.ChangeSummary,
+		"the recorded row comes back from the insert with the reason on it")
+
+	got, err := versions.GetVersion(ctx, id, corrected.Version)
+	require.NoError(t, err)
+	assert.Equal(t, "put 2 rows back onto one line", got.ChangeSummary)
+
+	uploaded, err := versions.GetVersion(ctx, id, 1)
+	require.NoError(t, err)
+	assert.Empty(t, uploaded.ChangeSummary, "an upload records no reason")
+
+	trail, err := versions.ListVersions(ctx, id)
+	require.NoError(t, err)
+	require.Len(t, trail, 2)
+	assert.Equal(t, "put 2 rows back onto one line", trail[0].ChangeSummary)
+	assert.Empty(t, trail[1].ChangeSummary)
+
+	// The prune projects the same columns table-qualified, against a join that
+	// makes six of the names ambiguous on their own, and scans them through the
+	// same scanner. A third revision puts a row past the floor so the prune
+	// actually returns one: with nothing to delete the statement never reaches
+	// the scan, and a qualified projection missing the column would parse and
+	// pass.
+	third, err := versions.AddRevision(ctx, Revision{
+		ResourceID: id, MIMEType: "text/csv", S3Key: "k3",
+		ChangeSummary: "converted the text from windows-1252 to UTF-8",
+	})
+	require.NoError(t, err)
+	require.Equal(t, 3, third.Version)
+
+	pruned, err := versions.PruneVersions(ctx, id, MinMaxVersions)
+	require.NoError(t, err)
+	require.Len(t, pruned, 1, "one revision sits past the floor of two")
+	assert.Equal(t, 1, pruned[0].Version)
+	assert.Empty(t, pruned[0].ChangeSummary, "the pruned row scans its reason like every other read")
+}
+
 func TestResourceVersions_RealDB_MissingVersionIsNotFound(t *testing.T) {
 	store, id := seedRevisableResource(t, "res_rev_missing")
 	versions := store.(VersionStore)

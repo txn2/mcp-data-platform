@@ -314,7 +314,7 @@ Scrolling the dialog reaches its lifecycle surfaces: the read-activity rollup, t
 
 **Replace content** on the detail view uploads a new file for an existing resource. The resource keeps its id, its canonical `mcp://` URI, and its file name, so every `mcp:resource:<id>` citation and prompt attachment pointing at it keeps resolving — which delete-plus-re-upload does not, since that mints a new id and breaks them all. The uploaded file's own name is ignored for that reason; only the bytes, type, and size change. Agents connected at the time are told the resource list changed, so a client re-reads the new content rather than serving the old.
 
-Every revision is recorded in **Version history** with its number, who uploaded it, when, and how large it was. Any version can be downloaded, and any prior version can be **restored** — which re-promotes that version's exact bytes as a new head revision rather than rewinding, so the trail stays append-only and the restored content is itself restorable. A restored revision is labeled with the version it came from.
+Every revision is recorded in **Version history** with its number, who uploaded it, when, and how large it was. Any version can be downloaded, and any prior version can be **restored** — which re-promotes that version's exact bytes as a new head revision rather than rewinding, so the trail stays append-only and the restored content is itself restorable. A restored revision is labeled with the version it came from. A revision the platform wrote on your behalf — a [table registration](registered-tables.md) that had to correct the file before it could read it — carries a line beneath it saying what changed, so a revision nobody uploaded is not mistaken for one somebody did.
 
 History is bounded: a resource keeps its most recent 10 revisions by default ([`resources.managed.max_versions`](configuration.md#managed-resources)), and a revision past the cap deletes the oldest version's stored file. The live content is never pruned.
 
@@ -334,9 +334,13 @@ A spreadsheet export often has a line break inside a cell — a multi-line addre
 
 ![A CSV that has to be corrected first](../images/screenshots/light/admin-resource-table-repair-offer-light.webp#only-light)![A CSV that has to be corrected first](../images/screenshots/dark/admin-resource-table-repair-offer-dark.webp#only-dark)
 
-**Save a corrected copy and register that** does the correction for you: every record gets its own line, every cell goes back onto one line, and the text is converted to UTF-8 if it was not already. The result is a new version of the file itself, so the bytes you uploaded stay as the version before it and the correction can be undone from Version history like any other. The panel then says what changed.
+**Save a corrected copy and register that** does the correction for you: every record gets its own line, every cell goes back onto one line, and the text is converted to UTF-8 if it was not already. The result is a new version of the file itself, so the bytes you uploaded stay as the version before it and the correction can be undone from Version history like any other. The panel then says what changed, and so does the new version's row in Version history.
 
 ![What the correction changed](../images/screenshots/light/admin-resource-table-repaired-light.webp#only-light)![What the correction changed](../images/screenshots/dark/admin-resource-table-repaired-dark.webp#only-dark)
+
+The same description is recorded on the version the correction wrote, so Version history still says why the file changed after this answer is gone. The version below it has none: those are the bytes you uploaded.
+
+![The corrected version in Version history](../images/screenshots/light/admin-resource-corrected-version-light.webp#only-light)![The corrected version in Version history](../images/screenshots/dark/admin-resource-corrected-version-dark.webp#only-dark)
 
 See [Registered Tables](registered-tables.md).
 

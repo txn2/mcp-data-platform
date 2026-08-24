@@ -35,6 +35,9 @@ interface ResourceVersion {
   uploader_sub: string;
   uploader_email: string;
   restored_from?: number;
+  // change_summary says why the content changed, for a revision the platform
+  // wrote on the uploader's behalf. Absent for a revision somebody uploaded.
+  change_summary?: string;
   created_at: string;
 }
 
@@ -605,7 +608,9 @@ export const mockResourceUsage: Record<string, ResourceUsage> = {
 };
 
 // Version trails for the resources whose detail view exercises the panel:
-// res-001 has been revised twice (the second a restore of v1), res-027 once.
+// res-001 has been revised twice (the second a restore of v1), res-011 carries
+// only what its owner uploaded until a registration corrects it (see
+// recordCorrection below), and res-027 has been revised once.
 export const mockResourceVersions: Record<string, ResourceVersion[]> = {
   "res-001": [
     {
@@ -640,6 +645,21 @@ export const mockResourceVersions: Record<string, ResourceVersion[]> = {
       created_at: daysAgo(45),
     },
   ],
+  // The CSV a registration has to correct before it can read it (see
+  // tornCSVSourceID in ./tables). Until the correction is taken the trail is
+  // one uploaded version with nothing to say about why it exists.
+  "res-011": [
+    {
+      resource_id: "res-011",
+      version: 1,
+      mime_type: "text/csv",
+      size_bytes: 15_360,
+      s3_key: "resources/user/david-director/reference/store-list.csv",
+      uploader_sub: "david-director",
+      uploader_email: "david.park@example.com",
+      created_at: daysAgo(10),
+    },
+  ],
   "res-027": [
     {
       resource_id: "res-027",
@@ -653,6 +673,54 @@ export const mockResourceVersions: Record<string, ResourceVersion[]> = {
     },
   ],
 };
+
+// isCorrected reports whether a file's head version is one the platform wrote,
+// which is what makes it readable as a table. The refusal is keyed off it as
+// well as the correction, so registering the same file twice in one session
+// meets the second registration with what a second registration really meets:
+// a file that is already correct.
+export function isCorrected(resourceID: string): boolean {
+  return !!mockResourceVersions[resourceID]?.[0]?.change_summary;
+}
+
+// recordCorrection is what a registration that corrected a file does to the
+// file: a new version under a per-revision directory, carrying the sentence
+// saying what changed, and the resource's head moved onto it. The two move
+// together because that is the contract of the real store -- a head pointing at
+// bytes no version row records is a broken state -- and because the panel is
+// only worth capturing if taking the offer is what makes it change (#1450).
+//
+// It is idempotent: registering the same file twice in one session corrects it
+// once, since the second registration reads a file that is already correct.
+export function recordCorrection(resourceID: string, summary: string, by: string): void {
+  const trail = mockResourceVersions[resourceID];
+  const head = trail?.[0];
+  const resource = resources.find((r) => r.id === resourceID);
+  if (!trail || !head || !resource || isCorrected(resourceID)) {
+    return;
+  }
+  const version = head.version + 1;
+  const s3Key = `resources/${resource.scope}/${resource.scope_id || "global"}/${resourceID}/v/rev${version}/${resource.filename}`;
+  // The revision is recorded against whoever asked for the correction, not the
+  // person who uploaded the version before it: the real path builds its claims
+  // from the caller. Its size is the corrected bytes, which are smaller than
+  // the torn ones by the line breaks the correction took out.
+  const corrected: ResourceVersion = {
+    resource_id: resourceID,
+    version,
+    mime_type: head.mime_type,
+    size_bytes: head.size_bytes - 94,
+    s3_key: s3Key,
+    uploader_sub: by.split("@")[0] ?? by,
+    uploader_email: by,
+    change_summary: summary,
+    created_at: new Date().toISOString(),
+  };
+  trail.unshift(corrected);
+  resource.s3_key = s3Key;
+  resource.size_bytes = corrected.size_bytes;
+  resource.updated_at = corrected.created_at;
+}
 
 // The list carries last_read_at (what the admin table sorts and flags on); the
 // detail read is where the usage rollup is attached.

@@ -264,26 +264,50 @@ func (h *Handler) callerOf(user *portal.User) tableregister.Caller {
 }
 
 // refuse answers a registrar error: the status that describes it, the detail a
-// caller can act on, and -- for a file that could be registered if a corrected
-// version of it were saved first -- the code the form keys its offer of that
-// correction on. action names what was being attempted, for the log line a
-// platform failure leaves behind.
+// caller can act on, and -- for the two answers a surface does something about
+// -- a problem type naming it. Either status can carry one: a file that needs
+// correcting first is a 4xx, and a file that was corrected before the
+// registration failed is a 4xx or a 5xx depending on what failed. action names
+// what was being attempted, for the log line a platform failure leaves behind.
 func refuse(w http.ResponseWriter, action string, err error) {
 	status := statusFor(err)
 	if status == http.StatusInternalServerError {
 		slog.Warn(action+" failed", "error", logsan.SanitizeForLog(err.Error()))
 	}
-	if errors.Is(err, tableregister.ErrNeedsRepair) {
-		httpjson.WriteErrorCode(w, status, codeNeedsRepair, detailFor(err, status))
+	if code := codeFor(err); code != "" {
+		httpjson.WriteErrorCode(w, status, code, detailFor(err, status))
 		return
 	}
 	problem(w, status, detailFor(err, status))
+}
+
+// codeFor names the problem for the two answers a surface does something
+// specific about, or is empty for the refusals whose prose is the whole answer.
+//
+// The two are exclusive: a file that needs a correction has not had one, and a
+// file that has had one is past the check that asks for it.
+func codeFor(err error) string {
+	switch {
+	case errors.Is(err, tableregister.ErrNeedsRepair):
+		return codeNeedsRepair
+	case tableregister.RepairOf(err) != nil:
+		return codeFileCorrected
+	default:
+		return ""
+	}
 }
 
 // codeNeedsRepair is what the form matches on to offer the correction. The
 // detail carries the sentence a person reads; a surface cannot key a control
 // off prose, so the machine-readable half is here.
 const codeNeedsRepair = "csv-needs-repair"
+
+// codeFileCorrected says the file changed even though the registration did
+// not: the correction was written and something after it failed. It is the
+// signal a surface showing the file needs, because the version trail and the
+// file's own record are now behind what is stored, and a client cannot be
+// asked to find that out by reading the detail prose.
+const codeFileCorrected = "file-corrected"
 
 // statusFor maps a registrar refusal onto the status that describes it.
 //
