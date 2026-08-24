@@ -141,6 +141,7 @@ func TestBuild_GatesOnAccessibleTools(t *testing.T) {
 		wantCapture bool
 		wantApply   bool
 		wantPrompt  bool
+		wantScript  bool
 		wantEmpty   bool
 	}{
 		{
@@ -178,6 +179,11 @@ func TestBuild_GatesOnAccessibleTools(t *testing.T) {
 			wantPrompt: true,
 		},
 		{
+			name:       "manage_script adds the settled-work bullet",
+			tools:      []string{"manage_script"},
+			wantScript: true,
+		},
+		{
 			name:      "nil tools yields empty baseline",
 			tools:     nil,
 			wantEmpty: true,
@@ -199,6 +205,7 @@ func TestBuild_GatesOnAccessibleTools(t *testing.T) {
 			mentionsCapture := strings.Contains(got, "`memory_capture`")
 			mentionsApply := strings.Contains(got, "`apply_knowledge`")
 			mentionsPrompt := strings.Contains(got, "`manage_prompt`")
+			mentionsScript := strings.Contains(got, "`manage_script`")
 			if mentionsSearch != tt.wantSearch {
 				t.Errorf("mentions search = %v, want %v (baseline: %q)", mentionsSearch, tt.wantSearch, got)
 			}
@@ -210,6 +217,9 @@ func TestBuild_GatesOnAccessibleTools(t *testing.T) {
 			}
 			if mentionsPrompt != tt.wantPrompt {
 				t.Errorf("mentions manage_prompt = %v, want %v (baseline: %q)", mentionsPrompt, tt.wantPrompt, got)
+			}
+			if mentionsScript != tt.wantScript {
+				t.Errorf("mentions manage_script = %v, want %v (baseline: %q)", mentionsScript, tt.wantScript, got)
 			}
 		})
 	}
@@ -329,5 +339,42 @@ func TestBuild_NamesTheInlineJoin(t *testing.T) {
 	// with no query tool has nothing to join anything with.
 	if strings.Contains(Build([]string{toolSearch, toolFetch}), "VALUES") {
 		t.Error("a caller without trino_query must not be told to join inline")
+	}
+}
+
+// The scripts bullet routes an author to the platform's own authoring guidance,
+// which is the whole point of naming scripts in the baseline: the pages exist
+// and nothing reaches them at the moment the choice is made (#1476).
+func TestBuild_ScriptsBulletNamesTheAuthoringPages(t *testing.T) {
+	got := Build([]string{"manage_script", "fetch"})
+	for _, want := range []string{
+		"command `help`",
+		"mcp:knowledge_page:platform-writing-managed-scripts",
+		"mcp:knowledge_page:platform-script-outputs-and-export-identity",
+		"mcp:knowledge_page:platform-semi-dynamic-dashboards",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("scripts bullet does not name %q: %q", want, got)
+		}
+	}
+	// It also says when a script is the right shape of work at all, so an agent
+	// does not save one while it is still exploring.
+	if !strings.Contains(got, "still exploring") {
+		t.Errorf("scripts bullet states no when-to-write discriminator: %q", got)
+	}
+}
+
+// Like the reuse bullet, the scripts bullet names `fetch` as the way to read a
+// page only when the caller can reach it, and names the pages either way.
+func TestBuild_ScriptsBulletNamesFetchOnlyWhenAccessible(t *testing.T) {
+	noFetch := Build([]string{"manage_script"})
+	if strings.Contains(noFetch, "`fetch`") {
+		t.Errorf("scripts bullet named fetch for a caller without it: %q", noFetch)
+	}
+	if !strings.Contains(noFetch, "mcp:knowledge_page:platform-writing-managed-scripts") {
+		t.Errorf("scripts bullet dropped the pages when fetch is denied: %q", noFetch)
+	}
+	if withFetch := Build([]string{"manage_script", "fetch"}); !strings.Contains(withFetch, "`fetch`") {
+		t.Errorf("scripts bullet should name fetch when accessible: %q", withFetch)
 	}
 }

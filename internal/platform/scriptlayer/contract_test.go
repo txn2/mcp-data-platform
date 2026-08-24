@@ -81,3 +81,24 @@ func TestDialectContract_DecimalGuidanceIsExecutable(t *testing.T) {
 	report := scriptrun.Validate("rows = [{\"total\": \"1.50\"}]\ntotal = " + idiom + "\n")
 	assert.True(t, report.OK, "%+v", report.Findings)
 }
+
+// TestDialectContract_ExportStatesTheDocumentChoice pins the discriminator to
+// the entry where the choice is actually made (#1476). The split between
+// composing a whole document per run and refreshing one document's data region
+// was stated only inside the platform.publish_data entry, one entry later than
+// the decision: an author who had settled on export had no reason to read it,
+// and wrote the scheduled dashboard that destroys its own layout edits every
+// fire. Both entries have to carry it, or they drift back apart.
+func TestDialectContract_ExportStatesTheDocumentChoice(t *testing.T) {
+	_, rest, ok := strings.Cut(DialectContract, "  platform.export(")
+	require.True(t, ok, "the contract no longer has a platform.export entry")
+	entry, _, ok := strings.Cut(rest, "  platform.publish_data(")
+	require.True(t, ok, "platform.export is no longer followed by platform.publish_data")
+
+	assert.Contains(t, entry, "platform.publish_data",
+		"the export entry does not name the data-region alternative, so an author who chose export never learns it exists")
+	for _, want := range []string{"data region", "structure varies", "overwrites the current version"} {
+		assert.Containsf(t, entry, want,
+			"the export entry states no %q half of the discriminator", want)
+	}
+}

@@ -24,6 +24,11 @@ type PageSearcher interface {
 	// dereferenced to the full body). Returns knowledgepage.ErrNotFound for a
 	// missing id.
 	Get(ctx context.Context, id string) (*knowledgepage.Page, error)
+	// GetBySlug reads one live page by slug, the fallback that makes a page
+	// referenceable from shipped text: a built-in page's row id is generated per
+	// deployment at reconcile time, so only its slug is stable across them
+	// (#1476). Returns knowledgepage.ErrNotFound for a missing or deleted slug.
+	GetBySlug(ctx context.Context, slug string) (*knowledgepage.Page, error)
 	// List returns the offset/limit page of live pages plus the total live-page
 	// count, ordered deterministically, for exhaustive enumeration (#695).
 	List(ctx context.Context, filter knowledgepage.Filter) ([]knowledgepage.Page, int, error)
@@ -126,11 +131,11 @@ func (p *PagesProvider) searchByText(ctx context.Context, q Query, seen map[stri
 	return hits, nil
 }
 
-// Fetch dereferences an mcp:knowledge_page:<id> reference to the page's full body
+// Fetch dereferences an mcp:knowledge_page:<key> reference to the page's full body
 // (#694), the consumer the search snippet was built to anticipate ("a hit conveys
 // what the page covers without a fetch"). It owns only the knowledge-page reference
 // form; any other reference is declined (owned=false) so the Router tries the next
-// provider. A missing id, or a soft-deleted page, is ErrNotFound: a page-handler
+// provider. A missing key, or a soft-deleted page, is ErrNotFound: a page-handler
 // Get returns soft-deleted rows (it is the editor's undelete path), so the live
 // read must filter them exactly as the portal HTTP handler does.
 func (p *PagesProvider) Fetch(ctx context.Context, ref string, _ Caller) (*Document, bool, error) {
@@ -139,23 +144,42 @@ func (p *PagesProvider) Fetch(ctx context.Context, ref string, _ Caller) (*Docum
 		// Not a knowledge-page reference: decline so the Router tries the next provider.
 		return nil, false, nil //nolint:nilerr // a non-page reference is a decline, not a failure
 	}
-	page, err := p.searcher.Get(ctx, parsed.RefPageID)
+	page, err := p.readPage(ctx, parsed.RefPageID)
 	if err != nil {
-		if errors.Is(err, knowledgepage.ErrNotFound) {
-			return nil, true, ErrNotFound
-		}
-		return nil, true, fmt.Errorf("getting knowledge page %s: %w", parsed.RefPageID, err)
-	}
-	if page == nil || page.DeletedAt != nil {
-		return nil, true, ErrNotFound
+		return nil, true, err
 	}
 	return &Document{
 		Reference:  ref,
 		Source:     SourceKnowledgePages,
 		Title:      page.Title,
 		Body:       page.Body,
-		References: p.outboundRefs(ctx, parsed.RefPageID),
+		References: p.outboundRefs(ctx, page.ID),
 	}, true, nil
+}
+
+// readPage resolves the key a knowledge-page reference carries: by id first,
+// then by slug when no row holds that id. The slug read is what lets shipped
+// text name a page at all, since a built-in page's row id is generated per
+// deployment at reconcile time and differs everywhere (#1476). The order is the
+// contract: an id read is never shadowed by a slug read, so a page whose slug
+// happens to equal another page's id still resolves as the id it was asked for,
+// and a soft-deleted page the id read found is not-found rather than a reason to
+// go looking for a different page under the same key.
+func (p *PagesProvider) readPage(ctx context.Context, key string) (*knowledgepage.Page, error) {
+	page, err := p.searcher.Get(ctx, key)
+	if errors.Is(err, knowledgepage.ErrNotFound) {
+		page, err = p.searcher.GetBySlug(ctx, key)
+	}
+	if err != nil {
+		if errors.Is(err, knowledgepage.ErrNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("getting knowledge page %s: %w", key, err)
+	}
+	if page == nil || page.DeletedAt != nil {
+		return nil, ErrNotFound
+	}
+	return page, nil
 }
 
 // outboundRefs returns the page's declared references as fetchable graph edges

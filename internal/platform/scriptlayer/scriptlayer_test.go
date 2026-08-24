@@ -660,6 +660,29 @@ func TestHelp_StatesTheDialectAndTheExamples(t *testing.T) {
 	assert.Len(t, fields["examples"], len(examples))
 }
 
+// Help carries the built-in authoring pages, so the tool an agent is told to
+// call before writing its first script is the tool that names the reading
+// (#1476). The references are slugs: a built-in page's row id is generated per
+// deployment, so an id here would resolve nowhere but the deployment it was
+// read from.
+func TestHelp_PointsAtTheBuiltInPages(t *testing.T) {
+	h, _ := newHandle()
+	fields := resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdHelp}))
+
+	seeAlso, ok := fields["see_also"].([]any)
+	require.True(t, ok, "help returned no see_also list: %+v", fields["see_also"])
+	require.Len(t, seeAlso, len(KnowledgePages))
+
+	for i, raw := range seeAlso {
+		entry, ok := raw.(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, KnowledgePages[i].Slug, entry["slug"])
+		assert.Equal(t, "mcp:knowledge_page:"+KnowledgePages[i].Slug, entry["reference"])
+		assert.NotEmpty(t, entry["summary"])
+	}
+	assert.Contains(t, fields["read_a_page"], "fetch")
+}
+
 // TestNilHandleIsSafe covers the deployment shapes that register nothing: no
 // handle at all, and a handle with no database to keep a script in.
 func TestNilHandleIsSafe(t *testing.T) {

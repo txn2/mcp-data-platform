@@ -31,7 +31,7 @@ The consequences of getting the split wrong are concrete. A report template save
 
 Resource categories carry the same distinction one level down: `templates` are layouts a deliverable must be produced in, `playbooks` are procedures to follow rather than summarize, `samples` are examples to pattern-match against, and `references` are documents to consult.
 
-Some knowledge pages arrive with the platform itself: the [built-in pages](../server/portal-user.md#built-in-pages) documenting the features whose purpose is not readable from tool schemas (managed-script authoring, export identity, the dashboard refresh pattern, provenance and the capture loop). They are reconciled from the binary at startup, badged **Built-in**, read-only where people edit, and a deployment can hide one (and later restore it) and write its own page on the topic.
+Some knowledge pages arrive with the platform itself: the [built-in pages](../server/portal-user.md#built-in-pages) documenting the features whose purpose is not readable from tool schemas (managed-script authoring, export identity, the dashboard refresh pattern, provenance and the capture loop). They are reconciled from the binary at startup, badged **Built-in**, read-only where people edit, and a deployment can hide one (and later restore it) and write its own page on the topic. Search ranking is not their only way in: the instruction baseline's scripts bullet and `manage_script help` name them by slug, and `fetch` takes a page's slug in place of its id, so an agent reads the page that bears on the decision in front of it rather than hoping a query surfaces it.
 
 ## What the agent is told
 
