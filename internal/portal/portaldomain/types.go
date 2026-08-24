@@ -595,6 +595,31 @@ const (
 	legacyThumbnailDarkFilename  = "thumbnail_dark.png"
 )
 
+// ThumbnailVariantError is the message a thumbnail endpoint refuses an unknown
+// variant with. It names the vocabulary NormalizeThumbnailVariant accepts, so
+// it lives beside it: the portal and admin endpoints answer the same parameter
+// and must say the same thing about a value neither of them takes.
+const ThumbnailVariantError = "variant must be 'light' or 'dark'"
+
+// NormalizeThumbnailVariant resolves the value of a request's variant
+// parameter. An empty value is the light/default variant; any spelling other
+// than the two named variants is refused rather than defaulted, so a caller
+// asking for something this platform does not store is told so instead of
+// being handed the light image and left to believe it is the one it asked for.
+//
+// Both thumbnail endpoints read the parameter through it, so the portal path
+// and the admin path cannot disagree about what a variant is called.
+func NormalizeThumbnailVariant(v string) (string, bool) {
+	switch v {
+	case "", ThumbnailVariantLight:
+		return ThumbnailVariantLight, true
+	case ThumbnailVariantDark:
+		return ThumbnailVariantDark, true
+	default:
+		return "", false
+	}
+}
+
 // DeriveThumbnailKeyVariant replaces the filename in an S3 key with the
 // thumbnail filename for the given variant. Any variant other than
 // ThumbnailVariantDark takes the light filename.
@@ -824,15 +849,23 @@ type CollectionSection struct {
 // CollectionItem is an ordered reference to an asset within a section.
 // Asset* fields are populated by the store on read (JOIN with portal_assets).
 type CollectionItem struct {
-	ID               string    `json:"id" example:"item_01HK7R9D"`
-	SectionID        string    `json:"section_id" example:"sec_01HK7R9C"`
-	AssetID          string    `json:"asset_id" example:"asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"`
-	Position         int       `json:"position" example:"0"`
-	AssetName        string    `json:"asset_name,omitempty" example:"Q4 Revenue Dashboard"`
-	AssetContentType string    `json:"asset_content_type,omitempty" example:"text/html"`
-	AssetThumbnail   string    `json:"asset_thumbnail_s3_key,omitempty"`
-	AssetDescription string    `json:"asset_description,omitempty" example:"Interactive revenue breakdown"`
-	CreatedAt        time.Time `json:"created_at"`
+	ID               string `json:"id" example:"item_01HK7R9D"`
+	SectionID        string `json:"section_id" example:"sec_01HK7R9C"`
+	AssetID          string `json:"asset_id" example:"asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"`
+	Position         int    `json:"position" example:"0"`
+	AssetName        string `json:"asset_name,omitempty" example:"Q4 Revenue Dashboard"`
+	AssetContentType string `json:"asset_content_type,omitempty" example:"text/html"`
+	AssetThumbnail   string `json:"asset_thumbnail_s3_key,omitempty"`
+	// AssetThumbnailDark is the asset's dark-mode capture, empty for a content
+	// type that carries its own colors and stores one image for both modes.
+	// The two versions are the asset versions each capture was taken from; a
+	// collection tile puts them in the URL so a re-capture is a new URL and is
+	// fetched rather than served from the hour the previous one is cached for.
+	AssetThumbnailDark        string    `json:"asset_thumbnail_dark_s3_key,omitempty"`
+	AssetThumbnailVersion     int       `json:"asset_thumbnail_version"`
+	AssetThumbnailDarkVersion int       `json:"asset_thumbnail_dark_version"`
+	AssetDescription          string    `json:"asset_description,omitempty" example:"Interactive revenue breakdown"`
+	CreatedAt                 time.Time `json:"created_at"`
 }
 
 // CollectionFilter defines filtering criteria for listing collections.

@@ -104,11 +104,81 @@ export function assetThumbnailSrc(
   asset: ThumbnailState & { id: string },
   isDark = false,
 ): string | undefined {
-  if (!asset.thumbnail_s3_key) return undefined;
-  const dark = isDark && !!asset.thumbnail_dark_s3_key;
-  const version = dark ? asset.thumbnail_dark_version : asset.thumbnail_version;
-  const variant = dark ? "variant=dark&" : "";
-  return `/api/v1/portal/assets/${asset.id}/thumbnail?${variant}c=${version}`;
+  const query = thumbnailQuery(
+    {
+      light: asset.thumbnail_s3_key,
+      dark: asset.thumbnail_dark_s3_key,
+      version: asset.thumbnail_version,
+      darkVersion: asset.thumbnail_dark_version,
+    },
+    isDark,
+  );
+  if (query === undefined) return undefined;
+  return `/api/v1/portal/assets/${asset.id}/thumbnail?${query}`;
+}
+
+/** The parts of a collection item that say which capture its tile shows. */
+interface ItemThumbnailState {
+  asset_id: string;
+  asset_thumbnail_s3_key?: string;
+  asset_thumbnail_dark_s3_key?: string;
+  asset_thumbnail_version?: number;
+  asset_thumbnail_dark_version?: number;
+}
+
+/**
+ * The URL a collection item's tile is fetched from.
+ *
+ * A collection item names the same captures as the asset it points at, under
+ * the item's own field names, and its tile is fetched from whichever asset
+ * route the reader is entitled to: the portal route for a collection they own
+ * or a share gives them, the admin route for an administrator reading someone
+ * else's (#1292). Hence the base rather than the fixed portal path.
+ *
+ * Everything else -- which variant, and the version that makes a re-capture a
+ * new URL -- is the question assetThumbnailSrc answers, asked here of the
+ * item's spelling of the same fields.
+ */
+export function collectionItemThumbnailSrc(
+  item: ItemThumbnailState,
+  assetBase: string,
+  isDark = false,
+): string | undefined {
+  const query = thumbnailQuery(
+    {
+      light: item.asset_thumbnail_s3_key,
+      dark: item.asset_thumbnail_dark_s3_key,
+      version: item.asset_thumbnail_version,
+      darkVersion: item.asset_thumbnail_dark_version,
+    },
+    isDark,
+  );
+  if (query === undefined) return undefined;
+  return `${assetBase}/${item.asset_id}/thumbnail?${query}`;
+}
+
+/** One asset's stored captures, however the surface asking names them. */
+interface Captures {
+  light?: string;
+  dark?: string;
+  version?: number;
+  darkVersion?: number;
+}
+
+/**
+ * The query string that selects a capture, or undefined when none was ever
+ * taken -- which is what tells a card to show its content-type icon instead.
+ *
+ * The dark variant is asked for only when one was captured: a content type
+ * that carries its own colors (HTML, JSX, SVG) stores a single image and
+ * serves it in both modes, so its empty dark key means "use the light one",
+ * not "no thumbnail".
+ */
+function thumbnailQuery(c: Captures, isDark: boolean): string | undefined {
+  if (!c.light) return undefined;
+  const dark = isDark && !!c.dark;
+  const version = (dark ? c.darkVersion : c.version) ?? 0;
+  return `${dark ? "variant=dark&" : ""}c=${version}`;
 }
 
 /**

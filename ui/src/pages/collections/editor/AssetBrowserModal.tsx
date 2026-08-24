@@ -10,6 +10,7 @@ import { SortableHead } from "@/components/patterns/SortableHead";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useResolvedDark } from "@/stores/theme";
 
 type SortKey = "name" | "created_at";
 
@@ -27,6 +28,7 @@ export function AssetBrowserModal({
   const [sortBy, setSortBy] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [previewing, setPreviewing] = useState<Asset | null>(null);
+  const isDark = useResolvedDark();
 
   function toggleSort(col: SortKey) {
     if (sortBy === col) {
@@ -100,7 +102,7 @@ export function AssetBrowserModal({
                 <TableCell>
                   {a.thumbnail_s3_key ? (
                     <AuthImg
-                      src={assetThumbnailSrc(a)}
+                      src={assetThumbnailSrc(a, isDark)}
                       alt=""
                       className="h-6 w-8 rounded object-cover"
                     />

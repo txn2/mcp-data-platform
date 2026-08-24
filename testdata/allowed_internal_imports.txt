@@ -416,6 +416,7 @@ pkg/admin -> internal/logsan
 pkg/admin -> internal/platform/callrecord
 pkg/admin -> internal/platform/connsource
 pkg/admin -> internal/platform/reviewalert
+pkg/admin -> internal/portal/portaldomain
 pkg/admin -> internal/server
 pkg/admin -> pkg/audit
 pkg/admin -> pkg/auth

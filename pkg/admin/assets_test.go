@@ -135,6 +135,9 @@ type mockAdminS3Client struct {
 	getErr    error
 	putErr    error
 	deleteErr error
+	// getKey records the object key the last GetObject asked for, which is how
+	// a variant test says which capture was served.
+	getKey string
 }
 
 func (m *mockAdminS3Client) PutObject(_ context.Context, _, _ string, _ []byte, _ string) error {
@@ -146,7 +149,8 @@ func (m *mockAdminS3Client) PutObjectStream(_ context.Context, _, _ string, body
 	return n, m.putErr
 }
 
-func (m *mockAdminS3Client) GetObject(_ context.Context, _, _ string) (body []byte, contentType string, err error) {
+func (m *mockAdminS3Client) GetObject(_ context.Context, _, key string) (body []byte, contentType string, err error) {
+	m.getKey = key
 	return m.getData, m.getCT, m.getErr
 }
 func (m *mockAdminS3Client) DeleteObject(_ context.Context, _, _ string) error { return m.deleteErr }
@@ -1141,6 +1145,57 @@ func TestGetAdminThumbnailSuccess(t *testing.T) {
 	assert.Equal(t, "private, max-age=3600", w.Header().Get("Cache-Control"))
 	assert.Equal(t, "Cookie", w.Header().Get("Vary"))
 	assert.Equal(t, "PNG-DATA", w.Body.String())
+}
+
+// TestGetAdminThumbnailVariant covers the parameter an administrator's browser
+// puts on a collection tile. The admin route is where a collection's thumbnails
+// come from when the reader does not own the collection (#1292), so a reader in
+// dark mode has to be able to ask this route for the dark capture (#1468).
+func TestGetAdminThumbnailVariant(t *testing.T) {
+	now := time.Now()
+	themed := func() *portal.Asset {
+		return &portal.Asset{
+			ID: "a1", OwnerID: "u1", S3Bucket: "b",
+			ThumbnailS3Key: "thumb.png", ThumbnailDarkS3Key: "thumb_dark.png",
+			Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+		}
+	}
+
+	tests := []struct {
+		name     string
+		query    string
+		asset    *portal.Asset
+		wantCode int
+		wantKey  string
+	}{
+		{"no parameter serves light", "", themed(), http.StatusOK, "thumb.png"},
+		{"light", "?variant=light", themed(), http.StatusOK, "thumb.png"},
+		{"dark", "?variant=dark", themed(), http.StatusOK, "thumb_dark.png"},
+		{
+			// HTML, JSX and SVG carry their own colors and store one capture.
+			name: "dark falls back to the only capture", query: "?variant=dark",
+			asset: &portal.Asset{
+				ID: "a1", OwnerID: "u1", S3Bucket: "b", ThumbnailS3Key: "thumb.png",
+				Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+			},
+			wantCode: http.StatusOK, wantKey: "thumb.png",
+		},
+		{"unknown variant is refused", "?variant=sepia", themed(), http.StatusBadRequest, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s3 := &mockAdminS3Client{getData: []byte("PNG-DATA"), getCT: "image/png"}
+			h := newAdminTestHandler(&mockAdminAssetStore{getAsset: tt.asset}, &mockAdminShareStore{}, s3)
+
+			req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/admin/assets/a1/thumbnail"+tt.query, http.NoBody)
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+
+			assert.Equal(t, tt.wantCode, w.Code)
+			assert.Equal(t, tt.wantKey, s3.getKey)
+		})
+	}
 }
 
 func TestGetAdminThumbnailDeleted(t *testing.T) {

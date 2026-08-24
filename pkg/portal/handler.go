@@ -1139,15 +1139,12 @@ const (
 // with 400. Returns the normalized variant and true on success; on failure it
 // writes the error response and returns false.
 func parseThumbnailVariant(w http.ResponseWriter, r *http.Request) (string, bool) {
-	switch r.URL.Query().Get("variant") {
-	case "", thumbnailVariantLight:
-		return thumbnailVariantLight, true
-	case thumbnailVariantDark:
-		return thumbnailVariantDark, true
-	default:
-		writeError(w, http.StatusBadRequest, "variant must be 'light' or 'dark'")
+	variant, ok := portaldomain.NormalizeThumbnailVariant(r.URL.Query().Get("variant"))
+	if !ok {
+		writeError(w, http.StatusBadRequest, portaldomain.ThumbnailVariantError)
 		return "", false
 	}
+	return variant, true
 }
 
 // DeriveThumbnailKey replaces the filename in an S3 key with ".thumbnail.png"
