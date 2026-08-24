@@ -7,7 +7,7 @@ toolchain go1.26.6
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/Masterminds/squirrel v1.5.4
-	github.com/getkin/kin-openapi v0.145.0
+	github.com/getkin/kin-openapi v0.147.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/golang-migrate/migrate/v4 v4.19.1
 	github.com/google/jsonschema-go v0.4.3
