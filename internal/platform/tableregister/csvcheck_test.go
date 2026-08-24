@@ -657,3 +657,150 @@ func TestNormalizeCSV_ConvertsTheDefinedBytesAroundTheUndefinedOnes(t *testing.T
 	assert.Contains(t, string(out), "€ Ž ž Ÿ")
 	assert.NotContains(t, string(out), "�", "no replacement character survives the conversion")
 }
+
+// The offer and the correction used to answer different questions. Correctable
+// inspected the encoding and nothing else, while NormalizeCSV went on to
+// refuse a file whose records did not all have the header's fields and one it
+// could not parse to the end. A caller who was told to register again asking
+// for the correction did so and got a second, different refusal naming a
+// problem the first had not mentioned (#1449). The tests below are that the
+// inspection now settles both, and that neither condition refuses a file that
+// nothing else is wrong with.
+
+// TestInspectCSV_ARaggedRecordWithdrawsTheOffer: the file has a torn row, so
+// it is refused either way; what changed is that the refusal states the field
+// counts and no correction is offered for it.
+func TestInspectCSV_ARaggedRecordWithdrawsTheOffer(t *testing.T) {
+	defect := InspectCSV([]byte("a,b\n1,\"x\ny\"\n2\n"))
+	require.NotNil(t, defect)
+
+	assert.Equal(t, 1, defect.Rows, "the torn row is still what was found")
+	assert.Equal(t, 2, defect.HeaderFields)
+	assert.Equal(t, []string{"record 2 has 1"}, defect.Ragged)
+	assert.False(t, defect.Correctable())
+
+	reason := defect.Reason()
+	assert.Contains(t, reason, "line break inside a cell", "both findings are stated")
+	assert.Contains(t, reason, "the header's 2 fields (record 2 has 1)")
+	assert.Equal(t, "Correct it where it was written and upload it again.", defect.remedy(),
+		"and the person is not told to re-export bytes that are already UTF-8")
+
+	_, _, err := NormalizeCSV([]byte("a,b\n1,\"x\ny\"\n2\n"))
+	require.Error(t, err, "which is the same answer the correction would have given")
+	assert.Contains(t, err.Error(), "the header's 2 fields (record 2 has 1)")
+}
+
+// TestInspectCSV_AParseThatStopsShortWithdrawsTheOffer. The correction rewrites
+// every record, so it cannot be made over a file whose records cannot all be
+// read; ReadAll fails where the scan merely stops.
+func TestInspectCSV_AParseThatStopsShortWithdrawsTheOffer(t *testing.T) {
+	const body = "a,b\n1,\"x\ny\"\n2,he\"llo\n"
+
+	defect := InspectCSV([]byte(body))
+	require.NotNil(t, defect)
+
+	assert.Equal(t, 1, defect.Rows, "read up to the record it could not parse")
+	assert.Contains(t, defect.Unreadable, "bare \" in non-quoted-field")
+	assert.False(t, defect.Correctable())
+	assert.Contains(t, defect.Reason(), "not readable as a CSV all the way through")
+	assert.Empty(t, defect.Ragged, "the parse error is reported ahead of counts it never reached")
+
+	_, _, err := NormalizeCSV([]byte(body))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not readable as a CSV all the way through")
+}
+
+// TestInspectCSV_AHeaderTheReaderCannotParseWithdrawsTheOfferToo. The scan
+// reads the header before its loop, and a failure there used to return
+// claiming nothing -- which left the offer standing for a file whose defect
+// was settled before the scan ran, an encoding or carriage-return endings, and
+// which the correction then refused on its own ReadAll.
+func TestInspectCSV_AHeaderTheReaderCannotParseWithdrawsTheOfferToo(t *testing.T) {
+	// windows-1252 bytes, so the file has a defect the scan is not the source
+	// of, and a bare quote in the header, so the scan's first read fails.
+	const body = "Caf\xe9,He said \"hi\"\nx,y\n"
+
+	defect := InspectCSV([]byte(body))
+	require.NotNil(t, defect)
+
+	assert.Equal(t, encodingWindows1252, defect.Encoding)
+	assert.Contains(t, defect.Unreadable, "bare \" in non-quoted-field")
+	assert.False(t, defect.Correctable())
+	assert.Contains(t, defect.Reason(), "not readable as a CSV all the way through")
+
+	_, _, err := NormalizeCSV([]byte(body))
+	require.Error(t, err, "which is the answer the correction would have given")
+	assert.Contains(t, err.Error(), "not readable as a CSV all the way through")
+}
+
+// TestInspectCSV_NeitherConditionIsADefectOnItsOwn. A ragged file, and one the
+// reader gives up on partway, register today. Both are reasons not to offer a
+// correction and neither is a reason to refuse a file nothing else is wrong
+// with, which is the invariant the scan tolerated a parse failure for in the
+// first place.
+func TestInspectCSV_NeitherConditionIsADefectOnItsOwn(t *testing.T) {
+	assert.Nil(t, InspectCSV([]byte("a,b\n1,2\n3\n")), "ragged, and readable by a line-based reader")
+	assert.Nil(t, InspectCSV([]byte("a,b\n1,2\n3,he\"llo\n")), "unparseable partway, and every record on its own line")
+	assert.Nil(t, InspectCSV([]byte("a,he said \"hi\"\n1,2\n")), "and the same where the header is the record it stops on")
+}
+
+// TestInspectCSV_AConsistentFileWithATornRowIsStillOffered is the other half:
+// the condition added above must not withdraw the correction from the shape it
+// exists for.
+func TestInspectCSV_AConsistentFileWithATornRowIsStillOffered(t *testing.T) {
+	defect := InspectCSV([]byte(spreadsheetCSV))
+	require.NotNil(t, defect)
+
+	assert.True(t, defect.Correctable())
+	assert.Empty(t, defect.Ragged)
+	assert.Empty(t, defect.Unreadable)
+	assert.NotContains(t, defect.Reason(), "the header's")
+
+	out, report, err := NormalizeCSV([]byte(spreadsheetCSV))
+	require.NoError(t, err, "and it still corrects")
+	assert.Equal(t, 2, report.RowsRepaired)
+	assert.NotContains(t, string(out), "Suite 4\n")
+}
+
+// TestInspectCSV_NamesAtMostFiveRaggedRecords. A file whose every record is
+// ragged is not a CSV with a few bad rows, and printing all of them buries the
+// sentence that says so. The bound is the one checkFieldCounts uses, so the
+// two refusals name the same records.
+func TestInspectCSV_NamesAtMostFiveRaggedRecords(t *testing.T) {
+	body := "a,b\n1,\"x\ny\"\n" + strings.Repeat("9\n", maxNamedRecords+3)
+
+	defect := InspectCSV([]byte(body))
+	require.NotNil(t, defect)
+	assert.Len(t, defect.Ragged, maxNamedRecords)
+	assert.Equal(t, "record 2 has 1", defect.Ragged[0])
+	assert.False(t, defect.Correctable(), "every record beyond the bound is still ragged")
+
+	_, _, err := NormalizeCSV([]byte(body))
+	require.Error(t, err)
+	for _, named := range defect.Ragged {
+		assert.Contains(t, err.Error(), named, "the correction names the same records")
+	}
+}
+
+// TestCSVDefect_RemedyMatchesWhatIsWrong. Bytes the platform cannot read are
+// re-exported; records it will not adjust are fixed where the file was
+// written. Telling somebody to re-export a file whose bytes were never the
+// problem sends them at the wrong thing.
+func TestCSVDefect_RemedyMatchesWhatIsWrong(t *testing.T) {
+	assert.Equal(t, "Re-export it as UTF-8 CSV and upload that.",
+		(&CSVDefect{Encoding: encodingUTF16}).remedy())
+	assert.Equal(t, "Correct it where it was written and upload it again.",
+		(&CSVDefect{HeaderFields: 2, Ragged: []string{"record 1 has 1"}}).remedy())
+	assert.Equal(t, "Correct it where it was written and upload it again.",
+		(&CSVDefect{Unreadable: "parse error"}).remedy())
+}
+
+// TestCSVDefect_CorrectableIsEveryRuleTheCorrectionApplies. Correctable is the
+// question NormalizeCSV answers, asked before the offer is made; each of the
+// three things that refuse there refuses here.
+func TestCSVDefect_CorrectableIsEveryRuleTheCorrectionApplies(t *testing.T) {
+	assert.True(t, (&CSVDefect{Rows: 1}).Correctable())
+	assert.False(t, (&CSVDefect{Rows: 1, Encoding: encodingWide}).Correctable())
+	assert.False(t, (&CSVDefect{Rows: 1, Ragged: []string{"record 1 has 1"}}).Correctable())
+	assert.False(t, (&CSVDefect{Rows: 1, Unreadable: "parse error"}).Correctable())
+}
