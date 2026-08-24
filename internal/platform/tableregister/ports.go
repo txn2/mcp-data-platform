@@ -45,6 +45,11 @@ type ObjectEntry struct {
 // The original object is never modified. A correction is the version on top of
 // it, so the file a person uploaded stays what they uploaded and the change is
 // revertible from the panel every other version is.
+//
+// summary says why the file changed, in the terms the person who uploaded it
+// would use. Both kinds record it on the version they write, so a reader of
+// either history sees the reason beside the version without having to find the
+// registration that made it.
 type Reviser interface {
 	Revise(ctx context.Context, src Source, caller Caller, content []byte, summary string) (Revised, error)
 }

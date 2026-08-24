@@ -91,9 +91,12 @@ func resourceReviserFor(
 	}
 }
 
-// Revise writes the corrected bytes as the resource's next revision.
+// Revise writes the corrected bytes as the resource's next revision. The
+// summary is what the version panel shows beside it, so a reader of the history
+// sees why the file changed without having to find the registration that did
+// it -- the same thing the corrected asset's version carries.
 func (r *resourceReviser) Revise(
-	ctx context.Context, src tableregister.Source, caller tableregister.Caller, content []byte, _ string,
+	ctx context.Context, src tableregister.Source, caller tableregister.Caller, content []byte, summary string,
 ) (tableregister.Revised, error) {
 	res, err := r.deps.Store.Get(ctx, src.ID)
 	if err != nil {
@@ -105,7 +108,7 @@ func (r *resourceReviser) Revise(
 	claims := resource.BuildClaims(caller.UserID, caller.Email, caller.Persona, caller.Roles, caller.IsAdmin)
 
 	updated, version, err := resource.ReviseContent(ctx, r.deps, res, &claims,
-		resource.RevisionUpload{Data: content, MIMEType: contenttype.CSV})
+		resource.RevisionUpload{Data: content, MIMEType: contenttype.CSV, ChangeSummary: summary})
 	if err != nil {
 		return tableregister.Revised{}, fmt.Errorf("recording the corrected revision: %w", err)
 	}

@@ -23,9 +23,10 @@ async function downloadVersion(resource: Resource, version: number) {
   URL.revokeObjectURL(url);
 }
 
-// VersionRow renders one revision: who made it, when, how big it was, and the
-// actions available on it. The current revision has no restore action — it is
-// already what the resource serves.
+// VersionRow renders one revision: who made it, when, how big it was, the
+// actions available on it, and, beneath, why the content changed when the
+// revision was written on the uploader's behalf. The current revision has no
+// restore action — it is already what the resource serves.
 function VersionRow({
   resource,
   version: v,
@@ -42,47 +43,51 @@ function VersionRow({
   onRestore: (version: number) => void;
 }) {
   return (
-    <li
-      data-testid={`resource-version-${v.version}`}
-      className="flex items-center gap-2 text-xs text-muted-foreground"
-    >
-      <span className="w-8 shrink-0 font-medium text-foreground">v{v.version}</span>
-      {isCurrent && (
-        <Badge variant="success" className="px-1.5">
-          current
-        </Badge>
-      )}
-      {v.restored_from !== undefined && (
-        <Badge variant="muted" className="rounded px-1.5">
-          restored v{v.restored_from}
-        </Badge>
-      )}
-      <span className="truncate">{v.uploader_email || v.uploader_sub}</span>
-      <span className="shrink-0">{new Date(v.created_at).toLocaleString()}</span>
-      <span className="shrink-0 tabular-nums">{formatBytes(v.size_bytes)}</span>
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        onClick={() => void downloadVersion(resource, v.version)}
-        title={`Download v${v.version}`}
-        aria-label={`Download v${v.version}`}
-        data-testid={`download-version-${v.version}`}
-        className="ml-auto"
-      >
-        <Download />
-      </Button>
-      {canModify && !isCurrent && (
+    <li data-testid={`resource-version-${v.version}`} className="text-xs text-muted-foreground">
+      <div className="flex items-center gap-2">
+        <span className="w-8 shrink-0 font-medium text-foreground">v{v.version}</span>
+        {isCurrent && (
+          <Badge variant="success" className="px-1.5">
+            current
+          </Badge>
+        )}
+        {v.restored_from !== undefined && (
+          <Badge variant="muted" className="rounded px-1.5">
+            restored v{v.restored_from}
+          </Badge>
+        )}
+        <span className="truncate">{v.uploader_email || v.uploader_sub}</span>
+        <span className="shrink-0">{new Date(v.created_at).toLocaleString()}</span>
+        <span className="shrink-0 tabular-nums">{formatBytes(v.size_bytes)}</span>
         <Button
           variant="ghost"
           size="icon-xs"
-          onClick={() => onRestore(v.version)}
-          disabled={busy}
-          title={`Restore v${v.version}`}
-          aria-label={`Restore v${v.version}`}
-          data-testid={`restore-version-${v.version}`}
+          onClick={() => void downloadVersion(resource, v.version)}
+          title={`Download v${v.version}`}
+          aria-label={`Download v${v.version}`}
+          data-testid={`download-version-${v.version}`}
+          className="ml-auto"
         >
-          <RotateCcw />
+          <Download />
         </Button>
+        {canModify && !isCurrent && (
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => onRestore(v.version)}
+            disabled={busy}
+            title={`Restore v${v.version}`}
+            aria-label={`Restore v${v.version}`}
+            data-testid={`restore-version-${v.version}`}
+          >
+            <RotateCcw />
+          </Button>
+        )}
+      </div>
+      {v.change_summary && (
+        <p className="ml-10 italic" data-testid={`resource-version-summary-${v.version}`}>
+          {v.change_summary}
+        </p>
       )}
     </li>
   );

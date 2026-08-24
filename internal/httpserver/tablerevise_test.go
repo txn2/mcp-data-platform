@@ -263,6 +263,8 @@ func TestResourceReviser_WritesTheCorrectionAsTheResourcesNextRevision(t *testin
 	require.Len(t, versions.added, 1)
 	assert.Equal(t, "alice@example.com", versions.added[0].UploaderEmail)
 	assert.Equal(t, "text/csv", versions.added[0].MIMEType)
+	assert.Equal(t, "put 1 row back onto one line", versions.added[0].ChangeSummary,
+		"the version panel says why the file changed")
 
 	body, _, err := objects.GetObject(context.Background(), revised.Bucket, revised.Key)
 	require.NoError(t, err)
@@ -288,6 +290,44 @@ func TestResourceReviser_RefusesWhatItCannotRead(t *testing.T) {
 		tableregister.Source{ID: "res_1"}, tableregister.Caller{}, []byte("a,b\n1,2\n"), "")
 	require.Error(t, err)
 	assert.Empty(t, objects.put)
+}
+
+// TestRevisers_BothKindsRecordWhyTheFileChanged. The registrar hands every
+// reviser the same sentence describing the repair, and until #1450 only one
+// kind kept it: a corrected managed resource sat in its version history
+// indistinguishable from a file its owner uploaded, while a corrected asset
+// carried the reason. Both trails are read by a person asking the same
+// question, so both record the same answer.
+func TestRevisers_BothKindsRecordWhyTheFileChanged(t *testing.T) {
+	const summary = "rewrote the CRLF line endings as newlines and put 2 rows back onto one line"
+	content := []byte("store_id,address\n101,12 Mill Rd Suite 4\n")
+
+	res := &resource.Resource{
+		ID: "res_1", Scope: resource.ScopeGlobal, Filename: "store-list.csv",
+		MIMEType: "text/csv", S3Key: "resources/global/global/res_1/store-list.csv",
+	}
+	resourceVersions := &reviseResourceVersions{res: res}
+	resources := &resourceReviser{deps: resource.Deps{
+		Store:    &reviseResourceStore{res: res},
+		Versions: resourceVersions,
+		S3Client: newReviseObjects(), S3Bucket: "managed-resources",
+	}}
+	_, err := resources.Revise(context.Background(),
+		tableregister.Source{Kind: tableregister.KindResource, ID: "res_1"},
+		tableregister.Caller{Email: "alice@example.com"}, content, summary)
+	require.NoError(t, err)
+
+	assets := newAssetReviserHarness()
+	_, err = assets.reviser.Revise(context.Background(),
+		tableregister.Source{Kind: tableregister.KindAsset, ID: "asset_1", Bucket: "portal-assets"},
+		tableregister.Caller{Email: "alice@example.com"}, content, summary)
+	require.NoError(t, err)
+
+	require.Len(t, resourceVersions.added, 1)
+	require.Len(t, assets.versions.created, 1)
+	assert.Equal(t, summary, resourceVersions.added[0].ChangeSummary)
+	assert.Equal(t, assets.versions.created[0].ChangeSummary, resourceVersions.added[0].ChangeSummary,
+		"a reader of either kind's version history is told the same thing")
 }
 
 // --- wiring ---

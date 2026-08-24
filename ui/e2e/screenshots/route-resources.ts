@@ -5,6 +5,7 @@ import {
   openTableRegisterForm,
   openTableRepairOffer,
   openTableRepaired,
+  openCorrectedVersion,
 } from "./route-actions";
 import { type ScreenshotRoute } from "./route-types";
 
@@ -70,5 +71,15 @@ export const adminResourceRoutes: ScreenshotRoute[] = [
     path: "/portal/admin/resources",
     category: "admin",
     beforeCapture: openTableRepaired,
+  },
+  {
+    // The same dialog's version history after the correction: the new version
+    // says why the file changed, the version below it is what its owner
+    // uploaded and says nothing. This is what a reader sees once the
+    // registration's own answer is no longer on screen (#1450).
+    slug: "resource-corrected-version",
+    path: "/portal/admin/resources",
+    category: "admin",
+    beforeCapture: openCorrectedVersion,
   },
 ];

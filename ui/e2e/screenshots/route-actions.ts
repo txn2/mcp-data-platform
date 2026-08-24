@@ -544,3 +544,21 @@ export async function openTableRepaired(page: Page): Promise<void> {
   await page.getByTestId("table-repair-notice").waitFor({ state: "visible", timeout: 5_000 });
   await page.waitForTimeout(400);
 }
+
+/**
+ * openCorrectedVersion scrolls the same dialog to the version history, where the
+ * correction is recorded: the new version carries the description of what
+ * changed, and the version below it -- the bytes its owner uploaded -- has none
+ * (#1450).
+ */
+export async function openCorrectedVersion(page: Page): Promise<void> {
+  await openTableRepaired(page);
+  await page.getByTestId("resource-versions").scrollIntoViewIfNeeded({ timeout: 3_000 });
+  // Waited on rather than timed out: a swallowed scroll would ship an
+  // un-scrolled dialog captioned as the version history, and a panel that
+  // rendered without the summary is the defect this capture documents.
+  await page
+    .getByTestId("resource-version-summary-2")
+    .waitFor({ state: "visible", timeout: 5_000 });
+  await page.waitForTimeout(300);
+}

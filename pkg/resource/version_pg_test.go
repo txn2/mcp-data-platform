@@ -13,7 +13,7 @@ import (
 func versionRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"resource_id", "version", "mime_type", "size_bytes", "s3_key",
-		"uploader_sub", "uploader_email", "restored_from", "created_at",
+		"uploader_sub", "uploader_email", "restored_from", "change_summary", "created_at",
 	})
 }
 
@@ -81,8 +81,9 @@ func TestAddRevision(t *testing.T) {
 			WithArgs("r1").
 			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("r1"))
 		mock.ExpectQuery("INSERT INTO resource_versions").
-			WithArgs("r1", "text/csv", int64(12), "k/v/rev1/f.csv", "sub", "u@example.com", nil, sqlmock.AnyArg()).
-			WillReturnRows(versionRows().AddRow("r1", 3, "text/csv", int64(12), "k/v/rev1/f.csv", "sub", "u@example.com", nil, now))
+			WithArgs("r1", "text/csv", int64(12), "k/v/rev1/f.csv", "sub", "u@example.com", nil, "", sqlmock.AnyArg()).
+			WillReturnRows(versionRows().
+				AddRow("r1", 3, "text/csv", int64(12), "k/v/rev1/f.csv", "sub", "u@example.com", nil, "", now))
 		mock.ExpectExec("UPDATE resources").
 			WithArgs("text/csv", int64(12), "k/v/rev1/f.csv", sqlmock.AnyArg(), "r1").
 			WillReturnResult(sqlmock.NewResult(0, 1))
@@ -116,7 +117,7 @@ func TestAddRevision(t *testing.T) {
 			WithArgs("r1").
 			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("r1"))
 		mock.ExpectQuery("INSERT INTO resource_versions").
-			WillReturnRows(versionRows().AddRow("r1", 1, "text/csv", int64(1), "k", "sub", "", nil, time.Now()))
+			WillReturnRows(versionRows().AddRow("r1", 1, "text/csv", int64(1), "k", "sub", "", nil, "", time.Now()))
 		mock.ExpectExec("UPDATE resources").WillReturnResult(sqlmock.NewResult(0, 0))
 		mock.ExpectRollback()
 
@@ -142,8 +143,8 @@ func TestAddRevision(t *testing.T) {
 			WithArgs("r1").
 			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("r1"))
 		mock.ExpectQuery("INSERT INTO resource_versions").
-			WithArgs("r1", "", int64(0), "", "", "", int64(2), sqlmock.AnyArg()).
-			WillReturnRows(versionRows().AddRow("r1", 5, "", int64(0), "", "", "", 2, time.Now()))
+			WithArgs("r1", "", int64(0), "", "", "", int64(2), "", sqlmock.AnyArg()).
+			WillReturnRows(versionRows().AddRow("r1", 5, "", int64(0), "", "", "", 2, "", time.Now()))
 		mock.ExpectExec("UPDATE resources").WillReturnResult(sqlmock.NewResult(0, 1))
 		mock.ExpectCommit()
 
@@ -169,8 +170,8 @@ func TestListAndGetVersion(t *testing.T) {
 	mock.ExpectQuery("SELECT .+ FROM resource_versions").
 		WithArgs("r1").
 		WillReturnRows(versionRows().
-			AddRow("r1", 2, "text/csv", int64(20), "k2", "sub", "u@example.com", 1, now).
-			AddRow("r1", 1, "text/csv", int64(10), "k1", "sub", "u@example.com", nil, now))
+			AddRow("r1", 2, "text/csv", int64(20), "k2", "sub", "u@example.com", 1, "", now).
+			AddRow("r1", 1, "text/csv", int64(10), "k1", "sub", "u@example.com", nil, "", now))
 
 	versions, err := store.ListVersions(context.Background(), "r1")
 	if err != nil {
@@ -188,7 +189,7 @@ func TestListAndGetVersion(t *testing.T) {
 
 	mock.ExpectQuery("SELECT .+ FROM resource_versions").
 		WithArgs("r1", 1).
-		WillReturnRows(versionRows().AddRow("r1", 1, "text/csv", int64(10), "k1", "sub", "u@example.com", nil, now))
+		WillReturnRows(versionRows().AddRow("r1", 1, "text/csv", int64(10), "k1", "sub", "u@example.com", nil, "", now))
 	v, err := store.GetVersion(context.Background(), "r1", 1)
 	if err != nil {
 		t.Fatalf("GetVersion: %v", err)
@@ -230,7 +231,7 @@ func TestPruneVersions(t *testing.T) {
 
 		mock.ExpectQuery("DELETE FROM resource_versions").
 			WithArgs("r1", 10).
-			WillReturnRows(versionRows().AddRow("r1", 1, "text/csv", int64(10), "old-key", "sub", "", nil, time.Now()))
+			WillReturnRows(versionRows().AddRow("r1", 1, "text/csv", int64(10), "old-key", "sub", "", nil, "", time.Now()))
 
 		pruned, err := store.PruneVersions(context.Background(), "r1", 10)
 		if err != nil {
@@ -341,7 +342,8 @@ func TestListVersions_ReadFailures(t *testing.T) {
 		// A version number the driver cannot convert to int: the scan must fail
 		// loudly rather than yield a half-populated trail.
 		mock.ExpectQuery("SELECT .+ FROM resource_versions").
-			WillReturnRows(versionRows().AddRow("r1", "not-a-number", "text/csv", int64(1), "k", "sub", "", nil, time.Now()))
+			WillReturnRows(versionRows().
+				AddRow("r1", "not-a-number", "text/csv", int64(1), "k", "sub", "", nil, "", time.Now()))
 		if _, err := store.ListVersions(context.Background(), "r1"); err == nil {
 			t.Fatal("ListVersions returned rows it could not scan")
 		}

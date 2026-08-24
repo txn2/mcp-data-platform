@@ -261,7 +261,9 @@ registration is then built over the new version's directory, so the table is
 current from the moment it exists.
 
 The result says what changed, in the portal and in the tool's answer, because
-the person's file changed.
+the person's file changed. The same sentence is recorded on the version the
+correction wrote, for either kind, so the version panel says why the file
+changed without a reader having to find the registration that did it.
 
 A file the correction cannot put right is refused once, and no correction is
 offered for it. Two things put a file there. A record whose field count differs

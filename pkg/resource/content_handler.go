@@ -140,6 +140,9 @@ type RevisionUpload struct {
 	MIMEType string
 	// RestoredFrom names the version a restore re-promoted, nil otherwise.
 	RestoredFrom *int
+	// ChangeSummary says why the content changed, for a revision written on the
+	// uploader's behalf. Empty for an upload the uploader picked themselves.
+	ChangeSummary string
 }
 
 // ReviseContent writes the bytes to a fresh per-revision key, records the
@@ -175,6 +178,7 @@ func ReviseContent(
 		UploaderSub:   claims.Sub,
 		UploaderEmail: claims.Email,
 		RestoredFrom:  up.RestoredFrom,
+		ChangeSummary: up.ChangeSummary,
 	})
 	if err != nil {
 		_ = deps.S3Client.DeleteObject(ctx, deps.S3Bucket, key)

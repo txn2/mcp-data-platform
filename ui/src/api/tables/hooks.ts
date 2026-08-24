@@ -107,10 +107,52 @@ export function useRegisterTable(kind: TableSourceKind, id: string) {
         method: "POST",
         body: JSON.stringify(body),
       }),
-    onSuccess: () => {
+    onSuccess: (registration) => {
       void qc.invalidateQueries({ queryKey: tablesKey(kind, id) });
+      // A registration that corrected the file wrote a version of it, and the
+      // version panel sits on the same page as the answer saying so. Without
+      // this it keeps showing the version before the correction as current,
+      // and the file's own size and updated date stay behind with it.
+      if (registration.repaired) {
+        invalidateCorrectedSource(qc, kind, id);
+      }
+    },
+    // The correction is written before the last checks and before the DDL, so
+    // a refusal or a failure can follow one and the file stays changed either
+    // way. The server says so with its own problem type rather than in prose,
+    // and the panels showing the file are as far behind here as they would be
+    // after a success.
+    onError: (error) => {
+      if (error instanceof TableApiError && error.type === PROBLEM_FILE_CORRECTED) {
+        invalidateCorrectedSource(qc, kind, id);
+      }
     },
   });
+}
+
+// PROBLEM_FILE_CORRECTED is the RFC 9457 type on an answer whose registration
+// did not happen but whose file changed anyway (codeFileCorrected in
+// internal/httpserver/tablehttp).
+const PROBLEM_FILE_CORRECTED = "urn:mcp-data-platform:problem:file-corrected";
+
+// invalidateCorrectedSource refreshes what a correction changed about the file
+// itself: its version trail and the record carrying its size, type, and head.
+// The queries differ per kind because the trails do -- a managed resource
+// records a revision, a portal asset records a version.
+function invalidateCorrectedSource(
+  qc: ReturnType<typeof useQueryClient>,
+  kind: TableSourceKind,
+  id: string,
+): void {
+  if (kind === "resource") {
+    // One prefix: the detail read and the version trail are both under it.
+    void qc.invalidateQueries({ queryKey: ["resources"] });
+    return;
+  }
+  void qc.invalidateQueries({ queryKey: ["asset", id] });
+  void qc.invalidateQueries({ queryKey: ["asset-content", id] });
+  void qc.invalidateQueries({ queryKey: ["asset-versions", id] });
+  void qc.invalidateQueries({ queryKey: ["assets"] });
 }
 
 export function useUnregisterTable(kind: TableSourceKind, id: string) {

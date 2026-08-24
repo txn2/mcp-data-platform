@@ -2,6 +2,7 @@ import type {
   TableConnection,
   TableRegistration,
 } from "@/api/tables/types";
+import { isCorrected, recordCorrection } from "./resources";
 
 // Table registrations (#1327). The fixtures cover the states the panel renders
 // differently: a current registration, one whose file has moved on since, a
@@ -92,6 +93,11 @@ export const tornCSVProblem = {
     "the file as it was uploaded stays as the version before it.",
 };
 
+// tornCSVRepairSummary is what the correction did, in the terms the backend's
+// repairSummary renders. One constant because the registration's answer and the
+// version the correction wrote say the same thing (#1450).
+export const tornCSVRepairSummary = "put 94 rows back onto one line";
+
 // mockRegisterTable adds a registration the way the backend would: the
 // persona-prefixed name, the columns of the file's header, and the location of
 // the directory the file already sits in. A file that cannot be read as a table
@@ -107,7 +113,12 @@ export async function mockRegisterTable(
     table_name?: string;
     repair?: boolean;
   };
-  if (sourceID === tornCSVSourceID && !body.repair) {
+  // A file already corrected in this session is readable as a table, so the
+  // second registration of it is an ordinary one -- the same thing the backend
+  // does, where the refusal comes from inspecting the bytes the head points at
+  // rather than from the file's identity.
+  const needsRepair = sourceID === tornCSVSourceID && !isCorrected(sourceID);
+  if (needsRepair && !body.repair) {
     return tornCSVProblem;
   }
   const conn = mockTableConnections.find((c) => c.name === body.connection) ?? scratchConnection;
@@ -135,12 +146,16 @@ export async function mockRegisterTable(
     registered_at: new Date("2026-08-22T10:00:00Z").toISOString(),
     query_table: `${conn.catalog}.${conn.schema}.${table}`,
     stale: false,
-    repaired:
-      sourceID === tornCSVSourceID
-        ? "Saved version 2 of this file, which put 94 rows back onto one line. The file as it was " +
-          "uploaded is still there as the version before it."
-        : undefined,
+    repaired: needsRepair
+      ? `Saved version 2 of this file, which ${tornCSVRepairSummary}. The file as it was ` +
+        "uploaded is still there as the version before it."
+      : undefined,
   };
+  // The correction is a version of the file, not a property of the
+  // registration: it outlives this answer and is what the version panel shows.
+  if (reg.repaired) {
+    recordCorrection(sourceID, tornCSVRepairSummary, reg.registered_by);
+  }
   mockTableRegistrations[sourceID] = [reg, ...(mockTableRegistrations[sourceID] ?? [])];
   return reg;
 }
