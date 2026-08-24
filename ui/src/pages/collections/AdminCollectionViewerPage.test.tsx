@@ -56,6 +56,9 @@ const collection = {
           asset_content_type: "text/markdown",
           asset_description: "",
           asset_thumbnail_s3_key: "thumbnails/ast-006.png",
+          asset_thumbnail_dark_s3_key: "thumbnails/ast-006_dark.png",
+          asset_thumbnail_version: 2,
+          asset_thumbnail_dark_version: 2,
           created_at: "2026-01-01T00:00:00Z",
         },
       ],
@@ -108,7 +111,9 @@ describe("AdminCollectionViewerPage (#1292)", () => {
     );
 
     const img = container.querySelector("img");
-    expect(img?.getAttribute("src")).toContain("/api/v1/admin/assets/ast-006/thumbnail");
+    // The capture's version rides along so a re-capture is a new URL rather
+    // than an hour behind the browser cache (#1468).
+    expect(img?.getAttribute("src")).toBe("/api/v1/admin/assets/ast-006/thumbnail?c=2");
   });
 
   it("saves an edited name through the admin route", async () => {

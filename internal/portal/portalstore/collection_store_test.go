@@ -100,10 +100,11 @@ func TestPostgresCollectionStoreGet(t *testing.T) {
 	// getItemsBySections query
 	itemRows := sqlmock.NewRows([]string{
 		"id", "section_id", "asset_id", "position", "created_at",
-		"name", "content_type", "thumbnail_s3_key", "description",
+		"name", "content_type", "thumbnail_s3_key", "thumbnail_dark_s3_key",
+		"thumbnail_version", "thumbnail_dark_version", "description",
 	}).
-		AddRow("item1", "sec1", "asset1", 0, now, "Asset One", "text/html", "t1.png", "First asset").
-		AddRow("item2", "sec2", "asset2", 0, now, "Asset Two", "image/svg+xml", "t2.png", "Second asset")
+		AddRow("item1", "sec1", "asset1", 0, now, "Asset One", "text/csv", "t1.png", "t1_dark.png", 4, 3, "First asset").
+		AddRow("item2", "sec2", "asset2", 0, now, "Asset Two", "image/svg+xml", "t2.png", "", 2, 0, "Second asset")
 
 	mock.ExpectQuery("SELECT .+ FROM portal_collection_items").
 		WithArgs(sqlmock.AnyArg()).
@@ -121,6 +122,13 @@ func TestPostgresCollectionStoreGet(t *testing.T) {
 	require.Len(t, coll.Sections[0].Items, 1)
 	assert.Equal(t, "asset1", coll.Sections[0].Items[0].AssetID)
 	assert.Equal(t, "Asset One", coll.Sections[0].Items[0].AssetName)
+	// Both captures and the version each was taken from travel with the item:
+	// without them a tile can only ask for the light image (#1468).
+	assert.Equal(t, "t1_dark.png", coll.Sections[0].Items[0].AssetThumbnailDark)
+	assert.Equal(t, 4, coll.Sections[0].Items[0].AssetThumbnailVersion)
+	assert.Equal(t, 3, coll.Sections[0].Items[0].AssetThumbnailDarkVersion)
+	assert.Empty(t, coll.Sections[1].Items[0].AssetThumbnailDark,
+		"a type that carries its own colors stores one capture and serves it in both modes")
 	require.Len(t, coll.Sections[1].Items, 1)
 	assert.Equal(t, "asset2", coll.Sections[1].Items[0].AssetID)
 	assert.NoError(t, mock.ExpectationsWereMet())

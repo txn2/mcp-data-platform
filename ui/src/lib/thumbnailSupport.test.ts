@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   assetThumbnailSrc,
+  collectionItemThumbnailSrc,
   isThemeable,
   isThumbnailSupported,
   thumbnailBehind,
@@ -127,5 +128,58 @@ describe("assetThumbnailSrc", () => {
 
   it("is undefined when no capture has been recorded, which is what shows the icon", () => {
     expect(assetThumbnailSrc({ ...asset, thumbnail_s3_key: "" })).toBeUndefined();
+  });
+});
+
+// A collection tile asks the same questions of the same captures, under the
+// item's field names and against whichever asset route the reader is entitled
+// to. Before #1468 it built its own URL and never asked for a variant, so every
+// thumbnail in a collection was the light capture in both color modes.
+describe("collectionItemThumbnailSrc", () => {
+  const PORTAL = "/api/v1/portal/assets";
+  const ADMIN = "/api/v1/admin/assets";
+  const item = {
+    asset_id: "ast-1",
+    asset_thumbnail_s3_key: "k/a/.thumbnail.png",
+    asset_thumbnail_version: 6,
+  };
+  const themed = {
+    ...item,
+    asset_thumbnail_dark_s3_key: "k/a/.thumbnail_dark.png",
+    asset_thumbnail_dark_version: 5,
+  };
+
+  it("carries the version of the capture it points at", () => {
+    expect(collectionItemThumbnailSrc(item, PORTAL)).toBe(`${PORTAL}/ast-1/thumbnail?c=6`);
+  });
+
+  it("asks for the dark variant and its own version when the portal is dark", () => {
+    expect(collectionItemThumbnailSrc(themed, PORTAL, true)).toBe(
+      `${PORTAL}/ast-1/thumbnail?variant=dark&c=5`,
+    );
+  });
+
+  // An administrator reading a collection they do not own gets its tiles from
+  // the admin route (#1292), and has a color mode of their own.
+  it("asks the admin route for the dark variant too", () => {
+    expect(collectionItemThumbnailSrc(themed, ADMIN, true)).toBe(
+      `${ADMIN}/ast-1/thumbnail?variant=dark&c=5`,
+    );
+  });
+
+  it("falls back to the light capture when the asset has no dark variant", () => {
+    expect(collectionItemThumbnailSrc(item, PORTAL, true)).toBe(`${PORTAL}/ast-1/thumbnail?c=6`);
+  });
+
+  it("is undefined when no capture has been recorded, which is what shows the icon", () => {
+    expect(collectionItemThumbnailSrc({ asset_id: "ast-1" }, PORTAL)).toBeUndefined();
+  });
+
+  // An item served by a deployment that predates the join carrying the version
+  // still resolves to a URL rather than "undefined" in the query string.
+  it("uses version zero when the item carries no capture version", () => {
+    expect(
+      collectionItemThumbnailSrc({ asset_id: "ast-1", asset_thumbnail_s3_key: "k.png" }, PORTAL),
+    ).toBe(`${PORTAL}/ast-1/thumbnail?c=0`);
   });
 });

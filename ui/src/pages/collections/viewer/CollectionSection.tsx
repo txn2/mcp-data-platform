@@ -3,7 +3,9 @@ import { ThumbCard } from "@/components/cards/ThumbCard";
 import { contentTypeIcon, ContentTypeBadge } from "@/components/ContentTypeBadge";
 import { MarkdownRenderer } from "@/components/renderers/MarkdownRenderer";
 import { markdownToPlainText } from "@/lib/markdownText";
+import { collectionItemThumbnailSrc } from "@/lib/thumbnailSupport";
 import { cn } from "@/lib/utils";
+import { useResolvedDark } from "@/stores/theme";
 import { THUMB_SIZES, type ThumbSize } from "./thumbSize";
 
 /**
@@ -27,6 +29,10 @@ export function CollectionSection({
   assetBase?: string;
 }) {
   const cfg = THUMB_SIZES[thumbSize];
+  // Asked once for the whole section rather than per tile: every tile in it
+  // resolves the same color mode, and a large collection would otherwise open
+  // one store subscription and one media-query listener per asset.
+  const isDark = useResolvedDark();
   return (
     <div className="space-y-3">
       {section.title && (
@@ -44,6 +50,7 @@ export function CollectionSection({
             item={item}
             thumbSize={thumbSize}
             assetBase={assetBase}
+            isDark={isDark}
             onOpen={() => onOpenItem(item.asset_id)}
           />
         ))}
@@ -56,11 +63,13 @@ function ItemCard({
   item,
   thumbSize,
   assetBase,
+  isDark,
   onOpen,
 }: {
   item: CollectionItem;
   thumbSize: ThumbSize;
   assetBase: string;
+  isDark: boolean;
   onOpen: () => void;
 }) {
   const contentType = item.asset_content_type || "";
@@ -69,11 +78,7 @@ function ItemCard({
   return (
     <ThumbCard
       onClick={onOpen}
-      thumbnailSrc={
-        item.asset_thumbnail_s3_key
-          ? `${assetBase}/${item.asset_id}/thumbnail`
-          : undefined
-      }
+      thumbnailSrc={collectionItemThumbnailSrc(item, assetBase, isDark)}
       fallbackIcon={Icon}
       aspect={THUMB_SIZES[thumbSize].aspect}
       // With no thumbnail the tile is a row, so the body stops being a block

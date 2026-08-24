@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
+	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/blobserve"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 )
@@ -422,11 +423,15 @@ func (h *Handler) uploadAdminThumbnail(w http.ResponseWriter, r *http.Request) {
 // getAdminThumbnail returns an asset's thumbnail (no owner check for admins).
 //
 // @Summary      Get asset thumbnail
-// @Description  Streams an asset's PNG thumbnail without owner restriction.
+// @Description  Streams an asset's PNG thumbnail without owner restriction. The
+// @Description  dark variant falls back to the light image for content types
+// @Description  that carry their own colors and store only one.
 // @Tags         Portal Assets
 // @Produce      png
-// @Param        id  path  string  true  "Asset ID"
+// @Param        id       path   string  true   "Asset ID"
+// @Param        variant  query  string  false  "Thumbnail variant"  Enums(light, dark)
 // @Success      200  {file}  binary
+// @Failure      400  {object}  problemDetail
 // @Failure      404  {object}  problemDetail
 // @Failure      410  {object}  problemDetail
 // @Failure      500  {object}  problemDetail
@@ -452,12 +457,19 @@ func (h *Handler) getAdminThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if asset.ThumbnailS3Key == "" {
+	variant, ok := portaldomain.NormalizeThumbnailVariant(r.URL.Query().Get("variant"))
+	if !ok {
+		writeError(w, http.StatusBadRequest, portaldomain.ThumbnailVariantError)
+		return
+	}
+
+	thumbKey := asset.StoredThumbnailKey(variant)
+	if thumbKey == "" {
 		writeError(w, http.StatusNotFound, "no thumbnail available")
 		return
 	}
 
-	data, _, err := h.deps.S3Client.GetObject(r.Context(), asset.S3Bucket, asset.ThumbnailS3Key)
+	data, _, err := h.deps.S3Client.GetObject(r.Context(), asset.S3Bucket, thumbKey)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to retrieve thumbnail")
 		return

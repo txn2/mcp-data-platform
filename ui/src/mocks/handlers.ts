@@ -421,6 +421,87 @@ const portalAssets = [
 
 const thumbnailStore = new Map<string, ArrayBuffer>();
 
+/**
+ * The light-scheme colors of the static thumbnail fixtures, and the dark ones
+ * a capture of the same document would carry. They are the tokens the real
+ * capturer draws with (components/thumbnail/schemes.ts), so a recolored fixture
+ * stands in for the dark capture rather than inventing a second document.
+ *
+ * Several pairs are each other's inverse (#0f172a and #f8fafc swap), so the
+ * substitution has to be a single pass over the document. Applying the rules in
+ * turn would let a later one rewrite what an earlier one produced and land the
+ * fixture back on a light color.
+ */
+const STATIC_THUMBNAIL_DARK_TOKENS: Record<string, string> = {
+  white: "#131a25",
+  "#ffffff": "#131a25",
+  "#f0f2f5": "#131a25",
+  "#f8fafc": "#0f172a",
+  "#f1f5f9": "#1e293b",
+  "#e2e8f0": "#334155",
+  "#0f172a": "#f8fafc",
+  "#1e293b": "#e2e8f0",
+  "#334155": "#cbd5e1",
+  "#64748b": "#94a3b8",
+};
+
+/** A static fixture recolored to the dark scheme. */
+function darkenStaticThumbnail(svg: string): string {
+  return svg.replace(
+    /#[0-9a-fA-F]{6}\b|\bwhite\b/g,
+    (token) => STATIC_THUMBNAIL_DARK_TOKENS[token.toLowerCase()] ?? token,
+  );
+}
+
+/**
+ * A collection with its items enriched the way the store's join enriches them
+ * (getItemsBySections): each item carries the asset's name, content type, both
+ * capture keys and both capture versions, so a tile can pick the variant the
+ * reader's color mode needs (#1468).
+ */
+function withItemAssetFields<T extends { sections?: unknown[] }>(coll: T): T {
+  return {
+    ...coll,
+    sections: ((coll.sections ?? []) as Record<string, unknown>[]).map((s) => ({
+      ...s,
+      items: ((s.items ?? []) as Record<string, unknown>[]).map((item) => {
+        const asset = portalAssets.find((a) => a.id === item.asset_id);
+        return {
+          ...item,
+          asset_name: item.asset_name ?? asset?.name,
+          asset_content_type: item.asset_content_type ?? asset?.content_type,
+          asset_description: item.asset_description ?? asset?.description,
+          asset_thumbnail_s3_key: asset?.thumbnail_s3_key,
+          asset_thumbnail_dark_s3_key: asset?.thumbnail_dark_s3_key,
+          asset_thumbnail_version: asset?.thumbnail_version,
+          asset_thumbnail_dark_version: asset?.thumbnail_dark_version,
+        };
+      }),
+    })),
+  };
+}
+
+/**
+ * The thumbnail bytes for an asset and variant, or null when none exist.
+ *
+ * A dark request falls back to the light capture, which is what the server
+ * does for a content type that carries its own colors and stores one image for
+ * both modes.
+ */
+function serveThumbnail(id: string, variant: string | null): HttpResponse<BodyInit> | null {
+  const dark = variant === "dark";
+  const buffer = dark ? (thumbnailStore.get(`${id}:dark`) ?? thumbnailStore.get(id)) : thumbnailStore.get(id);
+  if (buffer) {
+    return new HttpResponse(buffer, { headers: { "Content-Type": "image/png" } });
+  }
+  const staticSvg = STATIC_THUMBNAILS[id];
+  if (staticSvg) {
+    const body = dark ? darkenStaticThumbnail(staticSvg) : staticSvg;
+    return new HttpResponse(body, { headers: { "Content-Type": "image/svg+xml" } });
+  }
+  return null;
+}
+
 const STATIC_THUMBNAILS: Record<string, string> = {
   "ast-001": `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">
 <defs><linearGradient id="hdr1" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#1e293b"/><stop offset="100%" stop-color="#334155"/></linearGradient></defs>
@@ -1924,7 +2005,7 @@ export const handlers = [
     if (coll.deleted_at) {
       return HttpResponse.json({ detail: "Gone" }, { status: 410 });
     }
-    return HttpResponse.json(coll);
+    return HttpResponse.json(withItemAssetFields(coll));
   }),
 
   http.put(`${ADMIN_BASE}/collections/:id`, async ({ params, request }) => {
@@ -2184,17 +2265,8 @@ export const handlers = [
   http.get(`${PORTAL_BASE}/assets/:id/thumbnail`, ({ params, request }) => {
     const id = params.id as string;
     const variant = new URL(request.url).searchParams.get("variant");
-    // Dark variant falls back to the light buffer when none was captured.
-    const buffer =
-      variant === "dark" ? (thumbnailStore.get(`${id}:dark`) ?? thumbnailStore.get(id)) : thumbnailStore.get(id);
-    if (buffer) {
-      return new HttpResponse(buffer, {
-        headers: { "Content-Type": "image/png" },
-      });
-    }
-    if (STATIC_THUMBNAILS[id]) {
-      return new HttpResponse(STATIC_THUMBNAILS[id], { headers: { "Content-Type": "image/svg+xml" } });
-    }
+    const served = serveThumbnail(id, variant);
+    if (served) return served;
     const asset = portalAssets.find((a) => a.id === id);
     if (asset?.content_type.includes("svg") && mockContent[id]) {
       return new HttpResponse(mockContent[id], { headers: { "Content-Type": "image/svg+xml" } });
@@ -2202,18 +2274,13 @@ export const handlers = [
     return new HttpResponse(null, { status: 404 });
   }),
 
-  http.get(`${ADMIN_BASE}/assets/:id/thumbnail`, ({ params }) => {
+  // The admin route answers the same variant parameter as the portal one: it is
+  // where a collection's tiles come from when an administrator reads a
+  // collection someone else owns (#1292), and that reader has a color mode too.
+  http.get(`${ADMIN_BASE}/assets/:id/thumbnail`, ({ params, request }) => {
     const id = params.id as string;
-    const buffer = thumbnailStore.get(id);
-    if (buffer) {
-      return new HttpResponse(buffer, {
-        headers: { "Content-Type": "image/png" },
-      });
-    }
-    if (STATIC_THUMBNAILS[id]) {
-      return new HttpResponse(STATIC_THUMBNAILS[id], { headers: { "Content-Type": "image/svg+xml" } });
-    }
-    return new HttpResponse(null, { status: 404 });
+    const variant = new URL(request.url).searchParams.get("variant");
+    return serveThumbnail(id, variant) ?? new HttpResponse(null, { status: 404 });
   }),
 
   http.delete(`${PORTAL_BASE}/assets/:id`, ({ params }) => {
@@ -2672,23 +2739,12 @@ export const handlers = [
     if (!col) {
       return HttpResponse.json({ detail: "Not found" }, { status: 404 });
     }
-    const enriched = {
-      ...col,
+    return HttpResponse.json({
+      ...withItemAssetFields(col),
       is_owner: true,
       can_edit: true,
       can_manage: true,
-      sections: (col.sections ?? []).map((s) => ({
-        ...s,
-        items: (s.items ?? []).map((item) => {
-          const asset = portalAssets.find((a) => a.id === item.asset_id);
-          return {
-            ...item,
-            asset_thumbnail_s3_key: asset?.thumbnail_s3_key,
-          };
-        }),
-      })),
-    };
-    return HttpResponse.json(enriched);
+    });
   }),
 
   http.post(`${PORTAL_BASE}/collections`, async ({ request }) => {

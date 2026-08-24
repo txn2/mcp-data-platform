@@ -1424,7 +1424,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Streams an asset's PNG thumbnail without owner restriction.",
+                "description": "Streams an asset's PNG thumbnail without owner restriction. The\ndark variant falls back to the light image for content types\nthat carry their own colors and store only one.",
                 "produces": [
                     "image/png"
                 ],
@@ -1439,6 +1439,16 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "enum": [
+                            "light",
+                            "dark"
+                        ],
+                        "type": "string",
+                        "description": "Thumbnail variant",
+                        "name": "variant",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -1446,6 +1456,12 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "type": "file"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
                         }
                     },
                     "404": {
@@ -22746,8 +22762,18 @@ const docTemplate = `{
                     "type": "string",
                     "example": "Q4 Revenue Dashboard"
                 },
+                "asset_thumbnail_dark_s3_key": {
+                    "description": "AssetThumbnailDark is the asset's dark-mode capture, empty for a content\ntype that carries its own colors and stores one image for both modes.\nThe two versions are the asset versions each capture was taken from; a\ncollection tile puts them in the URL so a re-capture is a new URL and is\nfetched rather than served from the hour the previous one is cached for.",
+                    "type": "string"
+                },
+                "asset_thumbnail_dark_version": {
+                    "type": "integer"
+                },
                 "asset_thumbnail_s3_key": {
                     "type": "string"
+                },
+                "asset_thumbnail_version": {
+                    "type": "integer"
                 },
                 "created_at": {
                     "type": "string"

@@ -46,6 +46,29 @@ func TestEffectiveMaxVersions_NegativeReadsAsUnlimited(t *testing.T) {
 	assert.Equal(t, MaxVersionsUnlimited, EffectiveMaxVersions(nil, &neg))
 }
 
+// TestNormalizeThumbnailVariant covers what the thumbnail endpoints accept.
+// Unlike DeriveThumbnailKeyVariant, which resolves an unknown variant to the
+// light filename, the request parser refuses one: a caller asking for a variant
+// this platform does not have should be told, not handed the light image and
+// left to believe it received what it asked for.
+func TestNormalizeThumbnailVariant(t *testing.T) {
+	for _, in := range []string{"", ThumbnailVariantLight} {
+		got, ok := NormalizeThumbnailVariant(in)
+		assert.True(t, ok, in)
+		assert.Equal(t, ThumbnailVariantLight, got, in)
+	}
+
+	got, ok := NormalizeThumbnailVariant(ThumbnailVariantDark)
+	assert.True(t, ok)
+	assert.Equal(t, ThumbnailVariantDark, got)
+
+	for _, in := range []string{"sepia", "Dark", "DARK", " dark"} {
+		got, ok := NormalizeThumbnailVariant(in)
+		assert.False(t, ok, in)
+		assert.Empty(t, got, in)
+	}
+}
+
 // TestDeriveThumbnailKeyVariant pins the hidden filenames a capture writes. The
 // leading dot is what keeps a thumbnail out of a table registered over the
 // asset's directory: Hive parses every non-hidden object under an external

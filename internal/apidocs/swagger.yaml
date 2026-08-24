@@ -4241,8 +4241,20 @@ definitions:
       asset_name:
         example: Q4 Revenue Dashboard
         type: string
+      asset_thumbnail_dark_s3_key:
+        description: |-
+          AssetThumbnailDark is the asset's dark-mode capture, empty for a content
+          type that carries its own colors and stores one image for both modes.
+          The two versions are the asset versions each capture was taken from; a
+          collection tile puts them in the URL so a re-capture is a new URL and is
+          fetched rather than served from the hour the previous one is cached for.
+        type: string
+      asset_thumbnail_dark_version:
+        type: integer
       asset_thumbnail_s3_key:
         type: string
+      asset_thumbnail_version:
+        type: integer
       created_at:
         type: string
       id:
@@ -7323,12 +7335,22 @@ paths:
       - Portal Assets
   /admin/assets/{id}/thumbnail:
     get:
-      description: Streams an asset's PNG thumbnail without owner restriction.
+      description: |-
+        Streams an asset's PNG thumbnail without owner restriction. The
+        dark variant falls back to the light image for content types
+        that carry their own colors and store only one.
       parameters:
       - description: Asset ID
         in: path
         name: id
         required: true
+        type: string
+      - description: Thumbnail variant
+        enum:
+        - light
+        - dark
+        in: query
+        name: variant
         type: string
       produces:
       - image/png
@@ -7337,6 +7359,10 @@ paths:
           description: OK
           schema:
             type: file
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
         "404":
           description: Not Found
           schema:
