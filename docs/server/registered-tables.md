@@ -263,11 +263,22 @@ current from the moment it exists.
 The result says what changed, in the portal and in the tool's answer, because
 the person's file changed.
 
-A record whose field count differs from the header is refused rather than
-corrected, even with the correction asked for, and the refusal names the
-records. Filling in a short record invents data and dropping a field from a
-long one loses some, and neither is a correction the platform can make on
-somebody's behalf; that file has to be fixed where it was written.
+A file the correction cannot put right is refused once, and no correction is
+offered for it. Two things put a file there. A record whose field count differs
+from the header's is one: filling in a short record invents data and dropping a
+field from a long one loses some, and neither is a correction the platform can
+make on somebody's behalf. A file the reader cannot parse all the way through
+is the other: the correction rewrites every record, so it cannot be made over
+records it cannot read. Both are settled by the same read of the file that
+found the defect, so the refusal names the field counts, or the parse error,
+the first time it answers - rather than offering a correction that would then
+decline with a different problem. Either way the file has to be fixed where it
+was written.
+
+Neither condition refuses a file on its own. A ragged CSV whose lines end in
+newlines and whose cells hold no line break registers as it always has, and so
+does one the reader gives up on partway: nothing here changes what happens to
+them.
 
 Only a single-byte code page is converted. A spreadsheet's *Unicode Text*
 export is UTF-16, and every byte of a UTF-16 file is also a valid windows-1252

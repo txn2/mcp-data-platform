@@ -285,9 +285,12 @@ func (r *Registrar) correct(
 	// Nothing is offered that the platform cannot honestly do. Bytes in an
 	// encoding it does not convert are read wrongly by everything downstream,
 	// including the correction, so a repair of that file would replace the
-	// person's data with mojibake and report it as a fix.
+	// person's data with mojibake and report it as a fix; records that do not
+	// match the header, or that cannot be parsed through, are ones the
+	// correction refuses in turn, and offering it would answer the caller
+	// twice with two different problems (#1449).
 	if !defect.Correctable() {
-		return nil, refusedf("%s Re-export it as UTF-8 CSV and upload that.", defect.Reason())
+		return nil, refusedf("%s %s", defect.Reason(), defect.remedy())
 	}
 	if !req.Repair {
 		return nil, needsRepairf("%s Register it again asking for the file to be corrected, and a corrected"+

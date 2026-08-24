@@ -1658,3 +1658,83 @@ func TestRegister_ByteWindows1252DoesNotDefineIsRefusedRatherThanCorrected(t *te
 	assert.Empty(t, h.reviser.saved, "the file is never rewritten")
 	assert.Empty(t, h.trino.statements, "and no table is created over it")
 }
+
+// TestRegister_AFileTheCorrectionWouldRefuseIsNotOfferedIt is the acceptance
+// assertion for #1449. The caller used to be told to register again asking for
+// the correction, and asking for it produced a second refusal naming a
+// different problem. The file is answered once now, with the problem the
+// correction would have stopped on, and the same answer whether or not the
+// correction was asked for.
+func TestRegister_AFileTheCorrectionWouldRefuseIsNotOfferedIt(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		body  string
+		names string
+	}{
+		{"a record short of the header", "a,b\n1,\"x\ny\"\n2\n", "the header's 2 fields (record 2 has 1)"},
+		{"a parse that stops short", "a,b\n1,\"x\ny\"\n2,he\"llo\n", "not readable as a CSV all the way through"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, repair := range []bool{false, true} {
+				h := newHarness(t, func(h *harness) { h.objects.body = []byte(tc.body) })
+
+				_, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+					Request{Connection: "scratch", Repair: repair})
+				require.Error(t, err)
+				assert.ErrorIs(t, err, ErrRefused)
+				assert.NotErrorIs(t, err, ErrNeedsRepair,
+					"nothing is offered that the correction would then decline")
+				assert.Contains(t, err.Error(), tc.names)
+				assert.Contains(t, err.Error(), "Correct it where it was written",
+					"and the bytes were never the problem, so re-exporting them is not the remedy")
+				assert.NotContains(t, err.Error(), "Register it again asking")
+
+				assert.Empty(t, h.reviser.saved, "the file is never rewritten")
+				assert.Empty(t, h.trino.statements, "no table is created over it")
+				assert.Empty(t, h.store.rows)
+			}
+		})
+	}
+}
+
+// TestRegister_ARaggedFileWithNothingElseWrongStillRegisters. The field-count
+// rule decides whether a correction is offered, not whether a file registers:
+// a CSV whose lines end in newlines and whose cells hold no line break reaches
+// Trino as it always has, however its records are shaped.
+func TestRegister_ARaggedFileWithNothingElseWrongStillRegisters(t *testing.T) {
+	h := newHarness(t, func(h *harness) { h.objects.body = []byte("a,b\n1,2\n3\n") })
+
+	res, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch"})
+	require.NoError(t, err)
+
+	assert.Nil(t, res.Repair, "nothing was corrected")
+	assert.Empty(t, h.reviser.saved)
+	assert.NotEmpty(t, h.trino.statements, "the table is created")
+	assert.Len(t, h.store.rows, 1)
+}
+
+// TestRegister_AHeaderTheReaderCannotParseIsRefusedOnce is the same parity as
+// the test above, for the file whose scan fails on its FIRST read. The defect
+// that refuses it is settled before the scan runs, so the offer used to stand
+// on a file the correction could not read at all.
+func TestRegister_AHeaderTheReaderCannotParseIsRefusedOnce(t *testing.T) {
+	for _, repair := range []bool{false, true} {
+		h := newHarness(t, func(h *harness) {
+			h.objects.body = []byte("Caf\xe9,He said \"hi\"\nx,y\n")
+		})
+
+		_, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+			Request{Connection: "scratch", Repair: repair})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrRefused)
+		assert.NotErrorIs(t, err, ErrNeedsRepair,
+			"nothing is offered that the correction would then decline")
+		assert.Contains(t, err.Error(), "not readable as a CSV all the way through")
+		assert.NotContains(t, err.Error(), "Register it again asking")
+
+		assert.Empty(t, h.reviser.saved, "the file is never rewritten")
+		assert.Empty(t, h.trino.statements)
+		assert.Empty(t, h.store.rows)
+	}
+}
