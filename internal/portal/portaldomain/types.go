@@ -462,6 +462,37 @@ type AssetUpdate struct {
 	ClearMaxVersions bool `json:"-"`
 }
 
+// IsThumbnailOnly reports whether an update carries nothing but the thumbnail
+// pointers -- the light and dark keys and the versions each was captured from.
+//
+// Those columns are written by a capture the platform asked a portal tab to
+// take, not by anything the asset's author did, which is why the asset store
+// leaves updated_at alone for such an update (#1466). One definition, so the
+// paths that build a capture's update and the store that decides whether it is
+// a change cannot disagree about what a capture looks like.
+func (u AssetUpdate) IsThumbnailOnly() bool {
+	return u.hasThumbnailField() && !u.hasAuthoredField()
+}
+
+// hasThumbnailField reports whether an update sets any thumbnail pointer.
+func (u AssetUpdate) hasThumbnailField() bool {
+	return u.ThumbnailS3Key != nil || u.ThumbnailDarkS3Key != nil ||
+		u.ThumbnailVersion != nil || u.ThumbnailDarkVersion != nil
+}
+
+// hasAuthoredField reports whether an update sets any column recording a
+// decision its author made: the asset's name, description or tags, replaced
+// content, or its version-retention cap.
+//
+// Every field of AssetUpdate is either checked here or is one of the thumbnail
+// pointers; TestAssetUpdateFieldsAreClassified fails when a new one is added
+// without being placed on one side or the other.
+func (u AssetUpdate) hasAuthoredField() bool {
+	return u.Name != nil || u.Description != nil || u.Tags != nil ||
+		u.ContentType != "" || u.S3Key != "" || u.HasContent ||
+		u.MaxVersions != nil || u.ClearMaxVersions
+}
+
 // MaxNameLength is the maximum length for asset names.
 const MaxNameLength = 255
 

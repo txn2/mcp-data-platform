@@ -389,7 +389,15 @@ func (s *postgresAssetStore) Update(ctx context.Context, id string, updates port
 		return err
 	}
 
-	qb = qb.Set("updated_at", time.Now()).Where(sq.Eq{"id": id}).Where("deleted_at IS NULL")
+	// A capture of an asset's thumbnail is platform state, not a change the
+	// owner made, so it leaves updated_at where it is (#1466). That column is
+	// what the portal's Updated sort orders by and what every asset card shows,
+	// and a pass that re-captures a library's pending thumbnails would
+	// otherwise re-date every asset in it to the day the pass ran.
+	if !updates.IsThumbnailOnly() {
+		qb = qb.Set("updated_at", time.Now())
+	}
+	qb = qb.Where(sq.Eq{"id": id}).Where("deleted_at IS NULL")
 
 	query, args, err := qb.ToSql()
 	if err != nil {

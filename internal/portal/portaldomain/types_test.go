@@ -1,6 +1,7 @@
 package portaldomain
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -238,4 +239,101 @@ func TestLegacyThumbnailFilenameFor(t *testing.T) {
 	assert.Equal(t, "thumbnail_dark.png", LegacyThumbnailFilenameFor("dark"))
 	assert.Equal(t, "thumbnail.png", LegacyThumbnailFilenameFor("sepia"),
 		"an unknown variant takes the light filename, as every other variant helper does")
+}
+
+// --- AssetUpdate.IsThumbnailOnly (#1466) ---
+
+// The store reads this to decide whether an update is a change to the asset or
+// a capture the platform asked for, and only the former moves updated_at.
+func TestAssetUpdateIsThumbnailOnly(t *testing.T) {
+	tests := []struct {
+		name   string
+		update AssetUpdate
+		want   bool
+	}{
+		{
+			name:   "a light capture stamps its key and version",
+			update: AssetUpdate{ThumbnailS3Key: new("k/.thumbnail.png"), ThumbnailVersion: new(3)},
+			want:   true,
+		},
+		{
+			name:   "a dark capture stamps its own key and version",
+			update: AssetUpdate{ThumbnailDarkS3Key: new("k/.thumbnail_dark.png"), ThumbnailDarkVersion: new(3)},
+			want:   true,
+		},
+		{
+			// The version write that blanks a stale pointer is still the
+			// platform maintaining its own state.
+			name:   "clearing a pointer",
+			update: AssetUpdate{ThumbnailS3Key: new("")},
+			want:   true,
+		},
+		{"a rename", AssetUpdate{Name: new("New")}, false},
+		{"a description edit", AssetUpdate{Description: new("why it exists")}, false},
+		{"a tag change", AssetUpdate{Tags: []string{"q4"}}, false},
+		{"clearing every tag", AssetUpdate{Tags: []string{}}, false},
+		{
+			name:   "replaced content",
+			update: AssetUpdate{ContentType: "text/csv", S3Key: "k/v2/content.csv", SizeBytes: 90, HasContent: true},
+			want:   false,
+		},
+		{
+			// Content that came out empty still replaced what was there.
+			name:   "replaced content that is empty",
+			update: AssetUpdate{HasContent: true},
+			want:   false,
+		},
+		{"a retention cap", AssetUpdate{MaxVersions: new(10)}, false},
+		{"clearing the retention cap", AssetUpdate{ClearMaxVersions: true}, false},
+		{
+			// A content write carries the blanked pointers with it. What the
+			// person did is still the write.
+			name:   "a content write that blanks the pointers",
+			update: AssetUpdate{HasContent: true, ThumbnailS3Key: new(""), ThumbnailDarkS3Key: new("")},
+			want:   false,
+		},
+		{
+			name:   "an update with nothing set is not a capture",
+			update: AssetUpdate{},
+			want:   false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.update.IsThumbnailOnly())
+		})
+	}
+}
+
+// A field added to AssetUpdate and left unclassified would be carried by an
+// update that hasAuthoredField does not see, and such an update reaches the
+// store looking exactly like a thumbnail capture: written, and silently not
+// counted as a change. Placing every field is what keeps that from happening
+// quietly, so this fails until the new one is named on one side or the other.
+func TestAssetUpdateFieldsAreClassified(t *testing.T) {
+	thumbnail := map[string]bool{
+		"ThumbnailS3Key":       true,
+		"ThumbnailDarkS3Key":   true,
+		"ThumbnailVersion":     true,
+		"ThumbnailDarkVersion": true,
+	}
+	authored := map[string]bool{
+		"Name":        true,
+		"Description": true,
+		"Tags":        true,
+		"ContentType": true,
+		"S3Key":       true,
+		// SizeBytes is written only as part of a content replacement, which
+		// HasContent is the signal for -- a size on its own sets no column.
+		"SizeBytes":        true,
+		"HasContent":       true,
+		"MaxVersions":      true,
+		"ClearMaxVersions": true,
+	}
+
+	for _, f := range reflect.VisibleFields(reflect.TypeFor[AssetUpdate]()) {
+		assert.True(t, thumbnail[f.Name] != authored[f.Name],
+			"AssetUpdate.%s is not classified: name it in exactly one of "+
+				"hasThumbnailField or hasAuthoredField (and in this test's maps)", f.Name)
+	}
 }
