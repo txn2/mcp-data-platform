@@ -13,21 +13,18 @@ import { formatBytes } from "@/lib/format";
 import { markdownToPlainText } from "@/lib/markdownText";
 import { cn } from "@/lib/utils";
 import type { Resource } from "@/api/resources/types";
-import { CategoryBadge, ScopeBadge } from "./badges";
-
-// NEVER_READ_DAYS is how long a resource must have existed unread before the
-// table flags it. A file uploaded yesterday with no reads is not dead weight.
-const NEVER_READ_DAYS = 30;
+import { ScopeBadge } from "./badges";
+import { neverRead } from "./groups";
 
 // lastReadLabel renders a resource's read recency for the admin table: a date
 // when it has been read, and "Never" when it has not — flagged once the
-// resource is old enough for that to mean something.
+// resource is old enough for that to mean something, which is the rule the
+// image tile flags on too.
 function lastReadLabel(r: Resource): { text: string; stale: boolean } {
   if (r.last_read_at) {
     return { text: new Date(r.last_read_at).toLocaleDateString(), stale: false };
   }
-  const ageDays = (Date.now() - new Date(r.created_at).getTime()) / 86_400_000;
-  return { text: "Never", stale: ageDays >= NEVER_READ_DAYS };
+  return { text: "Never", stale: neverRead(r) };
 }
 
 interface Column {
@@ -40,29 +37,31 @@ interface Column {
 // columns — which library a resource is in, and whether anything reads it — so
 // the two width sets are stated in full rather than patched at each cell. Each
 // set adds up to 100%, which fixed layout requires.
+//
+// There is no category column: the table is a category's own section and the
+// section header names it (#1471), so a column here would repeat one word down
+// every row of it.
 function columns(admin: boolean): Column[] {
   if (!admin) {
     return [
-      { label: "Name", width: "30%" },
-      { label: "Category", width: "10%" },
+      { label: "Name", width: "38%" },
       { label: "Type", width: "14%" },
-      { label: "Tags", width: "13%" },
+      { label: "Tags", width: "14%" },
       { label: "Size", width: "7%", align: "right" },
-      { label: "Uploader", width: "15%" },
+      { label: "Uploader", width: "16%" },
       { label: "Updated", width: "8%" },
       { label: "", width: "3%" },
     ];
   }
   return [
-    { label: "Name", width: "21%" },
+    { label: "Name", width: "28%" },
     { label: "Scope", width: "12%" },
-    { label: "Category", width: "9%" },
     { label: "Type", width: "12%" },
-    { label: "Tags", width: "12%" },
+    { label: "Tags", width: "13%" },
     { label: "Size", width: "6%", align: "right" },
     { label: "Uploader", width: "12%" },
     { label: "Updated", width: "7%" },
-    { label: "Last read", width: "6%" },
+    { label: "Last read", width: "7%" },
     { label: "", width: "3%" },
   ];
 }
@@ -97,9 +96,6 @@ function ResourceRow({
           <ScopeBadge scope={r.scope} scopeId={r.scope_id} />
         </TableCell>
       )}
-      <TableCell className="overflow-hidden px-4 py-2.5">
-        <CategoryBadge category={r.category} />
-      </TableCell>
       <TableCell className="max-w-0 truncate px-4 py-2.5 text-xs text-muted-foreground">
         {r.mime_type}
       </TableCell>
@@ -131,7 +127,7 @@ function ResourceRow({
             lastRead.stale ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground",
           )}
           data-testid={`resource-last-read-${r.id}`}
-          title={lastRead.stale ? `No reads in the ${NEVER_READ_DAYS} days since upload` : undefined}
+          title={lastRead.stale ? "No reads since it was uploaded" : undefined}
         >
           {lastRead.text}
         </TableCell>

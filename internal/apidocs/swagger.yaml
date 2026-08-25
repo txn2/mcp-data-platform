@@ -17259,6 +17259,12 @@ paths:
         name: id
         required: true
         type: string
+      - description: 'Set to 1 when the portal is rendering the library''s own image
+          tile: the read is audited as portal_preview and does not stamp the resource''s
+          last-read time'
+        in: query
+        name: preview
+        type: string
       produces:
       - application/octet-stream
       responses:

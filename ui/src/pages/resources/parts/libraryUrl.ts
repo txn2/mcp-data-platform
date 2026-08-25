@@ -7,6 +7,8 @@ export interface LibraryView {
   /** The free-text filter, already debounced. */
   q: string;
   category: string;
+  /** The single tag the view is narrowed to, or "" for every tag. */
+  tag: string;
   sort: ResourceSort;
 }
 
@@ -28,6 +30,7 @@ export function readLibraryView(search: string, defaultTab: string): LibraryView
     tab: sp.get("tab") || defaultTab,
     q: sp.get("q") ?? "",
     category: sp.get("category") ?? "",
+    tag: sp.get("tag") ?? "",
     // An unrecognized order is the default one: this comes off the address bar,
     // where anything at all can be typed, and the sort feeds a query parameter
     // the server validates for itself.
@@ -41,6 +44,7 @@ export function libraryPath(basePath: string, view: LibraryView, defaultTab: str
   if (view.tab !== defaultTab) sp.set("tab", view.tab);
   if (view.q) sp.set("q", view.q);
   if (view.category) sp.set("category", view.category);
+  if (view.tag) sp.set("tag", view.tag);
   if (view.sort !== "updated") sp.set("sort", view.sort);
   const qs = sp.toString();
   return qs ? `${basePath}?${qs}` : basePath;

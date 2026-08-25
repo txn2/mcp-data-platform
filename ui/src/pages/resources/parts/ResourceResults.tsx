@@ -3,21 +3,26 @@ import { EmptyState } from "@/components/patterns/EmptyState";
 import { Button } from "@/components/ui/button";
 import { RESOURCE_POSITIONING } from "@/lib/positioning";
 import type { Resource } from "@/api/resources/types";
-import { ResourcesTable } from "./ResourcesTable";
+import { ResourceGroups } from "./ResourceGroups";
 
-// ResourceResults is what the library shows for the scope in view: the list, or
-// the state standing in for it while it loads and when there is nothing to show.
+// ResourceResults is what the library shows for the scope in view: the list --
+// grouped by category, since a library holds datasets and photographs as well
+// as documents (#1471) -- or the state standing in for it while it loads and
+// when there is nothing to show.
 export function ResourceResults({
   resources,
   isLoading,
   filtering,
   admin,
+  complete,
   readOnlyNote,
   onOpen,
   onUpload,
 }: {
   resources: Resource[];
   isLoading: boolean;
+  /** True when every page of this library has been loaded; see ResourceGroups. */
+  complete: boolean;
   // Set when a filter is narrowing the view, which is a different emptiness
   // from a library nobody has uploaded to.
   filtering: boolean;
@@ -41,7 +46,9 @@ export function ResourceResults({
   }
 
   if (resources.length > 0) {
-    return <ResourcesTable resources={resources} admin={admin} onOpen={onOpen} />;
+    return (
+      <ResourceGroups resources={resources} admin={admin} complete={complete} onOpen={onOpen} />
+    );
   }
 
   // A filter that matched nothing is not an empty library, and saying so would

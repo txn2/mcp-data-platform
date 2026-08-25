@@ -119,7 +119,12 @@ test.describe("Admin resources table", () => {
     await authenticate(page);
     await page.goto(ADMIN_RESOURCES);
 
-    await expect(page.getByRole("columnheader", { name: "Last read" })).toBeVisible();
+    // The library is grouped by category (#1471), so each section is its own
+    // table with its own header: the column is asserted on the section holding
+    // the two fixtures below rather than on the page, which has one per section.
+    await expect(
+      page.getByRole("columnheader", { name: "Last read" }).first(),
+    ).toBeVisible();
     // res-001 has read activity; res-002 has none and is old enough to flag.
     await expect(page.getByTestId("resource-last-read-res-001")).not.toHaveText("Never");
     await expect(page.getByTestId("resource-last-read-res-002")).toHaveText("Never");

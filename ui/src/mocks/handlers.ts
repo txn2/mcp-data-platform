@@ -77,6 +77,7 @@ import {
   mockPromptVersions,
 } from "./data/prompts";
 import { mockResources, mockResourceUsage, mockResourceVersions } from "./data/resources";
+import { resourceImageBytes } from "./data/resourceImages";
 import {
   mockDropTable,
   mockRegisterTable,
@@ -2910,15 +2911,22 @@ export const handlers = [
       );
     }
 
-    // sort=last_read orders by read recency with never-read last, matching the
-    // server's ORDER BY last_read_at DESC NULLS LAST.
+    // The order the store returns, which is what the library renders in and now
+    // also what its category sections are ordered by (#1471). sort=last_read
+    // puts read recency first with never-read last and falls back to update
+    // recency, and anything else is update recency alone -- the two branches of
+    // resource.Sort.orderByClause (pkg/resource/types.go).
+    const byUpdated = (a: { updated_at: string }, b: { updated_at: string }) =>
+      b.updated_at.localeCompare(a.updated_at);
     if (url.searchParams.get("sort") === "last_read") {
       filtered.sort((a, b) => {
-        if (!a.last_read_at && !b.last_read_at) return 0;
+        if (!a.last_read_at && !b.last_read_at) return byUpdated(a, b);
         if (!a.last_read_at) return 1;
         if (!b.last_read_at) return -1;
-        return b.last_read_at.localeCompare(a.last_read_at);
+        return b.last_read_at.localeCompare(a.last_read_at) || byUpdated(a, b);
       });
+    } else {
+      filtered.sort(byUpdated);
     }
 
     const limit = Number(url.searchParams.get("limit")) || 100;
@@ -2940,13 +2948,19 @@ export const handlers = [
     return HttpResponse.json(usage ? { ...resource, usage } : resource);
   }),
 
-  // Content download: the preview pane and the Download button both read it.
-  // Text fixtures render in the preview; anything else is a byte blob the
-  // viewer reports by type.
+  // Content download: the preview pane, the Download button and the library's
+  // image tiles all read it. Text fixtures render in the preview; an image
+  // fixture answers with real bytes, there being no stored thumbnail for a
+  // resource and a tile therefore being the object itself; anything else is a
+  // byte blob the viewer reports by type.
   http.get("/api/v1/resources/:id/content", ({ params }) => {
     const resource = mockResources.resources.find((r) => r.id === params.id);
     if (!resource) {
       return HttpResponse.json({ error: "not found" }, { status: 404 });
+    }
+    const image = resourceImageBytes(String(params.id));
+    if (image) {
+      return new HttpResponse(image, { headers: { "Content-Type": resource.mime_type } });
     }
     const body = resource.mime_type.startsWith("text/")
       ? `# ${resource.display_name}\n\n${resource.description}\n`

@@ -17,7 +17,29 @@ const (
 	// SurfaceDownload is a REST content download (the portal's Download
 	// button, and any direct API client).
 	SurfaceDownload = "rest_download"
+	// SurfacePreview is the portal rendering a resource's own bytes as part of
+	// showing the library: an image tile in a category grid, where the object
+	// itself stands in for the thumbnail a resource does not have (#1471).
+	//
+	// It is a door of its own because it is not somebody using the file. A
+	// library of photographs would otherwise mark every image read on every
+	// page view, which is exactly the signal the never-read flag and the
+	// last-read ordering exist to give a curator. A preview is audited like any
+	// other read — the bytes did reach an identified caller — and is the one
+	// surface that does not stamp the durable last-read column.
+	//
+	// The caller declares it, so it says why a read happened rather than
+	// controlling whether it is recorded: a client that asks for a preview
+	// still produces an audit row under its own identity.
+	SurfacePreview = "portal_preview"
 )
+
+// StampsLastRead reports whether a read through this surface should update the
+// resource's durable last-read column. Every surface but the portal's own
+// preview does; see SurfacePreview for why that one does not.
+func StampsLastRead(surface string) bool {
+	return surface != SurfacePreview
+}
 
 // ReadEvent describes one served read of a resource's content.
 type ReadEvent struct {

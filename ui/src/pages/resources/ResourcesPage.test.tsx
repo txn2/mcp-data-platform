@@ -339,13 +339,106 @@ describe("the library's view lives in its address", () => {
 
   it("opens on the scope and the filters its address names", () => {
     listing([]);
-    atAddress("/resources?tab=global&q=demand&category=references");
+    atAddress("/resources?tab=global&q=demand&category=references&tag=q3");
     render(<ResourcesPage onNavigate={vi.fn()} />);
 
     expect(screen.getByRole("tab", { name: "Global" }).getAttribute("aria-selected")).toBe("true");
     expect((screen.getByLabelText("Search resources") as HTMLInputElement).value).toBe("demand");
     expect(useInfiniteResources).toHaveBeenCalledWith(
-      expect.objectContaining({ scope: "global", q: "demand", category: "references" }),
+      expect.objectContaining({
+        scope: "global",
+        q: "demand",
+        category: "references",
+        tag: "q3",
+      }),
+    );
+  });
+});
+
+// Tags are stored, indexed, and filterable on the server, and were filterable
+// everywhere except on the page that shows them: the library hook never set the
+// `tag` parameter and no control would have (#1471).
+
+const TAGGED: Resource = {
+  ...LISTED,
+  id: "res-2",
+  category: "data",
+  display_name: "Q3 Rates",
+  tags: ["q3", "finance"],
+};
+
+async function chooseTag(name: string) {
+  fireEvent.click(screen.getByLabelText("Filter by tag"));
+  fireEvent.click(await screen.findByRole("option", { name }));
+}
+
+describe("the library's tag filter", () => {
+  afterEach(() => {
+    listing([]);
+    atAddress("/");
+  });
+
+  it("offers the tags the resources in view carry", async () => {
+    listing([LISTED, TAGGED]);
+    render(<ResourcesPage onNavigate={vi.fn()} />);
+
+    fireEvent.click(screen.getByLabelText("Filter by tag"));
+    expect(await screen.findByRole("option", { name: "finance" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "q3" })).toBeTruthy();
+  });
+
+  it("narrows the request to the tag chosen, alongside the category filter", async () => {
+    listing([LISTED, TAGGED]);
+    render(<ResourcesPage onNavigate={vi.fn()} />);
+    await chooseTag("q3");
+
+    expect(useInfiniteResources).toHaveBeenLastCalledWith(
+      expect.objectContaining({ tag: "q3", scope: "user" }),
+    );
+  });
+
+  // A tag that matched nothing is a filter that missed, not a library nobody
+  // has uploaded to; the two send the reader to different places.
+  it("reads a tag that matched nothing as a filter, not as an empty library", async () => {
+    listing([TAGGED]);
+    const { rerender } = render(<ResourcesPage onNavigate={vi.fn()} />);
+    await chooseTag("q3");
+    listing([]);
+    rerender(<ResourcesPage onNavigate={vi.fn()} />);
+
+    expect(screen.getByTestId("resources-empty").textContent).toContain("No resources match");
+  });
+
+  // The narrowed view holds only resources carrying the tag, so the facet built
+  // from it would otherwise stop naming the choice that was made.
+  it("keeps naming the chosen tag once the view has narrowed to it", async () => {
+    listing([TAGGED]);
+    render(<ResourcesPage onNavigate={vi.fn()} />);
+    await chooseTag("q3");
+
+    expect(screen.getByLabelText("Filter by tag").textContent).toContain("q3");
+  });
+
+  it("goes inert on a library nobody has tagged", () => {
+    listing([LISTED]);
+    render(<ResourcesPage onNavigate={vi.fn()} />);
+
+    expect((screen.getByLabelText("Filter by tag") as HTMLButtonElement).disabled).toBe(true);
+    // ... and not on one that has tags to offer, or the assertion above would
+    // hold whatever the control did.
+    expect((screen.getByLabelText("Filter by category") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  // Both filters survive a scope change, the way the category filter always
+  // has: a reader moving between libraries is carrying a question with them.
+  it("carries both filters across a scope tab change", async () => {
+    listing([LISTED, TAGGED]);
+    render(<ResourcesPage onNavigate={vi.fn()} />);
+    await chooseTag("q3");
+    selectTab("Global");
+
+    expect(useInfiniteResources).toHaveBeenLastCalledWith(
+      expect.objectContaining({ tag: "q3", scope: "global" }),
     );
   });
 });

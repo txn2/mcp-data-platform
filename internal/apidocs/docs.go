@@ -16796,6 +16796,12 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Set to 1 when the portal is rendering the library's own image tile: the read is audited as portal_preview and does not stamp the resource's last-read time",
+                        "name": "preview",
+                        "in": "query"
                     }
                 ],
                 "responses": {

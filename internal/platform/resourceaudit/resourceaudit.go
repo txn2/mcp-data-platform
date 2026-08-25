@@ -1,9 +1,10 @@
 // Package resourceaudit records reads of managed-resource content as audit
 // events and stamps the durable last-read time on the resource row.
 //
-// It exists so the three doors that serve a resource's bytes — MCP
-// resources/read, a search `fetch` of an mcp:resource:<id> reference, and the
-// REST content download — produce one event shape from one implementation. A
+// It exists so the doors that serve a resource's bytes — MCP resources/read, a
+// search `fetch` of an mcp:resource:<id> reference, the REST content download,
+// and the portal's own preview of an image in the library — produce one event
+// shape from one implementation. A
 // per-surface copy would drift on exactly the fields a curator asks about
 // ("which door was this read through, and when was it last touched"), and the
 // usage rollup reads those fields back by name.
@@ -63,8 +64,9 @@ func New(logger middleware.AuditLogger, tracker resource.ReadTracker) *Recorder 
 	return &Recorder{logger: logger, tracker: tracker, now: func() time.Time { return time.Now().UTC() }}
 }
 
-// RecordRead writes one resource_read audit event and stamps the resource's
-// last-read time. Both failures are logged and swallowed: the content has
+// RecordRead writes one resource_read audit event and, for every surface but
+// the portal's preview, stamps the resource's last-read time. Both failures are
+// logged and swallowed: the content has
 // already been served (or is about to be), and a lost audit row must not become
 // a failed read.
 //
@@ -81,7 +83,10 @@ func (r *Recorder) RecordRead(ctx context.Context, ev resource.ReadEvent) {
 		slog.Warn("resource read audit: write failed", logKeyError, err,
 			paramResourceID, ev.ResourceID) // #nosec G706 -- server-generated ID
 	}
-	if r.tracker == nil {
+	// A preview is the portal drawing the library, not somebody using the file,
+	// so it is audited and does not move the column a curator sorts dead weight
+	// out by (resource.SurfacePreview).
+	if r.tracker == nil || !resource.StampsLastRead(ev.Surface) {
 		return
 	}
 	if err := r.tracker.TouchRead(ctx, ev.ResourceID, at); err != nil {
