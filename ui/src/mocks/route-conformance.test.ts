@@ -92,6 +92,9 @@ const ALLOWLIST = new Set<string>([
   // the main mux beside the resources and portal prefix mounts, with no swagger
   // annotations of their own.
   "GET /table-connections",
+  // The cross-source listing (#1472), on the same mux.
+  "GET /tables",
+  "GET /tables/{}",
   "GET /resources/{}/tables",
   "POST /resources/{}/tables",
   "DELETE /resources/{}/tables/{}",

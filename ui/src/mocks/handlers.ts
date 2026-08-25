@@ -81,6 +81,8 @@ import { resourceImageBytes } from "./data/resourceImages";
 import {
   mockDropTable,
   mockRegisterTable,
+  mockScratchTable,
+  mockScratchTableList,
   mockTableConnections,
   mockTableRegistrations,
   tornCSVProblem,
@@ -3018,6 +3020,23 @@ export const handlers = [
   http.get("/api/v1/table-connections", () =>
     HttpResponse.json({ connections: mockTableConnections }),
   ),
+
+  // The cross-source listing (#1472): every registration this reader may see,
+  // whichever kind of file it was built over.
+  http.get("/api/v1/tables", ({ request }) =>
+    HttpResponse.json(mockScratchTableList(new URL(request.url))),
+  ),
+
+  http.get("/api/v1/tables/:regId", ({ params }) => {
+    const row = mockScratchTable(params.regId as string);
+    if (!row) {
+      return HttpResponse.json(
+        { type: "about:blank", title: "Not Found", status: 404, detail: "no such registered table" },
+        { status: 404 },
+      );
+    }
+    return HttpResponse.json(row);
+  }),
 
   http.get("/api/v1/resources/:id/tables", ({ params }) =>
     HttpResponse.json({ registrations: mockTableRegistrations[params.id as string] ?? [] }),

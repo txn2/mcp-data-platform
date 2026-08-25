@@ -2,6 +2,8 @@ package resource
 
 import (
 	"context"
+	"database/sql/driver"
+	"errors"
 	"testing"
 	"time"
 
@@ -340,5 +342,95 @@ func TestPostgresStore_Get_NullTagsAndScopeID(t *testing.T) {
 	}
 	if got.ScopeID != "" {
 		t.Errorf("ScopeID = %q, want empty for a global resource", got.ScopeID)
+	}
+}
+
+// resourceRow builds one result row in the column order resourceScan expects,
+// so a bulk read scans the same shape a single read does.
+func resourceRow(id, name string) []driver.Value {
+	now := time.Now()
+	return []driver.Value{
+		id, "global", nil, "samples", name + ".csv", name, "desc",
+		"text/csv", int64(50), "resources/" + id + "/" + name + ".csv",
+		"mcp://global/samples/" + name + ".csv",
+		pq.Array([]string{"t1"}), "sub-1", "user@example.com", now, now, nil,
+	}
+}
+
+// TestPostgresStore_GetByIDs is the read a listing over records that point at
+// resources uses: one query for the page, keyed back by id.
+func TestPostgresStore_GetByIDs(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	cols := []string{
+		"id", "scope", "scope_id", "category", "filename", "display_name", "description",
+		"mime_type", "size_bytes", "s3_key", "uri", "tags", "uploader_sub", "uploader_email",
+		"created_at", "updated_at", "last_read_at",
+	}
+	mock.ExpectQuery("SELECT .+ FROM resources WHERE id = ANY").
+		WithArgs(pq.Array([]string{"id-1", "id-2", "gone"})).
+		WillReturnRows(sqlmock.NewRows(cols).
+			AddRow(resourceRow("id-1", "First")...).
+			AddRow(resourceRow("id-2", "Second")...))
+
+	got, err := NewPostgresStore(db).GetByIDs(context.Background(), []string{"id-1", "id-2", "gone"})
+	if err != nil {
+		t.Fatalf("GetByIDs: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d resources, want 2", len(got))
+	}
+	if got["id-1"].DisplayName != "First" || got["id-2"].DisplayName != "Second" {
+		t.Errorf("unexpected resources: %+v", got)
+	}
+	// An id with no row is absent rather than an error: the caller is reading
+	// a set of references, and a reference to something deleted is an answer.
+	if _, ok := got["gone"]; ok {
+		t.Errorf("an id with no row must not appear in the result")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+// TestPostgresStore_GetByIDsNoIDs asks nothing of the database rather than
+// running a query that matches everything.
+func TestPostgresStore_GetByIDsNoIDs(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	got, err := NewPostgresStore(db).GetByIDs(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("GetByIDs: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("got %d resources, want none", len(got))
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+// TestPostgresStore_GetByIDsReportsAFailedRead, so a caller can tell a store
+// that is not answering from a page whose sources are all gone.
+func TestPostgresStore_GetByIDsReportsAFailedRead(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	mock.ExpectQuery("SELECT .+ FROM resources WHERE id = ANY").
+		WillReturnError(errors.New("connection refused"))
+
+	if _, err := NewPostgresStore(db).GetByIDs(context.Background(), []string{"id-1"}); err == nil {
+		t.Fatal("a failed read must be reported")
 	}
 }

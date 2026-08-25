@@ -173,7 +173,61 @@ type Store interface {
 	// by source id. It is the read a list view and a search result set use, so
 	// a page of hits costs one query rather than one per hit.
 	ForSources(ctx context.Context, kind string, sourceIDs []string) (map[string][]Registration, error)
+	// List returns a page of registrations across every source, newest first,
+	// with the total the filter matched.
+	//
+	// It is the only read here that is not keyed by one source or one name,
+	// which is why nothing could answer "what is registered on this platform"
+	// before it: the scratch schema is shared, so a reader could query a table
+	// through Trino that no surface would list (#1472).
+	List(ctx context.Context, f Filter) ([]Registration, int, error)
 	Delete(ctx context.Context, id string) error
+}
+
+// Filter narrows a cross-source listing.
+type Filter struct {
+	// AllConnections lifts the connection boundary, which is what an
+	// administrator gets.
+	//
+	// It is a flag rather than a nil Connections slice because the two states
+	// it separates are opposites and both are reachable: a persona granted no
+	// connection reaches nothing, and an administrator reaches everything.
+	// Reading one as the other would either hide every table from an operator
+	// or show every table to a persona that may query none of them.
+	AllConnections bool
+	// Connections is what the caller may see when AllConnections is not set.
+	Connections []string
+	// SourceKind limits the listing to KindResource or KindAsset. Empty spans
+	// both, which is the point of the listing.
+	SourceKind string
+	// Query matches the qualified name -- catalog, schema and table -- without
+	// regard to case.
+	Query string
+	// Limit and Offset page the result. A Limit at or below zero takes
+	// DefaultListLimit, and one above MaxListLimit takes that: the caller of a
+	// listing does not get to ask for the whole table.
+	Limit  int
+	Offset int
+}
+
+// The bounds a listing page is served within.
+const (
+	// DefaultListLimit is the page size a caller who names none gets.
+	DefaultListLimit = 50
+	// MaxListLimit is the largest page the store will build, whatever was
+	// asked for.
+	MaxListLimit = 200
+)
+
+// EffectiveLimit is the page size a filter resolves to.
+func (f Filter) EffectiveLimit() int {
+	if f.Limit <= 0 {
+		return DefaultListLimit
+	}
+	if f.Limit > MaxListLimit {
+		return MaxListLimit
+	}
+	return f.Limit
 }
 
 // Errors the registrar returns. Every surface renders these, so the wording a

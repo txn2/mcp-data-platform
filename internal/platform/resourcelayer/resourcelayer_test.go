@@ -279,6 +279,10 @@ func (*countingStore) Get(_ context.Context, _ string) (*resource.Resource, erro
 	return &resource.Resource{}, nil
 }
 
+func (*countingStore) GetByIDs(_ context.Context, _ []string) (map[string]*resource.Resource, error) {
+	return map[string]*resource.Resource{}, nil
+}
+
 func (*countingStore) GetByURI(_ context.Context, _ string) (*resource.Resource, error) {
 	return &resource.Resource{}, nil
 }

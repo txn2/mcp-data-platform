@@ -31,6 +31,7 @@ const KNOWN_ROUTES: readonly string[] = [
   "/knowledge/pages",
   "/knowledge/catalog",
   "/prompts",
+  "/scratch-tables",
   "/scripts",
   "/admin",
   "/admin/assets",
@@ -69,6 +70,9 @@ const KNOWN_PATTERNS: readonly RegExp[] = [
   /^\/knowledge\/pages\/.+$/,
   /^\/prompts\/.+$/,
   /^\/resources\/[^/]+$/,
+  // One registered table (#1472): the address the Scratch Tables listing opens
+  // on row click, so a registration can be linked to rather than only found.
+  /^\/scratch-tables\/[^/]+$/,
   /^\/scripts\/[^/]+$/,
   // One run of one script (#1405): the address the cross-script Runs listing
   // links to, which opens that run in its script's history. Both script shapes

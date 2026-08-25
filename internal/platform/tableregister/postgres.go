@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/lib/pq"
 )
@@ -192,3 +194,92 @@ func collectRows(rows *sql.Rows) ([]Registration, error) {
 	}
 	return out, nil
 }
+
+// List returns a page of registrations across every source, with the total the
+// filter matched.
+//
+// The count is taken under the same predicate as the page, so a pager shows
+// the number of rows the caller may see rather than the number that exist. The
+// connection boundary is part of that predicate rather than a pass over the
+// results, because filtering a page after the fact would leave a caller paging
+// through mostly-empty pages of somebody else's tables.
+func (s *postgresStore) List(ctx context.Context, f Filter) ([]Registration, int, error) {
+	where, args := listPredicate(f)
+
+	var total int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM table_registrations`+where, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("counting registrations: %w", err)
+	}
+	if total == 0 {
+		return nil, 0, nil
+	}
+
+	limit, offset := f.EffectiveLimit(), max(f.Offset, 0)
+	// #nosec G202 -- `where` is assembled by listPredicate from constant clause
+	// fragments whose only computed part is a placeholder NUMBER; every value
+	// the filter carries is bound as an argument and none reaches the SQL text.
+	q := `SELECT ` + selectColumns + ` FROM table_registrations` + where +
+		` ORDER BY registered_at DESC, id` +
+		` LIMIT $` + strconv.Itoa(len(args)+1) + ` OFFSET $` + strconv.Itoa(len(args)+2)
+	rows, err := s.db.QueryContext(ctx, q, append(args, limit, offset)...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("listing registrations: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck // best-effort cleanup
+
+	page, err := collectRows(rows)
+	if err != nil {
+		return nil, 0, err
+	}
+	return page, total, nil
+}
+
+// listPredicate renders the WHERE clause a filter asks for and the arguments
+// its placeholders bind, in order.
+//
+// A filter that lifts the connection boundary and names nothing else yields an
+// empty clause and no arguments, which is the administrator's whole-platform
+// listing.
+func listPredicate(f Filter) (where string, args []any) {
+	var clauses []string
+	add := func(clause string, arg any) {
+		args = append(args, arg)
+		clauses = append(clauses, fmt.Sprintf(clause, len(args)))
+	}
+
+	if !f.AllConnections {
+		// pq.Array over an empty slice renders an empty array, which matches
+		// no row. That is the answer for a persona granted no connection, and
+		// it is why the boundary is a flag rather than the slice's emptiness.
+		add("connection_name = ANY($%d)", pq.Array(f.Connections))
+	}
+	if f.SourceKind != "" {
+		add("source_kind = $%d", f.SourceKind)
+	}
+	if q := strings.TrimSpace(f.Query); q != "" {
+		// ILIKE is the case-insensitive match, so the query is bound as typed:
+		// lower-casing it here would be work the operator already does.
+		add(`(catalog_name || '.' || schema_name || '.' || table_name) ILIKE $%d ESCAPE '`+likeEscape+`'`,
+			"%"+escapeLike(q)+"%")
+	}
+
+	if len(clauses) == 0 {
+		return "", nil
+	}
+	return " WHERE " + strings.Join(clauses, " AND "), args
+}
+
+// likeEscape is the escape character the free-text filter binds its pattern
+// with, so a "%" or "_" typed into the search box matches itself.
+const likeEscape = `\`
+
+// likePattern neutralizes the LIKE metacharacters in a typed query. Without it
+// a lone "%" lists every registration on the platform and "sales_q1" matches
+// any character where the underscore is -- and an underscore is in most table
+// names here, since that is what the slugifier produces.
+var likePattern = strings.NewReplacer(likeEscape, likeEscape+likeEscape,
+	"%", likeEscape+"%", "_", likeEscape+"_")
+
+// escapeLike returns q with its LIKE metacharacters neutralized.
+func escapeLike(q string) string { return likePattern.Replace(q) }

@@ -12,6 +12,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/platform/connreach"
 	"github.com/txn2/mcp-data-platform/internal/platform/tableregister"
+	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/portal/s3adapter"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
@@ -415,4 +416,226 @@ func TestTableSubjects_OmitsAKindWithNoStore(t *testing.T) {
 	assert.NotContains(t, assetsOnly, tableregister.KindResource)
 
 	assert.Empty(t, tableSubjects(nil, "", nil, nil))
+}
+
+// --- the seams behind the cross-source listing (#1472) ---
+
+// bulkResourceStore answers GetByIDs and nothing else, so a method this
+// resolver starts calling fails loudly rather than returning a zero value.
+type bulkResourceStore struct {
+	resource.Store
+	rows map[string]*resource.Resource
+	err  error
+}
+
+func (s bulkResourceStore) GetByIDs(_ context.Context, ids []string) (map[string]*resource.Resource, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	out := make(map[string]*resource.Resource, len(ids))
+	for _, id := range ids {
+		if r, ok := s.rows[id]; ok {
+			out[id] = r
+		}
+	}
+	return out, nil
+}
+
+// bulkAssetStore answers GetByIDs and nothing else.
+type bulkAssetStore struct {
+	portal.AssetStore
+	rows map[string]*portal.Asset
+	err  error
+}
+
+func (s bulkAssetStore) GetByIDs(_ context.Context, ids []string) (map[string]*portal.Asset, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	out := make(map[string]*portal.Asset, len(ids))
+	for _, id := range ids {
+		if a, ok := s.rows[id]; ok {
+			out[id] = a
+		}
+	}
+	return out, nil
+}
+
+// TestResourceSourceRefs_CarriesTheHeadAndTheAuthoritySeparately is the shape
+// the listing rests on: the row says which file it is and where that file's
+// content sits NOW whoever is asking, and authority over the file is a
+// separate field that decides only whether the unregister action is offered.
+func TestResourceSourceRefs_CarriesTheHeadAndTheAuthoritySeparately(t *testing.T) {
+	store := bulkResourceStore{rows: map[string]*resource.Resource{
+		"res_1": {
+			ID: "res_1", DisplayName: "Vendor rebates", Scope: resource.ScopePersona, ScopeID: "finance",
+			S3Key: "resources/res_1/v2/rebates.csv", UploaderSub: "u1",
+		},
+	}}
+
+	mine := resourceSourceRefs(context.Background(), store, "resource-bucket",
+		[]string{"res_1"}, tableregister.Caller{UserID: "u1"})
+	require.Contains(t, mine, "res_1")
+	assert.Equal(t, "Vendor rebates", mine["res_1"].Name)
+	assert.Equal(t, "resource-bucket", mine["res_1"].Bucket)
+	assert.Equal(t, "resources/res_1/v2/rebates.csv", mine["res_1"].HeadKey)
+	assert.True(t, mine["res_1"].CanModify)
+
+	theirs := resourceSourceRefs(context.Background(), store, "resource-bucket",
+		[]string{"res_1"}, tableregister.Caller{UserID: "u2", Persona: "finance"})
+	require.Contains(t, theirs, "res_1", "a reader of the scope still sees which file the table is over")
+	assert.Equal(t, "resources/res_1/v2/rebates.csv", theirs["res_1"].HeadKey,
+		"and still gets an honest staleness verdict")
+	assert.False(t, theirs["res_1"].CanModify, "without being offered the action")
+}
+
+// TestResourceSourceRefs_AbsentAndFailedReads: an id with no row is left out,
+// which the listing renders as a source that is gone; a store that could not
+// answer degrades the whole page the same way rather than failing it.
+func TestResourceSourceRefs_AbsentAndFailedReads(t *testing.T) {
+	assert.NotContains(t,
+		resourceSourceRefs(context.Background(), bulkResourceStore{}, "b",
+			[]string{"res_gone"}, tableregister.Caller{UserID: "u1"}),
+		"res_gone")
+
+	// A key present with no record behind it is the same answer as a key that
+	// is not there: a listing row over a source nothing describes.
+	assert.NotContains(t,
+		resourceSourceRefs(context.Background(),
+			bulkResourceStore{rows: map[string]*resource.Resource{"res_1": nil}}, "b",
+			[]string{"res_1"}, tableregister.Caller{UserID: "u1"}),
+		"res_1")
+
+	assert.Empty(t, resourceSourceRefs(context.Background(),
+		bulkResourceStore{err: errors.New("connection refused")}, "b",
+		[]string{"res_1"}, tableregister.Caller{UserID: "u1"}))
+
+	assert.Nil(t, resourceSourceRefs(context.Background(), nil, "b",
+		[]string{"res_1"}, tableregister.Caller{UserID: "u1"}),
+		"a deployment with no resource store resolves no resource")
+}
+
+// TestAssetSourceRefs_AppliesTheOwnerRuleToTheActionOnly: every caller who
+// reaches the connection learns what the table is over; only the owner and an
+// administrator are offered the action that drops it.
+func TestAssetSourceRefs_AppliesTheOwnerRuleToTheActionOnly(t *testing.T) {
+	store := bulkAssetStore{rows: map[string]*portal.Asset{
+		"a1": {
+			ID: "a1", Name: "Vendor keys", OwnerID: "u1", OwnerEmail: "alice@example.com",
+			S3Bucket: "portal-assets", S3Key: "artifacts/u1/a1/v3/content.csv",
+		},
+	}}
+
+	mine := assetSourceRefs(context.Background(), store, []string{"admin"},
+		[]string{"a1"}, tableregister.Caller{UserID: "u1"})
+	require.Contains(t, mine, "a1")
+	assert.Equal(t, "portal-assets", mine["a1"].Bucket)
+	assert.Equal(t, "artifacts/u1/a1/v3/content.csv", mine["a1"].HeadKey)
+	assert.True(t, mine["a1"].CanModify)
+
+	theirs := assetSourceRefs(context.Background(), store, []string{"admin"},
+		[]string{"a1"}, tableregister.Caller{UserID: "u2"})
+	require.Contains(t, theirs, "a1")
+	assert.False(t, theirs["a1"].CanModify)
+
+	operator := assetSourceRefs(context.Background(), store, []string{"admin"},
+		[]string{"a1"}, tableregister.Caller{UserID: "u9", Roles: []string{"admin"}})
+	assert.True(t, operator["a1"].CanModify, "an administrator")
+}
+
+// TestAssetSourceRefs_ADeletedAssetIsGone. An asset delete is soft, so the row
+// survives it; the listing has to report the source as gone rather than name a
+// file its owner can no longer see.
+func TestAssetSourceRefs_ADeletedAssetIsGone(t *testing.T) {
+	deletedAt := time.Now()
+	store := bulkAssetStore{rows: map[string]*portal.Asset{
+		"a1": {ID: "a1", OwnerID: "u1", DeletedAt: &deletedAt},
+	}}
+
+	assert.NotContains(t,
+		assetSourceRefs(context.Background(), store, nil, []string{"a1"},
+			tableregister.Caller{UserID: "u1"}),
+		"a1")
+
+	assert.Empty(t, assetSourceRefs(context.Background(),
+		bulkAssetStore{err: errors.New("connection refused")}, nil,
+		[]string{"a1"}, tableregister.Caller{UserID: "u1"}))
+
+	assert.Nil(t, assetSourceRefs(context.Background(), nil, nil,
+		[]string{"a1"}, tableregister.Caller{UserID: "u1"}))
+}
+
+// TestConnectionVisibility_AppliesThePersonaBoundary. The listing shows a
+// caller the registrations they could query, which is the same predicate a
+// tool call meets.
+func TestConnectionVisibility_AppliesThePersonaBoundary(t *testing.T) {
+	tr, pr := enumeratorFixture(t)
+	visible := connectionVisibility(connreach.New(connreach.Deps{Toolkits: tr, Personas: pr}))
+
+	names, all := visible(context.Background(), tableregister.Caller{Persona: "analyst"})
+	assert.False(t, all)
+	assert.Equal(t, []string{"warehouse"}, names)
+}
+
+// TestConnectionVisibility_KeepsToConnectionsATableCanBeOn: a registration
+// lives on a query engine, so an object-store connection the persona also
+// reaches is not one of them.
+func TestConnectionVisibility_KeepsToConnectionsATableCanBeOn(t *testing.T) {
+	tr, pr := enumeratorFixture(t)
+	require.NoError(t, pr.Register(&persona.Persona{
+		Name: "everything", Roles: []string{"dp_everything"},
+		Connections: persona.ConnectionRules{Allow: []string{"*"}},
+	}))
+	visible := connectionVisibility(connreach.New(connreach.Deps{Toolkits: tr, Personas: pr}))
+
+	names, all := visible(context.Background(), tableregister.Caller{Persona: "everything"})
+
+	assert.False(t, all)
+	assert.Equal(t, []string{"warehouse"}, names, "the object-store connection cannot hold a table")
+}
+
+// TestConnectionVisibility_AnAdministratorIsUnrestricted, which is what the
+// operator opens this page for.
+func TestConnectionVisibility_AnAdministratorIsUnrestricted(t *testing.T) {
+	tr, pr := enumeratorFixture(t)
+	visible := connectionVisibility(connreach.New(connreach.Deps{Toolkits: tr, Personas: pr}))
+
+	names, all := visible(context.Background(), tableregister.Caller{Persona: "analyst", IsAdmin: true})
+
+	assert.True(t, all)
+	assert.Empty(t, names, "an unrestricted listing carries no connection list to intersect with")
+}
+
+// TestConnectionVisibility_WithNothingToEnumerateShowsNothing is the
+// fail-closed reading: a deployment that cannot say which connections a
+// persona reaches must not answer "all of them".
+func TestConnectionVisibility_WithNothingToEnumerateShowsNothing(t *testing.T) {
+	visible := connectionVisibility(connreach.New(connreach.Deps{}))
+
+	names, all := visible(context.Background(), tableregister.Caller{Persona: "analyst"})
+
+	assert.False(t, all)
+	assert.Empty(t, names)
+}
+
+// TestSourceRefLookup_DispatchesOnKind, and answers nothing for a kind that is
+// neither -- the two source kinds are the two ways a file reaches the platform.
+func TestSourceRefLookup_DispatchesOnKind(t *testing.T) {
+	lookup := sourceRefLookup(
+		bulkResourceStore{rows: map[string]*resource.Resource{
+			"res_1": {ID: "res_1", DisplayName: "Rebates", S3Key: "r/res_1/x.csv", UploaderSub: "u1"},
+		}},
+		"resource-bucket",
+		bulkAssetStore{rows: map[string]*portal.Asset{
+			"a1": {ID: "a1", Name: "Vendor keys", OwnerID: "u1", S3Bucket: "portal-assets", S3Key: "a/a1/x.csv"},
+		}},
+		[]string{"admin"},
+	)
+	caller := tableregister.Caller{UserID: "u1"}
+
+	assert.Equal(t, "Rebates",
+		lookup(context.Background(), tableregister.KindResource, []string{"res_1"}, caller)["res_1"].Name)
+	assert.Equal(t, "Vendor keys",
+		lookup(context.Background(), tableregister.KindAsset, []string{"a1"}, caller)["a1"].Name)
+	assert.Nil(t, lookup(context.Background(), "dataset", []string{"x"}, caller))
 }

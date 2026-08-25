@@ -1,4 +1,5 @@
 import type {
+  ScratchTable,
   TableConnection,
   TableRegistration,
 } from "@/api/tables/types";
@@ -67,6 +68,7 @@ export const mockTableRegistrations: Record<string, TableRegistration[]> = {
       registered_by: "marcus.johnson@example.com",
       registered_at: "2026-08-18T09:30:00Z",
       query_table: "scratch.uploads.analyst_glossary",
+      sample_sql: "SELECT * FROM scratch.uploads.analyst_glossary",
       stale: true,
     },
   ],
@@ -168,4 +170,117 @@ export function mockDropTable(sourceID: string, registrationID: string): void {
     return;
   }
   mockTableRegistrations[sourceID] = rows.filter((r) => r.id !== registrationID);
+}
+
+// --- the cross-source listing (#1472) ---
+
+// scratchTableSources names the file behind each registration, the way the
+// listing route does by reading the two source stores. A source id with no
+// entry here stands for a record that is gone, which the listing marks so the
+// reader is not sent to a page that answers "no such file".
+const scratchTableSources: Record<string, { name: string; canModify: boolean }> = {
+  "ast-008": { name: "Regional sales summary", canModify: true },
+  "res-015": { name: "Analytics glossary", canModify: true },
+  // Somebody else's upload: visible because the reader reaches the connection,
+  // and not theirs to drop.
+  "res-004": { name: "Vendor rebate schedule", canModify: false },
+};
+
+// orphanedRegistration is a table whose file is no longer on the platform.
+// Deleting a file unregisters its tables, so this is the residue of a cleanup
+// that did not complete -- rare, and the one row a reader has to be told about
+// rather than shown plainly.
+const orphanedRegistration: TableRegistration = {
+  id: "reg_a04e12",
+  source_kind: "resource",
+  source_id: "res-deleted",
+  connection: "acme-scratch",
+  catalog: "scratch",
+  schema: "uploads",
+  table: "analyst_q1_promo_codes",
+  location: "s3://managed-resources/resources/global/reference/v/rev-1/",
+  columns: [
+    { name: "code", type: "VARCHAR" },
+    { name: "discount_pct", type: "VARCHAR" },
+  ],
+  registered_by: "alice@example.com",
+  registered_at: "2026-07-02T11:05:00Z",
+  query_table: "scratch.uploads.analyst_q1_promo_codes",
+  stale: true,
+};
+
+// somebodyElsesRegistration is on a connection this reader reaches, over a file
+// they have no authority over. It is listed and it is not theirs to drop, which
+// is the distinction the listing draws between seeing a table and acting on it.
+const somebodyElsesRegistration: TableRegistration = {
+  id: "reg_c51b77",
+  source_kind: "resource",
+  source_id: "res-004",
+  connection: "acme-scratch",
+  catalog: "scratch",
+  schema: "uploads",
+  table: "finance_vendor_rebates",
+  location: "s3://managed-resources/resources/persona/finance/v/rev-3/",
+  columns: [
+    { name: "vendor_code", type: "VARCHAR" },
+    { name: "rebate_pct", type: "VARCHAR" },
+    { name: "effective_from", type: "VARCHAR" },
+  ],
+  registered_by: "marcus.johnson@example.com",
+  registered_at: "2026-08-19T16:40:00Z",
+  query_table: "scratch.uploads.finance_vendor_rebates",
+  sample_sql: "SELECT * FROM scratch.uploads.finance_vendor_rebates",
+  stale: false,
+};
+
+/** scratchTableRows is every registration the listing spans, newest first. */
+function scratchTableRows(): ScratchTable[] {
+  const perSource = Object.values(mockTableRegistrations).flat();
+  const all = [...perSource, somebodyElsesRegistration, orphanedRegistration];
+  return all
+    .map(asScratchTable)
+    .sort((a, b) => b.registered_at.localeCompare(a.registered_at));
+}
+
+/** asScratchTable adds what only a cross-source read can answer. */
+function asScratchTable(reg: TableRegistration): ScratchTable {
+  const source = scratchTableSources[reg.source_id];
+  return {
+    ...reg,
+    source: {
+      kind: reg.source_kind,
+      id: reg.source_id,
+      name: source?.name,
+      missing: !source,
+    },
+    can_unregister: Boolean(source?.canModify) && reg.registered_by === "alice@example.com",
+  };
+}
+
+/** mockScratchTableList serves one page of the listing, with its facets. */
+export function mockScratchTableList(url: URL): {
+  data: ScratchTable[];
+  total: number;
+  page: number;
+  per_page: number;
+} {
+  const kind = url.searchParams.get("kind") ?? "";
+  const connection = url.searchParams.get("connection") ?? "";
+  const q = (url.searchParams.get("q") ?? "").toLowerCase();
+  const perPage = Number(url.searchParams.get("per_page")) || 25;
+  const page = Number(url.searchParams.get("page")) || 1;
+
+  const matched = scratchTableRows().filter(
+    (row) =>
+      (!kind || row.source_kind === kind) &&
+      (!connection || row.connection === connection) &&
+      (!q || row.query_table.toLowerCase().includes(q)),
+  );
+  const start = (page - 1) * perPage;
+  return { data: matched.slice(start, start + perPage), total: matched.length, page, per_page: perPage };
+}
+
+/** mockScratchTable reads one registration by id, or undefined for a miss. */
+export function mockScratchTable(id: string): ScratchTable | undefined {
+  return scratchTableRows().find((row) => row.id === id);
 }

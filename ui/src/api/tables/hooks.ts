@@ -2,6 +2,9 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/stores/auth";
 import { applyCsrfHeader } from "@/api/csrf";
 import type {
+  ScratchTable,
+  ScratchTableList,
+  ScratchTableQuery,
   TableConnectionList,
   TableRegistration,
   TableRegistrationList,
@@ -109,6 +112,7 @@ export function useRegisterTable(kind: TableSourceKind, id: string) {
       }),
     onSuccess: (registration) => {
       void qc.invalidateQueries({ queryKey: tablesKey(kind, id) });
+      invalidateScratchTables(qc);
       // A registration that corrected the file wrote a version of it, and the
       // version panel sits on the same page as the answer saying so. Without
       // this it keeps showing the version before the correction as current,
@@ -162,6 +166,57 @@ export function useUnregisterTable(kind: TableSourceKind, id: string) {
       tableFetch<void>(`${basePath(kind, id)}/${registrationID}`, { method: "DELETE" }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: tablesKey(kind, id) });
+      invalidateScratchTables(qc);
     },
+  });
+}
+
+// invalidateScratchTables refreshes the cross-source listing after a
+// registration is added or dropped. It is called from the per-source
+// mutations because those are the only two doors: the listing has no register
+// action of its own, and its unregister goes through the source's own route.
+function invalidateScratchTables(qc: ReturnType<typeof useQueryClient>): void {
+  void qc.invalidateQueries({ queryKey: ["scratch-tables"] });
+  void qc.invalidateQueries({ queryKey: ["scratch-table"] });
+}
+
+// --- the cross-source listing (#1472) ---
+
+// scratchTablesKey keys the listing by its facets, so a filter change is a new
+// query rather than a refetch of the same one.
+const scratchTablesKey = (params: ScratchTableQuery) => ["scratch-tables", params] as const;
+
+// scratchTableQueryString renders the facets a caller named. A facet left out
+// is left out of the URL: the server's default is the answer, and sending an
+// empty value would key the cache on a distinction the server does not make.
+function scratchTableQueryString(params: ScratchTableQuery): string {
+  const search = new URLSearchParams();
+  if (params.page && params.page > 1) search.set("page", String(params.page));
+  if (params.perPage) search.set("per_page", String(params.perPage));
+  if (params.connection) search.set("connection", params.connection);
+  if (params.kind) search.set("kind", params.kind);
+  if (params.q) search.set("q", params.q);
+  const rendered = search.toString();
+  return rendered ? `?${rendered}` : "";
+}
+
+// useScratchTables lists every registration this person may see: the ones on
+// the connections their persona is granted, whichever file each was built
+// over. An administrator sees all of them.
+export function useScratchTables(params: ScratchTableQuery) {
+  return useQuery({
+    queryKey: scratchTablesKey(params),
+    queryFn: () => tableFetch<ScratchTableList>(`/api/v1/tables${scratchTableQueryString(params)}`),
+  });
+}
+
+// useScratchTable reads one registration by id, which is what the detail route
+// opens. A registration on a connection the caller does not reach answers as a
+// 404, the same as one that does not exist.
+export function useScratchTable(id: string | undefined) {
+  return useQuery({
+    queryKey: ["scratch-table", id],
+    queryFn: () => tableFetch<ScratchTable>(`/api/v1/tables/${encodeURIComponent(id as string)}`),
+    enabled: Boolean(id),
   });
 }

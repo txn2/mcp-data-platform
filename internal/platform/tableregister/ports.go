@@ -79,3 +79,40 @@ type AuditLogger interface {
 type ConnectionScope interface {
 	AllowConnection(persona, connection string) bool
 }
+
+// SourceRef is what a cross-source listing has to say about the record a
+// registration was built over: what it is called, where its content sits now,
+// and whether this caller may act on it.
+//
+// It exists because the listing spans sources and the per-source reads do not.
+// A registration alone cannot answer either question a reader of the list has
+// -- which file is this, and is the table still reading its current contents --
+// and resolving that one row at a time is what the per-source panels already do
+// (#1472).
+type SourceRef struct {
+	// Name is what the source is called, for a reader who is looking at a
+	// table name and does not recognize it.
+	Name string
+	// Bucket and HeadKey are where the source's content sits NOW, which is the
+	// half IsStale needs and the registration does not carry.
+	Bucket  string
+	HeadKey string
+	// CanModify is authority over the source, the half of the unregister rule
+	// the registration cannot answer. It is resolved here rather than at the
+	// point of the action because a listing has to decide whether to offer the
+	// action at all, and offering one that is then refused is the same defect
+	// as refusing one that was never offered.
+	CanModify bool
+}
+
+// Sources resolves the sources a page of registrations names, one kind at a
+// time, for one caller.
+//
+// It is the bulk form of Subject and is separate from it for two reasons. A
+// listing reads a page of sources at once, so a per-id resolver would cost one
+// store read per row. And a listing shows a registration the caller may see by
+// its connection, which is not the same set as the sources they may change:
+// authority is a field on the answer here rather than the answer itself.
+//
+// An id absent from the returned map names a source that is gone.
+type Sources func(ctx context.Context, kind string, ids []string, caller Caller) map[string]SourceRef

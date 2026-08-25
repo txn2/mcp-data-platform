@@ -77,6 +77,10 @@ func (noResources) Get(context.Context, string) (*resource.Resource, error) {
 	return nil, nil //nolint:nilnil // test stub mirroring the store's not-found contract
 }
 
+func (noResources) GetByIDs(context.Context, []string) (map[string]*resource.Resource, error) {
+	return map[string]*resource.Resource{}, nil
+}
+
 func (noResources) GetByURI(context.Context, string) (*resource.Resource, error) {
 	return nil, nil //nolint:nilnil // test stub
 }

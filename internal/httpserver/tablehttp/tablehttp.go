@@ -60,6 +60,16 @@ type Deps struct {
 	// Connections fills the picker. Nil serves an empty list, which a form
 	// renders as "no connection here can hold a table".
 	Connections ConnectionEnumerator
+	// Visible reports the connections a caller may SEE registrations on, which
+	// is a wider set than Connections: the picker narrows to connections that
+	// can hold a NEW table, and a listing has to keep showing the tables
+	// already on one that no longer can.
+	Visible Visibility
+	// Sources resolves the records a cross-source listing names. Nil leaves
+	// every row without a source name and without the unregister action,
+	// which is the listing a deployment that cannot resolve its sources can
+	// honestly serve.
+	Sources tableregister.Sources
 	// Caller builds the registrar's view of the authenticated user: their
 	// persona and whether they are an administrator.
 	Caller func(*portal.User) tableregister.Caller
@@ -92,6 +102,8 @@ func (h *Handler) Routes(mux *http.ServeMux, wrap func(http.Handler) http.Handle
 	}
 
 	register("GET /api/v1/table-connections", h.listConnections)
+	register("GET /api/v1/tables", h.listAll)
+	register("GET /api/v1/tables/{regID}", h.getOne)
 
 	if h.deps.Resources != nil {
 		h.kindRoutes(register, "resources", tableregister.KindResource, h.deps.Resources)
