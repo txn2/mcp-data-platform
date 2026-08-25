@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/txn2/mcp-data-platform/internal/contentviewer"
+	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/portal/publicviewer"
 	"github.com/txn2/mcp-data-platform/internal/portal/sharecache"
 	"github.com/txn2/mcp-data-platform/pkg/blobserve"
@@ -23,63 +24,19 @@ import (
 )
 
 // resolvePublicBaseURL returns the absolute URL prefix the public viewer
-// should use for canonical (og:url) and asset (og:image) links. When the
-// operator has set portal.public_base_url that wins; otherwise we derive
-// scheme+host from the inbound request — social-media crawlers always
-// follow the share URL, so the request's Host header reflects how end
-// users will reach the page. Returns empty when neither is available
-// (e.g. unit-test requests with no Host); callers should treat empty as
-// "skip absolute-URL OG tags".
+// should use for canonical (og:url) and asset (og:image) links: the operator's
+// portal.public_base_url when set, otherwise the scheme and host of the
+// inbound request, since social-media crawlers always follow the share URL and
+// its Host header reflects how end users reach the page. Empty when neither is
+// available (a unit-test request with no Host), which callers treat as "skip
+// absolute-URL OG tags".
 //
-// X-Forwarded-Proto is honored only when r.TLS is nil (a reverse proxy is
-// plausibly in front). When the server is the TLS terminator itself, an
-// attacker-supplied X-Forwarded-Proto must not be allowed to override the
-// real scheme. Multi-proxy chains may produce comma-separated values
-// (e.g. "https, http"); we take the first token, which is the originating
-// client's scheme. Only http/https are accepted — any other value falls
-// back to the default to keep og:url URLs well-formed and prevent a
-// misbehaving proxy (or a request without a trusted-proxy boundary) from
-// emitting a non-HTTP scheme.
+// The rule itself lives in assetrefs.BaseURL, which resolves the same question
+// for the reference URLs rewritten into served content. One implementation
+// rather than two: an origin the share page and the images inside it disagreed
+// about would be a page whose own pictures pointed somewhere else.
 func resolvePublicBaseURL(r *http.Request, configBaseURL string) string {
-	if s := strings.TrimRight(configBaseURL, "/"); s != "" {
-		return s
-	}
-	if r == nil || r.Host == "" {
-		return ""
-	}
-	if r.TLS != nil {
-		return schemeHTTPS + "://" + r.Host
-	}
-	return forwardedScheme(r) + "://" + r.Host
-}
-
-// schemeHTTP and schemeHTTPS are the only two values that may appear in
-// the resolved scheme — used both as the default and as the validation
-// allow-list for X-Forwarded-Proto.
-const (
-	schemeHTTP  = "http"
-	schemeHTTPS = "https"
-)
-
-// forwardedScheme returns "http" by default, upgrading to "https" only when
-// X-Forwarded-Proto explicitly says so. The header may carry a comma-
-// separated chain through multiple proxies (e.g. "https, http"); we use
-// the leftmost token, which is the originating client's scheme. Anything
-// other than "http"/"https" falls back to the default to keep og:url
-// well-formed even if a misbehaving proxy injects an arbitrary value.
-func forwardedScheme(r *http.Request) string {
-	forwarded := r.Header.Get("X-Forwarded-Proto")
-	if forwarded == "" {
-		return schemeHTTP
-	}
-	if i := strings.IndexByte(forwarded, ','); i >= 0 {
-		forwarded = forwarded[:i]
-	}
-	forwarded = strings.TrimSpace(forwarded)
-	if forwarded == schemeHTTP || forwarded == schemeHTTPS {
-		return forwarded
-	}
-	return schemeHTTP
+	return assetrefs.BaseURL(r, configBaseURL)
 }
 
 // publicAssetOGImage returns the absolute URL of the OG card image for a
@@ -535,7 +492,7 @@ func (h *Handler) fetchAssetContent(r *http.Request, assetID string) (*Asset, []
 		slog.Error("public view: failed to fetch content", "error", err, "asset_id", asset.ID) // #nosec G706 -- structured log
 		return nil, nil, &publicAssetError{Message: "Failed to retrieve content.", Status: http.StatusInternalServerError}
 	}
-	return asset, data, nil
+	return asset, h.serveRefs(r, asset.ID, asset.ContentType, data), nil
 }
 
 // fetchPublicAsset retrieves an asset and, when the viewer can use it, its S3
@@ -572,7 +529,10 @@ func (h *Handler) fetchPublicAsset(r *http.Request, assetID string) (publicAsset
 		return publicAssetData{}, &publicAssetError{Message: "Failed to retrieve content.", Status: http.StatusInternalServerError}
 	}
 
-	return publicAssetData{Asset: asset, Content: data}, nil
+	return publicAssetData{
+		Asset:   asset,
+		Content: h.serveRefs(r, asset.ID, asset.ContentType, data),
+	}, nil
 }
 
 // writePublicError writes the appropriate HTTP error for a publicAssetError.

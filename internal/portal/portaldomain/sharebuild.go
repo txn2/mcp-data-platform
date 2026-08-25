@@ -12,20 +12,27 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/portal/shareaccess"
 )
 
-// tokenBytes is the number of random bytes used for share tokens (256 bits).
+// tokenBytes is the number of random bytes used for the portal's capability
+// tokens (256 bits).
 const tokenBytes = 32
 
-// GenerateShareToken generates a cryptographically random hex token for share
-// links. Every door that mints a share -- the REST handlers, the export
-// adapters, the asset toolkit -- goes through here, so a token means the same
-// thing whatever created it.
-func GenerateShareToken() (string, error) {
+// generateToken mints one capability token. The portal has two kinds -- a
+// share link and an asset's resource reference -- and both are the same thing:
+// a random string whose possession is the entire grant. One generator is what
+// keeps them the same strength.
+func generateToken() (string, error) {
 	b := make([]byte, tokenBytes)
 	if _, err := rand.Read(b); err != nil {
 		return "", fmt.Errorf("generating random token: %w", err)
 	}
 	return hex.EncodeToString(b), nil
 }
+
+// GenerateShareToken generates a cryptographically random hex token for share
+// links. Every door that mints a share -- the REST handlers, the export
+// adapters, the asset toolkit -- goes through here, so a token means the same
+// thing whatever created it.
+func GenerateShareToken() (string, error) { return generateToken() }
 
 // ShareTarget identifies what a share is for: an asset, a collection, or a
 // prompt. Exactly one field is set.

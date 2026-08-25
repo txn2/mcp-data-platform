@@ -242,6 +242,9 @@ internal/platform/portalstore -> internal/platform/assetindex
 internal/platform/portalstore -> internal/platform/collectionindex
 internal/platform/portalstore -> internal/platform/knowledgepageindex
 internal/platform/portalstore -> internal/platform/notices
+internal/platform/portalstore -> internal/portal/assetrefs
+internal/platform/portalstore -> internal/portal/assetrefstore
+internal/platform/portalstore -> internal/portal/portaldomain
 internal/platform/portalstore -> pkg/embedding
 internal/platform/portalstore -> pkg/indexjobs
 internal/platform/portalstore -> pkg/portal
@@ -376,6 +379,13 @@ internal/platform/utilconn -> pkg/toolkits/apigateway/catalogindex
 internal/portal/access -> internal/portal/portaldomain
 internal/portal/access -> pkg/portal/threads
 internal/portal/access -> pkg/prompt
+internal/portal/assetrefs -> internal/httpjson
+internal/portal/assetrefs -> internal/logsan
+internal/portal/assetrefs -> internal/portal/portaldomain
+internal/portal/assetrefs -> pkg/blobserve
+internal/portal/assetrefs -> pkg/contenttype
+internal/portal/assetrefs -> pkg/resource
+internal/portal/assetrefstore -> internal/portal/portaldomain
 internal/portal/callapi -> internal/httpjson
 internal/portal/callapi -> internal/platform/callrecord
 internal/portal/callapi -> internal/portal/access
@@ -418,6 +428,7 @@ pkg/admin -> internal/logsan
 pkg/admin -> internal/platform/callrecord
 pkg/admin -> internal/platform/connsource
 pkg/admin -> internal/platform/reviewalert
+pkg/admin -> internal/portal/assetrefs
 pkg/admin -> internal/portal/portaldomain
 pkg/admin -> internal/server
 pkg/admin -> pkg/audit
@@ -570,6 +581,7 @@ pkg/platform -> internal/platform/toolkitcfg
 pkg/platform -> internal/platform/toolratelimit
 pkg/platform -> internal/platform/userdir
 pkg/platform -> internal/platform/utilconn
+pkg/platform -> internal/portal/portaldomain
 pkg/platform -> pkg/auth
 pkg/platform -> pkg/authevents
 pkg/platform -> pkg/browsersession
@@ -627,6 +639,7 @@ pkg/portal -> internal/httpjson
 pkg/portal -> internal/logsan
 pkg/portal -> internal/platform/callrecord
 pkg/portal -> internal/portal/access
+pkg/portal -> internal/portal/assetrefs
 pkg/portal -> internal/portal/callapi
 pkg/portal -> internal/portal/feedbackapi
 pkg/portal -> internal/portal/portaldomain
@@ -652,6 +665,7 @@ pkg/portal -> pkg/portal/threads
 pkg/portal -> pkg/prompt
 pkg/portal -> pkg/ratelimit
 pkg/portal -> pkg/registry
+pkg/portal -> pkg/resource
 pkg/portal -> pkg/toolkits/knowledge
 pkg/portal/knowledgepage -> pkg/embedding
 pkg/portal/knowledgepage -> pkg/indexjobs
@@ -734,6 +748,7 @@ pkg/toolkits/memory -> pkg/registry
 pkg/toolkits/memory -> pkg/semantic
 pkg/toolkits/memory -> pkg/toolkit
 pkg/toolkits/portal -> internal/httpjson
+pkg/toolkits/portal -> internal/portal/assetrefs
 pkg/toolkits/portal -> internal/portal/portaldomain
 pkg/toolkits/portal -> pkg/contenttype
 pkg/toolkits/portal -> pkg/embedding
@@ -743,6 +758,7 @@ pkg/toolkits/portal -> pkg/portal/mention
 pkg/toolkits/portal -> pkg/portal/shareaccess
 pkg/toolkits/portal -> pkg/query
 pkg/toolkits/portal -> pkg/registry
+pkg/toolkits/portal -> pkg/resource
 pkg/toolkits/portal -> pkg/semantic
 pkg/toolkits/portal -> pkg/textpatch
 pkg/toolkits/portal -> pkg/textpatch/patchmcp

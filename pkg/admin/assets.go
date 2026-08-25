@@ -198,11 +198,12 @@ func (h *Handler) getAdminAssetContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	served := cmp.Or(contentType, asset.ContentType)
 	blobserve.Serve(w, r, blobserve.Options{
 		Name:        asset.Name,
-		ContentType: cmp.Or(contentType, asset.ContentType),
+		ContentType: served,
 		ModTime:     asset.UpdatedAt,
-		Data:        data,
+		Data:        h.serveRefs(r, id, served, data),
 	})
 }
 
@@ -600,11 +601,12 @@ func (h *Handler) getAdminVersionContent(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, "failed to retrieve version content")
 		return
 	}
+	served := cmp.Or(contentType, ver.ContentType)
 	blobserve.Serve(w, r, blobserve.Options{
 		Name:        asset.Name,
-		ContentType: cmp.Or(contentType, ver.ContentType),
+		ContentType: served,
 		ModTime:     ver.CreatedAt,
-		Data:        data,
+		Data:        h.serveRefs(r, id, served, data),
 	})
 }
 

@@ -66,6 +66,12 @@ var saveAssetSchema = json.RawMessage(`{
       "description": "The calls this asset was built from, as the call_id (or mcp:call:<id> reference) each query and API invocation returns. Give these when you know exactly which calls produced the content; they replace the default, which is every data call you made since your last save or export in this session. Only your own calls can be cited.",
       "items": {"type": "string"},
       "maxItems": 100
+    },
+    "resources": {
+      "type": "array",
+      "description": "Managed resources this content references, by mcp:// URI. Write the URI itself as the src in your markup (<img src=\"mcp://global/brand/logo.png\">) and list it here; every viewing surface rewrites it to a working URL as it serves, and the stored content keeps the URI. Do not embed a logo, photograph, or design element in the markup when the file is already a managed resource. Only a resource you can read may be declared, and declaring one lets everyone this asset is shared with load that file through it, including anyone holding a public link.",
+      "items": {"type": "string"},
+      "maxItems": 20
     }
   }
 }`)
@@ -147,6 +153,12 @@ var manageAssetSchemaBase = json.RawMessage(`{
       "description": "The calls behind this edit, as the call_id (or mcp:call:<id> reference) each query and API invocation returns. Recorded as a new provenance capture alongside the ones earlier versions carry (update and patch actions). Omit to capture every data call you made since your last save or export in this session. Only your own calls can be cited.",
       "items": {"type": "string"},
       "maxItems": 100
+    },
+    "resources": {
+      "type": "array",
+      "description": "Managed resources this content references, by mcp:// URI (update and patch actions). Replaces whatever the asset referenced before: omit it to leave the references alone, pass an empty list to remove them all. Write the URI itself as the src in your markup and list it here; every viewing surface rewrites it to a working URL as it serves, and the stored content keeps the URI. Only a resource you can read may be declared, and declaring one lets everyone this asset is shared with load that file through it, including anyone holding a public link.",
+      "items": {"type": "string"},
+      "maxItems": 20
     },
     "limit": {
       "type": "integer",
