@@ -61,6 +61,7 @@ internal/httpserver -> internal/platform/scriptdraft
 internal/httpserver -> internal/platform/scriptstore
 internal/httpserver -> internal/platform/sessionview
 internal/httpserver -> internal/platform/tableregister
+internal/httpserver -> internal/portal/assetrefs
 internal/httpserver -> internal/ui
 internal/httpserver -> pkg/admin
 internal/httpserver -> pkg/audit

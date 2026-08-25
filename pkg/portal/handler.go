@@ -395,7 +395,17 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.publicMux.ServeHTTP(w, r)
 		return
 	}
-	if h.refMux != nil && strings.HasPrefix(r.URL.Path, assetrefs.PathPrefix) {
+	// The reference prefix is claimed whether or not this deployment can serve
+	// references. With no managed-resource layer there is nothing to serve, and
+	// the answer is that the URL names nothing; letting it fall through to the
+	// authenticated mux below would answer a reader inside a sandboxed frame
+	// with "authentication required" for a path that takes no session by
+	// design.
+	if strings.HasPrefix(r.URL.Path, assetrefs.PathPrefix) {
+		if h.refMux == nil {
+			http.NotFound(w, r)
+			return
+		}
 		h.refMux.ServeHTTP(w, r)
 		return
 	}

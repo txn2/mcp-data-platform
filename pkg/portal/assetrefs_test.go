@@ -277,6 +277,12 @@ func TestReferenceRouteUnregisteredWithoutAResourceLayer(t *testing.T) {
 	h.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet,
 		assetrefs.PathPrefix+"a1/tok", http.NoBody))
 	assert.NotEqual(t, http.StatusServiceUnavailable, rec.Code)
+	// The prefix is claimed either way. Letting it fall through to the
+	// authenticated mux would answer "authentication required" on a path that
+	// takes no session by design, to a reader inside a sandboxed frame that
+	// has no credentials to offer.
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.NotEqual(t, http.StatusUnauthorized, rec.Code)
 }
 
 // TestServeRefsDegradesWhenReferencesCannotBeRead proves a reference-store

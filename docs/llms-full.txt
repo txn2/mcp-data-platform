@@ -2826,7 +2826,9 @@ Deleting a resource that assets reference warns and names them first, on the sam
 
 ## Deployment
 
-Nothing configures this. References are available wherever there is a database and a managed-resource layer; a deployment with neither refuses a declaration with that reason rather than accepting it and recording nothing. The reference route is registered only where it can serve, and it carries its own rate limit sized so one page load can fetch everything the asset declared.
+Nothing configures this. References are available wherever there is a database and a managed-resource layer; a deployment with neither refuses a declaration with that reason rather than accepting it and recording nothing. The route carries its own rate limit sized so one page load can fetch everything the asset declared.
+
+`/portal/refs/` is mounted at the composition root as a prefix of its own, beside `/portal/view/`. The portal UI claims `/portal/`, which matches the reference path as well, so without a mount of its own every reference URL is answered by the SPA's `index.html` and an image element receives a document. A deployment with no managed-resource layer answers the prefix as not-found rather than letting it reach the authenticated routes, since the path takes no session by design.
 
 The portal panel and the resource-side view are registered on the same condition and answer nothing where the reference store is absent.
 ---
