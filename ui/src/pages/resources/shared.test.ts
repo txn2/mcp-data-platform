@@ -6,8 +6,19 @@ import { CATEGORIES, CATEGORY_HINTS } from "./shared";
 // asserted here rather than three times over rendered markup.
 
 describe("the built-in resource categories", () => {
-  it("offers data alongside the other four", () => {
-    expect([...CATEGORIES]).toEqual(["data", "samples", "playbooks", "templates", "references"]);
+  // The four the set began with all name a text document for an agent to read.
+  // A stored dataset and a logo had no home among them, so a CSV filed under
+  // `references` was described to its uploader as a background document to
+  // consult (#1471).
+  it("offers data and visual alongside the other four", () => {
+    expect([...CATEGORIES]).toEqual([
+      "data",
+      "visual",
+      "samples",
+      "playbooks",
+      "templates",
+      "references",
+    ]);
   });
 
   // A category with no hint is offered with nothing said about what it means,
@@ -25,5 +36,13 @@ describe("the built-in resource categories", () => {
   it("separates data from samples in the words the reader sees", () => {
     expect(CATEGORY_HINTS["data"]).toMatch(/facts|fact/i);
     expect(CATEGORY_HINTS["samples"]).toMatch(/pattern-match|example/i);
+  });
+
+  // visual is the one category named for what the file IS rather than for what
+  // the agent does with it, so its hint has to name the things a reader would
+  // otherwise file under a prose category.
+  it("names what belongs under visual", () => {
+    expect(CATEGORY_HINTS["visual"]).toMatch(/logo/i);
+    expect(CATEGORY_HINTS["visual"]).toMatch(/photograph|diagram/i);
   });
 });

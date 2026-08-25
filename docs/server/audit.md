@@ -194,17 +194,20 @@ GET /api/v1/admin/audit/metrics/timeseries?event_kind=mcp_tool_call
 
 ### Resource reads
 
-A managed resource's content reaches a caller through three doors, and each writes one `resource_read` row naming which:
+A managed resource's content reaches a caller through four doors, and each writes one `resource_read` row naming which:
 
 | `surface` | The door |
 |-----------|----------|
 | `mcp_read` | An agent's MCP `resources/read`. |
 | `fetch` | A `search` fetch of an `mcp:resource:<id>` reference. |
 | `rest_download` | A content download from the portal or the REST API, including a download of a specific version. |
+| `portal_preview` | The portal drawing an image tile in the resource library. Declared by the request (`?preview=1` on the content route). |
 
 Listing resources is deliberately not audited: only content actually served counts as a read, so the counts answer "is anything using this file" rather than "did this file appear in a list". A read that could not be served — a missing blob, a refused visibility check — writes nothing.
 
-These rows are what the portal's resource usage panel aggregates into 30- and 90-day read counts per surface, so the counts inherit the retention window configured below. The resource's own `last_read_at` column is stamped alongside the audit row and outlives retention, which is what the admin table's *Recently read* sort orders on. With `audit.enabled: false` no rows are written, no usage is shown, and reads are served exactly as before.
+`portal_preview` is the one surface that does not stamp `last_read_at`. A resource has no stored thumbnail, so the library's image tiles are drawn from the resources' own bytes: a page view is a real read of every image in view, and counting those would clear the never-read flag and reorder the *Recently read* sort by browsing rather than by use. The read is still audited under the caller's own identity, because the bytes did reach them; a client is naming why it is reading, not choosing whether it is recorded.
+
+These rows are what the portal's resource usage panel aggregates into 30- and 90-day read counts per surface, so the counts inherit the retention window configured below and a resource shown as a tile carries a `portal_preview` count that is separate from the rest. The resource's own `last_read_at` column is stamped alongside the audit row for every other surface and outlives retention, which is what the admin table's *Recently read* sort orders on. With `audit.enabled: false` no rows are written, no usage is shown, and reads are served exactly as before.
 
 ## Parameter Sanitization
 

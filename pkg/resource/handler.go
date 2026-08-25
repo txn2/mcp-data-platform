@@ -545,13 +545,27 @@ func (h *Handler) handleGet(w http.ResponseWriter, r *http.Request) {
 
 // --- Get Content ---
 
+// contentSurface reads which door a content request is coming through.
+//
+// Everything is a download unless the caller says it is the portal drawing the
+// library, which is what `preview=1` declares (resource.SurfacePreview). The
+// declaration only names the reason for the read: the audit row is written
+// either way, under the caller's own identity.
+func contentSurface(r *http.Request) string {
+	if r.URL.Query().Get("preview") == "1" {
+		return SurfacePreview
+	}
+	return SurfaceDownload
+}
+
 // handleGetContent handles GET /api/v1/resources/{id}/content.
 //
 // @Summary      Download resource content
 // @Description  Download the binary content of a managed resource.
 // @Tags         Resources
 // @Produce      octet-stream
-// @Param        id   path  string  true  "Resource ID"
+// @Param        id       path   string  true   "Resource ID"
+// @Param        preview  query  string  false  "Set to 1 when the portal is rendering the library's own image tile: the read is audited as portal_preview and does not stamp the resource's last-read time"
 // @Success      200  {file}  binary
 // @Failure      401  {object}  resource.errorResponse
 // @Failure      404  {object}  resource.errorResponse
@@ -586,7 +600,7 @@ func (h *Handler) handleGetContent(w http.ResponseWriter, r *http.Request) {
 	// finishes the download. The bytes are already in memory at this point, so
 	// the record sits between the object read and the response rather than in
 	// front of the whole request.
-	h.recordRead(r.Context(), res, claims, SurfaceDownload, 0)
+	h.recordRead(r.Context(), res, claims, contentSurface(r), 0)
 
 	blobserve.Serve(w, r, blobserve.Options{
 		Name:        res.Filename,

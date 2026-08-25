@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CATEGORIES } from "./shared";
 import { UploadModal } from "./modals/UploadModal";
+import { tagOptions } from "./parts/groups";
 import { ResourceResults } from "./parts/ResourceResults";
 import { useResourceLibrary, type ResourceSort } from "./parts/useResourceLibrary";
 import { adminReachNote, canWriteScope, libraryCopy, targetForTab } from "./scopes";
@@ -80,6 +81,11 @@ export function ResourcesPage({ admin = false, onNavigate }: Props) {
     { basePath, onNavigate },
   );
   const [uploading, setUploading] = useState(false);
+  // The tag facet is built from the resources in view rather than from a fixed
+  // list, because tags are whatever uploaders have written. A library nobody
+  // has tagged offers only the unfiltered entry, so the control reads as inert
+  // rather than as a filter that silently does nothing.
+  const tags = tagOptions(library.resources, library.tag);
 
   return (
     <Tabs value={library.activeTab} onValueChange={library.setActiveTab} className="gap-4">
@@ -129,6 +135,14 @@ export function ResourcesPage({ admin = false, onNavigate }: Props) {
                 options={CATEGORY_OPTIONS}
                 className="h-9 text-sm"
               />
+              <FilterSelect
+                label="Filter by tag"
+                value={library.tag}
+                onChange={library.setTag}
+                options={tags}
+                disabled={tags.length === 1}
+                className="h-9 text-sm"
+              />
               {admin && (
                 <FilterSelect
                   label="Sort resources"
@@ -155,6 +169,7 @@ export function ResourcesPage({ admin = false, onNavigate }: Props) {
               isLoading={library.isLoading}
               filtering={library.filtering}
               admin={admin}
+              complete={!library.hasNextPage}
               readOnlyNote={writable ? undefined : source}
               onOpen={(r) => {
                 // The entry being left has to carry the view, or Back returns

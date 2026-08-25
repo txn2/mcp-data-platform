@@ -117,6 +117,47 @@ func TestRecordRead_FailuresDoNotPanicOrPropagate(t *testing.T) {
 	}
 }
 
+// A library of photographs is drawn from the resources' own bytes, there being
+// no stored thumbnail for a resource, so every page view is a read of every
+// image in it. Counting those as reads would clear the never-read flag and
+// reorder the last-read sort by browsing, which is the signal a curator uses to
+// find dead weight (#1471). The read is still audited: the bytes reached an
+// identified caller.
+func TestRecordRead_PreviewIsAuditedButDoesNotStampLastRead(t *testing.T) {
+	logger, tracker := &captureLogger{}, &captureTracker{}
+	New(logger, tracker).RecordRead(context.Background(), resource.ReadEvent{
+		ResourceID: "r1", Surface: resource.SurfacePreview,
+	})
+
+	if len(logger.events) != 1 {
+		t.Fatalf("audit events = %d, want 1: a preview is still a read of the bytes", len(logger.events))
+	}
+	if got := logger.events[0].Parameters[paramSurface]; got != resource.SurfacePreview {
+		t.Errorf("surface = %v, want %q", got, resource.SurfacePreview)
+	}
+	if len(tracker.ids) != 0 {
+		t.Errorf("last-read stamped for %v; a preview must not move the curation signal", tracker.ids)
+	}
+}
+
+// The guard is on the preview surface alone, not on "anything unusual": a door
+// that serves the bytes to somebody using the file stamps the column.
+func TestRecordRead_EveryOtherSurfaceStampsLastRead(t *testing.T) {
+	for _, surface := range []string{
+		resource.SurfaceMCPRead, resource.SurfaceFetch, resource.SurfaceDownload,
+	} {
+		t.Run(surface, func(t *testing.T) {
+			logger, tracker := &captureLogger{}, &captureTracker{}
+			New(logger, tracker).RecordRead(context.Background(), resource.ReadEvent{
+				ResourceID: "r1", Surface: surface,
+			})
+			if len(tracker.ids) != 1 {
+				t.Errorf("last-read not stamped for %q", surface)
+			}
+		})
+	}
+}
+
 func TestRecordRead_WithoutATrackerStillAudits(t *testing.T) {
 	logger := &captureLogger{}
 	New(logger, nil).RecordRead(context.Background(), resource.ReadEvent{ResourceID: "r1", Surface: resource.SurfaceDownload})

@@ -539,6 +539,57 @@ func TestRestoreVersion_Rejections(t *testing.T) {
 
 // --- read recording and usage on the existing routes ---
 
+// The portal's library draws an image section from the resources' own bytes,
+// there being no stored thumbnail for a resource. A page view is therefore a
+// read of every image in view, which must not read as somebody using the file
+// (#1471). The read is still audited under the caller's identity; only the door
+// it is recorded as changes.
+func TestGetContent_PreviewIsRecordedAsItsOwnSurface(t *testing.T) {
+	fx := newVersionedHandler(t, okExtractor)
+	h, store, s3, rec := fx.handler, fx.store, fx.s3, fx.reads
+	seedResource(store, s3, "res-1", ScopeGlobal, "", "user-123")
+
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/resources/res-1/content?preview=1", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if len(rec.events) != 1 {
+		t.Fatalf("recorded events = %d, want 1: a preview is still a read", len(rec.events))
+	}
+	if got := rec.events[0].Surface; got != SurfacePreview {
+		t.Errorf("surface = %q, want %q", got, SurfacePreview)
+	}
+	if rec.events[0].UserID != "user-123" {
+		t.Errorf("caller = %q, want the authenticated caller: a preview names the reason, not the reader",
+			rec.events[0].UserID)
+	}
+}
+
+// Only the exact declaration counts. Anything else is the download it has
+// always been, so a mistyped or absent parameter cannot quietly stop a real
+// download from moving the curation signal.
+func TestGetContent_OnlyPreviewOneIsAPreview(t *testing.T) {
+	for _, query := range []string{"", "?preview=0", "?preview=true", "?preview="} {
+		t.Run("query="+query, func(t *testing.T) {
+			fx := newVersionedHandler(t, okExtractor)
+			h, store, s3, rec := fx.handler, fx.store, fx.s3, fx.reads
+			seedResource(store, s3, "res-1", ScopeGlobal, "", "user-123")
+
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+				"/api/v1/resources/res-1/content"+query, nil))
+			if w.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200", w.Code)
+			}
+			if got := rec.events[0].Surface; got != SurfaceDownload {
+				t.Errorf("surface = %q, want %q", got, SurfaceDownload)
+			}
+		})
+	}
+}
+
 func TestGetContent_RecordsARead(t *testing.T) {
 	fx := newVersionedHandler(t, okExtractor)
 	h, store, s3, rec := fx.handler, fx.store, fx.s3, fx.reads

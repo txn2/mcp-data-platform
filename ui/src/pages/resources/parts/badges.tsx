@@ -8,8 +8,12 @@ import { scopeIcon, scopeLabel } from "../shared";
 const CATEGORY_VARIANT: Record<string, React.ComponentProps<typeof Badge>["variant"]> = {
   // The primary fill rather than one of the semantic tints: the four below
   // took info/warning/secondary/success, and the ones left carry a status
-  // meaning (danger reads as broken) that a category does not have.
+  // meaning (danger reads as broken) that a category does not have. `visual`
+  // takes the outline, the last neutral face that is not `muted` -- muted is
+  // what a custom category falls back to, so a built-in wearing it would be
+  // indistinguishable from one the deployment invented.
   data: "default",
+  visual: "outline",
   samples: "info",
   playbooks: "warning",
   templates: "secondary",

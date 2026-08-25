@@ -20,6 +20,12 @@ function liveScope(selected: string, scopes: string[]): string {
   return scopes.includes(selected) ? selected : (scopes[0] ?? selected);
 }
 
+// A narrowed view that returns nothing means the filter missed, not that the
+// scope is empty; the two need different empty states.
+function narrowed(q: string, category: string, tag: string): boolean {
+  return q !== "" || category !== "" || tag !== "";
+}
+
 interface LibrarySection {
   /** Where this library is mounted: "/resources" or "/admin/resources". */
   basePath: string;
@@ -48,6 +54,7 @@ export function useResourceLibrary(admin: boolean, scopes: string[], section: Li
   const [searchInput, setSearchInput] = useState(initial.q);
   const [search, setSearch] = useState(initial.q);
   const [category, setCategory] = useState(initial.category);
+  const [tag, setTag] = useState(initial.tag);
   const [sort, setSort] = useState<ResourceSort>(initial.sort);
   const [selectedTab, setSelectedTab] = useState<string>(initial.tab);
   const activeTab = liveScope(selectedTab, scopes);
@@ -63,10 +70,14 @@ export function useResourceLibrary(admin: boolean, scopes: string[], section: Li
   // a keystroke is not a view worth recording. Leaving the page pins the live
   // one, because a filter typed and immediately clicked through has not reached
   // the debounced value yet, and pinning that would drop what is on screen.
-  const settled = libraryPath(basePath, { tab: selectedTab, q: search, category, sort }, defaultTab);
+  const settled = libraryPath(
+    basePath,
+    { tab: selectedTab, q: search, category, tag, sort },
+    defaultTab,
+  );
   const live = libraryPath(
     basePath,
-    { tab: selectedTab, q: searchInput, category, sort },
+    { tab: selectedTab, q: searchInput, category, tag, sort },
     defaultTab,
   );
 
@@ -80,6 +91,7 @@ export function useResourceLibrary(admin: boolean, scopes: string[], section: Li
 
   const query = useInfiniteResources({
     category: category || undefined,
+    tag: tag || undefined,
     q: search || undefined,
     sort,
     ...scopeParams(activeTab),
@@ -100,6 +112,8 @@ export function useResourceLibrary(admin: boolean, scopes: string[], section: Li
     setSearchInput,
     category,
     setCategory,
+    tag,
+    setTag,
     sort,
     setSort,
     activeTab,
@@ -110,8 +124,6 @@ export function useResourceLibrary(admin: boolean, scopes: string[], section: Li
     hasNextPage: query.hasNextPage,
     isFetchingNextPage: query.isFetchingNextPage,
     fetchNextPage: query.fetchNextPage,
-    // A narrowed view that returns nothing means the filter missed, not that
-    // the scope is empty; the two need different empty states.
-    filtering: search !== "" || category !== "",
+    filtering: narrowed(search, category, tag),
   };
 }
