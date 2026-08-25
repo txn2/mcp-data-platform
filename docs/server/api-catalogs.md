@@ -4,6 +4,8 @@ OpenAPI specs describe **the API**, not the credential pointed at it. An organiz
 
 An **API catalog** is a versioned, globally-owned bundle of component OpenAPI 3.x specs. Each `(name, version)` pair is its own catalog row. Connections of kind `api` reference one catalog by id via `config.catalog_id`; the toolkit resolves connection, catalog, and specs at runtime and exposes the merged operation index through `api_list_endpoints` and `api_get_endpoint_schema`.
 
+To read what a catalog exposes without opening the spec text, use the [operation browser](api-browser.md).
+
 ## What's in a catalog
 
 A catalog has:

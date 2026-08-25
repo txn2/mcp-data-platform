@@ -96,10 +96,14 @@ export interface APICatalogEmbeddingJob {
   completed_at?: string;
 }
 
-export function useAPICatalogs() {
+// enabled is what keeps a non-administrator from asking: the route answers 403
+// to them, and a surface that serves both audiences (the operation browser,
+// #1478) must not spend a rejected request per mount to discover that.
+export function useAPICatalogs(enabled = true) {
   return useQuery({
     queryKey: ["api-catalogs"],
     queryFn: () => apiFetch<APICatalogSummary[]>("/api-catalogs"),
+    enabled,
   });
 }
 

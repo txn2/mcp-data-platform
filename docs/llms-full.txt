@@ -3960,6 +3960,52 @@ Retryable failures back off exponentially (5s, 10s, 20s, 40s, 80s) up to 5 attem
 
 ---
 
+# API Operation Browser
+
+The platform indexes the operations of every OpenAPI spec in an API catalog, and an agent reaches them through `api_list_endpoints`, `api_get_endpoint_schema`, and relevance hits from `search`. The operation browser is the same index for a person, in two views that differ by what they are drawn from.
+
+`/admin/apis` lists what has been LOADED: every catalog, every component spec in it, and the operations each spec parses to, including catalogs no connection references yet. A spec whose stored content no longer parses as OpenAPI is named above the index and its operations are absent, rather than the index quietly running short.
+
+`/apis` lists what the reader may CALL: the api-kind connections their persona allows, and on each, the operations the persona's `APIRoutes` rules permit. The subtraction is the route policy's, the same one `api_list_endpoints` applies, so an operation a deny rule refuses is absent from the list AND from the connection's count. An administrator's reach is unrestricted, as it is everywhere else.
+
+The connection boundary is in force today; the per-route one is the same code path both surfaces run through, but `Persona.APIRoutes` has no authoring surface yet (neither `platform.PersonaDef` nor the admin persona API carries the field), so every persona currently carries an empty rule set and the policy permits every operation on a connection the persona reaches. Authoring those rules is #1479.
+
+Both are one React component mounted twice; the scope decides the source and whether there is a connection to write a call snippet against.
+
+## What an operation shows
+
+The index is grouped by component spec and then by the operation's tag, and filtered by free text over operation id, path and summary. An operation carrying several tags appears under each, because that is what the tag means. Selecting a row opens the method, the full path including the spec's base-path prefix, the operation id, the parameters by location (path, query, header) with type, requirement and enumeration, the request body's media types and shape, one entry per declared response status, and — on a connection — the requests promoted from calls that worked against that endpoint.
+
+The resolution is the platform's own: `apigateway.BrowseOperation` and `apigateway.SpecOperation` both return the `EndpointSchemaOutput` `api_get_endpoint_schema` returns, so the pane and the tool cannot describe an operation differently. Nothing here parses a spec a second time.
+
+The selection lives in search params, so one operation is linkable: `/portal/apis?connection=acme-billing&spec=core&op=createCustomer`, `/portal/admin/apis?catalog=stripe-api-2025-01&spec=core&op=createCustomer`.
+
+## The call an operation produces
+
+On the caller's view each operation carries a copyable `curl` against `POST /api/v1/gateway/{connection}/invoke`: the method and path go into the invoke body, required query and header parameters appear with their types as placeholders, and the request body carries the smallest object the schema declares (every required property, or all of them when the schema requires none). A path parameter stays in the braces the spec wrote it in — that is the one part the caller must replace, and a fabricated id would read as a working value. The upstream method and path the gateway will produce are stated above the snippet; the connection's credential is never part of this surface.
+
+This answers the non-MCP case directly: a client driving the gateway over plain HTTP (Apache NiFi's InvokeHTTP, a cron job, a shell) previously had no way to learn which connections exist, which operations each exposes, or what an invoke body for one looks like.
+
+## Routes
+
+Read-only, and none of them returns a spec document:
+
+- `GET /api/v1/apis` — the api-kind connections the caller reaches, each with the operation count they reach on it.
+- `GET /api/v1/apis/{connection}/operations` — that connection's operations, with its upstream root and auth mode.
+- `GET /api/v1/apis/{connection}/operations/{operationId}` — one operation in full. `?spec=` disambiguates an id defined by more than one component spec; without it the route answers 409 and names the specs.
+- `GET /api/v1/admin/api-catalogs/{id}/specs/{spec}/operations` — the operations one stored catalog spec parses to, plus the base path they carry.
+- `GET /api/v1/admin/api-catalogs/{id}/specs/{spec}/operations/{operationId}` — one of those in full.
+
+The `/api/v1/apis` routes are named outside `/api/v1/portal` because their second reader is that plain HTTP client, and they take a session cookie, a bearer token, or an `X-API-Key` alike. They are mounted with the rest of the portal API and are present wherever it is, INCLUDING a deployment with no api-gateway toolkit at all: an absent route under `/api/v1` falls through to the MCP root handler, which answers 401 to a browser fetch carrying only a session cookie, and the portal client turns a 401 into a redirect to the login screen — so a page whose route can be missing throws its reader out of the portal instead of showing an empty state. The connection enumeration is `connreach`'s, the same one a script's connection picker is filled from, so one question about what a caller reaches has one answer. The caller's identity is put on the context the route policy resolves roles from, so an operation this surface shows is one that caller's tool call could also reach.
+
+An operation with no declared `operationId` carries a synthesized `METHOD path` id (`GET /things/{id}`), which is percent-encoded as one path segment.
+
+The catalog routes are registered with the catalog reads rather than the writes, so a file-config deployment that cannot write catalogs can still be asked what its catalogs expose.
+
+The browser executes nothing. It names operations and produces text; the invoke routes are the ones that make calls.
+
+---
+
 # Managed Scripts
 
 Managed scripts are small Starlark programs the platform stores, versions, and governs, so a process whose logic is already solved (a KPI report, a recurring export) can be re-run without deriving it again through a conversation. An agent authors them through the `manage_script` MCP tool; the platform parses, validates, versions, and executes them in a sandbox built for one property above all others.

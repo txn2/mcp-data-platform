@@ -22,12 +22,26 @@ const CREATED_BY = "data-platform@acme.example.com";
 // viewer renders real paths/summaries. The declared operation_count on each
 // spec reflects the full upstream spec; the inline content is a representative
 // slice (4-8 operations) to keep the fixture readable.
+// MockOperation is one operation in a fixture spec. Everything past the summary
+// and the id is optional: most fixture operations only need to exist, and the
+// few the operation browser is captured on carry the parameters, body and
+// responses a real one would (#1478).
+export interface MockOperation {
+  summary: string;
+  operationId: string;
+  description?: string;
+  tags?: string[];
+  parameters?: unknown[];
+  requestBody?: unknown;
+  responses?: Record<string, unknown>;
+}
+
 function openapi(doc: {
   title: string;
   version: string;
   description: string;
   serverUrl: string;
-  paths: Record<string, Record<string, { summary: string; operationId: string }>>;
+  paths: Record<string, Record<string, MockOperation>>;
 }): string {
   return JSON.stringify(
     {
@@ -47,7 +61,11 @@ function openapi(doc: {
               {
                 summary: op.summary,
                 operationId: op.operationId,
-                responses: { "200": { description: "OK" } },
+                ...(op.description ? { description: op.description } : {}),
+                ...(op.tags ? { tags: op.tags } : {}),
+                ...(op.parameters ? { parameters: op.parameters } : {}),
+                ...(op.requestBody ? { requestBody: op.requestBody } : {}),
+                responses: op.responses ?? { "200": { description: "OK" } },
               },
             ]),
           ),
@@ -229,20 +247,160 @@ export const mockCatalogSpecs: Record<string, Record<string, APICatalogSpec>> = 
         serverUrl: "https://api.stripe.com/v1",
         paths: {
           "/customers": {
-            get: { summary: "List customers", operationId: "listCustomers" },
-            post: { summary: "Create a customer", operationId: "createCustomer" },
+            get: {
+              summary: "List customers",
+              operationId: "listCustomers",
+              description:
+                "Returns a list of customers, most recently created first. Paginated with the cursor parameters common to every list endpoint.",
+              tags: ["Customers"],
+              parameters: [
+                {
+                  name: "limit",
+                  in: "query",
+                  description: "How many objects to return, between 1 and 100.",
+                  schema: { type: "integer", default: 10 },
+                },
+                {
+                  name: "email",
+                  in: "query",
+                  description: "Return only customers with this exact email address.",
+                  schema: { type: "string", format: "email" },
+                },
+                {
+                  name: "starting_after",
+                  in: "query",
+                  description: "A cursor: the id of the object the page starts after.",
+                  schema: { type: "string" },
+                },
+              ],
+              responses: {
+                "200": {
+                  description: "A paginated list of customers.",
+                  content: {
+                    "application/json": {
+                      schema: {
+                        type: "object",
+                        required: ["object", "data", "has_more"],
+                        properties: {
+                          object: { type: "string", enum: ["list"] },
+                          has_more: {
+                            type: "boolean",
+                            description: "Whether another page follows this one.",
+                          },
+                          data: {
+                            type: "array",
+                            items: {
+                              type: "object",
+                              required: ["id", "email"],
+                              properties: {
+                                id: { type: "string" },
+                                email: { type: "string", format: "email" },
+                                name: { type: "string" },
+                                created: {
+                                  type: "integer",
+                                  description: "Creation time, as a Unix timestamp.",
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+                "401": { description: "The credential was rejected." },
+              },
+            },
+            post: {
+              summary: "Create a customer",
+              operationId: "createCustomer",
+              description: "Creates a new customer object.",
+              tags: ["Customers"],
+              requestBody: {
+                required: true,
+                description: "The customer to create.",
+                content: {
+                  "application/json": {
+                    schema: {
+                      type: "object",
+                      required: ["email"],
+                      properties: {
+                        email: {
+                          type: "string",
+                          format: "email",
+                          description: "The customer's email address.",
+                        },
+                        name: { type: "string", description: "The customer's full name." },
+                        description: { type: "string" },
+                        metadata: {
+                          type: "object",
+                          description: "Up to 50 keys of your own.",
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+              responses: {
+                "200": { description: "The created customer." },
+                "400": { description: "The request was malformed." },
+              },
+            },
           },
           "/customers/{customer}": {
-            get: { summary: "Retrieve a customer", operationId: "getCustomer" },
+            get: {
+              summary: "Retrieve a customer",
+              operationId: "getCustomer",
+              tags: ["Customers"],
+              parameters: [
+                {
+                  name: "customer",
+                  in: "path",
+                  required: true,
+                  description: "The identifier of the customer to retrieve.",
+                  schema: { type: "string" },
+                },
+              ],
+              responses: {
+                "200": { description: "The customer." },
+                "404": { description: "No customer with that identifier." },
+              },
+            },
           },
           "/charges": {
-            get: { summary: "List charges", operationId: "listCharges" },
-            post: { summary: "Create a charge", operationId: "createCharge" },
+            get: { summary: "List charges", operationId: "listCharges", tags: ["Charges"] },
+            post: {
+              summary: "Create a charge",
+              operationId: "createCharge",
+              tags: ["Charges"],
+              requestBody: {
+                required: true,
+                content: {
+                  "application/json": {
+                    schema: {
+                      type: "object",
+                      required: ["amount", "currency"],
+                      properties: {
+                        amount: {
+                          type: "integer",
+                          description: "Amount in the smallest currency unit.",
+                        },
+                        currency: { type: "string", enum: ["usd", "eur", "gbp"] },
+                        customer: { type: "string" },
+                        description: { type: "string" },
+                      },
+                    },
+                  },
+                },
+              },
+              responses: { "200": { description: "The created charge." } },
+            },
           },
           "/payment_intents": {
             post: {
               summary: "Create a payment intent",
               operationId: "createPaymentIntent",
+              tags: ["Payment Intents"],
             },
           },
         },

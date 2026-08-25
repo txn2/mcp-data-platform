@@ -26,6 +26,7 @@ import {
   THUMBNAIL_SOURCE_LIMIT,
 } from "@/lib/thumbnailSupport";
 import { catalogHandlers } from "./handlers/catalogs";
+import { apiBrowseHandlers } from "./handlers/apis";
 import { userHandlers } from "./handlers/users";
 import { connectionInstanceHandlers } from "./handlers/connections";
 import { scriptHandlers } from "./handlers/scripts";
@@ -3702,6 +3703,7 @@ export const handlers = [
   // handler above wins on an overlapping path; these only cover endpoints
   // that were previously unhandled (and rendered empty in demos/docs).
   ...catalogHandlers,
+  ...apiBrowseHandlers,
   ...userHandlers,
   ...connectionInstanceHandlers,
   ...scriptHandlers,

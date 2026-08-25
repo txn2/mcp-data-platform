@@ -72,6 +72,9 @@ const (
 	catalogPathID = "id"
 	// catalogPathSpec is the {spec} path placeholder for catalog-spec routes.
 	catalogPathSpec = "spec"
+	// catalogPathOperation is the {operationId} path placeholder for the
+	// per-operation browse route.
+	catalogPathOperation = "operationId"
 	// embeddingJobListDefaultLimit caps the default page size for
 	// /api-catalogs/{id}/embedding-jobs. Generous enough to cover
 	// a normal-size catalog's recent history; small enough that
@@ -177,6 +180,11 @@ func Register(mux *http.ServeMux, cfg Config) {
 	mux.HandleFunc("GET /api/v1/admin/api-catalogs", h.listCatalogs)
 	mux.HandleFunc("GET /api/v1/admin/api-catalogs/{id}", h.getCatalog)
 	mux.HandleFunc("GET /api/v1/admin/api-catalogs/{id}/specs", h.listCatalogSpecs)
+	// The operation browser reads a spec's contents without shipping the
+	// document (#1478). Registered with the reads, not the writes: a
+	// file-config deployment can still be asked what its catalogs expose.
+	mux.HandleFunc("GET /api/v1/admin/api-catalogs/{id}/specs/{spec}/operations", h.listSpecOperations)
+	mux.HandleFunc("GET /api/v1/admin/api-catalogs/{id}/specs/{spec}/operations/{operationId}", h.getSpecOperation)
 	if !cfg.Mutable {
 		return
 	}

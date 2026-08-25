@@ -44,6 +44,11 @@ const ConfigEditorPage = lazy(() =>
 const CatalogsPanel = lazy(() =>
   import("@/pages/settings/CatalogsPanel").then((m) => ({ default: m.CatalogsPanel })),
 );
+// The operation browser serves both sections; `scope` is what changes its
+// source, from the connections a caller reaches to the catalogs that exist.
+const ApisPage = lazy(() =>
+  import("@/pages/apis/ApisPage").then((m) => ({ default: m.ApisPage })),
+);
 const ConnectionsPanel = lazy(() =>
   import("@/pages/settings/ConnectionsPanel").then((m) => ({ default: m.ConnectionsPanel })),
 );
@@ -116,6 +121,7 @@ const EXACT_PAGES: ReadonlyMap<string, (p: PageContext) => ReactNode> = new Map(
     />
   )],
   ["/admin/api-catalogs", () => <CatalogsPanel />],
+  ["/admin/apis", () => <ApisPage scope="admin" />],
   ["/admin/connections", () => <ConnectionsPanel />],
   ["/admin/personas", () => <PersonasPanel />],
   ["/admin/prompts", (p: PageContext) => <AdminPromptsPage onNavigate={p.navigate} />],

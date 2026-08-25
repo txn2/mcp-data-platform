@@ -736,6 +736,137 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/api-catalogs/{id}/specs/{spec}/operations": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the operations a catalog spec parses to. The spec document is not returned.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "API Catalogs"
+                ],
+                "summary": "List spec operations",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Catalog ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Spec name",
+                        "name": "spec",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/catalogapi.operationListResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/api-catalogs/{id}/specs/{spec}/operations/{operationId}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns one operation's parameters, request body and per-status responses. The spec document is not returned.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "API Catalogs"
+                ],
+                "summary": "Get spec operation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Catalog ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Spec name",
+                        "name": "spec",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Operation ID",
+                        "name": "operationId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/apigateway.EndpointSchemaOutput"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/api-catalogs/{id}/specs/{spec}/reembed": {
             "post": {
                 "security": [
@@ -8242,6 +8373,157 @@ const docTemplate = `{
                         "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/apis": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the api-kind connections the caller's persona reaches, each with the number of operations the route policy permits them.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "APIs"
+                ],
+                "summary": "List the API connections you reach",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/apishttp.connectionListResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/apis/{connection}/operations": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns every operation of one api-kind connection that the caller's route policy permits, with the connection's upstream root and auth mode.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "APIs"
+                ],
+                "summary": "List a connection's operations",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Connection name",
+                        "name": "connection",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/apishttp.operationListResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/apis/{connection}/operations/{operationId}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns one operation's parameters, request body and per-status responses, resolved exactly as api_get_endpoint_schema resolves them. An operation the route policy denies is reported as not found.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "APIs"
+                ],
+                "summary": "Get one operation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Connection name",
+                        "name": "connection",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Operation ID (percent-encoded)",
+                        "name": "operationId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Component spec, when one id is defined by several",
+                        "name": "spec",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/apigateway.EndpointSchemaOutput"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -19117,6 +19399,240 @@ const docTemplate = `{
                 }
             }
         },
+        "apigateway.EndpointSchemaOutput": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "examples": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "method": {
+                    "type": "string"
+                },
+                "note": {
+                    "type": "string"
+                },
+                "operation_id": {
+                    "type": "string"
+                },
+                "parameters": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/apigateway.ParameterDetail"
+                    }
+                },
+                "path": {
+                    "type": "string"
+                },
+                "request_body": {
+                    "$ref": "#/definitions/apigateway.RequestBodyDetail"
+                },
+                "responses": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/apigateway.ResponseDetail"
+                    }
+                },
+                "saved_examples": {
+                    "description": "SavedExamples are requests promoted from real calls against this\nconnection (#1321). They differ from Examples, which are whatever the\nspec's author declared: these are known to have worked here.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/catalog.Example"
+                    }
+                },
+                "spec": {
+                    "type": "string"
+                },
+                "summary": {
+                    "type": "string"
+                }
+            }
+        },
+        "apigateway.HeaderDetail": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "required": {
+                    "type": "boolean"
+                },
+                "schema": {}
+            }
+        },
+        "apigateway.ParameterDetail": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "in": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "required": {
+                    "type": "boolean"
+                },
+                "schema": {}
+            }
+        },
+        "apigateway.RequestBodyDetail": {
+            "type": "object",
+            "properties": {
+                "content_types": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "description": {
+                    "type": "string"
+                },
+                "examples": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "required": {
+                    "type": "boolean"
+                },
+                "schema": {}
+            }
+        },
+        "apigateway.ResponseDetail": {
+            "type": "object",
+            "properties": {
+                "content_types": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "description": {
+                    "type": "string"
+                },
+                "examples": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "headers": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/apigateway.HeaderDetail"
+                    }
+                },
+                "schema": {},
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "apishttp.connectionListResponse": {
+            "type": "object",
+            "properties": {
+                "connections": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/apishttp.connectionResponse"
+                    }
+                }
+            }
+        },
+        "apishttp.connectionResponse": {
+            "type": "object",
+            "properties": {
+                "auth_mode": {
+                    "type": "string"
+                },
+                "base_url": {
+                    "description": "BaseURL is the upstream root every operation path is joined onto. The\ncredential that reaches it is never part of this surface.",
+                    "type": "string"
+                },
+                "catalog_id": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "operation_count": {
+                    "description": "OperationCount counts the operations this caller reaches, not the\ncatalog's total: an operation a deny rule hides is absent from the list\nand from the count.",
+                    "type": "integer"
+                },
+                "specs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/apishttp.specResponse"
+                    }
+                }
+            }
+        },
+        "apishttp.operationListResponse": {
+            "type": "object",
+            "properties": {
+                "connection": {
+                    "$ref": "#/definitions/apishttp.connectionResponse"
+                },
+                "operations": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/apishttp.operationResponse"
+                    }
+                }
+            }
+        },
+        "apishttp.operationResponse": {
+            "type": "object",
+            "properties": {
+                "method": {
+                    "type": "string"
+                },
+                "operation_id": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "spec": {
+                    "type": "string"
+                },
+                "summary": {
+                    "type": "string"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "apishttp.specResponse": {
+            "type": "object",
+            "properties": {
+                "base_path": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "operation_count": {
+                    "type": "integer"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
         "assetrefapi.audience": {
             "type": "object",
             "properties": {
@@ -20077,6 +20593,40 @@ const docTemplate = `{
                 }
             }
         },
+        "catalog.Example": {
+            "type": "object",
+            "properties": {
+                "call_record_id": {
+                    "description": "CallRecordID leads back to the recorded call this was promoted from.",
+                    "type": "string"
+                },
+                "connection": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "method": {
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Name is what the example is called: the purpose stated for the call it\nwas promoted from.",
+                    "type": "string"
+                },
+                "operation_id": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                }
+            }
+        },
         "catalogapi.catalogResponse": {
             "type": "object",
             "properties": {
@@ -20169,6 +20719,47 @@ const docTemplate = `{
                 },
                 "specs_total": {
                     "type": "integer"
+                }
+            }
+        },
+        "catalogapi.operationListResponse": {
+            "type": "object",
+            "properties": {
+                "base_path": {
+                    "description": "BasePath is the prefix every listed path already carries. Reported\nso a reader can tell an operator-set prefix from one the spec's own\nservers[] declared.",
+                    "type": "string"
+                },
+                "operations": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/catalogapi.operationSummaryResponse"
+                    }
+                }
+            }
+        },
+        "catalogapi.operationSummaryResponse": {
+            "type": "object",
+            "properties": {
+                "method": {
+                    "type": "string"
+                },
+                "operation_id": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "spec": {
+                    "type": "string"
+                },
+                "summary": {
+                    "type": "string"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
