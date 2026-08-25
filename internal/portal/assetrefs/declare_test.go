@@ -1,6 +1,8 @@
 package assetrefs_test
 
 import (
+	"bytes"
+	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -228,4 +230,46 @@ func TestApplyReportsStoreFailures(t *testing.T) {
 func TestGrantNoticeNamesTheConsequence(t *testing.T) {
 	assert.Contains(t, assetrefs.GrantNotice, "shared")
 	assert.Contains(t, assetrefs.GrantNotice, "public link")
+}
+
+// TestGrantLogRecordsBothDoors is the operator's half of the reference model.
+//
+// A reference is made from two places -- an agent's save through Apply, and a
+// person's add through the portal panel (#1475) -- and both call these. A log
+// that carried only one of them would show half the grants and read as
+// complete, which is why the wording lives here rather than at each caller.
+func TestGrantLogRecordsBothDoors(t *testing.T) {
+	buf := &bytes.Buffer{}
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	assetrefs.LogGranted("asset-1", portaldomain.AssetResourceRef{
+		ResourceID: "res-logo",
+		URI:        "mcp://global/brand/logo.png",
+		DeclaredBy: "analyst@example.com",
+	})
+	assetrefs.LogRevoked("asset-1", "res-logo", "owner@example.com")
+
+	out := buf.String()
+	assert.Contains(t, out, "asset_resource_reference.granted")
+	assert.Contains(t, out, "declared_by=analyst@example.com")
+	assert.Contains(t, out, "asset_resource_reference.revoked")
+	assert.Contains(t, out, "revoked_by=owner@example.com")
+	assert.Contains(t, out, "resource_id=res-logo")
+}
+
+// A name carrying a control character reaches the log sanitized, because the
+// asset id and the address both come from callers.
+func TestGrantLogSanitizes(t *testing.T) {
+	buf := &bytes.Buffer{}
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	assetrefs.LogRevoked("asset\n1", "res\r2", "owner\n@example.com")
+
+	out := buf.String()
+	assert.NotContains(t, out, "asset\n1")
+	assert.NotContains(t, out, "res\r2")
 }

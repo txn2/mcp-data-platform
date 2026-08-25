@@ -9129,6 +9129,209 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/assets/{id}/resources": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the managed resources an asset's content references, with enough of each resource to render a row, the URL the reference is served under, and where the asset's stored content still writes the URI. A reference whose resource was deleted is returned flagged as broken.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Portal"
+                ],
+                "summary": "List an asset's referenced resources",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/assetrefapi.listResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Adds one managed resource to the asset's references, checked against the caller's own read permission on that resource. The asset's stored content is not changed. Returns the asset's references after the add.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Portal"
+                ],
+                "summary": "Reference a resource from an asset",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/assetrefapi.listResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/assets/{id}/resources/{resourceID}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Removes one managed resource from the asset's references. The asset's stored content is not changed, so a URI still written in the markup stops resolving. Returns the asset's references after the removal.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Portal"
+                ],
+                "summary": "Remove an asset's reference to a resource",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Resource ID",
+                        "name": "resourceID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/assetrefapi.listResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/assets/{id}/shares": {
             "get": {
                 "security": [
@@ -13766,6 +13969,61 @@ const docTemplate = `{
                             "additionalProperties": {
                                 "type": "string"
                             }
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/resources/{id}/assets": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the assets whose content references a managed resource and which the caller may open, flagging any that carry an active public link share. Referencing assets the caller cannot open are counted but not named.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "List assets referencing a resource",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Resource ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/assetrefapi.usedByResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -18856,6 +19114,169 @@ const docTemplate = `{
                 "last_name": {
                     "type": "string",
                     "example": "Johnson"
+                }
+            }
+        },
+        "assetrefapi.audience": {
+            "type": "object",
+            "properties": {
+                "public": {
+                    "description": "Public is true when an active link share exists, which is the reading\nthat matters: a link share is readable by anyone who holds it, with no\naccount at all.",
+                    "type": "boolean"
+                },
+                "shared_with_users": {
+                    "description": "SharedWithUsers is true when the asset is shared with named people.",
+                    "type": "boolean"
+                }
+            }
+        },
+        "assetrefapi.listResponse": {
+            "type": "object",
+            "properties": {
+                "audience": {
+                    "$ref": "#/definitions/assetrefapi.audience"
+                },
+                "can_edit": {
+                    "description": "CanEdit is this reader's authority over the list. The panel offers add\nand remove on it rather than re-deriving ownership in the browser, so\nthe control a reader sees and the answer the route gives cannot differ.",
+                    "type": "boolean"
+                },
+                "content_scanned": {
+                    "description": "ContentScanned reports whether the asset's stored content was read to\nfind where it writes each URI. False means the occurrence lists say\nnothing at all: the content is binary, too large, or could not be read.\n\nIt is a separate field rather than an inference from empty occurrences\nbecause the two mean opposite things to the person removing a reference.\n\"The content does not name this\" makes a removal safe; \"we could not\nlook\" does not, and a client that could not tell them apart would\nwithdraw a grant from a live report without a word.",
+                    "type": "boolean"
+                },
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/assetrefapi.refView"
+                    }
+                },
+                "max": {
+                    "description": "Max is the per-asset reference cap, so the panel can say what the limit\nis before a caller hits it.",
+                    "type": "integer"
+                },
+                "notice": {
+                    "description": "Notice is the sentence stating what a reference gives away, the same one\nthe toolkit shows an agent at the moment it declares one.",
+                    "type": "string"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "assetrefapi.occurrence": {
+            "type": "object",
+            "properties": {
+                "line": {
+                    "description": "Line is 1-indexed, counting the stored content's own lines.",
+                    "type": "integer"
+                },
+                "snippet": {
+                    "description": "Snippet is the fragment of that line around the URI, whitespace\ncollapsed, so the panel can show the reader what their content says.",
+                    "type": "string"
+                },
+                "truncated": {
+                    "description": "Truncated is set on the last reported occurrence when the cap stopped\nthe scan, so a warning built from this list reads as \"at least these\"\nrather than as the whole of them.",
+                    "type": "boolean"
+                }
+            }
+        },
+        "assetrefapi.refView": {
+            "type": "object",
+            "properties": {
+                "broken": {
+                    "description": "Broken marks a reference whose resource has been deleted. The row\nsurvives the delete on purpose (#1474), so this is the one place the\nowner learns their report is now serving with a picture missing.",
+                    "type": "boolean"
+                },
+                "category": {
+                    "type": "string"
+                },
+                "content_url": {
+                    "description": "ContentURL is the reference's own serving URL, the same one the rewrite\nwrites into the content this reader is served. It is here so the panel\ncan show a thumbnail through the grant the reference already makes,\nrather than through the resource route, which a reader of a shared asset\nmay not be allowed to call.",
+                    "type": "string"
+                },
+                "declared_by": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "display_name": {
+                    "type": "string"
+                },
+                "filename": {
+                    "type": "string"
+                },
+                "mime_type": {
+                    "type": "string"
+                },
+                "occurrences": {
+                    "description": "Occurrences names where the asset's stored content still writes this\nURI. Empty means the content does not name it -- either because it never\ndid, or because the content could not be read; see scanOccurrences.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/assetrefapi.occurrence"
+                    }
+                },
+                "position": {
+                    "type": "integer"
+                },
+                "readable": {
+                    "description": "Readable is whether this reader could open the resource on its own, as\nopposed to through the asset. It decides whether the row is a link: a\nreader of a shared asset can see a file they have no direct access to,\nand a link to the resource's own page would only lead them to a\nnot-found.",
+                    "type": "boolean"
+                },
+                "resource_id": {
+                    "type": "string"
+                },
+                "scope": {
+                    "type": "string"
+                },
+                "scope_id": {
+                    "type": "string"
+                },
+                "size_bytes": {
+                    "type": "integer"
+                },
+                "uri": {
+                    "type": "string"
+                }
+            }
+        },
+        "assetrefapi.referencingAsset": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "owner_email": {
+                    "type": "string"
+                },
+                "public": {
+                    "description": "Public marks an asset carrying an active link share. It is the flag the\nwhole list exists for: a reference carries the asset's audience, so a\nresource referenced by a publicly shared asset is readable by anyone who\nholds that link.",
+                    "type": "boolean"
+                }
+            }
+        },
+        "assetrefapi.usedByResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/assetrefapi.referencingAsset"
+                    }
+                },
+                "hidden": {
+                    "description": "Hidden counts the referencing assets this reader may not open. They are\nnamed nowhere, but they are counted: someone deciding whether to delete a\nfile has to know the list they are looking at is not the whole of what\nwould break.",
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                },
+                "truncated": {
+                    "description": "Truncated says the answer was cut at the bound rather than being the\nwhole of what references this file. It is reported rather than left\nimplicit for the reason Hidden is: a short list read as a complete one\nis the mistake this surface exists to prevent.",
+                    "type": "boolean"
                 }
             }
         },

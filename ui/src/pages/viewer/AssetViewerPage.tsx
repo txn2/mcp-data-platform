@@ -49,6 +49,9 @@ export function AssetViewerPage({ assetId, onNavigate, onBack }: Props) {
       // its own caller, so on a shared asset this link would lead to a
       // not-found (#1319).
       sessionPath={isOwner ? mySessionPath : undefined}
+      // A referenced file opens in the reader's own resource library. The panel
+      // only links the ones the server said this reader can open on their own.
+      resourcePath={(resourceId) => `/resources/${encodeURIComponent(resourceId)}`}
       versions={versionsData?.data}
       versionsLoading={versionsLoading}
       revertMutation={revertMutation}

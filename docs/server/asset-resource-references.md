@@ -1,5 +1,5 @@
 ---
-description: How an asset references a managed resource instead of embedding it - declaring a reference on save, the URL every viewing surface rewrites, what the grant gives away, and what happens when the file is deleted or the asset is copied.
+description: How an asset references a managed resource instead of embedding it - declaring a reference on save, managing one from the portal, the URL every viewing surface rewrites, what the grant gives away, and what happens when the file is deleted or the asset is copied.
 ---
 
 # Asset Resource References
@@ -58,6 +58,32 @@ The route takes no session. That is not a convenience: an HTML or JSX asset rend
 
 A reference that survives a save keeps its token, so a URL already rendered into a reader's open page does not break every time the author saves.
 
+## Managing references from the portal
+
+An asset's viewer sidebar carries a **Referenced files** panel listing what the asset depends on: each file's name, scope, content type, and, where the file is an image, a thumbnail of it. The thumbnail loads through the reference's own URL rather than through the resource route, so it renders for a reader who was only ever shown the asset.
+
+Every row carries the `mcp://` URI with a copy control. That is the point of the panel rather than a detail of it: adding a reference does not change the asset's content, and the markup has to name the URI for the picture to render.
+
+An owner, an editor on a shared asset, and an administrator can add a reference through a picker over the resources they can read, and remove one. The picker states what the reference gives away and names the asset's current audience before anything is added — a public link, people it is shared with, or neither yet. A reader with no edit authority sees the list and is offered neither control.
+
+A row whose resource has been deleted is flagged rather than dropped. It names the resource id, which is what the owner needs in order to clean it up, and it is the only place they learn the report is now serving without that file.
+
+### Removing one the content still names
+
+The panel reads the asset's stored content and reports which lines write each reference's URI. Removing a reference the content still names warns first, naming those lines, and proceeds on confirmation: the declaration and the markup are two things the author keeps in step, and being unable to withdraw a grant until a document had been edited would be worse than leaving one URI resolving to nothing.
+
+The check does not always run. A binary asset, one larger than 2 MB, or a storage fault leaves it with nothing to report, and the response says which it was. That distinction is the point rather than a detail: "the content does not name this file" makes a removal safe, "we could not look" does not, and the two produce an identical empty list. A removal is confirmed whenever the check did not run, and the confirmation says the content could not be checked rather than claiming the URI is absent from it.
+
+Each reference made through the panel is logged as `asset_resource_reference.granted` and each removal as `asset_resource_reference.revoked`, the same record a save writes when an agent declares one. An operator's log covers both doors or it covers half the grants and looks complete.
+
+### The reverse view
+
+A resource's own detail page carries a **Used by** section beside the one listing the prompts that attach it, naming the assets whose content references it. An asset carrying a public link is flagged there, because that is the reference that widens the file's audience furthest. Referencing assets the reader cannot open are counted but not named — someone deciding whether to delete a file has to know the list is not the whole of what would break.
+
+The answer is bounded at 50, and says so when the bound cut it. Narrowing the list to the assets a given reader may open costs a share lookup per asset, so an unbounded read of a file every asset in a deployment references would turn one page view into a query per asset. A cut answer reads as "at least *n*" rather than as a total, on the same principle the hidden count follows.
+
+Deleting a resource that assets reference warns and names them first, on the same terms. The delete button stays disabled until that check answers, and says so if the check itself fails — a dialog that armed its destructive control while the answer was in flight would let a fast click skip the warning it exists for.
+
 ## What the agent reads
 
 `manage_asset get_content` is **not** rewritten. It returns the stored content with the `mcp://` URIs intact, because that is what the agent reads before it patches: an agent handed a rewritten URL would write a platform-internal path back into the asset on its next patch, and the reference would be gone. A `patch` round trip through `get_content` leaves references intact.
@@ -76,4 +102,4 @@ A reference that survives a save keeps its token, so a URL already rendered into
 
 Nothing configures this. References are available wherever there is a database and a managed-resource layer; a deployment with neither refuses a declaration with that reason rather than accepting it and recording nothing. The reference route is registered only where it can serve, and it carries its own rate limit sized so one page load can fetch everything the asset declared.
 
-The portal surface for managing an asset's references, and the reverse view on the resource side, are not part of this. See [`#1475`](https://github.com/txn2/mcp-data-platform/issues/1475).
+The portal panel and the resource-side view are registered on the same condition and answer nothing where the reference store is absent.

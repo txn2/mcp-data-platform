@@ -147,7 +147,9 @@ func (d *Declarer) Apply(
 	if err := d.refs.Replace(ctx, assetID, refs); err != nil {
 		return nil, fmt.Errorf("recording resource references: %w", err)
 	}
-	logGrants(assetID, refs)
+	for _, ref := range refs {
+		LogGranted(assetID, ref)
+	}
 	return refs, nil
 }
 
@@ -187,16 +189,32 @@ func tokenFor(tokens map[string]string, resourceID string) (string, error) {
 	return token, nil
 }
 
-// logGrants records each grant the declaration made. The reference row itself
-// carries who declared it and when; this puts the same three facts -- asset,
-// resource, author -- in the operator's log at the moment the grant widens the
-// file's audience to the asset's.
-func logGrants(assetID string, refs []portaldomain.AssetResourceRef) {
-	for _, ref := range refs {
-		slog.Info("asset_resource_reference.granted",
-			"asset_id", logsan.SanitizeForLog(assetID),
-			"resource_id", logsan.SanitizeForLog(ref.ResourceID),
-			"uri", logsan.SanitizeForLog(ref.URI),
-			"declared_by", logsan.SanitizeForLog(ref.DeclaredBy))
-	}
+// LogGranted records one grant. The reference row itself carries who declared
+// it and when; this puts the same three facts -- asset, resource, author -- in
+// the operator's log at the moment the grant widens the file's audience to the
+// asset's.
+//
+// It is exported because a reference is made from two doors: an agent's save,
+// through Apply above, and a person's add through the portal panel (#1475). An
+// operator's log that covered only one of them would show half the grants and
+// look complete, so both call this rather than each writing its own record.
+func LogGranted(assetID string, ref portaldomain.AssetResourceRef) {
+	slog.Info("asset_resource_reference.granted",
+		"asset_id", logsan.SanitizeForLog(assetID),
+		"resource_id", logsan.SanitizeForLog(ref.ResourceID),
+		"uri", logsan.SanitizeForLog(ref.URI),
+		"declared_by", logsan.SanitizeForLog(ref.DeclaredBy))
+}
+
+// LogRevoked records the withdrawal of one grant, so the log that shows a
+// file's audience widening also shows it narrowing again. A save that drops a
+// reference does not pass through here -- Replace states the whole list, and
+// what it dropped is the difference between two lists rather than an act --
+// but a person removing one has done exactly one thing, and it is worth the
+// line.
+func LogRevoked(assetID, resourceID, actor string) {
+	slog.Info("asset_resource_reference.revoked",
+		"asset_id", logsan.SanitizeForLog(assetID),
+		"resource_id", logsan.SanitizeForLog(resourceID),
+		"revoked_by", logsan.SanitizeForLog(actor))
 }

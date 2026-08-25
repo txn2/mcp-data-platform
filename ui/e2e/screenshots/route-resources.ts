@@ -7,6 +7,7 @@ import {
   openTableRepaired,
   openCorrectedVersion,
 } from "./route-actions";
+import { openResourceUsedByAssets } from "./route-actions-refs";
 import { type ScreenshotRoute } from "./route-types";
 
 // Every managed-resource capture on the admin surface: the page as it opens,
@@ -36,6 +37,15 @@ export const adminResourceRoutes: ScreenshotRoute[] = [
     path: "/portal/admin/resources",
     category: "admin",
     beforeCapture: openResourceLifecycle,
+  },
+  {
+    // The other half of the reference edge (#1475): the assets whose content
+    // references this file, with the publicly shared one flagged. It is what
+    // an owner reads before editing or deleting the file.
+    slug: "resource-used-by-assets",
+    path: "/portal/admin/resources",
+    category: "admin",
+    beforeCapture: openResourceUsedByAssets,
   },
   {
     // The registered-table panel on a managed CSV resource, showing a

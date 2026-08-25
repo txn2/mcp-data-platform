@@ -51,6 +51,45 @@ func (m *mockRefStore) ListByAsset(_ context.Context, id string) ([]portaldomain
 	return m.byAsset[id], nil
 }
 
+func (m *mockRefStore) Attach(_ context.Context, ref portaldomain.AssetResourceRef) (bool, error) {
+	for _, existing := range m.byAsset[ref.AssetID] {
+		if existing.ResourceID == ref.ResourceID {
+			return false, nil
+		}
+	}
+	m.byAsset[ref.AssetID] = append(m.byAsset[ref.AssetID], ref)
+	return true, nil
+}
+
+func (m *mockRefStore) Detach(_ context.Context, assetID, resourceID string) (bool, error) {
+	kept := make([]portaldomain.AssetResourceRef, 0, len(m.byAsset[assetID]))
+	found := false
+	for _, ref := range m.byAsset[assetID] {
+		if ref.ResourceID == resourceID {
+			found = true
+			continue
+		}
+		kept = append(kept, ref)
+	}
+	m.byAsset[assetID] = kept
+	return found, nil
+}
+
+func (m *mockRefStore) ListByResource(_ context.Context, resourceID string, _ int) ([]portaldomain.AssetResourceRef, error) {
+	if m.listErr != nil {
+		return nil, m.listErr
+	}
+	var out []portaldomain.AssetResourceRef
+	for _, refs := range m.byAsset {
+		for _, ref := range refs {
+			if ref.ResourceID == resourceID {
+				out = append(out, ref)
+			}
+		}
+	}
+	return out, nil
+}
+
 func (m *mockRefStore) GetByToken(_ context.Context, id, token string) (*portaldomain.AssetResourceRef, error) {
 	for _, ref := range m.byAsset[id] {
 		if ref.RefToken == token {

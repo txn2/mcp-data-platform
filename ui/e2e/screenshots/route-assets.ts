@@ -1,4 +1,8 @@
 import {
+  openAssetResourceRefPicker,
+  openAssetResourceRefs,
+} from "./route-actions-refs";
+import {
   openAssetMetadataEdit,
   openAssetProvenance,
   openAssetProvenanceCall,
@@ -53,6 +57,23 @@ export const assetViewerRoutes: ScreenshotRoute[] = [
     path: "/portal/assets/ast-001",
     category: "user",
     beforeCapture: openAssetVersionPicker,
+  },
+  {
+    // The managed resources this asset's content references (#1475): what it
+    // depends on, the URI its markup has to name, and where that URI is
+    // already written. Behind the metadata sidebar, like the panels above.
+    slug: "asset-resource-refs",
+    path: "/portal/assets/ast-001",
+    category: "user",
+    beforeCapture: openAssetResourceRefs,
+  },
+  {
+    // The picker open, which is the one state naming what a reference gives
+    // away and who this asset is shared with before anything is added.
+    slug: "asset-resource-refs-picker",
+    path: "/portal/assets/ast-001",
+    category: "user",
+    beforeCapture: openAssetResourceRefPicker,
   },
   {
     // The metadata sidebar in edit mode on an asset that keeps a cap of its

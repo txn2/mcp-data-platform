@@ -379,6 +379,13 @@ internal/platform/utilconn -> pkg/toolkits/apigateway/catalogindex
 internal/portal/access -> internal/portal/portaldomain
 internal/portal/access -> pkg/portal/threads
 internal/portal/access -> pkg/prompt
+internal/portal/assetrefapi -> internal/httpjson
+internal/portal/assetrefapi -> internal/logsan
+internal/portal/assetrefapi -> internal/portal/access
+internal/portal/assetrefapi -> internal/portal/assetrefs
+internal/portal/assetrefapi -> internal/portal/portaldomain
+internal/portal/assetrefapi -> pkg/contenttype
+internal/portal/assetrefapi -> pkg/resource
 internal/portal/assetrefs -> internal/httpjson
 internal/portal/assetrefs -> internal/logsan
 internal/portal/assetrefs -> internal/portal/portaldomain
@@ -639,6 +646,7 @@ pkg/portal -> internal/httpjson
 pkg/portal -> internal/logsan
 pkg/portal -> internal/platform/callrecord
 pkg/portal -> internal/portal/access
+pkg/portal -> internal/portal/assetrefapi
 pkg/portal -> internal/portal/assetrefs
 pkg/portal -> internal/portal/callapi
 pkg/portal -> internal/portal/feedbackapi

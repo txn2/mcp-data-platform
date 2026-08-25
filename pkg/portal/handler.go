@@ -434,6 +434,10 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("GET /api/v1/portal/shared-with-me", h.listSharedWithMe)
 	h.mux.HandleFunc("POST /api/v1/portal/assets/{id}/copy", h.copyAsset)
 
+	// The managed resources an asset's content references, from both ends:
+	// the asset's own list and the resource's "what uses this?" (#1475).
+	h.registerRefAPI()
+
 	// Collection routes
 	if h.deps.CollectionStore != nil {
 		h.mux.HandleFunc("POST /api/v1/portal/collections", h.createCollection)

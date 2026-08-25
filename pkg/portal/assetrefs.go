@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/portal/assetrefapi"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
@@ -63,6 +64,26 @@ func (h *Handler) registerRefRoutes() {
 	}
 	h.refMux = http.NewServeMux()
 	h.refMux.Handle(refRoutePattern, h.refLimiter.Middleware(server))
+}
+
+// registerRefAPI mounts the portal surface a person manages references through
+// (#1475): the asset's own list, adding and removing one, and the resource's
+// answer to what is holding it up. The seam lives in internal/portal/
+// assetrefapi; this package supplies its dependencies and its authorization
+// core, so the routes there and the ones that stayed here judge the same way.
+func (h *Handler) registerRefAPI() {
+	assetrefapi.Register(h.mux, assetrefapi.Config{
+		Refs:      h.deps.ResourceRefs,
+		Resources: h.deps.ResourceReader,
+		Assets:    h.deps.AssetStore,
+		Shares:    h.deps.ShareStore,
+		// The asset's own bytes, read to find where its content still writes a
+		// reference's URI. It is the portal's blob client rather than the
+		// resource layer's: the content being scanned is the asset's.
+		Blobs:  h.deps.S3Client,
+		Access: h.access,
+		Claims: h.resourceClaims,
+	})
 }
 
 // copyRefs carries a copied asset's references onto the copy, keeping only the

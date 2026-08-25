@@ -11,6 +11,7 @@ import { DetailRow } from "@/components/viewer/DetailRow";
 import { formatBytes } from "@/lib/format";
 import { shortSessionId } from "@/pages/sessions/kind";
 import { AssetMetadataForm } from "./AssetMetadataForm";
+import { ResourceRefsPanel } from "./ResourceRefsPanel";
 import type { RetentionMode } from "./AssetRetentionField";
 import type { MutationLike } from "./types";
 
@@ -48,6 +49,8 @@ interface AssetMetadataSidebarProps {
   detailRows?: { label: string; value: ReactNode }[];
   /** Where the session that produced this asset opens, when the reader can. */
   sessionPath?: (sessionId: string) => string;
+  /** Where a referenced managed resource opens, per surface. */
+  resourcePath?: (resourceId: string) => string;
   onNavigate?: (path: string) => void;
   versions?: AssetVersion[];
   versionsLoading?: boolean;
@@ -76,6 +79,7 @@ export function AssetMetadataSidebar({
   isSharedEditor,
   detailRows,
   sessionPath,
+  resourcePath,
   onNavigate,
   versions,
   versionsLoading,
@@ -173,6 +177,17 @@ export function AssetMetadataSidebar({
             contentType={asset.content_type}
             filename={fileNameOf(asset.s3_key)}
             canModify={isOwner}
+          />
+
+          {/*
+            The managed resources this asset's content references (#1475).
+            The panel decides for itself whether to render: an asset with no
+            references and a reader who cannot add one is shown nothing.
+          */}
+          <ResourceRefsPanel
+            assetId={asset.id}
+            resourcePath={resourcePath}
+            onNavigate={onNavigate}
           />
 
           {versions && versions.length > 0 && (

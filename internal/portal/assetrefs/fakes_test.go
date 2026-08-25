@@ -51,6 +51,55 @@ func (f *fakeRefs) ListByAsset(_ context.Context, assetID string) ([]portaldomai
 	return f.byAsset[assetID], nil
 }
 
+func (f *fakeRefs) Attach(_ context.Context, ref portaldomain.AssetResourceRef) (bool, error) {
+	if f.putErr != nil {
+		return false, f.putErr
+	}
+	for _, existing := range f.byAsset[ref.AssetID] {
+		if existing.ResourceID == ref.ResourceID {
+			return false, nil
+		}
+	}
+	f.byAsset[ref.AssetID] = append(f.byAsset[ref.AssetID], ref)
+	return true, nil
+}
+
+func (f *fakeRefs) Detach(_ context.Context, assetID, resourceID string) (bool, error) {
+	if f.putErr != nil {
+		return false, f.putErr
+	}
+	kept := make([]portaldomain.AssetResourceRef, 0, len(f.byAsset[assetID]))
+	found := false
+	for _, ref := range f.byAsset[assetID] {
+		if ref.ResourceID == resourceID {
+			found = true
+			continue
+		}
+		kept = append(kept, ref)
+	}
+	f.byAsset[assetID] = kept
+	return found, nil
+}
+
+// ListByResource scans the same map the declaring side writes, so a test
+// cannot see a reference from one side that the other never recorded.
+func (f *fakeRefs) ListByResource(
+	_ context.Context, resourceID string, limit int,
+) ([]portaldomain.AssetResourceRef, error) {
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	var out []portaldomain.AssetResourceRef
+	for _, refs := range f.byAsset {
+		for _, ref := range refs {
+			if ref.ResourceID == resourceID && len(out) < limit {
+				out = append(out, ref)
+			}
+		}
+	}
+	return out, nil
+}
+
 func (f *fakeRefs) GetByToken(_ context.Context, assetID, token string) (*portaldomain.AssetResourceRef, error) {
 	if f.listErr != nil {
 		return nil, f.listErr
