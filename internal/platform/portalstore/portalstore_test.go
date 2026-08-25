@@ -10,7 +10,9 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
+	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
 
 // fakeS3Client satisfies portal.S3Client and records whether Close was called
@@ -267,4 +269,71 @@ func TestSaveToolNameIsRegistered(t *testing.T) {
 		t.Errorf("SaveToolName %q is not advertised by tools/list (%v); provenance harvest would silently stop",
 			SaveToolName, advertised)
 	}
+}
+
+// stubRefStore is an AssetResourceRefStore that records nothing; the tests
+// below assert on identity and on wiring, never on persistence.
+type stubRefStore struct{}
+
+func (stubRefStore) Replace(context.Context, string, []portaldomain.AssetResourceRef) error {
+	return nil
+}
+
+func (stubRefStore) ListByAsset(context.Context, string) ([]portaldomain.AssetResourceRef, error) {
+	return nil, nil
+}
+
+func (stubRefStore) GetByToken(context.Context, string, string) (*portaldomain.AssetResourceRef, error) {
+	return nil, nil //nolint:nilnil // interface contract: no such reference is (nil, nil)
+}
+
+// stubResources satisfies assetrefs.Resources without a managed-resource layer.
+type stubResources struct{}
+
+func (stubResources) Get(context.Context, string) (*resource.Resource, error) {
+	return nil, nil //nolint:nilnil // resource.Store reports a missing row as (nil, nil)
+}
+
+func (stubResources) GetByIDs(context.Context, []string) (map[string]*resource.Resource, error) {
+	return map[string]*resource.Resource{}, nil
+}
+
+func (stubResources) GetByURI(context.Context, string) (*resource.Resource, error) {
+	return nil, nil //nolint:nilnil // resource.Store reports a missing row as (nil, nil)
+}
+
+// TestResourceRefsAccessorReturnsTheInjectedStore covers the read the portal
+// and admin REST surfaces take to rewrite served content (#1474).
+func TestResourceRefsAccessorReturnsTheInjectedStore(t *testing.T) {
+	t.Parallel()
+	refs := stubRefStore{}
+	h := NewFromStores(Stores{ResourceRefs: refs}, nil, Config{Name: "default"})
+
+	if h.ResourceRefs() != portaldomain.AssetResourceRefStore(refs) {
+		t.Error("ResourceRefs() did not return the injected store")
+	}
+
+	var nilHandle *Handle
+	if nilHandle.ResourceRefs() != nil {
+		t.Error("nil Handle ResourceRefs() != nil")
+	}
+}
+
+// TestBindResourcesMakesDeclarationAvailable is the reason binding is a setter:
+// the managed-resource layer is assembled after this one, so an unbound handle
+// must refuse a declaration and a bound one must accept it.
+func TestBindResourcesMakesDeclarationAvailable(t *testing.T) {
+	t.Parallel()
+	h := NewFromStores(Stores{ResourceRefs: stubRefStore{}}, nil, Config{Name: "default"})
+
+	h.BindResources(stubResources{}, "mcp")
+	if h.Toolkit() == nil {
+		t.Fatal("Toolkit() = nil, want the assembled toolkit")
+	}
+
+	// Binding on a handle with no toolkit, and on a nil handle, must be safe:
+	// both are deployments where the portal was never assembled.
+	var nilHandle *Handle
+	nilHandle.BindResources(stubResources{}, "mcp")
+	(&Handle{}).BindResources(stubResources{}, "mcp")
 }

@@ -94,6 +94,7 @@ nav:
     - Administration:
       - User Portal: server/portal-user.md
       - Content Types and Viewers: server/content-viewers.md
+      - Asset Resource References: server/asset-resource-references.md
       - Provenance: server/provenance.md
       - Admin Portal: server/admin-portal.md
       - Admin API: server/admin-api.md

@@ -26,6 +26,9 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/collectionindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/knowledgepageindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/notices"
+	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
+	"github.com/txn2/mcp-data-platform/internal/portal/assetrefstore"
+	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
@@ -78,6 +81,7 @@ type Handle struct {
 	threadStore        portal.ThreadStore
 	knowledgePageStore knowledgepage.Store
 	s3Client           portal.S3Client
+	resourceRefs       portaldomain.AssetResourceRefStore
 	toolkit            *portalkit.Toolkit
 	// notices assembles a caller's session-start digest from the asset, share
 	// and thread stores above plus its own watermark table (#1278). Set only by
@@ -104,6 +108,10 @@ type Stores struct {
 	Thread        portal.ThreadStore
 	KnowledgePage knowledgepage.Store
 	S3Client      portal.S3Client
+	// ResourceRefs records the managed resources an asset's content
+	// references (#1474). Nil on a Handle assembled without a database, which
+	// leaves every surface that would declare a reference refusing to.
+	ResourceRefs portaldomain.AssetResourceRefStore
 }
 
 // New assembles the six Postgres-backed stores and the asset toolkit from an
@@ -131,6 +139,7 @@ func New(db *sql.DB, s3Client portal.S3Client, embedder embedding.Provider, cfg 
 		Thread:        portal.NewPostgresThreadStore(db),
 		KnowledgePage: knowledgepage.NewPostgresStore(db, indexjobs.WithProducer(pages)),
 		S3Client:      s3Client,
+		ResourceRefs:  assetrefstore.New(db),
 	}, embedder, cfg)
 	h.indexProducers = []*indexjobs.Producer{assets, collections, pages}
 	h.notices = notices.New(db, h.assetStore, h.shareStore, h.threadStore)
@@ -150,6 +159,7 @@ func NewFromStores(s Stores, embedder embedding.Provider, cfg Config) *Handle {
 		threadStore:        s.Thread,
 		knowledgePageStore: s.KnowledgePage,
 		s3Client:           s.S3Client,
+		resourceRefs:       s.ResourceRefs,
 	}
 	h.toolkit = portalkit.New(portalkit.Config{
 		Name:            cfg.Name,
@@ -169,6 +179,31 @@ func NewFromStores(s Stores, embedder embedding.Provider, cfg Config) *Handle {
 		Directory:         cfg.Directory,
 	})
 	return h
+}
+
+// ResourceRefs returns the store of managed resources assets reference, or nil
+// on a nil Handle. The REST surfaces read it to rewrite served content; the
+// asset toolkit writes it through the declarer bound by SetResourceDeclarer.
+func (h *Handle) ResourceRefs() portaldomain.AssetResourceRefStore {
+	if h == nil {
+		return nil
+	}
+	return h.resourceRefs
+}
+
+// BindResources gives the asset toolkit the managed-resource layer, which is
+// what lets a save declare the resources its content references (#1474).
+//
+// It is a setter rather than a Config field because that layer is assembled
+// after this one: the declaration path needs the resource store, which does not
+// exist when the portal toolkit is built. A Handle that is never bound refuses
+// a declaration rather than dropping it, which is the right answer for a
+// deployment with no managed resources at all.
+func (h *Handle) BindResources(resources assetrefs.Resources, scheme string) {
+	if h == nil || h.toolkit == nil {
+		return
+	}
+	h.toolkit.SetResourceRefs(assetrefs.NewDeclarer(h.resourceRefs, resources, scheme))
 }
 
 // AssetStore returns the portal asset store, or nil on a nil Handle (portal

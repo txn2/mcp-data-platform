@@ -19,6 +19,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/contentviewer"
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/portal/access"
+	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/portal/feedbackapi"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/internal/portal/viewerlimit"
@@ -241,6 +242,27 @@ type Deps struct {
 	// notification substrate, not in this package. nil leaves the
 	// /api/v1/portal/notification-prefs routes unregistered.
 	NotificationRegistrar func(*http.ServeMux)
+
+	// ResourceRefs records the managed resources an asset's content
+	// references (#1474). Every content read this handler serves rewrites the
+	// declared mcp:// URIs into the serving URL below; nil (no database, or no
+	// managed-resource layer) leaves content served exactly as stored, which
+	// is what an asset with no references gets anyway.
+	//
+	// Its type is not aliased into this package's namespace, unlike the store
+	// contracts around it: pkg/portal sits exactly at the exported-surface
+	// budget, and this is an implementation package rather than a supported
+	// import surface (docs/library/stability.md), so the composition root
+	// names the internal type directly.
+	ResourceRefs portaldomain.AssetResourceRefStore
+	// ResourceReader and ResourceBlobs read a referenced resource's metadata
+	// and its bytes. They are the managed-resource layer's store and object
+	// client, not the portal's: a reference points at a resource, which lives
+	// in its own bucket. Either nil leaves the serving route unregistered.
+	ResourceReader assetrefs.Resources
+	ResourceBlobs  assetrefs.BlobReader
+	// ResourceS3Bucket is the bucket managed-resource blobs live in.
+	ResourceS3Bucket string
 }
 
 // Handler provides portal REST API endpoints.
@@ -254,6 +276,19 @@ type Handler struct {
 	// viewerAssets serves the share viewer's code-split chunks. See ServeHTTP
 	// for why it is dispatched by prefix rather than registered on publicMux.
 	viewerAssets http.Handler
+	// refMux serves the asset resource references (#1474). It is its own mux
+	// for the reason the public mux is: the route takes no session, and
+	// mounting it beside the authenticated routes would mean carving an
+	// exception out of the chain every other route depends on. nil on a
+	// deployment with no managed-resource layer, which serves the prefix as an
+	// unknown path.
+	refMux *http.ServeMux
+	// refLimiter bounds the reference route. It is separate from rateLimiter
+	// because the two count different things: the viewer limiter is sized in
+	// page views, and one page view legitimately fetches up to
+	// MaxAssetResourceRefs references at once, which that bucket would answer
+	// 429 and blank every image on the page.
+	refLimiter *viewerlimit.RateLimiter
 }
 
 // NewHandler creates a new portal API handler.
@@ -266,6 +301,7 @@ func NewHandler(deps Deps, authMiddle func(http.Handler) http.Handler) *Handler 
 		access:      newAccessChecker(deps),
 	}
 	h.viewerAssets = contentviewer.Handler()
+	h.refLimiter = viewerlimit.New(refRateLimit(deps.RateLimit), deps.RateLimitResolver)
 	h.registerRoutes()
 
 	// Wrap the authenticated mux once at startup, not on every request.
@@ -357,6 +393,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.HasPrefix(r.URL.Path, "/portal/view/") {
 		h.publicMux.ServeHTTP(w, r)
+		return
+	}
+	if h.refMux != nil && strings.HasPrefix(r.URL.Path, assetrefs.PathPrefix) {
+		h.refMux.ServeHTTP(w, r)
 		return
 	}
 	h.authedMux.ServeHTTP(w, r)
@@ -475,6 +515,10 @@ func (h *Handler) registerRoutes() {
 	h.publicMux.Handle("GET /portal/view/{token}/items/{assetId}/content", h.publicChain(h.publicCollectionItemContent))
 	h.publicMux.Handle("GET /portal/view/{token}/items/{assetId}/thumbnail", h.publicChain(h.publicCollectionItemThumbnail))
 	h.publicMux.Handle("GET /portal/view/{token}/items/{assetId}/view", h.publicChain(h.publicCollectionItemView))
+
+	// Asset resource references (#1474): rate limited, and outside every gate,
+	// because the token in the path is the authorization.
+	h.registerRefRoutes()
 
 	// Guest link routes (#1001): rate limited but outside the access gate,
 	// since their whole audience is callers the gate refuses.
@@ -739,11 +783,12 @@ func (h *Handler) getAssetContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	served := cmp.Or(contentType, asset.ContentType)
 	blobserve.Serve(w, r, blobserve.Options{
 		Name:        asset.Name,
-		ContentType: cmp.Or(contentType, asset.ContentType),
+		ContentType: served,
 		ModTime:     asset.UpdatedAt,
-		Data:        data,
+		Data:        h.serveRefs(r, id, served, data),
 	})
 }
 
@@ -1441,11 +1486,17 @@ func (h *Handler) getVersionContent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to retrieve version content")
 		return
 	}
+	// A version is rewritten against the asset's CURRENT references, not
+	// against whatever it declared when it was written: the references are the
+	// asset's, not the version's, and history exists to be read. An old
+	// version naming a resource the asset no longer references renders that
+	// image missing, which is the same thing a deleted resource does.
+	served := cmp.Or(contentType, ver.ContentType)
 	blobserve.Serve(w, r, blobserve.Options{
 		Name:        asset.Name,
-		ContentType: cmp.Or(contentType, ver.ContentType),
+		ContentType: served,
 		ModTime:     ver.CreatedAt,
-		Data:        data,
+		Data:        h.serveRefs(r, id, served, data),
 	})
 }
 
@@ -2580,6 +2631,7 @@ func (h *Handler) copyAsset(w http.ResponseWriter, r *http.Request) {
 		writeError(w, copyErr.code, copyErr.msg)
 		return
 	}
+	h.copyRefs(r.Context(), asset.ID, newAsset.ID, user)
 
 	writeJSON(w, http.StatusCreated, newAsset)
 }

@@ -121,6 +121,14 @@ func (t *Toolkit) handlePatch(ctx context.Context, input manageAssetInput) (*mcp
 	if input.BaseVersion > 0 && input.BaseVersion != asset.CurrentVersion {
 		return patchmcp.ErrorResult(textpatch.StaleBaseError(input.BaseVersion, asset.CurrentVersion)), nil, nil
 	}
+	// A patch that writes an <img> pointing at a managed resource declares the
+	// reference in the same call, so the URI it just wrote resolves on the
+	// first render rather than on a follow-up update. Validated before the
+	// patch is applied, and refused as a whole if the author cannot read one.
+	declaredRefs, hasRefs, refResult := t.resolveRefs(ctx, input.Resources)
+	if refResult != nil {
+		return refResult, nil, nil
+	}
 
 	res, err := textpatch.Apply(body, input.Edits, t.patchOptions(textpatch.SyntaxForContentType(asset.ContentType)))
 	if err != nil {
@@ -145,8 +153,13 @@ func (t *Toolkit) handlePatch(ctx context.Context, input manageAssetInput) (*mcp
 	if err != nil {
 		return toolkit.ErrorResult("failed to write patched content: " + err.Error()), nil, nil
 	}
+	refCount, applyResult := t.applyRefs(ctx, asset.ID, declaredRefs, hasRefs)
+	if applyResult != nil {
+		return applyResult, nil, nil
+	}
 	result[fieldVersion] = version
 	result[fieldMessage] = fmt.Sprintf("Patched asset; new version %d.", version)
+	addRefFields(result, refCount)
 	return toolkit.JSONResultTyped(result)
 }
 

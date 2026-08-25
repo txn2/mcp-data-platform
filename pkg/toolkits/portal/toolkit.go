@@ -15,6 +15,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
+	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
@@ -134,6 +135,10 @@ type saveAssetInput struct {
 	// by call id or mcp:call: reference (#1320). Empty means the platform
 	// takes the session's data calls since its previous capture.
 	Sources []string `json:"sources,omitempty"`
+	// Resources are the managed resources this asset's content references by
+	// mcp:// URI (#1474): the logo it shows, the photograph it embeds. Absent
+	// declares none.
+	Resources []string `json:"resources,omitempty"`
 }
 
 // manageAssetInput defines the input for manage_asset.
@@ -159,6 +164,12 @@ type manageAssetInput struct {
 	// Sources are the calls behind a content edit, cited by call id or
 	// mcp:call: reference (#1320). Applies to the update and patch actions.
 	Sources []string `json:"sources,omitempty"`
+
+	// Resources declares the managed resources the asset's content references
+	// (#1474), replacing whatever it referenced before. Applies to the update
+	// and patch actions. Absent leaves the existing references alone; an empty
+	// list removes every one of them.
+	Resources []string `json:"resources,omitempty"`
 
 	// Query (search action) ranks the caller's assets by relevance to a
 	// free-text query instead of the substring Search filter.
@@ -234,6 +245,12 @@ type saveAssetOutput struct {
 	Message            string `json:"message"`
 	ProvenanceCaptured bool   `json:"provenance_captured"`
 	CallsRecorded      int    `json:"calls_recorded"`
+	// ResourcesReferenced and ResourceGrant report a declaration the save
+	// made (#1474): how many managed resources the content now references, and
+	// what declaring them gave away. Both are omitted when the save declared
+	// none, so a save that referenced nothing reads exactly as it did before.
+	ResourcesReferenced int    `json:"resources_referenced,omitempty"`
+	ResourceGrant       string `json:"resource_grant,omitempty"`
 }
 
 // Config holds configuration for creating a portal toolkit.
@@ -300,6 +317,9 @@ type Toolkit struct {
 
 	captureProvenance portal.ProvenanceCapturer
 	directory         DirectoryReader
+	// resourceRefs declares the managed resources an asset's content names.
+	// Nil-safe: every method it is called through checks Available first.
+	resourceRefs *assetrefs.Declarer
 	// tables registers a stored CSV as a query-engine table. Nil on a
 	// deployment with no Trino connection carrying a scratch target, which
 	// leaves manage_table reporting that rather than failing.
@@ -533,6 +553,16 @@ func (*Toolkit) Tools() []string {
 // its mentions parsed, but nothing is mailed and no mention is recorded. The
 // send worker belongs to a long-lived server rather than to a per-client stdio
 // process, where every concurrent client would run its own.
+// SetResourceRefs binds the path that declares the managed resources an
+// asset's content references (#1474).
+//
+// It is installed after construction, like the feedback notifier above,
+// because the managed-resource layer is assembled after the portal one: the
+// declarer needs the resource store, which does not exist when this toolkit is
+// built. Left unbound, the `resources` argument is refused with that
+// explanation rather than accepted and silently dropped.
+func (t *Toolkit) SetResourceRefs(d *assetrefs.Declarer) { t.resourceRefs = d }
+
 func (t *Toolkit) SetFeedbackNotifications(notifier portal.Notifier, mentions portal.MentionResolver) {
 	t.notifier = notifier
 	t.mentions = mentions
@@ -555,6 +585,13 @@ func (*Toolkit) Close() error { return nil }
 func (t *Toolkit) handleSaveAsset(ctx context.Context, _ *mcp.CallToolRequest, input saveAssetInput) (*mcp.CallToolResult, any, error) {
 	if err := t.validateAndCheckSize(input); err != nil {
 		return toolkit.ErrorResult(err.Error()), nil, nil
+	}
+
+	// The declaration is checked before anything is created: a save naming a
+	// resource its author cannot read must leave no asset behind.
+	declaredRefs, hasRefs, refResult := t.resolveRefs(ctx, input.Resources)
+	if refResult != nil {
+		return refResult, nil, nil
 	}
 
 	userID := resolveOwnerID(ctx)
@@ -637,7 +674,17 @@ func (t *Toolkit) handleSaveAsset(ctx context.Context, _ *mcp.CallToolRequest, i
 		return toolkit.ErrorResult("failed to create initial version record: " + err.Error()), nil, nil
 	}
 
-	return toolkit.JSONResultTyped(t.buildSaveOutput(assetID, prov, len(input.Sources)))
+	refCount, refResult := t.applyRefs(ctx, assetID, declaredRefs, hasRefs)
+	if refResult != nil {
+		return refResult, nil, nil
+	}
+
+	out := t.buildSaveOutput(assetID, prov, len(input.Sources))
+	if refCount > 0 {
+		out.ResourcesReferenced = refCount
+		out.ResourceGrant = assetrefs.GrantNotice
+	}
+	return toolkit.JSONResultTyped(out)
 }
 
 // manageActionHandler is a function that handles a manage_asset action.
@@ -764,11 +811,19 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageAssetInput) (*mc
 		return toolkit.ErrorResult("you can only update your own assets"), nil, nil
 	}
 
+	// Validated before any write, so an update naming a resource its author
+	// cannot read changes nothing at all.
+	declaredRefs, hasRefs, refResult := t.resolveRefs(ctx, input.Resources)
+	if refResult != nil {
+		return refResult, nil, nil
+	}
+
 	updates, hasMetadata := metadataUpdate(input)
 	hasContent := input.Content != ""
 
-	if !hasContent && !hasMetadata {
-		return toolkit.ErrorResult("no fields to update: provide content, name, description, tags, or max_versions"), nil, nil
+	if !hasContent && !hasMetadata && !hasRefs {
+		return toolkit.ErrorResult(
+			"no fields to update: provide content, name, description, tags, max_versions, or resources"), nil, nil
 	}
 
 	if updates.MaxVersions != nil {
@@ -800,10 +855,17 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageAssetInput) (*mc
 		}
 	}
 
-	return toolkit.JSONResultTyped(map[string]any{
+	refCount, applyResult := t.applyRefs(ctx, input.AssetID, declaredRefs, hasRefs)
+	if applyResult != nil {
+		return applyResult, nil, nil
+	}
+
+	result := map[string]any{
 		fieldAssetID: input.AssetID,
 		fieldMessage: "Asset updated successfully.",
-	})
+	}
+	addRefFields(result, refCount)
+	return toolkit.JSONResultTyped(result)
 }
 
 // metadataUpdate builds the store update for the indexable fields and reports

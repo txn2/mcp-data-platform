@@ -55,6 +55,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/sessionview"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolkitcfg"
 	"github.com/txn2/mcp-data-platform/internal/platform/userdir"
+	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/auth"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
@@ -1862,6 +1863,9 @@ func (p *Platform) initManagedResources() error {
 	}
 	p.resources = handle
 
+	// Both layers now exist, so the asset toolkit can declare references (#1474).
+	p.portalStore.BindResources(handle.Store(), handle.URIScheme())
+
 	// Bind the recorder that audits served resource content (#1014) so the MCP
 	// read path and search fetch record through one implementation. Gated on the
 	// same switch initAudit reads (which runs before this): with audit off there
@@ -3131,6 +3135,12 @@ func (p *Platform) KnowledgeDataHubWriter() knowledgekit.DataHubWriter {
 // PortalAssetStore returns the portal asset store, or nil if portal is disabled.
 func (p *Platform) PortalAssetStore() portal.AssetStore {
 	return p.portalStore.AssetStore()
+}
+
+// PortalResourceRefStore returns the store of managed resources portal assets
+// reference (#1474): what the REST surfaces read to rewrite served content.
+func (p *Platform) PortalResourceRefStore() portaldomain.AssetResourceRefStore {
+	return p.portalStore.ResourceRefs()
 }
 
 // PortalShareStore returns the portal share store, or nil if portal is disabled.
