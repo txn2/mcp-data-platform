@@ -39,15 +39,16 @@ func TestRealDB_AutoPromoteCreatesAndDoesNotDowngrade(t *testing.T) {
 	viewer := &User{UserID: "viewer1", Email: "viewer1@example.com"}
 
 	// First public-link login → derived viewer share with origin=public_link_login.
-	h.autoPromoteViewer(ctx, promoteTarget{targetTypeAsset, "asset_promo", realdbPromoteOwner, "owner@example.com"}, viewer)
+	assert.True(t, h.autoPromoteViewer(ctx, promoteTarget{targetTypeAsset, "asset_promo", realdbPromoteOwner, "owner@example.com"}, viewer))
 	got, err := shareStore.GetActiveShareForTarget(ctx, targetTypeAsset, "asset_promo", viewer.UserID, viewer.Email)
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, PermissionViewer, got.Permission)
 	assert.Equal(t, OriginPublicLinkLogin, got.Origin)
 
-	// Idempotent: a second visit does not add a duplicate.
-	h.autoPromoteViewer(ctx, promoteTarget{targetTypeAsset, "asset_promo", realdbPromoteOwner, "owner@example.com"}, viewer)
+	// Idempotent: a second visit does not add a duplicate, and still reports the
+	// asset as one this viewer opens in their own portal (#1473).
+	assert.True(t, h.autoPromoteViewer(ctx, promoteTarget{targetTypeAsset, "asset_promo", realdbPromoteOwner, "owner@example.com"}, viewer))
 	shares, err := shareStore.ListByAsset(ctx, "asset_promo")
 	require.NoError(t, err)
 	assert.Len(t, shares, 1)
@@ -58,7 +59,7 @@ func TestRealDB_AutoPromoteCreatesAndDoesNotDowngrade(t *testing.T) {
 		ID: "share_editor", AssetID: "asset_promo", Token: "tok_editor", CreatedBy: "owner@example.com",
 		SharedWithUserID: editor.UserID, SharedWithEmail: editor.Email, Permission: PermissionEditor,
 	}))
-	h.autoPromoteViewer(ctx, promoteTarget{targetTypeAsset, "asset_promo", realdbPromoteOwner, "owner@example.com"}, editor)
+	assert.True(t, h.autoPromoteViewer(ctx, promoteTarget{targetTypeAsset, "asset_promo", realdbPromoteOwner, "owner@example.com"}, editor))
 	editorShare, err := shareStore.GetActiveShareForTarget(ctx, targetTypeAsset, "asset_promo", editor.UserID, editor.Email)
 	require.NoError(t, err)
 	require.NotNil(t, editorShare)
@@ -66,7 +67,7 @@ func TestRealDB_AutoPromoteCreatesAndDoesNotDowngrade(t *testing.T) {
 
 	// The owner gets no derived share.
 	owner := &User{UserID: realdbPromoteOwner, Email: "owner@example.com"}
-	h.autoPromoteViewer(ctx, promoteTarget{targetTypeAsset, "asset_promo", realdbPromoteOwner, "owner@example.com"}, owner)
+	assert.True(t, h.autoPromoteViewer(ctx, promoteTarget{targetTypeAsset, "asset_promo", realdbPromoteOwner, "owner@example.com"}, owner))
 	ownerShare, err := shareStore.GetActiveShareForTarget(ctx, targetTypeAsset, "asset_promo", owner.UserID, owner.Email)
 	require.NoError(t, err)
 	assert.Nil(t, ownerShare)

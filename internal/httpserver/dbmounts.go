@@ -39,7 +39,11 @@ import (
 )
 
 // mountPortalAPI registers the portal REST API on the mux if portal is enabled.
-func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydelivery.Handle) error {
+// uiAvailable reports whether this binary carries a frontend build, so the
+// portal application is actually served at /portal/. Passed in rather than read
+// here for the same reason mountPortalUI takes it: it is a property of the
+// build, and a test needs to state it.
+func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydelivery.Handle, uiAvailable bool) error {
 	if p == nil || portalDisabled(p) {
 		return nil
 	}
@@ -122,6 +126,11 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 	// issue a token for but no persona claims reaches nothing. The public
 	// share viewer under /portal/view/ is deliberately outside this chain —
 	// Handler.ServeHTTP routes it to its own unauthenticated mux.
+	// Whether a signed-in reader of a share link would actually be served the
+	// portal application, which is what the share viewer asks before sending
+	// one there instead of rendering the public page (#1473).
+	deps.PortalAppAdmits = portalAppAdmitter(p, uiAvailable)
+
 	wrap := portalAuthChain(portalAuth, portalAccessGate(p, deps.PersonaResolver))
 
 	handler := portal.NewHandler(deps, wrap)

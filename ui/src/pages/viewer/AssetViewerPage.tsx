@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useAsset, useAssetContent, useUpdateAsset, useDeleteAsset, useUpdateAssetContent, useCopyAsset, useAssetVersions, useRevertVersion, useVersionContent } from "@/api/portal/hooks";
 import { AssetViewer } from "@/components/AssetViewer";
 import { FeedbackButton } from "@/components/feedback/FeedbackButton";
+import { SharedPageLink } from "@/components/share/SharedPageLink";
 import { mySessionPath } from "@/pages/activity/routes";
 
 interface Props {
@@ -56,10 +57,13 @@ export function AssetViewerPage({ assetId, onNavigate, onBack }: Props) {
       versionContent={needsVersionContent ? versionContent : undefined}
       versionContentLoading={needsVersionContent ? versionContentLoading : false}
       toolbarExtra={
-        <FeedbackButton
-          target={{ type: "asset", id: assetId, version: asset?.current_version }}
-          canModerate={isOwner || sharePermission === "editor"}
-        />
+        <>
+          <SharedPageLink />
+          <FeedbackButton
+            target={{ type: "asset", id: assetId, version: asset?.current_version }}
+            canModerate={isOwner || sharePermission === "editor"}
+          />
+        </>
       }
     />
   );

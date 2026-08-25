@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -101,6 +102,19 @@ type mockShareStore struct {
 	listByPromptE  error
 	activeShare    *Share
 	activeShareErr error
+
+	// incrementMu guards incrementIDs: IncrementAccess is called from the
+	// detached goroutine the public view starts after the response is written,
+	// so a test reading it races the handler unless both take the lock.
+	incrementMu  sync.Mutex
+	incrementIDs []string
+}
+
+// incremented returns the share IDs IncrementAccess has been called with.
+func (m *mockShareStore) incremented() []string {
+	m.incrementMu.Lock()
+	defer m.incrementMu.Unlock()
+	return append([]string(nil), m.incrementIDs...)
 }
 
 func (m *mockShareStore) Insert(_ context.Context, s Share) error {
@@ -125,8 +139,14 @@ func (m *mockShareStore) ListByAsset(_ context.Context, _ string) ([]Share, erro
 func (m *mockShareStore) ListSharedWithUser(_ context.Context, _, _ string, _, _ int) ([]SharedAsset, int, error) {
 	return m.sharedWithRes, m.sharedWithTot, m.sharedWithErr
 }
-func (m *mockShareStore) Revoke(_ context.Context, _ string) error          { return m.revokeErr }
-func (m *mockShareStore) IncrementAccess(_ context.Context, _ string) error { return m.incrementErr }
+func (m *mockShareStore) Revoke(_ context.Context, _ string) error { return m.revokeErr }
+func (m *mockShareStore) IncrementAccess(_ context.Context, id string) error {
+	m.incrementMu.Lock()
+	m.incrementIDs = append(m.incrementIDs, id)
+	m.incrementMu.Unlock()
+	return m.incrementErr
+}
+
 func (m *mockShareStore) ListActiveShareSummaries(_ context.Context, _ []string) (map[string]ShareSummary, error) {
 	return m.summaries, m.summariesErr
 }

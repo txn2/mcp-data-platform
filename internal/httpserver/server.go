@@ -215,7 +215,7 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	// on. The admin API mounted just above is the loopback surface it targets.
 
 	// Mount portal API if enabled
-	if err := mountPortalAPI(mux, p, notify); err != nil {
+	if err := mountPortalAPI(mux, p, notify, ui.Available()); err != nil {
 		return err
 	}
 

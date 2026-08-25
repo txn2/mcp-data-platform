@@ -1,6 +1,7 @@
 import { Pencil, Share2, Trash2 } from "lucide-react";
 import { FeedbackButton } from "@/components/feedback/FeedbackButton";
 import { SegmentedControl } from "@/components/patterns/SegmentedControl";
+import { SharedPageLink } from "@/components/share/SharedPageLink";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { THUMB_SIZE_OPTIONS, type ThumbSize } from "./thumbSize";
@@ -45,6 +46,7 @@ export function CollectionViewerActions({
       {!isOwner && (
         <Badge variant="warning">Shared{canEdit ? " (Editor)" : " (Viewer)"}</Badge>
       )}
+      <SharedPageLink />
       <FeedbackButton target={{ type: "collection", id: collectionId }} canModerate={canEdit} />
       {canEdit && (
         <Button variant="outline" size="sm" onClick={onEdit}>

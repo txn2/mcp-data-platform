@@ -138,6 +138,59 @@ const publicViewPathPrefix = "/portal/view/"
 // can open the asset and leave feedback.
 const portalAppPath = "/portal/"
 
+// portalAssetsSection and portalCollectionsSection are the portal sections a
+// share's target is opened in, under portalAppPath.
+const (
+	portalAssetsSection      = "assets"
+	portalCollectionsSection = "collections"
+)
+
+// shareTokenParam is the query parameter the portal page reads the originating
+// share token from, so it can offer a link back to the shared page.
+const shareTokenParam = "share"
+
+// publicPageParam and embeddedParam are the two ways a caller asks for the
+// public page itself rather than for the object it shows.
+const (
+	publicPageParam = "public"
+	embeddedParam   = "embedded"
+)
+
+// publicPageRequested reports whether the caller asked for the public page
+// rather than for the object behind it, which is what keeps the redirect below
+// from answering the two callers who want the page as such: the link back from
+// the portal, which would otherwise send whoever clicked it straight back to
+// where they clicked it (#1473), and an embedded render, which is a request for
+// the chrome-less viewer inside a frame rather than for navigation.
+func publicPageRequested(r *http.Request) bool {
+	q := r.URL.Query()
+	return q.Get(publicPageParam) == "1" || q.Get(embeddedParam) == "1"
+}
+
+// portalTargetPath is where a share's target lives in the signed-in portal,
+// carrying the token that got the reader here so the page can link back to the
+// shared page as its recipient sees it.
+func portalTargetPath(section, id, token string) string {
+	// The identifier is escaped as one path segment rather than concatenated:
+	// a value carrying a separator would otherwise name a different route than
+	// the one it was resolved for.
+	path := portalAppPath + section + "/" + url.PathEscape(id)
+	if token == "" {
+		return path
+	}
+	return path + "?" + url.Values{shareTokenParam: {token}}.Encode()
+}
+
+// redirectToPortal sends an admitted, signed-in caller to the target in their
+// own portal instead of rendering the public page. The verdict is a property
+// of the caller's session rather than of the URL, so the response is never
+// stored: a cached redirect would answer an anonymous reader of the same
+// public link, which is the one caller the public page exists for.
+func redirectToPortal(w http.ResponseWriter, r *http.Request, section, id, token string) {
+	w.Header().Set("Cache-Control", "no-store")
+	http.Redirect(w, r, portalTargetPath(section, id, token), http.StatusFound)
+}
+
 func (h *Handler) publicView(w http.ResponseWriter, r *http.Request) {
 	share := shareFromRequest(r)
 
@@ -165,9 +218,28 @@ func (h *Handler) publicView(w http.ResponseWriter, r *http.Request) {
 
 	// A signed-in viewer arriving through a public link gets a derived viewer
 	// share so the asset shows up in their portal and they can leave feedback.
-	h.maybeAutoPromoteViewer(r, promoteTarget{targetTypeAsset, share.AssetID, pad.Asset.OwnerID, share.CreatedBy})
+	// When they can open it there, that is where they go: the portal page has
+	// the version history, the feedback threads, the collections the asset
+	// belongs to and the editing the share permits, none of which the public
+	// page has (#1473).
+	canOpenInPortal := h.maybeAutoPromoteViewer(r, promoteTarget{targetTypeAsset, share.AssetID, pad.Asset.OwnerID, share.CreatedBy})
+	if canOpenInPortal && !publicPageRequested(r) {
+		redirectToPortal(w, r, portalAssetsSection, pad.Asset.ID, share.Token)
+		return
+	}
 
-	h.renderAssetViewer(w, r, pad, share)
+	h.renderAssetViewer(w, r, pad, share, portalOpenURL(canOpenInPortal, portalAssetsSection, pad.Asset.ID))
+}
+
+// portalOpenURL is where the public page's "open this in your portal" link
+// goes: the object's own page for a reader who can open it there, and the
+// portal root for one who cannot — a promotion that failed leaves them with no
+// page for this object at all, and a link to one would refuse them.
+func portalOpenURL(reachable bool, section, id string) string {
+	if !reachable {
+		return portalAppPath
+	}
+	return portalTargetPath(section, id, "")
 }
 
 // renderAssetViewer renders the public_viewer.html template for an asset.
@@ -184,7 +256,7 @@ type publicAssetData struct {
 	ServeFromURL bool
 }
 
-func (h *Handler) renderAssetViewer(w http.ResponseWriter, r *http.Request, pad publicAssetData, share *Share) { //nolint:revive // clear param naming
+func (h *Handler) renderAssetViewer(w http.ResponseWriter, r *http.Request, pad publicAssetData, share *Share, portalURL string) { //nolint:revive // clear param naming
 	asset := pad.Asset
 
 	// Build download URL for the public viewer.
@@ -260,12 +332,12 @@ func (h *Handler) renderAssetViewer(w http.ResponseWriter, r *http.Request, pad 
 		"ExpiresAtISO":       expiresAtISO,
 		"HideExpiration":     share.HideExpiration,
 		"NoticeText":         share.NoticeText,
-		"Embedded":           r.URL.Query().Get("embedded") == "1",
+		"Embedded":           r.URL.Query().Get(embeddedParam) == "1",
 		"ShareURL":           shareURL,
 		"OGImageURL":         publicAssetOGImage(asset, share.Token, baseURL),
 		"SignedIn":           h.resolvePublicViewer(r) != nil,
 		"SignInURL":          signInToLeaveFeedbackURL(r),
-		"PortalURL":          portalAppPath,
+		"PortalURL":          portalURL,
 		"IsGuest":            isGuestRequest(r),
 	})
 }
@@ -310,12 +382,36 @@ type promoteTarget struct {
 // maybeAutoPromoteViewer auto-promotes the request's signed-in viewer (if any)
 // to a derived viewer share for the target. No-op for anonymous viewers, so the
 // public viewer stays anonymous-viewable.
-func (h *Handler) maybeAutoPromoteViewer(r *http.Request, t promoteTarget) {
+//
+// It reports whether that viewer can now open the target in their own portal.
+// False for an anonymous caller and for a share guest, who is admitted by a
+// one-time link and is not a platform user — the gate leaves the viewer nil for
+// both.
+func (h *Handler) maybeAutoPromoteViewer(r *http.Request, t promoteTarget) bool {
 	viewer := h.resolvePublicViewer(r)
 	if viewer == nil {
-		return
+		return false
 	}
-	h.autoPromoteViewer(r.Context(), t, viewer)
+	granted := h.autoPromoteViewer(r.Context(), t, viewer)
+	return granted && h.canEnterPortal(viewer)
+}
+
+// canEnterPortal reports whether this user would actually be served the portal
+// application at portalAppPath. A share admits on the share's terms and says
+// nothing about the portal: the shell is mounted only in a build that carries
+// the frontend, and the gate in front of it admits only an account some persona
+// claims. Either can refuse a reader the share just admitted.
+//
+// The question is answered by PortalAppAdmits, which the composition root
+// supplies because it is the only place that knows both facts. A handler with
+// none — a library embedder, or a deployment serving no portal application —
+// answers no, and the reader keeps the public page this handler knows it can
+// render rather than being sent somewhere it cannot vouch for.
+func (h *Handler) canEnterPortal(user *User) bool {
+	if user == nil || h.deps.PortalAppAdmits == nil {
+		return false
+	}
+	return h.deps.PortalAppAdmits(user.Roles)
 }
 
 // autoPromoteViewer grants a signed-in public-link viewer a derived viewer
@@ -323,30 +419,37 @@ func (h *Handler) maybeAutoPromoteViewer(r *http.Request, t promoteTarget) {
 // feedback. It is idempotent (skips when any active share already exists) and
 // never downgrades — an existing editor is left untouched. The object owner
 // needs no share. Best-effort: failures are logged, never surfaced.
-func (h *Handler) autoPromoteViewer(ctx context.Context, t promoteTarget, user *User) {
+//
+// The return value is whether the user can open the target in the portal: they
+// own it, they already hold an active share, or the insert below gave them one.
+// A promotion that failed reports false, so the caller keeps them on the public
+// page rather than sending them to a portal page that would refuse them.
+func (h *Handler) autoPromoteViewer(ctx context.Context, t promoteTarget, user *User) bool {
 	if user == nil || h.deps.ShareStore == nil || t.targetID == "" {
-		return
+		return false
 	}
 	if t.ownerID == user.UserID {
-		return // owner already has full access
+		return true // owner already has full access
 	}
 
 	existing, err := h.deps.ShareStore.GetActiveShareForTarget(ctx, t.targetType, t.targetID, user.UserID, user.Email)
 	if err != nil {
 		slog.Warn("auto-promote: lookup failed", logKeyError, err, "target", t.targetID) // #nosec G706 -- structured log
-		return
+		return false
 	}
 	if existing != nil {
-		return // never downgrade an existing share
+		return true // never downgrade an existing share
 	}
 
 	share, ok := derivedViewerShare(t, user)
 	if !ok {
-		return
+		return false
 	}
 	if err := h.deps.ShareStore.Insert(ctx, share); err != nil {
 		slog.Warn("auto-promote: insert failed", logKeyError, err, "target", t.targetID) // #nosec G706 -- structured log
+		return false
 	}
+	return true
 }
 
 // derivedViewerShare builds a viewer share (origin=public_link_login) for the
@@ -509,7 +612,14 @@ func (h *Handler) publicCollectionView(w http.ResponseWriter, r *http.Request, s
 		}
 	}()
 
-	h.maybeAutoPromoteViewer(r, promoteTarget{targetTypeCollection, share.CollectionID, coll.OwnerID, share.CreatedBy})
+	// As for an asset share (#1473): a signed-in reader who can open the
+	// collection in their portal is sent there, where its assets, its feedback
+	// and its editing are.
+	if h.maybeAutoPromoteViewer(r, promoteTarget{targetTypeCollection, share.CollectionID, coll.OwnerID, share.CreatedBy}) &&
+		!publicPageRequested(r) {
+		redirectToPortal(w, r, portalCollectionsSection, coll.ID, share.Token)
+		return
+	}
 
 	// Build asset lookup for items referenced in the collection.
 	assetIDs := collectAssetIDs(coll)
@@ -643,7 +753,11 @@ func (h *Handler) publicCollectionItemView(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Render with the exact same template and data as a single-asset public view.
-	h.renderAssetViewer(w, r, pad, share)
+	// The portal link stays the root: what admitted this reader is a share on
+	// the collection, and the asset inside it may have no page of its own that
+	// they can open (#1473). The collection page is framed with the chrome
+	// suppressed, so this is only read when the item URL is opened directly.
+	h.renderAssetViewer(w, r, pad, share, portalAppPath)
 }
 
 // servePublicThumbnail writes a thumbnail object as an image response under the

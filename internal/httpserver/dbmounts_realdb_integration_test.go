@@ -54,7 +54,7 @@ func TestMountPortalAPI_RealDB(t *testing.T) {
 	require.NotNil(t, p.PortalShareStore(), "portal share store must be wired from the real DB")
 
 	mux := http.NewServeMux()
-	require.NoError(t, mountPortalAPI(mux, p, buildNotifications(p)))
+	require.NoError(t, mountPortalAPI(mux, p, buildNotifications(p), true))
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/portal/assets", http.NoBody)
 	w := httptest.NewRecorder()
@@ -71,7 +71,7 @@ func TestMountScriptPortalAPI_RealDB(t *testing.T) {
 	p := newRealDBPlatform(t)
 
 	mux := http.NewServeMux()
-	require.NoError(t, mountPortalAPI(mux, p, buildNotifications(p)))
+	require.NoError(t, mountPortalAPI(mux, p, buildNotifications(p), true))
 
 	// The pattern the mux matched is what proves these routes exist: every
 	// /api/v1/portal/ path is answered by the portal subtree handler otherwise,

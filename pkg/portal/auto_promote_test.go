@@ -14,9 +14,10 @@ func TestAutoPromoteViewerCreatesViewerShare(t *testing.T) {
 	shares := &mockShareStore{activeShare: nil}
 	h := &Handler{deps: Deps{ShareStore: shares}}
 
-	h.autoPromoteViewer(context.Background(), promoteTarget{targetTypeAsset, "asset_1", "owner", "owner@example.com"},
+	reachable := h.autoPromoteViewer(context.Background(), promoteTarget{targetTypeAsset, "asset_1", "owner", "owner@example.com"},
 		&User{UserID: "u1", Email: "u1@example.com"})
 
+	assert.True(t, reachable, "the grant is what makes the asset openable in their portal")
 	require.NotNil(t, shares.inserted)
 	assert.Equal(t, "asset_1", shares.inserted.AssetID)
 	assert.Equal(t, PermissionViewer, shares.inserted.Permission)
@@ -29,9 +30,10 @@ func TestAutoPromoteViewerSkipsWhenShareExists(t *testing.T) {
 	shares := &mockShareStore{activeShare: &Share{ID: "s1", Permission: PermissionEditor}}
 	h := &Handler{deps: Deps{ShareStore: shares}}
 
-	h.autoPromoteViewer(context.Background(), promoteTarget{targetTypeAsset, "asset_1", "owner", "owner@example.com"},
+	reachable := h.autoPromoteViewer(context.Background(), promoteTarget{targetTypeAsset, "asset_1", "owner", "owner@example.com"},
 		&User{UserID: "u1", Email: "u1@example.com"})
 
+	assert.True(t, reachable, "the share they already hold opens it in their portal")
 	assert.Nil(t, shares.inserted)
 }
 
@@ -39,9 +41,10 @@ func TestAutoPromoteViewerSkipsOwner(t *testing.T) {
 	shares := &mockShareStore{}
 	h := &Handler{deps: Deps{ShareStore: shares}}
 
-	h.autoPromoteViewer(context.Background(), promoteTarget{targetTypeAsset, "asset_1", "u1", "u1@example.com"},
+	reachable := h.autoPromoteViewer(context.Background(), promoteTarget{targetTypeAsset, "asset_1", "u1", "u1@example.com"},
 		&User{UserID: "u1", Email: "u1@example.com"})
 
+	assert.True(t, reachable, "the owner opens it in their portal without a share")
 	assert.Nil(t, shares.inserted)
 }
 
@@ -49,9 +52,10 @@ func TestAutoPromoteViewerCollectionTarget(t *testing.T) {
 	shares := &mockShareStore{}
 	h := &Handler{deps: Deps{ShareStore: shares}}
 
-	h.autoPromoteViewer(context.Background(), promoteTarget{targetTypeCollection, "col_1", "owner", "owner@example.com"},
+	reachable := h.autoPromoteViewer(context.Background(), promoteTarget{targetTypeCollection, "col_1", "owner", "owner@example.com"},
 		&User{UserID: "u1", Email: "u1@example.com"})
 
+	assert.True(t, reachable)
 	require.NotNil(t, shares.inserted)
 	assert.Equal(t, "col_1", shares.inserted.CollectionID)
 }
@@ -59,7 +63,7 @@ func TestAutoPromoteViewerCollectionTarget(t *testing.T) {
 func TestAutoPromoteViewerNilUserNoop(t *testing.T) {
 	shares := &mockShareStore{}
 	h := &Handler{deps: Deps{ShareStore: shares}}
-	h.autoPromoteViewer(context.Background(), promoteTarget{targetTypeAsset, "asset_1", "owner", ""}, nil)
+	assert.False(t, h.autoPromoteViewer(context.Background(), promoteTarget{targetTypeAsset, "asset_1", "owner", ""}, nil))
 	assert.Nil(t, shares.inserted)
 }
 
@@ -67,8 +71,9 @@ func TestAutoPromoteViewerLookupError(t *testing.T) {
 	// A lookup failure is logged and skipped; no share is created.
 	shares := &mockShareStore{activeShareErr: assert.AnError}
 	h := &Handler{deps: Deps{ShareStore: shares}}
-	h.autoPromoteViewer(context.Background(), promoteTarget{targetTypeAsset, "asset_1", "owner", "owner@example.com"},
+	reachable := h.autoPromoteViewer(context.Background(), promoteTarget{targetTypeAsset, "asset_1", "owner", "owner@example.com"},
 		&User{UserID: "u1", Email: "u1@example.com"})
+	assert.False(t, reachable, "an unknown grant is not one to send anybody to")
 	assert.Nil(t, shares.inserted)
 }
 
@@ -76,8 +81,9 @@ func TestAutoPromoteViewerInsertError(t *testing.T) {
 	// Insert failure is best-effort: logged, never surfaced.
 	shares := &mockShareStore{insertErr: assert.AnError}
 	h := &Handler{deps: Deps{ShareStore: shares}}
-	h.autoPromoteViewer(context.Background(), promoteTarget{targetTypeAsset, "asset_1", "owner", "owner@example.com"},
+	reachable := h.autoPromoteViewer(context.Background(), promoteTarget{targetTypeAsset, "asset_1", "owner", "owner@example.com"},
 		&User{UserID: "u1", Email: "u1@example.com"})
+	assert.False(t, reachable, "a grant that failed leaves them nothing to open")
 	assert.Nil(t, shares.inserted) // mock records inserted only on success
 }
 
@@ -86,7 +92,7 @@ func TestMaybeAutoPromoteViewerAnonymousNoop(t *testing.T) {
 	shares := &mockShareStore{}
 	h := &Handler{deps: Deps{ShareStore: shares}}
 	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok", http.NoBody)
-	h.maybeAutoPromoteViewer(req, promoteTarget{targetTypeAsset, "asset_1", "owner", "owner@example.com"})
+	assert.False(t, h.maybeAutoPromoteViewer(req, promoteTarget{targetTypeAsset, "asset_1", "owner", "owner@example.com"}))
 	assert.Nil(t, shares.inserted)
 }
 

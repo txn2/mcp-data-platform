@@ -181,6 +181,8 @@ Naming a recipient reveals two more controls. **Notify by email** is checked by 
 
 ![Share with a recipient](../images/screenshots/light/user-asset-share-recipient-light.webp#only-light)![Share with a recipient](../images/screenshots/dark/user-asset-share-recipient-dark.webp#only-dark)
 
+A signed-in platform user who opens a share link lands on the item in their own portal rather than on the page built for people who have no account. That is where the version history, the feedback threads, the collections the asset belongs to, and editing where the share permits it all are, and the item is in their asset list from then on. The **Shared page** action in the viewer's toolbar opens the shared page as its recipient sees it, which is what someone who sent a link needs in order to check what arrived. An anonymous visitor, and a guest holding a one-time link, get the shared page unchanged.
+
 A recipient who opens a non-public share while signed out lands on a branded page with a **Sign in** action that returns them to the shared item after authenticating. When the share names an email address, the same page also offers **Email me a one-time view link** for recipients who have no platform account: a single-use link is emailed to the address the share names (never to an address the visitor types), expires in 15 minutes, and opens a view-only guest session scoped to that one share for the current browsing visit. Guests see the shared item (and, for collection shares, its items) with a "Viewing as guest" indicator; they can download but not edit, even when the share grants Editor, and they never gain portal access. A forwarded or replayed link is dead after its first use, and revoking the share cuts off existing guest sessions immediately. The recipient can request a fresh link for each viewing session, which keeps an email share strictly safer than a public URL. When the address the share names has opted out of notification emails, the same landing page shows a notice with a **Resume notification emails** action, so an opted-out recipient has a way back in without asking the sharer; opting back in takes one deliberate click and restores immediate delivery.
 
 All content types are rendered inline:
@@ -456,6 +458,8 @@ The **Feedback** page in the sidebar is the standalone channel for general feedb
 ### Leaving feedback through a public link
 
 When you share an asset or collection with a public link, an anonymous visitor can view it and sees a **Sign in to leave feedback** prompt. Signing in through that link, when the visitor has no prior share for the item, grants them a viewer share automatically so the item appears in their portal and they can leave feedback. An existing editor is never downgraded to a viewer by this flow.
+
+Once they hold that share, opening the link takes them straight to the item in their portal, where the feedback panel is. The public page is still one click away from there, under **Shared page**.
 
 ## Knowledge
 
