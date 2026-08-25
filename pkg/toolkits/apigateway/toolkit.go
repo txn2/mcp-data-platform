@@ -35,6 +35,22 @@ var ErrConnectionExists = errors.New("apigateway: connection already exists")
 // against a connection that has not been registered.
 var ErrConnectionNotFound = errors.New("apigateway: connection not found")
 
+// ErrOperationNotFound is returned when no spec in scope defines the
+// requested operation id. The browse surface also answers it for an
+// operation the route policy denies: an operation the caller may not
+// invoke is absent from that surface rather than refused by it, which
+// is the same treatment api_list_endpoints gives it.
+var ErrOperationNotFound = errors.New("apigateway: operation not found")
+
+// ErrAmbiguousOperation is returned when an operation id is defined by
+// more than one component spec in a connection's catalog. Wrapped by
+// ambiguousOperationError, which names the candidate specs.
+//
+// Unlike its siblings above it carries no package prefix: it is always
+// wrapped rather than returned bare, and the wrap site supplies the
+// prefix so the composed message reads as one sentence.
+var ErrAmbiguousOperation = errors.New("ambiguous operation_id")
+
 const (
 	// ToolInvokeEndpoint is the MCP tool name for the invoke
 	// operation. Exported so audit code and tests reference the same

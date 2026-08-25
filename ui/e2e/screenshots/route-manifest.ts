@@ -2,6 +2,7 @@ import { assetViewerRoutes } from "./route-assets";
 import { adminResourceRoutes } from "./route-resources";
 import { drawerRoutes } from "./route-drawers";
 import { scratchTableRoutes } from "./route-scratch-tables";
+import { apiBrowserAdminRoutes, apiBrowserUserRoutes } from "./route-apis";
 import { adminScriptRoutes, userScriptRoutes } from "./route-scripts";
 import {
   openCollectionDetailsDialog,
@@ -67,6 +68,7 @@ export const routes: ScreenshotRoute[] = [
     path: "/portal/collections",
     category: "user",
   },
+  ...apiBrowserUserRoutes,
   {
     slug: "collection-view",
     path: "/portal/collections/col-001",
@@ -417,6 +419,7 @@ export const routes: ScreenshotRoute[] = [
     path: "/portal/admin/api-catalogs",
     category: "admin",
   },
+  ...apiBrowserAdminRoutes,
   // Config editors (CodeMirror MarkdownEditor). These were excluded over a
   // duplicate-@codemirror/state crash in headless mode, now fixed via
   // resolve.dedupe in vite.config.ts.

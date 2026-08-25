@@ -433,6 +433,8 @@ POST /api/v1/gateway/{connection}/invoke
 
 Auth is the same as every other REST surface on the platform: `Authorization: Bearer <token>` or `X-API-Key: <key>`. The credential resolves to a user identity, persona, and audit subject through the same MCP middleware chain the MCP transport uses, so persona allowlists for `api_invoke_endpoint` and route-policy rules apply identically.
 
+A client composing one of these calls learns which connections exist and what each exposes from the [operation browser](api-browser.md), which reads with the same credential and hands back the `curl` for any operation.
+
 The REST surface is exempt from the agent-oriented **session-handle requirement**. When the explicit session gate is enabled (`session.require`), MCP agents must call `platform_info` to mint a `session_id` and thread it on every subsequent tool call, or the call is refused with `SESSION_REQUIRED`. REST callers are stateless automation (NiFi, cronjobs, `curl`): each request is an independent HTTP call with no way to mint or carry a session handle, so the gate does not apply to them. Authentication, persona authorization, route policy, and audit still apply in full. The exemption is scoped narrowly to the session-handle handshake, not to access control.
 
 Request body (the `connection` is taken from the URL and overrides any value in the body):

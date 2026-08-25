@@ -19,6 +19,7 @@ import {
   Settings,
   History,
   Table2,
+  Network,
   type LucideIcon,
 } from "lucide-react";
 
@@ -37,6 +38,10 @@ export interface NavItem {
 // Scratch Tables (#1472) follows Resources because it is what those files
 // become when they are registered as query-engine tables, and the two are read
 // together: a stale table is answered by opening the file behind it.
+//
+// APIs (#1478) follows Knowledge because it is reference material of the same
+// kind: what the platform can reach and what those upstreams expose, read
+// before a call rather than produced by one.
 export const portalNavItems: NavItem[] = [
   { path: "/", label: "Assets", icon: LayoutGrid },
   { path: "/prompts", label: "Prompts", icon: MessageSquare },
@@ -45,6 +50,7 @@ export const portalNavItems: NavItem[] = [
   { path: "/scratch-tables", label: "Scratch Tables", icon: Table2 },
   { path: "/feedback", label: "Feedback", icon: MessageCircle },
   { path: "/knowledge", label: "Knowledge", icon: BookOpen },
+  { path: "/apis", label: "APIs", icon: Network },
   { path: "/activity", label: "Activity", icon: Activity },
   { path: "/settings", label: "Settings", icon: Settings },
 ];
@@ -55,6 +61,7 @@ export const adminNavItems: NavItem[] = [
   { path: "/admin", label: "Dashboard", icon: Home },
   { path: "/admin/agent-instructions", label: "Agent Instructions", icon: Bot },
   { path: "/admin/api-catalogs", label: "API Catalogs", icon: BookOpen },
+  { path: "/admin/apis", label: "APIs", icon: Network },
   { path: "/admin/assets", label: "Assets", icon: LayoutGrid },
   { path: "/admin/calls", label: "Calls", icon: PhoneCall },
   { path: "/admin/changelog", label: "Change Log", icon: Clock },

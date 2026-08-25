@@ -135,7 +135,7 @@ func (t *Toolkit) handleGetEndpointSchema(ctx context.Context, _ *mcp.CallToolRe
 	if len(c.specs) == 0 {
 		return toolkit.ErrorResult("connection has no catalog specs configured"), nil, nil
 	}
-	match, candidates := resolveOperation(c, in.OperationID, in.Spec)
+	match, candidates := resolveOperation(c.specs, in.OperationID, in.Spec)
 	if match == nil {
 		if len(candidates) > 1 {
 			return ambiguousResult(in.OperationID, candidates), nil, nil
@@ -178,12 +178,17 @@ type operationMatch struct {
 	op       *openapi3.Operation
 }
 
-// resolveOperation walks the connection's parsed specs looking for
-// the requested operation_id. When the operator omits spec and the
-// id resolves to multiple matches, returns nil + candidates so the
+// resolveOperation walks the supplied parsed specs looking for the
+// requested operation_id. When the operator omits spec and the id
+// resolves to multiple matches, returns nil + candidates so the
 // caller emits the ambiguity error.
-func resolveOperation(c *conn, operationID, specFilter string) (*operationMatch, []schemaCandidate) {
-	matches, candidates := collectOperationMatches(c, operationID, specFilter)
+//
+// It takes the spec map rather than the connection because the browse
+// surface resolves an operation out of a stored catalog spec that no
+// connection references yet (#1478); the connection's own lookup passes
+// c.specs and is otherwise unchanged.
+func resolveOperation(specs map[string]*specState, operationID, specFilter string) (*operationMatch, []schemaCandidate) {
+	matches, candidates := collectOperationMatches(specs, operationID, specFilter)
 	switch {
 	case len(matches) == 1:
 		return matches[0], nil
@@ -194,17 +199,17 @@ func resolveOperation(c *conn, operationID, specFilter string) (*operationMatch,
 	return nil, nil
 }
 
-// collectOperationMatches iterates every component spec on the
-// connection (filtered by specFilter when non-empty) and returns
-// the operations whose id matches operationID, plus their
-// candidate-record form. Extracted so resolveOperation stays under
-// the cognitive-complexity ceiling.
-func collectOperationMatches(c *conn, operationID, specFilter string) ([]*operationMatch, []schemaCandidate) {
+// collectOperationMatches iterates every supplied component spec
+// (filtered by specFilter when non-empty) and returns the operations
+// whose id matches operationID, plus their candidate-record form.
+// Extracted so resolveOperation stays under the cognitive-complexity
+// ceiling.
+func collectOperationMatches(specs map[string]*specState, operationID, specFilter string) ([]*operationMatch, []schemaCandidate) {
 	var (
 		matches    []*operationMatch
 		candidates []schemaCandidate
 	)
-	for specName, st := range c.specs {
+	for specName, st := range specs {
 		if specFilter != "" && specName != specFilter {
 			continue
 		}

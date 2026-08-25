@@ -21,6 +21,7 @@ const ADMIN_PREFIX = "/admin";
 const KNOWN_ROUTES: readonly string[] = [
   "/",
   "/activity",
+  "/apis",
   "/activity/sessions",
   "/activity/calls",
   "/collections",
@@ -41,6 +42,7 @@ const KNOWN_ROUTES: readonly string[] = [
   "/admin/description",
   "/admin/agent-instructions",
   "/admin/api-catalogs",
+  "/admin/apis",
   "/admin/connections",
   "/admin/personas",
   "/admin/prompts",

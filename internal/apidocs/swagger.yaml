@@ -1272,6 +1272,170 @@ definitions:
         example: Johnson
         type: string
     type: object
+  apigateway.EndpointSchemaOutput:
+    properties:
+      description:
+        type: string
+      examples:
+        additionalProperties: {}
+        type: object
+      method:
+        type: string
+      note:
+        type: string
+      operation_id:
+        type: string
+      parameters:
+        items:
+          $ref: '#/definitions/apigateway.ParameterDetail'
+        type: array
+      path:
+        type: string
+      request_body:
+        $ref: '#/definitions/apigateway.RequestBodyDetail'
+      responses:
+        items:
+          $ref: '#/definitions/apigateway.ResponseDetail'
+        type: array
+      saved_examples:
+        description: |-
+          SavedExamples are requests promoted from real calls against this
+          connection (#1321). They differ from Examples, which are whatever the
+          spec's author declared: these are known to have worked here.
+        items:
+          $ref: '#/definitions/catalog.Example'
+        type: array
+      spec:
+        type: string
+      summary:
+        type: string
+    type: object
+  apigateway.HeaderDetail:
+    properties:
+      description:
+        type: string
+      required:
+        type: boolean
+      schema: {}
+    type: object
+  apigateway.ParameterDetail:
+    properties:
+      description:
+        type: string
+      in:
+        type: string
+      name:
+        type: string
+      required:
+        type: boolean
+      schema: {}
+    type: object
+  apigateway.RequestBodyDetail:
+    properties:
+      content_types:
+        items:
+          type: string
+        type: array
+      description:
+        type: string
+      examples:
+        additionalProperties: {}
+        type: object
+      required:
+        type: boolean
+      schema: {}
+    type: object
+  apigateway.ResponseDetail:
+    properties:
+      content_types:
+        items:
+          type: string
+        type: array
+      description:
+        type: string
+      examples:
+        additionalProperties: {}
+        type: object
+      headers:
+        additionalProperties:
+          $ref: '#/definitions/apigateway.HeaderDetail'
+        type: object
+      schema: {}
+      status:
+        type: string
+    type: object
+  apishttp.connectionListResponse:
+    properties:
+      connections:
+        items:
+          $ref: '#/definitions/apishttp.connectionResponse'
+        type: array
+    type: object
+  apishttp.connectionResponse:
+    properties:
+      auth_mode:
+        type: string
+      base_url:
+        description: |-
+          BaseURL is the upstream root every operation path is joined onto. The
+          credential that reaches it is never part of this surface.
+        type: string
+      catalog_id:
+        type: string
+      description:
+        type: string
+      name:
+        type: string
+      operation_count:
+        description: |-
+          OperationCount counts the operations this caller reaches, not the
+          catalog's total: an operation a deny rule hides is absent from the list
+          and from the count.
+        type: integer
+      specs:
+        items:
+          $ref: '#/definitions/apishttp.specResponse'
+        type: array
+    type: object
+  apishttp.operationListResponse:
+    properties:
+      connection:
+        $ref: '#/definitions/apishttp.connectionResponse'
+      operations:
+        items:
+          $ref: '#/definitions/apishttp.operationResponse'
+        type: array
+    type: object
+  apishttp.operationResponse:
+    properties:
+      method:
+        type: string
+      operation_id:
+        type: string
+      path:
+        type: string
+      spec:
+        type: string
+      summary:
+        type: string
+      tags:
+        items:
+          type: string
+        type: array
+    type: object
+  apishttp.specResponse:
+    properties:
+      base_path:
+        type: string
+      description:
+        type: string
+      name:
+        type: string
+      operation_count:
+        type: integer
+      title:
+        type: string
+    type: object
   assetrefapi.audience:
     properties:
       public:
@@ -2075,6 +2239,32 @@ definitions:
         example: 550e8400-e29b-41d4-a716-446655440000
         type: string
     type: object
+  catalog.Example:
+    properties:
+      call_record_id:
+        description: CallRecordID leads back to the recorded call this was promoted
+          from.
+        type: string
+      connection:
+        type: string
+      created_by:
+        type: string
+      description:
+        type: string
+      id:
+        type: string
+      method:
+        type: string
+      name:
+        description: |-
+          Name is what the example is called: the purpose stated for the call it
+          was promoted from.
+        type: string
+      operation_id:
+        type: string
+      path:
+        type: string
+    type: object
   catalogapi.catalogResponse:
     properties:
       created_at:
@@ -2136,6 +2326,36 @@ definitions:
         type: integer
       specs_total:
         type: integer
+    type: object
+  catalogapi.operationListResponse:
+    properties:
+      base_path:
+        description: |-
+          BasePath is the prefix every listed path already carries. Reported
+          so a reader can tell an operator-set prefix from one the spec's own
+          servers[] declared.
+        type: string
+      operations:
+        items:
+          $ref: '#/definitions/catalogapi.operationSummaryResponse'
+        type: array
+    type: object
+  catalogapi.operationSummaryResponse:
+    properties:
+      method:
+        type: string
+      operation_id:
+        type: string
+      path:
+        type: string
+      spec:
+        type: string
+      summary:
+        type: string
+      tags:
+        items:
+          type: string
+        type: array
     type: object
   catalogapi.specListResponse:
     properties:
@@ -7058,6 +7278,91 @@ paths:
       summary: Upsert catalog spec
       tags:
       - API Catalogs
+  /admin/api-catalogs/{id}/specs/{spec}/operations:
+    get:
+      description: Returns the operations a catalog spec parses to. The spec document
+        is not returned.
+      parameters:
+      - description: Catalog ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Spec name
+        in: path
+        name: spec
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/catalogapi.operationListResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List spec operations
+      tags:
+      - API Catalogs
+  /admin/api-catalogs/{id}/specs/{spec}/operations/{operationId}:
+    get:
+      description: Returns one operation's parameters, request body and per-status
+        responses. The spec document is not returned.
+      parameters:
+      - description: Catalog ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Spec name
+        in: path
+        name: spec
+        required: true
+        type: string
+      - description: Operation ID
+        in: path
+        name: operationId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/apigateway.EndpointSchemaOutput'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get spec operation
+      tags:
+      - API Catalogs
   /admin/api-catalogs/{id}/specs/{spec}/reembed:
     post:
       description: Enqueues a manual_retry embedding job for a spec, recomputing vectors
@@ -11869,6 +12174,103 @@ paths:
       summary: Edit a directory user's name
       tags:
       - Users
+  /apis:
+    get:
+      description: Returns the api-kind connections the caller's persona reaches,
+        each with the number of operations the route policy permits them.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/apishttp.connectionListResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List the API connections you reach
+      tags:
+      - APIs
+  /apis/{connection}/operations:
+    get:
+      description: Returns every operation of one api-kind connection that the caller's
+        route policy permits, with the connection's upstream root and auth mode.
+      parameters:
+      - description: Connection name
+        in: path
+        name: connection
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/apishttp.operationListResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List a connection's operations
+      tags:
+      - APIs
+  /apis/{connection}/operations/{operationId}:
+    get:
+      description: Returns one operation's parameters, request body and per-status
+        responses, resolved exactly as api_get_endpoint_schema resolves them. An operation
+        the route policy denies is reported as not found.
+      parameters:
+      - description: Connection name
+        in: path
+        name: connection
+        required: true
+        type: string
+      - description: Operation ID (percent-encoded)
+        in: path
+        name: operationId
+        required: true
+        type: string
+      - description: Component spec, when one id is defined by several
+        in: query
+        name: spec
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/apigateway.EndpointSchemaOutput'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get one operation
+      tags:
+      - APIs
   /portal/activity/breakdown:
     get:
       description: Returns activity breakdown grouped by a dimension (tool_name, user_id,

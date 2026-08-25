@@ -20,6 +20,7 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/txn2/mcp-data-platform/internal/httpserver/apiwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/attachhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/mentionhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp"
@@ -157,6 +158,12 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 	mux.Handle(assetrefs.PathPrefix, handler)
 	mountPromptVersionPortalAPI(mux, p, wrap, adminRoles)
 	mountScriptPortalAPI(mux, p, wrap, adminRoles)
+	// The operation browser a caller reads before composing a gateway call
+	// (#1478). Read-only: it names operations and invokes none.
+	apiwire.Mount(mux, wrap, apiwire.Deps{
+		Toolkits: p.ToolkitRegistry(), Personas: p.PersonaRegistry(),
+		Resolver: deps.PersonaResolver, AdminRoles: adminRoles,
+	})
 	mountMentionAPI(mux, p, wrap, adminRoles)
 	// Table registration serves both the portal's assets and the managed
 	// resources API, so it is mounted once here rather than beside each.

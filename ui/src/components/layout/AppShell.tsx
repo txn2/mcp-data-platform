@@ -62,6 +62,12 @@ const FeedbackPage = lazy(() =>
 const UserSettingsPage = lazy(() =>
   import("@/pages/settings/UserSettingsPage").then((m) => ({ default: m.UserSettingsPage })),
 );
+// The operation browser (#1478). The same component serves the administrator's
+// section, where its source is catalogs rather than the connections a caller
+// reaches; `scope` is the whole of the difference.
+const ApisPage = lazy(() =>
+  import("@/pages/apis/ApisPage").then((m) => ({ default: m.ApisPage })),
+);
 
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -76,6 +82,7 @@ const pageTitles: Record<string, string> = {
   "/activity/sessions": "Activity",
   "/activity/calls": "Activity",
   "/": "Assets",
+  "/apis": "APIs",
   "/collections": "Collections",
   "/resources": "Resources",
   "/scratch-tables": "Scratch Tables",
@@ -92,6 +99,7 @@ const pageTitles: Record<string, string> = {
   "/admin/description": "Description",
   "/admin/agent-instructions": "Agent Instructions",
   "/admin/api-catalogs": "API Catalogs",
+  "/admin/apis": "APIs",
   "/admin/connections": "Connections",
   "/admin/personas": "Personas",
   "/admin/prompts": "Prompts",
@@ -507,6 +515,7 @@ export function AppShell() {
           {!adminRoute && isInSection(route, "/scratch-tables") && (
             <ScratchTableRoutes route={route} onNavigate={navigate} onBack={goBack} />
           )}
+          {!adminRoute && route === "/apis" && <ApisPage scope="portal" />}
           {!adminRoute && route === "/feedback" && <FeedbackPage onNavigate={navigate} />}
           {!adminRoute && route === "/settings" && (
             <UserSettingsPage onNavigate={navigate} />

@@ -63,7 +63,7 @@ func resolveOperationTarget(c *conn, a operationAddressing) (method, path string
 	if len(c.specs) == 0 {
 		return "", "", errors.New("apigateway: connection has no catalog specs; call with method+path instead of operation_id")
 	}
-	match, candidates := resolveOperation(c, a.OperationID, a.Spec)
+	match, candidates := resolveOperation(c.specs, a.OperationID, a.Spec)
 	if match == nil {
 		if len(candidates) > 1 {
 			return "", "", ambiguousOperationError(a.OperationID, candidates)
@@ -190,6 +190,6 @@ func ambiguousOperationError(operationID string, candidates []schemaCandidate) e
 		specs = append(specs, c.Spec)
 	}
 	sort.Strings(specs)
-	return fmt.Errorf("apigateway: operation_id %q is defined in multiple specs (%s); pass spec to disambiguate",
-		operationID, strings.Join(specs, ", "))
+	return fmt.Errorf("apigateway: %w: %q is defined in multiple specs (%s); pass spec to disambiguate",
+		ErrAmbiguousOperation, operationID, strings.Join(specs, ", "))
 }
