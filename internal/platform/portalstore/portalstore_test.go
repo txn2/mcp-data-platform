@@ -283,6 +283,16 @@ func (stubRefStore) ListByAsset(context.Context, string) ([]portaldomain.AssetRe
 	return nil, nil
 }
 
+func (stubRefStore) Attach(context.Context, portaldomain.AssetResourceRef) (bool, error) {
+	return false, nil
+}
+
+func (stubRefStore) Detach(context.Context, string, string) (bool, error) { return false, nil }
+
+func (stubRefStore) ListByResource(context.Context, string, int) ([]portaldomain.AssetResourceRef, error) {
+	return nil, nil
+}
+
 func (stubRefStore) GetByToken(context.Context, string, string) (*portaldomain.AssetResourceRef, error) {
 	return nil, nil //nolint:nilnil // interface contract: no such reference is (nil, nil)
 }

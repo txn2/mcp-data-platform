@@ -40,6 +40,25 @@ func (s *refStoreStub) ListByAsset(_ context.Context, id string) ([]portaldomain
 	return s.byAsset[id], nil
 }
 
+func (s *refStoreStub) Attach(_ context.Context, ref portaldomain.AssetResourceRef) (bool, error) {
+	s.byAsset[ref.AssetID] = append(s.byAsset[ref.AssetID], ref)
+	return true, nil
+}
+
+func (*refStoreStub) Detach(context.Context, string, string) (bool, error) { return false, nil }
+
+func (s *refStoreStub) ListByResource(_ context.Context, resourceID string, _ int) ([]portaldomain.AssetResourceRef, error) {
+	var out []portaldomain.AssetResourceRef
+	for _, refs := range s.byAsset {
+		for _, ref := range refs {
+			if ref.ResourceID == resourceID {
+				out = append(out, ref)
+			}
+		}
+	}
+	return out, nil
+}
+
 func (s *refStoreStub) GetByToken(_ context.Context, id, token string) (*portaldomain.AssetResourceRef, error) {
 	for _, ref := range s.byAsset[id] {
 		if ref.RefToken == token {
@@ -470,6 +489,18 @@ func (failingRefStore) Replace(context.Context, string, []portaldomain.AssetReso
 }
 
 func (failingRefStore) ListByAsset(context.Context, string) ([]portaldomain.AssetResourceRef, error) {
+	return nil, nil
+}
+
+func (failingRefStore) Attach(context.Context, portaldomain.AssetResourceRef) (bool, error) {
+	return false, assert.AnError
+}
+
+func (failingRefStore) Detach(context.Context, string, string) (bool, error) {
+	return false, assert.AnError
+}
+
+func (failingRefStore) ListByResource(context.Context, string, int) ([]portaldomain.AssetResourceRef, error) {
 	return nil, nil
 }
 

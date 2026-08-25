@@ -40,6 +40,7 @@ export function AssetViewer({
   toolbarExtra,
   detailRows,
   sessionPath,
+  resourcePath,
   versions,
   versionsLoading,
   revertMutation,
@@ -281,6 +282,7 @@ export function AssetViewer({
             isSharedEditor={isSharedEditor}
             detailRows={detailRows}
             sessionPath={sessionPath}
+            resourcePath={resourcePath}
             onNavigate={onNavigate}
             versions={versions}
             versionsLoading={versionsLoading}

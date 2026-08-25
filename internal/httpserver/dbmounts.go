@@ -30,6 +30,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/resourceaudit"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
+	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
@@ -143,6 +144,17 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 	handler := portal.NewHandler(deps, wrap)
 	mux.Handle("/api/v1/portal/", handler)
 	mux.Handle("/portal/view/", handler)
+	// The reference-serving route (#1474). It is a separate mount for the same
+	// reason /portal/view/ is: the portal handler routes both to muxes of their
+	// own that take no session, and neither path is under /api/v1/portal/.
+	//
+	// Without it the pattern that matches is mountPortalUI's "/portal/", so
+	// every reference URL the rewrite writes into served content is answered
+	// by the SPA's index.html with 200 and text/html -- an image element gets
+	// a document instead of a picture, and the file never reaches the reader.
+	// It is registered from the assetrefs constant so the mount and the URL
+	// the rewrite emits cannot drift apart.
+	mux.Handle(assetrefs.PathPrefix, handler)
 	mountPromptVersionPortalAPI(mux, p, wrap, adminRoles)
 	mountScriptPortalAPI(mux, p, wrap, adminRoles)
 	mountMentionAPI(mux, p, wrap, adminRoles)

@@ -60,6 +60,55 @@ func (s *store) Replace(
 	return nil
 }
 
+// Attach adds one reference at the end of the asset's declared order,
+// reporting whether it was added.
+//
+// The position is derived in the statement rather than passed in, so two
+// callers attaching at once cannot be handed the same index. ON CONFLICT DO
+// NOTHING makes the primary key the arbiter of "already referenced": a read
+// then an insert would let both sides of a race believe they added it.
+func (s *store) Attach(
+	ctx context.Context, ref portaldomain.AssetResourceRef,
+) (bool, error) {
+	res, err := s.db.ExecContext(ctx,
+		`INSERT INTO portal_asset_resource_refs
+		 (asset_id, resource_id, uri, ref_token, position, declared_by)
+		 VALUES ($1, $2, $3, $4,
+		         COALESCE((SELECT MAX(position) + 1 FROM portal_asset_resource_refs
+		                    WHERE asset_id = $1), 0),
+		         $5)
+		 ON CONFLICT (asset_id, resource_id) DO NOTHING`,
+		ref.AssetID, ref.ResourceID, ref.URI, ref.RefToken, ref.DeclaredBy)
+	if err != nil {
+		return false, fmt.Errorf("recording resource reference %q: %w", ref.URI, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("recording resource reference %q: %w", ref.URI, err)
+	}
+	return n > 0, nil
+}
+
+// Detach removes one reference, reporting whether there was one.
+//
+// It leaves a hole in the remaining positions, which is what the declared
+// order can afford: position only orders the list a reader is shown and the
+// rewrite consumes, and the rewrite sorts by URI length for its own reasons.
+// Renumbering would mean rewriting every surviving row to no visible end.
+func (s *store) Detach(ctx context.Context, assetID, resourceID string) (bool, error) {
+	res, err := s.db.ExecContext(ctx,
+		`DELETE FROM portal_asset_resource_refs
+		  WHERE asset_id = $1 AND resource_id = $2`, assetID, resourceID)
+	if err != nil {
+		return false, fmt.Errorf("removing resource reference: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("removing resource reference: %w", err)
+	}
+	return n > 0, nil
+}
+
 // ListByAsset returns one asset's references in declared order.
 func (s *store) ListByAsset(
 	ctx context.Context, assetID string,
@@ -74,6 +123,34 @@ func (s *store) ListByAsset(
 	}
 	defer rows.Close() //nolint:errcheck // read-only
 
+	return scanRefs(rows)
+}
+
+// ListByResource returns at most limit references naming one resource, newest
+// asset first, unscoped by design: the caller narrows the answer to the assets
+// its reader may open, at a query per asset, which is what the limit bounds.
+func (s *store) ListByResource(
+	ctx context.Context, resourceID string, limit int,
+) ([]portaldomain.AssetResourceRef, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT asset_id, resource_id, uri, ref_token, position, declared_by, created_at
+		   FROM portal_asset_resource_refs
+		  WHERE resource_id = $1
+		  ORDER BY created_at DESC, asset_id
+		  LIMIT $2`, resourceID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("listing assets referencing resource: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck // read-only
+
+	return scanRefs(rows)
+}
+
+// scanRefs drains a reference query. Both list paths select the same columns in
+// the same order and differ only in their predicate, so the scan is written
+// once: a column added to one query and not the other would otherwise be a
+// silent mismatch rather than a compile error.
+func scanRefs(rows *sql.Rows) ([]portaldomain.AssetResourceRef, error) {
 	var out []portaldomain.AssetResourceRef
 	for rows.Next() {
 		var ref portaldomain.AssetResourceRef

@@ -39,6 +39,13 @@ export interface AssetViewerProps {
    * would answer them not-found (#1319).
    */
   sessionPath?: (sessionId: string) => string;
+  /**
+   * Where a managed resource this asset references opens for this reader. The
+   * portal and the admin console hold the same resource at different
+   * addresses, so the surface supplies it; absent, a referenced file is named
+   * without being linked (#1475).
+   */
+  resourcePath?: (resourceId: string) => string;
   versions?: AssetVersion[];
   versionsLoading?: boolean;
   revertMutation?: MutationLike<{ assetId: string; version: number }>;

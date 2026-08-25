@@ -21,6 +21,10 @@ interface ResourceQuery {
   // sort orders the list; "last_read" puts the most recently read first and
   // never-read resources last, which is how a curator finds dead weight.
   sort?: "updated" | "last_read";
+  // limit caps the page. Absent, the server applies its own default (100), and
+  // a caller that renders one page has to compare what it got against the
+  // envelope's total to know whether it saw everything.
+  limit?: number;
 }
 
 function resourceParams(params: ResourceQuery | undefined): URLSearchParams {
@@ -31,6 +35,7 @@ function resourceParams(params: ResourceQuery | undefined): URLSearchParams {
   if (params?.tag) sp.set("tag", params.tag);
   if (params?.q) sp.set("q", params.q);
   if (params?.sort) sp.set("sort", params.sort);
+  if (params?.limit) sp.set("limit", String(params.limit));
   return sp;
 }
 

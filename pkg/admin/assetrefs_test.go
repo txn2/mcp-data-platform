@@ -37,6 +37,16 @@ func (m *mockAdminRefStore) ListByAsset(context.Context, string) ([]portaldomain
 	return m.refs, m.listErr
 }
 
+func (*mockAdminRefStore) Attach(context.Context, portaldomain.AssetResourceRef) (bool, error) {
+	return false, nil
+}
+
+func (*mockAdminRefStore) Detach(context.Context, string, string) (bool, error) { return false, nil }
+
+func (m *mockAdminRefStore) ListByResource(context.Context, string, int) ([]portaldomain.AssetResourceRef, error) {
+	return m.refs, m.listErr
+}
+
 func (*mockAdminRefStore) GetByToken(context.Context, string, string) (*portaldomain.AssetResourceRef, error) {
 	return nil, nil //nolint:nilnil // interface contract: no such reference is (nil, nil)
 }

@@ -101,6 +101,11 @@ const ALLOWLIST = new Set<string>([
   "GET /portal/assets/{}/tables",
   "POST /portal/assets/{}/tables",
   "DELETE /portal/assets/{}/tables/{}",
+  // pkg/portal/assetrefs.go refRoutePattern, on the portal's own unauthenticated
+  // reference mux (internal/portal/assetrefs.PathPrefix). It takes no session by
+  // design and carries no swagger annotation; the reference panel's thumbnails
+  // load through it (#1474, #1475).
+  "GET /portal/refs/{}/{}",
 ]);
 
 // Spec routes, keyed by method + normalized path (basePath included in the key).

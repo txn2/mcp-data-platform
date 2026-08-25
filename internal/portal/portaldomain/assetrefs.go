@@ -68,8 +68,40 @@ type AssetResourceRefStore interface {
 	// author saves. Passing an empty list removes every reference.
 	Replace(ctx context.Context, assetID string, refs []AssetResourceRef) error
 
+	// Attach adds one reference to an asset that does not already have it,
+	// reporting whether it was added. It exists beside Replace because the two
+	// have different writers: a save declares the whole list, while a person
+	// adding one file through the portal has decided nothing about the others.
+	// Rewriting the list from a read would silently drop whatever a concurrent
+	// save had just declared.
+	//
+	// The reference lands at the end of the declared order, and an asset that
+	// already names the resource is (false, nil) rather than an error: the
+	// primary key decides it, so two callers racing on the same file cannot
+	// both win.
+	Attach(ctx context.Context, ref AssetResourceRef) (bool, error)
+
+	// Detach removes one reference, reporting whether there was one. It is the
+	// counterpart of Attach and leaves every other reference untouched, for
+	// the same reason.
+	Detach(ctx context.Context, assetID, resourceID string) (bool, error)
+
 	// ListByAsset returns one asset's references in declared order.
 	ListByAsset(ctx context.Context, assetID string) ([]AssetResourceRef, error)
+
+	// ListByResource returns at most limit references naming one resource,
+	// across every asset that declares it. It answers "what is holding this
+	// file up?" for the person about to edit or delete the resource, which is
+	// the question a reference makes askable and nothing else on the resource
+	// can answer.
+	//
+	// It is deliberately unscoped: a reference row carries no notion of who
+	// may see the asset that owns it. The caller narrows the answer to the
+	// assets its reader is allowed to open, because that check needs the asset
+	// and its shares, neither of which this store holds -- and it costs a
+	// query per asset, which is why the limit is here rather than applied to
+	// the rows after they arrive.
+	ListByResource(ctx context.Context, resourceID string, limit int) ([]AssetResourceRef, error)
 
 	// GetByToken resolves the reference a serving URL names. It takes the
 	// asset id as well as the token and requires both to match, so a token

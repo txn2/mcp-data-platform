@@ -74,6 +74,13 @@ function stubApi(detail: Resource | null) {
           connections: [{ name: "warehouse", catalog: "scratch", schema: "uploads" }],
         });
       }
+      if (url.endsWith("/assets")) {
+        return json({
+          data: [{ id: "asset-q4", name: "Q4 report", public: true }],
+          total: 1,
+          hidden: 0,
+        });
+      }
       if (url.endsWith("/prompts")) {
         return json({ data: [{ id: "p-1", name: "restock", display_name: "Restock", scope: "user" }] });
       }
@@ -149,6 +156,9 @@ describe("a managed resource opens as a page", () => {
     expect(await screen.findByTestId("resource-usage")).toBeTruthy();
     expect(await screen.findByTestId("resource-versions")).toBeTruthy();
     expect(await screen.findByTestId("resource-used-by-prompts")).toBeTruthy();
+    // Beside the prompts list, the assets whose content references this file
+    // (#1475): the same question asked of a different consumer.
+    expect(await screen.findByTestId("resource-used-by-assets")).toBeTruthy();
     expect(await screen.findByText("Query as a table")).toBeTruthy();
     expect(screen.getByText(RESOURCE.uri)).toBeTruthy();
   });

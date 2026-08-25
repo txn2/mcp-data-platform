@@ -133,6 +133,18 @@ The newest capture is shown expanded and every earlier one sits behind a disclos
 
 ![Provenance panel](../images/screenshots/light/user-asset-provenance-light.webp#only-light)![Provenance panel](../images/screenshots/dark/user-asset-provenance-dark.webp#only-dark)
 
+#### Referenced files
+
+An asset's content can name a [managed resource](asset-resource-references.md) by its `mcp://` URI rather than carrying the file's bytes — a logo, a photograph, a design element. The **Referenced files** panel in the metadata sidebar lists what this asset depends on: each file's name, scope and type, a thumbnail where it is an image, a link to the resource where you can open it on your own, and the URI with a copy control.
+
+![Referenced files on an asset](../images/screenshots/light/user-asset-resource-refs-light.webp#only-light)![Referenced files on an asset](../images/screenshots/dark/user-asset-resource-refs-dark.webp#only-dark)
+
+The owner, an editor on a shared asset, and an administrator can add a reference through a picker over the resources they can read, and remove one. A reference carries the asset's audience — anyone who can open the asset can load the file through it, including anyone holding a public link — so the picker names what this asset is currently shared with before anything is added.
+
+![Adding a reference, with the asset's audience named](../images/screenshots/light/user-asset-resource-refs-picker-light.webp#only-light)![Adding a reference, with the asset's audience named](../images/screenshots/dark/user-asset-resource-refs-picker-dark.webp#only-dark)
+
+Adding a reference does not change the asset's content. The markup has to name the URI for the picture to render, which is why every row carries it with a copy control; the panel also reports which lines of the stored content already write each URI, and removing a reference the content still names warns with those lines first.
+
 #### Reading an older version
 
 The version picker beside the Preview / Source toggle lists every version the asset keeps, each with the time it was written. A number alone does not identify a version of an asset written on a schedule, where two entries can be an hour apart. Selecting an older version shows its content read-only and offers a revert to it.
@@ -319,13 +331,17 @@ Administrators can open, edit, and delete any resource by id, including persona 
 
 Opening a resource shows which prompts attach it as reference material. Deleting a resource that prompts depend on does not break them: they keep serving and report the material as missing, and the prompt viewer flags the broken link so its author can repair it.
 
+**Used by** lists the assets whose content [references](asset-resource-references.md) the resource, and flags any of them carrying a public share link — a reference gives the file that asset's audience, so an asset anyone can open makes the file readable by anyone holding the link. Referencing assets you cannot open are counted but not named. Deleting a resource assets reference warns and names them first; the assets keep rendering, with that one file missing.
+
+![Assets referencing a resource](../images/screenshots/light/admin-resource-used-by-assets-light.webp#only-light)![Assets referencing a resource](../images/screenshots/dark/admin-resource-used-by-assets-dark.webp#only-dark)
+
 Clicking a row opens the resource at `/resources/{id}` — `/admin/resources/{id}` in the administrator's section — so a resource can be linked to, bookmarked, reloaded and opened in a second tab, and Back returns to the library on the scope and the filters it was left on. The page takes the same shape a portal asset takes, because a resource is the same kind of object: the content at the full width of the page, and what the resource is beside it — its scope, category, metadata, canonical URI, tags, read activity, revision trail, table registration, and the prompts that attach it. Download, Edit and Delete are in the page header, so a long document or a deep revision trail never pushes them off the screen. Editing and deleting are still dialogs; they are bounded forms.
 
 ![Resource detail](../images/screenshots/light/admin-resource-detail-light.webp#only-light)![Resource detail](../images/screenshots/dark/admin-resource-detail-dark.webp#only-dark)
 
 ### Revising a resource's content
 
-Scrolling the sidebar reaches the rest of the lifecycle surfaces: the read-activity rollup, the version history described below, and the prompts attaching the resource.
+Scrolling the sidebar reaches the rest of the lifecycle surfaces: the read-activity rollup, the version history described below, the prompts attaching the resource, and the assets referencing it.
 
 ![Resource lifecycle surfaces](../images/screenshots/light/admin-resource-lifecycle-light.webp#only-light)![Resource lifecycle surfaces](../images/screenshots/dark/admin-resource-lifecycle-dark.webp#only-dark)
 

@@ -227,3 +227,144 @@ func TestGetByTokenReportsRealFailures(t *testing.T) {
 	require.ErrorIs(t, err, errDB)
 	assert.Nil(t, got)
 }
+
+// TestListByResourceFiltersOnTheResource is the read the resource's own detail
+// view makes: every asset naming one file, whoever owns them.
+func TestListByResourceFiltersOnTheResource(t *testing.T) {
+	store, mock := newMock(t)
+	now := time.Now()
+
+	mock.ExpectQuery("SELECT .+ FROM portal_asset_resource_refs WHERE resource_id = ").
+		WithArgs("res-logo", 50).
+		WillReturnRows(refRows().
+			AddRow(assetID, "res-logo", logoURI, refToken, 0, "analyst@example.com", now).
+			AddRow("asset_2", "res-logo", logoURI, "tok-2", 0, "analyst@example.com", now))
+
+	refs, err := store.ListByResource(t.Context(), "res-logo", 50)
+	require.NoError(t, err)
+	require.Len(t, refs, 2)
+	assert.Equal(t, assetID, refs[0].AssetID)
+	assert.Equal(t, "asset_2", refs[1].AssetID)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// A resource nothing references is an empty answer, not an error: the section
+// that reads this renders nothing rather than a failure.
+func TestListByResourceNoReferences(t *testing.T) {
+	store, mock := newMock(t)
+
+	mock.ExpectQuery("SELECT .+ FROM portal_asset_resource_refs WHERE resource_id = ").
+		WithArgs("res-orphan", 50).WillReturnRows(refRows())
+
+	refs, err := store.ListByResource(t.Context(), "res-orphan", 50)
+	require.NoError(t, err)
+	assert.Empty(t, refs)
+}
+
+func TestListByResourceQueryFailure(t *testing.T) {
+	store, mock := newMock(t)
+
+	mock.ExpectQuery("SELECT .+ FROM portal_asset_resource_refs WHERE resource_id = ").
+		WillReturnError(errDB)
+
+	_, err := store.ListByResource(t.Context(), "res-logo", 50)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, errDB)
+}
+
+// A row whose columns do not match the scan is an error rather than a partial
+// list, so a schema drift is reported instead of silently shortening the answer.
+func TestListByResourceScanFailure(t *testing.T) {
+	store, mock := newMock(t)
+
+	mock.ExpectQuery("SELECT .+ FROM portal_asset_resource_refs WHERE resource_id = ").
+		WillReturnRows(refRows().
+			AddRow(assetID, "res-logo", logoURI, refToken, "not-an-int", "a@example.com", time.Now()))
+
+	_, err := store.ListByResource(t.Context(), "res-logo", 50)
+	assert.Error(t, err)
+}
+
+// TestAttachInsertsAtTheEndAndReportsDuplicate is the property that keeps a
+// person's add from clobbering an agent's save: the write touches one row and
+// derives its own position, and the primary key -- not a read the handler did
+// first -- decides whether the asset already names the file.
+func TestAttachInsertsAtTheEndAndReportsDuplicate(t *testing.T) {
+	store, mock := newMock(t)
+
+	mock.ExpectExec("INSERT INTO portal_asset_resource_refs").
+		WithArgs(assetID, "res-logo", logoURI, refToken, "analyst@example.com").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	added, err := store.Attach(t.Context(), sampleRef())
+	require.NoError(t, err)
+	assert.True(t, added)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestAttachAlreadyReferenced(t *testing.T) {
+	store, mock := newMock(t)
+
+	// ON CONFLICT DO NOTHING: no error, no row.
+	mock.ExpectExec("INSERT INTO portal_asset_resource_refs").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	added, err := store.Attach(t.Context(), sampleRef())
+	require.NoError(t, err)
+	assert.False(t, added, "an asset that already names the file gains nothing")
+}
+
+func TestAttachFailure(t *testing.T) {
+	store, mock := newMock(t)
+	mock.ExpectExec("INSERT INTO portal_asset_resource_refs").WillReturnError(errDB)
+
+	_, err := store.Attach(t.Context(), sampleRef())
+	assert.ErrorIs(t, err, errDB)
+}
+
+func TestDetachRemovesOneAndReportsIt(t *testing.T) {
+	store, mock := newMock(t)
+
+	mock.ExpectExec("DELETE FROM portal_asset_resource_refs").
+		WithArgs(assetID, "res-logo").WillReturnResult(sqlmock.NewResult(0, 1))
+
+	removed, err := store.Detach(t.Context(), assetID, "res-logo")
+	require.NoError(t, err)
+	assert.True(t, removed)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// A reference that is not there is (false, nil): the caller turns that into a
+// not-found, and a database fault must not arrive in the same shape.
+func TestDetachNothingToRemove(t *testing.T) {
+	store, mock := newMock(t)
+
+	mock.ExpectExec("DELETE FROM portal_asset_resource_refs").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	removed, err := store.Detach(t.Context(), assetID, "res-nope")
+	require.NoError(t, err)
+	assert.False(t, removed)
+}
+
+func TestDetachFailure(t *testing.T) {
+	store, mock := newMock(t)
+	mock.ExpectExec("DELETE FROM portal_asset_resource_refs").WillReturnError(errDB)
+
+	_, err := store.Detach(t.Context(), assetID, "res-logo")
+	assert.ErrorIs(t, err, errDB)
+}
+
+// The limit reaches the SQL rather than being applied to the rows after they
+// arrive: narrowing the answer to what a reader may open costs a query per
+// asset, so the rows this read returns are the work the route is bounded by.
+func TestListByResourceAppliesTheLimitInSQL(t *testing.T) {
+	store, mock := newMock(t)
+
+	mock.ExpectQuery("SELECT .+ FROM portal_asset_resource_refs WHERE resource_id = .+ LIMIT ").
+		WithArgs("res-logo", 7).WillReturnRows(refRows())
+
+	_, err := store.ListByResource(t.Context(), "res-logo", 7)
+	require.NoError(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}

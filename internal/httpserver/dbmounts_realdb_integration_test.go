@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/reviewalert"
+	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/testdb"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 )
@@ -60,6 +61,43 @@ func TestMountPortalAPI_RealDB(t *testing.T) {
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	require.NotEqual(t, http.StatusNotFound, w.Code, "portal route should be registered")
+}
+
+// TestMountAssetRefRoute_RealDB proves the reference-serving route is reachable
+// through the assembled mux, beside the SPA that shadows it.
+//
+// This is the assembly the rest of the reference suite cannot reach. Every
+// other test drives portal.Handler.ServeHTTP directly, where the handler's own
+// prefix check routes /portal/refs/ to its reference mux and passes. In a real
+// deployment the request has to survive the composition root's ServeMux first,
+// and mountPortalUI registers "/portal/", which matches the reference path.
+// Without a mount of its own, every reference URL the rewrite writes into
+// served content is answered by the SPA's index.html -- 200, text/html -- so an
+// <img> gets a document and the file never reaches the reader.
+//
+// The assertion is on the content type rather than on the status, because the
+// failure it guards against is a 200 that carries the wrong bytes.
+func TestMountAssetRefRoute_RealDB(t *testing.T) {
+	p := newRealDBPlatform(t)
+
+	mux := http.NewServeMux()
+	require.NoError(t, mountPortalAPI(mux, p, buildNotifications(p), true))
+	// The SPA is mounted the way the composition root mounts it, so the
+	// pattern that shadowed the route is present in this mux too.
+	mux.Handle("/portal/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte("<!doctype html><title>portal shell</title>"))
+	}))
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+		assetrefs.PathPrefix+"asset-1/no-such-token", http.NoBody)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	require.NotContains(t, w.Body.String(), "portal shell",
+		"the reference route must not fall through to the portal SPA")
+	require.Equal(t, http.StatusNotFound, w.Code,
+		"a token naming no reference is answered by the reference route, as not found")
 }
 
 // TestMountScriptPortalAPI_RealDB proves the portal script read routes are

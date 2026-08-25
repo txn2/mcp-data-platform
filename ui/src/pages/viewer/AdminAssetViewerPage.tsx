@@ -51,6 +51,11 @@ export function AdminAssetViewerPage({ assetId, onNavigate }: Props) {
       sessionPath={(sessionId) =>
         `/admin/sessions/${encodeURIComponent(sessionId)}`
       }
+      // An operator opens a referenced file in the console's own library,
+      // which holds every resource rather than the ones scoped to them.
+      resourcePath={(resourceId) =>
+        `/admin/resources/${encodeURIComponent(resourceId)}`
+      }
       versions={versionsData?.data}
       versionsLoading={versionsLoading}
       revertMutation={revertMutation}
