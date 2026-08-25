@@ -67,6 +67,10 @@ func (r *resStore) Get(_ context.Context, id string) (*resource.Resource, error)
 	return res, nil
 }
 
+func (*resStore) GetByIDs(context.Context, []string) (map[string]*resource.Resource, error) {
+	return map[string]*resource.Resource{}, nil
+}
+
 func (*resStore) GetByURI(context.Context, string) (*resource.Resource, error) {
 	return nil, nil //nolint:nilnil // interface contract: not-found is (nil, nil)
 }

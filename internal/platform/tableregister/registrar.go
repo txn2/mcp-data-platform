@@ -782,6 +782,55 @@ func (r *Registrar) ForSources(ctx context.Context, kind string, ids []string) (
 	return r.deps.Store.ForSources(ctx, kind, ids) //nolint:wrapcheck // transparent read pass-through
 }
 
+// List returns a page of registrations across every source, with the total the
+// filter matched.
+//
+// The connection boundary is the filter's, not this method's: the caller of a
+// listing is the surface that enumerated what this person reaches, and pushing
+// it into the query is what keeps the count and the page in agreement.
+func (r *Registrar) List(ctx context.Context, f Filter) ([]Registration, int, error) {
+	if !r.Available() {
+		return nil, 0, nil
+	}
+	return r.deps.Store.List(ctx, f) //nolint:wrapcheck // transparent read pass-through
+}
+
+// Visible reads one registration for a caller who may see it.
+//
+// A registration on a connection the caller's persona is not granted is
+// answered as ErrNotFound rather than as a denial: the caller cannot query the
+// table, cannot act on it, and telling them it exists discloses a table name
+// somebody else registered in a schema they have no reach into. An
+// administrator is unrestricted, as everywhere else.
+func (r *Registrar) Visible(ctx context.Context, caller Caller, id string) (*Registration, error) {
+	if !r.Available() {
+		return nil, ErrUnavailable
+	}
+	reg, err := r.deps.Store.Get(ctx, id)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // the store's ErrNotFound is what a surface renders
+	}
+	if reg == nil {
+		return nil, ErrNotFound
+	}
+	if !r.maySee(caller, reg.Connection) {
+		return nil, ErrNotFound
+	}
+	return reg, nil
+}
+
+// maySee applies the persona connection boundary to a read.
+//
+// A deployment with no scope wired has no persona rules to apply, which is the
+// single-persona shape every connection is reachable in; denying there would
+// hide every table on it.
+func (r *Registrar) maySee(caller Caller, connection string) bool {
+	if caller.IsAdmin || r.deps.Scope == nil {
+		return true
+	}
+	return r.deps.Scope.AllowConnection(caller.Persona, connection)
+}
+
 // audit records the statement the registrar ran, the way the portal's DataHub
 // writes are recorded: same event kind, same fields, so a registration shows
 // up in the audit trail beside every other write the platform makes on a

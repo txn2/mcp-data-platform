@@ -1,6 +1,7 @@
 import { assetViewerRoutes } from "./route-assets";
 import { adminResourceRoutes } from "./route-resources";
 import { drawerRoutes } from "./route-drawers";
+import { scratchTableRoutes } from "./route-scratch-tables";
 import { adminScriptRoutes, userScriptRoutes } from "./route-scripts";
 import {
   openCollectionDetailsDialog,
@@ -119,6 +120,7 @@ export const routes: ScreenshotRoute[] = [
       await page.waitForTimeout(700);
     },
   },
+  ...scratchTableRoutes,
   {
     // Standalone feedback channel.
     slug: "feedback",

@@ -138,6 +138,62 @@ POST   /api/v1/portal/assets/{id}/tables
 DELETE /api/v1/portal/assets/{id}/tables/{registrationID}
 ```
 
+## Finding what is registered
+
+The scratch schema is shared: everyone granted the connection sees every table
+in it. So the question "what is registered here" is one a reader has to be able
+to ask of the platform rather than of one file at a time.
+
+**Scratch Tables**, in the portal's own section list, answers it. One list of
+every registration, whichever kind of file each was built over: the qualified
+name to write in a `FROM` clause, the connection it lives on, the file behind
+it, how many columns it has, who registered it and when, and whether it is
+still reading that file's current contents.
+
+![Scratch Tables](../images/screenshots/light/user-scratch-tables-light.webp#only-light)![Scratch Tables](../images/screenshots/dark/user-scratch-tables-dark.webp#only-dark)
+
+What you see is decided by the **connection**, which is the boundary Trino
+itself applies: the registrations on connections your persona is granted, and
+an administrator sees all of them. It is deliberately wider than the register
+form's connection list, which narrows further to connections that can hold a
+*new* table. A connection turned read-only after a registration would otherwise
+drop that table out of the list for the person who made it, while the engine
+went on answering queries against it.
+
+Two states are called out because nothing else can report them. **Behind the
+file** is a registration whose source has a newer revision or version than the
+table points at, so it serves the one that was current when it was registered.
+**Source deleted** is a registration whose file is no longer on the platform;
+deleting a file unregisters its tables, so this is the residue of a cleanup
+that did not complete.
+
+Opening a row opens the registration at an address of its own: the sample
+statement with the cast a join needs, the columns with their types, the file it
+came from, and the directory it reads.
+
+![One registered table](../images/screenshots/light/user-scratch-table-detail-light.webp#only-light)![One registered table](../images/screenshots/dark/user-scratch-table-detail-dark.webp#only-dark)
+
+Unregistering is offered here on the tables you may drop, which is the rule the
+per-file panel applies: authority over the file, and having registered the
+table yourself or being an administrator. Registering stays on the file's own
+page, because it needs the file - the platform reads the header row to learn
+the columns.
+
+![A table behind its file](../images/screenshots/light/user-scratch-table-stale-light.webp#only-light)![A table behind its file](../images/screenshots/dark/user-scratch-table-stale-dark.webp#only-dark)
+
+The listing is driven by the stored registrations rather than by what can be
+registered, so a source of a format the register action does not yet accept
+appears here as soon as one exists.
+
+```
+GET /api/v1/tables?connection=&kind=&q=&page=&per_page=
+GET /api/v1/tables/{registrationID}
+```
+
+`kind` is `resource` or `asset`; `q` matches the qualified name. A registration
+on a connection you do not reach answers `404`, the same as one that does not
+exist.
+
 ## The lifecycle
 
 Registration is a pointer and a name, not an import. Five things can happen to

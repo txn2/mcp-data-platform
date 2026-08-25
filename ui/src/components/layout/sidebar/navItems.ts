@@ -18,6 +18,7 @@ import {
   PhoneCall,
   Settings,
   History,
+  Table2,
   type LucideIcon,
 } from "lucide-react";
 
@@ -32,11 +33,16 @@ export interface NavItem {
 // lifecycle (the former Knowledge Pages, Knowledge & Memory surfaces). Activity
 // is the audit/landing view; Settings (per-user preferences, #631) trails the
 // content sections.
+//
+// Scratch Tables (#1472) follows Resources because it is what those files
+// become when they are registered as query-engine tables, and the two are read
+// together: a stale table is answered by opening the file behind it.
 export const portalNavItems: NavItem[] = [
   { path: "/", label: "Assets", icon: LayoutGrid },
   { path: "/prompts", label: "Prompts", icon: MessageSquare },
   { path: "/scripts", label: "Scripts", icon: FileCode2 },
   { path: "/resources", label: "Resources", icon: FileUp },
+  { path: "/scratch-tables", label: "Scratch Tables", icon: Table2 },
   { path: "/feedback", label: "Feedback", icon: MessageCircle },
   { path: "/knowledge", label: "Knowledge", icon: BookOpen },
   { path: "/activity", label: "Activity", icon: Activity },

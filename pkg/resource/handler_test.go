@@ -41,6 +41,18 @@ func (m *mockStore) Get(_ context.Context, id string) (*Resource, error) {
 	return r, nil
 }
 
+// GetByIDs models the store's bulk read: an id with no row is simply absent
+// from the map, which is what the real store answers rather than an error.
+func (m *mockStore) GetByIDs(_ context.Context, ids []string) (map[string]*Resource, error) {
+	out := make(map[string]*Resource, len(ids))
+	for _, id := range ids {
+		if r, ok := m.resources[id]; ok {
+			out[id] = r
+		}
+	}
+	return out, nil
+}
+
 func (m *mockStore) GetByURI(_ context.Context, uri string) (*Resource, error) {
 	for _, r := range m.resources {
 		if r.URI == uri {

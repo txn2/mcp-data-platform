@@ -6,6 +6,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -162,6 +164,46 @@ func (*memStore) ForSources(
 	return nil, nil //nolint:nilnil // the handler never reads this path
 }
 
+// List models the store's cross-source read, including the part the boundary
+// rests on: AllConnections lifts the connection limit, and without it an empty
+// Connections list matches nothing rather than everything.
+func (m *memStore) List(_ context.Context, f tableregister.Filter) ([]tableregister.Registration, int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.err != nil {
+		return nil, 0, m.err
+	}
+	var matched []tableregister.Registration
+	for _, r := range m.rows {
+		if listFilterMatches(f, r) {
+			matched = append(matched, r)
+		}
+	}
+	sort.Slice(matched, func(i, j int) bool {
+		if !matched[i].RegisteredAt.Equal(matched[j].RegisteredAt) {
+			return matched[i].RegisteredAt.After(matched[j].RegisteredAt)
+		}
+		return matched[i].ID < matched[j].ID
+	})
+	total := len(matched)
+	if f.Offset >= total {
+		return nil, total, nil
+	}
+	return matched[f.Offset:min(f.Offset+f.EffectiveLimit(), total)], total, nil
+}
+
+// listFilterMatches is the predicate the store's WHERE clause renders.
+func listFilterMatches(f tableregister.Filter, r tableregister.Registration) bool {
+	if !f.AllConnections && !slices.Contains(f.Connections, r.Connection) {
+		return false
+	}
+	if f.SourceKind != "" && r.SourceKind != f.SourceKind {
+		return false
+	}
+	q := strings.TrimSpace(f.Query)
+	return q == "" || strings.Contains(strings.ToLower(r.QualifiedName()), strings.ToLower(q))
+}
+
 func (m *memStore) Delete(_ context.Context, id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -196,6 +238,19 @@ type harness struct {
 	// a directory holding one is refused for.
 	siblings []tableregister.ObjectEntry
 	reviser  *fakeReviser
+	// The three seams the cross-source listing adds (#1472). Each has a
+	// default below, so a test that is not about the listing states none of
+	// them.
+	visibleFn Visibility
+	sourcesFn tableregister.Sources
+	scope     tableregister.ConnectionScope
+	// noSources and noVisibility model a deployment that cannot resolve the
+	// records a listing names, and one that cannot enumerate the connections a
+	// caller reaches. Both are flags rather than nil fields because the
+	// defaults are filled in after the options run, so clearing a field there
+	// would just be overwritten.
+	noSources    bool
+	noVisibility bool
 }
 
 func newHarness(t *testing.T, opts ...func(*harness)) *harness {
@@ -216,6 +271,7 @@ func newHarness(t *testing.T, opts ...func(*harness)) *harness {
 	for _, opt := range opts {
 		opt(h)
 	}
+	h.fillListingDefaults()
 
 	objects := &fakeObjects{
 		body: []byte(h.body),
@@ -235,11 +291,14 @@ func newHarness(t *testing.T, opts ...func(*harness)) *harness {
 			tableregister.KindAsset:    h.reviser,
 			tableregister.KindResource: h.reviser,
 		},
+		Scope: h.scope,
 		NewID: func() (string, error) { n++; return "reg_" + strconv.Itoa(n), nil },
 	})
 
 	handler := New(Deps{
 		Registrar: registrar,
+		Visible:   h.visibleFn,
+		Sources:   h.sourcesFn,
 		Assets: func(_ context.Context, id string, _ tableregister.Caller) (tableregister.Source, bool) {
 			src, ok := h.assets[id]
 			return src, ok
@@ -248,7 +307,10 @@ func newHarness(t *testing.T, opts ...func(*harness)) *harness {
 			return []ConnectionChoice{{Name: "scratch", Catalog: "scratch", Schema: "uploads"}}
 		},
 		Caller: func(u *portal.User) tableregister.Caller {
-			return tableregister.Caller{UserID: u.UserID, Email: u.Email, Persona: "analyst"}
+			return tableregister.Caller{
+				UserID: u.UserID, Email: u.Email, Persona: "analyst",
+				IsAdmin: slices.Contains(u.Roles, "admin"),
+			}
 		},
 	})
 	require.NotNil(t, handler)
@@ -264,6 +326,38 @@ func newHarness(t *testing.T, opts ...func(*harness)) *harness {
 		})
 	})
 	return h
+}
+
+// fillListingDefaults supplies the cross-source seams a test did not state.
+//
+// The caller reaches the one connection the fixtures register onto, and the
+// sources resolve from the same asset fixtures the per-source routes use, with
+// authority over each. A test about the boundary overrides the one it is
+// about.
+func (h *harness) fillListingDefaults() {
+	if h.visibleFn == nil && !h.noVisibility {
+		h.visibleFn = func(context.Context, tableregister.Caller) ([]string, bool) {
+			return []string{"scratch"}, false
+		}
+	}
+	if h.sourcesFn == nil && !h.noSources {
+		h.sourcesFn = func(
+			_ context.Context, kind string, ids []string, _ tableregister.Caller,
+		) map[string]tableregister.SourceRef {
+			out := make(map[string]tableregister.SourceRef, len(ids))
+			if kind != tableregister.KindAsset {
+				return out
+			}
+			for _, id := range ids {
+				if src, ok := h.assets[id]; ok {
+					out[id] = tableregister.SourceRef{
+						Name: src.Name, Bucket: src.Bucket, HeadKey: src.HeadKey, CanModify: true,
+					}
+				}
+			}
+			return out
+		}
+	}
 }
 
 func (h *harness) do(method, path, body string) *httptest.ResponseRecorder {

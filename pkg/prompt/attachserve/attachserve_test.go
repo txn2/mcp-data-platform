@@ -57,6 +57,10 @@ func (f *fakeResources) Get(_ context.Context, id string) (*resource.Resource, e
 	return res, nil
 }
 
+func (*fakeResources) GetByIDs(context.Context, []string) (map[string]*resource.Resource, error) {
+	return map[string]*resource.Resource{}, nil
+}
+
 func (*fakeResources) GetByURI(context.Context, string) (*resource.Resource, error) {
 	return nil, nil //nolint:nilnil // interface contract: not-found is (nil, nil)
 }

@@ -6,6 +6,8 @@ import (
 	"encoding/csv"
 	"errors"
 	"fmt"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -217,6 +219,48 @@ func (m *memStore) ForSources(_ context.Context, kind string, ids []string) (map
 		}
 	}
 	return out, nil
+}
+
+// List models the store's cross-source read: the connection boundary is the
+// filter's AllConnections flag rather than the emptiness of its list, the
+// count is taken under the same predicate as the page, and the page is
+// ordered newest first.
+func (m *memStore) List(_ context.Context, f Filter) ([]Registration, int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.listErr != nil {
+		return nil, 0, m.listErr
+	}
+	var matched []Registration
+	for _, r := range m.rows {
+		if filterMatches(f, r) {
+			matched = append(matched, r)
+		}
+	}
+	sort.Slice(matched, func(i, j int) bool {
+		if !matched[i].RegisteredAt.Equal(matched[j].RegisteredAt) {
+			return matched[i].RegisteredAt.After(matched[j].RegisteredAt)
+		}
+		return matched[i].ID < matched[j].ID
+	})
+	total := len(matched)
+	if f.Offset >= total {
+		return nil, total, nil
+	}
+	end := min(f.Offset+f.EffectiveLimit(), total)
+	return matched[f.Offset:end], total, nil
+}
+
+// filterMatches is the predicate the SQL WHERE clause renders.
+func filterMatches(f Filter, r Registration) bool {
+	if !f.AllConnections && !slices.Contains(f.Connections, r.Connection) {
+		return false
+	}
+	if f.SourceKind != "" && r.SourceKind != f.SourceKind {
+		return false
+	}
+	q := strings.TrimSpace(f.Query)
+	return q == "" || strings.Contains(strings.ToLower(r.QualifiedName()), strings.ToLower(q))
 }
 
 func (m *memStore) Delete(_ context.Context, id string) error {

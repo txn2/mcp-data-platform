@@ -6,12 +6,14 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"slices"
 	"strings"
 	"sync"
 
 	"github.com/txn2/mcp-data-platform/internal/httpserver/tablehttp"
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/connreach"
 	"github.com/txn2/mcp-data-platform/internal/platform/connscope"
 	"github.com/txn2/mcp-data-platform/internal/platform/tableregister"
@@ -189,6 +191,8 @@ func mountTableAPI(
 		Resources:   subjects[tableregister.KindResource],
 		Assets:      subjects[tableregister.KindAsset],
 		Connections: tableConnectionEnumerator(p, adminRoles),
+		Visible:     tableVisibility(p),
+		Sources:     tableSourceLookup(p, adminRoles),
 		Caller:      tableCaller(p, adminRoles),
 	})
 	if handler == nil {
@@ -196,6 +200,7 @@ func mountTableAPI(
 	}
 	handler.Routes(mux, wrap)
 	log.Println("Table registration enabled on /api/v1/{resources,portal/assets}/{id}/tables")
+	log.Println("Registered tables listed on /api/v1/tables")
 }
 
 // TableCleanupHooks are the delete callbacks the surrounding surfaces install
@@ -433,6 +438,138 @@ func scratchConnectionChoices(
 		})
 	}
 	return choices
+}
+
+// tableVisibility reports the connections a caller may SEE registrations on
+// (#1472).
+//
+// It is deliberately wider than the register picker. The picker narrows to
+// connections that can hold a NEW table -- a scratch target, and a connection
+// that accepts writes -- and neither is a property of a table that already
+// exists. A connection turned read-only after a registration would otherwise
+// drop that table out of the listing for the person who made it, while Trino
+// went on answering queries against it.
+//
+// The boundary it does apply is the persona's, which is what a tool call meets
+// and what Trino's own access control enforces. An administrator is
+// unrestricted.
+func tableVisibility(p *platform.Platform) tablehttp.Visibility {
+	return connectionVisibility(
+		connreach.New(connreach.Deps{Toolkits: p.ToolkitRegistry(), Personas: p.PersonaRegistry()}))
+}
+
+// connectionVisibility is tableVisibility over an enumeration, which is the
+// whole of what it decides.
+func connectionVisibility(lister *connreach.Lister) tablehttp.Visibility {
+	return func(ctx context.Context, caller tableregister.Caller) ([]string, bool) {
+		if caller.IsAdmin {
+			return nil, true
+		}
+		var names []string
+		for _, conn := range lister.ForPersona(ctx, caller.Persona, false) {
+			if conn.Kind == trinoToolkitKind {
+				names = append(names, conn.Name)
+			}
+		}
+		return names, false
+	}
+}
+
+// tableSourceLookup resolves the records a cross-source listing names: what
+// each source is called, where its content sits now, and whether this caller
+// may change it.
+//
+// Authority here is a field on the answer rather than the answer itself, which
+// is what separates it from the Subject resolvers above. The listing shows
+// what a caller may QUERY, decided by connection; the unregister action needs
+// authority over the SOURCE, which is a different and narrower question, and a
+// row is shown either way.
+func tableSourceLookup(p *platform.Platform, adminRoles []string) tableregister.Sources {
+	return sourceRefLookup(
+		p.ResourceStore(), p.Config().Resources.Managed.S3Bucket, p.PortalAssetStore(), adminRoles)
+}
+
+// sourceRefLookup dispatches a listing's source resolution to the store that
+// holds that kind, the way tableSubjects does for the per-source routes.
+func sourceRefLookup(
+	resources resource.Store, bucket string, assets portal.AssetStore, adminRoles []string,
+) tableregister.Sources {
+	return func(
+		ctx context.Context, kind string, ids []string, caller tableregister.Caller,
+	) map[string]tableregister.SourceRef {
+		switch kind {
+		case tableregister.KindResource:
+			return resourceSourceRefs(ctx, resources, bucket, ids, caller)
+		case tableregister.KindAsset:
+			return assetSourceRefs(ctx, assets, adminRoles, ids, caller)
+		default:
+			return nil
+		}
+	}
+}
+
+// resourceSourceRefs reads a page of managed resources in one query.
+//
+// A read that fails answers with nothing rather than with an error: the
+// listing is about the registrations, and a resource store that stopped
+// answering leaves each row without a source name and without the unregister
+// action, which is a degraded listing rather than no listing at all.
+func resourceSourceRefs(
+	ctx context.Context, store resource.Store, bucket string, ids []string, caller tableregister.Caller,
+) map[string]tableregister.SourceRef {
+	if store == nil {
+		return nil
+	}
+	found, err := store.GetByIDs(ctx, ids)
+	if err != nil {
+		slog.Warn("registered tables: reading the resources a listing names failed",
+			"error", logsan.SanitizeForLog(err.Error()))
+		return nil
+	}
+	claims := resource.BuildClaims(caller.UserID, caller.Email, caller.Persona, caller.Roles, caller.IsAdmin)
+	out := make(map[string]tableregister.SourceRef, len(found))
+	for id, res := range found {
+		if res == nil {
+			continue
+		}
+		out[id] = tableregister.SourceRef{
+			Name:      res.DisplayName,
+			Bucket:    bucket,
+			HeadKey:   res.S3Key,
+			CanModify: resource.CanModifyResource(claims, res),
+		}
+	}
+	return out
+}
+
+// assetSourceRefs reads a page of portal assets in one query. A soft-deleted
+// asset is left out, which is what the Subject resolver does with one.
+func assetSourceRefs(
+	ctx context.Context, store portal.AssetStore, adminRoles []string,
+	ids []string, caller tableregister.Caller,
+) map[string]tableregister.SourceRef {
+	if store == nil {
+		return nil
+	}
+	found, err := store.GetByIDs(ctx, ids)
+	if err != nil {
+		slog.Warn("registered tables: reading the assets a listing names failed",
+			"error", logsan.SanitizeForLog(err.Error()))
+		return nil
+	}
+	out := make(map[string]tableregister.SourceRef, len(found))
+	for id, asset := range found {
+		if asset == nil || asset.DeletedAt != nil {
+			continue
+		}
+		out[id] = tableregister.SourceRef{
+			Name:      asset.Name,
+			Bucket:    asset.S3Bucket,
+			HeadKey:   asset.S3Key,
+			CanModify: assetVisibleTo(*asset, caller, adminRoles),
+		}
+	}
+	return out
 }
 
 // tableCaller builds the registrar's view of an authenticated portal user.

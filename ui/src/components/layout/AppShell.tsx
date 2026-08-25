@@ -51,6 +51,11 @@ const ResourcesPage = lazy(() =>
 const ResourceViewerPage = lazy(() =>
   import("@/pages/resources/ResourceViewerPage").then((m) => ({ default: m.ResourceViewerPage })),
 );
+const ScratchTableRoutes = lazy(() =>
+  import("@/pages/scratch-tables/ScratchTableRoutes").then((m) => ({
+    default: m.ScratchTableRoutes,
+  })),
+);
 const FeedbackPage = lazy(() =>
   import("@/pages/feedback/FeedbackPage").then((m) => ({ default: m.FeedbackPage })),
 );
@@ -73,6 +78,7 @@ const pageTitles: Record<string, string> = {
   "/": "Assets",
   "/collections": "Collections",
   "/resources": "Resources",
+  "/scratch-tables": "Scratch Tables",
   "/feedback": "Feedback",
   "/knowledge": "Knowledge",
   "/prompts": "Prompts",
@@ -113,6 +119,7 @@ const detailTitles: readonly { prefix: string; title: string }[] = [
   { prefix: "/activity/calls/", title: "Call" },
   { prefix: "/resources/", title: "Resource" },
   { prefix: "/admin/resources/", title: "Resource" },
+  { prefix: "/scratch-tables/", title: "Registered Table" },
 ];
 
 // pageTitleFor resolves the header title for a route with no detail view of
@@ -496,6 +503,9 @@ export function AppShell() {
               resourceId={resourceViewMatch[1]!}
               onBack={() => goBack("/resources")}
             />
+          )}
+          {!adminRoute && isInSection(route, "/scratch-tables") && (
+            <ScratchTableRoutes route={route} onNavigate={navigate} onBack={goBack} />
           )}
           {!adminRoute && route === "/feedback" && <FeedbackPage onNavigate={navigate} />}
           {!adminRoute && route === "/settings" && (

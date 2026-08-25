@@ -17,6 +17,13 @@ import (
 type Store interface {
 	Insert(ctx context.Context, r Resource) error
 	Get(ctx context.Context, id string) (*Resource, error)
+	// GetByIDs returns the resources among ids that exist, keyed by id. An id
+	// with no row is simply absent: the caller is reading a set of references
+	// and a missing one is an answer, not a failure.
+	//
+	// It is the read a listing over records that POINT AT resources needs, so
+	// a page costs one query rather than one per row.
+	GetByIDs(ctx context.Context, ids []string) (map[string]*Resource, error)
 	GetByURI(ctx context.Context, uri string) (*Resource, error)
 	List(ctx context.Context, filter Filter) ([]Resource, int, error)
 	Update(ctx context.Context, id string, u Update) error
@@ -42,6 +49,12 @@ type S3Client interface {
 	GetObject(ctx context.Context, bucket, key string) (body []byte, contentType string, err error)
 	DeleteObject(ctx context.Context, bucket, key string) error
 }
+
+// selectColumns is the column list every read shares, in the order resourceScan
+// expects them.
+const selectColumns = `id, scope, scope_id, category, filename, display_name, description,
+		       mime_type, size_bytes, s3_key, uri, tags, uploader_sub, uploader_email,
+		       created_at, updated_at, last_read_at`
 
 const (
 	// DefaultListLimit is used when no limit is specified in a list query.
@@ -102,19 +115,43 @@ func (s *postgresStore) Insert(ctx context.Context, r Resource) error { //nolint
 
 func (s *postgresStore) Get(ctx context.Context, id string) (*Resource, error) { //nolint:revive // interface impl
 	query := `
-		SELECT id, scope, scope_id, category, filename, display_name, description,
-		       mime_type, size_bytes, s3_key, uri, tags, uploader_sub, uploader_email,
-		       created_at, updated_at, last_read_at
+		SELECT ` + selectColumns + `
 		FROM resources WHERE id = $1
 	`
 	return s.scanOne(s.db.QueryRowContext(ctx, query, id))
 }
 
+func (s *postgresStore) GetByIDs(ctx context.Context, ids []string) (map[string]*Resource, error) { //nolint:revive // interface impl
+	if len(ids) == 0 {
+		return map[string]*Resource{}, nil
+	}
+	query := `
+		SELECT ` + selectColumns + `
+		FROM resources WHERE id = ANY($1)
+	`
+	rows, err := s.db.QueryContext(ctx, query, pq.Array(ids))
+	if err != nil {
+		return nil, fmt.Errorf("reading resources by id: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := make(map[string]*Resource, len(ids))
+	for rows.Next() {
+		r, err := s.scanRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out[r.ID] = r
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating resources by id: %w", err)
+	}
+	return out, nil
+}
+
 func (s *postgresStore) GetByURI(ctx context.Context, uri string) (*Resource, error) { //nolint:revive // interface impl
 	query := `
-		SELECT id, scope, scope_id, category, filename, display_name, description,
-		       mime_type, size_bytes, s3_key, uri, tags, uploader_sub, uploader_email,
-		       created_at, updated_at, last_read_at
+		SELECT ` + selectColumns + `
 		FROM resources WHERE uri = $1
 	`
 	return s.scanOne(s.db.QueryRowContext(ctx, query, uri))
@@ -148,9 +185,7 @@ func (s *postgresStore) List(ctx context.Context, filter Filter) ([]Resource, in
 	// #nosec G202 -- dynamic scope filter requires concatenation; the ORDER BY
 	// comes from Sort.orderByClause, a closed set of constant strings.
 	selectQuery := `
-		SELECT id, scope, scope_id, category, filename, display_name, description,
-		       mime_type, size_bytes, s3_key, uri, tags, uploader_sub, uploader_email,
-		       created_at, updated_at, last_read_at
+		SELECT ` + selectColumns + `
 		FROM resources WHERE ` + where + `
 		ORDER BY ` + filter.Sort.orderByClause() + `
 		LIMIT $` + fmt.Sprintf("%d", len(args)+1) + ` OFFSET $` + fmt.Sprintf("%d", len(args)+2)

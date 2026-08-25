@@ -63,3 +63,42 @@ export interface TableConnectionList {
 
 // TableSourceKind selects which routes a panel talks to.
 export type TableSourceKind = "resource" | "asset";
+
+// --- the cross-source listing (#1472) ---
+
+// ScratchTableSource names the file a registration was built over. The portal
+// turns kind and id into the address it opens; the server does not know the
+// portal's routes.
+export interface ScratchTableSource {
+  kind: TableSourceKind;
+  id: string;
+  name?: string;
+  // missing says the source record is gone. Deleting a file unregisters its
+  // tables, so this is the residue of a cleanup that did not complete.
+  missing: boolean;
+}
+
+// ScratchTable is one registration as the Scratch Tables listing renders it:
+// the registration, the file it came from, and whether this reader is offered
+// the action that drops it.
+export interface ScratchTable extends TableRegistration {
+  source: ScratchTableSource;
+  can_unregister: boolean;
+}
+
+export interface ScratchTableList {
+  data: ScratchTable[];
+  total: number;
+  page: number;
+  per_page: number;
+}
+
+// ScratchTableQuery is the listing's facets: which connection, which kind of
+// file, and free text over the qualified name.
+export interface ScratchTableQuery {
+  page?: number;
+  perPage?: number;
+  connection?: string;
+  kind?: TableSourceKind | "";
+  q?: string;
+}

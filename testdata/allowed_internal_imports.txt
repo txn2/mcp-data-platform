@@ -47,6 +47,7 @@ internal/httpserver -> internal/httpserver/sources
 internal/httpserver -> internal/httpserver/tablehttp
 internal/httpserver -> internal/httpserver/unsubhttp
 internal/httpserver -> internal/httpserver/versionhttp
+internal/httpserver -> internal/logsan
 internal/httpserver -> internal/notification/notifyrender
 internal/httpserver -> internal/platform/branding
 internal/httpserver -> internal/platform/callrecord
