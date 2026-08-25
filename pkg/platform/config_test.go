@@ -177,31 +177,6 @@ semantic:
 	}
 }
 
-func TestExpandEnvVars(t *testing.T) {
-	t.Setenv("MY_VAR", "value123")
-	t.Setenv("ANOTHER_VAR", "another")
-
-	tests := []struct {
-		name   string
-		input  string
-		expect string
-	}{
-		{"single var", "prefix-${MY_VAR}-suffix", "prefix-value123-suffix"},
-		{"multiple vars", "${MY_VAR} and ${ANOTHER_VAR}", "value123 and another"},
-		{"no vars", "no variables here", "no variables here"},
-		{"empty var", "${UNDEFINED_VAR}", ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := expandEnvVars(tt.input)
-			if result != tt.expect {
-				t.Errorf("expandEnvVars(%q) = %q, want %q", tt.input, result, tt.expect)
-			}
-		})
-	}
-}
-
 func TestApplyDefaults(t *testing.T) {
 	cfg := &Config{}
 	applyDefaults(cfg)

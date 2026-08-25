@@ -138,6 +138,26 @@ func (i *ReadOnlyInterceptor) checkWritable(ctx context.Context) error {
 	return nil
 }
 
+// AcceptsWrites reports whether a named connection may run write SQL, asked
+// ahead of time rather than from inside a call.
+//
+// It is checkWritable's question with the connection supplied instead of
+// resolved from the context, and it answers identically: an interceptor with no
+// per-connection settings refuses, a name it holds no setting for is not one
+// the toolkit routes to and refuses, and a connection marked read-only refuses.
+// A surface that offers a connection has to reach the same answer this will
+// reach when the statement runs, or it offers a choice the write then refuses.
+func (i *ReadOnlyInterceptor) AcceptsWrites(conn string) bool {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+
+	if i.readOnly == nil {
+		return false
+	}
+	readOnly, configured := i.readOnly[conn]
+	return configured && !readOnly
+}
+
 // perConnection reports whether this interceptor decides per connection and so
 // needs its Before hook registered to resolve one.
 func (i *ReadOnlyInterceptor) perConnection() bool {

@@ -1,0 +1,8 @@
+region,district,store_id,store_name,opened,square_feet
+West,Coastal,W-1042,Bayside Market,2019-03-11,42000
+West,Coastal,W-1043,Harbor Point,2021-07-02,38500
+West,Inland,W-2011,Valley Crossing,2017-11-20,51000
+Central,North,C-3300,Prairie Commons,2015-05-04,47250
+Central,South,C-3410,Riverbend Plaza,2022-01-17,36800
+East,Metro,E-5001,Union Square,2013-09-30,61000
+East,Metro,E-5002,Dockside,2020-04-22,29400

@@ -7,7 +7,7 @@ import { TablesPanel } from "@/components/tables/TablesPanel";
 import { VersionHistoryPanel } from "@/components/VersionHistoryPanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { DetailRow } from "@/components/viewer/DetailRow";
 import { formatBytes } from "@/lib/format";
 import { shortSessionId } from "@/pages/sessions/kind";
 import { AssetMetadataForm } from "./AssetMetadataForm";
@@ -53,7 +53,7 @@ interface AssetMetadataSidebarProps {
   versionsLoading?: boolean;
 }
 
-/** Everything about an asset that is not its content, in a column beside it. */
+/** Everything about an asset that is not its content, for the viewer sidebar. */
 export function AssetMetadataSidebar({
   asset,
   editing,
@@ -82,7 +82,7 @@ export function AssetMetadataSidebar({
 }: AssetMetadataSidebarProps) {
   const openSession = sessionOpener(asset, sessionPath, onNavigate);
   return (
-    <Card className="w-80 shrink-0 gap-4 overflow-auto p-4">
+    <>
       {editing ? (
         <AssetMetadataForm
           name={editName}
@@ -186,7 +186,7 @@ export function AssetMetadataSidebar({
           )}
         </>
       )}
-    </Card>
+    </>
   );
 }
 
@@ -233,14 +233,5 @@ function SessionRow({
         {shortSessionId(sessionId)}
       </button>
     </DetailRow>
-  );
-}
-
-function DetailRow({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="flex justify-between gap-2">
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="min-w-0">{children}</dd>
-    </div>
   );
 }

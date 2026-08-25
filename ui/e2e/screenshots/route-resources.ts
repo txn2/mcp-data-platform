@@ -9,17 +9,17 @@ import {
 } from "./route-actions";
 import { type ScreenshotRoute } from "./route-types";
 
-// Every managed-resource capture on the admin surface: the dialog as it opens,
-// the lifecycle surfaces below its fold, and the registered-table panel in both
-// of the states a reader meets. They live beside the manifest for the same
-// reason the asset-viewer and managed-script routes do — one library grown past
-// what belongs inline, kept together so a capture added for one state sits next
-// to the others of the same dialog.
+// Every managed-resource capture on the admin surface: the page as it opens,
+// the lifecycle surfaces below its sidebar's fold, and the registered-table
+// panel in both of the states a reader meets. They live beside the manifest for
+// the same reason the asset-viewer and managed-script routes do — one library
+// grown past what belongs inline, kept together so a capture added for one
+// state sits next to the others of the same page.
 export const adminResourceRoutes: ScreenshotRoute[] = [
   {
-    // Resource detail as it opens: what the resource is, its metadata, and the
-    // inline preview. The dialog caps at the viewport and scrolls its body
-    // (#1233), so the lifecycle panels below the fold are a second capture
+    // Resource detail as it opens: the content at the page's own width, with
+    // what the resource is beside it (#1470). The sidebar scrolls within its
+    // column, so the lifecycle panels below its fold are a second capture
     // rather than more of this one.
     slug: "resource-detail",
     path: "/portal/admin/resources",
@@ -27,10 +27,11 @@ export const adminResourceRoutes: ScreenshotRoute[] = [
     beforeCapture: openResourceDetail,
   },
   {
-    // The same dialog scrolled to the lifecycle surfaces: the usage rollup, the
-    // version history with its restore actions, and the prompts attaching the
-    // resource (#1014). Opened on the fixture that carries a revision trail and
-    // read activity, so those surfaces are populated rather than empty.
+    // The same page's sidebar scrolled to the lifecycle surfaces: the usage
+    // rollup, the version history with its restore actions, and the prompts
+    // attaching the resource (#1014). Opened on the fixture that carries a
+    // revision trail and read activity, so those surfaces are populated rather
+    // than empty.
     slug: "resource-lifecycle",
     path: "/portal/admin/resources",
     category: "admin",
@@ -47,7 +48,7 @@ export const adminResourceRoutes: ScreenshotRoute[] = [
     beforeCapture: openGlossaryResourceTables,
   },
   {
-    // The register form over the same dialog: the connections this person can
+    // The register form on the same page: the connections this person can
     // register onto, and what the table is called.
     slug: "resource-table-register",
     path: "/portal/admin/resources",
@@ -73,7 +74,7 @@ export const adminResourceRoutes: ScreenshotRoute[] = [
     beforeCapture: openTableRepaired,
   },
   {
-    // The same dialog's version history after the correction: the new version
+    // The same page's version history after the correction: the new version
     // says why the file changed, the version below it is what its owner
     // uploaded and says nothing. This is what a reader sees once the
     // registration's own answer is no longer on screen (#1450).

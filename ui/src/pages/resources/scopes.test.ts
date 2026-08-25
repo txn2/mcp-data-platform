@@ -1,6 +1,12 @@
 import { describe, it, expect } from "vitest";
 import type { UserProfile } from "@/stores/auth";
-import { canWriteScope, libraryCopy, personaAdminNames, targetForTab } from "./scopes";
+import {
+  adminReachNote,
+  canWriteScope,
+  libraryCopy,
+  personaAdminNames,
+  targetForTab,
+} from "./scopes";
 
 function reader(overrides: Partial<UserProfile> = {}): UserProfile {
   return {
@@ -69,18 +75,48 @@ describe("who may add to a library", () => {
     expect(canWriteScope(user, { scope: "global", scope_id: "" })).toBe(false);
   });
 
-  it("grants a platform admin every library, however their admin status is stated", () => {
+  it("grants a platform admin every library in their own section, however their admin status is stated", () => {
     for (const admin of [
       reader({ is_admin: true }),
       reader({ roles: ["admin"] }),
       reader({ roles: ["platform-admin"] }),
     ]) {
-      expect(canWriteScope(admin, { scope: "global", scope_id: "" })).toBe(true);
-      expect(canWriteScope(admin, { scope: "persona", scope_id: "finance" })).toBe(true);
-      expect(canWriteScope(admin, { scope: "user", scope_id: "someone@example.com" })).toBe(true);
+      expect(canWriteScope(admin, { scope: "global", scope_id: "" }, "admin")).toBe(true);
+      expect(canWriteScope(admin, { scope: "persona", scope_id: "finance" }, "admin")).toBe(true);
+      expect(
+        canWriteScope(admin, { scope: "user", scope_id: "someone@example.com" }, "admin"),
+      ).toBe(true);
       // The admin all-scopes tab names no library; the dialog picks there.
-      expect(canWriteScope(admin, null)).toBe(true);
+      expect(canWriteScope(admin, null, "admin")).toBe(true);
     }
+  });
+
+  // The same admin on their own Resources page is a reader. The override is
+  // the administrator's section's, not the identity's, so browsing one's own
+  // material never puts publishing to everyone signed in one click away.
+  it("withholds every library but their own from a platform admin on the portal", () => {
+    const admin = reader({ is_admin: true });
+    expect(canWriteScope(admin, { scope: "global", scope_id: "" }, "portal")).toBe(false);
+    expect(canWriteScope(admin, { scope: "persona", scope_id: "finance" }, "portal")).toBe(false);
+    expect(
+      canWriteScope(admin, { scope: "user", scope_id: "someone@example.com" }, "portal"),
+    ).toBe(false);
+    expect(canWriteScope(admin, null, "portal")).toBe(false);
+    expect(canWriteScope(admin, targetForTab("user", admin), "portal")).toBe(true);
+  });
+
+  // A persona's own administrator holds that authority as themselves, so the
+  // portal keeps offering it: withholding it there would leave them with no
+  // surface at all, since the administrator's section is platform-admin only.
+  it("keeps a persona administrator their own persona library on the portal", () => {
+    const user = reader({ roles: ["dp_persona-admin:analyst"] });
+    expect(canWriteScope(user, { scope: "persona", scope_id: "analyst" }, "portal")).toBe(true);
+    expect(canWriteScope(user, { scope: "persona", scope_id: "finance" }, "portal")).toBe(false);
+  });
+
+  it("defaults to the administrator's reading when no surface is named", () => {
+    const admin = reader({ is_admin: true });
+    expect(canWriteScope(admin, { scope: "global", scope_id: "" })).toBe(true);
   });
 
   it("refuses a reader the all-scopes tab, which names no library to check", () => {
@@ -93,6 +129,22 @@ describe("who may add to a library", () => {
 
   it("refuses a caller with no resolved id their own library rather than matching on empty", () => {
     expect(canWriteScope(reader({ user_id: "" }), { scope: "user", scope_id: "" })).toBe(false);
+  });
+});
+
+describe("where an administrator is told to exercise the authority the portal withholds", () => {
+  it("names the administrator's section for a platform admin on the portal", () => {
+    expect(adminReachNote(reader({ is_admin: true }), "portal")).toContain("Admin > Resources");
+  });
+
+  it("says nothing in the administrator's own section, where nothing is withheld", () => {
+    expect(adminReachNote(reader({ is_admin: true }), "admin")).toBe("");
+  });
+
+  it("says nothing to a reader who holds no such authority", () => {
+    expect(adminReachNote(reader(), "portal")).toBe("");
+    expect(adminReachNote(reader({ roles: ["dp_persona-admin:analyst"] }), "portal")).toBe("");
+    expect(adminReachNote(null, "portal")).toBe("");
   });
 });
 

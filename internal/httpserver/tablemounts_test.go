@@ -183,9 +183,13 @@ func TestRefusalIdentitySurvivesWrapping(t *testing.T) {
 
 // --- the connection picker ---
 
-// pickerTrino answers which connections carry a scratch target.
+// pickerTrino answers which connections carry a scratch target and which of
+// them accept the statement that creates a table there.
 type pickerTrino struct {
 	targets map[string]trinotoolkit.ScratchConfig
+	// readOnly names the connections that refuse write SQL. Absent means the
+	// connection accepts writes, which is the case every other test here wants.
+	readOnly map[string]bool
 }
 
 func (pickerTrino) Exec(context.Context, string, string) error { return nil }
@@ -194,6 +198,8 @@ func (p pickerTrino) ScratchTarget(name string) (trinotoolkit.ScratchConfig, boo
 	t, ok := p.targets[name]
 	return t, ok
 }
+
+func (p pickerTrino) AcceptsWrites(name string) bool { return !p.readOnly[name] }
 
 // TestScratchConnectionChoices is the picker's whole rule: a choice it offers
 // must be one the registrar accepts. A connection the caller reaches but that
@@ -220,6 +226,41 @@ func TestScratchConnectionChoices(t *testing.T) {
 	assert.Equal(t, "Working schema", got[0].Description)
 	assert.Equal(t, "scratch", got[0].Catalog)
 	assert.Equal(t, "uploads", got[0].Schema)
+}
+
+// A scratch target is a destination, not a permission. A read-only connection
+// can name one and still refuse the CREATE TABLE, which is what produced a
+// picker offering a connection and a 500 "the registration could not be
+// completed" the moment it was chosen.
+func TestScratchConnectionChoices_SkipsReadOnly(t *testing.T) {
+	exec := pickerTrino{
+		targets: map[string]trinotoolkit.ScratchConfig{
+			"scratch":   {Catalog: "scratch", Schema: "uploads"},
+			"warehouse": {Catalog: "scratch", Schema: "uploads"},
+		},
+		readOnly: map[string]bool{"warehouse": true},
+	}
+	reachable := []connreach.Connection{
+		{Name: "warehouse", Kind: "trino", Description: "Read-only"},
+		{Name: "scratch", Kind: "trino", Description: "Working schema"},
+	}
+
+	got := scratchConnectionChoices(reachable, exec)
+	require.Len(t, got, 1)
+	assert.Equal(t, "scratch", got[0].Name)
+}
+
+// Every connection read-only is the same answer as no connection at all: a
+// form saying nothing here can hold a table, rather than a picker whose every
+// choice fails.
+func TestScratchConnectionChoices_AllReadOnlyIsEmpty(t *testing.T) {
+	exec := pickerTrino{
+		targets:  map[string]trinotoolkit.ScratchConfig{"scratch": {Catalog: "scratch", Schema: "uploads"}},
+		readOnly: map[string]bool{"scratch": true},
+	}
+
+	assert.Empty(t, scratchConnectionChoices(
+		[]connreach.Connection{{Name: "scratch", Kind: "trino"}}, exec))
 }
 
 // TestScratchConnectionChoices_NoneReachableIsEmpty, which a form renders as

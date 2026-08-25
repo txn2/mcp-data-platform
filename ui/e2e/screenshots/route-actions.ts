@@ -235,16 +235,19 @@ export async function openResourceDetail(page: Page): Promise<void> {
 }
 
 /**
- * openResourceLifecycle opens the same dialog and scrolls its body to the
- * lifecycle panels. Those sit below the fold of the capped panel (#1233), so a
- * capture of the dialog as it opens shows the identity and the preview and
- * cannot reach the usage rollup, the version trail, or the prompts attaching
- * the resource -- which is what the docs prose beside this image documents.
+ * openResourceLifecycle opens the same page and scrolls its sidebar to the
+ * lifecycle panels. Those sit below the fold of that column, so a capture of
+ * the page as it opens shows the identity and the content and cannot reach the
+ * usage rollup, the version trail, or the prompts attaching the resource --
+ * which is what the docs prose beside this image documents.
  */
 export async function openResourceLifecycle(page: Page): Promise<void> {
   await openResourceDetail(page);
+  // The end of the column rather than the usage rollup: the rollup is already
+  // on screen when the page opens, so scrolling to it would produce a second
+  // capture identical to the first.
   await page
-    .getByTestId("resource-usage")
+    .getByTestId("resource-used-by-prompts")
     .scrollIntoViewIfNeeded({ timeout: 3_000 })
     .catch(() => {});
   await page.waitForTimeout(500);
@@ -494,7 +497,7 @@ export async function openGlossaryResourceTables(page: Page): Promise<void> {
 }
 
 /**
- * openTableRegisterForm opens the register form over that same dialog: which
+ * openTableRegisterForm opens the register form on that same page: which
  * connection the table is created on, and what it is called.
  */
 export async function openTableRegisterForm(page: Page): Promise<void> {
@@ -546,7 +549,7 @@ export async function openTableRepaired(page: Page): Promise<void> {
 }
 
 /**
- * openCorrectedVersion scrolls the same dialog to the version history, where the
+ * openCorrectedVersion scrolls the same page to the version history, where the
  * correction is recorded: the new version carries the description of what
  * changed, and the version below it -- the bytes its owner uploaded -- has none
  * (#1450).
@@ -555,7 +558,7 @@ export async function openCorrectedVersion(page: Page): Promise<void> {
   await openTableRepaired(page);
   await page.getByTestId("resource-versions").scrollIntoViewIfNeeded({ timeout: 3_000 });
   // Waited on rather than timed out: a swallowed scroll would ship an
-  // un-scrolled dialog captioned as the version history, and a panel that
+  // un-scrolled page captioned as the version history, and a panel that
   // rendered without the summary is the defect this capture documents.
   await page
     .getByTestId("resource-version-summary-2")

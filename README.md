@@ -120,7 +120,7 @@ Each feature links to its full documentation.
 | [Memory layer](https://mcp-data-platform.txn2.com/memory/overview/) | Persistent agent memory across sessions, PostgreSQL + pgvector, hybrid semantic/lexical recall |
 | [Knowledge capture](https://mcp-data-platform.txn2.com/knowledge/overview/) | Agents record domain insights during sessions; approved knowledge is written back to DataHub or canonical knowledge pages |
 | [Governance workflow](https://mcp-data-platform.txn2.com/knowledge/governance/) | Human-in-the-loop review, approve/reject, changeset tracking, and rollback for every applied change |
-| [Managed resources](https://mcp-data-platform.txn2.com/server/portal-user/#resources) | Human-uploaded reference files (playbooks, samples, templates) served to agents as MCP resources |
+| [Managed resources](https://mcp-data-platform.txn2.com/server/portal-user/#resources) | Human-uploaded reference files (data, playbooks, samples, templates, references) served to agents as MCP resources |
 
 ### Gateways and extensibility
 

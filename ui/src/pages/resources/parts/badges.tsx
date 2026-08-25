@@ -1,11 +1,15 @@
 import { Badge } from "@/components/ui/badge";
-import { scopeIcon, scopeLabel } from "../modals/shared";
+import { scopeIcon, scopeLabel } from "../shared";
 
 // The resource library's two vocabularies — what a file is for (its category)
 // and who it is for (its scope) — and the tint each word carries, so a resource
 // reads the same colour in the reader's library and the admin table.
 
 const CATEGORY_VARIANT: Record<string, React.ComponentProps<typeof Badge>["variant"]> = {
+  // The primary fill rather than one of the semantic tints: the four below
+  // took info/warning/secondary/success, and the ones left carry a status
+  // meaning (danger reads as broken) that a category does not have.
+  data: "default",
   samples: "info",
   playbooks: "warning",
   templates: "secondary",

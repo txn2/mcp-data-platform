@@ -186,6 +186,18 @@ var (
 	// nothing can be registered on it.
 	ErrNoScratchTarget = errors.New("this connection has no scratch catalog and schema configured, so a table cannot be registered on it")
 
+	// ErrConnectionReadOnly means the connection names a scratch target but
+	// will not run the statement that creates the table.
+	//
+	// It is the sibling of ErrNoScratchTarget and is answered the same way: a
+	// fact about the connection, knowable before the request, that no retry
+	// and no different table name changes. Without it the refusal arrived from
+	// the Trino interceptor as an unclassified error, which the HTTP surface
+	// could only report as a 500 "the registration could not be completed" --
+	// a configuration fact rendered as a platform outage, with the one word
+	// that explains it ("read-only") dropped on the way out.
+	ErrConnectionReadOnly = errors.New("this connection is read-only, so a table cannot be created on it; ask an administrator for a connection that accepts writes")
+
 	// ErrConnectionDenied means the caller's persona is not granted the
 	// connection. It is the same boundary a tool call meets.
 	ErrConnectionDenied = errors.New("your persona is not granted this connection")

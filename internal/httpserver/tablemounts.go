@@ -396,12 +396,20 @@ func tableConnectionEnumerator(p *platform.Platform, adminRoles []string) tableh
 }
 
 // scratchConnectionChoices narrows what a caller reaches to what can actually
-// hold a table: a Trino connection carrying a scratch catalog and schema.
+// hold a table: a Trino connection carrying a scratch catalog and schema, that
+// will also accept the statement creating it.
 //
 // It is the picker's only source, so a choice it offers is one the registrar
 // accepts. A form offering a connection the registration then refuses, and a
 // registration refusing a connection the form offered, are the same defect
 // read from opposite ends.
+//
+// The write check is the half this was missing. A scratch target is a
+// destination, not a permission: a read-only connection can name one and still
+// refuse the CREATE TABLE, which surfaced as a picker offering a connection and
+// a 500 "the registration could not be completed" the moment it was chosen. The
+// read-only flag is per connection and can be changed on a live connection, so
+// it is asked at the moment the form is built rather than assumed from config.
 func scratchConnectionChoices(
 	reachable []connreach.Connection, exec tableregister.Executor,
 ) []tablehttp.ConnectionChoice {
@@ -412,6 +420,9 @@ func scratchConnectionChoices(
 		}
 		target, ok := exec.ScratchTarget(conn.Name)
 		if !ok || !target.Configured() {
+			continue
+		}
+		if !exec.AcceptsWrites(conn.Name) {
 			continue
 		}
 		choices = append(choices, tablehttp.ConnectionChoice{

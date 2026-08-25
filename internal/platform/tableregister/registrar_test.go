@@ -39,6 +39,9 @@ type fakeTrino struct {
 	// tables is what the coordinator holds, so a CREATE over a name that is
 	// still there fails the way Trino fails it.
 	tables map[string]bool
+	// readOnly makes the connection refuse write SQL, which is a fact about
+	// the connection rather than a failure of a statement.
+	readOnly bool
 }
 
 func (f *fakeTrino) Exec(ctx context.Context, _, sql string) error {
@@ -83,6 +86,12 @@ func (f *fakeTrino) apply(sql string) error {
 func (f *fakeTrino) ScratchTarget(string) (trino.ScratchConfig, bool) {
 	return f.target, f.hasTarget
 }
+
+// The registrar is usually reached with a connection the picker already
+// offered, which it only does for one that accepts writes. readOnly models the
+// caller who named one directly -- through manage_table, or a form built before
+// an administrator flipped the flag.
+func (f *fakeTrino) AcceptsWrites(string) bool { return !f.readOnly }
 
 // fakeObjects serves one directory of objects.
 type fakeObjects struct {
@@ -509,9 +518,26 @@ func TestRegister_NoScratchTargetRefuses(t *testing.T) {
 	assert.ErrorIs(t, err, ErrNoScratchTarget)
 }
 
-// TestRegister_ReadOnlyConnectionRefusesThroughExec pins that the read-only
-// refusal reaches the caller rather than being swallowed, and that nothing is
-// recorded for a table that was never created.
+// A read-only connection is a fact about the connection, not a failure of a
+// statement, so it is refused before any DDL is attempted and named as itself.
+// Reaching the DDL instead produced an error this layer could not classify,
+// which the HTTP surface could only report as a 500 "the registration could
+// not be completed" -- an outage, for a connection working exactly as
+// configured.
+func TestRegister_ReadOnlyConnectionRefusesBeforeAnyDDL(t *testing.T) {
+	h := newHarness(t, func(h *harness) { h.trino.readOnly = true })
+
+	_, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "warehouse"})
+	assert.ErrorIs(t, err, ErrConnectionReadOnly)
+	assert.Contains(t, err.Error(), "read-only", "the one word that explains it must survive")
+	assert.Empty(t, h.trino.statements, "nothing is run against a connection that will refuse it")
+}
+
+// TestRegister_ReadOnlyConnectionRefusesThroughExec pins the race the check
+// above cannot close: an administrator flipping the flag between the check and
+// the DDL. The refusal still reaches the caller rather than being swallowed,
+// and nothing is recorded for a table that was never created.
 func TestRegister_ReadOnlyConnectionRefusesThroughExec(t *testing.T) {
 	h := newHarness(t, func(h *harness) {
 		h.trino.err = errors.New(`write operations not allowed: connection "warehouse" is read-only`)

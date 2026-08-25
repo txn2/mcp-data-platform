@@ -24,6 +24,32 @@ func (t *Toolkit) ScratchTarget(connection string) (ScratchConfig, bool) {
 	return target, ok
 }
 
+// AcceptsWrites reports whether Exec would be allowed to run write SQL on a
+// connection, without running any.
+//
+// It mirrors checkExecWritable exactly, including the two asymmetries that are
+// easy to get backwards: a toolkit with no interceptor at all is a
+// single-connection toolkit that was not configured read-only, so writes are
+// ALLOWED; and an empty connection name resolves to the default, as it does
+// everywhere else here.
+//
+// It exists so a surface can decline to offer a connection whose registration
+// would be refused at DDL time. A form offering a connection the registration
+// then refuses is the same defect as a registration refusing a connection the
+// form offered.
+func (t *Toolkit) AcceptsWrites(connection string) bool {
+	t.connMu.RLock()
+	defer t.connMu.RUnlock()
+
+	if t.readOnly == nil {
+		return true
+	}
+	if connection == "" {
+		connection = t.name
+	}
+	return t.readOnly.AcceptsWrites(connection)
+}
+
 // Exec runs a statement against a named connection and discards its rows.
 //
 // It is the platform's one write path into Trino. The two direct callers of

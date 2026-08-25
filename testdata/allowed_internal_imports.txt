@@ -160,6 +160,7 @@ internal/platform/completionlayer -> pkg/persona
 internal/platform/completionlayer -> pkg/query
 internal/platform/completionlayer -> pkg/registry
 internal/platform/completionlayer -> pkg/semantic
+internal/platform/configenv -> internal/logsan
 internal/platform/connauth -> pkg/authevents
 internal/platform/connauth -> pkg/connoauth
 internal/platform/connauth -> pkg/platform/fieldcrypt
@@ -531,6 +532,7 @@ pkg/platform -> internal/platform/branding
 pkg/platform -> internal/platform/browserauth
 pkg/platform -> internal/platform/callrecord
 pkg/platform -> internal/platform/completionlayer
+pkg/platform -> internal/platform/configenv
 pkg/platform -> internal/platform/connauth
 pkg/platform -> internal/platform/connbackfill
 pkg/platform -> internal/platform/connscope

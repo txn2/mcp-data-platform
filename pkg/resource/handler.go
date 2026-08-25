@@ -352,6 +352,11 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, ce.Error())
 			return
 		}
+		var se *storageError
+		if errors.As(err, &se) {
+			writeError(w, http.StatusServiceUnavailable, se.Error())
+			return
+		}
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -395,7 +400,7 @@ func (h *Handler) persistResource(r *http.Request, claims *Claims, input *create
 	if h.deps.S3Client != nil {
 		if err := h.deps.S3Client.PutObject(r.Context(), h.deps.S3Bucket, s3Key, uf.data, uf.mimeType); err != nil {
 			slog.Error("resource upload: s3 put failed", msgError, err)
-			return nil, fmt.Errorf("storing file: %w", err)
+			return nil, &storageError{msg: msgStorageRefused}
 		}
 	}
 
@@ -569,7 +574,11 @@ func (h *Handler) handleGetContent(w http.ResponseWriter, r *http.Request) {
 	body, contentType, err := h.deps.S3Client.GetObject(r.Context(), h.deps.S3Bucket, res.S3Key)
 	if err != nil {
 		slog.Error("resource content: s3 get failed", msgError, err) //nolint:gosec // structured slog
-		writeError(w, http.StatusInternalServerError, "retrieving content")
+		if IsObjectNotFound(err) {
+			writeError(w, http.StatusNotFound, msgContentMissing)
+			return
+		}
+		writeError(w, http.StatusInternalServerError, msgContentUnavailable)
 		return
 	}
 
@@ -730,6 +739,27 @@ func (h *Handler) handleDelete(w http.ResponseWriter, r *http.Request) {
 type conflictError struct{ msg string }
 
 func (e *conflictError) Error() string { return e.msg }
+
+// storageError is a write the blob store would not take.
+//
+// It is separated from the generic 500 because the cause is outside the
+// platform and the outcome is specific: nothing was created, so retrying is
+// the right response rather than first checking whether a half-made resource
+// exists. It answers 503 for the same reason.
+//
+// The message carries no colon on purpose. writeError truncates a 5xx body at
+// the first one so an internal chain cannot leak, which is what reduced this
+// failure to the bare fragment "storing file" — a storage outage that read, to
+// the person who hit it, as having been refused permission.
+type storageError struct{ msg string }
+
+func (e *storageError) Error() string { return e.msg }
+
+// msgStorageRefused is what a caller is told when blob storage rejects a write.
+// It states the outcome (nothing saved) rather than the mechanism, which is in
+// the log beside it.
+const msgStorageRefused = "The storage backend did not accept the file. Nothing was saved. " +
+	"Try again, and tell an administrator if it keeps failing."
 
 // --- HTTP helpers ---
 

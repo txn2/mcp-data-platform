@@ -379,6 +379,15 @@ func (r *Registrar) resolveTarget(caller Caller, connection string) (trino.Scrat
 	if !ok || !target.Configured() {
 		return trino.ScratchConfig{}, ErrNoScratchTarget
 	}
+	// Asked here rather than left to the DDL. Creating the table is write SQL,
+	// so a read-only connection refuses it however its target is configured --
+	// but it refuses from inside the Trino interceptor, as an error this layer
+	// cannot classify, and the surface above can then only call it a platform
+	// failure. Asking first turns the same outcome into a refusal that says
+	// which connection and why.
+	if !r.deps.Trino.AcceptsWrites(connection) {
+		return trino.ScratchConfig{}, ErrConnectionReadOnly
+	}
 	return target, nil
 }
 

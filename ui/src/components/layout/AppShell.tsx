@@ -48,6 +48,9 @@ const CollectionEditorPage = lazy(() =>
 const ResourcesPage = lazy(() =>
   import("@/pages/resources/ResourcesPage").then((m) => ({ default: m.ResourcesPage })),
 );
+const ResourceViewerPage = lazy(() =>
+  import("@/pages/resources/ResourceViewerPage").then((m) => ({ default: m.ResourceViewerPage })),
+);
 const FeedbackPage = lazy(() =>
   import("@/pages/feedback/FeedbackPage").then((m) => ({ default: m.FeedbackPage })),
 );
@@ -96,17 +99,28 @@ const pageTitles: Record<string, string> = {
   "/admin/settings": "Settings",
 };
 
+// detailTitles names what a section's detail route is showing, keyed by the
+// prefix such a route starts with. A table rather than a run of conditions:
+// every entry is one prefix and one word, and the list grows with each section
+// that gains a detail view.
+const detailTitles: readonly { prefix: string; title: string }[] = [
+  { prefix: "/scripts/", title: "Script" },
+  { prefix: "/admin/scripts/", title: "Script" },
+  { prefix: "/admin/collections/", title: "Collection" },
+  { prefix: "/admin/sessions/", title: "Session" },
+  { prefix: "/activity/sessions/", title: "Session" },
+  { prefix: "/admin/calls/", title: "Call" },
+  { prefix: "/activity/calls/", title: "Call" },
+  { prefix: "/resources/", title: "Resource" },
+  { prefix: "/admin/resources/", title: "Resource" },
+];
+
 // pageTitleFor resolves the header title for a route with no detail view of
 // its own in the chain below: a section's own detail routes answer here rather
 // than adding a branch to it.
 function pageTitleFor(route: string): string {
-  if (route.startsWith("/scripts/")) return "Script";
-  if (route.startsWith("/admin/scripts/")) return "Script";
-  if (route.startsWith("/admin/collections/")) return "Collection";
-  if (route.startsWith("/admin/sessions/")) return "Session";
-  if (route.startsWith("/activity/sessions/")) return "Session";
-  if (route.startsWith("/admin/calls/")) return "Call";
-  if (route.startsWith("/activity/calls/")) return "Call";
+  const detail = detailTitles.find((d) => route.startsWith(d.prefix));
+  if (detail) return detail.title;
   return pageTitles[route] ?? "Assets";
 }
 
@@ -195,6 +209,8 @@ function isAssetRoute(path: string): boolean {
     /^\/collections\/.+\/assets\/.+$/.test(route) ||
     /^\/shared\/assets\/.+$/.test(route) ||
     /^\/prompts\/.+$/.test(route) ||
+    /^\/resources\/[^/]+$/.test(route) ||
+    /^\/admin\/resources\/[^/]+$/.test(route) ||
     /^\/admin\/personas$/.test(route)
   );
 }
@@ -295,6 +311,32 @@ export function AppShell() {
     window.history.pushState({ appNav: true, from }, "", target);
   }, []);
 
+  /**
+   * The way back from a detail page.
+   *
+   * When the reader arrived in-app, the previous history entry is where they
+   * were — a library on the scope and the filters they left it on — and
+   * returning to that entry is the only thing that restores them: a path
+   * rebuilt here carries none of it, which is what sent a reader who opened a
+   * resource from the Global tab back to My Resources (#1470).
+   *
+   * A page opened cold — a pasted address, a link in a second tab — has no
+   * such entry, and `appNav` is what distinguishes the two: navigate() stamps
+   * it on every entry it writes, and a fresh document load has no state at all.
+   * Those fall back to the section index rather than leaving the app.
+   */
+  const goBack = useCallback(
+    (fallback: string) => {
+      const state = window.history.state as { appNav?: boolean } | null;
+      if (state?.appNav) {
+        window.history.back();
+        return;
+      }
+      navigate(fallback);
+    },
+    [navigate],
+  );
+
   useEffect(() => {
     const onPop = () => setCurrentPath(readPath());
     window.addEventListener("popstate", onPop);
@@ -328,6 +370,7 @@ export function AppShell() {
   const assetMatch = route.match(/^\/assets\/(.+)$/);
   const adminAssetMatch = route.match(/^\/admin\/assets\/(.+)$/);
   const promptViewMatch = route.match(/^\/prompts\/(.+)$/);
+  const resourceViewMatch = route.match(/^\/resources\/([^/]+)$/);
   // Knowledge-page routes (#709): the page list and the URL-addressable page
   // detail. Both render the Knowledge hub focused on its Knowledge Pages sub-tab.
   const knowledgePageMatch = route.match(/^\/knowledge\/pages\/(.+)$/);
@@ -448,6 +491,12 @@ export function AppShell() {
           {!adminRoute && route === "/resources" && (
             <ResourcesPage onNavigate={navigate} />
           )}
+          {!adminRoute && resourceViewMatch && (
+            <ResourceViewerPage
+              resourceId={resourceViewMatch[1]!}
+              onBack={() => goBack("/resources")}
+            />
+          )}
           {!adminRoute && route === "/feedback" && <FeedbackPage onNavigate={navigate} />}
           {!adminRoute && route === "/settings" && (
             <UserSettingsPage onNavigate={navigate} />
@@ -495,6 +544,7 @@ export function AppShell() {
               initialTab={initialTab}
               adminAssetId={adminAssetMatch?.[1]}
               onNavigate={navigate}
+              onBack={goBack}
             />
           )}
           </Suspense>

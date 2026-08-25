@@ -44,19 +44,54 @@ export function targetForTab(tab: string, user: UserProfile | null): ScopeTarget
 }
 
 /**
+ * Which Resources surface is asking.
+ *
+ * "admin" is the administrator's section, where the platform-admin override
+ * applies and every library is writable. "portal" is the reader's own
+ * Resources page, where it does not: a platform admin reading their own portal
+ * is offered Upload on their own library alone, and adds to a persona's or the
+ * global library from Admin > Resources instead.
+ *
+ * The two surfaces differ because the portal's tabs are the libraries a reader
+ * can SEE, and a reader browsing their own material is not administering the
+ * platform. Offering the same Upload on every one of those tabs put publishing
+ * to everyone signed in one click away from browsing, with nothing on screen
+ * marking the difference.
+ *
+ * This narrows no authority: the same admin adds to the same libraries on
+ * Admin > Resources, which is where adminReachNote points them.
+ */
+export type Surface = "portal" | "admin";
+
+/**
  * canWriteScope answers, for the browser, the question CanWriteScope answers
  * for the request (pkg/resource/permission.go): may this caller add to this
- * library? Deriving the Upload control from the same rule is what keeps the
- * portal from offering an upload the server will refuse — or, worse, silently
- * redirect into the caller's own library.
+ * library, on the surface they are asking from? Deriving the Upload control
+ * from the same rule is what keeps the portal from offering an upload the
+ * server will refuse — or, worse, silently redirect into the caller's own
+ * library.
  *
  * A null target is the admin "all" tab, which names no single library; the
  * dialog's own scope picker chooses there.
  */
-export function canWriteScope(user: UserProfile | null, target: ScopeTarget | null): boolean {
+export function canWriteScope(
+  user: UserProfile | null,
+  target: ScopeTarget | null,
+  surface: Surface = "admin",
+): boolean {
   if (!user) return false;
-  if (isPlatformAdmin(user)) return true;
+  if (surface === "admin" && isPlatformAdmin(user)) return true;
   if (!target) return false;
+  return holdsScope(user, target);
+}
+
+/**
+ * holdsScope is the authority a caller has over one library as themselves,
+ * with no platform-admin override: their own library, and a persona they carry
+ * the admin role for. Global is nobody's by this rule — reaching it is the
+ * override, which only the administrator's section applies.
+ */
+function holdsScope(user: UserProfile, target: ScopeTarget): boolean {
   switch (target.scope) {
     case "user":
       return target.scope_id !== "" && target.scope_id === user.user_id;
@@ -65,6 +100,20 @@ export function canWriteScope(user: UserProfile | null, target: ScopeTarget | nu
     case "global":
       return false;
   }
+}
+
+/**
+ * adminReachNote is the sentence that follows the read-only note for a caller
+ * whose platform-admin authority WOULD let them add here, on a surface that
+ * does not offer it. Empty for everyone else.
+ *
+ * A control withheld from someone who holds the authority has to say where the
+ * authority is exercised, or it reads as the platform having lost track of who
+ * they are.
+ */
+export function adminReachNote(user: UserProfile | null, surface: Surface): string {
+  if (surface !== "portal" || !user || !isPlatformAdmin(user)) return "";
+  return "Add to it from Admin > Resources.";
 }
 
 /** How one library is described to the person looking at it. */

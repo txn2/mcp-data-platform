@@ -27,6 +27,11 @@ async function downloadVersion(resource: Resource, version: number) {
 // actions available on it, and, beneath, why the content changed when the
 // revision was written on the uploader's behalf. The current revision has no
 // restore action — it is already what the resource serves.
+//
+// Two lines rather than one. The panel sits in the viewer's sidebar (#1470),
+// which is narrower than the dialog this trail used to be drawn in; on one line
+// the uploader, the timestamp and the size pushed the download and restore
+// actions past the column's edge, where nothing could reach them.
 function VersionRow({
   resource,
   version: v,
@@ -45,7 +50,7 @@ function VersionRow({
   return (
     <li data-testid={`resource-version-${v.version}`} className="text-xs text-muted-foreground">
       <div className="flex items-center gap-2">
-        <span className="w-8 shrink-0 font-medium text-foreground">v{v.version}</span>
+        <span className="shrink-0 font-medium text-foreground">v{v.version}</span>
         {isCurrent && (
           <Badge variant="success" className="px-1.5">
             current
@@ -56,36 +61,39 @@ function VersionRow({
             restored v{v.restored_from}
           </Badge>
         )}
-        <span className="truncate">{v.uploader_email || v.uploader_sub}</span>
-        <span className="shrink-0">{new Date(v.created_at).toLocaleString()}</span>
-        <span className="shrink-0 tabular-nums">{formatBytes(v.size_bytes)}</span>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          onClick={() => void downloadVersion(resource, v.version)}
-          title={`Download v${v.version}`}
-          aria-label={`Download v${v.version}`}
-          data-testid={`download-version-${v.version}`}
-          className="ml-auto"
-        >
-          <Download />
-        </Button>
-        {canModify && !isCurrent && (
+        <span className="ml-auto flex shrink-0 items-center">
           <Button
             variant="ghost"
             size="icon-xs"
-            onClick={() => onRestore(v.version)}
-            disabled={busy}
-            title={`Restore v${v.version}`}
-            aria-label={`Restore v${v.version}`}
-            data-testid={`restore-version-${v.version}`}
+            onClick={() => void downloadVersion(resource, v.version)}
+            title={`Download v${v.version}`}
+            aria-label={`Download v${v.version}`}
+            data-testid={`download-version-${v.version}`}
           >
-            <RotateCcw />
+            <Download />
           </Button>
-        )}
+          {canModify && !isCurrent && (
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={() => onRestore(v.version)}
+              disabled={busy}
+              title={`Restore v${v.version}`}
+              aria-label={`Restore v${v.version}`}
+              data-testid={`restore-version-${v.version}`}
+            >
+              <RotateCcw />
+            </Button>
+          )}
+        </span>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-2">
+        <span className="max-w-full truncate">{v.uploader_email || v.uploader_sub}</span>
+        <span>{new Date(v.created_at).toLocaleString()}</span>
+        <span className="tabular-nums">{formatBytes(v.size_bytes)}</span>
       </div>
       {v.change_summary && (
-        <p className="ml-10 italic" data-testid={`resource-version-summary-${v.version}`}>
+        <p className="italic" data-testid={`resource-version-summary-${v.version}`}>
           {v.change_summary}
         </p>
       )}
@@ -97,11 +105,13 @@ function VersionRow({
 // the trail occupies, so a reader knows what has already aged out.
 function VersionsTitle({ kept, maxVersions }: { kept: number; maxVersions: number | undefined }) {
   return (
-    <span className="flex items-center gap-1.5">
-      <History className="h-3 w-3 text-muted-foreground" />
-      Version history
+    <span className="flex flex-wrap items-center gap-x-1.5">
+      <span className="flex items-center gap-1.5 whitespace-nowrap">
+        <History className="h-3 w-3 text-muted-foreground" />
+        Version history
+      </span>
       {kept > 0 && (
-        <span className="font-normal text-muted-foreground">
+        <span className="font-normal whitespace-nowrap text-muted-foreground">
           ({kept} of {maxVersions} kept)
         </span>
       )}
@@ -135,7 +145,7 @@ function VersionList({
     return <p className="text-xs text-muted-foreground">No revisions recorded yet.</p>;
   }
   return (
-    <ul className="space-y-1">
+    <ul className="space-y-2.5">
       {versions.map((v) => (
         <VersionRow
           key={v.version}

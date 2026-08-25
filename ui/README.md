@@ -104,12 +104,19 @@ back. Both routes offer the same two shapes: `DialogContent`'s default and
 `ModalScroll` keep the panel's natural height and let the backdrop scroll,
 while `DialogContent capped` (`HelpDialog`) and `ModalShell` bound the panel at
 the viewport and lay it out as a column so a header and footer stay put while
-the body scrolls (`resources/modals/DetailModal`, whose header holds the
-resource's name and whose footer holds Download, Edit and Delete). A capped
-panel carries no padding of its own: each region pads itself, or the header
-scrolls away with the body it heads.
+the body scrolls (`resources/modals/EditModal`, whose header names the form and
+whose footer holds Cancel and Save). A capped panel carries no padding of its
+own: each region pads itself, or the header scrolls away with the body it heads.
 Pick the natural shape only for a modal that is one block of bounded content —
-a confirmation, not a detail read whose sections grow with what it is showing.
+a confirmation, not a form whose fields run past the viewport.
+
+Neither shape is for a record. A stored file — a portal asset, a managed
+resource — opens at a route of its own through `components/viewer/ViewerLayout`,
+which is the one chrome both kinds take: the content at the page's width, the
+metadata in a column beside it, and the page area as the only scroll region.
+A resource used to open in a `ModalShell` instead, which put a document in a
+32rem column with its content capped at half the viewport and gave it no
+address to be linked to (#1470).
 
 Escape closes a `ModalShell`, a `ModalScroll` and a `DrawerShell` as well as a
 Radix dialog, so neither route leaves an overlay that only a pointer can

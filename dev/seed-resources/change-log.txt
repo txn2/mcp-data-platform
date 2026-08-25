@@ -1,0 +1,10 @@
+Inventory reporting change log
+
+2026-08-14  Weeks-of-supply now excludes stores open under 8 weeks rather than
+            annualizing their short history. Affects W-1043 and C-3410 only.
+2026-07-02  Shrink moved from an estimate to counted-only. Prior periods are
+            not restated; the series has a level shift at this date.
+2026-05-20  Comparable store sales excludes a store for both periods when it
+            was closed for any part of either. Previously it was excluded from
+            the closed period alone, which inflated the comp.
+2026-03-11  Bayside Market (W-1042) enters the comp base.
