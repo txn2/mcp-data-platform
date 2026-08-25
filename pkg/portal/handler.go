@@ -178,6 +178,16 @@ type Deps struct {
 	MemoryWriter      MemoryWriter
 	EmbeddingProvider embedding.Provider
 	PersonaResolver   PersonaResolver
+	// PortalAppAdmits reports whether a signed-in caller holding these roles
+	// would be served the portal application at /portal/ — the SPA is mounted
+	// in this build, and the shell's own gate admits the account. The public
+	// share viewer asks before sending a signed-in reader there instead of
+	// rendering the public page (#1473).
+	//
+	// Supplied by the composition root, the only place that knows both facts.
+	// nil means no portal application is served for this handler, and no share
+	// is ever redirected.
+	PortalAppAdmits func(roles []string) bool
 	// SearchRouter backs GET /api/v1/portal/search, the REST surface over the
 	// unified knowledge federation. nil disables the endpoint (no searchable
 	// source configured).

@@ -1370,7 +1370,7 @@ func TestMountPortalAPI_Disabled(t *testing.T) {
 	defer func() { _ = p.Close() }()
 
 	mux := http.NewServeMux()
-	if err := mountPortalAPI(mux, p, nil); err != nil {
+	if err := mountPortalAPI(mux, p, nil, true); err != nil {
 		t.Fatalf("mountPortalAPI() disabled = %v, want nil", err)
 	}
 }
@@ -1385,7 +1385,7 @@ func TestMountPortalAPI_NoStores(t *testing.T) {
 	defer func() { _ = p.Close() }()
 
 	mux := http.NewServeMux()
-	if err := mountPortalAPI(mux, p, nil); err != nil {
+	if err := mountPortalAPI(mux, p, nil, true); err != nil {
 		t.Fatalf("mountPortalAPI() no stores = %v, want nil", err)
 	}
 }

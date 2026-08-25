@@ -561,6 +561,43 @@ func mountPortalUI(mux *http.ServeMux, p *platform.Platform, assetsAvailable boo
 	log.Println("Portal UI enabled on /portal/")
 }
 
+// shellPersonaResolver builds the resolver the portal shell's gate is judged
+// with. It mirrors the sibling persona wiring's nil guard (buildPersonaResolver
+// would dereference a nil registry per request). A nil resolver leaves a gate
+// that admits nobody, which is the same verdict the API layer reaches when
+// access cannot be evaluated.
+func shellPersonaResolver(p *platform.Platform) portal.PersonaResolver {
+	if pr := p.PersonaRegistry(); pr != nil {
+		return buildPersonaResolver(pr, p.ToolkitRegistry())
+	}
+	return nil
+}
+
+// portalAppAdmitter answers, for a set of roles, whether the portal application
+// would actually serve that caller: the SPA is mounted in this build and the
+// shell gate in front of it admits them.
+//
+// The share viewer asks before redirecting a signed-in reader into the portal
+// (#1473). The two surfaces are mounted independently — /portal/view/ wherever
+// the portal API is, /portal/ only when the binary carries a frontend build —
+// so a redirect made without asking would send a reader of a working share page
+// to a route this build does not serve. It returns nil when no portal
+// application is served at all, which is the answer that keeps them where they
+// are.
+//
+// It is built from the same two facts gateSPAShell judges a caller by, through
+// the same resolver, so the redirect and the page it lands on cannot disagree.
+func portalAppAdmitter(p *platform.Platform, uiAvailable bool) func([]string) bool {
+	if p == nil || portalDisabled(p) || !uiAvailable {
+		return nil
+	}
+	if p.BrowserSessionAuth() == nil {
+		return func([]string) bool { return true } // shell left unwrapped: everyone reaches it
+	}
+	gate := portalAccessGate(p, shellPersonaResolver(p))
+	return gate.Allows
+}
+
 // gateSPAShell wraps the portal SPA so a signed-in caller with no persona is
 // answered with the branded refusal instead of an application shell whose every
 // request will 403. It returns nil when there is no cookie authenticator to
@@ -576,15 +613,7 @@ func gateSPAShell(p *platform.Platform, spa http.Handler) http.Handler {
 	if browserAuth == nil {
 		return nil
 	}
-	// Mirror the sibling persona wiring's nil guard (buildPersonaResolver would
-	// dereference a nil registry per request). A nil resolver leaves a gate that
-	// admits nobody, which is the same verdict the API layer reaches when access
-	// cannot be evaluated.
-	var resolver portal.PersonaResolver
-	if pr := p.PersonaRegistry(); pr != nil {
-		resolver = buildPersonaResolver(pr, p.ToolkitRegistry())
-	}
-	gate := portalAccessGate(p, resolver)
+	gate := portalAccessGate(p, shellPersonaResolver(p))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		info, err := browserAuth.AuthenticateHTTP(r)
 		if err != nil || info == nil || gate.Allows(info.Roles) {

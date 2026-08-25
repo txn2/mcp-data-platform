@@ -437,3 +437,90 @@ func sessionCookie(t *testing.T, key []byte, email string, roles []string) *http
 	}
 	return &http.Cookie{Name: spaGateCookieName, Value: signed}
 }
+
+// --- portalAppAdmitter (#1473) ---
+
+// The share viewer redirects a signed-in reader into the portal only when the
+// portal would actually serve them. These pin that answer to the same two facts
+// gateSPAShell judges a caller by, because a redirect the shell then refuses
+// costs the reader the asset they could already read.
+
+func TestPortalAppAdmitter_NoFrontendBuildServesNoPortal(t *testing.T) {
+	// /portal/view/ is mounted wherever the portal API is; /portal/ only when
+	// the binary carries a frontend build. Without one there is nothing at the
+	// address a redirect would name.
+	p, _ := spaGatePlatform(t)
+
+	if admits := portalAppAdmitter(p, false); admits != nil {
+		t.Error("portalAppAdmitter offered the portal in a build that serves no frontend")
+	}
+}
+
+func TestPortalAppAdmitter_DisabledPortalServesNoPortal(t *testing.T) {
+	p := newTestPlatform(t, &platform.Config{
+		Server: platform.ServerConfig{Name: "no-portal"},
+		Portal: platform.PortalConfig{Enabled: new(false)},
+	})
+	t.Cleanup(func() { _ = p.Close() })
+
+	if admits := portalAppAdmitter(p, true); admits != nil {
+		t.Error("portalAppAdmitter offered a portal the deployment turned off")
+	}
+}
+
+func TestPortalAppAdmitter_NoBrowserAuthAdmitsEveryone(t *testing.T) {
+	// With no cookie authenticator the shell is left unwrapped, so every
+	// caller reaches it. The admitter must reach the same verdict.
+	p := gatePlatform(t)
+
+	admits := portalAppAdmitter(p, true)
+	if admits == nil {
+		t.Fatal("portalAppAdmitter returned nil with the portal enabled and a frontend build")
+	}
+	if !admits([]string{gateUnmappedRole}) {
+		t.Error("a caller the unwrapped shell would serve was refused the redirect")
+	}
+}
+
+func TestPortalAppAdmitter_MatchesTheShellGateVerdict(t *testing.T) {
+	p, _ := spaGatePlatform(t)
+
+	admits := portalAppAdmitter(p, true)
+	if admits == nil {
+		t.Fatal("portalAppAdmitter returned nil with the portal enabled and a frontend build")
+	}
+
+	gate := portalAccessGate(p, shellPersonaResolver(p))
+	for _, roles := range [][]string{{gateMappedRole}, {gateUnmappedRole}, nil} {
+		if got, want := admits(roles), gate.Allows(roles); got != want {
+			t.Errorf("admits(%v) = %v, shell gate = %v: the redirect and the page it lands on disagree",
+				roles, got, want)
+		}
+	}
+}
+
+func TestShellPersonaResolver_NilRegistryYieldsNoResolver(t *testing.T) {
+	// A fully constructed platform always carries a registry; this is the
+	// partially built one the guard exists for, since buildPersonaResolver
+	// would dereference a nil registry on every request. The gate reads the
+	// resulting nil resolver as "admits nobody", so the guard denies rather
+	// than waving everyone through.
+	if got := shellPersonaResolver(&platform.Platform{}); got != nil {
+		t.Error("shellPersonaResolver built a resolver from a nil persona registry")
+	}
+}
+
+func TestShellPersonaResolver_RegistryYieldsAResolver(t *testing.T) {
+	p := gatePlatform(t)
+
+	resolver := shellPersonaResolver(p)
+	if resolver == nil {
+		t.Fatal("shellPersonaResolver returned nil with a persona registry configured")
+	}
+	if resolver([]string{gateMappedRole}) == nil {
+		t.Error("the resolver did not resolve a role the platform maps to a persona")
+	}
+	if resolver([]string{gateUnmappedRole}) != nil {
+		t.Error("the resolver resolved a role no persona claims")
+	}
+}

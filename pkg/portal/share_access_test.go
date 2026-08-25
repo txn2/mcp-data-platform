@@ -62,6 +62,9 @@ func shareGateHandler(share *Share, viewer *User) *Handler {
 		S3Client:        &mockS3Client{getData: []byte("file content"), getCT: "text/plain"},
 		S3Bucket:        "b1",
 		RateLimit:       RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
+		// The deployment serves a portal application that admits its users, so
+		// the viewer page redirects a signed-in one into it (#1473).
+		PortalAppAdmits: func([]string) bool { return true },
 	}
 	if viewer != nil {
 		deps.Authenticator = NewAuthenticator(&mockAuthenticator{
@@ -98,6 +101,22 @@ func collectionShare(mode ShareAccessMode) *Share {
 		ID: "s2", Token: "tok1", CollectionID: "c1", CreatedBy: "alice@example.com",
 		SharedWithEmail: "bob@example.com", AccessMode: mode, NoticeText: defaultNoticeText,
 	}
+}
+
+// viewerPagePath is the one route on the surface that renders the public
+// viewer page for the share itself. It is also the one route whose answer
+// changed for a signed-in platform user (#1473).
+const viewerPagePath = "/portal/view/tok1"
+
+// wantAdmitStatus is the status an admitted caller gets on path. The viewer
+// page answers a signed-in platform user who can open the target in their own
+// portal with a redirect there; every other route, and every anonymous caller,
+// is answered in place.
+func wantAdmitStatus(path string, signedIn bool) int {
+	if signedIn && path == viewerPagePath {
+		return http.StatusFound
+	}
+	return http.StatusOK
 }
 
 // shareForRoute picks the share shape a route needs: the two item routes and
@@ -162,7 +181,7 @@ func TestPublicRoutesAdmitRecipientOnRestrictedShare(t *testing.T) {
 			h := shareGateHandler(shareForRoute(path, AccessModeRestricted), recipient)
 			w := requestRoute(h, path, true)
 
-			assert.Equal(t, http.StatusOK, w.Code)
+			assert.Equal(t, wantAdmitStatus(path, true), w.Code)
 		})
 	}
 }
@@ -175,7 +194,7 @@ func TestPublicRoutesAdmitAnySignedInUserOnAuthenticatedShare(t *testing.T) {
 			h := shareGateHandler(shareForRoute(path, AccessModeAuthenticated), stranger)
 			w := requestRoute(h, path, true)
 
-			assert.Equal(t, http.StatusOK, w.Code)
+			assert.Equal(t, wantAdmitStatus(path, true), w.Code)
 		})
 	}
 }
@@ -202,7 +221,13 @@ func TestPublicRoutesAdmitAnonymousOnPublicShare(t *testing.T) {
 // the caller's to keep. The viewer pages carry no directive on a public share —
 // nothing about them is per-caller then, so the platform makes no claim and the
 // cache applies its own heuristic.
-func wantCacheControl(path string, mode ShareAccessMode) string {
+func wantCacheControl(path string, mode ShareAccessMode, signedIn bool) string {
+	// The viewer page's answer to a signed-in platform user is a redirect into
+	// their own portal, which is a property of their session and of nothing in
+	// the URL, so it is never stored (#1473).
+	if signedIn && path == viewerPagePath {
+		return "no-store"
+	}
 	publicShare := mode == AccessModePublic
 	switch path {
 	case "/portal/view/tok1/thumbnail",
@@ -242,8 +267,8 @@ func TestPublicRoutesCachePolicyFollowsAccessMode(t *testing.T) {
 				h := shareGateHandler(shareForRoute(path, mode), recipient)
 				w := requestRoute(h, path, true)
 
-				require.Equal(t, http.StatusOK, w.Code)
-				assert.Equal(t, wantCacheControl(path, mode), w.Header().Get("Cache-Control"))
+				require.Equal(t, wantAdmitStatus(path, true), w.Code)
+				assert.Equal(t, wantCacheControl(path, mode, true), w.Header().Get("Cache-Control"))
 				assert.NotContains(t, w.Header().Get("Cache-Control"), "public")
 				assert.Equal(t, "Cookie", w.Header().Get("Vary"))
 			})
@@ -256,7 +281,7 @@ func TestPublicRoutesCachePolicyFollowsAccessMode(t *testing.T) {
 			w := requestRoute(h, path, false)
 
 			require.Equal(t, http.StatusOK, w.Code)
-			assert.Equal(t, wantCacheControl(path, AccessModePublic), w.Header().Get("Cache-Control"))
+			assert.Equal(t, wantCacheControl(path, AccessModePublic, false), w.Header().Get("Cache-Control"))
 			assert.Equal(t, "Cookie", w.Header().Get("Vary"))
 		})
 	}
