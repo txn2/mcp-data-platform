@@ -26,3 +26,22 @@ func IsObjectNotFound(err error) bool {
 		strings.Contains(msg, "status code: 404") ||
 		strings.Contains(msg, "404 not found")
 }
+
+// msgContentMissing is what a reader is told when a resource's row survived its
+// stored file. It is a 404 about the CONTENT, not about the resource: the
+// record is still listed, still editable and still deletable, and saying "not
+// found" flatly would contradict the page the reader is standing on.
+//
+// The portal was the only reader of resource blobs that did not draw this
+// distinction. The resources/read middleware and the search-index consumer both
+// call IsObjectNotFound and act on a confirmed orphan; the REST content route
+// reported one as a 500, so a resource whose file had never been stored — every
+// row a metadata-only seed writes — answered the portal with a server error.
+const msgContentMissing = "This resource's stored file is missing. " +
+	"The record is still here, but its content is not in storage."
+
+// msgContentUnavailable is a read the blob store would not answer, as opposed
+// to one it answered with "no such object". Carries no colon: writeError
+// truncates a 5xx body at the first one.
+const msgContentUnavailable = "Could not read this resource's stored file. " +
+	"The storage backend did not answer."

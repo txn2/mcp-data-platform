@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/txn2/mcp-data-platform/internal/platform/configenv"
 )
 
 // This test enforces that every platform-config YAML example in the docs stays
@@ -206,7 +208,7 @@ func checkDocConfigBlock(t *testing.T, rel, block string, known map[string]bool)
 		return
 	}
 
-	expanded := []byte(expandEnvVars(block))
+	expanded := []byte(configenv.Expand(block))
 	if unknown := detectUnknownFields(expanded); len(unknown) > 0 {
 		t.Errorf("%s: config example has unrecognized keys: %s\n---\n%s\n---",
 			rel, strings.Join(unknown, "; "), block)
@@ -258,7 +260,7 @@ func TestShippedExampleConfigStrictClean(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading configs/platform.yaml: %v", err)
 	}
-	expanded := []byte(expandEnvVars(string(data)))
+	expanded := []byte(configenv.Expand(string(data)))
 	if unknown := detectUnknownFields(expanded); len(unknown) > 0 {
 		t.Errorf("configs/platform.yaml has unrecognized keys: %s", strings.Join(unknown, "; "))
 	}

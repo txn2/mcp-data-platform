@@ -31,6 +31,16 @@ describe("isKnownRoute", () => {
     expect(isKnownRoute("/admin/scripts/script-001/nonesuch")).toBe(false);
   });
 
+  // One managed resource (#1470), in both sections that list resources. A
+  // resource had no address at all before: it opened in a dialog over the
+  // library, so it could not be linked to, bookmarked or reloaded.
+  it("recognizes one resource in either section", () => {
+    expect(isKnownRoute("/resources/res-1")).toBe(true);
+    expect(isKnownRoute("/admin/resources/res-1")).toBe(true);
+    expect(isKnownRoute("/resources/res-1/nonesuch")).toBe(false);
+    expect(isKnownRoute("/resources/")).toBe(false);
+  });
+
   // One run of one script (#1405), which is the address the cross-script Runs
   // listing links to.
   it("recognizes a run under its script", () => {

@@ -12,18 +12,30 @@ import type { Resource } from "@/api/resources/types";
  * region that grows with the resource, so there is no header to hold in place
  * and nothing for a cap to save.
  */
-export function DeleteConfirm({ resource: r, onClose }: { resource: Resource; onClose: () => void }) {
+export function DeleteConfirm({
+  resource: r,
+  onClose,
+  onDeleted,
+}: {
+  resource: Resource;
+  onClose: () => void;
+  /** Where the caller goes once the resource is gone. A library dismisses the
+   * dialog and stays; a page addressed by this resource has to leave, so it
+   * cannot be told about the delete through onClose, which also fires on
+   * Cancel. Absent, a successful delete just dismisses. */
+  onDeleted?: () => void;
+}) {
   const del = useDeleteResource();
   const [error, setError] = useState("");
 
   const handleDelete = useCallback(async () => {
     try {
       await del.mutateAsync(r.id);
-      onClose();
+      (onDeleted ?? onClose)();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Delete failed");
     }
-  }, [r.id, del, onClose]);
+  }, [r.id, del, onClose, onDeleted]);
 
   return (
     <ModalScroll onClose={onClose} label="Delete Resource" busy={del.isPending}>

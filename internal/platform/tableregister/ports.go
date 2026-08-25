@@ -18,6 +18,11 @@ import (
 type Executor interface {
 	Exec(ctx context.Context, connection, sql string) error
 	ScratchTarget(connection string) (trino.ScratchConfig, bool)
+	// AcceptsWrites reports whether Exec would be allowed to run write SQL on
+	// this connection. It is on the port rather than discovered by assertion
+	// because the picker MUST ask it: a connection that carries a scratch
+	// target but refuses writes was offered and then refused its DDL.
+	AcceptsWrites(connection string) bool
 }
 
 // ObjectReader reads the source object and lists what sits beside it.

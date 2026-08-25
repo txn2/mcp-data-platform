@@ -3,7 +3,7 @@
  * is presented.
  *
  * Every surface that shows asset or resource content (the portal viewer, the
- * public/guest viewer, collection items, the resources detail modal) resolves
+ * public/guest viewer, collection items, the resource viewer) resolves
  * through this table, so a content type renders identically wherever it is
  * opened and a new family is added in one place rather than four.
  *

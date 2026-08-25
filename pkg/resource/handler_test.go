@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -1210,6 +1211,47 @@ func TestHandleGetContent_S3Error(t *testing.T) {
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
 	}
+	if !strings.Contains(rec.Body.String(), "did not answer") {
+		t.Errorf("body does not say what happened: %q", rec.Body.String())
+	}
+}
+
+// orphanS3 answers the way a blob store answers for a key that is not there.
+type orphanS3 struct {
+	mockS3
+}
+
+func (*orphanS3) GetObject(_ context.Context, _, _ string) (body []byte, ct string, err error) {
+	return nil, "", errors.New("s3 get: failed to get object: NoSuchKey: The specified key does not exist")
+}
+
+// A resource whose row outlived its stored file is a 404 about the CONTENT, not
+// a server error. The resources/read middleware and the search-index consumer
+// have always drawn this distinction through IsObjectNotFound; the REST route
+// did not, so every metadata-only row answered the portal with a 500.
+func TestHandleGetContent_OrphanedBlob(t *testing.T) {
+	store := newMockStore()
+	deps := Deps{Store: store, S3Client: &orphanS3{}, S3Bucket: "test-bucket", URIScheme: "mcp"}
+	h := NewHandler(deps, okExtractor, nil)
+
+	seedResource(store, nil, "res-1", ScopeGlobal, "", "user-123")
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/resources/res-1/content", http.NoBody)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+	// It must not read as "no such resource": the record is still listed, still
+	// editable and still deletable on the page the reader is standing on.
+	body := rec.Body.String()
+	if !strings.Contains(body, "stored file is missing") {
+		t.Errorf("body does not say the file is what is missing: %q", body)
+	}
+	if !strings.Contains(body, "record is still here") {
+		t.Errorf("body does not say the record survives: %q", body)
+	}
 }
 
 func TestHandleGetContent_Disposition(t *testing.T) {
@@ -1345,8 +1387,24 @@ func TestHandleCreate_S3PutError(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	// 503, not 500: the cause is outside the platform and nothing was created,
+	// so retrying is the right response.
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// The body has to say what happened. writeError truncates a 5xx message at
+	// its first colon, which reduced the old "storing file: s3 put: ..." to the
+	// bare fragment "storing file" -- a storage outage that read, to the person
+	// who hit it, as having been refused permission.
+	body := rec.Body.String()
+	for _, want := range []string{"did not accept the file", "Nothing was saved"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body %q does not state %q", body, want)
+		}
+	}
+	if strings.Contains(body, "storing file") {
+		t.Errorf("body still carries the truncated fragment: %q", body)
 	}
 }
 

@@ -21,6 +21,8 @@ vi.mock("@/api/admin/hooks", () => ({
   usePersonas: vi.fn(() => ({ data: { personas: [] } })),
 }));
 
+import { useInfiniteResources } from "@/api/resources/hooks";
+import type { Resource } from "@/api/resources/types";
 import { ResourcesPage } from "./ResourcesPage";
 
 function signIn(overrides: Partial<UserProfile> = {}) {
@@ -93,9 +95,57 @@ describe("the Resources page offers Upload only where the caller may add", () =>
     expect(screen.queryByTestId("scope-read-only")).toBeNull();
   });
 
-  it("offers it on every tab to a platform admin reading the user page", () => {
+  // A platform admin reading their own portal is a reader, not an operator.
+  // The override that makes every library writable belongs to the
+  // administrator's section; offering the same Upload on the portal's Global
+  // tab put publishing to everyone signed in one click away from browsing.
+  it("withholds it from a platform admin on the user page's global library", () => {
     signIn({ is_admin: true });
     render(<ResourcesPage />);
+    selectTab("Global");
+
+    expect(screen.queryByRole("button", { name: "Upload" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Upload Resource" })).toBeNull();
+  });
+
+  it("withholds it from a platform admin on the user page's persona library", () => {
+    signIn({ is_admin: true });
+    render(<ResourcesPage />);
+    selectTab("analyst");
+
+    expect(screen.queryByRole("button", { name: "Upload" })).toBeNull();
+  });
+
+  it("still offers it to a platform admin on their own library", () => {
+    signIn({ is_admin: true });
+    render(<ResourcesPage />);
+
+    expect(screen.getByRole("button", { name: "Upload" })).toBeTruthy();
+  });
+
+  // Withholding a control from somebody who holds the authority has to name
+  // where the authority is exercised, or it reads as the platform having lost
+  // track of who they are.
+  it("tells the platform admin where they do add to the library instead", () => {
+    signIn({ is_admin: true });
+    render(<ResourcesPage />);
+    selectTab("Global");
+
+    expect(screen.getByTestId("scope-read-only").textContent).toContain(
+      "Add to it from Admin > Resources.",
+    );
+  });
+
+  it("says no such thing to a reader who has no such authority", () => {
+    render(<ResourcesPage />);
+    selectTab("Global");
+
+    expect(screen.getByTestId("scope-read-only").textContent).not.toContain("Admin > Resources");
+  });
+
+  it("keeps every library writable in the administrator's own section", () => {
+    signIn({ is_admin: true });
+    render(<ResourcesPage admin />);
     selectTab("Global");
 
     expect(screen.getByRole("button", { name: "Upload" })).toBeTruthy();
@@ -169,5 +219,133 @@ describe("an upload from the user page is filed under the tab it was started fro
     const form = await fillAndSubmit(container);
     expect(form.get("scope")).toBe("persona");
     expect(form.get("scope_id")).toBe("analyst");
+  });
+});
+
+
+// A resource used to open in a dialog over the library. It opens at an address
+// of its own now, which is a navigation -- and a navigation unmounts the
+// library, so what the library was showing has to live in the address bar or it
+// is gone by the time the reader presses Back (#1470).
+
+const LISTED: Resource = {
+  id: "res-1",
+  scope: "user",
+  scope_id: "analyst@example.com",
+  category: "references",
+  filename: "seasonal-factors.csv",
+  display_name: "Seasonal Factors",
+  description: "Monthly demand multipliers.",
+  mime_type: "text/csv",
+  size_bytes: 64,
+  s3_key: "k",
+  uri: "mcp://resources/analyst/seasonal-factors.csv",
+  tags: [],
+  uploader_sub: "analyst@example.com",
+  uploader_email: "analyst@example.com",
+  created_at: "2026-08-03T10:00:00Z",
+  updated_at: "2026-08-17T10:00:00Z",
+};
+
+function listing(resources: Resource[]) {
+  vi.mocked(useInfiniteResources).mockReturnValue({
+    data: { data: resources, total: resources.length },
+    isLoading: false,
+    hasNextPage: false,
+    isFetchingNextPage: false,
+    fetchNextPage: vi.fn(),
+  } as unknown as ReturnType<typeof useInfiniteResources>);
+}
+
+function atAddress(url: string) {
+  window.history.replaceState({}, "", url);
+}
+
+describe("opening a resource from the library", () => {
+  afterEach(() => atAddress("/"));
+
+  it("navigates to the resource's own address", () => {
+    listing([LISTED]);
+    const onNavigate = vi.fn();
+    render(<ResourcesPage onNavigate={onNavigate} />);
+    onNavigate.mockClear();
+
+    fireEvent.click(screen.getByText("Seasonal Factors"));
+    expect(onNavigate).toHaveBeenCalledWith("/resources/res-1");
+  });
+
+  // A filter typed and clicked through inside the 300ms debounce window has not
+  // reached the address bar yet. What is pinned is what is on screen.
+  it("pins a search still inside the debounce window", () => {
+    listing([LISTED]);
+    const onNavigate = vi.fn();
+    render(<ResourcesPage onNavigate={onNavigate} />);
+    fireEvent.change(screen.getByLabelText("Search resources"), { target: { value: "demand" } });
+    onNavigate.mockClear();
+
+    fireEvent.click(screen.getByText("Seasonal Factors"));
+    expect(onNavigate.mock.calls[0]).toEqual(["/resources?q=demand", { replace: true }]);
+  });
+
+  it("pins the view into the entry it leaves, so Back returns to this library", () => {
+    listing([LISTED]);
+    const onNavigate = vi.fn();
+    render(<ResourcesPage onNavigate={onNavigate} />);
+    selectTab("Global");
+    onNavigate.mockClear();
+
+    fireEvent.click(screen.getByText("Seasonal Factors"));
+    // The view is written over the entry being left before the resource is
+    // pushed onto a new one.
+    expect(onNavigate.mock.calls).toEqual([
+      ["/resources?tab=global", { replace: true }],
+      ["/resources/res-1"],
+    ]);
+  });
+
+  it("keeps the administrator inside their own section", () => {
+    listing([LISTED]);
+    const onNavigate = vi.fn();
+    render(<ResourcesPage admin onNavigate={onNavigate} />);
+    onNavigate.mockClear();
+
+    fireEvent.click(screen.getByText("Seasonal Factors"));
+    expect(onNavigate).toHaveBeenCalledWith("/admin/resources/res-1");
+  });
+});
+
+describe("the library's view lives in its address", () => {
+  afterEach(() => {
+    listing([]);
+    atAddress("/");
+  });
+
+  it("writes the scope tab into the address without pushing a history entry", () => {
+    listing([]);
+    const onNavigate = vi.fn();
+    render(<ResourcesPage onNavigate={onNavigate} />);
+    onNavigate.mockClear();
+
+    selectTab("Global");
+    expect(onNavigate).toHaveBeenCalledWith("/resources?tab=global", { replace: true });
+  });
+
+  it("leaves the plain library its plain address", () => {
+    listing([]);
+    const onNavigate = vi.fn();
+    render(<ResourcesPage onNavigate={onNavigate} />);
+    expect(onNavigate).toHaveBeenCalledWith("/resources", { replace: true });
+  });
+
+  it("opens on the scope and the filters its address names", () => {
+    listing([]);
+    atAddress("/resources?tab=global&q=demand&category=references");
+    render(<ResourcesPage onNavigate={vi.fn()} />);
+
+    expect(screen.getByRole("tab", { name: "Global" }).getAttribute("aria-selected")).toBe("true");
+    expect((screen.getByLabelText("Search resources") as HTMLInputElement).value).toBe("demand");
+    expect(useInfiniteResources).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "global", q: "demand", category: "references" }),
+    );
   });
 });

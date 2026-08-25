@@ -68,6 +68,7 @@ const KNOWN_PATTERNS: readonly RegExp[] = [
   /^\/collections\/[^/]+\/assets\/.+$/,
   /^\/knowledge\/pages\/.+$/,
   /^\/prompts\/.+$/,
+  /^\/resources\/[^/]+$/,
   /^\/scripts\/[^/]+$/,
   // One run of one script (#1405): the address the cross-script Runs listing
   // links to, which opens that run in its script's history. Both script shapes
@@ -77,6 +78,7 @@ const KNOWN_PATTERNS: readonly RegExp[] = [
   /^\/scripts\/[^/]+\/runs\/[^/]+$/,
   /^\/admin\/assets\/.+$/,
   /^\/admin\/collections\/.+$/,
+  /^\/admin\/resources\/[^/]+$/,
   /^\/admin\/sessions\/.+$/,
   /^\/admin\/calls\/.+$/,
   // The administrator's script section matches the same two shapes the

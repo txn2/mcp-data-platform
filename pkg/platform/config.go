@@ -9,12 +9,12 @@ import (
 	"net/http"
 	"os"
 	"reflect"
-	"regexp"
 	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/configenv"
 	"github.com/txn2/mcp-data-platform/internal/platform/datasetindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/dedup"
 	"github.com/txn2/mcp-data-platform/internal/platform/portalcfg"
@@ -1803,7 +1803,7 @@ func LoadConfigFromBytes(data []byte) (*Config, error) {
 // v1.
 func loadConfigWithRegistry(data []byte, reg *versionRegistry) (*Config, error) {
 	// Expand environment variables
-	expanded := []byte(expandEnvVars(string(data)))
+	expanded := []byte(configenv.Expand(string(data)))
 
 	// Peek at the version before full parse
 	version := peekVersion(expanded)
@@ -1844,22 +1844,6 @@ func loadConfigWithRegistry(data []byte, reg *versionRegistry) (*Config, error) 
 	applyDefaults(cfg)
 
 	return cfg, nil
-}
-
-// expandEnvVars expands ${VAR} and ${VAR:-default} patterns in the string.
-func expandEnvVars(s string) string {
-	re := regexp.MustCompile(`\$\{([^}]+)\}`)
-	return re.ReplaceAllStringFunc(s, func(match string) string {
-		expr := match[2 : len(match)-1]
-		// Support ${VAR:-default} syntax.
-		if varName, defaultVal, ok := strings.Cut(expr, ":-"); ok {
-			if val := os.Getenv(varName); val != "" {
-				return val
-			}
-			return defaultVal
-		}
-		return os.Getenv(expr)
-	})
 }
 
 // applyDefaults applies default values to the config.

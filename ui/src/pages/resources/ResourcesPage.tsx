@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   FileUp,
   Globe,
@@ -13,15 +14,15 @@ import { FilterSelect } from "@/components/patterns/FilterSelect";
 import { SearchInput } from "@/components/patterns/SearchInput";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { CATEGORIES } from "./modals/shared";
-import { ResourceModals, useResourceModals } from "./parts/ResourceModals";
+import { CATEGORIES } from "./shared";
+import { UploadModal } from "./modals/UploadModal";
 import { ResourceResults } from "./parts/ResourceResults";
 import { useResourceLibrary, type ResourceSort } from "./parts/useResourceLibrary";
-import { canWriteScope, libraryCopy, targetForTab } from "./scopes";
+import { adminReachNote, canWriteScope, libraryCopy, targetForTab } from "./scopes";
 
 interface Props {
   admin?: boolean;
-  onNavigate?: (path: string) => void;
+  onNavigate?: (path: string, opts?: { replace?: boolean }) => void;
 }
 
 const CATEGORY_OPTIONS = [
@@ -57,18 +58,28 @@ function scopeTabs(
   ];
 }
 
-export function ResourcesPage({ admin = false }: Props) {
+export function ResourcesPage({ admin = false, onNavigate }: Props) {
   const user = useAuthStore((s) => s.user);
   const userPersona = user?.persona;
   const { data: personaData } = usePersonas(admin);
   const personaNames = (personaData?.personas ?? []).map((p) => p.name);
 
+  // The section this library belongs to, which is both where its own address
+  // is written and where a resource opened from it lives.
+  const basePath = admin ? "/admin/resources" : "/resources";
+  // Which surface is asking. On the reader's own portal the platform-admin
+  // override does not apply, so Upload is offered on the libraries the caller
+  // themselves may add to and nowhere else; the note in its place says where
+  // an administrator exercises the rest of their authority.
+  const surface = admin ? "admin" : "portal";
+  const reachNote = adminReachNote(user, surface);
   const tabs = scopeTabs(admin, personaNames, userPersona);
   const library = useResourceLibrary(
     admin,
     tabs.map((t) => t.key),
+    { basePath, onNavigate },
   );
-  const modals = useResourceModals();
+  const [uploading, setUploading] = useState(false);
 
   return (
     <Tabs value={library.activeTab} onValueChange={library.setActiveTab} className="gap-4">
@@ -99,8 +110,8 @@ export function ResourcesPage({ admin = false }: Props) {
         // request. Where it is not offered, the note in its place says who
         // fills this library instead.
         const target = targetForTab(tab.key, user);
-        const writable = canWriteScope(user, target);
-        const source = libraryCopy(target).source;
+        const writable = canWriteScope(user, target, surface);
+        const source = [libraryCopy(target).source, reachNote].filter(Boolean).join(" ");
         return (
           <TabsContent key={tab.key} value={tab.key} className="space-y-4">
             <div className="flex flex-wrap items-center gap-3">
@@ -128,7 +139,7 @@ export function ResourcesPage({ admin = false }: Props) {
                 />
               )}
               {writable ? (
-                <Button onClick={() => modals.setUploading(true)}>
+                <Button onClick={() => setUploading(true)}>
                   <FileUp />
                   Upload
                 </Button>
@@ -145,8 +156,13 @@ export function ResourcesPage({ admin = false }: Props) {
               filtering={library.filtering}
               admin={admin}
               readOnlyNote={writable ? undefined : source}
-              onOpen={modals.setDetail}
-              onUpload={() => modals.setUploading(true)}
+              onOpen={(r) => {
+                // The entry being left has to carry the view, or Back returns
+                // to a plain library rather than to this one.
+                onNavigate?.(library.address, { replace: true });
+                onNavigate?.(`${basePath}/${r.id}`);
+              }}
+              onUpload={() => setUploading(true)}
             />
 
             <InfiniteFooter
@@ -164,12 +180,14 @@ export function ResourcesPage({ admin = false }: Props) {
         );
       })}
 
-      <ResourceModals
-        state={modals}
-        admin={admin}
-        personaNames={personaNames}
-        destination={targetForTab(library.activeTab, user)}
-      />
+      {uploading && (
+        <UploadModal
+          onClose={() => setUploading(false)}
+          admin={admin}
+          personaNames={personaNames}
+          destination={targetForTab(library.activeTab, user)}
+        />
+      )}
     </Tabs>
   );
 }

@@ -16,7 +16,7 @@ import {
 import { parseTags } from "@/lib/tags";
 import type { Resource, ResourceUpdate } from "@/api/resources/types";
 import { ModalShell } from "@/components/ModalShell";
-import { CATEGORIES } from "./shared";
+import { CATEGORIES } from "../shared";
 
 export function EditModal({ resource: r, onClose }: { resource: Resource; onClose: () => void }) {
   const update = useUpdateResource();

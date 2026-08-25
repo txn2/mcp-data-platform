@@ -14,6 +14,9 @@ import { isInSection } from "@/lib/portalRoutes";
 const ResourcesPage = lazy(() =>
   import("@/pages/resources/ResourcesPage").then((m) => ({ default: m.ResourcesPage })),
 );
+const ResourceViewerPage = lazy(() =>
+  import("@/pages/resources/ResourceViewerPage").then((m) => ({ default: m.ResourceViewerPage })),
+);
 const AdminAssetsPage = lazy(() =>
   import("@/pages/assets/AdminAssetsPage").then((m) => ({ default: m.AdminAssetsPage })),
 );
@@ -75,6 +78,9 @@ export interface AdminPagesProps {
   /** Asset id when the path addresses one, else undefined. */
   adminAssetId?: string;
   onNavigate: (path: string, opts?: { replace?: boolean }) => void;
+  /** The shell's way back from a detail page: the entry the reader came from,
+   * or the named section when this page was opened cold. */
+  onBack: (fallback: string) => void;
 }
 
 /**
@@ -137,12 +143,22 @@ export function AdminPages({
   initialTab,
   adminAssetId,
   onNavigate: navigate,
+  onBack,
 }: AdminPagesProps) {
   const ctx: PageContext = { currentPath, initialTab, navigate };
+  // One resource, in the section that carries authority over every uploader's.
+  const resourceViewMatch = route.match(/^\/admin\/resources\/([^/]+)$/);
   return (
     <>
       {EXACT_PAGES.get(route)?.(ctx)}
       {adminAssetId && <AdminAssetViewerPage assetId={adminAssetId} onNavigate={navigate} />}
+      {resourceViewMatch && (
+        <ResourceViewerPage
+          resourceId={resourceViewMatch[1]!}
+          admin
+          onBack={() => onBack("/admin/resources")}
+        />
+      )}
       {/* The three sections that own a subtree and match inside it. Guarded
           here so mounting one does not fetch the other two (#1351). */}
       {isInSection(route, "/admin/collections") && (

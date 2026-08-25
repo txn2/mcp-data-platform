@@ -11,12 +11,19 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // this dir only holds Playwright's own traces/attachments and is gitignored.
 const outputDir = path.resolve(__dirname, "../../test-results/screenshots");
 
+// The port the MSW dev server is served on. Overridable because
+// `reuseExistingServer` below cannot tell an MSW server from any other Vite on
+// the same port: `make dev` runs one without VITE_MSW, and the capture run then
+// drives the live backend and fails at sign-in. Set E2E_PORT to capture beside
+// a dev stack.
+const PORT = Number(process.env["E2E_PORT"] ?? 5173);
+
 export default defineConfig({
   testDir: ".",
   testMatch: "screenshot.spec.ts",
   timeout: 300_000,
   use: {
-    baseURL: "http://localhost:5173",
+    baseURL: `http://localhost:${PORT}`,
     viewport: { width: 1440, height: 900 },
     reducedMotion: "reduce",
     colorScheme: "light",
@@ -25,8 +32,8 @@ export default defineConfig({
   retries: 0,
   reporter: [["list"]],
   webServer: {
-    command: "VITE_MSW=true pnpm dev --port 5173",
-    port: 5173,
+    command: `VITE_MSW=true npm run dev -- --port ${PORT}`,
+    port: PORT,
     reuseExistingServer: true,
     timeout: 30_000,
   },

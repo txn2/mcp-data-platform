@@ -18,7 +18,7 @@ import { formatBytes } from "@/lib/format";
 import { parseTags } from "@/lib/tags";
 import { RESOURCE_POSITIONING } from "@/lib/positioning";
 import { ModalShell } from "@/components/ModalShell";
-import { CATEGORIES, CATEGORY_HINTS } from "./shared";
+import { CATEGORIES, CATEGORY_HINTS } from "../shared";
 import { UploadTargets } from "./UploadTargets";
 import { libraryCopy, type ScopeTarget } from "../scopes";
 

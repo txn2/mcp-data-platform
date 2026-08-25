@@ -10,7 +10,7 @@ import { isThumbnailSupported, thumbnailBehind, THUMBNAIL_SOURCE_LIMIT } from "@
 import { isEditableContent } from "@/components/renderers/registry";
 import { type AssetViewerProps, type ViewMode } from "./assetviewer/types";
 import { ThumbnailGeneratorWithInvalidation } from "./assetviewer/ThumbnailGeneratorWithInvalidation";
-import { AssetViewerToolbar } from "./assetviewer/AssetViewerToolbar";
+import { AssetViewerActions } from "./assetviewer/AssetViewerActions";
 import { AssetContentView } from "./assetviewer/AssetContentView";
 import { AssetMetadataSidebar } from "./assetviewer/AssetMetadataSidebar";
 import {
@@ -20,6 +20,7 @@ import {
   type RetentionMode,
 } from "./assetviewer/AssetRetentionField";
 import { AssetViewerModals } from "./assetviewer/AssetViewerModals";
+import { ViewerLayout } from "./viewer/ViewerLayout";
 
 export type { AssetViewerProps } from "./assetviewer/types";
 
@@ -48,7 +49,6 @@ export function AssetViewer({
   versionContentLoading,
 }: AssetViewerProps) {
   const [shareOpen, setShareOpen] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState("");
   const [editDesc, setEditDesc] = useState("");
@@ -242,24 +242,51 @@ export function AssetViewer({
   }
 
   return (
-    <div className="flex gap-4 h-full">
-      {/* Content area */}
-      <div className="flex-1 min-w-0 space-y-3">
-        <AssetViewerToolbar
-          asset={asset}
-          onBack={onBack}
-          toolbarExtra={toolbarExtra}
-          isOwner={isOwner}
-          sharePermission={sharePermission}
-          copyMutation={copyMutation}
-          onDelete={() => setDeleteModalOpen(true)}
-          onDownload={handleDownload}
-          onCopyToMyAssets={handleCopyToMyAssets}
-          onShare={() => setShareOpen(true)}
-          sidebarOpen={sidebarOpen}
-          onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
-        />
-
+    <>
+      <ViewerLayout
+        onBack={onBack}
+        title={asset.name}
+        actions={
+          <AssetViewerActions
+            toolbarExtra={toolbarExtra}
+            isOwner={isOwner}
+            sharePermission={sharePermission}
+            copyMutation={copyMutation}
+            onDelete={() => setDeleteModalOpen(true)}
+            onDownload={handleDownload}
+            onCopyToMyAssets={handleCopyToMyAssets}
+            onShare={() => setShareOpen(true)}
+          />
+        }
+        sidebar={
+          <AssetMetadataSidebar
+            asset={asset}
+            editing={editing}
+            editName={editName}
+            editDesc={editDesc}
+            editTags={editTags}
+            editRetentionMode={editRetentionMode}
+            editRetentionCustom={editRetentionCustom}
+            canSetRetention={isOwner}
+            onEditNameChange={setEditName}
+            onEditDescChange={setEditDesc}
+            onEditTagsChange={setEditTags}
+            onEditRetentionModeChange={setEditRetentionMode}
+            onEditRetentionCustomChange={setEditRetentionCustom}
+            onStartEdit={startEdit}
+            onSaveEdit={saveEdit}
+            onCancelEdit={() => setEditing(false)}
+            updateMutation={updateMutation}
+            isOwner={isOwner}
+            isSharedEditor={isSharedEditor}
+            detailRows={detailRows}
+            sessionPath={sessionPath}
+            onNavigate={onNavigate}
+            versions={versions}
+            versionsLoading={versionsLoading}
+          />
+        }
+      >
         <KnowledgeBacklinks urn={`mcp:asset:${asset.id}`} onNavigate={onNavigate} />
 
         <AssetContentView
@@ -286,37 +313,7 @@ export function AssetViewer({
           editedContent={editedContent}
           onSourceChange={(v) => { setEditedContent(v); setDirty(true); }}
         />
-      </div>
-
-      {/* Metadata sidebar */}
-      {sidebarOpen && (
-        <AssetMetadataSidebar
-          asset={asset}
-          editing={editing}
-          editName={editName}
-          editDesc={editDesc}
-          editTags={editTags}
-          editRetentionMode={editRetentionMode}
-          editRetentionCustom={editRetentionCustom}
-          canSetRetention={isOwner}
-          onEditNameChange={setEditName}
-          onEditDescChange={setEditDesc}
-          onEditTagsChange={setEditTags}
-          onEditRetentionModeChange={setEditRetentionMode}
-          onEditRetentionCustomChange={setEditRetentionCustom}
-          onStartEdit={startEdit}
-          onSaveEdit={saveEdit}
-          onCancelEdit={() => setEditing(false)}
-          updateMutation={updateMutation}
-          isOwner={isOwner}
-          isSharedEditor={isSharedEditor}
-          detailRows={detailRows}
-          sessionPath={sessionPath}
-          onNavigate={onNavigate}
-          versions={versions}
-          versionsLoading={versionsLoading}
-        />
-      )}
+      </ViewerLayout>
 
       {/* Remounted per version so a save, or a rewrite arriving on a refetch,
           captures again rather than reusing the mounted capturer. The version
@@ -357,6 +354,6 @@ export function AssetViewer({
         onConfirmRevert={handleConfirmRevert}
         revertMutation={revertMutation}
       />
-    </div>
+    </>
   );
 }

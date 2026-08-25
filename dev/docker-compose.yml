@@ -122,7 +122,21 @@ services:
   seaweedfs:
     image: chrislusf/seaweedfs:3.88@sha256:98e034880fed76fdf508b20cae9de57b0e1f93f5910c89a94fe936af91c59abe
     container_name: acme-dev-seaweedfs
-    command: 'server -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json -dir=/data -volume.max=5'
+    # -volume.max is a count of volumes, not a size, and 5 was a hard ceiling
+    # the seed reached: assets, resources and thumbnails all land in one
+    # collection, and once five volumes existed every further write asked the
+    # master to grow a sixth, got "Not enough data nodes found", and retried
+    # until the caller's deadline. What that looked like from the portal was an
+    # upload hanging for thirty seconds and then failing, and it was reached by
+    # simply running the dev stack for a while.
+    #
+    # 50 volumes at a 128 MB limit bounds the stack at ~6 GB rather than the
+    # ~50 GB the default 1 GB limit would allow, and small volumes are the
+    # right shape here: dev objects are kilobytes, and a volume is only ever a
+    # container for them.
+    command: >
+      server -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json -dir=/data
+      -volume.max=50 -master.volumeSizeLimitMB=128
     ports:
       # Loopback only, matching the other dev services (see postgres above).
       - "127.0.0.1:${DEV_S3_PORT:-9000}:8333"

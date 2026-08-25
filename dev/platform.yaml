@@ -282,6 +282,38 @@ toolkits:
         schema: "public"
         ssl: ${TRINO_SSL:-false}
         description: "ACME staging Trino — pre-production data validation"
+      # The connection a table registration writes through (#1327), separate
+      # from the two above because it needs two things they must not have.
+      #
+      # A `scratch` target says WHERE a registration writes; it grants nothing.
+      # The statement that creates the table is write SQL, so a connection also
+      # has to accept writes, and the two read-only connections above never
+      # will. Putting the target on one of them produced a picker that offered
+      # the connection and a 500 the moment it was chosen -- which is what the
+      # portal reported as "the registration could not be completed".
+      #
+      # read_only is false here and only here. What keeps a registration off
+      # the warehouse is not this flag but the Trino identity the connection
+      # authenticates as: point TRINO_SCRATCH_USER at a principal that can
+      # write the scratch schema and nothing else.
+      acme-scratch:
+        host: "${TRINO_HOST:-localhost}"
+        port: ${TRINO_PORT:-8080}
+        # One placeholder, not a placeholder defaulting to another one:
+        # expansion is a single regex with no nesting, so an inner default
+        # survives verbatim and lands in the DSN as a literal username. A
+        # distinct scratch identity is a production concern (see
+        # docs/server/registered-tables.md); dev reuses the one user it has.
+        user: "${TRINO_USER:-}"
+        password: "${TRINO_PASSWORD:-}"
+        catalog: "${TRINO_SCRATCH_CATALOG:-scratch}"
+        schema: "${TRINO_SCRATCH_SCHEMA:-uploads}"
+        ssl: ${TRINO_SSL:-false}
+        read_only: false
+        description: "ACME scratch — registered tables over uploaded files"
+        scratch:
+          catalog: "${TRINO_SCRATCH_CATALOG:-scratch}"
+          schema: "${TRINO_SCRATCH_SCHEMA:-uploads}"
     default: acme
     config:
       default_limit: 1000
@@ -317,7 +349,14 @@ toolkits:
         region: "us-east-1"
         access_key_id: "dev-access-key"
         secret_access_key: "dev-secret-key"
-        force_path_style: true
+        # use_path_style, not force_path_style: the latter is what the AWS SDKs
+        # and MinIO call it, and it is what this said for a long time -- but
+        # nothing reads it. toolkitcfg.S3Config reads "use_path_style", and an
+        # unrecognized key in an instance block is silently ignored, so the
+        # setting was simply absent and every write addressed the bucket as a
+        # virtual host: http://portal-assets.localhost:29000/... , which
+        # resolves to ::1, which SeaweedFS (bound to 127.0.0.1) refuses.
+        use_path_style: true
         description: "Local SeaweedFS for portal assets and dev content"
 
   # mcp gateway: connections live in the database (added/edited via the

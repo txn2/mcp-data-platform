@@ -374,8 +374,8 @@ Features:
 
 - **Scope tabs** — All Resources, Global, and per-persona tabs (admin, data-engineer, finance-executive, etc.)
 - **Search and filter** — Text search and category dropdown
-- **Upload** button — Upload new resources scoped to any persona
-- **Resource table** — Name, scope badge, category, MIME type, tags, file size, uploader email, and last updated date
+- **Upload** button — Upload new resources scoped to any persona, to a named user, or to the global library. This is the only surface that offers it: a platform administrator reading their own [Resources](portal-user.md#resources) page is offered Upload on their own library alone.
+- **Resource table** — Name, scope badge, category, MIME type, tags, file size, uploader email, and last updated date. Clicking a row opens that resource at `/admin/resources/{id}`, the same page the reader's section serves at `/resources/{id}` — content at the page's width, everything else in a sidebar beside it. See [Resources](portal-user.md#resources).
 
 ## Prompts (Admin)
 

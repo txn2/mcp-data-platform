@@ -56,7 +56,12 @@ services:
   seaweedfs:
     image: chrislusf/seaweedfs:latest
     container_name: e2e-seaweedfs
-    command: 'server -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json -dir=/data -volume.max=5'
+    # The same ceiling the dev stack hit: five volumes, after which every write
+    # that needs a new one fails with "Not enough data nodes found" and retries
+    # until the caller's deadline. See dev/docker-compose.yml.
+    command: >
+      server -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json -dir=/data
+      -volume.max=50 -master.volumeSizeLimitMB=128
     ports:
       - "9000:8333"   # S3 API (mapped to 9000 for compatibility with existing config)
       - "9333:9333"   # Master

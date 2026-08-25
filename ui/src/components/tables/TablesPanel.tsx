@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/select";
 
 // TablesPanel is the register / unregister surface for a stored file, shared
-// by the managed-resource detail modal and the asset viewer (#1327). One panel
+// by the managed-resource viewer and the asset viewer (#1327). One panel
 // serves both because the action is the same on either: point a query engine
 // at the file where it already sits, without copying it anywhere.
 //

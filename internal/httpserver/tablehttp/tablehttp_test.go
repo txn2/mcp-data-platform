@@ -26,6 +26,11 @@ type fakeTrino struct {
 	statements []string
 	err        error
 	hasTarget  bool
+	// readOnly makes the connection refuse write SQL. It is separate from err
+	// because the two are different answers: a connection that will not accept
+	// a table is a request the caller can act on, and a statement that failed
+	// is not.
+	readOnly bool
 }
 
 func (f *fakeTrino) Exec(_ context.Context, _, sql string) error {
@@ -36,6 +41,11 @@ func (f *fakeTrino) Exec(_ context.Context, _, sql string) error {
 func (f *fakeTrino) ScratchTarget(string) (trinotoolkit.ScratchConfig, bool) {
 	return trinotoolkit.ScratchConfig{Catalog: "scratch", Schema: "uploads"}, f.hasTarget
 }
+
+// These routes are usually reached with a connection the picker already
+// offered, which it only does for one that accepts writes. readOnly is the
+// caller who named one directly.
+func (f *fakeTrino) AcceptsWrites(string) bool { return !f.readOnly }
 
 type fakeObjects struct {
 	body    []byte
@@ -386,6 +396,24 @@ func TestRegisterRoute_NoScratchTarget(t *testing.T) {
 	w := h.do(http.MethodPost, "/api/v1/portal/assets/asset_1/tables", `{"connection":"warehouse"}`)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "scratch catalog")
+}
+
+// A connection that will not accept a table is the caller's answer to read, not
+// a platform outage. It used to arrive from the Trino interceptor as an
+// unclassified error, so the surface answered 500 with the fixed prose "the
+// registration could not be completed" -- which says neither which connection
+// nor why, and reads as the platform being broken rather than as a connection
+// working exactly as configured.
+func TestRegisterRoute_ReadOnlyConnectionIsARefusalNotAFailure(t *testing.T) {
+	h := newHarness(t, func(h *harness) { h.trino.readOnly = true })
+
+	w := h.do(http.MethodPost, "/api/v1/portal/assets/asset_1/tables", `{"connection":"warehouse"}`)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	body := w.Body.String()
+	assert.Contains(t, body, "read-only", "the caller is not told why")
+	assert.NotContains(t, body, "could not be completed",
+		"a configuration fact was reported as a platform failure")
 }
 
 // TestRegisterRoute_PlatformFailureIsNotAConflict pins the separation: a store

@@ -323,7 +323,11 @@ func (h *Handler) handleGetVersionContent(w http.ResponseWriter, r *http.Request
 	body, contentType, err := h.deps.S3Client.GetObject(r.Context(), h.deps.S3Bucket, v.S3Key)
 	if err != nil {
 		slog.Error("resource version content: s3 get failed", msgError, err) //nolint:gosec // structured slog
-		writeError(w, http.StatusInternalServerError, "retrieving content")
+		if IsObjectNotFound(err) {
+			writeError(w, http.StatusNotFound, msgContentMissing)
+			return
+		}
+		writeError(w, http.StatusInternalServerError, msgContentUnavailable)
 		return
 	}
 

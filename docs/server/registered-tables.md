@@ -60,6 +60,21 @@ surfaces do not offer one on it. Both keys are required: a block naming only
 one is ignored with a warning, because a registration built on it would fail at
 the DDL.
 
+`read_only: false` on the scratch connection is not decoration either. A
+scratch target says *where* a registration writes; it grants nothing. The
+statement that creates the table is write SQL, so a `read_only: true`
+connection refuses it however its target is configured — and such a connection
+is not offered, for the same reason one with no target is not. Naming it
+directly anyway — through `manage_table`, or a form built before an
+administrator flipped the flag — is refused with **400** and the sentence
+*"this connection is read-only, so a table cannot be created on it; ask an
+administrator for a connection that accepts writes"*, the same class of answer
+as a connection with no scratch target. It is not a 500: the connection is
+working exactly as configured, and reporting a configuration fact as a platform
+outage told the person neither which connection nor why. What keeps a
+registration off the warehouse is not this flag but the Trino identity the
+connection authenticates as.
+
 The catalog itself is a Hive connector over the same object store the
 platform's managed resources and portal assets live in. A file metastore is
 enough:

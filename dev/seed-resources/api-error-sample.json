@@ -1,0 +1,13 @@
+{
+  "type": "https://acme.example.com/problems/inventory-unavailable",
+  "title": "Inventory position unavailable",
+  "status": 503,
+  "detail": "The inventory position service did not answer within 5s. The figures below are the last ones known and are stale.",
+  "instance": "/api/v1/inventory/position?store=W-1042",
+  "as_of": "2026-08-19T04:15:00Z",
+  "stale": true,
+  "positions": [
+    { "sku": "SKU-88120", "on_hand": 412, "weeks_of_supply": 3.1 },
+    { "sku": "SKU-88121", "on_hand": 87, "weeks_of_supply": 1.4 }
+  ]
+}

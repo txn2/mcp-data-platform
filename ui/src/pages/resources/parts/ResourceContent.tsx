@@ -9,18 +9,23 @@ import { formatBytes } from "@/lib/format";
 import type { Resource } from "@/api/resources/types";
 
 /**
- * Inline preview of a managed resource, through the shared renderer registry.
+ * A managed resource's content, at the width of the page it opens on.
  *
- * Resources are view-only here: uploads are replaced through the existing edit
- * flow, which keeps the deny-list validation on the server side of every write.
- * The preview exists so someone can confirm what a resource holds without
- * downloading it first, which is the whole reason the detail view is open.
+ * It renders through the shared renderer registry -- the same one the asset
+ * viewer uses -- and, like the asset viewer's content region, sets no height of
+ * its own: the portal's page area is the scroll region, so a wide CSV scrolls
+ * horizontally inside its own table and the page scrolls vertically once. In
+ * the dialog this replaced, the same renderer drew a 512-pixel-wide table
+ * inside a box half the viewport tall inside a scrolling column (#1470).
+ *
+ * Resources are view-only here: content is replaced through the version panel,
+ * which keeps the deny-list validation on the server side of every write.
  *
  * Content is fetched through the resources API client rather than by pointing
  * an element at the endpoint, because that is the one path that carries the
  * session's credential regardless of whether it is a cookie or an API key.
  */
-export function ResourcePreview({ resource }: { resource: Resource }) {
+export function ResourceContent({ resource }: { resource: Resource }) {
   const entry = resolveRenderer({ contentType: resource.mime_type, fileName: resource.filename });
   const tooLarge = exceedsInlineLimit(resource.mime_type, resource.size_bytes, resource.filename);
 
@@ -70,37 +75,33 @@ export function ResourcePreview({ resource }: { resource: Resource }) {
 
   if (tooLarge) {
     return (
-      <PreviewFrame>
-        <div className="flex flex-col items-center gap-2 py-8 text-center text-sm text-muted-foreground">
-          <FileWarning aria-hidden className="size-8" />
-          <p>
-            This resource is {formatBytes(resource.size_bytes)}, past the inline preview limit. Download it to view.
-          </p>
-        </div>
-      </PreviewFrame>
+      <div
+        data-testid="resource-content-too-large"
+        className="flex flex-col items-center gap-2 rounded-md border py-12 text-center text-sm text-muted-foreground"
+      >
+        <FileWarning aria-hidden className="size-8" />
+        <p>
+          This resource is {formatBytes(resource.size_bytes)}, past the inline preview limit.
+          Download it to view.
+        </p>
+      </div>
     );
   }
 
   if (loading) {
-    return (
-      <PreviewFrame>
-        <LoadingIndicator />
-      </PreviewFrame>
-    );
+    return <LoadingIndicator />;
   }
 
   if (error) {
     return (
-      <PreviewFrame>
-        <Alert variant="destructive">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      </PreviewFrame>
+      <Alert variant="destructive">
+        <AlertDescription>{error}</AlertDescription>
+      </Alert>
     );
   }
 
   return (
-    <PreviewFrame>
+    <div data-testid="resource-content">
       <ContentRenderer
         contentType={resource.mime_type}
         content={text}
@@ -108,15 +109,6 @@ export function ResourcePreview({ resource }: { resource: Resource }) {
         contentUrl={objectUrl || `${BASE_URL}/${resource.id}/content`}
         sizeBytes={resource.size_bytes}
       />
-    </PreviewFrame>
-  );
-}
-
-function PreviewFrame({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="space-y-1">
-      <span className="text-xs font-medium text-muted-foreground">Preview</span>
-      <div className="max-h-[50vh] overflow-auto rounded-md border bg-muted p-2">{children}</div>
     </div>
   );
 }
