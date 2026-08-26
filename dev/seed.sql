@@ -1833,7 +1833,17 @@ ON CONFLICT (id) DO NOTHING;
 -- the roles its author held, which are the roles a run of it presents.
 -- ============================================================================
 
-DELETE FROM script_runs      WHERE id LIKE 'dpx_seed_%';
+-- Every run of a fixture script goes, not only the runs this file wrote
+-- (#1495). The dev stack runs a worker, so a seeded schedule fires and writes a
+-- run under a platform-generated id; keyed on the seed's own id prefix, the
+-- delete left that run behind and its schedule_id reference then refused the
+-- schedule delete below, failing the whole seed on any stack left up long
+-- enough to fire one.
+DELETE FROM script_runs      WHERE id LIKE 'dpx_seed_%'
+                                OR script_id IN (
+  'e1e1e1e1-0000-4000-8000-000000000001',
+  'e1e1e1e1-0000-4000-8000-000000000002',
+  'e1e1e1e1-0000-4000-8000-000000000003');
 DELETE FROM script_schedules WHERE script_id IN (
   'e1e1e1e1-0000-4000-8000-000000000001',
   'e1e1e1e1-0000-4000-8000-000000000002',

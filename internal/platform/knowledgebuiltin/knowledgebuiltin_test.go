@@ -40,6 +40,13 @@ func TestPages_ShippedSetIsWellFormed(t *testing.T) {
 		assert.NotContainsf(t, p.Body, dialectPlaceholder, "%s: unsubstituted placeholder", p.Slug)
 		assert.Falsef(t, strings.HasPrefix(p.Body, "# "), "%s: body still starts with the H1 the title owns", p.Slug)
 		assert.LessOrEqualf(t, len(p.Body), maxBuiltinBodyBytes, "%s: body exceeds the edit-surface bound", p.Slug)
+		// Every page states its mechanism as a graph as well as in prose: an
+		// agent reading the page through fetch gets the fence as a labeled
+		// graph rather than a paragraph it has to build one from, and the
+		// portal renders it. That the diagrams parse is checked by the
+		// renderer's own parser in ui/src/components/renderers/
+		// builtinKnowledgeDiagrams.test.ts, which is where mermaid lives.
+		assert.Containsf(t, p.Body, "```mermaid", "%s: no diagram", p.Slug)
 	}
 }
 
@@ -188,19 +195,19 @@ func TestKnowledgePages_HelpAndTheShippedSetAgree(t *testing.T) {
 	assert.ElementsMatch(t, shipped, named)
 }
 
-// The instruction baseline's scripts bullet names pages by slug, which only
-// resolves while those slugs are shipped. Every slug it names has to be one of
-// this package's, so a rename here cannot leave the baseline pointing at
-// nothing.
-func TestScriptsBullet_NamesOnlyShippedSlugs(t *testing.T) {
+// The instruction baseline names pages by slug — the scripts bullet and the
+// references bullet both do — which only resolves while those slugs are
+// shipped. Every slug it names has to be one of this package's, so a rename
+// here cannot leave the baseline pointing at nothing.
+func TestBaseline_NamesOnlyShippedSlugs(t *testing.T) {
 	shipped := map[string]bool{}
 	for _, m := range pageMetas {
 		shipped[m.slug] = true
 	}
 
-	baseline := instructions.Build([]string{"manage_script", "fetch"})
+	baseline := instructions.Build([]string{"manage_script", "save_asset", "fetch"})
 	named := regexp.MustCompile(`mcp:knowledge_page:([a-z0-9-]+)`).FindAllStringSubmatch(baseline, -1)
-	require.NotEmpty(t, named, "the scripts bullet names no page at all")
+	require.NotEmpty(t, named, "the baseline names no page at all")
 	for _, m := range named {
 		assert.Truef(t, shipped[m[1]], "the baseline names %q, which this release does not ship", m[1])
 	}

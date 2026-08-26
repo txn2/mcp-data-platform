@@ -20,6 +20,13 @@ function StoreComparison() {
 
   return (
     <div style={{ fontFamily: "-apple-system, sans-serif", padding: 24, background: "#f8fafc", minHeight: "100%" }}>
+      <img
+        src="mcp://global/brand/acme-logo.svg"
+        alt="ACME"
+        width={160}
+        height={40}
+        style={{ display: "block", marginBottom: 12 }}
+      />
       <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 4 }}>Store Performance Comparison</h2>
       <p style={{ fontSize: 13, color: "#64748b", marginBottom: 20 }}>Top 10 stores — Week ending Mar 28, 2026</p>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>

@@ -352,6 +352,13 @@ var KnowledgePages = []KnowledgePage{
 			"second.",
 	},
 	{
+		Slug:      "platform-asset-references-and-the-refresh-loop",
+		Reference: knowledgePageRefPrefix + "platform-asset-references-and-the-refresh-loop",
+		Summary: "How a document names a file instead of carrying it, and how a run refreshes " +
+			"that file so every document naming it shows the new content without being " +
+			"re-saved.",
+	},
+	{
 		Slug:      "platform-provenance-and-the-capture-loop",
 		Reference: knowledgePageRefPrefix + "platform-provenance-and-the-capture-loop",
 		Summary: "Naming sources with call references so an output's provenance is exact, and " +

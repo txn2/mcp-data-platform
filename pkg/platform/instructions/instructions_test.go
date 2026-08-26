@@ -364,6 +364,37 @@ func TestBuild_ScriptsBulletNamesTheAuthoringPages(t *testing.T) {
 	}
 }
 
+// The references bullet is the only thing that reaches an agent composing a
+// document: the decision to name a file rather than embed it is made while the
+// markup is being written, before any tool call the schema could inform.
+func TestBuild_ReferencesBulletNamesThePage(t *testing.T) {
+	got := Build([]string{toolSaveAsset, toolFetch})
+	for _, want := range []string{
+		"`references`",
+		"`save_asset`",
+		"mcp:knowledge_page:platform-asset-references-and-the-refresh-loop",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("references bullet does not name %q: %q", want, got)
+		}
+	}
+
+	// Named only for a caller that can save an asset at all.
+	if other := Build([]string{toolSearch, toolFetch}); strings.Contains(other, "do not carry it") {
+		t.Errorf("references bullet reached a caller without save_asset: %q", other)
+	}
+
+	// Like the reuse and scripts bullets, it names fetch only when reachable
+	// and names the page either way.
+	noFetch := Build([]string{toolSaveAsset})
+	if strings.Contains(noFetch, "`fetch`") {
+		t.Errorf("references bullet named fetch for a caller without it: %q", noFetch)
+	}
+	if !strings.Contains(noFetch, "mcp:knowledge_page:platform-asset-references-and-the-refresh-loop") {
+		t.Errorf("references bullet dropped the page when fetch is denied: %q", noFetch)
+	}
+}
+
 // Like the reuse bullet, the scripts bullet names `fetch` as the way to read a
 // page only when the caller can reach it, and names the pages either way.
 func TestBuild_ScriptsBulletNamesFetchOnlyWhenAccessible(t *testing.T) {

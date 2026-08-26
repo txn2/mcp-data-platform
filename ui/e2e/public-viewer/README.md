@@ -40,6 +40,9 @@ PUBLIC_VIEWER_BASE_URL=http://localhost:28080 npm run test:public-viewer
 - Network egress to esm.sh: the JSX case resolves react, react-dom and the
   charting libraries through the artifact frame's import map, exactly as a
   shared JSX asset does in production.
+- The asset reference `dev/seed-asset-refs.sh` declares: the seeded HTML and
+  JSX assets name the global brand mark by its `mcp://` URI instead of carrying
+  it, and the reference cases assert it renders.
 
 ## What it asserts
 
@@ -52,3 +55,9 @@ not covered here: the dev seed has no public share for one. They are what
 runtime eval, then prove it by rendering an artifact that tries both — in a
 `blob:` frame created inside the live page, so it runs under the same inherited
 policy a stored asset does.
+
+The reference cases cover the other direction, what an artifact must be ABLE to
+load: an HTML and a JSX share each render a referenced image through
+`/portal/refs/`, and a JSX artifact is shown to reach that route and no other
+path on the platform origin. A JSX artifact carries a policy of its own on top
+of the inherited one, which is the half a header assertion cannot check.

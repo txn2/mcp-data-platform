@@ -9,6 +9,15 @@ examples you can copy.
 
 ## The loop
 
+```mermaid
+flowchart LR
+  C["create / update<br/>parsed on save"] --> V["validate<br/>reports what it would reach<br/>executes nothing"]
+  V --> D["run_draft<br/>executes as YOU<br/>persists nothing"]
+  D -- "edit and send source again" --> V
+  D --> S["save the version"]
+  S --> R["run_script or a schedule<br/>runs as script:name<br/>with your roles at the save"]
+```
+
 1. `manage_script command=create` (or `update`) stores the source. It is parsed
    on save, so code that cannot run is refused at the keyboard.
 2. `command=validate` parses the source and reports the capabilities,

@@ -1,19 +1,69 @@
 import { useEffect, useMemo } from "react";
 import { transform } from "sucrase";
 
-// The artifact frame's own policy. It carries no 'unsafe-eval': Sucrase
-// transforms the JSX here in the parent and the frame runs the result as a
-// module, so nothing in this pipeline evaluates source at runtime. The public
-// viewer's page policy denies eval too, which is what keeps a shared artifact
-// rendering the same way it renders in this preview.
-const CSP = [
-  "default-src 'none'",
-  "script-src 'unsafe-inline' https://esm.sh https://fonts.googleapis.com https://fonts.gstatic.com",
-  "style-src 'unsafe-inline' https://fonts.googleapis.com",
-  "img-src data: blob:",
-  "font-src data: https://fonts.gstatic.com",
-  "connect-src https://esm.sh https://fonts.googleapis.com https://fonts.gstatic.com",
-].join("; ");
+// The one platform path an artifact may reach: the route a declared reference
+// is rewritten to (assetrefs.PathPrefix on the Go side). An asset that names a
+// managed resource or another asset has that URI rewritten into an absolute
+// URL under this prefix by every viewing surface, so a frame that cannot load
+// the prefix renders a declared logo as a broken image and a declared data
+// file not at all.
+const REF_PATH_PREFIX = "/portal/refs/";
+
+/**
+ * The reference route as a CSP source expression, or "" where there is no
+ * origin to build one from.
+ *
+ * It is the viewer's OWN origin plus the path, never a bare origin and never an
+ * origin read out of the content. A trailing "/" makes it a path-prefix source,
+ * so the frame reaches the reference route and no other path on the platform:
+ * not the portal API, not the admin API. Reading the origin from the content
+ * would let an artifact name any host it liked and be granted it.
+ */
+export function refSource(origin: string): string {
+  if (!origin || origin === "null") return "";
+  return origin.replace(/\/+$/, "") + REF_PATH_PREFIX;
+}
+
+/**
+ * The artifact frame's own policy. It carries no 'unsafe-eval': Sucrase
+ * transforms the JSX here in the parent and the frame runs the result as a
+ * module, so nothing in this pipeline evaluates source at runtime. The public
+ * viewer's page policy denies eval too, which is what keeps a shared artifact
+ * rendering the same way it renders in this preview.
+ *
+ * `img-src` and `connect-src` carry the reference route because that is how a
+ * JSX dashboard shows a referenced logo and loads a referenced CSV or JSON at
+ * render time. A deployment whose portal.public_base_url names a DIFFERENT
+ * host than the one the viewer is browsing is the one shape this does not
+ * cover: the rewritten URL is then cross-origin to the page and outside this
+ * source. That configuration already splits a share page from its own links,
+ * so the reference route follows the page rather than guessing a second host.
+ */
+export function buildCSP(origin: string): string {
+  const ref = refSource(origin);
+  const img = ["data:", "blob:", ref].filter(Boolean).join(" ");
+  const connect = [
+    "https://esm.sh",
+    "https://fonts.googleapis.com",
+    "https://fonts.gstatic.com",
+    ref,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return [
+    "default-src 'none'",
+    "script-src 'unsafe-inline' https://esm.sh https://fonts.googleapis.com https://fonts.gstatic.com",
+    "style-src 'unsafe-inline' https://fonts.googleapis.com",
+    `img-src ${img}`,
+    "font-src data: https://fonts.gstatic.com",
+    `connect-src ${connect}`,
+  ].join("; ");
+}
+
+/** The origin the viewer itself was served from, "" outside a browser. */
+function viewerOrigin(): string {
+  return typeof window === "undefined" ? "" : window.location.origin;
+}
 
 /**
  * Bare-specifier → absolute URL map. Used in the import map inside the
@@ -139,7 +189,7 @@ export function buildJsxIframeHtml(content: string): string {
 <html>
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="${CSP}">
+  <meta http-equiv="Content-Security-Policy" content="${buildCSP(viewerOrigin())}">
   <script type="importmap">${IMPORT_MAP}</script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -172,7 +222,7 @@ ${transformed}
 <html>
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="${CSP}">
+  <meta http-equiv="Content-Security-Policy" content="${buildCSP(viewerOrigin())}">
   <script type="importmap">${IMPORT_MAP}</script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }

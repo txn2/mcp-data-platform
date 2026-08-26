@@ -46,6 +46,13 @@ seed() {
     -F "file=@$CONTENT_DIR/$file" \
     -F "scope=$scope" -F "scope_id=$scope_id" \
     -F "category=$category" -F "display_name=$name" -F "description=$desc")
+  # 409 is the file already being in that scope under that name, which the
+  # already_seeded probe misses whenever the listing it reads is paged past the
+  # row. It is the same no-op as the probe hitting, and treating it as a
+  # storage failure aborted the whole run and skipped every seed after it.
+  if [ "$status" = "409" ]; then
+    return 0
+  fi
   if [ "$status" != "200" ] && [ "$status" != "201" ]; then
     echo "  seed-resources: $scope/$scope_id \"$name\" failed (HTTP $status)" >&2
     # A storage backend that cannot take a write fails every one of these the
@@ -76,6 +83,12 @@ seed persona admin templates "Weekly Inventory Review" \
 seed persona data-engineer samples "Inventory API Error Sample" \
   "A stale-data problem response from the inventory position service." \
   api-error-sample.json
+
+# The brand mark two seeded assets REFERENCE rather than embed (#1474), which
+# is what dev/seed-asset-refs.sh declares and the public-viewer suite renders.
+seed global "" brand "ACME Brand Mark" \
+  "The mark a report names instead of carrying, as an asset reference." \
+  acme-logo.svg
 
 # Global, alongside the 130 generated rows -- these are the ones that open.
 seed global "" references "Metric Definitions (Global)" \
