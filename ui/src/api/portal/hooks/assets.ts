@@ -275,6 +275,30 @@ export function useUpdateAsset() {
   });
 }
 
+/**
+ * useClearAssetThumbnail discards an asset's stored captures so a fresh one is
+ * taken.
+ *
+ * It is the way back from a tile that shows the wrong thing. Nothing on the
+ * server rasterizes an asset, and the refresh queue offers only assets whose
+ * row says a capture is missing or behind, so an asset holding a picture of its
+ * own error state stayed that way until someone wrote a new version (#1497).
+ * Clearing the row's pointers is what puts it back in front of a capturer.
+ */
+export function useClearAssetThumbnail() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`/assets/${id}/thumbnail`, { method: "DELETE" }),
+    onSuccess: (_data, id) => {
+      // The asset query is what the viewer reads to decide a capture is wanted,
+      // so refreshing it is what starts the new one.
+      void qc.invalidateQueries({ queryKey: ["asset", id] });
+      void qc.invalidateQueries({ queryKey: ["assets"] });
+    },
+  });
+}
+
 export function useDeleteAsset() {
   const qc = useQueryClient();
   return useMutation({

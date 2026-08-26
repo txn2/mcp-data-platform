@@ -34,7 +34,7 @@ import { connectionInstanceHandlers } from "./handlers/connections";
 import { scriptHandlers } from "./handlers/scripts";
 import { sessionHandlers } from "./handlers/sessions";
 import { callHandlers } from "./handlers/calls";
-import { assetRefHandlers } from "./handlers/assetRefs";
+import { assetRefHandlers, rewriteRefs } from "./handlers/assetRefs";
 import {
   mockDataHubConnections,
   catalogBrowse,
@@ -1924,7 +1924,7 @@ export const handlers = [
       return HttpResponse.json({ detail: "Not found" }, { status: 404 });
     }
     const body = mockContent[id] ?? `[Mock content for ${asset.name}]`;
-    return new HttpResponse(body, {
+    return new HttpResponse(rewriteRefs(id, body), {
       headers: { "Content-Type": asset.content_type },
     });
   }),
@@ -2183,6 +2183,9 @@ export const handlers = [
     return HttpResponse.json(asset);
   }),
 
+  // Content is served with its declared references rewritten to the URLs they
+  // are served under, which is what the real route does and what makes a
+  // referenced logo or data file load in a viewer and in a capture (#1497).
   http.get(`${PORTAL_BASE}/assets/:id/content`, ({ params }) => {
     const id = params.id as string;
     const asset = portalAssets.find((a) => a.id === id && !a.deleted_at);
@@ -2190,7 +2193,7 @@ export const handlers = [
       return HttpResponse.json({ detail: "Not found" }, { status: 404 });
     }
     const body = mockContent[id] ?? `[Mock content for ${asset.name}]`;
-    return new HttpResponse(body, {
+    return new HttpResponse(rewriteRefs(id, body), {
       headers: { "Content-Type": asset.content_type },
     });
   }),
@@ -2257,6 +2260,23 @@ export const handlers = [
       asset.thumbnail_version = version;
     }
     return new HttpResponse(null, { status: 204 });
+  }),
+
+  // Discarding an asset's captures is what returns it to the queue above: a
+  // reader whose tile shows the artifact's error state has no other way to move
+  // the row a capture is decided from (#1497).
+  http.delete(`${PORTAL_BASE}/assets/:id/thumbnail`, ({ params }) => {
+    const asset = portalAssets.find((a) => a.id === params.id && !a.deleted_at);
+    if (!asset) {
+      return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    }
+    thumbnailStore.delete(asset.id);
+    thumbnailStore.delete(`${asset.id}:dark`);
+    asset.thumbnail_s3_key = "";
+    asset.thumbnail_dark_s3_key = "";
+    asset.thumbnail_version = 0;
+    asset.thumbnail_dark_version = 0;
+    return HttpResponse.json({ status: "updated" });
   }),
 
   // The refresh queue's work list: the assets whose capture is missing or

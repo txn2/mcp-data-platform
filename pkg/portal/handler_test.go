@@ -3100,6 +3100,152 @@ func TestUploadThumbnailIsNotAChangeToTheAsset(t *testing.T) {
 	}
 }
 
+// --- clearThumbnail ---
+
+// TestClearThumbnailReturnsTheAssetToTheQueue is the acceptance criterion for
+// asking a wrong tile to be taken again (#1497): the row's pointers are what the
+// refresh queue reads, so clearing them is what puts the asset back on it.
+func TestClearThumbnailReturnsTheAssetToTheQueue(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "Test", S3Bucket: "b", S3Key: "portal/u1/a1/content.jsx",
+		ContentType: "text/jsx", CurrentVersion: 3,
+		ThumbnailS3Key: "portal/u1/a1/.thumbnail.png", ThumbnailVersion: 3,
+		Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	store := &mockAssetStore{getAsset: asset}
+	h := newTestHandler(store, &mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"})
+
+	req := httptest.NewRequestWithContext(context.Background(), "DELETE", "/api/v1/portal/assets/a1/thumbnail", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	require.NotNil(t, store.lastUpdate)
+	require.NotNil(t, store.lastUpdate.ThumbnailS3Key)
+	assert.Empty(t, *store.lastUpdate.ThumbnailS3Key, "an empty key is what the pending predicate reads")
+	require.NotNil(t, store.lastUpdate.ThumbnailVersion)
+	assert.Zero(t, *store.lastUpdate.ThumbnailVersion,
+		"a version below the asset's is what makes the row pending on a deployment that stores no key")
+}
+
+// Both variants go together: the reader asking for the tile again means the
+// tile, not the half their color mode happens to be showing.
+func TestClearThumbnailClearsBothVariants(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "Test", S3Bucket: "b", S3Key: "portal/u1/a1/content.md",
+		ContentType: "text/markdown", CurrentVersion: 2,
+		ThumbnailS3Key: "portal/u1/a1/.thumbnail.png", ThumbnailVersion: 2,
+		ThumbnailDarkS3Key: "portal/u1/a1/.thumbnail_dark.png", ThumbnailDarkVersion: 2,
+		Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	store := &mockAssetStore{getAsset: asset}
+	s3 := &mockS3Client{}
+	h := newTestHandler(store, &mockShareStore{}, s3, &User{UserID: "u1"})
+
+	req := httptest.NewRequestWithContext(context.Background(), "DELETE", "/api/v1/portal/assets/a1/thumbnail", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	require.NotNil(t, store.lastUpdate.ThumbnailDarkS3Key)
+	assert.Empty(t, *store.lastUpdate.ThumbnailDarkS3Key)
+	require.NotNil(t, store.lastUpdate.ThumbnailDarkVersion)
+	assert.Zero(t, *store.lastUpdate.ThumbnailDarkVersion)
+	assert.Empty(t, s3.deleted,
+		"the key the next capture writes is left alone: deleting it would race a capture in flight")
+}
+
+// A capture outlives the version it was taken from (#1431), so the object a
+// cleared row pointed at can sit in an older version's directory, where nothing
+// else will ever remove it. That one is deleted; the key the next capture will
+// write is not, because another tab's capture may already have written it and
+// pointed the row back at it.
+func TestClearThumbnailRemovesOnlyWhatNoCaptureWillReplace(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "Test", S3Bucket: "b", S3Key: "portal/u1/a1/v9/content.html",
+		ContentType: "text/html", CurrentVersion: 9,
+		ThumbnailS3Key: "portal/u1/a1/v4/.thumbnail.png",
+		Tags:           []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	s3 := &mockS3Client{}
+	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, s3, &User{UserID: "u1"})
+
+	req := httptest.NewRequestWithContext(context.Background(), "DELETE", "/api/v1/portal/assets/a1/thumbnail", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, []string{"portal/u1/a1/v4/.thumbnail.png"}, s3.deleted,
+		"an object no capture will replace is the one nothing else would ever remove")
+}
+
+// Clearing is not a change to the asset: it touches the thumbnail pointers and
+// nothing a reader authored, so it must not re-date the asset it was asked for
+// (the invariant #1466 established for the capture itself).
+func TestClearThumbnailIsNotAChangeToTheAsset(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "Test", S3Bucket: "b", S3Key: "portal/u1/a1/content.html",
+		ContentType: "text/html", ThumbnailS3Key: "portal/u1/a1/.thumbnail.png",
+		Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	store := &mockAssetStore{getAsset: asset}
+	h := newTestHandler(store, &mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"})
+
+	req := httptest.NewRequestWithContext(context.Background(), "DELETE", "/api/v1/portal/assets/a1/thumbnail", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.True(t, store.lastUpdate.IsThumbnailOnly(),
+		"clearing a thumbnail must carry no authored field")
+}
+
+// The tile belongs to the asset, so asking for it again is owner authority --
+// which an administrator holds over every asset and a reader holds over none of
+// someone else's.
+func TestClearThumbnailRefusesANonOwner(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "Test", S3Bucket: "b", S3Key: "portal/u1/a1/content.html",
+		ContentType: "text/html", Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	store := &mockAssetStore{getAsset: asset}
+	h := newTestHandler(store, &mockShareStore{}, &mockS3Client{}, &User{UserID: "someone-else"})
+
+	req := httptest.NewRequestWithContext(context.Background(), "DELETE", "/api/v1/portal/assets/a1/thumbnail", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Nil(t, store.lastUpdate, "a refused request writes nothing")
+}
+
+// A store that could not record the clear must not report success: the reader
+// would be told the picture is being taken again while the row still names the
+// old one, and nothing would ever take it.
+func TestClearThumbnailReportsAStoreFailure(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "Test", S3Bucket: "b", S3Key: "portal/u1/a1/content.html",
+		ContentType: "text/html", ThumbnailS3Key: "portal/u1/a1/.thumbnail.png",
+		Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	s3 := &mockS3Client{}
+	store := &mockAssetStore{getAsset: asset, updateErr: errors.New("database unavailable")}
+	h := newTestHandler(store, &mockShareStore{}, s3, &User{UserID: "u1"})
+
+	req := httptest.NewRequestWithContext(context.Background(), "DELETE", "/api/v1/portal/assets/a1/thumbnail", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Empty(t, s3.deleted, "an object is deleted only once the row no longer names it")
+}
+
 // --- listPendingThumbnails ---
 
 // The queue's work list. Nothing renders a thumbnail on the server, so this is

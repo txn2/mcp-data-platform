@@ -10034,6 +10034,71 @@ const docTemplate = `{
                         }
                     }
                 }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Discards the asset's stored thumbnails so a fresh capture is\ntaken. The asset returns to the pending-thumbnail list.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Assets"
+                ],
+                "summary": "Clear asset thumbnail",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.statusResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "410": {
+                        "description": "Gone",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
             }
         },
         "/portal/assets/{id}/used-by": {

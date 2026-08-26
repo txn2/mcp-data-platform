@@ -138,14 +138,26 @@ function IframeCapture({
   const isJsx = contentType.toLowerCase().includes("jsx");
 
   const blobUrl = useMemo(() => {
-    const html = isJsx ? buildJsxThumbnailHtml(content) : injectCaptureScript(content);
+    const html = isJsx
+      ? buildJsxThumbnailHtml(content, assetId)
+      : injectCaptureScript(content, assetId);
     const blob = new Blob([html], { type: "text/html;charset=utf-8" });
     return URL.createObjectURL(blob);
-  }, [content, isJsx]);
+  }, [assetId, content, isJsx]);
 
-  const doCapture = useCallback(async () => {
+  // A frame that reported a failed reference load is not stored. The pixels
+  // cannot say so -- an artifact whose referenced logo and data file did not
+  // load draws its own failure branch and rasterizes to a valid PNG, which is
+  // what used to be uploaded and shown on the card (#1497). Discarding leaves
+  // the asset on the server's pending list, so the next tab to go idle over it
+  // tries again rather than the reader being stuck with a picture of an error.
+  const doCapture = useCallback(async (refFailures: number) => {
     if (capturedRef.current || !iframeRef.current) return;
     capturedRef.current = true;
+    if (refFailures > 0) {
+      onFailed?.();
+      return;
+    }
     try {
       const blob = await captureIframe(iframeRef.current);
       await uploadThumbnail(assetId, blob, "light", version);
@@ -160,12 +172,18 @@ function IframeCapture({
       // With allow-same-origin, blob: iframes inherit the parent's origin
       if (e.origin !== window.location.origin) return;
       if (e.data?.type !== "thumbnail-ready") return;
-      void doCapture();
+      // The refresh queue and the viewer both mount a capturer, so two frames
+      // can be listening on this window at once. A message that named no asset
+      // was read by both, which now means one artifact's failed references
+      // could discard another's good capture.
+      if (e.data.assetId && e.data.assetId !== assetId) return;
+      const failures = typeof e.data.refFailures === "number" ? e.data.refFailures : 0;
+      void doCapture(failures);
     }
 
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [doCapture]);
+  }, [assetId, doCapture]);
 
   // Timeout: if capture hasn't completed, give up
   useEffect(() => {

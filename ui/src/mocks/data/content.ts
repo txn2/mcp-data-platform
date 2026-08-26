@@ -1101,4 +1101,58 @@ South,Q2 2025,580000,6700,86.57,13.7`,
     '{"event":"checkout_completed","ts":"2026-08-18T14:12:03Z","store":"STR-031","order_id":"ORD-99121","coupon":"FALL10"}',
   ].join("\n"),
 
+  // The artifact the thumbnail suite captures (#1497): it shows a referenced
+  // logo and reads its numbers from a referenced file, and says so plainly when
+  // either does not load. Both URIs are rewritten to the reference route on the
+  // way out, which is how they resolve in a viewer and in a capture.
+  "ast-011": [
+    'import { useEffect, useState } from "react";',
+    "",
+    'const LOGO = "mcp://persona/data-engineer/visual/warehouse-floor.png";',
+    'const DATA = "mcp:asset:ast-008";',
+    "",
+    "export default function RegionalRevenueBrief() {",
+    "  const [rows, setRows] = useState(null);",
+    "  const [failed, setFailed] = useState(false);",
+    "  useEffect(() => {",
+    "    fetch(DATA)",
+    "      .then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.text(); })",
+    '      .then((t) => setRows(t.trim().split("\\n").length))',
+    "      .catch(() => setFailed(true));",
+    "  }, []);",
+    "  if (failed) {",
+    '    return <div data-brief="error" style={{ padding: 24, color: "#b91c1c" }}>The referenced file did not load</div>;',
+    "  }",
+    "  return (",
+    '    <div data-brief="ok" style={{ padding: 24, fontFamily: "system-ui" }}>',
+    '      <img src={LOGO} alt="Warehouse floor plan" width="120" />',
+    "      <h1>Regional revenue brief</h1>",
+    '      <p>{rows === null ? "Reading the referenced file" : rows + " rows read"}</p>',
+    "    </div>",
+    "  );",
+    "}",
+  ].join("\n"),
+
+  // The same brief naming a file that is gone, which is what a capture must
+  // throw away rather than store as the asset's tile.
+  "ast-012": [
+    'import { useEffect, useState } from "react";',
+    "",
+    'const LOGO = "mcp://global/deleted/res-gone";',
+    "",
+    "export default function BriefWithAMissingFile() {",
+    "  const [failed, setFailed] = useState(false);",
+    "  useEffect(() => {",
+    "    fetch(LOGO)",
+    "      .then((r) => { if (!r.ok) throw new Error(String(r.status)); })",
+    "      .catch(() => setFailed(true));",
+    "  }, []);",
+    "  return (",
+    '    <div data-brief={failed ? "error" : "ok"} style={{ padding: 24, fontFamily: "system-ui" }}>',
+    '      <h1>{failed ? "The referenced file did not load" : "Brief"}</h1>',
+    "    </div>",
+    "  );",
+    "}",
+  ].join("\n"),
+
 };

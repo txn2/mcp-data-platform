@@ -388,6 +388,71 @@ export const mockAssets: Asset[] = [
   },
 ];
 
+/**
+ * The two referencing artifacts the thumbnail capture suite needs, added only
+ * when a spec asks for them by setting `__REF_CAPTURE_ASSETS__` before the app
+ * boots.
+ *
+ * Gated for the reason the stale-thumbnail marks above are gated: the fixture
+ * library is what every screenshot and every list-page spec is taken against,
+ * and two assets that exist to be captured would show up in all of them. Their
+ * references (src/mocks/data/assetRefs.ts) are not gated -- both servers that
+ * answer the reference route resolve a token without knowing which assets a
+ * spec asked for -- so the reverse view filters out a reference from an asset
+ * that is not in the library.
+ */
+const REF_CAPTURE_ASSETS: Asset[] = [
+  // The two artifacts the thumbnail suite captures (#1497). Both are JSX
+  // declaring references, which is the shape whose capture ran under a policy
+  // that granted the reference route to nothing: one references a managed
+  // resource and another asset and draws them, the other references a target
+  // that is gone and draws its own failure branch.
+  {
+    id: "ast-011",
+    owner_id: "user-alice",
+    owner_email: "alice@example.com",
+    name: "Regional Revenue Brief",
+    description: "A brief that shows a referenced logo and reads its numbers from a referenced file.",
+    content_type: "text/jsx",
+    thumbnail_s3_key: "thumbnails/ast-011.png",
+    s3_bucket: "portal-assets",
+    s3_key: "assets/ast-011.jsx",
+    size_bytes: 1_180,
+    tags: ["brief", "references"],
+    provenance: { session_id: "sess-kkk", user_id: "user-alice" },
+    session_id: "sess-kkk",
+    current_version: 2,
+    thumbnail_version: 2,
+    thumbnail_dark_version: 0,
+    created_at: daysAgo(2),
+    updated_at: daysAgo(2),
+  },
+  {
+    id: "ast-012",
+    owner_id: "user-alice",
+    owner_email: "alice@example.com",
+    name: "Brief With A Missing File",
+    description: "The same brief, naming a file that is no longer there.",
+    content_type: "text/jsx",
+    thumbnail_s3_key: "thumbnails/ast-012.png",
+    s3_bucket: "portal-assets",
+    s3_key: "assets/ast-012.jsx",
+    size_bytes: 1_040,
+    tags: ["brief", "references"],
+    provenance: { session_id: "sess-kkk", user_id: "user-alice" },
+    session_id: "sess-kkk",
+    current_version: 2,
+    thumbnail_version: 2,
+    thumbnail_dark_version: 0,
+    created_at: daysAgo(2),
+    updated_at: daysAgo(2),
+  },
+];
+
+if ((globalThis as { __REF_CAPTURE_ASSETS__?: boolean }).__REF_CAPTURE_ASSETS__) {
+  mockAssets.push(...REF_CAPTURE_ASSETS);
+}
+
 export const mockShares: Record<string, Share[]> = {
   "ast-001": [
     {

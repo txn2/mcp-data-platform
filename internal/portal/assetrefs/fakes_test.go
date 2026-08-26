@@ -2,7 +2,9 @@ package assetrefs_test
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
@@ -124,6 +126,13 @@ func (f *fakeRefs) GetByToken(_ context.Context, assetID, token string) (*assetr
 }
 
 // fakeResources is an in-memory resource store keyed by both id and URI.
+//
+// Both reads report a missing row the way the PostgreSQL store does -- as an
+// error wrapping sql.ErrNoRows, not as (nil, nil) -- because that is the
+// contract the declaration path has to survive. A fake answering (nil, nil)
+// exercised a branch that is unreachable in production and hid #1498, where a
+// URI naming nothing came back to the author as "scanning resource: sql: no
+// rows in result set".
 type fakeResources struct {
 	byID   map[string]*resource.Resource
 	getErr error
@@ -136,7 +145,7 @@ func (f *fakeResources) Get(_ context.Context, id string) (*resource.Resource, e
 	}
 	res, ok := f.byID[id]
 	if !ok {
-		return nil, nil //nolint:nilnil // resource.Store reports a missing row as (nil, nil)
+		return nil, errNoResourceRow
 	}
 	return res, nil
 }
@@ -163,8 +172,12 @@ func (f *fakeResources) GetByURI(_ context.Context, uri string) (*resource.Resou
 			return res, nil
 		}
 	}
-	return nil, nil //nolint:nilnil // resource.Store reports a missing row as (nil, nil)
+	return nil, errNoResourceRow
 }
+
+// errNoResourceRow is what pkg/resource's PostgreSQL store returns for a URI or
+// id naming no row: the scan error, wrapping sql.ErrNoRows.
+var errNoResourceRow = fmt.Errorf("scanning resource: %w", sql.ErrNoRows)
 
 // fakeAssets is an in-memory asset store: the two reads the reference paths
 // make, over a map a test fills.

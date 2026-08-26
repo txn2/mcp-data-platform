@@ -65,6 +65,21 @@ export async function openAssetUsedBy(page: Page): Promise<void> {
 }
 
 /**
+ * openAssetThumbnail scrolls the sidebar to the panel showing the tile everyone
+ * else sees of this asset, and the control that asks for it to be taken again
+ * (#1497). It is a capture of its own because the tile and the way back from a
+ * wrong one are what the panel exists to put in front of an owner.
+ */
+export async function openAssetThumbnail(page: Page): Promise<void> {
+  await openAssetProvenance(page);
+  await page
+    .getByTestId("asset-thumbnail-panel")
+    .scrollIntoViewIfNeeded({ timeout: 5_000 })
+    .catch(() => {});
+  await page.waitForTimeout(500);
+}
+
+/**
  * openResourceUsedByAssets opens a managed image an asset's content references
  * and scrolls to the section naming what is holding it up (#1475).
  *

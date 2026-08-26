@@ -7,7 +7,7 @@ import { transform } from "sucrase";
 // URL under this prefix by every viewing surface, so a frame that cannot load
 // the prefix renders a declared logo as a broken image and a declared data
 // file not at all.
-const REF_PATH_PREFIX = "/portal/refs/";
+export const REF_PATH_PREFIX = "/portal/refs/";
 
 /**
  * The reference route as a CSP source expression, or "" where there is no
@@ -25,7 +25,13 @@ export function refSource(origin: string): string {
 }
 
 /**
- * The artifact frame's own policy. It carries no 'unsafe-eval': Sucrase
+ * The artifact frame's own policy, for the live frame and for the off-screen
+ * frame a thumbnail is captured from alike. There is one builder because a
+ * capture run under a different policy is a picture of a different page: the
+ * reference route was missing from the capture's hand-written copy, so every
+ * referencing artifact was rasterized showing its own failure branch (#1497).
+ *
+ * It carries no 'unsafe-eval': Sucrase
  * transforms the JSX here in the parent and the frame runs the result as a
  * module, so nothing in this pipeline evaluates source at runtime. The public
  * viewer's page policy denies eval too, which is what keeps a shared artifact
@@ -61,7 +67,7 @@ export function buildCSP(origin: string): string {
 }
 
 /** The origin the viewer itself was served from, "" outside a browser. */
-function viewerOrigin(): string {
+export function viewerOrigin(): string {
   return typeof window === "undefined" ? "" : window.location.origin;
 }
 

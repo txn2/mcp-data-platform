@@ -77,6 +77,9 @@ export function isLegacyThumbnailKey(key: string): boolean {
   return LEGACY_THUMBNAIL_FILENAMES.includes(name);
 }
 
+/** The route an asset's stored tile is read through by default. */
+export const ASSET_THUMBNAIL_BASE = "/api/v1/portal/assets";
+
 /** The parts of an asset that say whether its capture is current. */
 interface ThumbnailState {
   content_type: string;
@@ -94,15 +97,29 @@ interface ThumbnailState {
  * cacheable for an hour, so a re-captured image would not reach a browser that
  * already holds the old one until that hour was up -- which is most of the point
  * of refreshing it (#1431). The version the capture was taken from is the
- * identity of the image, so putting it in the query string makes a new capture a
- * new URL and leaves an unchanged one cached. The server does not read it.
+ * identity of the image, so putting it in the query string makes a capture of a
+ * rewritten asset a new URL and leaves an unchanged one cached. The server does
+ * not read it.
+ *
+ * A recapture asked for on the asset's CURRENT version (#1497) is the one case
+ * this does not cover: the version has not moved, so the URL has not either.
+ * The panel that asks for it replaces its own browser's cached copy through a
+ * reload-mode fetch; a browser holding the superseded image that did not ask
+ * for the recapture keeps it until the hour is up.
  *
  * Returns undefined when no capture has been recorded, which is what tells the
  * card to show its content-type icon instead.
+ *
+ * The base is which route the reader is entitled to read the tile through, for
+ * the reason collectionItemThumbnailSrc below takes one: the portal route's
+ * view grant is owner, share and collection, with no admin arm, so an
+ * administrator reading someone else's asset reads it through the admin route
+ * (#1292).
  */
 export function assetThumbnailSrc(
   asset: ThumbnailState & { id: string },
   isDark = false,
+  base = ASSET_THUMBNAIL_BASE,
 ): string | undefined {
   const query = thumbnailQuery(
     {
@@ -114,7 +131,7 @@ export function assetThumbnailSrc(
     isDark,
   );
   if (query === undefined) return undefined;
-  return `/api/v1/portal/assets/${asset.id}/thumbnail?${query}`;
+  return `${base}/${asset.id}/thumbnail?${query}`;
 }
 
 /** The parts of a collection item that say which capture its tile shows. */

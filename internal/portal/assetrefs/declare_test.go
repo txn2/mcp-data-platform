@@ -20,6 +20,10 @@ const (
 	author    = "analyst@example.com"
 	anyPerson = "u1"
 
+	// missingResourceURI is well formed and names nothing, which is the shape
+	// the store answers with an error rather than a missing row (#1498).
+	missingResourceURI = "mcp://global/brand/missing.png"
+
 	// The two asset fixtures and the reference form an author writes to name
 	// one (#1488).
 	readableAssetID  = "ast-readable"
@@ -137,7 +141,7 @@ func TestResolveRefusals(t *testing.T) {
 	}{
 		{"neither form", []string{"https://example.com/logo.png"}, "mcp:asset:<id>", true},
 		{"unknown scope", []string{"mcp://nowhere/logo.png"}, "is not a managed resource URI", true},
-		{"no such resource", []string{"mcp://global/brand/missing.png"}, "no managed resource at", true},
+		{"no such resource", []string{missingResourceURI}, "no managed resource at", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -248,9 +252,30 @@ func TestResolveRefusesAResourceURIWithNoResourceLayer(t *testing.T) {
 	assert.Equal(t, assetrefs.TargetAsset, declared[0].Kind)
 }
 
+// TestResolveRefusesAMissingResourceWithoutDatabaseText is the headline for
+// #1498: a well-formed mcp:// URI naming no resource is answered in the terms
+// the author wrote it in, not in the store's.
+//
+// The store reports a missing row as a scan error wrapping sql.ErrNoRows, so
+// before this the author was handed "scanning resource: sql: no rows in result
+// set" and the failure was not classified as a refusal at all.
+func TestResolveRefusesAMissingResourceWithoutDatabaseText(t *testing.T) {
+	d := assetrefs.NewDeclarer(newFakeRefs(), fixtureAssets())
+	d.BindResources(fixtureResources(), "")
+
+	_, err := d.Resolve(t.Context(), []string{missingResourceURI}, analystAuthor(), "")
+
+	require.ErrorIs(t, err, assetrefs.ErrRefused)
+	assert.Contains(t, err.Error(), missingResourceURI)
+	assert.NotContains(t, err.Error(), "sql")
+	assert.NotContains(t, err.Error(), "scanning resource")
+}
+
 // TestResolveStoreFailureIsNotARefusal separates a database fault from a
 // permission decision: telling an author they may not reference a file when the
-// lookup merely failed is a different and worse answer.
+// lookup merely failed is a different and worse answer, and it would drop a
+// reference the author was entitled to make. resource.IsNotFound is what keeps
+// the two apart on an arm where a missing row and a fault both arrive as errors.
 func TestResolveStoreFailureIsNotARefusal(t *testing.T) {
 	res := fixtureResources()
 	res.uriErr = errStore
@@ -261,6 +286,27 @@ func TestResolveStoreFailureIsNotARefusal(t *testing.T) {
 
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, assetrefs.ErrRefused)
+}
+
+// TestResolveLogsTheResourceStoreFailure is the operator's half of the answer
+// above: a fault is reported rather than refused, and the store's own error
+// reaches the log as well, where an operator reads it.
+func TestResolveLogsTheResourceStoreFailure(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	res := fixtureResources()
+	res.uriErr = errStore
+	d := assetrefs.NewDeclarer(newFakeRefs(), fixtureAssets())
+	d.BindResources(res, "")
+
+	_, err := d.Resolve(t.Context(), []string{logoURI}, analystAuthor(), "")
+	require.Error(t, err)
+
+	assert.Contains(t, buf.String(), errStore.Error())
+	assert.Contains(t, buf.String(), logoURI)
 }
 
 // TestResolveAssetStoreFailureIsARefusal states the asset arm's deliberate

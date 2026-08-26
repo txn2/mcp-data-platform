@@ -49,6 +49,13 @@ export interface AssetViewerProps {
   /** Where another asset this one references opens for this reader, per
    * surface. Absent, a referenced asset is named without being linked. */
   assetPath?: (assetId: string) => string;
+  /**
+   * Which route this reader reads an asset's stored thumbnail through. The
+   * portal's view grant has no admin arm, so the console reads a tile it is
+   * showing an operator through the admin route (#1292); absent, the portal
+   * route is used.
+   */
+  assetApiBase?: string;
   versions?: AssetVersion[];
   versionsLoading?: boolean;
   revertMutation?: MutationLike<{ assetId: string; version: number }>;

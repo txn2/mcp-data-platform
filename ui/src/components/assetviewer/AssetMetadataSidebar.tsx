@@ -11,6 +11,7 @@ import { DetailRow } from "@/components/viewer/DetailRow";
 import { formatBytes } from "@/lib/format";
 import { shortSessionId } from "@/pages/sessions/kind";
 import { AssetMetadataForm } from "./AssetMetadataForm";
+import { ThumbnailPanel } from "./ThumbnailPanel";
 import { ReferencesPanel } from "./ReferencesPanel";
 import { UsedByAssets } from "@/components/references/UsedByAssets";
 import type { RetentionMode } from "./AssetRetentionField";
@@ -57,6 +58,8 @@ interface AssetMetadataSidebarProps {
   onNavigate?: (path: string) => void;
   versions?: AssetVersion[];
   versionsLoading?: boolean;
+  /** Which route this reader reads an asset's stored tile through. */
+  assetApiBase?: string;
 }
 
 /** Everything about an asset that is not its content, for the viewer sidebar. */
@@ -87,6 +90,7 @@ export function AssetMetadataSidebar({
   onNavigate,
   versions,
   versionsLoading,
+  assetApiBase,
 }: AssetMetadataSidebarProps) {
   const openSession = sessionOpener(asset, sessionPath, onNavigate);
   return (
@@ -202,6 +206,14 @@ export function AssetMetadataSidebar({
             onNavigate={onNavigate}
             className="border-t pt-4"
           />
+
+          {/*
+            The tile everyone else sees of this asset, and the way back from one
+            that shows the wrong thing (#1497). It sits under the two reference
+            sections because a wrong tile is most often a picture of a reference
+            that did not load.
+          */}
+          <ThumbnailPanel asset={asset} isOwner={isOwner} assetApiBase={assetApiBase} />
 
           {versions && versions.length > 0 && (
             <div className="border-t pt-4">

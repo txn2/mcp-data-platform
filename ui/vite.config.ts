@@ -26,11 +26,65 @@ function mswRootWorker(): Plugin {
   };
 }
 
+/**
+ * Answer the reference route from the mock fixtures during development.
+ *
+ * The service worker MSW installs controls the page, not a sandboxed blob:
+ * frame -- and a referencing artifact renders in exactly such a frame, both in
+ * the viewer and in the off-screen frame a thumbnail is captured from (#1497).
+ * Without this the frame's request falls through to the SPA index.html, so a
+ * referenced logo decodes as a broken image and a referenced data file parses
+ * as HTML. The bytes come from the same fixture table the worker answers from
+ * (src/mocks/data/assetRefs.ts), so the two surfaces cannot disagree.
+ *
+ * Only a token the fixtures hold is answered, with its bytes or with the 404 a
+ * target that is gone earns. A token they do not hold -- every token a real
+ * backend mints, since dev mode is also how the portal is run against a live
+ * server -- falls through untouched, and so does a failure to load the fixture
+ * module, which would otherwise leave the request hanging.
+ */
+function mockRefRoute(): Plugin {
+  return {
+    name: "mock-ref-route",
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const match = /^\/portal\/refs\/[^/]+\/([^/?#]+)/.exec(req.url ?? "");
+        if (!match) {
+          next();
+          return;
+        }
+        void import("./src/mocks/data/assetRefs")
+          .then(({ knowsRefToken, resolveRefContent }) => {
+            const token = match[1]!;
+            if (!knowsRefToken(token)) {
+              next();
+              return;
+            }
+            const content = resolveRefContent(token);
+            if (!content) {
+              // A token the fixtures hold whose target is gone: the 404 the
+              // real route answers, and what a discarded capture is tested on.
+              res.statusCode = 404;
+              res.setHeader("Content-Type", "application/json");
+              res.end(JSON.stringify({ detail: "no such reference" }));
+              return;
+            }
+            res.setHeader("Content-Type", content.contentType);
+            res.end(
+              typeof content.body === "string" ? content.body : Buffer.from(content.body),
+            );
+          })
+          .catch(() => next());
+      });
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => {
   const apiTarget = process.env.VITE_API_TARGET || "http://localhost:8080";
 
   return {
-    plugins: [react(), tailwindcss(), ...(mode === "development" ? [mswRootWorker()] : [])],
+    plugins: [react(), tailwindcss(), ...(mode === "development" ? [mswRootWorker(), mockRefRoute()] : [])],
     base: "/portal/",
     resolve: {
       alias: {

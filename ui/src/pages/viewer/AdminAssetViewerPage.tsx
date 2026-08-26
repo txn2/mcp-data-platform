@@ -60,6 +60,10 @@ export function AdminAssetViewerPage({ assetId, onNavigate }: Props) {
       // in the console's own library, which holds every asset rather than the
       // ones they own.
       assetPath={(id) => `/admin/assets/${encodeURIComponent(id)}`}
+      // The stored tile is read through the console's own route: the portal's
+      // view grant is owner, share and collection, with no admin arm, so an
+      // operator reading someone else's asset is refused the portal one.
+      assetApiBase="/api/v1/admin/assets"
       versions={versionsData?.data}
       versionsLoading={versionsLoading}
       revertMutation={revertMutation}

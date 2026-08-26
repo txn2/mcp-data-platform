@@ -289,6 +289,14 @@ func (d *Declarer) resourceScheme() string {
 
 // readableResource resolves an mcp:// URI to the managed resource it names and
 // checks the author may read it.
+//
+// The resource store reports a missing row as a wrapped sql.ErrNoRows rather
+// than as (nil, nil), so a URI naming nothing arrives here as an error and the
+// nil branch below is unreachable against it. resource.IsNotFound is what tells
+// that apart from a read that failed, and the two get opposite answers: a
+// missing resource is refused in the terms the author wrote it in, and a store
+// fault is returned as a fault, because refusing a reference the author may
+// well be entitled to would drop it on a database outage (#1498).
 func (d *Declarer) readableResource(
 	ctx context.Context, uri string, claims resource.Claims,
 ) (Declared, error) {
@@ -299,10 +307,13 @@ func (d *Declarer) readableResource(
 		return Declared{}, fmt.Errorf("cannot reference %q: it is not a managed resource URI: %w", uri, ErrRefused)
 	}
 	res, err := d.resources.GetByURI(ctx, uri)
-	if err != nil {
+	if err != nil && !resource.IsNotFound(err) {
+		slog.Warn("resource reference: reading the referenced resource failed",
+			"uri", logsan.SanitizeForLog(uri),
+			"error", logsan.SanitizeForLog(err.Error()))
 		return Declared{}, fmt.Errorf("resolving resource reference %q: %w", uri, err)
 	}
-	if res == nil {
+	if err != nil || res == nil {
 		return Declared{}, fmt.Errorf("no managed resource at %q: %w", uri, ErrRefused)
 	}
 	if !resource.CanReadResource(claims, res) {
