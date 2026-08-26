@@ -300,8 +300,19 @@ func (t *Toolkit) SetAuthEvents(w *authevents.Writer) {
 // Implementations must read the caller's roles from ctx (typically via
 // the middleware's pre-authenticated user or an Authenticator) and
 // resolve them to a persona's APIRoutes rules.
+//
+// path and template carry the same request in the two forms this toolkit
+// holds it in. A listing surface starts from the operation the catalog
+// declares, whose path is a template ("/v1/orders/{id}"); an invoke
+// starts from the path the call reaches, with its parameters already
+// substituted ("/v1/orders/42"). Both are passed so a policy written
+// against either form governs both, rather than a rule hiding an
+// operation from the listing while permitting the call it hides.
+// template is empty when no operation in the connection's catalog
+// declares a matching path, and equal to path for a path carrying no
+// placeholder.
 type RoutePolicy interface {
-	Allow(ctx context.Context, connection, method, path string) (allowed bool, reason string)
+	Allow(ctx context.Context, connection, method, path, template string) (allowed bool, reason string)
 }
 
 // conn carries the materialized state for a single registered
@@ -798,7 +809,7 @@ func filterByRoutePolicy(ctx context.Context, policy RoutePolicy, connection str
 	}
 	out := make([]OperationSummary, 0, len(ops))
 	for _, op := range ops {
-		allowed, _ := policy.Allow(ctx, connection, op.Method, op.Path)
+		allowed, _ := policy.Allow(ctx, connection, op.Method, op.Path, op.Path)
 		if allowed {
 			out = append(out, op)
 		}
@@ -1188,7 +1199,7 @@ func (t *Toolkit) handleInvoke(ctx context.Context, _ *mcp.CallToolRequest, in I
 	// Run the route policy BEFORE invoke() so an unauthorized call
 	// never produces an outbound HTTP request — and never appears in
 	// the upstream's access log.
-	if res := checkRoutePolicy(ctx, policy, in); res != nil {
+	if res := checkRoutePolicy(ctx, policy, in, routeTemplateFor(policy, c, method, path)); res != nil {
 		return res, nil, nil
 	}
 
@@ -1299,7 +1310,12 @@ func auditOutcomeMessage(out InvokeOutput) string {
 // normalized values (uppercase method, "/-prefixed" path). invoke()
 // re-validates idempotently so the policy step can be skipped when
 // no policy is installed without losing input safety.
-func checkRoutePolicy(ctx context.Context, policy RoutePolicy, in InvokeInput) *mcp.CallToolResult {
+//
+// template is the catalog path in.Path resolved from, reported alongside
+// it so a rule naming the operation as the catalog declares it refuses
+// the calls that operation serves. It is empty when the connection has
+// no catalog or none of its operations declare a matching path.
+func checkRoutePolicy(ctx context.Context, policy RoutePolicy, in InvokeInput, template string) *mcp.CallToolResult {
 	if policy == nil {
 		return nil
 	}
@@ -1310,7 +1326,7 @@ func checkRoutePolicy(ctx context.Context, policy RoutePolicy, in InvokeInput) *
 	if pErr := validatePath(in.Path); pErr != nil {
 		return toolkit.ErrorResult(pErr.Error())
 	}
-	allowed, reason := policy.Allow(ctx, in.Connection, method, in.Path)
+	allowed, reason := policy.Allow(ctx, in.Connection, method, in.Path, template)
 	if allowed {
 		return nil
 	}

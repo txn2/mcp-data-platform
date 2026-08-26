@@ -41,6 +41,9 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
     allow_tools: ["*"],
     deny_tools: [],
     tools: resolveTools(["*"], []),
+    // No route rules: an administrator reaches every operation of every API
+    // connection, which is what "no rule names this connection" means.
+    api_routes: [],
     context: {
       description_prefix:
         "You are speaking with a platform administrator who has full access to all data and tools.",
@@ -56,6 +59,7 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
     priority: 10,
     allow_tools: ["trino_*", "datahub_*", "s3_*", "save_asset"],
     deny_tools: ["memory_capture"],
+    api_routes: [],
     tools: resolveTools(
       ["trino_*", "datahub_*", "s3_*", "save_asset"],
       ["memory_capture"],
@@ -83,6 +87,7 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
       "memory_capture",
     ],
     deny_tools: ["trino_explain", "datahub_get_lineage", "s3_get_object"],
+    api_routes: [],
     tools: resolveTools(
       [
         "trino_query",
@@ -117,6 +122,7 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
       "s3_list_objects",
       "s3_get_object",
     ],
+    api_routes: [],
     tools: resolveTools(
       ["trino_query", "datahub_search", "save_asset"],
       [
@@ -141,6 +147,19 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
     description: "Financial reporting, revenue analysis, and budget variance tracking.",
     roles: ["finance_executive"],
     priority: 30,
+    // Read-only against the billing API, with the one destructive CRM
+    // operation refused outright. The read rule is what closes the rest of
+    // acme-billing: once any rule names a connection, an operation must match
+    // an allow rule to be reachable.
+    api_routes: [
+      { connection: "acme-billing", methods: ["GET", "HEAD"], action: "allow" },
+      {
+        connection: "acme-crm",
+        methods: ["DELETE"],
+        paths: ["/services/data/v59.0/sobjects/{sobject}/{id}"],
+        action: "deny",
+      },
+    ],
     allow_tools: ["trino_query", "save_asset"],
     deny_tools: [
       "trino_explain",
@@ -198,6 +217,7 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
       "s3_list_objects",
       "s3_get_object",
     ],
+    api_routes: [],
     tools: resolveTools(
       [
         "trino_query",

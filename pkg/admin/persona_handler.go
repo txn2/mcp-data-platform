@@ -66,6 +66,10 @@ type personaDetail struct {
 	Tools            []string              `json:"tools" example:"trino_query,trino_describe_table,datahub_search"`
 	Context          *personaContextDetail `json:"context,omitempty"`
 	Source           string                `json:"source,omitempty" example:"file"` // "file", "database", or "both"
+	// APIRoutes are the persona's per-(connection, method, path) rules for
+	// api-kind connections. Ships as a JSON array, NEVER null: the persona
+	// editor's API-endpoint scope maps over it directly.
+	APIRoutes []persona.APIRouteRule `json:"api_routes"`
 }
 
 // MarshalJSON enforces the non-nil wire invariant for the required arrays.
@@ -83,6 +87,9 @@ func (p personaDetail) MarshalJSON() ([]byte, error) {
 	}
 	if v.Tools == nil {
 		v.Tools = []string{}
+	}
+	if v.APIRoutes == nil {
+		v.APIRoutes = []persona.APIRouteRule{}
 	}
 	return json.Marshal(v) //nolint:wrapcheck // value struct of basic types cannot fail to marshal
 }
@@ -102,6 +109,10 @@ type personaCreateRequest struct {
 	DescriptionOverride       string   `json:"description_override,omitempty"`
 	AgentInstructionsSuffix   string   `json:"agent_instructions_suffix,omitempty"`
 	AgentInstructionsOverride string   `json:"agent_instructions_override,omitempty"`
+	// APIRoutes replaces the persona's API route rules wholesale. Absent
+	// leaves the persona with none, which is the same "no rule touches this
+	// connection" state a persona that never had any is in.
+	APIRoutes []persona.APIRouteRule `json:"api_routes,omitempty"`
 }
 
 // personaListResponse wraps a list of personas.
@@ -225,6 +236,12 @@ func (h *Handler) createPersona(w http.ResponseWriter, r *http.Request) {
 
 	p := buildPersonaFromRequest(req)
 	p.Source = platform.SourceDatabase
+	// The registry validates these rules too, but it runs AFTER the store
+	// write below — a rule Register would refuse would already be persisted.
+	if err := persona.ValidateAPIRoutes(p.APIRoutes); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	// Persist to database FIRST — if it fails, don't register in-memory.
 	if h.deps.PersonaStore != nil {
@@ -285,6 +302,10 @@ func (h *Handler) updatePersona(w http.ResponseWriter, r *http.Request) {
 		p.Source = platform.SourceBoth
 	} else {
 		p.Source = platform.SourceDatabase
+	}
+	if err := persona.ValidateAPIRoutes(p.APIRoutes); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 
 	// Persist to database FIRST — if it fails, don't update in-memory.
@@ -401,28 +422,11 @@ func (h *Handler) revertToFilePersona(name string) {
 	if !ok {
 		return
 	}
-	p := &persona.Persona{
-		Name:        name,
-		DisplayName: def.DisplayName,
-		Description: def.Description,
-		Roles:       def.Roles,
-		Tools: persona.ToolRules{
-			Allow: def.Tools.Allow,
-			Deny:  def.Tools.Deny,
-		},
-		Connections: persona.ConnectionRules{
-			Allow: def.Connections.Allow,
-			Deny:  def.Connections.Deny,
-		},
-		Context: persona.ContextOverrides{
-			DescriptionPrefix:         def.Context.DescriptionPrefix,
-			DescriptionOverride:       def.Context.DescriptionOverride,
-			AgentInstructionsSuffix:   def.Context.AgentInstructionsSuffix,
-			AgentInstructionsOverride: def.Context.AgentInstructionsOverride,
-		},
-		Priority: def.Priority,
-		Source:   platform.SourceFile,
-	}
+	// PersonaDef.ToPersona is the one construction of a file persona, shared
+	// with the platform's own startup load. Rebuilding the struct here is what
+	// let a revert silently drop whatever the file declared that this handler
+	// had not been taught about.
+	p := def.ToPersona(name, platform.SourceFile)
 	if err := h.deps.PersonaRegistry.Register(p); err != nil {
 		slog.Warn("failed to revert persona to file version", logKeyName, logsan.SanitizeForLog(name), logKeyError, err) // #nosec G706 -- name is sanitized
 		return
@@ -483,6 +487,7 @@ func toPersonaDetail(p *persona.Persona, tools []string) personaDetail {
 		Tools:            tools,
 		Context:          ctx,
 		Source:           p.Source,
+		APIRoutes:        p.APIRoutes,
 	}
 }
 
@@ -519,6 +524,7 @@ func buildPersonaFromRequest(req personaCreateRequest) *persona.Persona {
 			Allow: allowConn,
 			Deny:  denyConn,
 		},
+		APIRoutes: normalizeAPIRoutes(req.APIRoutes),
 		Context: persona.ContextOverrides{
 			DescriptionPrefix:         req.DescriptionPrefix,
 			DescriptionOverride:       req.DescriptionOverride,
@@ -543,8 +549,18 @@ func extractAuthor(r *http.Request) string {
 }
 
 // testPersonaAccessRequest is the body for POST /personas/{name}/test-access.
+//
+// Two questions share the route. With tool_name set it asks whether the
+// persona may call a tool. With connection set it asks whether the persona may
+// invoke method on path of that api-kind connection, which is the question the
+// persona editor's API-endpoint scope asks of a rule it is about to save.
 type testPersonaAccessRequest struct {
-	ToolName string `json:"tool_name" example:"trino_query"`
+	ToolName string `json:"tool_name,omitempty" example:"trino_query"`
+	// Connection selects the API route case. Empty asks the tool question.
+	Connection string `json:"connection,omitempty" example:"crm-prod"`
+	Method     string `json:"method,omitempty" example:"DELETE"`
+	// Path is the operation path, as the connection's catalog declares it.
+	Path string `json:"path,omitempty" example:"/v1/orders/{id}"`
 }
 
 // testPersonaAccessResponse mirrors persona.AccessDecision for the API.
@@ -553,14 +569,19 @@ type testPersonaAccessRequest struct {
 // swagger annotations.
 type testPersonaAccessResponse struct {
 	Allowed        bool                 `json:"allowed" example:"true"`
-	MatchedPattern string               `json:"matched_pattern" example:"trino_*"`
+	MatchedPattern string               `json:"matched_pattern,omitempty" example:"trino_*"`
 	Source         persona.AccessSource `json:"source" example:"allow"`
+	// MatchedRule is the API route rule that decided the route case. Absent
+	// for the tool case, and absent when no rule touched the connection —
+	// which is the "default" source, an allow the connection-level check is
+	// the sole gate for.
+	MatchedRule *persona.APIRouteRule `json:"matched_rule,omitempty"`
 }
 
 // testPersonaAccess handles POST /api/v1/admin/personas/{name}/test-access.
 //
-// @Summary      Preview a persona's decision for a tool
-// @Description  Evaluates the named persona's allow/deny rules against a tool name and returns the decision plus the matching pattern. Used by the admin Tools page to preview "would persona X allow this tool?" without traversing every persona.
+// @Summary      Preview a persona's decision for a tool or an API route
+// @Description  Evaluates the named persona's rules and returns the decision with what produced it. With tool_name set it answers the tool question and returns the matching pattern. With connection set it answers whether the persona may invoke method on path of that api-kind connection and returns the matching API route rule.
 // @Tags         Personas
 // @Accept       json
 // @Produce      json
@@ -593,8 +614,16 @@ func (h *Handler) testPersonaAccess(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if req.Connection != "" {
+		if req.ToolName != "" {
+			writeError(w, http.StatusBadRequest, "provide tool_name or connection, not both")
+			return
+		}
+		testPersonaRouteAccess(w, p, req)
+		return
+	}
 	if req.ToolName == "" {
-		writeError(w, http.StatusBadRequest, "tool_name is required")
+		writeError(w, http.StatusBadRequest, "tool_name or connection is required")
 		return
 	}
 

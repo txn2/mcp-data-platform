@@ -312,7 +312,7 @@ func (t *Toolkit) handleExport(ctx context.Context, _ *mcp.CallToolRequest, in e
 	}
 	if denial := checkRoutePolicy(ctx, policy, InvokeInput{
 		Connection: in.Connection, Method: in.Method, Path: in.Path,
-	}); denial != nil {
+	}, routeTemplateFor(policy, c, in.Method, in.Path)); denial != nil {
 		return denial, nil, nil
 	}
 

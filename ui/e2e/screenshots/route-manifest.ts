@@ -3,6 +3,7 @@ import { adminResourceRoutes } from "./route-resources";
 import { drawerRoutes } from "./route-drawers";
 import { scratchTableRoutes } from "./route-scratch-tables";
 import { apiBrowserAdminRoutes, apiBrowserUserRoutes } from "./route-apis";
+import { adminPersonaRoutes } from "./route-personas";
 import { adminScriptRoutes, userScriptRoutes } from "./route-scripts";
 import {
   openCollectionDetailsDialog,
@@ -101,7 +102,9 @@ export const routes: ScreenshotRoute[] = [
       // Waited on rather than timed out: a swallowed click would ship the
       // caller's own library captioned as the one they cannot add to, which is
       // the opposite of what this documents.
-      await page.getByTestId("scope-read-only").waitFor({ state: "visible", timeout: 5_000 });
+      await page
+        .getByTestId("scope-read-only")
+        .waitFor({ state: "visible", timeout: 5_000 });
       await page.waitForTimeout(400);
     },
   },
@@ -136,7 +139,10 @@ export const routes: ScreenshotRoute[] = [
     category: "user",
     beforeCapture: async (page) => {
       // Scope to main so the toolbar button wins over the sidebar nav entry.
-      const btn = page.getByRole("main").getByRole("button", { name: /Feedback/ }).first();
+      const btn = page
+        .getByRole("main")
+        .getByRole("button", { name: /Feedback/ })
+        .first();
       if (await btn.isVisible()) {
         await btn.click();
         await page.waitForTimeout(500);
@@ -152,8 +158,14 @@ export const routes: ScreenshotRoute[] = [
       // Both clicks auto-wait. An `isVisible()` guard does not retry, so with
       // the panel or its thread list a frame late the step was skipped without
       // error and the detail slug captured the list — or the bare viewer.
-      await page.getByRole("main").getByRole("button", { name: /Feedback/ }).first().click();
-      await page.getByRole("button", { name: /We don't use that term/ }).click();
+      await page
+        .getByRole("main")
+        .getByRole("button", { name: /Feedback/ })
+        .first()
+        .click();
+      await page
+        .getByRole("button", { name: /We don't use that term/ })
+        .click();
       await page.waitForTimeout(500);
     },
   },
@@ -189,7 +201,11 @@ export const routes: ScreenshotRoute[] = [
   },
   // The Catalog section (#1194): the one route holding every DataHub-backed
   // surface, captured for its inner tab row and section-wide connection picker.
-  { slug: "knowledge-catalog", path: "/portal/knowledge/catalog", category: "user" },
+  {
+    slug: "knowledge-catalog",
+    path: "/portal/knowledge/catalog",
+    category: "user",
+  },
   {
     // The knowledge corpus drawn as a graph (#1162): the alternate layout to the
     // card list, showing which pages cluster around an entity and which stand alone.
@@ -400,7 +416,14 @@ export const routes: ScreenshotRoute[] = [
     slug: "admin-audit",
     path: "/portal/admin/audit",
     category: "admin",
-    tabs: ["mcp", "apigateway", "health", "indexing", "events", "notifications"],
+    tabs: [
+      "mcp",
+      "apigateway",
+      "health",
+      "indexing",
+      "events",
+      "notifications",
+    ],
   },
   {
     slug: "admin-sessions",
@@ -469,16 +492,7 @@ export const routes: ScreenshotRoute[] = [
       }
     },
   },
-  {
-    slug: "admin-personas",
-    path: "/portal/admin/personas",
-    category: "admin",
-    beforeCapture: async (page) => {
-      const de = page.locator("text=Data Engineer").first();
-      if (await de.isVisible()) await de.click();
-      await page.waitForTimeout(500);
-    },
-  },
+  ...adminPersonaRoutes,
   ...adminResourceRoutes,
   {
     slug: "admin-prompts",
@@ -518,18 +532,6 @@ export const routes: ScreenshotRoute[] = [
   // =========================================================================
   // Editor / create forms — the rich authoring states behind the list views.
   // =========================================================================
-  {
-    slug: "admin-persona-create",
-    path: "/portal/admin/personas",
-    category: "admin",
-    beforeCapture: async (page) => {
-      const btn = page.locator("button:has-text('New Persona')").first();
-      if (await btn.isVisible()) {
-        await btn.click();
-        await page.waitForTimeout(600);
-      }
-    },
-  },
   {
     slug: "admin-catalog-create",
     path: "/portal/admin/api-catalogs",

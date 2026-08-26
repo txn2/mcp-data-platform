@@ -6,6 +6,8 @@ import {
   useUpdatePersona,
 } from "@/api/admin/hooks";
 import type { ConnectionInfo } from "@/api/admin/types";
+import type { ApiScopeState } from "./PermissionsExplorer";
+import { useApiRouteScope } from "./useApiRouteScope";
 import { resolve, aggregateTools, type Resolution } from "./resolve";
 import type { Bucket } from "./tints";
 import type { PersonaDraft, Scope, StatusFilter, Item } from "./types";
@@ -26,6 +28,11 @@ function toPayload(draft: PersonaDraft) {
       draft.allowConnections.length > 0 ? draft.allowConnections : undefined,
     deny_connections:
       draft.denyConnections.length > 0 ? draft.denyConnections : undefined,
+    // Sent only when the persona has rules. An absent field leaves the persona
+    // with none, which is the same "no rule names this connection" state a
+    // persona that never had any is in — and is what a save must produce for a
+    // connection the operator did not touch.
+    api_routes: draft.apiRoutes.length > 0 ? draft.apiRoutes : undefined,
     priority: draft.priority,
     description_prefix: draft.descriptionPrefix || undefined,
     description_override: draft.descriptionOverride || undefined,
@@ -69,6 +76,10 @@ export function usePersonaEditor({
     pattern: string;
   } | null>(null);
   const [rolesDraft, setRolesDraft] = useState("");
+  // The rule chip the pointer is on, so the operation list can mark the rows
+  // that rule governs. Indexed rather than matched by value: two rules can be
+  // written identically and each still has its own chip.
+  const [highlightRoute, setHighlightRoute] = useState<number | null>(null);
   const [mainTab, setMainTab] = useState<"permissions" | "behavior">("permissions");
 
   // --- derived ---------------------------------------------------------
@@ -119,6 +130,17 @@ export function usePersonaEditor({
     });
   }, [scope, uniqueTools, connections, toolConnectionCounts]);
 
+  const api = useApiRouteScope({
+    draft,
+    onUpdate,
+    scope,
+    selected,
+    hovered,
+    highlightIndex: highlightRoute,
+  });
+
+  // The api scope has no allow/deny string buckets — its rules are objects —
+  // so it borrows the connection lists for the two panes it does not render.
   const allowList = scope === "tools" ? draft.allowTools : draft.allowConnections;
   const denyList = scope === "tools" ? draft.denyTools : draft.denyConnections;
 
@@ -132,7 +154,7 @@ export function usePersonaEditor({
     return map;
   }, [items, allowList, denyList]);
 
-  const counts = useMemo(() => {
+  const patternCounts = useMemo(() => {
     let allowed = 0;
     let denied = 0;
     for (const r of resolved.values()) {
@@ -141,6 +163,41 @@ export function usePersonaEditor({
     }
     return { allowed, denied, total: allowed + denied };
   }, [resolved]);
+
+  const counts = scope === "api" ? api.counts : patternCounts;
+
+  // The bundle the explorer takes, assembled once so the component's signature
+  // does not grow a prop per field of it.
+  const apiScope = useMemo<ApiScopeState>(
+    () => ({
+      connections: api.connections,
+      isLoading: api.isLoading,
+      operationCount: api.counts.total,
+      resolveFor: api.resolveFor,
+      handlers: {
+        setOperation: api.setOperationRule,
+        setConnection: api.setConnectionRule,
+      },
+      focus: api.focus,
+      governedBy: api.governedBy,
+    }),
+    [api],
+  );
+
+  // Clearing the highlight is the editor's business, not the scope's: the
+  // index the rail is pointing at names a rule that is about to be gone.
+  const removeRouteRule = useCallback(
+    (index: number) => {
+      setHighlightRoute(null);
+      api.removeRule(index);
+    },
+    [api],
+  );
+
+  const apiConnectionNames = useMemo(
+    () => api.connections.map((c) => c.name),
+    [api.connections],
+  );
 
   const grouped = useMemo(() => {
     const groups = new Map<string, Item[]>();
@@ -255,6 +312,12 @@ export function usePersonaEditor({
     setMainTab,
     toolCount: uniqueTools.length,
     connectionCount: connections.length,
+    api: apiScope,
+    apiConnectionNames,
+    addRouteRule: api.addRule,
+    removeRouteRule,
+    highlightRoute,
+    setHighlightRoute,
     items,
     allowList,
     denyList,

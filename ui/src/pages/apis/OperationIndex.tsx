@@ -3,7 +3,7 @@ import { EmptyState } from "@/components/patterns/EmptyState";
 import { SearchInput } from "@/components/patterns/SearchInput";
 import { cn } from "@/lib/utils";
 import type { APIOperationSummary } from "@/api/apis/types";
-import { MethodBadge } from "./methodBadge";
+import { MethodBadge } from "@/components/patterns/MethodBadge";
 
 /** UNTAGGED is the group an operation with no tag falls into. */
 const UNTAGGED = "Untagged";

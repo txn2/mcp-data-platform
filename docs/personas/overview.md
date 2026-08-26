@@ -347,6 +347,64 @@ Connection patterns use the same wildcard syntax as tool patterns:
 - `prod-*` matches `prod-trino`, `prod-datahub`, etc.
 - `*-readonly` matches `trino-readonly`, `datahub-readonly`, etc.
 
+## API Endpoint Rules
+
+A persona that reaches an `api` connection can call every operation that connection exposes. `api_routes` narrows that to specific HTTP methods and paths, which is how one API is split into read-only and read-write access without two connections and two credentials.
+
+```yaml
+personas:
+  analyst:
+    display_name: "Data Analyst"
+    roles: ["analyst"]
+    tools:
+      allow: ["*"]
+    connections:
+      allow: ["crm-*"]
+    api_routes:
+      - connection: "crm-*"
+        methods: ["GET", "HEAD"]
+      - connection: "crm-*"
+        methods: ["DELETE"]
+        paths: ["/v1/orders/{id}"]
+        action: deny
+```
+
+Each entry has four fields:
+
+| Field | Meaning |
+|-------|---------|
+| `connection` | Glob matched against the connection name. Required. |
+| `methods` | HTTP method globs. Omitted or empty matches any method. Written uppercase; the portal uppercases what you type, because inbound methods are uppercased before matching and the comparison is case-sensitive. |
+| `paths` | Path globs. Omitted or empty matches any path. |
+| `action` | `allow` (the default) or `deny`. |
+
+Evaluation, against one `(connection, method, path)`:
+
+1. Entries whose `connection` glob does not match are skipped.
+2. Among the rest, a matching `deny` entry refuses the call.
+3. Otherwise a matching `allow` entry is required.
+4. **If no entry names the connection at all, the check is a no-op** and the connection-level grant is the sole gate. A persona written before `api_routes` existed behaves exactly as it did.
+
+Step 4 is why `api_routes` is a narrowing and not a second grant: adding a rule for one connection does not close the others.
+
+### Paths are matched in both forms
+
+A path glob is matched against the path the call reaches (`/v1/orders/42`) **and** the catalog path the operation declares (`/v1/orders/{id}`). Naming the declared path is the precise way to govern one operation: `paths: ["/v1/orders/{id}"]` covers every call that operation serves and touches no other operation. A glob such as `/v1/orders/*` is a different rule, and it also matches sibling operations at that depth, `/v1/orders/summary` among them.
+
+Globs use the same wildcard syntax as tool and connection patterns, where `*` does not cross a `/`. A path glob therefore governs one segment: `/v1/orders/*` matches `/v1/orders/42` but not `/v1/orders/42/items`. There is no recursive form — `**` is two stars and stops at a separator exactly as one does — so covering a subtree means one rule per depth, or a rule on the connection with no `paths` at all.
+
+### The rules are the same in the portal
+
+`api_routes` is part of a persona wherever the persona is defined. **Settings > Personas > Permissions > API endpoints** lists the API connections and, under each, the operations its catalog declares, showing the persona's current decision on each one and the rule that produced it. Selecting an operation to allow or deny writes an entry naming that operation's own method and declared path, so a rule written in the portal and one written in YAML are the same rule.
+
+A rule written as a glob is shown as the glob it was typed as and is not rewritten when the persona is saved. Use the rule editor directly for a pattern no indexed operation corresponds to, such as a path prefix on a connection whose spec has not been loaded yet.
+
+**Settings > Personas > Test access** answers a `(connection, method, path)` question against the saved persona and returns the rule that decided it.
+
+### What this does not do
+
+`api_routes` does not make an API connection deny-by-default. A connection no rule names stays fully reachable by any persona granted that connection, which is the connection boundary doing its job. To hide a subset of an API from a persona entirely, either write an `allow` rule for the operations it should reach (which makes everything else on that connection unreachable, per step 3) or bind the narrower access to its own connection.
+
 ## Knowledge Tool Access
 
 The knowledge capture tools follow the same allow/deny patterns. Control who can capture insights and who can apply them:

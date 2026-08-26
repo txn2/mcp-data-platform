@@ -121,11 +121,63 @@ func (*ToolFilter) IsConnectionAllowed(persona *Persona, connectionName string) 
 	return false
 }
 
-// IsAPIRouteAllowed reports whether the persona may invoke (method, path)
-// on the named connection through the HTTP API gateway. Layered on top
-// of IsConnectionAllowed: callers MUST also pass the connection-level
-// gate; this function adds per-(method, path) granularity for kind=api
-// connections.
+// RouteQuery is one (connection, method, path) an APIRoutes rule set is
+// evaluated against.
+//
+// Path and Template are two forms of the same request and both are
+// matched, because the surfaces that consult a rule reach it in
+// different forms. api_list_endpoints and endpoint search hold the
+// operation the catalog declares, whose path is a template
+// ("/v1/orders/{id}"); api_invoke_endpoint holds the path the call
+// actually reaches, with the parameters substituted
+// ("/v1/orders/42"). A rule naming one form has to govern both, or a
+// rule that hides an operation from the listing would permit the call
+// it hides.
+type RouteQuery struct {
+	// Connection is the connection name the rules' Connection globs are
+	// matched against.
+	Connection string
+	// Method is the HTTP method, uppercase.
+	Method string
+	// Path is the concrete request path.
+	Path string
+	// Template is the catalog path template Path resolved from. Empty
+	// when the connection's catalog declares no matching operation, and
+	// equal to Path for an operation whose path carries no placeholder.
+	Template string
+}
+
+// paths returns the path forms a rule's Paths globs are matched against.
+func (q RouteQuery) paths() []string {
+	if q.Template == "" || q.Template == q.Path {
+		return []string{q.Path}
+	}
+	return []string{q.Path, q.Template}
+}
+
+// RouteDecision is the verdict a persona's APIRoutes rules produce for
+// one RouteQuery, with the rule that produced it recorded so an
+// operator can be shown why.
+type RouteDecision struct {
+	Allowed bool `json:"allowed"`
+	// Source is "deny" when a deny rule refused the query and "allow" when
+	// an allow rule admitted it. "default" means no rule decided, and
+	// Allowed says which of its two cases this is: true when no rule named
+	// the connection at all, which leaves the connection-level gate as the
+	// sole one, and false when rules named it and none of them admitted
+	// this query — a denial the rule set produced rather than any one rule.
+	Source AccessSource `json:"source"`
+	// MatchedRule is the rule the decision came from. Nil for
+	// AccessSourceDefault, and nil when rules touch the connection but
+	// none matched the query, which is a denial no single rule produced.
+	MatchedRule *APIRouteRule `json:"matched_rule,omitempty"`
+}
+
+// IsAPIRouteAllowed reports whether the persona may invoke the query's
+// method and path on its connection through the HTTP API gateway.
+// Layered on top of IsConnectionAllowed: callers MUST also pass the
+// connection-level gate; this function adds per-(method, path)
+// granularity for kind=api connections.
 //
 // Semantics (also documented on APIRouteRule):
 //   - If no APIRoutes entry's Connection glob matches the connection, the
@@ -136,27 +188,36 @@ func (*ToolFilter) IsConnectionAllowed(persona *Persona, connectionName string) 
 //     must pass: no matching deny rule, AND at least one matching allow
 //     rule.
 //   - A nil persona always denies (fail-closed).
-func (*ToolFilter) IsAPIRouteAllowed(persona *Persona, connection, method, path string) bool {
+func (f *ToolFilter) IsAPIRouteAllowed(persona *Persona, q RouteQuery) bool {
+	return f.WhyAPIRouteAllowed(persona, q).Allowed
+}
+
+// WhyAPIRouteAllowed returns the same verdict IsAPIRouteAllowed returns
+// with the deciding rule recorded, so the admin test-access route and
+// the persona editor can render which rule governs an operation rather
+// than only whether it is reachable.
+func (*ToolFilter) WhyAPIRouteAllowed(persona *Persona, q RouteQuery) RouteDecision {
 	if persona == nil {
-		return false
+		return RouteDecision{Source: AccessSourceDefault}
 	}
-	relevant := matchingRouteRules(persona.APIRoutes, connection)
+	relevant := matchingRouteRules(persona.APIRoutes, q.Connection)
 	if len(relevant) == 0 {
 		// No rule touches this connection — the route check is a no-op
 		// and the existing connection-level gate decides.
-		return true
+		return RouteDecision{Allowed: true, Source: AccessSourceDefault}
 	}
-	for _, rule := range relevant {
-		if rule.Action == ActionDeny && routeRuleMatches(rule, method, path) {
-			return false
+	paths := q.paths()
+	for i, rule := range relevant {
+		if rule.Action == ActionDeny && routeRuleMatches(rule, q.Method, paths) {
+			return RouteDecision{Source: AccessSourceDeny, MatchedRule: &relevant[i]}
 		}
 	}
-	for _, rule := range relevant {
-		if rule.Action != ActionDeny && routeRuleMatches(rule, method, path) {
-			return true
+	for i, rule := range relevant {
+		if rule.Action != ActionDeny && routeRuleMatches(rule, q.Method, paths) {
+			return RouteDecision{Allowed: true, Source: AccessSourceAllow, MatchedRule: &relevant[i]}
 		}
 	}
-	return false
+	return RouteDecision{Source: AccessSourceDefault}
 }
 
 // matchingRouteRules returns the subset of rules whose Connection glob
@@ -172,11 +233,25 @@ func matchingRouteRules(rules []APIRouteRule, connection string) []APIRouteRule 
 	return out
 }
 
-// routeRuleMatches reports whether a rule's Methods and Paths globs
-// both match the given method and path. Empty Methods or Paths means
-// "any value" for that dimension.
-func routeRuleMatches(rule APIRouteRule, method, path string) bool {
-	return matchAny(rule.Methods, method) && matchAny(rule.Paths, path)
+// routeRuleMatches reports whether a rule's Methods glob matches the
+// method and its Paths globs match any of the query's path forms. Empty
+// Methods or Paths means "any value" for that dimension.
+func routeRuleMatches(rule APIRouteRule, method string, paths []string) bool {
+	return matchAny(rule.Methods, method) && matchAnyPath(rule.Paths, paths)
+}
+
+// matchAnyPath returns true if patterns is empty (treated as "any") or if
+// any pattern matches any of the path forms the query carries.
+func matchAnyPath(patterns, paths []string) bool {
+	if len(patterns) == 0 {
+		return true
+	}
+	for _, p := range paths {
+		if matchAny(patterns, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // matchAny returns true if patterns is empty (treated as "any") or if
@@ -261,14 +336,14 @@ func (a *Authorizer) IsAuthorized(ctx context.Context, _ string, roles []string,
 	return true, personaName, ""
 }
 
-// IsAPIRouteAllowed authorizes (method, path) on the named HTTP API
-// gateway connection for the user with the given roles. Layered on
+// IsAPIRouteAllowed authorizes the query's method and path on its HTTP
+// API gateway connection for the user with the given roles. Layered on
 // top of IsAuthorized: the caller (the api gateway toolkit) is
 // expected to have already passed the tool/connection-level gate via
 // the standard MCP middleware, and this method adds per-route
 // granularity. Returns the resolved persona name (for audit) and a
 // reason on denial.
-func (a *Authorizer) IsAPIRouteAllowed(ctx context.Context, roles []string, connection, method, path string) (allowed bool, personaName, reason string) {
+func (a *Authorizer) IsAPIRouteAllowed(ctx context.Context, roles []string, q RouteQuery) (allowed bool, personaName, reason string) {
 	per, err := a.roleMapper.MapToPersona(ctx, roles)
 	if err != nil {
 		return false, "", "failed to determine persona"
@@ -276,8 +351,8 @@ func (a *Authorizer) IsAPIRouteAllowed(ctx context.Context, roles []string, conn
 	if per != nil {
 		personaName = per.Name
 	}
-	if !a.filter.IsAPIRouteAllowed(per, connection, method, path) {
-		return false, personaName, "persona " + personaName + " disallows " + method + " " + path + " on connection " + connection
+	if !a.filter.IsAPIRouteAllowed(per, q) {
+		return false, personaName, "persona " + personaName + " disallows " + q.Method + " " + q.Path + " on connection " + q.Connection
 	}
 	return true, personaName, ""
 }

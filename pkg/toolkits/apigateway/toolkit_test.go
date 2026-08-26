@@ -311,13 +311,15 @@ type stubRoutePolicy struct {
 	gotConn string
 	gotMeth string
 	gotPath string
+	gotTmpl string
 }
 
-func (s *stubRoutePolicy) Allow(_ context.Context, conn, method, path string) (allowed bool, reason string) {
+func (s *stubRoutePolicy) Allow(_ context.Context, conn, method, path, template string) (allowed bool, reason string) {
 	s.calls++
 	s.gotConn = conn
 	s.gotMeth = method
 	s.gotPath = path
+	s.gotTmpl = template
 	return s.allowed, s.reason
 }
 
@@ -589,7 +591,7 @@ func TestHandleListEndpoints_FiltersByRoutePolicy(t *testing.T) {
 		t.Fatalf("AddConnection: %v", err)
 	}
 	// Policy: only GET allowed; DELETE/POST denied.
-	tk.SetRoutePolicy(routePolicyFunc(func(_ context.Context, _, method, _ string) (bool, string) {
+	tk.SetRoutePolicy(routePolicyFunc(func(_ context.Context, _, method, _, _ string) (bool, string) {
 		if method == "GET" {
 			return true, ""
 		}
@@ -616,10 +618,10 @@ func TestHandleListEndpoints_FiltersByRoutePolicy(t *testing.T) {
 // routePolicyFunc adapts an inline closure to the RoutePolicy
 // interface for tests that don't need the full stubRoutePolicy
 // observation surface.
-type routePolicyFunc func(ctx context.Context, conn, method, path string) (bool, string)
+type routePolicyFunc func(ctx context.Context, conn, method, path, template string) (bool, string)
 
-func (f routePolicyFunc) Allow(ctx context.Context, conn, method, path string) (allowed bool, reason string) {
-	return f(ctx, conn, method, path)
+func (f routePolicyFunc) Allow(ctx context.Context, conn, method, path, template string) (allowed bool, reason string) {
+	return f(ctx, conn, method, path, template)
 }
 
 func TestHandleListEndpoints_HonorsLimit(t *testing.T) {

@@ -131,6 +131,19 @@ personas:
         - "staging"
         - "primary"
         - "data_lake"
+    # Narrows the api-kind connections this persona already reaches, by HTTP
+    # method and path. A connection no rule names keeps full access, so this
+    # closes nothing beyond the connections it lists. A path glob matches both
+    # the path a call reaches and the path its operation declares, and `*` does
+    # not cross a `/`. These rules are editable in the portal at
+    # Settings > Personas > Permissions > API endpoints.
+    api_routes:
+      - connection: "billing-api"
+        methods: ["GET", "HEAD"]
+      - connection: "billing-api"
+        methods: ["DELETE"]
+        paths: ["/v1/invoices/{id}"]
+        action: deny
     context:
       description_prefix: |
         You are helping a data analyst explore and query data.

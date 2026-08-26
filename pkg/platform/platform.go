@@ -2742,28 +2742,7 @@ func (p *Platform) createStorageProvider() (storage.Provider, error) {
 func (p *Platform) loadPersonas() error {
 	p.filePersonaNames = make(map[string]bool, len(p.config.Personas.Definitions))
 	for name, def := range p.config.Personas.Definitions {
-		personaDef := &persona.Persona{
-			Name:        name,
-			DisplayName: def.DisplayName,
-			Description: def.Description,
-			Roles:       def.Roles,
-			Tools: persona.ToolRules{
-				Allow: def.Tools.Allow,
-				Deny:  def.Tools.Deny,
-			},
-			Connections: persona.ConnectionRules{
-				Allow: def.Connections.Allow,
-				Deny:  def.Connections.Deny,
-			},
-			Context: persona.ContextOverrides{
-				DescriptionPrefix:         def.Context.DescriptionPrefix,
-				DescriptionOverride:       def.Context.DescriptionOverride,
-				AgentInstructionsSuffix:   def.Context.AgentInstructionsSuffix,
-				AgentInstructionsOverride: def.Context.AgentInstructionsOverride,
-			},
-			Priority: def.Priority,
-			Source:   SourceFile,
-		}
+		personaDef := def.ToPersona(name, SourceFile)
 		p.filePersonaNames[name] = true
 		if err := p.personaRegistry.Register(personaDef); err != nil {
 			return fmt.Errorf("registering persona %s: %w", name, err)

@@ -1,7 +1,9 @@
 import { TemplateRow } from "./primitives";
+import { ApiRouteTrace } from "./ApiRouteTrace";
 import { Trace } from "./Trace";
+import type { RouteFocus } from "./types";
 import type { Resolution } from "./resolve";
-import type { ExplorerCounts } from "./ExplorerToolbar";
+import { POSITIVE_LABEL, type ExplorerCounts } from "./ExplorerToolbar";
 import type { Item, PersonaDraft, Scope } from "./types";
 
 // QUICK_TEMPLATES are the four persona shapes an operator reaches for often
@@ -47,6 +49,7 @@ export function ExplorerAside({
   scope,
   isReadOnly,
   onUpdate,
+  routeFocus,
 }: {
   counts: ExplorerCounts;
   focusItem: string | null;
@@ -57,6 +60,8 @@ export function ExplorerAside({
   scope: Scope;
   isReadOnly: boolean;
   onUpdate: (partial: Partial<PersonaDraft>) => void;
+  /** The operation the pointer is on in the API-endpoint scope, if any. */
+  routeFocus: RouteFocus | null;
 }) {
   return (
     <aside className="flex flex-col border-t xl:overflow-y-auto xl:border-l xl:border-t-0">
@@ -66,7 +71,7 @@ export function ExplorerAside({
             {counts.allowed}
           </div>
           <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            allowed
+            {POSITIVE_LABEL[scope]}
           </div>
         </div>
         <div className="px-4 py-3">
@@ -96,7 +101,20 @@ export function ExplorerAside({
         <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
           Resolution Trace
         </div>
-        {!focusItem || !focusResolution ? (
+        {scope === "api" ? (
+          routeFocus ? (
+            <ApiRouteTrace
+              connection={routeFocus.connection}
+              method={routeFocus.method}
+              path={routeFocus.path}
+              resolution={routeFocus.resolution}
+            />
+          ) : (
+            <p className="py-4 text-center text-[11px] text-muted-foreground">
+              Hover or click an operation to trace its decision.
+            </p>
+          )
+        ) : !focusItem || !focusResolution ? (
           <p className="py-4 text-center text-[11px] text-muted-foreground">
             Hover or click an item to trace its decision.
           </p>

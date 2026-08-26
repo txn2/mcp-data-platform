@@ -123,6 +123,11 @@ export function PersonaEditor({
           addDeny={editor.addDeny}
           removeAllow={editor.removeAllow}
           removeDeny={editor.removeDeny}
+          apiRouteConnectionNames={editor.apiConnectionNames}
+          addRouteRule={editor.addRouteRule}
+          removeRouteRule={editor.removeRouteRule}
+          highlightRoute={editor.highlightRoute}
+          setHighlightRoute={editor.setHighlightRoute}
         />
 
         <Tabs
@@ -162,6 +167,7 @@ export function PersonaEditor({
               setHovered={editor.setHovered}
               toolCount={editor.toolCount}
               connectionCount={editor.connectionCount}
+              api={editor.api}
               items={editor.items}
               resolved={editor.resolved}
               counts={editor.counts}

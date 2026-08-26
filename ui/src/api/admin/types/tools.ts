@@ -74,6 +74,27 @@ export interface PersonaSummary {
   source?: "file" | "database" | "both";
 }
 
+/**
+ * One per-(connection, method, path) rule for the HTTP API gateway. Layered on
+ * top of the connection grant: a connection no rule names keeps the
+ * connection-level decision as its only gate.
+ */
+export interface APIRouteRule {
+  /** Glob matched against the connection name. Required. */
+  connection: string;
+  /** HTTP method globs, uppercase. Empty or absent matches any method. */
+  methods?: string[];
+  /**
+   * Path globs. Each is matched against both the path a call reaches
+   * ("/v1/orders/42") and the catalog path the operation declares
+   * ("/v1/orders/{id}"), so naming the declared path governs that one
+   * operation. Empty or absent matches any path.
+   */
+  paths?: string[];
+  /** "allow" (the default) or "deny". Deny wins. */
+  action?: "allow" | "deny";
+}
+
 export interface PersonaDetail {
   name: string;
   display_name: string;
@@ -87,6 +108,8 @@ export interface PersonaDetail {
   tools: string[];
   context?: PersonaContextOverrides;
   source?: "file" | "database" | "both";
+  /** Always an array, never null. */
+  api_routes: APIRouteRule[];
 }
 
 export interface PersonaListResponse {
@@ -108,6 +131,39 @@ export interface PersonaCreateRequest {
   description_override?: string;
   agent_instructions_suffix?: string;
   agent_instructions_override?: string;
+  /** Replaces the persona's route rules wholesale. Absent leaves it with none. */
+  api_routes?: APIRouteRule[];
+}
+
+/** One api-kind connection and every operation its catalog declares. */
+export interface APIRouteConnection {
+  name: string;
+  description?: string;
+  base_url?: string;
+  auth_mode?: string;
+  catalog_id?: string;
+  /**
+   * The connection's whole index, narrowed by no persona. Empty for a
+   * connection with no catalog, whose rules can be written as patterns but not
+   * selected.
+   */
+  operations: APIRouteOperation[];
+}
+
+/** One operation a rule can be written against. */
+export interface APIRouteOperation {
+  operation_id: string;
+  method: string;
+  /** The path as the catalog declares it, placeholders included. */
+  path: string;
+  summary?: string;
+  tags?: string[];
+  spec?: string;
+}
+
+export interface APIRouteConnectionList {
+  connections: APIRouteConnection[];
+  total: number;
 }
 
 // --- Tools master-detail (issue #340) ---
@@ -150,14 +206,24 @@ export interface ToolDetail {
   enrichment_rule_count: number;
 }
 
+/**
+ * Two questions share the test-access route: `tool_name` asks whether the
+ * persona may call a tool, `connection` + `method` + `path` whether it may
+ * invoke that operation.
+ */
 export interface PersonaTestAccessRequest {
-  tool_name: string;
+  tool_name?: string;
+  connection?: string;
+  method?: string;
+  path?: string;
 }
 
 export interface PersonaTestAccessResult {
   allowed: boolean;
-  matched_pattern: string;
+  matched_pattern?: string;
   source: PersonaAccessSource;
+  /** The rule that decided an API route question. Absent for the tool case. */
+  matched_rule?: APIRouteRule;
 }
 
 export interface ToolVisibilityRequest {

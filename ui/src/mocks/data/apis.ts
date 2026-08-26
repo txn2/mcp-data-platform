@@ -5,6 +5,7 @@ import type {
   APIParameterDetail,
   APIResponseDetail,
 } from "@/api/apis/types";
+import type { APIRouteConnectionList } from "@/api/admin/types";
 import { mockCatalogSpecs } from "./catalogs";
 
 // Fixtures for the operation browser (#1478).
@@ -157,9 +158,10 @@ interface MockAPIConnection {
   catalog_id: string;
   /** Operations this caller may not invoke, as "METHOD path" against the
    * resolved path. Stands in for the route policy's verdict, so the mocked
-   * page shows the same subtraction a persona-scoped one does. The rules
-   * themselves have no authoring surface yet (#1479), which is why the fixture
-   * states the outcome rather than the rule. */
+   * page shows the same subtraction a persona-scoped one does. The fixture
+   * states the outcome rather than the rule because the caller whose persona
+   * produced it is not modelled here; the persona editor's own fixture is the
+   * unnarrowed index, which catalogOperations returns. */
   denied?: string[];
 }
 
@@ -243,4 +245,38 @@ export function connectionOperationDetail(
     specBasePath(spec.content ?? "{}", spec.base_path),
     operationID,
   );
+}
+
+/** catalogOperations is one connection's whole index, narrowed by nothing.
+ *
+ * It is what the persona editor writes rules against: an operator writing rules
+ * for one persona is not that persona, so the authoring surface shows what
+ * exists rather than what the reader reaches (#1479). */
+export function catalogOperations(conn: MockAPIConnection): APIOperationSummary[] {
+  const specs = mockCatalogSpecs[conn.catalog_id] ?? {};
+  const out: APIOperationSummary[] = [];
+  for (const [specName, spec] of Object.entries(specs)) {
+    const basePath = specBasePath(spec.content ?? "{}", spec.base_path);
+    out.push(...operationsFromSpec(spec.content ?? "{}", specName, basePath));
+  }
+  return out.sort(
+    (a, b) =>
+      (a.spec ?? "").localeCompare(b.spec ?? "") ||
+      a.path.localeCompare(b.path) ||
+      a.method.localeCompare(b.method),
+  );
+}
+
+/** mockAPIRouteConnections is the payload of the persona editor's inventory
+ * route: every api-kind connection with every operation its catalog declares. */
+export function mockAPIRouteConnections(): APIRouteConnectionList {
+  const connections = mockAPIConnections.map((conn) => ({
+    name: conn.name,
+    description: conn.description,
+    base_url: conn.base_url,
+    auth_mode: conn.auth_mode,
+    catalog_id: conn.catalog_id,
+    operations: catalogOperations(conn),
+  }));
+  return { connections, total: connections.length };
 }

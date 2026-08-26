@@ -13,6 +13,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	httpswagger "github.com/swaggo/http-swagger/v2"
 
+	"github.com/txn2/mcp-data-platform/internal/admin/apiroutesapi"
 	"github.com/txn2/mcp-data-platform/internal/platform/reviewalert"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/auth"
@@ -457,6 +458,10 @@ func (h *Handler) registerPersonaRoutes() {
 	h.mux.HandleFunc("GET /api/v1/admin/personas", h.listPersonas)
 	h.mux.HandleFunc("GET /api/v1/admin/personas/{name}", h.getPersona)
 	h.mux.HandleFunc("POST /api/v1/admin/personas/{name}/test-access", h.testPersonaAccess)
+	// The operations a persona's API route rules can be written against.
+	// Registered with the persona reads, not the writes: a file-config
+	// deployment can still be shown which endpoints its rules govern.
+	apiroutesapi.Register(h.mux, apiroutesapi.Config{Toolkits: h.deps.ToolkitRegistry})
 	if h.isMutable() {
 		h.mux.HandleFunc("POST /api/v1/admin/personas", h.createPersona)
 		h.mux.HandleFunc("PUT /api/v1/admin/personas/{name}", h.updatePersona)

@@ -13,7 +13,7 @@ import (
 // browse surface has to observe.
 type denyPolicy struct{ method, path string }
 
-func (p denyPolicy) Allow(_ context.Context, _, method, path string) (allowed bool, reason string) {
+func (p denyPolicy) Allow(_ context.Context, _, method, path, _ string) (allowed bool, reason string) {
 	if method == p.method && path == p.path {
 		return false, "denied by test policy"
 	}

@@ -255,7 +255,7 @@ func TestSearchOperations_RoutePolicyScopesResults(t *testing.T) {
 		},
 	}}
 	// Deny the destructive operation; allow the rest.
-	tk.SetRoutePolicy(routePolicyFunc(func(_ context.Context, _, method, _ string) (bool, string) {
+	tk.SetRoutePolicy(routePolicyFunc(func(_ context.Context, _, method, _, _ string) (bool, string) {
 		if method == "DELETE" {
 			return false, "denied"
 		}

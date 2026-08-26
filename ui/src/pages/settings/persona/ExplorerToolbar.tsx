@@ -5,6 +5,23 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BUCKET_TINT } from "./tints";
 import type { Scope, StatusFilter } from "./types";
 
+// SCOPE_NOUN names what a scope lists, for the search field's label. The scope
+// value itself reads wrong in a sentence ("Search api…").
+const SCOPE_NOUN: Record<Scope, string> = {
+  tools: "tools",
+  connections: "connections",
+  api: "API endpoints",
+};
+
+// POSITIVE_LABEL names the non-denied half of a tally. The api scope says
+// "reachable" because its non-denied half includes the operations no rule
+// names, and calling those "allowed" would claim a rule admits them.
+export const POSITIVE_LABEL: Record<Scope, string> = {
+  tools: "allowed",
+  connections: "allowed",
+  api: "reachable",
+};
+
 export interface ExplorerCounts {
   allowed: number;
   denied: number;
@@ -21,6 +38,7 @@ export function ExplorerToolbar({
   onScopeChange,
   toolCount,
   connectionCount,
+  apiOperationCount,
   search,
   onSearchChange,
   statusFilter,
@@ -32,6 +50,7 @@ export function ExplorerToolbar({
   onScopeChange: (s: Scope) => void;
   toolCount: number;
   connectionCount: number;
+  apiOperationCount: number;
   search: string;
   onSearchChange: (s: string) => void;
   statusFilter: StatusFilter;
@@ -52,7 +71,7 @@ export function ExplorerToolbar({
               <span className="flex items-center gap-1.5">
                 <span className="h-2 w-2 rounded-full bg-emerald-500" />
                 <strong className="font-mono text-foreground">{counts.allowed}</strong>
-                <span className="text-muted-foreground">allowed</span>
+                <span className="text-muted-foreground">{POSITIVE_LABEL[scope]}</span>
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="h-2 w-2 rounded-full bg-rose-500" />
@@ -74,6 +93,11 @@ export function ExplorerToolbar({
               label="Connections"
               count={connectionCount}
             />
+            <ScopeTrigger
+              value="api"
+              label="API endpoints"
+              count={apiOperationCount}
+            />
           </TabsList>
         </Tabs>
       </div>
@@ -85,8 +109,8 @@ export function ExplorerToolbar({
             type="search"
             value={search}
             onChange={(e) => onSearchChange(e.target.value)}
-            placeholder={`Search ${scope}…`}
-            aria-label={`Search ${scope}`}
+            placeholder={`Search ${SCOPE_NOUN[scope]}…`}
+            aria-label={`Search ${SCOPE_NOUN[scope]}`}
             className="h-8 pl-8 font-mono text-[11px]"
           />
         </div>
@@ -99,7 +123,8 @@ export function ExplorerToolbar({
               All
             </TabsTrigger>
             <TabsTrigger value="allowed" className="text-[11px]">
-              <span className={BUCKET_TINT.allow.text}>{counts.allowed}</span> allowed
+              <span className={BUCKET_TINT.allow.text}>{counts.allowed}</span>{" "}
+              {POSITIVE_LABEL[scope]}
             </TabsTrigger>
             <TabsTrigger value="denied" className="text-[11px]">
               <span className={BUCKET_TINT.deny.text}>{counts.denied}</span> denied

@@ -4,6 +4,9 @@ cmd/mcp-data-platform -> internal/server
 cmd/mcp-data-platform -> pkg/platform
 cmd/preview-content-viewer -> internal/contentviewer
 cmd/preview-content-viewer -> internal/portal/publicviewer
+internal/admin/apiroutesapi -> internal/httpjson
+internal/admin/apiroutesapi -> pkg/registry
+internal/admin/apiroutesapi -> pkg/toolkits/apigateway
 internal/admin/auditapi -> internal/httpjson
 internal/admin/auditapi -> pkg/audit
 internal/admin/callapi -> internal/httpjson
@@ -249,6 +252,7 @@ internal/platform/oauthserver -> pkg/oauth
 internal/platform/oauthserver -> pkg/oauth/postgres
 internal/platform/oauthserver -> pkg/observability
 internal/platform/obs -> pkg/observability
+internal/platform/personacfg -> pkg/persona
 internal/platform/portalstore -> internal/platform/assetindex
 internal/platform/portalstore -> internal/platform/collectionindex
 internal/platform/portalstore -> internal/platform/knowledgepageindex
@@ -433,6 +437,7 @@ internal/portal/viewerlimit -> pkg/ratelimit
 internal/server -> internal/platform/knowledgebuiltin
 internal/server -> pkg/platform
 internal/tableavail -> pkg/query
+pkg/admin -> internal/admin/apiroutesapi
 pkg/admin -> internal/admin/auditapi
 pkg/admin -> internal/admin/callapi
 pkg/admin -> internal/admin/catalogapi
@@ -580,6 +585,7 @@ pkg/platform -> internal/platform/mwchain
 pkg/platform -> internal/platform/notices
 pkg/platform -> internal/platform/oauthserver
 pkg/platform -> internal/platform/obs
+pkg/platform -> internal/platform/personacfg
 pkg/platform -> internal/platform/portalcfg
 pkg/platform -> internal/platform/portalstore
 pkg/platform -> internal/platform/promptlayer

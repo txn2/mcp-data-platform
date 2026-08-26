@@ -17,6 +17,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/configenv"
 	"github.com/txn2/mcp-data-platform/internal/platform/datasetindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/dedup"
+	"github.com/txn2/mcp-data-platform/internal/platform/personacfg"
 	"github.com/txn2/mcp-data-platform/internal/platform/portalcfg"
 	"github.com/txn2/mcp-data-platform/internal/platform/reflexivecapture"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptexec"
@@ -656,34 +657,26 @@ type DatabaseConfig struct {
 	MaxOpenConns int    `yaml:"max_open_conns"`
 }
 
-// PersonasConfig holds persona definitions.
-type PersonasConfig struct {
-	Definitions map[string]PersonaDef `yaml:",inline"`
-	// DefaultPersona is no longer honored: a caller whose roles match no
-	// persona has no access. The field is still parsed so Validate can reject a
-	// config that sets it, and — because Definitions is an inline map — so that
-	// `default_persona: analyst` does not decode as a persona *named*
-	// "default_persona".
-	DefaultPersona string            `yaml:"default_persona"`
-	RoleMapping    RoleMappingConfig `yaml:"role_mapping"`
-}
-
-// PersonaDef defines a persona.
-type PersonaDef struct {
-	DisplayName string             `yaml:"display_name"`
-	Description string             `yaml:"description,omitempty"`
-	Roles       []string           `yaml:"roles"`
-	Tools       ToolRulesDef       `yaml:"tools"`
-	Connections ConnectionRulesDef `yaml:"connections"`
-	Context     ContextDef         `yaml:"context"`
-	Priority    int                `yaml:"priority,omitempty"`
-}
-
-// ConnectionRulesDef defines connection access rules in config.
-type ConnectionRulesDef struct {
-	Allow []string `yaml:"allow,omitempty"`
-	Deny  []string `yaml:"deny,omitempty"`
-}
+// Persona configuration lives in internal/platform/personacfg, which also
+// holds the one conversion from a definition to the runtime persona. Aliased
+// here so a config file and every caller naming platform.PersonaDef are
+// unchanged.
+type (
+	// PersonasConfig holds persona definitions.
+	PersonasConfig = personacfg.PersonasConfig
+	// PersonaDef defines a persona.
+	PersonaDef = personacfg.PersonaDef
+	// APIRouteDef defines one per-(connection, method, path) API gateway rule.
+	APIRouteDef = personacfg.APIRouteDef
+	// ToolRulesDef defines tool access rules.
+	ToolRulesDef = personacfg.ToolRulesDef
+	// ConnectionRulesDef defines connection access rules in config.
+	ConnectionRulesDef = personacfg.ConnectionRulesDef
+	// ContextDef defines per-persona context overrides.
+	ContextDef = personacfg.ContextDef
+	// RoleMappingConfig configures role mapping.
+	RoleMappingConfig = personacfg.RoleMappingConfig
+)
 
 // ToolsConfig configures global tool visibility filtering for tools/list responses.
 // This is a visibility filter to reduce token usage — not a security boundary.
@@ -692,25 +685,6 @@ type ToolsConfig struct {
 	Allow                []string          `yaml:"allow"`
 	Deny                 []string          `yaml:"deny"`
 	DescriptionOverrides map[string]string `yaml:"description_overrides"`
-}
-
-// ToolRulesDef defines tool access rules.
-type ToolRulesDef struct {
-	Allow []string `yaml:"allow"`
-	Deny  []string `yaml:"deny"`
-}
-
-// ContextDef defines per-persona context overrides.
-type ContextDef struct {
-	DescriptionPrefix         string `yaml:"description_prefix,omitempty"`
-	DescriptionOverride       string `yaml:"description_override,omitempty"`
-	AgentInstructionsSuffix   string `yaml:"agent_instructions_suffix,omitempty"`
-	AgentInstructionsOverride string `yaml:"agent_instructions_override,omitempty"`
-}
-
-// RoleMappingConfig configures role mapping.
-type RoleMappingConfig struct {
-	OIDCToPersona map[string]string `yaml:"oidc_to_persona"`
 }
 
 // SemanticConfig configures the semantic layer.

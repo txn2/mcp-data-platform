@@ -1,7 +1,10 @@
 import { cn } from "@/lib/utils";
 
 // An HTTP method reads as a color before it reads as a word, which is what
-// makes a long operation index scannable. The palette is the semantic one the
+// makes a long operation index scannable. Shared by the operation browser and
+// the persona editor's API-endpoint scope, so one method reads the same in the
+// page that lists what an API exposes and in the page that decides who reaches
+// it. The palette is the semantic one the
 // portal already uses rather than a set of raw hues, so it holds in both themes:
 // reads are neutral, writes are the primary accent, and a delete is destructive.
 const METHOD_CLASS: Record<string, string> = {

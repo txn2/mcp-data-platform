@@ -118,8 +118,12 @@ type APIRouteRule struct {
 	// inbound methods to uppercase before this check runs.
 	Methods []string `json:"methods,omitempty" yaml:"methods,omitempty"`
 
-	// Paths is a list of path globs (e.g. ["/v1/users/*", "/v1/orders/**"]).
-	// Empty = any path.
+	// Paths is a list of path globs. Each is matched against both the
+	// path a call reaches ("/v1/orders/42") and the catalog template it
+	// resolved from ("/v1/orders/{id}"), so a rule may name either form:
+	// the templated path an operation is listed under governs the calls
+	// that operation serves, and a glob written by hand still governs a
+	// path no catalog declares. Empty = any path.
 	Paths []string `json:"paths,omitempty" yaml:"paths,omitempty"`
 
 	// Action is "allow" (default) or "deny". Deny rules take precedence

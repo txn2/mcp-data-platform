@@ -1,9 +1,28 @@
+import type { APIRouteConnection, APIRouteOperation } from "@/api/admin/types";
+import type { RouteResolution } from "./apiRoutes";
+import { ApiScopeGroups, type ApiScopeHandlers } from "./ApiScopeGroups";
+
+// ApiScopeState is what the API-endpoint scope contributes to the explorer:
+// the inventory, the decisions the unsaved draft produces for it, and the
+// callbacks the list routes edits through. useApiRouteScope builds it.
+export interface ApiScopeState {
+  connections: APIRouteConnection[];
+  isLoading: boolean;
+  /** The count the scope tab shows. */
+  operationCount: number;
+  resolveFor: (connection: string, op: APIRouteOperation) => RouteResolution;
+  handlers: ApiScopeHandlers;
+  /** The operation the pointer is on, for the rail's trace. */
+  focus: RouteFocus | null;
+  /** Whether the rule the pointer is on in the rail governs this operation. */
+  governedBy: (connection: string, op: APIRouteOperation) => boolean;
+}
 import type { Resolution } from "./resolve";
 import { ExplorerToolbar, type ExplorerCounts } from "./ExplorerToolbar";
 import { ExplorerGroups } from "./ExplorerGroups";
 import { ExplorerAside } from "./ExplorerAside";
 import type { Bucket } from "./tints";
-import type { PersonaDraft, Scope, StatusFilter, Item } from "./types";
+import type { PersonaDraft, RouteFocus, Scope, StatusFilter, Item } from "./types";
 
 // PermissionsExplorer is the persona editor's live-preview surface: the center
 // tool/connection list (grouped by kind, filterable, with per-item and
@@ -27,6 +46,7 @@ export function PermissionsExplorer({
   setHovered,
   toolCount,
   connectionCount,
+  api,
   items,
   resolved,
   counts,
@@ -53,6 +73,9 @@ export function PermissionsExplorer({
   setHovered: React.Dispatch<React.SetStateAction<string | null>>;
   toolCount: number;
   connectionCount: number;
+  // Everything the API-endpoint scope needs, bundled: seven more positional
+  // props on a component that already carries two dozen would not be readable.
+  api: ApiScopeState;
   items: Item[];
   resolved: Map<string, Resolution>;
   counts: ExplorerCounts;
@@ -82,24 +105,40 @@ export function PermissionsExplorer({
           }}
           toolCount={toolCount}
           connectionCount={connectionCount}
+          apiOperationCount={api.operationCount}
           search={search}
           onSearchChange={setSearch}
           statusFilter={statusFilter}
           onStatusFilterChange={setStatusFilter}
         />
         <fieldset disabled={isReadOnly} className="contents">
-          <ExplorerGroups
-            grouped={grouped}
-            resolved={resolved}
-            statusFilter={statusFilter}
-            search={search}
-            scope={scope}
-            selected={selected}
-            setSelected={setSelected}
-            setHovered={setHovered}
-            highlightRule={highlightRule}
-            handlers={{ addAllow, addDeny, addMany }}
-          />
+          {scope === "api" ? (
+            <ApiScopeGroups
+              connections={api.connections}
+              resolve={api.resolveFor}
+              statusFilter={statusFilter}
+              search={search}
+              selected={selected}
+              setSelected={setSelected}
+              setHovered={setHovered}
+              handlers={api.handlers}
+              isLoading={api.isLoading}
+              governedBy={api.governedBy}
+            />
+          ) : (
+            <ExplorerGroups
+              grouped={grouped}
+              resolved={resolved}
+              statusFilter={statusFilter}
+              search={search}
+              scope={scope}
+              selected={selected}
+              setSelected={setSelected}
+              setHovered={setHovered}
+              highlightRule={highlightRule}
+              handlers={{ addAllow, addDeny, addMany }}
+            />
+          )}
         </fieldset>
       </section>
 
@@ -113,6 +152,7 @@ export function PermissionsExplorer({
         scope={scope}
         isReadOnly={isReadOnly}
         onUpdate={onUpdate}
+        routeFocus={api.focus}
       />
     </div>
   );
