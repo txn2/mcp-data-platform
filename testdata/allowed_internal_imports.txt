@@ -308,6 +308,7 @@ internal/platform/resourcelayer -> internal/platform/toolkitcfg
 internal/platform/resourcelayer -> pkg/indexjobs
 internal/platform/resourcelayer -> pkg/portal/s3adapter
 internal/platform/resourcelayer -> pkg/resource
+internal/platform/resourcewrite -> pkg/resource
 internal/platform/reviewalert -> internal/logsan
 internal/platform/reviewalert -> pkg/notification
 internal/platform/reviewalert -> pkg/toolkits/knowledge
@@ -593,6 +594,7 @@ pkg/platform -> internal/platform/provenance
 pkg/platform -> internal/platform/reflexivecapture
 pkg/platform -> internal/platform/resourceaudit
 pkg/platform -> internal/platform/resourcelayer
+pkg/platform -> internal/platform/resourcewrite
 pkg/platform -> internal/platform/routepolicy
 pkg/platform -> internal/platform/scriptexec
 pkg/platform -> internal/platform/scriptlayer
@@ -779,6 +781,7 @@ pkg/toolkits/portal -> pkg/contenttype
 pkg/toolkits/portal -> pkg/embedding
 pkg/toolkits/portal -> pkg/middleware
 pkg/toolkits/portal -> pkg/portal
+pkg/toolkits/portal -> pkg/portal/knowledgepage
 pkg/toolkits/portal -> pkg/portal/mention
 pkg/toolkits/portal -> pkg/portal/shareaccess
 pkg/toolkits/portal -> pkg/query

@@ -317,7 +317,8 @@ func resourceSubject(store resource.Store, bucket string) tableregister.Subject 
 		if err != nil || res == nil {
 			return tableregister.Source{}, false
 		}
-		claims := resource.BuildClaims(caller.UserID, caller.Email, caller.Persona, caller.Roles, caller.IsAdmin)
+		claims := resource.BuildClaims(caller.UserID, caller.Email, caller.Persona, caller.Roles, caller.IsAdmin).
+			ActingFor(caller.OnBehalfOf)
 		if !resource.CanModifyResource(claims, res) {
 			return tableregister.Source{}, false
 		}
@@ -526,7 +527,8 @@ func resourceSourceRefs(
 			"error", logsan.SanitizeForLog(err.Error()))
 		return nil
 	}
-	claims := resource.BuildClaims(caller.UserID, caller.Email, caller.Persona, caller.Roles, caller.IsAdmin)
+	claims := resource.BuildClaims(caller.UserID, caller.Email, caller.Persona, caller.Roles, caller.IsAdmin).
+		ActingFor(caller.OnBehalfOf)
 	out := make(map[string]tableregister.SourceRef, len(found))
 	for id, res := range found {
 		if res == nil {

@@ -176,7 +176,7 @@ func ReviseContent(
 		SizeBytes:     int64(len(up.Data)),
 		S3Key:         key,
 		UploaderSub:   claims.Sub,
-		UploaderEmail: claims.Email,
+		UploaderEmail: PersonAddress(*claims),
 		RestoredFrom:  up.RestoredFrom,
 		ChangeSummary: up.ChangeSummary,
 	})
@@ -488,26 +488,4 @@ func (h *Handler) deleteAllBlobs(ctx context.Context, res *Resource) error {
 		}
 	}
 	return nil
-}
-
-// recordInitialVersion records the created resource as version 1 so the trail
-// starts at upload rather than at the first revision. A failure is logged, not
-// surfaced: the upload succeeded and the resource is usable; the migration's
-// backfill shape (a v1 row derived from the resource row) is exactly what a
-// later repair would write.
-func (h *Handler) recordInitialVersion(ctx context.Context, res *Resource, claims *Claims) {
-	if h.deps.Versions == nil {
-		return
-	}
-	if _, err := h.deps.Versions.AddRevision(ctx, Revision{
-		ResourceID:    res.ID,
-		MIMEType:      res.MIMEType,
-		SizeBytes:     res.SizeBytes,
-		S3Key:         res.S3Key,
-		UploaderSub:   claims.Sub,
-		UploaderEmail: claims.Email,
-	}); err != nil {
-		slog.Warn("resource upload: recording initial version failed", msgError, err,
-			logKeyResourceID, res.ID) // #nosec G706 -- server-generated ID
-	}
 }

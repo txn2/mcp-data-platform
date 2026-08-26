@@ -38,6 +38,10 @@ const (
 	// not asset-keyed: it acts on any stored file a reference names, which is
 	// why it is its own tool rather than a set of manage_asset actions.
 	ManageTableToolName = "manage_table"
+	// ManageResourceToolName is the name of the managed-resource write tool
+	// (#1487). Like manage_table it is not asset-keyed: a managed resource is
+	// its own kind of record, with its own scopes and its own version trail.
+	ManageResourceToolName = "manage_resource"
 )
 
 const (
@@ -86,6 +90,12 @@ const (
 	tableActionRegister   = "register"
 	tableActionUnregister = "unregister"
 	tableActionList       = "list"
+
+	// manage_resource action names (#1487). Creating a managed resource is
+	// scope authority, and replacing one's content is the authority to change
+	// that file; neither is the authority to read it.
+	resourceActionCreate  = "create"
+	resourceActionReplace = "replace_content"
 
 	// Content editing and navigation actions (#1033). These make the cost of
 	// an edit proportional to the size of the edit rather than the size of
@@ -324,6 +334,11 @@ type Toolkit struct {
 	// deployment with no Trino connection carrying a scratch target, which
 	// leaves manage_table reporting that rather than failing.
 	tables TableRegistrar
+	// resourceWriter creates managed resources and replaces their content
+	// (#1487). Nil on a deployment with no managed-resource layer, which
+	// leaves manage_resource reporting that rather than accepting a write
+	// that would go nowhere.
+	resourceWriter ResourceWriter
 
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
@@ -430,8 +445,26 @@ const manageTableToolDescription = "Makes a stored CSV file queryable as a table
 	"administrator, a resource's uploader or an administrator of its scope. The scratch schema is shared, " +
 	"so everyone granted the connection can read what you register."
 
-// RegisterTools registers save_asset, manage_asset, manage_table and
-// manage_feedback with the MCP server.
+// manageResourceToolDescription is the advertised description of
+// manage_resource.
+const manageResourceToolDescription = "Writes a file into the managed resource library, so an agent or a " +
+	"scheduled script can put data where an asset can reference it and refresh it later. " +
+	"Actions: create, replace_content. " +
+	"'create' files new content and reports the mcp:// uri to hand to save_asset's 'resources' argument, " +
+	"plus the mcp:resource:<id> reference every other tool takes. " +
+	"'replace_content' writes new bytes over an existing file, keeping its id, its uri and its filename, so " +
+	"every asset referencing it serves the new content without being re-saved and every citation and prompt " +
+	"attachment pointing at it keeps resolving. The replacement is recorded in the file's version history " +
+	"with you as its author and the version before it stays restorable. " +
+	"Pass the file as text in 'content', or base64-encoded in 'content_base64' for a binary file such as an " +
+	"image or a PDF. The type is detected from the content when you do not name one. " +
+	"A create defaults to your own user scope; naming a persona scope or the global scope needs " +
+	"administrator authority over it, and a refusal names the scope rather than the file. " +
+	"This is the write half of the resource library -- reading one is 'fetch' on its reference, and making " +
+	"a CSV in it queryable is the separate manage_table tool."
+
+// RegisterTools registers save_asset, manage_asset, manage_table,
+// manage_resource and manage_feedback with the MCP server.
 func (t *Toolkit) RegisterTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        SaveToolName,
@@ -453,6 +486,13 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		Description: manageTableToolDescription,
 		InputSchema: manageTableSchema,
 	}, t.handleManageTable)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        ManageResourceToolName,
+		Title:       "Manage Resource",
+		Description: manageResourceToolDescription,
+		InputSchema: manageResourceSchema,
+	}, t.handleManageResource)
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:  feedbackToolName,
@@ -539,7 +579,7 @@ const showAssetsPromptContent = `List my saved assets.
 
 // Tools returns the list of tool names provided by this toolkit.
 func (*Toolkit) Tools() []string {
-	return []string{SaveToolName, ManageToolName, ManageTableToolName, feedbackToolName}
+	return []string{SaveToolName, ManageToolName, ManageTableToolName, ManageResourceToolName, feedbackToolName}
 }
 
 // SetFeedbackNotifications installs the notification trigger and the mention

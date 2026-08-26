@@ -351,6 +351,8 @@ Every revision is recorded in **Version history** with its number, who uploaded 
 
 History is bounded: a resource keeps its most recent 10 revisions by default ([`resources.managed.max_versions`](configuration.md#managed-resources)), and a revision past the cap deletes the oldest version's stored file. The live content is never pruned.
 
+An agent revises through the same path, without the portal step. `manage_resource action=replace_content` writes new bytes over an existing resource under your own permissions, and the result lands in this Version history like any other revision — same number, same author, same restore — with its `change_summary` shown beneath it. `manage_resource action=create` files a new resource the same way. A [managed script](../scripts/running.md) reaches both, which is what lets a scheduled run refresh the file a dashboard reads without anybody uploading it again. See [manage_resource](tools.md#manage_resource).
+
 ### Querying a CSV resource as a table
 
 A CSV resource carries the same **Query as a table** panel the asset viewer does. Registering asks for two things: the connection the table is created on, and what to call it. The name is optional and defaults to a slug of the file name; either way your persona is added as a prefix, because the schema it lands in is shared with everyone else who has that connection.

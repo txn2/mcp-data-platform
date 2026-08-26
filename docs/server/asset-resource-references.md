@@ -88,6 +88,12 @@ Deleting a resource that assets reference warns and names them first, on the sam
 
 `manage_asset get_content` is **not** rewritten. It returns the stored content with the `mcp://` URIs intact, because that is what the agent reads before it patches: an agent handed a rewritten URL would write a platform-internal path back into the asset on its next patch, and the reference would be gone. A `patch` round trip through `get_content` leaves references intact.
 
+## Refreshing the file the asset reads
+
+The referenced file is not fixed at the moment the asset was written. `manage_resource action=replace_content` writes new bytes over an existing managed resource, keeping its id, its canonical `mcp://` URI and its file name, so the reference URL a rendered page fetches is unchanged and the asset itself is never re-saved. The next fetch of that URL serves the new content: the route's response carries `Cache-Control: private` with no `max-age`, so a page refetching on a timer revalidates rather than being served a pinned copy.
+
+That is what makes a referencing asset's data half refreshable by the platform rather than only by a person at an upload form. A [managed script](../scripts/running.md) rewrites the CSV a dashboard reads, on a schedule, under its version author's permissions, and the dashboard is untouched. Every replacement lands in the resource's version history with its author and the reason it changed, and the version before it stays restorable. See [manage_resource](tools.md#manage_resource).
+
 ## When things change
 
 **The resource is deleted.** The reference row survives, the URL answers 404, and the asset still renders with that one image missing. This is the rule [prompt attachments](../concepts/content-model.md) already follow: losing the evidence that a report is now incomplete is worse than a broken image.

@@ -206,6 +206,26 @@ func (h *Handle) BindResources(resources assetrefs.Resources, scheme string) {
 	h.toolkit.SetResourceRefs(assetrefs.NewDeclarer(h.resourceRefs, resources, scheme))
 }
 
+// BindResourceWriter gives the asset toolkit the ability to write a managed
+// resource, which is what puts manage_resource behind an agent and a scheduled
+// script (#1487).
+//
+// It is a setter for the same reason BindResources is: the managed-resource
+// layer is assembled after this one. A Handle that is never bound leaves
+// manage_resource reporting that the deployment has no resource library rather
+// than accepting a write that would go nowhere.
+//
+// The writer is an interface here and is built by the caller, which is what
+// keeps a deployment with no resource layer from binding a nil one: the caller
+// has a concrete writer to test for nil, and an untyped nil never reaches the
+// toolkit.
+func (h *Handle) BindResourceWriter(w portalkit.ResourceWriter) {
+	if h == nil || h.toolkit == nil || w == nil {
+		return
+	}
+	h.toolkit.SetResourceWriter(w)
+}
+
 // AssetStore returns the portal asset store, or nil on a nil Handle (portal
 // disabled or no database).
 func (h *Handle) AssetStore() portal.AssetStore {

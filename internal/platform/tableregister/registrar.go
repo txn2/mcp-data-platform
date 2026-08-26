@@ -40,6 +40,13 @@ type Caller struct {
 	Persona string
 	Roles   []string
 	IsAdmin bool
+	// OnBehalfOf is the address of the person an unattended caller acts for,
+	// empty for a person acting as themselves. A managed-script run
+	// authenticates as a principal that owns no stored file, so the authority
+	// checks over the file being registered read this to reach what the run's
+	// author reaches (#1419, #1487). The portal path never sets it: a browser
+	// request is always somebody acting as themselves.
+	OnBehalfOf string
 }
 
 // Request is one registration.

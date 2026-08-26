@@ -244,8 +244,11 @@ func (p *ResourcesProvider) inlineContent(ctx context.Context, res *resource.Res
 // Roles are not carried on a search caller, so the claims grant no persona-admin
 // or platform-admin authority: visibility here is the caller's own global +
 // persona + user scopes, matching what resources/list returns.
+// An unattended caller's address travels too, so a run finds the material its
+// author can see and the file it wrote itself -- which is filed under the person
+// it acts for, not under the principal (#1487). It is inert for a human.
 func callerClaims(c Caller) resource.Claims {
-	claims := resource.BuildClaims(c.UserID, c.Email, "", nil, false)
+	claims := resource.BuildClaims(c.UserID, c.Email, "", nil, false).ActingFor(c.OnBehalfOf)
 	claims.Personas = c.Personas
 	return claims
 }

@@ -87,6 +87,21 @@ type Caller struct {
 	// Empty when no resolver is wired, which is the same fallback the resources
 	// middleware applies.
 	Personas []string
+	// OnBehalfOf is the address of the person an unattended caller acts for,
+	// carried from PlatformContext.OnBehalfOfEmail. A managed-script run
+	// authenticates as script:<name>, a principal that is in nobody's library,
+	// so discovery scoped on the principal alone would hide the very material
+	// its author can see -- and hide the file the same run just wrote, which is
+	// filed under the person it acts for (#1419, #1487). Empty for every human
+	// caller.
+	//
+	// It is not a second owner key for every provider: only the managed-resource
+	// provider reads it today, through resource.Claims, because the resource
+	// scope model is the one that keys a personal library by an identifier a run
+	// does not have. A provider whose owner key is the caller's own id or address
+	// must keep using those.
+	OnBehalfOf string
+
 	// SessionID is the unit of work the request belongs to, not part of the
 	// identity the per-user providers scope on. The call catalog uses it and
 	// nothing else does: reuse of a recorded call is credited to the session

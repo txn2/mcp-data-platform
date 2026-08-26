@@ -2008,6 +2008,37 @@ Integration: an asset patch goes through the same version write path as a full c
 
 Every verb is text-only: a PDF, image, or other binary target is refused with `PATCH_NOT_TEXT` via `contenttype.IsTextual`, the platform's single detection seam. Error codes, all carrying the standard `{code, category, message, hint}` envelope: `PATCH_NO_MATCH`, `PATCH_AMBIGUOUS`, `PATCH_STALE_BASE`, `PATCH_NOT_TEXT`, `PATCH_TOO_LARGE`, `PATCH_SECTION_NOT_FOUND`, `PATCH_BAD_PATTERN`, `PATCH_BAD_EDIT`, `PATCH_BAD_SELECTOR` (the selector does not parse), `PATCH_NO_STRUCTURE` (the content type has no addressable structure), and `PATCH_UNRESOLVED_MARKUP` (the markup could not be resolved into a reliable element tree).
 
+### manage_resource (create, replace_content)
+
+Writes a file into the managed resource library. A managed resource is the only kind of file an asset can reference, and creating and revising one was reachable only from the portal UI and the REST surface behind it, both of which need a person with a browser. That left the data half of a referencing asset unrefreshable by the platform: an agent could rewrite a report on a schedule and could not rewrite the CSV the report reads.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `action` | string | Yes | - | `create` or `replace_content` |
+| `reference` | string | Conditional | - | `mcp:resource:<id>`, the reference a search hit, a fetch document, or a create carries (required for `replace_content`) |
+| `content` | string | Conditional | - | The file as text |
+| `content_base64` | string | Conditional | - | The file as base64-encoded bytes, for a binary file. Exactly one of the two |
+| `content_type` | string | No | detected | Media type stored under; detection reads the content and the filename otherwise |
+| `filename` | string | Conditional | - | Name of the file (required for `create`), normalized to lowercase; ignored by `replace_content` |
+| `display_name`, `category`, `description` | string | Conditional | - | Required for `create` |
+| `tags` | array | No | [] | Tags for filtering in the library |
+| `scope`, `scope_id` | string | No | the caller's own user scope | `user`, `persona`, or `global` |
+| `change_summary` | string | No | generated | Why the content changed, shown in the version history beside the revision |
+
+Content arrives in one of two fields rather than one field with an encoding flag, so a caller cannot declare an encoding the bytes are not in. Both are capped at `portal.max_content_size` (10 MB by default), the same cap `save_asset` applies: one number governs everything an agent writes through a tool call, and a file larger than that goes through the portal's upload form.
+
+`create` reports the resource's `mcp://` URI (which is what `save_asset`'s `resources` argument takes) and its `mcp:resource:` reference (which is what every other tool takes). It reports no `version`: version 1 is recorded only where the deployment keeps a version trail, and a number the history may not hold is worse than none. `replace_content` reports the `version` the content was recorded as.
+
+A replacement goes through `resource.ReviseContent`, the same call the portal's replace-content route makes, so the resource keeps its id, its canonical `mcp://` URI and its filename — which is what keeps every `mcp:resource:<id>` citation, every prompt attachment and every asset reference pointing at it resolving across the write, with no asset re-saved — the new bytes land on a fresh per-revision key so the prior version stays independently readable and restorable, the revision is recorded with its author and change summary, and the resource is re-registered so `resources/list_changed` reaches clients that would otherwise keep serving the bytes it moved off.
+
+Creating is scope authority, checked with the same `resource.CanWriteScope` the REST surface applies: the caller's own user scope (the default, and the one place every signed-in caller may write), a persona they administer, or the global scope as a platform administrator. The refusal names the SCOPE and not the file, because where it was filed is what the caller has to change. Replacing is `resource.CanModifyResource` — the uploader, or an administrator of the scope — and a resource the caller cannot see is answered as absent rather than as forbidden, so a caller who should not learn it exists cannot tell the two apart. An unauthenticated session is refused outright: a resource records who uploaded it and decides its scope on that.
+
+A deployment with no managed-resource layer (no database, or no S3 connection for resource storage) refuses the call with that reason and says nothing was saved, rather than reporting a write that did not happen; a store with no version trail still creates and refuses only `replace_content`, naming the missing history. The seam is `internal/platform/resourcewrite`, built by the platform because the re-registration callback is the platform's, and bound onto the toolkit through `portalstore.BindResourceWriter`; the create path itself is `resource.CreateResource`, exported for the same reason `ReviseContent` was — creating a managed resource is not the browser's alone — and the REST upload route goes through it too, so both surfaces write one record shape and one version-1 row.
+
+A managed script reaches the tool through `platform.call` like any other, under its version author's permissions, which is what makes a scheduled refresh of a referenced file possible with nobody in the loop.
+
+A run authenticates as `script:<name>`, a principal that owns no file and is in nobody's library, so the resource rules read the address it acts for the same way the asset toolkit's ownership check does (#1419). `resource.Claims.OnBehalfOf`, built by `BuildClaimsFor` and empty for every human caller, is read by four rules: `VisibleScopes` adds the library of the person acted for, `CanWriteScope` admits that person's user scope, `CanAccessResource` admits a file they uploaded, and `CanModifyResource` matches the address the resource records as its uploader. Without it a run could neither read nor replace a file its author uploaded through the portal — which files a person's own resources under their SUBJECT, an identifier a run does not have — and a create with no scope named would land under `{user, script:<name>}`: visible to the run and absent from the author's Resources page, which is where the person who scheduled it looks. The create default is the address the run acts for, not the principal. A scope id is compared EXACTLY, because VisibleScopes emits it verbatim and the store's listing predicate is built from that -- folding case in the write check alone would make a resource modifiable and deletable by somebody it never appears in a listing for; the uploader address IS folded, since it is read off the row rather than listed by and so has no predicate to disagree with. An author whose address changes in the identity provider loses their scripts' reach over resources uploaded under the old one (the uploader address is frozen on the row, the run carries the current one), and the run is answered as for a deleted file, because telling the two apart would disclose that a file the caller may not see exists. Both sides of every identity comparison must be non-empty, so an absent address never matches an absent owner or an absent scope id; the same tightening now applies to the plain subject arm of `CanWriteScope` and `CanModifyResource`, which previously let an empty subject match an empty scope id (unreachable through the handlers, since `ValidateScope` refuses an empty user scope id, but not a rule worth leaving written the other way beside its new sibling).
+
 ---
 
 # Personas
@@ -2849,6 +2880,8 @@ Deleting a resource that assets reference warns and names them first, on the sam
 **The asset is copied.** A copy carries only the references its new owner can read for themselves, each under a fresh token — the two assets are separate grants from that point on. A reference the copier cannot read is dropped rather than refusing the copy, so they get the report with that image missing. A copy never carries a grant its new owner did not earn.
 
 **A version is read.** Version history is rewritten against the asset's **current** references, because the references belong to the asset rather than to any one version. An old version naming a resource the asset no longer references renders that image missing.
+
+**The file is refreshed.** `manage_resource action=replace_content` writes new bytes over the referenced resource without touching the asset. The id, the canonical `mcp://` URI and the filename are unchanged, so the reference URL a rendered page fetches is unchanged and the next fetch of it serves the new content — the response carries `Cache-Control: private` with no `max-age`, so a page refetching on a timer revalidates rather than being served a pinned copy. That is what makes a referencing asset's data half refreshable by a scheduled script rather than only by a person at an upload form.
 
 ## Deployment
 

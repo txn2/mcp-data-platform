@@ -2,6 +2,9 @@ package resource
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCanWriteScope(t *testing.T) {
@@ -237,5 +240,208 @@ func TestCanAccessResource(t *testing.T) {
 				t.Errorf("CanAccessResource = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// --- Acting on somebody else's behalf (#1419, #1487) ---
+
+// scriptRun is the claims a managed-script run carries: a principal that owns
+// nothing, the script OWNER's address (carried for accountability), and the
+// version AUTHOR's address as the person the run acts for. The two are the same
+// person until an administrator transfers the script, which rewrites the version
+// under their own authorship and leaves somebody else the owner.
+func scriptRun(owner, author string) Claims {
+	return BuildClaims("script:weekly-refresh", owner, "analyst", []string{"analyst"}, false).ActingFor(author)
+}
+
+// ownRun is the ordinary case: the script's owner wrote its current version.
+func ownRun(author string) Claims { return scriptRun(author, author) }
+
+func TestBuildClaimsCarriesNoOneByDefault(t *testing.T) {
+	c := BuildClaims("sub-1", "a@example.com", "analyst", []string{"analyst"}, false)
+
+	assert.Empty(t, c.OnBehalfOf, "a person acts as themselves; the address must stay inert for them")
+}
+
+func TestVisibleScopesIncludeTheLibraryOfThePersonActedFor(t *testing.T) {
+	// A transferred script: owned by one person, authored by another, and it
+	// acts for the author. Only the author's library is reachable, which is the
+	// distinction a run whose owner and author agree cannot show.
+	scopes := VisibleScopes(scriptRun("owner@example.com", "author@example.com"))
+
+	assert.Contains(t, scopes, ScopeFilter{Scope: ScopeUser, ScopeID: "author@example.com"},
+		"a run's own writes land in its author's library, so it has to be able to see it")
+	assert.NotContains(t, scopes, ScopeFilter{Scope: ScopeUser, ScopeID: "owner@example.com"},
+		"the owner's address is carried for accountability; reading their library on it would pair "+
+			"the author's authority with the owner's ownership")
+	assert.Contains(t, scopes, ScopeFilter{Scope: ScopeUser, ScopeID: "script:weekly-refresh"})
+}
+
+func TestATransferredRunActsForItsAuthorAndNotItsOwner(t *testing.T) {
+	c := scriptRun("owner@example.com", "author@example.com")
+
+	assert.True(t, CanWriteScope(c, ScopeUser, "author@example.com"),
+		"the run presents the author's roles, so it writes into the author's library")
+	assert.False(t, CanWriteScope(c, ScopeUser, "owner@example.com"),
+		"the owner is who may trigger it, not whose authority it carries")
+	assert.True(t, CanModifyResource(c, &Resource{
+		Scope: ScopeUser, ScopeID: "sub-x", UploaderSub: "sub-x", UploaderEmail: "author@example.com",
+	}))
+	assert.False(t, CanModifyResource(c, &Resource{
+		Scope: ScopeUser, ScopeID: "sub-y", UploaderSub: "sub-y", UploaderEmail: "owner@example.com",
+	}))
+}
+
+func TestVisibleScopesDoNotRepeatOneAddress(t *testing.T) {
+	c := BuildClaims("sub-1", "a@example.com", "", nil, false).ActingFor("a@example.com")
+
+	scopes := VisibleScopes(c)
+
+	seen := map[ScopeFilter]int{}
+	for _, sf := range scopes {
+		seen[sf]++
+	}
+	assert.Equal(t, 1, seen[ScopeFilter{Scope: ScopeUser, ScopeID: "a@example.com"}])
+}
+
+func TestCanWriteScopeForThePersonActedFor(t *testing.T) {
+	c := ownRun("author@example.com")
+
+	assert.True(t, CanWriteScope(c, ScopeUser, "author@example.com"))
+	assert.False(t, CanWriteScope(c, ScopeUser, "AUTHOR@example.com"),
+		"a scope id is compared exactly, because that is how the listing predicate compares it: "+
+			"folding here alone would make a resource modifiable by somebody it never lists for")
+	assert.False(t, CanWriteScope(c, ScopeUser, "someone-else@example.com"))
+	assert.False(t, CanWriteScope(c, ScopeGlobal, ""),
+		"acting for somebody grants their scope, not administrator authority")
+}
+
+func TestAnAbsentAddressMatchesNothing(t *testing.T) {
+	// A human caller with no on-behalf-of address must not match a resource or
+	// a scope that also records none.
+	c := BuildClaims("", "", "", nil, false)
+
+	assert.False(t, CanWriteScope(c, ScopeUser, ""))
+	assert.False(t, CanAccessResource(c, &Resource{Scope: ScopeUser, ScopeID: "x"}))
+	assert.False(t, CanModifyResource(c, &Resource{Scope: ScopeUser, ScopeID: "x"}))
+	assert.NotContains(t, VisibleScopes(c), ScopeFilter{Scope: ScopeUser, ScopeID: ""})
+}
+
+// TestARunReachesTheFileItsAuthorUploaded is the case the address exists for: a
+// person uploads through the portal, which files the resource under their SUB,
+// and their own script then has to be able to read and replace it.
+func TestARunReachesTheFileItsAuthorUploaded(t *testing.T) {
+	uploaded := &Resource{
+		Scope: ScopeUser, ScopeID: "sub-of-author",
+		UploaderSub: "sub-of-author", UploaderEmail: "author@example.com",
+	}
+	run := ownRun("author@example.com")
+
+	assert.True(t, CanAccessResource(run, uploaded),
+		"a run refused its author's own file cannot be said to act for them")
+	assert.True(t, CanModifyResource(run, uploaded))
+
+	// Another person's script reaches neither.
+	other := ownRun("someone-else@example.com")
+	assert.False(t, CanAccessResource(other, uploaded))
+	assert.False(t, CanModifyResource(other, uploaded))
+}
+
+func TestARunReachesTheFileItWroteItself(t *testing.T) {
+	written := &Resource{
+		Scope: ScopeUser, ScopeID: "author@example.com",
+		UploaderSub: "script:weekly-refresh", UploaderEmail: "author@example.com",
+	}
+	run := ownRun("author@example.com")
+
+	assert.True(t, CanReadResource(run, written))
+	assert.True(t, CanModifyResource(run, written))
+}
+
+func TestAResourceWithNoRecordedUploaderAddressIsNotAnyonesToChange(t *testing.T) {
+	orphan := &Resource{Scope: ScopeUser, ScopeID: "sub-of-author", UploaderSub: "sub-of-author"}
+
+	assert.False(t, CanAccessResource(ownRun("author@example.com"), orphan),
+		"an absent address is not a shared identity")
+}
+
+// TestThePersonCanManageWhatTheirScriptFiled is the other half of a run writing
+// into its author's library: the file has to be theirs to edit and delete, or a
+// scheduled script produces material only a platform administrator can ever
+// remove.
+func TestThePersonCanManageWhatTheirScriptFiled(t *testing.T) {
+	const author = "author@example.com"
+	// What a run's create writes: the author's library, the principal as
+	// uploader subject, the author as the recorded address.
+	filed := &Resource{
+		Scope: ScopeUser, ScopeID: author,
+		UploaderSub: "script:weekly-refresh", UploaderEmail: author,
+	}
+	human := Claims{Sub: "sub-of-author", Email: author}
+
+	assert.True(t, CanReadResource(human, filed))
+	assert.True(t, CanAccessResource(human, filed))
+	assert.True(t, CanModifyResource(human, filed),
+		"a library named by address is one its owner can see; it has to be one they can manage")
+	assert.True(t, CanWriteScope(human, ScopeUser, author))
+
+	stranger := Claims{Sub: "sub-of-stranger", Email: "stranger@example.com"}
+	assert.False(t, CanAccessResource(stranger, filed))
+	assert.False(t, CanModifyResource(stranger, filed))
+}
+
+// TestARunDoesNotOutliveItsAuthorsOwnReach is the limit on the uploader arm. An
+// administrator who uploaded into somebody else's library and later lost the
+// role is refused that file; their script must be refused it too, or the script
+// reaches strictly more than the person it acts for.
+func TestARunDoesNotOutliveItsAuthorsOwnReach(t *testing.T) {
+	victimFile := &Resource{
+		Scope: ScopeUser, ScopeID: "bob-sub",
+		UploaderSub: "ex-admin-sub", UploaderEmail: "ex-admin@example.com",
+	}
+	exAdmin := Claims{Sub: "ex-admin-sub", Email: "ex-admin@example.com"}
+	require.False(t, CanAccessResource(exAdmin, victimFile),
+		"the premise: the person themselves is already refused")
+
+	run := ownRun("ex-admin@example.com")
+
+	assert.False(t, CanAccessResource(run, victimFile),
+		"a run reaching what its author cannot is an authority nobody has")
+	assert.False(t, CanModifyResource(run, victimFile))
+}
+
+// TestARunReachesAFileInItsAuthorsOwnLibrary is the case the uploader arm exists
+// for, and the one the limit above must not take with it.
+// The uploader address IS folded, because it is read off the row rather than
+// listed by, so there is no predicate for it to disagree with.
+func TestTheUploaderAddressIsMatchedCaseInsensitively(t *testing.T) {
+	own := &Resource{
+		Scope: ScopeUser, ScopeID: "author-sub",
+		UploaderSub: "author-sub", UploaderEmail: "Author@Example.com",
+	}
+
+	assert.True(t, CanModifyResource(ownRun("author@example.com"), own))
+}
+
+func TestARunReachesAFileInItsAuthorsOwnLibrary(t *testing.T) {
+	own := &Resource{
+		Scope: ScopeUser, ScopeID: "author-sub",
+		UploaderSub: "author-sub", UploaderEmail: "author@example.com",
+	}
+
+	run := ownRun("author@example.com")
+
+	assert.True(t, CanAccessResource(run, own))
+	assert.True(t, CanModifyResource(run, own))
+}
+
+func TestTheUploaderArmIgnoresEveryOtherScope(t *testing.T) {
+	run := ownRun("author@example.com")
+	for _, r := range []*Resource{
+		{Scope: ScopeGlobal, UploaderSub: "author-sub", UploaderEmail: "author@example.com"},
+		{Scope: ScopePersona, ScopeID: "finance", UploaderSub: "author-sub", UploaderEmail: "author@example.com"},
+	} {
+		assert.False(t, CanModifyResource(run, r),
+			"a persona or global file still takes the scope authority the roles carry: %s", r.Scope)
 	}
 }

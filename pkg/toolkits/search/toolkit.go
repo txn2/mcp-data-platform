@@ -492,7 +492,10 @@ func (t *Toolkit) callerFromContext(ctx context.Context) knowledge.Caller {
 	if pc == nil {
 		return knowledge.Caller{}
 	}
-	caller := knowledge.Caller{UserID: pc.UserID, Email: pc.UserEmail, Persona: pc.PersonaName, SessionID: pc.SessionID}
+	caller := knowledge.Caller{
+		UserID: pc.UserID, Email: pc.UserEmail, Persona: pc.PersonaName,
+		OnBehalfOf: pc.OnBehalfOfEmail, SessionID: pc.SessionID,
+	}
 	if t.personasForRoles != nil {
 		caller.Personas = t.personasForRoles(pc.Roles)
 	}
