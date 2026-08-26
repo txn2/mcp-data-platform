@@ -1,6 +1,8 @@
 import {
-  openAssetResourceRefPicker,
-  openAssetResourceRefs,
+  openAssetRefPicker,
+  openAssetRefPickerAssets,
+  openAssetRefs,
+  openAssetUsedBy,
 } from "./route-actions-refs";
 import {
   openAssetMetadataEdit,
@@ -59,21 +61,38 @@ export const assetViewerRoutes: ScreenshotRoute[] = [
     beforeCapture: openAssetVersionPicker,
   },
   {
-    // The managed resources this asset's content references (#1475): what it
-    // depends on, the URI its markup has to name, and where that URI is
-    // already written. Behind the metadata sidebar, like the panels above.
-    slug: "asset-resource-refs",
+    // What this asset's content references (#1475, #1488): the files and the
+    // assets it depends on, the reference its markup has to name, and where
+    // that reference is already written. Behind the metadata sidebar, like the
+    // panels above.
+    slug: "asset-refs",
     path: "/portal/assets/ast-001",
     category: "user",
-    beforeCapture: openAssetResourceRefs,
+    beforeCapture: openAssetRefs,
   },
   {
     // The picker open, which is the one state naming what a reference gives
     // away and who this asset is shared with before anything is added.
-    slug: "asset-resource-refs-picker",
+    slug: "asset-ref-picker",
     path: "/portal/assets/ast-001",
     category: "user",
-    beforeCapture: openAssetResourceRefPicker,
+    beforeCapture: openAssetRefPicker,
+  },
+  {
+    // The picker's second tab: the assets this reader can reference (#1488),
+    // which is how a dashboard comes to read a data file another job refreshes.
+    slug: "asset-ref-picker-assets",
+    path: "/portal/assets/ast-001",
+    category: "user",
+    beforeCapture: openAssetRefPickerAssets,
+  },
+  {
+    // The reverse view on an asset: which reports read this one's content
+    // (#1488), so an edit or a delete is made knowing what serves from it.
+    slug: "asset-used-by",
+    path: "/portal/assets/ast-004",
+    category: "user",
+    beforeCapture: openAssetUsedBy,
   },
   {
     // The metadata sidebar in edit mode on an asset that keeps a cap of its

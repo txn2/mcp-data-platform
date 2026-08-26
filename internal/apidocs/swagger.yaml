@@ -1591,9 +1591,9 @@ definitions:
     properties:
       broken:
         description: |-
-          Broken marks a reference whose resource has been deleted. The row
-          survives the delete on purpose (#1474), so this is the one place the
-          owner learns their report is now serving with a picture missing.
+          Broken marks a reference whose target has been deleted. The row survives
+          the delete on purpose (#1474), so this is the one place the owner learns
+          their report is now serving with something missing.
         type: boolean
       category:
         type: string
@@ -1602,8 +1602,8 @@ definitions:
           ContentURL is the reference's own serving URL, the same one the rewrite
           writes into the content this reader is served. It is here so the panel
           can show a thumbnail through the grant the reference already makes,
-          rather than through the resource route, which a reader of a shared asset
-          may not be allowed to call.
+          rather than through the target's own route, which a reader of a shared
+          asset may not be allowed to call.
         type: string
       declared_by:
         type: string
@@ -1612,6 +1612,9 @@ definitions:
       display_name:
         type: string
       filename:
+        description: |-
+          Resource-only fields: the file's own name, its category and the scope it
+          is filed under.
         type: string
       mime_type:
         type: string
@@ -1623,24 +1626,35 @@ definitions:
         items:
           $ref: '#/definitions/assetrefapi.occurrence'
         type: array
+      owner_email:
+        description: |-
+          OwnerEmail names who owns a referenced asset. It is the asset row's
+          counterpart of a resource's scope: the one fact that says whose thing
+          this is.
+        type: string
       position:
         type: integer
       readable:
         description: |-
-          Readable is whether this reader could open the resource on its own, as
+          Readable is whether this reader could open the target on its own, as
           opposed to through the asset. It decides whether the row is a link: a
-          reader of a shared asset can see a file they have no direct access to,
-          and a link to the resource's own page would only lead them to a
-          not-found.
+          reader of a shared asset can see a target they have no direct access to,
+          and a link to its own page would only lead them to a not-found.
         type: boolean
-      resource_id:
-        type: string
       scope:
         type: string
       scope_id:
         type: string
       size_bytes:
         type: integer
+      target_id:
+        type: string
+      target_kind:
+        description: |-
+          TargetKind says what this row points at: a managed resource, or another
+          asset. It decides which of the fields below are filled and where the row
+          links to.
+        type: string
       uri:
         type: string
     type: object
@@ -1656,7 +1670,7 @@ definitions:
         description: |-
           Public marks an asset carrying an active link share. It is the flag the
           whole list exists for: a reference carries the asset's audience, so a
-          resource referenced by a publicly shared asset is readable by anyone who
+          target referenced by a publicly shared asset is readable by anyone who
           holds that link.
         type: boolean
     type: object
@@ -1670,7 +1684,7 @@ definitions:
         description: |-
           Hidden counts the referencing assets this reader may not open. They are
           named nowhere, but they are counted: someone deciding whether to delete a
-          file has to know the list they are looking at is not the whole of what
+          target has to know the list they are looking at is not the whole of what
           would break.
         type: integer
       total:
@@ -1678,7 +1692,7 @@ definitions:
       truncated:
         description: |-
           Truncated says the answer was cut at the bound rather than being the
-          whole of what references this file. It is reported rather than left
+          whole of what references this target. It is reported rather than left
           implicit for the reason Hidden is: a short list read as a complete one
           is the mistake this surface exists to prevent.
         type: boolean
@@ -12925,12 +12939,12 @@ paths:
       summary: Copy asset
       tags:
       - Assets
-  /portal/assets/{id}/resources:
+  /portal/assets/{id}/references:
     get:
-      description: Returns the managed resources an asset's content references, with
-        enough of each resource to render a row, the URL the reference is served under,
-        and where the asset's stored content still writes the URI. A reference whose
-        resource was deleted is returned flagged as broken.
+      description: Returns what an asset's content references -- managed resources
+        and other assets -- with enough of each target to render a row, the URL the
+        reference is served under, and where the asset's stored content still writes
+        the URI. A reference whose target was deleted is returned flagged as broken.
       parameters:
       - description: Asset ID
         in: path
@@ -12963,15 +12977,15 @@ paths:
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
-      summary: List an asset's referenced resources
+      summary: List an asset's references
       tags:
       - Portal
     post:
       consumes:
       - application/json
-      description: Adds one managed resource to the asset's references, checked against
-        the caller's own read permission on that resource. The asset's stored content
-        is not changed. Returns the asset's references after the add.
+      description: Adds one managed resource or one asset to the asset's references,
+        checked against the caller's own read permission on that target. The asset's
+        stored content is not changed. Returns the asset's references after the add.
       parameters:
       - description: Asset ID
         in: path
@@ -13012,23 +13026,28 @@ paths:
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
-      summary: Reference a resource from an asset
+      summary: Add a reference to an asset
       tags:
       - Portal
-  /portal/assets/{id}/resources/{resourceID}:
+  /portal/assets/{id}/references/{kind}/{targetID}:
     delete:
-      description: Removes one managed resource from the asset's references. The asset's
-        stored content is not changed, so a URI still written in the markup stops
-        resolving. Returns the asset's references after the removal.
+      description: Removes one reference from the asset. The asset's stored content
+        is not changed, so a URI still written in the markup stops resolving. Returns
+        the asset's references after the removal.
       parameters:
       - description: Asset ID
         in: path
         name: id
         required: true
         type: string
-      - description: Resource ID
+      - description: Target kind (resource or asset)
         in: path
-        name: resourceID
+        name: kind
+        required: true
+        type: string
+      - description: Target ID
+        in: path
+        name: targetID
         required: true
         type: string
       produces:
@@ -13038,6 +13057,10 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/assetrefapi.listResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "401":
           description: Unauthorized
           schema:
@@ -13057,7 +13080,7 @@ paths:
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
-      summary: Remove an asset's reference to a resource
+      summary: Remove one of an asset's references
       tags:
       - Portal
   /portal/assets/{id}/shares:
@@ -13306,6 +13329,46 @@ paths:
       summary: Upload asset thumbnail
       tags:
       - Assets
+  /portal/assets/{id}/used-by:
+    get:
+      description: Returns the assets whose content references this asset and which
+        the caller may open, flagging any that carry an active public link share.
+        Referencing assets the caller cannot open are counted but not named.
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/assetrefapi.usedByResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List assets referencing an asset
+      tags:
+      - Portal
   /portal/assets/{id}/versions:
     get:
       description: Returns paginated version history for an asset.
@@ -16123,42 +16186,6 @@ paths:
       summary: Prompt usage stats (portal)
       tags:
       - Prompts
-  /portal/resources/{id}/assets:
-    get:
-      description: Returns the assets whose content references a managed resource
-        and which the caller may open, flagging any that carry an active public link
-        share. Referencing assets the caller cannot open are counted but not named.
-      parameters:
-      - description: Resource ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/assetrefapi.usedByResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      summary: List assets referencing a resource
-      tags:
-      - Resources
   /portal/resources/{id}/prompts:
     get:
       description: 'Returns the prompts that attach a resource, so the cost of editing
@@ -16200,6 +16227,42 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: List prompts attaching a resource
+      tags:
+      - Resources
+  /portal/resources/{id}/used-by:
+    get:
+      description: Returns the assets whose content references a managed resource
+        and which the caller may open, flagging any that carry an active public link
+        share. Referencing assets the caller cannot open are counted but not named.
+      parameters:
+      - description: Resource ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/assetrefapi.usedByResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List assets referencing a resource
       tags:
       - Resources
   /portal/scripts:

@@ -9439,7 +9439,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/portal/assets/{id}/resources": {
+        "/portal/assets/{id}/references": {
             "get": {
                 "security": [
                     {
@@ -9449,14 +9449,14 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns the managed resources an asset's content references, with enough of each resource to render a row, the URL the reference is served under, and where the asset's stored content still writes the URI. A reference whose resource was deleted is returned flagged as broken.",
+                "description": "Returns what an asset's content references -- managed resources and other assets -- with enough of each target to render a row, the URL the reference is served under, and where the asset's stored content still writes the URI. A reference whose target was deleted is returned flagged as broken.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "Portal"
                 ],
-                "summary": "List an asset's referenced resources",
+                "summary": "List an asset's references",
                 "parameters": [
                     {
                         "type": "string",
@@ -9508,7 +9508,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Adds one managed resource to the asset's references, checked against the caller's own read permission on that resource. The asset's stored content is not changed. Returns the asset's references after the add.",
+                "description": "Adds one managed resource or one asset to the asset's references, checked against the caller's own read permission on that target. The asset's stored content is not changed. Returns the asset's references after the add.",
                 "consumes": [
                     "application/json"
                 ],
@@ -9518,7 +9518,7 @@ const docTemplate = `{
                 "tags": [
                     "Portal"
                 ],
-                "summary": "Reference a resource from an asset",
+                "summary": "Add a reference to an asset",
                 "parameters": [
                     {
                         "type": "string",
@@ -9574,7 +9574,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/portal/assets/{id}/resources/{resourceID}": {
+        "/portal/assets/{id}/references/{kind}/{targetID}": {
             "delete": {
                 "security": [
                     {
@@ -9584,14 +9584,14 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Removes one managed resource from the asset's references. The asset's stored content is not changed, so a URI still written in the markup stops resolving. Returns the asset's references after the removal.",
+                "description": "Removes one reference from the asset. The asset's stored content is not changed, so a URI still written in the markup stops resolving. Returns the asset's references after the removal.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "Portal"
                 ],
-                "summary": "Remove an asset's reference to a resource",
+                "summary": "Remove one of an asset's references",
                 "parameters": [
                     {
                         "type": "string",
@@ -9602,8 +9602,15 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Resource ID",
-                        "name": "resourceID",
+                        "description": "Target kind (resource or asset)",
+                        "name": "kind",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Target ID",
+                        "name": "targetID",
                         "in": "path",
                         "required": true
                     }
@@ -9613,6 +9620,12 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/assetrefapi.listResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "401": {
@@ -10018,6 +10031,67 @@ const docTemplate = `{
                         "description": "Service Unavailable",
                         "schema": {
                             "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/assets/{id}/used-by": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the assets whose content references this asset and which the caller may open, flagging any that carry an active public link share. Referencing assets the caller cannot open are counted but not named.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Portal"
+                ],
+                "summary": "List assets referencing an asset",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/assetrefapi.usedByResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -14284,61 +14358,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/portal/resources/{id}/assets": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Returns the assets whose content references a managed resource and which the caller may open, flagging any that carry an active public link share. Referencing assets the caller cannot open are counted but not named.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Resources"
-                ],
-                "summary": "List assets referencing a resource",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Resource ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/assetrefapi.usedByResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    }
-                }
-            }
-        },
         "/portal/resources/{id}/prompts": {
             "get": {
                 "security": [
@@ -14399,6 +14418,61 @@ const docTemplate = `{
                             "additionalProperties": {
                                 "type": "string"
                             }
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/resources/{id}/used-by": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the assets whose content references a managed resource and which the caller may open, flagging any that carry an active public link share. Referencing assets the caller cannot open are counted but not named.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "List assets referencing a resource",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Resource ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/assetrefapi.usedByResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -19831,14 +19905,14 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "broken": {
-                    "description": "Broken marks a reference whose resource has been deleted. The row\nsurvives the delete on purpose (#1474), so this is the one place the\nowner learns their report is now serving with a picture missing.",
+                    "description": "Broken marks a reference whose target has been deleted. The row survives\nthe delete on purpose (#1474), so this is the one place the owner learns\ntheir report is now serving with something missing.",
                     "type": "boolean"
                 },
                 "category": {
                     "type": "string"
                 },
                 "content_url": {
-                    "description": "ContentURL is the reference's own serving URL, the same one the rewrite\nwrites into the content this reader is served. It is here so the panel\ncan show a thumbnail through the grant the reference already makes,\nrather than through the resource route, which a reader of a shared asset\nmay not be allowed to call.",
+                    "description": "ContentURL is the reference's own serving URL, the same one the rewrite\nwrites into the content this reader is served. It is here so the panel\ncan show a thumbnail through the grant the reference already makes,\nrather than through the target's own route, which a reader of a shared\nasset may not be allowed to call.",
                     "type": "string"
                 },
                 "declared_by": {
@@ -19851,6 +19925,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "filename": {
+                    "description": "Resource-only fields: the file's own name, its category and the scope it\nis filed under.",
                     "type": "string"
                 },
                 "mime_type": {
@@ -19863,15 +19938,16 @@ const docTemplate = `{
                         "$ref": "#/definitions/assetrefapi.occurrence"
                     }
                 },
+                "owner_email": {
+                    "description": "OwnerEmail names who owns a referenced asset. It is the asset row's\ncounterpart of a resource's scope: the one fact that says whose thing\nthis is.",
+                    "type": "string"
+                },
                 "position": {
                     "type": "integer"
                 },
                 "readable": {
-                    "description": "Readable is whether this reader could open the resource on its own, as\nopposed to through the asset. It decides whether the row is a link: a\nreader of a shared asset can see a file they have no direct access to,\nand a link to the resource's own page would only lead them to a\nnot-found.",
+                    "description": "Readable is whether this reader could open the target on its own, as\nopposed to through the asset. It decides whether the row is a link: a\nreader of a shared asset can see a target they have no direct access to,\nand a link to its own page would only lead them to a not-found.",
                     "type": "boolean"
-                },
-                "resource_id": {
-                    "type": "string"
                 },
                 "scope": {
                     "type": "string"
@@ -19881,6 +19957,13 @@ const docTemplate = `{
                 },
                 "size_bytes": {
                     "type": "integer"
+                },
+                "target_id": {
+                    "type": "string"
+                },
+                "target_kind": {
+                    "description": "TargetKind says what this row points at: a managed resource, or another\nasset. It decides which of the fields below are filled and where the row\nlinks to.",
+                    "type": "string"
                 },
                 "uri": {
                     "type": "string"
@@ -19900,7 +19983,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "public": {
-                    "description": "Public marks an asset carrying an active link share. It is the flag the\nwhole list exists for: a reference carries the asset's audience, so a\nresource referenced by a publicly shared asset is readable by anyone who\nholds that link.",
+                    "description": "Public marks an asset carrying an active link share. It is the flag the\nwhole list exists for: a reference carries the asset's audience, so a\ntarget referenced by a publicly shared asset is readable by anyone who\nholds that link.",
                     "type": "boolean"
                 }
             }
@@ -19915,14 +19998,14 @@ const docTemplate = `{
                     }
                 },
                 "hidden": {
-                    "description": "Hidden counts the referencing assets this reader may not open. They are\nnamed nowhere, but they are counted: someone deciding whether to delete a\nfile has to know the list they are looking at is not the whole of what\nwould break.",
+                    "description": "Hidden counts the referencing assets this reader may not open. They are\nnamed nowhere, but they are counted: someone deciding whether to delete a\ntarget has to know the list they are looking at is not the whole of what\nwould break.",
                     "type": "integer"
                 },
                 "total": {
                     "type": "integer"
                 },
                 "truncated": {
-                    "description": "Truncated says the answer was cut at the bound rather than being the\nwhole of what references this file. It is reported rather than left\nimplicit for the reason Hidden is: a short list read as a complete one\nis the mistake this surface exists to prevent.",
+                    "description": "Truncated says the answer was cut at the bound rather than being the\nwhole of what references this target. It is reported rather than left\nimplicit for the reason Hidden is: a short list read as a complete one\nis the mistake this surface exists to prevent.",
                     "type": "boolean"
                 }
             }

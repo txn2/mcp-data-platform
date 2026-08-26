@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 )
 
@@ -34,30 +35,30 @@ func TestScannableRejectsNonTextAndOversize(t *testing.T) {
 // document belongs to no reference and is not reported against one.
 func TestScanOccurrencesFindsOnlyDeclaredURIs(t *testing.T) {
 	content := []byte("<img src=\"" + logoURI + "\">\n<img src=\"" + chartURI + "\">\n")
-	found := scanOccurrences(content, []portaldomain.AssetResourceRef{logoRef()})
+	found := scanOccurrences(content, []assetrefs.Ref{logoRef()})
 
 	require.Len(t, found, 1)
-	require.Len(t, found[logoID], 1)
-	assert.Equal(t, 1, found[logoID][0].Line)
+	require.Len(t, found[refKey(logoRef())], 1)
+	assert.Equal(t, 1, found[refKey(logoRef())][0].Line)
 }
 
 // Every line naming the URI is reported, so a warning can name all of them.
 func TestScanOccurrencesReportsEveryLine(t *testing.T) {
 	content := []byte("a\n<img src=\"" + logoURI + "\">\nb\n<a href=\"" + logoURI + "\">\n")
-	found := scanOccurrences(content, []portaldomain.AssetResourceRef{logoRef()})
+	found := scanOccurrences(content, []assetrefs.Ref{logoRef()})
 
-	require.Len(t, found[logoID], 2)
-	assert.Equal(t, 2, found[logoID][0].Line)
-	assert.Equal(t, 4, found[logoID][1].Line)
+	require.Len(t, found[refKey(logoRef())], 2)
+	assert.Equal(t, 2, found[refKey(logoRef())][0].Line)
+	assert.Equal(t, 4, found[refKey(logoRef())][1].Line)
 }
 
 // Past the cap the list stops and says so, so a warning built from it never
 // reads as the whole of them.
 func TestScanOccurrencesCapsAndMarksTruncation(t *testing.T) {
 	content := []byte(strings.Repeat("<img src=\""+logoURI+"\">\n", maxOccurrencesPerRef+3))
-	found := scanOccurrences(content, []portaldomain.AssetResourceRef{logoRef()})
+	found := scanOccurrences(content, []assetrefs.Ref{logoRef()})
 
-	hits := found[logoID]
+	hits := found[refKey(logoRef())]
 	require.Len(t, hits, maxOccurrencesPerRef)
 	assert.True(t, hits[len(hits)-1].Truncated)
 }
@@ -66,11 +67,11 @@ func TestScanOccurrencesCapsAndMarksTruncation(t *testing.T) {
 // panel a removal breaks no markup.
 func TestScanOccurrencesAbsentURI(t *testing.T) {
 	assert.Nil(t, scanOccurrences([]byte("<p>no pictures here</p>"),
-		[]portaldomain.AssetResourceRef{logoRef()}))
+		[]assetrefs.Ref{logoRef()}))
 }
 
 func TestScanOccurrencesEmptyContent(t *testing.T) {
-	assert.Nil(t, scanOccurrences(nil, []portaldomain.AssetResourceRef{logoRef()}))
+	assert.Nil(t, scanOccurrences(nil, []assetrefs.Ref{logoRef()}))
 }
 
 // A reference with no URI matches nothing rather than everything.
@@ -78,7 +79,7 @@ func TestScanOccurrencesIgnoresEmptyURI(t *testing.T) {
 	ref := logoRef()
 	ref.URI = ""
 	assert.Nil(t, scanOccurrences([]byte("anything at all"),
-		[]portaldomain.AssetResourceRef{ref}))
+		[]assetrefs.Ref{ref}))
 }
 
 // A markup line indented four levels reads as a sentence, not as leading space.
@@ -120,6 +121,6 @@ func TestSnippetURIWiderThanTheLimit(t *testing.T) {
 
 func TestCapReachedNamesTheNumber(t *testing.T) {
 	assert.Contains(t, capReached(), "20")
-	assert.Equal(t, 20, portaldomain.MaxAssetResourceRefs,
+	assert.Equal(t, 20, assetrefs.MaxRefs,
 		"the refusal above is only useful while it names the real cap")
 }

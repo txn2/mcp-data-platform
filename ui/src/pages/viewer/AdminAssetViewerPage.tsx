@@ -56,6 +56,10 @@ export function AdminAssetViewerPage({ assetId, onNavigate }: Props) {
       resourcePath={(resourceId) =>
         `/admin/resources/${encodeURIComponent(resourceId)}`
       }
+      // An operator opens a referenced asset, and one referencing this asset,
+      // in the console's own library, which holds every asset rather than the
+      // ones they own.
+      assetPath={(id) => `/admin/assets/${encodeURIComponent(id)}`}
       versions={versionsData?.data}
       versionsLoading={versionsLoading}
       revertMutation={revertMutation}

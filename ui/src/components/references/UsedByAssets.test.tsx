@@ -1,15 +1,16 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, screen, cleanup, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ReferencingAssetsResponse } from "@/api/portal/hooks/assetResources";
+import type { ReferencingAssetsResponse } from "@/api/portal/hooks/assetRefs";
 import { UsedByAssets } from "./UsedByAssets";
 
 // A managed resource could be edited or deleted with no way to find out what it
-// was holding up (#1475). What is asserted here is the section that answers
-// that: it names the assets whose content references this file, it flags the
-// ones carrying a public link -- because a reference hands the file the asset's
-// audience -- and it counts the ones this reader may not open rather than
-// leaving them out of the total.
+// was holding up (#1475), and so could an asset another asset reads from
+// (#1488). What is asserted here is the section that answers both: it names the
+// assets whose content references this thing, it flags the ones carrying a
+// public link -- because a reference hands the target the asset's audience --
+// and it counts the ones this reader may not open rather than leaving them out
+// of the total.
 
 const RESOURCE_ID = "res-logo";
 
@@ -22,12 +23,12 @@ const TWO_ASSETS: ReferencingAssetsResponse = {
   hidden: 0,
 };
 
-function stubUsedBy(body: ReferencingAssetsResponse | { status: number }) {
+function stubUsedBy(body: ReferencingAssetsResponse | { status: number }, path = `/resources/${RESOURCE_ID}/used-by`) {
   vi.stubGlobal(
     "fetch",
     vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes(`/resources/${RESOURCE_ID}/assets`)) {
+      if (url.includes(path)) {
         if ("status" in body) {
           return Promise.resolve(new Response(JSON.stringify({ detail: "no" }), { status: body.status }));
         }
@@ -42,7 +43,7 @@ function renderSection() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <UsedByAssets resourceId={RESOURCE_ID} />
+      <UsedByAssets target={{ kind: "resource", id: RESOURCE_ID }} />
     </QueryClientProvider>,
   );
 }
@@ -85,7 +86,7 @@ describe("what a managed resource is holding up", () => {
     const { container } = renderSection();
 
     await waitFor(() =>
-      expect(container.querySelector("[data-testid='resource-used-by-assets']")).toBeNull(),
+      expect(container.querySelector("[data-testid='used-by-assets']")).toBeNull(),
     );
     // The control: the same stub renders the section when there is something to
     // report, so an absent section here is the empty answer and not a component
@@ -93,7 +94,7 @@ describe("what a managed resource is holding up", () => {
     cleanup();
     stubUsedBy(TWO_ASSETS);
     renderSection();
-    expect(await screen.findByTestId("resource-used-by-assets")).toBeTruthy();
+    expect(await screen.findByTestId("used-by-assets")).toBeTruthy();
   });
 
   it("shows nothing when the list cannot be read", async () => {
@@ -101,7 +102,7 @@ describe("what a managed resource is holding up", () => {
     const { container } = renderSection();
 
     await waitFor(() =>
-      expect(container.querySelector("[data-testid='resource-used-by-assets']")).toBeNull(),
+      expect(container.querySelector("[data-testid='used-by-assets']")).toBeNull(),
     );
   });
 });
@@ -114,5 +115,46 @@ describe("a bounded answer", () => {
     // "Used by 2 assets" on a list the server cut would say the file is holding
     // up two things when it is holding up more.
     expect(await screen.findByText(/Used by at least/)).toBeTruthy();
+  });
+});
+
+// The same section, asked about an asset (#1488). It is one component over two
+// kinds, so what differs is the route it reads and the noun it uses -- and both
+// have to be right, or the section on the asset viewer would ask the resources
+// route about an asset id and answer "nothing uses this".
+describe("what an asset is holding up", () => {
+  const ASSET_ID = "asset-data";
+
+  it("reads the asset's own used-by route and names the assets reading it", async () => {
+    stubUsedBy(TWO_ASSETS, `/assets/${ASSET_ID}/used-by`);
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <UsedByAssets target={{ kind: "asset", id: ASSET_ID }} />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("Q4 report")).toBeTruthy();
+    expect(screen.getByTestId("used-by-assets").textContent).toContain(
+      "Deleting this asset leaves those assets rendering without it",
+    );
+  });
+
+  it("opens a referencing asset where this reader can", async () => {
+    stubUsedBy(TWO_ASSETS, `/assets/${ASSET_ID}/used-by`);
+    const onNavigate = vi.fn();
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <UsedByAssets
+          target={{ kind: "asset", id: ASSET_ID }}
+          assetPath={(id) => `/assets/${id}`}
+          onNavigate={onNavigate}
+        />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(await screen.findByText("Q4 report"));
+    expect(onNavigate).toHaveBeenCalledWith("/assets/asset-q4");
   });
 });

@@ -2,6 +2,7 @@ package portal
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,7 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
-	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
 
@@ -23,37 +23,37 @@ const (
 	refBucket    = "managed-resources"
 )
 
-// mockRefStore is an in-memory AssetResourceRefStore. GetByToken reports no
+// mockRefStore is an in-memory AssetContentRefStore. GetByToken reports no
 // such reference as (nil, nil), which is the Postgres store's contract.
 type mockRefStore struct {
-	byAsset  map[string][]portaldomain.AssetResourceRef
+	byAsset  map[string][]assetrefs.Ref
 	listErr  error
-	replaced map[string][]portaldomain.AssetResourceRef
+	replaced map[string][]assetrefs.Ref
 }
 
 func newMockRefStore() *mockRefStore {
 	return &mockRefStore{
-		byAsset:  map[string][]portaldomain.AssetResourceRef{},
-		replaced: map[string][]portaldomain.AssetResourceRef{},
+		byAsset:  map[string][]assetrefs.Ref{},
+		replaced: map[string][]assetrefs.Ref{},
 	}
 }
 
-func (m *mockRefStore) Replace(_ context.Context, id string, refs []portaldomain.AssetResourceRef) error {
+func (m *mockRefStore) Replace(_ context.Context, id string, refs []assetrefs.Ref) error {
 	m.replaced[id] = refs
 	m.byAsset[id] = refs
 	return nil
 }
 
-func (m *mockRefStore) ListByAsset(_ context.Context, id string) ([]portaldomain.AssetResourceRef, error) {
+func (m *mockRefStore) ListByAsset(_ context.Context, id string) ([]assetrefs.Ref, error) {
 	if m.listErr != nil {
 		return nil, m.listErr
 	}
 	return m.byAsset[id], nil
 }
 
-func (m *mockRefStore) Attach(_ context.Context, ref portaldomain.AssetResourceRef) (bool, error) {
+func (m *mockRefStore) Attach(_ context.Context, ref assetrefs.Ref) (bool, error) {
 	for _, existing := range m.byAsset[ref.AssetID] {
-		if existing.ResourceID == ref.ResourceID {
+		if existing.TargetKind == ref.TargetKind && existing.TargetID == ref.TargetID {
 			return false, nil
 		}
 	}
@@ -61,11 +61,13 @@ func (m *mockRefStore) Attach(_ context.Context, ref portaldomain.AssetResourceR
 	return true, nil
 }
 
-func (m *mockRefStore) Detach(_ context.Context, assetID, resourceID string) (bool, error) {
-	kept := make([]portaldomain.AssetResourceRef, 0, len(m.byAsset[assetID]))
+func (m *mockRefStore) Detach(
+	_ context.Context, assetID string, kind assetrefs.TargetKind, targetID string,
+) (bool, error) {
+	kept := make([]assetrefs.Ref, 0, len(m.byAsset[assetID]))
 	found := false
 	for _, ref := range m.byAsset[assetID] {
-		if ref.ResourceID == resourceID {
+		if ref.TargetKind == kind && ref.TargetID == targetID {
 			found = true
 			continue
 		}
@@ -75,14 +77,14 @@ func (m *mockRefStore) Detach(_ context.Context, assetID, resourceID string) (bo
 	return found, nil
 }
 
-func (m *mockRefStore) ListByResource(_ context.Context, resourceID string, _ int) ([]portaldomain.AssetResourceRef, error) {
+func (m *mockRefStore) ListByTarget(_ context.Context, kind assetrefs.TargetKind, targetID string, _ int) ([]assetrefs.Ref, error) {
 	if m.listErr != nil {
 		return nil, m.listErr
 	}
-	var out []portaldomain.AssetResourceRef
+	var out []assetrefs.Ref
 	for _, refs := range m.byAsset {
 		for _, ref := range refs {
-			if ref.ResourceID == resourceID {
+			if ref.TargetKind == kind && ref.TargetID == targetID {
 				out = append(out, ref)
 			}
 		}
@@ -90,7 +92,7 @@ func (m *mockRefStore) ListByResource(_ context.Context, resourceID string, _ in
 	return out, nil
 }
 
-func (m *mockRefStore) GetByToken(_ context.Context, id, token string) (*portaldomain.AssetResourceRef, error) {
+func (m *mockRefStore) GetByToken(_ context.Context, id, token string) (*assetrefs.Ref, error) {
 	for _, ref := range m.byAsset[id] {
 		if ref.RefToken == token {
 			return &ref, nil
@@ -169,8 +171,8 @@ func newRefFixture(t *testing.T, user *User, declared bool) *refFixture {
 	}
 	refs := newMockRefStore()
 	if declared {
-		refs.byAsset[asset.ID] = []portaldomain.AssetResourceRef{{
-			AssetID: asset.ID, ResourceID: "res-logo", URI: refLogoURI, RefToken: refLogoToken,
+		refs.byAsset[asset.ID] = []assetrefs.Ref{{
+			AssetID: asset.ID, TargetKind: assetrefs.TargetResource, TargetID: "res-logo", URI: refLogoURI, RefToken: refLogoToken,
 		}}
 	}
 	s3 := &mockS3Client{getData: []byte(refAssetBody), getCT: "text/html"}
@@ -183,7 +185,7 @@ func newRefFixture(t *testing.T, user *User, declared bool) *refFixture {
 		S3Bucket:         "test-bucket",
 		PublicBaseURL:    refBaseURL,
 		RateLimit:        RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
-		ResourceRefs:     refs,
+		ContentRefs:      refs,
 		ResourceReader:   newMockResourceReader(),
 		ResourceBlobs:    blobs,
 		ResourceS3Bucket: refBucket,
@@ -322,8 +324,8 @@ func TestServeRefsIgnoresAnEmptyAssetID(t *testing.T) {
 // blank every image on the page.
 func TestRefRateLimitScalesWithTheCap(t *testing.T) {
 	got := refRateLimit(RateLimitConfig{RequestsPerMinute: 60, BurstSize: 10})
-	assert.Equal(t, 60*portaldomain.MaxAssetResourceRefs, got.RequestsPerMinute)
-	assert.Equal(t, 10*portaldomain.MaxAssetResourceRefs, got.BurstSize)
+	assert.Equal(t, 60*assetrefs.MaxRefs, got.RequestsPerMinute)
+	assert.Equal(t, 10*assetrefs.MaxRefs, got.BurstSize)
 
 	// A field left unset stays unset so viewerlimit applies its own default
 	// before sizing the global backstop from it.
@@ -336,8 +338,8 @@ func TestRefRateLimitScalesWithTheCap(t *testing.T) {
 // copying: a copy must not silently carry a grant its new owner did not earn.
 func TestCopyCarriesOnlyReferencesTheCopierCanRead(t *testing.T) {
 	f := newRefFixture(t, &User{UserID: "u2", Email: "other@example.com"}, true)
-	f.refs.byAsset["a1"] = append(f.refs.byAsset["a1"], portaldomain.AssetResourceRef{
-		AssetID: "a1", ResourceID: "res-chart", URI: "mcp://persona/finance/chart.png",
+	f.refs.byAsset["a1"] = append(f.refs.byAsset["a1"], assetrefs.Ref{
+		AssetID: "a1", TargetKind: assetrefs.TargetResource, TargetID: "res-chart", URI: "mcp://persona/finance/chart.png",
 		RefToken: "tok-chart", Position: 1,
 	})
 
@@ -345,7 +347,7 @@ func TestCopyCarriesOnlyReferencesTheCopierCanRead(t *testing.T) {
 
 	carried := f.refs.replaced["copy1"]
 	require.Len(t, carried, 1, "the finance chart must not follow a copier who cannot read it")
-	assert.Equal(t, "res-logo", carried[0].ResourceID)
+	assert.Equal(t, "res-logo", carried[0].TargetID)
 	assert.Equal(t, "other@example.com", carried[0].DeclaredBy)
 	assert.NotEqual(t, refLogoToken, carried[0].RefToken,
 		"a copy is a separate grant and gets a token of its own")
@@ -356,8 +358,8 @@ func TestCopyCarriesOnlyReferencesTheCopierCanRead(t *testing.T) {
 // content resolving to nothing.
 func TestCopyCarriesNothingWhenNothingIsReadable(t *testing.T) {
 	f := newRefFixture(t, nil, false)
-	f.refs.byAsset["a1"] = []portaldomain.AssetResourceRef{{
-		AssetID: "a1", ResourceID: "res-chart", URI: "mcp://persona/finance/chart.png",
+	f.refs.byAsset["a1"] = []assetrefs.Ref{{
+		AssetID: "a1", TargetKind: assetrefs.TargetResource, TargetID: "res-chart", URI: "mcp://persona/finance/chart.png",
 		RefToken: "tok-chart",
 	}}
 
@@ -421,8 +423,8 @@ func publicRefFixture(t *testing.T) *Handler {
 		S3Bucket: "test-bucket", S3Key: "k", Tags: []string{}, CreatedAt: now, UpdatedAt: now,
 	}
 	refs := newMockRefStore()
-	refs.byAsset["a1"] = []portaldomain.AssetResourceRef{{
-		AssetID: "a1", ResourceID: "res-logo", URI: refLogoURI, RefToken: refLogoToken,
+	refs.byAsset["a1"] = []assetrefs.Ref{{
+		AssetID: "a1", TargetKind: assetrefs.TargetResource, TargetID: "res-logo", URI: refLogoURI, RefToken: refLogoToken,
 	}}
 
 	h := NewHandler(Deps{
@@ -432,7 +434,7 @@ func publicRefFixture(t *testing.T) *Handler {
 		S3Bucket:         "test-bucket",
 		PublicBaseURL:    refBaseURL,
 		RateLimit:        RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
-		ResourceRefs:     refs,
+		ContentRefs:      refs,
 		ResourceReader:   newMockResourceReader(),
 		ResourceBlobs:    &mockS3Client{getData: []byte("PNGBYTES")},
 		ResourceS3Bucket: refBucket,
@@ -494,8 +496,8 @@ func TestVersionContentRewritesAgainstCurrentReferences(t *testing.T) {
 		S3Bucket: "test-bucket", S3Key: "k", CurrentVersion: 2,
 	}
 	refs := newMockRefStore()
-	refs.byAsset["a1"] = []portaldomain.AssetResourceRef{{
-		AssetID: "a1", ResourceID: "res-logo", URI: refLogoURI, RefToken: refLogoToken,
+	refs.byAsset["a1"] = []assetrefs.Ref{{
+		AssetID: "a1", TargetKind: assetrefs.TargetResource, TargetID: "res-logo", URI: refLogoURI, RefToken: refLogoToken,
 	}}
 	h := NewHandler(Deps{
 		AssetStore:       &mockAssetStore{getAsset: asset},
@@ -505,7 +507,7 @@ func TestVersionContentRewritesAgainstCurrentReferences(t *testing.T) {
 		S3Bucket:         "test-bucket",
 		PublicBaseURL:    refBaseURL,
 		RateLimit:        RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
-		ResourceRefs:     refs,
+		ContentRefs:      refs,
 		ResourceReader:   newMockResourceReader(),
 		ResourceBlobs:    &mockS3Client{getData: []byte("PNGBYTES")},
 		ResourceS3Bucket: refBucket,
@@ -529,4 +531,96 @@ func TestCopyCarriesNothingWhenResourcesCannotBeRead(t *testing.T) {
 	f.handler.copyRefs(t.Context(), "a1", "copy1", &User{UserID: "u2", Email: "other@example.com"})
 
 	assert.NotContains(t, f.refs.replaced, "copy1")
+}
+
+// The asset-reference half of the copy rule (#1488). A copy carries a reference
+// to another asset only when its new owner can open that asset for themselves,
+// which is the same check the original declaration passed.
+
+// copyFixture builds a handler over two assets: the one being copied and the
+// one it references, shared with copier when shared is true. The asset store is
+// returned so a test can fail its reads.
+func copyFixture(t *testing.T, copier *User, shared bool) (*Handler, *mockRefStore, *mockAssetStore) {
+	t.Helper()
+	source := &Asset{ID: "a1", OwnerID: "u1", OwnerEmail: "owner@example.com", Name: "Q4 Report"}
+	target := &Asset{ID: "a2", OwnerID: "u1", OwnerEmail: "owner@example.com", Name: "Weekly numbers"}
+	shares := &mockShareStore{}
+	if shared {
+		shares.listByAsset = []Share{{
+			ID: "s1", AssetID: target.ID,
+			Permission: PermissionViewer, SharedWithEmail: copier.Email,
+		}}
+	}
+	refs := newMockRefStore()
+	refs.byAsset["a1"] = []assetrefs.Ref{{
+		AssetID: "a1", TargetKind: assetrefs.TargetAsset, TargetID: "a2",
+		URI: "mcp:asset:a2", RefToken: "tok-a2",
+	}}
+	assets := &mockAssetStore{
+		getAsset: source,
+		byID:     map[string]*Asset{"a1": source, "a2": target},
+	}
+	h := NewHandler(Deps{
+		AssetStore:     assets,
+		ShareStore:     shares,
+		S3Client:       &mockS3Client{},
+		ContentRefs:    refs,
+		ResourceReader: newMockResourceReader(),
+	}, testAuthMiddleware(copier))
+	return h, refs, assets
+}
+
+// A copier who holds a share on the referenced asset carries the reference,
+// with a token of its own.
+func TestCopyCarriesAnAssetReferenceTheCopierCanRead(t *testing.T) {
+	copier := &User{UserID: "u2", Email: "other@example.com"}
+	h, refs, _ := copyFixture(t, copier, true)
+
+	h.copyRefs(t.Context(), "a1", "copy1", copier)
+
+	carried := refs.replaced["copy1"]
+	require.Len(t, carried, 1)
+	assert.Equal(t, assetrefs.TargetAsset, carried[0].TargetKind)
+	assert.Equal(t, "a2", carried[0].TargetID)
+	assert.NotEqual(t, "tok-a2", carried[0].RefToken,
+		"a copy is a separate grant and gets a token of its own")
+}
+
+// A copier who cannot open the referenced asset gets the copy without the
+// reference: the copied content still names it, so the copy renders around a
+// reference that resolves to nothing, exactly as a deleted target does.
+func TestCopyDropsAnAssetReferenceTheCopierCannotRead(t *testing.T) {
+	copier := &User{UserID: "u2", Email: "other@example.com"}
+	h, refs, _ := copyFixture(t, copier, false)
+
+	h.copyRefs(t.Context(), "a1", "copy1", copier)
+
+	assert.NotContains(t, refs.replaced, "copy1",
+		"a grant the copier never earned must not follow the copy")
+}
+
+// A copy that would reference itself drops that reference. Copying an asset
+// that references the original is legitimate; a copy naming its own id would
+// resolve to the content it sits in.
+func TestCopyDropsAReferenceToTheCopyItself(t *testing.T) {
+	copier := &User{UserID: "u2", Email: "other@example.com"}
+	h, refs, _ := copyFixture(t, copier, true)
+
+	h.copyRefs(t.Context(), "a1", "a2", copier)
+
+	assert.NotContains(t, refs.replaced, "a2")
+}
+
+// A copy carries no asset reference when the assets behind them cannot be read.
+// The safe direction for a grant is to withhold it: a copy rendering without a
+// referenced file is a smaller failure than one carrying a grant nobody
+// established its new owner had earned.
+func TestCopyCarriesNoAssetReferenceWhenTheAssetReadFails(t *testing.T) {
+	copier := &User{UserID: "u2", Email: "other@example.com"}
+	h, refs, assets := copyFixture(t, copier, true)
+	assets.getByIDsErr = errors.New("database unavailable")
+
+	h.copyRefs(t.Context(), "a1", "copy1", copier)
+
+	assert.NotContains(t, refs.replaced, "copy1")
 }

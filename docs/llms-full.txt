@@ -2027,7 +2027,7 @@ Writes a file into the managed resource library. A managed resource is the only 
 
 Content arrives in one of two fields rather than one field with an encoding flag, so a caller cannot declare an encoding the bytes are not in. Both are capped at `portal.max_content_size` (10 MB by default), the same cap `save_asset` applies: one number governs everything an agent writes through a tool call, and a file larger than that goes through the portal's upload form.
 
-`create` reports the resource's `mcp://` URI (which is what `save_asset`'s `resources` argument takes) and its `mcp:resource:` reference (which is what every other tool takes). It reports no `version`: version 1 is recorded only where the deployment keeps a version trail, and a number the history may not hold is worse than none. `replace_content` reports the `version` the content was recorded as.
+`create` reports the resource's `mcp://` URI (which is what `save_asset`'s `references` argument takes) and its `mcp:resource:` reference (which is what every other tool takes). It reports no `version`: version 1 is recorded only where the deployment keeps a version trail, and a number the history may not hold is worse than none. `replace_content` reports the `version` the content was recorded as.
 
 A replacement goes through `resource.ReviseContent`, the same call the portal's replace-content route makes, so the resource keeps its id, its canonical `mcp://` URI and its filename — which is what keeps every `mcp:resource:<id>` citation, every prompt attachment and every asset reference pointing at it resolving across the write, with no asset re-saved — the new bytes land on a fresh per-revision key so the prior version stays independently readable and restorable, the revision is recorded with its author and change summary, and the resource is re-registered so `resources/list_changed` reaches clients that would otherwise keep serving the bytes it moved off.
 
@@ -2601,7 +2601,7 @@ My Calls: the caller's own recorded data-access calls, over `GET /api/v1/portal/
 The asset viewer walks the other way: the metadata sidebar's Session row and the provenance panel's Open session action both open the session that produced the asset (`/activity/sessions/{id}` for an owner, `/admin/sessions/{id}` for an operator). Both are omitted for a reader who is neither, since the session would answer them 404.
 
 ## Assets
-AI-generated dashboards, reports, and visualizations saved via `save_asset`. Grid/table view with search, content type filter (HTML, JSX, SVG, Markdown, CSV), and tag filter. Ordering is a control, not a constant: a column select (updated, created, name, size) plus a direction toggle, mirrored by the sortable table headers, sent to the server as `sort` and `dir` on `GET /api/v1/portal/assets`. It defaults to `updated_at DESC` so the most recently revised work is first, resolves the column against an allowlist before it reaches an ORDER BY, and appends `id` in the same direction so LIMIT/OFFSET pagination cannot repeat or drop a row that ties. The date each card and row displays is the one the list is ordered by. Asset viewer renders each type natively: HTML/JSX as interactive components, SVG as vector graphics, Markdown with GFM+mermaid, CSV as sortable tables. Preview/Source toggle, Delete/Download/Share actions. The version picker beside the toggle lists every version the asset keeps with the time it was written, since a number alone does not identify a version of an asset written on a schedule; the trigger shows the version alone. The metadata sidebar's Referenced files panel is the person's end of the asset-resource reference mechanism (#1475), over `GET/POST /api/v1/portal/assets/{id}/resources` and `DELETE .../{resourceID}`: each referenced file's name, scope and type, a thumbnail (loaded through the reference's own /portal/refs URL rather than the resource route, so it renders for a reader who was only ever shown the asset), a link to the resource where the reader could open it themselves, and the mcp:// URI with a copy control -- adding a reference never touches the content, so the markup still has to name the URI. The owner, a shared editor and an administrator add through a picker over the resources they can read and remove; the picker names what the reference gives away and the asset's CURRENT audience before it is confirmed, a removal whose URI the stored content still writes warns with those line numbers first, a reference whose resource was deleted is flagged rather than dropped, and a reader without edit authority gets the list and no controls. The reverse edge is on the resource (`GET /api/v1/portal/resources/{id}/assets`): a Used by section beside the prompts one, flagging any referencing asset that carries a public link and counting without naming the ones the reader cannot open, and the delete dialog carries the same list.
+AI-generated dashboards, reports, and visualizations saved via `save_asset`. Grid/table view with search, content type filter (HTML, JSX, SVG, Markdown, CSV), and tag filter. Ordering is a control, not a constant: a column select (updated, created, name, size) plus a direction toggle, mirrored by the sortable table headers, sent to the server as `sort` and `dir` on `GET /api/v1/portal/assets`. It defaults to `updated_at DESC` so the most recently revised work is first, resolves the column against an allowlist before it reaches an ORDER BY, and appends `id` in the same direction so LIMIT/OFFSET pagination cannot repeat or drop a row that ties. The date each card and row displays is the one the list is ordered by. Asset viewer renders each type natively: HTML/JSX as interactive components, SVG as vector graphics, Markdown with GFM+mermaid, CSV as sortable tables. Preview/Source toggle, Delete/Download/Share actions. The version picker beside the toggle lists every version the asset keeps with the time it was written, since a number alone does not identify a version of an asset written on a schedule; the trigger shows the version alone. The metadata sidebar's References panel is the person's end of the asset reference mechanism (#1475, #1488), over `GET/POST /api/v1/portal/assets/{id}/references` and `DELETE .../{kind}/{targetID}`: each reference's name and type, a scope for a managed resource and an owner for a referenced asset, a thumbnail where it is an image (loaded through the reference's own /portal/refs URL rather than the target's own route, so it renders for a reader who was only ever shown the asset), a link to the target where the reader could open it themselves, and the reference string with a copy control -- adding a reference never touches the content, so the markup still has to name it. The owner, a shared editor and an administrator add through a picker with a tab per kind (the resources they can read, the assets they can open) and remove; the picker names what the reference gives away and the asset's CURRENT audience before it is confirmed, a removal whose reference the stored content still writes warns with those line numbers first, a reference whose target was deleted is flagged rather than dropped, and a reader without edit authority gets the list and no controls. The reverse edge is on both ends (`GET /api/v1/portal/resources/{id}/used-by` and `GET /api/v1/portal/assets/{id}/used-by`): a Used by section on the resource beside the prompts one and on the asset viewer's own sidebar, flagging any referencing asset that carries a public link and counting without naming the ones the reader cannot open, and the resource delete dialog carries the same list.
 
 **Thumbnails and how they stay current.** A thumbnail is captured in a browser — the asset is rendered off-screen and rasterized — and there is no server that renders one, so what an asset shows depends entirely on some tab being told to capture it. A version write leaves the recorded capture alone (it used to blank both pointers), so a rewritten asset keeps showing the image it has, of an earlier body, rather than falling back to the placeholder icon; `thumbnail_version` and `thumbnail_dark_version` record which version each variant came from, and a value below `current_version` is what says the capture has not caught up. `GET /api/v1/portal/thumbnails/pending` answers with the caller's assets whose capture is missing, behind, or written under a superseded filename — derived from the asset row on every read rather than kept as queue state, so an asset leaves the set by having a current capture and no other way. The queue component is mounted in the portal shell, not on the assets page: any open tab polls that list, captures up to eight per batch one at a time while the browser is idle and the tab is visible, skips anything over 1 MB, and attempts a given asset once per session so a document the rasterizer cannot render does not crowd out the rest. The capture PUT carries `?version=` — the version the capturer actually read — so an asset rewritten mid-capture is dated to what the image shows and stays queued rather than being marked current. The list is the caller's own assets whatever their role: capture reads the whole body of every asset it is offered, and an administrator's tab quietly pulling other people's documents into a browser is not what opening the portal asks for. This is what an asset a managed script rewrites hourly depends on — it is exactly the asset nobody is looking at when it changes (#1431).
 
@@ -2785,71 +2785,85 @@ The public viewer's own policy governs two documents at once, which is what boun
 
 ---
 
-# Asset Resource References
+# Asset References
 
-An asset's content can name a managed resource by its `mcp://` URI instead of carrying the file's bytes. The stored content keeps the URI; every surface that serves the asset to a reader rewrites it into a URL that resolves to the file.
+An asset's content can name a managed resource by its `mcp://` URI, or another asset by its `mcp:asset:<id>` reference, instead of carrying the bytes. The stored content keeps the reference; every surface that serves the asset to a reader rewrites it into a URL that resolves to the target.
 
 !!! quote "The rule"
-    Write the resource's URI as the `src` in your markup and declare it in the same call. The asset stores a reference, not a copy.
+    Write the reference where the file belongs in your markup and declare it in the same call. The asset stores a reference, not a copy.
 
 ## Why an asset should not carry the bytes
 
 Before references, the only way to put a logo, a photograph, or a design element in a report was to write it into the markup: an SVG inlined in full, an image as a `data:` URI. The cost is paid four times. The agent spends output tokens emitting bytes it read from somewhere else, the asset stores them, every retained version stores them again, and every read carries them. A report refreshed hourly by a [scheduled script](../scripts/running.md) re-emits the same logo on every run and keeps a copy in every version it retains.
 
-The material is already in the platform. A [managed resource](../concepts/content-model.md) is a stored file with a content type, a scope, a permission model, and a stable URI. A reference is how an asset names one.
+The material is already in the platform. A [managed resource](../concepts/content-model.md) is a stored file with a content type, a scope, a permission model, and a stable URI. Another asset is a stored file too, with content that changes when its author or a scheduled job rewrites it. A reference is how an asset names either.
+
+## What each kind is for
+
+A **resource reference** names material a person uploaded: a logo, a photograph, a design element, a data dictionary. It changes when somebody replaces the file.
+
+An **asset reference** names something the platform produces. It resolves to the referenced asset's **current** content on every read, which is what makes a refresh loop expressible: a [scheduled script](../scripts/running.md) rewrites a CSV or JSON asset hourly, and a dashboard asset that names it renders the new numbers without being re-saved and without an agent spending output tokens carrying the data across.
+
+Both kinds are one mechanism. They share a declaration, a token, a serving route, and a rewrite; what differs is which store the target is read from and which permission admitted the declaration.
 
 ## Declaring a reference
 
-`save_asset` and `manage_asset` (the `update` and `patch` actions) take a `resources` list of `mcp://` URIs.
+`save_asset` and `manage_asset` (the `update` and `patch` actions) take a `references` list. Each entry is a managed resource's `mcp://` URI or an asset's `mcp:asset:<id>` reference — the same reference string a `search` hit carries and `fetch` dereferences.
 
 ```json
 {
   "name": "Q4 Revenue Report",
   "content_type": "text/html",
-  "content": "<h1>Q4 Revenue</h1><img src=\"mcp://global/brand/logo.png\" alt=\"ACME\">",
-  "resources": ["mcp://global/brand/logo.png"]
+  "content": "<h1>Q4 Revenue</h1><img src=\"mcp://global/brand/logo.png\" alt=\"ACME\"><script>fetch(\"mcp:asset:ast_7c1e\").then((r) => r.text())</script>",
+  "references": ["mcp://global/brand/logo.png", "mcp:asset:ast_7c1e"]
 }
 ```
 
-The URI appears twice on purpose. In the markup it is what the reader's browser will follow; in `resources` it is the declaration, and only a declared URI is ever rewritten. An `mcp://` URI that appears in the content but was never declared is served exactly as written and resolves to nothing, so the grant is always the declaration and never a string that happens to appear in the body.
+The reference appears twice on purpose. In the markup it is what the reader's browser will follow; in `references` it is the declaration, and only a declared reference is ever rewritten. A reference string that appears in the content but was never declared is served exactly as written and resolves to nothing, so the grant is always the declaration and never a string that happens to appear in the body.
 
-On `manage_asset`, `resources` replaces whatever the asset referenced before:
+The rewrite is a whole-document replacement over textual content rather than an attribute rewrite, so a reference resolves wherever it is written: an `img` `src`, a `fetch()` inside a `<script>` block, a markdown link.
 
-| `resources` | Effect |
-|-------------|--------|
+On `manage_asset`, `references` replaces whatever the asset referenced before:
+
+| `references` | Effect |
+|--------------|--------|
 | absent | the asset's references are left alone |
-| `["mcp://..."]` | the asset now references exactly these |
+| `["mcp://...", "mcp:asset:..."]` | the asset now references exactly these |
 | `[]` | every reference is removed |
 
-At most **20** resources per asset. A save above the cap is refused and the refusal states the number.
+At most **20** references per asset, of both kinds together. A save above the cap is refused and the refusal states the number.
 
 ## What declaring one gives away
 
-A declaration is checked once, against the author, at the moment of the save: they must be able to read the resource, and a save naming one they cannot is refused with the URI named and nothing created.
+A declaration is checked once, against the author, at the moment of the save: they must be able to read the target, and a save naming one they cannot is refused with the reference named and nothing created. An agent reads a resource through its scope claims and an asset through ownership and shares, which are the same two checks those surfaces apply everywhere else.
 
-From then on the reference carries the **asset's** audience. Anyone who can open the asset can load the referenced file through it, including an anonymous viewer of a [public share link](portal-user.md). This is the grant model a [managed script](../scripts/security.md) already uses, where a run acts as its version author rather than as its caller. The tool response states it when the reference is made:
+From then on the reference carries the **referencing asset's** audience. Anyone who can open that asset can load the target through it, including an anonymous viewer of a [public share link](portal-user.md). This is the grant model a [managed script](../scripts/security.md) already uses, where a run acts as its version author rather than as its caller. The tool response states it when the reference is made:
 
 > Anyone this asset is shared with can load these files through it, including anyone holding a public link, now and later.
 
-A resource that must not reach a wider audience does not belong in an asset that has one.
+The rule is the same for a referenced asset as for a resource, and is deliberately **not** the referenced asset's own shares. The reference is served to a reader with no session — inside a sandboxed frame, or on a public link — so there is no reader identity to resolve those shares against. What protects the referenced asset is that the author had to be able to read it, and that the notice states the consequence before the reference is made.
+
+A resource or an asset that must not reach a wider audience does not belong in an asset that has one.
 
 ## The URL a reader follows
 
 Each viewing surface rewrites the declared URIs in the content it serves into an absolute URL under `/portal/refs/{asset_id}/{reference_token}`. The rewrite runs on the portal's asset and version content reads, the public share and collection-item reads, and the admin console's content reads. Every one of them produces the same URL.
 
-The route takes no session. That is not a convenience: an HTML or JSX asset renders inside an iframe with an opaque origin, and a public share is read by someone with no account at all, so a URL that depended on the reader's own credentials would resolve for neither. The token in the path is the whole authorization. It is 256 random bits, it is minted per (asset, resource) pair, it reaches a reader only inside content they were already allowed to open, and it resolves to nothing on any other asset's path — the same capability model a public share link already uses.
+The route takes no session. That is not a convenience: an HTML or JSX asset renders inside an iframe with an opaque origin, and a public share is read by someone with no account at all, so a URL that depended on the reader's own credentials would resolve for neither. The token in the path is the whole authorization. It is 256 random bits, it is minted per (asset, target) pair, it reaches a reader only inside content they were already allowed to open, and it resolves to nothing on any other asset's path — the same capability model a public share link already uses.
+
+A referenced asset is served through its **own** reference list, so a referenced page renders with its pictures rather than with dead reference strings. That is one level and never a walk: the rewrite writes URLs, and following one is the reader's next request rather than the platform's recursion. A cycle — two assets referencing each other, or an asset referencing itself — is therefore answered with content each time instead of being followed. The portal refuses a self-reference at the moment it is made, because it resolves to the very content it was written in.
 
 A reference that survives a save keeps its token, so a URL already rendered into a reader's open page does not break every time the author saves.
 
 ## Managing references from the portal
 
-An asset's viewer sidebar carries a **Referenced files** panel listing what the asset depends on: each file's name, scope, content type, and, where the file is an image, a thumbnail of it. The thumbnail loads through the reference's own URL rather than through the resource route, so it renders for a reader who was only ever shown the asset.
+An asset's viewer sidebar carries a **References** panel listing what the asset depends on. A resource row names the file, its scope and its content type, with a thumbnail where it is an image; an asset row is marked as one and names the asset, its content type and its owner. A thumbnail loads through the reference's own URL rather than through the target's own route, so it renders for a reader who was only ever shown the asset.
 
-Every row carries the `mcp://` URI with a copy control. That is the point of the panel rather than a detail of it: adding a reference does not change the asset's content, and the markup has to name the URI for the picture to render.
+Every row carries the reference string with a copy control. That is the point of the panel rather than a detail of it: adding a reference does not change the asset's content, and the markup has to name the reference for the target to load.
 
-An owner, an editor on a shared asset, and an administrator can add a reference through a picker over the resources they can read, and remove one. The picker states what the reference gives away and names the asset's current audience before anything is added — a public link, people it is shared with, or neither yet. A reader with no edit authority sees the list and is offered neither control.
+An owner, an editor on a shared asset, and an administrator can add a reference through a picker with a tab for each kind — the resources they can read, and the assets they can open — and remove one. The picker states what the reference gives away and names the asset's current audience before anything is added — a public link, people it is shared with, or neither yet. A reader with no edit authority sees the list and is offered neither control.
 
-A row whose resource has been deleted is flagged rather than dropped. It names the resource id, which is what the owner needs in order to clean it up, and it is the only place they learn the report is now serving without that file.
+A row whose target has been deleted is flagged rather than dropped. It names the target id, which is what the owner needs in order to clean it up, and it is the only place they learn the report is now serving without it.
 
 ### Removing one the content still names
 
@@ -2857,11 +2871,13 @@ The panel reads the asset's stored content and reports which lines write each re
 
 The check does not always run. A binary asset, one larger than 2 MB, or a storage fault leaves it with nothing to report, and the response says which it was. That distinction is the point rather than a detail: "the content does not name this file" makes a removal safe, "we could not look" does not, and the two produce an identical empty list. A removal is confirmed whenever the check did not run, and the confirmation says the content could not be checked rather than claiming the URI is absent from it.
 
-Each reference made through the panel is logged as `asset_resource_reference.granted` and each removal as `asset_resource_reference.revoked`, the same record a save writes when an agent declares one. An operator's log covers both doors or it covers half the grants and looks complete.
+Each reference made through the panel is logged as `asset_reference.granted` and each removal as `asset_reference.revoked`, carrying the target's kind as well as its id, and matching the record a save writes when an agent declares one. An operator's log covers both doors or it covers half the grants and looks complete.
 
 ### The reverse view
 
-A resource's own detail page carries a **Used by** section beside the one listing the prompts that attach it, naming the assets whose content references it. An asset carrying a public link is flagged there, because that is the reference that widens the file's audience furthest. Referencing assets the reader cannot open are counted but not named — someone deciding whether to delete a file has to know the list is not the whole of what would break.
+A resource's own detail page carries a **Used by** section beside the one listing the prompts that attach it, naming the assets whose content references it. An asset's viewer sidebar carries the same section, answering the same question about the asset itself: which reports read this one's content. An asset carrying a public link is flagged in both, because that is the reference that widens the target's audience furthest. Referencing assets the reader cannot open are counted but not named — someone deciding whether to delete something has to know the list is not the whole of what would break.
+
+The asset's own section is refused to a reader who cannot open the asset: who reads an asset is part of the asset, not public knowledge about it.
 
 The answer is bounded at 50, and says so when the bound cut it. Narrowing the list to the assets a given reader may open costs a share lookup per asset, so an unbounded read of a file every asset in a deployment references would turn one page view into a query per asset. A cut answer reads as "at least *n*" rather than as a total, on the same principle the hidden count follows.
 
@@ -2869,23 +2885,31 @@ Deleting a resource that assets reference warns and names them first, on the sam
 
 ## What the agent reads
 
-`manage_asset get_content` is **not** rewritten. It returns the stored content with the `mcp://` URIs intact, because that is what the agent reads before it patches: an agent handed a rewritten URL would write a platform-internal path back into the asset on its next patch, and the reference would be gone. A `patch` round trip through `get_content` leaves references intact.
+`manage_asset get_content` is **not** rewritten. It returns the stored content with its declared references intact, because that is what the agent reads before it patches: an agent handed a rewritten URL would write a platform-internal path back into the asset on its next patch, and the reference would be gone. A `patch` round trip through `get_content` leaves references intact.
+
+## Refreshing what the asset reads
+
+The referenced target is not fixed at the moment the asset was written, in either kind, and the reference URL a rendered page fetches is unchanged by a refresh. The route's response carries `Cache-Control: private` with no `max-age`, so a page refetching on a timer revalidates rather than being served a pinned copy.
+
+**A resource** is refreshed by `manage_resource action=replace_content`, which writes new bytes over an existing managed resource, keeping its id, its canonical `mcp://` URI and its file name. Every replacement lands in the resource's version history with its author and the reason it changed, and the version before it stays restorable. See [manage_resource](tools.md#manage_resource).
+
+**An asset** is refreshed by writing it: `manage_asset action=update` or a `patch`, from an agent or from a [scheduled script](../scripts/running.md) through `platform.call`. The referencing asset is untouched and the next read of the reference URL serves the new content.
+
+That is what makes a referencing asset's data half refreshable by the platform rather than only by a person at an upload form. A script rewrites the CSV a dashboard reads, on a schedule, under its version author's permissions, and the dashboard is never re-saved.
 
 ## When things change
 
-**The resource is deleted.** The reference row survives, the URL answers 404, and the asset still renders with that one image missing. This is the rule [prompt attachments](../concepts/content-model.md) already follow: losing the evidence that a report is now incomplete is worse than a broken image.
+**The target is deleted.** The reference row survives, the URL answers 404, and the asset still renders with that one thing missing. This is the rule [prompt attachments](../concepts/content-model.md) already follow: losing the evidence that a report is now incomplete is worse than a broken image. A soft-deleted asset is treated as absent, so a reference cannot resurrect deleted content into a page that outlives it.
 
-**The reference store is unreachable.** Content is served exactly as stored, with the `mcp://` URIs unresolved. The images go off the page; the page does not.
+**The reference store is unreachable.** Content is served exactly as stored, with its references unresolved. The images go off the page; the page does not.
 
-**The asset is copied.** A copy carries only the references its new owner can read for themselves, each under a fresh token — the two assets are separate grants from that point on. A reference the copier cannot read is dropped rather than refusing the copy, so they get the report with that image missing. A copy never carries a grant its new owner did not earn.
+**The asset is copied.** A copy carries only the references its new owner can read for themselves, each under a fresh token — the two assets are separate grants from that point on. A resource is re-checked against the copier's own claims and an asset against their own view of it. A reference the copier cannot read is dropped rather than refusing the copy, so they get the report with that one thing missing. A copy never carries a grant its new owner did not earn.
 
 **A version is read.** Version history is rewritten against the asset's **current** references, because the references belong to the asset rather than to any one version. An old version naming a resource the asset no longer references renders that image missing.
 
-**The file is refreshed.** `manage_resource action=replace_content` writes new bytes over the referenced resource without touching the asset. The id, the canonical `mcp://` URI and the filename are unchanged, so the reference URL a rendered page fetches is unchanged and the next fetch of it serves the new content — the response carries `Cache-Control: private` with no `max-age`, so a page refetching on a timer revalidates rather than being served a pinned copy. That is what makes a referencing asset's data half refreshable by a scheduled script rather than only by a person at an upload form.
-
 ## Deployment
 
-Nothing configures this. References are available wherever there is a database and a managed-resource layer; a deployment with neither refuses a declaration with that reason rather than accepting it and recording nothing. The route carries its own rate limit sized so one page load can fetch everything the asset declared.
+Nothing configures this. References are available wherever there is a database; a resource reference additionally needs a managed-resource layer, and a deployment without one refuses an `mcp://` URI with that reason rather than accepting it and recording nothing, while still recording asset references. The route carries its own rate limit sized so one page load can fetch everything the asset declared.
 
 `/portal/refs/` is mounted at the composition root as a prefix of its own, beside `/portal/view/`. The portal UI claims `/portal/`, which matches the reference path as well, so without a mount of its own every reference URL is answered by the SPA's `index.html` and an image element receives a document. A deployment with no managed-resource layer answers the prefix as not-found rather than letting it reach the authenticated routes, since the path takes no session by design.
 

@@ -17,7 +17,7 @@ import (
 const tokenBytes = 32
 
 // generateToken mints one capability token. The portal has two kinds -- a
-// share link and an asset's resource reference -- and both are the same thing:
+// share link and an asset's content reference -- and both are the same thing:
 // a random string whose possession is the entire grant. One generator is what
 // keeps them the same strength.
 func generateToken() (string, error) {
@@ -33,6 +33,13 @@ func generateToken() (string, error) {
 // adapters, the asset toolkit -- goes through here, so a token means the same
 // thing whatever created it.
 func GenerateShareToken() (string, error) { return generateToken() }
+
+// GenerateRefToken mints the capability one asset content reference is served
+// under (#1474). It is the same generator and the same 256 bits a share token
+// gets, because it is the same kind of secret: the URL is the authorization, so
+// the token has to be as unguessable as the share link that carries a whole
+// asset.
+func GenerateRefToken() (string, error) { return generateToken() }
 
 // ShareTarget identifies what a share is for: an asset, a collection, or a
 // prompt. Exactly one field is set.

@@ -1,13 +1,13 @@
 import { useState, useCallback } from "react";
 import { AlertTriangle, Globe, Loader2 } from "lucide-react";
-import { useAssetsUsingResource } from "@/api/portal/hooks/assetResources";
+import { useAssetsUsingTarget } from "@/api/portal/hooks/assetRefs";
 import { useDeleteResource } from "@/api/resources/hooks";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ModalScroll } from "@/components/ModalShell";
 import type { Resource } from "@/api/resources/types";
-import type { ReferencingAsset } from "@/api/portal/hooks/assetResources";
+import type { ReferencingAsset } from "@/api/portal/hooks/assetRefs";
 
 /**
  * DeleteConfirm stays on the natural-height shape rather than the capped one
@@ -38,7 +38,7 @@ export function DeleteConfirm({
   // Delete waits on this. The whole point of the check is to be read before the
   // click, and a dialog that armed its destructive button while the answer was
   // still in flight would let the fastest click skip it entirely.
-  const { data: usedBy, isPending: checking, isError: checkFailed } = useAssetsUsingResource(r.id);
+  const { data: usedBy, isPending: checking, isError: checkFailed } = useAssetsUsingTarget("resource", r.id);
   const busy = del.isPending || checking;
 
   const handleDelete = useCallback(async () => {

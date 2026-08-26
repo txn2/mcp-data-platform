@@ -145,10 +145,10 @@ type saveAssetInput struct {
 	// by call id or mcp:call: reference (#1320). Empty means the platform
 	// takes the session's data calls since its previous capture.
 	Sources []string `json:"sources,omitempty"`
-	// Resources are the managed resources this asset's content references by
-	// mcp:// URI (#1474): the logo it shows, the photograph it embeds. Absent
-	// declares none.
-	Resources []string `json:"resources,omitempty"`
+	// References are the things this asset's content names (#1474, #1488): a
+	// managed resource by its mcp:// URI, another asset by its mcp:asset:<id>
+	// reference. Absent declares none.
+	References []string `json:"references,omitempty"`
 }
 
 // manageAssetInput defines the input for manage_asset.
@@ -175,11 +175,11 @@ type manageAssetInput struct {
 	// mcp:call: reference (#1320). Applies to the update and patch actions.
 	Sources []string `json:"sources,omitempty"`
 
-	// Resources declares the managed resources the asset's content references
-	// (#1474), replacing whatever it referenced before. Applies to the update
-	// and patch actions. Absent leaves the existing references alone; an empty
-	// list removes every one of them.
-	Resources []string `json:"resources,omitempty"`
+	// References declares what the asset's content names (#1474, #1488),
+	// replacing whatever it referenced before. Applies to the update and patch
+	// actions. Absent leaves the existing references alone; an empty list
+	// removes every one of them.
+	References []string `json:"references,omitempty"`
 
 	// Query (search action) ranks the caller's assets by relevance to a
 	// free-text query instead of the substring Search filter.
@@ -255,12 +255,12 @@ type saveAssetOutput struct {
 	Message            string `json:"message"`
 	ProvenanceCaptured bool   `json:"provenance_captured"`
 	CallsRecorded      int    `json:"calls_recorded"`
-	// ResourcesReferenced and ResourceGrant report a declaration the save
-	// made (#1474): how many managed resources the content now references, and
-	// what declaring them gave away. Both are omitted when the save declared
-	// none, so a save that referenced nothing reads exactly as it did before.
-	ResourcesReferenced int    `json:"resources_referenced,omitempty"`
-	ResourceGrant       string `json:"resource_grant,omitempty"`
+	// ReferencesDeclared and ReferenceGrant report a declaration the save made
+	// (#1474, #1488): how many things the content now references, and what
+	// declaring them gave away. Both are omitted when the save declared none,
+	// so a save that referenced nothing reads exactly as it did before.
+	ReferencesDeclared int    `json:"references_declared,omitempty"`
+	ReferenceGrant     string `json:"reference_grant,omitempty"`
 }
 
 // Config holds configuration for creating a portal toolkit.
@@ -327,9 +327,9 @@ type Toolkit struct {
 
 	captureProvenance portal.ProvenanceCapturer
 	directory         DirectoryReader
-	// resourceRefs declares the managed resources an asset's content names.
+	// contentRefs declares the managed resources an asset's content names.
 	// Nil-safe: every method it is called through checks Available first.
-	resourceRefs *assetrefs.Declarer
+	contentRefs *assetrefs.Declarer
 	// tables registers a stored CSV as a query-engine table. Nil on a
 	// deployment with no Trino connection carrying a scratch target, which
 	// leaves manage_table reporting that rather than failing.
@@ -450,7 +450,7 @@ const manageTableToolDescription = "Makes a stored CSV file queryable as a table
 const manageResourceToolDescription = "Writes a file into the managed resource library, so an agent or a " +
 	"scheduled script can put data where an asset can reference it and refresh it later. " +
 	"Actions: create, replace_content. " +
-	"'create' files new content and reports the mcp:// uri to hand to save_asset's 'resources' argument, " +
+	"'create' files new content and reports the mcp:// uri to hand to save_asset's 'references' argument, " +
 	"plus the mcp:resource:<id> reference every other tool takes. " +
 	"'replace_content' writes new bytes over an existing file, keeping its id, its uri and its filename, so " +
 	"every asset referencing it serves the new content without being re-saved and every citation and prompt " +
@@ -582,6 +582,15 @@ func (*Toolkit) Tools() []string {
 	return []string{SaveToolName, ManageToolName, ManageTableToolName, ManageResourceToolName, feedbackToolName}
 }
 
+// SetContentRefs binds the path that declares what an asset's content
+// references (#1474, #1488).
+//
+// It is installed after construction, like the feedback notifier below,
+// because the reference store and the asset store are assembled with the
+// portal layer. Left unbound, the `references` argument is refused with that
+// explanation rather than accepted and silently dropped.
+func (t *Toolkit) SetContentRefs(d *assetrefs.Declarer) { t.contentRefs = d }
+
 // SetFeedbackNotifications installs the notification trigger and the mention
 // resolver for agent-authored feedback replies. The composition root calls it
 // once the notification substrate exists, which is later than toolkit
@@ -593,16 +602,6 @@ func (*Toolkit) Tools() []string {
 // its mentions parsed, but nothing is mailed and no mention is recorded. The
 // send worker belongs to a long-lived server rather than to a per-client stdio
 // process, where every concurrent client would run its own.
-// SetResourceRefs binds the path that declares the managed resources an
-// asset's content references (#1474).
-//
-// It is installed after construction, like the feedback notifier above,
-// because the managed-resource layer is assembled after the portal one: the
-// declarer needs the resource store, which does not exist when this toolkit is
-// built. Left unbound, the `resources` argument is refused with that
-// explanation rather than accepted and silently dropped.
-func (t *Toolkit) SetResourceRefs(d *assetrefs.Declarer) { t.resourceRefs = d }
-
 func (t *Toolkit) SetFeedbackNotifications(notifier portal.Notifier, mentions portal.MentionResolver) {
 	t.notifier = notifier
 	t.mentions = mentions
@@ -628,8 +627,9 @@ func (t *Toolkit) handleSaveAsset(ctx context.Context, _ *mcp.CallToolRequest, i
 	}
 
 	// The declaration is checked before anything is created: a save naming a
-	// resource its author cannot read must leave no asset behind.
-	declaredRefs, hasRefs, refResult := t.resolveRefs(ctx, input.Resources)
+	// resource its author cannot read must leave no asset behind. The asset id
+	// is empty because there is none yet, so a save cannot name itself.
+	declaredRefs, hasRefs, refResult := t.resolveRefs(ctx, input.References, "")
 	if refResult != nil {
 		return refResult, nil, nil
 	}
@@ -721,8 +721,8 @@ func (t *Toolkit) handleSaveAsset(ctx context.Context, _ *mcp.CallToolRequest, i
 
 	out := t.buildSaveOutput(assetID, prov, len(input.Sources))
 	if refCount > 0 {
-		out.ResourcesReferenced = refCount
-		out.ResourceGrant = assetrefs.GrantNotice
+		out.ReferencesDeclared = refCount
+		out.ReferenceGrant = assetrefs.GrantNotice
 	}
 	return toolkit.JSONResultTyped(out)
 }
@@ -853,7 +853,7 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageAssetInput) (*mc
 
 	// Validated before any write, so an update naming a resource its author
 	// cannot read changes nothing at all.
-	declaredRefs, hasRefs, refResult := t.resolveRefs(ctx, input.Resources)
+	declaredRefs, hasRefs, refResult := t.resolveRefs(ctx, input.References, asset.ID)
 	if refResult != nil {
 		return refResult, nil, nil
 	}
@@ -863,7 +863,7 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageAssetInput) (*mc
 
 	if !hasContent && !hasMetadata && !hasRefs {
 		return toolkit.ErrorResult(
-			"no fields to update: provide content, name, description, tags, max_versions, or resources"), nil, nil
+			"no fields to update: provide content, name, description, tags, max_versions, or references"), nil, nil
 	}
 
 	if updates.MaxVersions != nil {

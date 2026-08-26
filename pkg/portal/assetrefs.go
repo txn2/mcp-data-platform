@@ -40,24 +40,31 @@ const refRoutePattern = "GET " + assetrefs.PathPrefix + "{id}/{ref}"
 // must do before sizing the global backstop.
 func refRateLimit(cfg RateLimitConfig) RateLimitConfig {
 	if cfg.RequestsPerMinute > 0 {
-		cfg.RequestsPerMinute *= portaldomain.MaxAssetResourceRefs
+		cfg.RequestsPerMinute *= assetrefs.MaxRefs
 	}
 	if cfg.BurstSize > 0 {
-		cfg.BurstSize *= portaldomain.MaxAssetResourceRefs
+		cfg.BurstSize *= assetrefs.MaxRefs
 	}
 	return cfg
 }
 
-// registerRefRoutes mounts the reference-serving route when this deployment
-// has a managed-resource layer to serve from. A deployment without one leaves
-// refMux nil and serves the prefix as an unknown path, rather than as a route
-// that answers 503 to every reader.
+// registerRefRoutes mounts the reference-serving route when this deployment has
+// something to serve a reference from. A deployment with neither a
+// managed-resource layer nor asset storage leaves refMux nil and serves the
+// prefix as an unknown path, rather than as a route that answers 503 to every
+// reader.
 func (h *Handler) registerRefRoutes() {
 	server := assetrefs.New(assetrefs.Deps{
-		Refs:      h.deps.ResourceRefs,
+		Refs:      h.deps.ContentRefs,
 		Resources: h.deps.ResourceReader,
 		Blobs:     h.deps.ResourceBlobs,
 		Bucket:    h.deps.ResourceS3Bucket,
+		// The asset side of the route (#1488). The blob client is the
+		// portal's, because the bytes being served are an asset's own, and
+		// each asset carries the bucket it is stored in.
+		Assets:        h.deps.AssetStore,
+		AssetBlobs:    h.deps.S3Client,
+		PublicBaseURL: h.deps.PublicBaseURL,
 	})
 	if !server.Ready() {
 		return
@@ -73,7 +80,7 @@ func (h *Handler) registerRefRoutes() {
 // core, so the routes there and the ones that stayed here judge the same way.
 func (h *Handler) registerRefAPI() {
 	assetrefapi.Register(h.mux, assetrefapi.Config{
-		Refs:      h.deps.ResourceRefs,
+		Refs:      h.deps.ContentRefs,
 		Resources: h.deps.ResourceReader,
 		Assets:    h.deps.AssetStore,
 		Shares:    h.deps.ShareStore,
@@ -91,23 +98,25 @@ func (h *Handler) registerRefAPI() {
 //
 // A copy is a new asset with a new owner, and a reference is a grant: carrying
 // one across unexamined would hand the copier -- and everyone they later share
-// the copy with -- a file they were never able to open, on the strength of
+// the copy with -- something they were never able to open, on the strength of
 // having been shown a report that used it. Re-checking each reference against
 // the copier's own read permission is the same check the original declaration
-// passed, applied to the person now making one.
+// passed, applied to the person now making one. It is the copier's own reach in
+// both kinds: their resource claims for a file, and their view of an asset for
+// an asset reference (#1488).
 //
 // A reference that does not survive is dropped rather than refused. The copied
-// content still names the resource by its mcp:// URI, so the copy renders with
-// that image missing and everything else intact, which is what a reference to
-// a deleted resource already does. Refusing the copy outright would deny
+// content still names the target by its declared reference, so the copy renders
+// with that one missing and everything else intact, which is what a reference
+// to a deleted target already does. Refusing the copy outright would deny
 // someone a report over a logo.
 func (h *Handler) copyRefs(ctx context.Context, sourceID, copyID string, user *User) {
-	if h.deps.ResourceRefs == nil || h.deps.ResourceReader == nil || user == nil {
+	if h.deps.ContentRefs == nil || user == nil {
 		return
 	}
-	refs, err := h.deps.ResourceRefs.ListByAsset(ctx, sourceID)
+	refs, err := h.deps.ContentRefs.ListByAsset(ctx, sourceID)
 	if err != nil {
-		slog.Warn("asset copy: reading source resource references failed, copy carries none",
+		slog.Warn("asset copy: reading source references failed, copy carries none",
 			logFieldAssetID, logsan.SanitizeForLog(sourceID),
 			logFieldError, logsan.SanitizeForLog(err.Error()))
 		return
@@ -116,26 +125,12 @@ func (h *Handler) copyRefs(ctx context.Context, sourceID, copyID string, user *U
 		return
 	}
 
-	// One read for the whole set: a copy is interactive, and the reference cap
-	// is high enough that a query per reference would be felt.
-	ids := make([]string, 0, len(refs))
-	for _, ref := range refs {
-		ids = append(ids, ref.ResourceID)
-	}
-	resources, err := h.deps.ResourceReader.GetByIDs(ctx, ids)
-	if err != nil {
-		slog.Warn("asset copy: reading referenced resources failed, copy carries none",
-			logFieldAssetID, logsan.SanitizeForLog(sourceID),
-			logFieldError, logsan.SanitizeForLog(err.Error()))
-		return
-	}
-
-	carried := carryableRefs(refs, resources, h.resourceClaims(user), copyID, user.Email)
+	carried := h.carryableRefs(ctx, refs, user, copyID)
 	if len(carried) == 0 {
 		return
 	}
-	if err := h.deps.ResourceRefs.Replace(ctx, copyID, carried); err != nil {
-		slog.Warn("asset copy: recording carried resource references failed",
+	if err := h.deps.ContentRefs.Replace(ctx, copyID, carried); err != nil {
+		slog.Warn("asset copy: recording carried references failed",
 			logFieldAssetID, logsan.SanitizeForLog(copyID),
 			logFieldError, logsan.SanitizeForLog(err.Error()))
 	}
@@ -148,32 +143,111 @@ func (h *Handler) copyRefs(ctx context.Context, sourceID, copyID string, user *U
 // are separate grants from here on, and revoking one must not depend on the
 // other. A token that cannot be minted drops that reference, on the same terms
 // as one the copier cannot read.
-func carryableRefs(
-	refs []portaldomain.AssetResourceRef,
-	resources map[string]*resource.Resource,
-	claims resource.Claims,
-	copyID, declaredBy string,
-) []portaldomain.AssetResourceRef {
-	carried := make([]portaldomain.AssetResourceRef, 0, len(refs))
+//
+// A reference the copy would make to itself is dropped too. Copying an asset
+// that references the original is legitimate, but a copy that referenced its
+// own id would resolve to the content it sits in.
+func (h *Handler) carryableRefs(
+	ctx context.Context, refs []assetrefs.Ref, user *User, copyID string,
+) []assetrefs.Ref {
+	resources := h.copyableResources(ctx, refs, user)
+	assets := h.copyableAssets(ctx, refs, user)
+
+	carried := make([]assetrefs.Ref, 0, len(refs))
 	for _, ref := range refs {
-		res, ok := resources[ref.ResourceID]
-		if !ok || res == nil || !resource.CanReadResource(claims, res) {
+		readable := resources[ref.TargetID]
+		if ref.TargetKind == assetrefs.TargetAsset {
+			readable = assets[ref.TargetID] && ref.TargetID != copyID
+		}
+		if !readable {
 			continue
 		}
 		token, err := portaldomain.GenerateRefToken()
 		if err != nil {
 			continue
 		}
-		carried = append(carried, portaldomain.AssetResourceRef{
+		carried = append(carried, assetrefs.Ref{
 			AssetID:    copyID,
-			ResourceID: ref.ResourceID,
+			TargetKind: ref.TargetKind,
+			TargetID:   ref.TargetID,
 			URI:        ref.URI,
 			RefToken:   token,
 			Position:   len(carried),
-			DeclaredBy: declaredBy,
+			DeclaredBy: user.Email,
 		})
 	}
 	return carried
+}
+
+// copyableResources reports which referenced resources the copier can read.
+//
+// One read for the whole set: a copy is interactive, and the reference cap is
+// high enough that a query per reference would be felt. A read failure carries
+// none of them, which is the safe direction for a grant.
+func (h *Handler) copyableResources(
+	ctx context.Context, refs []assetrefs.Ref, user *User,
+) map[string]bool {
+	ids := refTargetIDs(refs, assetrefs.TargetResource)
+	if len(ids) == 0 || h.deps.ResourceReader == nil {
+		return nil
+	}
+	resources, err := h.deps.ResourceReader.GetByIDs(ctx, ids)
+	if err != nil {
+		slog.Warn("asset copy: reading referenced resources failed, copy carries none of them",
+			logFieldError, logsan.SanitizeForLog(err.Error()))
+		return nil
+	}
+	claims := h.resourceClaims(user)
+	out := make(map[string]bool, len(resources))
+	for id, res := range resources {
+		out[id] = res != nil && resource.CanReadResource(claims, res)
+	}
+	return out
+}
+
+// copyableAssets reports which referenced assets the copier can open, on the
+// same terms: one read for the set, and a failure carries none.
+//
+// The check is the portal's own view gate, so an asset the copier could open
+// through a share travels with the copy and one they could not does not -- the
+// answer the declaration path would have given had they written the reference
+// themselves.
+func (h *Handler) copyableAssets(
+	ctx context.Context, refs []assetrefs.Ref, user *User,
+) map[string]bool {
+	ids := refTargetIDs(refs, assetrefs.TargetAsset)
+	if len(ids) == 0 || h.deps.AssetStore == nil {
+		return nil
+	}
+	assets, err := h.deps.AssetStore.GetByIDs(ctx, ids)
+	if err != nil {
+		slog.Warn("asset copy: reading referenced assets failed, copy carries none of them",
+			logFieldError, logsan.SanitizeForLog(err.Error()))
+		return nil
+	}
+	out := make(map[string]bool, len(assets))
+	for id, asset := range assets {
+		if asset == nil || asset.DeletedAt != nil {
+			continue
+		}
+		out[id] = h.access.CanManage(asset.OwnerID, user) ||
+			h.access.CanViewAsset(ctx, id, asset, user)
+	}
+	return out
+}
+
+// refTargetIDs collects the ids of one kind, so each store is asked once for
+// exactly the rows it owns.
+func refTargetIDs(
+	refs []assetrefs.Ref, kind assetrefs.TargetKind,
+) []string {
+	ids := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if ref.TargetKind == kind {
+			ids = append(ids, ref.TargetID)
+		}
+	}
+	return ids
 }
 
 // resourceClaims builds the managed-resource permission claims for a portal
@@ -209,10 +283,10 @@ func (h *Handler) resourceClaims(user *User) resource.Claims {
 // over an image, which is the opposite of the rule references already follow
 // for a resource that has been deleted.
 func (h *Handler) serveRefs(r *http.Request, assetID, contentType string, data []byte) []byte {
-	if h.deps.ResourceRefs == nil || assetID == "" {
+	if h.deps.ContentRefs == nil || assetID == "" {
 		return data
 	}
-	refs, err := h.deps.ResourceRefs.ListByAsset(r.Context(), assetID)
+	refs, err := h.deps.ContentRefs.ListByAsset(r.Context(), assetID)
 	if err != nil {
 		slog.Warn("asset resource references: list failed, serving content as stored",
 			logFieldAssetID, logsan.SanitizeForLog(assetID),

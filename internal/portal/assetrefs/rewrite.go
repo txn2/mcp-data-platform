@@ -1,18 +1,18 @@
-// Package assetrefs serves and rewrites the managed resources an asset's
-// content references (#1474).
+// Package assetrefs serves and rewrites the things an asset's content
+// references: a managed resource (#1474) or another asset (#1488).
 //
 // It owns three things a reference needs and no single caller could own alone:
 // the URL a reference is served under, the rewrite that swaps a declared
-// mcp:// URI for that URL as content is served, and the HTTP handler that
-// answers the URL with the resource's bytes. The portal's own asset and
+// reference string for that URL as content is served, and the HTTP handler
+// that answers the URL with the target's bytes. The portal's own asset and
 // version reads, the public share and collection-item reads, and the admin
 // console's reads all pass content through the same rewrite, so a reference
 // renders identically wherever the asset is opened.
 //
 // What it deliberately does not touch is the read an agent makes before it
 // patches (manage_asset get_content). That path serves the stored content with
-// its mcp:// URIs intact, because an agent handed a rewritten URL would write
-// a platform-internal path back into the asset on its next patch and the
+// its declared references intact, because an agent handed a rewritten URL would
+// write a platform-internal path back into the asset on its next patch and the
 // reference would be gone.
 package assetrefs
 
@@ -21,7 +21,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 )
 
@@ -102,17 +101,17 @@ func forwardedScheme(r *http.Request) string {
 	return schemeHTTP
 }
 
-// Rewrite returns content with every declared mcp:// URI replaced by the URL
-// its reference is served under.
+// Rewrite returns content with every declared reference string replaced by the
+// URL its reference is served under.
 //
-// Only the URIs in refs are rewritten. A mcp:// URI that appears in the
+// Only the URIs in refs are rewritten. A reference string that appears in the
 // content but was never declared is left exactly as written and resolves to
 // nothing, so the grant is always the declaration and never a string that
 // happens to appear in the body.
 //
 // Non-textual content is returned untouched: a stored PNG is bytes, and
 // scanning it for URIs could only corrupt it.
-func Rewrite(content []byte, contentType, base, assetID string, refs []portaldomain.AssetResourceRef) []byte {
+func Rewrite(content []byte, contentType, base, assetID string, refs []Ref) []byte {
 	if len(refs) == 0 || len(content) == 0 || !contenttype.IsTextual(contentType) {
 		return content
 	}
@@ -142,8 +141,8 @@ func Rewrite(content []byte, contentType, base, assetID string, refs []portaldom
 //
 // A reference with an empty URI or token contributes nothing: it could only
 // match everywhere or resolve to nothing.
-func replacements(base, assetID string, refs []portaldomain.AssetResourceRef) []string {
-	ordered := make([]portaldomain.AssetResourceRef, 0, len(refs))
+func replacements(base, assetID string, refs []Ref) []string {
+	ordered := make([]Ref, 0, len(refs))
 	for _, ref := range refs {
 		if ref.URI == "" || ref.RefToken == "" {
 			continue

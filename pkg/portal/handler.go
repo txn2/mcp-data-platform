@@ -243,7 +243,7 @@ type Deps struct {
 	// /api/v1/portal/notification-prefs routes unregistered.
 	NotificationRegistrar func(*http.ServeMux)
 
-	// ResourceRefs records the managed resources an asset's content
+	// ContentRefs records the managed resources an asset's content
 	// references (#1474). Every content read this handler serves rewrites the
 	// declared mcp:// URIs into the serving URL below; nil (no database, or no
 	// managed-resource layer) leaves content served exactly as stored, which
@@ -254,7 +254,7 @@ type Deps struct {
 	// budget, and this is an implementation package rather than a supported
 	// import surface (docs/library/stability.md), so the composition root
 	// names the internal type directly.
-	ResourceRefs portaldomain.AssetResourceRefStore
+	ContentRefs assetrefs.Store
 	// ResourceReader and ResourceBlobs read a referenced resource's metadata
 	// and its bytes. They are the managed-resource layer's store and object
 	// client, not the portal's: a reference points at a resource, which lives
@@ -286,7 +286,7 @@ type Handler struct {
 	// refLimiter bounds the reference route. It is separate from rateLimiter
 	// because the two count different things: the viewer limiter is sized in
 	// page views, and one page view legitimately fetches up to
-	// MaxAssetResourceRefs references at once, which that bucket would answer
+	// MaxAssetRefs references at once, which that bucket would answer
 	// 429 and blank every image on the page.
 	refLimiter *viewerlimit.RateLimiter
 }

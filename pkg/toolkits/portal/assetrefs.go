@@ -8,36 +8,40 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
+	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 // Result keys the reference declaration adds to a write's response.
 const (
-	fieldResourcesReferenced = "resources_referenced"
-	fieldResourceGrant       = "resource_grant"
+	fieldReferencesDeclared = "references_declared"
+	fieldReferenceGrant     = "reference_grant"
 )
 
-// resolveRefs validates a write's declared resource URIs without recording
-// anything, so a save that names a resource its author cannot read is refused
+// resolveRefs validates a write's declared references without recording
+// anything, so a save that names something its author cannot read is refused
 // before an asset exists to carry the refusal.
 //
-// A nil uris means the write never mentioned resources and has decided nothing
+// A nil uris means the write never mentioned references and has decided nothing
 // about them: it returns present=false and the caller leaves the asset's
 // existing references alone. An empty (but non-nil) list is a decision -- it
 // clears them.
+//
+// assetID is the asset being written, empty on a create, and is what lets a
+// reference to the asset itself be refused before anything is stored.
 //
 // It returns the refusal as a tool result rather than as an error, the shape
 // readAssetText already uses: the message an author reads is a complete
 // sentence naming the URI they wrote, and every wrapping prefix on the way out
 // would push that sentence further from the start of what they see.
 func (t *Toolkit) resolveRefs(
-	ctx context.Context, uris []string,
+	ctx context.Context, uris []string, assetID string,
 ) (declared []assetrefs.Declared, present bool, errResult *mcp.CallToolResult) {
 	if uris == nil {
 		return nil, false, nil
 	}
-	declared, err := t.resourceRefs.Resolve(ctx, uris, refClaims(ctx))
+	declared, err := t.contentRefs.Resolve(ctx, uris, t.refAuthor(ctx), assetID)
 	if err != nil {
 		return nil, false, refResult(err)
 	}
@@ -55,7 +59,7 @@ func refResult(err error) *mcp.CallToolResult {
 	if errors.Is(err, assetrefs.ErrRefused) {
 		return toolkit.ErrorResult(err.Error())
 	}
-	return toolkit.ErrorResult("could not check the declared resource references: " + err.Error())
+	return toolkit.ErrorResult("could not check the declared references: " + err.Error())
 }
 
 // applyRefs records a validated declaration against the asset and reports how
@@ -71,7 +75,7 @@ func (t *Toolkit) applyRefs(
 	if !present {
 		return -1, nil
 	}
-	refs, err := t.resourceRefs.Apply(ctx, assetID, declared, resolveOwnerEmail(ctx))
+	refs, err := t.contentRefs.Apply(ctx, assetID, declared, resolveOwnerEmail(ctx))
 	if err != nil {
 		return 0, refResult(err)
 	}
@@ -85,12 +89,29 @@ func addRefFields(fields map[string]any, count int) {
 	if count < 0 {
 		return
 	}
-	fields[fieldResourcesReferenced] = count
+	fields[fieldReferencesDeclared] = count
 	if count > 0 {
 		// The grant is stated at the moment it is made, in the terms it
 		// matters in, rather than left for the author to infer from the fact
 		// that the reference resolved.
-		fields[fieldResourceGrant] = assetrefs.GrantNotice
+		fields[fieldReferenceGrant] = assetrefs.GrantNotice
+	}
+}
+
+// refAuthor builds the identity one declaration is checked against: the
+// caller's managed-resource claims for an mcp:// URI, and the toolkit's own
+// asset read gate for an mcp:asset:<id> reference (#1488).
+//
+// The asset arm is canReadAsset, the same gate every read this toolkit makes
+// passes through, so an agent can reference exactly the assets it could open
+// -- and a managed-script run can reference what its author OWNS, since shares
+// are not inherited by a run.
+func (t *Toolkit) refAuthor(ctx context.Context) assetrefs.Author {
+	return assetrefs.Author{
+		Claims: refClaims(ctx),
+		ReadsAsset: func(ctx context.Context, asset *portal.Asset) bool {
+			return t.canReadAsset(ctx, asset)
+		},
 	}
 }
 

@@ -259,7 +259,6 @@ internal/platform/portalstore -> internal/platform/knowledgepageindex
 internal/platform/portalstore -> internal/platform/notices
 internal/platform/portalstore -> internal/portal/assetrefs
 internal/platform/portalstore -> internal/portal/assetrefstore
-internal/platform/portalstore -> internal/portal/portaldomain
 internal/platform/portalstore -> pkg/embedding
 internal/platform/portalstore -> pkg/indexjobs
 internal/platform/portalstore -> pkg/portal
@@ -407,8 +406,9 @@ internal/portal/assetrefs -> internal/logsan
 internal/portal/assetrefs -> internal/portal/portaldomain
 internal/portal/assetrefs -> pkg/blobserve
 internal/portal/assetrefs -> pkg/contenttype
+internal/portal/assetrefs -> pkg/portal/knowledgepage
 internal/portal/assetrefs -> pkg/resource
-internal/portal/assetrefstore -> internal/portal/portaldomain
+internal/portal/assetrefstore -> internal/portal/assetrefs
 internal/portal/callapi -> internal/httpjson
 internal/portal/callapi -> internal/platform/callrecord
 internal/portal/callapi -> internal/portal/access
@@ -607,7 +607,7 @@ pkg/platform -> internal/platform/toolkitcfg
 pkg/platform -> internal/platform/toolratelimit
 pkg/platform -> internal/platform/userdir
 pkg/platform -> internal/platform/utilconn
-pkg/platform -> internal/portal/portaldomain
+pkg/platform -> internal/portal/assetrefs
 pkg/platform -> pkg/auth
 pkg/platform -> pkg/authevents
 pkg/platform -> pkg/browsersession

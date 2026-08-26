@@ -52,6 +52,10 @@ export function AssetViewerPage({ assetId, onNavigate, onBack }: Props) {
       // A referenced file opens in the reader's own resource library. The panel
       // only links the ones the server said this reader can open on their own.
       resourcePath={(resourceId) => `/resources/${encodeURIComponent(resourceId)}`}
+      // A referenced asset, and an asset referencing this one, open in the
+      // reader's own asset library. Both lists only link the ones the server
+      // said this reader can open on their own.
+      assetPath={(id) => `/assets/${encodeURIComponent(id)}`}
       versions={versionsData?.data}
       versionsLoading={versionsLoading}
       revertMutation={revertMutation}

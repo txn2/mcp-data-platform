@@ -230,6 +230,23 @@ export function useInfiniteSharedWithMe(): InfiniteAssetsResult<SharedAsset> {
   return useInfiniteResult(q, sharedKey);
 }
 
+// useSharedWithMe is one page of the assets other people have shared with this
+// reader. It is what the reference picker needs beside useAssets (#1488): the
+// server admits a reference to any asset the caller may OPEN, shares included,
+// while the asset list is owner-scoped, so a picker built on the list alone
+// could never offer an asset the add would have accepted.
+export function useSharedWithMe(params?: { limit?: number }) {
+  const sp = new URLSearchParams();
+  if (params?.limit) sp.set("limit", String(params.limit));
+  const qs = sp.toString();
+
+  return useQuery({
+    queryKey: ["shared-with-me", params],
+    queryFn: () =>
+      apiFetch<PaginatedResponse<SharedAsset>>(`/shared-with-me${qs ? `?${qs}` : ""}`),
+  });
+}
+
 // --- Mutations ---
 
 export function useUpdateAsset() {

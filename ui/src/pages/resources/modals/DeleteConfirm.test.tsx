@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Resource } from "@/api/resources/types";
-import type { ReferencingAssetsResponse } from "@/api/portal/hooks/assetResources";
+import type { ReferencingAssetsResponse } from "@/api/portal/hooks/assetRefs";
 import { DeleteConfirm } from "./DeleteConfirm";
 
 // Deleting a managed resource leaves every asset referencing it rendering
@@ -37,7 +37,7 @@ function stubApi(usedBy: ReferencingAssetsResponse) {
     "fetch",
     vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.includes("/assets")) {
+      if (url.includes("/used-by")) {
         return Promise.resolve(new Response(JSON.stringify(usedBy), { status: 200 }));
       }
       if (init?.method === "DELETE") {
@@ -128,7 +128,7 @@ describe("the delete is not armed before the check answers", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((input: RequestInfo | URL) => {
-        if (String(input).includes("/assets")) {
+        if (String(input).includes("/used-by")) {
           return Promise.resolve(new Response(JSON.stringify({ detail: "no" }), { status: 500 }));
         }
         return Promise.reject(new Error("unexpected"));

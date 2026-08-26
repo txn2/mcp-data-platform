@@ -21,10 +21,10 @@ import (
 // A failure to read the references serves the content as stored rather than
 // failing the read.
 func (h *Handler) serveRefs(r *http.Request, assetID, contentType string, data []byte) []byte {
-	if h.deps.ResourceRefs == nil || assetID == "" {
+	if h.deps.ContentRefs == nil || assetID == "" {
 		return data
 	}
-	refs, err := h.deps.ResourceRefs.ListByAsset(r.Context(), assetID)
+	refs, err := h.deps.ContentRefs.ListByAsset(r.Context(), assetID)
 	if err != nil {
 		slog.Warn("admin asset resource references: list failed, serving content as stored",
 			"asset_id", logsan.SanitizeForLog(assetID),

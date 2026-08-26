@@ -13,7 +13,10 @@ import (
 )
 
 // usedByPath is the resource's "what is holding this up?" list.
-func usedByPath(res string) string { return "/api/v1/portal/resources/" + res + "/assets" }
+func usedByPath(res string) string { return "/api/v1/portal/resources/" + res + "/used-by" }
+
+// assetUsedByPath is the same question asked of an asset (#1488).
+func assetUsedByPath(id string) string { return "/api/v1/portal/assets/" + id + "/used-by" }
 
 func TestUsedByUnauthenticated(t *testing.T) {
 	h := newHarness()
@@ -181,4 +184,83 @@ func TestUsedByWithinTheBoundIsNotTruncated(t *testing.T) {
 	rec := h.do(t, owner(), http.MethodGet, usedByPath(logoID), "")
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.False(t, decode[usedByResponse](t, rec).Truncated)
+}
+
+// TestAssetUsedByListsReferencingAssets is the acceptance criterion for the
+// asset's Used by section (#1488): the assets reading this one's content, so
+// the cost of editing or deleting it is visible before either.
+func TestAssetUsedByListsReferencingAssets(t *testing.T) {
+	h := newHarness()
+	h.shares.shareWith(otherID, ownerEmail, portaldomain.PermissionViewer)
+	h.shares.summaries[otherID] = portaldomain.ShareSummary{HasPublicLink: true}
+	h.declare(otherID, assetRef(assetID, "tok-a"))
+
+	rec := h.do(t, owner(), http.MethodGet, assetUsedByPath(assetID), "")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	body := decode[usedByResponse](t, rec)
+	require.Len(t, body.Data, 1)
+	assert.Equal(t, otherID, body.Data[0].ID)
+	assert.True(t, body.Data[0].Public,
+		"a public referencing asset is what makes this asset's content readable by anyone with that link")
+}
+
+// A referencing asset the reader cannot open is counted and not named: someone
+// deciding whether to delete has to know the list is not the whole of what
+// would break.
+func TestAssetUsedByCountsHiddenReferences(t *testing.T) {
+	h := newHarness()
+	// otherID belongs to the reader and is shared with nobody, so the owner of
+	// the referenced asset cannot open it.
+	h.declare(otherID, assetRef(assetID, "tok-a"))
+
+	rec := h.do(t, owner(), http.MethodGet, assetUsedByPath(assetID), "")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	body := decode[usedByResponse](t, rec)
+	assert.Empty(t, body.Data)
+	assert.Equal(t, 1, body.Hidden,
+		"an asset reading this one's content is still reading it, whoever owns it")
+}
+
+// The reader of the referencing asset is refused the question entirely when
+// they cannot open the asset being asked about: who reads an asset is part of
+// the asset, not public knowledge about it.
+func TestAssetUsedByRefusesAStranger(t *testing.T) {
+	h := newHarness()
+	h.declare(otherID, assetRef(assetID, "tok-a"))
+
+	rec := h.do(t, reader(), http.MethodGet, assetUsedByPath(assetID), "")
+
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+}
+
+// The two used-by routes answer about their own kind only: a resource and an
+// asset that share an id do not appear in each other's list.
+func TestUsedByIsScopedToTheKind(t *testing.T) {
+	h := newHarness()
+	h.declare(otherID, logoRef())
+
+	rec := h.do(t, owner(), http.MethodGet, assetUsedByPath(logoID), "")
+
+	assert.Equal(t, http.StatusNotFound, rec.Code,
+		"logoID names no asset, so the asset route answers not found rather than listing the resource's readers")
+}
+
+// An asset nothing references answers an empty list rather than an error.
+func TestAssetUsedByNoReferences(t *testing.T) {
+	h := newHarness()
+
+	rec := h.do(t, owner(), http.MethodGet, assetUsedByPath(assetID), "")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	body := decode[usedByResponse](t, rec)
+	assert.Empty(t, body.Data)
+	assert.Zero(t, body.Hidden)
+}
+
+func TestAssetUsedByUnauthenticated(t *testing.T) {
+	h := newHarness()
+	rec := h.do(t, nil, http.MethodGet, assetUsedByPath(assetID), "")
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
 }

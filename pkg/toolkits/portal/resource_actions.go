@@ -154,7 +154,7 @@ func (t *Toolkit) handleCreateResource(
 	}
 
 	return toolkit.JSONResultTyped(resourceReport(res, 0,
-		"Created. Reference it from an asset by passing the uri above in save_asset's 'resources', and "+
+		"Created. Reference it from an asset by passing the uri above in save_asset's 'references', and "+
 			"refresh its contents later with manage_resource action=replace_content, which keeps this id, "+
 			"uri and filename."))
 }

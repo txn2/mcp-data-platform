@@ -133,15 +133,23 @@ The newest capture is shown expanded and every earlier one sits behind a disclos
 
 ![Provenance panel](../images/screenshots/light/user-asset-provenance-light.webp#only-light)![Provenance panel](../images/screenshots/dark/user-asset-provenance-dark.webp#only-dark)
 
-#### Referenced files
+#### References
 
-An asset's content can name a [managed resource](asset-resource-references.md) by its `mcp://` URI rather than carrying the file's bytes — a logo, a photograph, a design element. The **Referenced files** panel in the metadata sidebar lists what this asset depends on: each file's name, scope and type, a thumbnail where it is an image, a link to the resource where you can open it on your own, and the URI with a copy control.
+An asset's content can name a [managed resource](asset-references.md) by its `mcp://` URI rather than carrying the file's bytes — a logo, a photograph, a design element — or another asset by its `mcp:asset:<id>` reference, which resolves to that asset's current content every time the page is read. The **References** panel in the metadata sidebar lists what this asset depends on: each one's name and type, a scope for a file and an owner for an asset, a thumbnail where it is an image, a link to it where you can open it on your own, and the reference with a copy control.
 
-![Referenced files on an asset](../images/screenshots/light/user-asset-resource-refs-light.webp#only-light)![Referenced files on an asset](../images/screenshots/dark/user-asset-resource-refs-dark.webp#only-dark)
+![References on an asset](../images/screenshots/light/user-asset-refs-light.webp#only-light)![References on an asset](../images/screenshots/dark/user-asset-refs-dark.webp#only-dark)
 
-The owner, an editor on a shared asset, and an administrator can add a reference through a picker over the resources they can read, and remove one. A reference carries the asset's audience — anyone who can open the asset can load the file through it, including anyone holding a public link — so the picker names what this asset is currently shared with before anything is added.
+The owner, an editor on a shared asset, and an administrator can add a reference through a picker with a tab for each kind — the resources they can read, and the assets they can open — and remove one. A reference carries the asset's audience — anyone who can open the asset can load the target through it, including anyone holding a public link — so the picker names what this asset is currently shared with before anything is added.
 
-![Adding a reference, with the asset's audience named](../images/screenshots/light/user-asset-resource-refs-picker-light.webp#only-light)![Adding a reference, with the asset's audience named](../images/screenshots/dark/user-asset-resource-refs-picker-dark.webp#only-dark)
+![Adding a reference, with the asset's audience named](../images/screenshots/light/user-asset-ref-picker-light.webp#only-light)![Adding a reference, with the asset's audience named](../images/screenshots/dark/user-asset-ref-picker-dark.webp#only-dark)
+
+The Assets tab is what makes a refreshing dashboard possible: reference the data asset a scheduled job rewrites, write the reference into your markup where the data belongs, and the report reads the current numbers on every open without being saved again.
+
+![The picker's Assets tab](../images/screenshots/light/user-asset-ref-picker-assets-light.webp#only-light)![The picker's Assets tab](../images/screenshots/dark/user-asset-ref-picker-assets-dark.webp#only-dark)
+
+**Used by** below it answers the reverse question about this asset: which reports read its content. An asset carrying a public link is flagged, because that is the reference that widens this asset's audience furthest, and referencing assets you cannot open are counted rather than named. Deleting an asset something references leaves those reports rendering without it.
+
+![Assets referencing this one](../images/screenshots/light/user-asset-used-by-light.webp#only-light)![Assets referencing this one](../images/screenshots/dark/user-asset-used-by-dark.webp#only-dark)
 
 Adding a reference does not change the asset's content. The markup has to name the URI for the picture to render, which is why every row carries it with a copy control; the panel also reports which lines of the stored content already write each URI, and removing a reference the content still names warns with those lines first.
 
@@ -331,7 +339,7 @@ Administrators can open, edit, and delete any resource by id, including persona 
 
 Opening a resource shows which prompts attach it as reference material. Deleting a resource that prompts depend on does not break them: they keep serving and report the material as missing, and the prompt viewer flags the broken link so its author can repair it.
 
-**Used by** lists the assets whose content [references](asset-resource-references.md) the resource, and flags any of them carrying a public share link — a reference gives the file that asset's audience, so an asset anyone can open makes the file readable by anyone holding the link. Referencing assets you cannot open are counted but not named. Deleting a resource assets reference warns and names them first; the assets keep rendering, with that one file missing.
+**Used by** lists the assets whose content [references](asset-references.md) the resource, and flags any of them carrying a public share link — a reference gives the file that asset's audience, so an asset anyone can open makes the file readable by anyone holding the link. Referencing assets you cannot open are counted but not named. Deleting a resource assets reference warns and names them first; the assets keep rendering, with that one file missing.
 
 ![Assets referencing a resource](../images/screenshots/light/admin-resource-used-by-assets-light.webp#only-light)![Assets referencing a resource](../images/screenshots/dark/admin-resource-used-by-assets-dark.webp#only-dark)
 

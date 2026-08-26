@@ -11,7 +11,8 @@ import { DetailRow } from "@/components/viewer/DetailRow";
 import { formatBytes } from "@/lib/format";
 import { shortSessionId } from "@/pages/sessions/kind";
 import { AssetMetadataForm } from "./AssetMetadataForm";
-import { ResourceRefsPanel } from "./ResourceRefsPanel";
+import { ReferencesPanel } from "./ReferencesPanel";
+import { UsedByAssets } from "@/components/references/UsedByAssets";
 import type { RetentionMode } from "./AssetRetentionField";
 import type { MutationLike } from "./types";
 
@@ -51,6 +52,8 @@ interface AssetMetadataSidebarProps {
   sessionPath?: (sessionId: string) => string;
   /** Where a referenced managed resource opens, per surface. */
   resourcePath?: (resourceId: string) => string;
+  /** Where another asset opens for this reader, per surface. */
+  assetPath?: (assetId: string) => string;
   onNavigate?: (path: string) => void;
   versions?: AssetVersion[];
   versionsLoading?: boolean;
@@ -80,6 +83,7 @@ export function AssetMetadataSidebar({
   detailRows,
   sessionPath,
   resourcePath,
+  assetPath,
   onNavigate,
   versions,
   versionsLoading,
@@ -180,14 +184,23 @@ export function AssetMetadataSidebar({
           />
 
           {/*
-            The managed resources this asset's content references (#1475).
-            The panel decides for itself whether to render: an asset with no
-            references and a reader who cannot add one is shown nothing.
+            What this asset's content references (#1475, #1488) and what
+            references it back. Both panels decide for themselves whether to
+            render: an asset that references nothing, with a reader who cannot
+            add one, is shown nothing.
           */}
-          <ResourceRefsPanel
+          <ReferencesPanel
             assetId={asset.id}
             resourcePath={resourcePath}
+            assetPath={assetPath}
             onNavigate={onNavigate}
+          />
+
+          <UsedByAssets
+            target={{ kind: "asset", id: asset.id }}
+            assetPath={assetPath}
+            onNavigate={onNavigate}
+            className="border-t pt-4"
           />
 
           {versions && versions.length > 0 && (
