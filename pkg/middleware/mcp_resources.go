@@ -375,7 +375,8 @@ func scopesFromPlatformContext(pc *PlatformContext, cfg ManagedResourceConfig) [
 // comes from the configured resolver when one is wired (a caller can hold
 // several personas), otherwise from the single resolved persona on the context.
 func claimsFromPC(pc *PlatformContext, cfg ManagedResourceConfig) resource.Claims {
-	claims := resource.BuildClaims(pc.UserID, pc.UserEmail, pc.PersonaName, pc.Roles, pc.IsAdmin)
+	claims := resource.BuildClaims(pc.UserID, pc.UserEmail, pc.PersonaName, pc.Roles, pc.IsAdmin).
+		ActingFor(pc.OnBehalfOfEmail)
 	if cfg.PersonasForRoles != nil {
 		claims.Personas = cfg.PersonasForRoles(pc.Roles)
 	}

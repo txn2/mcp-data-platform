@@ -1343,3 +1343,74 @@ The file is named by its `reference`, the string a `search` hit and a `fetch` do
 | Deployment cannot register | `This deployment cannot register tables: it needs a Trino connection with a scratch catalog and schema configured. ...` |
 
 Who may register is authority to change the file, not to read it: an asset by its owner or an administrator, a resource by its uploader or an administrator of its scope. See [Registered Tables](../server/registered-tables.md).
+
+---
+
+### manage_resource
+
+Write a file into the managed resource library. A managed resource is the only kind of file a saved asset can reference, so this is what makes the data half of a referencing asset refreshable by the platform rather than only by a person at an upload form: a scheduled script rewrites the CSV a dashboard reads, and the dashboard is not touched.
+
+Content crosses the wire in one of two fields. `content` carries text — CSV, JSON, Markdown, SVG — and `content_base64` carries base64-encoded bytes for a binary file such as a PNG or a PDF. Exactly one is given, and both are capped at the deployment's `portal.max_content_size` (10 MB by default), the same cap `save_asset` applies.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `action` | string | Yes | - | One of: `create`, `replace_content` |
+| `reference` | string | Conditional | - | The resource to write over: `mcp:resource:<id>`, from a `search` hit, a `fetch` document, or a `create` (required for `replace_content`) |
+| `content` | string | Conditional | - | The file as text. This or `content_base64` |
+| `content_base64` | string | Conditional | - | The file as base64-encoded bytes. This or `content` |
+| `content_type` | string | No | detected | Media type to store the file under. Detection reads the content and the filename; naming a type is worth it when the content alone is ambiguous (a two-row CSV reads as `text/plain`) |
+| `filename` | string | Conditional | - | Name of the file (required for `create`), normalized to lowercase with spaces replaced. `replace_content` ignores it |
+| `display_name` | string | Conditional | - | Name shown in the resource library (required for `create`) |
+| `category` | string | Conditional | - | The shelf the file sits on (required for `create`): lowercase letters, digits and hyphens, starting with a letter |
+| `description` | string | Conditional | - | What the file is and what reads it (required for `create`) |
+| `tags` | string[] | No | `[]` | Tags for filtering in the library |
+| `scope` | string | No | `user` | `user`, `persona`, or `global` |
+| `scope_id` | string | No | you | Persona name for `scope=persona`; must be empty for `scope=global` |
+| `change_summary` | string | No | `Content replaced via manage_resource` | Why the content changed, shown in the version history beside the revision |
+
+**Actions:**
+
+| Action | Description | Required Params |
+|--------|-------------|-----------------|
+| `create` | File new content as a managed resource and report its `mcp://` URI and its `mcp:resource:` reference | `filename`, `display_name`, `category`, `description`, content |
+| `replace_content` | Write new content over an existing resource, keeping its id, URI and filename, and record the change as its next version | `reference`, content |
+
+**Response Schema (create):**
+
+```json
+{
+  "resource_id": "a1b2c3d4e5f67890a1b2c3d4e5f67890",
+  "reference": "mcp:resource:a1b2c3d4e5f67890a1b2c3d4e5f67890",
+  "uri": "mcp://user/550e8400-e29b-41d4-a716-446655440000/datasets/weather-daily.csv",
+  "filename": "weather-daily.csv",
+  "display_name": "Daily Weather",
+  "scope": "user",
+  "scope_id": "550e8400-e29b-41d4-a716-446655440000",
+  "category": "datasets",
+  "content_type": "text/csv",
+  "size_bytes": 2481,
+  "message": "Created. Reference it from an asset by passing the uri above in save_asset's 'resources', ..."
+}
+```
+
+`replace_content` returns the same shape plus `version`, the number the content was recorded as. A create reports no version: it records version 1 only where the deployment keeps a version trail, and a number the history may not hold is worse than none.
+
+**Error Codes:**
+
+| Condition | Error Message |
+|-----------|---------------|
+| Missing content | `content is required: pass the file as text in 'content', or as base64-encoded bytes in 'content_base64' ...` |
+| Both content fields | `pass content or content_base64, not both: ...` |
+| Malformed base64 | `content_base64 is not valid base64: ...` |
+| Over the size cap | `content size N exceeds maximum M bytes. A file this large has to be uploaded through the portal's resource library ...` |
+| Scope refused | `you cannot write to the global scope, which is administrators only: managed-resource write refused` |
+| Missing reference | `reference is required for replace_content: pass the mcp:resource:<id> reference ...` |
+| Reference of another kind | `reference "..." names a target of type "asset", not "resource". ...` |
+| Missing, deleted, or not visible | `there is no managed resource "<id>" you can see: no such managed resource` |
+| No version trail | `this deployment keeps no version history for managed resources, so content cannot be replaced: managed-resource write unavailable` |
+| No signed-in identity | `Writing a managed resource needs a signed-in identity. ...` |
+| No managed-resource layer | `This deployment has no managed-resource library to write to: ... Nothing was saved.` |
+
+Creating is scope authority — your own user scope, a persona you administer, or the global scope as a platform administrator — and a refusal names the scope rather than the file, because where it was filed is what the caller has to change. Replacing is the authority to change that file: its uploader, or an administrator of its scope. A resource you cannot see is answered as absent, whether it is missing, deleted, or somebody else's. A managed-script run is judged as the person it acts for: it authenticates as a principal that owns no file, so a create with no scope named files into its version author's library and a replacement reaches what that person uploaded ([Script security](../scripts/security.md#who-a-run-acts-for)). See [Asset Resource References](../server/asset-resource-references.md).

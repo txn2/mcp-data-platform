@@ -254,6 +254,18 @@ acts for (`middleware.UserInfo.OnBehalfOf`, read by tools as
 `internal/platform/scriptexec/runner.go`). Ownership checks accept either the
 caller's user id or that address (`pkg/toolkits/portal`, `ownsResource`).
 
+The managed resource library reads the same address, for the same reason and on
+the same terms (`resource.Claims.OnBehalfOf`, built by `BuildClaimsFor`). A
+person's own resources are filed under their subject, which a run does not have,
+so without it a run could neither read nor replace a file its author uploaded
+through the portal, and a `manage_resource` create with no scope named would
+land in a library belonging to the principal — visible to the run and absent
+from the author's Resources page, which is where the person who scheduled it
+looks. Four rules read it: the visible-scope set, `CanWriteScope` for a user
+scope, `CanAccessResource`, and `CanModifyResource`, the last matching the
+address the resource records as its uploader. A `manage_resource` create with no
+scope named files into the author's own library.
+
 The person is the **version author**, not the script's owner. The run presents
 the author's roles, so ownership has to follow the same person or a run would
 combine one person's authority with another's ownership — a pairing neither of
@@ -272,28 +284,53 @@ administrator's authority, which the version history records and which the
 this, because roles that resolve to the admin persona already reach every asset
 on the platform through the admin arm of each check.
 
-It grants nothing new. The address is captured from an authenticated context at
-the save, exactly as the roles are (`scriptlayer.go`, `callerAuthor`), and is
-never accepted as an argument on any surface. A run reaches what that person
-owns and nothing else.
+The address is captured from an authenticated context at the save, exactly as
+the roles are (`scriptlayer.go`, `callerAuthor`), and is never accepted as an
+argument on any surface. A run reaches what that person owns, and for a managed
+resource what sits in that person's own library — not what they can merely read,
+and not what they uploaded somewhere else.
 
-Four limits, stated rather than implied:
+Five limits, stated rather than implied:
 
-- **An empty address matches nothing.** Both sides of the comparison must be
+- **An empty address matches nothing.** Both sides of every comparison must be
   non-empty, so a version with no recorded author can never match a resource
   with no recorded owner. Absence of an identity is not a shared identity.
 - **Shares are not inherited.** The share lookup is keyed on the caller's own id
   and address, so an asset shared with the author admits the author and not
-  their scripts. A run reaches what its author OWNS, which is narrower than what
-  its author can read. A grant made to a person is not a grant to everything
-  that person automates.
-- **Enumeration stays the script's own.** `list` and `search` scope to the
-  calling principal, so a script's listing is the outputs that script produced,
-  not its author's library. Acting on a named resource is the widened path; the
-  inventory is not.
+  their scripts. A grant made to a person is not a grant to everything that
+  person automates.
+- **Asset enumeration stays the script's own.** `manage_asset list` and `search`
+  over assets scope to the calling principal, so a script's asset listing is the
+  outputs that script produced, not its author's library. Acting on a named
+  asset is the widened path; the inventory is not.
+- **Resource enumeration is the author's, and only their own library.** A
+  managed resource is scoped rather than owned, and a personal library is keyed
+  by an identifier a run does not have, so the resource rules read the address:
+  the visible-scope set, `CanWriteScope`, `CanAccessResource` and
+  `CanModifyResource` (`pkg/resource/permission.go`). A run therefore lists,
+  reads, creates and replaces in its author's library, which is also where a
+  `manage_resource` create with no scope named files the file. It is not the
+  author's whole reach: a persona or global resource still takes the scope
+  authority the roles carry, and the uploader arm — the one grant on a resource
+  that is never re-derived from current authority — is admitted only for a file
+  sitting in its own uploader's user library. A file the author uploaded into
+  somebody else's scope while holding a role they have since lost stays out of
+  reach, which is the case that arm is otherwise notorious for.
 - **A draft carries no second identity.** `run_draft` authenticates as the
   caller, a person with a real user id, so ownership already resolves on the id
   and `OnBehalfOfEmail` is empty.
+
+The address is the only identifier a run has, and that has a consequence worth
+knowing before it happens: **an author whose address changes in the identity
+provider loses their scripts' reach over the resources they uploaded under the
+old one.** The uploader address is frozen on the row at upload, the run carries
+the current one, and nothing reconciles them. The run is answered "there is no
+managed resource ... you can see", which is the same answer a deleted file gets,
+so a scheduled refresh reports the file as gone rather than as unreachable —
+telling the two apart would mean disclosing that a file the caller may not see
+exists. Re-save the script after the change and re-upload or re-scope the
+affected resources, or scope them to a persona, which is keyed by name rather
+than by a person.
 
 ### The tool surface is the persona's, not the script layer's
 

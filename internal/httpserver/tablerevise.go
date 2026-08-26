@@ -105,7 +105,8 @@ func (r *resourceReviser) Revise(
 	if res == nil {
 		return tableregister.Revised{}, fmt.Errorf("correcting %s: %w", src.ID, tableregister.ErrNoSuchFile)
 	}
-	claims := resource.BuildClaims(caller.UserID, caller.Email, caller.Persona, caller.Roles, caller.IsAdmin)
+	claims := resource.BuildClaims(caller.UserID, caller.Email, caller.Persona, caller.Roles, caller.IsAdmin).
+		ActingFor(caller.OnBehalfOf)
 
 	updated, version, err := resource.ReviseContent(ctx, r.deps, res, &claims,
 		resource.RevisionUpload{Data: content, MIMEType: contenttype.CSV, ChangeSummary: summary})

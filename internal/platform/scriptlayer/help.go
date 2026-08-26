@@ -110,7 +110,12 @@ WHAT IS AVAILABLE
       everything else the platform can do: writing a table with
       trino_execute, fetching an external API server-side with
       api_invoke_endpoint, reading an object with s3_get_object, capturing a
-      memory, updating the catalog.
+      memory, updating the catalog, refreshing the stored file a dashboard
+      reads with manage_resource.
+      That last one is how a referencing asset's data half stays current:
+      manage_resource replace_content writes new bytes over a managed
+      resource and keeps its id, its mcp:// URI and its filename, so every
+      asset referencing it serves the new content with no asset re-saved.
       A run acts on what its author owns: it authenticates as script:<name>
       and carries the author's address, so it can refresh or patch a
       dashboard the author owns. An asset merely SHARED with them is not

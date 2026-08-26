@@ -47,6 +47,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/reflexivecapture"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourceaudit"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcelayer"
+	"github.com/txn2/mcp-data-platform/internal/platform/resourcewrite"
 	"github.com/txn2/mcp-data-platform/internal/platform/routepolicy"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
@@ -1863,8 +1864,24 @@ func (p *Platform) initManagedResources() error {
 	}
 	p.resources = handle
 
-	// Both layers now exist, so the asset toolkit can declare references (#1474).
+	// Both layers now exist, so the asset toolkit can declare references (#1474)
+	// and write the files those references point at (#1487).
 	p.portalStore.BindResources(handle.Store(), handle.URIScheme())
+	// The writer is built here rather than inside the portal layer because the
+	// re-registration callback is the platform's: a replacement has to reach
+	// resources/list_changed, or a client that already listed the resource
+	// keeps serving the bytes the replacement moved off. A deployment with no
+	// blob client gets no writer, and manage_resource says so.
+	if w := resourcewrite.New(resourcewrite.Deps{
+		Store:       handle.Store(),
+		Blobs:       handle.S3Client(),
+		Bucket:      p.config.Resources.Managed.S3Bucket,
+		URIScheme:   handle.URIScheme(),
+		MaxVersions: p.config.Resources.Managed.MaxVersions,
+		Registered:  p.RegisterManagedResource,
+	}); w != nil {
+		p.portalStore.BindResourceWriter(w)
+	}
 
 	// Bind the recorder that audits served resource content (#1014) so the MCP
 	// read path and search fetch record through one implementation. Gated on the

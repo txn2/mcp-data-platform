@@ -1326,24 +1326,6 @@ func TestHandleGetContent_Disposition(t *testing.T) {
 	}
 }
 
-func TestURIScheme_Default(t *testing.T) {
-	store := newMockStore()
-	deps := Deps{Store: store} // no URIScheme set
-	h := NewHandler(deps, okExtractor, nil)
-	if h.uriScheme() != DefaultURIScheme {
-		t.Errorf("uriScheme() = %q, want %q", h.uriScheme(), DefaultURIScheme)
-	}
-}
-
-func TestURIScheme_Custom(t *testing.T) {
-	store := newMockStore()
-	deps := Deps{Store: store, URIScheme: "custom"}
-	h := NewHandler(deps, okExtractor, nil)
-	if h.uriScheme() != "custom" {
-		t.Errorf("uriScheme() = %q, want %q", h.uriScheme(), "custom")
-	}
-}
-
 // errInsertStore fails on Insert only.
 type errInsertStore struct {
 	mockStore

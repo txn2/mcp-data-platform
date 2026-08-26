@@ -11,9 +11,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
-	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/blobserve"
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 )
@@ -151,13 +149,6 @@ func (h *Handler) registerRoutesOn(mux *http.ServeMux) {
 // ServeHTTP implements http.Handler.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.mux.ServeHTTP(w, r)
-}
-
-func (h *Handler) uriScheme() string {
-	if h.deps.URIScheme != "" {
-		return h.deps.URIScheme
-	}
-	return DefaultURIScheme
 }
 
 // createInput holds the validated fields from a resource creation request.
@@ -345,7 +336,13 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := h.persistResource(r, claims, input, uf)
+	res, err := CreateResource(r.Context(), h.deps, claims, NewResource{
+		Scope: input.scope, ScopeID: input.scopeID,
+		Category: input.category, Filename: uf.filename,
+		DisplayName: input.displayName, Description: input.description,
+		Tags: input.tags,
+		Data: uf.data, MIMEType: uf.mimeType, DeclaredMIMEType: uf.declaredMIMEType,
+	})
 	if err != nil {
 		var ce *conflictError
 		if errors.As(err, &ce) {
@@ -360,70 +357,8 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	h.recordInitialVersion(r.Context(), res, claims)
 	writeJSON(w, http.StatusCreated, res)
 	h.notifyCreate(res)
-}
-
-// persistResource generates an ID, uploads to S3, inserts metadata, and returns the saved resource.
-func (h *Handler) persistResource(r *http.Request, claims *Claims, input *createInput, uf *uploadedFile) (*Resource, error) {
-	id, err := GenerateID()
-	if err != nil {
-		return nil, fmt.Errorf("generating ID: %w", err)
-	}
-
-	uri := BuildURI(h.uriScheme(), input.scope, input.scopeID, input.category, uf.filename)
-	s3Key := BuildS3Key(input.scope, input.scopeID, id, uf.filename)
-
-	// A stored type that disagrees with what the client sent is the one thing
-	// an operator cannot reconstruct after the fact, so record the swap. Both
-	// types trace back to a client-supplied header — the stored one is the
-	// normalized declaration whenever the client declared something specific —
-	// so both are sanitized before they reach the log.
-	if uf.mimeType != uf.declaredMIMEType {
-		slog.Info("resource upload: content type detected from content",
-			"resource_id", id,
-			"declared_mime_type", logsan.SanitizeForLog(uf.declaredMIMEType),
-			"stored_mime_type", logsan.SanitizeForLog(uf.mimeType),
-		)
-	}
-
-	res := Resource{
-		ID: id, Scope: input.scope, ScopeID: input.scopeID,
-		Category: input.category, Filename: uf.filename,
-		DisplayName: input.displayName, Description: input.description,
-		MIMEType: uf.mimeType, SizeBytes: int64(len(uf.data)),
-		S3Key: s3Key, URI: uri, Tags: input.tags,
-		UploaderSub: claims.Sub, UploaderEmail: claims.Email,
-	}
-
-	if h.deps.S3Client != nil {
-		if err := h.deps.S3Client.PutObject(r.Context(), h.deps.S3Bucket, s3Key, uf.data, uf.mimeType); err != nil {
-			slog.Error("resource upload: s3 put failed", msgError, err)
-			return nil, &storageError{msg: msgStorageRefused}
-		}
-	}
-
-	if err := h.deps.Store.Insert(r.Context(), res); err != nil {
-		// Clean up orphaned S3 blob.
-		if h.deps.S3Client != nil {
-			_ = h.deps.S3Client.DeleteObject(r.Context(), h.deps.S3Bucket, s3Key)
-		}
-		if strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "unique") {
-			return nil, &conflictError{msg: "a resource with this scope, category, and filename already exists"}
-		}
-		slog.Error("resource upload: db insert failed", msgError, err)
-		return nil, fmt.Errorf("saving resource metadata: %w", err)
-	}
-
-	saved, getErr := h.deps.Store.Get(r.Context(), id)
-	if getErr != nil {
-		now := time.Now().UTC()
-		res.CreatedAt = now
-		res.UpdatedAt = now
-		return &res, nil //nolint:nilerr // fallback to pre-read version if re-fetch fails
-	}
-	return saved, nil
 }
 
 // --- List ---

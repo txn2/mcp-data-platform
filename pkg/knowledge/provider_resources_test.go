@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
 
@@ -494,4 +496,22 @@ func TestResourcesProvider_WithoutALookup(t *testing.T) {
 	if len(hits) != 1 || hits[0].Table != nil {
 		t.Errorf("a deployment with no registration mechanism carries no reference: %+v", hits)
 	}
+}
+
+// TestCallerClaimsCarryAnUnattendedCallersPerson is the discovery half of the
+// rule the write path applies: a managed-script run finds the material its
+// author can see, including the file the same run wrote, which is filed under
+// the person it acts for rather than under the principal (#1487).
+func TestCallerClaimsCarryAnUnattendedCallersPerson(t *testing.T) {
+	run := Caller{UserID: "script:weekly-refresh", Email: "owner@example.com", OnBehalfOf: "author@example.com"}
+
+	claims := callerClaims(run)
+
+	assert.Equal(t, "author@example.com", claims.OnBehalfOf)
+	assert.True(t, resource.CanReadResource(claims, &resource.Resource{
+		Scope: resource.ScopeUser, ScopeID: "author@example.com",
+	}), "a run must find the file it wrote itself")
+
+	human := callerClaims(Caller{UserID: "sub-1", Email: "person@example.com"})
+	assert.Empty(t, human.OnBehalfOf, "a person acts as themselves")
 }

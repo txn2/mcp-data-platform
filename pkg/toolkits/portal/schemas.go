@@ -323,3 +323,69 @@ var manageTableSchema = json.RawMessage(`{
     }
   }
 }`)
+
+// manageResourceSchema is the JSON Schema for the manage_resource tool input
+// (#1487). Content arrives in one of two fields rather than one field with an
+// encoding flag, so a caller cannot declare an encoding the bytes are not in.
+var manageResourceSchema = json.RawMessage(`{
+  "type": "object",
+  "required": ["action"],
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": ["create", "replace_content"],
+      "description": "What to do: file new content as a managed resource, or write new content over an existing one."
+    },
+    "reference": {
+      "type": "string",
+      "description": "The managed resource to write over (required for replace_content), named by the mcp:resource:<id> reference a search hit, a fetch document, or a create reported. Pass it verbatim."
+    },
+    "content": {
+      "type": "string",
+      "description": "The file as text: CSV, JSON, Markdown, SVG. Pass this or content_base64, not both."
+    },
+    "content_base64": {
+      "type": "string",
+      "description": "The file as base64-encoded bytes, for a binary file such as a PNG or a PDF. Pass this or content, not both."
+    },
+    "content_type": {
+      "type": "string",
+      "description": "Media type to store the file under, for example text/csv or application/json. Optional: the type is detected from the content and the filename when you omit it, which is usually right. Naming a specific type here is worth it when the content alone is ambiguous."
+    },
+    "filename": {
+      "type": "string",
+      "description": "Name of the file (required for create), for example weather-daily.csv. It is normalized to lowercase with spaces replaced, and it becomes part of the resource's permanent mcp:// uri. replace_content ignores it: a replacement never renames the file, because the name is embedded in every reference to it."
+    },
+    "display_name": {
+      "type": "string",
+      "description": "Human-readable name shown in the resource library (required for create)."
+    },
+    "category": {
+      "type": "string",
+      "description": "The shelf the file sits on in the library (required for create), for example datasets, runbooks or templates. Lowercase letters, digits and hyphens, starting with a letter."
+    },
+    "description": {
+      "type": "string",
+      "description": "What the file is and what reads it (required for create). It is what a person browsing the library and a search hit both show, so a file with no description is one nobody can place."
+    },
+    "tags": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Tags for filtering in the library (create). Lowercase letters, digits and hyphens."
+    },
+    "scope": {
+      "type": "string",
+      "enum": ["user", "persona", "global"],
+      "description": "Who the resource is visible to (create). Defaults to user, your own scope, which every signed-in caller may write. persona needs administrator authority over that persona and global needs platform administrator; a refusal names the scope rather than the file."
+    },
+    "scope_id": {
+      "type": "string",
+      "description": "The persona name for scope=persona, or the user for scope=user (create). Defaults to you for scope=user; must be empty for scope=global."
+    },
+    "change_summary": {
+      "type": "string",
+      "description": "Why the content changed (replace_content). It is what the file's version history shows beside this revision, so a person reading the history sees the reason without having to find the run that made it."
+    }
+  }
+}`)

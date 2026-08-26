@@ -48,6 +48,7 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | Portal | `save_asset` | Save AI-generated content as an asset (JSX, HTML, SVG, etc.) |
 | Portal | `manage_asset` | List, get, update, delete, or relevance-search saved assets and collections, edit asset content in place (patch, locate, get_content, outline, stats, diff), and share an asset with a person or as a link (share, list_shares, revoke_share) |
 | Portal | `manage_table` | Make a stored CSV queryable as a table and manage what is registered over it (register, list, unregister). Takes the `reference` a search hit carries, so it serves an uploaded resource and a saved asset through one action |
+| Portal | `manage_resource` | Write a file into the managed resource library (create, replace_content): the files a saved asset references. A replacement keeps the resource's id, URI and filename, so every asset referencing it serves the new bytes without being re-saved |
 | Portal | `manage_feedback` | Review and respond to human feedback (list pending across everything, get, reply, resolve, request/respond validation) |
 | Platform | `platform_find_tools` | Find the most relevant tools for a natural-language task, ranked by semantic similarity (persona-scoped) |
 | Platform | `manage_prompt` | Resolve and run prompts by any handle (`use`), plus create, update, delete, list, get, the script-reference commands (attach_script, detach_script), and the content verbs (patch, locate, get_content, outline, stats, diff) |
@@ -1107,6 +1108,42 @@ The file is named by its `reference` — the string a `search` hit and a `fetch`
 - **unregister**: drop one table. The file itself is unchanged
 
 Registering is the authority to change the file, not the authority to read it: an asset by its owner or an administrator, a resource by its uploader or an administrator of its scope. A reference naming a file you may not register is answered as absent, whether it is missing, deleted, or somebody else's. See [Registered Tables](registered-tables.md).
+
+---
+
+### manage_resource
+
+Write a file into the [managed resource library](portal-user.md#resources). A managed resource is the only kind of file a saved asset can reference, and until this tool existed the only way to put one there was a person at an upload form. That left the data half of a referencing asset unrefreshable by the platform itself: an agent could rewrite a report on a schedule and could not rewrite the CSV the report reads.
+
+The loop it closes is one call each way. `create` files the data and reports the `mcp://` URI to hand to `save_asset`'s `resources` argument; `replace_content` writes new bytes over that file later. Because a replacement keeps the resource's id, its canonical URI and its filename, every asset referencing it serves the new content without being re-saved, and every citation and prompt attachment pointing at it keeps resolving.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `action` | string | Yes | - | `create` or `replace_content` |
+| `reference` | string | Conditional | - | The resource to write over, `mcp:resource:<id>` (required for `replace_content`) |
+| `content` | string | Conditional | - | The file as text: CSV, JSON, Markdown, SVG |
+| `content_base64` | string | Conditional | - | The file as base64-encoded bytes, for a binary file such as a PNG or a PDF. One of the two, never both |
+| `content_type` | string | No | detected | Media type to store under; detection reads the content and the filename when this is absent |
+| `filename` | string | Conditional | - | Name of the file (required for `create`); `replace_content` ignores it |
+| `display_name`, `category`, `description` | string | Conditional | - | Required for `create`: what the library shows and which shelf it sits on |
+| `tags` | string[] | No | `[]` | Tags for filtering in the library |
+| `scope`, `scope_id` | string | No | your own user scope | `user`, `persona`, or `global` |
+| `change_summary` | string | No | generated | Why the content changed, shown in the version history beside the revision |
+
+**Actions:**
+
+- **create**: file new content and report its `resource_id`, its `mcp:resource:` reference, and its `mcp://` URI
+- **replace_content**: write new bytes over an existing resource and report the `version` the content was recorded as
+
+Both are capped at `portal.max_content_size` (10 MB by default), the same cap `save_asset` applies to an agent's content: one number governs everything an agent writes through a tool call. A file larger than that is uploaded through the portal's resource library instead.
+
+A replacement goes through the same revision path the portal's replace-content button uses, so it lands in the resource's version history with its author and its change summary recorded, the prior version stays restorable, and the resource is re-announced to connected clients so nobody keeps serving the bytes it moved off.
+
+**Who may write.** Creating is scope authority: your own user scope (the default, and the one place every signed-in caller may write), a persona you administer, or the global scope as a platform administrator. A refusal names the scope rather than the file, because where it was filed is what the caller has to change. Replacing is the authority to change that file: its uploader, or an administrator of its scope. A resource you cannot see is answered as absent, whether it is missing, deleted, or somebody else's.
+
+A [managed script](../scripts/running.md) reaches this tool through `platform.call` like any other, under its version author's permissions, which is what makes a scheduled refresh of a referenced file possible without a person in the loop. A run authenticates as a principal that owns no file, so the resource rules read the address it acts for: a create with no scope named files into the **author's** own library rather than the principal's, and a replacement reaches a file the author uploaded through the portal. See [Script security](../scripts/security.md#who-a-run-acts-for) and [Asset Resource References](asset-resource-references.md).
 
 ---
 

@@ -104,11 +104,15 @@ func addRefFields(fields map[string]any, count int) {
 // unauthenticated reader already sees.
 //
 // For a managed-script run the context carries the version author's roles and
-// address (#1419), so a script declares exactly what its author could declare.
+// address (#1419), and both are passed: the address is what makes the run the
+// author for the rules that turn on "is this you?", since the run's own
+// principal owns no file and is in nobody's library. A script therefore
+// declares, creates and replaces exactly what its author could (#1487).
 func refClaims(ctx context.Context) resource.Claims {
 	pc := middleware.GetPlatformContext(ctx)
 	if pc == nil {
 		return resource.Claims{}
 	}
-	return resource.BuildClaims(pc.UserID, pc.UserEmail, pc.PersonaName, pc.Roles, pc.IsAdmin)
+	return resource.BuildClaims(pc.UserID, pc.UserEmail, pc.PersonaName, pc.Roles, pc.IsAdmin).
+		ActingFor(pc.OnBehalfOfEmail)
 }
