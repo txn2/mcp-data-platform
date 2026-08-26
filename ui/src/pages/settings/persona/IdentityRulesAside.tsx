@@ -6,6 +6,8 @@ import { ChipInput } from "../ChipInput";
 import { Section, Field } from "./primitives";
 import { RuleList } from "./RuleList";
 import { AddPatternButton } from "./AddPatternButton";
+import { ApiRulesSection } from "./ApiRulesSection";
+import type { APIRouteRule } from "@/api/admin/types";
 import type { PersonaDraft, Scope, Item } from "./types";
 
 // IdentityRulesAside is the persona editor's left rail: identity fields (name,
@@ -31,6 +33,11 @@ export function IdentityRulesAside({
   addDeny,
   removeAllow,
   removeDeny,
+  apiRouteConnectionNames,
+  addRouteRule,
+  removeRouteRule,
+  highlightRoute,
+  setHighlightRoute,
 }: {
   isReadOnly: boolean;
   isCreate: boolean;
@@ -52,6 +59,11 @@ export function IdentityRulesAside({
   addDeny: (pattern: string) => void;
   removeAllow: (pattern: string) => void;
   removeDeny: (pattern: string) => void;
+  apiRouteConnectionNames: string[];
+  addRouteRule: (rule: APIRouteRule) => void;
+  removeRouteRule: (index: number) => void;
+  highlightRoute: number | null;
+  setHighlightRoute: (index: number | null) => void;
 }) {
   const ids = useId();
   return (
@@ -120,6 +132,20 @@ export function IdentityRulesAside({
           </Field>
         </Section>
 
+        {/* The api scope's rules are objects naming a connection, methods and
+            paths, so it gets its own editor rather than the two pattern lists
+            the tool and connection axes share. */}
+        {scope === "api" ? (
+          <ApiRulesSection
+            rules={draft.apiRoutes}
+            connectionNames={apiRouteConnectionNames}
+            onAdd={addRouteRule}
+            onRemove={removeRouteRule}
+            highlightIndex={highlightRoute}
+            onHighlight={setHighlightRoute}
+          />
+        ) : (
+          <>
         <Section
           title="Allow Patterns"
           meta={
@@ -186,6 +212,8 @@ export function IdentityRulesAside({
             scope={scope}
           />
         </Section>
+          </>
+        )}
       </fieldset>
     </aside>
   );

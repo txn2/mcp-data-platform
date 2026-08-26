@@ -44,9 +44,19 @@ func New(deps Deps) *Policy {
 // Allow reports whether the caller may perform method on path of connection,
 // resolving the caller's roles first and consulting the persona authorizer's
 // per-route rules.
-func (p *Policy) Allow(ctx context.Context, connection, method, path string) (allowed bool, reason string) {
+//
+// template is the catalog path that path resolved from, and travels with it so
+// a rule naming an operation as its catalog declares it ("/v1/orders/{id}")
+// governs the call that operation serves ("/v1/orders/42"), which is the form
+// an invoke reaches this policy in.
+func (p *Policy) Allow(ctx context.Context, connection, method, path, template string) (allowed bool, reason string) {
 	roles := p.resolveRoles(ctx)
-	allowed, _, reason = p.pa.IsAPIRouteAllowed(ctx, roles, connection, method, path)
+	allowed, _, reason = p.pa.IsAPIRouteAllowed(ctx, roles, persona.RouteQuery{
+		Connection: connection,
+		Method:     method,
+		Path:       path,
+		Template:   template,
+	})
 	return allowed, reason
 }
 

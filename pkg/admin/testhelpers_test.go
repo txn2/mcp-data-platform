@@ -118,6 +118,10 @@ type mockPersonaRegistry struct {
 	getMap         map[string]*persona.Persona
 	registerErr    error
 	registerCalled int
+	// lastRegistered is the persona most recently registered, so a test can
+	// assert on what a revert or an update actually put into force rather than
+	// only on how many times Register was called.
+	lastRegistered *persona.Persona
 	unregisterErr  error
 	defaultName    string
 }
@@ -144,6 +148,7 @@ func (m *mockPersonaRegistry) Register(p *persona.Persona) error {
 	if m.registerErr != nil {
 		return m.registerErr
 	}
+	m.lastRegistered = p
 	// Update allResult in place for test visibility
 	for i, existing := range m.allResult {
 		if existing.Name == p.Name {

@@ -1,4 +1,5 @@
 import type {
+  APIRouteRule,
   AuditEvent,
   AuditSortColumn,
   BreakdownEntry,
@@ -14,6 +15,7 @@ import type { Share } from "@/api/portal/types";
 import { http, HttpResponse } from "msw";
 import { agentSessions, mockAuditEvents } from "./data/audit";
 import { mockInsights, mockChangesets } from "./data/knowledge";
+import { mockAPIRouteConnections } from "./data/apis";
 import { mockPersonas, mockPersonaDetails } from "./data/personas";
 import { mockSystemInfo, mockTools, mockConnections } from "./data/system";
 import { mockToolSchemas, generateMockResult } from "./data/tools";
@@ -1759,6 +1761,10 @@ export const handlers = [
     return HttpResponse.json(detail);
   }),
 
+  http.get(`${ADMIN_BASE}/api-route-connections`, () =>
+    HttpResponse.json(mockAPIRouteConnections()),
+  ),
+
   http.post(`${ADMIN_BASE}/personas`, async ({ request }) => {
     const body = (await request.json()) as {
       name: string;
@@ -1767,6 +1773,7 @@ export const handlers = [
       roles: string[];
       allow_tools: string[];
       deny_tools?: string[];
+      api_routes?: APIRouteRule[];
       priority?: number;
     };
 
@@ -1792,6 +1799,7 @@ export const handlers = [
       priority: body.priority ?? 0,
       allow_tools: body.allow_tools ?? [],
       deny_tools: body.deny_tools ?? [],
+      api_routes: body.api_routes ?? [],
       tools: [] as string[],
     };
 
@@ -1817,6 +1825,7 @@ export const handlers = [
       roles?: string[];
       allow_tools?: string[];
       deny_tools?: string[];
+      api_routes?: APIRouteRule[];
       priority?: number;
     };
 
@@ -1832,6 +1841,9 @@ export const handlers = [
     if (body.roles) existing.roles = body.roles;
     if (body.allow_tools) existing.allow_tools = body.allow_tools;
     if (body.deny_tools) existing.deny_tools = body.deny_tools;
+    // Assigned unconditionally: an absent api_routes means the persona has
+    // none, which is exactly what a save that cleared every rule sends.
+    existing.api_routes = body.api_routes ?? [];
     if (body.priority !== undefined) existing.priority = body.priority;
 
     const idx = mockPersonas.findIndex((p) => p.name === name);

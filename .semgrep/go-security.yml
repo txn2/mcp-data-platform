@@ -34,6 +34,14 @@ rules:
           $CAP = min($CAP, $MAX)
           ...
           make($TYPE, $LEN, $CAP)
+      # A capacity is an integer. Requiring that keeps the rule on real
+      # allocations: a two-element slice literal whose second element is a
+      # selector (`[]string{a.Path, b.Name}`) reaches this rule as the same
+      # AST shape a three-argument make() does, and was reported as a
+      # capacity of a slice nobody allocated.
+      - metavariable-type:
+          metavariable: $CAP
+          type: int
       - metavariable-regex:
           metavariable: $CAP
           regex: '^[a-zA-Z_]\w*\.[a-zA-Z_]\w*$'

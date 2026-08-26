@@ -12,24 +12,33 @@ import type { ToolInfo } from "@/api/admin/types";
 //   3. No match → DENIED (default)
 // ---------------------------------------------------------------------------
 
-// Port of Go's filepath.Match for persona scope names (which never contain
-// path separators). Backend uses filepath.Match (pkg/persona/filter.go), so
-// the live preview must apply the same wildcard semantics: `*` is any
-// sequence of chars, `?` is a single char, `[abc]` / `[a-z]` / `[^abc]` are
+// Port of Go's filepath.Match. The backend matches every persona pattern with
+// it (pkg/persona/filter.go), so the live preview must apply the same wildcard
+// semantics: `?` is a single character, `[abc]` / `[a-z]` / `[^abc]` are
 // character classes, and `\c` escapes a literal c.
+//
+// `*` and `?` do not cross a `/`, which is Go's rule and not JavaScript's. It
+// makes no difference to a tool or a connection name, neither of which
+// contains a separator, and all the difference to an API route path: a rule
+// written `/v1/orders/*` governs `/v1/orders/42` and not `/v1/orders/42/items`,
+// and a preview that disagreed would show an operation as governed by a rule
+// the server leaves it untouched by. `**` is not a second syntax — it is two
+// stars, and it stops at a separator like one.
+//
+// A character class is left alone: Go does match a separator inside one.
 export function matchPattern(pattern: string, name: string): boolean {
   if (!pattern) return false;
-  if (pattern === "*") return true;
+  if (pattern === "*") return !name.includes("/");
 
   let regex = "";
   let i = 0;
   while (i < pattern.length) {
     const c = pattern[i];
     if (c === "*") {
-      regex += ".*";
+      regex += "[^/]*";
       i++;
     } else if (c === "?") {
-      regex += ".";
+      regex += "[^/]";
       i++;
     } else if (c === "[") {
       const end = pattern.indexOf("]", i + 1);

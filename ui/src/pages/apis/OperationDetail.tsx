@@ -8,7 +8,7 @@ import type {
   APISavedExample,
 } from "@/api/apis/types";
 import { CallSnippet } from "./CallSnippet";
-import { MethodBadge } from "./methodBadge";
+import { MethodBadge } from "@/components/patterns/MethodBadge";
 import { SchemaView } from "./SchemaView";
 
 // The right half of the browser: one operation, in the order a person reads it.

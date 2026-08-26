@@ -99,6 +99,57 @@ func (t *Toolkit) BrowseOperations(ctx context.Context, connection string) ([]Op
 	return visible, nil
 }
 
+// CatalogConnections returns every connection this toolkit serves with the
+// operations its catalog declares, in stable name order, narrowed by nothing.
+//
+// It is the authoring view, not a caller's: the persona editor has to show the
+// operations a persona is being granted or refused, including the ones the
+// EDITOR'S own persona is refused. Every other browse method on this type
+// answers "what does this caller reach" and is route-policy filtered, which is
+// the wrong set to draw a rule against — an operator cannot grant back an
+// operation the surface hid from them.
+//
+// Counts and specs are the catalog's totals for the same reason.
+func (t *Toolkit) CatalogConnections() []CatalogConnection {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	names := make([]string, 0, len(t.connections))
+	for name := range t.connections {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	out := make([]CatalogConnection, 0, len(names))
+	for _, name := range names {
+		c := t.connections[name]
+		ops := append([]OperationSummary(nil), c.operations...)
+		sortOperations(ops)
+		out = append(out, CatalogConnection{
+			Name:        name,
+			Description: connectionDescription(c.cfg),
+			BaseURL:     c.cfg.BaseURL,
+			AuthMode:    c.cfg.AuthMode,
+			CatalogID:   c.cfg.CatalogID,
+			Operations:  ops,
+		})
+	}
+	return out
+}
+
+// CatalogConnection is one connection with the whole operation index its
+// catalog declares. Distinct from BrowseConnection, which reports what one
+// caller reaches and carries counts rather than the operations themselves.
+type CatalogConnection struct {
+	Name        string
+	Description string
+	BaseURL     string
+	AuthMode    string
+	CatalogID   string
+	// Operations is the connection's full index. Empty for a connection with
+	// no catalog, which is callable only by method and path and can therefore
+	// carry no operation-derived rule.
+	Operations []OperationSummary
+}
+
 // sortOperations orders operations by (spec, path, method), the order
 // a grouped index reads in.
 func sortOperations(ops []OperationSummary) {
@@ -138,7 +189,7 @@ func (t *Toolkit) BrowseOperation(ctx context.Context, connection, operationID, 
 		return nil, ErrOperationNotFound
 	}
 	if policy != nil {
-		if allowed, _ := policy.Allow(ctx, connection, match.method, match.path); !allowed {
+		if allowed, _ := policy.Allow(ctx, connection, match.method, match.path, match.path); !allowed {
 			return nil, ErrOperationNotFound
 		}
 	}

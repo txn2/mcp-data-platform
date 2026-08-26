@@ -805,6 +805,14 @@ definitions:
         items:
           type: string
         type: array
+      api_routes:
+        description: |-
+          APIRoutes replaces the persona's API route rules wholesale. Absent
+          leaves the persona with none, which is the same "no rule touches this
+          connection" state a persona that never had any is in.
+        items:
+          $ref: '#/definitions/persona.APIRouteRule'
+        type: array
       deny_connections:
         items:
           type: string
@@ -849,6 +857,14 @@ definitions:
         - s3_*
         items:
           type: string
+        type: array
+      api_routes:
+        description: |-
+          APIRoutes are the persona's per-(connection, method, path) rules for
+          api-kind connections. Ships as a JSON array, NEVER null: the persona
+          editor's API-endpoint scope maps over it directly.
+        items:
+          $ref: '#/definitions/persona.APIRouteRule'
         type: array
       context:
         $ref: '#/definitions/admin.personaContextDetail'
@@ -1081,6 +1097,18 @@ definitions:
     type: object
   admin.testPersonaAccessRequest:
     properties:
+      connection:
+        description: Connection selects the API route case. Empty asks the tool question.
+        example: crm-prod
+        type: string
+      method:
+        example: DELETE
+        type: string
+      path:
+        description: Path is the operation path, as the connection's catalog declares
+          it.
+        example: /v1/orders/{id}
+        type: string
       tool_name:
         example: trino_query
         type: string
@@ -1093,6 +1121,14 @@ definitions:
       matched_pattern:
         example: trino_*
         type: string
+      matched_rule:
+        allOf:
+        - $ref: '#/definitions/persona.APIRouteRule'
+        description: |-
+          MatchedRule is the API route rule that decided the route case. Absent
+          for the tool case, and absent when no rule touched the connection —
+          which is the "default" source, an allow the connection-level check is
+          the sole gate for.
       source:
         allOf:
         - $ref: '#/definitions/persona.AccessSource'
@@ -1363,6 +1399,53 @@ definitions:
       schema: {}
       status:
         type: string
+    type: object
+  apiroutesapi.connectionListResponse:
+    properties:
+      connections:
+        items:
+          $ref: '#/definitions/apiroutesapi.connectionResponse'
+        type: array
+      total:
+        type: integer
+    type: object
+  apiroutesapi.connectionResponse:
+    properties:
+      auth_mode:
+        type: string
+      base_url:
+        type: string
+      catalog_id:
+        type: string
+      description:
+        type: string
+      name:
+        type: string
+      operations:
+        description: |-
+          Operations ships as an array, never null: the persona editor maps over
+          it. Empty for a connection with no catalog — callable by method and path
+          only, so its rules can be written as patterns but not selected.
+        items:
+          $ref: '#/definitions/apiroutesapi.operationResponse'
+        type: array
+    type: object
+  apiroutesapi.operationResponse:
+    properties:
+      method:
+        type: string
+      operation_id:
+        type: string
+      path:
+        type: string
+      spec:
+        type: string
+      summary:
+        type: string
+      tags:
+        items:
+          type: string
+        type: array
     type: object
   apishttp.connectionListResponse:
     properties:
@@ -3546,6 +3629,39 @@ definitions:
         type: string
       shares_enabled:
         type: boolean
+    type: object
+  persona.APIRouteRule:
+    properties:
+      action:
+        description: |-
+          Action is "allow" (default) or "deny". Deny rules take precedence
+          over allow rules within the matching-Connection subset.
+        type: string
+      connection:
+        description: |-
+          Connection is a glob (e.g. "crm-*") matched against the connection
+          name. Required.
+        type: string
+      methods:
+        description: |-
+          Methods is a list of HTTP method globs (e.g. ["GET", "HEAD"]).
+          Empty = any method. Patterns are case-sensitive — typically
+          uppercase ("GET", "POST", etc.) since the toolkit normalizes
+          inbound methods to uppercase before this check runs.
+        items:
+          type: string
+        type: array
+      paths:
+        description: |-
+          Paths is a list of path globs. Each is matched against both the
+          path a call reaches ("/v1/orders/42") and the catalog template it
+          resolved from ("/v1/orders/{id}"), so a rule may name either form:
+          the templated path an operation is listed under governs the calls
+          that operation serves, and a glob written by hand still governs a
+          path no catalog declares. Empty = any path.
+        items:
+          type: string
+        type: array
     type: object
   persona.AccessSource:
     enum:
@@ -7587,6 +7703,25 @@ paths:
       summary: OAuth authorization-code callback for API gateway connections
       tags:
       - Connections
+  /admin/api-route-connections:
+    get:
+      description: Returns every api-kind connection this deployment serves with the
+        operations its catalog declares, narrowed by no persona. Backs the persona
+        editor's API-endpoint scope, where an operator selects operations to allow
+        or deny.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/apiroutesapi.connectionListResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List the API operations persona rules can name
+      tags:
+      - Personas
   /admin/assets:
     get:
       description: Returns all platform assets without owner restriction, with active
@@ -10647,10 +10782,11 @@ paths:
     post:
       consumes:
       - application/json
-      description: Evaluates the named persona's allow/deny rules against a tool name
-        and returns the decision plus the matching pattern. Used by the admin Tools
-        page to preview "would persona X allow this tool?" without traversing every
-        persona.
+      description: Evaluates the named persona's rules and returns the decision with
+        what produced it. With tool_name set it answers the tool question and returns
+        the matching pattern. With connection set it answers whether the persona may
+        invoke method on path of that api-kind connection and returns the matching
+        API route rule.
       parameters:
       - description: Persona name
         in: path
@@ -10681,7 +10817,7 @@ paths:
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
-      summary: Preview a persona's decision for a tool
+      summary: Preview a persona's decision for a tool or an API route
       tags:
       - Personas
   /admin/prompt-collections:

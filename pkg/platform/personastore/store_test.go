@@ -20,7 +20,7 @@ const (
 
 var personaColumns = []string{
 	"name", "display_name", "description", "roles", "tools_allow", "tools_deny",
-	"connections_allow", "connections_deny", "context", "priority", "created_by", "updated_at",
+	"connections_allow", "connections_deny", "api_routes", "context", "priority", "created_by", "updated_at",
 }
 
 func newTestPersonaStore(t *testing.T) (*PostgresStore, sqlmock.Sqlmock) {
@@ -318,6 +318,9 @@ func TestDefinitionRoundTrip(t *testing.T) {
 			DescriptionPrefix:       "prefix",
 			AgentInstructionsSuffix: "suffix",
 		},
+		APIRoutes: []persona.APIRouteRule{
+			{Connection: "crm-*", Methods: []string{"GET"}, Paths: []string{"/v1/orders/{id}"}},
+		},
 		Priority: 42,
 	}
 
@@ -330,6 +333,7 @@ func TestDefinitionRoundTrip(t *testing.T) {
 	assert.Equal(t, original.Roles, converted.Roles)
 	assert.Equal(t, original.Tools, converted.Tools)
 	assert.Equal(t, original.Connections, converted.Connections)
+	assert.Equal(t, original.APIRoutes, converted.APIRoutes)
 	assert.Equal(t, original.Context, converted.Context)
 	assert.Equal(t, original.Priority, converted.Priority)
 }
@@ -343,11 +347,13 @@ func TestPostgresStoreList(t *testing.T) {
 	rows := sqlmock.NewRows(personaColumns).
 		AddRow("analyst", "Data Analyst", "Analyzes data",
 			[]byte(`["analyst","viewer"]`), []byte(`["trino_*"]`), []byte(`["*_delete_*"]`),
-			[]byte(`["prod_*"]`), []byte(`["staging_*"]`), []byte(`{"description_prefix":"Hello"}`),
+			[]byte(`["prod_*"]`), []byte(`["staging_*"]`),
+			[]byte(`[{"connection":"crm-*","methods":["DELETE"],"action":"deny"}]`),
+			[]byte(`{"description_prefix":"Hello"}`),
 			10, "admin@example.com", now).
 		AddRow("engineer", "Data Engineer", "Builds pipelines",
 			[]byte(`["engineer"]`), []byte(`["*"]`), []byte(`[]`),
-			[]byte(`[]`), []byte(`[]`), []byte(`{}`),
+			[]byte(`[]`), []byte(`[]`), []byte(`[]`), []byte(`{}`),
 			5, "creator@example.com", now)
 
 	mock.ExpectQuery("SELECT name, display_name, description, roles, tools_allow, tools_deny").
@@ -365,6 +371,10 @@ func TestPostgresStoreList(t *testing.T) {
 	assert.Equal(t, []string{"*_delete_*"}, defs[0].ToolsDeny)
 	assert.Equal(t, []string{"prod_*"}, defs[0].ConnsAllow)
 	assert.Equal(t, []string{"staging_*"}, defs[0].ConnsDeny)
+	assert.Equal(t, []persona.APIRouteRule{
+		{Connection: "crm-*", Methods: []string{"DELETE"}, Action: persona.ActionDeny},
+	}, defs[0].APIRoutes)
+	assert.Empty(t, defs[1].APIRoutes)
 	assert.Equal(t, "Hello", defs[0].Context.DescriptionPrefix)
 	assert.Equal(t, 10, defs[0].Priority)
 	assert.Equal(t, "admin@example.com", defs[0].CreatedBy)
@@ -406,7 +416,9 @@ func TestPostgresStoreGet(t *testing.T) {
 	rows := sqlmock.NewRows(personaColumns).
 		AddRow("analyst", "Data Analyst", "Analyzes data",
 			[]byte(`["analyst"]`), []byte(`["trino_*"]`), []byte(`["*_delete_*"]`),
-			[]byte(`["prod_*"]`), []byte(`["staging_*"]`), []byte(`{"description_prefix":"ctx"}`),
+			[]byte(`["prod_*"]`), []byte(`["staging_*"]`),
+			[]byte(`[{"connection":"crm-*","paths":["/v1/orders/{id}"],"action":"deny"}]`),
+			[]byte(`{"description_prefix":"ctx"}`),
 			10, "admin@example.com", now)
 
 	mock.ExpectQuery("SELECT name, display_name, description, roles, tools_allow, tools_deny").
@@ -425,6 +437,9 @@ func TestPostgresStoreGet(t *testing.T) {
 	assert.Equal(t, []string{"*_delete_*"}, def.ToolsDeny)
 	assert.Equal(t, []string{"prod_*"}, def.ConnsAllow)
 	assert.Equal(t, []string{"staging_*"}, def.ConnsDeny)
+	assert.Equal(t, []persona.APIRouteRule{
+		{Connection: "crm-*", Paths: []string{"/v1/orders/{id}"}, Action: persona.ActionDeny},
+	}, def.APIRoutes)
 	assert.Equal(t, "ctx", def.Context.DescriptionPrefix)
 	assert.Equal(t, 10, def.Priority)
 	assert.Equal(t, "admin@example.com", def.CreatedBy)
@@ -465,17 +480,21 @@ func TestPostgresStoreSet(t *testing.T) {
 		ToolsDeny:   []string{"*_delete_*"},
 		ConnsAllow:  []string{"prod_*"},
 		ConnsDeny:   []string{"staging_*"},
-		Context:     persona.ContextOverrides{DescriptionPrefix: "Hello"},
-		Priority:    10,
-		CreatedBy:   "admin@example.com",
-		UpdatedAt:   now,
+		APIRoutes: []persona.APIRouteRule{
+			{Connection: "crm-*", Methods: []string{"DELETE"}, Action: persona.ActionDeny},
+		},
+		Context:   persona.ContextOverrides{DescriptionPrefix: "Hello"},
+		Priority:  10,
+		CreatedBy: "admin@example.com",
+		UpdatedAt: now,
 	}
 
 	mock.ExpectExec("INSERT INTO persona_definitions").
 		WithArgs(
 			def.Name, def.DisplayName, def.Description,
 			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), // roles, tools_allow, tools_deny
-			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), // conns_allow, conns_deny, context
+			sqlmock.AnyArg(), sqlmock.AnyArg(), // conns_allow, conns_deny
+			sqlmock.AnyArg(), sqlmock.AnyArg(), // api_routes, context
 			def.Priority, def.CreatedBy,
 		).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -539,7 +558,7 @@ func TestPostgresStoreList_ScanError(t *testing.T) {
 
 	// Return a row with invalid data types to trigger scan error
 	rows := sqlmock.NewRows(personaColumns).
-		AddRow("bad", "Bad", "desc", "not-json", "[]", "[]", "[]", "[]", "{}", 0, "admin", time.Now())
+		AddRow("bad", "Bad", "desc", "not-json", "[]", "[]", "[]", "[]", "[]", "{}", 0, "admin", time.Now())
 
 	mock.ExpectQuery("SELECT .+ FROM persona_definitions").WillReturnRows(rows)
 

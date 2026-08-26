@@ -21,18 +21,24 @@ var ErrNotFound = errors.New("persona not found")
 
 // Definition represents a database-managed persona.
 type Definition struct {
-	Name        string                   `json:"name"`
-	DisplayName string                   `json:"display_name"`
-	Description string                   `json:"description,omitempty"`
-	Roles       []string                 `json:"roles"`
-	ToolsAllow  []string                 `json:"tools_allow"`
-	ToolsDeny   []string                 `json:"tools_deny"`
-	ConnsAllow  []string                 `json:"connections_allow,omitempty"`
-	ConnsDeny   []string                 `json:"connections_deny,omitempty"`
-	Context     persona.ContextOverrides `json:"context"`
-	Priority    int                      `json:"priority"`
-	CreatedBy   string                   `json:"created_by"`
-	UpdatedAt   time.Time                `json:"updated_at"`
+	Name        string   `json:"name"`
+	DisplayName string   `json:"display_name"`
+	Description string   `json:"description,omitempty"`
+	Roles       []string `json:"roles"`
+	ToolsAllow  []string `json:"tools_allow"`
+	ToolsDeny   []string `json:"tools_deny"`
+	ConnsAllow  []string `json:"connections_allow,omitempty"`
+	ConnsDeny   []string `json:"connections_deny,omitempty"`
+	// APIRoutes are the per-(connection, method, path) rules for api-kind
+	// connections. Persisted so a persona edited in the portal expresses
+	// everything a file persona can; before it was stored, saving a
+	// persona through the admin API dropped the rules its file config
+	// gave it (issue #1479).
+	APIRoutes []persona.APIRouteRule   `json:"api_routes,omitempty"`
+	Context   persona.ContextOverrides `json:"context"`
+	Priority  int                      `json:"priority"`
+	CreatedBy string                   `json:"created_by"`
+	UpdatedAt time.Time                `json:"updated_at"`
 }
 
 // ToPersona converts a Definition to a persona.Persona.
@@ -50,8 +56,9 @@ func (d *Definition) ToPersona() *persona.Persona {
 			Allow: d.ConnsAllow,
 			Deny:  d.ConnsDeny,
 		},
-		Context:  d.Context,
-		Priority: d.Priority,
+		APIRoutes: d.APIRoutes,
+		Context:   d.Context,
+		Priority:  d.Priority,
 	}
 }
 
@@ -66,6 +73,7 @@ func DefinitionFromPersona(p *persona.Persona, author string) Definition {
 		ToolsDeny:   p.Tools.Deny,
 		ConnsAllow:  p.Connections.Allow,
 		ConnsDeny:   p.Connections.Deny,
+		APIRoutes:   p.APIRoutes,
 		Context:     p.Context,
 		Priority:    p.Priority,
 		CreatedBy:   author,
@@ -94,7 +102,7 @@ func NewPostgresStore(db *sql.DB) *PostgresStore {
 func (s *PostgresStore) List(ctx context.Context) ([]Definition, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT name, display_name, description, roles, tools_allow, tools_deny,
-		        connections_allow, connections_deny, context, priority, created_by, updated_at
+		        connections_allow, connections_deny, api_routes, context, priority, created_by, updated_at
 		 FROM persona_definitions ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("querying persona definitions: %w", err)
@@ -119,13 +127,13 @@ func (s *PostgresStore) List(ctx context.Context) ([]Definition, error) {
 func (s *PostgresStore) Get(ctx context.Context, name string) (*Definition, error) {
 	row := s.db.QueryRowContext(ctx,
 		`SELECT name, display_name, description, roles, tools_allow, tools_deny,
-		        connections_allow, connections_deny, context, priority, created_by, updated_at
+		        connections_allow, connections_deny, api_routes, context, priority, created_by, updated_at
 		 FROM persona_definitions WHERE name = $1`, name)
 
 	var d Definition
-	var roles, toolsAllow, toolsDeny, connsAllow, connsDeny, contextJSON []byte
+	var roles, toolsAllow, toolsDeny, connsAllow, connsDeny, apiRoutes, contextJSON []byte
 	err := row.Scan(&d.Name, &d.DisplayName, &d.Description,
-		&roles, &toolsAllow, &toolsDeny, &connsAllow, &connsDeny, &contextJSON,
+		&roles, &toolsAllow, &toolsDeny, &connsAllow, &connsDeny, &apiRoutes, &contextJSON,
 		&d.Priority, &d.CreatedBy, &d.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -136,7 +144,8 @@ func (s *PostgresStore) Get(ctx context.Context, name string) (*Definition, erro
 
 	if err := unmarshalJSON(&d, jsonFields{
 		roles: roles, toolsAllow: toolsAllow, toolsDeny: toolsDeny,
-		connsAllow: connsAllow, connsDeny: connsDeny, contextJSON: contextJSON,
+		connsAllow: connsAllow, connsDeny: connsDeny, apiRoutes: apiRoutes,
+		contextJSON: contextJSON,
 	}); err != nil {
 		return nil, err
 	}
@@ -150,19 +159,20 @@ func (s *PostgresStore) Set(ctx context.Context, def Definition) error {
 	toolsDeny, _ := json.Marshal(def.ToolsDeny)
 	connsAllow, _ := json.Marshal(def.ConnsAllow)
 	connsDeny, _ := json.Marshal(def.ConnsDeny)
+	apiRoutes, _ := json.Marshal(def.APIRoutes)
 	contextJSON, _ := json.Marshal(def.Context)
 
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO persona_definitions
 		 (name, display_name, description, roles, tools_allow, tools_deny,
-		  connections_allow, connections_deny, context, priority, created_by, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+		  connections_allow, connections_deny, api_routes, context, priority, created_by, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
 		 ON CONFLICT (name) DO UPDATE SET
 		  display_name = $2, description = $3, roles = $4, tools_allow = $5, tools_deny = $6,
-		  connections_allow = $7, connections_deny = $8, context = $9, priority = $10,
-		  created_by = $11, updated_at = NOW()`,
+		  connections_allow = $7, connections_deny = $8, api_routes = $9, context = $10,
+		  priority = $11, created_by = $12, updated_at = NOW()`,
 		def.Name, def.DisplayName, def.Description,
-		roles, toolsAllow, toolsDeny, connsAllow, connsDeny, contextJSON,
+		roles, toolsAllow, toolsDeny, connsAllow, connsDeny, apiRoutes, contextJSON,
 		def.Priority, def.CreatedBy,
 	)
 	if err != nil {
@@ -191,15 +201,16 @@ func (s *PostgresStore) Delete(ctx context.Context, name string) error {
 // scanDef scans a row into a Definition.
 func scanDef(rows *sql.Rows) (Definition, error) {
 	var d Definition
-	var roles, toolsAllow, toolsDeny, connsAllow, connsDeny, contextJSON []byte
+	var roles, toolsAllow, toolsDeny, connsAllow, connsDeny, apiRoutes, contextJSON []byte
 	if err := rows.Scan(&d.Name, &d.DisplayName, &d.Description,
-		&roles, &toolsAllow, &toolsDeny, &connsAllow, &connsDeny, &contextJSON,
+		&roles, &toolsAllow, &toolsDeny, &connsAllow, &connsDeny, &apiRoutes, &contextJSON,
 		&d.Priority, &d.CreatedBy, &d.UpdatedAt); err != nil {
 		return d, fmt.Errorf("scanning persona definition: %w", err)
 	}
 	if err := unmarshalJSON(&d, jsonFields{
 		roles: roles, toolsAllow: toolsAllow, toolsDeny: toolsDeny,
-		connsAllow: connsAllow, connsDeny: connsDeny, contextJSON: contextJSON,
+		connsAllow: connsAllow, connsDeny: connsDeny, apiRoutes: apiRoutes,
+		contextJSON: contextJSON,
 	}); err != nil {
 		return d, err
 	}
@@ -213,6 +224,7 @@ type jsonFields struct {
 	toolsDeny   []byte
 	connsAllow  []byte
 	connsDeny   []byte
+	apiRoutes   []byte
 	contextJSON []byte
 }
 
@@ -232,6 +244,11 @@ func unmarshalJSON(d *Definition, f jsonFields) error {
 	}
 	if err := json.Unmarshal(f.connsDeny, &d.ConnsDeny); err != nil {
 		return fmt.Errorf("unmarshaling connections_deny: %w", err)
+	}
+	if len(f.apiRoutes) > 0 {
+		if err := json.Unmarshal(f.apiRoutes, &d.APIRoutes); err != nil {
+			return fmt.Errorf("unmarshaling api_routes: %w", err)
+		}
 	}
 	if len(f.contextJSON) > 0 {
 		_ = json.Unmarshal(f.contextJSON, &d.Context) // best-effort

@@ -538,7 +538,7 @@ func TestHandleExport_RoutePolicyDenies(t *testing.T) {
 
 type denyAllRoutePolicy struct{}
 
-func (denyAllRoutePolicy) Allow(_ context.Context, _, _, _ string) (allowed bool, reason string) {
+func (denyAllRoutePolicy) Allow(_ context.Context, _, _, _, _ string) (allowed bool, reason string) {
 	return false, "test policy denies all"
 }
 

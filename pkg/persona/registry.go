@@ -34,7 +34,7 @@ func (r *Registry) Register(p *Persona) error {
 	if p.Name == "" {
 		return errors.New("persona name is required")
 	}
-	if err := validateAPIRoutes(p.APIRoutes); err != nil {
+	if err := ValidateAPIRoutes(p.APIRoutes); err != nil {
 		return fmt.Errorf("persona %q: %w", p.Name, err)
 	}
 
@@ -42,14 +42,17 @@ func (r *Registry) Register(p *Persona) error {
 	return nil
 }
 
-// validateAPIRoutes catches misconfigurations in APIRoutes at
-// registration time so a typo can't silently disable a deny rule
-// (matchPattern returns false on filepath.ErrBadPattern, which is
-// the safe default for allow rules but lets a malformed deny rule
-// fail open). Also rejects an empty Connection — required per the
-// APIRouteRule docstring; without this check matchingRouteRules
-// would silently skip the rule and the operator would see no error.
-func validateAPIRoutes(rules []APIRouteRule) error {
+// ValidateAPIRoutes catches misconfigurations in APIRoutes so a typo can't
+// silently disable a deny rule (matchPattern returns false on
+// filepath.ErrBadPattern, which is the safe default for allow rules but lets a
+// malformed deny rule fail open). Also rejects an empty Connection — required
+// per the APIRouteRule docstring; without this check matchingRouteRules would
+// silently skip the rule and the operator would see no error.
+//
+// Register calls it, and so does the admin API before it persists a persona:
+// that write reaches the database first and the registry second, so a rule
+// Register would refuse has to be caught before it is stored (#1479).
+func ValidateAPIRoutes(rules []APIRouteRule) error {
 	for i, rule := range rules {
 		if err := validateAPIRouteRule(i, rule); err != nil {
 			return err

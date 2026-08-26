@@ -1204,6 +1204,34 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/api-route-connections": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns every api-kind connection this deployment serves with the operations its catalog declares, narrowed by no persona. Backs the persona editor's API-endpoint scope, where an operator selects operations to allow or deny.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Personas"
+                ],
+                "summary": "List the API operations persona rules can name",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/apiroutesapi.connectionListResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/assets": {
             "get": {
                 "security": [
@@ -5991,7 +6019,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Evaluates the named persona's allow/deny rules against a tool name and returns the decision plus the matching pattern. Used by the admin Tools page to preview \"would persona X allow this tool?\" without traversing every persona.",
+                "description": "Evaluates the named persona's rules and returns the decision with what produced it. With tool_name set it answers the tool question and returns the matching pattern. With connection set it answers whether the persona may invoke method on path of that api-kind connection and returns the matching API route rule.",
                 "consumes": [
                     "application/json"
                 ],
@@ -6001,7 +6029,7 @@ const docTemplate = `{
                 "tags": [
                     "Personas"
                 ],
-                "summary": "Preview a persona's decision for a tool",
+                "summary": "Preview a persona's decision for a tool or an API route",
                 "parameters": [
                     {
                         "type": "string",
@@ -18738,6 +18766,13 @@ const docTemplate = `{
                         "datahub_*"
                     ]
                 },
+                "api_routes": {
+                    "description": "APIRoutes replaces the persona's API route rules wholesale. Absent\nleaves the persona with none, which is the same \"no rule touches this\nconnection\" state a persona that never had any is in.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/persona.APIRouteRule"
+                    }
+                },
                 "deny_connections": {
                     "type": "array",
                     "items": {
@@ -18802,6 +18837,13 @@ const docTemplate = `{
                         "datahub_*",
                         "s3_*"
                     ]
+                },
+                "api_routes": {
+                    "description": "APIRoutes are the persona's per-(connection, method, path) rules for\napi-kind connections. Ships as a JSON array, NEVER null: the persona\neditor's API-endpoint scope maps over it directly.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/persona.APIRouteRule"
+                    }
                 },
                 "context": {
                     "$ref": "#/definitions/admin.personaContextDetail"
@@ -19133,6 +19175,20 @@ const docTemplate = `{
         "admin.testPersonaAccessRequest": {
             "type": "object",
             "properties": {
+                "connection": {
+                    "description": "Connection selects the API route case. Empty asks the tool question.",
+                    "type": "string",
+                    "example": "crm-prod"
+                },
+                "method": {
+                    "type": "string",
+                    "example": "DELETE"
+                },
+                "path": {
+                    "description": "Path is the operation path, as the connection's catalog declares it.",
+                    "type": "string",
+                    "example": "/v1/orders/{id}"
+                },
                 "tool_name": {
                     "type": "string",
                     "example": "trino_query"
@@ -19149,6 +19205,14 @@ const docTemplate = `{
                 "matched_pattern": {
                     "type": "string",
                     "example": "trino_*"
+                },
+                "matched_rule": {
+                    "description": "MatchedRule is the API route rule that decided the route case. Absent\nfor the tool case, and absent when no rule touched the connection —\nwhich is the \"default\" source, an allow the connection-level check is\nthe sole gate for.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/persona.APIRouteRule"
+                        }
+                    ]
                 },
                 "source": {
                     "allOf": [
@@ -19528,6 +19592,73 @@ const docTemplate = `{
                 "schema": {},
                 "status": {
                     "type": "string"
+                }
+            }
+        },
+        "apiroutesapi.connectionListResponse": {
+            "type": "object",
+            "properties": {
+                "connections": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/apiroutesapi.connectionResponse"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "apiroutesapi.connectionResponse": {
+            "type": "object",
+            "properties": {
+                "auth_mode": {
+                    "type": "string"
+                },
+                "base_url": {
+                    "type": "string"
+                },
+                "catalog_id": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "operations": {
+                    "description": "Operations ships as an array, never null: the persona editor maps over\nit. Empty for a connection with no catalog — callable by method and path\nonly, so its rules can be written as patterns but not selected.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/apiroutesapi.operationResponse"
+                    }
+                }
+            }
+        },
+        "apiroutesapi.operationResponse": {
+            "type": "object",
+            "properties": {
+                "method": {
+                    "type": "string"
+                },
+                "operation_id": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "spec": {
+                    "type": "string"
+                },
+                "summary": {
+                    "type": "string"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -22332,6 +22463,33 @@ const docTemplate = `{
                 },
                 "shares_enabled": {
                     "type": "boolean"
+                }
+            }
+        },
+        "persona.APIRouteRule": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "description": "Action is \"allow\" (default) or \"deny\". Deny rules take precedence\nover allow rules within the matching-Connection subset.",
+                    "type": "string"
+                },
+                "connection": {
+                    "description": "Connection is a glob (e.g. \"crm-*\") matched against the connection\nname. Required.",
+                    "type": "string"
+                },
+                "methods": {
+                    "description": "Methods is a list of HTTP method globs (e.g. [\"GET\", \"HEAD\"]).\nEmpty = any method. Patterns are case-sensitive — typically\nuppercase (\"GET\", \"POST\", etc.) since the toolkit normalizes\ninbound methods to uppercase before this check runs.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "paths": {
+                    "description": "Paths is a list of path globs. Each is matched against both the\npath a call reaches (\"/v1/orders/42\") and the catalog template it\nresolved from (\"/v1/orders/{id}\"), so a rule may name either form:\nthe templated path an operation is listed under governs the calls\nthat operation serves, and a glob written by hand still governs a\npath no catalog declares. Empty = any path.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },

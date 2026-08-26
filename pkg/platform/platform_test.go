@@ -4747,7 +4747,7 @@ func TestWireAPIGatewayRoutePolicy_DeniesViaInstalledPolicy(t *testing.T) {
 		UserID: "u1",
 		Roles:  []string{"denyall"},
 	})
-	allowed, reason := pol.Allow(ctx, "crm", "GET", "/v1/anything")
+	allowed, reason := pol.Allow(ctx, "crm", "GET", "/v1/anything", "")
 	if allowed {
 		t.Errorf("denyAll persona's route policy allowed call (reason=%q); wiring is wrong", reason)
 	}

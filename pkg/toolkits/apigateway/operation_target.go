@@ -193,3 +193,48 @@ func ambiguousOperationError(operationID string, candidates []schemaCandidate) e
 	return fmt.Errorf("apigateway: %w: %q is defined in multiple specs (%s); pass spec to disambiguate",
 		ErrAmbiguousOperation, operationID, strings.Join(specs, ", "))
 }
+
+// operationTemplate returns the catalog path template that a concrete
+// (method, path) resolves to, or "" when the connection has no catalog
+// or declares no operation serving that path.
+//
+// The route policy needs it because the two surfaces that consult a
+// persona's rules hold the path in different forms: api_list_endpoints
+// filters the operations the catalog declares, whose paths are
+// templates, while an invoke has already substituted its parameters. A
+// rule naming "/v1/orders/{id}" hides the operation from the listing,
+// and without this lookup it would let the call to "/v1/orders/42"
+// through.
+//
+// A literal path wins over a templated one, so a rule against
+// "/v1/orders/summary" is not answered with "/v1/orders/{id}" when the
+// catalog declares both.
+func operationTemplate(c *conn, method, path string) string {
+	if c == nil {
+		return ""
+	}
+	var templated string
+	for _, op := range c.operations {
+		if !strings.EqualFold(op.Method, method) {
+			continue
+		}
+		if op.Path == path {
+			return op.Path
+		}
+		if templated == "" && pathMatchesTemplate(path, op.Path) {
+			templated = op.Path
+		}
+	}
+	return templated
+}
+
+// routeTemplateFor resolves the catalog template only when a policy will read
+// it. The lookup walks the connection's whole operation index, and a
+// deployment with no route policy installed pays nothing for a value nobody
+// consults.
+func routeTemplateFor(policy RoutePolicy, c *conn, method, path string) string {
+	if policy == nil {
+		return ""
+	}
+	return operationTemplate(c, method, path)
+}

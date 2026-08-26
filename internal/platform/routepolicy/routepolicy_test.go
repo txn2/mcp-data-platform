@@ -51,7 +51,7 @@ func TestAllow_DirectCases(t *testing.T) {
 		ctx := middleware.WithPreAuthenticatedUser(context.Background(), &middleware.UserInfo{
 			UserID: "u1", Roles: []string{"analyst"},
 		})
-		allowed, reason := policy.Allow(ctx, "crm", "GET", "/v1/users/123")
+		allowed, reason := policy.Allow(ctx, "crm", "GET", "/v1/users/123", "")
 		if !allowed {
 			t.Errorf("got allowed=false, reason=%q; want allowed=true", reason)
 		}
@@ -61,7 +61,7 @@ func TestAllow_DirectCases(t *testing.T) {
 		ctx := middleware.WithPreAuthenticatedUser(context.Background(), &middleware.UserInfo{
 			UserID: "u1", Roles: []string{"analyst"},
 		})
-		allowed, reason := policy.Allow(ctx, "crm", "DELETE", "/v1/users/123")
+		allowed, reason := policy.Allow(ctx, "crm", "DELETE", "/v1/users/123", "")
 		if allowed {
 			t.Error("DELETE was allowed despite deny rule")
 		}
@@ -76,7 +76,7 @@ func TestAllow_DirectCases(t *testing.T) {
 		// persona has no APIRoutes touching the connection the route check is a
 		// no-op (true). Fail-closed for unauthenticated callers is
 		// MCPToolCallMiddleware's job, not this policy's.
-		allowed, _ := policy.Allow(context.Background(), "crm", "GET", "/v1/users/1")
+		allowed, _ := policy.Allow(context.Background(), "crm", "GET", "/v1/users/1", "")
 		if !allowed {
 			t.Error("expected passthrough for persona without APIRoutes for crm")
 		}
@@ -91,7 +91,7 @@ func TestAllow_DirectCases(t *testing.T) {
 		pc.UserID = "u1"
 		pc.Roles = []string{"analyst"}
 		ctx := middleware.WithPlatformContext(context.Background(), pc)
-		allowed, _ := policyNoAuthn.Allow(ctx, "crm", "GET", "/v1/users/123")
+		allowed, _ := policyNoAuthn.Allow(ctx, "crm", "GET", "/v1/users/123", "")
 		if !allowed {
 			t.Error("PlatformContext.Roles path did not produce allow decision")
 		}
@@ -107,7 +107,7 @@ func TestAllow_DirectCases(t *testing.T) {
 		pc.UserID = "u2"
 		pc.Roles = nil // authenticated but role-less
 		ctx := middleware.WithPlatformContext(context.Background(), pc)
-		_, _ = policyNoAuthn.Allow(ctx, "crm", "GET", "/v1/users")
+		_, _ = policyNoAuthn.Allow(ctx, "crm", "GET", "/v1/users", "")
 	})
 
 	t.Run("Authenticator fallback resolves roles when ctx carries none", func(t *testing.T) {
@@ -117,7 +117,7 @@ func TestAllow_DirectCases(t *testing.T) {
 			Authenticator: stubAuthenticator{roles: []string{"analyst"}},
 			Authorizer:    authzr,
 		})
-		allowed, reason := policyAuthn.Allow(context.Background(), "crm", "GET", "/v1/users/123")
+		allowed, reason := policyAuthn.Allow(context.Background(), "crm", "GET", "/v1/users/123", "")
 		if !allowed {
 			t.Errorf("got allowed=false, reason=%q; want the Authenticator's analyst role to allow", reason)
 		}
@@ -142,7 +142,7 @@ func TestAllow_DirectCases(t *testing.T) {
 			Authenticator: stubAuthenticator{roles: []string{"restricted"}},
 			Authorizer:    auth2,
 		})
-		allowed, _ := policy2.Allow(context.Background(), "crm", "DELETE", "/v1/anything")
+		allowed, _ := policy2.Allow(context.Background(), "crm", "DELETE", "/v1/anything", "")
 		if allowed {
 			t.Error("DELETE on path-restricted connection allowed without explicit allow rule")
 		}

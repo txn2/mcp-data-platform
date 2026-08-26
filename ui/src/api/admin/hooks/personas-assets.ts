@@ -12,6 +12,7 @@ import type {
   PersonaCreateRequest,
   PersonaTestAccessRequest,
   PersonaTestAccessResult,
+  APIRouteConnectionList,
   AdminAssetListResponse,
 } from "../types";
 import type { Asset, AssetVersion, PaginatedResponse } from "@/api/portal/types";
@@ -80,6 +81,23 @@ export function useDeletePersona() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["personas"] });
     },
+  });
+}
+
+/**
+ * The api-kind connections and the operations each one's catalog declares,
+ * narrowed by no persona.
+ *
+ * Deliberately not the caller-scoped /apis routes: those are route-policy
+ * filtered for whoever is asking, and an operator writing rules for one
+ * persona is not that persona — a listing narrowed by the operator's own rules
+ * would hide exactly the operations they are trying to grant back.
+ */
+export function useAPIRouteConnections(enabled = true) {
+  return useQuery({
+    queryKey: ["api-route-connections"],
+    queryFn: () => apiFetch<APIRouteConnectionList>("/api-route-connections"),
+    enabled,
   });
 }
 

@@ -272,7 +272,7 @@ func TestMount_ElevatesTheCallerForTheRoutePolicy(t *testing.T) {
 // on the context the toolkit passes it.
 type callerRolePolicy struct{ want string }
 
-func (p callerRolePolicy) Allow(ctx context.Context, _, _, _ string) (allowed bool, reason string) {
+func (p callerRolePolicy) Allow(ctx context.Context, _, _, _, _ string) (allowed bool, reason string) {
 	info := middleware.GetPreAuthenticatedUser(ctx)
 	if info == nil {
 		return false, "no caller on the context"

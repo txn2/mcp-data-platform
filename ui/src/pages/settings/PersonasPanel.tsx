@@ -29,6 +29,7 @@ function emptyDraft(): PersonaDraft {
     denyTools: [],
     allowConnections: [],
     denyConnections: [],
+    apiRoutes: [],
     priority: 0,
     descriptionPrefix: "",
     descriptionOverride: "",
@@ -47,6 +48,10 @@ function detailToDraft(d: PersonaDetail): PersonaDraft {
     denyTools: [...d.deny_tools],
     allowConnections: [...(d.allow_connections ?? [])],
     denyConnections: [...(d.deny_connections ?? [])],
+    // Copied out of the detail rather than dropped: a persona defined in a
+    // file with api_routes keeps them through an edit here, which is the whole
+    // of the defect (#1479).
+    apiRoutes: (d.api_routes ?? []).map((r) => ({ ...r })),
     priority: d.priority,
     descriptionPrefix: d.context?.description_prefix ?? "",
     descriptionOverride: d.context?.description_override ?? "",

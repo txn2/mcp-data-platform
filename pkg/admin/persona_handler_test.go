@@ -907,11 +907,11 @@ func TestTestPersonaAccess(t *testing.T) {
 		assert.Equal(t, http.StatusNotFound, w.Code)
 	})
 
-	t.Run("returns 400 for empty tool_name", func(t *testing.T) {
+	t.Run("returns 400 when neither a tool nor a connection is named", func(t *testing.T) {
 		w := postBody(t, makeHandler(), "analyst", testPersonaAccessRequest{ToolName: ""})
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 		pd := decodeProblem(w.Body.Bytes())
-		assert.Contains(t, pd.Detail, "tool_name is required")
+		assert.Contains(t, pd.Detail, "tool_name or connection is required")
 	})
 
 	t.Run("returns 400 for invalid JSON", func(t *testing.T) {
