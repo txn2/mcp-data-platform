@@ -2,6 +2,7 @@ import {
   openAssetRefPicker,
   openAssetRefPickerAssets,
   openAssetRefs,
+  openAssetThumbnail,
   openAssetUsedBy,
 } from "./route-actions-refs";
 import {
@@ -93,6 +94,14 @@ export const assetViewerRoutes: ScreenshotRoute[] = [
     path: "/portal/assets/ast-004",
     category: "user",
     beforeCapture: openAssetUsedBy,
+  },
+  {
+    // The tile everyone else sees of this asset, and the way back from one that
+    // shows the wrong thing (#1497).
+    slug: "asset-thumbnail",
+    path: "/portal/assets/ast-001",
+    category: "user",
+    beforeCapture: openAssetThumbnail,
   },
   {
     // The metadata sidebar in edit mode on an asset that keeps a cap of its

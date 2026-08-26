@@ -72,6 +72,12 @@ A referenced asset is served through its **own** reference list, so a referenced
 
 A reference that survives a save keeps its token, so a URL already rendered into a reader's open page does not break every time the author saves.
 
+## The tile a referencing artifact gets
+
+An asset's thumbnail is captured in the reader's browser by rendering the asset a second time in an off-screen frame. That frame runs the artifact under the same policy the viewer's frame does, from the same definition, so a reference resolves during a capture exactly as it resolves for a reader. A referencing artifact captured with its references blocked would render the branch it draws when a file is missing, and that picture — a valid image of an error — is what would be stored and shown on every card.
+
+The frame reports what it could not load, so a capture in which a referenced file was refused or answered an error is discarded rather than uploaded, and the asset stays on the queue for another try. An owner can also ask for the picture to be taken again: the **Thumbnail** panel in the metadata sidebar shows the stored image and offers **Recapture**, which discards it and re-queues the asset without waiting for its version to move.
+
 ## Managing references from the portal
 
 An asset's viewer sidebar carries a **References** panel listing what the asset depends on. A resource row names the file, its scope and its content type, with a thumbnail where it is an image; an asset row is marked as one and names the asset, its content type and its owner. A thumbnail loads through the reference's own URL rather than through the target's own route, so it renders for a reader who was only ever shown the asset.

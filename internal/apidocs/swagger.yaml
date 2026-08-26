@@ -13209,6 +13209,49 @@ paths:
       tags:
       - Feedback
   /portal/assets/{id}/thumbnail:
+    delete:
+      description: |-
+        Discards the asset's stored thumbnails so a fresh capture is
+        taken. The asset returns to the pending-thumbnail list.
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.statusResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "410":
+          description: Gone
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Clear asset thumbnail
+      tags:
+      - Assets
     get:
       description: |-
         Downloads the asset's PNG thumbnail image. The dark variant

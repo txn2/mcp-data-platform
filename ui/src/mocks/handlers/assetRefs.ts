@@ -1,7 +1,16 @@
 import { http, HttpResponse } from "msw";
 import { mockAssets } from "../data/assets";
 import { mockResources } from "../data/resources";
-import { resourceImageBytes } from "../data/resourceImages";
+import {
+  refKey,
+  refsByAsset,
+  resolveRefContent,
+  uriOf,
+  type MockRef,
+  type TargetKind,
+} from "../data/assetRefs";
+
+export { rewriteRefs } from "../data/assetRefs";
 
 const PORTAL_BASE = "/api/v1/portal";
 
@@ -21,47 +30,6 @@ const GRANT_NOTICE =
   "including anyone holding a public link, now and later.";
 
 const MAX_REFS = 20;
-
-type TargetKind = "resource" | "asset";
-
-interface MockRef {
-  kind: TargetKind;
-  target_id: string;
-  token: string;
-  /** The lines the asset's stored content writes this reference on. */
-  lines: number[];
-}
-
-// refsByAsset is mutable: adding and removing through the panel has to be
-// visible in the demo, and a fixture that answered the same list after a write
-// would make the panel look broken.
-//
-// ast-001 carries both kinds, which is the state #1488 introduces: a dashboard
-// showing a logo and reading a data asset another job refreshes.
-const refsByAsset: Record<string, MockRef[]> = {
-  "ast-001": [
-    { kind: "resource", target_id: "res-029", token: "ref-tok-029", lines: [14] },
-    { kind: "resource", target_id: "res-031", token: "ref-tok-031", lines: [22, 48] },
-    { kind: "asset", target_id: "ast-004", token: "ref-tok-ast-004", lines: [31] },
-  ],
-};
-
-/** refKey identifies a reference within one asset, kind included. */
-function refKey(kind: TargetKind, id: string): string {
-  return `${kind}:${id}`;
-}
-
-/** uriOf is the address a target is referenced by, in its kind's form. */
-function uriOf(kind: TargetKind, targetID: string): string {
-  if (kind === "asset") {
-    return `mcp:asset:${targetID}`;
-  }
-  const res = mockResources.resources.find((r) => r.id === targetID);
-  if (!res) return `mcp://global/deleted/${targetID}`;
-  return res.scope === "global"
-    ? `mcp://global/${res.category}/${res.filename}`
-    : `mcp://${res.scope}/${res.scope_id}/${res.category}/${res.filename}`;
-}
 
 /** view renders one reference the way the portal route does. */
 function view(assetId: string, ref: MockRef) {
@@ -126,18 +94,27 @@ function listBody(assetId: string) {
   });
 }
 
-/** usedBy answers what is holding one target up, for either kind. */
+/**
+ * usedBy answers what is holding one target up, for either kind.
+ *
+ * A reference from an asset the library does not hold is skipped: the capture
+ * fixtures are added only for the specs that capture them (#1497), and a row
+ * naming an asset nobody can open is not a thing the real route can return.
+ */
 function usedBy(kind: TargetKind, targetID: string) {
   const data = Object.entries(refsByAsset)
     .filter(([, refs]) => refs.some((r) => r.kind === kind && r.target_id === targetID))
-    .map(([assetId]) => {
+    .flatMap(([assetId]) => {
       const asset = mockAssets.find((a) => a.id === assetId);
-      return {
-        id: assetId,
-        name: asset?.name ?? assetId,
-        owner_email: asset?.owner_email,
-        public: assetId === "ast-001",
-      };
+      if (!asset) return [];
+      return [
+        {
+          id: assetId,
+          name: asset.name,
+          owner_email: asset.owner_email,
+          public: assetId === "ast-001",
+        },
+      ];
     });
   return HttpResponse.json({ data, total: data.length, hidden: 0, truncated: false });
 }
@@ -191,21 +168,15 @@ export const assetRefHandlers = [
   // sandboxed iframe and on public shares. The panel's thumbnails load through
   // it, so a mock without it would show a column of broken images.
   http.get("/portal/refs/:assetId/:token", ({ params }) => {
-    const ref = Object.values(refsByAsset)
-      .flat()
-      .find((r) => r.token === String(params.token));
-    if (ref?.kind === "asset") {
-      const asset = mockAssets.find((a) => a.id === ref.target_id);
-      return HttpResponse.text(asset ? `region,revenue\nwest,${asset.size_bytes}\n` : "", {
-        headers: { "Content-Type": "text/csv" },
-      });
-    }
-    const image = ref && resourceImageBytes(ref.target_id);
-    if (!image) {
+    const content = resolveRefContent(String(params.token));
+    if (!content) {
       return HttpResponse.json({ detail: "no such reference" }, { status: 404 });
     }
-    return HttpResponse.arrayBuffer(image.buffer as ArrayBuffer, {
-      headers: { "Content-Type": "image/png" },
+    if (typeof content.body === "string") {
+      return HttpResponse.text(content.body, { headers: { "Content-Type": content.contentType } });
+    }
+    return HttpResponse.arrayBuffer(content.body.buffer as ArrayBuffer, {
+      headers: { "Content-Type": content.contentType },
     });
   }),
 ];

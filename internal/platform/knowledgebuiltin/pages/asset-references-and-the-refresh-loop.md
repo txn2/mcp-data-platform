@@ -211,6 +211,9 @@ missing.
 - **The URI was never declared**: served exactly as written, resolves to
   nothing. The grant is always the declaration, never a string that happens to
   appear in the body.
+- **The target does not exist**: refused, naming the URI or reference you
+  wrote. A resource and an asset answer the same way, in the terms you wrote
+  them in, so a typo reads as a typo rather than as a fault below the platform.
 - **More than 20**: refused, with the number you declared.
 - **No managed-resource layer, no asset store, or nowhere to record
   references**: refused with that reason. A deployment that cannot record a

@@ -432,6 +432,7 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("PUT /api/v1/portal/assets/{id}/content", h.updateAssetContent)
 	h.mux.HandleFunc("PUT /api/v1/portal/assets/{id}/thumbnail", h.uploadThumbnail)
 	h.mux.HandleFunc("GET /api/v1/portal/assets/{id}/thumbnail", h.getThumbnail)
+	h.mux.HandleFunc("DELETE /api/v1/portal/assets/{id}/thumbnail", h.clearThumbnail)
 	h.mux.HandleFunc("GET /api/v1/portal/thumbnails/pending", h.listPendingThumbnails)
 	h.mux.HandleFunc("PUT /api/v1/portal/assets/{id}", h.updateAsset)
 	h.mux.HandleFunc("DELETE /api/v1/portal/assets/{id}", h.deleteAsset)
@@ -1060,6 +1061,73 @@ func (h *Handler) listPendingThumbnails(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, paginatedResponse{
 		Data: assets, Total: total, Limit: filter.EffectiveLimit(),
 	})
+}
+
+// clearThumbnail handles DELETE /api/v1/portal/assets/{id}/thumbnail.
+//
+// It is how a wrong picture is asked for again. A capture is taken in a browser
+// and recorded on the asset row, and the refresh queue offers only assets whose
+// row says a capture is missing or behind, so an asset holding an image of
+// something the reader can see is wrong had no way back short of writing a new
+// version -- which captured it wrong again for the same reason (#1497). Clearing
+// the row's pointers puts the asset back on the queue, and the next tab idle
+// over it takes the picture again.
+//
+// Both variants go together. They are two views of one asset and a reader
+// asking for the tile to be taken again means the tile, not the half of it their
+// color mode happens to be showing.
+//
+// @Summary      Clear asset thumbnail
+// @Description  Discards the asset's stored thumbnails so a fresh capture is
+// @Description  taken. The asset returns to the pending-thumbnail list.
+// @Tags         Assets
+// @Produce      json
+// @Param        id  path  string  true  "Asset ID"
+// @Success      200  {object}  statusResponse
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      410  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/assets/{id}/thumbnail [delete]
+func (h *Handler) clearThumbnail(w http.ResponseWriter, r *http.Request) {
+	asset, ok := h.requireManageableAsset(w, r)
+	if !ok {
+		return
+	}
+
+	cleared, zero := "", 0
+	updates := AssetUpdate{
+		ThumbnailS3Key: &cleared, ThumbnailVersion: &zero,
+		ThumbnailDarkS3Key: &cleared, ThumbnailDarkVersion: &zero,
+	}
+	if err := h.deps.AssetStore.Update(r.Context(), r.PathValue(pathKeyID), updates); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update asset metadata")
+		return
+	}
+
+	// Ordered after the update for the reason removeSupersededThumbnail gives:
+	// a failed delete leaves an unreferenced object, where the other order
+	// would leave the row pointing at bytes that are gone.
+	//
+	// Each recorded key is judged against the key the NEXT capture will write,
+	// so an object under an older version's directory or the pre-rename
+	// filename is cleaned up and the deterministic current key is left alone.
+	// Deleting that one would race a capture already in flight: another tab can
+	// have written it and pointed the row back at it between the update above
+	// and this loop, and the delete would then take away bytes the row names.
+	for _, variant := range []string{thumbnailVariantLight, thumbnailVariantDark} {
+		recorded := asset.ThumbnailS3Key
+		if variant == thumbnailVariantDark {
+			recorded = asset.ThumbnailDarkS3Key
+		}
+		next := DeriveThumbnailKeyVariant(asset.S3Key, variant)
+		h.removeSupersededThumbnail(r.Context(), asset.S3Bucket, recorded, next)
+	}
+
+	writeJSON(w, http.StatusOK, statusResponse{Status: statusUpdated})
 }
 
 // removeSupersededThumbnail deletes the thumbnail object the capture just

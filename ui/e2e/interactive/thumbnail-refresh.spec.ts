@@ -43,6 +43,80 @@ test.describe("Thumbnail refresh", () => {
     expect(uploaded[0]).toContain("version=3");
   });
 
+  // A referencing artifact was captured with every reference blocked: the
+  // capture frame carried a hand-written copy of the renderer's policy that
+  // granted the reference route to nothing, so the artifact drew its own
+  // failure branch and that is what was rasterized and stored (#1497). Only a
+  // real browser can say the policy now permits the load, because only a
+  // browser enforces it.
+  test("captures a referencing artifact with its references resolved", async ({ page }) => {
+    const uploaded: string[] = [];
+    const refs: { url: string; status: number }[] = [];
+    page.on("request", (r) => {
+      if (r.method() === "PUT" && r.url().includes("/thumbnail")) uploaded.push(r.url());
+    });
+    page.on("response", (r) => {
+      if (r.url().includes("/portal/refs/")) refs.push({ url: r.url(), status: r.status() });
+    });
+
+    // The capture fixtures are added only for the specs that capture them, so
+    // no screenshot and no list-page spec is taken against a library holding
+    // two assets that exist to be rasterized.
+    await page.addInitScript(() => {
+      const g = globalThis as { __STALE_THUMBNAILS__?: string[]; __REF_CAPTURE_ASSETS__?: boolean };
+      g.__REF_CAPTURE_ASSETS__ = true;
+      g.__STALE_THUMBNAILS__ = ["ast-011"];
+    });
+
+    await authenticate(page);
+    await page.goto("/portal/settings");
+    await expect(page.getByRole("heading", { name: "Settings", level: 1 })).toBeVisible();
+
+    await expect
+      .poll(() => uploaded.filter((u) => u.includes("ast-011")).length, { timeout: 40_000 })
+      .toBeGreaterThan(0);
+
+    // The image and the data file both came from the reference route, and both
+    // answered. A capture stored without them would be a picture of the error
+    // branch, which is the defect.
+    const forAsset = refs.filter((r) => r.url.includes("/portal/refs/ast-011/"));
+    expect(forAsset.length).toBeGreaterThanOrEqual(2);
+    expect(forAsset.every((r) => r.status === 200)).toBe(true);
+  });
+
+  // The other half: a capture the frame reported a failed reference load for is
+  // thrown away, and the asset is left for another try rather than keeping a
+  // picture of its own error state.
+  test("stores nothing for an artifact whose reference did not load", async ({ page }) => {
+    const uploaded: string[] = [];
+    const fetched: string[] = [];
+    page.on("request", (r) => {
+      const url = r.url();
+      if (r.method() === "PUT" && url.includes("/thumbnail")) uploaded.push(url);
+      if (r.method() === "GET" && /\/assets\/[^/]+\/content/.test(url)) fetched.push(url);
+    });
+
+    await page.addInitScript(() => {
+      const g = globalThis as { __STALE_THUMBNAILS__?: string[]; __REF_CAPTURE_ASSETS__?: boolean };
+      g.__REF_CAPTURE_ASSETS__ = true;
+      g.__STALE_THUMBNAILS__ = ["ast-012"];
+    });
+
+    await authenticate(page);
+    await page.goto("/portal/settings");
+    await expect(page.getByRole("heading", { name: "Settings", level: 1 })).toBeVisible();
+
+    // The queue did reach this asset -- it read its content -- so the absence
+    // of an upload below is the capture being discarded, not the capture never
+    // being attempted.
+    await expect
+      .poll(() => fetched.filter((u) => u.includes("ast-012")).length, { timeout: 40_000 })
+      .toBeGreaterThan(0);
+
+    await page.waitForTimeout(15_000);
+    expect(uploaded.filter((u) => u.includes("ast-012"))).toHaveLength(0);
+  });
+
   // The JSON families were skipped before a capture ever started: neither
   // capture site recognized them, so a JSON asset kept the placeholder icon
   // (#1432). Both are drawn on the platform's own background, so each is

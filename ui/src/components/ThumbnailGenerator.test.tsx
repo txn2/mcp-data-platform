@@ -134,3 +134,90 @@ describe("the families the capturer already drew", () => {
     expect(fetchRaw).not.toHaveBeenCalled();
   });
 });
+
+// A capture that rendered an error instead of the artifact produces a perfectly
+// valid PNG, so nothing about the image says it is wrong: an asset naming a
+// managed resource or another asset was stored showing "Failed to fetch" on
+// every tile (#1497). The frame reports how many reference loads failed, and
+// that report is the only thing that can stop the upload.
+describe("an artifact that lost its references", () => {
+  /**
+   * The capture reads the frame's document, which a jsdom iframe does not have
+   * until something is written into it: nothing loads the blob: URL here.
+   */
+  function fillFrame(container: HTMLElement) {
+    container.querySelector("iframe")?.contentDocument?.write("<html><body>artifact</body></html>");
+  }
+
+  /** The frame telling the parent it is ready, as the capture script sends it. */
+  function ready(refFailures?: number) {
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        data: refFailures === undefined
+          ? { type: "thumbnail-ready" }
+          : { type: "thumbnail-ready", refFailures },
+        origin: window.location.origin,
+      }),
+    );
+  }
+
+  const CODE = `export default function App() { return <div>Hi</div>; }`;
+
+  it("is not stored, so the asset stays pending", async () => {
+    const onFailed = vi.fn();
+    const { container } = render(
+      <ThumbnailGenerator
+        assetId="ast-11"
+        content={CODE}
+        contentType="text/jsx"
+        version={3}
+        onFailed={onFailed}
+      />,
+    );
+    fillFrame(container);
+
+    ready(2);
+
+    await waitFor(() => expect(onFailed).toHaveBeenCalled());
+    expect(fetchRaw).not.toHaveBeenCalled();
+  });
+
+  it("is stored when every reference loaded", async () => {
+    const onCaptured = vi.fn();
+    const { container } = render(
+      <ThumbnailGenerator
+        assetId="ast-11"
+        content={CODE}
+        contentType="text/jsx"
+        version={3}
+        onCaptured={onCaptured}
+      />,
+    );
+    fillFrame(container);
+
+    ready(0);
+
+    await waitFor(() => expect(onCaptured).toHaveBeenCalled());
+    expect(String(fetchRaw.mock.calls[0]?.[0])).toContain("/assets/ast-11/thumbnail?version=3");
+  });
+
+  // A frame from before this message carried no count. Reading its absence as a
+  // failure would stop every HTML asset being captured at all.
+  it("is stored when the frame reported no count", async () => {
+    const onCaptured = vi.fn();
+    const { container } = render(
+      <ThumbnailGenerator
+        assetId="ast-12"
+        content="<html><body>hi</body></html>"
+        contentType="text/html"
+        onCaptured={onCaptured}
+      />,
+    );
+    fillFrame(container);
+
+    ready();
+
+    await waitFor(() => expect(onCaptured).toHaveBeenCalled());
+    expect(fetchRaw).toHaveBeenCalled();
+  });
+});

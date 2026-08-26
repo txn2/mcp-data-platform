@@ -1,6 +1,13 @@
 import html2canvas from "html2canvas";
 import { apiFetchRaw } from "@/api/portal/client";
-import { transformJsx, escapeScriptClose, findComponentName } from "@/components/renderers/JsxRenderer";
+import {
+  transformJsx,
+  escapeScriptClose,
+  findComponentName,
+  buildCSP,
+  viewerOrigin,
+  REF_PATH_PREFIX,
+} from "@/components/renderers/JsxRenderer";
 import { THUMB_WIDTH } from "@/lib/thumbnailSupport";
 
 // Re-exported so the capturer has one import for everything it needs. Callers
@@ -16,15 +23,141 @@ export const RENDER_HEIGHT = 960;
 export const CAPTURE_TIMEOUT_MS = 15_000;
 
 /**
- * Inject a self-capture script into HTML content that runs inside a sandboxed
- * blob: iframe. The script uses a bundled copy of html2canvas (injected as an
- * inline script) instead of loading from a CDN, avoiding supply-chain risk
- * and CSP issues.
+ * How long the frame waits for reference loads still in flight when it would
+ * otherwise report itself ready.
  *
- * The injected code captures the body and posts the data URL back to the
- * parent via postMessage with origin "null" (blob: iframe).
+ * A referenced CSV fetched at render time is the thing the artifact draws its
+ * numbers from, so capturing before it lands stores a picture of the loading
+ * state. The wait is bounded well inside CAPTURE_TIMEOUT_MS so a reference that
+ * never answers ends as a discarded capture rather than as the parent's timeout.
  */
-export function injectCaptureScript(html: string): string {
+const REF_SETTLE_TIMEOUT_MS = 8_000;
+
+/**
+ * How long the frame waits for the artifact's FIRST reference request before
+ * deciding there is none coming.
+ *
+ * An artifact that references nothing pays this once, which is why it is short
+ * next to the settle bound above: the delay before the notifier runs has
+ * already let the module graph resolve, and what is being waited for here is
+ * the effect that runs after it.
+ */
+const REF_FIRST_REQUEST_GRACE_MS = 1_500;
+
+/**
+ * The frame-side script that watches what the artifact loads through the
+ * reference route, and the notifier that reports the frame ready.
+ *
+ * A capture cannot tell a rendered artifact from a rendered error by looking at
+ * the pixels: an artifact whose references were blocked draws its own failure
+ * branch and rasterizes to a perfectly valid PNG (#1497). So the frame counts
+ * what failed and says so, and the parent discards a capture that reports any
+ * failure rather than storing a picture of the error state.
+ *
+ * Three ways a reference load fails are counted, because all three produce the
+ * same drawing: the policy refusing the request, an <img> erroring, and a
+ * fetch() rejecting or answering a non-2xx. Only URLs under the reference route
+ * count -- an artifact whose own analytics beacon fails still gets its picture
+ * taken.
+ *
+ * It is a classic inline script so it runs before the module that renders the
+ * artifact: fetch has to be wrapped before the artifact calls it.
+ */
+function refWatchScript(): string {
+  return `<script>
+(function() {
+  var PREFIX = ${JSON.stringify(REF_PATH_PREFIX)};
+  var state = { failed: 0, inflight: 0, started: 0 };
+  window.__thumbnailRefs = state;
+  function isRef(u) {
+    return typeof u === 'string' && u.indexOf(PREFIX) !== -1;
+  }
+  document.addEventListener('securitypolicyviolation', function(e) {
+    if (isRef(e.blockedURI)) state.failed++;
+  });
+  window.addEventListener('error', function(e) {
+    var t = e.target;
+    if (t && t.tagName === 'IMG' && isRef(t.currentSrc || t.src)) state.failed++;
+  }, true);
+  window.addEventListener('load', function(e) {
+    var t = e.target;
+    if (t && t.tagName === 'IMG' && isRef(t.currentSrc || t.src)) state.started++;
+  }, true);
+  var nativeFetch = window.fetch;
+  window.fetch = function(input) {
+    // A Request carries the address as .url and a URL object as .href, so both
+    // forms an artifact may pass are read rather than only the plain string.
+    var url = typeof input === 'string' ? input : (input && (input.url || input.href)) || '';
+    if (!isRef(url)) return nativeFetch.apply(window, arguments);
+    state.started++;
+    state.inflight++;
+    return nativeFetch.apply(window, arguments).then(function(res) {
+      state.inflight--;
+      if (!res.ok) state.failed++;
+      return res;
+    }, function(err) {
+      state.inflight--;
+      state.failed++;
+      throw err;
+    });
+  };
+})();
+</script>`;
+}
+
+/**
+ * The notifier that tells the parent the frame is ready to be captured, after
+ * `delayMs` and after the artifact's reference loads have settled.
+ *
+ * Waiting only on what is in flight at the delay would miss the common shape:
+ * a dashboard fetches its referenced data from an effect that runs after the
+ * module graph resolves, so at the delay nothing has been requested yet and the
+ * capture would store a picture of the loading state. So a document that has
+ * asked for nothing yet is given a grace period first, and one that has is
+ * waited on until its requests settle.
+ *
+ * It reports how many reference loads failed so the parent can throw the
+ * capture away, and names the asset so a frame's report cannot be read as
+ * another frame's. A document with no watcher on it (the transform-failure page
+ * below) reports none, which is right: there is nothing referenced to fail.
+ */
+function notifierScript(assetId: string, delayMs: number): string {
+  return `
+(function() {
+  var waited = 0;
+  function state() { return window.__thumbnailRefs || { failed: 0, inflight: 0, started: 0 }; }
+  function ready() {
+    parent.postMessage({
+      type: 'thumbnail-ready',
+      assetId: ${JSON.stringify(assetId)},
+      refFailures: state().failed
+    }, '*');
+  }
+  function settle() {
+    var s = state();
+    var waiting = s.inflight > 0 || (s.started === 0 && waited < ${REF_FIRST_REQUEST_GRACE_MS});
+    if (waiting && waited < ${REF_SETTLE_TIMEOUT_MS}) {
+      waited += 100;
+      setTimeout(settle, 100);
+      return;
+    }
+    ready();
+  }
+  setTimeout(settle, ${delayMs});
+})();`;
+}
+
+/**
+ * Inject the reference watcher and a self-capture notifier into HTML content
+ * that runs inside a sandboxed blob: iframe. The script uses a bundled copy of
+ * html2canvas (injected as an inline script) instead of loading from a CDN,
+ * avoiding supply-chain risk and CSP issues.
+ *
+ * The injected code posts a "thumbnail-ready" message back to the parent via
+ * postMessage with origin "null" (blob: iframe), carrying the count of
+ * reference loads that failed.
+ */
+export function injectCaptureScript(html: string, assetId = ""): string {
   // We serialize the html2canvas entry point path so the iframe can import it.
   // Since the iframe is sandboxed with a blob: URL, we can't use ES module
   // imports. Instead, we render the content and use the parent to capture.
@@ -33,23 +166,45 @@ export function injectCaptureScript(html: string): string {
   const script = `
 <script>
 (function() {
-  function notifyReady() {
-    parent.postMessage({ type: 'thumbnail-ready' }, '*');
-  }
+  function start() {${notifierScript(assetId, 500)}}
   if (document.readyState === 'complete') {
-    setTimeout(notifyReady, 500);
+    start();
   } else {
-    window.addEventListener('load', function() { setTimeout(notifyReady, 500); });
+    window.addEventListener('load', start);
   }
 })();
 </script>`;
 
+  const watched = insertRefWatch(html);
   // Insert before </body> if present, otherwise append
-  const idx = html.toLowerCase().lastIndexOf("</body>");
+  const idx = watched.toLowerCase().lastIndexOf("</body>");
   if (idx >= 0) {
-    return html.slice(0, idx) + script + html.slice(idx);
+    return watched.slice(0, idx) + script + watched.slice(idx);
   }
-  return html + script;
+  return watched + script;
+}
+
+/**
+ * Put the reference watcher at the front of an HTML document, before anything
+ * the document itself runs.
+ *
+ * Appending it beside the notifier would be too late: an HTML report that
+ * fetches a referenced JSON from a script in its own body would have called
+ * fetch before the wrapper existed, and the failure would go uncounted. Where
+ * there is a <head> or a <body> tag it goes just inside; a fragment with
+ * neither gets it in front, which is where the parser would put it anyway.
+ */
+function insertRefWatch(html: string): string {
+  const watch = refWatchScript();
+  // The lookahead is what keeps <header> from satisfying the <head>
+  // alternative: "er" fits [^>]* and the watcher would land after the scripts
+  // it exists to precede.
+  const at = /<head(?=[\s>])[^>]*>|<body(?=[\s>])[^>]*>/i.exec(html);
+  if (at) {
+    const idx = at.index + at[0].length;
+    return html.slice(0, idx) + watch + html.slice(idx);
+  }
+  return watch + html;
 }
 
 /**
@@ -116,22 +271,28 @@ export async function uploadThumbnail(
 /**
  * Build a complete HTML document that transpiles and renders JSX content,
  * then notifies the parent when ready for capture. Reuses the same pipeline
- * as JsxRenderer (sucrase transform, import map, auto-mount) but adds a
- * postMessage notifier with a longer delay for async esm.sh loads.
+ * as JsxRenderer (sucrase transform, import map, auto-mount, and its CSP) but
+ * adds a postMessage notifier with a longer delay for async esm.sh loads.
+ *
+ * The asset id travels into the frame so its ready message names the asset it
+ * is about: a queue capture and a viewer capture can be mounted at once, and a
+ * message that named neither was read by both.
+ *
+ * The origin is the one the reference route is granted under, defaulted to the
+ * viewer's own the way the live renderer defaults it. It is a parameter only so
+ * a test can build the document without a window.
  */
-export function buildJsxThumbnailHtml(content: string): string {
-  // The same policy JsxRenderer gives the live frame, 'unsafe-eval' omitted
-  // for the same reason: the capture has to run the artifact under exactly
-  // what the renderer runs it under, or the thumbnail stops matching what a
-  // viewer sees.
-  const CSP = [
-    "default-src 'none'",
-    "script-src 'unsafe-inline' https://esm.sh https://fonts.googleapis.com https://fonts.gstatic.com",
-    "style-src 'unsafe-inline' https://fonts.googleapis.com",
-    "img-src data: blob:",
-    "font-src data: https://fonts.gstatic.com",
-    "connect-src https://esm.sh https://fonts.googleapis.com https://fonts.gstatic.com",
-  ].join("; ");
+export function buildJsxThumbnailHtml(
+  content: string,
+  assetId = "",
+  origin: string = viewerOrigin(),
+): string {
+  // The live frame's policy, from the live frame's builder. A hand-written copy
+  // of it drifted: the reference route was in JsxRenderer's img-src and
+  // connect-src and in no copy here, so every artifact naming a managed
+  // resource or another asset was captured with its references blocked and the
+  // stored tile was a picture of the artifact's error branch (#1497).
+  const CSP = buildCSP(origin);
 
   const BARE_IMPORT_MAP: Record<string, string> = {
     react: "https://esm.sh/react@19",
@@ -152,7 +313,7 @@ export function buildJsxThumbnailHtml(content: string): string {
     // If transform fails, return a simple error page that still notifies ready
     return `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>
 <pre style="color:#ef4444;padding:16px;font-family:monospace">JSX transform failed</pre>
-<script>setTimeout(function(){parent.postMessage({type:'thumbnail-ready'},'*');},500);</script>
+<script>setTimeout(function(){parent.postMessage({type:'thumbnail-ready',assetId:${JSON.stringify(assetId)},refFailures:0},'*');},500);</script>
 </body></html>`;
   }
 
@@ -177,16 +338,13 @@ try {
   document.getElementById('root').textContent = e.message;
 }`;
 
-  const notifierScript = `
-setTimeout(function() {
-  parent.postMessage({ type: 'thumbnail-ready' }, '*');
-}, 2000);`;
 
   return `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="${CSP}">
+  ${refWatchScript()}
   <script type="importmap">${importMap}</script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -209,7 +367,7 @@ window.addEventListener('unhandledrejection', function(e) {
 
 ${mountSection}
   </script>
-  <script>${notifierScript}</script>
+  <script>${notifierScript(assetId, 2000)}</script>
 </body>
 </html>`;
 }
