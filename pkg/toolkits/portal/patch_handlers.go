@@ -125,7 +125,7 @@ func (t *Toolkit) handlePatch(ctx context.Context, input manageAssetInput) (*mcp
 	// reference in the same call, so the URI it just wrote resolves on the
 	// first render rather than on a follow-up update. Validated before the
 	// patch is applied, and refused as a whole if the author cannot read one.
-	declaredRefs, hasRefs, refResult := t.resolveRefs(ctx, input.Resources)
+	declaredRefs, hasRefs, refResult := t.resolveRefs(ctx, input.References, asset.ID)
 	if refResult != nil {
 		return refResult, nil, nil
 	}

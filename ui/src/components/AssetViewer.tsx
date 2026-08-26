@@ -41,6 +41,7 @@ export function AssetViewer({
   detailRows,
   sessionPath,
   resourcePath,
+  assetPath,
   versions,
   versionsLoading,
   revertMutation,
@@ -283,6 +284,7 @@ export function AssetViewer({
             detailRows={detailRows}
             sessionPath={sessionPath}
             resourcePath={resourcePath}
+            assetPath={assetPath}
             onNavigate={onNavigate}
             versions={versions}
             versionsLoading={versionsLoading}

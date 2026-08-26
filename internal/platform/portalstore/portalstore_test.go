@@ -10,7 +10,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
@@ -271,29 +271,31 @@ func TestSaveToolNameIsRegistered(t *testing.T) {
 	}
 }
 
-// stubRefStore is an AssetResourceRefStore that records nothing; the tests
+// stubRefStore is an AssetContentRefStore that records nothing; the tests
 // below assert on identity and on wiring, never on persistence.
 type stubRefStore struct{}
 
-func (stubRefStore) Replace(context.Context, string, []portaldomain.AssetResourceRef) error {
+func (stubRefStore) Replace(context.Context, string, []assetrefs.Ref) error {
 	return nil
 }
 
-func (stubRefStore) ListByAsset(context.Context, string) ([]portaldomain.AssetResourceRef, error) {
+func (stubRefStore) ListByAsset(context.Context, string) ([]assetrefs.Ref, error) {
 	return nil, nil
 }
 
-func (stubRefStore) Attach(context.Context, portaldomain.AssetResourceRef) (bool, error) {
+func (stubRefStore) Attach(context.Context, assetrefs.Ref) (bool, error) {
 	return false, nil
 }
 
-func (stubRefStore) Detach(context.Context, string, string) (bool, error) { return false, nil }
+func (stubRefStore) Detach(context.Context, string, assetrefs.TargetKind, string) (bool, error) {
+	return false, nil
+}
 
-func (stubRefStore) ListByResource(context.Context, string, int) ([]portaldomain.AssetResourceRef, error) {
+func (stubRefStore) ListByTarget(context.Context, assetrefs.TargetKind, string, int) ([]assetrefs.Ref, error) {
 	return nil, nil
 }
 
-func (stubRefStore) GetByToken(context.Context, string, string) (*portaldomain.AssetResourceRef, error) {
+func (stubRefStore) GetByToken(context.Context, string, string) (*assetrefs.Ref, error) {
 	return nil, nil //nolint:nilnil // interface contract: no such reference is (nil, nil)
 }
 
@@ -312,20 +314,20 @@ func (stubResources) GetByURI(context.Context, string) (*resource.Resource, erro
 	return nil, nil //nolint:nilnil // resource.Store reports a missing row as (nil, nil)
 }
 
-// TestResourceRefsAccessorReturnsTheInjectedStore covers the read the portal
+// TestContentRefsAccessorReturnsTheInjectedStore covers the read the portal
 // and admin REST surfaces take to rewrite served content (#1474).
-func TestResourceRefsAccessorReturnsTheInjectedStore(t *testing.T) {
+func TestContentRefsAccessorReturnsTheInjectedStore(t *testing.T) {
 	t.Parallel()
 	refs := stubRefStore{}
-	h := NewFromStores(Stores{ResourceRefs: refs}, nil, Config{Name: "default"})
+	h := NewFromStores(Stores{ContentRefs: refs}, nil, Config{Name: "default"})
 
-	if h.ResourceRefs() != portaldomain.AssetResourceRefStore(refs) {
-		t.Error("ResourceRefs() did not return the injected store")
+	if h.ContentRefs() != assetrefs.Store(refs) {
+		t.Error("ContentRefs() did not return the injected store")
 	}
 
 	var nilHandle *Handle
-	if nilHandle.ResourceRefs() != nil {
-		t.Error("nil Handle ResourceRefs() != nil")
+	if nilHandle.ContentRefs() != nil {
+		t.Error("nil Handle ContentRefs() != nil")
 	}
 }
 
@@ -334,7 +336,7 @@ func TestResourceRefsAccessorReturnsTheInjectedStore(t *testing.T) {
 // must refuse a declaration and a bound one must accept it.
 func TestBindResourcesMakesDeclarationAvailable(t *testing.T) {
 	t.Parallel()
-	h := NewFromStores(Stores{ResourceRefs: stubRefStore{}}, nil, Config{Name: "default"})
+	h := NewFromStores(Stores{ContentRefs: stubRefStore{}}, nil, Config{Name: "default"})
 
 	h.BindResources(stubResources{}, "mcp")
 	if h.Toolkit() == nil {

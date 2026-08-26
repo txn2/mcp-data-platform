@@ -15,7 +15,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
+	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/textpatch"
 )
@@ -103,7 +103,7 @@ func newRefSystem(t *testing.T) *refSystem {
 		Name: "test", AssetStore: assets, VersionStore: versions,
 		S3Client: blobs, S3Bucket: intAssetBucket, BaseURL: intPortalBase,
 	})
-	tk.SetResourceRefs(assetrefs.NewDeclarer(refs, resourceStub{}, ""))
+	tk.SetContentRefs(newDeclarer(refs, assets))
 
 	h := portal.NewHandler(portal.Deps{
 		AssetStore:       assets,
@@ -113,7 +113,7 @@ func newRefSystem(t *testing.T) *refSystem {
 		S3Bucket:         intAssetBucket,
 		PublicBaseURL:    intPortalBase,
 		RateLimit:        portal.RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
-		ResourceRefs:     refs,
+		ContentRefs:      refs,
 		ResourceReader:   resourceStub{},
 		ResourceBlobs:    blobs,
 		ResourceS3Bucket: intResBucket,
@@ -160,7 +160,7 @@ func TestReferenceSurvivesSaveViewAndPatch(t *testing.T) {
 
 	// 1. The agent saves a report that names the logo by its URI.
 	saved := decodeSave(t, mustSaveBody(t, sys.toolkit, intAssetBody, []string{refLogoURI}))
-	require.Equal(t, 1, saved.ResourcesReferenced)
+	require.Equal(t, 1, saved.ReferencesDeclared)
 	assetID := saved.AssetID
 
 	// The stored object carries the URI and none of the file's bytes.
@@ -228,7 +228,7 @@ func extractRefURL(t *testing.T, content string) string {
 func mustSaveBody(t *testing.T, tk *Toolkit, body string, uris []string) *mcp.CallToolResult {
 	t.Helper()
 	result, _, err := tk.handleSaveAsset(refCtx(""), nil, saveAssetInput{
-		Name: "Q4 Report", Content: body, ContentType: "text/html", Resources: uris,
+		Name: "Q4 Report", Content: body, ContentType: "text/html", References: uris,
 	})
 	require.NoError(t, err)
 	require.False(t, result.IsError, "save failed: %s", errText(t, result))
@@ -242,4 +242,135 @@ func mustAction(t *testing.T, tk *Toolkit, input manageAssetInput) *mcp.CallTool
 	require.NoError(t, err)
 	require.False(t, result.IsError, "%s failed: %s", input.Action, errText(t, result))
 	return result
+}
+
+// TestAssetReferenceServesTheCurrentContentOfAnotherAsset is the end-to-end
+// acceptance test for #1488, over the same assembled system: the toolkit that
+// declares the reference and the HTTP handler that serves it, sharing one set
+// of stores.
+//
+// It is the refresh loop the issue exists for. A job rewrites a data asset; a
+// dashboard that names it renders the new numbers without being re-saved, and
+// without an agent spending output tokens carrying the data across.
+func TestAssetReferenceServesTheCurrentContentOfAnotherAsset(t *testing.T) {
+	sys := newRefSystem(t)
+
+	// 1. A data asset, the thing a scheduled script would write.
+	data := decodeSave(t, mustSaveTyped(t, sys.toolkit, saveAssetInput{
+		Name: "Weekly numbers", Content: "region,revenue\nwest,42\n", ContentType: "text/csv",
+	}))
+	dataRef := "mcp:asset:" + data.AssetID
+
+	// 2. A dashboard that reads it. The reference is declared, and the stored
+	// content keeps the reference string rather than a copy of the data.
+	dash := decodeSave(t, mustSaveTyped(t, sys.toolkit, saveAssetInput{
+		Name:        "Dashboard",
+		Content:     `<h1>Revenue</h1><script>fetch("` + dataRef + `").then(r=>r.text())</script>`,
+		ContentType: "text/html",
+		References:  []string{dataRef},
+	}))
+	require.Equal(t, 1, dash.ReferencesDeclared)
+
+	stored, _, err := sys.blobs.GetObject(t.Context(), intAssetBucket, storedKey(t, sys, dash.AssetID))
+	require.NoError(t, err)
+	assert.Contains(t, string(stored), dataRef)
+	assert.NotContains(t, string(stored), "west,42")
+
+	// 3. Opening the dashboard rewrites the reference to an absolute URL, and
+	// that URL answers with the data asset's content to a caller carrying no
+	// session -- which is what a fetch() inside a sandboxed frame sends.
+	view := sys.get(t, "/api/v1/portal/assets/"+dash.AssetID+"/content")
+	require.Equal(t, http.StatusOK, view.Code)
+	refURL := extractRefURL(t, view.Body.String())
+	assert.NotContains(t, view.Body.String(), dataRef)
+
+	served := sys.get(t, strings.TrimPrefix(refURL, intPortalBase))
+	require.Equal(t, http.StatusOK, served.Code)
+	assert.Equal(t, "region,revenue\nwest,42\n", served.Body.String())
+	assert.Contains(t, served.Header().Get("Content-Type"), "text/csv")
+
+	// 4. The refresh: the data asset is rewritten, the dashboard is not touched,
+	// and the same URL now answers with the new numbers.
+	mustAction(t, sys.toolkit, manageAssetInput{
+		Action: "update", AssetID: data.AssetID, Content: "region,revenue\nwest,99\n",
+	})
+
+	refreshed := sys.get(t, strings.TrimPrefix(refURL, intPortalBase))
+	require.Equal(t, http.StatusOK, refreshed.Code)
+	assert.Equal(t, "region,revenue\nwest,99\n", refreshed.Body.String(),
+		"the reference resolves to the referenced asset's current content on every read")
+
+	after := sys.get(t, "/api/v1/portal/assets/"+dash.AssetID+"/content")
+	require.Equal(t, http.StatusOK, after.Code)
+	assert.Equal(t, refURL, extractRefURL(t, after.Body.String()),
+		"the dashboard was never re-saved and its reference URL is unchanged")
+
+	// 5. Deleting the referenced asset degrades the way a deleted resource
+	// does: the reference row survives, the URL answers not found, and the
+	// dashboard still renders.
+	mustAction(t, sys.toolkit, manageAssetInput{Action: "delete", AssetID: data.AssetID})
+
+	gone := sys.get(t, strings.TrimPrefix(refURL, intPortalBase))
+	assert.Equal(t, http.StatusNotFound, gone.Code)
+
+	page := sys.get(t, "/api/v1/portal/assets/"+dash.AssetID+"/content")
+	require.Equal(t, http.StatusOK, page.Code)
+	assert.Contains(t, page.Body.String(), "<h1>Revenue</h1>")
+	assert.Equal(t, refURL, extractRefURL(t, page.Body.String()))
+}
+
+// TestAssetReferenceRefusedForAnAssetTheAuthorCannotRead proves the one check
+// the audience rule rests on is applied at the door an agent comes through: a
+// save naming an asset its author cannot read records nothing.
+func TestAssetReferenceRefusedForAnAssetTheAuthorCannotRead(t *testing.T) {
+	sys := newRefSystem(t)
+	data := decodeSave(t, mustSaveTyped(t, sys.toolkit, saveAssetInput{
+		Name: "Weekly numbers", Content: "region,revenue\n", ContentType: "text/csv",
+	}))
+
+	// A second author, owning nothing and holding no share.
+	other := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
+		UserID: "user2", UserEmail: "stranger@example.com", SessionID: "sess2",
+	})
+	result, _, err := sys.toolkit.handleSaveAsset(other, nil, saveAssetInput{
+		Name: "Borrowed", Content: "<p>x</p>", ContentType: "text/html",
+		References: []string{"mcp:asset:" + data.AssetID},
+	})
+	require.NoError(t, err)
+	require.True(t, result.IsError)
+	assert.Contains(t, errText(t, result), "cannot read the asset")
+}
+
+// mustSaveTyped saves one asset and requires it to succeed. It takes the input
+// whole rather than a field per argument, so a test reads as the save it makes.
+func mustSaveTyped(t *testing.T, tk *Toolkit, input saveAssetInput) *mcp.CallToolResult {
+	t.Helper()
+	result, _, err := tk.handleSaveAsset(refCtx(""), nil, input)
+	require.NoError(t, err)
+	require.False(t, result.IsError, "save failed: %s", errText(t, result))
+	return result
+}
+
+// TestAssetReferenceRefusedToItself is the agent's half of the rule the portal
+// applies at its own door: an update naming the asset it is updating is refused
+// and changes nothing, so the two doors onto one mechanism agree about what a
+// legal reference is.
+func TestAssetReferenceRefusedToItself(t *testing.T) {
+	sys := newRefSystem(t)
+	saved := decodeSave(t, mustSaveTyped(t, sys.toolkit, saveAssetInput{
+		Name: "Dashboard", Content: "<h1>Revenue</h1>", ContentType: "text/html",
+	}))
+
+	result, _, err := sys.toolkit.handleManageAsset(refCtx(""), nil, manageAssetInput{
+		Action: "update", AssetID: saved.AssetID,
+		References: []string{"mcp:asset:" + saved.AssetID},
+	})
+	require.NoError(t, err)
+	require.True(t, result.IsError)
+	assert.Contains(t, errText(t, result), "cannot reference itself")
+
+	view := sys.get(t, "/api/v1/portal/assets/"+saved.AssetID+"/content")
+	require.Equal(t, http.StatusOK, view.Code)
+	assert.NotContains(t, view.Body.String(), "/portal/refs/",
+		"a refused declaration records nothing")
 }

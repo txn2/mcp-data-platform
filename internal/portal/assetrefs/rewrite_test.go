@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
-	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 )
 
 const (
@@ -22,11 +21,12 @@ const (
 	testAssetID = "asset_1"
 )
 
-func refs(pairs ...[2]string) []portaldomain.AssetResourceRef {
-	out := make([]portaldomain.AssetResourceRef, 0, len(pairs))
+func refs(pairs ...[2]string) []assetrefs.Ref {
+	out := make([]assetrefs.Ref, 0, len(pairs))
 	for i, p := range pairs {
-		out = append(out, portaldomain.AssetResourceRef{
-			AssetID: testAssetID, ResourceID: p[1], URI: p[0], RefToken: p[1], Position: i,
+		out = append(out, assetrefs.Ref{
+			AssetID: testAssetID, TargetKind: assetrefs.TargetResource,
+			TargetID: p[1], URI: p[0], RefToken: p[1], Position: i,
 		})
 	}
 	return out
@@ -111,18 +111,18 @@ func TestRewriteNoOpCases(t *testing.T) {
 		name    string
 		content []byte
 		ct      string
-		refs    []portaldomain.AssetResourceRef
+		refs    []assetrefs.Ref
 	}{
 		{"no references declared", content, "text/html", nil},
 		{"empty content", nil, "text/html", declared},
 		{"declared but not mentioned", content, "text/html", declared},
 		{
 			"reference with no token", content, "text/html",
-			[]portaldomain.AssetResourceRef{{URI: logoURI}},
+			[]assetrefs.Ref{{URI: logoURI}},
 		},
 		{
 			"reference with no uri", []byte(logoURI), "text/html",
-			[]portaldomain.AssetResourceRef{{RefToken: logoToken}},
+			[]assetrefs.Ref{{RefToken: logoToken}},
 		},
 	}
 	for _, tt := range tests {

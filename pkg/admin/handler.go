@@ -15,7 +15,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/admin/apiroutesapi"
 	"github.com/txn2/mcp-data-platform/internal/platform/reviewalert"
-	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/pkg/auth"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
@@ -129,12 +129,12 @@ type Deps struct {
 	// leaves them unregistered, as a deployment without a database has no
 	// collections to serve.
 	CollectionStore portal.CollectionStore
-	// ResourceRefs records the managed resources an asset's content
+	// ContentRefs records the managed resources an asset's content
 	// references (#1474). The admin console reads asset content through its
 	// own routes, so it rewrites the declared mcp:// URIs the same way the
 	// portal does: an administrator opening an asset must see what its owner
 	// sees. nil (no database) serves content exactly as stored.
-	ResourceRefs portaldomain.AssetResourceRefStore
+	ContentRefs assetrefs.Store
 	// PublicBaseURL is the deployment's externally reachable base URL, used to
 	// build the absolute reference URLs rewritten into served content.
 	PublicBaseURL     string

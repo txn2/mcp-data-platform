@@ -666,7 +666,7 @@ func buildAdminHandler(p *platform.Platform, notify *notifydelivery.Handle) http
 		// The admin console reads asset content through its own routes, so it
 		// rewrites an asset's resource references the same way the portal does
 		// (#1474): an administrator opening an asset sees what its owner sees.
-		ResourceRefs:       p.PortalResourceRefStore(),
+		ContentRefs:        p.PortalContentRefStore(),
 		PublicBaseURL:      p.Config().Portal.PublicBaseURL,
 		ConnectionStore:    p.ConnectionStore(),
 		ConnectionSources:  p.ConnectionSources(),

@@ -6,7 +6,7 @@ import { DetailRow } from "@/components/viewer/DetailRow";
 import { formatBytes } from "@/lib/format";
 import type { Resource } from "@/api/resources/types";
 import { UsagePanel } from "./UsagePanel";
-import { UsedByAssets } from "./UsedByAssets";
+import { UsedByAssets } from "@/components/references/UsedByAssets";
 import { UsedByPrompts } from "./UsedByPrompts";
 import { VersionsPanel } from "./VersionsPanel";
 
@@ -80,7 +80,7 @@ export function ResourceSidebar({
 
       <UsedByPrompts resourceId={r.id} />
 
-      <UsedByAssets resourceId={r.id} />
+      <UsedByAssets target={{ kind: "resource", id: r.id }} />
     </>
   );
 }

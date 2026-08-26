@@ -14,47 +14,58 @@ import (
 )
 
 // refView is one reference as the asset's sidebar renders it: enough of the
-// resource to show a row and a picture, plus where the asset's content still
+// target to show a row and a picture, plus where the asset's content still
 // names it.
 //
-// The resource metadata is shown to every reader who can open the asset, not
-// only to one who could read the resource directly. That is not a widening:
-// the reference already hands such a reader the file's bytes through
-// ContentURL, and a name beside a picture they can already see discloses
-// nothing further. A reference whose resource has been deleted carries none of
-// it and is flagged Broken instead.
+// The target's metadata is shown to every reader who can open the asset, not
+// only to one who could read the target directly. That is not a widening: the
+// reference already hands such a reader the bytes through ContentURL, and a
+// name beside a picture they can already see discloses nothing further. A
+// reference whose target has been deleted carries none of it and is flagged
+// Broken instead.
 type refView struct {
-	ResourceID string `json:"resource_id"`
+	// TargetKind says what this row points at: a managed resource, or another
+	// asset. It decides which of the fields below are filled and where the row
+	// links to.
+	TargetKind string `json:"target_kind"`
+	TargetID   string `json:"target_id"`
 	URI        string `json:"uri"`
 	Position   int    `json:"position"`
 	DeclaredBy string `json:"declared_by,omitempty"`
 
 	DisplayName string `json:"display_name,omitempty"`
-	Filename    string `json:"filename,omitempty"`
 	Description string `json:"description,omitempty"`
-	Category    string `json:"category,omitempty"`
 	MIMEType    string `json:"mime_type,omitempty"`
 	SizeBytes   int64  `json:"size_bytes,omitempty"`
-	Scope       string `json:"scope,omitempty"`
-	ScopeID     string `json:"scope_id,omitempty"`
+
+	// Resource-only fields: the file's own name, its category and the scope it
+	// is filed under.
+	Filename string `json:"filename,omitempty"`
+	Category string `json:"category,omitempty"`
+	Scope    string `json:"scope,omitempty"`
+	ScopeID  string `json:"scope_id,omitempty"`
+
+	// OwnerEmail names who owns a referenced asset. It is the asset row's
+	// counterpart of a resource's scope: the one fact that says whose thing
+	// this is.
+	OwnerEmail string `json:"owner_email,omitempty"`
 
 	// ContentURL is the reference's own serving URL, the same one the rewrite
 	// writes into the content this reader is served. It is here so the panel
 	// can show a thumbnail through the grant the reference already makes,
-	// rather than through the resource route, which a reader of a shared asset
-	// may not be allowed to call.
+	// rather than through the target's own route, which a reader of a shared
+	// asset may not be allowed to call.
 	ContentURL string `json:"content_url,omitempty"`
 
-	// Broken marks a reference whose resource has been deleted. The row
-	// survives the delete on purpose (#1474), so this is the one place the
-	// owner learns their report is now serving with a picture missing.
+	// Broken marks a reference whose target has been deleted. The row survives
+	// the delete on purpose (#1474), so this is the one place the owner learns
+	// their report is now serving with something missing.
 	Broken bool `json:"broken,omitempty"`
 
-	// Readable is whether this reader could open the resource on its own, as
+	// Readable is whether this reader could open the target on its own, as
 	// opposed to through the asset. It decides whether the row is a link: a
-	// reader of a shared asset can see a file they have no direct access to,
-	// and a link to the resource's own page would only lead them to a
-	// not-found.
+	// reader of a shared asset can see a target they have no direct access to,
+	// and a link to its own page would only lead them to a not-found.
 	Readable bool `json:"readable,omitempty"`
 
 	// Occurrences names where the asset's stored content still writes this
@@ -64,8 +75,8 @@ type refView struct {
 }
 
 // audience states how widely the asset this reference hangs off is shared. It
-// is what "adding this reference gives the file the asset's audience" means in
-// the concrete, and the add confirmation names it rather than describing the
+// is what "adding this reference gives the target the asset's audience" means
+// in the concrete, and the add confirmation names it rather than describing the
 // rule in the abstract.
 type audience struct {
 	// Public is true when an active link share exists, which is the reading
@@ -104,18 +115,22 @@ type listResponse struct {
 	ContentScanned bool `json:"content_scanned"`
 }
 
-// addRequest names the resource to reference. The id is what a picker over the
-// caller's readable resources has in hand; the URI is not accepted, because a
-// person choosing from a list is not writing one.
+// addRequest names what to reference: the kind, and the id in that kind's id
+// space. Both are required and the kind is never inferred, because a resource
+// id and an asset id are indistinguishable strings and guessing wrong would
+// record a reference to something the caller never chose.
+//
+// The URI is not accepted. A person choosing from a picker is not writing one,
+// and the server builds the canonical form for the kind.
 type addRequest struct {
-	ResourceID string `json:"resource_id"`
+	TargetKind string `json:"target_kind"`
+	TargetID   string `json:"target_id"`
 }
 
-// listRefs returns an asset's referenced resources, to any reader who may open
-// the asset.
+// listRefs returns an asset's references, to any reader who may open the asset.
 //
-// @Summary      List an asset's referenced resources
-// @Description  Returns the managed resources an asset's content references, with enough of each resource to render a row, the URL the reference is served under, and where the asset's stored content still writes the URI. A reference whose resource was deleted is returned flagged as broken.
+// @Summary      List an asset's references
+// @Description  Returns what an asset's content references -- managed resources and other assets -- with enough of each target to render a row, the URL the reference is served under, and where the asset's stored content still writes the URI. A reference whose target was deleted is returned flagged as broken.
 // @Tags         Portal
 // @Produce      json
 // @Param        id  path  string  true  "Asset ID"
@@ -126,13 +141,13 @@ type addRequest struct {
 // @Failure      500  {object}  httpjson.ProblemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /portal/assets/{id}/resources [get]
+// @Router       /portal/assets/{id}/references [get]
 func (h *handler) listRefs(w http.ResponseWriter, r *http.Request) {
 	user := caller(w, r)
 	if user == nil {
 		return
 	}
-	asset, ok := h.viewableAsset(w, r, user)
+	asset, ok := h.viewableAsset(w, r, pathKeyID, user)
 	if !ok {
 		return
 	}
@@ -148,19 +163,19 @@ func (h *handler) listRefs(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// addRef references one more resource from this asset.
+// addRef references one more target from this asset.
 //
-// It checks the caller's own read permission on the resource, exactly as the
+// It checks the caller's own read permission on the target, exactly as the
 // declaration path checks an agent's: a person adding a reference through the
 // panel makes the same grant an agent makes by naming the URI in a save, and
-// must have been able to read the file to make it.
+// must have been able to read the target to make it.
 //
 // Adding does not touch the asset's content. The URI has to appear in the
-// markup for the picture to render, and that is the author's edit to make; the
-// response carries the URI so the panel can hand it over.
+// markup for the picture or the data to load, and that is the author's edit to
+// make; the response carries the URI so the panel can hand it over.
 //
-// @Summary      Reference a resource from an asset
-// @Description  Adds one managed resource to the asset's references, checked against the caller's own read permission on that resource. The asset's stored content is not changed. Returns the asset's references after the add.
+// @Summary      Add a reference to an asset
+// @Description  Adds one managed resource or one asset to the asset's references, checked against the caller's own read permission on that target. The asset's stored content is not changed. Returns the asset's references after the add.
 // @Tags         Portal
 // @Accept       json
 // @Produce      json
@@ -174,18 +189,24 @@ func (h *handler) listRefs(w http.ResponseWriter, r *http.Request) {
 // @Failure      500  {object}  httpjson.ProblemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /portal/assets/{id}/resources [post]
+// @Router       /portal/assets/{id}/references [post]
 func (h *handler) addRef(w http.ResponseWriter, r *http.Request) {
 	user, asset, ok := h.editableAsset(w, r)
 	if !ok {
 		return
 	}
 	var req addRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ResourceID == "" {
-		httpjson.WriteError(w, http.StatusBadRequest, "a resource_id is required")
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.TargetID == "" {
+		httpjson.WriteError(w, http.StatusBadRequest, "a target_kind and a target_id are required")
 		return
 	}
-	res, ok := h.readableResource(w, r, req.ResourceID, user)
+	kind := assetrefs.TargetKind(req.TargetKind)
+	if !kind.Valid() {
+		httpjson.WriteError(w, http.StatusBadRequest,
+			`target_kind must be "resource" or "asset"`)
+		return
+	}
+	target, ok := h.readableTarget(w, r, wanted{kind: kind, id: req.TargetID}, asset, user)
 	if !ok {
 		return
 	}
@@ -196,7 +217,7 @@ func (h *handler) addRef(w http.ResponseWriter, r *http.Request) {
 	// The cap is checked against what the asset names now. It is advisory
 	// against a concurrent save, exactly as the declaration path's is, because
 	// nothing about a reference makes the twenty-first worth a lock.
-	if len(refs) >= portaldomain.MaxAssetResourceRefs {
+	if len(refs) >= assetrefs.MaxRefs {
 		httpjson.WriteError(w, http.StatusConflict, capReached())
 		return
 	}
@@ -205,23 +226,24 @@ func (h *handler) addRef(w http.ResponseWriter, r *http.Request) {
 		httpjson.WriteError(w, http.StatusInternalServerError, "failed to add the reference")
 		return
 	}
-	ref := portaldomain.AssetResourceRef{
+	ref := assetrefs.Ref{
 		AssetID:    asset.ID,
-		ResourceID: res.ID,
-		URI:        res.URI,
+		TargetKind: kind,
+		TargetID:   target.id,
+		URI:        target.uri,
 		RefToken:   token,
 		DeclaredBy: user.Email,
 	}
 	added, err := h.cfg.Refs.Attach(r.Context(), ref)
 	if err != nil {
-		slog.Error("asset resource references: attach failed",
+		slog.Error("asset references: attach failed",
 			logKeyAssetID, logsan.SanitizeForLog(asset.ID),
 			logKeyError, logsan.SanitizeForLog(err.Error()))
 		httpjson.WriteError(w, http.StatusInternalServerError, "failed to save the reference")
 		return
 	}
 	if !added {
-		httpjson.WriteError(w, http.StatusConflict, "this asset already references that file")
+		httpjson.WriteError(w, http.StatusConflict, "this asset already references that")
 		return
 	}
 	// The same record the agent's save writes, from the other door: an
@@ -230,46 +252,54 @@ func (h *handler) addRef(w http.ResponseWriter, r *http.Request) {
 	h.reloadAndWrite(w, r, asset, user)
 }
 
-// removeRef stops this asset referencing a resource.
+// removeRef stops this asset referencing a target.
 //
 // It is allowed even when the content still names the URI. The reference and
 // the markup are two facts an author keeps in step themselves, and the panel
 // warns with the lines the URI appears on before it asks; refusing here would
 // leave someone unable to withdraw a grant until they had edited a document.
 //
-// @Summary      Remove an asset's reference to a resource
-// @Description  Removes one managed resource from the asset's references. The asset's stored content is not changed, so a URI still written in the markup stops resolving. Returns the asset's references after the removal.
+// @Summary      Remove one of an asset's references
+// @Description  Removes one reference from the asset. The asset's stored content is not changed, so a URI still written in the markup stops resolving. Returns the asset's references after the removal.
 // @Tags         Portal
 // @Produce      json
-// @Param        id          path  string  true  "Asset ID"
-// @Param        resourceID  path  string  true  "Resource ID"
+// @Param        id        path  string  true  "Asset ID"
+// @Param        kind      path  string  true  "Target kind (resource or asset)"
+// @Param        targetID  path  string  true  "Target ID"
 // @Success      200  {object}  listResponse
+// @Failure      400  {object}  httpjson.ProblemDetail
 // @Failure      401  {object}  httpjson.ProblemDetail
 // @Failure      403  {object}  httpjson.ProblemDetail
 // @Failure      404  {object}  httpjson.ProblemDetail
 // @Failure      500  {object}  httpjson.ProblemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
-// @Router       /portal/assets/{id}/resources/{resourceID} [delete]
+// @Router       /portal/assets/{id}/references/{kind}/{targetID} [delete]
 func (h *handler) removeRef(w http.ResponseWriter, r *http.Request) {
 	user, asset, ok := h.editableAsset(w, r)
 	if !ok {
 		return
 	}
-	resourceID := r.PathValue(pathKeyResource)
-	removed, err := h.cfg.Refs.Detach(r.Context(), asset.ID, resourceID)
+	kind := assetrefs.TargetKind(r.PathValue(pathKeyKind))
+	if !kind.Valid() {
+		httpjson.WriteError(w, http.StatusBadRequest,
+			`the kind in the path must be "resource" or "asset"`)
+		return
+	}
+	targetID := r.PathValue(pathKeyTarget)
+	removed, err := h.cfg.Refs.Detach(r.Context(), asset.ID, kind, targetID)
 	if err != nil {
-		slog.Error("asset resource references: detach failed",
+		slog.Error("asset references: detach failed",
 			logKeyAssetID, logsan.SanitizeForLog(asset.ID),
 			logKeyError, logsan.SanitizeForLog(err.Error()))
 		httpjson.WriteError(w, http.StatusInternalServerError, "failed to remove the reference")
 		return
 	}
 	if !removed {
-		httpjson.WriteError(w, http.StatusNotFound, "this asset does not reference that file")
+		httpjson.WriteError(w, http.StatusNotFound, "this asset does not reference that")
 		return
 	}
-	assetrefs.LogRevoked(asset.ID, resourceID, user.Email)
+	assetrefs.LogRevoked(asset.ID, kind, targetID, user.Email)
 	h.reloadAndWrite(w, r, asset, user)
 }
 
@@ -282,7 +312,7 @@ func (h *handler) removeRef(w http.ResponseWriter, r *http.Request) {
 type listing struct {
 	asset   *portaldomain.Asset
 	user    *access.User
-	refs    []portaldomain.AssetResourceRef
+	refs    []assetrefs.Ref
 	canEdit bool
 }
 
@@ -296,7 +326,7 @@ func (h *handler) writeList(w http.ResponseWriter, r *http.Request, l listing) {
 		Total:          len(refs),
 		Audience:       h.audienceOf(r, asset.ID),
 		CanEdit:        l.canEdit,
-		Max:            portaldomain.MaxAssetResourceRefs,
+		Max:            assetrefs.MaxRefs,
 		Notice:         assetrefs.GrantNotice,
 		ContentScanned: scanned,
 	})
@@ -318,70 +348,143 @@ func (h *handler) reloadAndWrite(
 	h.writeList(w, r, listing{asset: asset, user: user, refs: refs, canEdit: true})
 }
 
-// views renders the reference rows: the resource behind each one, the URL it is
+// views renders the reference rows: the target behind each one, the URL it is
 // served under, and where the content still names it.
 //
-// A resource that cannot be read from the store is rendered broken rather than
+// A target that cannot be read from its store is rendered broken rather than
 // omitted, on the same terms a deleted one is: the row is what tells the owner
-// their report is serving without that file.
+// their report is serving without it.
 func (h *handler) views(
 	r *http.Request, asset *portaldomain.Asset, user *access.User,
-	refs []portaldomain.AssetResourceRef,
+	refs []assetrefs.Ref,
 ) ([]refView, bool) {
 	resources := h.resourcesOf(r, refs)
+	assets := h.targetAssetsOf(r, refs)
 	occurrences, scanned := h.scanContent(r, asset, refs)
 	claims := h.cfg.Claims(user)
 
 	out := make([]refView, 0, len(refs))
 	for _, ref := range refs {
 		view := refView{
-			ResourceID:  ref.ResourceID,
+			TargetKind:  string(ref.TargetKind),
+			TargetID:    ref.TargetID,
 			URI:         ref.URI,
 			Position:    ref.Position,
 			DeclaredBy:  ref.DeclaredBy,
 			ContentURL:  assetrefs.URL("", asset.ID, ref.RefToken),
-			Occurrences: occurrences[ref.ResourceID],
+			Occurrences: occurrences[refKey(ref)],
 		}
-		res := resources[ref.ResourceID]
-		if res == nil {
+		switch ref.TargetKind {
+		case assetrefs.TargetResource:
+			fillResource(&view, resources[ref.TargetID], claims)
+		case assetrefs.TargetAsset:
+			h.fillAsset(r, &view, assets[ref.TargetID], user)
+		default:
 			view.Broken = true
-			out = append(out, view)
-			continue
 		}
-		view.DisplayName = res.DisplayName
-		view.Filename = res.Filename
-		view.Description = res.Description
-		view.Category = res.Category
-		view.MIMEType = res.MIMEType
-		view.SizeBytes = res.SizeBytes
-		view.Scope = string(res.Scope)
-		view.ScopeID = res.ScopeID
-		view.Readable = resource.CanReadResource(claims, res)
 		out = append(out, view)
 	}
 	return out, scanned
 }
 
-// resourcesOf reads every referenced resource in one call. A read failure
-// yields an empty map, which renders every row broken -- the honest answer when
-// the platform cannot say whether the files are still there.
-func (h *handler) resourcesOf(
-	r *http.Request, refs []portaldomain.AssetResourceRef,
-) map[string]*resource.Resource {
-	if len(refs) == 0 {
-		return nil
+// fillResource renders a resource row, or marks it broken when the resource is
+// gone.
+func fillResource(view *refView, res *resource.Resource, claims resource.Claims) {
+	if res == nil {
+		view.Broken = true
+		return
 	}
-	ids := make([]string, 0, len(refs))
-	for _, ref := range refs {
-		ids = append(ids, ref.ResourceID)
+	view.DisplayName = res.DisplayName
+	view.Filename = res.Filename
+	view.Description = res.Description
+	view.Category = res.Category
+	view.MIMEType = res.MIMEType
+	view.SizeBytes = res.SizeBytes
+	view.Scope = string(res.Scope)
+	view.ScopeID = res.ScopeID
+	view.Readable = resource.CanReadResource(claims, res)
+}
+
+// fillAsset renders an asset row, or marks it broken when the asset is gone or
+// has been deleted (#1488).
+//
+// Readable is the reader's own access to the referenced asset, which costs a
+// share read per row and is worth it for the same reason it is on a resource:
+// it decides whether the row links anywhere, and a link to an asset the reader
+// cannot open leads only to a refusal.
+func (h *handler) fillAsset(
+	r *http.Request, view *refView, target *portaldomain.Asset, user *access.User,
+) {
+	if target == nil || target.DeletedAt != nil {
+		view.Broken = true
+		return
+	}
+	view.DisplayName = target.Name
+	view.Description = target.Description
+	view.MIMEType = target.ContentType
+	view.SizeBytes = target.SizeBytes
+	view.OwnerEmail = target.OwnerEmail
+	view.Readable = h.access.CanManage(target.OwnerID, user) ||
+		h.access.CanViewAsset(r.Context(), target.ID, target, user)
+}
+
+// refKey identifies one reference within an asset, kind included: a resource id
+// and an asset id are separate id spaces, so the id alone would let one row's
+// occurrences be reported against the other's.
+func refKey(ref assetrefs.Ref) string {
+	return string(ref.TargetKind) + ":" + ref.TargetID
+}
+
+// resourcesOf reads every referenced resource in one call. A read failure
+// yields an empty map, which renders those rows broken -- the honest answer
+// when the platform cannot say whether the files are still there.
+func (h *handler) resourcesOf(
+	r *http.Request, refs []assetrefs.Ref,
+) map[string]*resource.Resource {
+	ids := targetIDs(refs, assetrefs.TargetResource)
+	// A nil reader is a deployment with no managed-resource layer. Rows naming
+	// a resource may still exist there -- from before it was turned off -- and
+	// they render broken, which is the honest answer when the platform cannot
+	// say whether the files are still there.
+	if len(ids) == 0 || h.cfg.Resources == nil {
+		return nil
 	}
 	resources, err := h.cfg.Resources.GetByIDs(r.Context(), ids)
 	if err != nil {
-		slog.Warn("asset resource references: reading referenced resources failed",
+		slog.Warn("asset references: reading referenced resources failed",
 			logKeyError, logsan.SanitizeForLog(err.Error()))
 		return nil
 	}
 	return resources
+}
+
+// targetAssetsOf reads every referenced asset in one call, on the same terms.
+func (h *handler) targetAssetsOf(
+	r *http.Request, refs []assetrefs.Ref,
+) map[string]*portaldomain.Asset {
+	ids := targetIDs(refs, assetrefs.TargetAsset)
+	if len(ids) == 0 {
+		return nil
+	}
+	assets, err := h.cfg.Assets.GetByIDs(r.Context(), ids)
+	if err != nil {
+		slog.Warn("asset references: reading referenced assets failed",
+			logKeyError, logsan.SanitizeForLog(err.Error()))
+		return nil
+	}
+	return assets
+}
+
+// targetIDs collects the ids of one kind, so each store is asked once for
+// exactly the rows it owns.
+func targetIDs(refs []assetrefs.Ref, kind assetrefs.TargetKind) []string {
+	ids := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if ref.TargetKind == kind {
+			ids = append(ids, ref.TargetID)
+		}
+	}
+	return ids
 }
 
 // audienceOf reports how widely the asset is shared. With no share store, or on
@@ -393,7 +496,7 @@ func (h *handler) audienceOf(r *http.Request, assetID string) audience {
 	}
 	summaries, err := h.cfg.Shares.ListActiveShareSummaries(r.Context(), []string{assetID})
 	if err != nil {
-		slog.Warn("asset resource references: reading share summary failed",
+		slog.Warn("asset references: reading share summary failed",
 			logKeyAssetID, logsan.SanitizeForLog(assetID),
 			logKeyError, logsan.SanitizeForLog(err.Error()))
 		return audience{}
@@ -405,19 +508,20 @@ func (h *handler) audienceOf(r *http.Request, assetID string) audience {
 // refsOf reads one asset's references, writing the failure response itself.
 func (h *handler) refsOf(
 	w http.ResponseWriter, r *http.Request, assetID string,
-) ([]portaldomain.AssetResourceRef, bool) {
+) ([]assetrefs.Ref, bool) {
 	refs, err := h.cfg.Refs.ListByAsset(r.Context(), assetID)
 	if err != nil {
-		slog.Error("asset resource references: list failed",
+		slog.Error("asset references: list failed",
 			logKeyAssetID, logsan.SanitizeForLog(assetID),
 			logKeyError, logsan.SanitizeForLog(err.Error()))
-		httpjson.WriteError(w, http.StatusInternalServerError, "failed to list the referenced files")
+		httpjson.WriteError(w, http.StatusInternalServerError, "failed to list the references")
 		return nil, false
 	}
 	return refs, true
 }
 
-// viewableAsset loads the {id} asset and refuses a reader who may not open it.
+// viewableAsset loads the asset named by pathKey and refuses a reader who may
+// not open it.
 //
 // Owner authority is checked before the share cascade, which admits an
 // administrator as well as the owner. The panel is rendered by the same asset
@@ -430,9 +534,9 @@ func (h *handler) refsOf(
 // already holds, and splitting the two would say more about which ids exist
 // than the parent does.
 func (h *handler) viewableAsset(
-	w http.ResponseWriter, r *http.Request, user *access.User,
+	w http.ResponseWriter, r *http.Request, pathKey string, user *access.User,
 ) (*portaldomain.Asset, bool) {
-	id := r.PathValue(pathKeyID)
+	id := r.PathValue(pathKey)
 	asset, err := h.cfg.Assets.Get(r.Context(), id)
 	if err != nil || asset == nil {
 		httpjson.WriteError(w, http.StatusNotFound, errAssetNotFound)
@@ -468,7 +572,7 @@ func (h *handler) editableAsset(
 	if user == nil {
 		return nil, nil, false
 	}
-	asset, ok := h.viewableAsset(w, r, user)
+	asset, ok := h.viewableAsset(w, r, pathKeyID, user)
 	if !ok {
 		return nil, nil, false
 	}
@@ -479,6 +583,39 @@ func (h *handler) editableAsset(
 	return user, asset, true
 }
 
+// target is what a validated add resolved to: the id to record and the URI the
+// content has to name for the reference to render.
+type target struct {
+	id  string
+	uri string
+}
+
+// wanted is what an add asked for, as one value: a kind and an id in that
+// kind's id space, which are the two halves of a reference's identity and are
+// never passed apart.
+type wanted struct {
+	kind assetrefs.TargetKind
+	id   string
+}
+
+// readableTarget loads what the caller named and refuses a target they cannot
+// read. A target that does not exist and one outside the caller's reach get the
+// same answer, so being refused cannot be used to learn that something is
+// there.
+func (h *handler) readableTarget(
+	w http.ResponseWriter, r *http.Request, want wanted,
+	asset *portaldomain.Asset, user *access.User,
+) (target, bool) {
+	if want.kind == assetrefs.TargetAsset {
+		return h.readableAssetTarget(w, r, want.id, asset, user)
+	}
+	res, ok := h.readableResource(w, r, want.id, user)
+	if !ok {
+		return target{}, false
+	}
+	return target{id: res.ID, uri: res.URI}, true
+}
+
 // readableResource loads a resource the caller named and refuses one they
 // cannot read. A resource that does not exist and one outside the caller's
 // reach get the same answer, so being refused cannot be used to learn that a
@@ -486,6 +623,10 @@ func (h *handler) editableAsset(
 func (h *handler) readableResource(
 	w http.ResponseWriter, r *http.Request, id string, user *access.User,
 ) (*resource.Resource, bool) {
+	if h.cfg.Resources == nil {
+		httpjson.WriteError(w, http.StatusNotFound, errResourceNotFound)
+		return nil, false
+	}
 	res, err := h.cfg.Resources.Get(r.Context(), id)
 	if err != nil && !resource.IsNotFound(err) {
 		httpjson.WriteError(w, http.StatusInternalServerError, "failed to read resource")
@@ -496,4 +637,32 @@ func (h *handler) readableResource(
 		return nil, false
 	}
 	return res, true
+}
+
+// readableAssetTarget resolves a referenced asset and refuses one the caller
+// cannot open (#1488).
+//
+// An asset referencing itself is refused. The serving route answers such a
+// reference rather than following it, so nothing breaks, but the reference
+// resolves to the very content it was written in and there is no reading of it
+// the author could have meant.
+func (h *handler) readableAssetTarget(
+	w http.ResponseWriter, r *http.Request, id string,
+	asset *portaldomain.Asset, user *access.User,
+) (target, bool) {
+	if id == asset.ID {
+		httpjson.WriteError(w, http.StatusBadRequest, "an asset cannot reference itself")
+		return target{}, false
+	}
+	found, err := h.cfg.Assets.Get(r.Context(), id)
+	if err != nil || found == nil || found.DeletedAt != nil {
+		httpjson.WriteError(w, http.StatusNotFound, errAssetNotFound)
+		return target{}, false
+	}
+	if !h.access.CanManage(found.OwnerID, user) &&
+		!h.access.CanViewAsset(r.Context(), found.ID, found, user) {
+		httpjson.WriteError(w, http.StatusNotFound, errAssetNotFound)
+		return target{}, false
+	}
+	return target{id: found.ID, uri: assetrefs.AssetURI(found.ID)}, true
 }

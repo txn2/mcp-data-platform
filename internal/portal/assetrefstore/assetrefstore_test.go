@@ -8,8 +8,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 )
 
 const (
@@ -20,7 +19,7 @@ const (
 
 var errDB = errors.New("connection refused")
 
-func newMock(t *testing.T) (portaldomain.AssetResourceRefStore, sqlmock.Sqlmock) {
+func newMock(t *testing.T) (assetrefs.Store, sqlmock.Sqlmock) {
 	t.Helper()
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
@@ -28,16 +27,18 @@ func newMock(t *testing.T) (portaldomain.AssetResourceRefStore, sqlmock.Sqlmock)
 	return New(db), mock
 }
 
-func sampleRef() portaldomain.AssetResourceRef {
-	return portaldomain.AssetResourceRef{
-		AssetID: assetID, ResourceID: "res-logo", URI: logoURI,
+func sampleRef() assetrefs.Ref {
+	return assetrefs.Ref{
+		AssetID: assetID, TargetKind: assetrefs.TargetResource,
+		TargetID: "res-logo", URI: logoURI,
 		RefToken: refToken, DeclaredBy: "analyst@example.com",
 	}
 }
 
 func refRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
-		"asset_id", "resource_id", "uri", "ref_token", "position", "declared_by", "created_at",
+		"asset_id", "target_kind", "target_id", "uri", "ref_token",
+		"position", "declared_by", "created_at",
 	})
 }
 
@@ -48,14 +49,14 @@ func TestReplaceClearsThenWritesInOneTransaction(t *testing.T) {
 	store, mock := newMock(t)
 
 	mock.ExpectBegin()
-	mock.ExpectExec("DELETE FROM portal_asset_resource_refs").
+	mock.ExpectExec("DELETE FROM portal_asset_refs").
 		WithArgs(assetID).WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec("INSERT INTO portal_asset_resource_refs").
-		WithArgs(assetID, "res-logo", logoURI, refToken, 0, "analyst@example.com").
+	mock.ExpectExec("INSERT INTO portal_asset_refs").
+		WithArgs(assetID, "resource", "res-logo", logoURI, refToken, 0, "analyst@example.com").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
-	require.NoError(t, store.Replace(t.Context(), assetID, []portaldomain.AssetResourceRef{sampleRef()}))
+	require.NoError(t, store.Replace(t.Context(), assetID, []assetrefs.Ref{sampleRef()}))
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -65,24 +66,24 @@ func TestReplaceClearsThenWritesInOneTransaction(t *testing.T) {
 func TestReplaceStampsDeclaredOrder(t *testing.T) {
 	store, mock := newMock(t)
 	second := sampleRef()
-	second.ResourceID = "res-photo"
+	second.TargetID = "res-photo"
 	second.URI = "mcp://global/brand/photo.jpg"
 	second.RefToken = "tok-photo"
 	second.Position = 99 // deliberately wrong; the store assigns the real one
 
 	mock.ExpectBegin()
-	mock.ExpectExec("DELETE FROM portal_asset_resource_refs").
+	mock.ExpectExec("DELETE FROM portal_asset_refs").
 		WithArgs(assetID).WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectExec("INSERT INTO portal_asset_resource_refs").
-		WithArgs(assetID, "res-logo", logoURI, refToken, 0, "analyst@example.com").
+	mock.ExpectExec("INSERT INTO portal_asset_refs").
+		WithArgs(assetID, "resource", "res-logo", logoURI, refToken, 0, "analyst@example.com").
 		WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectExec("INSERT INTO portal_asset_resource_refs").
-		WithArgs(assetID, "res-photo", second.URI, "tok-photo", 1, "analyst@example.com").
+	mock.ExpectExec("INSERT INTO portal_asset_refs").
+		WithArgs(assetID, "resource", "res-photo", second.URI, "tok-photo", 1, "analyst@example.com").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
 	require.NoError(t, store.Replace(t.Context(), assetID,
-		[]portaldomain.AssetResourceRef{sampleRef(), second}))
+		[]assetrefs.Ref{sampleRef(), second}))
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -92,7 +93,7 @@ func TestReplaceEmptyRemovesEveryReference(t *testing.T) {
 	store, mock := newMock(t)
 
 	mock.ExpectBegin()
-	mock.ExpectExec("DELETE FROM portal_asset_resource_refs").
+	mock.ExpectExec("DELETE FROM portal_asset_refs").
 		WithArgs(assetID).WillReturnResult(sqlmock.NewResult(0, 2))
 	mock.ExpectCommit()
 
@@ -106,12 +107,12 @@ func TestReplaceRollsBackOnInsertFailure(t *testing.T) {
 	store, mock := newMock(t)
 
 	mock.ExpectBegin()
-	mock.ExpectExec("DELETE FROM portal_asset_resource_refs").
+	mock.ExpectExec("DELETE FROM portal_asset_refs").
 		WithArgs(assetID).WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec("INSERT INTO portal_asset_resource_refs").WillReturnError(errDB)
+	mock.ExpectExec("INSERT INTO portal_asset_refs").WillReturnError(errDB)
 	mock.ExpectRollback()
 
-	err := store.Replace(t.Context(), assetID, []portaldomain.AssetResourceRef{sampleRef()})
+	err := store.Replace(t.Context(), assetID, []assetrefs.Ref{sampleRef()})
 	require.ErrorIs(t, err, errDB)
 	assert.Contains(t, err.Error(), logoURI, "the failure must name the reference that could not be recorded")
 	assert.NoError(t, mock.ExpectationsWereMet())
@@ -123,12 +124,12 @@ func TestReplaceReportsFailures(t *testing.T) {
 		"begin fails": func(m sqlmock.Sqlmock) { m.ExpectBegin().WillReturnError(errDB) },
 		"delete fails": func(m sqlmock.Sqlmock) {
 			m.ExpectBegin()
-			m.ExpectExec("DELETE FROM portal_asset_resource_refs").WillReturnError(errDB)
+			m.ExpectExec("DELETE FROM portal_asset_refs").WillReturnError(errDB)
 			m.ExpectRollback()
 		},
 		"commit fails": func(m sqlmock.Sqlmock) {
 			m.ExpectBegin()
-			m.ExpectExec("DELETE FROM portal_asset_resource_refs").
+			m.ExpectExec("DELETE FROM portal_asset_refs").
 				WillReturnResult(sqlmock.NewResult(0, 0))
 			m.ExpectCommit().WillReturnError(errDB)
 		},
@@ -148,16 +149,16 @@ func TestListByAssetReturnsDeclaredOrder(t *testing.T) {
 	store, mock := newMock(t)
 	now := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 
-	mock.ExpectQuery("SELECT asset_id, resource_id, uri, ref_token, position, declared_by, created_at").
+	mock.ExpectQuery("SELECT asset_id, target_kind, target_id, uri, ref_token, position, declared_by, created_at").
 		WithArgs(assetID).
 		WillReturnRows(refRows().
-			AddRow(assetID, "res-logo", logoURI, refToken, 0, "analyst@example.com", now).
-			AddRow(assetID, "res-photo", "mcp://global/brand/photo.jpg", "tok-photo", 1, "", now))
+			AddRow(assetID, "resource", "res-logo", logoURI, refToken, 0, "analyst@example.com", now).
+			AddRow(assetID, "resource", "res-photo", "mcp://global/brand/photo.jpg", "tok-photo", 1, "", now))
 
 	got, err := store.ListByAsset(t.Context(), assetID)
 	require.NoError(t, err)
 	require.Len(t, got, 2)
-	assert.Equal(t, "res-logo", got[0].ResourceID)
+	assert.Equal(t, "res-logo", got[0].TargetID)
 	assert.Equal(t, refToken, got[0].RefToken)
 	assert.Equal(t, 1, got[1].Position)
 	assert.NoError(t, mock.ExpectationsWereMet())
@@ -175,14 +176,14 @@ func TestListByAssetReportsFailures(t *testing.T) {
 	t.Run("scan fails", func(t *testing.T) {
 		store, mock := newMock(t)
 		mock.ExpectQuery("SELECT asset_id").WillReturnRows(
-			refRows().AddRow(assetID, "res-logo", logoURI, refToken, "not-an-int", "", time.Now()))
+			refRows().AddRow(assetID, "resource", "res-logo", logoURI, refToken, "not-an-int", "", time.Now()))
 		_, err := store.ListByAsset(t.Context(), assetID)
 		assert.Error(t, err)
 	})
 	t.Run("rows error", func(t *testing.T) {
 		store, mock := newMock(t)
 		mock.ExpectQuery("SELECT asset_id").WillReturnRows(refRows().RowError(0, errDB).
-			AddRow(assetID, "res-logo", logoURI, refToken, 0, "", time.Now()))
+			AddRow(assetID, "resource", "res-logo", logoURI, refToken, 0, "", time.Now()))
 		_, err := store.ListByAsset(t.Context(), assetID)
 		assert.ErrorIs(t, err, errDB)
 	})
@@ -197,12 +198,12 @@ func TestGetByTokenRequiresBothAssetAndToken(t *testing.T) {
 
 	mock.ExpectQuery("WHERE asset_id = \\$1 AND ref_token = \\$2").
 		WithArgs(assetID, refToken).
-		WillReturnRows(refRows().AddRow(assetID, "res-logo", logoURI, refToken, 0, "", now))
+		WillReturnRows(refRows().AddRow(assetID, "resource", "res-logo", logoURI, refToken, 0, "", now))
 
 	got, err := store.GetByToken(t.Context(), assetID, refToken)
 	require.NoError(t, err)
 	require.NotNil(t, got)
-	assert.Equal(t, "res-logo", got.ResourceID)
+	assert.Equal(t, "res-logo", got.TargetID)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -228,19 +229,19 @@ func TestGetByTokenReportsRealFailures(t *testing.T) {
 	assert.Nil(t, got)
 }
 
-// TestListByResourceFiltersOnTheResource is the read the resource's own detail
+// TestListByTargetFiltersOnKindAndID is the read the resource's own detail
 // view makes: every asset naming one file, whoever owns them.
-func TestListByResourceFiltersOnTheResource(t *testing.T) {
+func TestListByTargetFiltersOnKindAndID(t *testing.T) {
 	store, mock := newMock(t)
 	now := time.Now()
 
-	mock.ExpectQuery("SELECT .+ FROM portal_asset_resource_refs WHERE resource_id = ").
-		WithArgs("res-logo", 50).
+	mock.ExpectQuery("SELECT .+ FROM portal_asset_refs WHERE target_kind = .+ AND target_id = ").
+		WithArgs("resource", "res-logo", 50).
 		WillReturnRows(refRows().
-			AddRow(assetID, "res-logo", logoURI, refToken, 0, "analyst@example.com", now).
-			AddRow("asset_2", "res-logo", logoURI, "tok-2", 0, "analyst@example.com", now))
+			AddRow(assetID, "resource", "res-logo", logoURI, refToken, 0, "analyst@example.com", now).
+			AddRow("asset_2", "resource", "res-logo", logoURI, "tok-2", 0, "analyst@example.com", now))
 
-	refs, err := store.ListByResource(t.Context(), "res-logo", 50)
+	refs, err := store.ListByTarget(t.Context(), assetrefs.TargetResource, "res-logo", 50)
 	require.NoError(t, err)
 	require.Len(t, refs, 2)
 	assert.Equal(t, assetID, refs[0].AssetID)
@@ -250,38 +251,38 @@ func TestListByResourceFiltersOnTheResource(t *testing.T) {
 
 // A resource nothing references is an empty answer, not an error: the section
 // that reads this renders nothing rather than a failure.
-func TestListByResourceNoReferences(t *testing.T) {
+func TestListByTargetNoReferences(t *testing.T) {
 	store, mock := newMock(t)
 
-	mock.ExpectQuery("SELECT .+ FROM portal_asset_resource_refs WHERE resource_id = ").
-		WithArgs("res-orphan", 50).WillReturnRows(refRows())
+	mock.ExpectQuery("SELECT .+ FROM portal_asset_refs WHERE target_kind = .+ AND target_id = ").
+		WithArgs("resource", "res-orphan", 50).WillReturnRows(refRows())
 
-	refs, err := store.ListByResource(t.Context(), "res-orphan", 50)
+	refs, err := store.ListByTarget(t.Context(), assetrefs.TargetResource, "res-orphan", 50)
 	require.NoError(t, err)
 	assert.Empty(t, refs)
 }
 
-func TestListByResourceQueryFailure(t *testing.T) {
+func TestListByTargetQueryFailure(t *testing.T) {
 	store, mock := newMock(t)
 
-	mock.ExpectQuery("SELECT .+ FROM portal_asset_resource_refs WHERE resource_id = ").
+	mock.ExpectQuery("SELECT .+ FROM portal_asset_refs WHERE target_kind = .+ AND target_id = ").
 		WillReturnError(errDB)
 
-	_, err := store.ListByResource(t.Context(), "res-logo", 50)
+	_, err := store.ListByTarget(t.Context(), assetrefs.TargetResource, "res-logo", 50)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, errDB)
 }
 
 // A row whose columns do not match the scan is an error rather than a partial
 // list, so a schema drift is reported instead of silently shortening the answer.
-func TestListByResourceScanFailure(t *testing.T) {
+func TestListByTargetScanFailure(t *testing.T) {
 	store, mock := newMock(t)
 
-	mock.ExpectQuery("SELECT .+ FROM portal_asset_resource_refs WHERE resource_id = ").
+	mock.ExpectQuery("SELECT .+ FROM portal_asset_refs WHERE target_kind = .+ AND target_id = ").
 		WillReturnRows(refRows().
-			AddRow(assetID, "res-logo", logoURI, refToken, "not-an-int", "a@example.com", time.Now()))
+			AddRow(assetID, "resource", "res-logo", logoURI, refToken, "not-an-int", "a@example.com", time.Now()))
 
-	_, err := store.ListByResource(t.Context(), "res-logo", 50)
+	_, err := store.ListByTarget(t.Context(), assetrefs.TargetResource, "res-logo", 50)
 	assert.Error(t, err)
 }
 
@@ -292,8 +293,8 @@ func TestListByResourceScanFailure(t *testing.T) {
 func TestAttachInsertsAtTheEndAndReportsDuplicate(t *testing.T) {
 	store, mock := newMock(t)
 
-	mock.ExpectExec("INSERT INTO portal_asset_resource_refs").
-		WithArgs(assetID, "res-logo", logoURI, refToken, "analyst@example.com").
+	mock.ExpectExec("INSERT INTO portal_asset_refs").
+		WithArgs(assetID, "resource", "res-logo", logoURI, refToken, "analyst@example.com").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	added, err := store.Attach(t.Context(), sampleRef())
@@ -306,7 +307,7 @@ func TestAttachAlreadyReferenced(t *testing.T) {
 	store, mock := newMock(t)
 
 	// ON CONFLICT DO NOTHING: no error, no row.
-	mock.ExpectExec("INSERT INTO portal_asset_resource_refs").
+	mock.ExpectExec("INSERT INTO portal_asset_refs").
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
 	added, err := store.Attach(t.Context(), sampleRef())
@@ -316,7 +317,7 @@ func TestAttachAlreadyReferenced(t *testing.T) {
 
 func TestAttachFailure(t *testing.T) {
 	store, mock := newMock(t)
-	mock.ExpectExec("INSERT INTO portal_asset_resource_refs").WillReturnError(errDB)
+	mock.ExpectExec("INSERT INTO portal_asset_refs").WillReturnError(errDB)
 
 	_, err := store.Attach(t.Context(), sampleRef())
 	assert.ErrorIs(t, err, errDB)
@@ -325,10 +326,10 @@ func TestAttachFailure(t *testing.T) {
 func TestDetachRemovesOneAndReportsIt(t *testing.T) {
 	store, mock := newMock(t)
 
-	mock.ExpectExec("DELETE FROM portal_asset_resource_refs").
-		WithArgs(assetID, "res-logo").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("DELETE FROM portal_asset_refs").
+		WithArgs(assetID, "resource", "res-logo").WillReturnResult(sqlmock.NewResult(0, 1))
 
-	removed, err := store.Detach(t.Context(), assetID, "res-logo")
+	removed, err := store.Detach(t.Context(), assetID, assetrefs.TargetResource, "res-logo")
 	require.NoError(t, err)
 	assert.True(t, removed)
 	assert.NoError(t, mock.ExpectationsWereMet())
@@ -339,32 +340,77 @@ func TestDetachRemovesOneAndReportsIt(t *testing.T) {
 func TestDetachNothingToRemove(t *testing.T) {
 	store, mock := newMock(t)
 
-	mock.ExpectExec("DELETE FROM portal_asset_resource_refs").
+	mock.ExpectExec("DELETE FROM portal_asset_refs").
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
-	removed, err := store.Detach(t.Context(), assetID, "res-nope")
+	removed, err := store.Detach(t.Context(), assetID, assetrefs.TargetResource, "res-nope")
 	require.NoError(t, err)
 	assert.False(t, removed)
 }
 
 func TestDetachFailure(t *testing.T) {
 	store, mock := newMock(t)
-	mock.ExpectExec("DELETE FROM portal_asset_resource_refs").WillReturnError(errDB)
+	mock.ExpectExec("DELETE FROM portal_asset_refs").WillReturnError(errDB)
 
-	_, err := store.Detach(t.Context(), assetID, "res-logo")
+	_, err := store.Detach(t.Context(), assetID, assetrefs.TargetResource, "res-logo")
 	assert.ErrorIs(t, err, errDB)
 }
 
 // The limit reaches the SQL rather than being applied to the rows after they
 // arrive: narrowing the answer to what a reader may open costs a query per
 // asset, so the rows this read returns are the work the route is bounded by.
-func TestListByResourceAppliesTheLimitInSQL(t *testing.T) {
+func TestListByTargetAppliesTheLimitInSQL(t *testing.T) {
 	store, mock := newMock(t)
 
-	mock.ExpectQuery("SELECT .+ FROM portal_asset_resource_refs WHERE resource_id = .+ LIMIT ").
-		WithArgs("res-logo", 7).WillReturnRows(refRows())
+	mock.ExpectQuery("SELECT .+ FROM portal_asset_refs WHERE target_kind = .+ AND target_id = .+ LIMIT ").
+		WithArgs("resource", "res-logo", 7).WillReturnRows(refRows())
 
-	_, err := store.ListByResource(t.Context(), "res-logo", 7)
+	_, err := store.ListByTarget(t.Context(), assetrefs.TargetResource, "res-logo", 7)
 	require.NoError(t, err)
 	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestAttachAndDetachKeyOnTheKind is what makes the two id spaces safe to share
+// one table (#1488): a resource and an asset whose ids happen to match are two
+// references, and detaching one must not remove the other.
+func TestAttachAndDetachKeyOnTheKind(t *testing.T) {
+	store, mock := newMock(t)
+	assetRef := sampleRef()
+	assetRef.TargetKind = assetrefs.TargetAsset
+	assetRef.TargetID = "res-logo" // deliberately the same string as the resource
+	assetRef.URI = "mcp:asset:res-logo"
+	assetRef.RefToken = "tok-asset"
+
+	mock.ExpectExec("INSERT INTO portal_asset_refs").
+		WithArgs(assetID, "asset", "res-logo", "mcp:asset:res-logo", "tok-asset", "analyst@example.com").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("DELETE FROM portal_asset_refs").
+		WithArgs(assetID, "asset", "res-logo").WillReturnResult(sqlmock.NewResult(0, 1))
+
+	added, err := store.Attach(t.Context(), assetRef)
+	require.NoError(t, err)
+	assert.True(t, added)
+
+	removed, err := store.Detach(t.Context(), assetID, assetrefs.TargetAsset, "res-logo")
+	require.NoError(t, err)
+	assert.True(t, removed)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestReadsCarryTheKindBack proves the stored kind survives the round trip: a
+// row read back as the wrong kind would be served from the wrong store.
+func TestReadsCarryTheKindBack(t *testing.T) {
+	store, mock := newMock(t)
+	now := time.Now()
+
+	mock.ExpectQuery("SELECT .+ FROM portal_asset_refs").
+		WithArgs(assetID).
+		WillReturnRows(refRows().
+			AddRow(assetID, "asset", "ast-target", "mcp:asset:ast-target", refToken, 0, "", now))
+
+	got, err := store.ListByAsset(t.Context(), assetID)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, assetrefs.TargetAsset, got[0].TargetKind)
+	assert.Equal(t, "ast-target", got[0].TargetID)
 }

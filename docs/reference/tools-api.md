@@ -1391,7 +1391,7 @@ Content crosses the wire in one of two fields. `content` carries text — CSV, J
   "category": "datasets",
   "content_type": "text/csv",
   "size_bytes": 2481,
-  "message": "Created. Reference it from an asset by passing the uri above in save_asset's 'resources', ..."
+  "message": "Created. Reference it from an asset by passing the uri above in save_asset's 'references', ..."
 }
 ```
 
@@ -1413,4 +1413,4 @@ Content crosses the wire in one of two fields. `content` carries text — CSV, J
 | No signed-in identity | `Writing a managed resource needs a signed-in identity. ...` |
 | No managed-resource layer | `This deployment has no managed-resource library to write to: ... Nothing was saved.` |
 
-Creating is scope authority — your own user scope, a persona you administer, or the global scope as a platform administrator — and a refusal names the scope rather than the file, because where it was filed is what the caller has to change. Replacing is the authority to change that file: its uploader, or an administrator of its scope. A resource you cannot see is answered as absent, whether it is missing, deleted, or somebody else's. A managed-script run is judged as the person it acts for: it authenticates as a principal that owns no file, so a create with no scope named files into its version author's library and a replacement reaches what that person uploaded ([Script security](../scripts/security.md#who-a-run-acts-for)). See [Asset Resource References](../server/asset-resource-references.md).
+Creating is scope authority — your own user scope, a persona you administer, or the global scope as a platform administrator — and a refusal names the scope rather than the file, because where it was filed is what the caller has to change. Replacing is the authority to change that file: its uploader, or an administrator of its scope. A resource you cannot see is answered as absent, whether it is missing, deleted, or somebody else's. A managed-script run is judged as the person it acts for: it authenticates as a principal that owns no file, so a create with no scope named files into its version author's library and a replacement reaches what that person uploaded ([Script security](../scripts/security.md#who-a-run-acts-for)). See [Asset References](../server/asset-references.md).

@@ -1,11 +1,12 @@
 import { useMemo, useState } from "react";
-import { AlertTriangle, ExternalLink, Image, Paperclip, Plus, X } from "lucide-react";
+import { AlertTriangle, ExternalLink, FileText, Image, Paperclip, Plus, X } from "lucide-react";
 import {
-  useAssetResources,
-  useRemoveAssetResource,
-  type AssetResourceRef,
-  type AssetResourceRefsResponse,
-} from "@/api/portal/hooks/assetResources";
+  useAssetRefs,
+  useRemoveAssetRef,
+  type AssetRef,
+  type AssetRefsResponse,
+  type RefTarget,
+} from "@/api/portal/hooks/assetRefs";
 
 import { CopyButton } from "@/components/provenance/parts";
 import { EmptyState } from "@/components/patterns/EmptyState";
@@ -14,34 +15,36 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatBytes } from "@/lib/format";
-import { RefPicker } from "./ResourceRefPicker";
+import { RefPicker } from "./ReferencePicker";
 import { ScopeChip } from "./ResourceRefScopeChip";
 
-// ResourceRefsPanel is the person's end of the reference mechanism (#1475):
-// which managed resources this asset's content depends on, adding one, and
-// removing one.
+// ReferencesPanel is the person's end of the reference mechanism (#1475,
+// #1488): what this asset's content depends on -- uploaded files and other
+// assets alike -- adding one, and removing one.
 //
 // Before it, a reference could only be declared by an agent at save time and
-// was invisible afterwards. An owner could not tell which files their report
-// depended on, and someone deciding whether to make an asset public could not
-// see that doing so would hand every one of those files to anyone with the
-// link.
+// was invisible afterwards. An owner could not tell what their report depended
+// on, and someone deciding whether to make an asset public could not see that
+// doing so would hand every one of those things to anyone with the link.
 //
 // It never edits the asset's content. A reference is a declaration beside the
-// content; the markup has to name the URI for the picture to render, which is
-// the author's edit to make, so every row carries the URI with a copy control.
-export function ResourceRefsPanel({
+// content; the markup has to name the reference for the file to load, which is
+// the author's edit to make, so every row carries it with a copy control.
+export function ReferencesPanel({
   assetId,
   resourcePath,
+  assetPath,
   onNavigate,
 }: {
   assetId: string;
   /** Where a managed resource opens for this reader, per surface. Absent, a
    * row names the resource without linking to it. */
   resourcePath?: (resourceId: string) => string;
+  /** Where another asset opens for this reader, on the same terms. */
+  assetPath?: (assetId: string) => string;
   onNavigate?: (path: string) => void;
 }) {
-  const { data, isLoading, isError } = useAssetResources(assetId);
+  const { data, isLoading, isError } = useAssetRefs(assetId);
   const [picking, setPicking] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -54,14 +57,14 @@ export function ResourceRefsPanel({
   // asset depends on nothing.
   //
   // The first load is also nothing, rather than a titled shell. Most assets
-  // reference no files, so a shell would put a card on the sidebar of every
+  // reference nothing, so a shell would put a card on the sidebar of every
   // asset for as long as the read takes and then take it away again.
   if (isError || isLoading || (refs.length === 0 && !canEdit)) {
     return null;
   }
 
   return (
-    <div className="border-t pt-4" data-testid="asset-resource-refs">
+    <div className="border-t pt-4" data-testid="asset-refs">
       <SectionCard
         title={<PanelTitle count={refs.length} />}
         action={
@@ -87,6 +90,7 @@ export function ResourceRefsPanel({
           picking={picking}
           error={error}
           resourcePath={resourcePath}
+          assetPath={assetPath}
           onNavigate={onNavigate}
           onError={setError}
           onClosePicker={() => setPicking(false)}
@@ -94,6 +98,18 @@ export function ResourceRefsPanel({
       </SectionCard>
     </div>
   );
+}
+
+// targetOf addresses one reference: the kind and the id, which together are its
+// identity. A resource id and an asset id are indistinguishable strings, so
+// neither half addresses a reference on its own.
+function targetOf(ref: AssetRef): RefTarget {
+  return { kind: ref.target_kind, id: ref.target_id };
+}
+
+// rowKey is targetOf as a React key.
+function rowKey(ref: AssetRef): string {
+  return `${ref.target_kind}:${ref.target_id}`;
 }
 
 // PanelBody is the section's content in each state it can be in: empty and
@@ -107,17 +123,19 @@ function PanelBody({
   picking,
   error,
   resourcePath,
+  assetPath,
   onNavigate,
   onError,
   onClosePicker,
 }: {
   assetId: string;
-  refs: AssetResourceRef[];
-  list?: AssetResourceRefsResponse;
+  refs: AssetRef[];
+  list?: AssetRefsResponse;
   canEdit: boolean;
   picking: boolean;
   error: string | null;
   resourcePath?: (resourceId: string) => string;
+  assetPath?: (assetId: string) => string;
   onNavigate?: (path: string) => void;
   onError: (msg: string | null) => void;
   onClosePicker: () => void;
@@ -126,8 +144,9 @@ function PanelBody({
     <div className="space-y-3">
       {canEdit && refs.length === 0 && (
         <EmptyState icon={Image}>
-          Reference a logo, photograph, or design element instead of writing its bytes into this
-          asset. The content names the file by its URI and the platform resolves it.
+          Reference a logo, photograph, or another asset&apos;s data instead of writing it into
+          this one. The content names the reference and the platform resolves it, so a data file
+          another job refreshes shows up here without this asset being saved again.
         </EmptyState>
       )}
 
@@ -141,12 +160,13 @@ function PanelBody({
         <ul className="divide-y rounded-lg border">
           {refs.map((ref) => (
             <RefRow
-              key={ref.resource_id}
+              key={rowKey(ref)}
               assetId={assetId}
               refItem={ref}
               canEdit={canEdit}
               contentScanned={list?.content_scanned ?? false}
               resourcePath={resourcePath}
+              assetPath={assetPath}
               onNavigate={onNavigate}
               onError={onError}
             />
@@ -157,7 +177,7 @@ function PanelBody({
       {picking && list && (
         <RefPicker
           assetId={assetId}
-          referenced={refs.map((r) => r.resource_id)}
+          referenced={refs.map(targetOf)}
           audience={list.audience}
           notice={list.notice}
           full={refs.length >= list.max}
@@ -173,13 +193,13 @@ function PanelTitle({ count }: { count: number }) {
   return (
     <span className="flex items-center gap-2">
       <Paperclip className="size-4 text-muted-foreground" />
-      Referenced files
+      References
       {count > 0 && <Badge variant="muted" className="text-[11px]">{count}</Badge>}
     </span>
   );
 }
 
-// RefRow is one referenced file: what it is, where the content names it, and
+// RefRow is one reference: what it points at, where the content names it, and
 // the control that stops the asset referencing it.
 function RefRow({
   assetId,
@@ -187,19 +207,21 @@ function RefRow({
   canEdit,
   contentScanned,
   resourcePath,
+  assetPath,
   onNavigate,
   onError,
 }: {
   assetId: string;
-  refItem: AssetResourceRef;
+  refItem: AssetRef;
   canEdit: boolean;
   /** Whether the server could read the asset's content to find the URI. */
   contentScanned: boolean;
   resourcePath?: (resourceId: string) => string;
+  assetPath?: (assetId: string) => string;
   onNavigate?: (path: string) => void;
   onError: (msg: string | null) => void;
 }) {
-  const remove = useRemoveAssetResource(assetId);
+  const remove = useRemoveAssetRef(assetId);
   const [confirming, setConfirming] = useState(false);
   const occurrences = refItem.occurrences ?? [];
   // Removing without asking is only safe on a scan that ran and found nothing.
@@ -211,22 +233,23 @@ function RefRow({
   function doRemove() {
     onError(null);
     setConfirming(false);
-    remove.mutate(refItem.resource_id, {
+    remove.mutate(targetOf(refItem), {
       onError: (err) => onError(err instanceof Error ? err.message : "Remove failed"),
     });
   }
 
   return (
-    <li className="space-y-2 px-3 py-3" data-testid="asset-resource-ref">
+    <li className="space-y-2 px-3 py-3" data-testid="asset-ref">
       <div className="flex items-start gap-3">
         <Thumbnail refItem={refItem} />
         <div className="min-w-0 flex-1">
           {refItem.broken ? (
-            <BrokenLabel resourceId={refItem.resource_id} />
+            <BrokenLabel refItem={refItem} />
           ) : (
-            <ResourceLabel
+            <TargetLabel
               refItem={refItem}
               resourcePath={resourcePath}
+              assetPath={assetPath}
               onNavigate={onNavigate}
             />
           )}
@@ -264,7 +287,7 @@ function RefRow({
 // Thumbnail shows an image reference as itself. It loads through the
 // reference's own serving URL, which is the grant the asset already makes, so
 // it renders for a reader who has no direct access to the file.
-function Thumbnail({ refItem }: { refItem: AssetResourceRef }) {
+function Thumbnail({ refItem }: { refItem: AssetRef }) {
   const isImage = (refItem.mime_type ?? "").startsWith("image/");
   if (refItem.broken || !isImage || !refItem.content_url) {
     return null;
@@ -273,31 +296,35 @@ function Thumbnail({ refItem }: { refItem: AssetResourceRef }) {
     <img
       src={refItem.content_url}
       alt={refItem.display_name || refItem.filename || "referenced image"}
-      data-testid="asset-resource-thumb"
+      data-testid="asset-ref-thumb"
       className="size-10 shrink-0 rounded border bg-muted object-contain"
     />
   );
 }
 
-// ResourceLabel names the file, its scope and its type, linking to the resource
-// where this reader could open it on its own.
-function ResourceLabel({
+// TargetLabel names what the reference points at, linking to it where this
+// reader could open it on their own.
+function TargetLabel({
   refItem,
   resourcePath,
+  assetPath,
   onNavigate,
 }: {
-  refItem: AssetResourceRef;
+  refItem: AssetRef;
   resourcePath?: (resourceId: string) => string;
+  assetPath?: (assetId: string) => string;
   onNavigate?: (path: string) => void;
 }) {
-  const name = refItem.display_name || refItem.filename || refItem.resource_id;
-  const linkable = refItem.readable && resourcePath && onNavigate;
+  const isAsset = refItem.target_kind === "asset";
+  const name = refItem.display_name || refItem.filename || refItem.target_id;
+  const path = isAsset ? assetPath : resourcePath;
+  const linkable = refItem.readable && path && onNavigate;
   return (
     <>
       {linkable ? (
         <button
           type="button"
-          onClick={() => onNavigate(resourcePath(refItem.resource_id))}
+          onClick={() => onNavigate(path(refItem.target_id))}
           className="flex max-w-full items-center gap-1 truncate text-sm font-medium text-primary hover:underline"
         >
           <span className="truncate">{name}</span>
@@ -306,62 +333,87 @@ function ResourceLabel({
       ) : (
         <p className="truncate text-sm font-medium">{name}</p>
       )}
-      <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        <ScopeChip scope={refItem.scope} scopeId={refItem.scope_id} />
-        {refItem.mime_type && <span>{refItem.mime_type}</span>}
-        {refItem.size_bytes ? <span>{formatBytes(refItem.size_bytes)}</span> : null}
-      </p>
+      <TargetDetail refItem={refItem} />
     </>
   );
 }
 
-// BrokenLabel marks a reference whose resource was deleted. The asset is
-// serving with that file missing, and this row is where its owner finds out.
-function BrokenLabel({ resourceId }: { resourceId: string }) {
+// TargetDetail is the line under the name: where the thing lives, what it is,
+// and how big. A file carries its scope, an asset carries its owner, and both
+// carry the content type -- which is what an author checks to see they
+// referenced the data file rather than the report that reads it.
+function TargetDetail({ refItem }: { refItem: AssetRef }) {
+  const isAsset = refItem.target_kind === "asset";
   return (
-    <div className="flex items-start gap-2" data-testid="asset-resource-broken">
+    <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+      {isAsset ? <AssetChip /> : <ScopeChip scope={refItem.scope} scopeId={refItem.scope_id} />}
+      {refItem.mime_type && <span>{refItem.mime_type}</span>}
+      {refItem.size_bytes ? <span>{formatBytes(refItem.size_bytes)}</span> : null}
+      {isAsset && refItem.owner_email && <span className="truncate">{refItem.owner_email}</span>}
+    </p>
+  );
+}
+
+// AssetChip marks a row that points at another asset. It sits where a file's
+// scope chip does, because it answers the same question: where does this thing
+// live?
+function AssetChip() {
+  return (
+    <Badge variant="muted" className="rounded px-1.5" data-testid="asset-ref-kind-asset">
+      <FileText className="size-3" />
+      asset
+    </Badge>
+  );
+}
+
+// BrokenLabel marks a reference whose target was deleted. The asset is serving
+// without it, and this row is where its owner finds out.
+function BrokenLabel({ refItem }: { refItem: AssetRef }) {
+  const noun = refItem.target_kind === "asset" ? "asset" : "file";
+  return (
+    <div className="flex items-start gap-2" data-testid="asset-ref-broken">
       <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-amber-500" />
       <div className="min-w-0">
-        <p className="text-sm text-amber-600 dark:text-amber-400">Missing file</p>
+        <p className="text-sm text-amber-600 dark:text-amber-400">Missing {noun}</p>
         <p className="text-xs text-muted-foreground">
-          {resourceId} was deleted. This asset renders without it. Remove the reference or
-          upload a replacement.
+          {refItem.target_id} was deleted. This asset renders without it. Remove the reference or
+          put something back in its place.
         </p>
       </div>
     </div>
   );
 }
 
-// UriLine is the address the content has to name for the reference to render,
-// with the copy control that makes it usable.
+// UriLine is the reference the content has to name for the target to load, with
+// the copy control that makes it usable.
 function UriLine({ uri }: { uri: string }) {
   return (
     <div className="flex items-center gap-1">
       <code className="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1 text-[11px]">{uri}</code>
-      <CopyButton text={uri} label="Copy URI" />
+      <CopyButton text={uri} label="Copy reference" />
     </div>
   );
 }
 
 function InContentNote({ count }: { count: number }) {
   return (
-    <p className="text-xs text-muted-foreground" data-testid="asset-resource-in-content">
+    <p className="text-xs text-muted-foreground" data-testid="asset-ref-in-content">
       Written in this asset&apos;s content on {count} {count === 1 ? "line" : "lines"}.
     </p>
   );
 }
 
-// RemoveWarning names where the content still writes the URI before the
-// reference is withdrawn. Removing is allowed anyway: the markup and the
-// declaration are two things the author keeps in step, and being unable to
-// withdraw a grant until a document had been edited would be worse.
+// RemoveWarning names where the content still writes the reference before it is
+// withdrawn. Removing is allowed anyway: the markup and the declaration are two
+// things the author keeps in step, and being unable to withdraw a grant until a
+// document had been edited would be worse.
 function RemoveWarning({
   refItem,
   contentScanned,
   onCancel,
   onConfirm,
 }: {
-  refItem: AssetResourceRef;
+  refItem: AssetRef;
   contentScanned: boolean;
   onCancel: () => void;
   onConfirm: () => void;
@@ -369,21 +421,21 @@ function RemoveWarning({
   const occurrences = refItem.occurrences ?? [];
   const truncated = occurrences.some((o) => o.truncated);
   return (
-    <Alert data-testid="asset-resource-remove-warning">
+    <Alert data-testid="asset-ref-remove-warning">
       <AlertTriangle />
       <AlertDescription className="space-y-2">
         {contentScanned ? (
           <p>
-            This asset&apos;s content still writes this URI
+            This asset&apos;s content still writes this reference
             {truncated ? " on at least " : " on "}
-            {occurrences.length} {occurrences.length === 1 ? "line" : "lines"}. Removing the
-            reference leaves that content pointing at a file the asset can no longer load.
+            {occurrences.length} {occurrences.length === 1 ? "line" : "lines"}. Removing it leaves
+            that content pointing at something the asset can no longer load.
           </p>
         ) : (
-          <p data-testid="asset-resource-unchecked-warning">
-            This asset&apos;s content could not be checked for this URI. If the content names it,
-            removing the reference leaves that part of the asset pointing at a file it can no
-            longer load.
+          <p data-testid="asset-ref-unchecked-warning">
+            This asset&apos;s content could not be checked for this reference. If the content names
+            it, removing it leaves that part of the asset pointing at something it can no longer
+            load.
           </p>
         )}
         <ul className="space-y-1">

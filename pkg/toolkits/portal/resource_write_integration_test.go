@@ -152,7 +152,9 @@ func newWriteSystem(t *testing.T) *writeSystem {
 		Name: "test", AssetStore: assets, VersionStore: versions,
 		S3Client: blobs, S3Bucket: intAssetBucket, BaseURL: intPortalBase, MaxContentSize: 1 << 20,
 	})
-	tk.SetResourceRefs(assetrefs.NewDeclarer(refs, rows, ""))
+	declarer := assetrefs.NewDeclarer(refs, assets)
+	declarer.BindResources(rows, "")
+	tk.SetContentRefs(declarer)
 	tk.SetResourceWriter(resourcewrite.New(resourcewrite.Deps{
 		Store: rows, Blobs: blobs, Bucket: intResBucket, URIScheme: "mcp",
 		Registered: func(r *resource.Resource) { sys.announced = append(sys.announced, r) },
@@ -171,7 +173,7 @@ func newWriteSystem(t *testing.T) *writeSystem {
 		S3Bucket:         intAssetBucket,
 		PublicBaseURL:    intPortalBase,
 		RateLimit:        portal.RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
-		ResourceRefs:     refs,
+		ContentRefs:      refs,
 		ResourceReader:   rows,
 		ResourceBlobs:    blobs,
 		ResourceS3Bucket: intResBucket,
@@ -269,12 +271,12 @@ func TestAgentWritesTheFileItsAssetReads(t *testing.T) {
 	// 2. A report references it by URI, storing the reference and not the file.
 	saved := sys.mustCall(t, SaveToolName, map[string]any{
 		"name": "Weather Report", "content_type": "text/html",
-		"content":   fmt.Sprintf(`<h1>Weather</h1><script>fetch(%q)</script>`, uri),
-		"resources": []any{uri},
+		"content":    fmt.Sprintf(`<h1>Weather</h1><script>fetch(%q)</script>`, uri),
+		"references": []any{uri},
 	})
 	assetID, _ := saved["asset_id"].(string)
 	require.NotEmpty(t, assetID)
-	assert.Equal(t, float64(1), saved["resources_referenced"])
+	assert.Equal(t, float64(1), saved["references_declared"])
 
 	// 3. The URL the rendered report fetches serves the original bytes.
 	view := sys.mustGetContent(t, assetID)

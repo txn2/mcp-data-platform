@@ -37,6 +37,13 @@ type mockAssetStore struct {
 	deleteErr  error
 	lastUpdate *AssetUpdate // captures the most recent Update payload
 	lastFilter *AssetFilter // captures the most recent List filter
+	// byID holds the assets a test needs to read by id beyond getAsset, for
+	// the paths that resolve several at once (an asset's references naming
+	// other assets, #1488). Empty leaves GetByIDs answering from getAsset.
+	byID map[string]*Asset
+	// getByIDsErr fails the whole-set read alone, which is a different query
+	// from Get and fails on its own.
+	getByIDsErr error
 }
 
 func (m *mockAssetStore) Insert(_ context.Context, _ Asset) error { return m.insertErr }
@@ -45,7 +52,15 @@ func (m *mockAssetStore) Get(_ context.Context, _ string) (*Asset, error) {
 }
 
 func (m *mockAssetStore) GetByIDs(_ context.Context, ids []string) (map[string]*Asset, error) {
+	if m.getByIDsErr != nil {
+		return nil, m.getByIDsErr
+	}
 	result := make(map[string]*Asset)
+	for _, id := range ids {
+		if asset, ok := m.byID[id]; ok {
+			result[id] = asset
+		}
+	}
 	if m.getAsset != nil {
 		for _, id := range ids {
 			if id == m.getAsset.ID {

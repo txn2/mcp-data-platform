@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 )
 
@@ -22,36 +22,38 @@ const (
 	adminRefBody      = `<h1>Q4</h1><img src="` + adminRefLogoURI + `">`
 )
 
-// mockAdminRefStore is an in-memory AssetResourceRefStore for the console's
+// mockAdminRefStore is an in-memory AssetContentRefStore for the console's
 // content reads.
 type mockAdminRefStore struct {
-	refs    []portaldomain.AssetResourceRef
+	refs    []assetrefs.Ref
 	listErr error
 }
 
-func (*mockAdminRefStore) Replace(context.Context, string, []portaldomain.AssetResourceRef) error {
+func (*mockAdminRefStore) Replace(context.Context, string, []assetrefs.Ref) error {
 	return nil
 }
 
-func (m *mockAdminRefStore) ListByAsset(context.Context, string) ([]portaldomain.AssetResourceRef, error) {
+func (m *mockAdminRefStore) ListByAsset(context.Context, string) ([]assetrefs.Ref, error) {
 	return m.refs, m.listErr
 }
 
-func (*mockAdminRefStore) Attach(context.Context, portaldomain.AssetResourceRef) (bool, error) {
+func (*mockAdminRefStore) Attach(context.Context, assetrefs.Ref) (bool, error) {
 	return false, nil
 }
 
-func (*mockAdminRefStore) Detach(context.Context, string, string) (bool, error) { return false, nil }
+func (*mockAdminRefStore) Detach(context.Context, string, assetrefs.TargetKind, string) (bool, error) {
+	return false, nil
+}
 
-func (m *mockAdminRefStore) ListByResource(context.Context, string, int) ([]portaldomain.AssetResourceRef, error) {
+func (m *mockAdminRefStore) ListByTarget(context.Context, assetrefs.TargetKind, string, int) ([]assetrefs.Ref, error) {
 	return m.refs, m.listErr
 }
 
-func (*mockAdminRefStore) GetByToken(context.Context, string, string) (*portaldomain.AssetResourceRef, error) {
+func (*mockAdminRefStore) GetByToken(context.Context, string, string) (*assetrefs.Ref, error) {
 	return nil, nil //nolint:nilnil // interface contract: no such reference is (nil, nil)
 }
 
-func adminRefHandler(refs portaldomain.AssetResourceRefStore, versions portal.VersionStore) *Handler {
+func adminRefHandler(refs assetrefs.Store, versions portal.VersionStore) *Handler {
 	now := time.Now()
 	asset := &portal.Asset{
 		ID: "a1", OwnerID: "u1", Name: "Q4 Report", ContentType: "text/html",
@@ -63,14 +65,14 @@ func adminRefHandler(refs portaldomain.AssetResourceRefStore, versions portal.Ve
 		VersionStore:  versions,
 		S3Client:      &mockAdminS3Client{getData: []byte(adminRefBody), getCT: "text/html"},
 		S3Bucket:      "test-bucket",
-		ResourceRefs:  refs,
+		ContentRefs:   refs,
 		PublicBaseURL: adminRefBaseURL,
 	}, nil)
 }
 
 func declaredRefs() *mockAdminRefStore {
-	return &mockAdminRefStore{refs: []portaldomain.AssetResourceRef{{
-		AssetID: "a1", ResourceID: "res-logo", URI: adminRefLogoURI, RefToken: adminRefLogoToken,
+	return &mockAdminRefStore{refs: []assetrefs.Ref{{
+		AssetID: "a1", TargetKind: assetrefs.TargetResource, TargetID: "res-logo", URI: adminRefLogoURI, RefToken: adminRefLogoToken,
 	}}}
 }
 

@@ -67,9 +67,9 @@ var saveAssetSchema = json.RawMessage(`{
       "items": {"type": "string"},
       "maxItems": 100
     },
-    "resources": {
+    "references": {
       "type": "array",
-      "description": "Managed resources this content references, by mcp:// URI. Write the URI itself as the src in your markup (<img src=\"mcp://global/brand/logo.png\">) and list it here; every viewing surface rewrites it to a working URL as it serves, and the stored content keeps the URI. Do not embed a logo, photograph, or design element in the markup when the file is already a managed resource. Only a resource you can read may be declared, and declaring one lets everyone this asset is shared with load that file through it, including anyone holding a public link.",
+      "description": "What this content names: a managed resource by its mcp:// URI, or another saved asset by its mcp:asset:<id> reference. Write the reference itself where the file belongs in your markup (<img src=\"mcp://global/brand/logo.png\">, fetch(\"mcp:asset:ast_7c1e\")) and list it here; every viewing surface rewrites it to a working URL as it serves, and the stored content keeps the reference. Do not embed a logo, photograph, design element or data table in the markup when it is already a managed resource or an asset. A referenced asset resolves to its CURRENT content on every load, which is how a report reads a data file another job refreshes. Only something you can read may be declared, and declaring it lets everyone this asset is shared with load it through this asset, including anyone holding a public link.",
       "items": {"type": "string"},
       "maxItems": 20
     }
@@ -154,9 +154,9 @@ var manageAssetSchemaBase = json.RawMessage(`{
       "items": {"type": "string"},
       "maxItems": 100
     },
-    "resources": {
+    "references": {
       "type": "array",
-      "description": "Managed resources this content references, by mcp:// URI (update and patch actions). Replaces whatever the asset referenced before: omit it to leave the references alone, pass an empty list to remove them all. Write the URI itself as the src in your markup and list it here; every viewing surface rewrites it to a working URL as it serves, and the stored content keeps the URI. Only a resource you can read may be declared, and declaring one lets everyone this asset is shared with load that file through it, including anyone holding a public link.",
+      "description": "What this content names: a managed resource by its mcp:// URI, or another saved asset by its mcp:asset:<id> reference (update and patch actions). Replaces whatever the asset referenced before: omit it to leave the references alone, pass an empty list to remove them all. Write the reference itself where the file belongs in your markup and list it here; every viewing surface rewrites it to a working URL as it serves, and the stored content keeps the reference. A referenced asset resolves to its CURRENT content on every load, which is how a report reads a data file another job refreshes. Only something you can read may be declared, and declaring it lets everyone this asset is shared with load it through this asset, including anyone holding a public link.",
       "items": {"type": "string"},
       "maxItems": 20
     },

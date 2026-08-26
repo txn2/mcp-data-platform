@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/portal/access"
+	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
@@ -50,7 +51,7 @@ var errStore = errors.New("database unavailable")
 // is (nil, nil) -- so a handler branch that passes here cannot diverge in
 // production.
 type fakeRefs struct {
-	byAsset  map[string][]portaldomain.AssetResourceRef
+	byAsset  map[string][]assetrefs.Ref
 	listErr  error
 	byResErr error
 	// listErrAfter makes ListByAsset start failing once it has answered this
@@ -67,10 +68,10 @@ type fakeRefs struct {
 }
 
 func newFakeRefs() *fakeRefs {
-	return &fakeRefs{byAsset: map[string][]portaldomain.AssetResourceRef{}}
+	return &fakeRefs{byAsset: map[string][]assetrefs.Ref{}}
 }
 
-func (f *fakeRefs) Replace(_ context.Context, id string, refs []portaldomain.AssetResourceRef) error {
+func (f *fakeRefs) Replace(_ context.Context, id string, refs []assetrefs.Ref) error {
 	f.replaceCall++
 	if f.replaceErr != nil {
 		return f.replaceErr
@@ -79,7 +80,7 @@ func (f *fakeRefs) Replace(_ context.Context, id string, refs []portaldomain.Ass
 	return nil
 }
 
-func (f *fakeRefs) ListByAsset(_ context.Context, id string) ([]portaldomain.AssetResourceRef, error) {
+func (f *fakeRefs) ListByAsset(_ context.Context, id string) ([]assetrefs.Ref, error) {
 	f.listCall++
 	if f.listErr != nil {
 		return nil, f.listErr
@@ -92,13 +93,13 @@ func (f *fakeRefs) ListByAsset(_ context.Context, id string) ([]portaldomain.Ass
 
 // Attach models the store's ON CONFLICT DO NOTHING: an asset that already names
 // the resource is (false, nil), never an error and never a second row.
-func (f *fakeRefs) Attach(_ context.Context, ref portaldomain.AssetResourceRef) (bool, error) {
+func (f *fakeRefs) Attach(_ context.Context, ref assetrefs.Ref) (bool, error) {
 	f.attachCall++
 	if f.attachErr != nil {
 		return false, f.attachErr
 	}
 	for _, existing := range f.byAsset[ref.AssetID] {
-		if existing.ResourceID == ref.ResourceID {
+		if existing.TargetKind == ref.TargetKind && existing.TargetID == ref.TargetID {
 			return false, nil
 		}
 	}
@@ -107,15 +108,17 @@ func (f *fakeRefs) Attach(_ context.Context, ref portaldomain.AssetResourceRef) 
 	return true, nil
 }
 
-func (f *fakeRefs) Detach(_ context.Context, assetID, resourceID string) (bool, error) {
+func (f *fakeRefs) Detach(
+	_ context.Context, assetID string, kind assetrefs.TargetKind, targetID string,
+) (bool, error) {
 	f.detachCall++
 	if f.detachErr != nil {
 		return false, f.detachErr
 	}
-	kept := make([]portaldomain.AssetResourceRef, 0, len(f.byAsset[assetID]))
+	kept := make([]assetrefs.Ref, 0, len(f.byAsset[assetID]))
 	found := false
 	for _, ref := range f.byAsset[assetID] {
-		if ref.ResourceID == resourceID {
+		if ref.TargetKind == kind && ref.TargetID == targetID {
 			found = true
 			continue
 		}
@@ -125,18 +128,18 @@ func (f *fakeRefs) Detach(_ context.Context, assetID, resourceID string) (bool, 
 	return found, nil
 }
 
-// ListByResource honors the limit the way the SQL does, so a test can prove the
+// ListByTarget honors the limit the way the SQL does, so a test can prove the
 // handler asked for one more than the bound and reported the cut.
-func (f *fakeRefs) ListByResource(
-	_ context.Context, resourceID string, limit int,
-) ([]portaldomain.AssetResourceRef, error) {
+func (f *fakeRefs) ListByTarget(
+	_ context.Context, kind assetrefs.TargetKind, targetID string, limit int,
+) ([]assetrefs.Ref, error) {
 	if f.byResErr != nil {
 		return nil, f.byResErr
 	}
-	var out []portaldomain.AssetResourceRef
+	var out []assetrefs.Ref
 	for _, id := range slices.Sorted(maps.Keys(f.byAsset)) {
 		for _, ref := range f.byAsset[id] {
-			if ref.ResourceID == resourceID && len(out) < limit {
+			if ref.TargetKind == kind && ref.TargetID == targetID && len(out) < limit {
 				out = append(out, ref)
 			}
 		}
@@ -144,7 +147,7 @@ func (f *fakeRefs) ListByResource(
 	return out, nil
 }
 
-func (f *fakeRefs) GetByToken(_ context.Context, id, token string) (*portaldomain.AssetResourceRef, error) {
+func (f *fakeRefs) GetByToken(_ context.Context, id, token string) (*assetrefs.Ref, error) {
 	for _, ref := range f.byAsset[id] {
 		if ref.RefToken == token {
 			return &ref, nil
@@ -215,8 +218,12 @@ func (f *fakeResources) GetByIDs(_ context.Context, ids []string) (map[string]*r
 // PostgreSQL store's not-found shape and the one the access checks are written
 // against.
 type fakeAssets struct {
-	byID   map[string]*portaldomain.Asset
-	getErr error
+	byID map[string]*portaldomain.Asset
+	// getErr fails every read; getByIDsErr fails only the whole-set read, which
+	// is a different query the route makes after its own gate has already
+	// loaded the asset the panel hangs off.
+	byIDsErr error
+	getErr   error
 }
 
 func newFakeAssets() *fakeAssets {
@@ -251,6 +258,9 @@ func (f *fakeAssets) Get(_ context.Context, id string) (*portaldomain.Asset, err
 func (f *fakeAssets) GetByIDs(_ context.Context, ids []string) (map[string]*portaldomain.Asset, error) {
 	if f.getErr != nil {
 		return nil, f.getErr
+	}
+	if f.byIDsErr != nil {
+		return nil, f.byIDsErr
 	}
 	out := make(map[string]*portaldomain.Asset, len(ids))
 	for _, id := range ids {
@@ -443,7 +453,7 @@ func (h *harness) do(t *testing.T, user *access.User, method, path, body string)
 }
 
 // declare seeds a reference the way a save would have.
-func (h *harness) declare(asset string, refs ...portaldomain.AssetResourceRef) {
+func (h *harness) declare(asset string, refs ...assetrefs.Ref) {
 	for i := range refs {
 		refs[i].AssetID = asset
 		refs[i].Position = i
@@ -452,9 +462,19 @@ func (h *harness) declare(asset string, refs ...portaldomain.AssetResourceRef) {
 }
 
 // logoRef is the reference the report declares in most fixtures.
-func logoRef() portaldomain.AssetResourceRef {
-	return portaldomain.AssetResourceRef{
-		ResourceID: logoID, URI: logoURI, RefToken: logoToken, DeclaredBy: ownerEmail,
+func logoRef() assetrefs.Ref {
+	return assetrefs.Ref{
+		TargetKind: assetrefs.TargetResource, TargetID: logoID,
+		URI: logoURI, RefToken: logoToken, DeclaredBy: ownerEmail,
+	}
+}
+
+// assetRef is a reference to another asset (#1488), the second kind the panel
+// and the used-by list carry.
+func assetRef(targetID, token string) assetrefs.Ref {
+	return assetrefs.Ref{
+		TargetKind: assetrefs.TargetAsset, TargetID: targetID,
+		URI: "mcp:asset:" + targetID, RefToken: token, DeclaredBy: ownerEmail,
 	}
 }
 

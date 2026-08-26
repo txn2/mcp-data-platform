@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
-	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 	"github.com/txn2/mcp-data-platform/pkg/textpatch"
@@ -22,36 +21,38 @@ const (
 	refAuthor   = "user1@example.com"
 )
 
-// refStoreStub is an in-memory AssetResourceRefStore.
+// refStoreStub is an in-memory AssetContentRefStore.
 type refStoreStub struct {
-	byAsset map[string][]portaldomain.AssetResourceRef
+	byAsset map[string][]assetrefs.Ref
 }
 
 func newRefStoreStub() *refStoreStub {
-	return &refStoreStub{byAsset: map[string][]portaldomain.AssetResourceRef{}}
+	return &refStoreStub{byAsset: map[string][]assetrefs.Ref{}}
 }
 
-func (s *refStoreStub) Replace(_ context.Context, id string, refs []portaldomain.AssetResourceRef) error {
+func (s *refStoreStub) Replace(_ context.Context, id string, refs []assetrefs.Ref) error {
 	s.byAsset[id] = refs
 	return nil
 }
 
-func (s *refStoreStub) ListByAsset(_ context.Context, id string) ([]portaldomain.AssetResourceRef, error) {
+func (s *refStoreStub) ListByAsset(_ context.Context, id string) ([]assetrefs.Ref, error) {
 	return s.byAsset[id], nil
 }
 
-func (s *refStoreStub) Attach(_ context.Context, ref portaldomain.AssetResourceRef) (bool, error) {
+func (s *refStoreStub) Attach(_ context.Context, ref assetrefs.Ref) (bool, error) {
 	s.byAsset[ref.AssetID] = append(s.byAsset[ref.AssetID], ref)
 	return true, nil
 }
 
-func (*refStoreStub) Detach(context.Context, string, string) (bool, error) { return false, nil }
+func (*refStoreStub) Detach(context.Context, string, assetrefs.TargetKind, string) (bool, error) {
+	return false, nil
+}
 
-func (s *refStoreStub) ListByResource(_ context.Context, resourceID string, _ int) ([]portaldomain.AssetResourceRef, error) {
-	var out []portaldomain.AssetResourceRef
+func (s *refStoreStub) ListByTarget(_ context.Context, kind assetrefs.TargetKind, targetID string, _ int) ([]assetrefs.Ref, error) {
+	var out []assetrefs.Ref
 	for _, refs := range s.byAsset {
 		for _, ref := range refs {
-			if ref.ResourceID == resourceID {
+			if ref.TargetKind == kind && ref.TargetID == targetID {
 				out = append(out, ref)
 			}
 		}
@@ -59,7 +60,7 @@ func (s *refStoreStub) ListByResource(_ context.Context, resourceID string, _ in
 	return out, nil
 }
 
-func (s *refStoreStub) GetByToken(_ context.Context, id, token string) (*portaldomain.AssetResourceRef, error) {
+func (s *refStoreStub) GetByToken(_ context.Context, id, token string) (*assetrefs.Ref, error) {
 	for _, ref := range s.byAsset[id] {
 		if ref.RefToken == token {
 			return &ref, nil
@@ -114,6 +115,15 @@ func stubResources() []*resource.Resource {
 	}
 }
 
+// newDeclarer builds the declaration path over one reference store, with the
+// resource fixtures and an asset store bound -- the shape the portal layer
+// assembles in production.
+func newDeclarer(refs assetrefs.Store, assets assetrefs.Assets) *assetrefs.Declarer {
+	d := assetrefs.NewDeclarer(refs, assets)
+	d.BindResources(resourceStub{}, "")
+	return d
+}
+
 // refToolkit builds a toolkit with the reference-declaration path bound, plus
 // the stores a save needs.
 func refToolkit(t *testing.T) (*Toolkit, *inMemoryAssetStore, *refStoreStub) {
@@ -124,7 +134,7 @@ func refToolkit(t *testing.T) (*Toolkit, *inMemoryAssetStore, *refStoreStub) {
 		Name: "test", AssetStore: assets, VersionStore: newInMemoryVersionStore(),
 		S3Client: &mockS3Client{}, S3Bucket: "bucket", BaseURL: "http://example.com",
 	})
-	tk.SetResourceRefs(assetrefs.NewDeclarer(refs, resourceStub{}, ""))
+	tk.SetContentRefs(newDeclarer(refs, assets))
 	return tk, assets, refs
 }
 
@@ -169,18 +179,18 @@ func TestSaveDeclaresReferencesAndStatesTheGrant(t *testing.T) {
 
 	result, _, err := tk.handleSaveAsset(refCtx(""), nil, saveAssetInput{
 		Name: "Report", Content: body, ContentType: "text/html",
-		Resources: []string{refLogoURI},
+		References: []string{refLogoURI},
 	})
 	require.NoError(t, err)
 	require.False(t, result.IsError)
 
 	out := decodeSave(t, result)
-	assert.Equal(t, 1, out.ResourcesReferenced)
-	assert.Equal(t, assetrefs.GrantNotice, out.ResourceGrant)
+	assert.Equal(t, 1, out.ReferencesDeclared)
+	assert.Equal(t, assetrefs.GrantNotice, out.ReferenceGrant)
 
 	stored := refs.byAsset[out.AssetID]
 	require.Len(t, stored, 1)
-	assert.Equal(t, "res-logo", stored[0].ResourceID)
+	assert.Equal(t, "res-logo", stored[0].TargetID)
 	assert.Equal(t, refLogoURI, stored[0].URI)
 	assert.Equal(t, refAuthor, stored[0].DeclaredBy)
 
@@ -200,8 +210,8 @@ func TestSaveWithoutReferencesReportsNothing(t *testing.T) {
 	require.NoError(t, err)
 	out := decodeSave(t, result)
 
-	assert.Zero(t, out.ResourcesReferenced)
-	assert.Empty(t, out.ResourceGrant)
+	assert.Zero(t, out.ReferencesDeclared)
+	assert.Empty(t, out.ReferenceGrant)
 	assert.Empty(t, refs.byAsset)
 }
 
@@ -213,7 +223,7 @@ func TestSaveRefusedByPermissionCreatesNothing(t *testing.T) {
 
 	result, _, err := tk.handleSaveAsset(refCtx(""), nil, saveAssetInput{
 		Name: "Report", Content: `<img src="` + refChartURI + `">`, ContentType: "text/html",
-		Resources: []string{refChartURI},
+		References: []string{refChartURI},
 	})
 	require.NoError(t, err)
 
@@ -229,13 +239,13 @@ func TestSaveAdmitsThePersonaThatOwnsTheResource(t *testing.T) {
 
 	result, _, err := tk.handleSaveAsset(refCtx("finance"), nil, saveAssetInput{
 		Name: "Report", Content: `<img src="` + refChartURI + `">`, ContentType: "text/html",
-		Resources: []string{refChartURI},
+		References: []string{refChartURI},
 	})
 	require.NoError(t, err)
 	require.False(t, result.IsError)
 
 	out := decodeSave(t, result)
-	assert.Equal(t, 1, out.ResourcesReferenced)
+	assert.Equal(t, 1, out.ReferencesDeclared)
 	require.Len(t, refs.byAsset[out.AssetID], 1)
 }
 
@@ -243,13 +253,13 @@ func TestSaveAdmitsThePersonaThatOwnsTheResource(t *testing.T) {
 // refusal states the cap.
 func TestSaveRefusesAboveTheCap(t *testing.T) {
 	tk, _, _ := refToolkit(t)
-	uris := make([]string, portaldomain.MaxAssetResourceRefs+1)
+	uris := make([]string, assetrefs.MaxRefs+1)
 	for i := range uris {
 		uris[i] = refLogoURI
 	}
 
 	result, _, err := tk.handleSaveAsset(refCtx(""), nil, saveAssetInput{
-		Name: "Report", Content: "<p>x</p>", ContentType: "text/html", Resources: uris,
+		Name: "Report", Content: "<p>x</p>", ContentType: "text/html", References: uris,
 	})
 	require.NoError(t, err)
 	assert.Contains(t, refusalText(t, result), "20")
@@ -265,10 +275,10 @@ func TestDeclarationRefusedWithoutAManagedResourceLayer(t *testing.T) {
 
 	result, _, err := tk.handleSaveAsset(refCtx(""), nil, saveAssetInput{
 		Name: "Report", Content: "<p>x</p>", ContentType: "text/html",
-		Resources: []string{refLogoURI},
+		References: []string{refLogoURI},
 	})
 	require.NoError(t, err)
-	assert.Contains(t, refusalText(t, result), "no managed-resource layer")
+	assert.Contains(t, refusalText(t, result), "cannot record references")
 }
 
 // TestUpdateReplacesReferences proves a save declares the whole list: naming
@@ -278,15 +288,15 @@ func TestUpdateReplacesReferences(t *testing.T) {
 	saved := decodeSave(t, mustSave(t, tk, []string{refLogoURI}))
 
 	result, _, err := tk.handleUpdate(refCtx("finance"), manageAssetInput{
-		Action: "update", AssetID: saved.AssetID, Resources: []string{refChartURI},
+		Action: "update", AssetID: saved.AssetID, References: []string{refChartURI},
 	})
 	require.NoError(t, err)
 	require.False(t, result.IsError)
 
 	stored := refs.byAsset[saved.AssetID]
 	require.Len(t, stored, 1)
-	assert.Equal(t, "res-chart", stored[0].ResourceID)
-	assert.Equal(t, float64(1), decodeMap(t, result)[fieldResourcesReferenced])
+	assert.Equal(t, "res-chart", stored[0].TargetID)
+	assert.Equal(t, float64(1), decodeMap(t, result)[fieldReferencesDeclared])
 }
 
 // TestUpdateWithEmptyListRemovesEveryReference proves an empty list is a
@@ -296,13 +306,13 @@ func TestUpdateWithEmptyListRemovesEveryReference(t *testing.T) {
 	saved := decodeSave(t, mustSave(t, tk, []string{refLogoURI}))
 
 	result, _, err := tk.handleUpdate(refCtx(""), manageAssetInput{
-		Action: "update", AssetID: saved.AssetID, Resources: []string{},
+		Action: "update", AssetID: saved.AssetID, References: []string{},
 	})
 	require.NoError(t, err)
 	require.False(t, result.IsError)
 	assert.Empty(t, refs.byAsset[saved.AssetID])
-	assert.Equal(t, float64(0), decodeMap(t, result)[fieldResourcesReferenced])
-	assert.NotContains(t, decodeMap(t, result), fieldResourceGrant,
+	assert.Equal(t, float64(0), decodeMap(t, result)[fieldReferencesDeclared])
+	assert.NotContains(t, decodeMap(t, result), fieldReferenceGrant,
 		"removing every reference grants nothing and must say nothing about a grant")
 }
 
@@ -321,7 +331,7 @@ func TestUpdateWithoutResourcesLeavesThemAlone(t *testing.T) {
 	require.False(t, result.IsError)
 
 	require.Len(t, refs.byAsset[saved.AssetID], 1)
-	assert.NotContains(t, decodeMap(t, result), fieldResourcesReferenced)
+	assert.NotContains(t, decodeMap(t, result), fieldReferencesDeclared)
 }
 
 // TestUpdateWithOnlyResourcesIsAValidWrite proves declaring references is
@@ -332,7 +342,7 @@ func TestUpdateWithOnlyResourcesIsAValidWrite(t *testing.T) {
 	saved := decodeSave(t, mustSave(t, tk, nil))
 
 	result, _, err := tk.handleUpdate(refCtx(""), manageAssetInput{
-		Action: "update", AssetID: saved.AssetID, Resources: []string{refLogoURI},
+		Action: "update", AssetID: saved.AssetID, References: []string{refLogoURI},
 	})
 	require.NoError(t, err)
 	require.False(t, result.IsError)
@@ -347,7 +357,7 @@ func TestUpdateRefusedByPermissionChangesNothing(t *testing.T) {
 
 	result, _, err := tk.handleUpdate(refCtx(""), manageAssetInput{
 		Action: "update", AssetID: saved.AssetID, Name: "Renamed",
-		Resources: []string{refChartURI},
+		References: []string{refChartURI},
 	})
 	require.NoError(t, err)
 	assert.Contains(t, refusalText(t, result), refChartURI)
@@ -356,12 +366,12 @@ func TestUpdateRefusedByPermissionChangesNothing(t *testing.T) {
 	require.NoError(t, getErr)
 	assert.Equal(t, "Report", asset.Name, "the metadata write must not have run")
 	require.Len(t, refs.byAsset[saved.AssetID], 1)
-	assert.Equal(t, "res-logo", refs.byAsset[saved.AssetID][0].ResourceID)
+	assert.Equal(t, "res-logo", refs.byAsset[saved.AssetID][0].TargetID)
 }
 
-// TestUpdateNothingToDoStillNamesResources keeps the empty-update message
-// truthful now that resources are one of the things an update can carry.
-func TestUpdateNothingToDoStillNamesResources(t *testing.T) {
+// TestUpdateNothingToDoStillNamesReferences keeps the empty-update message
+// truthful now that references are one of the things an update can carry.
+func TestUpdateNothingToDoStillNamesReferences(t *testing.T) {
 	tk, _, _ := refToolkit(t)
 	saved := decodeSave(t, mustSave(t, tk, nil))
 
@@ -369,7 +379,7 @@ func TestUpdateNothingToDoStillNamesResources(t *testing.T) {
 		Action: "update", AssetID: saved.AssetID,
 	})
 	require.NoError(t, err)
-	assert.Contains(t, refusalText(t, result), "resources")
+	assert.Contains(t, refusalText(t, result), "references")
 }
 
 // mustSave saves one HTML asset declaring uris and returns the result.
@@ -382,7 +392,7 @@ func mustSave(t *testing.T, tk *Toolkit, uris []string) *mcp.CallToolResult {
 		}
 	}
 	result, _, err := tk.handleSaveAsset(refCtx(persona), nil, saveAssetInput{
-		Name: "Report", Content: "<h1>Q4</h1>", ContentType: "text/html", Resources: uris,
+		Name: "Report", Content: "<h1>Q4</h1>", ContentType: "text/html", References: uris,
 	})
 	require.NoError(t, err)
 	require.False(t, result.IsError)
@@ -416,13 +426,13 @@ func TestPatchDeclaresTheReferenceItWrites(t *testing.T) {
 		Edits: []textpatch.Edit{{
 			Op: textpatch.OpInsertAfter, Find: "</h1>", Text: `<img src="` + refLogoURI + `">`,
 		}},
-		Resources: []string{refLogoURI},
+		References: []string{refLogoURI},
 	})
 	require.NoError(t, err)
 	require.False(t, result.IsError)
 
-	assert.Equal(t, float64(1), decodeMap(t, result)[fieldResourcesReferenced])
-	assert.Equal(t, assetrefs.GrantNotice, decodeMap(t, result)[fieldResourceGrant])
+	assert.Equal(t, float64(1), decodeMap(t, result)[fieldReferencesDeclared])
+	assert.Equal(t, assetrefs.GrantNotice, decodeMap(t, result)[fieldReferenceGrant])
 	require.Len(t, refs.byAsset[saved.AssetID], 1)
 }
 
@@ -435,8 +445,8 @@ func TestPatchRefusedByPermissionLeavesContentAlone(t *testing.T) {
 
 	result, _, err := tk.handlePatch(refCtx(""), manageAssetInput{
 		Action: "patch", AssetID: saved.AssetID,
-		Edits:     []textpatch.Edit{{Op: textpatch.OpInsertAfter, Find: "</h1>", Text: "x"}},
-		Resources: []string{refChartURI},
+		Edits:      []textpatch.Edit{{Op: textpatch.OpInsertAfter, Find: "</h1>", Text: "x"}},
+		References: []string{refChartURI},
 	})
 	require.NoError(t, err)
 	assert.Contains(t, refusalText(t, result), refChartURI)
@@ -457,7 +467,7 @@ func TestPatchWithoutResourcesLeavesThemAlone(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, result.IsError)
 
-	assert.NotContains(t, decodeMap(t, result), fieldResourcesReferenced)
+	assert.NotContains(t, decodeMap(t, result), fieldReferencesDeclared)
 	assert.Len(t, refs.byAsset[saved.AssetID], 1)
 }
 
@@ -467,16 +477,16 @@ func TestPatchWithoutResourcesLeavesThemAlone(t *testing.T) {
 // not reference a file would go looking for a permission they already hold.
 func TestApplyRefsReportsAStoreFailureAsAFault(t *testing.T) {
 	tk, _, _ := refToolkit(t)
-	tk.SetResourceRefs(assetrefs.NewDeclarer(failingRefStore{}, resourceStub{}, ""))
+	tk.SetContentRefs(newDeclarer(failingRefStore{}, newInMemoryAssetStore()))
 
 	result, _, err := tk.handleSaveAsset(refCtx(""), nil, saveAssetInput{
 		Name: "Report", Content: "<p>x</p>", ContentType: "text/html",
-		Resources: []string{refLogoURI},
+		References: []string{refLogoURI},
 	})
 	require.NoError(t, err)
 
 	msg := refusalText(t, result)
-	assert.Contains(t, msg, "could not check the declared resource references")
+	assert.Contains(t, msg, "could not check the declared references")
 	assert.NotContains(t, msg, "cannot read", "a storage fault is not a permission decision")
 }
 
@@ -484,26 +494,26 @@ func TestApplyRefsReportsAStoreFailureAsAFault(t *testing.T) {
 // database that goes away mid-save.
 type failingRefStore struct{}
 
-func (failingRefStore) Replace(context.Context, string, []portaldomain.AssetResourceRef) error {
+func (failingRefStore) Replace(context.Context, string, []assetrefs.Ref) error {
 	return assert.AnError
 }
 
-func (failingRefStore) ListByAsset(context.Context, string) ([]portaldomain.AssetResourceRef, error) {
+func (failingRefStore) ListByAsset(context.Context, string) ([]assetrefs.Ref, error) {
 	return nil, nil
 }
 
-func (failingRefStore) Attach(context.Context, portaldomain.AssetResourceRef) (bool, error) {
+func (failingRefStore) Attach(context.Context, assetrefs.Ref) (bool, error) {
 	return false, assert.AnError
 }
 
-func (failingRefStore) Detach(context.Context, string, string) (bool, error) {
+func (failingRefStore) Detach(context.Context, string, assetrefs.TargetKind, string) (bool, error) {
 	return false, assert.AnError
 }
 
-func (failingRefStore) ListByResource(context.Context, string, int) ([]portaldomain.AssetResourceRef, error) {
+func (failingRefStore) ListByTarget(context.Context, assetrefs.TargetKind, string, int) ([]assetrefs.Ref, error) {
 	return nil, nil
 }
 
-func (failingRefStore) GetByToken(context.Context, string, string) (*portaldomain.AssetResourceRef, error) {
+func (failingRefStore) GetByToken(context.Context, string, string) (*assetrefs.Ref, error) {
 	return nil, nil //nolint:nilnil // interface contract: no such reference is (nil, nil)
 }

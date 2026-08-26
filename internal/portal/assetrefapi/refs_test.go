@@ -15,7 +15,7 @@ import (
 )
 
 // refsPath is the asset's reference collection.
-func refsPath(asset string) string { return "/api/v1/portal/assets/" + asset + "/resources" }
+func refsPath(asset string) string { return "/api/v1/portal/assets/" + asset + "/references" }
 
 func TestListRefsUnauthenticated(t *testing.T) {
 	h := newHarness()
@@ -48,7 +48,7 @@ func TestListRefsEmpty(t *testing.T) {
 	assert.Empty(t, body.Data)
 	assert.Zero(t, body.Total)
 	assert.True(t, body.CanEdit)
-	assert.Equal(t, portaldomain.MaxAssetResourceRefs, body.Max)
+	assert.Equal(t, assetrefs.MaxRefs, body.Max)
 	assert.Equal(t, assetrefs.GrantNotice, body.Notice,
 		"the person and the agent are told the same thing about what a reference gives away")
 }
@@ -65,7 +65,7 @@ func TestListRefsWithReference(t *testing.T) {
 	body := decode[listResponse](t, rec)
 	require.Len(t, body.Data, 1)
 	got := body.Data[0]
-	assert.Equal(t, logoID, got.ResourceID)
+	assert.Equal(t, logoID, got.TargetID)
 	assert.Equal(t, logoURI, got.URI)
 	assert.Equal(t, "Company logo", got.DisplayName)
 	assert.Equal(t, "image/png", got.MIMEType)
@@ -159,10 +159,10 @@ func TestListRefsContentUnreadable(t *testing.T) {
 	body := decode[listResponse](t, rec)
 	require.Len(t, body.Data, 1)
 	assert.Empty(t, body.Data[0].Occurrences)
-	assert.Equal(t, logoID, body.Data[0].ResourceID)
+	assert.Equal(t, logoID, body.Data[0].TargetID)
 }
 
-func TestAddRefRequiresResourceID(t *testing.T) {
+func TestAddRefRequiresATarget(t *testing.T) {
 	h := newHarness()
 	rec := h.do(t, owner(), http.MethodPost, refsPath(assetID), `{}`)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -174,7 +174,7 @@ func TestAddRefRecordsReference(t *testing.T) {
 	h := newHarness()
 
 	rec := h.do(t, owner(), http.MethodPost, refsPath(assetID),
-		fmt.Sprintf(`{"resource_id":%q}`, logoID))
+		fmt.Sprintf(`{"target_kind":"resource","target_id":%q}`, logoID))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	body := decode[listResponse](t, rec)
@@ -184,7 +184,7 @@ func TestAddRefRecordsReference(t *testing.T) {
 
 	stored := h.refs.byAsset[assetID]
 	require.Len(t, stored, 1)
-	assert.Equal(t, logoID, stored[0].ResourceID)
+	assert.Equal(t, logoID, stored[0].TargetID)
 	assert.Equal(t, ownerEmail, stored[0].DeclaredBy)
 	assert.NotEmpty(t, stored[0].RefToken)
 	assert.Equal(t, 0, stored[0].Position)
@@ -197,7 +197,7 @@ func TestAddRefLeavesContentUnchanged(t *testing.T) {
 	before := string(h.blobs.byKey[assetKey])
 
 	rec := h.do(t, owner(), http.MethodPost, refsPath(assetID),
-		fmt.Sprintf(`{"resource_id":%q}`, logoID))
+		fmt.Sprintf(`{"target_kind":"resource","target_id":%q}`, logoID))
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, before, string(h.blobs.byKey[assetKey]))
 }
@@ -207,7 +207,7 @@ func TestAddRefLeavesContentUnchanged(t *testing.T) {
 func TestAddRefRefusesUnreadableResource(t *testing.T) {
 	h := newHarness()
 	rec := h.do(t, owner(), http.MethodPost, refsPath(assetID),
-		fmt.Sprintf(`{"resource_id":%q}`, chartID))
+		fmt.Sprintf(`{"target_kind":"resource","target_id":%q}`, chartID))
 	require.Equal(t, http.StatusNotFound, rec.Code)
 	assert.Empty(t, h.refs.byAsset[assetID])
 }
@@ -218,7 +218,7 @@ func TestAddRefAllowsResourceInCallersPersona(t *testing.T) {
 	financeOwner := &access.User{UserID: ownerID, Email: ownerEmail, Roles: []string{"persona:finance"}}
 
 	rec := h.do(t, financeOwner, http.MethodPost, refsPath(assetID),
-		fmt.Sprintf(`{"resource_id":%q}`, chartID))
+		fmt.Sprintf(`{"target_kind":"resource","target_id":%q}`, chartID))
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Len(t, h.refs.byAsset[assetID], 1)
 }
@@ -228,7 +228,7 @@ func TestAddRefRejectsDuplicate(t *testing.T) {
 	h.declare(assetID, logoRef())
 
 	rec := h.do(t, owner(), http.MethodPost, refsPath(assetID),
-		fmt.Sprintf(`{"resource_id":%q}`, logoID))
+		fmt.Sprintf(`{"target_kind":"resource","target_id":%q}`, logoID))
 	assert.Equal(t, http.StatusConflict, rec.Code)
 	assert.Len(t, h.refs.byAsset[assetID], 1)
 }
@@ -236,20 +236,20 @@ func TestAddRefRejectsDuplicate(t *testing.T) {
 // The cap refusal names the number, so the caller learns the limit.
 func TestAddRefRejectsPastTheCap(t *testing.T) {
 	h := newHarness()
-	full := make([]portaldomain.AssetResourceRef, 0, portaldomain.MaxAssetResourceRefs)
-	for i := range portaldomain.MaxAssetResourceRefs {
-		full = append(full, portaldomain.AssetResourceRef{
-			ResourceID: fmt.Sprintf("res-%d", i),
-			URI:        fmt.Sprintf("mcp://global/f/%d.png", i),
-			RefToken:   fmt.Sprintf("tok-%d", i),
+	full := make([]assetrefs.Ref, 0, assetrefs.MaxRefs)
+	for i := range assetrefs.MaxRefs {
+		full = append(full, assetrefs.Ref{
+			TargetKind: assetrefs.TargetResource, TargetID: fmt.Sprintf("res-%d", i),
+			URI:      fmt.Sprintf("mcp://global/f/%d.png", i),
+			RefToken: fmt.Sprintf("tok-%d", i),
 		})
 	}
 	h.declare(assetID, full...)
 
 	rec := h.do(t, owner(), http.MethodPost, refsPath(assetID),
-		fmt.Sprintf(`{"resource_id":%q}`, logoID))
+		fmt.Sprintf(`{"target_kind":"resource","target_id":%q}`, logoID))
 	require.Equal(t, http.StatusConflict, rec.Code)
-	assert.Contains(t, rec.Body.String(), fmt.Sprint(portaldomain.MaxAssetResourceRefs))
+	assert.Contains(t, rec.Body.String(), fmt.Sprint(assetrefs.MaxRefs))
 }
 
 // A viewer is refused the add, matching what the list told them.
@@ -258,7 +258,7 @@ func TestAddRefRefusesViewer(t *testing.T) {
 	h.shares.shareWith(assetID, readerMail, portaldomain.PermissionViewer)
 
 	rec := h.do(t, reader(), http.MethodPost, refsPath(assetID),
-		fmt.Sprintf(`{"resource_id":%q}`, logoID))
+		fmt.Sprintf(`{"target_kind":"resource","target_id":%q}`, logoID))
 	assert.Equal(t, http.StatusForbidden, rec.Code)
 	assert.Empty(t, h.refs.byAsset[assetID])
 }
@@ -270,7 +270,7 @@ func TestAddRefAllowsAdmin(t *testing.T) {
 	admin := &access.User{UserID: "user-admin", Email: "admin@example.com", Roles: []string{"admin"}}
 
 	rec := h.do(t, admin, http.MethodPost, refsPath(assetID),
-		fmt.Sprintf(`{"resource_id":%q}`, logoID))
+		fmt.Sprintf(`{"target_kind":"resource","target_id":%q}`, logoID))
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Len(t, h.refs.byAsset[assetID], 1)
 }
@@ -280,17 +280,22 @@ func TestAddRefWriteFailure(t *testing.T) {
 	h.refs.attachErr = errStore
 
 	rec := h.do(t, owner(), http.MethodPost, refsPath(assetID),
-		fmt.Sprintf(`{"resource_id":%q}`, logoID))
+		fmt.Sprintf(`{"target_kind":"resource","target_id":%q}`, logoID))
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
 // removePath addresses one reference on the report.
-func removePath(res string) string { return refsPath(assetID) + "/" + res }
+// removePath addresses one resource reference for removal. The kind is in the
+// path because it is part of the reference's identity.
+func removePath(res string) string { return refsPath(assetID) + "/resource/" + res }
+
+// removeAssetPath is the same for a reference to another asset.
+func removeAssetPath(id string) string { return refsPath(assetID) + "/asset/" + id }
 
 func TestRemoveRefDropsReference(t *testing.T) {
 	h := newHarness()
-	h.declare(assetID, logoRef(), portaldomain.AssetResourceRef{
-		ResourceID: chartID, URI: chartURI, RefToken: "tok-chart",
+	h.declare(assetID, logoRef(), assetrefs.Ref{
+		TargetKind: assetrefs.TargetResource, TargetID: chartID, URI: chartURI, RefToken: "tok-chart",
 	})
 
 	rec := h.do(t, owner(), http.MethodDelete, removePath(logoID), "")
@@ -298,7 +303,7 @@ func TestRemoveRefDropsReference(t *testing.T) {
 
 	stored := h.refs.byAsset[assetID]
 	require.Len(t, stored, 1)
-	assert.Equal(t, chartID, stored[0].ResourceID)
+	assert.Equal(t, chartID, stored[0].TargetID)
 	assert.Equal(t, 1, h.refs.detachCall, "one row is removed, not the whole list rewritten")
 	assert.Zero(t, h.refs.replaceCall,
 		"a person removing one file has decided nothing about the others")
@@ -419,7 +424,7 @@ func TestAddRefResourceStoreFailure(t *testing.T) {
 	h.resources.getErr = errStore
 
 	rec := h.do(t, owner(), http.MethodPost, refsPath(assetID),
-		fmt.Sprintf(`{"resource_id":%q}`, logoID))
+		fmt.Sprintf(`{"target_kind":"resource","target_id":%q}`, logoID))
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
@@ -438,14 +443,14 @@ func TestAddRefListFailure(t *testing.T) {
 	h.refs.listErr = errStore
 
 	rec := h.do(t, owner(), http.MethodPost, refsPath(assetID),
-		fmt.Sprintf(`{"resource_id":%q}`, logoID))
+		fmt.Sprintf(`{"target_kind":"resource","target_id":%q}`, logoID))
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 	assert.Zero(t, h.refs.attachCall)
 }
 
 // An empty resource id in the path matches nothing rather than the first
 // reference in the list.
-func TestRemoveRefEmptyResourceID(t *testing.T) {
+func TestRemoveRefEmptyTargetID(t *testing.T) {
 	h := newHarness()
 	h.declare(assetID, logoRef())
 
@@ -486,8 +491,8 @@ func TestListRefsMarksResourceReadable(t *testing.T) {
 func TestListRefsMarksResourceUnreadable(t *testing.T) {
 	h := newHarness()
 	h.shares.shareWith(assetID, readerMail, portaldomain.PermissionViewer)
-	h.declare(assetID, portaldomain.AssetResourceRef{
-		ResourceID: chartID, URI: chartURI, RefToken: "tok-chart",
+	h.declare(assetID, assetrefs.Ref{
+		TargetKind: assetrefs.TargetResource, TargetID: chartID, URI: chartURI, RefToken: "tok-chart",
 	})
 
 	rec := h.do(t, reader(), http.MethodGet, refsPath(assetID), "")
@@ -508,12 +513,12 @@ func TestAddRefWritesOneRowNotTheWholeList(t *testing.T) {
 	h.declare(assetID, logoRef())
 
 	rec := h.do(t, owner(), http.MethodPost, refsPath(assetID),
-		fmt.Sprintf(`{"resource_id":%q}`, chartID))
+		fmt.Sprintf(`{"target_kind":"resource","target_id":%q}`, chartID))
 	require.Equal(t, http.StatusNotFound, rec.Code, "the chart is out of this caller's reach")
 
 	financeOwner := &access.User{UserID: ownerID, Email: ownerEmail, Roles: []string{"persona:finance"}}
 	rec = h.do(t, financeOwner, http.MethodPost, refsPath(assetID),
-		fmt.Sprintf(`{"resource_id":%q}`, chartID))
+		fmt.Sprintf(`{"target_kind":"resource","target_id":%q}`, chartID))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	assert.Equal(t, 1, h.refs.attachCall)
@@ -589,7 +594,7 @@ func TestAddRefReadBackFailure(t *testing.T) {
 	h.refs.listErrAfter = 1
 
 	rec := h.do(t, owner(), http.MethodPost, refsPath(assetID),
-		fmt.Sprintf(`{"resource_id":%q}`, logoID))
+		fmt.Sprintf(`{"target_kind":"resource","target_id":%q}`, logoID))
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 	assert.Len(t, h.refs.byAsset[assetID], 1, "the write is not undone by a failed read-back")
 }
@@ -600,7 +605,7 @@ func TestAddRefUnknownAsset(t *testing.T) {
 	h := newHarness()
 
 	rec := h.do(t, owner(), http.MethodPost, refsPath("asset-nope"),
-		fmt.Sprintf(`{"resource_id":%q}`, logoID))
+		fmt.Sprintf(`{"target_kind":"resource","target_id":%q}`, logoID))
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 	assert.Zero(t, h.refs.attachCall)
 }
@@ -609,7 +614,170 @@ func TestRemoveRefUnknownAsset(t *testing.T) {
 	h := newHarness()
 
 	rec := h.do(t, owner(), http.MethodDelete,
-		refsPath("asset-nope")+"/"+logoID, "")
+		refsPath("asset-nope")+"/resource/"+logoID, "")
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 	assert.Zero(t, h.refs.detachCall)
+}
+
+// The asset-reference half of the panel (#1488). otherID is an asset the owner
+// does not own; a share is what makes it referenceable.
+
+// TestAddAssetRefRecordsReference is the acceptance criterion for adding a
+// reference to another asset: the caller's own read is the check, and the row
+// is stored under the mcp:asset:<id> reference the content has to name.
+func TestAddAssetRefRecordsReference(t *testing.T) {
+	h := newHarness()
+	h.shares.shareWith(otherID, ownerEmail, portaldomain.PermissionViewer)
+
+	rec := h.do(t, owner(), http.MethodPost, refsPath(assetID),
+		fmt.Sprintf(`{"target_kind":"asset","target_id":%q}`, otherID))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	body := decode[listResponse](t, rec)
+	require.Len(t, body.Data, 1)
+	assert.Equal(t, "asset", body.Data[0].TargetKind)
+	assert.Equal(t, "mcp:asset:"+otherID, body.Data[0].URI,
+		"the panel shows the reference the markup has to name")
+	assert.Equal(t, "Someone else's memo", body.Data[0].DisplayName)
+	assert.Equal(t, readerMail, body.Data[0].OwnerEmail)
+	assert.True(t, body.Data[0].Readable, "the caller holds a share, so the row links to it")
+
+	stored := h.refs.byAsset[assetID]
+	require.Len(t, stored, 1)
+	assert.Equal(t, assetrefs.TargetAsset, stored[0].TargetKind)
+	assert.Equal(t, otherID, stored[0].TargetID)
+	assert.NotEmpty(t, stored[0].RefToken)
+}
+
+// An asset the caller cannot open is refused as not found, so the refusal
+// cannot be used to learn that an asset exists.
+func TestAddAssetRefRefusesUnreadableAsset(t *testing.T) {
+	h := newHarness()
+
+	rec := h.do(t, owner(), http.MethodPost, refsPath(assetID),
+		fmt.Sprintf(`{"target_kind":"asset","target_id":%q}`, otherID))
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.NotContains(t, rec.Body.String(), "Someone else's memo")
+	assert.Empty(t, h.refs.byAsset[assetID])
+}
+
+// An asset referencing itself is refused. The serving route answers such a
+// reference rather than following it, so nothing breaks -- but it resolves to
+// the very content it was written in, and there is no reading of that the
+// author could have meant.
+func TestAddAssetRefRefusesSelfReference(t *testing.T) {
+	h := newHarness()
+
+	rec := h.do(t, owner(), http.MethodPost, refsPath(assetID),
+		fmt.Sprintf(`{"target_kind":"asset","target_id":%q}`, assetID))
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "cannot reference itself")
+	assert.Empty(t, h.refs.byAsset[assetID])
+}
+
+// A kind the platform cannot resolve is refused before anything is read, and
+// the refusal names what the field takes.
+func TestAddRefRefusesUnknownKind(t *testing.T) {
+	h := newHarness()
+
+	rec := h.do(t, owner(), http.MethodPost, refsPath(assetID),
+		fmt.Sprintf(`{"target_kind":"collection","target_id":%q}`, otherID))
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "resource")
+	assert.Contains(t, rec.Body.String(), "asset")
+	assert.Zero(t, h.refs.attachCall)
+}
+
+// A reference to a deleted asset is listed and flagged broken, never dropped:
+// the row is where the owner learns the report is serving without it.
+func TestListRefsBrokenAssetReference(t *testing.T) {
+	h := newHarness()
+	deleted := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	h.assets.byID[otherID].DeletedAt = &deleted
+	h.declare(assetID, assetRef(otherID, "tok-asset"))
+
+	rec := h.do(t, owner(), http.MethodGet, refsPath(assetID), "")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	body := decode[listResponse](t, rec)
+	require.Len(t, body.Data, 1)
+	assert.True(t, body.Data[0].Broken)
+	assert.Empty(t, body.Data[0].DisplayName, "a deleted asset discloses no metadata")
+}
+
+// A reader who can open the referencing asset sees the referenced asset's name
+// even without access to it, and the row is not a link. That is not a widening:
+// the reference already hands them its content through ContentURL.
+func TestListRefsAssetRowUnreadableToViewer(t *testing.T) {
+	h := newHarness()
+	h.shares.shareWith(assetID, readerMail, portaldomain.PermissionViewer)
+	h.assets.byID["asset-third"] = &portaldomain.Asset{
+		ID: "asset-third", OwnerID: ownerID, OwnerEmail: ownerEmail, Name: "Weekly numbers",
+	}
+	h.declare(assetID, assetRef("asset-third", "tok-third"))
+
+	rec := h.do(t, reader(), http.MethodGet, refsPath(assetID), "")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	body := decode[listResponse](t, rec)
+	require.Len(t, body.Data, 1)
+	assert.Equal(t, "Weekly numbers", body.Data[0].DisplayName)
+	assert.False(t, body.Data[0].Readable)
+	assert.NotEmpty(t, body.Data[0].ContentURL)
+}
+
+// Removing an asset reference addresses it by kind and id, and leaves a
+// resource reference sharing that id alone.
+func TestRemoveAssetRefLeavesTheResourceRefAlone(t *testing.T) {
+	h := newHarness()
+	sameID := assetRef(logoID, "tok-same") // an asset whose id matches the resource's
+	h.declare(assetID, logoRef(), sameID)
+
+	rec := h.do(t, owner(), http.MethodDelete, removeAssetPath(logoID), "")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	stored := h.refs.byAsset[assetID]
+	require.Len(t, stored, 1)
+	assert.Equal(t, assetrefs.TargetResource, stored[0].TargetKind)
+}
+
+// TestRoutesRegisterWithoutAManagedResourceLayer proves the two kinds are
+// independent on this surface as well as in the declaration path: a deployment
+// with assets and no managed resources still manages asset references, and a
+// resource target is answered as absent rather than taking the routes down.
+func TestRoutesRegisterWithoutAManagedResourceLayer(t *testing.T) {
+	h := newHarness()
+	h.cfg.Resources = nil
+	h.shares.shareWith(otherID, ownerEmail, portaldomain.PermissionViewer)
+
+	added := h.do(t, owner(), http.MethodPost, refsPath(assetID),
+		fmt.Sprintf(`{"target_kind":"asset","target_id":%q}`, otherID))
+	require.Equal(t, http.StatusOK, added.Code)
+	assert.Len(t, decode[listResponse](t, added).Data, 1)
+
+	refused := h.do(t, owner(), http.MethodPost, refsPath(assetID),
+		fmt.Sprintf(`{"target_kind":"resource","target_id":%q}`, logoID))
+	assert.Equal(t, http.StatusNotFound, refused.Code)
+}
+
+// TestListRefsRendersAssetRowsBrokenWhenTheAssetReadFails is the asset arm of
+// the rule the resource arm already follows: the platform cannot say whether
+// the targets are still there, so every row of that kind reads broken rather
+// than reading whole.
+func TestListRefsRendersAssetRowsBrokenWhenTheAssetReadFails(t *testing.T) {
+	h := newHarness()
+	h.declare(assetID, assetRef(otherID, "tok-asset"))
+	// The asset behind the panel is loaded before the rows are, so the read
+	// fails only once the route is past its own gate.
+	h.assets.byIDsErr = errStore
+
+	rec := h.do(t, owner(), http.MethodGet, refsPath(assetID), "")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	body := decode[listResponse](t, rec)
+	require.Len(t, body.Data, 1)
+	assert.True(t, body.Data[0].Broken)
 }

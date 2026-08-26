@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 )
@@ -64,7 +65,7 @@ type occurrence struct {
 // opposite things to the person about to remove a reference, so the caller is
 // told which it has: false means "we did not look", never "it is not there".
 func (h *handler) scanContent(
-	r *http.Request, asset *portaldomain.Asset, refs []portaldomain.AssetResourceRef,
+	r *http.Request, asset *portaldomain.Asset, refs []assetrefs.Ref,
 ) (map[string][]occurrence, bool) {
 	if h.cfg.Blobs == nil || !scannable(asset) {
 		return nil, false
@@ -93,11 +94,11 @@ func scannable(asset *portaldomain.Asset) bool {
 		asset.SizeBytes > 0 && asset.SizeBytes <= maxScanBytes
 }
 
-// scanOccurrences finds each reference's URI in the content, keyed by resource
-// id. One pass over the lines serves every reference, since the panel asks
-// about all of them at once.
+// scanOccurrences finds each reference's URI in the content, keyed by kind and
+// target id. One pass over the lines serves every reference, since the panel
+// asks about all of them at once.
 func scanOccurrences(
-	content []byte, refs []portaldomain.AssetResourceRef,
+	content []byte, refs []assetrefs.Ref,
 ) map[string][]occurrence {
 	if len(content) == 0 {
 		return nil
@@ -109,7 +110,7 @@ func scanOccurrences(
 			continue
 		}
 		if hits := occurrencesOf(lines, ref.URI); len(hits) > 0 {
-			found[ref.ResourceID] = hits
+			found[refKey(ref)] = hits
 		}
 	}
 	if len(found) == 0 {
@@ -176,10 +177,10 @@ func window(line string, at, width int) string {
 // so a reader is never shown a short list as if it were the whole one.
 const maxReferencingAssets = 50
 
-// capReached is the refusal a caller gets for referencing one file too many. It
-// names the number, so someone hitting it learns the limit rather than guessing
-// at it -- the same wording rule the declaration path follows.
+// capReached is the refusal a caller gets for referencing one thing too many.
+// It names the number, so someone hitting it learns the limit rather than
+// guessing at it -- the same wording rule the declaration path follows.
 func capReached() string {
-	return fmt.Sprintf("this asset already references the maximum of %d files",
-		portaldomain.MaxAssetResourceRefs)
+	return fmt.Sprintf("this asset already references the maximum of %d things",
+		assetrefs.MaxRefs)
 }

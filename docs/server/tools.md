@@ -1115,7 +1115,7 @@ Registering is the authority to change the file, not the authority to read it: a
 
 Write a file into the [managed resource library](portal-user.md#resources). A managed resource is the only kind of file a saved asset can reference, and until this tool existed the only way to put one there was a person at an upload form. That left the data half of a referencing asset unrefreshable by the platform itself: an agent could rewrite a report on a schedule and could not rewrite the CSV the report reads.
 
-The loop it closes is one call each way. `create` files the data and reports the `mcp://` URI to hand to `save_asset`'s `resources` argument; `replace_content` writes new bytes over that file later. Because a replacement keeps the resource's id, its canonical URI and its filename, every asset referencing it serves the new content without being re-saved, and every citation and prompt attachment pointing at it keeps resolving.
+The loop it closes is one call each way. `create` files the data and reports the `mcp://` URI to hand to `save_asset`'s `references` argument; `replace_content` writes new bytes over that file later. Because a replacement keeps the resource's id, its canonical URI and its filename, every asset referencing it serves the new content without being re-saved, and every citation and prompt attachment pointing at it keeps resolving.
 
 **Parameters:**
 
@@ -1143,7 +1143,7 @@ A replacement goes through the same revision path the portal's replace-content b
 
 **Who may write.** Creating is scope authority: your own user scope (the default, and the one place every signed-in caller may write), a persona you administer, or the global scope as a platform administrator. A refusal names the scope rather than the file, because where it was filed is what the caller has to change. Replacing is the authority to change that file: its uploader, or an administrator of its scope. A resource you cannot see is answered as absent, whether it is missing, deleted, or somebody else's.
 
-A [managed script](../scripts/running.md) reaches this tool through `platform.call` like any other, under its version author's permissions, which is what makes a scheduled refresh of a referenced file possible without a person in the loop. A run authenticates as a principal that owns no file, so the resource rules read the address it acts for: a create with no scope named files into the **author's** own library rather than the principal's, and a replacement reaches a file the author uploaded through the portal. See [Script security](../scripts/security.md#who-a-run-acts-for) and [Asset Resource References](asset-resource-references.md).
+A [managed script](../scripts/running.md) reaches this tool through `platform.call` like any other, under its version author's permissions, which is what makes a scheduled refresh of a referenced file possible without a person in the loop. A run authenticates as a principal that owns no file, so the resource rules read the address it acts for: a create with no scope named files into the **author's** own library rather than the principal's, and a replacement reaches a file the author uploaded through the portal. See [Script security](../scripts/security.md#who-a-run-acts-for) and [Asset References](asset-references.md).
 
 ---
 

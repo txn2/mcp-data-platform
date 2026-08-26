@@ -46,6 +46,9 @@ export interface AssetViewerProps {
    * without being linked (#1475).
    */
   resourcePath?: (resourceId: string) => string;
+  /** Where another asset this one references opens for this reader, per
+   * surface. Absent, a referenced asset is named without being linked. */
+  assetPath?: (assetId: string) => string;
   versions?: AssetVersion[];
   versionsLoading?: boolean;
   revertMutation?: MutationLike<{ assetId: string; version: number }>;
