@@ -2,7 +2,9 @@ import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { render } from "@testing-library/react";
 import {
   JsxRenderer,
+  buildCSP,
   buildJsxIframeHtml,
+  refSource,
   transformJsx,
   findComponentName,
   escapeScriptClose,
@@ -230,5 +232,54 @@ export default function Dashboard() {
     // Original imports should be preserved
     expect(result).toContain('import { useState } from "react"');
     expect(result).toContain('import { BarChart, Bar } from "recharts"');
+  });
+});
+
+// A declared reference is rewritten into the artifact's content as an absolute
+// URL under /portal/refs/, and the frame's own policy is the only thing that
+// decides whether it loads (#1494). These assert the policy the frame carries;
+// that the browser then honours it is e2e/public-viewer/public-viewer.spec.ts.
+describe("buildCSP: the reference route", () => {
+  const origin = "https://platform.example.com";
+
+  it("allows the reference route for images and requests", () => {
+    const csp = buildCSP(origin);
+    const img = csp.match(/img-src ([^;]*)/)?.[1] ?? "";
+    const connect = csp.match(/connect-src ([^;]*)/)?.[1] ?? "";
+    expect(img).toContain(`${origin}/portal/refs/`);
+    expect(connect).toContain(`${origin}/portal/refs/`);
+    // The families that already worked are untouched.
+    expect(img).toContain("data:");
+    expect(img).toContain("blob:");
+    expect(connect).toContain("https://esm.sh");
+  });
+
+  it("grants the path, never the origin", () => {
+    const csp = buildCSP(origin);
+    // Every mention of the platform origin carries the reference path with it,
+    // so the frame cannot reach the portal API or the admin API.
+    for (const mention of csp.split(/[\s;]+/).filter((t) => t.startsWith(origin))) {
+      expect(mention).toBe(`${origin}/portal/refs/`);
+    }
+  });
+
+  it("keeps the frame denied where there is no origin to grant", () => {
+    const csp = buildCSP("");
+    expect(csp).toContain("img-src data: blob:;");
+    expect(csp).not.toContain("/portal/refs/");
+    // An opaque origin serializes as the string "null" and grants nothing.
+    expect(refSource("null")).toBe("");
+  });
+
+  it("carries no eval and no default source, as before", () => {
+    const csp = buildCSP(origin);
+    expect(csp).toContain("default-src 'none'");
+    expect(csp).not.toContain("unsafe-eval");
+  });
+
+  it("is what the artifact document carries", () => {
+    const html = buildJsxIframeHtml("function App(){return <div>hi</div>}");
+    expect(html).toContain('<meta http-equiv="Content-Security-Policy"');
+    expect(html).toContain("/portal/refs/");
   });
 });

@@ -27,6 +27,7 @@ const (
 	toolManageFeedback = "manage_feedback"
 	toolTrinoQuery     = "trino_query"
 	toolManageScript   = "manage_script"
+	toolSaveAsset      = "save_asset"
 )
 
 // Build returns the platform-owned "how to operate this platform" instruction
@@ -75,6 +76,9 @@ func Build(accessibleTools []string) string {
 				"few thousand rows join this way. Above that, the file belongs in the platform: "+
 				"upload it as a resource or save it as an asset, register it as a table, and join "+
 				"the registered table by name.")
+	}
+	if has[toolSaveAsset] {
+		bullets = append(bullets, referencesBullet(has[toolFetch]))
 	}
 	if has[toolManageScript] {
 		bullets = append(bullets, scriptsBullet(has[toolFetch]))
@@ -167,6 +171,28 @@ func scriptsBullet(hasFetch bool) string {
 		return head + "`fetch` " + pages
 	}
 	return head + "read the pages " + pages
+}
+
+// referencesBullet tells an agent to name a file from an asset's content
+// rather than carry it, and points at the page that covers the mechanism.
+//
+// A tool schema can describe the `references` argument, and the portal
+// toolkit's does; what it cannot do is reach an agent that is composing a
+// document and has not thought to look for the argument at all. The decision
+// is made while the markup is being written, which is before any tool call.
+func referencesBullet(hasFetch bool) string {
+	const head = "Name a file, do not carry it. When a document you save needs a logo, an image, a " +
+		"design element, or a data table that is already in the platform, write its reference " +
+		"where the file belongs in the markup and declare it in `references` on `save_asset` " +
+		"instead of embedding the bytes: the file is stored once rather than once per version, " +
+		"and replacing it refreshes every document naming it with no re-save. "
+	const page = "`mcp:knowledge_page:platform-asset-references-and-the-refresh-loop` for the two " +
+		"reference forms, the patterns an HTML or JSX document uses, and who can load the file " +
+		"once it is declared."
+	if hasFetch {
+		return head + "`fetch` " + page
+	}
+	return head + "Read " + page
 }
 
 // Compose joins the platform baseline above the rest of the instruction stack

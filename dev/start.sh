@@ -411,6 +411,8 @@ bash dev/seed-s3.sh
 ok "Asset content uploaded to S3"
 bash dev/seed-resources.sh
 ok "Managed resources seeded"
+bash dev/seed-asset-refs.sh
+ok "Asset references declared"
 
 # The seeded knowledge pages cite catalog datasets by URN. Nothing else creates
 # them, so without this the catalog half of every page (and of the knowledge

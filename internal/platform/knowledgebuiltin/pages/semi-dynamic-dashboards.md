@@ -5,10 +5,23 @@ a schedule: one portal asset at one URL, authored once as an HTML, JSX, or
 markdown document with real visualizations, whose numbers a managed script
 refreshes on a cadence.
 
-## Which shape: a whole document per run, or template plus data
+## Which shape: whole document, spliced region, or referenced file
 
-A script produces a document in one of two shapes, and the choice is made
-before the first line of it is written.
+A script produces a document in one of three shapes, and the choice is made
+before the first line of it is written. They differ on who owns the layout and
+on what an old version of the document shows.
+
+```mermaid
+flowchart TD
+  Q{"Is each run its own document,<br/>or does the structure move<br/>with the data?"}
+  Q -- yes --> W["compose the whole<br/>document each run"]
+  Q -- "no: one document,<br/>numbers move" --> S{"Must an old version show<br/>the data it showed then?"}
+  S -- "yes, it is a record" --> P["publish_data:<br/>splice the id=data region"]
+  S -- "no, always current" --> R["reference a file<br/>another job refreshes"]
+  W --> WN["a new version per run<br/>a layout edit is overwritten<br/>each version is an as-of snapshot"]
+  P --> PN["a new version per run<br/>a layout edit survives<br/>each version is an as-of snapshot"]
+  R --> RN["NO new version per refresh<br/>a layout edit survives<br/>every version shows current data"]
+```
 
 **Compose the whole document in the script** when each run is its own kept
 document (a dated archive series, where a run's output is never revised),
@@ -26,6 +39,19 @@ survives the schedule, and the data stays in the script. The cost is that the
 structure is fixed by the document's author, so a report whose sections have to
 appear and disappear with the data leaves a data region the markup cannot
 render.
+
+**Reference the data instead of writing it into the document** when the
+numbers must always be current and no version of the report needs to preserve
+what it once showed. The document names a CSV or JSON file — a managed
+resource, or another asset a script exports under a stable name — and loads it
+at render time; refreshing the file refreshes every document naming it, with
+no new version of the document at all. The cost is that a version of the
+document is no longer a record: opening last quarter's version shows this
+morning's numbers. See
+`mcp:knowledge_page:platform-asset-references-and-the-refresh-loop`.
+
+The three are not exclusive. The ordinary dashboard references its logo and
+splices its numbers.
 
 `platform.publish_data` is the second shape:
 
@@ -56,7 +82,10 @@ platform.publish_data("revenue-dashboard", data)
 - The write is an ordinary new version of the asset, with the same provenance
   an export gets, so each version is a faithful as-of snapshot: a public share
   works with no view-time fetch, and an old version still shows exactly the
-  data it showed.
+  data it showed. That belongs to this shape and to composing the whole
+  document. A document that REFERENCES its data has neither half of it: it
+  fetches when it is read, and a reference resolves to its target's current
+  content on every load.
 - The zero-rows case is yours, as with any export: publish the empty structure
   or `fail("why")`.
 - In a draft run nothing is written; the call reports the payload size it

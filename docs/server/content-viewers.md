@@ -304,6 +304,14 @@ blob: data:` for a collection, whose items open in a same-origin iframe.
   governs — content URLs are handed to elements, which answer to `img-src`,
   `media-src` and `object-src` instead.
 
+### The JSX artifact's own policy
+
+A JSX artifact is not served as a document. The renderer transforms the source with Sucrase in the parent page and builds an HTML document around the result, which the frame loads from a `blob:` URL — so that document carries a `<meta http-equiv="Content-Security-Policy">` of its own, tighter than the page policy it also inherits. It grants `'unsafe-inline'` script, the esm.sh import map, and Google Fonts, and nothing else; `default-src` is `'none'` and `'unsafe-eval'` is not granted.
+
+Two directives carry one platform source beyond that: `img-src` and `connect-src` name the reference route on the origin the viewer is being read from, written with its path (`https://host/portal/refs/`) rather than as a bare origin. That is what lets a JSX dashboard show a referenced logo and load a referenced CSV or JSON at render time (see [asset references](asset-references.md)); the path keeps the grant to that route, so the frame still cannot reach the portal API, the admin API, or anything else on the host. The origin comes from the viewer's own location and never from the artifact's content: an origin read out of the content would let an artifact name any host it liked and be granted it.
+
+A deployment whose `portal.public_base_url` names a different host than the one the reader is browsing is the case this does not cover — the rewritten URL is then cross-origin to the page and outside the source. That configuration already splits a share page from its own links, so the reference route follows the page rather than guessing a second host.
+
 The policy is enforced by the browser and by nothing else, so a change to it is
 verified by rendering each family under it rather than by reading the header.
 `make frontend-e2e-public-viewer` drives HTML, JSX, markdown, SVG and a

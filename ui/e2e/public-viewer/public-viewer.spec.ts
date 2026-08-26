@@ -165,15 +165,23 @@ test.describe("what a share page loads", () => {
 
   test("the asset route serves the bundle and nothing else under it", async ({ request }) => {
     // vite's manifest describes the graph; it is not part of what a browser
-    // loads, and neither is anything reached by traversal.
+    // loads.
     for (const path of [
       "/portal/view/_assets/.vite/manifest.json",
-      "/portal/view/_assets/../../../etc/passwd",
       "/portal/view/_assets/missing-0000.js",
     ]) {
       const res = await request.get(path);
       expect(res.status(), `${path} was served`).toBe(404);
     }
+
+    // Traversal, asserted as "not served" rather than on a status. The client
+    // resolves ".." (and "%2e%2e") before the request leaves it, so the server
+    // is asked for /etc/passwd and the portal's auth gate answers 401 -- this
+    // route never sees the request. What matters either way is that no file
+    // comes back.
+    const traversal = await request.get("/portal/view/_assets/../../../etc/passwd");
+    expect(traversal.status(), "traversal was served").not.toBe(200);
+    expect(await traversal.text()).not.toContain("root:");
   });
 });
 
@@ -230,6 +238,74 @@ catch (e) { document.getElementById('out').textContent = 'EVAL-BLOCKED'; }
       1500,
     );
     expect(out).toContain("EVAL-BLOCKED");
+  });
+});
+
+// A declared reference is rewritten into the served content as an absolute URL
+// under /portal/refs/, and whether it loads is decided by the policy of the
+// frame the artifact renders in and by nothing else (#1474, #1488, #1494). The
+// seeded HTML and JSX shares both name the brand mark as a reference, so these
+// render each family under its real policy.
+test.describe("asset references", () => {
+  /** The referenced image inside the artifact frame, once it has been served. */
+  function referencedImage(page: Page) {
+    return artifactFrame(page).locator("img[src*='/portal/refs/']");
+  }
+
+  async function imageRendered(page: Page): Promise<boolean> {
+    return referencedImage(page).evaluate(
+      (img) => (img as HTMLImageElement).complete && (img as HTMLImageElement).naturalWidth > 0,
+    );
+  }
+
+  test("an HTML share renders its referenced image", async ({ page }) => {
+    const refusals = watchCSP(page);
+    await page.goto(`/portal/view/${TOKENS.html}`, { waitUntil: "networkidle" });
+
+    await expect(referencedImage(page)).toHaveCount(1);
+    expect(await imageRendered(page), "the referenced image did not load").toBe(true);
+    expect(refusals, refusals.join("\n")).toHaveLength(0);
+  });
+
+  test("a JSX share renders its referenced image", async ({ page }) => {
+    const refusals = watchCSP(page);
+    await page.goto(`/portal/view/${TOKENS.jsx}`, { waitUntil: "networkidle" });
+
+    await expect(referencedImage(page)).toHaveCount(1);
+    expect(await imageRendered(page), "the referenced image did not load").toBe(true);
+    expect(refusals, refusals.join("\n")).toHaveLength(0);
+  });
+
+  // The widening is the reference route and nothing else: the artifact reaches
+  // that path on the platform origin and no other path on it.
+  //
+  // The two halves have to be read together. The reference route succeeding is
+  // what establishes that the policy the frame INHERITS from the page admits a
+  // same-origin request at all; the portal API being refused on that same
+  // origin is therefore attributable to the frame's own meta policy, which is
+  // the layer this PR narrows.
+  test("a JSX artifact reaches the reference route and no other platform path", async ({ page }) => {
+    await page.goto(`/portal/view/${TOKENS.jsx}`, { waitUntil: "networkidle" });
+    const base = test.info().project.use.baseURL!;
+
+    const frame = page.frames().find((f) => f.url().startsWith("blob:"));
+    expect(frame, "the JSX artifact frame never rendered").toBeTruthy();
+
+    // Allowed by the policy: the request is made and answered. The token is
+    // nonsense, so the answer is a 404 rather than a file, which is the point
+    // -- a CSP refusal never reaches the network at all.
+    const refRoute = await frame!.evaluate(
+      (url) => fetch(url).then((r) => `STATUS-${r.status}`).catch((e) => `BLOCKED-${e}`),
+      `${base}/portal/refs/no-such-asset/no-such-token`,
+    );
+    expect(refRoute, "the reference route was refused by the frame's policy").toContain("STATUS-");
+
+    // Denied: the same origin, a different path.
+    const api = await frame!.evaluate(
+      (url) => fetch(url).then((r) => `STATUS-${r.status}`).catch((e) => `BLOCKED-${e}`),
+      `${base}/api/v1/portal/me`,
+    );
+    expect(api, "the artifact reached the portal API").toContain("BLOCKED-");
   });
 });
 

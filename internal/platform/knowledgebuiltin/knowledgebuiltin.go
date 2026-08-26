@@ -70,6 +70,12 @@ var pageMetas = []pageMeta{
 		tags:    []string{"scripts", "dashboards", "assets"},
 	},
 	{
+		file:    "asset-references-and-the-refresh-loop.md",
+		slug:    "platform-asset-references-and-the-refresh-loop",
+		summary: "Naming a file from an asset's content instead of carrying it: the two reference forms, the logo and load-the-data patterns an HTML or JSX document uses, refreshing the file without re-saving the document, why a referencing version is not an as-of snapshot, and who can load the file once it is declared.",
+		tags:    []string{"assets", "resources", "references", "dashboards"},
+	},
+	{
 		file:    "provenance-and-the-capture-loop.md",
 		slug:    "platform-provenance-and-the-capture-loop",
 		summary: "Naming sources with call references so an asset's provenance is exact, what a capture holds, and the loop that turns session knowledge into reviewed catalog knowledge.",

@@ -28,6 +28,21 @@ follow, and both are legitimate — choose by what the output is for:
   separate deliverable (a monthly close, a statement), not a newer copy of the
   same thing.
 
+```mermaid
+flowchart LR
+  subgraph stable["stable name: a refresh"]
+    S1["run Mon"] --> A1["asset weekly-sales"]
+    S2["run Tue"] --> A1
+    S3["run Wed"] --> A1
+    A1 --> V["v1, v2, v3<br/>one URL, one set of shares"]
+  end
+  subgraph dated["dated name: an archive"]
+    D1["run Mon"] --> B1["asset sales-2026-08-24"]
+    D2["run Tue"] --> B2["asset sales-2026-08-25"]
+    D3["run Wed"] --> B3["asset sales-2026-08-26"]
+  end
+```
+
 If you see a new asset appearing every morning and expected one asset gaining
 versions, the name is changing per run; make it a literal.
 
@@ -50,10 +65,28 @@ empty document body is refused rather than published, so a conditionally
 assembled document that ends up blank fails the run loudly instead of silently
 replacing the current version of a shared dashboard.
 
-Composing the whole document is one of two shapes a document output takes, and
-the other one leaves the presentation where a person can edit it. Which one
-fits is decided before the script is written; see
+Composing the whole document is one of three shapes a document output takes;
+the others leave the presentation where a person can edit it and move only the
+data. Which one fits is decided before the script is written; see
 `mcp:knowledge_page:platform-semi-dynamic-dashboards` for the discriminator.
+
+## An exported asset is something other documents can reference
+
+A stable output name gives the asset a durable identity, and that is what makes
+it usable as a data file: another asset can name it with its
+`mcp:asset:<id>` reference and load it at render time, and each load gets the
+content the latest run wrote. So a script that exports `format="json"` under a
+stable name is publishing a feed, not only a file people download — one
+dashboard, or several, can read it with no run of their own and no re-save.
+
+A dated series is the wrong target for that: each run makes a NEW asset with a
+new id, so a reference to yesterday's stays pinned to yesterday's data. Point a
+reference at a stable name, and use the dated series for the archive.
+
+`mcp:knowledge_page:platform-asset-references-and-the-refresh-loop` covers
+declaring the reference, and the same page covers the other direction: a script
+writing a managed resource with `manage_resource replace_content`, which keeps
+one file's id and URI across every refresh.
 
 ## The zero-data guard
 

@@ -47,6 +47,18 @@ Domain knowledge shared during a session — what a column actually means, which
 table is reliable, how a metric is calculated — evaporates when the session
 ends unless it is captured:
 
+```mermaid
+flowchart LR
+  S["session: a query answers,<br/>a colleague explains a column"] --> C["memory_capture<br/>insight status: pending"]
+  C --> R{"admin review"}
+  R -- rejected --> X["nothing mutates<br/>the catalog"]
+  R -- approved --> P["apply_knowledge"]
+  P --> D["DataHub metadata,<br/>recorded as a changeset<br/>that can be rolled back"]
+  P --> K["a knowledge page,<br/>found-or-created by slug"]
+  D --> F["search and fetch<br/>find it next time"]
+  K --> F
+```
+
 1. **Capture** it with `memory_capture` when it surfaces. Reviewed classes
    (`business_knowledge`, `schema_entity`, `operational_rule`) create insights
    with status `pending`; nothing mutates catalog state yet.
