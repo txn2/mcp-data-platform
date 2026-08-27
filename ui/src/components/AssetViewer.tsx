@@ -64,6 +64,11 @@ export function AssetViewer({
   const [changeSummary, setChangeSummary] = useState("");
   const [revertModalOpen, setRevertModalOpen] = useState(false);
 
+  // Bumped by each Recapture the reader presses. A press that finds the tile
+  // already cleared leaves every field the capture condition reads exactly
+  // where it was, so this is the only thing that distinguishes it (#1501).
+  const [recaptureNonce, setRecaptureNonce] = useState(0);
+
   const [viewMode, setViewMode] = useState<ViewMode>("preview");
   const [editedContent, setEditedContent] = useState<string>("");
   const [dirty, setDirty] = useState(false);
@@ -290,6 +295,7 @@ export function AssetViewer({
             onNavigate={onNavigate}
             versions={versions}
             versionsLoading={versionsLoading}
+            onRecaptureThumbnail={() => setRecaptureNonce((n) => n + 1)}
           />
         }
       >
@@ -326,10 +332,22 @@ export function AssetViewer({
           stamped is the asset's current one: the asset and its content are
           refetched together, so a body older than the version it is dated to is
           possible only in the moment between the two responses, and the next
-          write puts the asset back on the queue. */}
+          write puts the asset back on the queue.
+
+          Remounted per press of Recapture for the same reason: a capture that
+          was discarded — the usual reason the tile is wrong — leaves the
+          capturer mounted on a version that has not moved, and without this the
+          reader would be pressing a control that reuses a finished result.
+
+          The asset is in the key because this component is not remounted per
+          asset: opening a second asset from a link reuses the viewer, and with
+          both rows behind at the same version there is no render where a
+          capture stops being wanted, so a key of the version alone left the
+          first asset's finished capturer in place and the second was never
+          taken (#1501). */}
       {captureThumbnail && typeof content === "string" && (
         <ThumbnailGeneratorWithInvalidation
-          key={asset.current_version}
+          key={`${asset.id}:${asset.current_version}:${recaptureNonce}`}
           assetId={asset.id}
           content={content}
           contentType={asset.content_type}

@@ -158,6 +158,48 @@ describe("ThumbnailQueue", () => {
     expect(fetchRaw).toHaveBeenCalledTimes(1);
   });
 
+  // The way back from a wrong tile is to clear it, and the queue is what takes
+  // the replacement. Recording the attempt against the asset meant the tab that
+  // pressed the button was the one tab that would never act on it, so the
+  // capture only happened after a reload (#1501).
+  it("offers an asset again once its tile has been cleared, in the tab that captured it", async () => {
+    const qc = newClient();
+    const captured = asset("a", {
+      current_version: 4,
+      thumbnail_s3_key: "k/a/.thumbnail.png",
+      thumbnail_version: 3,
+      thumbnail_dark_version: 3,
+    });
+    pending([captured]);
+
+    renderQueue(qc);
+    await waitFor(() => expect(fetchRaw).toHaveBeenCalledTimes(1));
+
+    // The next answer from the server -- the list polls, and refetches when the
+    // tab is focused. The recorded capture is gone, so the asset is pending for
+    // a reason nothing has tried.
+    pending([{ ...captured, thumbnail_s3_key: "", thumbnail_version: 0, thumbnail_dark_version: 0 }]);
+    await qc.invalidateQueries({ queryKey: ["thumbnails-pending"] });
+
+    await waitFor(() => expect(fetchRaw).toHaveBeenCalledTimes(2));
+  });
+
+  // A body that moved on is the other reason a stored tile is worth replacing,
+  // and it reaches a tab that is not the one that wrote it through this list.
+  it("offers an asset again once its body has moved on", async () => {
+    const qc = newClient();
+    const first = asset("a", { current_version: 4, thumbnail_version: 3, thumbnail_dark_version: 3 });
+    pending([first]);
+
+    renderQueue(qc);
+    await waitFor(() => expect(fetchRaw).toHaveBeenCalledTimes(1));
+
+    pending([{ ...first, current_version: 5 }]);
+    await qc.invalidateQueries({ queryKey: ["thumbnails-pending"] });
+
+    await waitFor(() => expect(capturedVersions).toEqual([4, 5]));
+  });
+
   // Capture is a long main-thread task per asset, and the queue now runs on
   // whatever page the reader is on (#1351).
   it("captures at most eight assets per batch", async () => {
