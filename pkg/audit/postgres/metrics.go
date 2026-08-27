@@ -21,12 +21,11 @@ const defaultBreakdownLimit = 10
 // maxBreakdownLimit caps the number of breakdown entries to prevent abuse.
 const maxBreakdownLimit = 100
 
-// Timeseries returns audit event counts bucketed by the given resolution.
-func (s *Store) Timeseries(ctx context.Context, filter audit.TimeseriesFilter) ([]audit.TimeseriesBucket, error) {
-	if !audit.ValidResolutions[filter.Resolution] {
-		return nil, fmt.Errorf("invalid resolution: %q", filter.Resolution)
-	}
-
+// buildTimeseriesQuery renders the per-bucket call counts the metrics dashboard plots, with the arguments its filter binds.
+// The statement is composed through the query builder, so no string in
+// this file is it; the function is what lets a test hand a representative
+// rendering to a real PostgreSQL to parse and plan (#1512).
+func buildTimeseriesQuery(filter audit.TimeseriesFilter) (query string, args []any, err error) {
 	start, end := defaultTimeRange(filter.StartTime, filter.EndTime)
 
 	// Resolution is validated against ValidResolutions — safe for column expression.
@@ -52,9 +51,112 @@ func (s *Store) Timeseries(ctx context.Context, filter audit.TimeseriesFilter) (
 	qb = qb.GroupBy("bucket").
 		OrderBy("bucket ASC")
 
-	query, args, err := qb.ToSql()
+	return render(qb, "timeseries")
+}
+
+// buildOverviewQuery renders the headline totals the metrics dashboard opens on, with the arguments its filter binds.
+// The statement is composed through the query builder, so no string in
+// this file is it; the function is what lets a test hand a representative
+// rendering to a real PostgreSQL to parse and plan (#1512).
+func buildOverviewQuery(filter audit.MetricsFilter) (query string, args []any, err error) {
+	start, end := defaultTimeRange(filter.StartTime, filter.EndTime)
+
+	qb := psq.Select(
+		"COUNT(*) AS total_calls",
+		"CASE WHEN COUNT(*) > 0 THEN CAST(COUNT(*) FILTER (WHERE success = true) AS FLOAT) / COUNT(*) ELSE 0 END AS success_rate",
+		"COALESCE(AVG(duration_ms), 0) AS avg_duration_ms",
+		"COUNT(DISTINCT user_id) AS unique_users",
+		"COUNT(DISTINCT tool_name) AS unique_tools",
+		"CASE WHEN COUNT(*) > 0 THEN CAST(COUNT(*) FILTER (WHERE enrichment_applied = true) AS FLOAT) / COUNT(*) ELSE 0 END AS enrichment_rate",
+		"COUNT(*) FILTER (WHERE success = false) AS error_count",
+	).From("audit_logs").
+		Where(sq.GtOrEq{colTimestamp: start}).
+		Where(sq.LtOrEq{colTimestamp: end})
+
+	if filter.UserID != "" {
+		qb = qb.Where(sq.Eq{colUserID: filter.UserID})
+	}
+	if filter.EventKind != "" {
+		qb = qb.Where(sq.Eq{colEventKind: filter.EventKind})
+	}
+
+	return render(qb, "overview")
+}
+
+// buildPerformanceQuery renders the latency percentiles, with the arguments its filter binds.
+// The statement is composed through the query builder, so no string in
+// this file is it; the function is what lets a test hand a representative
+// rendering to a real PostgreSQL to parse and plan (#1512).
+func buildPerformanceQuery(filter audit.MetricsFilter) (query string, args []any, err error) {
+	start, end := defaultTimeRange(filter.StartTime, filter.EndTime)
+
+	qb := psq.Select(
+		"COALESCE(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY duration_ms), 0) AS p50_ms",
+		"COALESCE(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY duration_ms), 0) AS p95_ms",
+		"COALESCE(PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY duration_ms), 0) AS p99_ms",
+		"COALESCE(AVG(duration_ms), 0) AS avg_ms",
+		"COALESCE(MAX(duration_ms), 0) AS max_ms",
+		"COALESCE(AVG(response_chars), 0) AS avg_response_chars",
+		"COALESCE(AVG(request_chars), 0) AS avg_request_chars",
+	).From("audit_logs").
+		Where(sq.GtOrEq{colTimestamp: start}).
+		Where(sq.LtOrEq{colTimestamp: end})
+
+	if filter.UserID != "" {
+		qb = qb.Where(sq.Eq{colUserID: filter.UserID})
+	}
+	if filter.EventKind != "" {
+		qb = qb.Where(sq.Eq{colEventKind: filter.EventKind})
+	}
+
+	return render(qb, "performance")
+}
+
+// buildEnrichmentQuery renders the enrichment mode tallies and token savings, with the arguments its filter binds.
+// The statement is composed through the query builder, so no string in
+// this file is it; the function is what lets a test hand a representative
+// rendering to a real PostgreSQL to parse and plan (#1512).
+func buildEnrichmentQuery(filter audit.MetricsFilter) (query string, args []any, err error) {
+	start, end := defaultTimeRange(filter.StartTime, filter.EndTime)
+
+	qb := psq.Select(
+		"COUNT(*) AS total_calls",
+		"COUNT(*) FILTER (WHERE enrichment_applied = true) AS enriched_calls",
+		"CASE WHEN COUNT(*) > 0 THEN CAST(COUNT(*) FILTER (WHERE enrichment_applied = true) AS FLOAT) / COUNT(*) ELSE 0 END AS enrichment_rate",
+		"COUNT(*) FILTER (WHERE enrichment_mode = 'full') AS full_count",
+		"COUNT(*) FILTER (WHERE enrichment_mode = 'summary') AS summary_count",
+		"COUNT(*) FILTER (WHERE enrichment_mode = 'reference') AS reference_count",
+		"COUNT(*) FILTER (WHERE enrichment_mode = 'none') AS none_count",
+		"COALESCE(SUM(enrichment_tokens_full), 0) AS total_tokens_full",
+		"COALESCE(SUM(enrichment_tokens_dedup), 0) AS total_tokens_dedup",
+		"COALESCE(SUM(enrichment_tokens_full) - SUM(enrichment_tokens_dedup), 0) AS tokens_saved",
+		"COALESCE(AVG(NULLIF(enrichment_tokens_full, 0)), 0) AS avg_tokens_full",
+		"COALESCE(AVG(NULLIF(enrichment_tokens_dedup, 0)), 0) AS avg_tokens_dedup",
+		"COUNT(DISTINCT session_id) AS unique_sessions",
+	).From("audit_logs").
+		Where(sq.GtOrEq{colTimestamp: start}).
+		Where(sq.LtOrEq{colTimestamp: end})
+
+	if filter.UserID != "" {
+		qb = qb.Where(sq.Eq{colUserID: filter.UserID})
+	}
+	if filter.EventKind != "" {
+		qb = qb.Where(sq.Eq{colEventKind: filter.EventKind})
+	}
+
+	return render(qb, "enrichment")
+}
+
+// Timeseries returns audit event counts bucketed by the given resolution.
+func (s *Store) Timeseries(ctx context.Context, filter audit.TimeseriesFilter) ([]audit.TimeseriesBucket, error) {
+	if !audit.ValidResolutions[filter.Resolution] {
+		return nil, fmt.Errorf("invalid resolution: %q", filter.Resolution)
+	}
+
+	start, end := defaultTimeRange(filter.StartTime, filter.EndTime)
+	query, args, err := buildTimeseriesQuery(filter)
 	if err != nil {
-		return nil, fmt.Errorf("building timeseries query: %w", err)
+		return nil, err
 	}
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
@@ -147,11 +249,7 @@ func buildBreakdownQuery(filter audit.BreakdownFilter) (query string, args []any
 		OrderBy("count DESC").
 		Limit(uint64(limit)) // #nosec G115 -- limit is clamped to [1, 100] by clampBreakdownLimit
 
-	query, args, err = qb.ToSql()
-	if err != nil {
-		return "", nil, fmt.Errorf("building breakdown query: %w", err)
-	}
-	return query, args, nil
+	return render(qb, "breakdown")
 }
 
 // Breakdown returns audit event counts grouped by a dimension.
@@ -196,30 +294,9 @@ func (s *Store) Breakdown(ctx context.Context, filter audit.BreakdownFilter) ([]
 
 // Overview returns aggregate statistics for the given filter.
 func (s *Store) Overview(ctx context.Context, filter audit.MetricsFilter) (*audit.Overview, error) {
-	start, end := defaultTimeRange(filter.StartTime, filter.EndTime)
-
-	qb := psq.Select(
-		"COUNT(*) AS total_calls",
-		"CASE WHEN COUNT(*) > 0 THEN CAST(COUNT(*) FILTER (WHERE success = true) AS FLOAT) / COUNT(*) ELSE 0 END AS success_rate",
-		"COALESCE(AVG(duration_ms), 0) AS avg_duration_ms",
-		"COUNT(DISTINCT user_id) AS unique_users",
-		"COUNT(DISTINCT tool_name) AS unique_tools",
-		"CASE WHEN COUNT(*) > 0 THEN CAST(COUNT(*) FILTER (WHERE enrichment_applied = true) AS FLOAT) / COUNT(*) ELSE 0 END AS enrichment_rate",
-		"COUNT(*) FILTER (WHERE success = false) AS error_count",
-	).From("audit_logs").
-		Where(sq.GtOrEq{colTimestamp: start}).
-		Where(sq.LtOrEq{colTimestamp: end})
-
-	if filter.UserID != "" {
-		qb = qb.Where(sq.Eq{colUserID: filter.UserID})
-	}
-	if filter.EventKind != "" {
-		qb = qb.Where(sq.Eq{colEventKind: filter.EventKind})
-	}
-
-	query, args, err := qb.ToSql()
+	query, args, err := buildOverviewQuery(filter)
 	if err != nil {
-		return nil, fmt.Errorf("building overview query: %w", err)
+		return nil, err
 	}
 
 	var o audit.Overview
@@ -240,30 +317,9 @@ func (s *Store) Overview(ctx context.Context, filter audit.MetricsFilter) (*audi
 
 // Performance returns latency percentile statistics for the given filter.
 func (s *Store) Performance(ctx context.Context, filter audit.MetricsFilter) (*audit.PerformanceStats, error) {
-	start, end := defaultTimeRange(filter.StartTime, filter.EndTime)
-
-	qb := psq.Select(
-		"COALESCE(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY duration_ms), 0) AS p50_ms",
-		"COALESCE(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY duration_ms), 0) AS p95_ms",
-		"COALESCE(PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY duration_ms), 0) AS p99_ms",
-		"COALESCE(AVG(duration_ms), 0) AS avg_ms",
-		"COALESCE(MAX(duration_ms), 0) AS max_ms",
-		"COALESCE(AVG(response_chars), 0) AS avg_response_chars",
-		"COALESCE(AVG(request_chars), 0) AS avg_request_chars",
-	).From("audit_logs").
-		Where(sq.GtOrEq{colTimestamp: start}).
-		Where(sq.LtOrEq{colTimestamp: end})
-
-	if filter.UserID != "" {
-		qb = qb.Where(sq.Eq{colUserID: filter.UserID})
-	}
-	if filter.EventKind != "" {
-		qb = qb.Where(sq.Eq{colEventKind: filter.EventKind})
-	}
-
-	query, args, err := qb.ToSql()
+	query, args, err := buildPerformanceQuery(filter)
 	if err != nil {
-		return nil, fmt.Errorf("building performance query: %w", err)
+		return nil, err
 	}
 
 	var p audit.PerformanceStats
@@ -288,36 +344,9 @@ func (s *Store) Performance(ctx context.Context, filter audit.MetricsFilter) (*a
 
 // Enrichment returns aggregate enrichment statistics for the given filter.
 func (s *Store) Enrichment(ctx context.Context, filter audit.MetricsFilter) (*audit.EnrichmentStats, error) {
-	start, end := defaultTimeRange(filter.StartTime, filter.EndTime)
-
-	qb := psq.Select(
-		"COUNT(*) AS total_calls",
-		"COUNT(*) FILTER (WHERE enrichment_applied = true) AS enriched_calls",
-		"CASE WHEN COUNT(*) > 0 THEN CAST(COUNT(*) FILTER (WHERE enrichment_applied = true) AS FLOAT) / COUNT(*) ELSE 0 END AS enrichment_rate",
-		"COUNT(*) FILTER (WHERE enrichment_mode = 'full') AS full_count",
-		"COUNT(*) FILTER (WHERE enrichment_mode = 'summary') AS summary_count",
-		"COUNT(*) FILTER (WHERE enrichment_mode = 'reference') AS reference_count",
-		"COUNT(*) FILTER (WHERE enrichment_mode = 'none') AS none_count",
-		"COALESCE(SUM(enrichment_tokens_full), 0) AS total_tokens_full",
-		"COALESCE(SUM(enrichment_tokens_dedup), 0) AS total_tokens_dedup",
-		"COALESCE(SUM(enrichment_tokens_full) - SUM(enrichment_tokens_dedup), 0) AS tokens_saved",
-		"COALESCE(AVG(NULLIF(enrichment_tokens_full, 0)), 0) AS avg_tokens_full",
-		"COALESCE(AVG(NULLIF(enrichment_tokens_dedup, 0)), 0) AS avg_tokens_dedup",
-		"COUNT(DISTINCT session_id) AS unique_sessions",
-	).From("audit_logs").
-		Where(sq.GtOrEq{colTimestamp: start}).
-		Where(sq.LtOrEq{colTimestamp: end})
-
-	if filter.UserID != "" {
-		qb = qb.Where(sq.Eq{colUserID: filter.UserID})
-	}
-	if filter.EventKind != "" {
-		qb = qb.Where(sq.Eq{colEventKind: filter.EventKind})
-	}
-
-	query, args, err := qb.ToSql()
+	query, args, err := buildEnrichmentQuery(filter)
 	if err != nil {
-		return nil, fmt.Errorf("building enrichment query: %w", err)
+		return nil, err
 	}
 
 	var stats audit.EnrichmentStats

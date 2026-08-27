@@ -139,7 +139,7 @@ func TestRealDB_PlatformInfoNoticesOnlyReportSharesAfterTheWatermark(t *testing.
 		ID: "asset_later", OwnerID: "other-owner", OwnerEmail: "lead@example.com", Name: "Later pack",
 		ContentType: "text/markdown", S3Bucket: "b", S3Key: "k", Tags: []string{}, CurrentVersion: 1,
 	}))
-	require.NoError(t, handle.ShareStore().Insert(ctx, portal.Share{
+	require.NoError(t, handle.ShareStore().Insert(ctx, &portal.Share{
 		ID: "shr_later", AssetID: "asset_later", Token: "tok_later", CreatedBy: "lead@example.com",
 		SharedWithEmail: noticeOwnerEmail, Permission: portal.PermissionViewer,
 	}))
@@ -192,7 +192,7 @@ func seedNoticeFixtures(ctx context.Context, t *testing.T, h *portalstore.Handle
 		ID: "asset_shared", OwnerID: "other-owner", OwnerEmail: "lead@example.com", Name: "Board pack",
 		ContentType: "text/markdown", S3Bucket: "b", S3Key: "k", Tags: []string{}, CurrentVersion: 1,
 	}))
-	require.NoError(t, h.ShareStore().Insert(ctx, portal.Share{
+	require.NoError(t, h.ShareStore().Insert(ctx, &portal.Share{
 		ID: "shr_notice", AssetID: "asset_shared", Token: "tok_notice", CreatedBy: "lead@example.com",
 		SharedWithEmail: noticeOwnerEmail, Permission: portal.PermissionViewer,
 	}))
@@ -206,7 +206,7 @@ func seedEditorShare(ctx context.Context, t *testing.T, h *portalstore.Handle) {
 		ID: "asset_relayed", OwnerID: "third-owner", OwnerEmail: "author@example.com", Name: "Relayed pack",
 		ContentType: "text/markdown", S3Bucket: "b", S3Key: "k", Tags: []string{}, CurrentVersion: 1,
 	}))
-	require.NoError(t, h.ShareStore().Insert(ctx, portal.Share{
+	require.NoError(t, h.ShareStore().Insert(ctx, &portal.Share{
 		ID: "shr_relayed", AssetID: "asset_relayed", Token: "tok_relayed", CreatedBy: "editor@example.com",
 		SharedWithEmail: noticeOwnerEmail, Permission: portal.PermissionViewer,
 	}))
@@ -221,7 +221,7 @@ func seedOtherKindShares(ctx context.Context, t *testing.T, db *sql.DB, h *porta
 	require.NoError(t, h.CollectionStore().Insert(ctx, portal.Collection{
 		ID: "col_notice", OwnerID: "other-owner", OwnerEmail: "lead@example.com", Name: "Weekly board pack",
 	}))
-	require.NoError(t, h.ShareStore().Insert(ctx, portal.Share{
+	require.NoError(t, h.ShareStore().Insert(ctx, &portal.Share{
 		ID: "shr_coll", CollectionID: "col_notice", Token: "tok_coll", CreatedBy: "lead@example.com",
 		SharedWithEmail: noticeOwnerEmail, Permission: portal.PermissionEditor,
 	}))
@@ -232,7 +232,7 @@ func seedOtherKindShares(ctx context.Context, t *testing.T, db *sql.DB, h *porta
 		Source: prompt.SourceOperator, Enabled: true,
 	}
 	require.NoError(t, promptpostgres.New(db).Create(ctx, prm))
-	require.NoError(t, h.ShareStore().Insert(ctx, portal.Share{
+	require.NoError(t, h.ShareStore().Insert(ctx, &portal.Share{
 		ID: "shr_prompt", PromptID: prm.ID, Token: "tok_prompt", CreatedBy: "lead@example.com",
 		SharedWithEmail: noticeOwnerEmail, Permission: portal.PermissionViewer,
 	}))

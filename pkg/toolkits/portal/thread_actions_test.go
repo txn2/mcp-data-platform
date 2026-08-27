@@ -119,7 +119,7 @@ func (f *fakeShareStore) GetUserCollectionPermission(_ context.Context, _, _, _ 
 	return f.collPerm, nil
 }
 
-func (*fakeShareStore) Insert(_ context.Context, _ portal.Share) error             { return nil }
+func (*fakeShareStore) Insert(_ context.Context, _ *portal.Share) error            { return nil }
 func (*fakeShareStore) GetByID(_ context.Context, _ string) (*portal.Share, error) { return nil, nil } //nolint:nilnil // test stub
 func (*fakeShareStore) GetByToken(_ context.Context, _ string) (*portal.Share, error) {
 	return nil, nil //nolint:nilnil // test stub

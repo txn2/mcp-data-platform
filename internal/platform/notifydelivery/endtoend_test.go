@@ -171,7 +171,7 @@ func (s *smtpSink) emails() []notifyrender.Email {
 // shareInsertOK accepts every share insert.
 type shareInsertOK struct{ portal.ShareStore }
 
-func (shareInsertOK) Insert(context.Context, portal.Share) error { return nil }
+func (shareInsertOK) Insert(context.Context, *portal.Share) error { return nil }
 
 // userMiddleware injects the authenticated portal user.
 func userMiddleware(user *portal.User) func(http.Handler) http.Handler {

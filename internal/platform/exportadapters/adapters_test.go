@@ -56,8 +56,8 @@ type stubShareStore struct {
 	insertErr error
 }
 
-func (s *stubShareStore) Insert(_ context.Context, share portal.Share) error {
-	s.inserted = &share
+func (s *stubShareStore) Insert(_ context.Context, share *portal.Share) error {
+	s.inserted = share
 	return s.insertErr
 }
 

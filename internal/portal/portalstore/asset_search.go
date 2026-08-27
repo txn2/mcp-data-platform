@@ -69,17 +69,13 @@ func (s *postgresAssetStore) SearchAssets(ctx context.Context, q portaldomain.As
 	return scored, nil
 }
 
-// searchAssetsHybrid runs two index-backed arms and fuses in Go, mirroring the
-// prompt and memory hybrid search: the hnsw ANN index only accelerates a pure
-// `ORDER BY embedding <=> $1 LIMIT k` and the GIN index only accelerates the
-// tsquery match, so a single blended ORDER BY would forfeit both. The vector arm
-// returns the cosine top-k; the lexical arm returns the full-text top-k
-// (including NULL-embedding rows the vector arm cannot see). Their union is
-// deduped by id (keeping the higher fused score) and sorted.
-func (s *postgresAssetStore) searchAssetsHybrid(ctx context.Context, q portaldomain.AssetSearchQuery) ([]portaldomain.ScoredAsset, error) {
+// buildAssetHybridSearch renders the two-arm hybrid statement and its
+// arguments. It is a function rather than inline SQL so a test can hand the
+// statement to a real PostgreSQL to parse and plan (#1512).
+func buildAssetHybridSearch(q portaldomain.AssetSearchQuery) (query string, args []any) {
 	limit := q.EffectiveLimit()
 	base := "deleted_at IS NULL AND owner_id = $3"
-	args := []any{pgvector.NewVector(q.Embedding), q.QueryText, q.OwnerID}
+	args = []any{pgvector.NewVector(q.Embedding), q.QueryText, q.OwnerID}
 
 	// #nosec G201 -- column list and FTS expr are constants; base uses only
 	// parameterized placeholders; limit is a sanitized int. No user input is
@@ -96,7 +92,19 @@ func (s *postgresAssetStore) searchAssetsHybrid(ctx context.Context, q portaldom
 		assetSearchColumns, assetFTSExpr, assetFTSQueryHybrid, base, assetFTSExpr, assetFTSQueryHybrid, limit)
 	// #nosec G202 -- both arms are assembled from constant column/expression
 	// strings with parameterized placeholders; no user input is concatenated.
-	sqlStr := "(" + vecArm + ") UNION ALL (" + lexArm + ")"
+	return "(" + vecArm + ") UNION ALL (" + lexArm + ")", args
+}
+
+// searchAssetsHybrid runs two index-backed arms and fuses in Go, mirroring the
+// prompt and memory hybrid search: the hnsw ANN index only accelerates a pure
+// `ORDER BY embedding <=> $1 LIMIT k` and the GIN index only accelerates the
+// tsquery match, so a single blended ORDER BY would forfeit both. The vector arm
+// returns the cosine top-k; the lexical arm returns the full-text top-k
+// (including NULL-embedding rows the vector arm cannot see). Their union is
+// deduped by id (keeping the higher fused score) and sorted.
+func (s *postgresAssetStore) searchAssetsHybrid(ctx context.Context, q portaldomain.AssetSearchQuery) ([]portaldomain.ScoredAsset, error) {
+	limit := q.EffectiveLimit()
+	sqlStr, args := buildAssetHybridSearch(q)
 
 	rows, err := s.db.QueryContext(ctx, sqlStr, args...)
 	if err != nil {
@@ -154,21 +162,28 @@ func collectHybridAssets(rows *sql.Rows, limit int) ([]portaldomain.ScoredAsset,
 	return scored, nil
 }
 
+// buildAssetLexicalSearch renders the lexical statement, for the same reason
+// buildAssetHybridSearch exists. Its two arguments are the query text and the
+// owner, which the caller passes.
+func buildAssetLexicalSearch(q portaldomain.AssetSearchQuery) string {
+	// #nosec G201 -- column list and FTS expr are constants; owner_id is a
+	// parameterized placeholder; limit and the normalization bitmask are
+	// sanitized ints.
+	return fmt.Sprintf(
+		"SELECT %s, ts_rank_cd(%s, %s, %d) AS lex_rank "+
+			"FROM portal_assets WHERE deleted_at IS NULL AND owner_id = $2 "+
+			"AND %s @@ %s ORDER BY lex_rank DESC LIMIT %d",
+		assetSearchColumns, assetFTSExpr, assetFTSQueryLexical, lexRankNormalization,
+		assetFTSExpr, assetFTSQueryLexical, q.EffectiveLimit())
+}
+
 // searchAssetsLexical ranks the caller's non-deleted assets by full-text
 // relevance only. It is the graceful-degradation path used when no embedding
 // provider is available: it has no vector parameter, surfaces NULL-embedding
 // rows, and orders by a length-normalized ts_rank_cd score (lexRankNormalization)
 // so single-match records do not collapse to a flat 0.1.
 func (s *postgresAssetStore) searchAssetsLexical(ctx context.Context, q portaldomain.AssetSearchQuery) ([]portaldomain.ScoredAsset, error) {
-	// #nosec G201 -- column list and FTS expr are constants; owner_id is a
-	// parameterized placeholder; limit and the normalization bitmask are
-	// sanitized ints.
-	query := fmt.Sprintf(
-		"SELECT %s, ts_rank_cd(%s, %s, %d) AS lex_rank "+
-			"FROM portal_assets WHERE deleted_at IS NULL AND owner_id = $2 "+
-			"AND %s @@ %s ORDER BY lex_rank DESC LIMIT %d",
-		assetSearchColumns, assetFTSExpr, assetFTSQueryLexical, lexRankNormalization,
-		assetFTSExpr, assetFTSQueryLexical, q.EffectiveLimit())
+	query := buildAssetLexicalSearch(q)
 
 	rows, err := s.db.QueryContext(ctx, query, q.QueryText, q.OwnerID)
 	if err != nil {

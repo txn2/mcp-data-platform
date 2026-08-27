@@ -34,11 +34,11 @@ func TestRealDB_ExpiredEditorShareExcluded(t *testing.T) {
 	const grantee = "grantee-user"
 	past := time.Now().Add(-time.Hour)
 
-	require.NoError(t, shareStore.Insert(ctx, portaldomain.Share{
+	require.NoError(t, shareStore.Insert(ctx, &portaldomain.Share{
 		ID: "shr_active", AssetID: "asset_active", Token: "tok_active", CreatedBy: "owner@example.com",
 		SharedWithUserID: grantee, Permission: portaldomain.PermissionEditor,
 	}))
-	require.NoError(t, shareStore.Insert(ctx, portaldomain.Share{
+	require.NoError(t, shareStore.Insert(ctx, &portaldomain.Share{
 		ID: "shr_expired", AssetID: "asset_expired", Token: "tok_expired", CreatedBy: "owner@example.com",
 		SharedWithUserID: grantee, Permission: portaldomain.PermissionEditor, ExpiresAt: &past,
 	}))

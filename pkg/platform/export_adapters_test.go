@@ -40,8 +40,8 @@ type stubShareStore struct {
 	promptRefs    []portal.SharedPromptRef
 }
 
-func (s *stubShareStore) Insert(_ context.Context, share portal.Share) error {
-	s.inserted = &share
+func (s *stubShareStore) Insert(_ context.Context, share *portal.Share) error {
+	s.inserted = share
 	return s.insertErr
 }
 

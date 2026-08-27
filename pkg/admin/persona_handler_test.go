@@ -1072,3 +1072,87 @@ func TestRevertToFilePersonaWarnsOnIncoherentToolSet(t *testing.T) {
 	assert.Contains(t, buf.String(), "persona=analyst")
 	assert.Contains(t, buf.String(), "missing=fetch")
 }
+
+// A create or update response carries the resolved tool list (#1510). The
+// persona editor and an admin agent read the save response, so the hard-coded
+// empty list told them the persona they had just saved granted no tools while
+// a GET of the same persona returned the real list.
+func TestPersonaWriteReturnsResolvedTools(t *testing.T) {
+	newHandler := func(t *testing.T, existing ...*persona.Persona) *Handler {
+		t.Helper()
+		pReg := &mockPersonaRegistry{allResult: existing}
+		tkReg := &mockToolkitRegistry{
+			allResult: []mockToolkit{
+				{kind: "trino", name: "prod", tools: []string{"trino_query", "trino_explain"}},
+				{kind: "datahub", name: "primary", tools: []string{"datahub_search"}},
+			},
+		}
+		return NewHandler(Deps{
+			PersonaRegistry: pReg,
+			ToolkitRegistry: tkReg,
+			Config:          testConfig(),
+			ConfigStore:     &mockConfigStore{mode: "database"},
+		}, nil)
+	}
+
+	getTools := func(t *testing.T, h *Handler, name string) []string {
+		t.Helper()
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/personas/"+name, http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+		var resp personaDetail
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+		return resp.Tools
+	}
+
+	t.Run("create returns the same list a get of that persona returns", func(t *testing.T) {
+		h := newHandler(t)
+
+		body := `{"name":"analyst","display_name":"Data Analyst","roles":["analyst"],"allow_tools":["trino_*"],"deny_tools":["trino_explain"]}`
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/personas", strings.NewReader(body))
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusCreated, w.Code)
+		var resp personaDetail
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+		assert.Equal(t, []string{"trino_query"}, resp.Tools)
+		assert.Equal(t, getTools(t, h, "analyst"), resp.Tools)
+	})
+
+	t.Run("update returns the same list a get of that persona returns", func(t *testing.T) {
+		h := newHandler(t, &persona.Persona{
+			Name:        "analyst",
+			DisplayName: "Data Analyst",
+			Tools:       persona.ToolRules{Allow: []string{"datahub_*"}},
+		})
+
+		body := `{"display_name":"Data Analyst","roles":["analyst"],"allow_tools":["*"],"deny_tools":["trino_explain"]}`
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/personas/analyst", strings.NewReader(body))
+		req.SetPathValue("name", "analyst")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		var resp personaDetail
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+		assert.Equal(t, []string{"datahub_search", "trino_query"}, resp.Tools)
+		assert.Equal(t, getTools(t, h, "analyst"), resp.Tools)
+	})
+
+	// An empty list is still reachable, and only when it is true: a persona
+	// whose rules match no tool this deployment registered resolves to none.
+	t.Run("a persona that grants nothing still answers with an empty list", func(t *testing.T) {
+		h := newHandler(t)
+
+		body := `{"name":"locked","display_name":"Locked Out","allow_tools":["nonexistent_*"]}`
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/personas", strings.NewReader(body))
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusCreated, w.Code)
+		assert.Contains(t, w.Body.String(), `"tools":[]`)
+		assert.Empty(t, getTools(t, h, "locked"))
+	})
+}

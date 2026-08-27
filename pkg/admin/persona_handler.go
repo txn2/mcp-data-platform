@@ -135,22 +135,13 @@ func (h *Handler) listPersonas(w http.ResponseWriter, _ *http.Request) {
 	all := h.deps.PersonaRegistry.All()
 	summaries := make([]personaSummary, 0, len(all))
 
-	filter := persona.NewToolFilter(nil)
 	for _, p := range all {
-		toolCount := 0
-		if h.deps.ToolkitRegistry != nil {
-			for _, t := range h.deps.ToolkitRegistry.AllTools() {
-				if filter.IsAllowed(p, t) {
-					toolCount++
-				}
-			}
-		}
 		summaries = append(summaries, personaSummary{
 			Name:        p.Name,
 			DisplayName: p.DisplayName,
 			Description: p.Description,
 			Roles:       p.Roles,
-			ToolCount:   toolCount,
+			ToolCount:   len(h.allowedTools(p)),
 			Source:      p.Source,
 		})
 	}
@@ -179,22 +170,7 @@ func (h *Handler) getPersona(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve allowed tools
-	filter := persona.NewToolFilter(nil)
-	var tools []string
-	if h.deps.ToolkitRegistry != nil {
-		for _, t := range h.deps.ToolkitRegistry.AllTools() {
-			if filter.IsAllowed(p, t) {
-				tools = append(tools, t)
-			}
-		}
-	}
-	if tools == nil {
-		tools = []string{}
-	}
-	sort.Strings(tools)
-
-	writeJSON(w, http.StatusOK, toPersonaDetail(p, tools))
+	writeJSON(w, http.StatusOK, toPersonaDetail(p, h.resolveTools(p)))
 }
 
 // createPersona handles POST /api/v1/admin/personas.
@@ -263,7 +239,7 @@ func (h *Handler) createPersona(w http.ResponseWriter, r *http.Request) {
 		h.deps.ReloadNotifier.PublishPersonaReload()
 	}
 
-	writeJSON(w, http.StatusCreated, toPersonaDetail(p, []string{}))
+	writeJSON(w, http.StatusCreated, toPersonaDetail(p, h.resolveTools(p)))
 }
 
 // updatePersona handles PUT /api/v1/admin/personas/{name}.
@@ -328,7 +304,7 @@ func (h *Handler) updatePersona(w http.ResponseWriter, r *http.Request) {
 		h.deps.ReloadNotifier.PublishPersonaReload()
 	}
 
-	writeJSON(w, http.StatusOK, toPersonaDetail(p, []string{}))
+	writeJSON(w, http.StatusOK, toPersonaDetail(p, h.resolveTools(p)))
 }
 
 // deletePersona handles DELETE /api/v1/admin/personas/{name}.
@@ -460,6 +436,46 @@ func (h *Handler) warnIncoherentPersona(p *persona.Persona) {
 			"remedy", logsan.SanitizeForLog(f.Remedy),
 		)
 	}
+}
+
+// allowedTools returns, in registration order, the tools this deployment
+// registered that the persona's rules allow. It is the one evaluation of a
+// persona against the live tool set, shared by the tool count on the list
+// response and the resolved list on every detail response.
+//
+// Empty means the persona's rules match no registered tool, except with no
+// toolkit registry at all, where nothing can be resolved and the count is
+// reported as zero. Deps.ToolkitRegistry is always set by the composition root
+// (internal/httpserver/mounts.go), so that branch is a guard, not a state a
+// deployment reaches.
+func (h *Handler) allowedTools(p *persona.Persona) []string {
+	if h.deps.ToolkitRegistry == nil {
+		return nil
+	}
+	filter := persona.NewToolFilter(nil)
+	all := h.deps.ToolkitRegistry.AllTools()
+	tools := make([]string, 0, len(all))
+	for _, t := range all {
+		if filter.IsAllowed(p, t) {
+			tools = append(tools, t)
+		}
+	}
+	return tools
+}
+
+// resolveTools is allowedTools sorted, as personaDetail.Tools ships it. Every
+// persona response carrying a tool list is built from this one call, so a
+// create or update answers with the same list a later read of that persona
+// returns rather than a hard-coded empty one (#1510).
+//
+// Never returns nil: personaDetail.Tools ships as a JSON array.
+func (h *Handler) resolveTools(p *persona.Persona) []string {
+	tools := h.allowedTools(p)
+	if tools == nil {
+		return []string{}
+	}
+	sort.Strings(tools)
+	return tools
 }
 
 // toPersonaDetail builds a personaDetail response from a persona and its resolved tool list.

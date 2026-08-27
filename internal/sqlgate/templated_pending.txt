@@ -1,0 +1,40 @@
+# Packages that assemble SQL at run time and do not yet render it for the
+# prepare gate (#1512).
+#
+# A statement built from a format string, a filter predicate or a SET list has
+# no text in the source, so the gate cannot reach it. The package makes it
+# reachable by exporting an SQLSamples that calls its builders with
+# representative inputs (see pkg/resource/sqlsamples_integration.go) and joining
+# sampleSources in prepare_realdb_integration_test.go.
+#
+# This file is a ratchet, not an exemption. A package that starts assembling SQL
+# at run time and is not listed here fails the gate, and a package that renders
+# its SQL or stops assembling any must be removed from this file or the gate
+# fails on the stale line. Removing a line is the only way it shrinks.
+#
+# The five stores #1512 named -- resource, portal, prompt, audit and script --
+# render their dynamic SQL and are deliberately absent. Every package below
+# still has its compile-time statements prepared; what is missing is only what
+# its builders assemble.
+#
+# "Assembles at run time" is not only a format string. A package that composes
+# every statement through squirrel writes no SQL down at all, and one that grows
+# a statement with += writes down only its opening clause, so both are counted
+# by how the package builds rather than by what its statements look like.
+
+github.com/txn2/mcp-data-platform/internal/notification/notifyqueue
+github.com/txn2/mcp-data-platform/internal/platform/callrecord
+github.com/txn2/mcp-data-platform/internal/platform/datasetindex
+github.com/txn2/mcp-data-platform/internal/platform/knowledgepageindex
+github.com/txn2/mcp-data-platform/internal/platform/sessionview
+github.com/txn2/mcp-data-platform/internal/platform/tableregister
+github.com/txn2/mcp-data-platform/pkg/authevents
+github.com/txn2/mcp-data-platform/pkg/indexjobs
+github.com/txn2/mcp-data-platform/pkg/memory
+github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage
+github.com/txn2/mcp-data-platform/pkg/portal/mention
+github.com/txn2/mcp-data-platform/pkg/portal/threads
+github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog
+github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment
+github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge
+github.com/txn2/mcp-data-platform/pkg/user

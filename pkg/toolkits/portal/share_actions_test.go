@@ -32,11 +32,11 @@ type recordingShareStore struct {
 	getErr    error
 }
 
-func (s *recordingShareStore) Insert(_ context.Context, share portal.Share) error {
+func (s *recordingShareStore) Insert(_ context.Context, share *portal.Share) error {
 	if s.insertErr != nil {
 		return s.insertErr
 	}
-	s.shares = append(s.shares, share)
+	s.shares = append(s.shares, *share)
 	return nil
 }
 

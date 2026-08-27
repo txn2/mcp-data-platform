@@ -16,15 +16,19 @@ import (
 // beside the substrate it feeds and the in-memory queue, worker, and SMTP sink
 // the other end-to-end tests already run the real components over.
 
-// staleInsights serves a fixed pending-review rollup through the
-// PendingReviewStater fast path knowledge.PendingReviewOf takes.
+// staleInsights serves a fixed pending-review rollup through Stats, which is
+// where knowledge.PendingReviewOf reads it.
 type staleInsights struct {
 	knowledgekit.InsightStore
 	review *knowledgekit.PendingReview
 }
 
-func (s *staleInsights) PendingReviewStats(context.Context) (*knowledgekit.PendingReview, error) {
-	return s.review, nil
+func (s *staleInsights) Stats(context.Context, knowledgekit.InsightFilter) (*knowledgekit.InsightStats, error) {
+	return &knowledgekit.InsightStats{
+		TotalPending:    s.review.TotalPending,
+		OldestPendingAt: s.review.OldestPendingAt,
+		PendingOver30d:  s.review.PendingOver30d,
+	}, nil
 }
 
 // alertState is an in-memory reviewalert.StateStore modeling the claim

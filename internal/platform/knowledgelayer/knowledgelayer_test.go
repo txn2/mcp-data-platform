@@ -41,7 +41,7 @@ func TestNew_NilDBIsNoop(t *testing.T) {
 }
 
 func TestNew_InsightStoreSelection(t *testing.T) {
-	t.Run("memory store selects the searchable adapter", func(t *testing.T) {
+	t.Run("a supplied memory store is the one used", func(t *testing.T) {
 		h, err := New(dummyDB(t), stubMemoryStore{}, nil, Config{ToolkitName: "default"})
 		require.NoError(t, err)
 		require.NotNil(t, h)
@@ -50,13 +50,17 @@ func TestNew_InsightStoreSelection(t *testing.T) {
 		assert.True(t, ok, "memory-backed adapter is a SearchableInsightStore")
 	})
 
-	t.Run("no memory store falls back to the postgres store", func(t *testing.T) {
+	// A caller with no memory store gets one built over the database rather
+	// than a store for knowledge_insights, which migration 000031 dropped
+	// (#1517). Turning the memory toolkit off must not take knowledge capture
+	// down with it.
+	t.Run("no memory store still selects the memory-backed adapter", func(t *testing.T) {
 		h, err := New(dummyDB(t), nil, nil, Config{ToolkitName: "default"})
 		require.NoError(t, err)
 		require.NotNil(t, h)
 		require.NotNil(t, h.InsightStore())
 		_, ok := h.InsightStore().(knowledgekit.SearchableInsightStore)
-		assert.False(t, ok, "the legacy postgres store is not searchable")
+		assert.True(t, ok, "the memory-backed adapter is a SearchableInsightStore")
 	})
 }
 

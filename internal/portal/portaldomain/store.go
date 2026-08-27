@@ -46,7 +46,10 @@ type VersionStore interface {
 
 // ShareStore persists and queries share links for assets, collections, and prompts.
 type ShareStore interface {
-	Insert(ctx context.Context, share Share) error
+	// Insert stores the share and fills share.CreatedAt with the timestamp
+	// the row was written with, so the caller renders the same value a later
+	// read of that share returns rather than a zero time (#1511).
+	Insert(ctx context.Context, share *Share) error
 	GetByID(ctx context.Context, id string) (*Share, error)
 	GetByToken(ctx context.Context, token string) (*Share, error)
 	ListByAsset(ctx context.Context, assetID string) ([]Share, error)

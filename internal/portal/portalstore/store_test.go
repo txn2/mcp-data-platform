@@ -582,12 +582,15 @@ func TestPostgresShareStoreInsert(t *testing.T) {
 		ExpiresAt: &expires,
 	}
 
-	mock.ExpectExec("INSERT INTO portal_shares").
+	stored := time.Date(2026, 8, 27, 8, 17, 40, 0, time.UTC)
+	mock.ExpectQuery("INSERT INTO portal_shares").
 		WithArgs(share.ID, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), share.Token, share.CreatedBy, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), share.HideExpiration, share.NoticeText, "viewer", "explicit", "authenticated").
-		WillReturnResult(sqlmock.NewResult(0, 1))
+		WillReturnRows(sqlmock.NewRows([]string{"created_at"}).AddRow(stored))
 
-	err = store.Insert(context.Background(), share)
+	err = store.Insert(context.Background(), &share)
 	assert.NoError(t, err)
+	// The row's timestamp comes back on the caller's share (#1511).
+	assert.Equal(t, stored, share.CreatedAt)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -939,10 +942,10 @@ func TestPostgresShareStoreInsertError(t *testing.T) {
 
 	store := NewPostgresShareStore(db)
 
-	mock.ExpectExec("INSERT INTO portal_shares").
+	mock.ExpectQuery("INSERT INTO portal_shares").
 		WillReturnError(fmt.Errorf("db error"))
 
-	err = store.Insert(context.Background(), portaldomain.Share{ID: "s1", AssetID: "a1", Token: "t1"})
+	err = store.Insert(context.Background(), &portaldomain.Share{ID: "s1", AssetID: "a1", Token: "t1"})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "inserting share")
 	assert.NoError(t, mock.ExpectationsWereMet())
@@ -1184,11 +1187,11 @@ func TestPostgresShareStoreInsertWithSharedWithUser(t *testing.T) {
 		SharedWithUserID: "user2",
 	}
 
-	mock.ExpectExec("INSERT INTO portal_shares").
+	mock.ExpectQuery("INSERT INTO portal_shares").
 		WithArgs(share.ID, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), share.Token, share.CreatedBy, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), share.HideExpiration, share.NoticeText, "viewer", "explicit", "restricted").
-		WillReturnResult(sqlmock.NewResult(0, 1))
+		WillReturnRows(sqlmock.NewRows([]string{"created_at"}).AddRow(time.Now()))
 
-	err = store.Insert(context.Background(), share)
+	err = store.Insert(context.Background(), &share)
 	assert.NoError(t, err)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
@@ -1371,11 +1374,11 @@ func TestPostgresShareStoreInsertPrompt(t *testing.T) {
 	store := NewPostgresShareStore(db)
 	share := portaldomain.Share{ID: "s1", PromptID: "p1", Token: "tok1", CreatedBy: "alice@example.com", SharedWithEmail: "bob@example.com", Permission: "viewer"}
 
-	mock.ExpectExec("INSERT INTO portal_shares").
+	mock.ExpectQuery("INSERT INTO portal_shares").
 		WithArgs("s1", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "tok1", "alice@example.com", sqlmock.AnyArg(), sqlmock.AnyArg(), "bob@example.com", false, "", "viewer", "explicit", "restricted").
-		WillReturnResult(sqlmock.NewResult(0, 1))
+		WillReturnRows(sqlmock.NewRows([]string{"created_at"}).AddRow(time.Now()))
 
-	require.NoError(t, store.Insert(context.Background(), share))
+	require.NoError(t, store.Insert(context.Background(), &share))
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 

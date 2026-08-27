@@ -670,7 +670,7 @@ func (h *Handler) createPromptShare(w http.ResponseWriter, r *http.Request) {
 		writePortalError(w, http.StatusBadRequest, buildErr.Error())
 		return
 	}
-	if err := h.deps.ShareStore.Insert(r.Context(), share); err != nil {
+	if err := h.deps.ShareStore.Insert(r.Context(), &share); err != nil {
 		writePortalError(w, http.StatusInternalServerError, "failed to create share")
 		return
 	}

@@ -143,19 +143,16 @@ func (s *postgresStore) Search(ctx context.Context, q SearchQuery) ([]ScoredReso
 	return s.searchLexical(ctx, q)
 }
 
-// searchHybrid runs two index-backed arms and fuses in Go, mirroring the asset,
-// prompt, and memory hybrid search: the hnsw ANN index only accelerates a pure
-// `ORDER BY embedding <=> $1 LIMIT k` and the GIN index only accelerates the
-// tsquery match, so a single blended ORDER BY would forfeit both. The vector arm
-// returns the cosine top-k; the lexical arm returns the full-text top-k
-// (including NULL-embedding rows the vector arm cannot see, which is how a
-// just-uploaded resource is findable before the reconciler embeds it). Their
-// union is deduped by id (keeping the higher fused score) and sorted.
-func (s *postgresStore) searchHybrid(ctx context.Context, q SearchQuery) ([]ScoredResource, error) {
+// buildHybridSearch renders the two-arm hybrid statement and its arguments.
+//
+// It is a function rather than inline SQL so a test can hand the statement to a
+// real PostgreSQL to parse and plan (#1512); the store methods that assemble
+// SQL at run time are the ones no gate could reach.
+func buildHybridSearch(q SearchQuery) (query string, args []any) {
 	limit := q.EffectiveLimit()
 	const boundArgs = 2 // $1 query vector, $2 query text
 	scopeWhere, scopeArgs, _ := scopeVisibilityWhere(q.Scopes, boundArgs+1)
-	args := make([]any, 0, boundArgs+len(scopeArgs))
+	args = make([]any, 0, boundArgs+len(scopeArgs))
 	args = append(args, pgvector.NewVector(q.Embedding), q.QueryText)
 	args = append(args, scopeArgs...)
 	const tsQuery = "plainto_tsquery('english', $2)"
@@ -175,7 +172,20 @@ func (s *postgresStore) searchHybrid(ctx context.Context, q SearchQuery) ([]Scor
 		searchColumns, ftsExpr, tsQuery, scopeWhere, ftsExpr, tsQuery, limit)
 	// #nosec G202 -- both arms are assembled from constant column/expression
 	// strings with parameterized placeholders; no user input is concatenated.
-	query := "(" + vecArm + ") UNION ALL (" + lexArm + ")"
+	return "(" + vecArm + ") UNION ALL (" + lexArm + ")", args
+}
+
+// searchHybrid runs two index-backed arms and fuses in Go, mirroring the asset,
+// prompt, and memory hybrid search: the hnsw ANN index only accelerates a pure
+// `ORDER BY embedding <=> $1 LIMIT k` and the GIN index only accelerates the
+// tsquery match, so a single blended ORDER BY would forfeit both. The vector arm
+// returns the cosine top-k; the lexical arm returns the full-text top-k
+// (including NULL-embedding rows the vector arm cannot see, which is how a
+// just-uploaded resource is findable before the reconciler embeds it). Their
+// union is deduped by id (keeping the higher fused score) and sorted.
+func (s *postgresStore) searchHybrid(ctx context.Context, q SearchQuery) ([]ScoredResource, error) {
+	limit := q.EffectiveLimit()
+	query, args := buildHybridSearch(q)
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -229,14 +239,12 @@ func collectHybrid(rows *sql.Rows, limit int) ([]ScoredResource, error) {
 	return scored, nil
 }
 
-// searchLexical ranks the caller's visible resources by full-text relevance
-// only. It is the graceful-degradation path used when no embedding provider is
-// available: it has no vector parameter, surfaces NULL-embedding rows, and
-// orders by a length-normalized ts_rank_cd score.
-func (s *postgresStore) searchLexical(ctx context.Context, q SearchQuery) ([]ScoredResource, error) {
+// buildLexicalSearch renders the lexical statement and its arguments, for the
+// same reason buildHybridSearch exists.
+func buildLexicalSearch(q SearchQuery) (query string, args []any) {
 	const boundArgs = 1 // $1 query text
 	scopeWhere, scopeArgs, _ := scopeVisibilityWhere(q.Scopes, boundArgs+1)
-	args := make([]any, 0, boundArgs+len(scopeArgs))
+	args = make([]any, 0, boundArgs+len(scopeArgs))
 	args = append(args, q.QueryText)
 	args = append(args, scopeArgs...)
 	const tsQuery = "plainto_tsquery('english', $1)"
@@ -244,11 +252,19 @@ func (s *postgresStore) searchLexical(ctx context.Context, q SearchQuery) ([]Sco
 	// #nosec G201 -- column list and FTS expr are constants; the scope predicate
 	// uses only parameterized placeholders; limit and the normalization bitmask
 	// are sanitized ints.
-	query := fmt.Sprintf(
+	return fmt.Sprintf(
 		"SELECT %s, ts_rank_cd(%s, %s, %d) AS lex_rank FROM resources "+
 			"WHERE %s @@ %s AND %s ORDER BY lex_rank DESC LIMIT %d",
 		searchColumns, ftsExpr, tsQuery, lexRankNormalization,
-		ftsExpr, tsQuery, scopeWhere, q.EffectiveLimit())
+		ftsExpr, tsQuery, scopeWhere, q.EffectiveLimit()), args
+}
+
+// searchLexical ranks the caller's visible resources by full-text relevance
+// only. It is the graceful-degradation path used when no embedding provider is
+// available: it has no vector parameter, surfaces NULL-embedding rows, and
+// orders by a length-normalized ts_rank_cd score.
+func (s *postgresStore) searchLexical(ctx context.Context, q SearchQuery) ([]ScoredResource, error) {
+	query, args := buildLexicalSearch(q)
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
