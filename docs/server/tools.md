@@ -1125,7 +1125,7 @@ The loop it closes is one call each way. `create` files the data and reports the
 | `reference` | string | Conditional | - | The resource to write over, `mcp:resource:<id>` (required for `replace_content`) |
 | `content` | string | Conditional | - | The file as text: CSV, JSON, Markdown, SVG |
 | `content_base64` | string | Conditional | - | The file as base64-encoded bytes, for a binary file such as a PNG or a PDF. One of the two, never both |
-| `content_type` | string | No | detected | Media type to store under; detection reads the content and the filename when this is absent |
+| `content_type` | string | Conditional | - | Media type the bytes are (required for `create`); `replace_content` keeps the type the resource already carries when it is absent |
 | `filename` | string | Conditional | - | Name of the file (required for `create`); `replace_content` ignores it |
 | `display_name`, `category`, `description` | string | Conditional | - | Required for `create`: what the library shows and which shelf it sits on |
 | `tags` | string[] | No | `[]` | Tags for filtering in the library |
@@ -1136,6 +1136,8 @@ The loop it closes is one call each way. `create` files the data and reports the
 
 - **create**: file new content and report its `resource_id`, its `mcp:resource:` reference, and its `mcp://` URI
 - **replace_content**: write new bytes over an existing resource and report the `version` the content was recorded as
+
+**Declaring the type.** A `create` says what the bytes are and a create that does not is refused. The type is not detected on this path because the families an agent writes cannot be named from content: SVG, HTML, JSX and Markdown are all stored `text/plain` when nothing is declared, and `text/plain` is served under `nosniff`, so an `<img>` naming that file is a broken image on every surface with nothing reporting a problem. A `replace_content` keeps the type the resource already carries, so refreshing a file cannot reclassify it under every reference to it; declare one there only to change what family the file is. The types to choose between are listed on the built-in knowledge page `mcp:knowledge_page:platform-content-types-for-stored-files` and in [Content Types and Viewers](content-viewers.md).
 
 Both are capped at `portal.max_content_size` (10 MB by default), the same cap `save_asset` applies to an agent's content: one number governs everything an agent writes through a tool call. A file larger than that is uploaded through the portal's resource library instead.
 

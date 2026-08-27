@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlayer"
+	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 	"github.com/txn2/mcp-data-platform/pkg/platform/instructions"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 )
@@ -38,6 +39,8 @@ func TestPages_ShippedSetIsWellFormed(t *testing.T) {
 		assert.NotEmptyf(t, p.Body, "%s: empty body", p.Slug)
 		assert.NotEmptyf(t, p.Tags, "%s: no tags", p.Slug)
 		assert.NotContainsf(t, p.Body, dialectPlaceholder, "%s: unsubstituted placeholder", p.Slug)
+		assert.NotContainsf(t, p.Body, textTypesPlaceholder, "%s: unsubstituted placeholder", p.Slug)
+		assert.NotContainsf(t, p.Body, binaryTypesPlaceholder, "%s: unsubstituted placeholder", p.Slug)
 		assert.Falsef(t, strings.HasPrefix(p.Body, "# "), "%s: body still starts with the H1 the title owns", p.Slug)
 		assert.LessOrEqualf(t, len(p.Body), maxBuiltinBodyBytes, "%s: body exceeds the edit-surface bound", p.Slug)
 		// Every page states its mechanism as a graph as well as in prose: an
@@ -175,24 +178,30 @@ func TestStart_RunsTheReconcileInTheBackground(t *testing.T) {
 	}
 }
 
-// The pages `manage_script help` points an author at are the pages this
-// package ships. The two sets are declared on opposite sides of the import
+// Every page `manage_script help` points an author at is a page this package
+// ships. The two sets are declared on opposite sides of the import
 // (knowledgebuiltin imports scriptlayer for the dialect contract, so the
-// reverse import would cycle), and this is the gate that fails when a slug is
-// added, removed, or renamed on either side (#1476).
-func TestKnowledgePages_HelpAndTheShippedSetAgree(t *testing.T) {
+// reverse import would cycle), and this is the gate that fails when a slug
+// help names is removed or renamed here (#1476).
+//
+// The containment runs one way only. A slug help names and this release does
+// not ship resolves to nothing, which is the failure worth a gate; a page
+// shipped that help does not name is ordinary, because the shipped set covers
+// topics outside script authoring -- content types (#1508) is one -- and
+// requiring the two lists to match would push every such page into the script
+// author's reading list to satisfy a test.
+func TestKnowledgePages_HelpNamesOnlyShippedPages(t *testing.T) {
 	shipped := make([]string, 0, len(pageMetas))
 	for _, m := range pageMetas {
 		shipped = append(shipped, m.slug)
 	}
-	named := make([]string, 0, len(scriptlayer.KnowledgePages))
+	require.NotEmpty(t, scriptlayer.KnowledgePages, "help names no page at all")
 	for _, p := range scriptlayer.KnowledgePages {
-		named = append(named, p.Slug)
+		assert.Containsf(t, shipped, p.Slug, "help names %q, which this release does not ship", p.Slug)
 		assert.NotEmptyf(t, p.Summary, "%s: help names the page with no summary to choose it by", p.Slug)
 		assert.Equalf(t, "mcp:knowledge_page:"+p.Slug, p.Reference,
 			"%s: the reference must be the slug in the form fetch takes", p.Slug)
 	}
-	assert.ElementsMatch(t, shipped, named)
 }
 
 // The instruction baseline names pages by slug — the scripts bullet and the
@@ -211,4 +220,70 @@ func TestBaseline_NamesOnlyShippedSlugs(t *testing.T) {
 	for _, m := range named {
 		assert.Truef(t, shipped[m[1]], "the baseline names %q, which this release does not ship", m[1])
 	}
+}
+
+// The content-types page's tables are generated from the tables that decide
+// what a door accepts and what extension a stored object carries, so the page
+// cannot list a type the code does not handle or omit one it does (#1508).
+func TestPages_ContentTypesPageIsGeneratedFromTheCatalog(t *testing.T) {
+	pages, err := Pages()
+	require.NoError(t, err)
+
+	var page *knowledgepage.BuiltinPage
+	for i := range pages {
+		if pages[i].Slug == knowledgepage.BuiltinSlugContentTypes {
+			page = &pages[i]
+		}
+	}
+	require.NotNil(t, page, "the content-types page left the shipped set")
+
+	for _, ct := range contenttype.StorableTextTypes() {
+		assert.Containsf(t, page.Body, "| `"+ct+"` |", "%s is accepted by a door and missing from the page", ct)
+	}
+	for _, ct := range []string{"image/png", "application/pdf", "video/mp4", "font/woff2"} {
+		assert.Containsf(t, page.Body, "| `"+ct+"` |", "%s is stored by the platform and missing from the page", ct)
+	}
+	assert.NotContains(t, page.Body, "| `"+contenttype.XHTML+"` |",
+		"the family every door refuses must not be listed as one to declare")
+}
+
+// The two halves of the catalog are rendered into different sections, so a
+// type that travels as a string must not appear in the binary table and the
+// other way round.
+func TestContentTypeTableSplitsTheCatalog(t *testing.T) {
+	text, binary := contentTypeTable(true), contentTypeTable(false)
+
+	assert.Contains(t, text, "| `"+contenttype.SVG+"` | `.svg` |")
+	assert.NotContains(t, text, "image/png")
+	assert.Contains(t, binary, "| `image/png` | `.png` |")
+	assert.NotContains(t, binary, contenttype.SVG)
+	for _, table := range []string{text, binary} {
+		assert.True(t, strings.HasPrefix(table, "| Media type | Extension |\n|---|---|\n"),
+			"a table renders its own header, so a page carries no header the code did not write")
+		assert.False(t, strings.HasSuffix(table, "\n"),
+			"a trailing newline would leave a blank line inside the page's markdown")
+	}
+}
+
+// A page that points at another page names it by slug, which resolves only
+// while that slug is shipped. Nothing compiles a page body, so this is the
+// gate that catches a cross-link left behind by a rename.
+func TestPages_CrossLinksNameShippedSlugs(t *testing.T) {
+	pages, err := Pages()
+	require.NoError(t, err)
+
+	shipped := map[string]bool{}
+	for _, p := range pages {
+		shipped[p.Slug] = true
+	}
+
+	named := regexp.MustCompile(`mcp:knowledge_page:([a-z0-9-]+)`)
+	links := 0
+	for _, p := range pages {
+		for _, m := range named.FindAllStringSubmatch(p.Body, -1) {
+			links++
+			assert.Truef(t, shipped[m[1]], "%s links to %q, which this release does not ship", p.Slug, m[1])
+		}
+	}
+	require.NotZero(t, links, "no page links to another, so this gate is asserting nothing")
 }

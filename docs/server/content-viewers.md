@@ -18,6 +18,8 @@ Detection runs on every write path that accepts outside content:
 |---|---|
 | `save_asset` | the tool's `content_type` argument |
 | `manage_asset action=update` | the tool's `content_type`, or the asset's existing type |
+| `manage_resource action=create` | the tool's `content_type`, which is required |
+| `manage_resource action=replace_content` | the tool's `content_type`, or the resource's existing type |
 | `api_export` | the upstream response's `Content-Type` header |
 | Resource upload | the multipart part's `Content-Type` header |
 
@@ -53,6 +55,34 @@ Detection runs on every write path that accepts outside content:
 When detection replaces a declaration, the original is recorded in the asset's
 provenance as `declared_content_type`, so a stored type that disagrees with its
 source is explainable after the fact.
+
+### Where a declaration is required
+
+Detection is a repair for a declaration that is missing or wrong, not a
+substitute for making one. Two families it cannot name are exactly the families
+an agent writes: content that renders as executing markup (SVG, HTML, JSX,
+JavaScript), which the active-type rule below forbids it from naming, and
+unstructured text (Markdown, plain text, SQL, Python, CSS), which nothing in the
+bytes distinguishes. Both land on `text/plain`, and raw content is served under
+`nosniff`, so `text/plain` is final: an `<img>` naming an SVG stored that way is
+a broken image on every surface, with nothing reporting a problem.
+
+`save_asset` and `manage_resource action=create` therefore require
+`content_type`. Creating the file is the one moment the type is known for
+certain, because the writer chose the bytes. `manage_resource
+action=replace_content` requires nothing: it keeps the type the resource
+already carries unless the caller declares a new one, so refreshing an SVG or a
+CSV cannot reclassify the file under every reference to it. A resource whose
+stored type is generic (`application/octet-stream` or `text/plain`) is still
+re-detected on a replacement, which is the way back for a file written before
+the declaration was required.
+
+The list of types an agent can choose between is shipped as a built-in
+knowledge page, `mcp:knowledge_page:platform-content-types-for-stored-files`,
+whose tables are generated from the same code that decides them. Nothing
+rewrites a file already stored under the wrong type; replacing its content with
+an explicit `content_type` corrects it while keeping the id, the `mcp://` URI
+and the filename.
 
 ### Accepted types
 

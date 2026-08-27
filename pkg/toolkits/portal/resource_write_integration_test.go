@@ -264,7 +264,7 @@ func TestAgentWritesTheFileItsAssetReads(t *testing.T) {
 	created := sys.mustCall(t, ManageResourceToolName, map[string]any{
 		"action": "create", "filename": "weather.csv", "display_name": "Daily Weather",
 		"category": "datasets", "description": "Highs and lows by day",
-		"content": "day,high\nmon,71\ntue,68\n",
+		"content": "day,high\nmon,71\ntue,68\n", "content_type": "text/csv",
 	})
 	uri, _ := created["uri"].(string)
 	reference, _ := created["reference"].(string)
@@ -326,7 +326,8 @@ func TestAgentIsRefusedAScopeItMayNotWrite(t *testing.T) {
 
 	out, isErr := sys.call(t, ManageResourceToolName, map[string]any{
 		"action": "create", "filename": "policy.md", "display_name": "Policy",
-		"category": "runbooks", "description": "Retention policy", "content": "# Policy", "scope": "global",
+		"category": "runbooks", "description": "Retention policy", "content": "# Policy",
+		"content_type": "text/markdown", "scope": "global",
 	})
 
 	require.True(t, isErr)

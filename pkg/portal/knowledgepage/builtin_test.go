@@ -376,3 +376,17 @@ func TestReplaceBuiltinInlineRefs(t *testing.T) {
 	mock2.ExpectQuery("SELECT 1 FROM portal_knowledge_pages").WillReturnError(errBoom)
 	require.ErrorIs(t, store2.replaceBuiltinInlineRefs(context.Background(), "kp1", body), errBoom)
 }
+
+// A built-in page is pointed at by slug rather than by id, because its row id
+// is generated per deployment at reconcile time. The reference this builds has
+// to be one fetch resolves, so it round-trips through the same parser a tool
+// argument goes through.
+func TestBuiltinReferenceIsAReferenceFetchTakes(t *testing.T) {
+	ref := BuiltinReference(BuiltinSlugContentTypes)
+
+	assert.Equal(t, "mcp:knowledge_page:"+BuiltinSlugContentTypes, ref)
+	parsed, err := ParseEntityRef(ref)
+	require.NoError(t, err)
+	assert.Equal(t, RefTargetKnowledgePage, parsed.TargetType)
+	assert.Equal(t, BuiltinSlugContentTypes, parsed.RefPageID)
+}

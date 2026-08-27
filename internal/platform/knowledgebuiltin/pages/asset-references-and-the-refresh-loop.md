@@ -214,6 +214,11 @@ missing.
 - **The target does not exist**: refused, naming the URI or reference you
   wrote. A resource and an asset answer the same way, in the terms you wrote
   them in, so a typo reads as a typo rather than as a fault below the platform.
+- **The file loads and nothing renders it**: the reference resolved and the
+  stored media type is wrong. An SVG written with no declared type is stored
+  `text/plain`, served under `nosniff`, and shows as a broken image on every
+  surface. Declare the type when you write the file; see
+  `mcp:knowledge_page:platform-content-types-for-stored-files`.
 - **More than 20**: refused, with the number you declared.
 - **No managed-resource layer, no asset store, or nowhere to record
   references**: refused with that reason. A deployment that cannot record a

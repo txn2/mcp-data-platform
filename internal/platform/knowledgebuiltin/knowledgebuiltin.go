@@ -34,7 +34,8 @@ var pagesFS embed.FS
 
 // dialectPlaceholder marks where a page body receives scriptlayer's dialect
 // contract — the same constant `manage_script help` returns — so the page and
-// the help text cannot drift apart.
+// the help text cannot drift apart. The content-types page takes its tables
+// the same way; see contenttypes.go.
 const dialectPlaceholder = "{{DIALECT_CONTRACT}}"
 
 // pageMeta is the shipped metadata of one page. The title is the body file's
@@ -81,6 +82,12 @@ var pageMetas = []pageMeta{
 		summary: "Naming sources with call references so an asset's provenance is exact, what a capture holds, and the loop that turns session knowledge into reviewed catalog knowledge.",
 		tags:    []string{"provenance", "knowledge", "memory"},
 	},
+	{
+		file:    "content-types-for-stored-files.md",
+		slug:    knowledgepage.BuiltinSlugContentTypes,
+		summary: "The media type every stored file carries and why a write declares it: the families detection cannot name from bytes, the types to declare for text and for binary content, and what a replacement keeps.",
+		tags:    []string{"resources", "assets", "content-types"},
+	},
 }
 
 // Pages returns the shipped set, bodies loaded from the embedded files with
@@ -98,6 +105,8 @@ func Pages() ([]knowledgepage.BuiltinPage, error) {
 			return nil, fmt.Errorf("knowledgebuiltin: %s: %w", m.file, err)
 		}
 		body = strings.ReplaceAll(body, dialectPlaceholder, scriptlayer.DialectContract)
+		body = strings.ReplaceAll(body, textTypesPlaceholder, contentTypeTable(true))
+		body = strings.ReplaceAll(body, binaryTypesPlaceholder, contentTypeTable(false))
 		pages = append(pages, knowledgepage.BuiltinPage{
 			Slug: m.slug, Title: title, Summary: m.summary, Body: body, Tags: m.tags,
 		})

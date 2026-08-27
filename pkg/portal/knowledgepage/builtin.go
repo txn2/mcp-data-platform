@@ -15,6 +15,24 @@ import (
 // reader can tell a release wrote the page rather than a person.
 const builtinAuthor = "platform"
 
+// BuiltinSlugContentTypes is the slug of the shipped page listing the media
+// types the platform stores and why a write has to declare one (#1508).
+//
+// It is declared here, rather than beside the page's own body, because two
+// packages that cannot import each other both name it: the page is shipped by
+// internal/platform/knowledgebuiltin, and the portal toolkit points a caller
+// at it from the manage_resource schema and from the refusal a create with no
+// content_type gets. A slug is a page's reconcile key across releases, so a
+// pointer to a slug this release does not ship resolves to nothing.
+const BuiltinSlugContentTypes = "platform-content-types-for-stored-files"
+
+// BuiltinReference renders a built-in page's slug as the reference fetch
+// takes, which is the only handle shipped text can name: a built-in page's row
+// id is generated per deployment at reconcile time.
+func BuiltinReference(slug string) string {
+	return mcpScheme + RefTargetKnowledgePage + refKeySep + slug
+}
+
 // BuiltinPage is one platform-shipped knowledge page: content embedded in the
 // binary and reconciled into the store at startup (#1390), keyed by Slug.
 type BuiltinPage struct {
