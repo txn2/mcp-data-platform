@@ -224,3 +224,85 @@ func TestSourceForSurface(t *testing.T) {
 		}
 	}
 }
+
+func moveFixture() resource.MoveEvent {
+	return resource.MoveEvent{
+		ResourceID:  "res-1",
+		DisplayName: "Report",
+		FromScope:   resource.ScopeUser,
+		FromScopeID: "sub-1",
+		FromURI:     "mcp://user/sub-1/templates/report.docx",
+		ToScope:     resource.ScopePersona,
+		ToScopeID:   "ops",
+		ToURI:       "mcp://persona/ops/templates/report.docx",
+		UserID:      "sub-1",
+		UserEmail:   "me@example.com",
+	}
+}
+
+func TestRecordMove_NamesWhoMovedWhatBetweenWhichLibraries(t *testing.T) {
+	logger := &captureLogger{}
+	New(logger, &captureTracker{}).RecordMove(context.Background(), moveFixture())
+
+	if len(logger.events) != 1 {
+		t.Fatalf("events = %d, want 1", len(logger.events))
+	}
+	ev := logger.events[0]
+	if ev.EventKind != string(audit.EventTypeResourceMove) {
+		t.Errorf("event kind = %q", ev.EventKind)
+	}
+	if ev.UserID != "sub-1" || ev.UserEmail != "me@example.com" {
+		t.Errorf("event does not name who moved it: %+v", ev)
+	}
+	if !ev.Success || !ev.Authorized {
+		t.Error("a completed move persisted as an unauthorized failure")
+	}
+	// Both sides are on the row, or the trail answers "who published this" and
+	// not "what address did it used to have".
+	want := map[string]any{
+		paramResourceID:  "res-1",
+		paramDisplayName: "Report",
+		paramFromScope:   "user",
+		paramFromScopeID: "sub-1",
+		paramFromURI:     "mcp://user/sub-1/templates/report.docx",
+		paramToScope:     "persona",
+		paramToScopeID:   "ops",
+		paramToURI:       "mcp://persona/ops/templates/report.docx",
+	}
+	for k, v := range want {
+		if ev.Parameters[k] != v {
+			t.Errorf("parameter %s = %v, want %v", k, ev.Parameters[k], v)
+		}
+	}
+}
+
+func TestRecordMove_FailureDoesNotPropagate(t *testing.T) {
+	// The resource has already been refiled: a lost audit row must not become a
+	// failed move reported to somebody whose file did move.
+	logger := &captureLogger{err: errors.New("audit store down")}
+	New(logger, &captureTracker{}).RecordMove(context.Background(), moveFixture())
+	if len(logger.events) != 1 {
+		t.Fatalf("the write was not attempted: events = %d", len(logger.events))
+	}
+}
+
+// TestRecordMove_NilRecorderIsSafe asserts nothing: the call itself is the
+// assertion, since every surface holds the recorder as an interface and calls it
+// unconditionally, and a nil one must not panic.
+func TestRecordMove_NilRecorderIsSafe(_ *testing.T) {
+	var rec *Recorder
+	rec.RecordMove(context.Background(), moveFixture())
+}
+
+func TestRecordMove_PlatformContextIdentityWins(t *testing.T) {
+	logger := &captureLogger{}
+	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
+		UserID: "ctx-user", UserEmail: "ctx@example.com", PersonaName: "ops",
+	})
+	New(logger, &captureTracker{}).RecordMove(ctx, moveFixture())
+
+	ev := logger.events[0]
+	if ev.UserID != "ctx-user" || ev.UserEmail != "ctx@example.com" || ev.Persona != "ops" {
+		t.Errorf("request-scoped identity did not win: %+v", ev)
+	}
+}

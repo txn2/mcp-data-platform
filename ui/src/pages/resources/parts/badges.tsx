@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { useAuthStore } from "@/stores/auth";
 import { scopeIcon, scopeLabel } from "../shared";
 
 // The resource library's two vocabularies — what a file is for (its category)
@@ -44,8 +45,12 @@ export function CategoryBadge({ category }: { category: string }) {
 }
 
 export function ScopeBadge({ scope, scopeId }: { scope: string; scopeId: string }) {
+  // The reader is read here rather than passed in because every caller is a list
+  // row: threading it through the table and the grid would have both of them
+  // carrying an identity neither uses for anything else.
+  const viewer = useAuthStore((s) => s.user);
   const Icon = scopeIcon(scope);
-  const label = scopeLabel(scope, scopeId);
+  const label = scopeLabel(scope, scopeId, viewer);
   return (
     <Badge
       variant={SCOPE_VARIANT[scope] ?? "muted"}

@@ -3,6 +3,7 @@ package resource
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,19 +14,24 @@ import (
 	"net/textproto"
 	"strings"
 	"testing"
+	"time"
 )
 
 // --- mock store ---
 
 type mockStore struct {
 	resources map[string]*Resource
+	// aliases maps a URI a resource has vacated to the resource that vacated it,
+	// modeling resource_uri_aliases: a move records one, and GetByURI resolves
+	// through it only when no resource holds that address now.
+	aliases map[string]string
 	// lastListFilter records the filter passed to the most recent List call so
 	// tests can assert the handler forwards parsed pagination params.
 	lastListFilter Filter
 }
 
 func newMockStore() *mockStore {
-	return &mockStore{resources: make(map[string]*Resource)}
+	return &mockStore{resources: make(map[string]*Resource), aliases: make(map[string]string)}
 }
 
 func (m *mockStore) Insert(_ context.Context, r Resource) error {
@@ -59,7 +65,14 @@ func (m *mockStore) GetByURI(_ context.Context, uri string) (*Resource, error) {
 			return r, nil
 		}
 	}
-	return nil, fmt.Errorf("not found")
+	// A live URI wins; an address a resource has vacated resolves only when no
+	// resource holds it now, which is the order the Postgres store queries in.
+	if id, ok := m.aliases[uri]; ok {
+		if r, ok := m.resources[id]; ok {
+			return r, nil
+		}
+	}
+	return nil, fmt.Errorf("not found: %w", sql.ErrNoRows)
 }
 
 func (m *mockStore) List(_ context.Context, filter Filter) ([]Resource, int, error) {
@@ -95,6 +108,33 @@ func (m *mockStore) Update(_ context.Context, id string, u Update) error {
 	if u.Category != nil {
 		r.Category = *u.Category
 	}
+	return nil
+}
+
+// Move models the real store's refile: the three columns that say where the
+// resource lives are rewritten, the address it leaves becomes an alias, and the
+// address it takes stops being one. GetByURI above resolves a live URI only, so
+// the alias map is read there too -- a fake that dropped the alias would let a
+// test pass that the real store fails.
+func (m *mockStore) Move(_ context.Context, id string, mv Move) error {
+	r, ok := m.resources[id]
+	if !ok {
+		return fmt.Errorf("resource not found: %s", id)
+	}
+	for other, res := range m.resources {
+		if other != id && res.URI == mv.URI {
+			return ErrURIConflict
+		}
+	}
+	if m.aliases == nil {
+		m.aliases = map[string]string{}
+	}
+	if mv.FromURI != "" && mv.FromURI != mv.URI {
+		m.aliases[mv.FromURI] = id
+	}
+	delete(m.aliases, mv.URI)
+	r.Scope, r.ScopeID, r.URI = mv.Scope, mv.ScopeID, mv.URI
+	r.UpdatedAt = time.Now().UTC()
 	return nil
 }
 

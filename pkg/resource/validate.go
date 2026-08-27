@@ -119,16 +119,31 @@ func ValidateScope(scope Scope, scopeID string) error {
 	switch scope {
 	case ScopeGlobal:
 		if scopeID != "" {
-			return errors.New("scope_id must be empty for global scope")
+			return &invalidScopeError{msg: "scope_id must be empty for global scope"}
 		}
 	case ScopePersona, ScopeUser:
 		if scopeID == "" {
-			return fmt.Errorf("scope_id is required for %s scope", scope)
+			return &invalidScopeError{msg: fmt.Sprintf("scope_id is required for %s scope", scope)}
 		}
 	default:
-		return fmt.Errorf("unknown scope: %q", scope)
+		return &invalidScopeError{msg: fmt.Sprintf("unknown scope: %q", scope)}
 	}
 	return nil
+}
+
+// invalidScopeError marks a scope/scope_id pair that names no library. It is a
+// type rather than a wrapped sentinel so the message a caller shows stays the
+// sentence ValidateScope wrote, with no sentinel text appended to it.
+type invalidScopeError struct{ msg string }
+
+func (e *invalidScopeError) Error() string { return e.msg }
+
+// IsInvalidScope reports whether an error names an unusable scope/scope_id
+// pair, so a caller several layers above ValidateScope can answer 400 rather
+// than treating it as a failure of its own.
+func IsInvalidScope(err error) bool {
+	var e *invalidScopeError
+	return errors.As(err, &e)
 }
 
 // SanitizeFilename normalizes a filename for storage: lowercase, no spaces,

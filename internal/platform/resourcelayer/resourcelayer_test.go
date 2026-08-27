@@ -2,6 +2,7 @@ package resourcelayer
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
@@ -287,7 +288,13 @@ func (*countingStore) GetByURI(_ context.Context, _ string) (*resource.Resource,
 	return &resource.Resource{}, nil
 }
 func (*countingStore) Update(_ context.Context, _ string, _ resource.Update) error { return nil }
-func (*countingStore) Delete(_ context.Context, _ string) error                    { return nil }
+
+// Move is refused rather than silently accepted: nothing in this package
+// refiles a resource, so a test that reached it would be testing a lie.
+func (*countingStore) Move(_ context.Context, _ string, _ resource.Move) error {
+	return errors.New("countingStore does not move resources")
+}
+func (*countingStore) Delete(_ context.Context, _ string) error { return nil }
 
 // fakeNotifier records Notify calls. Satisfies ListChangedNotifier.
 type fakeNotifier struct{ calls int }

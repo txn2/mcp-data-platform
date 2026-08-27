@@ -66,4 +66,10 @@ export interface ResourceUpdate {
   description?: string;
   tags?: string[];
   category?: string;
+  // scope and scope_id move the resource to another library (#1502). They are
+  // sent together, and only when the library is actually changing: the server
+  // rewrites the canonical URI on a move and records the old one as an alias, so
+  // this is not a field to echo back unchanged.
+  scope?: "global" | "persona" | "user";
+  scope_id?: string;
 }

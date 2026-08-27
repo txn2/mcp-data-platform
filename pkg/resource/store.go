@@ -27,8 +27,28 @@ type Store interface {
 	GetByURI(ctx context.Context, uri string) (*Resource, error)
 	List(ctx context.Context, filter Filter) ([]Resource, int, error)
 	Update(ctx context.Context, id string, u Update) error
+	// Move refiles a resource in another library, rewriting the three columns
+	// that say where it lives -- scope, scope_id and uri -- and recording the
+	// URI it used to answer to so an already-written citation keeps resolving.
+	//
+	// It is separate from Update because it is not a metadata edit: it changes
+	// who can see the file, it changes the resource's address, and the address
+	// is UNIQUE, so it is the one write on this table that another resource can
+	// refuse. A caller must be prepared for ErrURIConflict.
+	//
+	// The blob is not touched. The S3 key embeds the scope only because
+	// BuildS3Key composed it at creation; nothing re-derives it on read, so the
+	// object stays where it is and the row keeps pointing at it.
+	Move(ctx context.Context, id string, m Move) error
 	Delete(ctx context.Context, id string) error
 }
+
+// ErrURIConflict is returned by Move when the target library already holds a
+// resource at the URI the moved resource would take. The caller names the
+// collision from its own read; this is the store's report of the constraint
+// the database enforced, which is what closes the gap between that read and
+// the write.
+var ErrURIConflict = errors.New("a resource already occupies that URI")
 
 // IsNotFound reports whether an error from a Store read means the resource does
 // not exist, as opposed to the read having failed.
@@ -149,12 +169,28 @@ func (s *postgresStore) GetByIDs(ctx context.Context, ids []string) (map[string]
 	return out, nil
 }
 
+// GetByURI resolves a resource by the address it is cited under, falling back to
+// the addresses it used to answer to.
+//
+// A live URI always wins. The alias table records every URI a resource has
+// vacated by being moved (#1502), and consulting it second is what keeps an
+// alias from shadowing whichever resource occupies that address now -- a person
+// who moves a file out of their library and uploads another under the same name
+// must reach the new one by its own URI.
 func (s *postgresStore) GetByURI(ctx context.Context, uri string) (*Resource, error) { //nolint:revive // interface impl
 	query := `
 		SELECT ` + selectColumns + `
 		FROM resources WHERE uri = $1
 	`
-	return s.scanOne(s.db.QueryRowContext(ctx, query, uri))
+	res, err := s.scanOne(s.db.QueryRowContext(ctx, query, uri))
+	if err == nil || !IsNotFound(err) {
+		return res, err
+	}
+	aliased := `SELECT ` + selectColumns + `
+		FROM resources r
+		JOIN resource_uri_aliases a ON a.resource_id = r.id
+		WHERE a.uri = $1`
+	return s.scanOne(s.db.QueryRowContext(ctx, aliased, uri))
 }
 
 func (s *postgresStore) List(ctx context.Context, filter Filter) ([]Resource, int, error) { //nolint:revive // interface impl
@@ -258,6 +294,97 @@ func (s *postgresStore) Update(ctx context.Context, id string, u Update) error {
 	s.index.NotifyWrite(ctx, id)
 	return nil
 }
+
+// Move rewrites where a resource is filed and records the address it is leaving.
+//
+// All three writes are one transaction. The row's new address and the alias for
+// its old one are the same fact stated twice: a commit that carried only the
+// first would leave every citation of the old URI dangling, and one that carried
+// only the second would advertise an address the resource does not have.
+//
+// Nothing happens when the target is where the resource already is; the caller
+// checks that first, and this is the second door on it.
+func (s *postgresStore) Move(ctx context.Context, id string, m Move) error { //nolint:revive // interface impl
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("beginning move: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	scopeID := sql.NullString{String: m.ScopeID, Valid: m.ScopeID != ""}
+	const update = `UPDATE resources SET scope = $2, scope_id = $3, uri = $4, updated_at = $5 WHERE id = $1`
+	res, err := tx.ExecContext(ctx, update, id, string(m.Scope), scopeID, m.URI, time.Now().UTC())
+	if err != nil {
+		if isUniqueViolation(err) {
+			return ErrURIConflict
+		}
+		return fmt.Errorf("moving resource: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("resource not found: %s", id)
+	}
+
+	if err := readdressAliases(ctx, tx, id, m); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		if isUniqueViolation(err) {
+			return ErrURIConflict
+		}
+		return fmt.Errorf("committing move: %w", err)
+	}
+	// No index job, unlike Update. IndexText reads none of the columns a move
+	// writes, so the stored embedding is still the embedding of this row's text,
+	// and search applies visibility as a SQL predicate over scope/scope_id on
+	// this same table -- which the move has just rewritten. Enqueueing here would
+	// buy a blob read and an embedding of text that did not change.
+	return nil
+}
+
+// readdressAliases records the address a move vacates and clears the one it
+// takes, inside the move's own transaction.
+//
+// The vacated address becomes an alias so an already-written citation keeps
+// resolving; ON CONFLICT hands it to the resource that vacated it most recently,
+// which is the only reading available once two resources have both left the same
+// address. The address the resource now holds stops being an alias of anything:
+// moving a file back to where it came from would otherwise leave a row claiming
+// the resource's own current URI, which GetByURI never reaches and a later move
+// would resurrect as a stale pointer.
+func readdressAliases(ctx context.Context, tx *sql.Tx, id string, m Move) error {
+	if m.FromURI != "" && m.FromURI != m.URI {
+		const alias = `
+			INSERT INTO resource_uri_aliases (uri, resource_id) VALUES ($1, $2)
+			ON CONFLICT (uri) DO UPDATE SET resource_id = EXCLUDED.resource_id, created_at = NOW()`
+		if _, err := tx.ExecContext(ctx, alias, m.FromURI, id); err != nil {
+			return fmt.Errorf("recording previous resource uri: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM resource_uri_aliases WHERE uri = $1`, m.URI); err != nil {
+		return fmt.Errorf("clearing resource uri alias: %w", err)
+	}
+	return nil
+}
+
+// isUniqueViolation reports whether a database error is a unique-constraint
+// rejection. The resources table has exactly one such constraint, on uri, so a
+// violation from the move path is always the address being taken.
+func isUniqueViolation(err error) bool {
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) {
+		return pqErr.Code == uniqueViolationCode
+	}
+	// A driver that does not surface a *pq.Error still reports the constraint
+	// in its message; CreateResource already reads it that way on insert.
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "duplicate key") || strings.Contains(msg, "unique constraint")
+}
+
+// uniqueViolationCode is PostgreSQL's SQLSTATE for a unique-constraint
+// violation. Untyped so it compares against pq.Error.Code without naming the
+// deprecated pq.ErrorCode.
+const uniqueViolationCode = "23505"
 
 func (s *postgresStore) Delete(ctx context.Context, id string) error { //nolint:revive // interface impl
 	res, err := s.db.ExecContext(ctx, "DELETE FROM resources WHERE id = $1", id)

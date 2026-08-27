@@ -88,9 +88,43 @@ type ScopeFilter struct {
 }
 
 // Update holds mutable fields for a PATCH operation.
+//
+// Scope and ScopeID are the move (#1502) and are not metadata: they change who
+// can see the file and they change its canonical URI. They travel on the same
+// request because the permission check a move needs is the one the update route
+// already runs -- the caller must be able to modify the resource before the
+// destination is even considered -- and splitting them would have meant a second
+// route re-deriving CanModifyResource.
 type Update struct {
 	DisplayName *string  `json:"display_name,omitempty"`
 	Description *string  `json:"description,omitempty"`
 	Tags        []string `json:"tags,omitempty"`
 	Category    *string  `json:"category,omitempty"`
+	// Scope names the library to move the resource into. Nil leaves it where it
+	// is, which is what every request that is not a move sends.
+	Scope *Scope `json:"scope,omitempty"`
+	// ScopeID is the persona name or the user's sub or address, and is empty for
+	// the global library. It is read only when Scope is set: a scope id on its
+	// own names no library.
+	ScopeID *string `json:"scope_id,omitempty"`
+}
+
+// Fields reports whether the update carries any metadata edit. A request that is
+// only a move has none, and applying an empty Update would still bump
+// updated_at and drop the stored embedding for nothing.
+func (u Update) Fields() bool {
+	return u.DisplayName != nil || u.Description != nil || u.Tags != nil || u.Category != nil
+}
+
+// Move is a resource's new home: the library it is filed in, the URI it takes
+// there, and the URI it is leaving.
+//
+// FromURI is carried rather than re-read inside the store so the alias the move
+// records is the address the caller checked its permissions and its collision
+// against, not whatever the row happened to say a moment later.
+type Move struct {
+	Scope   Scope
+	ScopeID string
+	URI     string
+	FromURI string
 }

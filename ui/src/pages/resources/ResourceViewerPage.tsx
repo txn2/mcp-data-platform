@@ -89,7 +89,7 @@ export function ResourceViewerPage({ resourceId, admin = false, onBack }: Props)
         subtitle={
           <span className="flex items-center gap-1.5">
             <ScopeIcon className="h-3 w-3" />
-            {scopeLabel(resource.scope, resource.scope_id)} / {resource.category} /{" "}
+            {scopeLabel(resource.scope, resource.scope_id, currentUser)} / {resource.category} /{" "}
             {resource.filename}
           </span>
         }
@@ -127,7 +127,9 @@ export function ResourceViewerPage({ resourceId, admin = false, onBack }: Props)
         <ResourceContent resource={resource} />
       </ViewerLayout>
 
-      {editing && <EditModal resource={resource} onClose={() => setEditing(false)} />}
+      {editing && (
+        <EditModal resource={resource} admin={admin} onClose={() => setEditing(false)} />
+      )}
 
       {deleting && (
         <DeleteConfirm

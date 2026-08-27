@@ -112,6 +112,13 @@ func (m *memStore) List(_ context.Context, _ resource.Filter) ([]resource.Resour
 
 func (*memStore) Update(_ context.Context, _ string, _ resource.Update) error { return nil }
 
+// Move is refused: the write path under test creates and revises resources and
+// never refiles one, so accepting a move would model a store this package does
+// not exercise.
+func (*memStore) Move(_ context.Context, _ string, _ resource.Move) error {
+	return errors.New("memStore does not move resources")
+}
+
 func (m *memStore) Delete(_ context.Context, id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -209,6 +216,12 @@ func (s metadataOnlyStore) List(ctx context.Context, f resource.Filter) ([]resou
 
 func (s metadataOnlyStore) Update(ctx context.Context, id string, u resource.Update) error {
 	return s.inner.Update(ctx, id, u)
+}
+
+// Move is refused for the same reason Update is delegated: this store models a
+// deployment without version support, not one that refiles resources.
+func (metadataOnlyStore) Move(context.Context, string, resource.Move) error {
+	return errors.New("metadataOnlyStore does not move resources")
 }
 
 func (s metadataOnlyStore) Delete(ctx context.Context, id string) error {

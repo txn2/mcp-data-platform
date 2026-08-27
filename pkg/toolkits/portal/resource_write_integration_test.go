@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -85,6 +86,9 @@ func (*resourceRows) List(context.Context, resource.Filter) ([]resource.Resource
 }
 
 func (*resourceRows) Update(context.Context, string, resource.Update) error { return nil }
+func (*resourceRows) Move(context.Context, string, resource.Move) error {
+	return errors.New("resourceRows does not move resources")
+}
 
 func (*resourceRows) Delete(context.Context, string) error { return nil }
 
