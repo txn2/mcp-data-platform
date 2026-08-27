@@ -101,6 +101,13 @@ type Toolkit struct {
 	// with catalog_id set still register, but with zero ops).
 	catalogStore catalog.Store
 
+	// catalogWiringDone reports whether platform-level wiring has had
+	// its chance to run. Until it has, a nil catalogStore is the
+	// construction order (NewMulti builds connections before the
+	// platform wires the store and reloads them), not a deployment
+	// gap, and the unbacked-catalog warning is withheld (#1509).
+	catalogWiringDone bool
+
 	// exampleStore reads the requests promoted on an endpoint: calls
 	// against this connection that are known to have worked (#1321). nil
 	// leaves an endpoint's schema exactly as its spec declares it.
@@ -175,6 +182,52 @@ func (t *Toolkit) CatalogStore() catalog.Store {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return t.catalogStore
+}
+
+// warnNoCatalogStore reports one connection whose catalog_id names a
+// spec bundle the toolkit cannot load because no catalog store is
+// wired. Its endpoints surface is empty for as long as that holds.
+func warnNoCatalogStore(connName, catalogID string) {
+	slog.Warn("apigateway: connection references catalog but no catalog store wired",
+		logKeyConnection, logsan.SanitizeForLog(connName), logKeyCatalogID, logsan.SanitizeForLog(catalogID))
+}
+
+// MarkCatalogWiringComplete records that platform-level wiring has
+// run, and warns once for every registered connection that still
+// references a catalog with no store to load it from.
+//
+// A nil store during construction is the platform's assembly order,
+// not a deployment gap: NewMulti builds connections before the
+// platform wires the catalog store, and WireAPIGatewayCatalogStore
+// reloads every connection right after wiring it. Warning on that
+// pass reported one broken connection per catalog-backed connection
+// on every startup of a deployment where all of them served their
+// specs normally (#1509).
+//
+// The deployment the message was written for is one where the store
+// never arrives and the reload never corrects the state. That is what
+// this reports, once the store's last chance to be wired has passed.
+//
+// Idempotent: a second call re-reports whatever is still unbacked.
+// From here on, a connection built or reloaded without a store warns
+// as it is built, since no store can still be on its way.
+func (t *Toolkit) MarkCatalogWiringComplete() {
+	type unbacked struct{ name, catalogID string }
+	t.mu.Lock()
+	t.catalogWiringDone = true
+	var pending []unbacked
+	if t.catalogStore == nil {
+		for name, c := range t.connections {
+			if c.cfg.CatalogID != "" {
+				pending = append(pending, unbacked{name: name, catalogID: c.cfg.CatalogID})
+			}
+		}
+	}
+	t.mu.Unlock()
+	sort.Slice(pending, func(i, j int) bool { return pending[i].name < pending[j].name })
+	for _, u := range pending {
+		warnNoCatalogStore(u.name, u.catalogID)
+	}
 }
 
 // ReloadConnection drops and rebuilds the named connection so a
@@ -1020,10 +1073,16 @@ func (t *Toolkit) buildConnSpecs(connName, catalogID, connBaseURL string) (
 	}
 	t.mu.RLock()
 	store := t.catalogStore
+	wiringDone := t.catalogWiringDone
 	t.mu.RUnlock()
 	if store == nil {
-		slog.Warn("apigateway: connection references catalog but no catalog store wired",
-			logKeyConnection, logsan.SanitizeForLog(connName), logKeyCatalogID, logsan.SanitizeForLog(catalogID))
+		// Before wiring completes this is the expected construction
+		// order and the connection is rebuilt moments later;
+		// MarkCatalogWiringComplete reports the connections still in
+		// this state once the store can no longer arrive.
+		if wiringDone {
+			warnNoCatalogStore(connName, catalogID)
+		}
 		return nil, nil, nil
 	}
 	entries, err := store.ListSpecs(context.Background(), catalogID)
