@@ -621,8 +621,8 @@ rate_limit:
 | `portal.public_base_url` | string | `""` | Base URL for portal links in save_asset responses |
 | `portal.max_content_size` | int | `10485760` | Maximum asset size in bytes (10 MB) |
 | `portal.max_versions` | int | `100` | Versions an asset keeps when it carries no override of its own. A version pushed past the cap is deleted along with its stored content and thumbnails; the current version is never pruned. `0` keeps every version, and a negative value is refused at startup. Applied at the write, so an asset already over the cap is trimmed the next time it is written. An asset's owner (or an admin) can override it, from the portal metadata form, `manage_asset` action `update` with `max_versions`, or the admin asset route |
-| `portal.implementor.name` | string | `""` | Implementor display name shown in the left zone of the public viewer header |
-| `portal.implementor.logo` | string | `""` | URL to the implementor logo in any image format. The viewer and share pages link it with an `<img>` element; its origin is added to the `img-src` of the pages whose policy would otherwise block it |
+| `portal.implementor.name` | string | `""` | Implementor display name shown in the left zone of the public viewer, the public collection viewer, the guest share landing page, and the access-denied page. Independent of `portal.implementor.logo`: either one alone renders the implementor block |
+| `portal.implementor.logo` | string | `""` | URL to the implementor logo in any image format. The viewer and share pages link it with an `<img>` element; its origin is added to the `img-src` of the pages whose policy would otherwise block it. Renders with or without `portal.implementor.name` |
 | `portal.implementor.url` | string | `""` | Clickable link wrapping the implementor name and logo |
 | `portal.terms_url` | string | `""` | Terms-of-service link rendered in notification email footers |
 | `portal.privacy_url` | string | `""` | Privacy-policy link rendered in notification email footers |
@@ -657,8 +657,8 @@ Branding fields have moved to the `portal:` section:
 | `portal.logo_light` | string | `""` | Logo URL for light theme |
 | `portal.logo_dark` | string | `""` | Logo URL for dark theme |
 | `portal.logo_email` | string | `""` | Raster PNG logo URL for notification emails (fetched at startup, max 1 MB) |
-| `portal.implementor.name` | string | `""` | Implementor display name (left zone of public viewer header) |
-| `portal.implementor.logo` | string | `""` | URL to the implementor logo in any image format, linked by the viewer and the share pages |
+| `portal.implementor.name` | string | `""` | Implementor display name (left zone of the public viewer, the collection viewer, and the share pages); renders with or without a logo |
+| `portal.implementor.logo` | string | `""` | URL to the implementor logo in any image format, linked by the viewer and the share pages; renders with or without a name |
 | `portal.implementor.url` | string | `""` | Clickable link wrapping implementor name and logo |
 | `portal.terms_url` | string | `""` | Terms-of-service link rendered in notification email footers |
 | `portal.privacy_url` | string | `""` | Privacy-policy link rendered in notification email footers |

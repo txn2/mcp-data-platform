@@ -56,11 +56,11 @@
 </head>
 <body>
     <div class="header">
-        {{if .ImplementorName}}
+        {{if or .ImplementorName .ImplementorLogoHTML}}
         <div class="brand muted-brand">
             {{if .ImplementorURL}}<a href="{{.ImplementorURL}}" target="_blank" rel="noopener noreferrer">{{end}}
             {{if .ImplementorLogoHTML}}<div class="brand-logo">{{.ImplementorLogoHTML}}</div>{{end}}
-            <span class="brand-name">{{.ImplementorName}}</span>
+            {{if .ImplementorName}}<span class="brand-name">{{.ImplementorName}}</span>{{end}}
             {{if .ImplementorURL}}</a>{{end}}
         </div>
         {{end}}
