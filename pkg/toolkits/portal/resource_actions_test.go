@@ -13,7 +13,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
+	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
 
@@ -105,6 +107,7 @@ func createInputFor() manageResourceInput {
 		Action: resourceActionCreate, Filename: "Weather Daily.CSV",
 		DisplayName: "Daily Weather", Category: "datasets",
 		Description: "Highs and lows", Content: "day,high\nmon,71\ntue,68\n",
+		ContentType: "text/csv",
 	}
 }
 
@@ -157,7 +160,7 @@ func TestCreateBuildsTheResourceFromTheCall(t *testing.T) {
 	assert.Equal(t, resource.ScopeUser, w.created.Scope)
 	assert.Equal(t, "user1", w.created.ScopeID, "an unnamed scope is the caller's own")
 	assert.Equal(t, "day,high\nmon,71\ntue,68\n", string(w.created.Data))
-	assert.Equal(t, "text/csv", w.created.MIMEType, "the type is detected when the call names none")
+	assert.Equal(t, "text/csv", w.created.MIMEType)
 	assert.Equal(t, []string{}, w.created.Tags)
 	assert.Equal(t, "user1", w.claims.Sub, "the write acts as the caller, not as the platform")
 
@@ -474,4 +477,122 @@ func TestReplaceReportsTheWritersRefusal(t *testing.T) {
 
 	require.True(t, result.IsError)
 	assert.Contains(t, errText(t, result), "global scope")
+}
+
+// A create with no content_type is refused, and refused before anything is
+// written. The stored type is what a viewer and an <img> act on, and it cannot
+// be recovered from the bytes for the families an agent writes most, so a
+// create that declares none is a file that will silently not render (#1508).
+func TestCreateRequiresAContentType(t *testing.T) {
+	tk, w := resourceToolkit(t)
+	in := createInputFor()
+	in.ContentType = "   "
+
+	result := callResource(t, tk, in)
+
+	require.True(t, result.IsError)
+	msg := errText(t, result)
+	assert.Contains(t, msg, "content_type is required")
+	assert.Contains(t, msg, "image/svg+xml", "the refusal names types the caller can choose between")
+	assert.Contains(t, msg, "Nothing was saved")
+	assert.Empty(t, w.created.Filename, "the refusal is said instead of a write, never after one")
+}
+
+// The case from the report: an agent-written SVG with no declaration was
+// stored text/plain, which nosniff makes final, so every <img> naming it was a
+// broken image. Declared, the type survives the write -- detection may not
+// name an active family from content, and now does not have to.
+func TestCreateStoresADeclaredActiveType(t *testing.T) {
+	tk, w := resourceToolkit(t)
+	in := createInputFor()
+	in.Filename, in.ContentType = "badge.svg", "image/svg+xml"
+	in.Content = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 40"></svg>`
+
+	require.False(t, callResource(t, tk, in).IsError)
+
+	assert.Equal(t, "image/svg+xml", w.created.MIMEType)
+}
+
+// A replacement keeps the family the resource already carries. Re-deciding it
+// from the bytes would reclassify the file under every reference to it, and
+// for an SVG it would land text/plain on every refresh.
+func TestReplaceKeepsTheTypeTheResourceCarries(t *testing.T) {
+	tk, w := resourceToolkit(t)
+	w.existing = &resource.Resource{
+		ID: "res1", Scope: resource.ScopeUser, ScopeID: "user1", Category: "brand",
+		Filename: "badge.svg", DisplayName: "Badge", MIMEType: "image/svg+xml",
+		URI: "mcp://user/user1/brand/badge.svg",
+	}
+
+	require.False(t, callResource(t, tk, manageResourceInput{
+		Action: resourceActionReplace, Reference: "mcp:resource:res1",
+		Content: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 40"></svg>`,
+	}).IsError)
+
+	assert.Equal(t, "image/svg+xml", w.replaced.MIMEType)
+}
+
+// Declaring a type on a replacement is changing what family the file is, which
+// is a deliberate act, so the declaration wins over the stored type.
+func TestReplaceHonoursADeclaredType(t *testing.T) {
+	tk, w := resourceToolkit(t)
+
+	require.False(t, callResource(t, tk, manageResourceInput{
+		Action: resourceActionReplace, Reference: "mcp:resource:res1",
+		Content: "# Weather\n\nHighs and lows by day.\n", ContentType: "text/markdown",
+	}).IsError)
+
+	assert.Equal(t, "text/markdown", w.replaced.MIMEType,
+		"the stored text/csv stands in for a declaration, it does not override one")
+}
+
+// A resource stored under a generic type is not frozen there: the stored type
+// stands in for a declaration, and a generic declaration is what detection is
+// allowed to replace. This is the way back for a file written before the
+// declaration was required.
+func TestReplaceUpgradesAGenericStoredType(t *testing.T) {
+	tk, w := resourceToolkit(t)
+	w.existing = &resource.Resource{
+		ID: "res1", Scope: resource.ScopeUser, ScopeID: "user1", Category: "datasets",
+		Filename: "weather.csv", DisplayName: "Daily Weather", MIMEType: "application/octet-stream",
+		URI: "mcp://user/user1/datasets/weather.csv",
+	}
+
+	require.False(t, callResource(t, tk, manageResourceInput{
+		Action: resourceActionReplace, Reference: "mcp:resource:res1",
+		Content: "day,high\nmon,88\ntue,90\n",
+	}).IsError)
+
+	assert.Equal(t, "text/csv", w.replaced.MIMEType)
+}
+
+// The schema and the refusal both point a caller at the built-in page listing
+// the types. The page is shipped by a package this one cannot import, so the
+// reference is built from the shared constant; this is the gate that catches a
+// schema literal that drifted from it.
+func TestManageResourcePointsAtTheContentTypePage(t *testing.T) {
+	ref := knowledgepage.BuiltinReference(knowledgepage.BuiltinSlugContentTypes)
+
+	assert.Contains(t, string(manageResourceSchema), ref)
+	assert.Contains(t, resourceContentTypeRequired, ref)
+}
+
+// A file stored under a type the deny list has since grown to cover is still
+// replaceable: inheriting that type would refuse the write over a declaration
+// its caller never made, so detection settles it exactly as it did before.
+func TestReplaceDoesNotInheritADeniedStoredType(t *testing.T) {
+	tk, w := resourceToolkit(t)
+	w.existing = &resource.Resource{
+		ID: "res1", Scope: resource.ScopeUser, ScopeID: "user1", Category: "runbooks",
+		Filename: "legacy.xhtml", DisplayName: "Legacy", MIMEType: contenttype.XHTML,
+		URI: "mcp://user/user1/runbooks/legacy.xhtml",
+	}
+
+	result := callResource(t, tk, manageResourceInput{
+		Action: resourceActionReplace, Reference: "mcp:resource:res1",
+		Content: "day,high\nmon,88\ntue,90\n",
+	})
+
+	require.False(t, result.IsError, "the refusal would name a type the caller never sent: %s", errText(t, result))
+	assert.Equal(t, "text/csv", w.replaced.MIMEType)
 }

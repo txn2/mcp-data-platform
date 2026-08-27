@@ -218,6 +218,7 @@ internal/platform/indexqueue -> pkg/toolkits/apigateway/catalog
 internal/platform/indexqueue -> pkg/toolkits/apigateway/catalogindex
 internal/platform/indexqueue -> pkg/toolkits/tools/toolsindex
 internal/platform/knowledgebuiltin -> internal/platform/scriptlayer
+internal/platform/knowledgebuiltin -> pkg/contenttype
 internal/platform/knowledgebuiltin -> pkg/portal/knowledgepage
 internal/platform/knowledgelayer -> internal/platform/knowledgepageindex
 internal/platform/knowledgelayer -> pkg/embedding

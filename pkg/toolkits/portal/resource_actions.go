@@ -136,8 +136,13 @@ func (t *Toolkit) handleCreateResource(
 	if err := validateResourcePlacement(scope, scopeID, input); err != nil {
 		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
+	// Checked before the payload is decoded: a create with nothing to store it
+	// under is refused whatever its size.
+	if strings.TrimSpace(input.ContentType) == "" {
+		return toolkit.ErrorResult(resourceContentTypeRequired), nil, nil
+	}
 
-	data, mimeType, errResult := t.resolveContent(input, filename)
+	data, mimeType, errResult := t.resolveContent(input, filename, input.ContentType)
 	if errResult != nil {
 		return errResult, nil, nil
 	}
@@ -183,7 +188,22 @@ func (t *Toolkit) handleReplaceResourceContent(
 	// filename is embedded in the canonical URI, so a replacement that renamed
 	// the file would break every reference to it -- the exact breakage this
 	// action exists to avoid.
-	data, mimeType, errResult := t.resolveContent(input, existing.Filename)
+	//
+	// The type the resource already carries stands in for a declaration the
+	// caller did not make, for the same reason: a replacement refreshes a file
+	// that is already referenced, and re-deciding its family from the bytes
+	// would reclassify it under every reference at once.
+	//
+	// It stands in only where it would be accepted as a declaration. A file
+	// stored under a type the deny list has since grown to cover would
+	// otherwise be refused a replacement over a type its caller never sent,
+	// which is the one way inheriting it could take away a write that worked
+	// before; detection settles that file exactly as it did before.
+	declared := strings.TrimSpace(input.ContentType)
+	if declared == "" && resource.ValidateMIMEType(existing.MIMEType) == nil {
+		declared = existing.MIMEType
+	}
+	data, mimeType, errResult := t.resolveContent(input, existing.Filename, declared)
 	if errResult != nil {
 		return errResult, nil, nil
 	}
@@ -209,13 +229,20 @@ func (t *Toolkit) handleReplaceResourceContent(
 // resolveContent decodes the write's bytes and settles the type they are
 // stored under.
 //
-// A generic declaration -- or none at all, which is the common case for an
-// agent -- is replaced by the type detected from the content itself, so a CSV
-// an agent wrote without naming a type is a CSV to the portal's table panel and
-// to manage_table. The resolved type is validated as well as the declared one:
+// declared is what the write claims the bytes are: the caller's own
+// content_type on a create, where it is required, and on a replacement the
+// caller's when they sent one and the type the resource already carries when
+// they did not.
+//
+// A generic declaration is still replaced by the type detected from the
+// content, so a file stored years ago under application/octet-stream is
+// refreshed into the family its bytes are. Detection cannot go the other way
+// for every family -- SVG, HTML, JSX and Markdown are never named from content
+// (see pkg/contenttype) -- which is why a declaration is required rather than
+// inferred. The resolved type is validated as well as the declared one:
 // detection over caller bytes is the other way a type reaches the store.
 func (t *Toolkit) resolveContent(
-	input manageResourceInput, filename string,
+	input manageResourceInput, filename, declared string,
 ) (data []byte, mimeType string, errResult *mcp.CallToolResult) {
 	data, err := decodeResourceContent(input)
 	if err != nil {
@@ -227,10 +254,10 @@ func (t *Toolkit) resolveContent(
 				"portal's resource library rather than passed through a tool call.",
 			len(data), t.maxContentSize))
 	}
-	if err := resource.ValidateMIMEType(input.ContentType); err != nil {
+	if err := resource.ValidateMIMEType(declared); err != nil {
 		return nil, "", toolkit.ErrorResult(err.Error())
 	}
-	mimeType = contenttype.DetectFileBytes(input.ContentType, filename, data)
+	mimeType = contenttype.DetectFileBytes(declared, filename, data)
 	if err := resource.ValidateMIMEType(mimeType); err != nil {
 		return nil, "", toolkit.ErrorResult(err.Error())
 	}
@@ -373,6 +400,23 @@ const resourceWriteUnavailable = "This deployment has no managed-resource librar
 // file it under.
 const resourceIdentityRequired = "Writing a managed resource needs a signed-in identity. This session has none, " +
 	"so there is no scope to file the file under and no author to record."
+
+// resourceContentTypeRequired is what a create with no content_type is told.
+//
+// The type is required rather than guessed because a create is the one moment
+// it is known for certain -- the caller chose the bytes -- and because
+// detection cannot recover it afterwards for the families an agent writes
+// most: SVG, HTML, JSX and Markdown are all stored text/plain when nothing is
+// declared, and a file served as text/plain under nosniff is a broken image or
+// an unrendered document wherever an asset references it, with nothing
+// reporting a problem (#1508).
+var resourceContentTypeRequired = "content_type is required for create: name the media type the bytes are, " +
+	"for example image/svg+xml for an SVG, text/markdown for a Markdown document, text/html for an HTML " +
+	"page, text/csv for a CSV, or image/png for a PNG. It is not detected for you: SVG, HTML and Markdown " +
+	"all read as plain text to a byte sniffer, and a file stored as text/plain is served under nosniff, " +
+	"which stops a browser rendering it as an image or a document. Read " +
+	knowledgepage.BuiltinReference(knowledgepage.BuiltinSlugContentTypes) +
+	" for the types this platform stores. Nothing was saved."
 
 // defaultResourceChangeSummary labels a replacement whose caller supplied no
 // change_summary.

@@ -351,7 +351,7 @@ var manageResourceSchema = json.RawMessage(`{
     },
     "content_type": {
       "type": "string",
-      "description": "Media type to store the file under, for example text/csv or application/json. Optional: the type is detected from the content and the filename when you omit it, which is usually right. Naming a specific type here is worth it when the content alone is ambiguous."
+      "description": "Media type the bytes are, for example image/svg+xml, text/markdown, text/html, text/csv or image/png. REQUIRED for create, and not detected for you: SVG, HTML, JSX and Markdown all read as plain text to a byte sniffer, and a file stored as text/plain is served under nosniff, which stops a browser rendering it as an image or a document. replace_content keeps the type the resource already carries when you omit it, so send one there only to change what family the file is. Fetch mcp:knowledge_page:platform-content-types-for-stored-files for the types this platform stores."
     },
     "filename": {
       "type": "string",

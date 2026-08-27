@@ -1352,6 +1352,8 @@ Write a file into the managed resource library. A managed resource is the only k
 
 Content crosses the wire in one of two fields. `content` carries text — CSV, JSON, Markdown, SVG — and `content_base64` carries base64-encoded bytes for a binary file such as a PNG or a PDF. Exactly one is given, and both are capped at the deployment's `portal.max_content_size` (10 MB by default), the same cap `save_asset` applies.
 
+A `create` declares what the bytes are in `content_type`; a create that does not is refused. The type is not detected on this path, because the families an agent writes most cannot be named from content: SVG, HTML, JSX and Markdown are all stored `text/plain` when nothing is declared, and `text/plain` under `nosniff` is a broken image or an unrendered document wherever an asset references the file. A `replace_content` keeps the type the resource already carries unless it declares a new one, so a refresh cannot reclassify a file under every reference to it. The types the platform stores are listed on the built-in knowledge page `mcp:knowledge_page:platform-content-types-for-stored-files` and in [Content Types and Viewers](../server/content-viewers.md).
+
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
@@ -1360,7 +1362,7 @@ Content crosses the wire in one of two fields. `content` carries text — CSV, J
 | `reference` | string | Conditional | - | The resource to write over: `mcp:resource:<id>`, from a `search` hit, a `fetch` document, or a `create` (required for `replace_content`) |
 | `content` | string | Conditional | - | The file as text. This or `content_base64` |
 | `content_base64` | string | Conditional | - | The file as base64-encoded bytes. This or `content` |
-| `content_type` | string | No | detected | Media type to store the file under. Detection reads the content and the filename; naming a type is worth it when the content alone is ambiguous (a two-row CSV reads as `text/plain`) |
+| `content_type` | string | Conditional | - | Media type the bytes are (required for `create`). Not detected: SVG, HTML, JSX and Markdown all read as plain text to a byte sniffer. `replace_content` keeps the type the resource already carries when it is omitted |
 | `filename` | string | Conditional | - | Name of the file (required for `create`), normalized to lowercase with spaces replaced. `replace_content` ignores it |
 | `display_name` | string | Conditional | - | Name shown in the resource library (required for `create`) |
 | `category` | string | Conditional | - | The shelf the file sits on (required for `create`): lowercase letters, digits and hyphens, starting with a letter |
@@ -1374,7 +1376,7 @@ Content crosses the wire in one of two fields. `content` carries text — CSV, J
 
 | Action | Description | Required Params |
 |--------|-------------|-----------------|
-| `create` | File new content as a managed resource and report its `mcp://` URI and its `mcp:resource:` reference | `filename`, `display_name`, `category`, `description`, content |
+| `create` | File new content as a managed resource and report its `mcp://` URI and its `mcp:resource:` reference | `filename`, `display_name`, `category`, `description`, `content_type`, content |
 | `replace_content` | Write new content over an existing resource, keeping its id, URI and filename, and record the change as its next version | `reference`, content |
 
 **Response Schema (create):**
@@ -1401,6 +1403,7 @@ Content crosses the wire in one of two fields. `content` carries text — CSV, J
 
 | Condition | Error Message |
 |-----------|---------------|
+| Missing content type on a create | `content_type is required for create: name the media type the bytes are ...` |
 | Missing content | `content is required: pass the file as text in 'content', or as base64-encoded bytes in 'content_base64' ...` |
 | Both content fields | `pass content or content_base64, not both: ...` |
 | Malformed base64 | `content_base64 is not valid base64: ...` |
