@@ -219,14 +219,19 @@ type Deps struct {
 	// derived share. Optional; nil disables auto-promote.
 	Authenticator *Authenticator
 	// Platform brand (far right of public viewer header)
-	BrandName    string // display name (default: "MCP Data Platform")
-	BrandLogoSVG string // inline SVG for header logo (empty = default icon)
-	BrandURL     string // link URL (e.g., "https://plexara.io"); empty = no link
+	BrandName string // display name (default: "MCP Data Platform")
+	// BrandLogoHTML is the header logo as markup: an <img> element sourced at
+	// the configured logo URL, or an inline <svg> an MCP App config named.
+	// Empty renders the bundled default icon.
+	BrandLogoHTML string
+	BrandURL      string // link URL (e.g., "https://plexara.io"); empty = no link
 
 	// Implementor brand (far left of public viewer header, optional)
-	ImplementorName    string // display name (e.g., "ACME Corp"); empty = hidden
-	ImplementorLogoSVG string // inline SVG; empty = hidden
-	ImplementorURL     string // link URL; empty = no link
+	ImplementorName string // display name (e.g., "ACME Corp"); empty = hidden
+	// ImplementorLogoHTML is the logo as markup, on the same terms as
+	// BrandLogoHTML; empty = hidden.
+	ImplementorLogoHTML string
+	ImplementorURL      string // link URL; empty = no link
 
 	// Notifier receives share and thread trigger events (issue #631). nil
 	// disables email notifications; implementations log their own failures

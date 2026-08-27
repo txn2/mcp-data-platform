@@ -255,8 +255,8 @@ type Platform struct {
 	// Brand assets (logo SVG, brand URL, implementor logo). The owner
 	// (pkg/platform/branding) resolves each once from config and caches it behind
 	// one Handle; the caller injects the portal logo into the platform-info app
-	// config and reads the cached values through BrandLogoSVG() / BrandURL() /
-	// ResolveImplementorLogo(). Built in initMCPApps.
+	// config and reads the cached values through BrandLogoHTML() / BrandURL() /
+	// ImplementorLogoHTML(). Built in initMCPApps.
 	branding *branding.Handle
 
 	// Workflow gating
@@ -1939,14 +1939,15 @@ func (p *Platform) LoadManagedResources() {
 }
 
 // initMCPApps initializes MCP Apps support. The branding owner is built first
-// (regardless of whether MCP Apps are enabled) so BrandLogoSVG() / BrandURL() /
-// ResolveImplementorLogo() resolve from config for every consumer.
+// (regardless of whether MCP Apps are enabled) so BrandLogoHTML() / BrandURL() /
+// ImplementorLogoHTML() resolve from config for every consumer.
 func (p *Platform) initMCPApps() error {
 	p.branding = branding.New(branding.Config{
 		PortalLogo:      p.config.Portal.Logo,
 		ImplementorLogo: p.config.Portal.Implementor.Logo,
 		BrandName:       p.config.Portal.BrandName,
 		BrandURL:        p.config.Portal.BrandURL,
+		ImplementorName: p.config.Portal.Implementor.Name,
 	})
 
 	if !p.config.MCPApps.IsEnabled() {
@@ -3178,11 +3179,12 @@ func (p *Platform) KnowledgeRouter() *knowledge.Router {
 	return p.searchFed.Router()
 }
 
-// BrandLogoSVG returns the resolved brand logo SVG content (from portal.logo
-// or mcpapps platform-info config), or empty string if none is configured.
-// Delegates to the branding owner.
-func (p *Platform) BrandLogoSVG() string {
-	return p.branding.BrandLogoSVG()
+// BrandLogoHTML returns the brand logo as the markup a brand slot inlines -- an
+// <img> element sourced at portal.logo, or an inline SVG from the mcpapps
+// platform-info config -- or empty string if none is configured. Delegates to
+// the branding owner.
+func (p *Platform) BrandLogoHTML() string {
+	return p.branding.BrandLogoHTML()
 }
 
 // BrandURL returns the resolved brand URL — portal.brand_url when set,
@@ -3192,11 +3194,11 @@ func (p *Platform) BrandURL() string {
 	return p.branding.BrandURL()
 }
 
-// ResolveImplementorLogo fetches (once, then caches) the implementor logo SVG
-// from portal.implementor.logo, or empty string if no logo URL is configured or
-// the fetch fails. Delegates to the branding owner.
-func (p *Platform) ResolveImplementorLogo() string {
-	return p.branding.ResolveImplementorLogo()
+// ImplementorLogoHTML returns the implementor logo as the markup a brand slot
+// inlines -- an <img> element sourced at portal.implementor.logo -- or empty
+// string if no logo URL is configured. Delegates to the branding owner.
+func (p *Platform) ImplementorLogoHTML() string {
+	return p.branding.ImplementorLogoHTML()
 }
 
 // BrowserSessionFlow returns the OIDC login flow, or nil if browser sessions are disabled.

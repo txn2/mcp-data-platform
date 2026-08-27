@@ -106,13 +106,15 @@
             display: flex;
             align-items: center;
         }
-        .brand-logo svg {
+        .brand-logo svg, .brand-logo img {
             /* display:block + max-width:100% defend against operator-supplied
                SVGs whose root element carries width="100%"/height="100%"
                attributes that would otherwise force the logo to overflow on
-               narrow viewports. */
+               narrow viewports. A raster logo is fitted rather than stretched:
+               object-fit keeps a wide badge from distorting into the box. */
             width: 24px;
             height: 24px;
+            object-fit: contain;
             display: block;
             max-width: 100%;
         }
@@ -120,7 +122,7 @@
             width: auto;
             height: 28px;
         }
-        .brand-implementor .brand-logo svg {
+        .brand-implementor .brand-logo svg, .brand-implementor .brand-logo img {
             width: auto;
             height: 28px;
             max-width: 100%;
@@ -338,10 +340,10 @@
     {{if .Embedded}}<style>body{margin:0;padding:0} .content{height:100vh}</style>{{end}}
     {{if not .Embedded}}
     <div class="header">
-        {{if or .ImplementorName .ImplementorLogoSVG}}
+        {{if or .ImplementorName .ImplementorLogoHTML}}
         <div class="brand brand-implementor">
             {{if .ImplementorURL}}<a href="{{.ImplementorURL}}" target="_blank" rel="noopener noreferrer">{{end}}
-            {{if .ImplementorLogoSVG}}<div class="brand-logo">{{.ImplementorLogoSVG}}</div>{{end}}
+            {{if .ImplementorLogoHTML}}<div class="brand-logo">{{.ImplementorLogoHTML}}</div>{{end}}
             {{if .ImplementorName}}<span class="brand-name">{{.ImplementorName}}</span>{{end}}
             {{if .ImplementorURL}}</a>{{end}}
         </div>
@@ -363,7 +365,7 @@
         <div class="separator"></div>
         <div class="brand brand-platform">
             {{if .BrandURL}}<a href="{{.BrandURL}}" target="_blank" rel="noopener noreferrer">{{end}}
-            <div class="brand-logo">{{.BrandLogoSVG}}</div>
+            <div class="brand-logo">{{.BrandLogoHTML}}</div>
             <span class="brand-name">{{.BrandName}}</span>
             {{if .BrandURL}}</a>{{end}}
         </div>

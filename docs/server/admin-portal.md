@@ -35,7 +35,11 @@ Customize the logo via `portal.logo`, `portal.logo_light`, and `portal.logo_dark
 - **Light theme**: `logo_light` → `logo` → built-in default
 - **Dark theme**: `logo_dark` → `logo` → built-in default
 
-The resolved logo is also used as the browser favicon. A built-in activity icon is used when no logo is configured. Logos should be square SVGs for best results.
+The resolved logo is also used as the browser favicon. A built-in activity icon is used when no logo is configured. Any image format works, including PNG; a square SVG scales best across the sizes the portal renders it at.
+
+`portal.logo` also supplies the platform brand mark on the public viewer header, the guest share pages and the branded denial page. Those are served from the platform's own origin: each page links the logo with an `<img>` element at the URL you configured, and the browser caches it across page loads. The guest and denial pages send a narrow Content-Security-Policy, so a configured logo adds exactly what it needs to their `img-src`: its own scheme and host when you host it elsewhere, `'self'` when the URL is a path this server already serves. Configure no logo and those policies load no image at all.
+
+The one surface that cannot link a logo is a built-in MCP App: it runs in a sandboxed iframe on a host that blocks external loads, so the platform fetches the logo once at startup and writes it into the app's config inline — an SVG as `logo_svg`, any other image format as a `data:` URI under `logo_url`. That fetch is the only one, and a logo it cannot resolve (unreachable, larger than 1 MB, or not an image) logs one warning naming the URL and the reason; the app then falls back to the URL and, failing that, its built-in mark.
 
 #### Version link
 
@@ -69,11 +73,11 @@ Shared asset links (the public viewer at `/portal/view/{token}`) display a two-z
 portal:
   implementor:
     name: "ACME Corp"                    # Display name (left zone of public viewer header)
-    logo: "https://acme.com/logo.svg"    # URL to SVG logo (fetched once at startup, max 1 MB)
+    logo: "https://acme.com/logo.png"    # URL to a logo image (fetched once at startup, max 1 MB)
     url: "https://acme.com"              # Clickable link wrapping name + logo
 ```
 
-All three fields are optional. When omitted, the left zone is hidden and only the platform brand appears. The logo URL must point to an SVG file; it is fetched at server startup and inlined into the HTML.
+All three fields are optional. When omitted, the left zone is hidden and only the platform brand appears. The logo may be any image format; the viewer links it with an `<img>` element rather than embedding it, so nothing is fetched server-side and a logo that fails to load leaves a configured implementor name rendering on its own.
 
 ### Public Viewer Features
 

@@ -22,6 +22,10 @@ mcpapps:
 
 All fields are optional. When unset, the app falls back to the server name and a default logo.
 
+Most deployments set no logo here at all: `portal.logo` is fetched once at startup and written into this config, an SVG as `logo_svg` and any other image format as a `data:` URI under `logo_url`. This is the one surface that carries the logo inline rather than linking it, because the app runs in a sandboxed iframe that loads no external image; the platform's own pages link the same logo by URL. A `logo_svg` or `logo_url` set here is the operator being specific about this app, and wins.
+
+That fetch needs an absolute `http(s)` URL. A `portal.logo` written as a path this server serves (`/assets/logo.png`) renders on every page but reaches no app: the app resolves it against its host's origin, not yours. Give the apps a logo by making `portal.logo` an absolute URL, or by setting `logo_svg` here.
+
 ### Custom HTML Override
 
 To replace the embedded HTML entirely with your own version:

@@ -248,6 +248,19 @@ func IsScriptableDocument(ct string) bool {
 	return scriptableDocumentTypes[norm] || strings.HasSuffix(norm, "+xml")
 }
 
+// IsImage reports whether a media type names an image family. It is the accept
+// decision for a slot that holds a picture and nothing else -- a brand logo, a
+// thumbnail -- taken over the type this package resolved rather than over a
+// Content-Type header a caller read for itself.
+//
+// Every image family qualifies, including SVG: a caller that must distinguish
+// vector from raster compares against SVG directly, because the two are
+// inlined differently (markup for one, a data: URI for the other) even though
+// both are images.
+func IsImage(ct string) bool {
+	return strings.HasPrefix(Normalize(ct), "image/")
+}
+
 // IsGeneric reports whether a declared media type is uninformative enough that
 // the content itself should be consulted.
 func IsGeneric(ct string) bool {

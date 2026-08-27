@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/httpserver/unsubhttp"
+	"github.com/txn2/mcp-data-platform/internal/platform/branding"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
@@ -65,12 +66,13 @@ func newShareGuestService(p *platform.Platform, notify *notifydelivery.Handle, s
 		BaseURL:      p.Config().Portal.PublicBaseURL,
 		SecureCookie: p.Config().Auth.BrowserSession.IsSecure(),
 		Brand: shareguest.Brand{
-			Name:               portalBrandName(p),
-			LogoSVG:            p.BrandLogoSVG(),
-			URL:                p.BrandURL(),
-			ImplementorName:    p.Config().Portal.Implementor.Name,
-			ImplementorLogoSVG: p.ResolveImplementorLogo(),
-			ImplementorURL:     p.Config().Portal.Implementor.URL,
+			Name:                portalBrandName(p),
+			LogoHTML:            p.BrandLogoHTML(),
+			URL:                 p.BrandURL(),
+			ImplementorName:     p.Config().Portal.Implementor.Name,
+			ImplementorLogoHTML: p.ImplementorLogoHTML(),
+			ImplementorURL:      p.Config().Portal.Implementor.URL,
+			ImageSources:        branding.ImageSources(p.Config().Portal.Logo, p.Config().Portal.Implementor.Logo),
 		},
 	}
 	if db != nil {

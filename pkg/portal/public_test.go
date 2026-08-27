@@ -138,16 +138,16 @@ func TestPublicViewCustomBrand(t *testing.T) {
 	customLogo := `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/></svg>`
 	implLogo := `<svg viewBox="0 0 32 32"><rect width="32" height="32"/></svg>`
 	h := NewHandler(Deps{
-		AssetStore:         &mockAssetStore{getAsset: asset},
-		ShareStore:         &mockShareStore{getByTokenRes: share},
-		S3Client:           &mockS3Client{getData: []byte("data"), getCT: "text/plain"},
-		S3Bucket:           "test",
-		BrandName:          "Plexara",
-		BrandLogoSVG:       customLogo,
-		BrandURL:           "https://plexara.io",
-		ImplementorName:    "ACME Corp",
-		ImplementorLogoSVG: implLogo,
-		ImplementorURL:     "https://acme.com",
+		AssetStore:          &mockAssetStore{getAsset: asset},
+		ShareStore:          &mockShareStore{getByTokenRes: share},
+		S3Client:            &mockS3Client{getData: []byte("data"), getCT: "text/plain"},
+		S3Bucket:            "test",
+		BrandName:           "Plexara",
+		BrandLogoHTML:       customLogo,
+		BrandURL:            "https://plexara.io",
+		ImplementorName:     "ACME Corp",
+		ImplementorLogoHTML: implLogo,
+		ImplementorURL:      "https://acme.com",
 	}, nil)
 
 	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
@@ -168,6 +168,65 @@ func TestPublicViewCustomBrand(t *testing.T) {
 	assert.Contains(t, body, implLogo)
 	assert.Contains(t, body, `href="https://acme.com"`)
 	assert.Contains(t, body, `brand-implementor`)
+}
+
+// TestPublicViewRasterLogos asserts a raster logo reaches both public viewers
+// as the <img> element the branding owner built from the configured URL, rather
+// than as escaped text. A PNG logo rendered nothing at all before #1500.
+func TestPublicViewRasterLogos(t *testing.T) {
+	now := time.Now()
+	const brandImg = `<img src="https://cdn.example.com/logo.png" alt="Plexara">`
+	const implImg = `<img src="https://cdn.example.com/badge.png" alt="ACME Corp">`
+
+	deps := func() Deps {
+		return Deps{
+			BrandName:           "Plexara",
+			BrandLogoHTML:       brandImg,
+			ImplementorLogoHTML: implImg,
+			S3Client:            &mockS3Client{getData: []byte("data"), getCT: "text/plain"},
+			S3Bucket:            "test",
+		}
+	}
+
+	t.Run("asset viewer", func(t *testing.T) {
+		share := &Share{AccessMode: AccessModePublic, ID: "s1", AssetID: "a1", Token: "tok1"}
+		asset := &Asset{ID: "a1", OwnerID: "u1", Name: "Report", ContentType: "text/plain", CreatedAt: now, UpdatedAt: now}
+		d := deps()
+		d.AssetStore = &mockAssetStore{getAsset: asset}
+		d.ShareStore = &mockShareStore{getByTokenRes: share}
+
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
+		w := httptest.NewRecorder()
+		NewHandler(d, nil).ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		body := w.Body.String()
+		assert.Contains(t, body, brandImg, "raster brand logo must be inlined as markup")
+		assert.Contains(t, body, implImg, "raster implementor logo must be inlined as markup")
+		assert.NotContains(t, body, publicviewer.DefaultLogoSVG,
+			"a resolved raster brand logo must not fall back to the platform mark")
+		assert.Contains(t, body, `class="brand brand-implementor"`,
+			"a logo-only implementor must still render its block")
+	})
+
+	t.Run("collection viewer", func(t *testing.T) {
+		share := &Share{AccessMode: AccessModePublic, ID: "s2", Token: "tok2", CollectionID: "c1"}
+		coll := &Collection{ID: "c1", Name: "Q3 Revenue", CreatedAt: now, UpdatedAt: now}
+		d := deps()
+		d.AssetStore = &mockMultiAssetStore{assets: map[string]*Asset{}}
+		d.ShareStore = &mockShareStore{getByTokenRes: share}
+		d.CollectionStore = &mockCollectionStore{getResult: coll}
+
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok2", http.NoBody)
+		req.SetPathValue("token", "tok2")
+		w := httptest.NewRecorder()
+		NewHandler(d, nil).ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		body := w.Body.String()
+		assert.Contains(t, body, brandImg, "raster brand logo must be inlined as markup")
+		assert.Contains(t, body, implImg, "raster implementor logo must be inlined as markup")
+	})
 }
 
 func TestPublicViewImplementorOnly(t *testing.T) {
@@ -807,15 +866,15 @@ func TestPublicCollectionViewHeaderBranding(t *testing.T) {
 	asset := &Asset{ID: "a1", Name: "rows.csv", ContentType: "text/csv"}
 
 	h := NewHandler(Deps{
-		AssetStore:         &mockMultiAssetStore{assets: map[string]*Asset{"a1": asset}},
-		ShareStore:         &mockShareStore{getByTokenRes: share},
-		CollectionStore:    &mockCollectionStore{getResult: coll},
-		S3Client:           &mockS3Client{},
-		BrandName:          "ACME Data Platform",
-		BrandURL:           "https://example.com/platform",
-		ImplementorName:    "ACME Corp",
-		ImplementorLogoSVG: `<svg id="impl-logo"></svg>`,
-		ImplementorURL:     "https://example.com/about",
+		AssetStore:          &mockMultiAssetStore{assets: map[string]*Asset{"a1": asset}},
+		ShareStore:          &mockShareStore{getByTokenRes: share},
+		CollectionStore:     &mockCollectionStore{getResult: coll},
+		S3Client:            &mockS3Client{},
+		BrandName:           "ACME Data Platform",
+		BrandURL:            "https://example.com/platform",
+		ImplementorName:     "ACME Corp",
+		ImplementorLogoHTML: `<svg id="impl-logo"></svg>`,
+		ImplementorURL:      "https://example.com/about",
 	}, nil)
 
 	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok2", http.NoBody)
@@ -924,11 +983,11 @@ func TestPublicCollectionViewLogoOnlyImplementor(t *testing.T) {
 	coll := &Collection{ID: "c1", Name: "Logo-Only Collection"}
 
 	h := NewHandler(Deps{
-		AssetStore:         &mockMultiAssetStore{assets: map[string]*Asset{}},
-		ShareStore:         &mockShareStore{getByTokenRes: share},
-		CollectionStore:    &mockCollectionStore{getResult: coll},
-		S3Client:           &mockS3Client{},
-		ImplementorLogoSVG: `<svg id="logo-only"></svg>`,
+		AssetStore:          &mockMultiAssetStore{assets: map[string]*Asset{}},
+		ShareStore:          &mockShareStore{getByTokenRes: share},
+		CollectionStore:     &mockCollectionStore{getResult: coll},
+		S3Client:            &mockS3Client{},
+		ImplementorLogoHTML: `<svg id="logo-only"></svg>`,
 		// ImplementorName intentionally empty.
 	}, nil)
 
@@ -966,7 +1025,7 @@ func TestPublicCollectionViewLogoOnlyImplementor(t *testing.T) {
 // TestPublicCollectionViewNameOnlyImplementor asserts implementor branding
 // renders when only the name is configured (no logo). This was the legacy
 // behavior under the old `{{if .ImplementorName}}` gate; the new
-// `{{if or .ImplementorName .ImplementorLogoSVG}}` must preserve it.
+// `{{if or .ImplementorName .ImplementorLogoHTML}}` must preserve it.
 // Regression guard against an accidental rewrite to AND.
 func TestPublicCollectionViewNameOnlyImplementor(t *testing.T) {
 	share := &Share{AccessMode: AccessModePublic, ID: "s1", Token: "tok4", CollectionID: "c1"}
@@ -978,7 +1037,7 @@ func TestPublicCollectionViewNameOnlyImplementor(t *testing.T) {
 		CollectionStore: &mockCollectionStore{getResult: coll},
 		S3Client:        &mockS3Client{},
 		ImplementorName: "Name Only Co.",
-		// ImplementorLogoSVG intentionally empty.
+		// ImplementorLogoHTML intentionally empty.
 	}, nil)
 
 	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok4", http.NoBody)

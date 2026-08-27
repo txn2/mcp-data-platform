@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -48,7 +47,7 @@ func publicAssetOGImage(asset *Asset, token, baseURL string) string {
 	if baseURL == "" || asset == nil {
 		return ""
 	}
-	if strings.HasPrefix(strings.ToLower(asset.ContentType), "image/") {
+	if contenttype.IsImage(asset.ContentType) {
 		return baseURL + publicViewPathPrefix + token + "/content"
 	}
 	if asset.ThumbnailS3Key != "" {
@@ -249,7 +248,7 @@ func (h *Handler) renderAssetViewer(w http.ResponseWriter, r *http.Request, pad 
 	if brandName == "" {
 		brandName = "MCP Data Platform"
 	}
-	brandLogo := h.deps.BrandLogoSVG
+	brandLogo := h.deps.BrandLogoHTML
 	if brandLogo == "" {
 		brandLogo = publicviewer.DefaultLogoSVG
 	}
@@ -270,32 +269,32 @@ func (h *Handler) renderAssetViewer(w http.ResponseWriter, r *http.Request, pad 
 	}
 
 	_ = publicviewer.AssetTemplate.Execute(w, map[string]any{
-		"Name":               asset.Name,
-		"ContentType":        asset.ContentType,
-		"Description":        asset.Description,
-		"Tags":               asset.Tags,
-		"CreatedAtISO":       asset.CreatedAt.UTC().Format(time.RFC3339),
-		"UpdatedAtISO":       asset.UpdatedAt.UTC().Format(time.RFC3339),
-		"ContentJSON":        template.JS(contentJSON), // #nosec G203 -- json.Marshal escapes <, >, & as \uXXXX; safe inside <script type="application/json">
-		"ContentViewerURL":   contentviewer.EntryURL(),
-		"ContentViewerCSS":   template.CSS(contentviewer.CSS), // #nosec G203 -- build artifact embedded at compile time, not user input
-		"BrandName":          brandName,
-		"BrandLogoSVG":       template.HTML(brandLogo), // #nosec G203 -- operator-provided SVG from config, not user input
-		"BrandURL":           h.deps.BrandURL,
-		"ImplementorName":    h.deps.ImplementorName,
-		"ImplementorLogoSVG": template.HTML(h.deps.ImplementorLogoSVG), // #nosec G203 -- operator-provided SVG from config
-		"ImplementorURL":     h.deps.ImplementorURL,
-		"Version":            asset.CurrentVersion,
-		"ExpiresAtISO":       expiresAtISO,
-		"HideExpiration":     share.HideExpiration,
-		"NoticeText":         share.NoticeText,
-		"Embedded":           r.URL.Query().Get(embeddedParam) == "1",
-		"ShareURL":           shareURL,
-		"OGImageURL":         publicAssetOGImage(asset, share.Token, baseURL),
-		"SignedIn":           h.resolvePublicViewer(r) != nil,
-		"SignInURL":          signInToLeaveFeedbackURL(r),
-		"PortalURL":          portalURL,
-		"IsGuest":            isGuestRequest(r),
+		"Name":                asset.Name,
+		"ContentType":         asset.ContentType,
+		"Description":         asset.Description,
+		"Tags":                asset.Tags,
+		"CreatedAtISO":        asset.CreatedAt.UTC().Format(time.RFC3339),
+		"UpdatedAtISO":        asset.UpdatedAt.UTC().Format(time.RFC3339),
+		"ContentJSON":         template.JS(contentJSON), // #nosec G203 -- json.Marshal escapes <, >, & as \uXXXX; safe inside <script type="application/json">
+		"ContentViewerURL":    contentviewer.EntryURL(),
+		"ContentViewerCSS":    template.CSS(contentviewer.CSS), // #nosec G203 -- build artifact embedded at compile time, not user input
+		"BrandName":           brandName,
+		"BrandLogoHTML":       template.HTML(brandLogo), // #nosec G203 -- operator-provided logo markup from config, not user input
+		"BrandURL":            h.deps.BrandURL,
+		"ImplementorName":     h.deps.ImplementorName,
+		"ImplementorLogoHTML": template.HTML(h.deps.ImplementorLogoHTML), // #nosec G203 -- operator-provided logo markup from config
+		"ImplementorURL":      h.deps.ImplementorURL,
+		"Version":             asset.CurrentVersion,
+		"ExpiresAtISO":        expiresAtISO,
+		"HideExpiration":      share.HideExpiration,
+		"NoticeText":          share.NoticeText,
+		"Embedded":            r.URL.Query().Get(embeddedParam) == "1",
+		"ShareURL":            shareURL,
+		"OGImageURL":          publicAssetOGImage(asset, share.Token, baseURL),
+		"SignedIn":            h.resolvePublicViewer(r) != nil,
+		"SignInURL":           signInToLeaveFeedbackURL(r),
+		"PortalURL":           portalURL,
+		"IsGuest":             isGuestRequest(r),
 	})
 }
 
@@ -608,7 +607,7 @@ func (h *Handler) publicCollectionView(w http.ResponseWriter, r *http.Request, s
 	if brandName == "" {
 		brandName = "MCP Data Platform"
 	}
-	brandLogo := h.deps.BrandLogoSVG
+	brandLogo := h.deps.BrandLogoHTML
 	if brandLogo == "" {
 		brandLogo = publicviewer.DefaultLogoSVG
 	}
@@ -626,24 +625,24 @@ func (h *Handler) publicCollectionView(w http.ResponseWriter, r *http.Request, s
 	}
 
 	_ = publicviewer.CollectionTemplate.Execute(w, map[string]any{
-		"Name":               coll.Name,
-		"Description":        coll.Description,
-		"CollectionJSON":     template.JS(collJSON), // #nosec G203 -- json.Marshal output
-		"ContentViewerURL":   contentviewer.EntryURL(),
-		"ContentViewerCSS":   template.CSS(contentviewer.CSS), // #nosec G203 -- build artifact
-		"BrandName":          brandName,
-		"BrandLogoSVG":       template.HTML(brandLogo), // #nosec G203 -- operator config
-		"BrandURL":           h.deps.BrandURL,
-		"ImplementorName":    h.deps.ImplementorName,
-		"ImplementorLogoSVG": template.HTML(h.deps.ImplementorLogoSVG), // #nosec G203 -- operator config
-		"ImplementorURL":     h.deps.ImplementorURL,
-		"Token":              share.Token,
-		"ExpiresAtISO":       expiresAtISO,
-		"HideExpiration":     share.HideExpiration,
-		"NoticeText":         share.NoticeText,
-		"ShareURL":           shareURL,
-		"OGImageURL":         publicCollectionOGImage(coll, assets, share.Token, baseURL),
-		"IsGuest":            isGuestRequest(r),
+		"Name":                coll.Name,
+		"Description":         coll.Description,
+		"CollectionJSON":      template.JS(collJSON), // #nosec G203 -- json.Marshal output
+		"ContentViewerURL":    contentviewer.EntryURL(),
+		"ContentViewerCSS":    template.CSS(contentviewer.CSS), // #nosec G203 -- build artifact
+		"BrandName":           brandName,
+		"BrandLogoHTML":       template.HTML(brandLogo), // #nosec G203 -- operator config
+		"BrandURL":            h.deps.BrandURL,
+		"ImplementorName":     h.deps.ImplementorName,
+		"ImplementorLogoHTML": template.HTML(h.deps.ImplementorLogoHTML), // #nosec G203 -- operator config
+		"ImplementorURL":      h.deps.ImplementorURL,
+		"Token":               share.Token,
+		"ExpiresAtISO":        expiresAtISO,
+		"HideExpiration":      share.HideExpiration,
+		"NoticeText":          share.NoticeText,
+		"ShareURL":            shareURL,
+		"OGImageURL":          publicCollectionOGImage(coll, assets, share.Token, baseURL),
+		"IsGuest":             isGuestRequest(r),
 	})
 }
 

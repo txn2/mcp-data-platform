@@ -497,7 +497,7 @@ tuning:
 #                                                              # the current version is never pruned. Any asset can override it.
 #   implementor:                                               # optional implementor brand (far-left header zone)
 #     name: "ACME Corp"
-#     logo: "https://acme.com/logo.svg"
+#     logo: "https://acme.com/logo.png"                        # any image format; linked by the viewer and share pages
 #     url: "https://acme.com"
 #   terms_url: "https://example.com/terms"                     # optional terms-of-service link in notification email footers
 #   privacy_url: "https://example.com/privacy"                 # optional privacy-policy link in notification email footers
