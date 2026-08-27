@@ -81,7 +81,7 @@ type mockShareStore struct {
 	promptRefsErr  error
 }
 
-func (*mockShareStore) Insert(_ context.Context, _ portaldomain.Share) error { return nil }
+func (*mockShareStore) Insert(_ context.Context, _ *portaldomain.Share) error { return nil }
 
 func (*mockShareStore) GetByID(_ context.Context, _ string) (*portaldomain.Share, error) {
 	return nil, errNoRow

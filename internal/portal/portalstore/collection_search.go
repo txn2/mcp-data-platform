@@ -53,12 +53,13 @@ func (s *postgresCollectionStore) SearchCollections(ctx context.Context, q porta
 	return scored, nil
 }
 
-// searchCollectionsHybrid runs the vector and lexical arms and fuses in Go, the
-// same two-index strategy as asset and prompt search.
-func (s *postgresCollectionStore) searchCollectionsHybrid(ctx context.Context, q portaldomain.CollectionSearchQuery) ([]portaldomain.ScoredCollection, error) {
+// buildCollectionHybridSearch renders the two-arm hybrid statement and its
+// arguments. It is a function rather than inline SQL so a test can hand the
+// statement to a real PostgreSQL to parse and plan (#1512).
+func buildCollectionHybridSearch(q portaldomain.CollectionSearchQuery) (query string, args []any) {
 	limit := q.EffectiveLimit()
 	base := "deleted_at IS NULL AND owner_id = $3"
-	args := []any{pgvector.NewVector(q.Embedding), q.QueryText, q.OwnerID}
+	args = []any{pgvector.NewVector(q.Embedding), q.QueryText, q.OwnerID}
 
 	// #nosec G201 -- column list and FTS expr are constants; base uses only
 	// parameterized placeholders; limit is a sanitized int.
@@ -74,7 +75,14 @@ func (s *postgresCollectionStore) searchCollectionsHybrid(ctx context.Context, q
 		collectionColumns, collectionFTSExpr, collectionFTSQueryHybrid, base, collectionFTSExpr, collectionFTSQueryHybrid, limit)
 	// #nosec G202 -- both arms are assembled from constant column/expression
 	// strings with parameterized placeholders; no user input is concatenated.
-	sqlStr := "(" + vecArm + ") UNION ALL (" + lexArm + ")"
+	return "(" + vecArm + ") UNION ALL (" + lexArm + ")", args
+}
+
+// searchCollectionsHybrid runs the vector and lexical arms and fuses in Go, the
+// same two-index strategy as asset and prompt search.
+func (s *postgresCollectionStore) searchCollectionsHybrid(ctx context.Context, q portaldomain.CollectionSearchQuery) ([]portaldomain.ScoredCollection, error) {
+	limit := q.EffectiveLimit()
+	sqlStr, args := buildCollectionHybridSearch(q)
 
 	rows, err := s.db.QueryContext(ctx, sqlStr, args...)
 	if err != nil {
@@ -121,18 +129,24 @@ func (s *postgresCollectionStore) searchCollectionsHybrid(ctx context.Context, q
 	return scored, nil
 }
 
-// searchCollectionsLexical ranks the caller's non-deleted collections by
-// full-text relevance only (the no-embedder fallback).
-func (s *postgresCollectionStore) searchCollectionsLexical(ctx context.Context, q portaldomain.CollectionSearchQuery) ([]portaldomain.ScoredCollection, error) {
+// buildCollectionLexicalSearch renders the lexical statement, for the same
+// reason buildCollectionHybridSearch exists.
+func buildCollectionLexicalSearch(q portaldomain.CollectionSearchQuery) string {
 	// #nosec G201 -- column list and FTS expr are constants; owner_id is a
 	// parameterized placeholder; limit and the normalization bitmask are
 	// sanitized ints.
-	query := fmt.Sprintf(
+	return fmt.Sprintf(
 		"SELECT %s, ts_rank_cd(%s, %s, %d) AS lex_rank "+
 			"FROM portal_collections WHERE deleted_at IS NULL AND owner_id = $2 "+
 			"AND %s @@ %s ORDER BY lex_rank DESC LIMIT %d",
 		collectionColumns, collectionFTSExpr, collectionFTSQueryLexical, lexRankNormalization,
 		collectionFTSExpr, collectionFTSQueryLexical, q.EffectiveLimit())
+}
+
+// searchCollectionsLexical ranks the caller's non-deleted collections by
+// full-text relevance only (the no-embedder fallback).
+func (s *postgresCollectionStore) searchCollectionsLexical(ctx context.Context, q portaldomain.CollectionSearchQuery) ([]portaldomain.ScoredCollection, error) {
+	query := buildCollectionLexicalSearch(q)
 
 	rows, err := s.db.QueryContext(ctx, query, q.QueryText, q.OwnerID)
 	if err != nil {

@@ -73,7 +73,7 @@ func NewShareStore() portaldomain.ShareStore {
 }
 
 //nolint:revive // interface implementation methods on unexported type need no doc comments
-func (*shareStore) Insert(_ context.Context, _ portaldomain.Share) error { return nil }
+func (*shareStore) Insert(_ context.Context, _ *portaldomain.Share) error { return nil }
 
 func (*shareStore) GetByID(_ context.Context, _ string) (*portaldomain.Share, error) { //nolint:revive // interface impl
 	return nil, errNotFound

@@ -401,7 +401,7 @@ func (h *Handler) autoPromoteViewer(ctx context.Context, t promoteTarget, user *
 	if !ok {
 		return false
 	}
-	if err := h.deps.ShareStore.Insert(ctx, share); err != nil {
+	if err := h.deps.ShareStore.Insert(ctx, &share); err != nil {
 		slog.Warn("auto-promote: insert failed", logKeyError, err, "target", t.targetID) // #nosec G706 -- structured log
 		return false
 	}

@@ -116,16 +116,11 @@ func visibilityPredicate(statusIdx int) string {
 		statusIdx, statusIdx+1)
 }
 
-// searchHybrid runs two index-backed arms and fuses in Go rather than ordering
-// by a blended SQL expression, mirroring the prompt library and memory: the
-// hnsw ANN index only accelerates a pure `ORDER BY embedding <=> $1 LIMIT k`
-// and the GIN index only accelerates the tsquery match, so a single blended
-// ORDER BY would forfeit both. The vector arm returns the cosine top-k; the
-// lexical arm returns the full-text top-k, including the rows no worker has
-// embedded yet, which is what keeps a freshly written script findable while its
-// job is still in the queue. Their union is deduped by id, keeping the higher
-// fused score.
-func (s *Store) searchHybrid(ctx context.Context, q script.SearchQuery) ([]script.ScoredScript, error) {
+// buildHybridSearch renders the two-arm hybrid statement. It is a function
+// rather than inline SQL so a test can hand the statement to a real PostgreSQL
+// to parse and plan (#1512). Its four arguments -- the query vector, the query
+// text, the discoverable statuses and the owner -- are bound by the caller.
+func buildHybridSearch(q script.SearchQuery) string {
 	limit := q.EffectiveLimit()
 	base := visibilityPredicate(hybridStatusParam)
 	// #nosec G201 -- scriptColumns, the FTS expression and the predicate are
@@ -144,7 +139,21 @@ func (s *Store) searchHybrid(ctx context.Context, q script.SearchQuery) ([]scrip
 		scriptFTSExpr, scriptFTSQueryHybrid, limit)
 	// #nosec G202 -- both arms are assembled from constant column/expression
 	// strings with parameterized placeholders; no user input is concatenated.
-	query := "(" + vecArm + ") UNION ALL (" + lexArm + ")"
+	return "(" + vecArm + ") UNION ALL (" + lexArm + ")"
+}
+
+// searchHybrid runs two index-backed arms and fuses in Go rather than ordering
+// by a blended SQL expression, mirroring the prompt library and memory: the
+// hnsw ANN index only accelerates a pure `ORDER BY embedding <=> $1 LIMIT k`
+// and the GIN index only accelerates the tsquery match, so a single blended
+// ORDER BY would forfeit both. The vector arm returns the cosine top-k; the
+// lexical arm returns the full-text top-k, including the rows no worker has
+// embedded yet, which is what keeps a freshly written script findable while its
+// job is still in the queue. Their union is deduped by id, keeping the higher
+// fused score.
+func (s *Store) searchHybrid(ctx context.Context, q script.SearchQuery) ([]script.ScoredScript, error) {
+	limit := q.EffectiveLimit()
+	query := buildHybridSearch(q)
 
 	rows, err := s.db.QueryContext(ctx, query,
 		pgvector.NewVector(q.Embedding), q.QueryText, pq.Array(discoverableStatuses),
@@ -239,15 +248,14 @@ func (s hybridTrailingScanner) Scan(dest ...any) error {
 	return s.rows.Scan(append(dest, s.vecScore, s.lexMatch)...) //nolint:wrapcheck // wrapped by scanScript
 }
 
-// searchLexical ranks the caller's visible scripts by full-text relevance only.
-// It is the graceful-degradation path used when no embedding provider is
-// configured: it has no vector parameter and surfaces rows no worker has
-// embedded.
-func (s *Store) searchLexical(ctx context.Context, q script.SearchQuery) ([]script.ScoredScript, error) {
+// buildLexicalSearch renders the lexical statement, for the same reason
+// buildHybridSearch exists. Its four arguments -- the query text, the
+// discoverable statuses, the owner and the limit -- are bound by the caller.
+func buildLexicalSearch() string {
 	// #nosec G201 -- scriptColumns, the FTS expression and the predicate are
 	// constants or built from sanitized parameter indices; no user input is
 	// interpolated.
-	query := fmt.Sprintf(`SELECT %s, ts_rank_cd(%s, %s, %d) AS score
+	return fmt.Sprintf(`SELECT %s, ts_rank_cd(%s, %s, %d) AS score
 		FROM scripts
 		WHERE %s
 		  AND %s @@ %s
@@ -255,6 +263,14 @@ func (s *Store) searchLexical(ctx context.Context, q script.SearchQuery) ([]scri
 		LIMIT $4`,
 		scriptColumns, scriptFTSExpr, scriptFTSQuery, lexRankNormalization,
 		visibilityPredicate(lexicalStatusParam), scriptFTSExpr, scriptFTSQuery)
+}
+
+// searchLexical ranks the caller's visible scripts by full-text relevance only.
+// It is the graceful-degradation path used when no embedding provider is
+// configured: it has no vector parameter and surfaces rows no worker has
+// embedded.
+func (s *Store) searchLexical(ctx context.Context, q script.SearchQuery) ([]script.ScoredScript, error) {
+	query := buildLexicalSearch()
 
 	rows, err := s.db.QueryContext(ctx, query,
 		q.QueryText, pq.Array(discoverableStatuses), q.OwnerEmail, q.EffectiveLimit())

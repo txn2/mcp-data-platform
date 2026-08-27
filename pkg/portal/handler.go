@@ -1804,7 +1804,7 @@ func (h *Handler) createShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.deps.ShareStore.Insert(r.Context(), share); err != nil {
+	if err := h.deps.ShareStore.Insert(r.Context(), &share); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create share")
 		return
 	}

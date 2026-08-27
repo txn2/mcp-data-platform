@@ -87,7 +87,7 @@ func (t *Toolkit) handleShare(ctx context.Context, input manageAssetInput) (*mcp
 		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
 
-	if err := t.shareStore.Insert(ctx, share); err != nil {
+	if err := t.shareStore.Insert(ctx, &share); err != nil {
 		return toolkit.ErrorResult("failed to create share: " + err.Error()), nil, nil
 	}
 

@@ -93,8 +93,7 @@ type Handle struct {
 	pageProducer *indexjobs.Producer
 }
 
-// New assembles the insight store (the memory-backed adapter when memStore is
-// non-nil, else the legacy Postgres store), the knowledge toolkit, and — when
+// New assembles the insight store, the knowledge toolkit, and — when
 // cfg.ApplyEnabled — the changeset store, DataHub writer, knowledge-page writer,
 // and page guards for apply_knowledge. It returns (nil, nil) when db is nil: the
 // knowledge layer is a no-op without a database, matching the platform
@@ -105,22 +104,23 @@ func New(db *sql.DB, memStore memory.Store, embeddingProv embedding.Provider, cf
 		return nil, nil //nolint:nilnil // nil handle = knowledge layer disabled (no database)
 	}
 
-	// Use the memory-backed adapter when a memory store is available (the
-	// migration drops knowledge_insights in favor of memory_records); otherwise
-	// fall back to the legacy Postgres store.
-	var store knowledgekit.InsightStore
-	if memStore != nil {
-		store = knowledgekit.NewMemoryInsightAdapter(memStore)
-	} else {
-		store = knowledgekit.NewPostgresStore(db)
+	// An insight is a knowledge-dimension memory record: migration 000031 moved
+	// capture into memory_records and dropped knowledge_insights. That table is
+	// created by a migration, so it is there whenever the database is, and a
+	// caller who passed no memory store gets one built here rather than a store
+	// for a table that no longer exists (#1517). Turning the memory toolkit off
+	// stops registering memory tools; it does not take the row store away from
+	// knowledge.
+	if memStore == nil {
+		memStore = memory.NewPostgresStore(db)
 	}
-	return NewFromInsightStore(db, store, embeddingProv, cfg)
+	return NewFromInsightStore(db, knowledgekit.NewMemoryInsightAdapter(memStore), embeddingProv, cfg)
 }
 
 // NewFromInsightStore assembles the Handle and its toolkit from an already-built
-// insight store. New delegates here after selecting the adapter-vs-postgres
-// store; it is also the seam that lets callers (and tests) inject their own
-// insight store implementation. When cfg.ApplyEnabled it configures the
+// insight store. New delegates here after wrapping the memory store; it is also
+// the seam that lets callers (and tests) inject their own insight store
+// implementation. When cfg.ApplyEnabled it configures the
 // apply_knowledge dependencies from db / embeddingProv / cfg — which requires a
 // non-nil db (the changeset and page stores are Postgres-backed), so enabling
 // apply with a nil db is a construction error rather than a query-time failure.

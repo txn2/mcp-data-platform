@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	sqlmock "github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -494,66 +493,6 @@ func TestAspectFamily(t *testing.T) {
 }
 
 // --- ReturnToReview store impls ---
-
-func TestPostgresStore_ReturnToReview(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	require.NoError(t, err)
-	defer db.Close() //nolint:errcheck // test cleanup
-
-	store := NewPostgresStore(db)
-	mock.ExpectExec("UPDATE knowledge_insights").
-		WithArgs(StatusPending, "admin", sqlmock.AnyArg(), RollbackReviewNote("cs-1"), "ins-1", StatusApplied).
-		WillReturnResult(sqlmock.NewResult(0, 1))
-
-	returned, err := store.ReturnToReview(context.Background(), "ins-1", "admin", "cs-1")
-	assert.NoError(t, err)
-	assert.True(t, returned)
-	assert.NoError(t, mock.ExpectationsWereMet())
-}
-
-// An insight that is not applied matches no row: the applied-only gate makes a
-// repeated rollback a no-op instead of resurrecting a decided insight.
-func TestPostgresStore_ReturnToReview_NotApplied(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	require.NoError(t, err)
-	defer db.Close() //nolint:errcheck // test cleanup
-
-	store := NewPostgresStore(db)
-	mock.ExpectExec("UPDATE knowledge_insights").
-		WillReturnResult(sqlmock.NewResult(0, 0))
-
-	returned, err := store.ReturnToReview(context.Background(), "ins-1", "admin", "cs-1")
-	assert.NoError(t, err)
-	assert.False(t, returned)
-}
-
-func TestPostgresStore_ReturnToReview_DBError(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	require.NoError(t, err)
-	defer db.Close() //nolint:errcheck // test cleanup
-
-	store := NewPostgresStore(db)
-	mock.ExpectExec("UPDATE knowledge_insights").
-		WillReturnError(errors.New("boom"))
-
-	returned, err := store.ReturnToReview(context.Background(), "ins-1", "admin", "cs-1")
-	assert.Error(t, err)
-	assert.False(t, returned)
-}
-
-func TestPostgresStore_ReturnToReview_RowsAffectedError(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	require.NoError(t, err)
-	defer db.Close() //nolint:errcheck // test cleanup
-
-	store := NewPostgresStore(db)
-	mock.ExpectExec("UPDATE knowledge_insights").
-		WillReturnResult(sqlmock.NewErrorResult(errors.New("no rows count")))
-
-	returned, err := store.ReturnToReview(context.Background(), "ins-1", "admin", "cs-1")
-	assert.Error(t, err)
-	assert.False(t, returned)
-}
 
 func TestNoopStore_ReturnToReview(t *testing.T) {
 	returned, err := NewNoopStore().ReturnToReview(context.Background(), "x", "admin", "cs-1")

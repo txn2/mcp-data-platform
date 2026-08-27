@@ -71,7 +71,7 @@ type mockAdminShareStore struct {
 	summariesErr error
 }
 
-func (*mockAdminShareStore) Insert(_ context.Context, _ portal.Share) error { return nil }
+func (*mockAdminShareStore) Insert(_ context.Context, _ *portal.Share) error { return nil }
 func (*mockAdminShareStore) GetByID(_ context.Context, _ string) (*portal.Share, error) {
 	return &portal.Share{}, nil
 }

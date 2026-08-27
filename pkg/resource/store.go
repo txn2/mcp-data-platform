@@ -76,6 +76,10 @@ const selectColumns = `id, scope, scope_id, category, filename, display_name, de
 		       mime_type, size_bytes, s3_key, uri, tags, uploader_sub, uploader_email,
 		       created_at, updated_at, last_read_at`
 
+// selectResource opens every read with that column list, so the projection is
+// written once rather than at each of the five call sites.
+const selectResource = `SELECT ` + selectColumns
+
 const (
 	// DefaultListLimit is used when no limit is specified in a list query.
 	DefaultListLimit = 100
@@ -134,8 +138,7 @@ func (s *postgresStore) Insert(ctx context.Context, r Resource) error { //nolint
 }
 
 func (s *postgresStore) Get(ctx context.Context, id string) (*Resource, error) { //nolint:revive // interface impl
-	query := `
-		SELECT ` + selectColumns + `
+	query := selectResource + `
 		FROM resources WHERE id = $1
 	`
 	return s.scanOne(s.db.QueryRowContext(ctx, query, id))
@@ -145,8 +148,7 @@ func (s *postgresStore) GetByIDs(ctx context.Context, ids []string) (map[string]
 	if len(ids) == 0 {
 		return map[string]*Resource{}, nil
 	}
-	query := `
-		SELECT ` + selectColumns + `
+	query := selectResource + `
 		FROM resources WHERE id = ANY($1)
 	`
 	rows, err := s.db.QueryContext(ctx, query, pq.Array(ids))
@@ -178,8 +180,7 @@ func (s *postgresStore) GetByIDs(ctx context.Context, ids []string) (map[string]
 // who moves a file out of their library and uploads another under the same name
 // must reach the new one by its own URI.
 func (s *postgresStore) GetByURI(ctx context.Context, uri string) (*Resource, error) { //nolint:revive // interface impl
-	query := `
-		SELECT ` + selectColumns + `
+	query := selectResource + `
 		FROM resources WHERE uri = $1
 	`
 	res, err := s.scanOne(s.db.QueryRowContext(ctx, query, uri))
@@ -191,30 +192,35 @@ func (s *postgresStore) GetByURI(ctx context.Context, uri string) (*Resource, er
 	// the unqualified selectColumns projection as ambiguous (#1506). Reading
 	// from resources alone keeps that column list usable here, as it is in every
 	// other read in this file.
-	aliased := `SELECT ` + selectColumns + `
+	aliased := selectResource + `
 		FROM resources
 		WHERE id = (SELECT resource_id FROM resource_uri_aliases WHERE uri = $1)`
 	return s.scanOne(s.db.QueryRowContext(ctx, aliased, uri))
 }
 
-func (s *postgresStore) List(ctx context.Context, filter Filter) ([]Resource, int, error) { //nolint:revive // interface impl
-	if len(filter.Scopes) == 0 {
-		return nil, 0, nil
-	}
-
+// buildList renders the count and the page statements a listing runs, with the
+// arguments the scope filter binds. The page statement takes two further
+// arguments, the limit and offset listPageBounds returns, which are appended
+// after the count has run.
+//
+// Both are assembled from the caller's scope filter and sort, so neither exists
+// in the source; they are built here so a test can hand a representative
+// rendering to a real PostgreSQL to parse and plan (#1512).
+func buildList(filter Filter) (countQuery, selectQuery string, args []any) {
 	where, args := buildScopeWhere(filter)
+	countQuery = "SELECT COUNT(*) FROM resources WHERE " + where
+	// #nosec G202 -- dynamic scope filter requires concatenation; the ORDER BY
+	// comes from Sort.orderByClause, a closed set of constant strings.
+	selectQuery = selectResource + `
+		FROM resources WHERE ` + where + `
+		ORDER BY ` + filter.Sort.orderByClause() + `
+		LIMIT $` + fmt.Sprintf("%d", len(args)+1) + ` OFFSET $` + fmt.Sprintf("%d", len(args)+2)
+	return countQuery, selectQuery, args
+}
 
-	// Count total matching.
-	countQuery := "SELECT COUNT(*) FROM resources WHERE " + where
-	var total int
-	if err := s.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
-		return nil, 0, fmt.Errorf("counting resources: %w", err)
-	}
-	if total == 0 {
-		return nil, 0, nil
-	}
-
-	// Fetch page.
+// listPageBounds returns the limit and offset the page statement binds, with
+// the limit clamped into the listing bounds.
+func listPageBounds(filter Filter) []any {
 	limit := filter.Limit
 	if limit <= 0 {
 		limit = DefaultListLimit
@@ -222,14 +228,24 @@ func (s *postgresStore) List(ctx context.Context, filter Filter) ([]Resource, in
 	if limit > MaxListLimit {
 		limit = MaxListLimit
 	}
-	// #nosec G202 -- dynamic scope filter requires concatenation; the ORDER BY
-	// comes from Sort.orderByClause, a closed set of constant strings.
-	selectQuery := `
-		SELECT ` + selectColumns + `
-		FROM resources WHERE ` + where + `
-		ORDER BY ` + filter.Sort.orderByClause() + `
-		LIMIT $` + fmt.Sprintf("%d", len(args)+1) + ` OFFSET $` + fmt.Sprintf("%d", len(args)+2)
-	args = append(args, limit, filter.Offset)
+	return []any{limit, filter.Offset}
+}
+
+func (s *postgresStore) List(ctx context.Context, filter Filter) ([]Resource, int, error) { //nolint:revive // interface impl
+	if len(filter.Scopes) == 0 {
+		return nil, 0, nil
+	}
+
+	countQuery, selectQuery, args := buildList(filter)
+
+	var total int
+	if err := s.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("counting resources: %w", err)
+	}
+	if total == 0 {
+		return nil, 0, nil
+	}
+	args = append(args, listPageBounds(filter)...)
 
 	rows, err := s.db.QueryContext(ctx, selectQuery, args...)
 	if err != nil {
@@ -251,15 +267,20 @@ func (s *postgresStore) List(ctx context.Context, filter Filter) ([]Resource, in
 	return resources, total, nil
 }
 
-func (s *postgresStore) Update(ctx context.Context, id string, u Update) error { //nolint:revive // interface impl
-	// Every mutable field (display name, description, tags, category) is part of
-	// the indexed text, so a metadata edit invalidates the stored vector. Clearing
-	// the embedding columns here makes the row a gap, and the enqueue below hands
-	// that gap straight to the index worker instead of waiting for a reconciler
-	// sweep, exactly as the portal asset store does (#1012, #1256); leaving them
-	// would rank the resource on its pre-edit text forever.
+// buildUpdate renders the UPDATE for a metadata edit and its arguments. The SET
+// list is assembled from whichever fields the caller supplied, so the statement
+// exists only at run time; it is a function so a test can hand a representative
+// rendering to a real PostgreSQL to parse and plan (#1512).
+//
+// Every mutable field (display name, description, tags, category) is part of
+// the indexed text, so a metadata edit invalidates the stored vector. Clearing
+// the embedding columns here makes the row a gap, which Update hands straight
+// to the index worker instead of waiting for a reconciler sweep, exactly as the
+// portal asset store does (#1012, #1256); leaving them would rank the resource
+// on its pre-edit text forever.
+func buildUpdate(id string, u Update) (query string, args []any) {
 	setClauses := []string{"updated_at = $1", "embedding = NULL", "embedding_model = ''", "embedding_text_hash = NULL"}
-	args := []any{time.Now().UTC()}
+	args = []any{time.Now().UTC()}
 	idx := 2
 
 	if u.DisplayName != nil {
@@ -283,9 +304,13 @@ func (s *postgresStore) Update(ctx context.Context, id string, u Update) error {
 		idx++
 	}
 
-	query := fmt.Sprintf("UPDATE resources SET %s WHERE id = $%d", // #nosec G201 -- dynamic SET clause with parameterized values
+	query = fmt.Sprintf("UPDATE resources SET %s WHERE id = $%d", // #nosec G201 -- dynamic SET clause with parameterized values
 		strings.Join(setClauses, ", "), idx)
-	args = append(args, id)
+	return query, append(args, id)
+}
+
+func (s *postgresStore) Update(ctx context.Context, id string, u Update) error { //nolint:revive // interface impl
+	query, args := buildUpdate(id, u)
 
 	res, err := s.db.ExecContext(ctx, query, args...)
 	if err != nil {

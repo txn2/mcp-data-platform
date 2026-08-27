@@ -78,20 +78,15 @@ func (s *Store) Search(ctx context.Context, q prompt.SearchQuery) ([]prompt.Scor
 	return s.searchLexical(ctx, q)
 }
 
-// searchHybrid runs two index-backed arms and fuses in Go rather than ordering
-// by a blended SQL expression, mirroring memory.HybridSearch: the hnsw ANN
-// index only accelerates a pure `ORDER BY embedding <=> $1 LIMIT k` and the GIN
-// index only accelerates the tsquery match, so a single blended ORDER BY would
-// forfeit both. The vector arm returns the cosine top-k; the lexical arm
-// returns the full-text top-k (including NULL-embedding rows the vector arm
-// cannot see). Their union is deduped by id (keeping the higher fused score)
-// and sorted.
-func (s *Store) searchHybrid(ctx context.Context, q prompt.SearchQuery) ([]prompt.ScoredPrompt, error) {
+// buildHybridSearch renders the two-arm hybrid statement and its arguments. It
+// is a function rather than inline SQL so a test can hand the statement to a
+// real PostgreSQL to parse and plan (#1512).
+func buildHybridSearch(q prompt.SearchQuery) (query string, args []any) {
 	limit := q.EffectiveLimit()
 	vis, visArgs, _ := promptVisibilityClause(q, hybridVisibilityStart)
 	base := "enabled = true" + vis
 
-	args := make([]any, 0, 2+len(visArgs))
+	args = make([]any, 0, 2+len(visArgs))
 	args = append(args, pgvector.NewVector(q.Embedding), q.QueryText)
 	args = append(args, visArgs...)
 
@@ -110,7 +105,20 @@ func (s *Store) searchHybrid(ctx context.Context, q prompt.SearchQuery) ([]promp
 		promptColumns, promptFTSExpr, promptFTSQueryHybrid, base, promptFTSExpr, promptFTSQueryHybrid, limit)
 	// #nosec G202 -- both arms are assembled from constant column/expression
 	// strings with parameterized placeholders; no user input is concatenated.
-	sqlStr := "(" + vecArm + ") UNION ALL (" + lexArm + ")"
+	return "(" + vecArm + ") UNION ALL (" + lexArm + ")", args
+}
+
+// searchHybrid runs two index-backed arms and fuses in Go rather than ordering
+// by a blended SQL expression, mirroring memory.HybridSearch: the hnsw ANN
+// index only accelerates a pure `ORDER BY embedding <=> $1 LIMIT k` and the GIN
+// index only accelerates the tsquery match, so a single blended ORDER BY would
+// forfeit both. The vector arm returns the cosine top-k; the lexical arm
+// returns the full-text top-k (including NULL-embedding rows the vector arm
+// cannot see). Their union is deduped by id (keeping the higher fused score)
+// and sorted.
+func (s *Store) searchHybrid(ctx context.Context, q prompt.SearchQuery) ([]prompt.ScoredPrompt, error) {
+	limit := q.EffectiveLimit()
+	sqlStr, args := buildHybridSearch(q)
 
 	rows, err := s.db.QueryContext(ctx, sqlStr, args...)
 	if err != nil {
@@ -158,24 +166,30 @@ func collectHybridScored(rows *sql.Rows) ([]prompt.ScoredPrompt, error) {
 	return scored, nil
 }
 
-// searchLexical ranks the caller's visible prompts by full-text relevance only. It
-// is the graceful-degradation path used when no embedding provider is available:
-// it has no vector parameter, surfaces NULL-embedding rows, and orders by a
-// length-normalized ts_rank_cd score (lexRankNormalization) so single-match
-// records do not collapse to a flat 0.1.
-func (s *Store) searchLexical(ctx context.Context, q prompt.SearchQuery) ([]prompt.ScoredPrompt, error) {
-	vis, args, _ := promptVisibilityClause(q, lexicalVisibilityStart)
+// buildLexicalSearch renders the lexical statement and its arguments, for the
+// same reason buildHybridSearch exists.
+func buildLexicalSearch(q prompt.SearchQuery) (query string, args []any) {
+	vis, visArgs, _ := promptVisibilityClause(q, lexicalVisibilityStart)
 	// #nosec G201 -- promptColumns/promptFTSExpr are constants; vis is built from
 	// parameterized placeholders only (see promptVisibilityClause); the
 	// normalization bitmask is a sanitized int.
-	query := fmt.Sprintf(
+	query = fmt.Sprintf(
 		"SELECT %s, ts_rank_cd(%s, %s, %d) AS lex_rank "+
 			"FROM prompts WHERE enabled = true "+
 			"AND %s @@ %s%s ORDER BY lex_rank DESC LIMIT %d",
 		promptColumns, promptFTSExpr, promptFTSQueryLexical, lexRankNormalization,
 		promptFTSExpr, promptFTSQueryLexical, vis, q.EffectiveLimit())
 
-	params := append([]any{q.QueryText}, args...)
+	return query, append([]any{q.QueryText}, visArgs...)
+}
+
+// searchLexical ranks the caller's visible prompts by full-text relevance only. It
+// is the graceful-degradation path used when no embedding provider is available:
+// it has no vector parameter, surfaces NULL-embedding rows, and orders by a
+// length-normalized ts_rank_cd score (lexRankNormalization) so single-match
+// records do not collapse to a flat 0.1.
+func (s *Store) searchLexical(ctx context.Context, q prompt.SearchQuery) ([]prompt.ScoredPrompt, error) {
+	query, params := buildLexicalSearch(q)
 	rows, err := s.db.QueryContext(ctx, query, params...)
 	if err != nil {
 		return nil, fmt.Errorf("search prompts (lexical): %w", err)

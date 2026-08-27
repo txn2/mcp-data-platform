@@ -553,11 +553,14 @@ func NewPostgresShareStore(db *sql.DB) portaldomain.ShareStore {
 	return &postgresShareStore{db: db}
 }
 
-func (s *postgresShareStore) Insert(ctx context.Context, share portaldomain.Share) error { //nolint:revive // interface impl
+func (s *postgresShareStore) Insert(ctx context.Context, share *portaldomain.Share) error { //nolint:revive // interface impl
+	// created_at is left to the column default and read back, so the row and
+	// the value the caller renders carry one timestamp from one clock (#1511).
 	query := `
 		INSERT INTO portal_shares
 		(id, asset_id, collection_id, prompt_id, token, created_by, expires_at, shared_with_user_id, shared_with_email, hide_expiration, notice_text, permission, origin, access_mode)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		RETURNING created_at
 	`
 
 	assetID := nullString(share.AssetID)
@@ -589,12 +592,14 @@ func (s *postgresShareStore) Insert(ctx context.Context, share portaldomain.Shar
 		mode = shareaccess.Default(share.SharedWithUserID != "" || share.SharedWithEmail != "")
 	}
 
-	_, err := s.db.ExecContext(ctx, query,
+	var createdAt time.Time
+	err := s.db.QueryRowContext(ctx, query,
 		share.ID, assetID, collectionID, promptID, share.Token, share.CreatedBy, expiresAt, sharedWith, sharedEmail, share.HideExpiration, share.NoticeText, string(perm), string(origin), string(mode),
-	)
+	).Scan(&createdAt)
 	if err != nil {
 		return fmt.Errorf("inserting share: %w", err)
 	}
+	share.CreatedAt = createdAt
 	return nil
 }
 
@@ -756,6 +761,25 @@ func (s *postgresShareStore) GetUserCollectionPermission(ctx context.Context, co
 	return portaldomain.SharePermission(perm), nil
 }
 
+// buildActiveShareForTarget renders the active-share lookup for one target
+// column. The column is chosen by target kind, so the statement exists only at
+// run time; it is a function so a test can hand a rendering to a real
+// PostgreSQL to parse and plan (#1512).
+func buildActiveShareForTarget(column string) string {
+	// #nosec G201 -- column is one of two package-chosen names, never caller input.
+	return fmt.Sprintf(`
+		SELECT id, asset_id, collection_id, prompt_id, token, created_by, shared_with_user_id, shared_with_email,
+		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at, permission, origin, access_mode
+		FROM portal_shares
+		WHERE %s = $1
+		  AND revoked = FALSE
+		  AND (expires_at IS NULL OR expires_at > NOW())
+		  AND (($2 <> '' AND shared_with_user_id = $2) OR ($3 <> '' AND LOWER(shared_with_email) = LOWER($3)))
+		ORDER BY CASE permission WHEN 'editor' THEN 0 ELSE 1 END, created_at DESC
+		LIMIT 1
+	`, column)
+}
+
 // GetActiveShareForTarget returns the caller's most-permissive active
 // (non-revoked, unexpired) share for the given asset or collection target,
 // or nil if none exists. Used by the public-link auto-promote path to decide
@@ -773,19 +797,7 @@ func (s *postgresShareStore) GetActiveShareForTarget(ctx context.Context, target
 		return nil, nil //nolint:nilnil // unsupported target type → no share
 	}
 
-	query := fmt.Sprintf(`
-		SELECT id, asset_id, collection_id, prompt_id, token, created_by, shared_with_user_id, shared_with_email,
-		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at, permission, origin, access_mode
-		FROM portal_shares
-		WHERE %s = $1
-		  AND revoked = FALSE
-		  AND (expires_at IS NULL OR expires_at > NOW())
-		  AND (($2 <> '' AND shared_with_user_id = $2) OR ($3 <> '' AND LOWER(shared_with_email) = LOWER($3)))
-		ORDER BY CASE permission WHEN 'editor' THEN 0 ELSE 1 END, created_at DESC
-		LIMIT 1
-	`, column)
-
-	share, err := s.scanShare(ctx, query, targetID, userID, email)
+	share, err := s.scanShare(ctx, buildActiveShareForTarget(column), targetID, userID, email)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil //nolint:nilnil // no active share for this user/target
 	}
@@ -970,6 +982,22 @@ func (s *postgresShareStore) ListActiveCollectionShareSummaries(ctx context.Cont
 	return s.shareSummariesByTarget(ctx, portaldomain.TargetTypeCollection, collectionIDs)
 }
 
+// buildShareSummaries renders the per-target share summary for one target
+// column, a function for the same reason buildActiveShareForTarget is.
+func buildShareSummaries(column string) string {
+	// #nosec G201 -- column is one of two package constants, never caller input.
+	return fmt.Sprintf(`
+		SELECT %[1]s,
+		       BOOL_OR(shared_with_user_id IS NOT NULL OR shared_with_email IS NOT NULL),
+		       BOOL_OR(shared_with_user_id IS NULL AND shared_with_email IS NULL)
+		FROM portal_shares
+		WHERE %[1]s = ANY($1)
+		  AND revoked = FALSE
+		  AND (expires_at IS NULL OR expires_at > NOW())
+		GROUP BY %[1]s
+	`, column)
+}
+
 // shareSummariesByTarget reports, per target id, whether a live share names a
 // recipient and whether one is an anonymous public link. Assets and collections
 // differ only in the target column, so both go through here rather than through
@@ -987,18 +1015,7 @@ func (s *postgresShareStore) shareSummariesByTarget(ctx context.Context, targetT
 		column = colCollectionID
 	}
 
-	query := fmt.Sprintf(`
-		SELECT %[1]s,
-		       BOOL_OR(shared_with_user_id IS NOT NULL OR shared_with_email IS NOT NULL),
-		       BOOL_OR(shared_with_user_id IS NULL AND shared_with_email IS NULL)
-		FROM portal_shares
-		WHERE %[1]s = ANY($1)
-		  AND revoked = FALSE
-		  AND (expires_at IS NULL OR expires_at > NOW())
-		GROUP BY %[1]s
-	`, column)
-
-	rows, err := s.db.QueryContext(ctx, query, pq.Array(ids)) //nolint:gosec // column is a package constant; ids are parameterized
+	rows, err := s.db.QueryContext(ctx, buildShareSummaries(column), pq.Array(ids)) //nolint:gosec // column is a package constant; ids are parameterized
 	if err != nil {
 		return nil, fmt.Errorf("querying %s share summaries: %w", targetType, err)
 	}

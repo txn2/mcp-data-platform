@@ -33,7 +33,7 @@ func TestNoopShareStore(t *testing.T) {
 	store := NewShareStore()
 	ctx := context.Background()
 
-	assert.NoError(t, store.Insert(ctx, portaldomain.Share{}))
+	assert.NoError(t, store.Insert(ctx, &portaldomain.Share{}))
 
 	_, err := store.GetByID(ctx, "any")
 	assert.Error(t, err)

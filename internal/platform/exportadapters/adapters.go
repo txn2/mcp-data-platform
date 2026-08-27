@@ -266,7 +266,7 @@ func createExportShare(ctx context.Context, shareStore portal.ShareStore, baseUR
 		AccessMode: portal.AccessModeAuthenticated,
 	}
 
-	if err := shareStore.Insert(ctx, share); err != nil {
+	if err := shareStore.Insert(ctx, &share); err != nil {
 		return "", fmt.Errorf("inserting export share: %w", err)
 	}
 

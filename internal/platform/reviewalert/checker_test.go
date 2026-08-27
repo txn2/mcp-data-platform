@@ -52,19 +52,23 @@ func (s *memState) Clear(context.Context) error {
 	return nil
 }
 
-// fakeInsights serves a fixed pending-review rollup through the
-// PendingReviewStater fast path, which is the path PendingReviewOf takes.
+// fakeInsights serves a fixed pending-review rollup through Stats, which is
+// where PendingReviewOf reads it.
 type fakeInsights struct {
 	knowledgekit.InsightStore
 	review *knowledgekit.PendingReview
 	err    error
 }
 
-func (f *fakeInsights) PendingReviewStats(context.Context) (*knowledgekit.PendingReview, error) {
+func (f *fakeInsights) Stats(context.Context, knowledgekit.InsightFilter) (*knowledgekit.InsightStats, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
-	return f.review, nil
+	return &knowledgekit.InsightStats{
+		TotalPending:    f.review.TotalPending,
+		OldestPendingAt: f.review.OldestPendingAt,
+		PendingOver30d:  f.review.PendingOver30d,
+	}, nil
 }
 
 // captureQueue records what the enqueuer wrote.

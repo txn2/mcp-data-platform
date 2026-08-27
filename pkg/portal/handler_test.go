@@ -132,9 +132,16 @@ func (m *mockShareStore) incremented() []string {
 	return append([]string(nil), m.incrementIDs...)
 }
 
-func (m *mockShareStore) Insert(_ context.Context, s Share) error {
+// testShareCreatedAt is the timestamp mockShareStore writes onto a share it
+// stores, standing in for the created_at the real row is given.
+var testShareCreatedAt = time.Date(2026, 8, 27, 8, 17, 40, 0, time.UTC)
+
+// Insert models the real store: on success the row carries a created_at, and
+// the caller's Share is filled with it (#1511).
+func (m *mockShareStore) Insert(_ context.Context, s *Share) error {
 	if m.insertErr == nil {
-		m.inserted = &s
+		s.CreatedAt = testShareCreatedAt
+		m.inserted = s
 	}
 	return m.insertErr
 }
@@ -276,9 +283,10 @@ type captureShareStore struct {
 	captured *Share
 }
 
-func (c *captureShareStore) Insert(ctx context.Context, share Share) error {
-	*c.captured = share
-	return c.inner.Insert(ctx, share)
+func (c *captureShareStore) Insert(ctx context.Context, share *Share) error {
+	err := c.inner.Insert(ctx, share)
+	*c.captured = *share
+	return err
 }
 
 func (c *captureShareStore) GetByID(ctx context.Context, id string) (*Share, error) {

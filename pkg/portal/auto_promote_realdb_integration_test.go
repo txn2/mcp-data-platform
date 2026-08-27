@@ -55,7 +55,7 @@ func TestRealDB_AutoPromoteCreatesAndDoesNotDowngrade(t *testing.T) {
 
 	// An existing editor must not be downgraded.
 	editor := &User{UserID: "editor1", Email: "editor1@example.com"}
-	require.NoError(t, shareStore.Insert(ctx, Share{
+	require.NoError(t, shareStore.Insert(ctx, &Share{
 		ID: "share_editor", AssetID: "asset_promo", Token: "tok_editor", CreatedBy: "owner@example.com",
 		SharedWithUserID: editor.UserID, SharedWithEmail: editor.Email, Permission: PermissionEditor,
 	}))

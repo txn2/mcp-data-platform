@@ -186,8 +186,12 @@ func applyAuditFilter(qb sq.SelectBuilder, filter audit.QueryFilter) sq.SelectBu
 	return qb
 }
 
-// Query retrieves audit events matching the filter.
-func (s *Store) Query(ctx context.Context, filter audit.QueryFilter) ([]audit.Event, error) {
+// buildQuery renders the filtered, sorted, paged event listing and the
+// arguments its filter binds. The statement is composed through the query
+// builder, so no string in this file is it; the function is what lets a test
+// hand a representative rendering to a real PostgreSQL to parse and plan
+// (#1512).
+func buildQuery(filter audit.QueryFilter) (query string, args []any, err error) {
 	qb := applyAuditFilter(psq.Select(auditColumns...).From("audit_logs"), filter)
 
 	orderCol := colTimestamp
@@ -206,21 +210,30 @@ func (s *Store) Query(ctx context.Context, filter audit.QueryFilter) ([]audit.Ev
 		qb = qb.Offset(uint64(filter.Offset))
 	}
 
-	query, args, err := qb.ToSql()
+	return render(qb, "audit")
+}
+
+// Query retrieves audit events matching the filter.
+func (s *Store) Query(ctx context.Context, filter audit.QueryFilter) ([]audit.Event, error) {
+	query, args, err := buildQuery(filter)
 	if err != nil {
-		return nil, fmt.Errorf("building audit query: %w", err)
+		return nil, err
 	}
 
 	return s.executeQuery(ctx, query, args, filter.Limit)
 }
 
+// buildCountQuery renders the count over the same filter buildQuery pages, a
+// function for the same reason buildQuery is.
+func buildCountQuery(filter audit.QueryFilter) (query string, args []any, err error) {
+	return render(applyAuditFilter(psq.Select("COUNT(*)").From("audit_logs"), filter), "count")
+}
+
 // Count returns the number of audit events matching the filter.
 func (s *Store) Count(ctx context.Context, filter audit.QueryFilter) (int, error) {
-	qb := applyAuditFilter(psq.Select("COUNT(*)").From("audit_logs"), filter)
-
-	query, args, err := qb.ToSql()
+	query, args, err := buildCountQuery(filter)
 	if err != nil {
-		return 0, fmt.Errorf("building count query: %w", err)
+		return 0, err
 	}
 
 	var count int
@@ -228,6 +241,47 @@ func (s *Store) Count(ctx context.Context, filter audit.QueryFilter) (int, error
 		return 0, fmt.Errorf("counting audit logs: %w", err)
 	}
 	return count, nil
+}
+
+// buildDistinctQuery renders the distinct-values lookup for one filter column,
+// a function for the same reason buildQuery is.
+func buildDistinctQuery(column string, startTime, endTime *time.Time) (query string, args []any, err error) {
+	qb := psq.Select("DISTINCT " + column).From("audit_logs").OrderBy(column)
+	qb = withTimeRange(qb, startTime, endTime)
+	return render(qb, "distinct")
+}
+
+// buildDistinctPairsQuery renders the two-column distinct lookup that labels an
+// id with its display value.
+func buildDistinctPairsQuery(col1, col2 string, startTime, endTime *time.Time) (query string, args []any, err error) {
+	qb := psq.Select("DISTINCT " + col1 + ", " + col2).From("audit_logs").
+		Where(sq.NotEq{col2: ""}).OrderBy(col1)
+	qb = withTimeRange(qb, startTime, endTime)
+	return render(qb, "distinct pairs")
+}
+
+// render turns a builder into the statement it composes, naming what failed.
+// It is the one place the builder's error is wrapped, so each build function
+// above is a single expression and the failure reads the same wherever it comes
+// from.
+func render(qb sq.SelectBuilder, what string) (query string, args []any, err error) {
+	query, args, err = qb.ToSql()
+	if err != nil {
+		return "", nil, fmt.Errorf("building %s query: %w", what, err)
+	}
+	return query, args, nil
+}
+
+// withTimeRange narrows a builder to the optional window both distinct lookups
+// accept.
+func withTimeRange(qb sq.SelectBuilder, startTime, endTime *time.Time) sq.SelectBuilder {
+	if startTime != nil {
+		qb = qb.Where(sq.GtOrEq{colTimestamp: *startTime})
+	}
+	if endTime != nil {
+		qb = qb.Where(sq.LtOrEq{colTimestamp: *endTime})
+	}
+	return qb
 }
 
 // Distinct returns sorted unique values for the given column, scoped by optional time range.
@@ -243,17 +297,9 @@ func (s *Store) Distinct(ctx context.Context, column string, startTime, endTime 
 		return nil, fmt.Errorf("distinct not supported for column %q", column)
 	}
 
-	qb := psq.Select("DISTINCT " + column).From("audit_logs").OrderBy(column)
-	if startTime != nil {
-		qb = qb.Where(sq.GtOrEq{colTimestamp: *startTime})
-	}
-	if endTime != nil {
-		qb = qb.Where(sq.LtOrEq{colTimestamp: *endTime})
-	}
-
-	query, args, err := qb.ToSql()
+	query, args, err := buildDistinctQuery(column, startTime, endTime)
 	if err != nil {
-		return nil, fmt.Errorf("building distinct query: %w", err)
+		return nil, err
 	}
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
@@ -285,18 +331,9 @@ func (s *Store) DistinctPairs(ctx context.Context, col1, col2 string, startTime,
 		return nil, fmt.Errorf("distinct pairs not supported for columns %q, %q", col1, col2)
 	}
 
-	qb := psq.Select("DISTINCT " + col1 + ", " + col2).From("audit_logs").
-		Where(sq.NotEq{col2: ""}).OrderBy(col1)
-	if startTime != nil {
-		qb = qb.Where(sq.GtOrEq{colTimestamp: *startTime})
-	}
-	if endTime != nil {
-		qb = qb.Where(sq.LtOrEq{colTimestamp: *endTime})
-	}
-
-	query, args, err := qb.ToSql()
+	query, args, err := buildDistinctPairsQuery(col1, col2, startTime, endTime)
 	if err != nil {
-		return nil, fmt.Errorf("building distinct pairs query: %w", err)
+		return nil, err
 	}
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
