@@ -91,6 +91,31 @@ func TestIsActive(t *testing.T) {
 	}
 }
 
+// TestIsImage covers the accept decision for a slot that holds a picture: the
+// brand logo (internal/platform/branding) is the first caller.
+func TestIsImage(t *testing.T) {
+	t.Parallel()
+
+	images := []string{
+		"image/png", "IMAGE/PNG", "image/jpeg", "image/jpg", "image/gif",
+		"image/webp", "image/avif", "image/x-icon", contenttype.SVG,
+		"image/png; charset=binary",
+	}
+	for _, ct := range images {
+		require.Truef(t, contenttype.IsImage(ct), "%q must be an image", ct)
+	}
+
+	notImages := []string{
+		"", "text/plain", "text/html", "application/json", "application/pdf",
+		"application/octet-stream", "video/mp4", "audio/mpeg",
+		// A type that merely starts with the family name is not in it.
+		"imagex/png", "not a media type",
+	}
+	for _, ct := range notImages {
+		require.Falsef(t, contenttype.IsImage(ct), "%q must not be an image", ct)
+	}
+}
+
 // TestIsScriptableDocument covers the serving-side predicate. Every active type
 // belongs to it, and so does the XML family, which a browser renders as a
 // document that honors an <?xml-stylesheet?> processing instruction.

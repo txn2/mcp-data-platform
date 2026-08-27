@@ -37,31 +37,49 @@ type PersonaResolver func(roles []string) *portal.PersonaInfo
 // Brand is the chrome the denial page renders with, mirroring the share-guest
 // landing page so a refusal reads as the same product as an admission.
 type Brand struct {
-	Name               string
-	LogoSVG            string
-	URL                string
-	ImplementorName    string
-	ImplementorLogoSVG string
-	ImplementorURL     string
+	Name                string
+	LogoHTML            string
+	URL                 string
+	ImplementorName     string
+	ImplementorLogoHTML string
+	ImplementorURL      string
+	// ImageSources are the origins the page's Content-Security-Policy must
+	// admit for the brand markup to load: a logo the operator hosts elsewhere
+	// is an image request, not markup. Empty leaves the policy at its default,
+	// which loads no remote image at all.
+	ImageSources []string
 }
 
 // Gate authorizes authenticated portal callers by persona.
 type Gate struct {
 	resolve PersonaResolver
 	brand   Brand
+	csp     string
 }
 
 // New creates a Gate. A nil resolver denies every caller: the gate is the
 // portal's authorization boundary, and a boundary that cannot evaluate its
 // input refuses rather than admits.
 func New(resolve PersonaResolver, brand Brand) *Gate {
-	return &Gate{resolve: resolve, brand: brand}
+	return &Gate{resolve: resolve, brand: brand, csp: deniedCSP(brand.ImageSources)}
 }
 
-// deniedCSP locks the denial page to its own inline style. The page has no
-// script, no form, and no remote assets; the inline SVG logos are markup, not
-// image requests, so img-src covers only the data: favicon case.
-const deniedCSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:"
+// deniedCSPBase locks the denial page to its own inline style. The page has no
+// script, no form, and no remote asset but the brand logo, which is linked
+// rather than embedded; img-src covers the data: favicon, and deniedCSP adds
+// the origins that logo is hosted at.
+const deniedCSPBase = "default-src 'none'; style-src 'unsafe-inline'; img-src data:"
+
+// deniedCSP returns the page policy with the brand's own image origins admitted
+// under img-src. Each origin is named rather than opening the directive to
+// every host, and a deployment that configures no logo keeps a policy that
+// loads no remote image.
+func deniedCSP(imageSources []string) string {
+	if len(imageSources) == 0 {
+		return deniedCSPBase
+	}
+	return deniedCSPBase + " " + strings.Join(imageSources, " ")
+}
 
 // deniedMessage is the plain-text refusal, used verbatim for non-navigation
 // callers (the SPA's fetches, API clients) and as the page's body copy.
@@ -137,7 +155,7 @@ func (g *Gate) Deny(w http.ResponseWriter, r *http.Request, email string) {
 		})
 		return
 	}
-	w.Header().Set("Content-Security-Policy", deniedCSP)
+	w.Header().Set("Content-Security-Policy", g.csp)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusForbidden)
 	_ = deniedTemplate.Execute(w, g.pageData(email))
@@ -147,17 +165,17 @@ func (g *Gate) Deny(w http.ResponseWriter, r *http.Request, email string) {
 func (g *Gate) pageData(email string) map[string]any {
 	return map[string]any{
 		"BrandName": g.brandName(),
-		// #nosec G203 -- operator-provided SVG from config, not user input
-		"BrandLogoSVG": template.HTML(g.brand.LogoSVG),
-		"BrandURL":     g.brand.URL,
-		// #nosec G203 -- operator-provided SVG from config, not user input
-		"ImplementorLogoSVG": template.HTML(g.brand.ImplementorLogoSVG),
-		"ImplementorName":    g.brand.ImplementorName,
-		"ImplementorURL":     g.brand.ImplementorURL,
-		"Title":              "You do not have access yet",
-		"Message":            deniedMessage,
-		"Email":              email,
-		"SignOutURL":         "/portal/auth/logout",
+		// #nosec G203 -- operator-provided logo markup from config, not user input
+		"BrandLogoHTML": template.HTML(g.brand.LogoHTML),
+		"BrandURL":      g.brand.URL,
+		// #nosec G203 -- operator-provided logo markup from config, not user input
+		"ImplementorLogoHTML": template.HTML(g.brand.ImplementorLogoHTML),
+		"ImplementorName":     g.brand.ImplementorName,
+		"ImplementorURL":      g.brand.ImplementorURL,
+		"Title":               "You do not have access yet",
+		"Message":             deniedMessage,
+		"Email":               email,
+		"SignOutURL":          "/portal/auth/logout",
 	}
 }
 

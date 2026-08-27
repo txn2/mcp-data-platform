@@ -578,6 +578,48 @@ func TestDenyDefaultBrandName(t *testing.T) {
 		"an unset brand falls back to the platform default, matching the public viewer")
 }
 
+// A logo arrives as an <img> sourced at the operator's URL; the landing page
+// must insert it as markup, and its policy must admit that origin (#1500).
+func TestDenyRendersLinkedLogos(t *testing.T) {
+	const brandImg = `<img src="https://cdn.example.com/logo.png" alt="ACME Data">`
+	const implImg = `<img src="https://img.example.net/badge.png" alt="ACME Corp">`
+
+	svc := New(Config{
+		Resolve: func(context.Context, string) (ShareInfo, bool) { return fixtureShare(), true },
+		Brand: Brand{
+			Name:                "ACME Data",
+			LogoHTML:            brandImg,
+			ImplementorName:     "ACME Corp",
+			ImplementorLogoHTML: implImg,
+			ImageSources:        []string{"https://cdn.example.com", "https://img.example.net"},
+		},
+	})
+	w := httptest.NewRecorder()
+	svc.Deny(w, denyReq(""), Denial{Status: http.StatusForbidden, Message: "m", Token: "tok1"})
+
+	body := w.Body.String()
+	assert.Contains(t, body, brandImg, "brand logo must render as markup")
+	assert.Contains(t, body, implImg, "implementor logo must render as markup")
+	csp := w.Header().Get("Content-Security-Policy")
+	assert.Contains(t, csp, "img-src data: https://cdn.example.com https://img.example.net;",
+		"the policy must admit both logo origins under img-src")
+	assert.Contains(t, csp, "connect-src 'self'",
+		"the directives after img-src must survive the addition")
+}
+
+// A deployment with no logo configured must not have its policy widened.
+func TestDenyPolicyUnchangedWithoutLogos(t *testing.T) {
+	svc := New(Config{
+		Resolve: func(context.Context, string) (ShareInfo, bool) { return fixtureShare(), true },
+		Brand:   Brand{Name: "ACME Data"},
+	})
+	w := httptest.NewRecorder()
+	svc.Deny(w, denyReq(""), Denial{Status: http.StatusForbidden, Message: "m", Token: "tok1"})
+
+	assert.Contains(t, w.Header().Get("Content-Security-Policy"), "img-src data:; connect-src 'self'",
+		"a deployment with no logo must load no remote image")
+}
+
 func TestDenyNonHTMLKeepsPlainText(t *testing.T) {
 	svc := newTestService(t, fixtureShare(), newMemLinkStore(), &mailRecorder{})
 	w := httptest.NewRecorder()

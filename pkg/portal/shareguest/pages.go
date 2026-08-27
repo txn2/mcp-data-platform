@@ -18,12 +18,17 @@ var landingTemplate = template.Must(template.ParseFS(templateFS, "templates/land
 // Brand is the chrome the landing pages render with, mirroring the public
 // viewer's header so a denial reads as the same product as an admission.
 type Brand struct {
-	Name               string
-	LogoSVG            string
-	URL                string
-	ImplementorName    string
-	ImplementorLogoSVG string
-	ImplementorURL     string
+	Name                string
+	LogoHTML            string
+	URL                 string
+	ImplementorName     string
+	ImplementorLogoHTML string
+	ImplementorURL      string
+	// ImageSources are the origins the page's Content-Security-Policy must
+	// admit for the brand markup to load: a logo the operator hosts elsewhere
+	// is an image request, not markup. Empty leaves the policy at its default,
+	// which loads no remote image at all.
+	ImageSources []string
 }
 
 // Denial describes one refused share request for rendering. The portal's
@@ -47,10 +52,27 @@ type Denial struct {
 	SignedInEmail string
 }
 
-// landingCSP locks the landing page down to its own inline style and script;
-// the request-link button needs connect-src for its same-origin POST.
-const landingCSP = "default-src 'none'; style-src 'unsafe-inline'; " +
-	"script-src 'unsafe-inline'; img-src data:; connect-src 'self'"
+// landingCSPBase locks the landing page down to its own inline style and
+// script; the request-link button needs connect-src for its same-origin POST.
+// img-src holds the data: favicon, and landingCSP adds the origins the brand
+// logo is hosted at.
+const landingCSPBase = "default-src 'none'; style-src 'unsafe-inline'; " +
+	"script-src 'unsafe-inline'; img-src data:"
+
+// landingCSPTail carries the directives that follow img-src, so the brand's
+// image origins can be appended to that directive rather than to the policy.
+const landingCSPTail = "; connect-src 'self'"
+
+// landingCSP returns the page policy with the brand's own image origins
+// admitted under img-src. Each origin is named rather than opening the
+// directive to every host, and a deployment that configures no logo keeps a
+// policy that loads no remote image.
+func landingCSP(imageSources []string) string {
+	if len(imageSources) == 0 {
+		return landingCSPBase + landingCSPTail
+	}
+	return landingCSPBase + " " + strings.Join(imageSources, " ") + landingCSPTail
+}
 
 // linkStatusParam is the query parameter a failed one-time-link claim
 // redirects back with, so the landing page explains what happened and offers
@@ -70,7 +92,7 @@ func (s *Service) Deny(w http.ResponseWriter, r *http.Request, d Denial) {
 		return
 	}
 	data := s.landingData(r, d)
-	w.Header().Set("Content-Security-Policy", landingCSP)
+	w.Header().Set("Content-Security-Policy", landingCSP(s.brand.ImageSources))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(d.Status)
 	_ = landingTemplate.Execute(w, data)
@@ -86,14 +108,14 @@ func isHTMLNavigation(r *http.Request) bool {
 // landingData assembles the template context for one denial.
 func (s *Service) landingData(r *http.Request, d Denial) map[string]any {
 	data := map[string]any{
-		"BrandName":          s.brandName(),
-		"BrandLogoSVG":       template.HTML(s.brand.LogoSVG), // #nosec G203 -- operator-provided SVG from config, not user input
-		"BrandURL":           s.brand.URL,
-		"ImplementorName":    s.brand.ImplementorName,
-		"ImplementorLogoSVG": template.HTML(s.brand.ImplementorLogoSVG), // #nosec G203 -- operator-provided SVG from config
-		"ImplementorURL":     s.brand.ImplementorURL,
-		"Title":              "This item was shared privately",
-		"Message":            d.Message,
+		"BrandName":           s.brandName(),
+		"BrandLogoHTML":       template.HTML(s.brand.LogoHTML), // #nosec G203 -- operator-provided logo markup from config, not user input
+		"BrandURL":            s.brand.URL,
+		"ImplementorName":     s.brand.ImplementorName,
+		"ImplementorLogoHTML": template.HTML(s.brand.ImplementorLogoHTML), // #nosec G203 -- operator-provided logo markup from config
+		"ImplementorURL":      s.brand.ImplementorURL,
+		"Title":               "This item was shared privately",
+		"Message":             d.Message,
 	}
 	viewPath := "/portal/view/" + url.PathEscape(d.Token)
 	switch {

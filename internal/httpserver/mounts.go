@@ -15,6 +15,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/gatewayhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/httpauth"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp"
+	"github.com/txn2/mcp-data-platform/internal/platform/branding"
 	"github.com/txn2/mcp-data-platform/internal/platform/callrecord"
 	"github.com/txn2/mcp-data-platform/internal/platform/connreach"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
@@ -537,12 +538,13 @@ func portalAuthChain(auth *portal.Authenticator, gate *accessgate.Gate) func(htt
 // "access cannot be evaluated".
 func portalAccessGate(p *platform.Platform, resolver portal.PersonaResolver) *accessgate.Gate {
 	return accessgate.New(accessgate.PersonaResolver(resolver), accessgate.Brand{
-		Name:               portalBrandName(p),
-		LogoSVG:            p.BrandLogoSVG(),
-		URL:                p.BrandURL(),
-		ImplementorName:    p.Config().Portal.Implementor.Name,
-		ImplementorLogoSVG: p.ResolveImplementorLogo(),
-		ImplementorURL:     p.Config().Portal.Implementor.URL,
+		Name:                portalBrandName(p),
+		LogoHTML:            p.BrandLogoHTML(),
+		URL:                 p.BrandURL(),
+		ImplementorName:     p.Config().Portal.Implementor.Name,
+		ImplementorLogoHTML: p.ImplementorLogoHTML(),
+		ImplementorURL:      p.Config().Portal.Implementor.URL,
+		ImageSources:        branding.ImageSources(p.Config().Portal.Logo, p.Config().Portal.Implementor.Logo),
 	})
 }
 

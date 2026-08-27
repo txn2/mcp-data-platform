@@ -29,7 +29,7 @@
         .brand { display: flex; align-items: center; gap: 8px; }
         .brand a { display: flex; align-items: center; gap: 8px; color: inherit; text-decoration: none; }
         .brand-logo { width: 24px; height: 24px; }
-        .brand-logo svg { width: 100%; height: 100%; }
+        .brand-logo svg, .brand-logo img { width: 100%; height: 100%; object-fit: contain; }
         .brand-name { font-size: 14px; font-weight: 600; }
         .spacer { flex: 1; }
         .muted-brand { color: var(--text-muted); font-size: 12px; }
@@ -61,7 +61,7 @@
         {{if .ImplementorName}}
         <div class="brand muted-brand">
             {{if .ImplementorURL}}<a href="{{.ImplementorURL}}" target="_blank" rel="noopener noreferrer">{{end}}
-            {{if .ImplementorLogoSVG}}<div class="brand-logo">{{.ImplementorLogoSVG}}</div>{{end}}
+            {{if .ImplementorLogoHTML}}<div class="brand-logo">{{.ImplementorLogoHTML}}</div>{{end}}
             <span class="brand-name">{{.ImplementorName}}</span>
             {{if .ImplementorURL}}</a>{{end}}
         </div>
@@ -69,7 +69,7 @@
         <div class="spacer"></div>
         <div class="brand">
             {{if .BrandURL}}<a href="{{.BrandURL}}" target="_blank" rel="noopener noreferrer">{{end}}
-            {{if .BrandLogoSVG}}<div class="brand-logo">{{.BrandLogoSVG}}</div>{{end}}
+            {{if .BrandLogoHTML}}<div class="brand-logo">{{.BrandLogoHTML}}</div>{{end}}
             <span class="brand-name">{{.BrandName}}</span>
             {{if .BrandURL}}</a>{{end}}
         </div>

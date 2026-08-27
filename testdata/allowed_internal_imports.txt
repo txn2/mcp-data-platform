@@ -160,6 +160,8 @@ internal/platform/auditwiring -> pkg/audit
 internal/platform/auditwiring -> pkg/audit/postgres
 internal/platform/auditwiring -> pkg/middleware
 internal/platform/auditwiring -> pkg/observability
+internal/platform/branding -> internal/logsan
+internal/platform/branding -> pkg/contenttype
 internal/platform/browserauth -> pkg/browsersession
 internal/platform/callindex -> internal/platform/callrecord
 internal/platform/callindex -> pkg/indexjobs

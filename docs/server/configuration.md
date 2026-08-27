@@ -563,7 +563,7 @@ portal:
   max_versions: 100             # Versions an asset keeps by default (0 = unlimited)
   implementor:                                    # Optional implementor brand (left zone of public viewer header)
     name: "ACME Corp"
-    logo: "https://acme.com/logo.svg"
+    logo: "https://acme.com/logo.png"
     url: "https://acme.com"
   terms_url: "https://example.com/terms"          # Optional terms-of-service link (notification email footers)
   privacy_url: "https://example.com/privacy"      # Optional privacy-policy link (notification email footers)
@@ -592,7 +592,7 @@ portal:
 | `title` | string | `<brand_name> Portal`, else `MCP Data Platform` | Sidebar/branding title text. Composed from `brand_name` when unset, so a branded deployment needs no second string to keep in sync. A brand already ending in "Portal" is not doubled. Only a `brand_name` set in the `portal` block composes the title: a brand inherited from the `mcpapps` block leaves an existing deployment's title unchanged |
 | `tagline` | string | `Sign in to access the platform.` | Login-screen subtitle text |
 | `oidc_button_label` | string | `Sign in with OIDC` | Login-screen SSO button text |
-| `logo` | string | - | URL to logo image (used for both themes if no theme-specific logo is set) |
+| `logo` | string | - | URL to the logo image, in any format (used for both themes if no theme-specific logo is set). Also the platform brand mark on the public viewer and the share pages, which link it. The built-in MCP Apps cannot link it — a sandboxed iframe blocks external loads — so it is fetched once at startup and written into their config inline, and a fetch that fails logs one warning |
 | `logo_light` | string | - | URL to logo for light theme (overrides `logo`) |
 | `logo_dark` | string | - | URL to logo for dark theme (overrides `logo`) |
 | `s3_connection` | string | - | Name of the S3 toolkit instance to use for asset storage |
@@ -602,7 +602,7 @@ portal:
 | `max_content_size` | int | `10485760` | Maximum asset size in bytes (10 MB) |
 | `max_versions` | int | `100` | Versions an asset keeps when it carries no override of its own. A version pushed past the cap is deleted along with its stored content and thumbnails; the current version is never pruned. `0` keeps every version, and a negative value is refused at startup. Applied at the write, so an asset already over the cap is trimmed the next time it is written, not when this setting changes. An asset's owner can override it — see [Asset version retention](portal-user.md#version-retention) |
 | `implementor.name` | string | - | Implementor display name shown in the left zone of the public viewer header |
-| `implementor.logo` | string | - | URL to implementor SVG logo (fetched once at startup, max 1 MB) |
+| `implementor.logo` | string | - | URL to the implementor logo, in any image format. The public viewer and the share pages link it with an `<img>` element; its origin is added to the `img-src` of the pages whose policy would otherwise block it |
 | `implementor.url` | string | - | Clickable link wrapping the implementor name and logo |
 | `terms_url` | string | - | Terms-of-service URL rendered as a small footer link in notification emails. Omitted when unset |
 | `privacy_url` | string | - | Privacy-policy URL rendered as a small footer link in notification emails. Omitted when unset |

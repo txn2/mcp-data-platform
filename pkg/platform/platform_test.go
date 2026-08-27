@@ -3640,14 +3640,14 @@ func TestNew_WorkflowGatingEnabled(t *testing.T) {
 func TestBrandingAccessorsDelegate(t *testing.T) {
 	t.Run("nil handle yields empty brand assets", func(t *testing.T) {
 		p := &Platform{}
-		if got := p.BrandLogoSVG(); got != "" {
-			t.Errorf("BrandLogoSVG() = %q, want empty", got)
+		if got := p.BrandLogoHTML(); got != "" {
+			t.Errorf("BrandLogoHTML() = %q, want empty", got)
 		}
 		if got := p.BrandURL(); got != "" {
 			t.Errorf("BrandURL() = %q, want empty", got)
 		}
-		if got := p.ResolveImplementorLogo(); got != "" {
-			t.Errorf("ResolveImplementorLogo() = %q, want empty", got)
+		if got := p.ImplementorLogoHTML(); got != "" {
+			t.Errorf("ImplementorLogoHTML() = %q, want empty", got)
 		}
 	})
 

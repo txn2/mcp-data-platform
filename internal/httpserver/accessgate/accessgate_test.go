@@ -231,6 +231,44 @@ func TestDeny_DefaultBrandName(t *testing.T) {
 	}
 }
 
+// A logo arrives as an <img> sourced at the operator's URL; the page must
+// insert it as markup, and its policy must admit that origin (#1500).
+func TestDeny_RendersLinkedLogos(t *testing.T) {
+	const brandImg = `<img src="https://cdn.example.com/logo.png" alt="ACME Data">`
+	const implImg = `<img src="https://img.example.net/badge.png" alt="ACME Consulting">`
+
+	rec := httptest.NewRecorder()
+	accessgate.New(mappedResolver, accessgate.Brand{
+		Name:                "ACME Data",
+		LogoHTML:            brandImg,
+		ImplementorName:     "ACME Consulting",
+		ImplementorLogoHTML: implImg,
+		ImageSources:        []string{"https://cdn.example.com", "https://img.example.net"},
+	}).Deny(rec, requestAs(t, http.MethodGet, acceptHTML, nil), deniedEmail)
+
+	body := rec.Body.String()
+	for _, want := range []string{brandImg, implImg} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page does not render %q", want)
+		}
+	}
+	csp := rec.Header().Get("Content-Security-Policy")
+	if !strings.Contains(csp, "img-src data: https://cdn.example.com https://img.example.net") {
+		t.Errorf("Content-Security-Policy %q must admit both logo origins", csp)
+	}
+}
+
+// A deployment with no logo configured must not have its policy widened.
+func TestDeny_PolicyUnchangedWithoutLogos(t *testing.T) {
+	rec := httptest.NewRecorder()
+	accessgate.New(mappedResolver, accessgate.Brand{Name: "ACME Data"}).
+		Deny(rec, requestAs(t, http.MethodGet, acceptHTML, nil), deniedEmail)
+
+	if csp := rec.Header().Get("Content-Security-Policy"); !strings.HasSuffix(csp, "img-src data:") {
+		t.Errorf("Content-Security-Policy %q must load no remote image", csp)
+	}
+}
+
 // The implementor chrome renders when configured, matching the share-guest page.
 func TestDeny_RendersImplementorChrome(t *testing.T) {
 	rec := httptest.NewRecorder()
