@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ImageOff, RefreshCw } from "lucide-react";
 import type { Asset } from "@/api/portal/types";
 import { useClearAssetThumbnail } from "@/api/portal/hooks/assets";
@@ -30,6 +30,7 @@ export function ThumbnailPanel({
   asset,
   isOwner,
   assetApiBase = ASSET_THUMBNAIL_BASE,
+  onRecapture,
 }: {
   asset: Asset;
   isOwner: boolean;
@@ -43,6 +44,15 @@ export function ThumbnailPanel({
    * destroys it.
    */
   assetApiBase?: string;
+  /**
+   * Called once a clear this panel asked for has landed.
+   *
+   * Clearing a tile that is already cleared moves nothing on the asset row, so
+   * the row cannot tell a second press from the first and the capturer the
+   * viewer has already mounted would go on showing its finished result. This is
+   * what says a press happened, so each one is its own capture (#1501).
+   */
+  onRecapture?: () => void;
 }) {
   const clear = useClearAssetThumbnail();
   const isDark = useResolvedDark();
@@ -54,6 +64,11 @@ export function ThumbnailPanel({
   // moment after the clear lands and before the new image arrives.
   const capturing = thumbnailBehind(asset);
   const { markRecaptured, shown } = useReplaceCachedTile(src, capturing);
+  // An image that would not load is a verdict on one URL, not on the asset. The
+  // panel is pointed at a new one when a replacement lands, and without this the
+  // placeholder that stood in for the broken tile outlives it and reports "No
+  // thumbnail stored" for an asset that has one (#1501).
+  useEffect(() => setFailed(false), [shown]);
 
   if (!capturable(asset, isOwner)) {
     return null;
@@ -69,7 +84,12 @@ export function ThumbnailPanel({
             size="xs"
             onClick={() => {
               setFailed(false);
-              clear.mutate(asset.id, { onSuccess: markRecaptured });
+              clear.mutate(asset.id, {
+                onSuccess: () => {
+                  markRecaptured();
+                  onRecapture?.();
+                },
+              });
             }}
             // Pressable even while a capture is wanted: a capture whose
             // references cannot load is discarded every time, so an asset in
@@ -140,10 +160,25 @@ function useReplaceCachedTile(src: string | undefined, capturing: boolean) {
   // replacement capture has landed.
   const [recaptured, setRecaptured] = useState(false);
   const [cacheBust, setCacheBust] = useState(0);
+  // Whether the cleared row has reached this panel yet.
+  //
+  // The clear's own invalidation is what delivers it, so for the render the
+  // press returns on the asset still carries the image the reader asked to be
+  // rid of. Spending the trigger there reload-fetched that image's URL and left
+  // nothing to spend when the replacement actually landed -- and put the panel
+  // on a cache-busted URL of a row the server had already cleared, which 404s
+  // and reports "No thumbnail stored" for an asset that goes on to have one
+  // (#1501). A capture cannot land before the cleared row does, because the
+  // cleared row is what starts it.
+  const clearLanded = useRef(false);
+  useEffect(() => {
+    if (capturing) clearLanded.current = true;
+  }, [capturing]);
 
   useEffect(() => {
-    if (!recaptured || capturing || !src) return;
+    if (!recaptured || capturing || !clearLanded.current || !src) return;
     setRecaptured(false);
+    clearLanded.current = false;
     void fetch(src, { cache: "reload", credentials: "include" })
       .catch(() => {})
       .finally(() => setCacheBust((n) => n + 1));

@@ -25,6 +25,33 @@ const ThumbnailGenerator = lazy(() =>
 const MAX_CAPTURES_PER_BATCH = 8;
 
 /**
+ * The state that put this asset on the pending list.
+ *
+ * The queue spends one attempt per reason rather than one per asset. Keying it
+ * on the id alone recorded the asset for as long as the tab lived, so an owner
+ * who cleared a wrong tile was skipped by their own tab for the rest of the
+ * session and the capture only happened after a reload (#1501).
+ *
+ * It is built from everything lib/thumbnailSupport's thumbnailBehind reads, so
+ * every answer the server can change its mind on moves it: clearing a tile
+ * drops the recorded keys and zeroes their versions, a write moves the current
+ * one, and a capture written under the pre-rename filename is replaced by one
+ * under the deterministic key at the same version. Both variants are in it
+ * because both are asked about -- a themeable asset whose dark capture is
+ * missing is pending on that alone.
+ */
+function attemptKey(a: Asset): string {
+  return [
+    a.id,
+    a.current_version,
+    a.thumbnail_version,
+    a.thumbnail_dark_version,
+    a.thumbnail_s3_key ?? "",
+    a.thumbnail_dark_s3_key ?? "",
+  ].join("\u0000");
+}
+
+/**
  * Background queue that fills in thumbnails the portal is missing or holding a
  * stale copy of.
  *
@@ -38,8 +65,10 @@ const MAX_CAPTURES_PER_BATCH = 8;
  * is visible: the reader's page is what the main thread is for. It renders
  * nothing visible.
  *
- * An asset that has been attempted is not attempted again in this session, so a
- * document the capturer cannot render costs one try rather than one per poll.
+ * An attempt is spent against the state that made the asset pending, not
+ * against the asset, so a document the capturer cannot render costs one try
+ * rather than one per poll while a tile that was cleared -- or a body that
+ * moved on -- is a new reason and is offered again (#1501).
  */
 export function ThumbnailQueue() {
   const qc = useQueryClient();
@@ -67,7 +96,7 @@ export function ThumbnailQueue() {
   const pending = data?.data;
   const next =
     !current && capturedThisBatch.current < MAX_CAPTURES_PER_BATCH
-      ? pending?.find((a) => !attemptedRef.current.has(a.id))
+      ? pending?.find((a) => !attemptedRef.current.has(attemptKey(a)))
       : undefined;
 
   const idle = useIdleGate(!!next);
@@ -80,7 +109,7 @@ export function ThumbnailQueue() {
 
     // Marked attempted before the fetch, so a failure moves the queue on rather
     // than offering the same asset again the moment this effect re-runs.
-    attemptedRef.current.add(next.id);
+    attemptedRef.current.add(attemptKey(next));
 
     let cancelled = false;
     apiFetchRaw(`/assets/${next.id}/content`)

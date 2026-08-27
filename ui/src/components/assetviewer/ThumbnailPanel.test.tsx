@@ -43,13 +43,20 @@ function stubApi(status = 200) {
   );
 }
 
+/** The row between a clear landing and the replacement capture being stored. */
+const CLEARED: Asset = { ...ASSET, thumbnail_s3_key: "", thumbnail_version: 0 };
+
 function renderPanel(asset: Asset = ASSET, isOwner = true, assetApiBase?: string) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  const tree = (a: Asset) => (
     <QueryClientProvider client={qc}>
-      <ThumbnailPanel asset={asset} isOwner={isOwner} assetApiBase={assetApiBase} />
-    </QueryClientProvider>,
+      <ThumbnailPanel asset={a} isOwner={isOwner} assetApiBase={assetApiBase} />
+    </QueryClientProvider>
   );
+  const result = render(tree(asset));
+  // Rerenders the same panel against a later state of the asset row, which is
+  // how the clear and the capture that follows it reach this component.
+  return { ...result, rerender: (a: Asset) => result.rerender(tree(a)) };
 }
 
 /** The panel as a surface that reads tiles through a route of its own. */
@@ -86,12 +93,41 @@ describe("ThumbnailPanel", () => {
   // cacheable for an hour: without replacing that entry the person who pressed
   // the button keeps seeing the picture they asked to replace (#1497).
   it("replaces this browser's cached copy once the new capture has landed", async () => {
-    renderPanel();
+    const { rerender } = renderPanel();
     fireEvent.click(screen.getByRole("button", { name: /recapture/i }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+
+    // The cleared row arrives on the invalidation the clear issues. Until it
+    // does, the panel is still holding the image the reader asked to be rid of,
+    // and replacing the cache entry for THAT is both useless and destructive:
+    // it spends the one trigger there is, and points the panel at a
+    // cache-busted URL of a row the server has already cleared (#1501).
+    rerender(CLEARED);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(calls).toHaveLength(1);
+
+    // The replacement lands: the row names a capture again, at the version the
+    // reader is looking at.
+    rerender(ASSET);
 
     await waitFor(() => expect(calls).toHaveLength(2));
     expect(calls[1]!.url).toContain("/api/v1/portal/assets/ast-q4/thumbnail");
     expect(calls[1]!.cache).toBe("reload");
+  });
+
+  // A tile the browser could not load is a verdict on one URL, and the refresh
+  // queue replaces tiles without anyone pressing anything: an asset a script
+  // rewrote is captured again by whatever tab is open, and the panel is pointed
+  // at the new capture. The placeholder that stood in for the broken image must
+  // not outlive it (#1501).
+  it("shows a replacement that arrives after the image it was showing failed to load", async () => {
+    const { rerender } = renderPanel();
+    fireEvent.error(screen.getByRole("img"));
+    expect(screen.getByText("No thumbnail stored")).toBeInTheDocument();
+
+    rerender({ ...ASSET, current_version: 5, thumbnail_version: 5 } as Asset);
+
+    expect(screen.getByRole("img")).toBeInTheDocument();
   });
 
   it("says a capture is being taken while the row says one is wanted", () => {

@@ -60,6 +60,8 @@ interface AssetMetadataSidebarProps {
   versionsLoading?: boolean;
   /** Which route this reader reads an asset's stored tile through. */
   assetApiBase?: string;
+  /** Reported when the reader asks for the tile to be taken again. */
+  onRecaptureThumbnail?: () => void;
 }
 
 /** Everything about an asset that is not its content, for the viewer sidebar. */
@@ -91,6 +93,7 @@ export function AssetMetadataSidebar({
   versions,
   versionsLoading,
   assetApiBase,
+  onRecaptureThumbnail,
 }: AssetMetadataSidebarProps) {
   const openSession = sessionOpener(asset, sessionPath, onNavigate);
   return (
@@ -213,7 +216,12 @@ export function AssetMetadataSidebar({
             sections because a wrong tile is most often a picture of a reference
             that did not load.
           */}
-          <ThumbnailPanel asset={asset} isOwner={isOwner} assetApiBase={assetApiBase} />
+          <ThumbnailPanel
+            asset={asset}
+            isOwner={isOwner}
+            assetApiBase={assetApiBase}
+            onRecapture={onRecaptureThumbnail}
+          />
 
           {versions && versions.length > 0 && (
             <div className="border-t pt-4">

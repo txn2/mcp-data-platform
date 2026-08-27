@@ -1,14 +1,32 @@
-import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { useEffect, useRef } from "react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
+// One entry per time the viewer mounted a capturer. A capturer reports its
+// result once and holds it, so what the viewer asked for is not the question --
+// how many times it asked, and for which asset, is (#1501).
+const { captureMounts } = vi.hoisted(() => ({
+  captureMounts: [] as { assetId: string; version?: number }[],
+}));
 
 // The capturer is lazy and carries html2canvas, which does not run in jsdom.
 // Standing it in here is enough to see WHETHER the viewer asked for a capture,
 // and with what.
 vi.mock("./assetviewer/ThumbnailGeneratorWithInvalidation", () => ({
-  ThumbnailGeneratorWithInvalidation: ({ version }: { version?: number }) => (
-    <div data-testid="thumbnail-capture" data-version={version} />
-  ),
+  ThumbnailGeneratorWithInvalidation: ({ assetId, version }: { assetId: string; version?: number }) => {
+    // Recorded once per mounted capturer. A prop change on the instance already
+    // mounted is exactly what does NOT take a new picture -- the real capturer
+    // latches its result -- so counting those would make this blind to the
+    // defect.
+    const recorded = useRef(false);
+    useEffect(() => {
+      if (recorded.current) return;
+      recorded.current = true;
+      captureMounts.push({ assetId, version });
+    }, [assetId, version]);
+    return <div data-testid="thumbnail-capture" data-version={version} />;
+  },
 }));
 
 import { AssetViewer } from "./AssetViewer";
@@ -37,7 +55,7 @@ function markdownAsset(overrides: Record<string, unknown> = {}) {
 
 function renderViewer(props: Record<string, unknown>) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  const tree = (p: Record<string, unknown>) => (
     <QueryClientProvider client={qc}>
       <AssetViewer
         asset={markdownAsset()}
@@ -48,10 +66,15 @@ function renderViewer(props: Record<string, unknown>) {
         onNavigate={() => {}}
         updateMutation={stubMutation()}
         deleteMutation={stubMutation()}
-        {...props}
+        {...p}
       />
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+  const result = render(tree(props));
+  // Rerenders the same viewer with different props, which is what following a
+  // link to another asset does: the page that renders this is not keyed by
+  // asset, so the instance is reused.
+  return { ...result, rerender: (p: Record<string, unknown>) => result.rerender(tree(p)) };
 }
 
 describe("AssetViewer metadata edit affordance (#611)", () => {
@@ -199,5 +222,95 @@ describe("AssetViewer thumbnail capture", () => {
     renderViewer({ asset: markdownAsset(behind), isOwner: false, sharePermission: "editor" });
     await new Promise((r) => setTimeout(r, 1500));
     expect(screen.queryByTestId("thumbnail-capture")).not.toBeInTheDocument();
+  });
+});
+
+// Recapture is how a wrong tile is asked for again. The usual reason a tile is
+// wrong is a capture that was discarded, which leaves the capturer mounted on a
+// version that has not moved and the asset row already cleared -- so nothing
+// the capture condition reads changes on the second press, and the owner was
+// left pressing a control that could not act until the page was reloaded
+// (#1501).
+describe("AssetViewer recapture", () => {
+  const cleared = {
+    thumbnail_s3_key: "",
+    thumbnail_dark_s3_key: "",
+    thumbnail_version: 0,
+    thumbnail_dark_version: 0,
+    current_version: 4,
+  };
+
+  beforeEach(() => {
+    captureMounts.length = 0;
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  /**
+   * Answers the clear, and only the clear. Every other request the viewer makes
+   * is left to fail as it does in the rest of this file: answering them all with
+   * one shape crashes the panels that read them.
+   */
+  function stubClear(status: number, body: unknown) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
+        init?.method === "DELETE"
+          ? Promise.resolve(new Response(JSON.stringify(body), { status }))
+          : Promise.reject(new Error("not stubbed")),
+      ),
+    );
+  }
+
+  async function pressRecapture() {
+    fireEvent.click(screen.getByTitle("Show details"));
+    fireEvent.click(screen.getByTitle("Discard this image and take it again"));
+  }
+
+  it("takes the picture again on a press that moves nothing on the asset row", async () => {
+    stubClear(200, { status: "updated" });
+    renderViewer({ asset: markdownAsset(cleared) });
+
+    await screen.findByTestId("thumbnail-capture", {}, { timeout: 4000 });
+    expect(captureMounts).toHaveLength(1);
+
+    await pressRecapture();
+
+    await waitFor(() => expect(captureMounts).toHaveLength(2));
+    expect(captureMounts).toEqual([
+      { assetId: "a1", version: 4 },
+      { assetId: "a1", version: 4 },
+    ]);
+  });
+
+  // Opening a second asset from a link reuses this viewer. With both rows behind
+  // at the same version there is no render where a capture stops being wanted,
+  // so the capturer is never unmounted and a key built from the version alone
+  // left the first asset's finished capturer in place.
+  it("takes the second asset's picture when a link moves the viewer to it", async () => {
+    stubClear(200, { status: "updated" });
+    const { rerender } = renderViewer({ asset: markdownAsset(cleared) });
+    await screen.findByTestId("thumbnail-capture", {}, { timeout: 4000 });
+
+    rerender({ asset: markdownAsset({ ...cleared, id: "a2" }) });
+
+    await waitFor(() =>
+      expect(captureMounts).toEqual([
+        { assetId: "a1", version: 4 },
+        { assetId: "a2", version: 4 },
+      ]),
+    );
+  });
+
+  // A refused clear discarded nothing, so there is no new picture to take and
+  // the capturer already mounted is still working on the one reason there was.
+  it("does not take it again when the clear was refused", async () => {
+    stubClear(403, { detail: "refused" });
+    renderViewer({ asset: markdownAsset(cleared) });
+
+    await screen.findByTestId("thumbnail-capture", {}, { timeout: 4000 });
+    await pressRecapture();
+
+    await screen.findByText("Could not discard the stored image.");
+    expect(captureMounts).toHaveLength(1);
   });
 });
