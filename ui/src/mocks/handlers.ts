@@ -2984,6 +2984,34 @@ export const handlers = [
     return HttpResponse.json(usage ? { ...resource, usage } : resource);
   }),
 
+  // The metadata edit, and the move that travels with it (#1502). The move is
+  // modelled rather than acknowledged: it rewrites the library AND the canonical
+  // URI on the fixture, which is what the dialog's own note promises and what a
+  // reader checks on the page behind it.
+  http.patch("/api/v1/resources/:id", async ({ params, request }) => {
+    const resource = mockResources.resources.find((r) => r.id === params.id);
+    if (!resource) {
+      return HttpResponse.json({ error: "not found" }, { status: 404 });
+    }
+    const body = (await request.json()) as Record<string, unknown>;
+    if (typeof body.display_name === "string") resource.display_name = body.display_name;
+    if (typeof body.description === "string") resource.description = body.description;
+    if (typeof body.category === "string") resource.category = body.category;
+    if (Array.isArray(body.tags)) resource.tags = body.tags as string[];
+    if (typeof body.scope === "string") {
+      const scopeID = typeof body.scope_id === "string" ? body.scope_id : "";
+      const path = resource.uri.split("/").slice(-2).join("/");
+      resource.scope = body.scope as typeof resource.scope;
+      resource.scope_id = scopeID;
+      resource.uri =
+        body.scope === "global"
+          ? `mcp://global/${path}`
+          : `mcp://${body.scope}/${scopeID}/${path}`;
+    }
+    resource.updated_at = new Date().toISOString();
+    return HttpResponse.json(resource);
+  }),
+
   // Content download: the preview pane, the Download button and the library's
   // image tiles all read it. Text fixtures render in the preview; an image
   // fixture answers with real bytes, there being no stored thumbnail for a

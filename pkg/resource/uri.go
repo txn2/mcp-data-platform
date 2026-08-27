@@ -10,19 +10,47 @@ const DefaultURIScheme = "mcp"
 
 // BuildURI constructs the canonical resource URI from its components.
 func BuildURI(scheme string, scope Scope, scopeID, category, filename string) string {
+	return URIInLibrary(scheme, scope, scopeID, category+"/"+filename)
+}
+
+// URIInLibrary constructs a resource URI naming a library and a path within it,
+// where path is the "category/filename" tail BuildURI composes.
+//
+// It is separate from BuildURI because a move must not disturb the path. A
+// resource's stored URI can already disagree with its category column -- editing
+// the category has never rewritten the URI -- so rebuilding the whole URI on a
+// move would silently change the address as a side effect of refiling the file,
+// which is not what the person asked for. The move parses the path off the URI
+// it has and passes it through here (see MovedURI).
+func URIInLibrary(scheme string, scope Scope, scopeID, path string) string {
 	if scheme == "" {
 		scheme = DefaultURIScheme
 	}
 	switch scope {
 	case ScopeGlobal:
-		return fmt.Sprintf("%s://global/%s/%s", scheme, category, filename)
+		return fmt.Sprintf("%s://global/%s", scheme, path)
 	case ScopePersona:
-		return fmt.Sprintf("%s://persona/%s/%s/%s", scheme, scopeID, category, filename)
+		return fmt.Sprintf("%s://persona/%s/%s", scheme, scopeID, path)
 	case ScopeUser:
-		return fmt.Sprintf("%s://user/%s/%s/%s", scheme, scopeID, category, filename)
+		return fmt.Sprintf("%s://user/%s/%s", scheme, scopeID, path)
 	default:
-		return fmt.Sprintf("%s://unknown/%s/%s", scheme, category, filename)
+		return fmt.Sprintf("%s://unknown/%s", scheme, path)
 	}
+}
+
+// MovedURI is the URI a resource takes when it is refiled in another library:
+// its own path under the target library's prefix.
+//
+// A stored URI that will not parse falls back to composing the path from the
+// row's category and filename, which is what the URI would have been had it
+// been minted now. That is the only answer available for a row whose URI
+// predates the current scheme or was written by hand, and it is better than
+// refusing the move over an address the mover never chose.
+func MovedURI(scheme string, r *Resource, scope Scope, scopeID string) string {
+	if p, err := ParseURI(scheme, r.URI); err == nil && p.Path != "" {
+		return URIInLibrary(scheme, scope, scopeID, p.Path)
+	}
+	return BuildURI(scheme, scope, scopeID, r.Category, r.Filename)
 }
 
 // BuildS3Key constructs the S3 object key for a resource blob.

@@ -58,6 +58,9 @@ type Deps struct {
 	// Usage supplies audit-derived read counts for the detail read. Absent when
 	// audit is disabled, which leaves the usage field off the response.
 	Usage UsageReader
+	// MoveRecorder audits a resource refiled into another library. Absent when
+	// audit is disabled, which silences the event without affecting the move.
+	MoveRecorder MoveRecorder
 }
 
 // ClaimsExtractor extracts resource Claims from an HTTP request.
@@ -575,7 +578,7 @@ func validateUpdate(u Update) error {
 // handleUpdate handles PATCH /api/v1/resources/{id}.
 //
 // @Summary      Update resource
-// @Description  Update mutable metadata fields of a managed resource.
+// @Description  Update mutable metadata fields of a managed resource, and/or move it to another library by naming the target scope.
 // @Tags         Resources
 // @Accept       json
 // @Produce      json
@@ -586,30 +589,24 @@ func validateUpdate(u Update) error {
 // @Failure      401  {object}  resource.errorResponse
 // @Failure      403  {object}  resource.errorResponse
 // @Failure      404  {object}  resource.errorResponse
+// @Failure      409  {object}  resource.errorResponse
 // @Failure      500  {object}  resource.errorResponse
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
 // @Router       /resources/{id} [patch]
 func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
-	claims, ok := h.authenticate(w, r)
+	// The same resolve-and-authorize prologue the delete route runs: the caller
+	// must be able to see the resource before they are told whether they may
+	// change it, or a refusal tells a stranger the id exists.
+	res, claims, ok := h.resolveReadable(w, r)
 	if !ok {
-		return
-	}
-
-	id := r.PathValue(pathParamID)
-	res, err := h.deps.Store.Get(r.Context(), id)
-	if err != nil {
-		writeError(w, http.StatusNotFound, msgNotFound)
-		return
-	}
-	if !CanAccessResource(*claims, res) {
-		writeError(w, http.StatusNotFound, msgNotFound)
 		return
 	}
 	if !CanModifyResource(*claims, res) {
 		writeError(w, http.StatusForbidden, "insufficient permissions")
 		return
 	}
+	id := res.ID
 
 	var u Update
 	if err := json.NewDecoder(r.Body).Decode(&u); err != nil {
@@ -622,9 +619,14 @@ func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.deps.Store.Update(r.Context(), id, u); err != nil {
-		slog.Error("resource update failed", msgError, err)
-		writeError(w, http.StatusInternalServerError, "updating resource")
+	// The move runs first and its old URI is captured before it does. A metadata
+	// edit applied first would be committed and then possibly stranded by a
+	// refused move, and the caller would have to guess which half took.
+	vacated, ok := h.applyMove(w, r, claims, res, u)
+	if !ok {
+		return
+	}
+	if !h.applyFields(w, r, id, u) {
 		return
 	}
 
@@ -634,7 +636,65 @@ func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, updated)
+	// A moved resource is registered with MCP under a new URI, so the address it
+	// left has to be withdrawn or clients keep listing a resource that is no
+	// longer there -- the registry is keyed on the URI, not on the id.
+	if vacated != "" {
+		h.notifyDelete(vacated)
+	}
 	h.notifyCreate(updated)
+}
+
+// applyFields writes the metadata half of a PATCH. A request that carries only
+// a move has no fields, and writing an empty Update would still bump updated_at
+// and drop the stored embedding for nothing.
+func (h *Handler) applyFields(w http.ResponseWriter, r *http.Request, id string, u Update) bool {
+	if !u.Fields() {
+		return true
+	}
+	if err := h.deps.Store.Update(r.Context(), id, u); err != nil {
+		slog.Error("resource update failed", msgError, err)
+		writeError(w, http.StatusInternalServerError, "updating resource")
+		return false
+	}
+	return true
+}
+
+// applyMove performs the move half of a PATCH, if the body carried one, and
+// returns the URI the resource vacated ("" when it did not move). It writes the
+// error response and returns ok=false on failure, so the caller stops.
+func (h *Handler) applyMove(w http.ResponseWriter, r *http.Request, claims *Claims, res *Resource, u Update) (string, bool) {
+	if u.Scope == nil {
+		return "", true
+	}
+	var toID string
+	if u.ScopeID != nil {
+		toID = *u.ScopeID
+	}
+	// Read before the move for the reason MoveResource snapshots its own: the
+	// resource this holds may be the row the store rewrites.
+	vacated := res.URI
+	uri, err := MoveResource(r.Context(), h.deps, claims, res, ScopeFilter{Scope: *u.Scope, ScopeID: toID})
+	switch {
+	case err == nil:
+	case errors.Is(err, ErrMoveForbidden):
+		writeError(w, http.StatusForbidden, err.Error())
+		return "", false
+	case IsMoveConflict(err):
+		writeError(w, http.StatusConflict, err.Error())
+		return "", false
+	case IsInvalidScope(err):
+		writeError(w, http.StatusBadRequest, err.Error())
+		return "", false
+	default:
+		slog.Error("resource move failed", msgError, err)
+		writeError(w, http.StatusInternalServerError, "moving resource")
+		return "", false
+	}
+	if uri == "" {
+		return "", true
+	}
+	return vacated, true
 }
 
 // --- Delete ---

@@ -1,4 +1,5 @@
 import type { UserProfile } from "@/stores/auth";
+import { scopeLabel } from "./shared";
 
 /** A resource library, named the way the create API names it. */
 export interface ScopeTarget {
@@ -148,4 +149,132 @@ export function libraryCopy(target: ScopeTarget | null): LibraryCopy {
     audience: "Only you can see it.",
     source: "Only you can add to your own library.",
   };
+}
+
+/**
+ * One library a resource may be moved into, and how the picker names it.
+ *
+ * PERSON_TARGET is the administrator's open-ended option: a named person's
+ * library, addressed by email rather than chosen from a list, because the
+ * platform has no roster of every user's library to enumerate.
+ */
+export interface MoveTarget extends ScopeTarget {
+  label: string;
+}
+
+/** The select value that stands for "a named person's library". */
+export const PERSON_TARGET = "__person__";
+
+/**
+ * moveTargets lists the libraries this caller may move a resource into, in the
+ * order the picker offers them.
+ *
+ * It mirrors CanMoveToLibrary (pkg/resource/permission.go), which is looser than
+ * CanWriteScope on exactly one arm: a persona you BELONG to accepts a file you
+ * already own, while uploading into it still takes that persona's admin role. So
+ * the reader's own resolved persona appears here and does not appear on the
+ * Upload control.
+ *
+ * The platform-admin override is withheld on the portal surface, the same way
+ * canWriteScope withholds it: these are the libraries a reader can see, and
+ * publishing somebody's file to everyone signed in should not sit inside the
+ * Edit dialog of a page they reached by browsing. The administrator moves it
+ * from Admin > Resources, where every target is offered.
+ *
+ * personaNames is the deployment's full persona list, which only the
+ * administrator's section fetches; the portal surface passes none and derives
+ * its personas from the caller's own claims.
+ */
+export function moveTargets(
+  user: UserProfile | null,
+  personaNames: string[],
+  surface: Surface = "admin",
+): MoveTarget[] {
+  if (!user) return [];
+  const admin = surface === "admin" && isPlatformAdmin(user);
+  const targets: MoveTarget[] = [];
+
+  if (user.user_id) {
+    targets.push({
+      scope: "user",
+      scope_id: user.user_id,
+      label: "My Resources",
+    });
+  }
+
+  // Deduplicated because a persona-admin of the persona they belong to would
+  // otherwise be offered it twice.
+  const personas = admin
+    ? personaNames
+    : [
+        ...new Set(
+          [user.persona, ...personaAdminNames(user.roles ?? [])].filter(
+            Boolean,
+          ),
+        ),
+      ];
+  for (const name of personas as string[]) {
+    targets.push({
+      scope: "persona",
+      scope_id: name,
+      label: `${name} persona`,
+    });
+  }
+
+  if (admin) {
+    targets.push({ scope: "global", scope_id: "", label: "Global" });
+    targets.push({
+      scope: "user",
+      scope_id: PERSON_TARGET,
+      label: "A person's library...",
+    });
+  }
+  return targets;
+}
+
+/**
+ * targetKey identifies a library as one string, so a select can hold it in a
+ * single value. The scope alone is not enough (two personas differ only by id)
+ * and the id alone is not either (a persona and a person could share a name).
+ */
+export function targetKey(t: ScopeTarget): string {
+  return `${t.scope}:${t.scope_id}`;
+}
+
+/**
+ * currentLibrary names the library a resource is in now, as a picker option.
+ *
+ * It is always offered even when the caller could not move the resource there,
+ * because leaving the file where it is has to be expressible.
+ *
+ * A user library that is not the caller's own is named by the address it is
+ * keyed on when that is an address; a scope id that is a subject identifier is
+ * described rather than printed, because a raw UUID names nobody to the person
+ * reading it.
+ */
+export function currentLibrary(target: ScopeTarget, user: UserProfile | null): MoveTarget {
+  if (target.scope === "persona") return { ...target, label: `${target.scope_id} persona` };
+  return { ...target, label: scopeLabel(target.scope, target.scope_id, user) };
+}
+
+/**
+ * libraryOptions is what the Library picker shows: the libraries this caller may
+ * move to, with the library the resource is in now first and never duplicated.
+ *
+ * An empty result means there is nowhere to move this resource, and the field is
+ * not shown at all -- a picker whose only entry is where the file already sits
+ * is a control that cannot do anything.
+ */
+export function libraryOptions(
+  target: ScopeTarget,
+  user: UserProfile | null,
+  personaNames: string[],
+  surface: Surface = "admin",
+): MoveTarget[] {
+  const current = currentLibrary(target, user);
+  const rest = moveTargets(user, personaNames, surface).filter(
+    (t) => targetKey(t) !== targetKey(current),
+  );
+  if (rest.length === 0) return [];
+  return [current, ...rest];
 }

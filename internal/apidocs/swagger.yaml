@@ -1958,6 +1958,7 @@ definitions:
     - apigateway_invoke
     - prompt_serve
     - resource_read
+    - resource_move
     - script_run
     type: string
     x-enum-varnames:
@@ -1968,6 +1969,7 @@ definitions:
     - EventTypeAPIGatewayInvoke
     - EventTypePromptServe
     - EventTypeResourceRead
+    - EventTypeResourceMove
     - EventTypeScriptRun
   audit.Overview:
     properties:
@@ -5220,6 +5222,18 @@ definitions:
       description:
         type: string
       display_name:
+        type: string
+      scope:
+        allOf:
+        - $ref: '#/definitions/resource.Scope'
+        description: |-
+          Scope names the library to move the resource into. Nil leaves it where it
+          is, which is what every request that is not a move sends.
+      scope_id:
+        description: |-
+          ScopeID is the persona name or the user's sub or address, and is empty for
+          the global library. It is read only when Scope is set: a scope id on its
+          own names no library.
         type: string
       tags:
         items:
@@ -18183,7 +18197,8 @@ paths:
     patch:
       consumes:
       - application/json
-      description: Update mutable metadata fields of a managed resource.
+      description: Update mutable metadata fields of a managed resource, and/or move
+        it to another library by naming the target scope.
       parameters:
       - description: Resource ID
         in: path
@@ -18217,6 +18232,10 @@ paths:
             $ref: '#/definitions/resource.errorResponse'
         "404":
           description: Not Found
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "409":
+          description: Conflict
           schema:
             $ref: '#/definitions/resource.errorResponse'
         "500":

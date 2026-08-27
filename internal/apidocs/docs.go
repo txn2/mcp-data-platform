@@ -17409,7 +17409,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Update mutable metadata fields of a managed resource.",
+                "description": "Update mutable metadata fields of a managed resource, and/or move it to another library by naming the target scope.",
                 "consumes": [
                     "application/json"
                 ],
@@ -17465,6 +17465,12 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/resource.errorResponse"
                         }
@@ -20400,6 +20406,7 @@ const docTemplate = `{
                 "apigateway_invoke",
                 "prompt_serve",
                 "resource_read",
+                "resource_move",
                 "script_run"
             ],
             "x-enum-varnames": [
@@ -20410,6 +20417,7 @@ const docTemplate = `{
                 "EventTypeAPIGatewayInvoke",
                 "EventTypePromptServe",
                 "EventTypeResourceRead",
+                "EventTypeResourceMove",
                 "EventTypeScriptRun"
             ]
         },
@@ -24651,6 +24659,18 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "display_name": {
+                    "type": "string"
+                },
+                "scope": {
+                    "description": "Scope names the library to move the resource into. Nil leaves it where it\nis, which is what every request that is not a move sends.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/resource.Scope"
+                        }
+                    ]
+                },
+                "scope_id": {
+                    "description": "ScopeID is the persona name or the user's sub or address, and is empty for\nthe global library. It is read only when Scope is set: a scope id on its\nown names no library.",
                     "type": "string"
                 },
                 "tags": {

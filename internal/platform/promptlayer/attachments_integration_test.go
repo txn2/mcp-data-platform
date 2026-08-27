@@ -79,7 +79,10 @@ func (*resStore) List(context.Context, resource.Filter) ([]resource.Resource, in
 	return nil, 0, nil
 }
 func (*resStore) Update(context.Context, string, resource.Update) error { return nil }
-func (*resStore) Delete(context.Context, string) error                  { return nil }
+func (*resStore) Move(context.Context, string, resource.Move) error {
+	return errors.New("resStore does not move resources")
+}
+func (*resStore) Delete(context.Context, string) error { return nil }
 
 // blobStore is an in-memory blob backend.
 type blobStore struct{ byKey map[string]string }

@@ -47,6 +47,15 @@ const (
 	// Listing resources is not a read: only content served counts.
 	EventTypeResourceRead EventType = "resource_read"
 
+	// EventTypeResourceMove categorizes a managed resource being refiled in
+	// another library (issue #1502): the event's parameters carry resource_id,
+	// the display name, and the scope, scope id and URI on both sides of the
+	// move. It is separate from resource_read because it is a write, and
+	// separate from the generic admin event because the question it answers --
+	// who put this file in front of which audience, and what address did it
+	// used to have -- is asked of the resource, not of the administrator.
+	EventTypeResourceMove EventType = "resource_move"
+
 	// EventTypeScriptRun categorizes one execution of an approved managed
 	// script: the lifecycle event the run worker writes when a run finishes,
 	// carrying script, script_id, version, run_id, owner, trigger, and

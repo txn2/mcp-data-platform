@@ -339,6 +339,7 @@ The Resources page provides:
 - **Category sections** — One collapsible section per category in view, each stating how many of its resources are loaded and naming the category once in its header rather than in every row; a section of images is a tile grid, anything else is a table of name, MIME type, tags, file size, uploader email, and last updated date
 - **Open** — Clicking a row or a tile opens that resource at its own address
 - **Delete** — Trash icon to remove owned resources
+- **Library** — On the Edit dialog: moves the resource to another library you may put it in ([Moving a resource to another library](#moving-a-resource-to-another-library))
 
 Administrators can open, edit, and delete any resource by id, including persona material they do not belong to — otherwise an admin could upload a persona resource and then be unable to manage or remove it. Listing and agent-facing reads stay membership-scoped.
 
@@ -351,6 +352,26 @@ Opening a resource shows which prompts attach it as reference material. Deleting
 Clicking a row opens the resource at `/resources/{id}` — `/admin/resources/{id}` in the administrator's section — so a resource can be linked to, bookmarked, reloaded and opened in a second tab, and Back returns to the library on the scope and the filters it was left on. The page takes the same shape a portal asset takes, because a resource is the same kind of object: the content at the full width of the page, and what the resource is beside it — its scope, category, metadata, canonical URI, tags, read activity, revision trail, table registration, and the prompts that attach it. Download, Edit and Delete are in the page header, so a long document or a deep revision trail never pushes them off the screen. Editing and deleting are still dialogs; they are bounded forms.
 
 ![Resource detail](../images/screenshots/light/admin-resource-detail-light.webp#only-light)![Resource detail](../images/screenshots/dark/admin-resource-detail-dark.webp#only-dark)
+
+### Moving a resource to another library
+
+A resource's library used to be chosen once, on the upload form, and never again. The only route from a personal library to a shared one was to upload the file a second time, which mints a second id, a second URI and a second blob, leaves the original in place, and gives the two copies separate version trails, while every asset and prompt that already referenced the first one keeps referencing it.
+
+**Library** on the Edit dialog moves the file instead. It offers the libraries you may put it in and nothing else, and it is absent when there are none:
+
+- Your own library, always.
+- A persona you belong to. This is looser than uploading, which needs that persona's `persona-admin:{name}` role: putting new material in front of a persona's members is the persona administrator's call, while moving in a file you already own and will read yourself is not.
+- Every persona, the global library, and a named person's library — for a platform administrator, in [Admin > Resources](admin-portal.md#resources-admin). As with Upload, the platform-admin override is not applied on your own Resources page: publishing somebody's file to everyone signed in does not sit inside a dialog reached by browsing.
+
+![Moving a resource to another library](../images/screenshots/light/admin-resource-move-light.webp#only-light)![Moving a resource to another library](../images/screenshots/dark/admin-resource-move-dark.webp#only-dark)
+
+The move rewrites the resource's row, not its content: the id, the stored file, the version trail, the table registration and the read history are all unchanged, and the blob is not copied. What does change is who can see the file and what it is called. The canonical `mcp://` URI names the library the file lives in, so it is rewritten to match — a file published to everyone whose URI still read `mcp://user/<sub>/...` would be a URI that lies.
+
+Nothing that already points at the file breaks. An asset that [references](asset-references.md) it and a prompt that attaches it both record the resource's id, and the reference keeps the URI exactly as its author wrote it, so both keep rendering. Text that hard-codes the old URI — a knowledge page, a script, a prompt's prose — resolves it by address rather than by id, and that keeps working too: every address a resource has answered to stays resolvable, and a live address always wins over a vacated one, so a file uploaded into the address you left is reached by its own URI and not by the alias.
+
+A move into a library that already holds a file of that category and name is refused, naming the file it collides with, and changes nothing. The move is recorded in the audit trail with who moved what, out of which library and into which ([Resource moves](audit.md#resource-moves)).
+
+Agents do not move resources. `manage_resource` creates and replaces content; deciding that a file becomes a persona's or the whole platform's is a human act, and nothing an agent does needs it.
 
 ### Revising a resource's content
 

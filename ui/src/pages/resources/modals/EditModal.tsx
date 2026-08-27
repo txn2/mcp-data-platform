@@ -1,4 +1,4 @@
-import { useCallback, useId, useState } from "react";
+import { useCallback, useId, useMemo, useState } from "react";
 import { X, Loader2 } from "lucide-react";
 import { useUpdateResource } from "@/api/resources/hooks";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -15,17 +15,73 @@ import {
 } from "@/components/ui/select";
 import { parseTags } from "@/lib/tags";
 import type { Resource, ResourceUpdate } from "@/api/resources/types";
+import { usePersonas } from "@/api/admin/hooks";
+import { useAuthStore } from "@/stores/auth";
 import { ModalShell } from "@/components/ModalShell";
 import { CATEGORIES } from "../shared";
+import { LibraryField } from "./LibraryField";
+import {
+  libraryOptions,
+  targetKey,
+  PERSON_TARGET,
+  type MoveTarget,
+  type ScopeTarget,
+} from "../scopes";
 
-export function EditModal({ resource: r, onClose }: { resource: Resource; onClose: () => void }) {
+/**
+ * moveFields resolves the library the picker holds into the two fields a PATCH
+ * carries, or into the sentence to show instead.
+ *
+ * It sits outside the component because it is the one place the person-library
+ * option turns into an address, and because a picked option that is not in the
+ * list is a bug in the picker rather than a state the form can be left in.
+ */
+function moveFields(
+  to: MoveTarget | undefined,
+  personEmail: string,
+): Pick<ResourceUpdate, "scope" | "scope_id"> | { error: string } {
+  if (!to) return { error: "That library is no longer available." };
+  if (to.scope_id !== PERSON_TARGET) return { scope: to.scope, scope_id: to.scope_id };
+  const address = personEmail.trim();
+  if (address === "") return { error: "Name the person whose library this moves to." };
+  return { scope: to.scope, scope_id: address };
+}
+
+export function EditModal({
+  resource: r,
+  admin = false,
+  onClose,
+}: {
+  resource: Resource;
+  /** True on the administrator's copy of the section, which is what carries the
+   * platform-admin override over every library. */
+  admin?: boolean;
+  onClose: () => void;
+}) {
   const update = useUpdateResource();
+  const user = useAuthStore((s) => s.user);
+  const { data: personaData } = usePersonas(admin);
   const [displayName, setDisplayName] = useState(r.display_name);
   const [description, setDescription] = useState(r.description);
   const [tagsInput, setTagsInput] = useState(r.tags.join(", "));
   const [cat, setCat] = useState(r.category);
   const [error, setError] = useState("");
   const ids = useId();
+
+  // Memoized because handleSave depends on it: rebuilt every render, the
+  // callback would be too.
+  const here: ScopeTarget = useMemo(
+    () => ({ scope: r.scope, scope_id: r.scope_id }),
+    [r.scope, r.scope_id],
+  );
+  const libraries = libraryOptions(
+    here,
+    user,
+    (personaData?.personas ?? []).map((p) => p.name),
+    admin ? "admin" : "portal",
+  );
+  const [library, setLibrary] = useState(targetKey(here));
+  const [personEmail, setPersonEmail] = useState("");
 
   // A deployment may have filed this resource under a category of its own, so
   // the list offers the built-ins plus whatever the resource arrived with. It
@@ -44,6 +100,22 @@ export function EditModal({ resource: r, onClose }: { resource: Resource; onClos
     if (JSON.stringify(tags) !== JSON.stringify(r.tags)) upd.tags = tags;
     if (cat !== r.category) upd.category = cat;
 
+    // The move is sent only when the library actually changes. Echoing the
+    // current one back would be a move to where the file already is, which the
+    // server treats as a no-op but which would still read, in the audit trail,
+    // as somebody having refiled it.
+    if (library !== targetKey(here)) {
+      const move = moveFields(
+        libraries.find((t) => targetKey(t) === library),
+        personEmail,
+      );
+      if ("error" in move) {
+        setError(move.error);
+        return;
+      }
+      Object.assign(upd, move);
+    }
+
     if (Object.keys(upd).length === 0) { onClose(); return; }
 
     try {
@@ -52,7 +124,7 @@ export function EditModal({ resource: r, onClose }: { resource: Resource; onClos
     } catch (err) {
       setError(err instanceof Error ? err.message : "Update failed");
     }
-  }, [displayName, description, tagsInput, cat, r, update, onClose]);
+  }, [displayName, description, tagsInput, cat, library, libraries, personEmail, here, r, update, onClose]);
 
   return (
     <ModalShell
@@ -111,6 +183,18 @@ export function EditModal({ resource: r, onClose }: { resource: Resource; onClos
           className="field-sizing-fixed resize-none"
         />
       </div>
+
+      {libraries.length > 0 && (
+        <LibraryField
+          id={ids}
+          currentKey={targetKey(here)}
+          targets={libraries}
+          value={library}
+          onChange={setLibrary}
+          personEmail={personEmail}
+          onPersonEmailChange={setPersonEmail}
+        />
+      )}
 
       <div className="space-y-1">
         <Label className="text-xs text-muted-foreground">Category</Label>

@@ -2,6 +2,7 @@ import {
   openGlossaryResourceTables,
   openResourceDetail,
   openResourceLifecycle,
+  openResourceMove,
   openTableRegisterForm,
   openTableRepairOffer,
   openTableRepaired,
@@ -37,6 +38,17 @@ export const adminResourceRoutes: ScreenshotRoute[] = [
     path: "/portal/admin/resources",
     category: "admin",
     beforeCapture: openResourceLifecycle,
+  },
+  {
+    // The library a resource is filed in, as an editable field (#1502). It was
+    // chosen once on the upload form and never again, so the only route from a
+    // personal library to a shared one was to upload the file a second time --
+    // which mints a second id, a second URI and a second blob, and leaves every
+    // asset and prompt that referenced the first one referencing it.
+    slug: "resource-move",
+    path: "/portal/admin/resources",
+    category: "admin",
+    beforeCapture: openResourceMove,
   },
   {
     // The other half of the reference edge (#1475): the assets whose content

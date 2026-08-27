@@ -209,6 +209,14 @@ Listing resources is deliberately not audited: only content actually served coun
 
 These rows are what the portal's resource usage panel aggregates into 30- and 90-day read counts per surface, so the counts inherit the retention window configured below and a resource shown as a tile carries a `portal_preview` count that is separate from the rest. The resource's own `last_read_at` column is stamped alongside the audit row for every other surface and outlives retention, which is what the admin table's *Recently read* sort orders on. With `audit.enabled: false` no rows are written, no usage is shown, and reads are served exactly as before.
 
+### Resource moves
+
+A managed resource can be refiled in another library after it is uploaded ([Moving a resource to another library](portal-user.md#moving-a-resource-to-another-library)). Each move writes one `resource_move` row under `tool_name = resource_move`, carrying the resource's id and display name and the library on each side: `from_scope`, `from_scope_id`, `from_uri`, `to_scope`, `to_scope_id`, `to_uri`.
+
+Both sides are on the row because two different questions are asked of it. "Who put this file in front of the whole platform" is answered by the destination; "what address did this file used to have" is answered by the origin, and that is what an operator needs when a knowledge page or a script body cites a URI the resource no longer holds. Refiling a resource to the library it is already in writes nothing: a move that changed nothing would read as somebody having refiled the file.
+
+With `audit.enabled: false` no rows are written and moves are performed exactly as before.
+
 ## Parameter Sanitization
 
 Tool call arguments are logged for debugging and compliance. The `parameters` field stores those arguments verbatim (including complete SQL text and anything embedded in it), so treat it as sensitive.

@@ -380,6 +380,7 @@ Features:
 - **Search and filter** — Text search and category dropdown
 - **Upload** button — Upload new resources scoped to any persona, to a named user, or to the global library. This is the only surface that offers it: a platform administrator reading their own [Resources](portal-user.md#resources) page is offered Upload on their own library alone.
 - **Resource table** — Name, scope badge, category, MIME type, tags, file size, uploader email, and last updated date. Clicking a row opens that resource at `/admin/resources/{id}`, the same page the reader's section serves at `/resources/{id}` — content at the page's width, everything else in a sidebar beside it. See [Resources](portal-user.md#resources).
+- **Library** — On a resource's Edit dialog: moves the file to any persona, to the global library, or to a named person's library, addressed by email. This is the full set; the same dialog on the reader's own page offers what that reader holds as themselves. See [Moving a resource to another library](portal-user.md#moving-a-resource-to-another-library).
 
 ## Prompts (Admin)
 

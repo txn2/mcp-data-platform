@@ -1,5 +1,6 @@
-// Package resourceaudit records reads of managed-resource content as audit
-// events and stamps the durable last-read time on the resource row.
+// Package resourceaudit records what happens to a managed resource as audit
+// events: reads of its content, which also stamp the durable last-read time on
+// the resource row, and the move that refiles it in another library.
 //
 // It exists so the doors that serve a resource's bytes — MCP resources/read, a
 // search `fetch` of an mcp:resource:<id> reference, the REST content download,
@@ -34,6 +35,23 @@ const (
 	paramSurface     = "surface"
 	paramVersion     = "version"
 )
+
+// Parameter keys carried on a resource_move event: the file, and the library
+// and address on each side of the move.
+const (
+	paramDisplayName = "display_name"
+	paramFromScope   = "from_scope"
+	paramFromScopeID = "from_scope_id"
+	paramFromURI     = "from_uri"
+	paramToScope     = "to_scope"
+	paramToScopeID   = "to_scope_id"
+	paramToURI       = "to_uri"
+)
+
+// toolNameResourceMove is the tool_name a move is filed under. The column is
+// what the audit views group by, and a move is not a tool call, so it carries
+// the name of the act.
+const toolNameResourceMove = "resource_move"
 
 // logKeyError is the slog key for error values.
 const logKeyError = "error"
@@ -173,5 +191,55 @@ func sourceForSurface(surface string) string {
 	return middleware.SourceMCP
 }
 
+// RecordMove writes one resource_move audit event. A failure is logged and
+// swallowed: the resource has already been refiled, and a lost audit row must
+// not become a failed move reported to somebody whose file did move.
+//
+// It shares the Recorder with reads because it shares everything that decides
+// how the row is written -- the logger, the identity overlay, the delivery
+// discipline -- and because "what has happened to this resource" is one trail.
+func (r *Recorder) RecordMove(ctx context.Context, ev resource.MoveEvent) {
+	if r == nil {
+		return
+	}
+	if err := r.logger.Log(ctx, moveEvent(ctx, ev, r.now())); err != nil {
+		slog.Warn("resource move audit: write failed", logKeyError, err,
+			paramResourceID, ev.ResourceID) // #nosec G706 -- server-generated ID
+	}
+}
+
+// moveEvent builds the audit event for a completed move. The identity the
+// calling surface resolved is the REST caller's; applyPlatformContext overlays
+// a request-scoped one where there is any, exactly as a read does.
+func moveEvent(ctx context.Context, ev resource.MoveEvent, at time.Time) middleware.AuditEvent {
+	out := middleware.AuditEvent{
+		Timestamp: at,
+		ToolName:  toolNameResourceMove,
+		UserID:    ev.UserID,
+		UserEmail: ev.UserEmail,
+		// The move passed its permission check before the write; without these
+		// the row would persist as an unauthorized failure and read as a denial.
+		Success:    true,
+		Authorized: true,
+		Source:     middleware.SourceAdmin,
+		EventKind:  string(audit.EventTypeResourceMove),
+		Parameters: map[string]any{
+			paramResourceID:  ev.ResourceID,
+			paramDisplayName: ev.DisplayName,
+			paramFromScope:   string(ev.FromScope),
+			paramFromScopeID: ev.FromScopeID,
+			paramFromURI:     ev.FromURI,
+			paramToScope:     string(ev.ToScope),
+			paramToScopeID:   ev.ToScopeID,
+			paramToURI:       ev.ToURI,
+		},
+	}
+	applyPlatformContext(ctx, &out)
+	return out
+}
+
 // Verify interface compliance.
-var _ resource.ReadRecorder = (*Recorder)(nil)
+var (
+	_ resource.ReadRecorder = (*Recorder)(nil)
+	_ resource.MoveRecorder = (*Recorder)(nil)
+)

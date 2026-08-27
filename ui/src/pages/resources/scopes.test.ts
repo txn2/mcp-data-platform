@@ -3,9 +3,14 @@ import type { UserProfile } from "@/stores/auth";
 import {
   adminReachNote,
   canWriteScope,
+  currentLibrary,
   libraryCopy,
+  libraryOptions,
+  moveTargets,
   personaAdminNames,
   targetForTab,
+  targetKey,
+  PERSON_TARGET,
 } from "./scopes";
 
 function reader(overrides: Partial<UserProfile> = {}): UserProfile {
@@ -161,5 +166,116 @@ describe("what a library is called", () => {
     expect(libraryCopy({ scope: "persona", scope_id: "finance" }).source).toContain(
       "finance persona's administrators",
     );
+  });
+});
+
+describe("the libraries a resource can be moved to", () => {
+  it("offers a persona the caller merely belongs to, which Upload does not", () => {
+    const targets = moveTargets(reader(), [], "portal");
+    expect(targets.map((t) => targetKey(t))).toEqual([
+      "user:analyst@example.com",
+      "persona:analyst",
+    ]);
+    // The looser arm is the whole point: belonging is enough to receive a file
+    // you already own, while adding a new one still takes the admin role.
+    expect(canWriteScope(reader(), { scope: "persona", scope_id: "analyst" }, "portal")).toBe(false);
+  });
+
+  it("offers nothing but their own library to a reader in no persona", () => {
+    const targets = moveTargets(reader({ persona: undefined, roles: [] }), [], "portal");
+    expect(targets.map((t) => targetKey(t))).toEqual(["user:analyst@example.com"]);
+  });
+
+  it("names a persona once even when the caller both belongs to it and administers it", () => {
+    const targets = moveTargets(
+      reader({ persona: "finance", roles: ["dp_persona-admin:finance"] }),
+      [],
+      "portal",
+    );
+    expect(targets.filter((t) => t.scope === "persona")).toHaveLength(1);
+  });
+
+  it("gives an administrator every persona, the global library, and a named person", () => {
+    const targets = moveTargets(reader({ is_admin: true }), ["finance", "ops"], "admin");
+    expect(targets.map((t) => targetKey(t))).toEqual([
+      "user:analyst@example.com",
+      "persona:finance",
+      "persona:ops",
+      "global:",
+      `user:${PERSON_TARGET}`,
+    ]);
+  });
+
+  it("withholds the platform-admin override on the reader's own page", () => {
+    // Same rule canWriteScope applies: publishing to everyone signed in is not
+    // offered inside a page reached by browsing.
+    const targets = moveTargets(reader({ is_admin: true }), ["finance"], "portal");
+    expect(targets.map((t) => targetKey(t))).not.toContain("global:");
+    expect(targets.map((t) => targetKey(t))).not.toContain(`user:${PERSON_TARGET}`);
+  });
+
+  it("offers nobody anything when nobody is signed in", () => {
+    expect(moveTargets(null, ["finance"], "admin")).toEqual([]);
+  });
+});
+
+describe("the library a resource is in now", () => {
+  it("is the reader's own when it is keyed on them", () => {
+    expect(currentLibrary({ scope: "user", scope_id: "analyst@example.com" }, reader()).label).toBe(
+      "My Resources",
+    );
+  });
+
+  it("names another person by the address it is keyed on", () => {
+    expect(currentLibrary({ scope: "user", scope_id: "her@example.com" }, reader()).label).toBe(
+      "her@example.com's library",
+    );
+  });
+
+  it("describes a library keyed on a subject identifier rather than printing it", () => {
+    // A raw UUID names nobody to the person reading it.
+    expect(
+      currentLibrary({ scope: "user", scope_id: "550e8400-e29b-41d4-a716-446655440000" }, reader())
+        .label,
+    ).toBe("Another person's library");
+  });
+
+  it("names a persona and the global library", () => {
+    expect(currentLibrary({ scope: "persona", scope_id: "ops" }, reader()).label).toBe("ops persona");
+    expect(currentLibrary({ scope: "global", scope_id: "" }, reader()).label).toBe("Global");
+  });
+});
+
+describe("the options the Library picker offers", () => {
+  it("puts the current library first and never twice", () => {
+    const options = libraryOptions(
+      { scope: "user", scope_id: "analyst@example.com" },
+      reader(),
+      [],
+      "portal",
+    );
+    expect(options.map((t) => targetKey(t))).toEqual([
+      "user:analyst@example.com",
+      "persona:analyst",
+    ]);
+  });
+
+  it("offers the current library even when the caller could not move it there", () => {
+    // An administrator editing a file in somebody else's library has to be able
+    // to leave it where it is.
+    const options = libraryOptions(
+      { scope: "user", scope_id: "her@example.com" },
+      reader({ is_admin: true }),
+      ["ops"],
+      "admin",
+    );
+    expect(options[0]).toMatchObject({ scope: "user", scope_id: "her@example.com" });
+  });
+
+  it("is empty when there is nowhere else to put the file", () => {
+    // A picker whose only entry is where the file already sits is a control
+    // that cannot do anything, so the field is not shown at all.
+    const own = { scope: "user", scope_id: "analyst@example.com" } as const;
+    expect(libraryOptions(own, reader({ persona: undefined, roles: [] }), [], "portal")).toEqual([]);
   });
 });

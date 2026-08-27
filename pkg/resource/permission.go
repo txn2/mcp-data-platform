@@ -111,6 +111,31 @@ func CanWriteScope(c Claims, scope Scope, scopeID string) bool {
 	}
 }
 
+// CanMoveToLibrary reports whether the caller may file a resource into the named
+// library. The caller must separately be allowed to modify the resource itself
+// (CanModifyResource); this answers only the destination half.
+//
+// It is deliberately looser than CanWriteScope on one arm and identical on every
+// other. Uploading into a persona library takes that persona's admin role, and
+// that stays: putting new material in front of a persona's members is the
+// persona administrator's call. Moving a file you already own into a persona you
+// BELONG to is a different act -- the file exists, you own it, and you are one of
+// the people who will read it -- so membership is enough.
+//
+// Widening CanWriteScope itself would have been the smaller diff and the wrong
+// one: it is what the upload route checks and what the Resources page derives its
+// Upload control and its scope tabs from, so every member of every persona would
+// have gained an upload door nobody asked to open.
+//
+// Global stays admin-only through CanWriteScope, and so does another person's
+// library.
+func CanMoveToLibrary(c Claims, scope Scope, scopeID string) bool {
+	if CanWriteScope(c, scope, scopeID) {
+		return true
+	}
+	return scope == ScopePersona && scopeID != "" && slices.Contains(c.Personas, scopeID)
+}
+
 // CanModifyResource checks whether the caller can update or delete a resource.
 // The caller must be the original uploader OR have write permission for the
 // scope.

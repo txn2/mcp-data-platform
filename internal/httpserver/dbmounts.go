@@ -404,7 +404,12 @@ func mountResourcesAPI(mux *http.ServeMux, p *platform.Platform) {
 	if store := p.Audit().Store(); store != nil {
 		deps.Usage = store
 		tracker, _ := deps.Store.(resource.ReadTracker) // nil when unsupported
-		deps.ReadRecorder = resourceaudit.New(middleware.NewAuditStoreAdapter(store), tracker)
+		rec := resourceaudit.New(middleware.NewAuditStoreAdapter(store), tracker)
+		deps.ReadRecorder = rec
+		// The same recorder answers both trails: a move is a write to the same
+		// resource, written through the same logger with the same identity
+		// overlay (#1502).
+		deps.MoveRecorder = rec
 	}
 
 	handler := resource.NewHandler(deps, extractClaims, nil)

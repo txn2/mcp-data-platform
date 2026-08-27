@@ -254,6 +254,35 @@ export async function openResourceLifecycle(page: Page): Promise<void> {
 }
 
 /**
+ * openResourceMove opens the edit dialog on the resource detail page and picks a
+ * library to move the file into (#1502).
+ *
+ * The picked library matters: the destination note only appears once the
+ * selection differs from where the file is, and that note -- who will be able to
+ * see the file, and that its address changes while the address already written
+ * down keeps resolving -- is the whole point of the capture.
+ */
+export async function openResourceMove(page: Page): Promise<void> {
+  // A resource in one person's own library, rather than the revision-trail
+  // fixture the other captures open: the file this documents is one whose
+  // library is about to widen, and the global fixture is already where the
+  // widest move would land.
+  await page
+    .getByText("Query Templates", { exact: true })
+    .first()
+    .click({ timeout: 3_000 });
+  await page.waitForTimeout(700);
+  await page.getByRole("button", { name: "Edit" }).first().click({ timeout: 3_000 });
+  await page.getByRole("combobox", { name: "Library" }).click({ timeout: 3_000 });
+  await page.getByRole("option", { name: "Global" }).click({ timeout: 3_000 });
+  // Waited on rather than timed out: the note appears only once the selection
+  // differs from where the file is, so a swallowed click would publish the
+  // dialog captioned as a move with no move selected in it.
+  await page.getByTestId("library-move-note").waitFor({ state: "visible", timeout: 5_000 });
+  await page.waitForTimeout(400);
+}
+
+/**
  * openPersonaScopeTab switches a resources table to the data-engineer persona
  * scope, which is the one the fixtures populate. Both the user and admin
  * resources captures want it, so it lives here rather than twice in the
