@@ -186,10 +186,14 @@ func (s *postgresStore) GetByURI(ctx context.Context, uri string) (*Resource, er
 	if err == nil || !IsNotFound(err) {
 		return res, err
 	}
+	// The alias table is read as a subquery rather than joined. Both tables have
+	// a uri column, so a join puts two of them in scope and PostgreSQL rejects
+	// the unqualified selectColumns projection as ambiguous (#1506). Reading
+	// from resources alone keeps that column list usable here, as it is in every
+	// other read in this file.
 	aliased := `SELECT ` + selectColumns + `
-		FROM resources r
-		JOIN resource_uri_aliases a ON a.resource_id = r.id
-		WHERE a.uri = $1`
+		FROM resources
+		WHERE id = (SELECT resource_id FROM resource_uri_aliases WHERE uri = $1)`
 	return s.scanOne(s.db.QueryRowContext(ctx, aliased, uri))
 }
 

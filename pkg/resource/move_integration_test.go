@@ -242,13 +242,28 @@ func (*memAttachments) Reorder(context.Context, string, []string) error { return
 // --- the assembled platform ---
 
 type movePlatform struct {
-	store    *memResources
+	// store is the interface rather than the in-memory implementation so the
+	// same assembled surfaces can be pointed at a real database. The map-backed
+	// store answers the question of whether the routes are wired to each other;
+	// only Postgres answers whether the statements they issue run (#1506).
+	store    resource.Store
 	blobs    *memBlobs
 	refs     *memRefs
 	patch    http.Handler
 	serveRef http.Handler
 	prompts  *attachserve.Resolver
 	res      *resource.Resource
+}
+
+// row reads the fixture resource back through the store, which is how an
+// assertion about the moved row reaches either implementation.
+func (p *movePlatform) row(t *testing.T) *resource.Resource {
+	t.Helper()
+	got, err := p.store.Get(t.Context(), p.res.ID)
+	if err != nil {
+		t.Fatalf("reading the moved resource: %v", err)
+	}
+	return got
 }
 
 // owner is the person whose library the file starts in. They belong to the ops
@@ -262,7 +277,14 @@ func owner() *resource.Claims {
 
 func newMovePlatform(t *testing.T) *movePlatform {
 	t.Helper()
-	store := newMemResources()
+	return newMovePlatformOn(t, newMemResources())
+}
+
+// newMovePlatformOn assembles the same routes over the store it is given, so
+// the map-backed run and the real-Postgres run (move_route_realdb_integration_test.go)
+// exercise one set of surfaces rather than two that can drift apart.
+func newMovePlatformOn(t *testing.T, store resource.Store) *movePlatform {
+	t.Helper()
 	blobs := &memBlobs{objects: map[string][]byte{}}
 	deps := resource.Deps{
 		Store: store, S3Client: blobs, S3Bucket: testBucket, URIScheme: "mcp",
@@ -365,8 +387,8 @@ func TestAnAssetKeepsRenderingAResourceAcrossAMove(t *testing.T) {
 	if declared.URI != "mcp://user/sub-1/templates/report.docx" {
 		t.Errorf("the declaration was rewritten to %q", declared.URI)
 	}
-	if p.store.rows[p.res.ID].URI != "mcp://persona/ops/templates/report.docx" {
-		t.Errorf("the resource's own URI is %q", p.store.rows[p.res.ID].URI)
+	if moved := p.row(t); moved.URI != "mcp://persona/ops/templates/report.docx" {
+		t.Errorf("the resource's own URI is %q", moved.URI)
 	}
 }
 
@@ -454,7 +476,7 @@ func TestTheMovedFileLeavesTheMoversLibrary(t *testing.T) {
 	if rec := p.move(t); rec.Code != http.StatusOK {
 		t.Fatalf("move: status %d", rec.Code)
 	}
-	moved := p.store.rows[p.res.ID]
+	moved := p.row(t)
 
 	// A member of ops reads it; the same person's personal library no longer
 	// contains it, and somebody outside ops cannot read it at all.

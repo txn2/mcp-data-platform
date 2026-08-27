@@ -248,7 +248,7 @@ func TestPostgresStore_GetByURIResolvesAVacatedAddress(t *testing.T) {
 
 	old := "mcp://user/sub-1/templates/report.docx"
 	mock.ExpectQuery("FROM resources WHERE uri = ").WithArgs(old).WillReturnError(sql.ErrNoRows)
-	mock.ExpectQuery("JOIN resource_uri_aliases").WithArgs(old).
+	mock.ExpectQuery("FROM resource_uri_aliases WHERE uri = ").WithArgs(old).
 		WillReturnRows(resourceRows("mcp://persona/ops/templates/report.docx"))
 
 	res, err := NewPostgresStore(db).GetByURI(context.Background(), old)
@@ -310,7 +310,7 @@ func TestPostgresStore_GetByURIUnknownEverywhere(t *testing.T) {
 
 	uri := "mcp://global/t/gone.csv"
 	mock.ExpectQuery("FROM resources WHERE uri = ").WithArgs(uri).WillReturnError(sql.ErrNoRows)
-	mock.ExpectQuery("JOIN resource_uri_aliases").WithArgs(uri).WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery("FROM resource_uri_aliases WHERE uri = ").WithArgs(uri).WillReturnError(sql.ErrNoRows)
 
 	_, err = NewPostgresStore(db).GetByURI(context.Background(), uri)
 	if !IsNotFound(err) {
