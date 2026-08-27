@@ -630,3 +630,63 @@ func TestDenyNonHTMLKeepsPlainText(t *testing.T) {
 	assert.NotContains(t, w.Header().Get("Content-Type"), "text/html")
 	assert.Equal(t, "sign in required\n", w.Body.String())
 }
+
+// A deployment that sets an implementor logo and no implementor name gets the
+// logo on the landing page, matching the public viewer (#1507). The previous
+// gate keyed on the name alone, so the page rendered nothing while its policy
+// still admitted the logo's origin.
+func TestDenyRendersLogoOnlyImplementor(t *testing.T) {
+	const implImg = `<img src="https://img.example.net/badge.png" alt="">`
+
+	svc := New(Config{
+		Resolve: func(context.Context, string) (ShareInfo, bool) { return fixtureShare(), true },
+		Brand: Brand{
+			Name:                "ACME Data",
+			ImplementorLogoHTML: implImg,
+			ImageSources:        []string{"https://img.example.net"},
+			// ImplementorName intentionally empty.
+		},
+	})
+	w := httptest.NewRecorder()
+	svc.Deny(w, denyReq(""), Denial{Status: http.StatusForbidden, Message: "m", Token: "tok1"})
+
+	body := w.Body.String()
+	assert.Contains(t, body, implImg, "the implementor logo must render with no name configured")
+	assert.Contains(t, body, `class="brand muted-brand"`, "the implementor block must render")
+	// The platform brand also uses brand-name, so constrain the search to the
+	// implementor block: an empty name must emit no span at all.
+	implBlock := body
+	if before, _, found := strings.Cut(body, `<div class="spacer">`); found {
+		implBlock = before
+	}
+	assert.NotContains(t, implBlock, `<span class="brand-name">`,
+		"an empty implementor name must not produce a brand-name span")
+	assert.Contains(t, w.Header().Get("Content-Security-Policy"), "https://img.example.net",
+		"a page whose policy admits the logo's origin is a page that renders it")
+}
+
+// The name-only case predates #1507 and must survive the widened gate: a
+// rewrite to AND would hide the block for every deployment that sets a name
+// and no logo.
+func TestDenyRendersNameOnlyImplementor(t *testing.T) {
+	svc := New(Config{
+		Resolve: func(context.Context, string) (ShareInfo, bool) { return fixtureShare(), true },
+		Brand: Brand{
+			Name:            "ACME Data",
+			ImplementorName: "ACME Corp",
+			// ImplementorLogoHTML intentionally empty.
+		},
+	})
+	w := httptest.NewRecorder()
+	svc.Deny(w, denyReq(""), Denial{Status: http.StatusForbidden, Message: "m", Token: "tok1"})
+
+	body := w.Body.String()
+	assert.Contains(t, body, `<span class="brand-name">ACME Corp</span>`,
+		"the implementor name must render with no logo configured")
+	implBlock := body
+	if before, _, found := strings.Cut(body, `<div class="spacer">`); found {
+		implBlock = before
+	}
+	assert.NotContains(t, implBlock, `class="brand-logo"`,
+		"an empty implementor logo must not produce a logo slot")
+}

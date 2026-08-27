@@ -601,8 +601,8 @@ portal:
 | `public_base_url` | string | - | Base URL for portal links returned in `save_asset` responses |
 | `max_content_size` | int | `10485760` | Maximum asset size in bytes (10 MB) |
 | `max_versions` | int | `100` | Versions an asset keeps when it carries no override of its own. A version pushed past the cap is deleted along with its stored content and thumbnails; the current version is never pruned. `0` keeps every version, and a negative value is refused at startup. Applied at the write, so an asset already over the cap is trimmed the next time it is written, not when this setting changes. An asset's owner can override it — see [Asset version retention](portal-user.md#version-retention) |
-| `implementor.name` | string | - | Implementor display name shown in the left zone of the public viewer header |
-| `implementor.logo` | string | - | URL to the implementor logo, in any image format. The public viewer and the share pages link it with an `<img>` element; its origin is added to the `img-src` of the pages whose policy would otherwise block it |
+| `implementor.name` | string | - | Implementor display name shown in the left zone of the public viewer, the public collection viewer, the guest share landing page, and the access-denied page. Independent of `implementor.logo`: either one alone renders the implementor block |
+| `implementor.logo` | string | - | URL to the implementor logo, in any image format. The public viewer and the share pages link it with an `<img>` element; its origin is added to the `img-src` of the pages whose policy would otherwise block it. Renders with or without `implementor.name` |
 | `implementor.url` | string | - | Clickable link wrapping the implementor name and logo |
 | `terms_url` | string | - | Terms-of-service URL rendered as a small footer link in notification emails. Omitted when unset |
 | `privacy_url` | string | - | Privacy-policy URL rendered as a small footer link in notification emails. Omitted when unset |

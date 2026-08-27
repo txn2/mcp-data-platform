@@ -285,3 +285,36 @@ func TestDeny_RendersImplementorChrome(t *testing.T) {
 		}
 	}
 }
+
+// A deployment that sets an implementor logo and no implementor name gets the
+// logo on the access-denied page, matching the public viewer (#1507). The
+// previous gate keyed on the name alone, so the page rendered nothing while
+// its policy still admitted the logo's origin.
+func TestDeny_RendersLogoOnlyImplementor(t *testing.T) {
+	const implImg = `<img src="https://img.example.net/badge.png" alt="">`
+
+	rec := httptest.NewRecorder()
+	accessgate.New(mappedResolver, accessgate.Brand{
+		Name:                "ACME Data",
+		ImplementorLogoHTML: implImg,
+		ImageSources:        []string{"https://img.example.net"},
+		// ImplementorName intentionally empty.
+	}).Deny(rec, requestAs(t, http.MethodGet, acceptHTML, nil), deniedEmail)
+
+	body := rec.Body.String()
+	if !strings.Contains(body, implImg) {
+		t.Error("the implementor logo did not render with no name configured")
+	}
+	if !strings.Contains(body, `class="brand muted-brand"`) {
+		t.Error("the implementor block did not render")
+	}
+	// The platform brand also uses brand-name, so constrain the search to the
+	// implementor block: an empty name must emit no span at all.
+	implBlock, _, _ := strings.Cut(body, `<div class="spacer">`)
+	if strings.Contains(implBlock, `<span class="brand-name">`) {
+		t.Error("an empty implementor name produced a brand-name span")
+	}
+	if csp := rec.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "https://img.example.net") {
+		t.Errorf("Content-Security-Policy %q must admit the origin of the logo the page renders", csp)
+	}
+}
