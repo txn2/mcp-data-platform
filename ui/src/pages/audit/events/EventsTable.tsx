@@ -11,7 +11,7 @@ import {
 import type { AuditEvent, AuditSortColumn, SortOrder } from "@/api/admin/types";
 import { formatDuration } from "@/lib/formatDuration";
 import { formatToolName } from "@/lib/formatToolName";
-import { formatUser } from "@/lib/formatUser";
+import { PrincipalLabel } from "@/components/PrincipalLabel";
 import { COLUMNS, sourceLabel } from "./columns";
 
 // EventsTable is the audit log itself: one row per tool call, sortable on
@@ -81,8 +81,8 @@ export function EventsTable({
               <TableCell className="px-3 text-xs">
                 {new Date(event.timestamp).toLocaleString()}
               </TableCell>
-              <TableCell className="max-w-[11rem] truncate px-3" title={event.user_id}>
-                {formatUser(event.user_id, event.user_email)}
+              <TableCell className="max-w-[11rem] px-3">
+                <PrincipalLabel userId={event.user_id} email={event.user_email} />
               </TableCell>
               <TableCell className="px-3 text-xs" title={event.tool_name}>
                 {formatToolName(event.tool_name, titleMap[event.tool_name])}

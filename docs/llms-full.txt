@@ -1169,8 +1169,8 @@ Every tool call produces one row in `audit_logs` with these fields:
 | `timestamp` | TIMESTAMPTZ | When the tool call started. |
 | `duration_ms` | INTEGER | Wall-clock time in milliseconds. |
 | `request_id` | VARCHAR(255) | Request ID from auth middleware. |
-| `user_id` | VARCHAR(255) | Authenticated user identity. |
-| `user_email` | VARCHAR(255) | User email from OIDC claims. |
+| `user_id` | VARCHAR(255) | The principal that made the call: an OIDC subject for a person, `apikey:<name>` for a key, `script:<name>` for a managed-script run. |
+| `user_email` | VARCHAR(255) | The address the principal acts for (the script owner's on a run). Not an identity: an owner's every script writes the same address, so `user_id` is what separates two rows, and `GET /api/v1/admin/audit/events/filters` returns both the distinct ids and a `user_labels` map between them. |
 | `persona` | VARCHAR(100) | Resolved persona name. |
 | `tool_name` | VARCHAR(255) | MCP tool name. |
 | `toolkit_kind` | VARCHAR(100) | Toolkit type: `trino`, `datahub`, or `s3`. |

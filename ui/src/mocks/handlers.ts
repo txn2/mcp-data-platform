@@ -1419,7 +1419,15 @@ export const handlers = [
     const sources = [
       ...new Set(mockAuditEvents.map((e) => e.source).filter(Boolean)),
     ].sort();
-    return HttpResponse.json({ users, tools, toolkit_kinds, sources });
+    // The label map the real endpoint returns beside the facet: the address
+    // each principal acts for. A script's principal resolves to its owner, so
+    // several ids here answer with one address and the facet has to say which
+    // principal it is offering (#1523).
+    const user_labels: Record<string, string> = {};
+    for (const e of mockAuditEvents) {
+      if (e.user_email) user_labels[e.user_id] ??= e.user_email;
+    }
+    return HttpResponse.json({ users, tools, toolkit_kinds, sources, user_labels });
   }),
 
   http.get(`${ADMIN_BASE}/audit/events`, ({ request }) => {

@@ -324,7 +324,9 @@ function toolDuration(tool: ToolDef): number {
 // what the sessions list reads back. The prefixes are the platform's own: dps_
 // for an agent's handle, dpp_ for a portal run, dpx_ for a script run, and bare
 // hex for a transport session. Every kind is represented so the dev UI and the
-// screenshots show all four.
+// screenshots show all four; the dpx_ ids are minted with the automations
+// below, since a script-run session belongs to the run that made it and the
+// corpus generated here is people at keyboards.
 function hexPool(prefix: string, count: number): string[] {
   // Both halves vary with the index: the list shortens an id to its head and
   // tail, and a shared tail would make every row look like the same session.
@@ -337,16 +339,14 @@ function hexPool(prefix: string, count: number): string[] {
 
 export const agentSessions = hexPool("dps_", 8);
 const portalSessions = hexPool("dpp_", 3);
-const scriptSessions = hexPool("dpx_", 2);
 const transportSessions = hexPool("", 2);
 
 function sessionIDFor(source: string): string {
   if (source === "admin") return seededItem(portalSessions);
-  if (source === "rest") {
-    return rand() > 0.5
-      ? seededItem(scriptSessions)
-      : seededItem(transportSessions);
-  }
+  // The REST shim's callers are cronjobs and pipelines holding a transport
+  // session, not managed-script runs: those are the automations below, and
+  // they record under a run id of their own.
+  if (source === "rest") return seededItem(transportSessions);
   return seededItem(agentSessions);
 }
 
@@ -455,7 +455,161 @@ function pickSource(kind: string): string {
   return rand() < 0.05 ? "admin" : "mcp";
 }
 
-export const mockAuditEvents = generateEvents(500);
+// ---------------------------------------------------------------------------
+// The automations
+// ---------------------------------------------------------------------------
+
+// A caller that is not a person: a managed script run (script:<name>, per
+// pkg/script's PrincipalPrefix) or an API key (apikey:<name>). Each carries the
+// address it acts for, which is the owner of the script or the person the key
+// was issued to. That address is not an identity: three of the scripts below
+// belong to one person, so four principals here share one address and only the
+// kind and the name tell them apart (#1523).
+interface Automation {
+  principal: string;
+  email: string;
+  persona: string;
+  source: string;
+  // The calls one run makes, in order. The last is the run itself for a
+  // script, which is the lifecycle row the runner writes.
+  calls: { tool: string; connection: string; kind: string; toolkit: string }[];
+}
+
+// The script names are the fixture's own (see mocks/data/scripts.ts), so a run
+// in the audit log is the same script the scripts surface lists.
+const automations: Automation[] = [
+  {
+    principal: "script:daily-sales-report",
+    email: "sarah.chen@example.com",
+    persona: "admin",
+    source: "script",
+    calls: [
+      { tool: "trino_query", connection: "acme-warehouse", kind: "trino", toolkit: "acme-warehouse" },
+      { tool: "save_asset", connection: "", kind: "portal", toolkit: "portal" },
+      { tool: "run_script", connection: "", kind: "", toolkit: "" },
+    ],
+  },
+  {
+    principal: "script:warehouse-freshness",
+    email: "sarah.chen@example.com",
+    persona: "admin",
+    source: "script",
+    calls: [
+      { tool: "trino_describe_table", connection: "acme-warehouse", kind: "trino", toolkit: "acme-warehouse" },
+      { tool: "trino_query", connection: "acme-warehouse", kind: "trino", toolkit: "acme-warehouse" },
+      { tool: "run_script", connection: "", kind: "", toolkit: "" },
+    ],
+  },
+  {
+    principal: "script:my-margin-check",
+    email: "sarah.chen@example.com",
+    persona: "admin",
+    source: "script",
+    calls: [
+      { tool: "trino_query", connection: "acme-warehouse", kind: "trino", toolkit: "acme-warehouse" },
+      { tool: "run_script", connection: "", kind: "", toolkit: "" },
+    ],
+  },
+  {
+    principal: "script:dormant-accounts",
+    email: "marcus.webb@example.com",
+    persona: "data-engineer",
+    source: "script",
+    calls: [
+      { tool: "trino_query", connection: "acme-warehouse", kind: "trino", toolkit: "acme-warehouse" },
+      { tool: "run_script", connection: "", kind: "", toolkit: "" },
+    ],
+  },
+  // The key the nightly load authenticates with. It configured no address, so
+  // it authenticates as the synthetic one pkg/auth mints, which is an identity
+  // rather than a mailbox.
+  {
+    principal: "apikey:nightly-warehouse-load",
+    email: "nightly-warehouse-load@apikey.local",
+    persona: "data-engineer",
+    source: "rest",
+    calls: [
+      { tool: "trino_execute", connection: "acme-staging", kind: "trino", toolkit: "acme-staging" },
+      { tool: "trino_query", connection: "acme-warehouse", kind: "trino", toolkit: "acme-warehouse" },
+    ],
+  },
+];
+
+const AUTOMATION_STATEMENTS: Record<string, string> = {
+  "script:daily-sales-report":
+    "SELECT region, SUM(amount) AS revenue FROM sales.orders WHERE order_date = current_date - interval '1' day GROUP BY region ORDER BY revenue DESC",
+  "script:warehouse-freshness":
+    "SELECT table_name, MAX(loaded_at) AS last_load FROM warehouse.load_audit GROUP BY table_name",
+  "script:my-margin-check":
+    "SELECT product_line, AVG(margin_pct) AS margin FROM sales.margins GROUP BY product_line",
+  "script:dormant-accounts":
+    "SELECT account_id, MAX(order_date) AS last_order FROM sales.orders GROUP BY account_id HAVING MAX(order_date) < current_date - interval '90' day",
+  "apikey:nightly-warehouse-load":
+    "INSERT INTO staging.orders_raw SELECT * FROM landing.orders_incoming",
+};
+
+// automationEvents renders one run per automation. Nothing here draws from the
+// seeded sequence: the generated corpus above is unchanged by their presence,
+// and a run's calls sit minutes apart under one session so the sessions list
+// reads them as one run.
+function automationEvents(): AuditEvent[] {
+  const events: AuditEvent[] = [];
+  // A session belongs to one caller, so each run gets its own: a run session
+  // for a script, and a transport session the key holds alone, distinct from
+  // the two the people above hold.
+  const runSessions = hexPool("dpx_", automations.filter((a) => a.source === "script").length);
+  const keySession = hexPool("", 3)[2]!;
+  let run = 0;
+  // The most recent early-morning slot that has already passed: a scheduled
+  // report runs before the day starts, and a run in the future would sort
+  // above every real event.
+  const start = new Date();
+  start.setHours(6, 5, 0, 0);
+  if (start.getTime() > Date.now()) start.setDate(start.getDate() - 1);
+
+  automations.forEach((automation, runIndex) => {
+    const session = automation.source === "script" ? runSessions[run++]! : keySession;
+    automation.calls.forEach((call, callIndex) => {
+      const at = new Date(start.getTime() + (runIndex * 11 + callIndex * 2) * 60_000);
+      const lifecycle = call.tool === "run_script";
+      events.push({
+        id: `evt-auto-${runIndex}-${callIndex}`,
+        timestamp: at.toISOString(),
+        duration_ms: lifecycle ? 4200 + runIndex * 900 : 260 + callIndex * 140,
+        request_id: `req-auto-${runIndex}-${callIndex}`,
+        session_id: session,
+        user_id: automation.principal,
+        user_email: automation.email,
+        persona: automation.persona,
+        tool_name: call.tool,
+        toolkit_kind: call.kind,
+        toolkit_name: call.toolkit,
+        connection: call.connection,
+        // A run threads no purpose: the caller is the script, and the platform
+        // does not ask it why (see AuditEvent.purpose).
+        parameters: call.tool.startsWith("trino_")
+          ? { sql: AUTOMATION_STATEMENTS[automation.principal] ?? "" }
+          : {},
+        success: true,
+        response_chars: 1800 + callIndex * 260,
+        request_chars: 220,
+        content_blocks: 1,
+        transport: "http",
+        source: automation.source,
+        // Enrichment runs on what it has context for: a query against a
+        // catalogued table, not a portal save or the run record itself.
+        enrichment_applied: call.kind === "trino",
+        authorized: true,
+      });
+    });
+  });
+
+  return events;
+}
+
+export const mockAuditEvents = [...generateEvents(500), ...automationEvents()].sort(
+  (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+);
 
 // ---------------------------------------------------------------------------
 // Timeseries — 24 hourly buckets with business-hours bell curve

@@ -2,7 +2,7 @@ import { FilterSelect } from "@/components/patterns/FilterSelect";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { AuditFiltersResponse } from "@/api/admin/types";
-import { formatUser } from "@/lib/formatUser";
+import { principalOptions } from "@/lib/formatUser";
 
 // EventFilters is the events table's facet bar: free-text search, the five
 // dimensions the audit index is queryable on, and the export of whatever the
@@ -47,14 +47,12 @@ export function EventFilters({
       />
       <FilterSelect
         label="Filter by user"
+        className="max-w-56"
         value={value.userId}
         onChange={(userId) => onChange({ userId })}
         options={[
           { value: "", label: "All Users" },
-          ...(filters?.users ?? []).map((u) => ({
-            value: u,
-            label: filters?.user_labels?.[u] || formatUser(u),
-          })),
+          ...principalOptions(filters?.users, filters?.user_labels),
         ]}
       />
       <FilterSelect

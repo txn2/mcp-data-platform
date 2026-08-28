@@ -8,7 +8,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { SessionSummary } from "@/api/admin/types";
-import { formatUser } from "@/lib/formatUser";
+import { PrincipalLabel } from "@/components/PrincipalLabel";
 import { kindDescription, kindLabel, shortSessionId } from "./kind";
 
 // SessionsTable is the session list itself: one row per session, opening on
@@ -96,11 +96,8 @@ export function SessionsTable({
                 </span>
               </TableCell>
               {showUser && (
-                <TableCell
-                  className="max-w-[12rem] truncate px-3"
-                  title={session.user_id}
-                >
-                  {formatUser(session.user_id, session.user_email)}
+                <TableCell className="max-w-[12rem] px-3">
+                  <PrincipalLabel userId={session.user_id} email={session.user_email} />
                 </TableCell>
               )}
               <TableCell className="px-3 text-xs">

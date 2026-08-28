@@ -231,6 +231,7 @@ The Events tab provides a searchable, filterable log of every tool call.
 Features:
 
 - **Filters** — User, tool, status (success/failure), and time range dropdowns, plus a **Session ID** box that narrows the table to one session's calls
+- **Who made the call** — The User column and the user filter name the [principal](audit.md#who-made-the-call), not just an address: a person reads as their address, while a managed script and an API key carry a **script** or **apikey** marker, their name, and the address they act for. An owner's scripts all act for one address, so the filter offers each principal separately rather than repeating that address once per script.
 - **Sortable columns** — Timestamp, user, tool, toolkit, connection, duration, status, and enrichment
 - **Purpose** — The one sentence the agent stated about why the call was made, truncated to fit and shown in full on hover and in the drawer. A dash means none was stated: the tool is outside the [gated set](configuration.md#purpose-configuration), or the caller (an MCP App, a managed script, the REST shim, a portal run) cannot thread arguments at all. The column does not sort — alphabetical order over free prose means nothing — but the search box matches it, so an operator can find every call made for a given task.
 - **Export** — Export CSV and Export JSON buttons
@@ -262,7 +263,7 @@ The Sessions page is the platform's work, grouped by who was doing it. The Event
 
 ![Sessions](../images/screenshots/light/admin-admin-sessions-light.webp#only-light)![Sessions](../images/screenshots/dark/admin-admin-sessions-dark.webp#only-dark)
 
-A session is read back from the audit log rather than stored, so the list outlives the session record itself and reaches as far back as audit retention. Each row carries when the session was last active, its id and kind (**Agent**, **Portal run**, **Script run**, **Transport** — see [the kinds](audit.md#sessions-read-back-from-the-log)), the caller and the persona they worked as, how many calls it made, how many failed, and what it produced. Filters narrow by user, kind, sessions with failures, and sessions that saved assets.
+A session is read back from the audit log rather than stored, so the list outlives the session record itself and reaches as far back as audit retention. Each row carries when the session was last active, its id and kind (**Agent**, **Portal run**, **Script run**, **Transport** — see [the kinds](audit.md#sessions-read-back-from-the-log)), the caller and the persona they worked as, how many calls it made, how many failed, and what it produced. The caller is the [principal](audit.md#who-made-the-call), so a script run's session reads as that script rather than as its owner. Filters narrow by user, kind, sessions with failures, and sessions that saved assets.
 
 The first facet is the time window, and it is a control rather than a hidden default: the list rolls up every event in range, so it opens on the last 7 days and offers 24 hours, 30 days, and all time. Widening it is the reader's choice, and nothing is withheld without saying so.
 
@@ -284,7 +285,7 @@ The Calls page is every data-access call the platform recorded, across every cal
 
 A record is derived from the audit log and kept in its own table, because the two are kept for different reasons: audit retention is the deployment's history window, while a query worth reusing is worth keeping as long as it is worth running. What is not stored is the outcome. `satisfied`, `failed`, `superseded` and `ran` are computed on every read from the call's own result, from whatever later **named** it, and from what the same session read afterwards, so an outcome can never disagree with the asset or the capture that gives it meaning. The four are defined in [the user portal's My Calls](portal-user.md#my-calls).
 
-Filters narrow by user, kind (SQL or API), connection, outcome, and free text over the purpose and the statement. **Awaiting review** is the review queue: the records that answered something and carry no decision yet, ordered by reuse first, because a query a stranger re-ran is better evidence than one its own author vouched for.
+Filters narrow by user, kind (SQL or API), connection, outcome, and free text over the purpose and the statement. As on the other two lists, the user facet and the User column name the [principal](audit.md#who-made-the-call) that made the call. **Awaiting review** is the review queue: the records that answered something and carry no decision yet, ordered by reuse first, because a query a stranger re-ran is better evidence than one its own author vouched for.
 
 Clicking a row opens the record.
 

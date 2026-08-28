@@ -6,7 +6,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { DrawerShell } from "@/components/patterns/DrawerShell";
 import { formatDuration } from "@/lib/formatDuration";
-import { formatUser } from "@/lib/formatUser";
+import { PrincipalLabel } from "@/components/PrincipalLabel";
 import { Play } from "lucide-react";
 
 export function EventDrawer({
@@ -79,8 +79,8 @@ export function EventDrawer({
         </div>
         <div>
           <p className="text-xs text-muted-foreground">User</p>
-          <p title={event.user_id}>
-            {formatUser(event.user_id, event.user_email)}
+          <p>
+            <PrincipalLabel userId={event.user_id} email={event.user_email} />
           </p>
         </div>
         <div>
