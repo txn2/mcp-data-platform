@@ -777,11 +777,12 @@ func TestRegisterTools(t *testing.T) {
 	assert.Contains(t, tools, feedbackToolName)
 }
 
-// TestToolsListVocabulary is the #1029 acceptance check on the advertised
-// surface: a real tools/list response names the portal tools save_asset and
-// manage_asset, and no portal tool's name, description, or input schema uses
-// the word "artifact" anywhere the model reads it.
-func TestToolsListVocabulary(t *testing.T) {
+// advertisedTools returns the toolkit's tools as a real tools/list response
+// carries them, so a contract assertion reads what a client is served rather
+// than the constants the registration happens to pass today.
+func advertisedTools(t *testing.T) []*mcp.Tool {
+	t.Helper()
+
 	tk := New(Config{Name: "test", S3Bucket: "bucket"})
 	server := mcp.NewServer(&mcp.Implementation{Name: "test-server", Version: "0.0.1"}, nil)
 	tk.RegisterTools(server)
@@ -799,9 +800,51 @@ func TestToolsListVocabulary(t *testing.T) {
 
 	res, err := session.ListTools(ctx, &mcp.ListToolsParams{})
 	require.NoError(t, err)
+	return res.Tools
+}
 
-	names := make([]string, 0, len(res.Tools))
-	for _, tool := range res.Tools {
+// advertisedTool returns one advertised tool by name.
+func advertisedTool(t *testing.T, name string) *mcp.Tool {
+	t.Helper()
+
+	for _, tool := range advertisedTools(t) {
+		if tool.Name == name {
+			return tool
+		}
+	}
+	require.FailNowf(t, "tool not advertised", "tools/list does not carry %q", name)
+	return nil
+}
+
+// advertisedFieldDescription returns one input field's description from the
+// schema a tools/list response carries.
+func advertisedFieldDescription(t *testing.T, tool *mcp.Tool, field string) string {
+	t.Helper()
+
+	raw, err := json.Marshal(tool.InputSchema)
+	require.NoError(t, err)
+
+	var schema struct {
+		Properties map[string]struct {
+			Description string `json:"description"`
+		} `json:"properties"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &schema))
+
+	prop, ok := schema.Properties[field]
+	require.True(t, ok, "advertised %s schema has no %q property", tool.Name, field)
+	return prop.Description
+}
+
+// TestToolsListVocabulary is the #1029 acceptance check on the advertised
+// surface: a real tools/list response names the portal tools save_asset and
+// manage_asset, and no portal tool's name, description, or input schema uses
+// the word "artifact" anywhere the model reads it.
+func TestToolsListVocabulary(t *testing.T) {
+	tools := advertisedTools(t)
+
+	names := make([]string, 0, len(tools))
+	for _, tool := range tools {
 		names = append(names, tool.Name)
 		schemaJSON, err := json.Marshal(tool.InputSchema)
 		require.NoError(t, err)

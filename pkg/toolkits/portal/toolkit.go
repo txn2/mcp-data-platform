@@ -457,7 +457,10 @@ const manageResourceToolDescription = "Writes a file into the managed resource l
 	"attachment pointing at it keeps resolving. The replacement is recorded in the file's version history " +
 	"with you as its author and the version before it stays restorable. " +
 	"Pass the file as text in 'content', or base64-encoded in 'content_base64' for a binary file such as an " +
-	"image or a PDF. The type is detected from the content when you do not name one. " +
+	"image or a PDF. 'content_type' is required for create and is not detected for you: SVG, HTML, JSX and " +
+	"Markdown all read as plain text to a byte sniffer. A replacement keeps the type the resource already " +
+	"carries unless you declare a new one; a file stored under a generic type (text/plain or " +
+	"application/octet-stream) is re-detected from its bytes. " +
 	"A create defaults to your own user scope; naming a persona scope or the global scope needs " +
 	"administrator authority over it, and a refusal names the scope rather than the file. " +
 	"This is the write half of the resource library -- reading one is 'fetch' on its reference, and making " +
