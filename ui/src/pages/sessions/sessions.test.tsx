@@ -46,6 +46,20 @@ function entry(overrides: Partial<SessionTimelineEntry> = {}): SessionTimelineEn
   };
 }
 
+// A person and two of the scripts they own: every one of them labelled with
+// the same address before #1523.
+const PRINCIPAL_FACET = {
+  users: ["analyst@example.com", "script:acme-revenue-pulse", "script:acme-top-stores-drop"],
+  user_labels: {
+    "analyst@example.com": "analyst@example.com",
+    "script:acme-revenue-pulse": "analyst@example.com",
+    "script:acme-top-stores-drop": "analyst@example.com",
+  },
+  tools: [],
+  toolkit_kinds: [],
+  sources: [],
+};
+
 afterEach(cleanup);
 
 describe("the sessions list", () => {
@@ -86,6 +100,41 @@ describe("the sessions list", () => {
     );
     // The produced cell and the failure cell both fall back to a dash.
     expect(screen.getAllByText("-").length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("who a session belongs to", () => {
+  it("marks a script run rather than reading as its owner", () => {
+    render(
+      <SessionsTable
+        sessions={[session({ kind: "script", user_id: "script:acme-revenue-pulse" })]}
+        isLoading={false}
+        onOpen={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("script", { selector: "[data-slot='badge']" })).toBeTruthy();
+    expect(screen.getByText("acme-revenue-pulse - analyst@example.com")).toBeTruthy();
+  });
+
+  it("gives the person and each script they own a distinguishable option", () => {
+    const onChange = vi.fn();
+    render(
+      <SessionFilters
+        filters={PRINCIPAL_FACET}
+        value={NO_SESSION_FILTERS}
+        onChange={onChange}
+      />,
+    );
+
+    // jsdom has no PointerEvent, so the trigger's pointerdown handler never
+    // runs and the listbox is opened from the keyboard (see ui/README.md).
+    fireEvent.keyDown(screen.getByLabelText("Filter by user"), { key: "Enter" });
+    const labels = screen.getAllByRole("option").map((o) => o.textContent);
+    expect(new Set(labels).size).toBe(labels.length);
+
+    fireEvent.click(screen.getByRole("option", { name: /acme-revenue-pulse/ }));
+    expect(onChange).toHaveBeenCalledWith({ userId: "script:acme-revenue-pulse" });
   });
 });
 

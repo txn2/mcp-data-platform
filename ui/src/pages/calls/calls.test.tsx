@@ -36,6 +36,20 @@ function record(overrides: Partial<CallRecord> = {}): CallRecord {
   };
 }
 
+// A caller and two of the scripts they own: every one of them labelled with
+// the same address before #1523.
+const PRINCIPAL_FACET = {
+  users: ["analyst@example.com", "script:acme-revenue-pulse", "script:acme-top-stores-drop"],
+  user_labels: {
+    "analyst@example.com": "analyst@example.com",
+    "script:acme-revenue-pulse": "analyst@example.com",
+    "script:acme-top-stores-drop": "analyst@example.com",
+  },
+  tools: [],
+  toolkit_kinds: [],
+  sources: [],
+};
+
 afterEach(cleanup);
 
 describe("the call catalog list", () => {
@@ -69,6 +83,19 @@ describe("the call catalog list", () => {
     expect(screen.getByText("No calls found")).toBeTruthy();
   });
 
+  it("marks a call a script made rather than reading as its owner", () => {
+    render(
+      <CallsTable
+        records={[record({ user_id: "script:acme-revenue-pulse" })]}
+        isLoading={false}
+        onOpen={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("script")).toBeTruthy();
+    expect(screen.getByText("acme-revenue-pulse - analyst@example.com")).toBeTruthy();
+  });
+
   it("offers only the connections present on the page as a facet", () => {
     expect(connectionsIn([{ connection: "b" }, { connection: "a" }, {}])).toEqual(["a", "b"]);
   });
@@ -86,6 +113,22 @@ describe("the call catalog filters", () => {
 
     expect(screen.queryByLabelText("Filter by user")).toBeNull();
     expect(screen.getByLabelText("Filter by kind")).toBeTruthy();
+  });
+
+  it("gives a caller and each script they own a distinguishable option", () => {
+    const onChange = vi.fn();
+    render(
+      <CallFilters filters={PRINCIPAL_FACET} value={NO_CALL_FILTERS} onChange={onChange} />,
+    );
+
+    // jsdom has no PointerEvent, so the trigger's pointerdown handler never
+    // runs and the listbox is opened from the keyboard (see ui/README.md).
+    fireEvent.keyDown(screen.getByLabelText("Filter by user"), { key: "Enter" });
+    const labels = screen.getAllByRole("option").map((o) => o.textContent);
+    expect(new Set(labels).size).toBe(labels.length);
+
+    fireEvent.click(screen.getByRole("option", { name: /acme-revenue-pulse/ }));
+    expect(onChange).toHaveBeenCalledWith({ userId: "script:acme-revenue-pulse" });
   });
 
   it("asks for the review queue by name rather than as a boolean facet", () => {

@@ -7,7 +7,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { CallRecord } from "@/api/admin/types";
-import { formatUser } from "@/lib/formatUser";
+import { PrincipalLabel } from "@/components/PrincipalLabel";
 import { callSummary, OutcomeBadge } from "./outcome";
 
 // CallsTable is the catalog itself: one row per recorded call, opening on row
@@ -86,8 +86,8 @@ export function CallsTable({
                 </div>
               </TableCell>
               {showUser && (
-                <TableCell className="max-w-[12rem] truncate px-3" title={record.user_id}>
-                  {formatUser(record.user_id ?? "", record.user_email)}
+                <TableCell className="max-w-[12rem] px-3">
+                  <PrincipalLabel userId={record.user_id ?? ""} email={record.user_email} />
                 </TableCell>
               )}
               <TableCell className="px-3 text-xs">

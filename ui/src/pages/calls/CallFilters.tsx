@@ -1,7 +1,7 @@
 import { FilterSelect } from "@/components/patterns/FilterSelect";
 import { SearchInput } from "@/components/patterns/SearchInput";
 import type { AuditFiltersResponse, CallKind, CallOutcome } from "@/api/admin/types";
-import { formatUser } from "@/lib/formatUser";
+import { principalOptions } from "@/lib/formatUser";
 import { OUTCOME_DESCRIPTION } from "./outcome";
 
 // CallFilters is the catalog's facet bar. Kind, connection and outcome are the
@@ -93,14 +93,12 @@ export function CallFilters({
       {showUserFacet && (
         <FilterSelect
           label="Filter by user"
+          className="max-w-56"
           value={value.userId}
           onChange={(userId) => onChange({ userId })}
           options={[
             { value: "", label: "All Users" },
-            ...(filters?.users ?? []).map((u) => ({
-              value: u,
-              label: filters?.user_labels?.[u] || formatUser(u),
-            })),
+            ...principalOptions(filters?.users, filters?.user_labels),
           ]}
         />
       )}

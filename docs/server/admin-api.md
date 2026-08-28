@@ -954,7 +954,7 @@ Returns paginated audit events with optional filtering.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `user_id` | string | Filter by user ID |
+| `user_id` | string | Filter by the principal that made the call: an OIDC subject, `apikey:<name>`, or `script:<name>`. See [Who made the call](audit.md#who-made-the-call) |
 | `tool_name` | string | Filter by tool name |
 | `session_id` | string | Filter by MCP session ID |
 | `success` | boolean | Filter by success/failure |
@@ -1228,7 +1228,7 @@ Returns sessions ordered by most recent activity.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `user_id` | string | Filter by user ID |
+| `user_id` | string | Filter by the principal that made the call: an OIDC subject, `apikey:<name>`, or `script:<name>`. See [Who made the call](audit.md#who-made-the-call) |
 | `kind` | string | Filter by session id origin: `agent` (`dps_`), `portal` (`dpp_`), `script` (`dpx_`), `transport` (everything else) |
 | `start_time` | RFC 3339 | Sessions with activity after this time |
 | `end_time` | RFC 3339 | Sessions with activity before this time |

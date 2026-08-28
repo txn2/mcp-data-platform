@@ -1,6 +1,6 @@
 import { FilterSelect } from "@/components/patterns/FilterSelect";
 import type { AuditFiltersResponse, SessionKind } from "@/api/admin/types";
-import { formatUser } from "@/lib/formatUser";
+import { principalOptions } from "@/lib/formatUser";
 import { kindLabel, SESSION_KINDS } from "./kind";
 import {
   DEFAULT_SESSION_WINDOW,
@@ -61,14 +61,12 @@ export function SessionFilters({
       {showUserFacet && (
         <FilterSelect
           label="Filter by user"
+          className="max-w-56"
           value={value.userId}
           onChange={(userId) => onChange({ userId })}
           options={[
             { value: "", label: "All Users" },
-            ...(filters?.users ?? []).map((u) => ({
-              value: u,
-              label: filters?.user_labels?.[u] || formatUser(u),
-            })),
+            ...principalOptions(filters?.users, filters?.user_labels),
           ]}
         />
       )}
