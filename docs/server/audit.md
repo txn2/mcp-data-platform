@@ -95,7 +95,7 @@ Every successful or failed tool call produces one row in `audit_logs`:
 | `enrichment_tokens_full` | INTEGER | Estimated tokens for the full (non-dedup) enrichment content. Uses `chars / 4` approximation. |
 | `enrichment_tokens_dedup` | INTEGER | Estimated tokens for the dedup enrichment content. `0` when full enrichment was sent. |
 | `enrichment_mode` | VARCHAR(20) | Enrichment mode used: `full`, `summary`, `reference`, `none`, or empty (not enriched). |
-| `event_kind` | VARCHAR(64) | High-level event category: `apigateway_invoke` for HTTP API calls through the apigateway toolkit, `mcp_tool_call` for every other toolkit. Lets the Activity view split gateway traffic from MCP tool calls. See [Event kind](#event-kind-mcp-vs-api-gateway). |
+| `event_kind` | VARCHAR(64) | High-level event category: `mcp_tool_call` and `apigateway_invoke` for tool calls, plus `prompt_serve`, `resource_read`, `resource_move`, `script_run` and `admin` for the platform's other audited acts. Lets the Activity view split gateway traffic from MCP tool calls. See [Event kind](#event-kind). |
 | `created_date` | DATE | Partition key derived from `timestamp`. Used for retention cleanup. |
 
 ## Why a call happened
@@ -171,9 +171,9 @@ GET /api/v1/admin/audit/events?source=admin   # portal-driven only
 
 Or in the portal UI, use the **All Sources** dropdown on the Audit Log page. The dropdown lists every source value seen in the current time window.
 
-## Event kind: MCP vs API gateway
+## Event kind
 
-The `event_kind` field separates two classes of audited activity that otherwise share the same row shape:
+The `event_kind` field separates the classes of audited activity that otherwise share the same row shape. These seven values are the complete set the column holds, and the set the admin API's `event_kind` filter accepts:
 
 | `event_kind` | What it means |
 |--------------|---------------|
@@ -181,8 +181,11 @@ The `event_kind` field separates two classes of audited activity that otherwise 
 | `apigateway_invoke` | An HTTP API call proxied through the apigateway toolkit (`api_invoke_endpoint`, `api_export`, and the other `api_*` tools). |
 | `prompt_serve` | A database prompt served to an agent (`prompts/get`, or a resolved `manage_prompt use`). Carries `prompt_id`, `prompt_name`, and `version` in `parameters`, and is the source of the per-prompt run counts in the portal. |
 | `resource_read` | A managed resource's content served. Carries `resource_id`, `resource_uri`, `surface`, and (when a specific revision was named) `version` in `parameters`. |
+| `resource_move` | A managed resource refiled in another library. Carries `resource_id`, `display_name`, and the scope, scope id and URI on both sides of the move in `parameters`. |
+| `script_run` | One execution of an approved managed script, written by the run worker when the run finishes. Carries `script`, `script_id`, `version`, `run_id`, `owner`, `trigger`, `requested_by`, and `attempt` in `parameters`, and carries the run id as its `session_id` so the run and the tool calls it made join on one key. |
+| `admin` | An administrative act performed against somebody else's object. The one writer today is an administrator transferring a managed script to another owner, recorded whether the transfer succeeded or was refused. |
 
-The kind is derived at write time from the toolkit kind, so it does not depend on tool-name string matching. A high-traffic API gateway can produce many rows per agent turn; the split lets the MCP Activity view exclude that traffic by default while a dedicated gateway view includes it.
+A tool call's kind is derived at write time from the toolkit kind, so the MCP/gateway split does not depend on tool-name string matching. A high-traffic API gateway can produce many rows per agent turn; the split lets the MCP Activity view exclude that traffic by default while a dedicated gateway view includes it. The other kinds are stamped by the surface that writes them.
 
 Filter by event kind in the admin API. The filter is accepted on the event list, stats, and every metrics endpoint (timeseries, breakdown, overview, performance, enrichment, discovery):
 
@@ -190,7 +193,10 @@ Filter by event kind in the admin API. The filter is accepted on the event list,
 GET /api/v1/admin/audit/events?event_kind=mcp_tool_call        # MCP tool calls only
 GET /api/v1/admin/audit/events?event_kind=apigateway_invoke    # API gateway calls only
 GET /api/v1/admin/audit/metrics/timeseries?event_kind=mcp_tool_call
+GET /api/v1/admin/audit/events?event_kind=script_run           # scheduled and on-demand script runs
 ```
+
+`GET /api/v1/admin/audit/events/filters` returns the kinds actually present in the current data, which is narrower than the table above on a deployment that has not used every surface. A filter naming a kind with no rows returns `200` with an empty result rather than an error.
 
 ### Resource reads
 

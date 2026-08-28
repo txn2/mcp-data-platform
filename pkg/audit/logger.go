@@ -61,12 +61,15 @@ type Event struct {
 	// suggestions (issue #444).
 	EnrichmentMatchKind string `json:"enrichment_match_kind,omitempty" example:"urn"`
 	Authorized          bool   `json:"authorized" example:"true"`
-	// EventKind is the high-level category of the event. Set to
-	// "mcp_tool_call" for tools routed through the MCP toolkits (trino,
-	// datahub, s3, mcp gateway) and "apigateway_invoke" for upstream
-	// HTTP API calls via the apigateway toolkit. Lets the portal split
-	// MCP activity from gateway noise without coupling to tool-name
-	// patterns. See EventType constants in event.go.
+	// EventKind is the high-level category of the event, and the value the
+	// admin audit API's event_kind filter matches on. A tool call carries
+	// "mcp_tool_call" for the MCP toolkits (trino, datahub, s3, mcp gateway)
+	// or "apigateway_invoke" for upstream HTTP API calls via the apigateway
+	// toolkit, which lets the portal split MCP activity from gateway noise
+	// without coupling to tool-name patterns. The rest of the platform's
+	// audited acts carry a kind of their own: "prompt_serve",
+	// "resource_read", "resource_move", "script_run", and "admin". See the
+	// EventType constants in event.go for the complete set.
 	EventKind EventType `json:"event_kind,omitempty" example:"mcp_tool_call"`
 }
 

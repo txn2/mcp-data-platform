@@ -37,7 +37,7 @@ func (h *handler) registerAuditMetricsRoutes(mux *http.ServeMux) {
 // @Param        resolution  query  string  false  "Time bucket resolution: minute, hour, day (default: hour)"
 // @Param        start_time  query  string  false  "Start time (RFC 3339)"
 // @Param        end_time    query  string  false  "End time (RFC 3339)"
-// @Param        event_kind  query  string  false  "Filter by event kind (mcp_tool_call, apigateway_invoke)"
+// @Param        event_kind  query  string  false  "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run. GET /admin/audit/events/filters returns the kinds present in the data."
 // @Success      200  {array}   audit.TimeseriesBucket
 // @Failure      400  {object}  httpjson.ProblemDetail
 // @Failure      500  {object}  httpjson.ProblemDetail
@@ -82,7 +82,7 @@ func (h *handler) getAuditTimeseries(w http.ResponseWriter, r *http.Request) {
 // @Param        limit       query  integer false  "Max entries (default: 10, max: 100)"
 // @Param        start_time  query  string  false  "Start time (RFC 3339)"
 // @Param        end_time    query  string  false  "End time (RFC 3339)"
-// @Param        event_kind  query  string  false  "Filter by event kind (mcp_tool_call, apigateway_invoke)"
+// @Param        event_kind  query  string  false  "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run. GET /admin/audit/events/filters returns the kinds present in the data."
 // @Success      200  {array}   audit.BreakdownEntry
 // @Failure      400  {object}  httpjson.ProblemDetail
 // @Failure      500  {object}  httpjson.ProblemDetail
@@ -131,7 +131,7 @@ func (h *handler) getAuditBreakdown(w http.ResponseWriter, r *http.Request) {
 // @Produce      json
 // @Param        start_time  query  string  false  "Start time (RFC 3339)"
 // @Param        end_time    query  string  false  "End time (RFC 3339)"
-// @Param        event_kind  query  string  false  "Filter by event kind (mcp_tool_call, apigateway_invoke)"
+// @Param        event_kind  query  string  false  "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run. GET /admin/audit/events/filters returns the kinds present in the data."
 // @Success      200  {object}  audit.Overview
 // @Failure      500  {object}  httpjson.ProblemDetail
 // @Security     ApiKeyAuth
@@ -164,7 +164,7 @@ func (h *handler) getAuditOverview(w http.ResponseWriter, r *http.Request) {
 // @Produce      json
 // @Param        start_time  query  string  false  "Start time (RFC 3339)"
 // @Param        end_time    query  string  false  "End time (RFC 3339)"
-// @Param        event_kind  query  string  false  "Filter by event kind (mcp_tool_call, apigateway_invoke)"
+// @Param        event_kind  query  string  false  "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run. GET /admin/audit/events/filters returns the kinds present in the data."
 // @Success      200  {object}  audit.PerformanceStats
 // @Failure      500  {object}  httpjson.ProblemDetail
 // @Security     ApiKeyAuth
@@ -197,7 +197,7 @@ func (h *handler) getAuditPerformance(w http.ResponseWriter, r *http.Request) {
 // @Produce      json
 // @Param        start_time  query  string  false  "Start time (RFC 3339)"
 // @Param        end_time    query  string  false  "End time (RFC 3339)"
-// @Param        event_kind  query  string  false  "Filter by event kind (mcp_tool_call, apigateway_invoke)"
+// @Param        event_kind  query  string  false  "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run. GET /admin/audit/events/filters returns the kinds present in the data."
 // @Success      200  {object}  audit.EnrichmentStats
 // @Failure      500  {object}  httpjson.ProblemDetail
 // @Security     ApiKeyAuth
@@ -230,7 +230,7 @@ func (h *handler) getAuditEnrichment(w http.ResponseWriter, r *http.Request) {
 // @Produce      json
 // @Param        start_time  query  string  false  "Start time (RFC 3339)"
 // @Param        end_time    query  string  false  "End time (RFC 3339)"
-// @Param        event_kind  query  string  false  "Filter by event kind (mcp_tool_call, apigateway_invoke)"
+// @Param        event_kind  query  string  false  "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run. GET /admin/audit/events/filters returns the kinds present in the data."
 // @Success      200  {object}  audit.DiscoveryStats
 // @Failure      500  {object}  httpjson.ProblemDetail
 // @Security     ApiKeyAuth
