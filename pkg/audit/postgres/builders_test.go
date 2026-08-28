@@ -90,7 +90,7 @@ func TestAuditQueryBuilders(t *testing.T) {
 	})
 
 	t.Run("the metrics builders scope to the caller and kind when asked", func(t *testing.T) {
-		f := audit.MetricsFilter{StartTime: &start, EndTime: &end, UserID: "u-1", EventKind: "tool_call"}
+		f := audit.MetricsFilter{StartTime: &start, EndTime: &end, UserID: "u-1", EventKind: "mcp_tool_call"}
 		for name, build := range map[string]func() (string, []any, error){
 			"overview":    func() (string, []any, error) { return buildOverviewQuery(f) },
 			"performance": func() (string, []any, error) { return buildPerformanceQuery(f) },
@@ -99,7 +99,7 @@ func TestAuditQueryBuilders(t *testing.T) {
 			query, args, err := build()
 			require.NoError(t, err, name)
 			assert.Contains(t, query, "FROM audit_logs", name)
-			assert.Equal(t, []any{start, end, "u-1", "tool_call"}, args, name)
+			assert.Equal(t, []any{start, end, "u-1", "mcp_tool_call"}, args, name)
 		}
 	})
 }

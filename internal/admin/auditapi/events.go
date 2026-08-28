@@ -23,7 +23,7 @@ type auditFiltersResponse struct {
 	Tools        []string          `json:"tools" example:"trino_query,datahub_search,s3_list_objects"`
 	ToolkitKinds []string          `json:"toolkit_kinds" example:"api,datahub,trino,s3,memory"`
 	Sources      []string          `json:"sources" example:"mcp,rest,admin"`
-	EventKinds   []string          `json:"event_kinds" example:"mcp_tool_call,apigateway_invoke"`
+	EventKinds   []string          `json:"event_kinds" example:"admin,mcp_tool_call,apigateway_invoke,prompt_serve,resource_read,resource_move,script_run"`
 	UserLabels   map[string]string `json:"user_labels,omitempty"`
 }
 
@@ -53,7 +53,7 @@ const (
 // @Param        tool_name     query  string  false  "Filter by tool name"
 // @Param        toolkit_kind  query  string  false  "Filter by toolkit kind (e.g. api, trino, datahub, s3, memory)"
 // @Param        source        query  string  false  "Filter by event source (e.g. mcp)"
-// @Param        event_kind    query  string  false  "Filter by event kind (mcp_tool_call, apigateway_invoke)"
+// @Param        event_kind    query  string  false  "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run. GET /admin/audit/events/filters returns the kinds present in the data."
 // @Param        session_id    query  string  false  "Filter by MCP session ID"
 // @Param        success       query  boolean false  "Filter by success/failure"
 // @Param        start_time    query  string  false  "Events after this time (RFC 3339)"
@@ -131,7 +131,7 @@ func (h *handler) listAuditEvents(w http.ResponseWriter, r *http.Request) {
 // listAuditEventFilters handles GET /api/v1/admin/audit/events/filters.
 //
 // @Summary      Get audit event filter values
-// @Description  Returns unique user IDs and tool names seen in the audit log, sorted alphabetically.
+// @Description  Returns the distinct values present in the audit log for each filter dropdown (user IDs, tool names, toolkit kinds, sources, and event kinds), sorted alphabetically, plus a user ID to email map for display labels. The event kinds it returns are the ones this deployment has actually produced, which is what the event_kind filter on the other audit endpoints should be driven from.
 // @Tags         Audit
 // @Produce      json
 // @Param        start_time  query  string  false  "Events after this time (RFC 3339)"
@@ -221,7 +221,7 @@ func (h *handler) getAuditEvent(w http.ResponseWriter, r *http.Request) {
 // @Param        tool_name     query  string  false  "Filter by tool name"
 // @Param        toolkit_kind  query  string  false  "Filter by toolkit kind"
 // @Param        source        query  string  false  "Filter by event source"
-// @Param        event_kind    query  string  false  "Filter by event kind (mcp_tool_call, apigateway_invoke)"
+// @Param        event_kind    query  string  false  "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run. GET /admin/audit/events/filters returns the kinds present in the data."
 // @Param        start_time    query  string  false  "Events after this time (RFC 3339)"
 // @Param        end_time      query  string  false  "Events before this time (RFC 3339)"
 // @Success      200  {object}  auditStatsResponse

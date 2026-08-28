@@ -28,7 +28,7 @@ func SQLSamples() map[string]string {
 		ID: "e-1", IDs: []string{"e-1", "e-2"},
 		StartTime: &start, EndTime: &end,
 		UserID: "u-1", SessionID: "s-1", ToolName: "trino_query",
-		ToolkitKind: "trino", Source: "mcp", EventKind: "tool_call",
+		ToolkitKind: "trino", Source: "mcp", EventKind: "mcp_tool_call",
 		Search: "orders", Success: &success,
 		SortBy: "tool_name", SortOrder: audit.SortAsc,
 		Limit: 50, Offset: 100,
@@ -36,7 +36,7 @@ func SQLSamples() map[string]string {
 	bare := audit.QueryFilter{}
 
 	metrics := audit.MetricsFilter{
-		StartTime: &start, EndTime: &end, UserID: "u-1", EventKind: "tool_call",
+		StartTime: &start, EndTime: &end, UserID: "u-1", EventKind: "mcp_tool_call",
 	}
 
 	out := map[string]string{}
@@ -67,14 +67,14 @@ func SQLSamples() map[string]string {
 	for res := range audit.ValidResolutions {
 		f := audit.TimeseriesFilter{
 			Resolution: res, StartTime: &start, EndTime: &end,
-			UserID: "u-1", EventKind: "tool_call",
+			UserID: "u-1", EventKind: "mcp_tool_call",
 		}
 		add("buildTimeseriesQuery/"+string(res), func() (string, []any, error) { return buildTimeseriesQuery(f) })
 	}
 	for dim := range audit.ValidBreakdownDimensions {
 		f := audit.BreakdownFilter{
 			GroupBy: dim, Limit: 10, StartTime: &start, EndTime: &end,
-			UserID: "u-1", EventKind: "tool_call",
+			UserID: "u-1", EventKind: "mcp_tool_call",
 		}
 		add("buildBreakdownQuery/"+string(dim), func() (string, []any, error) { return buildBreakdownQuery(f) })
 	}

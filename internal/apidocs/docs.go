@@ -1982,7 +1982,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Filter by event kind (mcp_tool_call, apigateway_invoke)",
+                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run. GET /admin/audit/events/filters returns the kinds present in the data.",
                         "name": "event_kind",
                         "in": "query"
                     },
@@ -2061,7 +2061,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns unique user IDs and tool names seen in the audit log, sorted alphabetically.",
+                "description": "Returns the distinct values present in the audit log for each filter dropdown (user IDs, tool names, toolkit kinds, sources, and event kinds), sorted alphabetically, plus a user ID to email map for display labels. The event kinds it returns are the ones this deployment has actually produced, which is what the event_kind filter on the other audit endpoints should be driven from.",
                 "produces": [
                     "application/json"
                 ],
@@ -2194,7 +2194,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Filter by event kind (mcp_tool_call, apigateway_invoke)",
+                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run. GET /admin/audit/events/filters returns the kinds present in the data.",
                         "name": "event_kind",
                         "in": "query"
                     }
@@ -2257,7 +2257,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Filter by event kind (mcp_tool_call, apigateway_invoke)",
+                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run. GET /admin/audit/events/filters returns the kinds present in the data.",
                         "name": "event_kind",
                         "in": "query"
                     }
@@ -2311,7 +2311,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Filter by event kind (mcp_tool_call, apigateway_invoke)",
+                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run. GET /admin/audit/events/filters returns the kinds present in the data.",
                         "name": "event_kind",
                         "in": "query"
                     }
@@ -2365,7 +2365,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Filter by event kind (mcp_tool_call, apigateway_invoke)",
+                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run. GET /admin/audit/events/filters returns the kinds present in the data.",
                         "name": "event_kind",
                         "in": "query"
                     }
@@ -2419,7 +2419,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Filter by event kind (mcp_tool_call, apigateway_invoke)",
+                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run. GET /admin/audit/events/filters returns the kinds present in the data.",
                         "name": "event_kind",
                         "in": "query"
                     }
@@ -2479,7 +2479,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Filter by event kind (mcp_tool_call, apigateway_invoke)",
+                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run. GET /admin/audit/events/filters returns the kinds present in the data.",
                         "name": "event_kind",
                         "in": "query"
                     }
@@ -2554,7 +2554,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Filter by event kind (mcp_tool_call, apigateway_invoke)",
+                        "description": "Filter by event kind: admin, mcp_tool_call, apigateway_invoke, prompt_serve, resource_read, resource_move, script_run. GET /admin/audit/events/filters returns the kinds present in the data.",
                         "name": "event_kind",
                         "in": "query"
                     },
@@ -20317,7 +20317,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "event_kind": {
-                    "description": "EventKind is the high-level category of the event. Set to\n\"mcp_tool_call\" for tools routed through the MCP toolkits (trino,\ndatahub, s3, mcp gateway) and \"apigateway_invoke\" for upstream\nHTTP API calls via the apigateway toolkit. Lets the portal split\nMCP activity from gateway noise without coupling to tool-name\npatterns. See EventType constants in event.go.",
+                    "description": "EventKind is the high-level category of the event, and the value the\nadmin audit API's event_kind filter matches on. A tool call carries\n\"mcp_tool_call\" for the MCP toolkits (trino, datahub, s3, mcp gateway)\nor \"apigateway_invoke\" for upstream HTTP API calls via the apigateway\ntoolkit, which lets the portal split MCP activity from gateway noise\nwithout coupling to tool-name patterns. The rest of the platform's\naudited acts carry a kind of their own: \"prompt_serve\",\n\"resource_read\", \"resource_move\", \"script_run\", and \"admin\". See the\nEventType constants in event.go for the complete set.",
                     "allOf": [
                         {
                             "$ref": "#/definitions/audit.EventType"
@@ -20399,8 +20399,6 @@ const docTemplate = `{
         "audit.EventType": {
             "type": "string",
             "enum": [
-                "tool_call",
-                "auth",
                 "admin",
                 "mcp_tool_call",
                 "apigateway_invoke",
@@ -20410,8 +20408,6 @@ const docTemplate = `{
                 "script_run"
             ],
             "x-enum-varnames": [
-                "EventTypeToolCall",
-                "EventTypeAuth",
                 "EventTypeAdmin",
                 "EventTypeMCPToolCall",
                 "EventTypeAPIGatewayInvoke",
@@ -20544,8 +20540,13 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "example": [
+                        "admin",
                         "mcp_tool_call",
-                        "apigateway_invoke"
+                        "apigateway_invoke",
+                        "prompt_serve",
+                        "resource_read",
+                        "resource_move",
+                        "script_run"
                     ]
                 },
                 "sources": {

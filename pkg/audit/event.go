@@ -9,14 +9,18 @@ import (
 // EventType categorizes audit events.
 type EventType string
 
+// The constants below are the complete set of values written into
+// audit_logs.event_kind. They are the vocabulary the admin audit API's
+// event_kind filter accepts, and TestEventKindParamNamesEveryEventType
+// (internal/admin/auditapi) fails when a constant is added here without
+// its @Param annotations naming it.
 const (
-	// EventTypeToolCall is a tool invocation event.
-	EventTypeToolCall EventType = "tool_call"
-
-	// EventTypeAuth is an authentication event.
-	EventTypeAuth EventType = "auth"
-
-	// EventTypeAdmin is an administrative event.
+	// EventTypeAdmin categorizes an administrative act performed against
+	// somebody else's object rather than a call the actor made on their own
+	// behalf. The act is recorded once it is authorized, whether it then
+	// succeeded or failed; a caller refused the administrative authority in
+	// the first place writes no row of this kind, so these rows are not a
+	// record of who attempted one.
 	EventTypeAdmin EventType = "admin"
 
 	// EventTypeMCPToolCall categorizes an MCP tool invocation routed
