@@ -18,7 +18,7 @@ import { formatBytes } from "@/lib/format";
 import { parseTags } from "@/lib/tags";
 import { RESOURCE_POSITIONING } from "@/lib/positioning";
 import { ModalShell } from "@/components/ModalShell";
-import { CATEGORIES, CATEGORY_HINTS } from "../shared";
+import { CATEGORIES, CATEGORY_HINTS, scopeLabel } from "../shared";
 import { UploadTargets } from "./UploadTargets";
 import { libraryCopy, type ScopeTarget } from "../scopes";
 
@@ -154,7 +154,10 @@ export function UploadModal({
     const successes: string[] = [];
     const errors: string[] = [];
     for (const target of targets) {
-      const label = target.scope_id || "global";
+      // Named the way the rest of the Resources surface names a library. The
+      // scope id of a user target is a subject identifier, which states
+      // nothing to the person reading the result.
+      const label = scopeLabel(target.scope, target.scope_id, user);
       try {
         await upload.mutateAsync(draftForm(draft, target));
         successes.push(label);
@@ -170,7 +173,7 @@ export function UploadModal({
       return;
     }
     onClose();
-  }, [file, displayName, description, scope, effectiveCategory, tagsInput, upload, onClose, resolveTargets]);
+  }, [file, displayName, description, scope, effectiveCategory, tagsInput, upload, onClose, resolveTargets, user]);
 
   return (
     <ModalShell
