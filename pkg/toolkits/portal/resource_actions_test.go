@@ -596,3 +596,49 @@ func TestReplaceDoesNotInheritADeniedStoredType(t *testing.T) {
 	require.False(t, result.IsError, "the refusal would name a type the caller never sent: %s", errText(t, result))
 	assert.Equal(t, "text/csv", w.replaced.MIMEType)
 }
+
+// The tool description and the content_type field description are two halves of
+// one contract, and an agent acts on whichever it reads first. 1.126.4 required
+// the declaration in the field and left the tool description saying the type is
+// detected when you do not name one, so an agent that read the tool sent no
+// content_type and had its create refused with nothing written (#1519).
+//
+// Both halves therefore state both facts a caller acts on: a create declares
+// the type, and a replacement keeps the one the resource already carries.
+func TestManageResourceDescriptionAndSchemaStateTheSameContract(t *testing.T) {
+	tool := advertisedTool(t, ManageResourceToolName)
+
+	halves := map[string]string{
+		"tool description":   tool.Description,
+		"content_type field": advertisedFieldDescription(t, tool, "content_type"),
+	}
+
+	for name, text := range halves {
+		t.Run(name, func(t *testing.T) {
+			lower := strings.ToLower(text)
+
+			assert.Contains(t, lower, "required for create",
+				"a caller reading this half is not told a create is refused without the declaration")
+			assert.Contains(t, lower, "not detected",
+				"a caller reading this half may still expect the platform to work the type out")
+			assert.Contains(t, lower, "keeps the type the resource already carries",
+				"a caller reading this half is not told what a replacement does with the stored type")
+
+			// The caveat that makes the sentence above true: a generic stored
+			// type does not survive a replacement, it is detected again.
+			assert.Contains(t, lower, "generic type",
+				"a caller reading this half is told a stored type always survives a replacement")
+			assert.Contains(t, lower, "re-detected",
+				"a caller reading this half is not told what happens to a generically typed file")
+
+			// The exact claim that shipped in 1.126.4 (#1519).
+			assert.NotContains(t, lower, "detected from the content when you do not name one",
+				"this half promises detection the create path refuses")
+		})
+	}
+
+	// Only the tool description has to name the field: the other half is the
+	// field, and a caller reading it already knows which one it is.
+	assert.Contains(t, tool.Description, "content_type",
+		"the tool description does not name the field a create has to send")
+}

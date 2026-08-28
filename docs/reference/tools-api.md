@@ -1362,7 +1362,7 @@ A `create` declares what the bytes are in `content_type`; a create that does not
 | `reference` | string | Conditional | - | The resource to write over: `mcp:resource:<id>`, from a `search` hit, a `fetch` document, or a `create` (required for `replace_content`) |
 | `content` | string | Conditional | - | The file as text. This or `content_base64` |
 | `content_base64` | string | Conditional | - | The file as base64-encoded bytes. This or `content` |
-| `content_type` | string | Conditional | - | Media type the bytes are (required for `create`). Not detected: SVG, HTML, JSX and Markdown all read as plain text to a byte sniffer. `replace_content` keeps the type the resource already carries when it is omitted |
+| `content_type` | string | Conditional | - | Media type the bytes are (required for `create`). Not detected: SVG, HTML, JSX and Markdown all read as plain text to a byte sniffer. `replace_content` keeps the type the resource already carries when it is omitted; a file stored under a generic type is re-detected from its bytes |
 | `filename` | string | Conditional | - | Name of the file (required for `create`), normalized to lowercase with spaces replaced. `replace_content` ignores it |
 | `display_name` | string | Conditional | - | Name shown in the resource library (required for `create`) |
 | `category` | string | Conditional | - | The shelf the file sits on (required for `create`): lowercase letters, digits and hyphens, starting with a letter |

@@ -2018,7 +2018,7 @@ Writes a file into the managed resource library. A managed resource is the only 
 | `reference` | string | Conditional | - | `mcp:resource:<id>`, the reference a search hit, a fetch document, or a create carries (required for `replace_content`) |
 | `content` | string | Conditional | - | The file as text |
 | `content_base64` | string | Conditional | - | The file as base64-encoded bytes, for a binary file. Exactly one of the two |
-| `content_type` | string | No | detected | Media type stored under; detection reads the content and the filename otherwise |
+| `content_type` | string | Conditional | - | Media type the bytes are (required for `create`). Not detected: SVG, HTML, JSX and Markdown all read as plain text to a byte sniffer. `replace_content` keeps the type the resource already carries when it is omitted; a file stored under a generic type is re-detected from its bytes |
 | `filename` | string | Conditional | - | Name of the file (required for `create`), normalized to lowercase; ignored by `replace_content` |
 | `display_name`, `category`, `description` | string | Conditional | - | Required for `create` |
 | `tags` | array | No | [] | Tags for filtering in the library |
