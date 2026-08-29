@@ -42,7 +42,7 @@ func indexedResourceStore(t *testing.T) (Store, sqlmock.Sqlmock, *fakeEnqueuer) 
 
 func testResource() Resource {
 	return Resource{
-		ID: "res-1", Scope: ScopeGlobal, Category: "samples", Filename: "test.csv",
+		ID: "res-1", Scope: ScopeGlobal, Path: "samples", Filename: "test.csv",
 		DisplayName: "Test", Description: "A test resource", MIMEType: "text/csv",
 		SizeBytes: 100, S3Key: "s3/key", URI: "mcp://global/samples/test.csv",
 		Tags: []string{"tag1"}, UploaderSub: "sub-1", UploaderEmail: "user@example.com",

@@ -147,7 +147,7 @@ func TestPatchMoveOntoATakenAddressIsRefusedAndChangesNothing(t *testing.T) {
 	f := moveHandler(t, memberOfOps())
 	f.store.resources["res-2"] = &Resource{
 		ID: "res-2", Scope: ScopePersona, ScopeID: "ops", DisplayName: "Quarterly Report",
-		Category: "templates", Filename: "report.docx",
+		Path: "templates", Filename: "report.docx",
 		URI: "mcp://persona/ops/templates/report.docx",
 	}
 
@@ -276,7 +276,7 @@ func TestPatchMoveFailureIsReportedWithoutInternals(t *testing.T) {
 // reached with every other read intact.
 type brokenMoveStore struct{ *mockStore }
 
-func (*brokenMoveStore) Move(context.Context, string, Move) error {
+func (*brokenMoveStore) Move(context.Context, []Move) error {
 	// A colon in the message is the point: writeError truncates a 5xx body at
 	// the first one so an internal chain cannot leak.
 	return errors.New("moving resource: postgres is unreachable")

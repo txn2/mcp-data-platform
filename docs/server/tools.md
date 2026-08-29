@@ -1127,7 +1127,8 @@ The loop it closes is one call each way. `create` files the data and reports the
 | `content_base64` | string | Conditional | - | The file as base64-encoded bytes, for a binary file such as a PNG or a PDF. One of the two, never both |
 | `content_type` | string | Conditional | - | Media type the bytes are (required for `create`); `replace_content` keeps the type the resource already carries when it is absent |
 | `filename` | string | Conditional | - | Name of the file (required for `create`); `replace_content` ignores it |
-| `display_name`, `category`, `description` | string | Conditional | - | Required for `create`: what the library shows and which shelf it sits on |
+| `display_name`, `description` | string | Conditional | - | Required for `create`: what the library shows |
+| `path` | string | Conditional | - | Required for `create`: the folder path inside the library, for example `datasets` or `datasets/media-manager/shows`. Each folder name is lowercase letters, digits and hyphens starting with a letter; at most 8 folders deep and 200 characters. Two files with the same filename in the same folder collide; in two folders they do not |
 | `tags` | string[] | No | `[]` | Tags for filtering in the library |
 | `scope`, `scope_id` | string | No | your own user scope | `user`, `persona`, or `global` |
 | `change_summary` | string | No | generated | Why the content changed, shown in the version history beside the revision |

@@ -100,7 +100,7 @@ type AttachmentView struct {
 	AttachedBy  string `json:"attached_by,omitempty"`
 	DisplayName string `json:"display_name,omitempty"`
 	Description string `json:"description,omitempty"`
-	Category    string `json:"category,omitempty"`
+	Path        string `json:"path,omitempty"`
 	MIMEType    string `json:"mime_type,omitempty"`
 	SizeBytes   int64  `json:"size_bytes,omitempty"`
 	URI         string `json:"uri,omitempty"`
@@ -199,7 +199,7 @@ func (h *Handler) views(r *http.Request, promptID string, who *Identity) ([]Atta
 func fillView(view *AttachmentView, res *resource.Resource) {
 	view.DisplayName = res.DisplayName
 	view.Description = res.Description
-	view.Category = res.Category
+	view.Path = res.Path
 	view.MIMEType = res.MIMEType
 	view.SizeBytes = res.SizeBytes
 	view.URI = res.URI

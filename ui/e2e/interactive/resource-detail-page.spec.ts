@@ -18,10 +18,19 @@ function panel(page: Page): Locator {
   return page.getByTestId("modal-panel");
 }
 
+// openNamed reaches one file in a library by searching for it. A library is a
+// tree (#1530), so a file is not on the page the library opens at -- it is
+// inside whichever folder it is filed in, and searching reaches it from
+// anywhere in the library.
+async function openNamed(page: Page, name: string): Promise<void> {
+  await page.getByLabel("Search resources").fill(name);
+  await page.getByText(name, { exact: true }).first().click();
+}
+
 async function openDetail(page: Page): Promise<void> {
   await authenticate(page);
   await page.goto(ADMIN_RESOURCES);
-  await page.getByText(RESOURCE, { exact: true }).first().click();
+  await openNamed(page, RESOURCE);
   await expect(page.getByTestId("resource-versions")).toBeVisible();
 }
 
@@ -63,8 +72,11 @@ test.describe("A resource has an address", () => {
     await authenticate(page);
     await page.goto(USER_RESOURCES);
     await page.getByRole("tab", { name: "Global" }).click();
+    // The library is a route segment now, and the search a query parameter on
+    // it (#1530).
+    await expect(page).toHaveURL(/\/portal\/resources\/lib\/global$/);
     await page.getByLabel("Search resources").fill("SQL");
-    await expect(page).toHaveURL(/tab=global/);
+    await expect(page).toHaveURL(/q=SQL/);
 
     await page.getByText(RESOURCE, { exact: true }).first().click();
     await expect(page).toHaveURL(/\/portal\/resources\/res-001$/);
@@ -95,8 +107,9 @@ test.describe("A resource has an address", () => {
 
     // The library opens on My Resources; the fixture is global.
     await page.getByRole("tab", { name: "Global" }).click();
+    await expect(page).toHaveURL(/\/portal\/resources\/lib\/global$/);
     await page.getByLabel("Search resources").fill("SQL");
-    await expect(page).toHaveURL(/tab=global/);
+    await expect(page).toHaveURL(/q=SQL/);
 
     await page.getByText(RESOURCE, { exact: true }).first().click();
     await expect(page).toHaveURL(/\/portal\/resources\/res-001$/);
@@ -138,7 +151,7 @@ test.describe("What the resource page offers", () => {
     await authenticate(page);
     await page.goto(ADMIN_RESOURCES);
     // The panel is absent unless the file is a CSV, which res-001 is not.
-    await page.getByText("Business Glossary Export", { exact: true }).first().click();
+    await openNamed(page, "Business Glossary Export");
 
     await expect(page.getByText("Query as a table")).toBeVisible();
   });

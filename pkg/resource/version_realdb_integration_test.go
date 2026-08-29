@@ -28,7 +28,7 @@ func seedRevisableResource(t *testing.T, id string) (Store, string) {
 	t.Helper()
 	store := NewPostgresStore(testdb.New(t))
 	require.NoError(t, store.Insert(context.Background(), Resource{
-		ID: id, Scope: ScopeGlobal, Category: "runbooks",
+		ID: id, Scope: ScopeGlobal, Path: "runbooks",
 		Filename: "etl.md", DisplayName: "ETL Runbook", Description: "d",
 		MIMEType: "text/markdown", SizeBytes: 10,
 		S3Key: "resources/global/global/" + id + "/etl.md",
@@ -247,7 +247,7 @@ func TestResourceVersions_RealDB_TouchReadStampsAndSorts(t *testing.T) {
 
 	for _, id := range []string{"res_read_a", "res_read_b"} {
 		require.NoError(t, store.Insert(ctx, Resource{
-			ID: id, Scope: ScopeGlobal, Category: "runbooks", Filename: id + ".md",
+			ID: id, Scope: ScopeGlobal, Path: "runbooks", Filename: id + ".md",
 			DisplayName: id, Description: "d", MIMEType: "text/markdown", SizeBytes: 1,
 			S3Key: "k/" + id, URI: "mcp://global/runbooks/" + id + ".md", UploaderSub: "sub",
 		}))

@@ -86,7 +86,7 @@ func (*resourceRows) List(context.Context, resource.Filter) ([]resource.Resource
 }
 
 func (*resourceRows) Update(context.Context, string, resource.Update) error { return nil }
-func (*resourceRows) Move(context.Context, string, resource.Move) error {
+func (*resourceRows) Move(context.Context, []resource.Move) error {
 	return errors.New("resourceRows does not move resources")
 }
 
@@ -263,7 +263,7 @@ func TestAgentWritesTheFileItsAssetReads(t *testing.T) {
 	// 1. The agent files the data as a managed resource.
 	created := sys.mustCall(t, ManageResourceToolName, map[string]any{
 		"action": "create", "filename": "weather.csv", "display_name": "Daily Weather",
-		"category": "datasets", "description": "Highs and lows by day",
+		"path": "datasets", "description": "Highs and lows by day",
 		"content": "day,high\nmon,71\ntue,68\n", "content_type": "text/csv",
 	})
 	uri, _ := created["uri"].(string)
@@ -326,7 +326,7 @@ func TestAgentIsRefusedAScopeItMayNotWrite(t *testing.T) {
 
 	out, isErr := sys.call(t, ManageResourceToolName, map[string]any{
 		"action": "create", "filename": "policy.md", "display_name": "Policy",
-		"category": "runbooks", "description": "Retention policy", "content": "# Policy",
+		"path": "runbooks", "description": "Retention policy", "content": "# Policy",
 		"content_type": "text/markdown", "scope": "global",
 	})
 

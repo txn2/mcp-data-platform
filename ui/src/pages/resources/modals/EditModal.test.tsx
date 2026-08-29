@@ -14,7 +14,7 @@ const RESOURCE: Resource = {
   id: "res-1",
   scope: "user",
   scope_id: "analyst@example.com",
-  category: "templates",
+  path: "templates",
   filename: "report.docx",
   display_name: "Report",
   description: "the template",

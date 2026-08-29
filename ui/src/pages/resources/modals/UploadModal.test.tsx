@@ -53,6 +53,8 @@ function renderModal(admin: boolean, destination: ScopeTarget | null) {
         admin={admin}
         personaNames={["finance", "ops"]}
         destination={destination}
+        folder="samples"
+        folders={["samples", "data/media-manager"]}
         onClose={() => {}}
       />
     </QueryClientProvider>,

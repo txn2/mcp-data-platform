@@ -1,73 +1,138 @@
 import { describe, it, expect } from "vitest";
-import { libraryPath, readLibraryView } from "./libraryUrl";
+import { folderAddress, libraryPath, libraryTabFor, readLibraryView } from "./libraryUrl";
 
-// The library's view is in the address bar so that Back from a resource page
-// lands on the library the reader left, and so a narrowed library can be linked
-// to (#1470). What is asserted here is that the two directions agree, that the
-// plain library keeps a plain address, and that a hand-typed address cannot put
-// the library into a state it has no control for.
+// The library's location lives in the route and its filters in the query
+// string (#1530). What is asserted here is that the two directions agree, that
+// the plain library keeps a plain address, that a browse address can never be
+// mistaken for a resource id, and that a hand-typed address cannot put the
+// library into a state it has no control for.
 
 describe("reading a library view out of an address", () => {
-  it("falls back to the section's own default scope", () => {
-    expect(readLibraryView("", "user")).toEqual({
+  it("reads the plain section path as the default library at its root", () => {
+    expect(readLibraryView("/resources", "/resources", "user")).toEqual({
       tab: "user",
+      path: "",
       q: "",
-      category: "",
       tag: "",
       sort: "updated",
     });
-    expect(readLibraryView("", "all").tab).toBe("all");
+    expect(readLibraryView("/admin/resources", "/admin/resources", "all").tab).toBe("all");
   });
 
-  it("takes the scope, the search, the category, the tag and the order", () => {
+  it("takes the library and the folder out of the route", () => {
     expect(
-      readLibraryView("?tab=global&q=demand&category=references&tag=q3&sort=last_read", "user"),
+      readLibraryView("/resources/lib/global/data/media-manager", "/resources", "user"),
+    ).toMatchObject({ tab: "global", path: "data/media-manager" });
+  });
+
+  it("takes the search, the tag and the order out of the query", () => {
+    expect(
+      readLibraryView("/resources/lib/global/data?q=demand&tag=q3&sort=last_read", "/resources", "user"),
     ).toEqual({
       tab: "global",
+      path: "data",
       q: "demand",
-      category: "references",
       tag: "q3",
       sort: "last_read",
     });
   });
 
-  it("reads an order it does not recognize as the default one", () => {
-    expect(readLibraryView("?sort=whatever", "user").sort).toBe("updated");
+  it("reads a library with no folder as that library's root", () => {
+    expect(readLibraryView("/resources/lib/global", "/resources", "user")).toMatchObject({
+      tab: "global",
+      path: "",
+    });
   });
 
-  it("reads an empty scope as the default one", () => {
-    expect(readLibraryView("?tab=", "user").tab).toBe("user");
+  // The address bar takes anything at all, and a doubled or trailing slash
+  // names the folder the person meant.
+  it("drops empty segments from a hand-typed address", () => {
+    expect(readLibraryView("/resources/lib/user//data/", "/resources", "user").path).toBe("data");
+  });
+
+  it("reads an order it does not recognize as the default one", () => {
+    expect(readLibraryView("/resources?sort=whatever", "/resources", "user").sort).toBe("updated");
+  });
+
+  it("reads a resource's own route as the default library rather than a folder", () => {
+    // /resources/{id} is one segment and browsing is at least two, so a
+    // resource page mounted beside the library cannot be read as a location in
+    // it.
+    expect(readLibraryView("/resources/8f3ac21", "/resources", "user")).toMatchObject({
+      tab: "user",
+      path: "",
+    });
   });
 });
 
 describe("writing a library view into an address", () => {
+  const view = (over: Partial<ReturnType<typeof readLibraryView>> = {}) => ({
+    tab: "user",
+    path: "",
+    q: "",
+    tag: "",
+    sort: "updated" as const,
+    ...over,
+  });
+
   it("leaves the plain library its plain address", () => {
-    const view = readLibraryView("", "user");
-    expect(libraryPath("/resources", view, "user")).toBe("/resources");
+    expect(libraryPath("/resources", view(), "user")).toBe("/resources");
   });
 
-  it("names only what is not at its default", () => {
-    const view = readLibraryView("?tab=global", "user");
-    expect(libraryPath("/resources", view, "user")).toBe("/resources?tab=global");
+  it("names the library once it is not the default one", () => {
+    expect(libraryPath("/resources", view({ tab: "global" }), "user")).toBe(
+      "/resources/lib/global",
+    );
   });
 
-  // The tag facet is the one the server has always supported and the page never
-  // set (#1471); it belongs in the address for the reason the others do.
-  it("carries a tag the view is narrowed to", () => {
-    const view = readLibraryView("?tag=q3", "user");
-    expect(libraryPath("/resources", view, "user")).toBe("/resources?tag=q3");
+  it("names the folder as route segments, not as a query parameter", () => {
+    expect(libraryPath("/resources", view({ path: "data/media-manager" }), "user")).toBe(
+      "/resources/lib/user/data/media-manager",
+    );
   });
 
-  it("round-trips a narrowed library", () => {
-    const search = "?tab=global&q=demand&category=references&tag=q3&sort=last_read";
-    const view = readLibraryView(search, "user");
-    const path = libraryPath("/admin/resources", view, "all");
-    expect(readLibraryView(path.slice(path.indexOf("?")), "all")).toEqual(view);
+  it("keeps the filters in the query", () => {
+    expect(libraryPath("/resources", view({ path: "data", tag: "q3" }), "user")).toBe(
+      "/resources/lib/user/data?tag=q3",
+    );
+  });
+
+  it("round-trips a narrowed folder", () => {
+    const original = readLibraryView(
+      "/admin/resources/lib/global/data/shows?q=demand&tag=q3&sort=last_read",
+      "/admin/resources",
+      "all",
+    );
+    const path = libraryPath("/admin/resources", original, "all");
+    expect(readLibraryView(path, "/admin/resources", "all")).toEqual(original);
   });
 
   it("escapes a search that would otherwise break the address", () => {
-    const view = { tab: "user", q: "a&b=c", category: "", tag: "", sort: "updated" as const };
-    const path = libraryPath("/resources", view, "user");
-    expect(readLibraryView(path.slice(path.indexOf("?")), "user").q).toBe("a&b=c");
+    const path = libraryPath("/resources", view({ q: "a&b=c" }), "user");
+    expect(readLibraryView(path, "/resources", "user").q).toBe("a&b=c");
+  });
+
+  // Every level of the tree is a distinct address, which is what makes Back
+  // step out one folder rather than out of the library.
+  it("gives each level of the tree its own address", () => {
+    const levels = ["", "data", "data/media-manager", "data/media-manager/shows"].map((path) =>
+      libraryPath("/resources", view({ tab: "global", path }), "user"),
+    );
+    expect(new Set(levels).size).toBe(levels.length);
+  });
+});
+
+describe("addressing a folder from somewhere with no view of its own", () => {
+  it("names a persona library by its persona and every other by its scope", () => {
+    expect(libraryTabFor("persona", "analyst")).toBe("analyst");
+    expect(libraryTabFor("user", "sub-1")).toBe("user");
+    expect(libraryTabFor("global", "")).toBe("global");
+  });
+
+  it("builds an address a reader can be sent to", () => {
+    expect(folderAddress("/resources", "global", "data/shows")).toBe(
+      "/resources/lib/global/data/shows",
+    );
+    expect(folderAddress("/resources", "user", "")).toBe("/resources/lib/user");
   });
 });

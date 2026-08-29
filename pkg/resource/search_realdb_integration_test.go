@@ -26,7 +26,7 @@ func TestResourceSearch_RealDB_FindsColumnNameInsideFile(t *testing.T) {
 	ctx := context.Background()
 
 	require.NoError(t, store.Insert(ctx, Resource{
-		ID: "res_dict", Scope: ScopeGlobal, Category: "references",
+		ID: "res_dict", Scope: ScopeGlobal, Path: "references",
 		Filename: "sales-dictionary.csv", DisplayName: "Sales Dictionary",
 		Description: "Field reference for the sales extract.",
 		MIMEType:    "text/csv", SizeBytes: 40, S3Key: "k1",
@@ -64,17 +64,17 @@ func TestResourceSearch_RealDB_ScopeEnforcement(t *testing.T) {
 
 	seed := []Resource{
 		{
-			ID: "res_g", Scope: ScopeGlobal, Category: "references", Filename: "g.md",
+			ID: "res_g", Scope: ScopeGlobal, Path: "references", Filename: "g.md",
 			DisplayName: "Onboarding guide", MIMEType: "text/markdown", S3Key: "kg",
 			URI: "mcp://global/references/g.md", UploaderSub: "admin",
 		},
 		{
-			ID: "res_p", Scope: ScopePersona, ScopeID: "analyst", Category: "references", Filename: "p.md",
+			ID: "res_p", Scope: ScopePersona, ScopeID: "analyst", Path: "references", Filename: "p.md",
 			DisplayName: "Onboarding analyst playbook", MIMEType: "text/markdown", S3Key: "kp",
 			URI: "mcp://persona/analyst/references/p.md", UploaderSub: "admin",
 		},
 		{
-			ID: "res_u", Scope: ScopeUser, ScopeID: "sub-a", Category: "references", Filename: "u.md",
+			ID: "res_u", Scope: ScopeUser, ScopeID: "sub-a", Path: "references", Filename: "u.md",
 			DisplayName: "Onboarding personal notes", MIMEType: "text/markdown", S3Key: "ku",
 			URI: "mcp://user/sub-a/references/u.md", UploaderSub: "sub-a",
 		},
@@ -120,7 +120,7 @@ func TestResourceSearch_RealDB_UpdateClearsEmbedding(t *testing.T) {
 	ctx := context.Background()
 
 	require.NoError(t, store.Insert(ctx, Resource{
-		ID: "res_e", Scope: ScopeGlobal, Category: "references", Filename: "e.md",
+		ID: "res_e", Scope: ScopeGlobal, Path: "references", Filename: "e.md",
 		DisplayName: "Edited", MIMEType: "text/markdown", S3Key: "ke",
 		URI: "mcp://global/references/e.md", UploaderSub: "sub-1",
 	}))
@@ -173,12 +173,12 @@ func TestResourceSearch_RealDB_HybridArm(t *testing.T) {
 
 	seed := []Resource{
 		{
-			ID: "res_h1", Scope: ScopeGlobal, Category: "references", Filename: "h1.md",
+			ID: "res_h1", Scope: ScopeGlobal, Path: "references", Filename: "h1.md",
 			DisplayName: "Margin definitions", MIMEType: "text/markdown", S3Key: "k1",
 			URI: "mcp://global/references/h1.md", UploaderSub: "sub-1",
 		},
 		{
-			ID: "res_h2", Scope: ScopeUser, ScopeID: "sub-other", Category: "references", Filename: "h2.md",
+			ID: "res_h2", Scope: ScopeUser, ScopeID: "sub-other", Path: "references", Filename: "h2.md",
 			DisplayName: "Margin definitions (private)", MIMEType: "text/markdown", S3Key: "k2",
 			URI: "mcp://user/sub-other/references/h2.md", UploaderSub: "sub-other",
 		},
@@ -214,7 +214,7 @@ func TestResourceSearch_RealDB_DeleteRemovesTheIndexEntry(t *testing.T) {
 	ctx := context.Background()
 
 	require.NoError(t, store.Insert(ctx, Resource{
-		ID: "res_del", Scope: ScopeGlobal, Category: "references", Filename: "d.csv",
+		ID: "res_del", Scope: ScopeGlobal, Path: "references", Filename: "d.csv",
 		DisplayName: "Doomed dictionary", MIMEType: "text/csv", S3Key: "kd",
 		URI: "mcp://global/references/d.csv", UploaderSub: "sub-1",
 	}))
@@ -250,11 +250,11 @@ func TestResourceIndex_RealDB_UnsettledContentIsAGap(t *testing.T) {
 
 	for _, r := range []Resource{
 		{
-			ID: "res_settled", Scope: ScopeGlobal, Category: "r", Filename: "a.md", DisplayName: "A",
+			ID: "res_settled", Scope: ScopeGlobal, Path: "r", Filename: "a.md", DisplayName: "A",
 			MIMEType: "text/markdown", S3Key: "ka", URI: "mcp://global/r/a.md", UploaderSub: "s",
 		},
 		{
-			ID: "res_owed", Scope: ScopeGlobal, Category: "r", Filename: "b.md", DisplayName: "B",
+			ID: "res_owed", Scope: ScopeGlobal, Path: "r", Filename: "b.md", DisplayName: "B",
 			MIMEType: "text/markdown", S3Key: "kb", URI: "mcp://global/r/b.md", UploaderSub: "s",
 		},
 	} {

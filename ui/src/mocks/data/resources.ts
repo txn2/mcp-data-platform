@@ -2,7 +2,8 @@ interface Resource {
   id: string;
   scope: "global" | "persona" | "user";
   scope_id: string;
-  category: string;
+  /** The folder path this resource is filed under inside its library. */
+  path: string;
   filename: string;
   display_name: string;
   description: string;
@@ -58,7 +59,7 @@ const resources: Resource[] = [
     id: "res-001",
     scope: "global",
     scope_id: "",
-    category: "documentation",
+    path: "documentation",
     filename: "sql-style-guide.pdf",
     display_name: "SQL Style Guide",
     description:
@@ -77,7 +78,7 @@ const resources: Resource[] = [
     id: "res-002",
     scope: "global",
     scope_id: "",
-    category: "templates",
+    path: "templates/reporting",
     filename: "data-dictionary.md",
     display_name: "Data Dictionary",
     description:
@@ -96,7 +97,7 @@ const resources: Resource[] = [
     id: "res-003",
     scope: "global",
     scope_id: "",
-    category: "documentation",
+    path: "documentation/architecture",
     filename: "query-playbook.pdf",
     display_name: "Query Playbook",
     description:
@@ -115,7 +116,7 @@ const resources: Resource[] = [
     id: "res-004",
     scope: "global",
     scope_id: "",
-    category: "onboarding",
+    path: "onboarding",
     filename: "onboarding-guide.html",
     display_name: "Onboarding Guide",
     description:
@@ -134,7 +135,7 @@ const resources: Resource[] = [
     id: "res-005",
     scope: "persona",
     scope_id: "data-engineer",
-    category: "runbooks",
+    path: "runbooks",
     filename: "etl-runbook.md",
     display_name: "ETL Runbook",
     description:
@@ -153,7 +154,7 @@ const resources: Resource[] = [
     id: "res-006",
     scope: "persona",
     scope_id: "data-engineer",
-    category: "checklists",
+    path: "checklists",
     filename: "migration-checklist.pdf",
     display_name: "Migration Checklist",
     description:
@@ -172,7 +173,7 @@ const resources: Resource[] = [
     id: "res-007",
     scope: "persona",
     scope_id: "inventory-analyst",
-    category: "reference",
+    path: "reference/dictionaries",
     filename: "reorder-points.xlsx",
     display_name: "Reorder Points",
     description:
@@ -191,7 +192,7 @@ const resources: Resource[] = [
     id: "res-008",
     scope: "persona",
     scope_id: "inventory-analyst",
-    category: "reference",
+    path: "reference/dictionaries",
     filename: "seasonal-factors.csv",
     display_name: "Seasonal Factors",
     description:
@@ -210,7 +211,7 @@ const resources: Resource[] = [
     id: "res-009",
     scope: "user",
     scope_id: "marcus-engineer",
-    category: "queries",
+    path: "queries",
     filename: "query-templates.sql",
     display_name: "Query Templates",
     description:
@@ -229,7 +230,7 @@ const resources: Resource[] = [
     id: "res-010",
     scope: "user",
     scope_id: "rachel-analyst",
-    category: "notes",
+    path: "notes",
     filename: "dashboard-notes.md",
     display_name: "Dashboard Notes",
     description:
@@ -248,7 +249,7 @@ const resources: Resource[] = [
     id: "res-011",
     scope: "user",
     scope_id: "david-director",
-    category: "reference",
+    path: "reference/glossary",
     filename: "store-list.csv",
     display_name: "Store List",
     description:
@@ -267,7 +268,7 @@ const resources: Resource[] = [
     id: "res-012",
     scope: "user",
     scope_id: "emily-analyst",
-    category: "reports",
+    path: "reports",
     filename: "weekly-report.html",
     display_name: "Weekly Report",
     description:
@@ -286,7 +287,7 @@ const resources: Resource[] = [
     id: "res-013",
     scope: "global",
     scope_id: "",
-    category: "documentation",
+    path: "documentation/architecture",
     filename: "data-governance-policy.pdf",
     display_name: "Data Governance Policy",
     description:
@@ -305,7 +306,7 @@ const resources: Resource[] = [
     id: "res-014",
     scope: "global",
     scope_id: "",
-    category: "templates",
+    path: "templates/reporting",
     filename: "incident-postmortem.md",
     display_name: "Incident Postmortem Template",
     description:
@@ -324,7 +325,7 @@ const resources: Resource[] = [
     id: "res-015",
     scope: "global",
     scope_id: "",
-    category: "reference",
+    path: "reference/glossary",
     filename: "glossary.csv",
     display_name: "Business Glossary Export",
     description:
@@ -343,7 +344,7 @@ const resources: Resource[] = [
     id: "res-016",
     scope: "global",
     scope_id: "",
-    category: "onboarding",
+    path: "onboarding",
     filename: "platform-architecture.svg",
     display_name: "Platform Architecture Diagram",
     description:
@@ -362,7 +363,7 @@ const resources: Resource[] = [
     id: "res-017",
     scope: "persona",
     scope_id: "data-engineer",
-    category: "runbooks",
+    path: "runbooks",
     filename: "trino-tuning.md",
     display_name: "Trino Performance Tuning",
     description:
@@ -381,7 +382,7 @@ const resources: Resource[] = [
     id: "res-018",
     scope: "persona",
     scope_id: "data-engineer",
-    category: "queries",
+    path: "queries",
     filename: "data-quality-checks.sql",
     display_name: "Data Quality Checks",
     description:
@@ -400,7 +401,7 @@ const resources: Resource[] = [
     id: "res-019",
     scope: "persona",
     scope_id: "inventory-analyst",
-    category: "runbooks",
+    path: "runbooks",
     filename: "stockout-investigation.md",
     display_name: "Stockout Investigation",
     description:
@@ -419,7 +420,7 @@ const resources: Resource[] = [
     id: "res-020",
     scope: "persona",
     scope_id: "regional-director",
-    category: "reference",
+    path: "reference",
     filename: "district-targets.xlsx",
     display_name: "District Targets",
     description:
@@ -438,7 +439,7 @@ const resources: Resource[] = [
     id: "res-021",
     scope: "persona",
     scope_id: "finance-executive",
-    category: "documentation",
+    path: "documentation",
     filename: "revenue-recognition.pdf",
     display_name: "Revenue Recognition Rules",
     description:
@@ -457,7 +458,7 @@ const resources: Resource[] = [
     id: "res-022",
     scope: "persona",
     scope_id: "store-manager",
-    category: "checklists",
+    path: "checklists",
     filename: "daily-open-close.md",
     display_name: "Daily Open/Close Checklist",
     description:
@@ -476,7 +477,7 @@ const resources: Resource[] = [
     id: "res-023",
     scope: "user",
     scope_id: "marcus-engineer",
-    category: "notes",
+    path: "notes",
     filename: "lineage-debug.md",
     display_name: "Lineage Debug Notes",
     description:
@@ -495,7 +496,7 @@ const resources: Resource[] = [
     id: "res-024",
     scope: "user",
     scope_id: "amanda-engineer",
-    category: "queries",
+    path: "queries",
     filename: "backfill-helpers.sql",
     display_name: "Backfill Helpers",
     description:
@@ -514,7 +515,7 @@ const resources: Resource[] = [
     id: "res-025",
     scope: "user",
     scope_id: "david-director",
-    category: "reports",
+    path: "reports",
     filename: "qbr-deck.pdf",
     display_name: "QBR Deck",
     description:
@@ -533,7 +534,7 @@ const resources: Resource[] = [
     id: "res-026",
     scope: "user",
     scope_id: "emily-analyst",
-    category: "notes",
+    path: "notes",
     filename: "forecast-assumptions.md",
     display_name: "Forecast Assumptions",
     description:
@@ -552,7 +553,7 @@ const resources: Resource[] = [
     id: "res-027",
     scope: "global",
     scope_id: "",
-    category: "runbooks",
+    path: "runbooks",
     filename: "oauth-troubleshooting.md",
     display_name: "OAuth Troubleshooting",
     description:
@@ -571,7 +572,7 @@ const resources: Resource[] = [
     id: "res-028",
     scope: "global",
     scope_id: "",
-    category: "templates",
+    path: "templates",
     filename: "dashboard-starter.html",
     display_name: "Dashboard Starter",
     description:
@@ -595,7 +596,7 @@ const resources: Resource[] = [
     id: "res-029",
     scope: "persona",
     scope_id: "data-engineer",
-    category: "visual",
+    path: "visual",
     filename: "warehouse-floor.png",
     display_name: "Warehouse Floor Plan",
     description: "Annotated floor plan of the Portland distribution centre, revised after the mezzanine build.",
@@ -613,7 +614,7 @@ const resources: Resource[] = [
     id: "res-030",
     scope: "persona",
     scope_id: "data-engineer",
-    category: "visual",
+    path: "visual",
     filename: "rack-elevation.png",
     display_name: "Rack Elevation",
     description: "Elevation drawing of the aisle-4 racking, used to label the bin identifiers in the inventory extract.",
@@ -631,7 +632,7 @@ const resources: Resource[] = [
     id: "res-031",
     scope: "persona",
     scope_id: "data-engineer",
-    category: "visual",
+    path: "visual",
     filename: "loading-dock.png",
     display_name: "Loading Dock Layout",
     description: "Dock door numbering and staging lanes, the reference for the dock_id column in the shipments table.",
@@ -649,7 +650,7 @@ const resources: Resource[] = [
     id: "res-032",
     scope: "persona",
     scope_id: "data-engineer",
-    category: "visual",
+    path: "visual",
     filename: "pipeline-topology.png",
     display_name: "Pipeline Topology",
     description: "Full-resolution export of the ingestion topology poster, past the size a tile will load inline.",
@@ -667,7 +668,7 @@ const resources: Resource[] = [
     id: "res-033",
     scope: "user",
     scope_id: "rachel-analyst",
-    category: "visual",
+    path: "visual",
     filename: "store-frontage.png",
     display_name: "Store Frontage",
     description: "Frontage photograph of the Bellevue store, taken for the regional performance write-up.",
@@ -685,7 +686,7 @@ const resources: Resource[] = [
     id: "res-034",
     scope: "user",
     scope_id: "rachel-analyst",
-    category: "visual",
+    path: "visual",
     filename: "aisle-endcap.png",
     display_name: "Aisle Endcap",
     description: "Endcap display photographed during the promo audit, referenced by the promo compliance notes.",

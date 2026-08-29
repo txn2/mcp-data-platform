@@ -3,27 +3,13 @@ import type { FilterOption } from "@/components/patterns/FilterSelect";
 import type { Resource } from "@/api/resources/types";
 
 /**
- * How the library is divided and how each division is drawn.
+ * How a folder's files are drawn, and the two flags a row and a tile share.
  *
  * A library fills up with more than prose. A hundred property photographs
  * uploaded for one report used to be a hundred rows of filename, size, and
  * date, with the playbook the same reader keeps in the same library somewhere
- * underneath them (#1471). Grouping puts each kind in its own section, and a
- * section holding only images is shown as images.
+ * underneath them (#1471). A folder holding only images is shown as images.
  */
-
-/** One category's section of the library. */
-export interface ResourceGroup {
-  category: string;
-  resources: Resource[];
-  /**
-   * True when every resource in the section is an image, which is what decides
-   * a grid over rows. It is read off the content, not off the category name, so
-   * a photograph filed under `references` is still shown as a photograph and a
-   * written note filed under `visual` is still shown as a row.
-   */
-  images: boolean;
-}
 
 /**
  * Largest resource the grid pulls the original bytes of for a tile.
@@ -69,33 +55,6 @@ export function neverRead(r: Resource): boolean {
 }
 
 /**
- * groupByCategory divides the resources in view into their sections.
- *
- * Both orders are the server's. Inside a section the store's order is kept, and
- * the sections themselves follow the order their first member arrived in — so
- * the resource the chosen sort put first is still the first row of the first
- * section. Ordering sections any other way (by a fixed category rank, say)
- * would quietly turn the sort control into a control over nothing: the reader
- * asking for "Recently read" would get category order and no longer be shown
- * what was read most recently.
- */
-export function groupByCategory(resources: Resource[]): ResourceGroup[] {
-  const byCategory = new Map<string, Resource[]>();
-  for (const r of resources) {
-    const existing = byCategory.get(r.category);
-    if (existing) existing.push(r);
-    else byCategory.set(r.category, [r]);
-  }
-
-  // Map preserves insertion order, which is first-appearance order.
-  return [...byCategory.entries()].map(([category, group]) => ({
-    category,
-    resources: group,
-    images: group.every(isImageResource),
-  }));
-}
-
-/**
  * tagOptions is the tag facet's choices: the tags carried by the resources in
  * view, plus whichever tag is already selected.
  *
@@ -114,31 +73,4 @@ export function tagOptions(resources: Resource[], selected: string): FilterOptio
     { value: "", label: "All tags" },
     ...[...tags].sort((a, b) => a.localeCompare(b)).map((t) => ({ value: t, label: t })),
   ];
-}
-
-// Which sections this reader has folded, remembered so a library with one large
-// group and several small ones opens the way it was left. Browser storage, not
-// the address bar: it is how one person prefers to read their own library
-// rather than part of the view a link carries.
-const COLLAPSED_KEY = "resource-library-collapsed";
-
-/** The categories this reader last left folded. */
-export function readCollapsed(): string[] {
-  try {
-    const raw = globalThis.localStorage?.getItem(COLLAPSED_KEY);
-    if (!raw) return [];
-    const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [];
-  } catch {
-    // Unreadable or unparseable storage means no preference, not a broken page.
-    return [];
-  }
-}
-
-export function writeCollapsed(categories: string[]) {
-  try {
-    globalThis.localStorage?.setItem(COLLAPSED_KEY, JSON.stringify(categories));
-  } catch {
-    /* persistence is best-effort */
-  }
 }

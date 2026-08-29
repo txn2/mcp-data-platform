@@ -63,8 +63,8 @@ export function uriOf(kind: TargetKind, targetID: string): string {
   const res = mockResources.resources.find((r) => r.id === targetID);
   if (!res) return `mcp://global/deleted/${targetID}`;
   return res.scope === "global"
-    ? `mcp://global/${res.category}/${res.filename}`
-    : `mcp://${res.scope}/${res.scope_id}/${res.category}/${res.filename}`;
+    ? `mcp://global/${res.path}/${res.filename}`
+    : `mcp://${res.scope}/${res.scope_id}/${res.path}/${res.filename}`;
 }
 
 /**

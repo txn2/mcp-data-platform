@@ -1,4 +1,9 @@
 import {
+  openEmptyResourceLibrary,
+  openResourceSelection,
+  openResourceSubfolder,
+} from "./route-actions-library";
+import {
   openGlossaryResourceTables,
   openResourceDetail,
   openResourceLifecycle,
@@ -18,6 +23,39 @@ import { type ScreenshotRoute } from "./route-types";
 // grown past what belongs inline, kept together so a capture added for one
 // state sits next to the others of the same page.
 export const adminResourceRoutes: ScreenshotRoute[] = [
+  {
+    // The library as a tree (#1530). It was one expandable section per flat
+    // category with every file in the section, which at a thousand files is
+    // six unbounded lists and a search box.
+    slug: "resource-tree",
+    path: "/portal/admin/resources",
+    category: "admin",
+  },
+  {
+    // Two levels in. Each level is an address of its own, so this view can be
+    // linked to and Back steps out one folder rather than out of the library.
+    slug: "resource-folder",
+    path: "/portal/admin/resources",
+    category: "admin",
+    beforeCapture: openResourceSubfolder,
+  },
+  {
+    // Several files picked and one move over all of them, reporting what it did
+    // to each. Re-filing forty resources meant opening forty Edit dialogs.
+    slug: "resource-multi-select-move",
+    path: "/portal/admin/resources",
+    category: "admin",
+    beforeCapture: openResourceSelection,
+  },
+  {
+    // A library with nothing to show. A folder exists because a resource is
+    // filed under it, so there is no empty folder to capture -- only a library
+    // nothing matches.
+    slug: "resource-library-empty",
+    path: "/portal/admin/resources",
+    category: "admin",
+    beforeCapture: openEmptyResourceLibrary,
+  },
   {
     // Resource detail as it opens: the content at the page's own width, with
     // what the resource is beside it (#1470). The sidebar scrolls within its

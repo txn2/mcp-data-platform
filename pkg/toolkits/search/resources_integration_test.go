@@ -97,32 +97,32 @@ func seedResourceStore() *scopedResourceStore {
 		},
 		resources: []resource.Resource{
 			{
-				ID: "res_weekly", Scope: resource.ScopeGlobal, Category: "templates",
+				ID: "res_weekly", Scope: resource.ScopeGlobal, Path: "templates",
 				Filename: "weekly-report-template.md", DisplayName: "Weekly Report Template",
 				Description: "Approved structure for the weekly report", MIMEType: "text/markdown",
 				SizeBytes: int64(len(weeklyTemplateBody)), S3Key: "k-weekly",
 				URI: "mcp://global/templates/weekly-report-template.md",
 			},
 			{
-				ID: "res_dict", Scope: resource.ScopeGlobal, Category: "references",
+				ID: "res_dict", Scope: resource.ScopeGlobal, Path: "references",
 				Filename: "sales-dictionary.csv", DisplayName: "Sales Dictionary",
 				Description: "Field reference for the sales extract", MIMEType: "text/csv",
 				SizeBytes: 60, S3Key: "k-dict", URI: "mcp://global/references/sales-dictionary.csv",
 			},
 			{
-				ID: "res_alice", Scope: resource.ScopeUser, ScopeID: userAID, Category: "notes",
+				ID: "res_alice", Scope: resource.ScopeUser, ScopeID: userAID, Path: "notes",
 				Filename: "alice-notes.md", DisplayName: "Alice private margin notes",
 				MIMEType: "text/markdown", SizeBytes: 20, S3Key: "k-alice",
 				URI: "mcp://user/" + userAID + "/notes/alice-notes.md",
 			},
 			{
-				ID: "res_playbook", Scope: resource.ScopePersona, ScopeID: "analyst", Category: "playbooks",
+				ID: "res_playbook", Scope: resource.ScopePersona, ScopeID: "analyst", Path: "playbooks",
 				Filename: "margin-playbook.md", DisplayName: "Analyst margin playbook",
 				MIMEType: "text/markdown", SizeBytes: 20, S3Key: "k-play",
 				URI: "mcp://persona/analyst/playbooks/margin-playbook.md",
 			},
 			{
-				ID: "res_logo", Scope: resource.ScopeGlobal, Category: "references",
+				ID: "res_logo", Scope: resource.ScopeGlobal, Path: "references",
 				Filename: "margin-chart.png", DisplayName: "Margin chart image",
 				MIMEType: "image/png", SizeBytes: 4096, S3Key: "k-logo",
 				URI: "mcp://global/references/margin-chart.png",

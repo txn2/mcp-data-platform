@@ -89,7 +89,7 @@ func (noResources) List(context.Context, resource.Filter) ([]resource.Resource, 
 	return nil, 0, nil
 }
 func (noResources) Update(context.Context, string, resource.Update) error { return nil }
-func (noResources) Move(context.Context, string, resource.Move) error {
+func (noResources) Move(context.Context, []resource.Move) error {
 	return errors.New("noResources does not move resources")
 }
 func (noResources) Delete(context.Context, string) error { return nil }

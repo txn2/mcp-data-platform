@@ -38,10 +38,10 @@ type refView struct {
 	MIMEType    string `json:"mime_type,omitempty"`
 	SizeBytes   int64  `json:"size_bytes,omitempty"`
 
-	// Resource-only fields: the file's own name, its category and the scope it
-	// is filed under.
+	// Resource-only fields: the file's own name, the folder path it is filed
+	// under and the library it lives in.
 	Filename string `json:"filename,omitempty"`
-	Category string `json:"category,omitempty"`
+	Path     string `json:"path,omitempty"`
 	Scope    string `json:"scope,omitempty"`
 	ScopeID  string `json:"scope_id,omitempty"`
 
@@ -397,7 +397,7 @@ func fillResource(view *refView, res *resource.Resource, claims resource.Claims)
 	view.DisplayName = res.DisplayName
 	view.Filename = res.Filename
 	view.Description = res.Description
-	view.Category = res.Category
+	view.Path = res.Path
 	view.MIMEType = res.MIMEType
 	view.SizeBytes = res.SizeBytes
 	view.Scope = string(res.Scope)

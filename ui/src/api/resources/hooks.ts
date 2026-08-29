@@ -6,6 +6,8 @@ import {
 } from "@/api/portal/hooks/infinite";
 import { resourceFetch, resourceFetchRaw } from "./client";
 import type {
+  FolderMoveRequest,
+  FolderMoveResult,
   Resource,
   ResourceListResponse,
   ResourceUpdate,
@@ -15,7 +17,10 @@ import type {
 interface ResourceQuery {
   scope?: string;
   scope_id?: string;
-  category?: string;
+  // path narrows the listing to one folder and everything beneath it. Absent is
+  // the whole library, which is what the root of a tree shows and what a search
+  // spans.
+  path?: string;
   tag?: string;
   q?: string;
   // sort orders the list; "last_read" puts the most recently read first and
@@ -31,7 +36,7 @@ function resourceParams(params: ResourceQuery | undefined): URLSearchParams {
   const sp = new URLSearchParams();
   if (params?.scope) sp.set("scope", params.scope);
   if (params?.scope_id) sp.set("scope_id", params.scope_id);
-  if (params?.category) sp.set("category", params.category);
+  if (params?.path) sp.set("path", params.path);
   if (params?.tag) sp.set("tag", params.tag);
   if (params?.q) sp.set("q", params.q);
   if (params?.sort) sp.set("sort", params.sort);
@@ -178,6 +183,26 @@ export function useRestoreVersion() {
       }
       return res.json() as Promise<Resource>;
     },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["resources"] });
+    },
+  });
+}
+
+// useMoveFolder renames a folder, or nests it under another one.
+//
+// It is a request of its own rather than one PATCH per file because the server
+// rewrites the whole subtree in one transaction: a half-renamed folder is not a
+// state anyone should be able to observe, and a browser loop over the files
+// could not offer that. A refusal means nothing moved.
+export function useMoveFolder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (req: FolderMoveRequest) =>
+      resourceFetch<FolderMoveResult>("/folders/move", {
+        method: "POST",
+        body: JSON.stringify(req),
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["resources"] });
     },

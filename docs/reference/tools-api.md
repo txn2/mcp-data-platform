@@ -1365,7 +1365,7 @@ A `create` declares what the bytes are in `content_type`; a create that does not
 | `content_type` | string | Conditional | - | Media type the bytes are (required for `create`). Not detected: SVG, HTML, JSX and Markdown all read as plain text to a byte sniffer. `replace_content` keeps the type the resource already carries when it is omitted; a file stored under a generic type is re-detected from its bytes |
 | `filename` | string | Conditional | - | Name of the file (required for `create`), normalized to lowercase with spaces replaced. `replace_content` ignores it |
 | `display_name` | string | Conditional | - | Name shown in the resource library (required for `create`) |
-| `category` | string | Conditional | - | The shelf the file sits on (required for `create`): lowercase letters, digits and hyphens, starting with a letter |
+| `path` | string | Conditional | - | The folder path the file is filed under inside its library (required for `create`), for example `datasets` or `datasets/media-manager/shows`. Slash-separated; each folder name is lowercase letters, digits and hyphens starting with a letter, at most 31 characters; at most 8 folders deep and 200 characters overall |
 | `description` | string | Conditional | - | What the file is and what reads it (required for `create`) |
 | `tags` | string[] | No | `[]` | Tags for filtering in the library |
 | `scope` | string | No | `user` | `user`, `persona`, or `global` |
@@ -1376,7 +1376,7 @@ A `create` declares what the bytes are in `content_type`; a create that does not
 
 | Action | Description | Required Params |
 |--------|-------------|-----------------|
-| `create` | File new content as a managed resource and report its `mcp://` URI and its `mcp:resource:` reference | `filename`, `display_name`, `category`, `description`, `content_type`, content |
+| `create` | File new content as a managed resource and report its `mcp://` URI and its `mcp:resource:` reference | `filename`, `display_name`, `path`, `description`, `content_type`, content |
 | `replace_content` | Write new content over an existing resource, keeping its id, URI and filename, and record the change as its next version | `reference`, content |
 
 **Response Schema (create):**

@@ -21,7 +21,7 @@ func TestIndexText(t *testing.T) {
 		{
 			name: "every field composed in order",
 			got: IndexText(Resource{
-				DisplayName: "Sales Dictionary", Description: "Column reference", Category: "references",
+				DisplayName: "Sales Dictionary", Description: "Column reference", Path: "references",
 				Filename: "sales.csv", Tags: []string{"finance", "canonical"},
 			}, "order_id,net_amount"),
 			want: "Sales Dictionary\nColumn reference\nreferences\nsales.csv\nfinance canonical\norder_id,net_amount",
@@ -98,7 +98,7 @@ func TestScopeVisibilityWhere(t *testing.T) {
 // columns plus the two score columns each hybrid arm appends.
 func searchRows(extraCols []string) *sqlmock.Rows {
 	return sqlmock.NewRows(append([]string{
-		"id", "scope", "scope_id", "category", "filename", "display_name", "description",
+		"id", "scope", "scope_id", "path", "filename", "display_name", "description",
 		"mime_type", "size_bytes", "s3_key", "uri", "tags", "uploader_sub", "uploader_email",
 		"created_at", "updated_at", "last_read_at",
 	}, extraCols...))

@@ -19,12 +19,14 @@ const (
 	MaxDisplayNameLen  = 200
 	MaxTagsPerResource = 20
 	MaxTagLen          = 50
-	MaxCategoryLen     = 31
 )
 
 var (
-	categoryRe = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`)
-	tagRe      = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,49}$`)
+	// pathSegmentRe is the rule one folder name in a resource's path must meet.
+	// It is the rule the flat category carried before a path could nest (#1529),
+	// unchanged, so every value that existed then is a legal segment now.
+	pathSegmentRe = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`)
+	tagRe         = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,49}$`)
 )
 
 // DeniedExtensions lists file extensions that are blocked for upload.
@@ -53,14 +55,6 @@ var DeniedMIMETypes = map[string]bool{
 	// already contains it; storing it has no use case that text/html does not
 	// cover, so it is refused at the door as well.
 	contenttype.XHTML: true,
-}
-
-// ValidateCategory checks that a category matches the required pattern.
-func ValidateCategory(cat string) error {
-	if !categoryRe.MatchString(cat) {
-		return fmt.Errorf("category must match %s, got %q", categoryRe.String(), cat)
-	}
-	return nil
 }
 
 // ValidateDisplayName checks display name length and content.

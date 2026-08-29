@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestValidateCategory(t *testing.T) {
+func TestValidatePath(t *testing.T) {
 	tests := []struct {
 		input string
 		ok    bool
@@ -23,12 +23,12 @@ func TestValidateCategory(t *testing.T) {
 		{strings.Repeat("a", 32), false}, // too long
 	}
 	for _, tt := range tests {
-		err := ValidateCategory(tt.input)
+		err := ValidatePath(tt.input)
 		if tt.ok && err != nil {
-			t.Errorf("ValidateCategory(%q) unexpected error: %v", tt.input, err)
+			t.Errorf("ValidatePath(%q) unexpected error: %v", tt.input, err)
 		}
 		if !tt.ok && err == nil {
-			t.Errorf("ValidateCategory(%q) expected error", tt.input)
+			t.Errorf("ValidatePath(%q) expected error", tt.input)
 		}
 	}
 }

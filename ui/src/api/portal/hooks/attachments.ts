@@ -10,7 +10,7 @@ export interface PromptAttachment {
   attached_by?: string;
   display_name?: string;
   description?: string;
-  category?: string;
+  path?: string;
   mime_type?: string;
   size_bytes?: number;
   uri?: string;

@@ -13,9 +13,13 @@ import { authenticate } from "../screenshots/helpers/auth";
 
 const ADMIN_RESOURCES = "/portal/admin/resources";
 
+// A library is a tree (#1530), so a file is not on the page the library opens
+// at -- it is inside whichever folder it is filed in. Searching reaches it from
+// anywhere in the library, which is what the whole-library search is for.
 async function openResourceDetail(page: Page, name: string): Promise<void> {
   await authenticate(page);
   await page.goto(ADMIN_RESOURCES);
+  await page.getByLabel("Search resources").fill(name);
   await page.getByText(name, { exact: true }).first().click();
   await expect(page.getByTestId("resource-versions")).toBeVisible();
 }
@@ -117,16 +121,15 @@ test.describe("Resource usage", () => {
 test.describe("Admin resources table", () => {
   test("shows last-read recency, flagging what has never been read", async ({ page }) => {
     await authenticate(page);
-    await page.goto(ADMIN_RESOURCES);
-
-    // The library is grouped by category (#1471), so each section is its own
-    // table with its own header: the column is asserted on the section holding
-    // the two fixtures below rather than on the page, which has one per section.
-    await expect(
-      page.getByRole("columnheader", { name: "Last read" }).first(),
-    ).toBeVisible();
-    // res-001 has read activity; res-002 has none and is old enough to flag.
+    // The column belongs to a folder's own table, and the two fixtures are
+    // filed in different folders (#1530), so each is read where it lives.
+    await page.goto(`${ADMIN_RESOURCES}/lib/all/documentation`);
+    await expect(page.getByRole("columnheader", { name: "Last read" })).toBeVisible();
+    // res-001 has read activity.
     await expect(page.getByTestId("resource-last-read-res-001")).not.toHaveText("Never");
+
+    // res-002 has none and is old enough to flag.
+    await page.goto(`${ADMIN_RESOURCES}/lib/all/templates/reporting`);
     await expect(page.getByTestId("resource-last-read-res-002")).toHaveText("Never");
   });
 
@@ -143,8 +146,12 @@ test.describe("Admin resources table", () => {
     ]);
     expect(resp.status()).toBe(200);
 
-    // The most recently read resource leads the table.
-    const firstRow = page.locator("tbody tr").first();
-    await expect(firstRow).toContainText("SQL Style Guide");
+    // The most recently read resource leads the library. The tree groups by
+    // folder, so the order is read off a search spanning the whole library --
+    // which is where the sort is visible at all.
+    await page.getByLabel("Search resources").fill("e");
+    await expect(page.getByTestId("search-hits").locator("li").first()).toContainText(
+      "SQL Style Guide",
+    );
   });
 });

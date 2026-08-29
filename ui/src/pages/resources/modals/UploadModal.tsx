@@ -7,18 +7,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { formatBytes } from "@/lib/format";
 import { parseTags } from "@/lib/tags";
 import { RESOURCE_POSITIONING } from "@/lib/positioning";
 import { ModalShell } from "@/components/ModalShell";
-import { CATEGORIES, CATEGORY_HINTS, scopeLabel } from "../shared";
+import { scopeLabel } from "../shared";
+import { PathField } from "../parts/PathField";
+import { pathProblem } from "../parts/pathRules";
 import { UploadTargets } from "./UploadTargets";
 import { libraryCopy, type ScopeTarget } from "../scopes";
 
@@ -28,7 +23,8 @@ interface UploadDraft {
   file: File | null;
   displayName: string;
   description: string;
-  category: string;
+  /** The folder the file is filed into. */
+  path: string;
   tagsInput: string;
 }
 
@@ -39,7 +35,7 @@ function rejectDraft(draft: UploadDraft): string | null {
   if (!draft.displayName.trim()) return "Display name is required";
   if (!draft.description.trim()) return "Description is required";
   if (draft.file.size > MAX_BYTES) return "File exceeds 100 MB limit";
-  return null;
+  return pathProblem(draft.path);
 }
 
 // draftForm builds the multipart body for one target. Every target gets the
@@ -48,7 +44,7 @@ function draftForm(draft: UploadDraft, target: { scope: string; scope_id: string
   const fd = new FormData();
   fd.set("scope", target.scope);
   if (target.scope_id) fd.set("scope_id", target.scope_id);
-  fd.set("category", draft.category);
+  fd.set("path", draft.path);
   fd.set("display_name", draft.displayName.trim());
   fd.set("description", draft.description.trim());
   fd.set("file", draft.file!);
@@ -78,6 +74,8 @@ export function UploadModal({
   admin,
   personaNames,
   destination,
+  folder,
+  folders,
 }: {
   onClose: () => void;
   admin: boolean;
@@ -86,6 +84,12 @@ export function UploadModal({
   // scope tab the page is showing. The dialog states it before a file is
   // chosen, so the file is never filed somewhere the reader did not expect.
   destination: ScopeTarget | null;
+  // The folder the person is standing in, which is where the file lands unless
+  // they change it. Uploading from inside a folder and having the file appear
+  // somewhere else is the thing this is for (#1530).
+  folder: string;
+  // The folders already in this library, offered as completions.
+  folders: string[];
 }) {
   const upload = useUploadResource();
   const user = useAuthStore((s) => s.user);
@@ -95,8 +99,7 @@ export function UploadModal({
   const [scope, setScope] = useState(admin ? "global" : "user");
   const [selectedPersonas, setSelectedPersonas] = useState<string[]>([]);
   const [userEmails, setUserEmails] = useState("");
-  const [cat, setCat] = useState("samples");
-  const [customCat, setCustomCat] = useState("");
+  const [path, setPath] = useState(folder || "samples");
   const [displayName, setDisplayName] = useState("");
   const [description, setDescription] = useState("");
   const [tagsInput, setTagsInput] = useState("");
@@ -104,7 +107,6 @@ export function UploadModal({
   const [error, setError] = useState("");
   const [uploading, setUploading] = useState(false);
 
-  const effectiveCategory = cat === "custom" ? customCat : cat;
   const fixedDestination = libraryCopy(destination);
 
   function togglePersona(name: string) {
@@ -137,7 +139,7 @@ export function UploadModal({
       file,
       displayName,
       description,
-      category: effectiveCategory,
+      path,
       tagsInput,
     };
     const targets = resolveTargets();
@@ -173,7 +175,7 @@ export function UploadModal({
       return;
     }
     onClose();
-  }, [file, displayName, description, scope, effectiveCategory, tagsInput, upload, onClose, resolveTargets, user]);
+  }, [file, displayName, description, scope, path, tagsInput, upload, onClose, resolveTargets, user]);
 
   return (
     <ModalShell
@@ -234,40 +236,13 @@ export function UploadModal({
             <p className="text-xs text-muted-foreground">{fixedDestination.audience}</p>
           </div>
         )}
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Category</Label>
-            <Select value={cat} onValueChange={setCat}>
-              <SelectTrigger aria-label="Category" className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {CATEGORIES.map((c) => (
-                  <SelectItem key={c} value={c}>
-                    {c}
-                  </SelectItem>
-                ))}
-                <SelectItem value="custom">Custom...</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          {cat === "custom" && (
-            <div className="space-y-1">
-              <Label htmlFor="upload-custom-category" className="text-xs text-muted-foreground">
-                Custom Category
-              </Label>
-              <Input
-                id="upload-custom-category"
-                value={customCat}
-                onChange={(e) => setCustomCat(e.target.value.toLowerCase())}
-                placeholder="e.g. guides"
-              />
-            </div>
-          )}
-        </div>
-        {CATEGORY_HINTS[cat] && (
-          <p data-testid="category-hint" className="text-xs text-muted-foreground">{CATEGORY_HINTS[cat]}</p>
-        )}
+        <PathField
+          label="Folder"
+          value={path}
+          onChange={setPath}
+          folders={folders}
+          disabled={uploading}
+        />
       </div>
 
       <div className="space-y-1">

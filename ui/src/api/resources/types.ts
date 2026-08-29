@@ -2,7 +2,12 @@ export interface Resource {
   id: string;
   scope: "global" | "persona" | "user";
   scope_id: string;
-  category: string;
+  /**
+   * The slash-separated folder path this resource is filed under inside its
+   * library, and the tail of its URI ahead of the filename (#1529). A
+   * one-segment path is what every resource carried before folders existed.
+   */
+  path: string;
   filename: string;
   display_name: string;
   description: string;
@@ -65,11 +70,40 @@ export interface ResourceUpdate {
   display_name?: string;
   description?: string;
   tags?: string[];
-  category?: string;
+  // path refiles the resource in another folder of its library. Like scope it is
+  // not metadata: the folder path is half of the resource's URI, so the server
+  // rewrites the address and records the one it vacated (#1528).
+  path?: string;
   // scope and scope_id move the resource to another library (#1502). They are
   // sent together, and only when the library is actually changing: the server
   // rewrites the canonical URI on a move and records the old one as an alias, so
   // this is not a field to echo back unchanged.
   scope?: "global" | "persona" | "user";
   scope_id?: string;
+}
+
+// FolderMoveRequest renames a folder, or nests it under another one, by
+// rewriting the path prefix of every resource beneath it. The library is named
+// explicitly because a path is only unique inside one.
+export interface FolderMoveRequest {
+  scope: "global" | "persona" | "user";
+  scope_id?: string;
+  from: string;
+  to: string;
+}
+
+// FolderMoveEntry is one resource a folder move carried.
+export interface FolderMoveEntry {
+  id: string;
+  path: string;
+  uri: string;
+  from_uri: string;
+}
+
+// FolderMoveResult is what a completed folder move reports. The whole move is
+// one transaction, so a result means every entry moved.
+export interface FolderMoveResult {
+  from: string;
+  to: string;
+  moved: FolderMoveEntry[];
 }

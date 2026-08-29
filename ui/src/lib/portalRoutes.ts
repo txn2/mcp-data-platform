@@ -71,7 +71,11 @@ const KNOWN_PATTERNS: readonly RegExp[] = [
   /^\/collections\/[^/]+\/assets\/.+$/,
   /^\/knowledge\/pages\/.+$/,
   /^\/prompts\/.+$/,
+  // One managed resource is exactly one segment; browsing the library is at
+  // least two, starting with "lib" (#1530). Keeping the two shapes disjoint is
+  // what lets a folder path live in the route beside a resource id.
   /^\/resources\/[^/]+$/,
+  /^\/resources\/lib\/[^/]+(\/[^/]+)*$/,
   // One registered table (#1472): the address the Scratch Tables listing opens
   // on row click, so a registration can be linked to rather than only found.
   /^\/scratch-tables\/[^/]+$/,
@@ -85,6 +89,7 @@ const KNOWN_PATTERNS: readonly RegExp[] = [
   /^\/admin\/assets\/.+$/,
   /^\/admin\/collections\/.+$/,
   /^\/admin\/resources\/[^/]+$/,
+  /^\/admin\/resources\/lib\/[^/]+(\/[^/]+)*$/,
   /^\/admin\/sessions\/.+$/,
   /^\/admin\/calls\/.+$/,
   // The administrator's script section matches the same two shapes the
@@ -168,4 +173,65 @@ export function canonicalRoute(route: string): string | null {
     if (target) return target;
   }
   return null;
+}
+
+/**
+ * Routes that auto-collapse the sidebar: the detail, viewer and editor views,
+ * where the content wants the width of the page.
+ *
+ * The resource shapes are matched by their own predicate rather than listed
+ * here: browsing the library is a route under /resources too, and it is a list
+ * page that keeps its sidebar (#1530).
+ */
+const COLLAPSING_ROUTES: readonly RegExp[] = [
+  /^\/assets\/.+$/,
+  /^\/admin\/assets\/.+$/,
+  /^\/collections\/.+\/assets\/.+$/,
+  /^\/shared\/assets\/.+$/,
+  /^\/prompts\/.+$/,
+  /^\/admin\/personas$/,
+];
+
+/**
+ * True when this route wants the sidebar out of its way.
+ *
+ * The path arrives with its query string and hash (readPath keeps both), and
+ * every pattern here is anchored, so they are stripped first or a deep link
+ * carrying either would match nothing.
+ */
+export function isCollapsingRoute(path: string): boolean {
+  const cut = path.search(/[?#]/);
+  const route = cut >= 0 ? path.slice(0, cut) : path;
+  return COLLAPSING_ROUTES.some((re) => re.test(route)) || isResourceViewerRoute(route);
+}
+
+/**
+ * True for one managed resource's own page, and false for the library it was
+ * opened from.
+ *
+ * A resource id is exactly one segment and never "lib", which is what the
+ * library's browse routes start with (#1530), so the two shapes are disjoint
+ * and neither can shadow the other.
+ */
+export function isResourceViewerRoute(route: string): boolean {
+  const match = route.match(/^(?:\/admin)?\/resources\/([^/]+)$/);
+  return match !== null && match[1] !== "lib";
+}
+
+/**
+ * True for a resource library, at its root or at one of its folders, in either
+ * section.
+ *
+ * A folder is a route under /resources that is not one file, which is what
+ * separates it from the viewer: the two shapes are disjoint by construction
+ * (#1530), and a caller that matched only on the prefix would head a folder
+ * "Resource" and collapse the sidebar over it.
+ */
+export function isResourceLibraryRoute(route: string): boolean {
+  return (
+    route === "/resources" ||
+    route === "/admin/resources" ||
+    route.startsWith("/resources/lib/") ||
+    route.startsWith("/admin/resources/lib/")
+  );
 }

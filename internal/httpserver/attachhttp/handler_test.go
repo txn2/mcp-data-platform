@@ -120,7 +120,7 @@ func fixture(t *testing.T, who *Identity) (*Handler, *fakeAttachments) {
 		}},
 		Attachments: att,
 		Resources: &fakeResources{byID: map[string]*resource.Resource{
-			"tpl":     {ID: "tpl", Scope: resource.ScopeGlobal, DisplayName: "Q4 Template", MIMEType: "text/markdown", SizeBytes: 21, URI: "u-tpl", Category: "templates"},
+			"tpl":     {ID: "tpl", Scope: resource.ScopeGlobal, DisplayName: "Q4 Template", MIMEType: "text/markdown", SizeBytes: 21, URI: "u-tpl", Path: "templates"},
 			"rubric":  {ID: "rubric", Scope: resource.ScopePersona, ScopeID: "analyst", DisplayName: "Analyst Rubric", URI: "u-rubric"},
 			"private": {ID: "private", Scope: resource.ScopeUser, ScopeID: ownerSub, DisplayName: "My Draft", URI: "u-private"},
 		}},
@@ -192,7 +192,7 @@ func TestAttachGlobalResourceToPersonalPrompt(t *testing.T) {
 	got := decodeList(t, rec)
 	require.Len(t, got.Data, 1)
 	assert.Equal(t, "Q4 Template", got.Data[0].DisplayName)
-	assert.Equal(t, "templates", got.Data[0].Category)
+	assert.Equal(t, "templates", got.Data[0].Path)
 	assert.False(t, got.Data[0].Broken)
 }
 

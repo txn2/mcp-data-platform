@@ -10,6 +10,8 @@ import { useAuthStore } from "@/stores/auth";
 import type { Resource } from "@/api/resources/types";
 import { DeleteConfirm } from "./modals/DeleteConfirm";
 import { EditModal } from "./modals/EditModal";
+import { FolderBreadcrumbs } from "./parts/FolderBreadcrumbs";
+import { libraryTabFor } from "./parts/libraryUrl";
 import { ResourceContent } from "./parts/ResourceContent";
 import { ResourceSidebar } from "./parts/ResourceSidebar";
 import { scopeIcon, scopeLabel } from "./shared";
@@ -37,6 +39,12 @@ interface Props {
   admin?: boolean;
   /** Where the library this was opened from lives. */
   onBack: () => void;
+  /**
+   * Opens one level of the file's own folder path in the library it lives in.
+   * Absent leaves the trail as plain text, which is what a surface with nowhere
+   * to send the reader shows.
+   */
+  onOpenFolder?: (tab: string, path: string) => void;
 }
 
 /**
@@ -51,7 +59,7 @@ interface Props {
  * Editing and deleting stay dialogs. They are bounded forms, which is the shape
  * ModalShell is for.
  */
-export function ResourceViewerPage({ resourceId, admin = false, onBack }: Props) {
+export function ResourceViewerPage({ resourceId, admin = false, onBack, onOpenFolder }: Props) {
   const { data: resource, isLoading } = useResource(resourceId);
   const currentUser = useAuthStore((s) => s.user);
   const [editing, setEditing] = useState(false);
@@ -87,10 +95,22 @@ export function ResourceViewerPage({ resourceId, admin = false, onBack }: Props)
         onBack={onBack}
         title={resource.display_name}
         subtitle={
-          <span className="flex items-center gap-1.5">
-            <ScopeIcon className="h-3 w-3" />
-            {scopeLabel(resource.scope, resource.scope_id, currentUser)} / {resource.category} /{" "}
-            {resource.filename}
+          // The same trail the library's own header renders, with every folder
+          // in it clickable. It used to be three words of plain text, and the
+          // middle one came from a column that could disagree with the URI
+          // printed beside it in the Details panel (#1528).
+          <span className="flex min-w-0 items-center gap-1.5">
+            <ScopeIcon className="h-3 w-3 shrink-0" />
+            <FolderBreadcrumbs
+              library={scopeLabel(resource.scope, resource.scope_id, currentUser)}
+              path={resource.path}
+              onOpen={
+                onOpenFolder &&
+                ((path) => onOpenFolder(libraryTabFor(resource.scope, resource.scope_id), path))
+              }
+            />
+            <span className="shrink-0 text-muted-foreground">/</span>
+            <span className="truncate">{resource.filename}</span>
           </span>
         }
         actions={

@@ -50,12 +50,12 @@ type Row struct {
 // Load returns the indexable state of one resource. A resource deleted between
 // enqueue and claim yields errGone.
 func (s *Store) Load(ctx context.Context, id string) (Row, error) {
-	const q = `SELECT display_name, description, category, filename, tags, mime_type, size_bytes, s3_key,
+	const q = `SELECT display_name, description, path, filename, tags, mime_type, size_bytes, s3_key,
 		content_text, content_indexed_at IS NOT NULL
 		FROM resources WHERE id = $1`
 	var r Row
 	err := s.db.QueryRowContext(ctx, q, id).Scan(
-		&r.Resource.DisplayName, &r.Resource.Description, &r.Resource.Category, &r.Resource.Filename,
+		&r.Resource.DisplayName, &r.Resource.Description, &r.Resource.Path, &r.Resource.Filename,
 		pq.Array(&r.Resource.Tags), &r.Resource.MIMEType, &r.Resource.SizeBytes, &r.Resource.S3Key,
 		&r.ContentText, &r.ContentSettled,
 	)

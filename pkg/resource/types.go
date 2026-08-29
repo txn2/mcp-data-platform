@@ -22,10 +22,13 @@ const (
 
 // Resource represents a human-uploaded reference material entry.
 type Resource struct {
-	ID            string    `json:"id" example:"res_01HK7R9F"`
-	Scope         Scope     `json:"scope" example:"persona"`
-	ScopeID       string    `json:"scope_id,omitempty" example:"data-engineer"` // persona name or user sub; empty for global
-	Category      string    `json:"category" example:"runbooks"`
+	ID      string `json:"id" example:"res_01HK7R9F"`
+	Scope   Scope  `json:"scope" example:"persona"`
+	ScopeID string `json:"scope_id,omitempty" example:"data-engineer"` // persona name or user sub; empty for global
+	// Path is the slash-separated folder path this resource is filed under
+	// inside its library, and the tail of its URI ahead of the filename. A
+	// one-segment path is what every resource carried before folders (#1529).
+	Path          string    `json:"path" example:"runbooks/etl"`
 	Filename      string    `json:"filename" example:"etl-runbook.md"`
 	DisplayName   string    `json:"display_name" example:"ETL Runbook"`
 	Description   string    `json:"description" example:"Step-by-step procedures for ETL pipeline operations"`
@@ -72,13 +75,17 @@ func (s Sort) orderByClause() string {
 
 // Filter specifies criteria for listing resources.
 type Filter struct {
-	Scopes   []ScopeFilter // visibility scopes (derived from claims)
-	Category string        // optional category filter
-	Tag      string        // optional tag filter
-	Query    string        // optional text search in display_name/description
-	Sort     Sort          // ordering; empty selects SortUpdated
-	Limit    int
-	Offset   int
+	Scopes []ScopeFilter // visibility scopes (derived from claims)
+	// Path narrows the listing to one folder and everything beneath it. Empty
+	// is the whole library. It is a prefix rather than an equality so opening a
+	// folder reports what the folder holds, subfolders included, which is what
+	// makes a count under a folder mean anything.
+	Path   string
+	Tag    string // optional tag filter
+	Query  string // optional text search in display_name/description
+	Sort   Sort   // ordering; empty selects SortUpdated
+	Limit  int
+	Offset int
 }
 
 // ScopeFilter identifies a single scope+id pair for visibility filtering.
@@ -99,7 +106,10 @@ type Update struct {
 	DisplayName *string  `json:"display_name,omitempty"`
 	Description *string  `json:"description,omitempty"`
 	Tags        []string `json:"tags,omitempty"`
-	Category    *string  `json:"category,omitempty"`
+	// Path refiles the resource in another folder of its library. Like Scope it
+	// is not metadata: the folder path is half of the resource's URI, so an edit
+	// to it rewrites the address and records the one it vacated (#1528).
+	Path *string `json:"path,omitempty"`
 	// Scope names the library to move the resource into. Nil leaves it where it
 	// is, which is what every request that is not a move sends.
 	Scope *Scope `json:"scope,omitempty"`
@@ -113,18 +123,31 @@ type Update struct {
 // only a move has none, and applying an empty Update would still bump
 // updated_at and drop the stored embedding for nothing.
 func (u Update) Fields() bool {
-	return u.DisplayName != nil || u.Description != nil || u.Tags != nil || u.Category != nil
+	return u.DisplayName != nil || u.Description != nil || u.Tags != nil
 }
 
-// Move is a resource's new home: the library it is filed in, the URI it takes
-// there, and the URI it is leaving.
+// Relocates reports whether the update moves the resource: into another
+// library, into another folder, or both. The two travel together because they
+// are the two halves of one URI, and an edit touching either rewrites the
+// address once rather than twice (#1528).
+func (u Update) Relocates() bool {
+	return u.Scope != nil || u.Path != nil
+}
+
+// Move is a resource's new home: the resource, the library it is filed in, the
+// folder path it takes inside it, the URI those two compose, and the URI it is
+// leaving.
 //
 // FromURI is carried rather than re-read inside the store so the alias the move
 // records is the address the caller checked its permissions and its collision
 // against, not whatever the row happened to say a moment later.
 type Move struct {
+	// ID is the resource being refiled. It is on the value rather than a
+	// separate argument because a folder rename hands the store a batch.
+	ID      string
 	Scope   Scope
 	ScopeID string
+	Path    string
 	URI     string
 	FromURI string
 }

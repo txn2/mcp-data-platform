@@ -8,6 +8,7 @@ import { lazy, type ReactNode } from "react";
 // chunks an administrator's visit downloads — see the note on the shell's
 // imports (#1351).
 import { isInSection } from "@/lib/portalRoutes";
+import { folderAddress } from "@/pages/resources/parts/libraryUrl";
 
 // Admin pages (admin only)
 // The resources page serves both sections; `admin` is what changes its scope.
@@ -125,12 +126,29 @@ const EXACT_PAGES: ReadonlyMap<string, (p: PageContext) => ReactNode> = new Map(
   ["/admin/connections", () => <ConnectionsPanel />],
   ["/admin/personas", () => <PersonasPanel />],
   ["/admin/prompts", (p: PageContext) => <AdminPromptsPage onNavigate={p.navigate} />],
-  ["/admin/resources", (p: PageContext) => <ResourcesPage admin onNavigate={p.navigate} />],
+  // The library's own root. Its folders are routes of their own and are matched
+  // below, because a folder path is not one exact path (#1530).
+  ["/admin/resources", (p: PageContext) => (
+    <ResourcesPage admin location={p.currentPath} onNavigate={p.navigate} />
+  )],
   ["/admin/keys", () => <KeysPage />],
   ["/admin/users", () => <UsersPanel />],
   ["/admin/changelog", () => <ChangelogPage />],
   ["/admin/settings", () => <AdminSettingsPage />],
 ]);
+
+/**
+ * Which of the two resource surfaces a route names, if either.
+ *
+ * A resource id is exactly one segment and never "lib", which is what the
+ * library's browse routes start with (#1530), so the two shapes are disjoint
+ * and neither can shadow the other.
+ */
+function adminResourceRoute(route: string): { viewing?: string; browsing: boolean } {
+  if (route.startsWith("/admin/resources/lib/")) return { browsing: true };
+  const id = route.match(/^\/admin\/resources\/([^/]+)$/)?.[1];
+  return { viewing: id === "lib" ? undefined : id, browsing: false };
+}
 
 /** What an entry in EXACT_PAGES may read. */
 interface PageContext {
@@ -152,17 +170,22 @@ export function AdminPages({
   onBack,
 }: AdminPagesProps) {
   const ctx: PageContext = { currentPath, initialTab, navigate };
-  // One resource, in the section that carries authority over every uploader's.
-  const resourceViewMatch = route.match(/^\/admin\/resources\/([^/]+)$/);
+  // One resource, or the library it was opened from, in the section that
+  // carries authority over every uploader's.
+  const resource = adminResourceRoute(route);
   return (
     <>
       {EXACT_PAGES.get(route)?.(ctx)}
+      {resource.browsing && (
+        <ResourcesPage admin location={currentPath} onNavigate={navigate} />
+      )}
       {adminAssetId && <AdminAssetViewerPage assetId={adminAssetId} onNavigate={navigate} />}
-      {resourceViewMatch && (
+      {resource.viewing && (
         <ResourceViewerPage
-          resourceId={resourceViewMatch[1]!}
+          resourceId={resource.viewing}
           admin
           onBack={() => onBack("/admin/resources")}
+          onOpenFolder={(tab, path) => navigate(folderAddress("/admin/resources", tab, path))}
         />
       )}
       {/* The three sections that own a subtree and match inside it. Guarded

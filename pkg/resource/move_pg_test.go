@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,7 +14,9 @@ import (
 
 func movedRow() Move {
 	return Move{
+		ID:    "res-1",
 		Scope: ScopePersona, ScopeID: "ops",
+		Path:    "templates",
 		URI:     "mcp://persona/ops/templates/report.docx",
 		FromURI: "mcp://user/sub-1/templates/report.docx",
 	}
@@ -29,7 +32,7 @@ func TestPostgresStore_MoveWritesTheRowAndTheAliasTogether(t *testing.T) {
 	m := movedRow()
 	mock.ExpectBegin()
 	mock.ExpectExec("UPDATE resources SET scope").
-		WithArgs("res-1", "persona", sqlmock.AnyArg(), m.URI, sqlmock.AnyArg()).
+		WithArgs("res-1", "persona", sqlmock.AnyArg(), m.Path, m.URI, sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("INSERT INTO resource_uri_aliases").
 		WithArgs(m.FromURI, "res-1").
@@ -41,7 +44,7 @@ func TestPostgresStore_MoveWritesTheRowAndTheAliasTogether(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectCommit()
 
-	if err := NewPostgresStore(db).Move(context.Background(), "res-1", m); err != nil {
+	if err := NewPostgresStore(db).Move(context.Background(), []Move{m}); err != nil {
 		t.Fatalf("Move: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -58,13 +61,13 @@ func TestPostgresStore_MoveRecordsNoAliasWhenTheAddressIsUnchanged(t *testing.T)
 
 	// A resource whose URI would not change has nothing to alias; recording one
 	// would point the resource's own current address at itself.
-	m := Move{Scope: ScopeGlobal, URI: "mcp://global/t/x.csv", FromURI: "mcp://global/t/x.csv"}
+	m := Move{ID: "res-1", Scope: ScopeGlobal, Path: "t", URI: "mcp://global/t/x.csv", FromURI: "mcp://global/t/x.csv"}
 	mock.ExpectBegin()
 	mock.ExpectExec("UPDATE resources SET scope").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("DELETE FROM resource_uri_aliases").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectCommit()
 
-	if err := NewPostgresStore(db).Move(context.Background(), "res-1", m); err != nil {
+	if err := NewPostgresStore(db).Move(context.Background(), []Move{m}); err != nil {
 		t.Fatalf("Move: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -84,7 +87,7 @@ func TestPostgresStore_MoveReportsATakenAddressAsAConflict(t *testing.T) {
 		WillReturnError(&pq.Error{Code: "23505", Constraint: "resources_uri_key"})
 	mock.ExpectRollback()
 
-	err = NewPostgresStore(db).Move(context.Background(), "res-1", movedRow())
+	err = NewPostgresStore(db).Move(context.Background(), []Move{movedRow()})
 	if !errors.Is(err, ErrURIConflict) {
 		t.Fatalf("err = %v, want ErrURIConflict", err)
 	}
@@ -101,7 +104,7 @@ func TestPostgresStore_MoveOfAMissingRowIsNotFound(t *testing.T) {
 	mock.ExpectExec("UPDATE resources SET scope").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectRollback()
 
-	err = NewPostgresStore(db).Move(context.Background(), "res-1", movedRow())
+	err = NewPostgresStore(db).Move(context.Background(), []Move{movedRow()})
 	if err == nil || errors.Is(err, ErrURIConflict) {
 		t.Fatalf("err = %v, want a not-found failure", err)
 	}
@@ -122,7 +125,7 @@ func TestPostgresStore_MoveFailsWhenTheAliasCannotBeRecorded(t *testing.T) {
 	mock.ExpectExec("INSERT INTO resource_uri_aliases").WillReturnError(errors.New("disk full"))
 	mock.ExpectRollback()
 
-	if err := NewPostgresStore(db).Move(context.Background(), "res-1", movedRow()); err == nil {
+	if err := NewPostgresStore(db).Move(context.Background(), []Move{movedRow()}); err == nil {
 		t.Fatal("Move reported success with no alias written")
 	}
 }
@@ -140,7 +143,7 @@ func TestPostgresStore_MoveFailsWhenTheStaleAliasCannotBeCleared(t *testing.T) {
 	mock.ExpectExec("DELETE FROM resource_uri_aliases").WillReturnError(errors.New("disk full"))
 	mock.ExpectRollback()
 
-	if err := NewPostgresStore(db).Move(context.Background(), "res-1", movedRow()); err == nil {
+	if err := NewPostgresStore(db).Move(context.Background(), []Move{movedRow()}); err == nil {
 		t.Fatal("Move reported success with a stale alias left behind")
 	}
 }
@@ -158,7 +161,7 @@ func TestPostgresStore_MoveReportsANonConflictWriteFailure(t *testing.T) {
 	mock.ExpectExec("UPDATE resources SET scope").WillReturnError(errors.New("connection refused"))
 	mock.ExpectRollback()
 
-	err = NewPostgresStore(db).Move(context.Background(), "res-1", movedRow())
+	err = NewPostgresStore(db).Move(context.Background(), []Move{movedRow()})
 	if err == nil || errors.Is(err, ErrURIConflict) {
 		t.Fatalf("err = %v, want a plain failure", err)
 	}
@@ -177,7 +180,7 @@ func TestPostgresStore_MoveReportsANonConflictCommitFailure(t *testing.T) {
 	mock.ExpectExec("DELETE FROM resource_uri_aliases").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectCommit().WillReturnError(errors.New("connection refused"))
 
-	err = NewPostgresStore(db).Move(context.Background(), "res-1", movedRow())
+	err = NewPostgresStore(db).Move(context.Background(), []Move{movedRow()})
 	if err == nil || errors.Is(err, ErrURIConflict) {
 		t.Fatalf("err = %v, want a plain failure", err)
 	}
@@ -191,7 +194,7 @@ func TestPostgresStore_MoveCannotBegin(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	mock.ExpectBegin().WillReturnError(errors.New("connection refused"))
-	if err := NewPostgresStore(db).Move(context.Background(), "res-1", movedRow()); err == nil {
+	if err := NewPostgresStore(db).Move(context.Background(), []Move{movedRow()}); err == nil {
 		t.Fatal("Move reported success without a transaction")
 	}
 }
@@ -211,7 +214,7 @@ func TestPostgresStore_MoveConflictOnCommit(t *testing.T) {
 	mock.ExpectExec("DELETE FROM resource_uri_aliases").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectCommit().WillReturnError(errors.New("duplicate key value violates unique constraint"))
 
-	err = NewPostgresStore(db).Move(context.Background(), "res-1", movedRow())
+	err = NewPostgresStore(db).Move(context.Background(), []Move{movedRow()})
 	if !errors.Is(err, ErrURIConflict) {
 		t.Fatalf("err = %v, want ErrURIConflict", err)
 	}
@@ -315,5 +318,108 @@ func TestPostgresStore_GetByURIUnknownEverywhere(t *testing.T) {
 	_, err = NewPostgresStore(db).GetByURI(context.Background(), uri)
 	if !IsNotFound(err) {
 		t.Fatalf("err = %v, want a not-found", err)
+	}
+}
+
+// TestPostgresStore_MoveVacatesEveryAddressBeforeTakingAny is the multi-row
+// contract a folder rename rests on.
+//
+// Renaming a/b to a hands one resource an address another resource in the same
+// batch is still holding, and the UNIQUE constraint on uri is not deferrable, so
+// the batch parks every row off its address first. Without that step the
+// statement order decides whether the rename succeeds.
+func TestPostgresStore_MoveVacatesEveryAddressBeforeTakingAny(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	moves := []Move{
+		{
+			ID: "res-1", Scope: ScopeUser, ScopeID: "sub-1", Path: "a",
+			URI: "mcp://user/sub-1/a/x.csv", FromURI: "mcp://user/sub-1/a/b/x.csv",
+		},
+		{
+			ID: "res-2", Scope: ScopeUser, ScopeID: "sub-1", Path: "a/b",
+			URI: "mcp://user/sub-1/a/b/x.csv", FromURI: "mcp://user/sub-1/a/b/b/x.csv",
+		},
+	}
+
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE resources SET uri = ").
+		WillReturnResult(sqlmock.NewResult(0, 2))
+	for range moves {
+		mock.ExpectExec("UPDATE resources SET").WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectExec("INSERT INTO resource_uri_aliases").WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectExec("DELETE FROM resource_uri_aliases").WillReturnResult(sqlmock.NewResult(0, 0))
+	}
+	mock.ExpectCommit()
+
+	if err := NewPostgresStore(db).Move(context.Background(), moves); err != nil {
+		t.Fatalf("Move: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+// TestPostgresStore_MoveOfOneRowDoesNotPark keeps the parking step off the
+// ordinary path: one row cannot collide with itself, and the extra statement
+// would be paid on every PATCH that refiles a file.
+func TestPostgresStore_MoveOfOneRowDoesNotPark(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE resources SET\\s+scope").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO resource_uri_aliases").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("DELETE FROM resource_uri_aliases").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
+
+	if err := NewPostgresStore(db).Move(context.Background(), []Move{movedRow()}); err != nil {
+		t.Fatalf("Move: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+// TestPostgresStore_MoveOfNothingWritesNothing: the caller checks first whether
+// a resource is already where it is going, and an empty batch must not open a
+// transaction behind that check.
+func TestPostgresStore_MoveOfNothingWritesNothing(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	if err := NewPostgresStore(db).Move(context.Background(), nil); err != nil {
+		t.Fatalf("Move: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("an empty batch still wrote: %v", err)
+	}
+}
+
+// TestPostgresStore_MoveSurfacesAFailedPark keeps the parking step from failing
+// silently into a batch that then collides on ordering.
+func TestPostgresStore_MoveSurfacesAFailedPark(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE resources SET uri = ").WillReturnError(errors.New("connection reset"))
+
+	err = NewPostgresStore(db).Move(context.Background(), []Move{movedRow(), movedRow()})
+	if err == nil || !strings.Contains(err.Error(), "vacating resource addresses") {
+		t.Fatalf("err = %v, want the parking failure", err)
 	}
 }

@@ -71,7 +71,7 @@ function view(assetId: string, ref: MockRef) {
     display_name: res.display_name,
     filename: res.filename,
     description: res.description,
-    category: res.category,
+    path: res.path,
     mime_type: res.mime_type,
     size_bytes: res.size_bytes,
     scope: res.scope,

@@ -17122,8 +17122,8 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Filter by category",
-                        "name": "category",
+                        "description": "Filter by folder path; returns that folder and everything beneath it",
+                        "name": "path",
                         "in": "query"
                     },
                     {
@@ -17237,8 +17237,8 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Resource category (e.g. runbooks, templates)",
-                        "name": "category",
+                        "description": "Folder path inside the library (e.g. runbooks, datasets/media-manager)",
+                        "name": "path",
                         "in": "formData",
                         "required": true
                     },
@@ -17280,6 +17280,84 @@ const docTemplate = `{
                     },
                     "403": {
                         "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/resources/folders/move": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Rewrites the folder path of every resource beneath one path prefix in one library, in a single transaction. Each resource's previous URI is recorded as an alias, so citations of the old addresses keep resolving. Refused whole on any conflict; nothing is moved.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "Move or rename a folder",
+                "parameters": [
+                    {
+                        "description": "The folder and its destination",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/resource.folderMoveRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/resource.FolderMove"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/resource.errorResponse"
                         }
@@ -17409,7 +17487,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Update mutable metadata fields of a managed resource, and/or move it to another library by naming the target scope.",
+                "description": "Update mutable metadata fields of a managed resource, and/or refile it by naming a target scope, a target folder path, or both.",
                 "consumes": [
                     "application/json"
                 ],
@@ -19979,9 +20057,6 @@ const docTemplate = `{
                     "description": "Broken marks a reference whose target has been deleted. The row survives\nthe delete on purpose (#1474), so this is the one place the owner learns\ntheir report is now serving with something missing.",
                     "type": "boolean"
                 },
-                "category": {
-                    "type": "string"
-                },
                 "content_url": {
                     "description": "ContentURL is the reference's own serving URL, the same one the rewrite\nwrites into the content this reader is served. It is here so the panel\ncan show a thumbnail through the grant the reference already makes,\nrather than through the target's own route, which a reader of a shared\nasset may not be allowed to call.",
                     "type": "string"
@@ -19996,7 +20071,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "filename": {
-                    "description": "Resource-only fields: the file's own name, its category and the scope it\nis filed under.",
+                    "description": "Resource-only fields: the file's own name, the folder path it is filed\nunder and the library it lives in.",
                     "type": "string"
                 },
                 "mime_type": {
@@ -20011,6 +20086,9 @@ const docTemplate = `{
                 },
                 "owner_email": {
                     "description": "OwnerEmail names who owns a referenced asset. It is the asset row's\ncounterpart of a resource's scope: the one fact that says whose thing\nthis is.",
+                    "type": "string"
+                },
+                "path": {
                     "type": "string"
                 },
                 "position": {
@@ -20091,9 +20169,6 @@ const docTemplate = `{
                     "description": "Broken marks an attachment whose resource was deleted. The row stays in\nthe list so an author can see and remove the dangling link; without it a\ndeleted template would simply vanish from the editor while the served\nprompt kept reporting a missing material.",
                     "type": "boolean"
                 },
-                "category": {
-                    "type": "string"
-                },
                 "description": {
                     "type": "string"
                 },
@@ -20101,6 +20176,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "mime_type": {
+                    "type": "string"
+                },
+                "path": {
                     "type": "string"
                 },
                 "position": {
@@ -21842,10 +21920,6 @@ const docTemplate = `{
         "github_com_txn2_mcp-data-platform_pkg_resource.Resource": {
             "type": "object",
             "properties": {
-                "category": {
-                    "type": "string",
-                    "example": "runbooks"
-                },
                 "created_at": {
                     "type": "string"
                 },
@@ -21872,6 +21946,11 @@ const docTemplate = `{
                 "mime_type": {
                     "type": "string",
                     "example": "text/markdown"
+                },
+                "path": {
+                    "description": "Path is the slash-separated folder path this resource is filed under\ninside its library, and the tail of its URI ahead of the filename. A\none-segment path is what every resource carried before folders (#1529).",
+                    "type": "string",
+                    "example": "runbooks/etl"
                 },
                 "s3_key": {
                     "type": "string",
@@ -24637,6 +24716,41 @@ const docTemplate = `{
                 }
             }
         },
+        "resource.FolderMove": {
+            "type": "object",
+            "properties": {
+                "from": {
+                    "type": "string"
+                },
+                "moved": {
+                    "description": "Moved is one entry per resource rewritten, in listing order.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/resource.FolderMoveEntry"
+                    }
+                },
+                "to": {
+                    "type": "string"
+                }
+            }
+        },
+        "resource.FolderMoveEntry": {
+            "type": "object",
+            "properties": {
+                "from_uri": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "uri": {
+                    "type": "string"
+                }
+            }
+        },
         "resource.Scope": {
             "type": "string",
             "enum": [
@@ -24653,13 +24767,14 @@ const docTemplate = `{
         "resource.Update": {
             "type": "object",
             "properties": {
-                "category": {
-                    "type": "string"
-                },
                 "description": {
                     "type": "string"
                 },
                 "display_name": {
+                    "type": "string"
+                },
+                "path": {
+                    "description": "Path refiles the resource in another folder of its library. Like Scope it\nis not metadata: the folder path is half of the resource's URI, so an edit\nto it rewrites the address and records the one it vacated (#1528).",
                     "type": "string"
                 },
                 "scope": {
@@ -24759,6 +24874,31 @@ const docTemplate = `{
                 "error": {
                     "type": "string",
                     "example": "descriptive error message"
+                }
+            }
+        },
+        "resource.folderMoveRequest": {
+            "type": "object",
+            "properties": {
+                "from": {
+                    "type": "string",
+                    "example": "data/media-manager"
+                },
+                "scope": {
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/resource.Scope"
+                        }
+                    ],
+                    "example": "user"
+                },
+                "scope_id": {
+                    "type": "string",
+                    "example": "550e8400-e29b-41d4-a716-446655440000"
+                },
+                "to": {
+                    "type": "string",
+                    "example": "data/shows"
                 }
             }
         },

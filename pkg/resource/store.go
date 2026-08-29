@@ -27,19 +27,24 @@ type Store interface {
 	GetByURI(ctx context.Context, uri string) (*Resource, error)
 	List(ctx context.Context, filter Filter) ([]Resource, int, error)
 	Update(ctx context.Context, id string, u Update) error
-	// Move refiles a resource in another library, rewriting the three columns
-	// that say where it lives -- scope, scope_id and uri -- and recording the
-	// URI it used to answer to so an already-written citation keeps resolving.
+	// Move refiles resources, rewriting the four columns that say where each one
+	// lives -- scope, scope_id, path and uri -- and recording the URI each used
+	// to answer to so an already-written citation keeps resolving.
 	//
 	// It is separate from Update because it is not a metadata edit: it changes
 	// who can see the file, it changes the resource's address, and the address
 	// is UNIQUE, so it is the one write on this table that another resource can
 	// refuse. A caller must be prepared for ErrURIConflict.
 	//
+	// It takes a batch because renaming a folder is one relocation per resource
+	// beneath it and a half-renamed folder is not a state anyone should be able
+	// to observe (#1529). Every element commits or none does, which is also what
+	// makes the batch refusable as a whole.
+	//
 	// The blob is not touched. The S3 key embeds the scope only because
 	// BuildS3Key composed it at creation; nothing re-derives it on read, so the
 	// object stays where it is and the row keeps pointing at it.
-	Move(ctx context.Context, id string, m Move) error
+	Move(ctx context.Context, moves []Move) error
 	Delete(ctx context.Context, id string) error
 }
 
@@ -72,7 +77,7 @@ type S3Client interface {
 
 // selectColumns is the column list every read shares, in the order resourceScan
 // expects them.
-const selectColumns = `id, scope, scope_id, category, filename, display_name, description,
+const selectColumns = `id, scope, scope_id, path, filename, display_name, description,
 		       mime_type, size_bytes, s3_key, uri, tags, uploader_sub, uploader_email,
 		       created_at, updated_at, last_read_at`
 
@@ -113,7 +118,7 @@ func NewPostgresStore(db *sql.DB, opts ...indexjobs.StoreOption) Store {
 func (s *postgresStore) Insert(ctx context.Context, r Resource) error { //nolint:revive // interface impl
 	query := `
 		INSERT INTO resources
-		(id, scope, scope_id, category, filename, display_name, description,
+		(id, scope, scope_id, path, filename, display_name, description,
 		 mime_type, size_bytes, s3_key, uri, tags, uploader_sub, uploader_email)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 	`
@@ -126,7 +131,7 @@ func (s *postgresStore) Insert(ctx context.Context, r Resource) error { //nolint
 		r.Tags = []string{}
 	}
 	_, err := s.db.ExecContext(ctx, query,
-		r.ID, string(r.Scope), scopeID, r.Category, r.Filename, r.DisplayName,
+		r.ID, string(r.Scope), scopeID, r.Path, r.Filename, r.DisplayName,
 		r.Description, r.MIMEType, r.SizeBytes, r.S3Key, r.URI,
 		pq.Array(r.Tags), r.UploaderSub, r.UploaderEmail,
 	)
@@ -272,8 +277,8 @@ func (s *postgresStore) List(ctx context.Context, filter Filter) ([]Resource, in
 // exists only at run time; it is a function so a test can hand a representative
 // rendering to a real PostgreSQL to parse and plan (#1512).
 //
-// Every mutable field (display name, description, tags, category) is part of
-// the indexed text, so a metadata edit invalidates the stored vector. Clearing
+// Every mutable field (display name, description, tags) is part of the indexed
+// text, so a metadata edit invalidates the stored vector. Clearing
 // the embedding columns here makes the row a gap, which Update hands straight
 // to the index worker instead of waiting for a reconciler sweep, exactly as the
 // portal asset store does (#1012, #1256); leaving them would rank the resource
@@ -298,12 +303,6 @@ func buildUpdate(id string, u Update) (query string, args []any) {
 		args = append(args, pq.Array(u.Tags))
 		idx++
 	}
-	if u.Category != nil {
-		setClauses = append(setClauses, fmt.Sprintf("category = $%d", idx))
-		args = append(args, *u.Category)
-		idx++
-	}
-
 	query = fmt.Sprintf("UPDATE resources SET %s WHERE id = $%d", // #nosec G201 -- dynamic SET clause with parameterized values
 		strings.Join(setClauses, ", "), idx)
 	return query, append(args, id)
@@ -324,37 +323,35 @@ func (s *postgresStore) Update(ctx context.Context, id string, u Update) error {
 	return nil
 }
 
-// Move rewrites where a resource is filed and records the address it is leaving.
+// Move rewrites where resources are filed and records the addresses they leave.
 //
-// All three writes are one transaction. The row's new address and the alias for
-// its old one are the same fact stated twice: a commit that carried only the
-// first would leave every citation of the old URI dangling, and one that carried
-// only the second would advertise an address the resource does not have.
+// Every write is one transaction. A row's new address and the alias for its old
+// one are the same fact stated twice: a commit that carried only the first would
+// leave every citation of the old URI dangling, and one that carried only the
+// second would advertise an address the resource does not have. A folder rename
+// is many of those pairs and takes the same transaction, because a half-renamed
+// folder is not a state anyone should be able to observe.
 //
-// Nothing happens when the target is where the resource already is; the caller
-// checks that first, and this is the second door on it.
-func (s *postgresStore) Move(ctx context.Context, id string, m Move) error { //nolint:revive // interface impl
+// Nothing happens for an empty batch; the caller checks first whether the
+// destination is where the resource already is, and this is the second door on
+// it.
+func (s *postgresStore) Move(ctx context.Context, moves []Move) error { //nolint:revive // interface impl
+	if len(moves) == 0 {
+		return nil
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("beginning move: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	scopeID := sql.NullString{String: m.ScopeID, Valid: m.ScopeID != ""}
-	const update = `UPDATE resources SET scope = $2, scope_id = $3, uri = $4, updated_at = $5 WHERE id = $1`
-	res, err := tx.ExecContext(ctx, update, id, string(m.Scope), scopeID, m.URI, time.Now().UTC())
-	if err != nil {
-		if isUniqueViolation(err) {
-			return ErrURIConflict
-		}
-		return fmt.Errorf("moving resource: %w", err)
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return fmt.Errorf("resource not found: %s", id)
-	}
-
-	if err := readdressAliases(ctx, tx, id, m); err != nil {
+	if err := parkAddresses(ctx, tx, moves); err != nil {
 		return err
+	}
+	for _, m := range moves {
+		if err := applyMove(ctx, tx, m); err != nil {
+			return err
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -363,12 +360,78 @@ func (s *postgresStore) Move(ctx context.Context, id string, m Move) error { //n
 		}
 		return fmt.Errorf("committing move: %w", err)
 	}
-	// No index job, unlike Update. IndexText reads none of the columns a move
-	// writes, so the stored embedding is still the embedding of this row's text,
-	// and search applies visibility as a SQL predicate over scope/scope_id on
-	// this same table -- which the move has just rewritten. Enqueueing here would
-	// buy a blob read and an embedding of text that did not change.
+	// The folder path is part of IndexText, so a resource that changed folders
+	// is ranked on text that is now stale; applyMove drops its vector, and this
+	// hands the row to the index worker rather than waiting for a reconciler
+	// sweep. A library-only move changed no indexed text, and the worker dedups
+	// by text hash, so the notify costs a hash compare and no embed call.
+	for _, m := range moves {
+		s.index.NotifyWrite(ctx, m.ID)
+	}
 	return nil
+}
+
+// parkAddresses moves every row in a multi-row batch off its current URI before
+// any of them takes a new one.
+//
+// Renaming a folder up its own tree hands one resource an address another
+// resource in the same batch is still holding: renaming a/b to a turns
+// a/b/x.csv into a/x.csv and a/b/b/x.csv into a/b/x.csv, and whichever of those
+// two is written first collides with the row that has not moved yet. The
+// collision is transient and the UNIQUE constraint is not deferrable, so the
+// batch vacates every address first and the ordering stops mattering.
+//
+// The parked value is derived from the row's own primary key, so it is unique,
+// and it carries a unit separator, which no resource URI contains: a scheme, a
+// library and validated path segments have no control characters in them. A
+// single-row batch is left alone -- one row cannot collide with itself, and the
+// extra statement would be paid on every ordinary move.
+func parkAddresses(ctx context.Context, tx *sql.Tx, moves []Move) error {
+	if len(moves) < 2 {
+		return nil
+	}
+	ids := make([]string, 0, len(moves))
+	for _, m := range moves {
+		ids = append(ids, m.ID)
+	}
+	const park = `UPDATE resources SET uri = $1 || id WHERE id = ANY($2)`
+	if _, err := tx.ExecContext(ctx, park, parkedURIPrefix, pq.Array(ids)); err != nil {
+		return fmt.Errorf("vacating resource addresses: %w", err)
+	}
+	return nil
+}
+
+// parkedURIPrefix marks an address held only for the duration of a multi-row
+// move. See parkAddresses.
+const parkedURIPrefix = "\x1frelocating:"
+
+// applyMove writes one relocation and its aliases inside the batch transaction.
+//
+// The embedding is dropped only when the folder path actually changes. The path
+// is part of IndexText and the library is not, so clearing it on a library-only
+// move would re-embed a row whose indexed text is identical. The comparison is
+// made by the database against the row's stored value, which is the only place
+// that knows what the path was.
+func applyMove(ctx context.Context, tx *sql.Tx, m Move) error {
+	scopeID := sql.NullString{String: m.ScopeID, Valid: m.ScopeID != ""}
+	const update = `
+		UPDATE resources SET
+			scope = $2, scope_id = $3, path = $4, uri = $5, updated_at = $6,
+			embedding           = CASE WHEN path = $4 THEN embedding           ELSE NULL END,
+			embedding_model     = CASE WHEN path = $4 THEN embedding_model     ELSE '' END,
+			embedding_text_hash = CASE WHEN path = $4 THEN embedding_text_hash ELSE NULL END
+		WHERE id = $1`
+	res, err := tx.ExecContext(ctx, update, m.ID, string(m.Scope), scopeID, m.Path, m.URI, time.Now().UTC())
+	if err != nil {
+		if isUniqueViolation(err) {
+			return ErrURIConflict
+		}
+		return fmt.Errorf("moving resource: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("resource not found: %s", m.ID)
+	}
+	return readdressAliases(ctx, tx, m)
 }
 
 // readdressAliases records the address a move vacates and clears the one it
@@ -381,12 +444,12 @@ func (s *postgresStore) Move(ctx context.Context, id string, m Move) error { //n
 // moving a file back to where it came from would otherwise leave a row claiming
 // the resource's own current URI, which GetByURI never reaches and a later move
 // would resurrect as a stale pointer.
-func readdressAliases(ctx context.Context, tx *sql.Tx, id string, m Move) error {
+func readdressAliases(ctx context.Context, tx *sql.Tx, m Move) error {
 	if m.FromURI != "" && m.FromURI != m.URI {
 		const alias = `
 			INSERT INTO resource_uri_aliases (uri, resource_id) VALUES ($1, $2)
 			ON CONFLICT (uri) DO UPDATE SET resource_id = EXCLUDED.resource_id, created_at = NOW()`
-		if _, err := tx.ExecContext(ctx, alias, m.FromURI, id); err != nil {
+		if _, err := tx.ExecContext(ctx, alias, m.FromURI, m.ID); err != nil {
 			return fmt.Errorf("recording previous resource uri: %w", err)
 		}
 	}
@@ -445,7 +508,7 @@ type resourceScan struct {
 // to the returned slice.
 func (s *resourceScan) dest(r *Resource) []any {
 	return []any{
-		&r.ID, &r.Scope, &s.scopeID, &r.Category, &r.Filename, &r.DisplayName,
+		&r.ID, &r.Scope, &s.scopeID, &r.Path, &r.Filename, &r.DisplayName,
 		&r.Description, &r.MIMEType, &r.SizeBytes, &r.S3Key, &r.URI,
 		pq.Array(&s.tags), &r.UploaderSub, &r.UploaderEmail,
 		&r.CreatedAt, &r.UpdatedAt, &s.lastRead,
@@ -513,15 +576,27 @@ func scopeVisibilityWhere(scopes []ScopeFilter, startIdx int) (where string, arg
 	return "(" + strings.Join(conds, " OR ") + ")", args, idx
 }
 
+// likePrefix escapes a value so it matches literally inside a LIKE pattern. A
+// folder name cannot contain % or _ today, but the pattern is built from a
+// caller-supplied path and a filter that silently widened on a wildcard would
+// list resources from folders the person did not open.
+func likePrefix(v string) string {
+	return strings.NewReplacer("\\", "\\\\", "%", "\\%", "_", "\\_").Replace(v)
+}
+
 // buildScopeWhere builds a WHERE clause for scope visibility filtering,
-// plus optional category, tag, and text search filters.
+// plus optional path, tag, and text search filters.
 func buildScopeWhere(filter Filter) (where string, args []any) {
 	where, args, idx := scopeVisibilityWhere(filter.Scopes, 1)
 
-	if filter.Category != "" {
-		where += fmt.Sprintf(" AND category = $%d", idx)
-		args = append(args, filter.Category)
-		idx++
+	if filter.Path != "" {
+		// The folder itself and everything beneath it. Two bindings rather than
+		// one so the LIKE pattern is built here instead of by the caller, and so
+		// the equality arm can use the index on path without the planner having
+		// to reason about a pattern that happens to have no wildcard.
+		where += fmt.Sprintf(" AND (path = $%d OR path LIKE $%d)", idx, idx+1)
+		args = append(args, filter.Path, likePrefix(filter.Path)+"/%")
+		idx += 2
 	}
 	if filter.Tag != "" {
 		where += fmt.Sprintf(" AND $%d = ANY(tags)", idx)

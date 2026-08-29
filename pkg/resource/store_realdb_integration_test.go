@@ -25,7 +25,7 @@ func TestResourceStore_Insert_RealDB_NilTags(t *testing.T) {
 	r := Resource{
 		ID:          "res_realdb_1",
 		Scope:       ScopeGlobal,
-		Category:    "runbooks",
+		Path:        "runbooks",
 		Filename:    "etl.md",
 		DisplayName: "ETL Runbook",
 		Description: "Round-trip test resource.",
@@ -52,7 +52,7 @@ func TestResourceStore_Insert_RealDB_WithTags(t *testing.T) {
 	ctx := context.Background()
 
 	r := Resource{
-		ID: "res_realdb_2", Scope: ScopeGlobal, Category: "runbooks",
+		ID: "res_realdb_2", Scope: ScopeGlobal, Path: "runbooks",
 		Filename: "f.md", DisplayName: "F", Description: "d", MIMEType: "text/markdown",
 		SizeBytes: 1, S3Key: "k", URI: "mcp://global/runbooks/f.md", UploaderSub: "sub-2",
 		Tags: []string{"a", "b"},

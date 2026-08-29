@@ -29,21 +29,20 @@ func SQLSamples() map[string]string {
 		Limit:     10,
 	}
 	filter := Filter{
-		Scopes:   scopes,
-		Category: "reference",
-		Tag:      "finance",
-		Query:    "report",
-		Limit:    25,
+		Scopes: scopes,
+		Path:   "reference/quarterly",
+		Tag:    "finance",
+		Query:  "report",
+		Limit:  25,
 	}
 	lastRead := filter
 	lastRead.Sort = SortLastRead
 
-	name, desc, category := "Q4 report", "the quarterly numbers", "reference"
+	name, desc := "Q4 report", "the quarterly numbers"
 	update := Update{
 		DisplayName: &name,
 		Description: &desc,
 		Tags:        []string{"finance", "q4"},
-		Category:    &category,
 	}
 
 	hybrid, _ := buildHybridSearch(q)

@@ -13,7 +13,7 @@ import (
 // newResourceInput is a valid create, which each test varies one field of.
 func newResourceInput() NewResource {
 	return NewResource{
-		Scope: ScopeGlobal, Category: "samples", Filename: "weather.csv",
+		Scope: ScopeGlobal, Path: "samples", Filename: "weather.csv",
 		DisplayName: "Daily Weather", Description: "Highs and lows",
 		Tags: []string{}, Data: []byte("day,high\nmon,71\n"), MIMEType: "text/csv",
 	}

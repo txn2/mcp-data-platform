@@ -32,10 +32,10 @@ export interface AssetRef {
   description?: string;
   mime_type?: string;
   size_bytes?: number;
-  // Resource-only: the file's own name, its category, and the scope it is
-  // filed under.
+  // Resource-only: the file's own name, the folder path it is filed under, and
+  // the library it lives in.
   filename?: string;
-  category?: string;
+  path?: string;
   scope?: "global" | "persona" | "user";
   scope_id?: string;
   // owner_email names who owns a referenced asset -- the asset's counterpart of

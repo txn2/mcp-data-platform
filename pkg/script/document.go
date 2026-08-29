@@ -48,7 +48,7 @@ const (
 	// page without ever refusing the write, and it is set at the same ~16 KiB.
 	longDescriptionBytes = 16 * 1024
 
-	// maxCategoryLen is the category bound, matching resource.MaxCategoryLen.
+	// maxCategoryLen is the category bound, matching resource.MaxPathSegmentLen.
 	// It is the pattern below that actually enforces it; the constant names the
 	// number the error message quotes.
 	maxCategoryLen = 31
