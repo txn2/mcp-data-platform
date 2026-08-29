@@ -183,7 +183,6 @@ export function AdminPages({
       {resource.viewing && (
         <ResourceViewerPage
           resourceId={resource.viewing}
-          admin
           onBack={() => onBack("/admin/resources")}
           onOpenFolder={(tab, path) => navigate(folderAddress("/admin/resources", tab, path))}
         />

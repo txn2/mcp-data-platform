@@ -105,15 +105,11 @@ function signIn(overrides: Partial<UserProfile> = {}) {
   });
 }
 
-function renderPage(props: { admin?: boolean; onBack?: () => void } = {}) {
+function renderPage(props: { onBack?: () => void } = {}) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <ResourceViewerPage
-        resourceId="res-1"
-        admin={props.admin}
-        onBack={props.onBack ?? (() => {})}
-      />
+      <ResourceViewerPage resourceId="res-1" onBack={props.onBack ?? (() => {})} />
     </QueryClientProvider>,
   );
 }
@@ -195,9 +191,26 @@ describe("what the page lets the reader do to the resource", () => {
     expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
   });
 
+  // CanModifyResource grants whoever uploaded the file and whoever may add to
+  // the library it is in, on whatever route the request arrives (#1527). Reading
+  // it off the section the page was mounted in instead left an administrator
+  // browsing their own portal with no Edit button on a file the server would
+  // have let them rewrite.
   it("offers all three to an administrator reading somebody else's resource", async () => {
     signIn({ user_id: "operator", email: "operator@example.com", is_admin: true });
-    renderPage({ admin: true });
+    renderPage();
+    expect(await screen.findByRole("button", { name: "Edit" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Delete" })).toBeTruthy();
+  });
+
+  it("offers them to the administrator of the persona whose library the file is in", async () => {
+    signIn({
+      user_id: "operator",
+      email: "operator@example.com",
+      roles: ["dp_persona-admin:inventory-analyst"],
+      persona: undefined,
+    });
+    renderPage();
     expect(await screen.findByRole("button", { name: "Edit" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Delete" })).toBeTruthy();
   });

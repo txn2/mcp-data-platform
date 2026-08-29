@@ -16,6 +16,7 @@ import { pathProblem } from "../parts/pathRules";
 import { everyFolder } from "../parts/tree";
 import { LibraryField } from "./LibraryField";
 import {
+  isPlatformAdmin,
   libraryOptions,
   targetKey,
   PERSON_TARGET,
@@ -85,13 +86,9 @@ function buildUpdate(r: Resource, draft: EditDraft): { update: ResourceUpdate } 
 
 export function EditModal({
   resource: r,
-  admin = false,
   onClose,
 }: {
   resource: Resource;
-  /** True on the administrator's copy of the section, which is what carries the
-   * platform-admin override over every library. */
-  admin?: boolean;
   onClose: () => void;
 }) {
   const update = useUpdateResource();
@@ -110,7 +107,10 @@ export function EditModal({
     [inThisLibrary],
   );
   const user = useAuthStore((s) => s.user);
-  const { data: personaData } = usePersonas(admin);
+  // The deployment's personas, which the Library picker offers a platform
+  // administrator whichever page the dialog was opened from (#1527). Everyone
+  // else's personas come from their own claims, so nobody else asks for it.
+  const { data: personaData } = usePersonas(isPlatformAdmin(user));
   const [displayName, setDisplayName] = useState(r.display_name);
   const [description, setDescription] = useState(r.description);
   const [tagsInput, setTagsInput] = useState(r.tags.join(", "));
@@ -128,7 +128,6 @@ export function EditModal({
     here,
     user,
     (personaData?.personas ?? []).map((p) => p.name),
-    admin ? "admin" : "portal",
   );
   const [library, setLibrary] = useState(targetKey(here));
   const [personEmail, setPersonEmail] = useState("");

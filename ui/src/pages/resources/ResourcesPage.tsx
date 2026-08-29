@@ -25,7 +25,13 @@ import { SelectionBar } from "./parts/SelectionBar";
 import { useSelection } from "./parts/selection";
 import { everyFolder, folderView, isUnder, type FolderView } from "./parts/tree";
 import { useResourceLibrary, type ResourceSort } from "./parts/useResourceLibrary";
-import { adminReachNote, canWriteScope, libraryCopy, targetForTab, type ScopeTarget } from "./scopes";
+import {
+  canWriteScope,
+  isPlatformAdmin,
+  libraryCopy,
+  targetForTab,
+  type ScopeTarget,
+} from "./scopes";
 
 interface Props {
   admin?: boolean;
@@ -76,18 +82,18 @@ type Dialog =
 export function ResourcesPage({ admin = false, location, onNavigate }: Props) {
   const user = useAuthStore((s) => s.user);
   const userPersona = user?.persona;
-  const { data: personaData } = usePersonas(admin);
+  // The deployment's persona list, which the picker in the Edit dialog and the
+  // administrator's tab strip are both filled from. Fetched for a platform
+  // administrator on either page: the libraries they may file a resource into
+  // include every persona, and their own claims name only the personas they
+  // belong to (#1527). Everyone else derives their personas from those claims
+  // and never asks.
+  const { data: personaData } = usePersonas(isPlatformAdmin(user));
   const personaNames = (personaData?.personas ?? []).map((p) => p.name);
 
   // The section this library belongs to, which is both where its own address
   // is written and where a resource opened from it lives.
   const basePath = admin ? "/admin/resources" : "/resources";
-  // Which surface is asking. On the reader's own portal the platform-admin
-  // override does not apply, so Upload is offered on the libraries the caller
-  // themselves may add to and nowhere else; the note in its place says where
-  // an administrator exercises the rest of their authority.
-  const surface = admin ? "admin" : "portal";
-  const reachNote = adminReachNote(user, surface);
   const tabs = scopeTabs(admin, personaNames, userPersona);
   const library = useResourceLibrary(
     admin,
@@ -172,8 +178,6 @@ export function ResourcesPage({ admin = false, location, onNavigate }: Props) {
           tabKey={tab.key}
           tabLabel={tab.label}
           admin={admin}
-          surface={surface}
-          reachNote={reachNote}
           library={library}
           selection={selection}
           view={view}
@@ -219,8 +223,6 @@ function LibraryPanel({
   tabKey,
   tabLabel,
   admin,
-  surface,
-  reachNote,
   library,
   selection,
   view,
@@ -236,8 +238,6 @@ function LibraryPanel({
   /** What the tab calls this library, which is what heads its folder trail. */
   tabLabel: string;
   admin: boolean;
-  surface: "portal" | "admin";
-  reachNote: string;
   library: ReturnType<typeof useResourceLibrary>;
   selection: ReturnType<typeof useSelection>;
   view: FolderView;
@@ -254,8 +254,8 @@ function LibraryPanel({
   // read from the same authority the server applies to the request. Where it is
   // not offered, the note in its place says who fills this library instead.
   const target = targetForTab(tabKey, user);
-  const writable = canWriteScope(user, target, surface);
-  const source = [libraryCopy(target).source, reachNote].filter(Boolean).join(" ");
+  const writable = canWriteScope(user, target);
+  const source = libraryCopy(target).source;
   const tags = tagOptions(library.resources, library.tag);
 
   return (
