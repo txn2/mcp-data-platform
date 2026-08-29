@@ -19,6 +19,9 @@ const (
 	portBits = 16
 	// contentTypeHeader is the canonical Content-Type header name.
 	contentTypeHeader = "Content-Type"
+	// linkHeader is relayed from the fetched response: it is the pagination
+	// signal a walk over a fetched document follows (#1544).
+	linkHeader = "Link"
 )
 
 // idleConnectionTimeout / maxIdleConnections mirror the gateway's own

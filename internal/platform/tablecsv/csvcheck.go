@@ -1,4 +1,10 @@
-package tableregister
+// Package tablecsv inspects and corrects a CSV file before a table is
+// registered over it: the defects a query engine cannot read through (a
+// carriage-return line ending, a line break inside a cell, a legacy code
+// page), whether each is correctable, the reason and remedy a refusal names,
+// and the normalization that writes the corrected version. It knows nothing
+// about registrations; tableregister asks it and acts on the answer.
+package tablecsv
 
 import (
 	"bytes"
@@ -64,9 +70,9 @@ const (
 // splits on "\r", so such a file is one record to all of them.
 const lineEndingsCR = "carriage return"
 
-// CSVDefect is why a CSV cannot be read as a table the way it is stored. A nil
-// *CSVDefect means it can.
-type CSVDefect struct {
+// Defect is why a CSV cannot be read as a table the way it is stored. A nil
+// *Defect means it can.
+type Defect struct {
 	// Rows is how many records carry a field with a line break inside it.
 	Rows int `json:"rows,omitempty"`
 	// Columns names the columns those line breaks are in, in header order.
@@ -89,7 +95,7 @@ type CSVDefect struct {
 	Unreadable string `json:"unreadable,omitempty"`
 }
 
-// InspectCSV reports why a CSV cannot be read by a line-based reader, or nil
+// Inspect reports why a CSV cannot be read by a line-based reader, or nil
 // when it can.
 //
 // Three conditions refuse. Lines that end in something the reader does not
@@ -110,8 +116,8 @@ type CSVDefect struct {
 // carriage-return file it sees one record, reports the file as a single torn
 // row, and names columns made out of the header line joined to the line after
 // it.
-func InspectCSV(content []byte) *CSVDefect {
-	defect := CSVDefect{Encoding: sourceEncoding(content)}
+func Inspect(content []byte) *Defect {
+	defect := Defect{Encoding: sourceEncoding(content)}
 	// A file in an encoding the platform does not read is reported on its
 	// encoding alone. Everything below is a single-byte reader, and over a
 	// wide encoding it reads bytes that are not the characters the file holds:
@@ -297,7 +303,7 @@ func sourceEncoding(content []byte) string {
 // Correctable reports whether the platform can produce a corrected version of
 // this file itself.
 //
-// It is the same question NormalizeCSV answers, asked before the offer is
+// It is the same question Normalize answers, asked before the offer is
 // made rather than after it is taken up. Three things say no: bytes in an
 // encoding the platform does not convert, because everything else about the
 // file is read through that encoding and would be corrected into mojibake; a
@@ -305,7 +311,7 @@ func sourceEncoding(content []byte) string {
 // one invents data and truncating a long one discards it; and a parse that
 // does not reach the end of the file, because the correction has to read every
 // record to write it back.
-func (d *CSVDefect) Correctable() bool {
+func (d *Defect) Correctable() bool {
 	return d.convertibleEncoding() && len(d.Ragged) == 0 && d.Unreadable == ""
 }
 
@@ -313,7 +319,7 @@ func (d *CSVDefect) Correctable() bool {
 // as the characters they stand for. It is the encoding half of Correctable,
 // asked on its own by the two places that have nothing but an encoding to go
 // on: the inspection, before it has read a record, and the conversion itself.
-func (d *CSVDefect) convertibleEncoding() bool {
+func (d *Defect) convertibleEncoding() bool {
 	return d.Encoding == "" || d.Encoding == encodingWindows1252
 }
 
@@ -321,7 +327,7 @@ func (d *CSVDefect) convertibleEncoding() bool {
 // Bytes it cannot read are re-exported; records that do not match the header,
 // or that it cannot parse through, are fixed where the file was written,
 // because only whoever wrote it knows what the missing field held.
-func (d *CSVDefect) remedy() string {
+func (d *Defect) Remedy() string {
 	if !d.convertibleEncoding() {
 		return "Re-export it as UTF-8 CSV and upload that."
 	}
@@ -339,7 +345,7 @@ func (d *CSVDefect) remedy() string {
 // registration that works. It is kept rather than dropped because the
 // correction reads the same file with the same reader, and cannot rewrite what
 // it cannot read.
-func (d *CSVDefect) scanRecords(content []byte) {
+func (d *Defect) scanRecords(content []byte) {
 	reader := newCSVReader(content)
 
 	header, err := reader.Read()
@@ -375,7 +381,7 @@ func (d *CSVDefect) scanRecords(content []byte) {
 
 // noteUnreadable records the error that ended a read, unless it was the end of
 // the file. Only a parse failure is one the correction would meet as well.
-func (d *CSVDefect) noteUnreadable(err error) {
+func (d *Defect) noteUnreadable(err error) {
 	if !errors.Is(err, io.EOF) {
 		d.Unreadable = err.Error()
 	}
@@ -384,7 +390,7 @@ func (d *CSVDefect) noteUnreadable(err error) {
 // noteRagged records a record whose field count differs from the header's, up
 // to the number a refusal lists. Beyond that the record is still ragged and
 // the file is still refused; only its name is dropped.
-func (d *CSVDefect) noteRagged(number, fields int) {
+func (d *Defect) noteRagged(number, fields int) {
 	if len(d.Ragged) >= maxNamedRecords {
 		return
 	}
@@ -450,7 +456,7 @@ func labelsFor(names []string, hit map[int]bool) []string {
 //
 // The line endings come first, because they decide how the rest of the file is
 // read.
-func (d *CSVDefect) Reason() string {
+func (d *Defect) Reason() string {
 	parts := make([]string, 0, 4)
 	if d.LineEndings != "" {
 		parts = append(parts,
@@ -461,7 +467,7 @@ func (d *CSVDefect) Reason() string {
 		part := plural(d.Rows, "row", "rows") + " in this file " +
 			verb(d.Rows, "has", "have") + " a line break inside a cell"
 		if len(d.Columns) > 0 {
-			part += " (in " + joinAnd(d.Columns) + ")"
+			part += " (in " + JoinAnd(d.Columns) + ")"
 		}
 		parts = append(parts,
 			part+", and a table reads a line break as the end of the row, so each of those rows would be torn into fragments")
@@ -479,7 +485,7 @@ func (d *CSVDefect) Reason() string {
 
 // encodingReason says what the file's bytes appear to be and what a table
 // would make of them, or is empty when they are UTF-8 text.
-func (d *CSVDefect) encodingReason() string {
+func (d *Defect) encodingReason() string {
 	switch {
 	case d.Encoding == encodingWindows1252:
 		return "this file's bytes are not UTF-8 and read as " + d.Encoding +
@@ -513,7 +519,7 @@ func (d *CSVDefect) encodingReason() string {
 //
 // A parse that did not finish is reported ahead of the field counts, because
 // the records it never reached are not in the ragged list either.
-func (d *CSVDefect) uncorrectableReason() string {
+func (d *Defect) uncorrectableReason() string {
 	switch {
 	case d.Unreadable != "":
 		return unreadableClause(d.Unreadable)
@@ -539,7 +545,7 @@ func raggedRecordLabel(number, fields int) string {
 // file. Both of its callers give it one.
 func raggedClause(headerFields int, ragged []string) string {
 	return "its records do not all have the header's " + strconv.Itoa(headerFields) +
-		" fields (" + joinAnd(ragged) + "), and filling in a short record would invent data while" +
+		" fields (" + JoinAnd(ragged) + "), and filling in a short record would invent data while" +
 		" dropping a field from a long one would lose some"
 }
 
@@ -578,7 +584,7 @@ type NormalizeReport struct {
 	FromLineEndings string `json:"from_line_endings,omitempty"`
 }
 
-// NormalizeCSV rewrites a CSV so a line-based reader gets the records the file
+// Normalize rewrites a CSV so a line-based reader gets the records the file
 // actually holds: UTF-8 with no byte-order mark, one record per newline, and
 // every field on one line.
 //
@@ -587,18 +593,18 @@ type NormalizeReport struct {
 // adjusted: padding a short record invents data and truncating a long one
 // discards it, and neither is a correction the platform can make on somebody's
 // behalf.
-func NormalizeCSV(content []byte) ([]byte, NormalizeReport, error) {
+func Normalize(content []byte) ([]byte, NormalizeReport, error) {
 	decoded, from, err := decodeToUTF8(content)
 	if err != nil {
 		return nil, NormalizeReport{}, err
 	}
-	// Before anything is counted, for the same reason InspectCSV does it: this
+	// Before anything is counted, for the same reason Inspect does it: this
 	// reader splits on "\n" too, so a carriage-return file would be read here
 	// as the single record it is not, and written back out as one.
 	decoded, endings := withLineFeeds(decoded)
 	records, err := newCSVReader(decoded).ReadAll()
 	if err != nil {
-		return nil, NormalizeReport{}, refusedf(
+		return nil, NormalizeReport{}, uncorrectablef(
 			"this file cannot be corrected because %s", unreadableClause(err.Error()))
 	}
 	if len(records) == 0 {
@@ -618,7 +624,7 @@ func NormalizeCSV(content []byte) ([]byte, NormalizeReport, error) {
 	var out bytes.Buffer
 	w := csv.NewWriter(&out)
 	if err := w.WriteAll(records); err != nil {
-		return nil, NormalizeReport{}, refusedf("this file's corrected form could not be written: %s", err.Error())
+		return nil, NormalizeReport{}, uncorrectablef("this file's corrected form could not be written: %s", err.Error())
 	}
 	return out.Bytes(), report, nil
 }
@@ -634,14 +640,14 @@ func decodeToUTF8(content []byte) (decoded []byte, from string, err error) {
 	// as one produces a character per byte, and writing that back as a
 	// corrected version of somebody's file would replace their data with
 	// mojibake and report it as a repair.
-	if !(&CSVDefect{Encoding: from}).convertibleEncoding() {
-		return nil, "", refusedf(
+	if !(&Defect{Encoding: from}).convertibleEncoding() {
+		return nil, "", uncorrectablef(
 			"this file's bytes look like %s, which cannot be converted here without"+
 				" guessing at it; re-export it as UTF-8 CSV and upload that", from)
 	}
 	converted, err := charmap.Windows1252.NewDecoder().Bytes(content)
 	if err != nil {
-		return nil, "", refusedf("this file's bytes are neither UTF-8 nor %s, so it cannot be corrected: %s",
+		return nil, "", uncorrectablef("this file's bytes are neither UTF-8 nor %s, so it cannot be corrected: %s",
 			encodingWindows1252, err.Error())
 	}
 	return bytes.TrimPrefix(converted, []byte(bomUTF8)), encodingWindows1252, nil
@@ -668,7 +674,7 @@ func checkFieldCounts(records [][]string) error {
 	if len(ragged) == 0 {
 		return nil
 	}
-	return refusedf("this file cannot be corrected because %s, so it has to be fixed where it was written",
+	return uncorrectablef("this file cannot be corrected because %s, so it has to be fixed where it was written",
 		raggedClause(want, ragged))
 }
 

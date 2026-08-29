@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/tablecsv"
+
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
@@ -210,7 +212,14 @@ func (r *Registrar) Register(ctx context.Context, caller Caller, src Source, req
 	if p.repair != nil {
 		p.repair.Followed = r.followOthers(ctx, p.src, p.repair.Version, p.reg.ID)
 	}
-	return &Result{Registration: p.reg, Source: p.src, Repair: p.repair}, nil
+	res := &Result{Registration: p.reg, Source: p.src, Repair: p.repair}
+	// A replacement ran DROP TABLE, so the other tables on the connection are
+	// checked afterwards (#1546), except the one just created.
+	if p.existing != nil {
+		res.Siblings = r.reconcileConnection(ctx, req.Connection, p.reg.ID,
+			"the table was removed while "+p.reg.QualifiedName()+" was replaced.")
+	}
+	return res, nil
 }
 
 // planned is one registration under construction: where it lands, the source
@@ -299,7 +308,7 @@ func (r *Registrar) claim(ctx context.Context, caller Caller, req Request, p *pl
 func (r *Registrar) correct(
 	ctx context.Context, caller Caller, req Request, body []byte, p *planned,
 ) ([]byte, error) {
-	defect := InspectCSV(body)
+	defect := tablecsv.Inspect(body)
 	if defect == nil {
 		return body, nil
 	}
@@ -311,7 +320,7 @@ func (r *Registrar) correct(
 	// correction refuses in turn, and offering it would answer the caller
 	// twice with two different problems (#1449).
 	if !defect.Correctable() {
-		return nil, refusedf("%s %s", defect.Reason(), defect.remedy())
+		return nil, refusedf("%s %s", defect.Reason(), defect.Remedy())
 	}
 	if !req.Repair {
 		return nil, needsRepairf("%s Register it again asking for the file to be corrected, and a corrected"+
@@ -325,8 +334,13 @@ func (r *Registrar) correct(
 			defect.Reason(), p.src.Kind)
 	}
 
-	corrected, report, err := NormalizeCSV(body)
+	corrected, report, err := tablecsv.Normalize(body)
 	if err != nil {
+		// A file the CSV package cannot correct is a refusal the caller can
+		// act on; anything else is the platform's.
+		if errors.Is(err, tablecsv.ErrUncorrectable) {
+			return nil, refusedf("%s", err.Error())
+		}
 		return nil, err
 	}
 	revised, err := reviser.Revise(ctx, p.src, caller, corrected, repairSummary(report))
@@ -477,7 +491,7 @@ func (r *Registrar) locationFor(ctx context.Context, src Source) (string, error)
 		sort.Strings(siblings)
 		return "", refusedf(
 			"a table reads every file in this file's directory, and %s sits beside it; move or remove it and register again",
-			joinAnd(siblings))
+			tablecsv.JoinAnd(siblings))
 	}
 
 	return LocationURI(src.Bucket, dir), nil
@@ -491,23 +505,6 @@ func (r *Registrar) locationFor(ctx context.Context, src Source) (string, error)
 // them beside its content.
 func hiddenToHive(name string) bool {
 	return strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_")
-}
-
-// joinAnd renders a short list in prose so a refusal names what is in the way
-// rather than printing a slice.
-func joinAnd(items []string) string {
-	if len(items) == 0 {
-		return ""
-	}
-	head, last := items[:len(items)-1], items[len(items)-1]
-	switch len(head) {
-	case 0:
-		return last
-	case 1:
-		return head[0] + " and " + last
-	default:
-		return strings.Join(head, ", ") + ", and " + last
-	}
 }
 
 // contentFor reads the whole object a registration is built over.
@@ -730,6 +727,11 @@ func (r *Registrar) Unregister(ctx context.Context, caller Caller, id, source st
 	if err := r.deps.Store.Delete(ctx, reg.ID); err != nil {
 		return fmt.Errorf("removing the registration: %w", err)
 	}
+	// The DROP may have taken a name-prefix sibling with it (#1546); the
+	// registrations left on the connection are checked and the listing says
+	// so. An unregister answers nothing but its own outcome, so the record is
+	// where this is reported.
+	r.reconcileConnection(ctx, reg.Connection, "", "the table was removed while "+reg.QualifiedName()+" was dropped.")
 	return nil
 }
 
@@ -775,6 +777,7 @@ func (r *Registrar) UnregisterAllForSource(ctx context.Context, kind, sourceID s
 			"kind", logsan.SanitizeForLog(kind), "source", logsan.SanitizeForLog(sourceID), logFieldError, logsan.SanitizeForLog(err.Error()))
 		return
 	}
+	dropped := map[string]string{}
 	for _, reg := range regs {
 		if err := r.deps.Trino.Exec(ctx, reg.Connection, dropTableStatement(reg)); err != nil {
 			slog.Warn("table registration: dropping the table of a deleted source failed",
@@ -784,6 +787,10 @@ func (r *Registrar) UnregisterAllForSource(ctx context.Context, kind, sourceID s
 			slog.Warn("table registration: removing the record of a deleted source failed",
 				"registration", logsan.SanitizeForLog(reg.ID), logFieldError, logsan.SanitizeForLog(err.Error()))
 		}
+		dropped[reg.Connection] = reg.QualifiedName()
+	}
+	for connection, table := range dropped {
+		r.reconcileConnection(ctx, connection, "", "the table was removed while "+table+" was dropped with its file.")
 	}
 }
 

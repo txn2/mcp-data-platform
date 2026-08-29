@@ -434,3 +434,13 @@ observability:
   prometheus:
     url: "http://localhost:9091"
     timeout: 10s
+
+# The util connection refuses internal address space by default. In dev the
+# api-test fixture is on the loopback (:9282), and the acceptance suite walks
+# it through fetch_url (test/acceptance, #1544), so the loopback is allowed
+# here and nowhere else.
+apigateway:
+  util_connection:
+    allow_private_cidrs:
+      - 127.0.0.0/8
+      - ::1/128

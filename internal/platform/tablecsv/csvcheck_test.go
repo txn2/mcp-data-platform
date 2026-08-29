@@ -1,4 +1,4 @@
-package tableregister
+package tablecsv
 
 import (
 	"encoding/csv"
@@ -27,17 +27,17 @@ const spreadsheetCSV = "store_id,address,rebate\n" +
 	"103,880 Pine St,15%\n"
 
 func TestInspectCSV_LineSafeFilePasses(t *testing.T) {
-	assert.Nil(t, InspectCSV([]byte(csvBody)))
-	assert.Nil(t, InspectCSV([]byte("a,b\n\"x,y\",\"say \"\"hi\"\"\"\n")),
+	assert.Nil(t, Inspect([]byte(csvBody)))
+	assert.Nil(t, Inspect([]byte("a,b\n\"x,y\",\"say \"\"hi\"\"\"\n")),
 		"a quoted comma and a doubled quote are read correctly by a line-based reader")
-	assert.Nil(t, InspectCSV([]byte("store,note\nMünchen,café ☕\n")),
+	assert.Nil(t, Inspect([]byte("store,note\nMünchen,café ☕\n")),
 		"multi-byte UTF-8 is UTF-8; only the encodings a table cannot read are named")
 }
 
 // TestInspectCSV_NamesTheRowsAndTheColumns is the refusal a person reads: how
 // many rows are torn, and which column tore them.
 func TestInspectCSV_NamesTheRowsAndTheColumns(t *testing.T) {
-	defect := InspectCSV([]byte(spreadsheetCSV))
+	defect := Inspect([]byte(spreadsheetCSV))
 	require.NotNil(t, defect)
 
 	assert.Equal(t, 2, defect.Rows)
@@ -55,7 +55,7 @@ func TestInspectCSV_NamesTheRowsAndTheColumns(t *testing.T) {
 func TestInspectCSV_ReportsBytesThatAreNotUTF8(t *testing.T) {
 	// 0xCA is a non-breaking space on a Mac Roman machine and is not valid
 	// UTF-8; it is what a spreadsheet put in the cell reading "15%".
-	defect := InspectCSV([]byte("store_id,rebate\n101,15%\xca\n"))
+	defect := Inspect([]byte("store_id,rebate\n101,15%\xca\n"))
 	require.NotNil(t, defect)
 
 	assert.Zero(t, defect.Rows, "nothing is torn; only the encoding is wrong")
@@ -64,8 +64,8 @@ func TestInspectCSV_ReportsBytesThatAreNotUTF8(t *testing.T) {
 }
 
 func TestInspectCSV_EmptyFileHasNoDefectToName(t *testing.T) {
-	assert.Nil(t, InspectCSV(nil))
-	assert.Nil(t, InspectCSV([]byte("")))
+	assert.Nil(t, Inspect(nil))
+	assert.Nil(t, Inspect([]byte("")))
 }
 
 // macCSV is a spreadsheet export whose lines end in a bare carriage return.
@@ -77,7 +77,7 @@ const macCSV = "store_id,address\r101,12 Mill Rd\r102,9 Oak St\r"
 // reader hits before it hits any other: the file holds three records and the
 // reader sees one, so a table over it has a single row holding the whole file.
 func TestInspectCSV_NamesCarriageReturnLineEndings(t *testing.T) {
-	defect := InspectCSV([]byte(macCSV))
+	defect := Inspect([]byte(macCSV))
 	require.NotNil(t, defect)
 
 	assert.Equal(t, lineEndingsCR, defect.LineEndings)
@@ -94,7 +94,7 @@ func TestInspectCSV_NamesCarriageReturnLineEndings(t *testing.T) {
 // endings settled first, a cell that really does hold a line break is found in
 // the record it is in, and named by the column it is in.
 func TestInspectCSV_CarriageReturnFileIsScannedAsTheRecordsItHolds(t *testing.T) {
-	defect := InspectCSV([]byte("store_id,address\r101,\"12 Mill Rd\rSuite 4\"\r102,9 Oak St\r"))
+	defect := Inspect([]byte("store_id,address\r101,\"12 Mill Rd\rSuite 4\"\r102,9 Oak St\r"))
 	require.NotNil(t, defect)
 
 	assert.Equal(t, lineEndingsCR, defect.LineEndings)
@@ -106,9 +106,9 @@ func TestInspectCSV_CarriageReturnFileIsScannedAsTheRecordsItHolds(t *testing.T)
 // reader splits on, and a CRLF is folded to one by every CSV reader in this
 // path, so neither is a defect and neither costs the person a correction.
 func TestInspectCSV_LeavesTheOrdinaryLineEndingsAlone(t *testing.T) {
-	assert.Nil(t, InspectCSV([]byte("store_id,address\r\n101,12 Mill Rd\r\n")),
+	assert.Nil(t, Inspect([]byte("store_id,address\r\n101,12 Mill Rd\r\n")),
 		"windows line endings")
-	assert.Nil(t, InspectCSV([]byte("store_id,address")), "a single line with no ending at all")
+	assert.Nil(t, Inspect([]byte("store_id,address")), "a single line with no ending at all")
 }
 
 // TestInspectCSV_OneStrayNewlineDoesNotHideTheCarriageReturns. A file is not
@@ -120,13 +120,13 @@ func TestInspectCSV_LeavesTheOrdinaryLineEndingsAlone(t *testing.T) {
 func TestInspectCSV_OneStrayNewlineDoesNotHideTheCarriageReturns(t *testing.T) {
 	body := []byte("store_id,address\r101,12 Mill Rd\r102,9 Oak St\n")
 
-	defect := InspectCSV(body)
+	defect := Inspect(body)
 	require.NotNil(t, defect)
 	assert.Equal(t, lineEndingsCR, defect.LineEndings)
 	assert.Zero(t, defect.Rows)
 	assert.Empty(t, defect.Columns, "no column the file does not have is named")
 
-	out, report, err := NormalizeCSV(body)
+	out, report, err := Normalize(body)
 	require.NoError(t, err)
 	assert.Equal(t, lineEndingsCR, report.FromLineEndings)
 	assert.Zero(t, report.RowsRepaired, "no record is flattened into the one before it")
@@ -140,13 +140,13 @@ func TestInspectCSV_OneStrayNewlineDoesNotHideTheCarriageReturns(t *testing.T) {
 func TestInspectCSV_CarriageReturnFileWhoseCellHoldsANewline(t *testing.T) {
 	body := []byte("store_id,address\r101,\"12 Mill Rd\nSuite 4\"\r102,9 Oak St\r")
 
-	defect := InspectCSV(body)
+	defect := Inspect(body)
 	require.NotNil(t, defect)
 	assert.Equal(t, lineEndingsCR, defect.LineEndings)
 	assert.Equal(t, 1, defect.Rows)
 	assert.Equal(t, []string{"address"}, defect.Columns)
 
-	out, _, err := NormalizeCSV(body)
+	out, _, err := Normalize(body)
 	require.NoError(t, err)
 	assert.Equal(t, "store_id,address\n101,12 Mill Rd Suite 4\n102,9 Oak St\n", string(out))
 }
@@ -174,7 +174,7 @@ func TestInspectCSV_LeavesACarriageReturnInsideACellAsWhatItIs(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			defect := InspectCSV([]byte(tc.body))
+			defect := Inspect([]byte(tc.body))
 			require.NotNil(t, defect)
 
 			assert.Empty(t, defect.LineEndings, "nothing about this file's lines is wrong")
@@ -182,7 +182,7 @@ func TestInspectCSV_LeavesACarriageReturnInsideACellAsWhatItIs(t *testing.T) {
 			assert.Equal(t, []string{"address"}, defect.Columns)
 			assert.NotContains(t, defect.Reason(), "carriage return")
 
-			out, report, err := NormalizeCSV([]byte(tc.body))
+			out, report, err := Normalize([]byte(tc.body))
 			require.NoError(t, err, "and the correction it offers goes through")
 			assert.Equal(t, 1, report.RowsRepaired)
 			assert.Empty(t, report.FromLineEndings)
@@ -195,12 +195,12 @@ func TestInspectCSV_LeavesACarriageReturnInsideACellAsWhatItIs(t *testing.T) {
 // every reader here and a lone carriage return among them is not, so the file
 // is read as the records the lone ones end.
 func TestInspectCSV_CarriageReturnsAmongWindowsLineEndings(t *testing.T) {
-	defect := InspectCSV([]byte("store_id,address\r\n101,12 Mill Rd\r102,9 Oak St\r\n"))
+	defect := Inspect([]byte("store_id,address\r\n101,12 Mill Rd\r102,9 Oak St\r\n"))
 	require.NotNil(t, defect)
 	assert.Equal(t, lineEndingsCR, defect.LineEndings)
 	assert.Zero(t, defect.Rows)
 
-	out, _, err := NormalizeCSV([]byte("store_id,address\r\n101,12 Mill Rd\r102,9 Oak St\r\n"))
+	out, _, err := Normalize([]byte("store_id,address\r\n101,12 Mill Rd\r102,9 Oak St\r\n"))
 	require.NoError(t, err)
 	assert.Equal(t, "store_id,address\n101,12 Mill Rd\n102,9 Oak St\n", string(out))
 }
@@ -210,12 +210,12 @@ func TestInspectCSV_CarriageReturnsAmongWindowsLineEndings(t *testing.T) {
 // carriage return doubled before a Windows ending, which is a stray character
 // in the cell before it, and one closing a file that has no other line at all.
 func TestInspectCSV_ACarriageReturnThatEndsNoRecord(t *testing.T) {
-	doubled := InspectCSV([]byte("store_id,address\r\r\n101,12 Mill Rd\r\r\n"))
+	doubled := Inspect([]byte("store_id,address\r\r\n101,12 Mill Rd\r\r\n"))
 	require.NotNil(t, doubled)
 	assert.Empty(t, doubled.LineEndings, "the record boundary was already there")
 	assert.Equal(t, 2, doubled.Rows, "what is left is a stray character in the last cell of each")
 
-	assert.Nil(t, InspectCSV([]byte("store_id,address\r")),
+	assert.Nil(t, Inspect([]byte("store_id,address\r")),
 		"a lone header line, whose trailing carriage return the reader drops at the end of the file")
 }
 
@@ -267,9 +267,9 @@ func TestNormalizeCSV_NeverMergesTheRecordsOfACarriageReturnFile(t *testing.T) {
 func normalizePreserves(t *testing.T, body string, rows int) bool {
 	t.Helper()
 
-	out, _, err := NormalizeCSV([]byte(body))
+	out, _, err := Normalize([]byte(body))
 	if err != nil {
-		assert.ErrorIs(t, err, ErrRefused, body)
+		assert.ErrorIs(t, err, ErrUncorrectable, body)
 		return false
 	}
 	records, readErr := csv.NewReader(strings.NewReader(string(out))).ReadAll()
@@ -310,15 +310,15 @@ func TestInspectCSV_ACarriageReturnFileWhoseRowsDoNotMatchItsHeader(t *testing.T
 		{"rows narrower than the header", "a,b\r1\r2\r3\r", "record 1 has 1"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			defect := InspectCSV([]byte(tc.body))
+			defect := Inspect([]byte(tc.body))
 			require.NotNil(t, defect)
 			assert.Equal(t, lineEndingsCR, defect.LineEndings)
 			assert.Zero(t, defect.Rows, "the file is read as its records, not as one torn row")
 			assert.Empty(t, defect.Columns, "so no column it does not have is named")
 
-			_, _, err := NormalizeCSV([]byte(tc.body))
+			_, _, err := Normalize([]byte(tc.body))
 			require.Error(t, err, "and the correction refuses it rather than merging it")
-			assert.ErrorIs(t, err, ErrRefused)
+			assert.ErrorIs(t, err, ErrUncorrectable)
 			assert.Contains(t, err.Error(), tc.refusal)
 		})
 	}
@@ -329,13 +329,13 @@ func TestInspectCSV_ACarriageReturnFileWhoseRowsDoNotMatchItsHeader(t *testing.T
 // but a carriage return that recovers no record is still a break inside a
 // cell, and this file's is.
 func TestInspectCSV_ASingleRecordWithNoLineEndingAtAll(t *testing.T) {
-	defect := InspectCSV([]byte("\"12 Mill Rd\rSuite 4\",101"))
+	defect := Inspect([]byte("\"12 Mill Rd\rSuite 4\",101"))
 	require.NotNil(t, defect)
 
 	assert.Empty(t, defect.LineEndings, "there is one record either way, so nothing was recovered")
 	assert.Equal(t, 1, defect.Rows)
 
-	out, report, err := NormalizeCSV([]byte("\"12 Mill Rd\rSuite 4\",101"))
+	out, report, err := Normalize([]byte("\"12 Mill Rd\rSuite 4\",101"))
 	require.NoError(t, err)
 	assert.Empty(t, report.FromLineEndings)
 	assert.Equal(t, "12 Mill Rd Suite 4,101\n", string(out))
@@ -345,13 +345,13 @@ func TestInspectCSV_ASingleRecordWithNoLineEndingAtAll(t *testing.T) {
 // carriage-return file: the corrected form holds the records the file holds,
 // not the one record a line-based reader found in it.
 func TestNormalizeCSV_GivesEachRecordItsOwnLine(t *testing.T) {
-	out, report, err := NormalizeCSV([]byte(macCSV))
+	out, report, err := Normalize([]byte(macCSV))
 	require.NoError(t, err)
 
 	assert.Equal(t, lineEndingsCR, report.FromLineEndings)
 	assert.Zero(t, report.RowsRepaired)
 	assert.Equal(t, "store_id,address\n101,12 Mill Rd\n102,9 Oak St\n", string(out))
-	assert.Nil(t, InspectCSV(out), "the corrected form has nothing left to correct")
+	assert.Nil(t, Inspect(out), "the corrected form has nothing left to correct")
 
 	records, err := csv.NewReader(strings.NewReader(string(out))).ReadAll()
 	require.NoError(t, err)
@@ -361,47 +361,22 @@ func TestNormalizeCSV_GivesEachRecordItsOwnLine(t *testing.T) {
 // TestNormalizeCSV_CorrectsTheLineEndingsAndTheEncodingTogether. A spreadsheet
 // that wrote one wrote the other, and the person is told about both in one
 // sentence rather than being sent round the loop twice.
-func TestNormalizeCSV_CorrectsTheLineEndingsAndTheEncodingTogether(t *testing.T) {
-	// 0xA9 is the copyright sign in windows-1252 and is not valid UTF-8.
-	body := []byte("store_id,note\r101,15% \xa9 ACME\r")
-
-	defect := InspectCSV(body)
-	require.NotNil(t, defect)
-	assert.Equal(t, lineEndingsCR, defect.LineEndings)
-	assert.Equal(t, encodingWindows1252, defect.Encoding)
-	assert.True(t, defect.Correctable())
-	assert.Contains(t, defect.Reason(), "carriage return")
-	assert.Contains(t, defect.Reason(), "not UTF-8")
-
-	out, report, err := NormalizeCSV(body)
-	require.NoError(t, err)
-	assert.Equal(t, lineEndingsCR, report.FromLineEndings)
-	assert.Equal(t, encodingWindows1252, report.FromEncoding)
-	assert.Equal(t, "store_id,note\n101,15% © ACME\n", string(out))
-	assert.Equal(t,
-		"rewrote the carriage return line endings as newlines and converted the text from windows-1252 to UTF-8",
-		repairSummary(report))
-}
-
-// TestNormalizeCSV_CarriageReturnFileIsStillHeldToTheHeaderShape: the field
-// count check is only meaningful once the file is read as the records it
-// holds, and a ragged one is refused rather than corrected here too.
 func TestNormalizeCSV_CarriageReturnFileIsStillHeldToTheHeaderShape(t *testing.T) {
-	_, _, err := NormalizeCSV([]byte("a,b,c\r1,2,3\r4,5\r"))
+	_, _, err := Normalize([]byte("a,b,c\r1,2,3\r4,5\r"))
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrRefused)
+	assert.ErrorIs(t, err, ErrUncorrectable)
 	assert.Contains(t, err.Error(), "record 2 has 2")
 }
 
 // TestNormalizeCSV_PutsEveryRecordOnOneLine is the acceptance assertion for the
 // correction: one row per source record, every field in its declared column.
 func TestNormalizeCSV_PutsEveryRecordOnOneLine(t *testing.T) {
-	out, report, err := NormalizeCSV([]byte(spreadsheetCSV))
+	out, report, err := Normalize([]byte(spreadsheetCSV))
 	require.NoError(t, err)
 
 	assert.Equal(t, 2, report.RowsRepaired)
 	assert.Empty(t, report.FromEncoding)
-	assert.Nil(t, InspectCSV(out), "the corrected form has nothing left to correct")
+	assert.Nil(t, Inspect(out), "the corrected form has nothing left to correct")
 
 	records, err := csv.NewReader(strings.NewReader(string(out))).ReadAll()
 	require.NoError(t, err)
@@ -416,7 +391,7 @@ func TestNormalizeCSV_PutsEveryRecordOnOneLine(t *testing.T) {
 // cell reads what it read in the source, with no replacement mark in it.
 func TestNormalizeCSV_ConvertsBytesThatAreNotUTF8(t *testing.T) {
 	// 0xA9 is the copyright sign in windows-1252 and is not valid UTF-8.
-	out, report, err := NormalizeCSV([]byte("store_id,note\n101,15% \xa9 ACME\n"))
+	out, report, err := Normalize([]byte("store_id,note\n101,15% \xa9 ACME\n"))
 	require.NoError(t, err)
 
 	assert.Equal(t, encodingWindows1252, report.FromEncoding)
@@ -428,7 +403,7 @@ func TestNormalizeCSV_ConvertsBytesThatAreNotUTF8(t *testing.T) {
 // TestNormalizeCSV_DropsTheByteOrderMark: a BOM is content to a line-based
 // reader and would otherwise lead the first column's first value.
 func TestNormalizeCSV_DropsTheByteOrderMark(t *testing.T) {
-	out, _, err := NormalizeCSV([]byte(bomUTF8 + "store_id,rebate\n101,\"a\nb\"\n"))
+	out, _, err := Normalize([]byte(bomUTF8 + "store_id,rebate\n101,\"a\nb\"\n"))
 	require.NoError(t, err)
 	assert.False(t, strings.HasPrefix(string(out), bomUTF8))
 	assert.True(t, strings.HasPrefix(string(out), "store_id,"))
@@ -438,22 +413,22 @@ func TestNormalizeCSV_DropsTheByteOrderMark(t *testing.T) {
 // record invents data and truncating a long one discards it, so neither is a
 // correction the platform makes on somebody's behalf.
 func TestNormalizeCSV_RefusesARecordThatIsNotTheHeaderShape(t *testing.T) {
-	_, _, err := NormalizeCSV([]byte("a,b,c\n1,2,3\n4,5\n"))
+	_, _, err := Normalize([]byte("a,b,c\n1,2,3\n4,5\n"))
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrRefused)
+	assert.ErrorIs(t, err, ErrUncorrectable)
 	assert.Contains(t, err.Error(), "record 2 has 2")
 	assert.Contains(t, err.Error(), "3 fields")
 }
 
 func TestNormalizeCSV_RefusesAFileWithNoHeader(t *testing.T) {
-	_, _, err := NormalizeCSV(nil)
+	_, _, err := Normalize(nil)
 	assert.ErrorIs(t, err, ErrEmptyHeader)
 }
 
 // TestNormalizeCSV_LeavesALineSafeFileAlone: a file that needed nothing comes
 // back reporting nothing, which is what keeps the success message silent.
 func TestNormalizeCSV_LeavesALineSafeFileAlone(t *testing.T) {
-	out, report, err := NormalizeCSV([]byte(csvBody))
+	out, report, err := Normalize([]byte(csvBody))
 	require.NoError(t, err)
 	assert.Zero(t, report.RowsRepaired)
 	assert.Empty(t, report.FromEncoding)
@@ -476,28 +451,6 @@ func TestCollapseLineBreaks_LeavesOneSpaceWhereTheBreakWas(t *testing.T) {
 
 // TestRepairSummary_SaysWhatChanged in the terms of the person whose file it
 // is, since the summary is both the version-trail entry and what they are told.
-func TestRepairSummary_SaysWhatChanged(t *testing.T) {
-	assert.Equal(t, "put 3 rows back onto one line",
-		repairSummary(NormalizeReport{RowsRepaired: 3}))
-	assert.Equal(t, "converted the text from windows-1252 to UTF-8",
-		repairSummary(NormalizeReport{FromEncoding: encodingWindows1252}))
-	assert.Equal(t, "put 1 row back onto one line and converted the text from windows-1252 to UTF-8",
-		repairSummary(NormalizeReport{RowsRepaired: 1, FromEncoding: encodingWindows1252}))
-	assert.Equal(t, "rewrote the carriage return line endings as newlines",
-		repairSummary(NormalizeReport{FromLineEndings: lineEndingsCR}))
-	assert.Equal(t, "rewrote it as a plain UTF-8 CSV", repairSummary(NormalizeReport{}))
-
-	report := &RepairReport{NormalizeReport: NormalizeReport{RowsRepaired: 2}, Version: 3}
-	assert.Contains(t, report.Summary(), "version 3")
-	assert.Contains(t, report.Summary(), "put 2 rows back onto one line")
-	assert.Empty(t, (*RepairReport)(nil).Summary(), "no correction says nothing")
-}
-
-// TestInspectCSV_NamesAWideEncodingRatherThanGuessing. A spreadsheet's
-// "Unicode Text" export is UTF-16, and every byte of it is valid windows-1252,
-// so reading it as one produces a character per byte -- mojibake in every cell.
-// Correcting a file into that and calling it a repair would be worse than
-// refusing, so the encoding is named and the file is left alone.
 func TestInspectCSV_NamesAWideEncodingRatherThanGuessing(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -537,7 +490,7 @@ func TestInspectCSV_NamesAWideEncodingRatherThanGuessing(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			defect := InspectCSV(tc.content)
+			defect := Inspect(tc.content)
 			require.NotNil(t, defect)
 			assert.Equal(t, tc.want, defect.Encoding)
 			assert.Empty(t, defect.LineEndings, "nothing is claimed about a file that is not single-byte text")
@@ -548,13 +501,16 @@ func TestInspectCSV_NamesAWideEncodingRatherThanGuessing(t *testing.T) {
 			assert.False(t, defect.Correctable(), "the platform does not convert this itself")
 			assert.Contains(t, defect.Reason(), tc.says)
 
-			_, _, err := NormalizeCSV(tc.content)
+			_, _, err := Normalize(tc.content)
 			require.Error(t, err, "and it refuses to rewrite the file into mojibake")
-			assert.ErrorIs(t, err, ErrRefused)
+			assert.ErrorIs(t, err, ErrUncorrectable)
 			assert.Contains(t, err.Error(), "re-export it as UTF-8 CSV")
 		})
 	}
 }
+
+// csvBody is a well-formed file every inspection test starts from.
+const csvBody = "store_id,vendor_code,rebate_pct\n101,ACME-NW,4.5\n"
 
 // utf16LE encodes text the way a spreadsheet's "Unicode Text" export does:
 // little-endian, with a byte-order mark.
@@ -579,11 +535,11 @@ func utf16LEUnmarked(text string) []byte {
 // TestCSVDefect_Correctable: a single-byte code page maps byte for byte, so
 // converting it cannot invent a character that was not in the file.
 func TestCSVDefect_Correctable(t *testing.T) {
-	assert.True(t, (&CSVDefect{}).Correctable(), "valid UTF-8 with only torn rows")
-	assert.True(t, (&CSVDefect{Encoding: encodingWindows1252}).Correctable())
-	assert.False(t, (&CSVDefect{Encoding: encodingUTF16}).Correctable())
-	assert.False(t, (&CSVDefect{Encoding: encodingWide}).Correctable())
-	assert.False(t, (&CSVDefect{Encoding: encodingUnidentified}).Correctable())
+	assert.True(t, (&Defect{}).Correctable(), "valid UTF-8 with only torn rows")
+	assert.True(t, (&Defect{Encoding: encodingWindows1252}).Correctable())
+	assert.False(t, (&Defect{Encoding: encodingUTF16}).Correctable())
+	assert.False(t, (&Defect{Encoding: encodingWide}).Correctable())
+	assert.False(t, (&Defect{Encoding: encodingUnidentified}).Correctable())
 }
 
 // TestInspectCSV_ByteWindows1252DoesNotDefineIsNotCalledWindows1252 covers the
@@ -601,7 +557,7 @@ func TestInspectCSV_ByteWindows1252DoesNotDefineIsNotCalledWindows1252(t *testin
 			content := []byte("a,b\r1,caf\xe9\r2,x\r")
 			content[len(content)-2] = undefined
 
-			defect := InspectCSV(content)
+			defect := Inspect(content)
 			require.NotNil(t, defect)
 			assert.Equal(t, encodingUnidentified, defect.Encoding)
 			assert.False(t, defect.Correctable(), "the platform does not convert what it cannot identify")
@@ -613,9 +569,9 @@ func TestInspectCSV_ByteWindows1252DoesNotDefineIsNotCalledWindows1252(t *testin
 			assert.Zero(t, defect.Rows)
 			assert.Empty(t, defect.Columns)
 
-			_, report, err := NormalizeCSV(content)
+			_, report, err := Normalize(content)
 			require.Error(t, err, "so the file is never rewritten")
-			assert.ErrorIs(t, err, ErrRefused)
+			assert.ErrorIs(t, err, ErrUncorrectable)
 			assert.Contains(t, err.Error(), "re-export it as UTF-8 CSV")
 			assert.Empty(t, report.FromEncoding, "and nothing claims a conversion happened")
 		})
@@ -635,9 +591,9 @@ func TestInspectCSV_AnUndefinedByteInsideAValidUTF8SequenceIsNotAnEncodingDefect
 			require.True(t, utf8.Valid(content))
 			require.Contains(t, string(content), string(r))
 
-			assert.Nil(t, InspectCSV(content), "a UTF-8 file with nothing else wrong with it registers as it is")
+			assert.Nil(t, Inspect(content), "a UTF-8 file with nothing else wrong with it registers as it is")
 
-			out, report, err := NormalizeCSV(content)
+			out, report, err := Normalize(content)
 			require.NoError(t, err)
 			assert.Empty(t, report.FromEncoding, "and no conversion is claimed over it")
 			assert.Contains(t, string(out), string(r), "with the character it holds still in it")
@@ -650,7 +606,7 @@ func TestInspectCSV_AnUndefinedByteInsideAValidUTF8SequenceIsNotAnEncodingDefect
 // 0x9F sit beside them and all have characters, so a file made only of those
 // still converts and is still reported as windows-1252.
 func TestNormalizeCSV_ConvertsTheDefinedBytesAroundTheUndefinedOnes(t *testing.T) {
-	out, report, err := NormalizeCSV([]byte("store_id,note\n101,\x80 \x8e \x9e \x9f\n"))
+	out, report, err := Normalize([]byte("store_id,note\n101,\x80 \x8e \x9e \x9f\n"))
 	require.NoError(t, err)
 
 	assert.Equal(t, encodingWindows1252, report.FromEncoding)
@@ -659,7 +615,7 @@ func TestNormalizeCSV_ConvertsTheDefinedBytesAroundTheUndefinedOnes(t *testing.T
 }
 
 // The offer and the correction used to answer different questions. Correctable
-// inspected the encoding and nothing else, while NormalizeCSV went on to
+// inspected the encoding and nothing else, while Normalize went on to
 // refuse a file whose records did not all have the header's fields and one it
 // could not parse to the end. A caller who was told to register again asking
 // for the correction did so and got a second, different refusal naming a
@@ -671,7 +627,7 @@ func TestNormalizeCSV_ConvertsTheDefinedBytesAroundTheUndefinedOnes(t *testing.T
 // it is refused either way; what changed is that the refusal states the field
 // counts and no correction is offered for it.
 func TestInspectCSV_ARaggedRecordWithdrawsTheOffer(t *testing.T) {
-	defect := InspectCSV([]byte("a,b\n1,\"x\ny\"\n2\n"))
+	defect := Inspect([]byte("a,b\n1,\"x\ny\"\n2\n"))
 	require.NotNil(t, defect)
 
 	assert.Equal(t, 1, defect.Rows, "the torn row is still what was found")
@@ -682,10 +638,10 @@ func TestInspectCSV_ARaggedRecordWithdrawsTheOffer(t *testing.T) {
 	reason := defect.Reason()
 	assert.Contains(t, reason, "line break inside a cell", "both findings are stated")
 	assert.Contains(t, reason, "the header's 2 fields (record 2 has 1)")
-	assert.Equal(t, "Correct it where it was written and upload it again.", defect.remedy(),
+	assert.Equal(t, "Correct it where it was written and upload it again.", defect.Remedy(),
 		"and the person is not told to re-export bytes that are already UTF-8")
 
-	_, _, err := NormalizeCSV([]byte("a,b\n1,\"x\ny\"\n2\n"))
+	_, _, err := Normalize([]byte("a,b\n1,\"x\ny\"\n2\n"))
 	require.Error(t, err, "which is the same answer the correction would have given")
 	assert.Contains(t, err.Error(), "the header's 2 fields (record 2 has 1)")
 }
@@ -696,7 +652,7 @@ func TestInspectCSV_ARaggedRecordWithdrawsTheOffer(t *testing.T) {
 func TestInspectCSV_AParseThatStopsShortWithdrawsTheOffer(t *testing.T) {
 	const body = "a,b\n1,\"x\ny\"\n2,he\"llo\n"
 
-	defect := InspectCSV([]byte(body))
+	defect := Inspect([]byte(body))
 	require.NotNil(t, defect)
 
 	assert.Equal(t, 1, defect.Rows, "read up to the record it could not parse")
@@ -705,7 +661,7 @@ func TestInspectCSV_AParseThatStopsShortWithdrawsTheOffer(t *testing.T) {
 	assert.Contains(t, defect.Reason(), "not readable as a CSV all the way through")
 	assert.Empty(t, defect.Ragged, "the parse error is reported ahead of counts it never reached")
 
-	_, _, err := NormalizeCSV([]byte(body))
+	_, _, err := Normalize([]byte(body))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not readable as a CSV all the way through")
 }
@@ -720,7 +676,7 @@ func TestInspectCSV_AHeaderTheReaderCannotParseWithdrawsTheOfferToo(t *testing.T
 	// of, and a bare quote in the header, so the scan's first read fails.
 	const body = "Caf\xe9,He said \"hi\"\nx,y\n"
 
-	defect := InspectCSV([]byte(body))
+	defect := Inspect([]byte(body))
 	require.NotNil(t, defect)
 
 	assert.Equal(t, encodingWindows1252, defect.Encoding)
@@ -728,7 +684,7 @@ func TestInspectCSV_AHeaderTheReaderCannotParseWithdrawsTheOfferToo(t *testing.T
 	assert.False(t, defect.Correctable())
 	assert.Contains(t, defect.Reason(), "not readable as a CSV all the way through")
 
-	_, _, err := NormalizeCSV([]byte(body))
+	_, _, err := Normalize([]byte(body))
 	require.Error(t, err, "which is the answer the correction would have given")
 	assert.Contains(t, err.Error(), "not readable as a CSV all the way through")
 }
@@ -739,16 +695,16 @@ func TestInspectCSV_AHeaderTheReaderCannotParseWithdrawsTheOfferToo(t *testing.T
 // with, which is the invariant the scan tolerated a parse failure for in the
 // first place.
 func TestInspectCSV_NeitherConditionIsADefectOnItsOwn(t *testing.T) {
-	assert.Nil(t, InspectCSV([]byte("a,b\n1,2\n3\n")), "ragged, and readable by a line-based reader")
-	assert.Nil(t, InspectCSV([]byte("a,b\n1,2\n3,he\"llo\n")), "unparseable partway, and every record on its own line")
-	assert.Nil(t, InspectCSV([]byte("a,he said \"hi\"\n1,2\n")), "and the same where the header is the record it stops on")
+	assert.Nil(t, Inspect([]byte("a,b\n1,2\n3\n")), "ragged, and readable by a line-based reader")
+	assert.Nil(t, Inspect([]byte("a,b\n1,2\n3,he\"llo\n")), "unparseable partway, and every record on its own line")
+	assert.Nil(t, Inspect([]byte("a,he said \"hi\"\n1,2\n")), "and the same where the header is the record it stops on")
 }
 
 // TestInspectCSV_AConsistentFileWithATornRowIsStillOffered is the other half:
 // the condition added above must not withdraw the correction from the shape it
 // exists for.
 func TestInspectCSV_AConsistentFileWithATornRowIsStillOffered(t *testing.T) {
-	defect := InspectCSV([]byte(spreadsheetCSV))
+	defect := Inspect([]byte(spreadsheetCSV))
 	require.NotNil(t, defect)
 
 	assert.True(t, defect.Correctable())
@@ -756,7 +712,7 @@ func TestInspectCSV_AConsistentFileWithATornRowIsStillOffered(t *testing.T) {
 	assert.Empty(t, defect.Unreadable)
 	assert.NotContains(t, defect.Reason(), "the header's")
 
-	out, report, err := NormalizeCSV([]byte(spreadsheetCSV))
+	out, report, err := Normalize([]byte(spreadsheetCSV))
 	require.NoError(t, err, "and it still corrects")
 	assert.Equal(t, 2, report.RowsRepaired)
 	assert.NotContains(t, string(out), "Suite 4\n")
@@ -769,13 +725,13 @@ func TestInspectCSV_AConsistentFileWithATornRowIsStillOffered(t *testing.T) {
 func TestInspectCSV_NamesAtMostFiveRaggedRecords(t *testing.T) {
 	body := "a,b\n1,\"x\ny\"\n" + strings.Repeat("9\n", maxNamedRecords+3)
 
-	defect := InspectCSV([]byte(body))
+	defect := Inspect([]byte(body))
 	require.NotNil(t, defect)
 	assert.Len(t, defect.Ragged, maxNamedRecords)
 	assert.Equal(t, "record 2 has 1", defect.Ragged[0])
 	assert.False(t, defect.Correctable(), "every record beyond the bound is still ragged")
 
-	_, _, err := NormalizeCSV([]byte(body))
+	_, _, err := Normalize([]byte(body))
 	require.Error(t, err)
 	for _, named := range defect.Ragged {
 		assert.Contains(t, err.Error(), named, "the correction names the same records")
@@ -788,19 +744,19 @@ func TestInspectCSV_NamesAtMostFiveRaggedRecords(t *testing.T) {
 // problem sends them at the wrong thing.
 func TestCSVDefect_RemedyMatchesWhatIsWrong(t *testing.T) {
 	assert.Equal(t, "Re-export it as UTF-8 CSV and upload that.",
-		(&CSVDefect{Encoding: encodingUTF16}).remedy())
+		(&Defect{Encoding: encodingUTF16}).Remedy())
 	assert.Equal(t, "Correct it where it was written and upload it again.",
-		(&CSVDefect{HeaderFields: 2, Ragged: []string{"record 1 has 1"}}).remedy())
+		(&Defect{HeaderFields: 2, Ragged: []string{"record 1 has 1"}}).Remedy())
 	assert.Equal(t, "Correct it where it was written and upload it again.",
-		(&CSVDefect{Unreadable: "parse error"}).remedy())
+		(&Defect{Unreadable: "parse error"}).Remedy())
 }
 
 // TestCSVDefect_CorrectableIsEveryRuleTheCorrectionApplies. Correctable is the
-// question NormalizeCSV answers, asked before the offer is made; each of the
+// question Normalize answers, asked before the offer is made; each of the
 // three things that refuse there refuses here.
 func TestCSVDefect_CorrectableIsEveryRuleTheCorrectionApplies(t *testing.T) {
-	assert.True(t, (&CSVDefect{Rows: 1}).Correctable())
-	assert.False(t, (&CSVDefect{Rows: 1, Encoding: encodingWide}).Correctable())
-	assert.False(t, (&CSVDefect{Rows: 1, Ragged: []string{"record 1 has 1"}}).Correctable())
-	assert.False(t, (&CSVDefect{Rows: 1, Unreadable: "parse error"}).Correctable())
+	assert.True(t, (&Defect{Rows: 1}).Correctable())
+	assert.False(t, (&Defect{Rows: 1, Encoding: encodingWide}).Correctable())
+	assert.False(t, (&Defect{Rows: 1, Ragged: []string{"record 1 has 1"}}).Correctable())
+	assert.False(t, (&Defect{Rows: 1, Unreadable: "parse error"}).Correctable())
 }

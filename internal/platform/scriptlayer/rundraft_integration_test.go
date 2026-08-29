@@ -267,6 +267,17 @@ platform.export(name = "daily-sales", rows = res["rows"], format = "csv")
 	assert.Equal(t, true, validated["ok"])
 	assert.ElementsMatch(t, []any{"platform.query", "platform.export"}, validated["capabilities"])
 	assert.Equal(t, []any{"warehouse"}, validated["connections"])
+	// A script that neither reads nor saves state says so (#1545).
+	assert.Equal(t, false, validated["reads_state"])
+	assert.Equal(t, false, validated["saves_state"])
+
+	stateful, isErr := callTool(ctx, t, session, map[string]any{
+		"command": "validate",
+		"source":  "since = run.state.get(\"synced_through\", \"never\")\nplatform.save_state({\"synced_through\": run.fire_time})\n",
+	})
+	require.False(t, isErr, stateful)
+	assert.Equal(t, true, stateful["reads_state"], "validate over MCP must report run.state reads (#1545)")
+	assert.Equal(t, true, stateful["saves_state"], "validate over MCP must report platform.save_state (#1545)")
 
 	ran, isErr := callTool(ctx, t, session, map[string]any{
 		"command": "run_draft", "name": "daily-sales",

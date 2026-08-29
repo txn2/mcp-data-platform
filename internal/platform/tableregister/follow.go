@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/txn2/mcp-data-platform/internal/platform/tablecsv"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
@@ -44,6 +47,11 @@ type FollowOutcome struct {
 	// ColumnsChanged means the new version's header differs from the one the
 	// table declared, so the table was rebuilt with the new columns.
 	ColumnsChanged bool `json:"columns_changed,omitempty"`
+	// Missing means the table this registration names no longer exists on
+	// its connection: a write that ran DROP TABLE on the connection found it
+	// gone afterwards (#1546). Reason says which write. The registration is
+	// kept, with the reason recorded on it, so the listing says so too.
+	Missing bool `json:"missing,omitempty"`
 }
 
 // Sentence renders the outcome as the write reports it: the table, what
@@ -57,6 +65,8 @@ func (o FollowOutcome) Sentence() string {
 			s += " Its columns changed with the file."
 		}
 		return s
+	case o.Missing:
+		return name + " no longer exists: " + o.Reason + " Register it again to restore it."
 	case o.Pinned:
 		return name + " is pinned to the version it was registered over and is now behind this file;" +
 			" register it again to move it, with follow left on if it should keep up with the file."
@@ -115,15 +125,103 @@ func (r *Registrar) followOthers(ctx context.Context, src Source, version int, e
 	var (
 		out  []FollowOutcome
 		head *followHead
+		// movedOn is each connection a follow ran DDL on, with the table
+		// that moved: every such connection is checked afterwards for the
+		// other tables the DROP may have taken with it (#1546), once,
+		// whatever the number of tables moved on it.
+		movedOn = map[string]string{}
 	)
 	for _, reg := range regs {
 		if reg.ID == exceptID {
 			continue
 		}
-		out = append(out, r.followOne(ctx, reg, src, version, &head))
+		o, moved := r.followOne(ctx, reg, src, version, &head)
+		out = append(out, o)
+		if moved {
+			if _, seen := movedOn[o.Connection]; !seen {
+				movedOn[o.Connection] = o.Table
+			}
+		}
+	}
+	for _, connection := range sortedKeys(movedOn) {
+		out = append(out, r.reconcileConnection(ctx, connection, "",
+			"the table was removed while "+movedOn[connection]+" was moved to version "+strconv.Itoa(version)+".")...)
 	}
 	return out
 }
+
+// sortedKeys orders a set of connection names so a report is stable.
+func sortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// reconcileConnection asks the connection whether every registration on it,
+// except one, still holds its table, records the ones that do not, and
+// reports each as an outcome (#1546).
+//
+// It runs after a write that issued DROP TABLE on the connection. Trino's
+// file metastore deletes a table by listing its metadata directory, and an
+// object store whose prefix listing does not stop at a directory boundary
+// answers that listing with a name-prefix sibling's files too, so dropping
+// `x` can take `x_pinned` with it. The write that did it is the one place
+// that can say so; a registration already recorded missing is not recorded
+// again, and a lookup that fails is logged rather than reported, since a
+// connection that cannot answer has not said the table is gone.
+func (r *Registrar) reconcileConnection(ctx context.Context, connection, exceptID, reason string) []FollowOutcome {
+	var out []FollowOutcome
+	for offset := 0; ; offset += MaxListLimit {
+		page, total, err := r.deps.Store.List(ctx, Filter{Connections: []string{connection}, Limit: MaxListLimit, Offset: offset})
+		if err != nil {
+			slog.Warn("table registration: could not list a connection's registrations after a drop",
+				"connection", logsan.SanitizeForLog(connection), logFieldError, logsan.SanitizeForLog(err.Error()))
+			return nil
+		}
+		for _, reg := range page {
+			if o, missing := r.reconcileOne(ctx, reg, exceptID, reason); missing {
+				out = append(out, o)
+			}
+		}
+		if offset+len(page) >= total || len(page) == 0 {
+			return out
+		}
+	}
+}
+
+// reconcileOne checks one registration and records it when its table is
+// gone. It reports false for a registration that is fine, excepted, already
+// recorded missing, or whose lookup failed.
+func (r *Registrar) reconcileOne(ctx context.Context, reg Registration, exceptID, reason string) (FollowOutcome, bool) {
+	if reg.ID == exceptID || strings.HasPrefix(reg.FollowError, missingPrefix) {
+		return FollowOutcome{}, false
+	}
+	exists, err := r.deps.Trino.TableExists(ctx, reg.Connection, reg.Catalog, reg.Schema, reg.Table)
+	if err != nil {
+		slog.Warn("table registration: could not check whether a table still exists after a drop",
+			logFieldTable, logsan.SanitizeForLog(reg.QualifiedName()), logFieldError, logsan.SanitizeForLog(err.Error()))
+		return FollowOutcome{}, false
+	}
+	if exists {
+		return FollowOutcome{}, false
+	}
+	recorded := missingPrefix + reason
+	if err := r.deps.Store.RecordFollowFailure(ctx, reg.ID, recorded); err != nil {
+		slog.Warn("table registration: could not record that a table no longer exists",
+			logFieldTable, logsan.SanitizeForLog(reg.QualifiedName()), logFieldError, logsan.SanitizeForLog(err.Error()))
+	}
+	return FollowOutcome{
+		RegistrationID: reg.ID, Table: reg.QualifiedName(), Connection: reg.Connection,
+		Missing: true, Reason: reason,
+	}, true
+}
+
+// missingPrefix opens the follow_error a registration whose table is gone
+// carries, so the listing's reader and a later check both recognize it.
+const missingPrefix = "The table no longer exists: "
 
 // followHead is what the source's new head decides for every registration
 // over it, read once per write rather than once per registration.
@@ -136,7 +234,7 @@ type followHead struct {
 // followOne moves one registration, or explains why it stays.
 func (r *Registrar) followOne(
 	ctx context.Context, reg Registration, src Source, version int, head **followHead,
-) FollowOutcome {
+) (FollowOutcome, bool) {
 	outcome := FollowOutcome{
 		RegistrationID: reg.ID, Table: reg.QualifiedName(), Connection: reg.Connection, Version: version,
 	}
@@ -146,18 +244,18 @@ func (r *Registrar) followOne(
 		// was written twice at the same directory -- is current, and saying
 		// it is behind would be false.
 		outcome.Followed, outcome.Pinned = current, !current
-		return outcome
+		return outcome, false
 	}
 	if *head == nil {
 		*head = r.readHead(ctx, src)
 	}
 	if (*head).err != nil {
-		return r.followFailed(ctx, reg, outcome, (*head).err)
+		return r.followFailed(ctx, reg, outcome, (*head).err), false
 	}
 	target := **head
 	outcome.ColumnsChanged = !sameColumns(reg.Columns, target.columns)
 	if reg.Location == target.location && !outcome.ColumnsChanged {
-		return r.alreadyThere(ctx, reg, outcome)
+		return r.alreadyThere(ctx, reg, outcome), false
 	}
 	return r.moveTable(ctx, reg, target, outcome)
 }
@@ -172,9 +270,9 @@ func (r *Registrar) readHead(ctx context.Context, src Source) *followHead {
 	if err != nil {
 		return &followHead{err: err}
 	}
-	if defect := InspectCSV(body); defect != nil {
+	if defect := tablecsv.Inspect(body); defect != nil {
 		if !defect.Correctable() {
-			return &followHead{err: refusedf("%s %s", defect.Reason(), defect.remedy())}
+			return &followHead{err: refusedf("%s %s", defect.Reason(), defect.Remedy())}
 		}
 		return &followHead{err: refusedf(
 			"%s Register it again asking for the file to be corrected, and the corrected version is registered.",
@@ -205,7 +303,9 @@ func (r *Registrar) alreadyThere(ctx context.Context, reg Registration, outcome 
 }
 
 // moveTable runs the DDL that points the table at the new head and records
-// where it now reads.
+// where it now reads. The second result says whether the DDL ran to
+// completion, which is what decides whether the connection is checked for
+// tables the DROP took with it.
 //
 // The DDL is a replacement's: DROP, then CREATE at the new location with the
 // new columns. A CREATE that fails after the DROP ran has taken the table
@@ -214,7 +314,7 @@ func (r *Registrar) alreadyThere(ctx context.Context, reg Registration, outcome 
 // failure is reported. A DROP that fails changed nothing.
 func (r *Registrar) moveTable(
 	ctx context.Context, reg Registration, target followHead, outcome FollowOutcome,
-) FollowOutcome {
+) (FollowOutcome, bool) {
 	moved := reg
 	moved.Location, moved.Columns = target.location, target.columns
 	ddl := BuildDDL(moved, true)
@@ -222,14 +322,14 @@ func (r *Registrar) moveTable(
 	r.auditFollow(ctx, followRecord{from: reg, to: moved, ddl: ran, version: outcome.Version, err: execErr})
 	if execErr != nil {
 		r.restoreDroppedTable(ctx, reg, ran, execErr)
-		return r.followFailed(ctx, reg, outcome, execErr)
+		return r.followFailed(ctx, reg, outcome, execErr), false
 	}
 	if err := r.deps.Store.Relocate(ctx, reg.ID, moved.Location, moved.Columns); err != nil {
 		return r.followFailed(ctx, reg, outcome,
-			fmt.Errorf("the table was moved but its record could not be updated: %w", err))
+			fmt.Errorf("the table was moved but its record could not be updated: %w", err)), false
 	}
 	outcome.Followed = true
-	return outcome
+	return outcome, true
 }
 
 // restoreDroppedTable puts a table back at its old location when the CREATE at

@@ -2,6 +2,12 @@ package trino
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"testing"
 	"time"
 
@@ -263,4 +269,93 @@ func TestExec_DefaultConnectionResolvesWhenNoneIsNamed(t *testing.T) {
 	err = tk.Exec(context.Background(), "", "SELECT 1")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "executing statement")
+}
+
+// TestTableExists_NoClientAvailable is the unwired shape for the existence
+// lookup (#1546): no manager and no client reports it rather than querying.
+func TestTableExists_NoClientAvailable(t *testing.T) {
+	tk := &Toolkit{name: "empty"}
+	_, err := tk.TableExists(context.Background(), "", "scratch", "uploads", "t")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no Trino client available")
+}
+
+// TestTableExists_UnconfiguredConnectionRefuses: a connection the toolkit does
+// not hold is refused before any statement is built.
+func TestTableExists_UnconfiguredConnectionRefuses(t *testing.T) {
+	tk, err := NewMulti(MultiConfig{
+		DefaultConnection: "warehouse",
+		Instances:         map[string]Config{"warehouse": {Host: "trino.example.com", User: "u", ReadOnly: true}},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = tk.Close() })
+
+	_, err = tk.TableExists(context.Background(), "ghost", "scratch", "uploads", "t")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "resolving trino connection")
+}
+
+// TestTableExists_QuotesTheIdentifiersItIsHanded: the catalog, schema and table
+// come from a registration row and are quoted rather than trusted.
+func TestTableExists_QuotesTheIdentifiersItIsHanded(t *testing.T) {
+	assert.Equal(t, `"scr""atch"`, quoteIdentifier(`scr"atch`))
+	assert.Equal(t, `'up''loads'`, quoteLiteral(`up'loads`))
+}
+
+// fakeTrinoStatement serves the protocol the existence lookup drives: the
+// POST to /v1/statement is queued with a nextUri, and the GET of that uri
+// carries the columns, the rows (one when present is set) and the finished
+// state. It records the statement so the test can read the identifiers it
+// carried.
+func fakeTrinoStatement(t *testing.T, present bool) (srv *httptest.Server, statement *string) {
+	t.Helper()
+	var sent string
+	mux := http.NewServeMux()
+	srv = httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	mux.HandleFunc("POST /v1/statement", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		sent = string(body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"id":"q1","infoUri":"%s/ui/q1","nextUri":"%s/v1/statement/q1/1","stats":{"state":"QUEUED"}}`, srv.URL, srv.URL)
+	})
+	mux.HandleFunc("GET /v1/statement/q1/1", func(w http.ResponseWriter, _ *http.Request) {
+		data := "[]"
+		if present {
+			data = "[[1]]"
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"id":"q1","infoUri":"%s/ui/q1","columns":[{"name":"present","type":"integer","typeSignature":{"rawType":"integer","arguments":[]}}],"data":%s,"stats":{"state":"FINISHED"}}`, srv.URL, data)
+	})
+	return srv, &sent
+}
+
+// TestTableExists_AsksInformationSchema pins #1546's lookup end to end against
+// a Trino that answers: the statement names the catalog's information_schema
+// with the quoted identifiers, and the answer is the presence of a row.
+func TestTableExists_AsksInformationSchema(t *testing.T) {
+	for _, present := range []bool{true, false} {
+		t.Run(fmt.Sprintf("present=%v", present), func(t *testing.T) {
+			srv, statement := fakeTrinoStatement(t, present)
+			u, err := url.Parse(srv.URL)
+			require.NoError(t, err)
+			port, err := strconv.Atoi(u.Port())
+			require.NoError(t, err)
+			off := false
+			tk, err := NewMulti(MultiConfig{
+				DefaultConnection: "warehouse",
+				Instances: map[string]Config{
+					"warehouse": {Host: "127.0.0.1", Port: port, User: "u", SSL: &off, ReadOnly: true},
+					"scratch":   {Host: "127.0.0.1", Port: port, User: "u", SSL: &off},
+				},
+			})
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = tk.Close() })
+
+			exists, err := tk.TableExists(context.Background(), "scratch", "scr", "uploads", "admin_x")
+			require.NoError(t, err)
+			assert.Equal(t, present, exists)
+			assert.Contains(t, *statement, `FROM "scr".information_schema.tables WHERE table_schema = 'uploads' AND table_name = 'admin_x'`)
+		})
+	}
 }

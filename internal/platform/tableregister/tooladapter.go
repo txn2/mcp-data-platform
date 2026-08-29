@@ -87,6 +87,7 @@ func (a *ToolAdapter) Register(
 	// version it replaced would call a fresh registration stale.
 	view := toolView(res.Registration, res.Source)
 	view.Repaired = res.Repair.Summary()
+	view.Tables = Sentences(res.Siblings)
 	return &view, nil
 }
 

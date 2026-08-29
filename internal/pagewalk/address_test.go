@@ -31,8 +31,10 @@ func TestPathAddress_FollowURL(t *testing.T) {
 		},
 		{name: "base path itself", base: "https://api.example.com/api", next: "https://api.example.com/api?page=2", wantPath: "/"},
 		{name: "outside base path", base: "https://api.example.com/api/v2", next: "https://api.example.com/other/items", wantErr: "outside the connection's base path"},
-		{name: "other host", base: "https://api.example.com", next: "https://evil.example.com/v1/items", wantErr: "pinned to https://api.example.com"},
-		{name: "other scheme", base: "https://api.example.com", next: "http://api.example.com/v1/items", wantErr: "pinned to"},
+		{name: "other host", base: "https://api.example.com", next: "https://evil.example.com/v1/items", wantErr: "pinned to api.example.com"},
+		// An API behind a TLS-terminating proxy writes http:// links; the page
+		// is requested through base_url regardless (#1543).
+		{name: "other scheme same host", base: "https://api.example.com", next: "http://api.example.com/v1/items?page=2", wantPath: "/v1/items", wantQuery: map[string]any{"page": "2"}},
 		{name: "relative", base: "https://api.example.com", next: "/v1/items?cursor=x", wantErr: "not an absolute URL"},
 		{name: "userinfo", base: "https://api.example.com", next: "https://u:p@api.example.com/v1/items", wantErr: "userinfo"},
 		{name: "dot segment", base: "https://api.example.com", next: "https://api.example.com/v1/../admin", wantErr: "must not contain"},
@@ -116,8 +118,13 @@ func TestFetchAddress(t *testing.T) {
 	if body["url"] != start {
 		t.Errorf("the caller's body was mutated: %v", body)
 	}
-	if err := a.FollowURL("https://other.example.com/next"); err == nil || !strings.Contains(err.Error(), "pinned to https://files.example.com") {
+	if err := a.FollowURL("https://other.example.com/next"); err == nil || !strings.Contains(err.Error(), "pinned to files.example.com") {
 		t.Errorf("foreign host accepted: %v", err)
+	}
+	// A fetched page is requested at the link itself, so the scheme is
+	// part of the pin here, unlike a proxied connection's.
+	if err := a.FollowURL("http://files.example.com/next"); err == nil || !strings.Contains(err.Error(), "pinned to https://files.example.com") {
+		t.Errorf("scheme downgrade accepted on a fetch address: %v", err)
 	}
 	if err := a.FollowURL("https://files.example.com/next?page=2"); err != nil {
 		t.Errorf("same-host link refused: %v", err)

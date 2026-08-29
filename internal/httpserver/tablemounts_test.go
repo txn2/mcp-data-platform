@@ -152,6 +152,10 @@ func (p pickerTrino) ScratchTarget(name string) (trinotoolkit.ScratchConfig, boo
 
 func (p pickerTrino) AcceptsWrites(name string) bool { return !p.readOnly[name] }
 
+func (pickerTrino) TableExists(context.Context, string, string, string, string) (bool, error) {
+	return true, nil
+}
+
 // TestScratchConnectionChoices is the picker's whole rule: a choice it offers
 // must be one the registrar accepts. A connection the caller reaches but that
 // cannot hold a table is not a choice, and neither is one of another kind.

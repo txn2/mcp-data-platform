@@ -23,6 +23,14 @@ type Executor interface {
 	// because the picker MUST ask it: a connection that carries a scratch
 	// target but refuses writes was offered and then refused its DDL.
 	AcceptsWrites(connection string) bool
+	// TableExists reports whether the catalog on a connection still holds a
+	// table. It is what a write that ran DROP TABLE asks about every OTHER
+	// registration on the connection afterwards (#1546): an object store
+	// whose prefix listing does not stop at a directory boundary lets one
+	// table's drop take a name-prefix sibling's metadata with it, and the
+	// registration row would otherwise go on describing a table that is
+	// not there.
+	TableExists(ctx context.Context, connection, catalog, schema, table string) (bool, error)
 }
 
 // ObjectReader reads the source object and lists what sits beside it.

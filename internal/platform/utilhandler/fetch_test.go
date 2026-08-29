@@ -126,6 +126,28 @@ func TestHandleFetch_HeadAndCustomHeaders(t *testing.T) {
 	}
 }
 
+// TestHandleFetch_RelaysLinkHeader pins #1544: a fetched document's Link
+// header reaches the caller, because it is the pagination signal a walk over
+// the util connection reads. Every Link value is relayed, in order.
+func TestHandleFetch_RelaysLinkHeader(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Add("Link", `<https://example.com/items?page=2>; rel="next"`)
+		w.Header().Add("Link", `<https://example.com/items?page=10>; rel="last"`)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	t.Cleanup(upstream.Close)
+
+	rec := doFetch(t, newTestHandler(t), fetchRequest{URL: upstream.URL})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	links := rec.Header().Values("Link")
+	if len(links) != 2 || links[0] != `<https://example.com/items?page=2>; rel="next"` {
+		t.Fatalf("Link = %q; want both upstream values relayed in order", links)
+	}
+}
+
 func TestHandleFetch_BadInputs(t *testing.T) {
 	manyHeaders := make(map[string]string, maxCustomHeaders+1)
 	for i := 0; i <= maxCustomHeaders; i++ {

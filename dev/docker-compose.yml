@@ -85,6 +85,30 @@ services:
       postgres:
         condition: service_healthy
 
+  # Trino: the query engine behind the trino toolkit's dev connections, with
+  # a Hive `scratch` catalog over the dev SeaweedFS (file metastore under
+  # s3://dev-scratch/) so a table registration (manage_table, Scratch Tables)
+  # works against this stack, and a `memory` catalog for ad hoc queries.
+  # Config under ./trino. dev/start.sh points TRINO_HOST/TRINO_PORT here and
+  # enables the toolkit once Trino answers.
+  trino:
+    image: trinodb/trino:453@sha256:86f7a156aeeca1dda3a1ba1e97474913d10c75f8fb7cda0da1d29a52b5731e0c
+    container_name: acme-dev-trino
+    volumes:
+      - ./trino/config.properties:/etc/trino/config.properties:ro
+      - ./trino/catalog:/etc/trino/catalog:ro
+    ports:
+      - "127.0.0.1:9283:8080"
+    # No depends_on: the scratch catalog opens its S3 connection on first
+    # use, so Trino can boot beside SeaweedFS, and dev/start.sh waits for
+    # each of them itself.
+    healthcheck:
+      test: ["CMD", "trino", "--execute", "SELECT 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 40s
+
   # Keycloak: real OIDC + OAuth 2.1 IdP backing both:
   #   - operator portal login (auth.oidc + browser_session in platform.yaml)
   #   - the pre-seeded oauth-mcp-dev / oauth-api-dev connection fixtures

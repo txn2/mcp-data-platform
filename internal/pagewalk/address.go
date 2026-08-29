@@ -89,13 +89,16 @@ func newPathAddress(spec AddressSpec) (*pathAddress, error) {
 	return &pathAddress{base: base, path: spec.Path, query: cloneQuery(spec.Query), body: spec.Body, validatePath: validate}, nil
 }
 
-// FollowURL pins the next link to the connection's scheme and host and
-// re-derives the path relative to base_url, so the request the walk
-// builds goes through the same buildURL join and validatePath checks as
-// the first page, and the route policy sees the path it would see on a
-// direct call.
+// FollowURL pins the next link to the connection's host and re-derives
+// the path relative to base_url, so the request the walk builds goes
+// through the same buildURL join and validatePath checks as the first
+// page, and the route policy sees the path it would see on a direct
+// call. The link's scheme is not compared: the page is requested through
+// the connection's base_url whatever the link says, and an API behind a
+// TLS-terminating proxy writes its links with the scheme it sees inside
+// (#1543).
 func (a *pathAddress) FollowURL(next string) error {
-	u, err := pinnedNextURL(a.base, next)
+	u, err := pinnedNextURL(a.base, next, false)
 	if err != nil {
 		return err
 	}
@@ -151,9 +154,11 @@ func newFetchAddress(spec AddressSpec, body map[string]any, raw string) (*fetchA
 	return &fetchAddress{u: u, body: maps.Clone(body), path: spec.Path, query: spec.Query}, nil
 }
 
-// FollowURL implements Address, pinned to the host of the first url.
+// FollowURL implements Address, pinned to the scheme and host of the
+// first url: a fetched page is requested at the link itself, so a link
+// that changes the scheme would change the wire.
 func (a *fetchAddress) FollowURL(next string) error {
-	u, err := pinnedNextURL(a.u, next)
+	u, err := pinnedNextURL(a.u, next, true)
 	if err != nil {
 		return err
 	}
@@ -181,11 +186,12 @@ func (a *fetchAddress) Target() Target {
 }
 
 // pinnedNextURL parses a next link and refuses one that would move the
-// walk to another scheme or host. The refusal names the host so the
-// caller can see where the link pointed without the walk having sent it
-// anything. Userinfo is refused outright: a credential in a link the
-// upstream chose is not one this connection holds.
-func pinnedNextURL(pin *url.URL, next string) (*url.URL, error) {
+// walk to another host, or, with matchScheme, to another scheme. The
+// refusal names where the link pointed so the caller can see it without
+// the walk having sent it anything. Userinfo is refused outright: a
+// credential in a link the upstream chose is not one this connection
+// holds.
+func pinnedNextURL(pin *url.URL, next string, matchScheme bool) (*url.URL, error) {
 	u, err := url.Parse(next)
 	if err != nil || u.Scheme == "" || u.Host == "" {
 		return nil, fmt.Errorf("apigateway: next link is not an absolute URL: %q", next)
@@ -193,7 +199,10 @@ func pinnedNextURL(pin *url.URL, next string) (*url.URL, error) {
 	if u.User != nil {
 		return nil, errors.New("apigateway: next link carries userinfo; refusing")
 	}
-	if !strings.EqualFold(u.Scheme, pin.Scheme) || !strings.EqualFold(u.Host, pin.Host) {
+	if !strings.EqualFold(u.Host, pin.Host) {
+		return nil, fmt.Errorf("apigateway: next link points at %s://%s; the walk is pinned to %s", u.Scheme, u.Host, pin.Host)
+	}
+	if matchScheme && !strings.EqualFold(u.Scheme, pin.Scheme) {
 		return nil, fmt.Errorf("apigateway: next link points at %s://%s; the walk is pinned to %s://%s", u.Scheme, u.Host, pin.Scheme, pin.Host)
 	}
 	return u, nil

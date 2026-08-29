@@ -162,7 +162,7 @@ fi
 # Port checks. The four relocatable ports use their resolved values; the
 # fixed ports (5173 vite, 9090 keycloak, 9091 prometheus, 9180/9181 mock,
 # 9281/9282 fixtures, 9464 metrics) still fail loudly if contended.
-for port in "$DEV_PG_PORT" "$DEV_API_PORT" 5173 "$DEV_S3_PORT" 9090 9091 9180 9181 9281 9282 9464 "$DEV_OLLAMA_PORT"; do
+for port in "$DEV_PG_PORT" "$DEV_API_PORT" 5173 "$DEV_S3_PORT" 9090 9091 9180 9181 9281 9282 9283 9464 "$DEV_OLLAMA_PORT"; do
   if lsof -i ":$port" -sTCP:LISTEN > /dev/null 2>&1; then
     fail "$(port_conflict_msg "$port")"
   fi
@@ -232,6 +232,37 @@ for i in $(seq 1 30); do
   sleep 1
 done
 ok "SeaweedFS ready on :$DEV_S3_PORT"
+
+# Wait for Trino. It is the slowest service here (a JVM warming up a
+# coordinator), and the platform's trino toolkit is enabled only once it
+# answers, so a slow start does not become a platform that starts without it.
+info "Waiting for Trino..."
+for i in $(seq 1 120); do
+  if curl -sf http://localhost:9283/v1/info 2>/dev/null | grep -q '"starting":false'; then
+    break
+  fi
+  if [ "$i" -eq 120 ]; then
+    fail "Trino did not become ready within 120s (check 'docker logs acme-dev-trino')"
+  fi
+  sleep 1
+done
+ok "Trino ready on :9283 (catalogs: scratch, memory)"
+# Point the trino toolkit at this Trino: every TRINO_* the platform config
+# reads is set here, SSL and password included, because a value left to the
+# shell or .env (a TRINO_SSL=true or TRINO_PASSWORD from a profile that
+# points at a real cluster) would be read as this connection's. The stack's
+# own Trino is the default, so `make acceptance` and a fresh checkout work
+# with nothing outside this directory; DEV_TRINO=external keeps the TRINO_*
+# values from .env or the shell instead, for a developer who wants the acme
+# connections on a cluster of their own.
+if [ "${DEV_TRINO:-}" = "external" ]; then
+  echo -e "  ${YELLOW}⚠${NC} DEV_TRINO=external: TRINO_* left as set (host ${TRINO_HOST:-unset}); the stack's Trino on :9283 is not used and the registered-table acceptance tests will not pass"
+else
+  if [ -n "${TRINO_HOST:-}" ] && [ "${TRINO_HOST}" != "localhost" ]; then
+    info "TRINO_HOST=${TRINO_HOST} from .env or the shell is set aside; the stack's Trino on :9283 is used (DEV_TRINO=external keeps yours)"
+  fi
+  export TRINO_ENABLED=true TRINO_HOST=localhost TRINO_PORT=9283 TRINO_USER=dev TRINO_PASSWORD="" TRINO_SSL=false TRINO_SSL_VERIFY=false
+fi
 
 # Wait for Prometheus (powers the admin Dashboard's API Gateway tab via
 # the platform's PromQL proxy). Scrapes the platform's /metrics on the
@@ -338,6 +369,14 @@ if which aws > /dev/null 2>&1; then
     sleep 1
   done
   ok "S3 bucket portal-assets ready"
+  # The scratch catalog's file metastore lives in its own bucket, which
+  # nothing else writes to (docs/server/registered-tables.md).
+  AWS_ACCESS_KEY_ID=dev-access-key AWS_SECRET_ACCESS_KEY=dev-secret-key \
+    aws --endpoint-url http://localhost:$DEV_S3_PORT s3 ls s3://dev-scratch > /dev/null 2>&1 || \
+  AWS_ACCESS_KEY_ID=dev-access-key AWS_SECRET_ACCESS_KEY=dev-secret-key \
+    aws --endpoint-url http://localhost:$DEV_S3_PORT s3 mb s3://dev-scratch > /dev/null 2>&1 || \
+    fail "Could not create the dev-scratch S3 bucket"
+  ok "S3 bucket dev-scratch ready (Trino scratch metastore)"
 else
   echo -e "  ${YELLOW}⚠${NC} aws CLI not found — S3 bucket not created. Install: brew install awscli"
 fi

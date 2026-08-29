@@ -81,7 +81,7 @@ Supply one form or the other, not both. `path_params` is only valid alongside `o
 
 How the next page is reached is decided per page, from the signal that page carries:
 
-1. A `next_url` (a `Link` header, `@odata.nextLink`, or a URL-valued `next`) is followed. It is pinned to the connection's scheme and host and must fall under its `base_url` path; the path is then validated and checked against the persona's route policy exactly as the first page was, so a next link cannot move the walk to another host or to an operation the persona is not allowed. Both refusals fail the call before any request is sent to the link.
+1. A `next_url` (a `Link` header, `@odata.nextLink`, or a URL-valued `next`) is followed. It is pinned to the connection's host and must fall under its `base_url` path (the link's scheme is not compared, because the page is requested through the connection's `base_url` whatever the link says, and an API behind a TLS-terminating proxy writes its links with the scheme it sees inside); the path is then validated and checked against the persona's route policy exactly as the first page was, so a next link cannot move the walk to another host or to an operation the persona is not allowed. Both refusals fail the call before any request is sent to the link.
 2. A `next_cursor` is sent back as the query parameter `cursor_param` names. A cursor on a page that names no `cursor_param` and no `page_param` fails the walk: the gateway has no way to send it.
 3. With neither signal, and `page_param` named, that parameter is advanced by `page_step`. A body cursor is ignored in this mode, so an API that pages by number but writes `next: true` still walks.
 
@@ -96,7 +96,7 @@ Each page is read under the connection's `max_response_bytes`, the same cap a si
 
 One tool call is one rate-limit token, one audit row, and, from a managed script, one `platform.call`. The audit row for the call records the walk under `parameters.result` (`pages_fetched`, `items_merged`, `stopped_by`) beside the `paginate` block it was called with, which is the observability the per-call loop was keeping.
 
-On the built-in `util` connection, a `POST /util/fetch` walk pages the document named by the `url` in the request body: a next link is pinned to that document's host, and a cursor or page parameter is added to that URL's query. The REST shim's raw passthrough route streams one body and refuses `paginate`.
+On the built-in `util` connection, a `POST /util/fetch` walk pages the document named by the `url` in the request body: a next link (the fetched response's `Link` header is relayed, as are body signals) is pinned to that document's scheme and host, since the page is requested at the link itself, and a cursor or page parameter is added to that URL's query. The REST shim's raw passthrough route streams one body and refuses `paginate`.
 
 ## Request bodies
 
