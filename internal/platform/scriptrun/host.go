@@ -103,7 +103,7 @@ const callArgsPosition = 2
 // hint and the number of SetKey calls below it cannot drift apart.
 const (
 	queryResultFields  = 3
-	exportRecordFields = 12
+	exportRecordFields = 13
 )
 
 // TextResultKey is the single field a tool result arrives under when the tool
@@ -280,6 +280,10 @@ func (h *hostState) call(_ *starlark.Thread, b *starlark.Builtin, args starlark.
 	if err != nil {
 		return nil, argErr(b, err)
 	}
+	// A tool that wrote a file reports what the write did to the tables
+	// registered over it, and the run log carries that the way it carries an
+	// export's (#1536): the run that put a table behind its file says so.
+	h.noteTables(tool, tableSentences(out))
 	// The byte cap is the query binding's, applied here for the same reason: a
 	// heap the interpreter cannot bound is the one resource no limit in this
 	// engine covers, and a tool asked for more than a run can hold must fail
@@ -293,6 +297,23 @@ func (h *hostState) call(_ *starlark.Thread, b *starlark.Builtin, args starlark.
 		return nil, fmt.Errorf("converting the result of %s(%q): %w", b.Name(), tool, err)
 	}
 	return value, nil
+}
+
+// tableSentences reads the table report a file-writing tool's result carries:
+// manage_resource replace_content and manage_asset's content edits answer with
+// a "tables" list of sentences. Any other result has none.
+func tableSentences(out map[string]any) []string {
+	raw, ok := out["tables"].([]any)
+	if !ok {
+		return nil
+	}
+	lines := make([]string, 0, len(raw))
+	for _, v := range raw {
+		if s, ok := v.(string); ok {
+			lines = append(lines, s)
+		}
+	}
+	return lines
 }
 
 // callArguments converts the argument dict a script passed into the plain Go
@@ -510,7 +531,19 @@ func (h *hostState) finishRecord(
 	record.Bucket = written.Bucket
 	record.Key = written.Key
 	record.Bytes = written.Bytes
+	record.Tables = written.Tables
+	h.noteTables(record.Name, written.Tables)
 	return record, nil
+}
+
+// noteTables prints what a write did to the tables registered over the file
+// it wrote into the run log, one line per table (#1536). The run's log is its
+// history, and a scheduled run that put a table behind its file has to say so
+// there, whether or not the script prints the result it was handed.
+func (h *hostState) noteTables(subject string, tables []string) {
+	for _, line := range tables {
+		h.log.write("tables: " + subject + ": " + line)
+	}
 }
 
 // PublishRowCount reports the honest row count of a payload: the length of a
@@ -689,6 +722,13 @@ func exportValue(record ExportRecord) starlark.Value {
 	if record.Key != "" {
 		_ = out.SetKey(starlark.String("bucket"), starlark.String(record.Bucket))
 		_ = out.SetKey(starlark.String("key"), starlark.String(record.Key))
+	}
+	if len(record.Tables) > 0 {
+		tables := make([]starlark.Value, 0, len(record.Tables))
+		for _, line := range record.Tables {
+			tables = append(tables, starlark.String(line))
+		}
+		_ = out.SetKey(starlark.String("tables"), starlark.NewList(tables))
 	}
 	return out
 }

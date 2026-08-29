@@ -135,6 +135,11 @@ type Deps struct {
 	// portal does: an administrator opening an asset must see what its owner
 	// sees. nil (no database) serves content exactly as stored.
 	ContentRefs assetrefs.Store
+	// OnAssetRevised, when set, is called after an administrator writes a new
+	// version of an asset's content, so the tables registered over its file
+	// follow it (#1536); it returns what happened to each, which the response
+	// carries. Nil on a deployment that cannot register tables.
+	OnAssetRevised func(ctx context.Context, id string, version int) []string
 	// PublicBaseURL is the deployment's externally reachable base URL, used to
 	// build the absolute reference URLs rewritten into served content.
 	PublicBaseURL     string
@@ -325,6 +330,10 @@ type Handler struct {
 // statusResponse is a generic status response.
 type statusResponse struct {
 	Status string `json:"status" example:"ok"`
+	// Tables is what a content write did to the tables registered over the
+	// asset's file (#1536), one sentence per table, absent when there are
+	// none.
+	Tables []string `json:"tables,omitempty"`
 }
 
 // @title MCP Data Platform API

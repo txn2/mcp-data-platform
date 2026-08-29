@@ -133,6 +133,16 @@ type registerRequest struct {
 	// the second submission of the form: the first is refused with what is
 	// wrong, and the refusal is what offers this (#1441).
 	Repair bool `json:"repair,omitempty"`
+	// Follow, when false, pins the table to the version of the file it is
+	// registered over (#1536). Absent or true, the table is moved onto each
+	// new revision or version of the file as it is written.
+	Follow *bool `json:"follow,omitempty"`
+}
+
+// followRequested resolves the optional follow flag: on unless the body said
+// false.
+func followRequested(follow *bool) bool {
+	return follow == nil || *follow
 }
 
 // registrationView is one registration as a surface renders it. It carries the
@@ -200,6 +210,7 @@ func (h *Handler) register(subject Subject) http.HandlerFunc {
 			TableName:  req.TableName,
 			Source:     "portal",
 			Repair:     req.Repair,
+			Follow:     followRequested(req.Follow),
 		})
 		if err != nil {
 			refuse(w, "registering a table", err)

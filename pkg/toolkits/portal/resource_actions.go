@@ -97,8 +97,13 @@ type resourceOutput struct {
 	// absent on a create: a create records version 1 only where the deployment
 	// keeps a version trail, and reporting a number the history may not hold
 	// would be worse than reporting none.
-	Version int    `json:"version,omitempty"`
-	Message string `json:"message"`
+	Version int `json:"version,omitempty"`
+	// Tables is what a replacement did to the tables registered over the
+	// file (#1536): one sentence per table, saying it followed onto the new
+	// version, or is pinned and now behind it and how to move it. Absent when
+	// no table is registered over the file.
+	Tables  []string `json:"tables,omitempty"`
+	Message string   `json:"message"`
 }
 
 // handleManageResource dispatches a manage_resource call.
@@ -220,10 +225,20 @@ func (t *Toolkit) handleReplaceResourceContent(
 		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
 
-	return toolkit.JSONResultTyped(resourceReport(res, version,
+	// The revision moved the file's head, and every table registered over the
+	// file either followed it or is now behind it (#1536). Both are said here,
+	// because the write is where a table falling behind happens, and a result
+	// that reported only the version would leave a script's run succeeding
+	// over a table serving last month's file.
+	out := resourceReport(res, version,
 		fmt.Sprintf("Content replaced and recorded as version %d, restorable from the file's version history. "+
 			"The id, uri and filename are unchanged, so every asset referencing this file now serves the new "+
-			"bytes without being re-saved.", version)))
+			"bytes without being re-saved.", version))
+	out.Tables = t.followResourceTables(ctx, id, version)
+	if len(out.Tables) > 0 {
+		out.Message += " " + strings.Join(out.Tables, " ")
+	}
+	return toolkit.JSONResultTyped(out)
 }
 
 // resolveContent decodes the write's bytes and settles the type they are

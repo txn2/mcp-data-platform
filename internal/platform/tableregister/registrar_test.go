@@ -139,9 +139,10 @@ type memStore struct {
 	rows map[string]Registration
 	// listErr, insertErr and deleteErr stand in for a database that is not
 	// answering, each on the one call a test needs to fail.
-	listErr   error
-	insertErr error
-	deleteErr error
+	listErr     error
+	insertErr   error
+	deleteErr   error
+	relocateErr error
 	// onInsert runs just before Insert answers, which is how a test arranges
 	// the request to be canceled by the time the row is written.
 	onInsert func()
@@ -276,6 +277,35 @@ func (m *memStore) Delete(_ context.Context, id string) error {
 	return nil
 }
 
+// Relocate models the store half of a follow: the row moves and any earlier
+// failure is cleared, or the id is not there.
+func (m *memStore) Relocate(_ context.Context, id, location string, columns []Column) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.relocateErr != nil {
+		return m.relocateErr
+	}
+	r, ok := m.rows[id]
+	if !ok {
+		return ErrNotFound
+	}
+	r.Location, r.Columns, r.FollowError = location, columns, ""
+	m.rows[id] = r
+	return nil
+}
+
+func (m *memStore) RecordFollowFailure(_ context.Context, id, reason string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r, ok := m.rows[id]
+	if !ok {
+		return ErrNotFound
+	}
+	r.FollowError = reason
+	m.rows[id] = r
+	return nil
+}
+
 // fakeReviser stands in for the version trail a source kind already has: it
 // records what it was asked to save, mints a per-version directory the way both
 // real trails do, and puts the new object in the listing so the registrar sees
@@ -310,7 +340,11 @@ func (f *fakeReviser) Revise(
 	version := len(f.saved) + 1
 	key := DirectoryOf(src.HeadKey) + "v/rev_" + strconv.Itoa(version) + "/" + fileNameOf(src.HeadKey)
 	if f.objects != nil {
+		// The new head holds the corrected bytes, which is what a read of it
+		// after the correction returns: the follow of another registration
+		// over the same file reads the head, not the upload.
 		f.objects.entries = append(f.objects.entries, ObjectEntry{Key: key, Size: int64(len(content))})
+		f.objects.body = content
 	}
 	if f.afterSave != nil {
 		f.afterSave()

@@ -673,7 +673,7 @@ func TestUploadContentUpdateDefaultsTheChangeSummary(t *testing.T) {
 	asset, err := f.assets.Get(context.Background(), f.assetID)
 	require.NoError(t, err)
 
-	version, err := f.tk.uploadContentUpdate(f.ctx, asset, contentEdit{content: "new body"})
+	version, _, err := f.tk.uploadContentUpdate(f.ctx, asset, contentEdit{content: "new body"})
 	require.NoError(t, err)
 	assert.Equal(t, 2, version)
 

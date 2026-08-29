@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Table2, Trash2, Loader2, AlertTriangle, Plus, Wrench, FileCheck2 } from "lucide-react";
+import { Table2, Trash2, Loader2, AlertTriangle, Plus, Wrench, FileCheck2, Pin, RefreshCw } from "lucide-react";
 import {
   useTableRegistrations,
   useTableConnections,
@@ -79,8 +79,9 @@ export function TablesPanel({
       action={<RegisterAction shown={canOffer && !adding} onClick={() => setAdding(true)} />}
     >
       <p className="text-xs text-muted-foreground">
-        Registering points a query engine at this file where it already sits. Nothing is copied, so
-        the table always reads the file&rsquo;s current contents. Every column comes back as text.
+        Registering points a query engine at this file where it already sits. Nothing is copied, and a
+        table that follows the file moves onto each new version as it is written. Every column comes
+        back as text.
       </p>
 
       {adding && (
@@ -227,6 +228,7 @@ function RegistrationRow({
             on <span className="font-medium text-foreground">{reg.connection}</span> · registered by{" "}
             {reg.registered_by}
           </p>
+          <FollowBadge reg={reg} />
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <CopyButton text={reg.query_table} label="Copy the table name" />
@@ -249,10 +251,7 @@ function RegistrationRow({
       {reg.stale && (
         <Alert variant="warning" className="mt-2 py-2">
           <AlertTriangle />
-          <AlertDescription>
-            This file has a newer version than the table points at, so the table still returns the
-            older one. Register it again to move the table to the current version.
-          </AlertDescription>
+          <AlertDescription>{behindText(reg)}</AlertDescription>
         </Alert>
       )}
 
@@ -270,6 +269,43 @@ function RegistrationRow({
         <p className="mt-2 text-destructive">{errorText(unregister.error)}</p>
       )}
     </li>
+  );
+}
+
+// FollowBadge says which rule a table was registered under. A following table
+// is the ordinary case and is labelled so a reader knows the next version of
+// the file will reach it; a pinned one is the choice, and says so.
+function FollowBadge({ reg }: { reg: TableRegistration }) {
+  if (reg.follow) {
+    return (
+      <Badge variant="muted" className="mt-1 gap-1">
+        <RefreshCw aria-hidden className="size-3" />
+        Follows the file
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="muted" className="mt-1 gap-1">
+      <Pin aria-hidden className="size-3" />
+      Pinned to its version
+    </Badge>
+  );
+}
+
+// behindText is what a table that is behind its file is told. A pinned table
+// is behind by design and moves on a re-registration; a following one is
+// behind because its last follow failed, and the reason is the whole message.
+function behindText(reg: TableRegistration): string {
+  if (reg.follow && reg.follow_error) {
+    return (
+      "This table follows the file but could not be moved onto its current version: " +
+      reg.follow_error +
+      " It stays on the older version until it is registered again."
+    );
+  }
+  return (
+    "This file has a newer version than the table points at, so the table still returns the " +
+    "older one. Register it again to move the table to the current version."
   );
 }
 
@@ -292,13 +328,21 @@ function RegisterForm({
 }) {
   const [connection, setConnection] = useState(connections[0]?.name ?? "");
   const [tableName, setTableName] = useState("");
+  // Following is the default: a person replacing the file expects the table
+  // over it to read the new contents. Pinning is the choice, made here.
+  const [follow, setFollow] = useState(true);
   const register = useRegisterTable(kind, id);
 
   const target = connections.find((c) => c.name === connection);
 
   const send = (repair: boolean) => {
     register.mutate(
-      { connection, table_name: tableName.trim() || undefined, repair: repair || undefined },
+      {
+        connection,
+        table_name: tableName.trim() || undefined,
+        repair: repair || undefined,
+        follow: follow ? undefined : false,
+      },
       { onSuccess: (reg) => onDone(reg.repaired) },
     );
   };
@@ -358,6 +402,26 @@ function RegisterForm({
           Your persona is added as a prefix. The schema is shared, so reusing a name you registered
           replaces that table, and a name someone else registered is refused.
         </p>
+      </div>
+
+      <div className="space-y-1.5">
+        <label className="flex items-start gap-2 text-xs">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={follow}
+            onChange={(e) => setFollow(e.target.checked)}
+            data-testid="table-follow"
+          />
+          <span>
+            <span className="font-medium">Follow the file</span>
+            <span className="block text-muted-foreground">
+              Each new version of the file moves the table onto it, so a refresh by a person or a
+              script is what the table reads next. Turn this off to pin the table to the version it
+              is registered over.
+            </span>
+          </span>
+        </label>
       </div>
 
       {register.isError && (

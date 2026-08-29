@@ -59,7 +59,7 @@ func (w *outputWriter) PublishData(ctx context.Context, req scriptrun.PublishReq
 		return nil, err
 	}
 
-	version, err := w.writeRefreshedVersion(ctx, asset, spliced)
+	version, tables, err := w.writeRefreshedVersion(ctx, asset, spliced)
 	if err != nil {
 		return nil, err
 	}
@@ -67,10 +67,10 @@ func (w *outputWriter) PublishData(ctx context.Context, req scriptrun.PublishReq
 		Name: req.Name, Destination: destination,
 		AssetID: asset.ID, AssetVersion: version,
 		Format: scriptrun.PublishFormat, RowCount: scriptrun.PublishRowCount(req.Data),
-		Refresh: true, Bytes: len(payload),
+		Refresh: true, Bytes: len(payload), Tables: tables,
 	}
 	w.record(ctx, out)
-	return &scriptrun.ExportResult{AssetID: asset.ID, AssetVersion: version, Bytes: len(payload)}, nil
+	return &scriptrun.ExportResult{AssetID: asset.ID, AssetVersion: version, Bytes: len(payload), Tables: tables}, nil
 }
 
 // refreshTarget resolves the asset a refresh names — through the same identity
@@ -218,14 +218,14 @@ var templateLiteralEscaper = strings.NewReplacer("\\", "\\\\", "`", "\\`", "${",
 // version, through the same store step an export's write uses: an immutable
 // per-run object and a version row whose summary names the script version and
 // run that produced it.
-func (w *outputWriter) writeRefreshedVersion(ctx context.Context, asset *portal.Asset, body string) (int, error) {
+func (w *outputWriter) writeRefreshedVersion(ctx context.Context, asset *portal.Asset, body string) (version int, tables []string, err error) {
 	summary := fmt.Sprintf("data refresh: %s v%d, run %s", w.script.Name, w.run.Version, w.run.ID)
-	version, err := w.storeVersion(ctx, asset.ID, scriptrun.OutputIdentity{
+	version, tables, err = w.storeVersion(ctx, asset.ID, scriptrun.OutputIdentity{
 		ContentType: asset.ContentType,
 		Extension:   contenttype.Extension(asset.ContentType),
 	}, []byte(body), summary)
 	if err != nil {
-		return 0, fmt.Errorf("writing the refreshed version of output %q: %w", asset.Name, err)
+		return 0, nil, fmt.Errorf("writing the refreshed version of output %q: %w", asset.Name, err)
 	}
-	return version, nil
+	return version, tables, nil
 }

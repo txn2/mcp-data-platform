@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"path"
 	"strings"
 
@@ -886,6 +887,7 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageAssetInput) (*mc
 		}
 	}
 
+	var followed map[string]any
 	if hasContent {
 		edit := contentEdit{
 			content:      input.Content,
@@ -893,9 +895,11 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageAssetInput) (*mc
 			summary:      input.ChangeSummary,
 			sources:      input.Sources,
 		}
-		if _, contentErr := t.uploadContentUpdate(ctx, asset, edit); contentErr != nil {
+		version, tables, contentErr := t.uploadContentUpdate(ctx, asset, edit)
+		if contentErr != nil {
 			return toolkit.ErrorResult("failed to upload new content: " + contentErr.Error()), nil, nil
 		}
+		followed = tableFields(version, tables)
 	}
 
 	refCount, applyResult := t.applyRefs(ctx, input.AssetID, declaredRefs, hasRefs)
@@ -908,7 +912,34 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageAssetInput) (*mc
 		fieldMessage: "Asset updated successfully.",
 	}
 	addRefFields(result, refCount)
+	addTableFields(result, followed)
 	return toolkit.JSONResultTyped(result)
+}
+
+// tableFields is what a content write says about the tables over the asset's
+// file, ready to be added to a result: the version written and one sentence
+// per table. Nil when no table is registered over the file, so a result says
+// nothing about tables that do not exist.
+func tableFields(version int, tables []string) map[string]any {
+	if len(tables) == 0 {
+		return nil
+	}
+	return map[string]any{fieldVersion: version, "tables": tables}
+}
+
+// addTableFields puts a content write's table report on a result, and
+// appends the sentences to the message so a caller reading the message alone
+// learns a table fell behind.
+func addTableFields(result, fields map[string]any) {
+	if fields == nil {
+		return
+	}
+	maps.Copy(result, fields)
+	if tables, ok := fields["tables"].([]string); ok {
+		if msg, ok := result[fieldMessage].(string); ok {
+			result[fieldMessage] = msg + " " + strings.Join(tables, " ")
+		}
+	}
 }
 
 // metadataUpdate builds the store update for the indexable fields and reports
@@ -931,16 +962,17 @@ func metadataUpdate(input manageAssetInput) (update portal.AssetUpdate, present 
 }
 
 // uploadContentUpdate writes replacement content as a new version and returns
-// the version number assigned. Creating the version is what moves the asset's
+// the version number assigned and what the version did to the tables
+// registered over the asset's file. Creating the version is what moves the asset's
 // own s3_key, content_type and size_bytes forward — the version store does that
 // in the same transaction — so a replacement whose type differs from the
 // asset's carries the asset with it.
 //
 // summary is recorded as the version's change summary, which is what makes the
 // version history readable; an empty summary falls back to the generic label.
-func (t *Toolkit) uploadContentUpdate(ctx context.Context, asset *portal.Asset, edit contentEdit) (int, error) {
+func (t *Toolkit) uploadContentUpdate(ctx context.Context, asset *portal.Asset, edit contentEdit) (version int, tables []string, err error) {
 	if t.maxContentSize > 0 && len(edit.content) > t.maxContentSize {
-		return 0, fmt.Errorf("content size %d exceeds maximum %d bytes", len(edit.content), t.maxContentSize)
+		return 0, nil, fmt.Errorf("content size %d exceeds maximum %d bytes", len(edit.content), t.maxContentSize)
 	}
 	// The caller's declaration wins when specific; otherwise the asset's
 	// existing type is the declaration, so an edit to a JSON asset stays JSON.
@@ -953,21 +985,21 @@ func (t *Toolkit) uploadContentUpdate(ctx context.Context, asset *portal.Asset, 
 	data := []byte(edit.content)
 	ct := portal.ResolveContentType(declared, data)
 	if err := portal.ValidateContentTypeChange(asset.ContentType, ct); err != nil {
-		return 0, fmt.Errorf("content type: %w", err)
+		return 0, nil, fmt.Errorf("content type: %w", err)
 	}
 
 	versionID, err := generateID()
 	if err != nil {
-		return 0, fmt.Errorf("generating version ID: %w", err)
+		return 0, nil, fmt.Errorf("generating version ID: %w", err)
 	}
 	ext := portal.ExtensionForContentType(ct)
 	s3Key := path.Join(t.s3Prefix, asset.OwnerID, asset.ID, versionID, "content"+ext)
 
 	if t.s3Client == nil {
-		return 0, errors.New("content storage not configured")
+		return 0, nil, errors.New("content storage not configured")
 	}
 	if err := t.s3Client.PutObject(ctx, t.s3Bucket, s3Key, data, ct); err != nil {
-		return 0, fmt.Errorf("s3 put: %w", err)
+		return 0, nil, fmt.Errorf("s3 put: %w", err)
 	}
 
 	summary := edit.summary
@@ -984,13 +1016,15 @@ func (t *Toolkit) uploadContentUpdate(ctx context.Context, asset *portal.Asset, 
 		CreatedBy:     resolveOwnerEmail(ctx),
 		ChangeSummary: summary,
 	}
-	version, err := t.versionStore.CreateVersion(ctx, av)
+	version, err = t.versionStore.CreateVersion(ctx, av)
 	if err != nil {
 		t.cleanupOrphanedS3(ctx, t.s3Bucket, s3Key)
-		return 0, fmt.Errorf("creating version: %w", err)
+		return 0, nil, fmt.Errorf("creating version: %w", err)
 	}
 	t.recordCapture(ctx, asset.ID, version, edit.sources)
-	return version, nil
+	// The version moved the asset's head, so the tables registered over its
+	// file follow it or are reported behind (#1536), whichever edit wrote it.
+	return version, t.FollowAssetTables(ctx, asset.ID, version), nil
 }
 
 // contentEdit is one replacement of an asset's body: the new content, what the
@@ -1130,11 +1164,13 @@ func (t *Toolkit) handleRevert(ctx context.Context, input manageAssetInput) (*mc
 		return toolkit.ErrorResult("failed to create revert version: " + err.Error()), nil, nil
 	}
 
-	return toolkit.JSONResultTyped(map[string]any{
+	result := map[string]any{
 		fieldAssetID: input.AssetID,
-		"version":    assignedVersion,
+		fieldVersion: assignedVersion,
 		fieldMessage: fmt.Sprintf("Reverted to version %d. New version: %d.", input.Version, assignedVersion),
-	})
+	}
+	addTableFields(result, tableFields(assignedVersion, t.FollowAssetTables(ctx, input.AssetID, assignedVersion)))
+	return toolkit.JSONResultTyped(result)
 }
 
 func (m manageAssetInput) validForRevert() bool {

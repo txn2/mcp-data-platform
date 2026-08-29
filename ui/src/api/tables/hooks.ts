@@ -105,7 +105,9 @@ export function useRegisterTable(kind: TableSourceKind, id: string) {
     // repair asks for a corrected version of the file to be saved and
     // registered. It is the second submission of the form: the first is
     // refused with what is wrong, and that refusal is what offers this.
-    mutationFn: (body: { connection: string; table_name?: string; repair?: boolean }) =>
+    // follow is sent only when the person turned it off: absent, the table
+    // follows the file, which is the server's default too.
+    mutationFn: (body: { connection: string; table_name?: string; repair?: boolean; follow?: boolean }) =>
       tableFetch<TableRegistration>(basePath(kind, id), {
         method: "POST",
         body: JSON.stringify(body),

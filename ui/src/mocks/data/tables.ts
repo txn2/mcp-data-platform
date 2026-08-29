@@ -45,11 +45,12 @@ export const mockTableRegistrations: Record<string, TableRegistration[]> = {
       sample_sql:
         'SELECT * FROM scratch.uploads.analyst_regional_sales_summary\n-- every column is VARCHAR, so a join to a typed column casts:\n-- JOIN scratch.uploads.analyst_regional_sales_summary t ON w.id = CAST(t."region" AS BIGINT)',
       stale: false,
+      follow: true,
     },
   ],
-  // A registration left behind by an earlier revision: the file has a newer
-  // version than the table points at, which is the one state a reader cannot
-  // discover from the rows themselves.
+  // A pinned registration left behind by a later revision: the file has a
+  // newer version than the table points at, which is the one state a reader
+  // cannot discover from the rows themselves.
   "res-015": [
     {
       id: "reg_7b3d90",
@@ -70,6 +71,35 @@ export const mockTableRegistrations: Record<string, TableRegistration[]> = {
       query_table: "scratch.uploads.analyst_glossary",
       sample_sql: "SELECT * FROM scratch.uploads.analyst_glossary",
       stale: true,
+      follow: false,
+    },
+  ],
+  // A following registration whose last follow did not move it (#1536): the
+  // coordinator refused the statement, so the table is behind the file with
+  // the reason on it until it is registered again.
+  "res-004": [
+    {
+      id: "reg_e19c42",
+      source_kind: "resource",
+      source_id: "res-004",
+      connection: "acme-scratch",
+      catalog: "scratch",
+      schema: "uploads",
+      table: "finance_vendor_rebates",
+      location: "s3://managed-resources/resources/persona/finance/v/rev-3/",
+      columns: [
+        { name: "vendor_code", type: "VARCHAR" },
+        { name: "rebate_pct", type: "VARCHAR" },
+        { name: "effective_from", type: "VARCHAR" },
+      ],
+      registered_by: "marcus.johnson@example.com",
+      registered_at: "2026-08-19T16:40:00Z",
+      query_table: "scratch.uploads.finance_vendor_rebates",
+      sample_sql: "SELECT * FROM scratch.uploads.finance_vendor_rebates",
+      stale: true,
+      follow: true,
+      follow_error:
+        "registering the table: the coordinator refused the statement (Access Denied: Cannot create table scratch.uploads.finance_vendor_rebates)",
     },
   ],
 };
@@ -114,6 +144,7 @@ export async function mockRegisterTable(
     connection: string;
     table_name?: string;
     repair?: boolean;
+    follow?: boolean;
   };
   // A file already corrected in this session is readable as a table, so the
   // second registration of it is an ordinary one -- the same thing the backend
@@ -148,6 +179,8 @@ export async function mockRegisterTable(
     registered_at: new Date("2026-08-22T10:00:00Z").toISOString(),
     query_table: `${conn.catalog}.${conn.schema}.${table}`,
     stale: false,
+    // Following is the default; the form sends follow only to turn it off.
+    follow: body.follow !== false,
     repaired: needsRepair
       ? `Saved version 2 of this file, which ${tornCSVRepairSummary}. The file as it was ` +
         "uploaded is still there as the version before it."
@@ -182,7 +215,8 @@ const scratchTableSources: Record<string, { name: string; canModify: boolean }> 
   "ast-008": { name: "Regional sales summary", canModify: true },
   "res-015": { name: "Analytics glossary", canModify: true },
   // Somebody else's upload: visible because the reader reaches the connection,
-  // and not theirs to drop.
+  // and not theirs to drop. Its table follows the file and its last follow
+  // failed, which is the listing's fourth state.
   "res-004": { name: "Vendor rebate schedule", canModify: false },
 };
 
@@ -207,36 +241,13 @@ const orphanedRegistration: TableRegistration = {
   registered_at: "2026-07-02T11:05:00Z",
   query_table: "scratch.uploads.analyst_q1_promo_codes",
   stale: true,
-};
-
-// somebodyElsesRegistration is on a connection this reader reaches, over a file
-// they have no authority over. It is listed and it is not theirs to drop, which
-// is the distinction the listing draws between seeing a table and acting on it.
-const somebodyElsesRegistration: TableRegistration = {
-  id: "reg_c51b77",
-  source_kind: "resource",
-  source_id: "res-004",
-  connection: "acme-scratch",
-  catalog: "scratch",
-  schema: "uploads",
-  table: "finance_vendor_rebates",
-  location: "s3://managed-resources/resources/persona/finance/v/rev-3/",
-  columns: [
-    { name: "vendor_code", type: "VARCHAR" },
-    { name: "rebate_pct", type: "VARCHAR" },
-    { name: "effective_from", type: "VARCHAR" },
-  ],
-  registered_by: "marcus.johnson@example.com",
-  registered_at: "2026-08-19T16:40:00Z",
-  query_table: "scratch.uploads.finance_vendor_rebates",
-  sample_sql: "SELECT * FROM scratch.uploads.finance_vendor_rebates",
-  stale: false,
+  follow: false,
 };
 
 /** scratchTableRows is every registration the listing spans, newest first. */
 function scratchTableRows(): ScratchTable[] {
   const perSource = Object.values(mockTableRegistrations).flat();
-  const all = [...perSource, somebodyElsesRegistration, orphanedRegistration];
+  const all = [...perSource, orphanedRegistration];
   return all
     .map(asScratchTable)
     .sort((a, b) => b.registered_at.localeCompare(a.registered_at));

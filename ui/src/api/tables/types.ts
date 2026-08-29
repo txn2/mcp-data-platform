@@ -30,6 +30,12 @@ export interface TableRegistration {
   // stale means the file has a newer version than the one the table points
   // at, so the rows are the version that was current when it was registered.
   stale: boolean;
+  // follow means the table is moved onto each new revision or version of the
+  // file as it is written (#1536), which is what a registration gets unless
+  // it was pinned. follow_error is why the last follow did not move it, and
+  // is absent while the table is where the file is.
+  follow: boolean;
+  follow_error?: string;
   // repaired says what a correction of the file changed before it could be
   // registered (#1441). It is set only on the registration that made the
   // correction: it describes what just happened, not a property of the record.

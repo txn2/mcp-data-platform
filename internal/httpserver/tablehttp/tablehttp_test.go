@@ -217,6 +217,30 @@ func (m *memStore) Delete(_ context.Context, id string) error {
 	return nil
 }
 
+func (m *memStore) Relocate(_ context.Context, id, location string, columns []tableregister.Column) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r, ok := m.rows[id]
+	if !ok {
+		return tableregister.ErrNotFound
+	}
+	r.Location, r.Columns, r.FollowError = location, columns, ""
+	m.rows[id] = r
+	return nil
+}
+
+func (m *memStore) RecordFollowFailure(_ context.Context, id, reason string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r, ok := m.rows[id]
+	if !ok {
+		return tableregister.ErrNotFound
+	}
+	r.FollowError = reason
+	m.rows[id] = r
+	return nil
+}
+
 // --- harness ---
 
 const csvBody = "store_id,vendor_code\n101,ACME-NW\n"

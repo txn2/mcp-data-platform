@@ -204,6 +204,13 @@ type Deps struct {
 	// keep serving rows out of a schema the owner can no longer see. Nil on a
 	// deployment that cannot register tables.
 	OnAssetDeleted func(context.Context, string)
+	// OnAssetRevised, when set, is called after a new version of an asset's
+	// content is written -- an edit or a revert -- so the tables registered
+	// over its file follow it (#1536). It returns what happened to each table,
+	// which the response carries: a following table now reads the new version,
+	// a pinned one is behind it. The write is never failed by it. Nil on a
+	// deployment that cannot register tables.
+	OnAssetRevised func(ctx context.Context, id string, version int) []string
 	// CatalogLabeler names the DataHub governance entities a knowledge page
 	// references (#1159), so a citation to a glossary term, a tag, or a domain
 	// renders as its display name instead of the generated key inside its URN.
@@ -895,13 +902,26 @@ func (h *Handler) updateAssetContent(w http.ResponseWriter, r *http.Request) {
 		ChangeSummary: changeSummaryFromHeader(r, "Content updated"),
 	}
 
-	if _, err := h.deps.VersionStore.CreateVersion(r.Context(), av); err != nil {
+	version, err := h.deps.VersionStore.CreateVersion(r.Context(), av)
+	if err != nil {
 		h.cleanupOrphanedS3(r.Context(), asset.S3Bucket, versionedKey)
 		writeError(w, http.StatusInternalServerError, "failed to create version")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, statusResponse{Status: statusUpdated})
+	writeJSON(w, http.StatusOK, statusResponse{
+		Status: statusUpdated,
+		Tables: h.followTables(r.Context(), id, version),
+	})
+}
+
+// followTables reports what a new version did to the tables registered over
+// the asset. A deployment with no registrar has none to report.
+func (h *Handler) followTables(ctx context.Context, id string, version int) []string {
+	if h.deps.OnAssetRevised == nil {
+		return nil
+	}
+	return h.deps.OnAssetRevised(ctx, id, version)
 }
 
 // uploadThumbnail handles PUT /api/v1/portal/assets/{id}/thumbnail.
@@ -1652,6 +1672,7 @@ func (h *Handler) revertToVersion(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":   statusReverted,
 		keyVersion: assignedVersion,
+		"tables":   h.followTables(r.Context(), id, assignedVersion),
 	})
 }
 
@@ -2555,6 +2576,10 @@ func (h *Handler) embedSearchQuery(ctx context.Context, query string) []float32 
 // statusResponse is a generic status response.
 type statusResponse struct {
 	Status string `json:"status" example:"updated"`
+	// Tables is what a content write did to the tables registered over the
+	// asset's file (#1536), one sentence per table, absent when there are
+	// none.
+	Tables []string `json:"tables,omitempty"`
 }
 
 // validateUpdateRequest validates the fields in an update request.

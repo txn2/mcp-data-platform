@@ -45,6 +45,12 @@ type Deps struct {
 	// from OnDelete because that one exists to unregister an MCP resource and
 	// is keyed on the URI it was registered under.
 	OnDeleteID func(context.Context, string)
+	// OnRevised is called after a revision moves the resource's head -- a
+	// replacement or a restore -- with the version number it was recorded as,
+	// so the tables registered over the file follow it (#1536). It returns
+	// what happened to each table, which the response carries; the revision
+	// is never failed by it. Nil on a deployment that cannot register tables.
+	OnRevised func(ctx context.Context, id string, version int) []string
 
 	// Versions records content revisions. Absent on a deployment whose store
 	// does not implement VersionStore, which disables the revision and version

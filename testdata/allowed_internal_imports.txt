@@ -49,9 +49,9 @@ internal/httpserver -> internal/httpserver/notifyhttp
 internal/httpserver -> internal/httpserver/scripthttp
 internal/httpserver -> internal/httpserver/sources
 internal/httpserver -> internal/httpserver/tablehttp
+internal/httpserver -> internal/httpserver/tablesource
 internal/httpserver -> internal/httpserver/unsubhttp
 internal/httpserver -> internal/httpserver/versionhttp
-internal/httpserver -> internal/logsan
 internal/httpserver -> internal/notification/notifyrender
 internal/httpserver -> internal/platform/branding
 internal/httpserver -> internal/platform/callrecord
@@ -140,6 +140,10 @@ internal/httpserver/tablehttp -> internal/httpjson
 internal/httpserver/tablehttp -> internal/logsan
 internal/httpserver/tablehttp -> internal/platform/tableregister
 internal/httpserver/tablehttp -> pkg/portal
+internal/httpserver/tablesource -> internal/logsan
+internal/httpserver/tablesource -> internal/platform/tableregister
+internal/httpserver/tablesource -> pkg/portal
+internal/httpserver/tablesource -> pkg/resource
 internal/httpserver/unsubhttp -> pkg/notification
 internal/httpserver/versionhttp -> pkg/prompt
 internal/notification/notifyprefs -> pkg/notification

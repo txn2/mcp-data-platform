@@ -87,7 +87,7 @@ func (h *Handler) resolveRevisable(w http.ResponseWriter, r *http.Request) (*Res
 // @Produce      json
 // @Param        id    path      string  true  "Resource ID"
 // @Param        file  formData  file    true  "Replacement file (max 100 MB)"
-// @Success      200  {object}  resource.Resource
+// @Success      200  {object}  resource.revisedResource
 // @Failure      400  {object}  resource.errorResponse
 // @Failure      401  {object}  resource.errorResponse
 // @Failure      403  {object}  resource.errorResponse
@@ -120,17 +120,28 @@ func (h *Handler) handleReplaceContent(w http.ResponseWriter, r *http.Request) {
 	// embeds the resource's filename, and a revision that changed the URI would
 	// break every mcp:resource:<id> citation and prompt attachment pointing at
 	// it — the exact breakage this route exists to end.
-	updated, err := h.storeRevision(r.Context(), res, claims, RevisionUpload{Data: uf.data, MIMEType: uf.mimeType})
+	revised, err := h.storeRevision(r.Context(), res, claims, RevisionUpload{Data: uf.data, MIMEType: uf.mimeType})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	writeJSON(w, http.StatusOK, updated)
+	writeJSON(w, http.StatusOK, revised)
 	// The URI is unchanged, so this re-registers the same resource with its new
 	// type and size and fires resources/list_changed; a client holding the old
 	// content re-reads it.
-	h.notifyCreate(updated)
+	h.notifyCreate(revised.Resource)
+}
+
+// revisedResource is the resource as a revision route answers it: the record,
+// and what the revision did to the tables registered over the file (#1536).
+// The record is embedded so the response stays the resource every client of
+// these routes already reads, with one field beside it.
+type revisedResource struct {
+	*Resource
+	// Tables is one sentence per registered table -- followed onto the new
+	// version, or pinned and now behind it -- and absent when there are none.
+	Tables []string `json:"tables,omitempty"`
 }
 
 // RevisionUpload is the content a revision writes: the bytes, the type they are
@@ -200,12 +211,20 @@ func ReviseContent(
 	return updated, version, nil
 }
 
-// storeRevision writes a revision through the handler's own dependencies. The
-// routes report the resource; the version number the revision took is what
+// storeRevision writes a revision through the handler's own dependencies and
+// follows the tables registered over the file. The routes report the resource
+// and what the revision did to its tables; the version number itself is what
 // only a caller acting on somebody's behalf has to say back to them.
-func (h *Handler) storeRevision(ctx context.Context, res *Resource, claims *Claims, up RevisionUpload) (*Resource, error) {
-	updated, _, err := ReviseContent(ctx, h.deps, res, claims, up)
-	return updated, err
+func (h *Handler) storeRevision(ctx context.Context, res *Resource, claims *Claims, up RevisionUpload) (*revisedResource, error) {
+	updated, version, err := ReviseContent(ctx, h.deps, res, claims, up)
+	if err != nil {
+		return nil, err
+	}
+	out := &revisedResource{Resource: updated}
+	if h.deps.OnRevised != nil {
+		out.Tables = h.deps.OnRevised(ctx, res.ID, version.Version)
+	}
+	return out, nil
 }
 
 // pruneRevisions enforces the retention cap, deleting the blobs of the versions
@@ -376,7 +395,7 @@ func (h *Handler) resolveVersion(w http.ResponseWriter, r *http.Request, res *Re
 // @Produce      json
 // @Param        id       path  string  true  "Resource ID"
 // @Param        version  path  int     true  "Version number to restore"
-// @Success      200  {object}  resource.Resource
+// @Success      200  {object}  resource.revisedResource
 // @Failure      400  {object}  resource.errorResponse
 // @Failure      401  {object}  resource.errorResponse
 // @Failure      403  {object}  resource.errorResponse
@@ -406,15 +425,15 @@ func (h *Handler) handleRestoreVersion(w http.ResponseWriter, r *http.Request) {
 	// The restore writes the old bytes forward as a new revision rather than
 	// rewinding the head, so the trail stays append-only and the restored
 	// content is itself restorable.
-	updated, err := h.storeRevision(r.Context(), res, claims,
+	revised, err := h.storeRevision(r.Context(), res, claims,
 		RevisionUpload{Data: body, MIMEType: v.MIMEType, RestoredFrom: &version})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	writeJSON(w, http.StatusOK, updated)
-	h.notifyCreate(updated)
+	writeJSON(w, http.StatusOK, revised)
+	h.notifyCreate(revised.Resource)
 }
 
 // --- Read recording ---

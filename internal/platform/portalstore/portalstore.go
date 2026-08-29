@@ -18,6 +18,7 @@
 package portalstore
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log/slog"
@@ -230,6 +231,20 @@ func (h *Handle) BindResourceWriter(w portalkit.ResourceWriter) {
 		return
 	}
 	h.toolkit.SetResourceWriter(w)
+}
+
+// FollowAssetTables reports what a new version of an asset did to the tables
+// registered over its file (#1536), through the registrar the asset toolkit
+// was bound to. It is how a writer assembled before the registrar exists --
+// the script runner -- reaches it: the toolkit is the one holder every write
+// path can be given at construction, and the registrar is bound onto it by the
+// composition root the way BindResourceWriter binds the resource writer. A
+// Handle with no toolkit, or a toolkit never bound, reports nothing.
+func (h *Handle) FollowAssetTables(ctx context.Context, assetID string, version int) []string {
+	if h == nil || h.toolkit == nil {
+		return nil
+	}
+	return h.toolkit.FollowAssetTables(ctx, assetID, version)
 }
 
 // AssetStore returns the portal asset store, or nil on a nil Handle (portal

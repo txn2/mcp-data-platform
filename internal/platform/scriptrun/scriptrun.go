@@ -260,6 +260,9 @@ type ExportResult struct {
 	Key          string
 	// Bytes is the serialized size actually written.
 	Bytes int
+	// Tables is what the version did to the tables registered over the
+	// output's file (#1536), one sentence per table.
+	Tables []string
 }
 
 // ExportRecord is what one platform.export call did, in call order on the run's
@@ -291,6 +294,12 @@ type ExportRecord struct {
 	AssetVersion int    `json:"asset_version,omitempty"`
 	Bucket       string `json:"bucket,omitempty"`
 	Key          string `json:"key,omitempty"`
+	// Tables is what the version did to the tables registered over the
+	// output's file (#1536): one sentence per table, saying it followed onto
+	// the version or is pinned and now behind it. The same sentences are
+	// printed into the run log, so the run's history says the table moved, or
+	// did not, without the script having to print anything.
+	Tables []string `json:"tables,omitempty"`
 }
 
 // Result reports one completed execution.

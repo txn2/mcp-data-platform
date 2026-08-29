@@ -46,6 +46,7 @@ function row(overrides: Partial<ScratchTable> = {}): ScratchTable {
     query_table: "scratch.uploads.analyst_regional_sales",
     sample_sql: "SELECT * FROM scratch.uploads.analyst_regional_sales",
     stale: false,
+    follow: true,
     source: { kind: "asset", id: "ast-008", name: "Regional sales summary", missing: false },
     can_unregister: true,
     ...overrides,
@@ -73,10 +74,10 @@ describe("the scratch table listing", () => {
   });
 
   it("flags a table that has fallen behind its file, without opening the file", () => {
-    render(<ScratchTablesTable rows={[row({ stale: true })]} isLoading={false} onOpen={vi.fn()} />);
+    render(<ScratchTablesTable rows={[row({ stale: true, follow: false })]} isLoading={false} onOpen={vi.fn()} />);
 
     expect(screen.getByText("Behind the file")).toBeTruthy();
-    expect(screen.queryByText("Current")).toBeNull();
+    expect(screen.queryByText("Follows the file")).toBeNull();
   });
 
   it("marks a registration whose file is no longer on the platform", () => {
@@ -92,9 +93,29 @@ describe("the scratch table listing", () => {
     expect(screen.getByText("Deleted")).toBeTruthy();
   });
 
-  it("says a current table is current, quietly", () => {
+  it("says a current table follows its file, quietly", () => {
     render(<ScratchTablesTable rows={[row()]} isLoading={false} onOpen={vi.fn()} />);
-    expect(screen.getByText("Current")).toBeTruthy();
+    expect(screen.getByText("Follows the file")).toBeTruthy();
+  });
+
+  // A pinned table is current only until the file moves, so the listing says
+  // it is pinned rather than calling it current; a following one that fell
+  // behind carries the reason on the badge (#1536).
+  it("says a pinned table is pinned, and why a following one is behind", () => {
+    render(
+      <ScratchTablesTable
+        rows={[
+          row({ follow: false }),
+          row({ id: "reg_2", stale: true, follow: true, follow_error: "the coordinator refused the statement" }),
+        ]}
+        isLoading={false}
+        onOpen={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Pinned")).toBeTruthy();
+    expect(screen.getByText("Behind the file").closest("[title]")?.getAttribute("title")).toBe(
+      "the coordinator refused the statement",
+    );
   });
 
   it("says so when the filters match nothing", () => {
@@ -192,9 +213,22 @@ describe("one registration at an address of its own", () => {
   });
 
   it("says what to do about a table that has fallen behind its file", () => {
-    open({ stale: true });
+    open({ stale: true, follow: false });
 
     expect(screen.getByText(/register it again to move the table/i)).toBeTruthy();
+  });
+
+  it("says which rule the table is under, and why a following one could not be moved", () => {
+    open();
+    expect(screen.getByText(/Follows the file: each new version/)).toBeTruthy();
+
+    cleanup();
+    open({ follow: false });
+    expect(screen.getByText(/Pinned to the version of the file/)).toBeTruthy();
+
+    cleanup();
+    open({ stale: true, follow: true, follow_error: "the coordinator refused the statement." });
+    expect(screen.getByText(/could not be moved onto the current version: the coordinator refused/)).toBeTruthy();
   });
 
   it("offers no link for a file that is gone, and says why", () => {
