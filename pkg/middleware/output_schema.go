@@ -13,10 +13,11 @@ import (
 // object the platform packs under the "error" key of a failed tool result's
 // structuredContent (see BuildErrorResult and MCPErrorContractMiddleware in
 // error_contract.go / mcp_error_contract.go). It is the single shared fragment
-// every schema-declaring tool references, so the {code, category, message, hint}
-// shape is documented identically across the surface. The four documented fields
-// are optional (a hint is not always present) and the object is left open, since
-// the platform prefers admitting an unforeseen field over rejecting a real error.
+// every schema-declaring tool references, so the {code, category, message, hint,
+// retry_after_seconds} shape is documented identically across the surface. The
+// documented fields are optional (a hint is not always present, and only a
+// timing refusal names a retry interval) and the object is left open, since the
+// platform prefers admitting an unforeseen field over rejecting a real error.
 func ErrorEnvelopeProperty() *jsonschema.Schema {
 	return &jsonschema.Schema{
 		Type: "object",
@@ -27,8 +28,12 @@ func ErrorEnvelopeProperty() *jsonschema.Schema {
 			"category": stringProp("error category the caller can branch on (e.g. client_input, internal)"),
 			"message":  stringProp("human-readable failure message"),
 			"hint":     stringProp("corrective guidance for the caller, when available"),
+			"retry_after_seconds": {
+				Type:        "integer",
+				Description: "seconds after which the same call is expected to be admitted; present only on a rate_limited refusal",
+			},
 		},
-		PropertyOrder: []string{"code", "category", "message", "hint"},
+		PropertyOrder: []string{"code", "category", "message", "hint", "retry_after_seconds"},
 	}
 }
 

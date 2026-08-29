@@ -56,14 +56,17 @@ func Connect(ctx context.Context, server *mcp.Server, label string) (Caller, fun
 	}, nil
 }
 
-// CallTool invokes one tool and returns its structured content.
+// CallTool invokes one tool and returns its structured content. A tool that
+// reports an error through the platform's envelope is returned as a
+// *RefusalError, so the engine can pace a rate-limit refusal; the error's text
+// is the result's own either way.
 func (c *SessionCaller) CallTool(ctx context.Context, name string, args map[string]any) (map[string]any, error) {
 	res, err := c.session.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})
 	if err != nil {
 		return nil, fmt.Errorf("calling %s: %w", name, err)
 	}
 	if res.IsError {
-		return nil, errors.New(firstText(res))
+		return nil, refusalError(res)
 	}
 	if structured, ok := res.StructuredContent.(map[string]any); ok {
 		return structured, nil

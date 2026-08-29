@@ -30,17 +30,21 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/ratelimit"
 )
 
+// CodeRateLimited is the stable machine-readable error code a refused call
+// carries, the one an agent branches on to back off and retry rather than
+// treat the refusal as a caller-input fault or a platform outage, and the one
+// the script engine (internal/platform/scriptrun) absorbs by pacing the call.
+// It mirrors the taxonomy in pkg/middleware and lives with its producer, as the
+// search/session gate categories do in their own files.
+const CodeRateLimited = "rate_limited"
+
 const (
 	// methodToolsCall is the MCP method the limiter meters. Non-tools/call
 	// methods pass through untouched.
 	methodToolsCall = "tools/call"
 
-	// codeRateLimited and categoryRateLimited are the stable machine-readable
-	// error code and category an agent branches on to back off and retry, rather
-	// than treat the refusal as a caller-input fault or a platform outage. They
-	// mirror the taxonomy in pkg/middleware; the constant lives with its sole
-	// producer, as the search/session gate categories do in their own files.
-	codeRateLimited     = "rate_limited"
+	// categoryRateLimited is the error category a refusal carries; it names
+	// the same thing the code does.
 	categoryRateLimited = "rate_limited"
 
 	// platformInfoTool is always exempt so a throttled agent can still re-read
@@ -183,8 +187,11 @@ func (h *Handle) createError(blockedTool string) mcp.Result {
 	// Build the full self-describing contract here: this middleware
 	// short-circuits before the error-contract normalizer (it is registered
 	// outer to it), so it must emit the {code, category, message, hint}
-	// envelope itself rather than rely on normalization.
-	return middleware.BuildErrorResult(middleware.NewToolError(
-		codeRateLimited, categoryRateLimited, msg, hint,
-	))
+	// envelope itself rather than rely on normalization. The retry interval
+	// travels as retry_after_seconds beside the prose that names it, so a
+	// consumer that paces on it (the script engine) reads a number rather than
+	// parsing a sentence.
+	pe := middleware.NewToolError(CodeRateLimited, categoryRateLimited, msg, hint)
+	pe.RetryAfterSeconds = h.retryAfterSeconds
+	return middleware.BuildErrorResult(pe)
 }

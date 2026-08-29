@@ -56,6 +56,10 @@ type errorPayload struct {
 	Category string `json:"category"`
 	Message  string `json:"message"`
 	Hint     string `json:"hint,omitempty"`
+	// RetryAfterSeconds is present only on a refusal that names when the same
+	// call is expected to be admitted, so a consumer reads the wait as data
+	// rather than out of the message prose.
+	RetryAfterSeconds int `json:"retry_after_seconds,omitempty"`
 }
 
 // NewToolError builds a fully specified categorized error. Prefer the thin
@@ -127,10 +131,11 @@ func BuildErrorResult(pe *PlatformError) *mcp.CallToolResult {
 	result := &mcp.CallToolResult{
 		StructuredContent: map[string]any{
 			errorEnvelopeKey: errorPayload{
-				Code:     pe.Code,
-				Category: pe.Category,
-				Message:  pe.Message,
-				Hint:     pe.Hint,
+				Code:              pe.Code,
+				Category:          pe.Category,
+				Message:           pe.Message,
+				Hint:              pe.Hint,
+				RetryAfterSeconds: pe.RetryAfterSeconds,
 			},
 		},
 		// Set the self-describing text first so SetError (which only fills empty

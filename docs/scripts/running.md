@@ -721,6 +721,22 @@ fails the same way, so retrying multiplies the cost and changes nothing; the
 run is marked failed and carries the Starlark backtrace. The fix is to correct
 the script, dry-run it, and save the correction.
 
+A rate-limit refusal is not a script failure. Every call a script makes crosses
+the [tool-call rate limiter](../server/configuration.md#tool-call-rate-limiting)
+under the run's own principal (a draft shares its author's bucket), and a loop
+that issues calls faster than the limiter admits them is refused with
+`rate_limited`. The script has no clock and no way to catch an error, both by
+design; the host has a clock. When a call is refused with that code, the host
+waits the interval the refusal's `retry_after_seconds` names, bounded by the
+run's deadline, and issues the same call again. The script sees the result of
+the admitted call and nothing else, and the interpreter's step count does not
+advance while the host waits, so a paced run consumes the steps an unlimited
+one would. Each wait is written to the run's log as a line naming the tool and
+the seconds waited, which is why a run's duration can exceed what its calls
+account for. A run whose deadline arrives while it is waiting fails as a
+timeout, exactly as one whose query took too long, and is not re-queued. No
+other refusal is retried.
+
 Platform faults are different: a run whose session could not be opened, or whose
 script could not be read, goes back on the queue with an exponential backoff and
 a small attempt budget. The boundary is deliberately drawn by *where* the
