@@ -50,11 +50,14 @@ const modulePattern = "github.com/txn2/mcp-data-platform/..."
 // cannot quietly outlive what it describes.
 const pendingFile = "templated_pending.txt"
 
-// otherEngines are packages whose SQL is not PostgreSQL. pkg/query/trino builds
-// statements for Trino, whose dialect PostgreSQL does not parse; preparing them
-// here would report a dialect difference as a defect.
+// otherEngines are packages whose SQL is not PostgreSQL. pkg/query/trino and
+// pkg/toolkits/trino build statements for Trino (the toolkit's existence lookup
+// names a catalog's information_schema, which PostgreSQL reads as a database
+// reference), whose dialect PostgreSQL does not parse; preparing them here
+// would report a dialect difference as a defect.
 var otherEngines = map[string]bool{
-	"github.com/txn2/mcp-data-platform/pkg/query/trino": true,
+	"github.com/txn2/mcp-data-platform/pkg/query/trino":    true,
+	"github.com/txn2/mcp-data-platform/pkg/toolkits/trino": true,
 }
 
 // source is a package that renders its run-time SQL for this gate.

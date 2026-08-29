@@ -45,7 +45,7 @@ seed() {
     -H "X-API-Key: $ADMIN_KEY" \
     -F "file=@$CONTENT_DIR/$file" \
     -F "scope=$scope" -F "scope_id=$scope_id" \
-    -F "category=$category" -F "display_name=$name" -F "description=$desc")
+    -F "path=$category" -F "display_name=$name" -F "description=$desc")
   # 409 is the file already being in that scope under that name, which the
   # already_seeded probe misses whenever the listing it reads is paged past the
   # row. It is the same no-op as the probe hitting, and treating it as a

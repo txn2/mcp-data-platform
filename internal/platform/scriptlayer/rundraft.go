@@ -33,6 +33,8 @@ func (h *Handle) handleValidate(ctx context.Context, input manageScriptInput) (*
 		"dynamic_destinations":    report.DynamicDestinations,
 		"dynamic_refresh_targets": report.DynamicRefreshTargets,
 		"dynamic_tools":           report.DynamicTools,
+		"reads_state":             report.Reads,
+		"saves_state":             report.Saves,
 	}
 	if report.DynamicConnections {
 		out["connections_note"] = "At least one call computes its connection instead of naming one, or passes platform.call an argument set that cannot be read from the source, so this connection list is incomplete."

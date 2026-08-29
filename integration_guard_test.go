@@ -28,8 +28,9 @@ import (
 // RealDB-executed pattern. These suites need external systems CI does not
 // provide and stay manual.
 var allowlistedIntegrationDirs = map[string]string{
-	"test/e2e":   "manual e2e suite against a live DataHub / assembled server; a nightly is #880 finding 3.4",
-	"test/smoke": "manual post-deploy smoke against a running MCP server (requires MCP_API_KEY)",
+	"test/e2e":        "manual e2e suite against a live DataHub / assembled server; a nightly is #880 finding 3.4",
+	"test/smoke":      "manual post-deploy smoke against a running MCP server (requires MCP_API_KEY)",
+	"test/acceptance": "per-ticket acceptance suite against a running platform (make dev): run by `make acceptance`, required by `make verify-release`; a test here fails, never skips, when no server answers",
 }
 
 // allowlistedIntegrationFuncs maps "relpath::FuncName" to a justification for a

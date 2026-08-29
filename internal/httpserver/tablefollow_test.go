@@ -138,6 +138,10 @@ func (*followTrino) ScratchTarget(string) (trinotoolkit.ScratchConfig, bool) {
 
 func (*followTrino) AcceptsWrites(string) bool { return true }
 
+func (*followTrino) TableExists(context.Context, string, string, string, string) (bool, error) {
+	return true, nil
+}
+
 // followObjects is one bucket: the resource route writes revisions into it,
 // and the registrar reads heads and lists directories out of it.
 type followObjects struct {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	trinoclient "github.com/txn2/mcp-trino/pkg/client"
 	trinotools "github.com/txn2/mcp-trino/pkg/tools"
@@ -79,6 +80,40 @@ func (t *Toolkit) Exec(ctx context.Context, connection, sql string) error {
 		return fmt.Errorf("executing statement: %w", err)
 	}
 	return nil
+}
+
+// TableExists reports whether a catalog on a connection holds a table, by
+// asking its information_schema rather than by querying the table: a table
+// that exists but cannot be read is still a table, and one whose metadata is
+// gone is not, whatever its files say.
+//
+// It is a read, so it runs past no write check; the identifiers come from a
+// registration row and are quoted here rather than trusted, because the
+// connection's catalog names them and this is the one place they meet SQL
+// text.
+func (t *Toolkit) TableExists(ctx context.Context, connection, catalog, schema, table string) (bool, error) {
+	client, err := t.execClient(connection)
+	if err != nil {
+		return false, err
+	}
+	stmt := "SELECT 1 AS present FROM " + quoteIdentifier(catalog) +
+		".information_schema.tables WHERE table_schema = " + quoteLiteral(schema) +
+		" AND table_name = " + quoteLiteral(table)
+	res, err := client.Query(ctx, stmt, trinoclient.QueryOptions{Limit: 1})
+	if err != nil {
+		return false, fmt.Errorf("looking up %s.%s.%s: %w", catalog, schema, table, err)
+	}
+	return len(res.Rows) > 0, nil
+}
+
+// quoteIdentifier renders a SQL identifier with its double quotes doubled.
+func quoteIdentifier(s string) string {
+	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
+}
+
+// quoteLiteral renders a SQL string literal with its single quotes doubled.
+func quoteLiteral(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
 
 // execClient resolves the client a statement runs against.

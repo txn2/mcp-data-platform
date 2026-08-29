@@ -260,12 +260,16 @@ type bodyAborter interface {
 
 // relayResponse streams the fetched response through: status and
 // Content-Type verbatim, Content-Length when the upstream declared one
-// (the gateway's export path uses it for its early over-cap check).
-// The one slog line records host and path only — never the query
-// string, which for a presigned URL is the credential.
+// (the gateway's export path uses it for its early over-cap check), and
+// Link, which is the pagination signal a walk over a fetched document
+// reads (#1544). The one slog line records host and path only — never
+// the query string, which for a presigned URL is the credential.
 func relayResponse(w http.ResponseWriter, resp *http.Response, u *url.URL) {
 	if ct := resp.Header.Get(contentTypeHeader); ct != "" {
 		w.Header().Set(contentTypeHeader, ct)
+	}
+	for _, link := range resp.Header.Values(linkHeader) {
+		w.Header().Add(linkHeader, link)
 	}
 	if resp.ContentLength >= 0 {
 		w.Header().Set("Content-Length", strconv.FormatInt(resp.ContentLength, decimalBase))

@@ -294,8 +294,11 @@ Full documentation lives at [mcp-data-platform.txn2.com](https://mcp-data-platfo
 go build -o mcp-data-platform ./cmd/mcp-data-platform   # build
 go test -race ./...                                     # tests
 make verify                                             # full CI-equivalent suite
+make acceptance                                         # per-ticket acceptance suite against a running server (make dev)
 make osv                                                # osv-scanner, informational (mirrors OpenSSF Scorecard)
 ```
+
+`make acceptance` runs [`test/acceptance`](test/acceptance/acceptance_test.go): one file per ticket, each executing that ticket's acceptance criteria as a real MCP client against a running platform, through the tool a user calls. It targets the dev stack (`make dev`) by default, fails rather than skips when no server answers, and is required by `make verify-release`. `make verify` warns (`acceptance-check`) when production Go changed with no acceptance file beside it.
 
 `make verify` runs `govulncheck`, which does reachability analysis and reports only vulnerabilities your code actually calls. A finding against a dependency with no patched release would otherwise leave every build red, so the report is judged by [`scripts/govulncheck-gate.py`](scripts/govulncheck-gate.py) against [`.govulncheck-allow.txt`](.govulncheck-allow.txt), where an accepted advisory carries the reason it is accepted. The acceptance cannot outlive its reason: the gate fails the build when an accepted advisory starts naming a fixed version, and again when one stops being reported, so a stale line is a build failure rather than a silent suppression. CI runs the same script against the same file.
 

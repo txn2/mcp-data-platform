@@ -3,17 +3,11 @@ package tableregister
 import (
 	"bytes"
 	"encoding/csv"
-	"strconv"
 	"strings"
 	"unicode"
-)
 
-// columnType is the only column type a Hive CSV table admits. Declaring a
-// table with any other type is refused by Trino itself -- "Hive CSV storage
-// format only supports VARCHAR (unbounded)" -- so this is the connector's rule
-// rather than a choice the platform makes, and a join against a typed
-// warehouse column needs a CAST.
-const columnType = "VARCHAR"
+	"github.com/txn2/mcp-data-platform/internal/platform/tablecsv"
+)
 
 // maxColumns caps how wide a registered table can be. A header longer than
 // this is a file whose first line is data, not a header, far more often than
@@ -49,29 +43,7 @@ func ReadHeaderColumns(content []byte) ([]Column, error) {
 	if allBlank(record) {
 		return nil, ErrEmptyHeader
 	}
-	return ColumnsFrom(record), nil
-}
-
-// ColumnsFrom names the columns a header record declares. It is separate from
-// ReadHeaderColumns so that a refusal describing a file calls its columns what
-// the table over that file would have called them, without parsing the header
-// a second time.
-func ColumnsFrom(record []string) []Column {
-	seen := make(map[string]int, len(record))
-	columns := make([]Column, 0, len(record))
-	for i, raw := range record {
-		name := strings.TrimSpace(raw)
-		// A UTF-8 BOM leads the first field of a file many spreadsheet tools
-		// write, and it would otherwise become part of the first column's name.
-		if i == 0 {
-			name = strings.TrimPrefix(name, bomUTF8)
-		}
-		if name == "" {
-			name = "column_" + strconv.Itoa(i+1)
-		}
-		columns = append(columns, Column{Name: uniqueName(name, seen), Type: columnType})
-	}
-	return columns
+	return tablecsv.ColumnsFrom(record), nil
 }
 
 // allBlank reports whether every field of the header was empty, which is a
@@ -83,26 +55,6 @@ func allBlank(record []string) bool {
 		}
 	}
 	return true
-}
-
-// uniqueName disambiguates a repeated column name by suffixing it, and records
-// the result so the suffix itself cannot collide.
-func uniqueName(name string, seen map[string]int) string {
-	key := strings.ToLower(name)
-	n, taken := seen[key]
-	if !taken {
-		seen[key] = 1
-		return name
-	}
-	for {
-		n++
-		candidate := name + "_" + strconv.Itoa(n)
-		if _, clash := seen[strings.ToLower(candidate)]; !clash {
-			seen[key] = n
-			seen[strings.ToLower(candidate)] = 1
-			return candidate
-		}
-	}
 }
 
 // QuoteIdentifier renders a name as a Trino delimited identifier.

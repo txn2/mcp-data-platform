@@ -455,3 +455,106 @@ func TestFollowOutcome_Sentence(t *testing.T) {
 	assert.Equal(t, "scratch.uploads.t on c follows this file but could not be moved to version 7:"+
 		" coordinator down. It is behind the file until it is registered again.", failed.Sentence())
 }
+
+// The checks a write that ran DROP TABLE makes afterwards (#1546): every other
+// registration on the connection is asked for, one that is gone is recorded
+// and reported, and one that answers is left alone.
+
+// registerNamed registers testSource under a table name, following or pinned.
+func registerNamed(t *testing.T, h *harness, name string, follow bool) Registration {
+	t.Helper()
+	res, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch", TableName: name, Source: "mcp", Follow: follow})
+	require.NoError(t, err)
+	return res.Registration
+}
+
+func TestFollow_ReportsARegistrationWhoseTableIsGone(t *testing.T) {
+	h := newHarness(t)
+	following := registerNamed(t, h, "x", true)
+	pinned := registerNamed(t, h, "x_pinned", false)
+	h.trino.missing = map[string]bool{pinned.QualifiedName(): true}
+	src := h.moveHead(newHeadCSV)
+
+	outcomes := h.reg.FollowSource(context.Background(), src, 2)
+	var missing *FollowOutcome
+	for i := range outcomes {
+		if outcomes[i].Missing {
+			missing = &outcomes[i]
+		}
+	}
+	require.NotNil(t, missing, "the missing sibling is reported: %v", Sentences(outcomes))
+	assert.Equal(t, pinned.ID, missing.RegistrationID)
+	assert.Equal(t, pinned.QualifiedName()+" on scratch no longer exists: the table was removed while "+
+		following.QualifiedName()+" was moved to version 2. Register it again to restore it.", missing.Sentence())
+
+	stored, err := h.store.Get(context.Background(), pinned.ID)
+	require.NoError(t, err)
+	assert.True(t, strings.HasPrefix(stored.FollowError, missingPrefix), "the row records it: %q", stored.FollowError)
+	assert.Contains(t, stored.FollowError, following.QualifiedName())
+
+	// A registration already recorded missing is not recorded or reported
+	// again by the next write.
+	for _, o := range h.reg.FollowSource(context.Background(), src, 3) {
+		assert.False(t, o.Missing, "already recorded: %s", o.Sentence())
+	}
+}
+
+func TestFollow_ASiblingThatStillExistsIsNotReported(t *testing.T) {
+	h := newHarness(t)
+	registerNamed(t, h, "x", true)
+	registerNamed(t, h, "x_pinned", false)
+
+	outcomes := h.reg.FollowSource(context.Background(), h.moveHead(newHeadCSV), 2)
+	require.Len(t, outcomes, 2)
+	for _, o := range outcomes {
+		assert.False(t, o.Missing)
+	}
+}
+
+func TestFollow_ALookupThatFailsIsLoggedNotReported(t *testing.T) {
+	h := newHarness(t)
+	registerNamed(t, h, "x", true)
+	pinned := registerNamed(t, h, "x_pinned", false)
+	h.trino.existsErr = errors.New("connection refused")
+
+	for _, o := range h.reg.FollowSource(context.Background(), h.moveHead(newHeadCSV), 2) {
+		assert.False(t, o.Missing, "a connection that cannot answer has not said the table is gone")
+	}
+	stored, err := h.store.Get(context.Background(), pinned.ID)
+	require.NoError(t, err)
+	assert.Empty(t, stored.FollowError)
+}
+
+func TestUnregister_RecordsASiblingWhoseTableIsGone(t *testing.T) {
+	h := newHarness(t)
+	dropped := registerNamed(t, h, "x", true)
+	pinned := registerNamed(t, h, "x_pinned", false)
+	h.trino.missing = map[string]bool{pinned.QualifiedName(): true}
+
+	require.NoError(t, h.reg.Unregister(context.Background(), testCaller(), dropped.ID, "mcp"))
+
+	stored, err := h.store.Get(context.Background(), pinned.ID)
+	require.NoError(t, err)
+	assert.Equal(t, missingPrefix+"the table was removed while "+dropped.QualifiedName()+" was dropped.", stored.FollowError)
+}
+
+func TestRegister_AReplacementReportsASiblingWhoseTableIsGone(t *testing.T) {
+	h := newHarness(t)
+	first := registerNamed(t, h, "x", true)
+	pinned := registerNamed(t, h, "x_pinned", false)
+	h.trino.missing = map[string]bool{pinned.QualifiedName(): true}
+
+	res, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch", TableName: "x", Source: "mcp", Follow: true})
+	require.NoError(t, err)
+	require.Len(t, res.Siblings, 1, "the replacement of %s checks the connection", first.QualifiedName())
+	assert.Equal(t, pinned.ID, res.Siblings[0].RegistrationID)
+	assert.Contains(t, res.Siblings[0].Sentence(), "was replaced.")
+
+	// A registration that replaced nothing ran no DROP and checks nothing.
+	fresh, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch", TableName: "y", Source: "mcp", Follow: true})
+	require.NoError(t, err)
+	assert.Empty(t, fresh.Siblings)
+}

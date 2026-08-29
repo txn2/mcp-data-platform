@@ -381,6 +381,7 @@ internal/platform/sessionview -> pkg/memory
 internal/platform/sessionview -> pkg/session
 internal/platform/sessionview -> pkg/toolkits/knowledge
 internal/platform/tableregister -> internal/logsan
+internal/platform/tableregister -> internal/platform/tablecsv
 internal/platform/tableregister -> pkg/audit
 internal/platform/tableregister -> pkg/contenttype
 internal/platform/tableregister -> pkg/knowledge

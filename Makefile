@@ -46,7 +46,7 @@ GOFMT := gofmt
 GOLINT := golangci-lint
 
 .PHONY: all build test lint lint-full fmt clean install help docs-serve docs-build verify verify-release \
-	tools-check dead-code mutate patch-coverage doc-check posture-check swagger swagger-check verify-checks verify-go verify-lint verify-docker verify-ui \
+	tools-check dead-code mutate patch-coverage doc-check acceptance acceptance-check posture-check swagger swagger-check verify-checks verify-go verify-lint verify-docker verify-ui \
 	semgrep codeql sast osv embed-clean migrate-check \
 	frontend-install frontend-build frontend-build-content-viewer content-viewer-embed \
 	frontend-dev frontend-mock frontend-test frontend-lint frontend-e2e \
@@ -442,6 +442,22 @@ patch-coverage: test
 doc-check:
 	@./scripts/doc-check.sh
 
+## acceptance-check: Warn when production Go changed with no test/acceptance file beside it
+acceptance-check:
+	@./scripts/acceptance-check.sh
+
+## acceptance: Run the per-ticket acceptance suite as a real MCP client against a running server (make dev)
+## Each test/acceptance/issue_<n>_test.go executes one ticket's acceptance
+## criteria through the tool surface a user calls. It fails, rather than
+## skips, when no server answers. Override the target with MCP_BASE_URL and
+## MCP_API_KEY (defaults: the dev server on DEV_API_PORT, the dev API key).
+acceptance:
+	@# dev/start.sh relocates the stack when the default ports are busy and
+	@# records where it went; the suite follows it unless MCP_BASE_URL is set.
+	@set -a; [ -f dev/.dev-ports.env ] && . ./dev/.dev-ports.env; set +a; \
+	echo "Running acceptance suite against $${MCP_BASE_URL:-http://localhost:$${DEV_API_PORT:-8080}}..."; \
+	$(GOTEST) -count=1 -tags=integration ./test/acceptance/ -v
+
 ## posture-check: Fail when README/llms.txt engineering-posture claims go stale
 posture-check:
 	@./scripts/posture-check.sh
@@ -561,9 +577,9 @@ embed-clean:
 
 ## verify-release: Full verify PLUS CodeQL and mutation testing — run only before cutting a release
 ## Both are expensive and must NOT run per-revision; CI runs each on the PR.
-verify-release: verify codeql mutate
+verify-release: verify codeql mutate acceptance
 	@echo ""
-	@echo "=== Release verification complete (incl. CodeQL + mutation testing) ==="
+	@echo "=== Release verification complete (incl. CodeQL, mutation testing and the acceptance suite) ==="
 
 ## verify: Run the CI-equivalent per-commit suite (test, lint, security, SAST, coverage, release)
 ## NOTE: mutation testing and CodeQL are intentionally excluded — both live in
@@ -678,6 +694,7 @@ verify-go:
 	@$(MAKE) --no-print-directory bench-test
 	@$(MAKE) --no-print-directory bench-report-check
 	@$(MAKE) --no-print-directory doc-check
+	@$(MAKE) --no-print-directory acceptance-check
 	@echo "[lane done  $$(date +%T)] verify-go"
 
 ## verify-lint: the two lint targets, in order.

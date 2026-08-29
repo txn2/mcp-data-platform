@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"unicode/utf16"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -34,7 +35,12 @@ type fakeTrino struct {
 	target     trino.ScratchConfig
 	hasTarget  bool
 	statements []string
-	err        error
+	// missing names the qualified tables TableExists answers false for, the
+	// way a store whose listing swept a sibling's metadata would; every
+	// other table exists. existsErr fails every lookup instead.
+	missing   map[string]bool
+	existsErr error
+	err       error
 	// errFor decides the failure per statement, which is how a test makes the
 	// DDL of a registration succeed and the drop that rolls it back fail.
 	errFor func(sql string) error
@@ -94,6 +100,13 @@ func (f *fakeTrino) ScratchTarget(string) (trino.ScratchConfig, bool) {
 // caller who named one directly -- through manage_table, or a form built before
 // an administrator flipped the flag.
 func (f *fakeTrino) AcceptsWrites(string) bool { return !f.readOnly }
+
+func (f *fakeTrino) TableExists(_ context.Context, _, catalog, schema, table string) (bool, error) {
+	if f.existsErr != nil {
+		return false, f.existsErr
+	}
+	return !f.missing[catalog+"."+schema+"."+table], nil
+}
 
 // fakeObjects serves one directory of objects.
 type fakeObjects struct {
@@ -1841,4 +1854,20 @@ func TestRegister_AHeaderTheReaderCannotParseIsRefusedOnce(t *testing.T) {
 		assert.Empty(t, h.trino.statements)
 		assert.Empty(t, h.store.rows)
 	}
+}
+
+// utf16LE encodes text the way a spreadsheet's "Unicode Text" export does:
+// little-endian, with a byte-order mark.
+func utf16LE(text string) []byte {
+	return append([]byte{0xFF, 0xFE}, utf16LEUnmarked(text)...)
+}
+
+// utf16LEUnmarked is the same encoding with no byte-order mark.
+func utf16LEUnmarked(text string) []byte {
+	units := utf16.Encode([]rune(text))
+	out := make([]byte, 0, 2*len(units))
+	for _, unit := range units {
+		out = append(out, byte(unit&0xFF), byte((unit>>8)&0xFF))
+	}
+	return out
 }

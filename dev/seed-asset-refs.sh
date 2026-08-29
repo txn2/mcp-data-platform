@@ -23,7 +23,7 @@ API_KEY="acme-dev-key-2024"
 LOGO_URI="mcp://global/brand/acme-logo.svg"
 # The lookup must never take the stack down: it runs under set -e, and a miss
 # is a grep with no match rather than an error worth aborting a dev startup for.
-LOGO_ID=$(curl -sf "$API/api/v1/resources?scope=global&category=brand&limit=200" \
+LOGO_ID=$(curl -sf "$API/api/v1/resources?scope=global&path=brand&limit=200" \
   -H "X-API-Key: $API_KEY" \
   | tr '{' '\n' | grep -F "\"uri\":\"$LOGO_URI\"" \
   | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -1 || true)

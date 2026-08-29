@@ -49,6 +49,10 @@ func (f *fakeTrino) ScratchTarget(string) (trinotoolkit.ScratchConfig, bool) {
 // caller who named one directly.
 func (f *fakeTrino) AcceptsWrites(string) bool { return !f.readOnly }
 
+func (*fakeTrino) TableExists(context.Context, string, string, string, string) (bool, error) {
+	return true, nil
+}
+
 type fakeObjects struct {
 	body    []byte
 	entries []tableregister.ObjectEntry

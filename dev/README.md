@@ -106,6 +106,34 @@ require no login — open them directly.
 
 Press **Ctrl-C** to stop all services.
 
+### The api-test fixture behind TLS
+
+`acme-dev-api-test-tls` (nginx, host port 9284) terminates TLS in front of the
+api-test fixture with a self-signed certificate `dev/start.sh` generates into
+`dev/.tls` (gitignored). The `api-test-fixture-tls` connection reaches the
+fixture at `https://localhost:9284` and trusts that certificate through
+`tls_ca_bundle_pem`, while the fixture itself sees plain HTTP and writes
+`http://` into its `Link` and `@odata.nextLink` values. That is the shape a
+deployment behind a TLS-terminating proxy has, and the acceptance suite walks
+it (#1543); nothing else in the stack uses this connection.
+
+### Trino and registered tables
+
+The stack runs a Trino (`acme-dev-trino`, host port 9283) with two catalogs
+from `dev/trino/catalog`: `memory`, for ad hoc queries, and `scratch`, a Hive
+catalog over the dev SeaweedFS whose file metastore lives in the `dev-scratch`
+bucket. `dev/start.sh` waits for it and then sets every `TRINO_*` value
+`dev/platform.yaml` reads (`TRINO_ENABLED=true`, `TRINO_HOST=localhost`,
+`TRINO_PORT=9283`, `TRINO_USER=dev`, an empty password, `TRINO_SSL=false`), so
+the `acme-scratch` connection carries a working scratch target and
+`manage_table` / Scratch Tables register tables over uploaded files against
+this stack. The `acme` and `acme-staging` connections point at the same Trino
+but name catalogs it does not have (`warehouse`, `staging`), so a query on
+them fails. The stack's Trino is the default even when `.env` or the shell
+sets `TRINO_HOST`; `DEV_TRINO=external make dev` keeps your own `TRINO_*`
+values instead, and the start-up says which it did. The acceptance suite's
+registered-table tests (`make acceptance`) need the stack's Trino.
+
 ### Stop and Clean Up
 
 ```bash

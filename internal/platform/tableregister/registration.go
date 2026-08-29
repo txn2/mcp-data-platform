@@ -22,6 +22,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/platform/tablecsv"
 )
 
 // Source kinds a registration can be built from. They are the two things a
@@ -34,15 +36,8 @@ const (
 	KindAsset = "asset"
 )
 
-// Column is one column of a registered table.
-//
-// Type is recorded even though Hive CSV admits exactly one: a reader of the
-// record should not have to know the connector's rule to know what a query
-// will get back, and a stored type is what a later format would vary.
-type Column struct {
-	Name string `json:"name"`
-	Type string `json:"type"`
-}
+// Column is one column a registered table declares; see tablecsv.Column.
+type Column = tablecsv.Column
 
 // Registration records that a source object's directory is readable as a table
 // on a connection.
@@ -87,13 +82,18 @@ type Result struct {
 	// Repair is what saving a corrected version changed, or nil when the file
 	// was registered exactly as it was stored.
 	Repair *RepairReport `json:"repair,omitempty"`
+	// Siblings is what a replacing registration found about the OTHER
+	// registrations on the connection after its DROP ran (#1546): one outcome
+	// per table that no longer exists. Empty when every other table is still
+	// there, and always empty for a registration that replaced nothing.
+	Siblings []FollowOutcome `json:"siblings,omitempty"`
 }
 
 // RepairReport is what saving a corrected version of a file changed, which
 // version it was saved as, and what that version did to the other tables
 // registered over the file.
 type RepairReport struct {
-	NormalizeReport
+	tablecsv.NormalizeReport
 	Version int `json:"version"`
 	// Followed is what writing the corrected version did to every OTHER
 	// registration over the file (#1536): a following one was moved onto it,
@@ -120,7 +120,7 @@ func (r *RepairReport) Summary() string {
 // repairSummary says what a correction did, in the terms the person who
 // uploaded the file would use. It is also the change summary the version trail
 // records, so the version panel and the registration message agree.
-func repairSummary(report NormalizeReport) string {
+func repairSummary(report tablecsv.NormalizeReport) string {
 	parts := make([]string, 0, 3)
 	if report.FromLineEndings != "" {
 		parts = append(parts, "rewrote the "+report.FromLineEndings+" line endings as newlines")
@@ -134,7 +134,7 @@ func repairSummary(report NormalizeReport) string {
 	if len(parts) == 0 {
 		return "rewrote it as a plain UTF-8 CSV"
 	}
-	return joinAnd(parts)
+	return tablecsv.JoinAnd(parts)
 }
 
 // QualifiedName is the table as a query names it.
@@ -293,7 +293,7 @@ var (
 	ErrNotCSV = errors.New("only a CSV file can be registered as a table")
 
 	// ErrEmptyHeader means the object had no header row to take columns from.
-	ErrEmptyHeader = errors.New("the file has no header row, so the table has no column names")
+	ErrEmptyHeader = tablecsv.ErrEmptyHeader
 
 	// ErrNoIdentity means the call carried no identity to register under.
 	// Registration records who made it and decides replacement on that, so an
@@ -359,4 +359,12 @@ func (e *refusal) Error() string { return e.reason }
 // Is reports the sentinels a surface matches on.
 func (e *refusal) Is(target error) bool {
 	return target == ErrRefused || (e.repairable && target == ErrNeedsRepair)
+}
+
+// plural renders a count with the form it reads with ("1 row", "2 rows").
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return "1 " + one
+	}
+	return strconv.Itoa(n) + " " + many
 }

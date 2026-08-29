@@ -490,6 +490,28 @@ resource and lets the table follow, which is what a registration does unless
 it was pinned. A bucket destination a script delivers to is the shape that
 overwrites in place, and needs no registration to move.
 
+### When a table disappears
+
+A follow, an unregister and a replacing registration each run `DROP TABLE`.
+Afterwards the write asks the connection whether every other registration on
+it still holds its table, records the ones that do not (`follow_error` opens
+with *The table no longer exists*), and says so: a follow reports it in the
+`tables` sentences beside the tables it moved (`<table> on <connection> no
+longer exists: the table was removed while <other> was moved to version N.
+Register it again to restore it.`), a replacing registration in its result,
+and an unregister on the registration rows the listing reads. A lookup the
+connection cannot answer is logged, not reported, since a connection that
+cannot answer has not said the table is gone. A table dropped outside the
+platform is noticed by the next write that runs DDL on its connection.
+
+The case this exists for is an object store whose prefix listing does not stop
+at a directory boundary. Trino's file metastore drops a table by listing its
+metadata directory, and such a store answers the listing for `x/` with
+`x_pinned/...` too, so dropping `x` takes `x_pinned`'s metadata with it. A
+deployment on a file metastore should run an object store that honors the
+boundary (SeaweedFS before 4.17 does not); the check above is what keeps a
+registration honest either way.
+
 ## Querying what you registered
 
 Every column of a registered table is `VARCHAR`. That is the Hive CSV storage

@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/tablecsv"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -178,10 +180,10 @@ func TestIsCSV(t *testing.T) {
 }
 
 func TestJoinAnd(t *testing.T) {
-	assert.Empty(t, joinAnd(nil))
-	assert.Equal(t, "a", joinAnd([]string{"a"}))
-	assert.Equal(t, "a and b", joinAnd([]string{"a", "b"}))
-	assert.Equal(t, "a, b, and c", joinAnd([]string{"a", "b", "c"}))
+	assert.Empty(t, tablecsv.JoinAnd(nil))
+	assert.Equal(t, "a", tablecsv.JoinAnd([]string{"a"}))
+	assert.Equal(t, "a and b", tablecsv.JoinAnd([]string{"a", "b"}))
+	assert.Equal(t, "a, b, and c", tablecsv.JoinAnd([]string{"a", "b", "c"}))
 }
 
 func TestFileNameOf(t *testing.T) {

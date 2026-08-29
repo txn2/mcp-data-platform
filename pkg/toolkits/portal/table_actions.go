@@ -32,6 +32,10 @@ type TableRegistration struct {
 	// registered, and is empty when none was needed (#1441). The file itself
 	// changed, so the person who asked for the registration is told so.
 	Repaired string `json:"repaired,omitempty"`
+	// Tables is what a replacing registration found about the OTHER tables
+	// on the connection after its DROP ran (#1546): one sentence per table
+	// that no longer exists. Empty when every other table is still there.
+	Tables []string `json:"tables,omitempty"`
 }
 
 // TableRegistrar makes a stored CSV readable as a query-engine table (#1327),
@@ -192,6 +196,9 @@ func (t *Toolkit) handleRegisterTable(
 	// and that is the more consequential half of what just happened.
 	if reg.Repaired != "" {
 		message = reg.Repaired + " " + message
+	}
+	if len(reg.Tables) > 0 {
+		message += " " + strings.Join(reg.Tables, " ")
 	}
 	return toolkit.JSONResultTyped(tableRegistrationOutput{
 		Reference:         input.Reference,

@@ -162,7 +162,7 @@ fi
 # Port checks. The four relocatable ports use their resolved values; the
 # fixed ports (5173 vite, 9090 keycloak, 9091 prometheus, 9180/9181 mock,
 # 9281/9282 fixtures, 9464 metrics) still fail loudly if contended.
-for port in "$DEV_PG_PORT" "$DEV_API_PORT" 5173 "$DEV_S3_PORT" 9090 9091 9180 9181 9281 9282 9464 "$DEV_OLLAMA_PORT"; do
+for port in "$DEV_PG_PORT" "$DEV_API_PORT" 5173 "$DEV_S3_PORT" 9090 9091 9180 9181 9281 9282 9283 9284 9464 "$DEV_OLLAMA_PORT"; do
   if lsof -i ":$port" -sTCP:LISTEN > /dev/null 2>&1; then
     fail "$(port_conflict_msg "$port")"
   fi
@@ -170,6 +170,22 @@ done
 ok "Dev ports free (pg:$DEV_PG_PORT api:$DEV_API_PORT vite:5173 s3:$DEV_S3_PORT ollama:$DEV_OLLAMA_PORT + keycloak/prometheus/fixtures)"
 
 echo ""
+
+# ─── TLS material for the api-test terminator ───────────────────────
+# A self-signed certificate for localhost, generated once and kept under
+# dev/.tls (gitignored). nginx serves it on :9284 in front of the api-test
+# fixture, and the api-test-fixture-tls connection trusts it through
+# tls_ca_bundle_pem, so the platform reaches the fixture over https:// while
+# the fixture itself sees http:// and writes that into its links (#1543).
+if [ ! -s dev/.tls/api-test.crt ] || [ ! -s dev/.tls/api-test.key ]; then
+  mkdir -p dev/.tls
+  openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj "/CN=localhost" \
+    -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" -addext "basicConstraints=critical,CA:TRUE" \
+    -keyout dev/.tls/api-test.key -out dev/.tls/api-test.crt > /dev/null 2>&1 || fail "openssl could not generate the api-test TLS certificate"
+  ok "api-test TLS certificate generated (dev/.tls)"
+else
+  ok "api-test TLS certificate present (dev/.tls)"
+fi
 
 # ─── Start Docker services ──────────────────────────────────────────
 
@@ -232,6 +248,37 @@ for i in $(seq 1 30); do
   sleep 1
 done
 ok "SeaweedFS ready on :$DEV_S3_PORT"
+
+# Wait for Trino. It is the slowest service here (a JVM warming up a
+# coordinator), and the platform's trino toolkit is enabled only once it
+# answers, so a slow start does not become a platform that starts without it.
+info "Waiting for Trino..."
+for i in $(seq 1 120); do
+  if curl -sf http://localhost:9283/v1/info 2>/dev/null | grep -q '"starting":false'; then
+    break
+  fi
+  if [ "$i" -eq 120 ]; then
+    fail "Trino did not become ready within 120s (check 'docker logs acme-dev-trino')"
+  fi
+  sleep 1
+done
+ok "Trino ready on :9283 (catalogs: scratch, memory)"
+# Point the trino toolkit at this Trino: every TRINO_* the platform config
+# reads is set here, SSL and password included, because a value left to the
+# shell or .env (a TRINO_SSL=true or TRINO_PASSWORD from a profile that
+# points at a real cluster) would be read as this connection's. The stack's
+# own Trino is the default, so `make acceptance` and a fresh checkout work
+# with nothing outside this directory; DEV_TRINO=external keeps the TRINO_*
+# values from .env or the shell instead, for a developer who wants the acme
+# connections on a cluster of their own.
+if [ "${DEV_TRINO:-}" = "external" ]; then
+  echo -e "  ${YELLOW}⚠${NC} DEV_TRINO=external: TRINO_* left as set (host ${TRINO_HOST:-unset}); the stack's Trino on :9283 is not used and the registered-table acceptance tests will not pass"
+else
+  if [ -n "${TRINO_HOST:-}" ] && [ "${TRINO_HOST}" != "localhost" ]; then
+    info "TRINO_HOST=${TRINO_HOST} from .env or the shell is set aside; the stack's Trino on :9283 is used (DEV_TRINO=external keeps yours)"
+  fi
+  export TRINO_ENABLED=true TRINO_HOST=localhost TRINO_PORT=9283 TRINO_USER=dev TRINO_PASSWORD="" TRINO_SSL=false TRINO_SSL_VERIFY=false
+fi
 
 # Wait for Prometheus (powers the admin Dashboard's API Gateway tab via
 # the platform's PromQL proxy). Scrapes the platform's /metrics on the
@@ -338,6 +385,14 @@ if which aws > /dev/null 2>&1; then
     sleep 1
   done
   ok "S3 bucket portal-assets ready"
+  # The scratch catalog's file metastore lives in its own bucket, which
+  # nothing else writes to (docs/server/registered-tables.md).
+  AWS_ACCESS_KEY_ID=dev-access-key AWS_SECRET_ACCESS_KEY=dev-secret-key \
+    aws --endpoint-url http://localhost:$DEV_S3_PORT s3 ls s3://dev-scratch > /dev/null 2>&1 || \
+  AWS_ACCESS_KEY_ID=dev-access-key AWS_SECRET_ACCESS_KEY=dev-secret-key \
+    aws --endpoint-url http://localhost:$DEV_S3_PORT s3 mb s3://dev-scratch > /dev/null 2>&1 || \
+    fail "Could not create the dev-scratch S3 bucket"
+  ok "S3 bucket dev-scratch ready (Trino scratch metastore)"
 else
   echo -e "  ${YELLOW}⚠${NC} aws CLI not found — S3 bucket not created. Install: brew install awscli"
 fi
@@ -605,6 +660,49 @@ fi
 # everything else (auth URL, token URL, client credentials, callback)
 # is already wired. dev-mcp-mock auto-grants on /authorize, so the
 # "browser flow" is a single redirect through a new tab.
+# The same fixture behind TLS termination (#1543): the connection's base_url
+# is https://, the fixture sees plain HTTP and writes http:// into its links.
+# It trusts the self-signed certificate generated above, and shares the
+# fixture's catalog.
+info "Registering api-test fixture connection behind TLS..."
+APITEST_TLS_BODY=$(APITEST_CATALOG_READY="$APITEST_CATALOG_READY" APITEST_CATALOG_ID="$APITEST_CATALOG_ID" APITEST_DEV_KEY_VAL="$APITEST_DEV_KEY_VAL" python3 -c '
+import json, os
+ready = os.environ.get("APITEST_CATALOG_READY", "0") == "1"
+catalog_id = os.environ.get("APITEST_CATALOG_ID", "")
+key = os.environ.get("APITEST_DEV_KEY_VAL", "")
+with open("dev/.tls/api-test.crt") as f:
+    ca = f.read()
+config = {
+    "base_url": "https://localhost:9284",
+    "auth_mode": "api_key",
+    "credential": key,
+    "api_key_placement": "header",
+    "api_key_header": "X-API-Key",
+    "connection_name": "api-test-fixture-tls",
+    "connect_timeout": "5s",
+    "call_timeout": "10s",
+    "trust_level": "untrusted",
+    "tls_ca_bundle_pem": ca,
+}
+if ready:
+    config["catalog_id"] = catalog_id
+body = {
+    "config": config,
+    "description": "Dev fixture behind TLS termination: the api-test fixture at https://, writing http:// links (#1543)",
+}
+print(json.dumps(body))
+')
+APITEST_TLS_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
+  -H "X-API-Key: acme-dev-key-2024" \
+  -H "Content-Type: application/json" \
+  -d "$APITEST_TLS_BODY" \
+  http://localhost:$DEV_API_PORT/api/v1/admin/connection-instances/api/api-test-fixture-tls || echo "000")
+if [ "$APITEST_TLS_HTTP" = "200" ] || [ "$APITEST_TLS_HTTP" = "201" ]; then
+  ok "api-test fixture connection behind TLS registered (api-test-fixture-tls on :9284)"
+else
+  echo -e "  ${YELLOW}⚠${NC} api-test-fixture-tls register returned HTTP $APITEST_TLS_HTTP"
+fi
+
 info "Registering oauth-mcp-dev connection (MCP gateway via authorization_code, Keycloak IdP)..."
 OAUTH_MCP_BODY='{"config":{"endpoint":"http://localhost:9181/mcp","auth_mode":"oauth","oauth_grant":"authorization_code","oauth_authorization_url":"http://localhost:9090/realms/mcp-platform/protocol/openid-connect/auth","oauth_token_url":"http://localhost:9090/realms/mcp-platform/protocol/openid-connect/token","oauth_client_id":"oauth-mcp-dev","oauth_client_secret":"oauth-mcp-dev-secret","oauth_scope":"openid profile email","connection_name":"oauth-mcp-dev","connect_timeout":"5s","call_timeout":"10s"},"description":"Dev fixture: dev-mcp-mock (9181) via authorization_code OAuth against Keycloak (realm mcp-platform). Click Connect to authorize."}'
 OAUTH_MCP_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
