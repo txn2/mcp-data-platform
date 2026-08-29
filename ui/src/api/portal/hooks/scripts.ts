@@ -6,6 +6,7 @@ import type {
   ScriptVersion,
 } from "@/api/admin/types";
 import { ApiError, apiFetch } from "../client";
+import { scriptsKey } from "./scriptKeys";
 
 // Portal script hooks (#1290): the surface for the people who own the
 // scripts. Saving a version makes it the version that runs, and the
@@ -110,6 +111,12 @@ export interface ScriptRunDetail extends ScriptRun {
   log_truncated?: boolean;
   metrics: { steps: number; duration_ms: number; queries: number; exports: number };
   outputs?: ScriptRunOutput[];
+  // The state the run read at creation (an input beside its parameters) and,
+  // on a succeeded run that saved, what it wrote and the revision (#1537).
+  state_revision?: number;
+  state_read?: Record<string, unknown>;
+  state_written?: Record<string, unknown>;
+  state_revision_written?: number;
   created_at: string;
 }
 
@@ -154,6 +161,8 @@ export interface ScriptContract {
   refusal?: string;
   schedule?: { cron_spec: string; timezone: string; enabled: boolean; next_run_at?: string };
   last_successful_run?: ScriptContractRun;
+  // state says whether this script carries anything between runs (#1537).
+  state?: import("./scriptState").ScriptContractState;
 }
 
 // PortalScriptRow is one script in the portal listing.
@@ -173,9 +182,14 @@ interface ListResponse<T> {
   total: number;
 }
 
-// scriptsKey roots every portal script query, so one invalidation refreshes
-// the listing and any open detail together.
-const scriptsKey = ["portal", "scripts"] as const;
+// The state hooks (#1537) live in scriptState.ts and share the query root.
+export {
+  useClearScriptState,
+  useScriptState,
+  useSetScriptState,
+  type ScriptContractState,
+  type ScriptState,
+} from "./scriptState";
 
 // ScriptListFilter narrows the listing to one category, one tag, free text, or
 // any combination (#1369, #1405). Every axis is applied by the server rather
@@ -534,6 +548,11 @@ export interface ScriptValidation {
   // dynamic_tools is true when a call computes the tool it invokes, which
   // shortens the tool list. A computed argument set shortens connections.
   dynamic_tools?: boolean;
+  // reads_state and saves_state say what the source does with the state a
+  // script carries between runs (#1537): run.state on the way in,
+  // platform.save_state on the way out.
+  reads_state?: boolean;
+  saves_state?: boolean;
   note?: string;
 }
 
@@ -560,6 +579,9 @@ export interface ScriptDryRun {
   log_truncated?: boolean;
   metrics: { steps: number; duration_ms: number; queries: number; exports: number };
   outputs: ScriptDryRunOutput[];
+  // state is the object the source would have saved with platform.save_state,
+  // absent when it saved none. The draft persists it no more than an output.
+  state?: Record<string, unknown>;
   message: string;
 }
 

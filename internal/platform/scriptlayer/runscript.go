@@ -199,6 +199,15 @@ func runResult(sc *script.Script, run *script.Run) map[string]any {
 	out := runSummary(sc, run)
 	out["log"] = run.Log
 	out["log_truncated"] = run.LogTruncated
+	// The state read is an input of the run exactly as params are, and what
+	// it saved is part of what it did (#1537): a run explains itself from its
+	// own row, including the revision it read and the one it wrote.
+	out["state_revision"] = run.StateRevision
+	out["state_read"] = orEmptyParams(run.StateRead)
+	if run.StateWritten != nil {
+		out["state_written"] = run.StateWritten
+		out["state_revision_written"] = run.StateRevisionWritten
+	}
 	if run.Status == script.RunStatusFailed {
 		out["error"] = run.Error
 		out["retryable"] = false

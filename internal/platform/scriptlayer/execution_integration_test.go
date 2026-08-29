@@ -54,6 +54,11 @@ type memRuns struct {
 	// claims counts claim attempts, which is how a replica that must not claim
 	// is held to it.
 	claims int
+	// states is the script store the state half lives in (#1537): a run pins
+	// the state it reads at enqueue and applies its write through the same
+	// compare-and-set the real store's Finish applies. Nil models a deployment
+	// that keeps no state.
+	states *memStore
 }
 
 func newMemRuns() *memRuns { return &memRuns{byID: map[string]*script.Run{}} }
@@ -65,6 +70,12 @@ func (m *memRuns) Enqueue(_ context.Context, r *script.Run) error {
 	r.Status, r.ScheduledFor = script.RunStatusPending, now
 	if r.FireTime.IsZero() {
 		r.FireTime = now
+	}
+	r.StateRead = map[string]any{}
+	if m.states != nil {
+		if st, ok := m.states.states[r.ScriptID]; ok {
+			r.StateRevision, r.StateRead = st.Revision, st.Value
+		}
 	}
 	stored := *r
 	m.byID[r.ID] = &stored
@@ -165,6 +176,14 @@ func (m *memRuns) Finish(_ context.Context, lease script.RunLease, res script.Ru
 	finished := time.Now().UTC()
 	r.Status, r.Error, r.Log, r.LogTruncated = res.Status, res.Error, res.Log, res.LogTruncated
 	r.Metrics, r.FinishedAt = res.Metrics, &finished
+	if res.State != nil && res.Status == script.RunStatusSucceeded && m.states != nil {
+		revision, err := m.states.writeRunState(r.ScriptID, r.ID, r.StateRevision, res.State.Value)
+		if err != nil {
+			r.Status, r.Error = script.RunStatusFailed, err.Error()
+			return nil
+		}
+		r.StateWritten, r.StateRevisionWritten = res.State.Value, revision
+	}
 	return nil
 }
 
@@ -435,6 +454,7 @@ func execServerWithWorker(t *testing.T, workerOn bool, allowedConnections ...str
 	t.Helper()
 	store := newMemStore()
 	runs := newMemRuns()
+	runs.states = store
 	assets, versions, s3 := newMemAssets(), newMemVersions(), newMemS3()
 	audit := &recordingAudit{}
 	queries := &recordingQueries{rows: []map[string]any{

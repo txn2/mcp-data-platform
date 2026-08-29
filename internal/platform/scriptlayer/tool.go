@@ -34,6 +34,7 @@ const (
 	cmdDiff       = "diff"
 	cmdRuns       = "runs"
 	cmdGetRun     = "get_run"
+	cmdState      = "state"
 
 	cmdScheduleSet     = "schedule_set"
 	cmdScheduleList    = "schedule_list"
@@ -96,6 +97,13 @@ type manageScriptInput struct {
 	// while this selects runs already recorded.
 	RunID     string `json:"run_id,omitempty"`
 	RunStatus string `json:"run_status,omitempty"`
+
+	// StateAction selects what the state command does — get, set or clear —
+	// and State carries the whole object a set replaces the state with
+	// (#1537). It is its own field rather than Args because it is not
+	// parameter values: it is what the next run reads as run.state.
+	StateAction string         `json:"state_action,omitempty"`
+	State       map[string]any `json:"state,omitempty"`
 
 	// Content editing and navigation arguments, shared verbatim with
 	// manage_prompt and manage_asset through pkg/textpatch.
@@ -161,6 +169,7 @@ func (h *Handle) commands() map[string]commandHandler {
 		cmdDiff:       h.handleDiff,
 		cmdRuns:       h.handleRuns,
 		cmdGetRun:     h.handleGetRun,
+		cmdState:      h.handleState,
 
 		cmdScheduleSet:     h.handleScheduleSet,
 		cmdScheduleList:    h.handleScheduleList,
@@ -258,7 +267,7 @@ func manageScriptSchema() any {
 			keyEnum: []string{
 				cmdCreate, cmdUpdate, cmdDelete, cmdGet, cmdList, cmdValidate,
 				cmdRunDraft, cmdHelp, cmdPatch, cmdLocate, cmdGetContent,
-				cmdOutline, cmdStats, cmdDiff, cmdRuns, cmdGetRun,
+				cmdOutline, cmdStats, cmdDiff, cmdRuns, cmdGetRun, cmdState,
 				cmdScheduleSet, cmdScheduleList, cmdScheduleEnable, cmdScheduleDisable,
 			},
 			keyDescription: "The operation to perform. Call 'help' first if you have not written a " +
@@ -337,6 +346,20 @@ func manageScriptSchema() any {
 				script.RunStatusSucceeded, script.RunStatusFailed,
 			},
 			keyDescription: "Filters the runs listing to one run status.",
+		},
+		"state_action": map[string]any{
+			keyType: valString,
+			keyEnum: []string{stateActionGet, stateActionSet, stateActionClear},
+			keyDescription: "What the state command does: get (the default) reads the script's state, " +
+				"the one JSON object a run reads as run.state and saves with platform.save_state; " +
+				"set replaces it with the object in state; clear resets it to {} so the next run starts over. " +
+				"A reset moves the revision, and a run in flight that read the old one fails at its write.",
+		},
+		"state": map[string]any{
+			keyType: valObject,
+			keyDescription: fmt.Sprintf("The whole state object for state_action=set, at most %d bytes serialized. "+
+				"Keys mean whatever the script says they mean; a watermark is state[\"synced_through\"].",
+				script.MaxStateBytes),
 		},
 	}
 	maps.Copy(props, textpatchProperties())

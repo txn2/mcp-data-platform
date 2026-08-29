@@ -498,8 +498,16 @@ run materializes, for the most recent fire that has come due, and the fires
 before it are counted on the schedule's `missed_fires`. A catch-up burst the
 moment the platform recovers is worse than a visible gap: each of those runs
 would compute a date nobody is waiting on any more, all at once, against the
-warehouse. A backfill somebody actually wants is a `run_script` call with the
-parameters they want.
+warehouse.
+
+What that gap costs depends on how the script finds its window. A job that
+computes its window from `run.fire_time` (the previous day, the previous hour)
+leaves the missed fires uncovered, and a backfill is a `run_script` call per
+missing window with the parameters that name it. A job written against its own
+[state](#state-what-a-run-carries-to-the-next) needs none of that: it reads
+`run.state["synced_through"]`, pulls from there to the fire time, and saves the
+new mark, so the fire after downtime covers everything the missed fires would
+have. Backfill still exists for a job that wants a specific window.
 
 **A failed scheduled run is mailed to the person accountable for it** — the
 script's owner — carrying the run id, the failure, and the tail of what the
@@ -745,6 +753,87 @@ record is readable through the tool:
 |---|---|
 | `manage_script command=runs name=daily-sales` | What has this script done lately? |
 | `manage_script command=get_run run_id=…` | What did this run do, and what did it print? |
+| `manage_script command=state name=daily-sales` | What will the next run read as `run.state`, and who wrote it? |
+
+## State: what a run carries to the next
+
+A script has one JSON object of state, kept by the platform. A run reads it as
+`run.state` and writes it with `platform.save_state(obj)`; nothing in the
+platform knows or cares what the keys mean. A watermark is
+`state["synced_through"]`, a cursor is `state["cursor"]`, a set of ids already
+handled is a list, a count of consecutive empty pulls is a number. It is bounded
+at 64 KiB because state is a cursor or a summary, not a dataset: a script that
+wants to keep a table keeps a resource.
+
+```python
+since = run.state.get("synced_through", "1970-01-01T00:00:00Z")
+until = run.fire_time
+rows = platform.query(connection="primary", sql="""
+    SELECT order_id, region, amount, updated_at
+      FROM sales.orders
+     WHERE updated_at > from_iso8601_timestamp(:since)
+       AND updated_at <= from_iso8601_timestamp(:until)
+""", params={"since": since, "until": until})["rows"]
+if rows:
+    platform.export(name="orders-delta-" + until, rows=rows, format="csv")
+platform.save_state({"synced_through": until, "last_delta_rows": len(rows)})
+```
+
+`manage_script get name=example-incremental-sync` returns this as a worked
+example.
+
+**What a run reads.** `run.state` is the state as it stood when the run was
+*created*, a frozen dict, `{}` for a script that has never saved any. It is
+read once, at creation, with the state's revision, and both are recorded on
+the run row beside `params` (`state_revision`, `state_read`). The state read
+is an input of the run exactly as the parameters are, so the determinism
+contract reads:
+
+> same script version + same parameters + same state read + same underlying
+> data => same output
+
+**When the write lands.** `save_state` replaces the whole object, and calling
+it twice stages the last value: the run's write is one write. It is applied
+when the run **succeeds**, in the same transaction that marks it succeeded,
+with a compare-and-set on the revision the run read. A failed run leaves the
+state where it was, so a watermark never moves past work that did not happen.
+On success the run row records the state as written and the revision that
+produced (`state_written`, `state_revision_written`), so `get_run` explains
+the run from its own row.
+
+**Two runs, one revision.** The schedule overlap policy already keeps two fires
+of one schedule from running at once. A `run_script` call during a scheduled
+run, or a reclaimed run whose predecessor is still winding down, can both read
+revision N. One of them writes N+1; the other fails at its write with a message
+naming the run that wrote, and its outputs stand, since they were produced
+from the state it read. The failure is what makes the interleaving visible
+instead of silently losing one of the two writes. It holds across replicas
+because it is a row predicate, not a lock.
+
+**Resetting it.** A wrong watermark is otherwise stuck, and "clear it and let
+the next run start over" is the recovery. The owner and an administrator read,
+replace and clear the state with `manage_script command=state` and
+`state_action` `get`, `set` (with `state`, the whole object) or `clear`, and
+on the script's portal page under **State**. A reset moves the revision and is
+recorded with who did it, and a run in flight that read the old revision fails
+at its write, which is correct: the reset was after its premise. Neither
+`set` nor `clear` is admitted from inside a run, whose one way to write state
+is `save_state` under the compare-and-set.
+
+**What a draft does with it.** A draft run reads the live state and previews
+the write: `run_draft` and the portal's dry run report the state the source
+would have saved (`state`) beside the outputs it would have written, and
+persist neither. The dry-run account keeps it, so a reviewer reads what the
+code would have carried forward.
+
+**What a reader learns.** `validate` reports `reads_state` and `saves_state`
+from the source, and the contract every reference resolves to carries a `state`
+block: whether the script reads or saves state, the revision, and when it last
+changed. A script that never calls `save_state` has run rows with no state
+written and a contract that says it keeps none.
+
+State belongs to the script, not to a version of it: it survives a version
+save, a disable and an ownership transfer, and it is deleted with the script.
 
 ## Failures
 

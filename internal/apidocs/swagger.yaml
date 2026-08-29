@@ -5580,6 +5580,13 @@ definitions:
         - $ref: '#/definitions/script.ContractSchedule'
         description: Schedule is the cadence this script fires on, nil when it has
           none.
+      state:
+        allOf:
+        - $ref: '#/definitions/script.ContractState'
+        description: |-
+          State says whether this script carries anything from one run to the next
+          (#1537), and where that state stands. Nil only on a contract composed
+          without a state read.
       status:
         example: active
         type: string
@@ -5672,6 +5679,27 @@ definitions:
         example: America/Los_Angeles
         type: string
     type: object
+  script.ContractState:
+    properties:
+      reads_state:
+        description: |-
+          Reads is true when the source reads run.state, Saves when it calls
+          platform.save_state. A script that does neither keeps no state, whatever
+          the revision says: a reset can have moved it.
+        example: true
+        type: boolean
+      revision:
+        description: Revision is the state's current revision, 0 when nothing was
+          ever saved.
+        example: 3
+        type: integer
+      saves_state:
+        example: true
+        type: boolean
+      updated_at:
+        description: UpdatedAt is when the state last changed, nil at revision 0.
+        type: string
+    type: object
   script.DryRun:
     properties:
       created_at:
@@ -5702,6 +5730,14 @@ definitions:
         type: string
       script_id:
         type: string
+      state_written:
+        additionalProperties: {}
+        description: |-
+          StateWritten is the state the draft would have saved, nil when the
+          source saved none. A draft persists no state, exactly as it persists no
+          output; the account carries the object so a reviewer reads what the
+          code would have carried forward.
+        type: object
       status:
         description: |-
           Status is RunStatusSucceeded or RunStatusFailed. A draft run has no
@@ -6139,6 +6175,13 @@ definitions:
       run_id:
         example: run_a1b2c3d4
         type: string
+      state:
+        additionalProperties: {}
+        description: |-
+          State is the object the source would have saved with
+          platform.save_state, absent when it saved none (#1537). The draft
+          persists it no more than it persists an output.
+        type: object
       status:
         example: succeeded
         type: string
@@ -6319,6 +6362,21 @@ definitions:
         type: string
       started_at:
         type: string
+      state_read:
+        additionalProperties: {}
+        type: object
+      state_revision:
+        description: |-
+          StateRevision and StateRead are the state the run read at creation, an
+          input of the run beside its parameters (#1537). StateWritten and
+          StateRevisionWritten are what a succeeded run saved and the revision
+          that produced, absent on a run that saved nothing.
+        type: integer
+      state_revision_written:
+        type: integer
+      state_written:
+        additionalProperties: {}
+        type: object
       status:
         example: succeeded
         type: string
@@ -6585,6 +6643,39 @@ definitions:
       message:
         description: Message states the outcome in the owner's terms.
         example: Saved, and this version is what runs now.
+        type: string
+    type: object
+  scripthttp.stateRequest:
+    properties:
+      state:
+        additionalProperties: {}
+        type: object
+    type: object
+  scripthttp.stateResponse:
+    properties:
+      message:
+        description: Message states what a write means for the next run.
+        type: string
+      revision:
+        description: Revision counts writes; 0 means nothing was ever saved or reset.
+        example: 3
+        type: integer
+      run_id:
+        description: |-
+          RunID names the run that wrote this revision, and UpdatedBy the person
+          who set or cleared it; one of the two is set past revision 0.
+        example: dpx_a1b2c3d4
+        type: string
+      state:
+        additionalProperties: {}
+        description: State is the object itself, {} when nothing has been saved.
+        type: object
+      updated_at:
+        description: UpdatedAt is when this revision was written, absent at revision
+          0.
+        type: string
+      updated_by:
+        example: jane@example.com
         type: string
     type: object
   scripthttp.validateResponse:
@@ -17103,6 +17194,128 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Edit a script's source
+      tags:
+      - Scripts
+  /portal/scripts/{id}/state:
+    delete:
+      description: Resets the state of a script the caller owns to an empty object
+        and moves its revision forward, recording who did it, so the next run starts
+        over. A run already in flight that read the previous revision fails at its
+        write.
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/scripthttp.stateResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Clear a script's state
+      tags:
+      - Scripts
+    get:
+      description: 'Returns the one JSON object a script carries from run to run,
+        with the revision the platform holds it at and who wrote it: the run that
+        saved it, or the person who set or cleared it. Restricted to the script''s
+        owner and to administrators.'
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/scripthttp.stateResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get a script's state
+      tags:
+      - Scripts
+    put:
+      consumes:
+      - application/json
+      description: Replaces the whole state object of a script the caller owns and
+        moves its revision forward, recording who did it. The next run reads this
+        object; a run already in flight that read the previous revision fails at its
+        write, because the reset was after its premise. Refused when a value is not
+        JSON-representable or the object is over the size bound.
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: The whole state object
+        in: body
+        name: state
+        required: true
+        schema:
+          $ref: '#/definitions/scripthttp.stateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/scripthttp.stateResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Replace a script's state
       tags:
       - Scripts
   /portal/scripts/{id}/validate:

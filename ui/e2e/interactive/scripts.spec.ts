@@ -77,6 +77,7 @@ test.describe("Portal script pages", () => {
       "About",
       "Source",
       "Run history",
+      "State",
       "Owner",
     ]);
 
@@ -335,6 +336,35 @@ test.describe("Portal script pages", () => {
     await expect(page.getByText(/now belongs to marcus.johnson@example.com/)).toBeVisible();
     // The page re-reads the script, so the contract shows where it landed.
     await expect(page.getByText("marcus.johnson@example.com").first()).toBeVisible();
+  });
+
+  // The state a script carries between runs (#1537): read on its page at the
+  // revision the platform holds it, and reset there. The clear goes through
+  // the mock server, so what the card reads back is the revision the reset
+  // moved it to, which is what a run in flight fails against.
+  test("an owner reads the state a script carries between runs, and clears it", async ({
+    page,
+  }) => {
+    await gotoScripts(page);
+    await page.getByRole("row").filter({ hasText: "Daily Sales Report" }).click();
+
+    // Folded, with where the state stands in the header.
+    await expect(page.getByRole("button", { name: /^State/ })).toContainText("Revision 41");
+    await page.getByRole("button", { name: /^State/ }).click();
+    await expect(page.getByTestId("script-state")).toContainText('"synced_through": "2026-08-13"');
+    await expect(page.getByText("run run-001")).toBeVisible();
+
+    // A clear is confirmed before it lands, and the answer says what it
+    // means for the next run.
+    await page.getByRole("button", { name: "Clear state" }).click();
+    await expect(page.getByText(/starts from an empty object/)).toBeVisible();
+    await page.getByRole("button", { name: "Clear", exact: true }).click();
+    await expect(page.getByText(/State cleared/)).toBeVisible();
+    await expect(page.getByTestId("script-state")).toHaveText("{}");
+    await expect(page.getByText("sarah.chen@example.com").last()).toBeVisible();
+    // Folded again, the header states the revision the clear moved it to.
+    await page.getByRole("button", { name: /^State/ }).click();
+    await expect(page.getByRole("button", { name: /^State/ })).toContainText("Revision 42");
   });
 
   // Editing the code is the second mutation on this surface, and there is one

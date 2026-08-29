@@ -238,22 +238,27 @@ func (s *Store) insertScheduledRun(ctx context.Context, r *script.Run, status st
 	if err != nil {
 		return false, fmt.Errorf("marshal run params: %w", err)
 	}
+	var stateRead []byte
 	row := s.db.QueryRowContext(ctx, `
 		INSERT INTO script_runs (id, script_id, script_version_id, version, trigger_kind,
 		                         status, params, requested_by, fire_time, scheduled_for,
-		                         schedule_id, error, finished_at)
+		                         schedule_id, error, finished_at, state_revision, state_read)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $10, $11,
-		        CASE WHEN $6 = 'skipped_overlap' THEN NOW() END)
+		        CASE WHEN $6 = 'skipped_overlap' THEN NOW() END,
+		        `+stateAtCreation+`)
 		ON CONFLICT DO NOTHING
-		RETURNING created_at, updated_at`,
+		RETURNING state_revision, state_read, created_at, updated_at`,
 		r.ID, r.ScriptID, r.VersionID, r.Version, script.TriggerSchedule,
 		status, params, r.RequestedBy, r.FireTime, r.ScheduleID, overlapReason(status))
-	err = row.Scan(&r.CreatedAt, &r.UpdatedAt)
+	err = row.Scan(&r.StateRevision, &stateRead, &r.CreatedAt, &r.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
 	if err != nil {
 		return false, fmt.Errorf("materialize scheduled run: %w", err)
+	}
+	if err := json.Unmarshal(stateRead, &r.StateRead); err != nil {
+		return false, fmt.Errorf("unmarshal run state read: %w", err)
 	}
 	return true, nil
 }

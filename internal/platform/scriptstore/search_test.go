@@ -97,6 +97,8 @@ func TestContract_ComposesTheWholeDocument(t *testing.T) {
 		WithArgs("script_1", script.RunStatusSucceeded).
 		WillReturnRows(sqlmock.NewRows(runSelectColumns).
 			AddRow(runRow(script.RunStatusSucceeded, 1, []byte(`[{"name":"sales","asset_id":"asset_7","asset_version":4}]`))...))
+	mock.ExpectQuery(regexp.QuoteMeta("FROM script_state WHERE script_id = $1")).
+		WillReturnRows(sqlmock.NewRows(stateSelectColumns).AddRow(stateRow(3)...))
 
 	got, err := s.Contract(context.Background(), "script_1")
 
@@ -111,6 +113,9 @@ func TestContract_ComposesTheWholeDocument(t *testing.T) {
 	require.NotNil(t, got.LastRun)
 	require.Len(t, got.LastRun.Outputs, 1)
 	assert.Equal(t, script.OutputKindAsset, got.LastRun.Outputs[0].Kind)
+	require.NotNil(t, got.State)
+	assert.Equal(t, int64(3), got.State.Revision, "the contract carries the state's revision")
+	require.NotNil(t, got.State.UpdatedAt)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -142,6 +147,8 @@ func TestContract_ToleratesNoScheduleAndNoRun(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows(scheduleSelectColumns))
 	mock.ExpectQuery(regexp.QuoteMeta("FROM script_runs")).
 		WillReturnRows(sqlmock.NewRows(runSelectColumns))
+	mock.ExpectQuery(regexp.QuoteMeta("FROM script_state")).
+		WillReturnRows(sqlmock.NewRows(stateSelectColumns))
 
 	got, err := s.Contract(context.Background(), "script_1")
 
@@ -149,6 +156,10 @@ func TestContract_ToleratesNoScheduleAndNoRun(t *testing.T) {
 	require.NotNil(t, got)
 	assert.Nil(t, got.Schedule)
 	assert.Nil(t, got.LastRun)
+	require.NotNil(t, got.State, "the contract always says what the script does with state")
+	assert.Zero(t, got.State.Revision, "no state row is revision 0")
+	assert.False(t, got.State.Reads)
+	assert.False(t, got.State.Saves)
 	assert.Empty(t, got.Refusal, "never having run is not a refusal")
 	require.NoError(t, mock.ExpectationsWereMet())
 }

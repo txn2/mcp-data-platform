@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
@@ -35,6 +36,11 @@ type memStore struct {
 	versionErr error
 	enabledErr error
 	nextID     int
+	// states is the state half of the store (#1537), keyed by script id; a
+	// missing entry is revision 0 and {}, as the real store answers. stateErr
+	// fails both reads and writes on demand.
+	states   map[string]*script.State
+	stateErr error
 }
 
 func newMemStore() *memStore {
@@ -42,7 +48,55 @@ func newMemStore() *memStore {
 		scripts:   map[string]*script.Script{},
 		versions:  map[string][]script.Version{},
 		schedules: map[string]*script.Schedule{},
+		states:    map[string]*script.State{},
 	}
+}
+
+func (m *memStore) GetState(_ context.Context, scriptID string) (*script.State, error) {
+	if m.stateErr != nil {
+		return nil, m.stateErr
+	}
+	if st, ok := m.states[scriptID]; ok {
+		out := *st
+		return &out, nil
+	}
+	return script.EmptyState(scriptID), nil
+}
+
+func (m *memStore) SetState(_ context.Context, scriptID string, value map[string]any, by string) (*script.State, error) {
+	if m.stateErr != nil {
+		return nil, m.stateErr
+	}
+	if value == nil {
+		value = map[string]any{}
+	}
+	next := int64(1)
+	if prior, ok := m.states[scriptID]; ok {
+		next = prior.Revision + 1
+	}
+	st := &script.State{ScriptID: scriptID, Value: value, Revision: next, UpdatedBy: by, UpdatedAt: time.Now().UTC()}
+	m.states[scriptID] = st
+	out := *st
+	return &out, nil
+}
+
+// writeRunState applies one run's state write under the compare-and-set the
+// real store's Finish applies, so the integration tests exercise the same
+// contract the database enforces.
+func (m *memStore) writeRunState(scriptID, runID string, read int64, value map[string]any) (int64, error) {
+	current, ok := m.states[scriptID]
+	var revision int64
+	if ok {
+		revision = current.Revision
+	}
+	if revision != read {
+		return 0, &script.StateConflictError{Read: read, Current: revision, WrittenBy: current.WrittenBy()}
+	}
+	if value == nil {
+		value = map[string]any{}
+	}
+	m.states[scriptID] = &script.State{ScriptID: scriptID, Value: value, Revision: revision + 1, RunID: runID, UpdatedAt: time.Now().UTC()}
+	return revision + 1, nil
 }
 
 func (m *memStore) Create(_ context.Context, sc *script.Script, author script.Author) error {

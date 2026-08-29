@@ -419,6 +419,20 @@ export async function openScriptSchedule(page: Page): Promise<void> {
 }
 
 /**
+ * openScriptState opens the State section (#1537): the one JSON object the
+ * script carries from run to run, folded by default with its revision in the
+ * header, and the owner's two resets beneath the object once it is open.
+ */
+export async function openScriptState(page: Page): Promise<void> {
+  await page
+    .getByRole("button", { name: /^State/ })
+    .click({ timeout: 3_000 })
+    .catch(() => {});
+  await page.getByTestId("script-state").scrollIntoViewIfNeeded({ timeout: 3_000 });
+  await page.waitForTimeout(500);
+}
+
+/**
  * openScriptOwner scrolls to the owner section, the one control on a script's
  * page that belongs to an administrator rather than to its owner (#1404):
  * moving the script to another person, which hands over everything the owner

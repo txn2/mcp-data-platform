@@ -21,7 +21,8 @@ var runSelectColumns = []string{
 	"id", "script_id", "script_version_id", "version", "trigger_kind", "status",
 	"params", "fire_time", "requested_by", "scheduled_for", "started_at", "finished_at", "attempt",
 	"locked_until", "locked_by", "error", "log_text", "log_truncated", "metrics", "outputs",
-	"schedule_id", "created_at", "updated_at",
+	"schedule_id", "state_revision", "state_read", "state_written", "state_revision_written",
+	"created_at", "updated_at",
 }
 
 // runRow returns one full run row in runColumns order.
@@ -33,9 +34,12 @@ func runRow(status string, attempt int, outputs []byte) []driver.Value { //nolin
 		"dpx_1", "script_1", "sver_1", 3, script.TriggerTool, status,
 		[]byte(`{"day":"2026-08-12"}`), rowTime, "jane@example.com", rowTime, nil, nil, attempt,
 		nil, "worker-a", "", "", false, []byte(`{"steps":10}`), outputs,
-		"", rowTime, rowTime,
+		"", int64(0), []byte("{}"), nil, nil, rowTime, rowTime,
 	}
 }
+
+// enqueueReturning is the column set an enqueue insert hands back.
+var enqueueReturning = []string{"fire_time", "scheduled_for", "state_revision", "state_read", "created_at", "updated_at"}
 
 // testLease is the fencing token matching runRow's worker and attempt.
 var testLease = script.RunLease{RunID: "dpx_1", Worker: "worker-a", Attempt: 1}
@@ -56,8 +60,8 @@ func TestEnqueue_WritesAPendingRowAndWakesAWorker(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO script_runs")).
 		WithArgs("dpx_1", "script_1", "sver_1", 3, script.TriggerTool,
 			script.RunStatusPending, sqlmock.AnyArg(), "jane@example.com", nil, nil).
-		WillReturnRows(sqlmock.NewRows([]string{"fire_time", "scheduled_for", "created_at", "updated_at"}).
-			AddRow(rowTime, rowTime, rowTime, rowTime))
+		WillReturnRows(sqlmock.NewRows(enqueueReturning).
+			AddRow(rowTime, rowTime, int64(0), []byte("{}"), rowTime, rowTime))
 	mock.ExpectExec(regexp.QuoteMeta("SELECT pg_notify")).
 		WithArgs(NotifyChannel, "dpx_1").WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -78,8 +82,8 @@ func TestEnqueue_WritesAPendingRowAndWakesAWorker(t *testing.T) {
 func TestEnqueue_SurvivesAFailedWakeup(t *testing.T) {
 	s, mock := newMock(t)
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO script_runs")).
-		WillReturnRows(sqlmock.NewRows([]string{"fire_time", "scheduled_for", "created_at", "updated_at"}).
-			AddRow(rowTime, rowTime, rowTime, rowTime))
+		WillReturnRows(sqlmock.NewRows(enqueueReturning).
+			AddRow(rowTime, rowTime, int64(0), []byte("{}"), rowTime, rowTime))
 	mock.ExpectExec(regexp.QuoteMeta("SELECT pg_notify")).WillReturnError(errors.New("no listen privilege"))
 
 	require.NoError(t, s.Enqueue(context.Background(), &script.Run{ID: "dpx_1"}))
@@ -322,7 +326,7 @@ func TestRecordOutput_AppendsInSQL(t *testing.T) {
 func TestFinish_WritesTheResultAndWakesWaiters(t *testing.T) {
 	s, mock := newMock(t)
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE script_runs")).
-		WithArgs("dpx_1", "worker-a", 1, script.RunStatusFailed, "boom", "log line", false, sqlmock.AnyArg()).
+		WithArgs("dpx_1", "worker-a", 1, script.RunStatusFailed, "boom", "log line", false, sqlmock.AnyArg(), nil, nil).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta("SELECT pg_notify")).
 		WithArgs(NotifyChannel, "dpx_1").WillReturnResult(sqlmock.NewResult(0, 1))

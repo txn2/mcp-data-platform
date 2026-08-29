@@ -103,6 +103,9 @@ export interface ScriptDryRunAccount {
   log_truncated?: boolean;
   metrics: { steps: number; duration_ms: number; queries: number; exports: number };
   outputs?: ScriptDryRunOutput[];
+  // state_written is the state the draft would have saved, absent when the
+  // source saved none; a draft persists it no more than an output.
+  state_written?: Record<string, unknown>;
   created_at: string;
 }
 

@@ -8,6 +8,7 @@ import {
   mockScriptRunDetails,
   mockScriptRuns,
   mockScriptSchedules,
+  mockScriptStates,
   mockScriptVersionDetails,
   mockScriptVersions,
   mockScripts,
@@ -67,6 +68,29 @@ const schedules = JSON.parse(JSON.stringify(mockScriptSchedules)) as Record<
   string,
   ScriptSchedule
 >;
+
+// States are mutable for the same reason: a reset on this surface has to be
+// what the page reads back, at the revision the reset moved it to (#1537).
+const states = JSON.parse(JSON.stringify(mockScriptStates)) as typeof mockScriptStates;
+
+// stateOf is a script's state as the server reports it: the stored row, or
+// revision 0 and {} for a script that never saved any.
+function stateOf(scriptID: string) {
+  return states[scriptID] ?? { state: {}, revision: 0 };
+}
+
+// resetState is the write both state routes share: the whole object replaced,
+// the revision moved, the person recorded.
+function resetState(scriptID: string, state: Record<string, unknown>, message: string) {
+  const previous = stateOf(scriptID);
+  states[scriptID] = {
+    state,
+    revision: previous.revision + 1,
+    updated_at: new Date().toISOString(),
+    updated_by: "sarah.chen@example.com",
+  };
+  return HttpResponse.json({ ...states[scriptID], message });
+}
 
 // emptyDemoRequested reports whether the page URL asks this surface to answer
 // as though the caller had nothing: ?empty=scripts. It is a fixture control, so
@@ -439,7 +463,10 @@ export const scriptHandlers = [
         "platform.export",
         "platform.publish_data",
         "platform.call",
+        "platform.save_state",
       ]),
+      reads_state: source.includes("run.state"),
+      saves_state: source.includes("platform.save_state"),
       connections: referencedIn(source, mockConnectionNames),
       destinations: source.includes("platform.export") ? ["portal"] : [],
       tools: calledTools(source),
@@ -475,9 +502,19 @@ export const scriptHandlers = [
       outputs: [
         { name: "daily_sales", destination: "portal", format: "csv", row_count: 1284, bytes: 48213 },
       ],
-      message:
-        "Nothing was persisted. platform.export reported the shape of each output " +
-        "rather than writing it.",
+      ...(source.includes("platform.save_state")
+        ? {
+            state: { synced_through: "2026-08-17", rows: 1284 },
+            message:
+              "Nothing was persisted. platform.export reported the shape of each output " +
+              "rather than writing it. platform.save_state reported the state a platform run " +
+              "would have saved and did not save it.",
+          }
+        : {
+            message:
+              "Nothing was persisted. platform.export reported the shape of each output " +
+              "rather than writing it.",
+          }),
     });
   }),
 
@@ -540,6 +577,35 @@ export const scriptHandlers = [
 
   http.post(`${PORTAL_BASE}/scripts/:id/schedule/disable`, ({ params }) =>
     setScheduleEnabled(String(params.id), false),
+  ),
+
+  // The state a script carries between runs, and the owner's reset of it
+  // (#1537), mirroring internal/httpserver/scripthttp/portalstate.go.
+  http.get(`${PORTAL_BASE}/scripts/:id/state`, ({ params }) =>
+    HttpResponse.json(stateOf(String(params.id))),
+  ),
+
+  http.put(`${PORTAL_BASE}/scripts/:id/state`, async ({ params, request }) => {
+    const body = (await request.json()) as { state?: Record<string, unknown> };
+    if (!body.state || typeof body.state !== "object" || Array.isArray(body.state)) {
+      return HttpResponse.json(
+        { detail: "state is required: send the whole object the next run should read" },
+        { status: 400 },
+      );
+    }
+    return resetState(
+      String(params.id),
+      body.state,
+      "State replaced. The next run reads this object; a run already in flight that read the previous revision fails at its write.",
+    );
+  }),
+
+  http.delete(`${PORTAL_BASE}/scripts/:id/state`, ({ params }) =>
+    resetState(
+      String(params.id),
+      {},
+      "State cleared. The next run starts from {}; a run already in flight that read the previous revision fails at its write.",
+    ),
   ),
 
   http.get(`${PORTAL_BASE}/scripts/:id/runs`, ({ params }) => {

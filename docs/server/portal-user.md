@@ -1010,6 +1010,31 @@ The schedule controls, the source, and the run history of a script belong to its
 and to administrators. A script you can see but do not own shows its details and what it
 says about itself, and nothing else.
 
+
+### State
+
+Below the run history, on a script you own, is the **State** the script carries from one
+run to the next: one JSON object the platform keeps for it, which a run reads as
+`run.state` and saves with `platform.save_state` when it succeeds. An incremental job
+keeps its watermark here, so the run after a gap continues from where the last
+successful run stopped instead of recomputing a window from the fire time.
+
+The section is folded, and its header says where the state stands: the revision and
+when it last changed, or that nothing has been saved, or that the script keeps none.
+Open it to read the object, the revision, and who wrote it, which is the run that saved
+it or the person who last reset it. Each run in the history above states the revision it
+read and, when it saved, what it wrote, so a wrong value is traced to the run that
+produced it.
+
+**Edit state** replaces the whole object; **Clear state** resets it to an empty object so
+the next run starts over, which is the recovery for a wrong watermark. Both move the
+revision, and a run already in flight that read the previous revision fails at its write
+rather than overwriting the reset. A run that reads and saves state fails the same way
+when another run of the same script wrote in between, and the failure names that run;
+its outputs stand.
+
+![Script state](../images/screenshots/light/user-script-state-light.webp#only-light)![Script state](../images/screenshots/dark/user-script-state-dark.webp#only-dark)
+
 ### Asking for the pages
 
 Ask your agent to show you your scripts — "show me my scripts", "what scripts do I

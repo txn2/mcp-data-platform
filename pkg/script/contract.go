@@ -50,6 +50,66 @@ type Contract struct {
 	// completed one. It answers "what does this produce" with evidence rather
 	// than with a promise.
 	LastRun *ContractRun `json:"last_successful_run,omitempty"`
+
+	// State says whether this script carries anything from one run to the next
+	// (#1537), and where that state stands. Nil only on a contract composed
+	// without a state read.
+	State *ContractState `json:"state,omitempty"`
+}
+
+// ContractState is a script's state as the contract reports it: what the
+// source does with it, read statically, and the revision the platform holds.
+type ContractState struct {
+	// Reads is true when the source reads run.state, Saves when it calls
+	// platform.save_state. A script that does neither keeps no state, whatever
+	// the revision says: a reset can have moved it.
+	Reads bool `json:"reads_state" example:"true"`
+	Saves bool `json:"saves_state" example:"true"`
+	// Revision is the state's current revision, 0 when nothing was ever saved.
+	Revision int64 `json:"revision" example:"3"`
+	// UpdatedAt is when the state last changed, nil at revision 0.
+	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+}
+
+// ContractStateOf renders a script's state for its contract from the
+// validator's reading of the source and the state the store holds.
+func ContractStateOf(use StateUse, st *State) *ContractState {
+	out := &ContractState{Reads: use.Reads, Saves: use.Saves}
+	if st != nil {
+		out.Revision = st.Revision
+		if !st.UpdatedAt.IsZero() {
+			at := st.UpdatedAt
+			out.UpdatedAt = &at
+		}
+	}
+	return out
+}
+
+// line states what the script does with state, in one sentence a reader can
+// act on: whether the next run will read what the last one saved.
+func (s *ContractState) line() string {
+	if s == nil {
+		return ""
+	}
+	var does string
+	switch {
+	case s.Reads && s.Saves:
+		does = "State: reads and saves state, so a run continues from the previous run's save"
+	case s.Saves:
+		does = "State: saves state and never reads it"
+	case s.Reads:
+		does = "State: reads state and never saves it"
+	default:
+		does = "State: keeps none"
+	}
+	if s.Revision == 0 {
+		return does + "; nothing has been saved."
+	}
+	line := fmt.Sprintf("%s; revision %d", does, s.Revision)
+	if s.UpdatedAt != nil {
+		line += ", last changed " + s.UpdatedAt.UTC().Format(contractTimeLayout)
+	}
+	return line + "."
 }
 
 // ContractSchedule is a script's cadence, reported rather than offered: a
@@ -141,6 +201,9 @@ func (c Contract) Text() string {
 			c.Schedule.CronSpec, c.Schedule.Timezone, c.Schedule.stateSuffix()))
 	}
 	parts = append(parts, c.LastRun.line())
+	if c.State != nil {
+		parts = append(parts, c.State.line())
+	}
 	return strings.Join(parts, "\n")
 }
 

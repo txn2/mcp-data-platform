@@ -95,6 +95,10 @@ func (h *Handle) handleRunDraft(ctx context.Context, input manageScriptInput) (*
 	}
 	outcome, err := scriptdraft.New(h.server, h.destinations).Run(ctx, scriptdraft.Request{
 		Source: source, Name: sc.Name, Params: params,
+		// The live state, so the draft reads what a platform run created now
+		// would read. Nothing is written back: what the draft would have saved
+		// is reported beside the outputs it would have written.
+		State: h.liveState(ctx, sc),
 		Identity: scriptdraft.Identity{
 			UserID: pc.UserID, Email: pc.UserEmail, Claims: pc.UserClaims,
 			Roles: pc.Roles, AuthType: pc.AuthType,
@@ -163,6 +167,9 @@ func draftResult(sc *script.Script, outcome *scriptdraft.Outcome) map[string]any
 		out["duration_ms"] = result.Duration.Milliseconds()
 		out["queries"] = result.Queries
 		out["exports"] = orEmptyExports(result.Exports)
+		if result.State != nil {
+			out["state"] = orEmptyParams(result.State.Value)
+		}
 	}
 	if runErr != nil {
 		out[fieldStatus] = "failed"
@@ -170,9 +177,20 @@ func draftResult(sc *script.Script, outcome *scriptdraft.Outcome) map[string]any
 		out["retryable"] = false
 		out["message"] = "A script failure is deterministic: the same source on the same inputs fails the same way, so retrying it changes nothing. Fix the script and run the draft again."
 	} else {
-		out["message"] = "Nothing was persisted. platform.export reported the shape of each output rather than writing it."
+		out["message"] = draftPersistedNothing(result)
 	}
 	return out
+}
+
+// draftPersistedNothing states what the draft did not persist, naming the
+// state when the source saved some: a reader who sees a state object in the
+// response has to be told it did not land.
+func draftPersistedNothing(result *scriptrun.Result) string {
+	msg := "Nothing was persisted. platform.export reported the shape of each output rather than writing it."
+	if result != nil && result.State != nil {
+		msg += " platform.save_state reported the state a platform run would have saved (state) and did not save it."
+	}
+	return msg
 }
 
 // orEmptyExports normalizes a nil export slice so the response carries a list

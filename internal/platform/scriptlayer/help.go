@@ -151,8 +151,30 @@ WHAT IS AVAILABLE
       A run executes one at a time, so a script waiting on a run it started
       would wait on the worker running it. Give the second script its own
       schedule.
+  platform.save_state(state)  Replace the script's state: one JSON object the
+      platform keeps for the script and hands the next run as run.state. Keys
+      mean whatever you say they mean; a watermark is
+      {"synced_through": "2026-08-28T06:00:00Z"}, a cursor is a cursor, a
+      set of ids already handled is a list. It is a dict of JSON values
+      bounded at 64 KiB, because state is a cursor or a summary, not a
+      dataset: a script that wants to keep a table keeps a resource.
+      The write happens when the run SUCCEEDS, in the same write that marks it
+      so, and only if nothing else wrote state after this run read it. A
+      failed run leaves the state where it was, so a watermark never moves
+      past work that did not happen. Calling it twice stages the last value;
+      the run's write is one write. If another run of the same script wrote
+      in between, this run fails at its write naming that run; its outputs
+      stand, since they were computed from the state it read.
+      An incremental job reads run.state.get("synced_through"), pulls from
+      it, exports, and saves the new mark. After downtime the next fire reads
+      where the last successful run stopped and needs no backfill.
+      In a draft run this writes nothing and reports the state a platform run
+      would have saved.
   print(...)  Goes to the run log (capped; anything larger is an export).
-  run.run_id, run.fire_time, run.params["name"]  The frozen run record.
+  run.run_id, run.fire_time, run.params["name"], run.state  The frozen run
+      record. run.state is the script's state as it stood when the run was
+      created, {} for a script that has never saved any; read it with
+      run.state.get("key", default).
       A parameter is typed string, int, float, bool, date, enum or connection.
       Declare a connection parameter for a connection the caller chooses rather
       than a string: the surfaces that ask for one offer the connections this
@@ -192,9 +214,11 @@ WHAT IS NOT, AND WHAT TO WRITE INSTEAD
                       its credentials and authorizes the call.
 
 WHAT DETERMINISTIC MEANS HERE
-  Same script version + same parameters + same underlying data produce the same
-  output. The warehouse still changes between runs, and that is the point of
-  re-running: the promise is that the SCRIPT contributes no variation of its own.
+  Same script version + same parameters + same state read + same underlying
+  data produce the same output. The warehouse still changes between runs, and
+  that is the point of re-running: the promise is that the SCRIPT contributes
+  no variation of its own. The state a run read is recorded on the run beside
+  its parameters, so a run is explained from its own record.
 
 THE LOOP
   create -> validate -> run_draft -> patch -> validate -> run_draft. validate
@@ -205,7 +229,11 @@ THE LOOP
   you send none: a save is immediately the version run_script executes and a
   schedule fires, so sending the edit is how you try it without making it live.
   validate also reports a destination this deployment does not declare, which
-  the run would otherwise refuse only after your queries had already run.`
+  the run would otherwise refuse only after your queries had already run.
+  A draft reads the script's live state and reports what it would have saved;
+  manage_script command=state reads, replaces or clears the state itself, which
+  is how a wrong watermark is corrected: clear it and let the next run start
+  over.`
 
 // example is one built-in worked script, retrievable by name through get.
 type example struct {
@@ -214,10 +242,10 @@ type example struct {
 	source      string
 }
 
-// examples are the seeded worked scripts. Two, not ten: they exist to show the
-// shape of a script and the two idioms every report needs — a date derived from
-// the pinned fire time, and a bound parameter — not to be a cookbook that
-// invites copying without reading.
+// examples are the seeded worked scripts. Three, not ten: they exist to show
+// the shape of a script and the idioms every job needs — a date derived from
+// the pinned fire time, a bound parameter, and a watermark carried in the
+// script's state — not to be a cookbook that invites copying without reading.
 var examples = []example{
 	{
 		name:        "example-daily-sales",
@@ -288,6 +316,39 @@ for row in result["rows"]:
 summary = [{"key": k, "total": totals[k]} for k in sorted(totals)]
 print(json.encode(summary))
 platform.export(name = "region-rollup", rows = summary, format = "json")
+`,
+	},
+	{
+		name:        "example-incremental-sync",
+		description: "An incremental job: read the watermark from the script's state, pull what changed since it, export, and save the new watermark.",
+		source: `# An incremental pull. The window starts where the last SUCCESSFUL run
+# stopped, read from the script's own state, so a fire missed to downtime is
+# covered by the next one without a backfill; the window ends at the pinned
+# fire time, never at a clock.
+since = run.state.get("synced_through", "1970-01-01T00:00:00Z")
+until = run.fire_time
+print("syncing orders changed in (%s, %s]" % (since, until))
+
+result = platform.query(
+    connection = "primary",
+    sql = """
+        SELECT order_id, region, amount, updated_at
+          FROM sales.orders
+         WHERE updated_at > from_iso8601_timestamp(:since)
+           AND updated_at <= from_iso8601_timestamp(:until)
+         ORDER BY updated_at
+    """,
+    params = {"since": since, "until": until},
+)
+
+rows = result["rows"]
+print("changed rows: %d" % len(rows))
+if rows:
+    platform.export(name = "orders-delta-" + until, rows = rows, format = "csv")
+
+# Saved only if the run succeeds, and only if no other run of this script
+# wrote state in between. A run that fails above leaves the watermark alone.
+platform.save_state({"synced_through": until, "last_delta_rows": len(rows)})
 `,
 	},
 }
@@ -392,6 +453,7 @@ func (*Handle) handleHelp(_ context.Context, _ manageScriptInput) (*mcp.CallTool
 			"draft_max_rows":   scriptrun.DraftMaxRows,
 			"log_bytes":        scriptrun.MaxLogBytes,
 			"max_source_bytes": script.MaxSourceBytes,
+			"state_bytes":      script.MaxStateBytes,
 			"note": "A draft run is bounded more tightly than a platform run will be. " +
 				"A script error is deterministic, so it is never retried. A rate-limit refusal of a " +
 				"call is not a script error: the host waits the refusal's interval within the run's " +

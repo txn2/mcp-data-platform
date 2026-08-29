@@ -112,6 +112,11 @@ func (h *Handler) RegisterPortal(mux *http.ServeMux, wrap func(http.Handler) htt
 	if h.deps.Connections != nil {
 		mux.Handle("GET /api/v1/portal/scripts/{id}/connections", wrap(h.portalHandler(h.portalScriptConnections)))
 	}
+	// The state a script carries from run to run, and the owner's reset of it
+	// (#1537).
+	if h.deps.States != nil {
+		h.registerPortalState(mux, wrap)
+	}
 	if h.deps.Schedules != nil {
 		h.registerPortalSchedules(mux, wrap)
 	}
@@ -504,23 +509,44 @@ type portalRunDetail struct {
 	LogTruncated bool               `json:"log_truncated,omitempty"`
 	Metrics      script.RunMetrics  `json:"metrics"`
 	Outputs      []script.RunOutput `json:"outputs,omitempty"`
-	CreatedAt    time.Time          `json:"created_at"`
+	// StateRevision and StateRead are the state the run read at creation, an
+	// input of the run beside its parameters (#1537). StateWritten and
+	// StateRevisionWritten are what a succeeded run saved and the revision
+	// that produced, absent on a run that saved nothing.
+	StateRevision        int64          `json:"state_revision"`
+	StateRead            map[string]any `json:"state_read"`
+	StateWritten         map[string]any `json:"state_written,omitempty"`
+	StateRevisionWritten int64          `json:"state_revision_written,omitempty"`
+	CreatedAt            time.Time      `json:"created_at"`
 }
 
 // detailRun projects one run for the detail route.
 func detailRun(r *script.Run) portalRunDetail {
 	return portalRunDetail{
-		portalRun:    summarizeRun(r),
-		ScriptID:     r.ScriptID,
-		ScheduledFor: r.ScheduledFor,
-		Attempt:      r.Attempt,
-		Params:       r.Params,
-		Log:          r.Log,
-		LogTruncated: r.LogTruncated,
-		Metrics:      r.Metrics,
-		Outputs:      r.Outputs,
-		CreatedAt:    r.CreatedAt,
+		portalRun:            summarizeRun(r),
+		ScriptID:             r.ScriptID,
+		ScheduledFor:         r.ScheduledFor,
+		Attempt:              r.Attempt,
+		Params:               r.Params,
+		Log:                  r.Log,
+		LogTruncated:         r.LogTruncated,
+		Metrics:              r.Metrics,
+		Outputs:              r.Outputs,
+		StateRevision:        r.StateRevision,
+		StateRead:            orEmptyObject(r.StateRead),
+		StateWritten:         r.StateWritten,
+		StateRevisionWritten: r.StateRevisionWritten,
+		CreatedAt:            r.CreatedAt,
 	}
+}
+
+// orEmptyObject renders a nil object as {}: the state a run read is always an
+// object, and a row written before state existed read the empty one.
+func orEmptyObject(v map[string]any) map[string]any {
+	if v == nil {
+		return map[string]any{}
+	}
+	return v
 }
 
 // portalScriptRun is one run in the caller's cross-script listing. It names

@@ -25,7 +25,7 @@ const dryRunHistoryPerAuthor = 20
 // dryRunColumns is the column list every script_dry_runs SELECT reads, mirrored
 // by scanDryRun so the scan order cannot drift from the query.
 const dryRunColumns = `id, script_id, source_sha256, requested_by, status, error,
-	log, log_truncated, metrics, outputs, created_at`
+	log, log_truncated, metrics, outputs, state_written, created_at`
 
 // RecordDryRun stores one account of a draft execution and trims the author's
 // older accounts of the same script.
@@ -46,14 +46,19 @@ func (s *Store) RecordDryRun(ctx context.Context, d *script.DryRun) error {
 	if err != nil {
 		return fmt.Errorf("marshal dry-run outputs: %w", err)
 	}
+	stateWritten, err := nullableJSON(d.StateWritten)
+	if err != nil {
+		return fmt.Errorf("marshal dry-run state: %w", err)
+	}
 	return s.withTx(ctx, "record script dry run", func(tx *sql.Tx) error {
 		row := tx.QueryRowContext(ctx, `
 			INSERT INTO script_dry_runs (id, script_id, source_sha256, requested_by,
-			                             status, error, log, log_truncated, metrics, outputs)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			                             status, error, log, log_truncated, metrics, outputs,
+			                             state_written)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 			RETURNING created_at`,
 			d.ID, d.ScriptID, d.SourceSHA256, d.RequestedBy, d.Status, d.Error,
-			d.Log, d.LogTruncated, metrics, outputs)
+			d.Log, d.LogTruncated, metrics, outputs, stateWritten)
 		if err := row.Scan(&d.CreatedAt); err != nil {
 			return fmt.Errorf("record script dry run: %w", err)
 		}
@@ -99,11 +104,11 @@ func (s *Store) LatestDryRun(ctx context.Context, scriptID string, sourceSHA256 
 // scanDryRun materializes one account in dryRunColumns order.
 func scanDryRun(row *sql.Row) (*script.DryRun, error) {
 	var (
-		d               script.DryRun
-		metrics, output []byte
+		d                       script.DryRun
+		metrics, output, stated []byte
 	)
 	err := row.Scan(&d.ID, &d.ScriptID, &d.SourceSHA256, &d.RequestedBy, &d.Status,
-		&d.Error, &d.Log, &d.LogTruncated, &metrics, &output, &d.CreatedAt)
+		&d.Error, &d.Log, &d.LogTruncated, &metrics, &output, &stated, &d.CreatedAt)
 	if err != nil {
 		// Wrapped rather than returned bare so the caller's sql.ErrNoRows test
 		// still matches through it: "nobody ran this" is an ordinary answer and
@@ -116,7 +121,30 @@ func scanDryRun(row *sql.Row) (*script.DryRun, error) {
 	if err := json.Unmarshal(output, &d.Outputs); err != nil {
 		return nil, fmt.Errorf("decode dry-run outputs: %w", err)
 	}
+	// NULL is a draft that saved nothing; {} is one that saved an empty object.
+	if len(stated) > 0 {
+		if err := json.Unmarshal(stated, &d.StateWritten); err != nil {
+			return nil, fmt.Errorf("decode dry-run state: %w", err)
+		}
+		if d.StateWritten == nil {
+			d.StateWritten = map[string]any{}
+		}
+	}
 	return &d, nil
+}
+
+// nullableJSON encodes an object for a nullable JSONB column: nil binds NULL,
+// and an empty object binds {}, because the two mean different things to the
+// reader of a run.
+func nullableJSON(value map[string]any) (any, error) {
+	if value == nil {
+		return nil, nil //nolint:nilnil // NULL is the value being bound
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // the caller names the column
+	}
+	return encoded, nil
 }
 
 // orEmptyDryRunOutputs normalizes a nil output slice so the column stores [].

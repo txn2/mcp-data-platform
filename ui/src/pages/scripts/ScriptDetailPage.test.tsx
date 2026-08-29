@@ -30,6 +30,11 @@ vi.mock("@/api/portal/hooks/scripts", () => ({
   // The owner transfer's hook (#1404). The control has its own tests; here it
   // only has to answer, so the page composes with the administrator's section.
   useTransferScriptOwner: vi.fn(),
+  // The state card's hooks (#1537). The card has its own tests; here they only
+  // have to answer, so the page composes with the section that carries state.
+  useScriptState: vi.fn(),
+  useSetScriptState: vi.fn(),
+  useClearScriptState: vi.fn(),
   // The page size is the module's own constant, not a hook: the run history
   // states it when a result fills it.
   RUN_PAGE_SIZE: 25,
@@ -61,8 +66,11 @@ import {
   useScriptRuns,
   useSaveScriptSource,
   useScriptSchedule,
+  useScriptState,
   useSetScriptSchedule,
   useSetScriptSchedulePaused,
+  useSetScriptState,
+  useClearScriptState,
   useTransferScriptOwner,
   useValidateScriptSource,
 } from "@/api/portal/hooks/scripts";
@@ -80,6 +88,9 @@ const mockValidateSource = vi.mocked(useValidateScriptSource);
 const mockDryRun = vi.mocked(useDryRunScript);
 const mockConnections = vi.mocked(useScriptConnections);
 const mockRunScript = vi.mocked(useRunScript);
+const mockState = vi.mocked(useScriptState);
+const mockSetState = vi.mocked(useSetScriptState);
+const mockClearState = vi.mocked(useClearScriptState);
 
 const onBack = vi.fn();
 const onNavigate = vi.fn();
@@ -218,6 +229,9 @@ beforeEach(() => {
   mockRunScript.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
   mockTransfer.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
   mockConnections.mockReturnValue(query(undefined));
+  mockState.mockReturnValue(query({ state: { synced_through: "2026-08-13" }, revision: 41, run_id: "run-001" }));
+  mockSetState.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
+  mockClearState.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
 });
 
 afterEach(cleanup);
@@ -265,7 +279,7 @@ describe("ScriptDetailPage: the details", () => {
     const sections = screen
       .getAllByRole("heading", { level: 3 })
       .map((h) => h.textContent);
-    expect(sections).toEqual(["Details", "Schedule", "About", "Source", "Run history"]);
+    expect(sections).toEqual(["Details", "Schedule", "About", "Source", "Run history", "State"]);
   });
 
   // Running the script lives with the code it executes (#1406). There is no
@@ -326,6 +340,34 @@ describe("ScriptDetailPage: what an owner may read", () => {
     renderPage();
     expect(screen.queryByText("Version history")).not.toBeInTheDocument();
     expect(screen.queryByText("Run history")).not.toBeInTheDocument();
+    // The state is the runs' input and belongs to the same reader (#1537).
+    expect(screen.queryByRole("heading", { name: "State" })).not.toBeInTheDocument();
+  });
+
+  // The state a script carries between runs is read with its runs (#1537): the
+  // card is the owner's, and the details say what the source does with it.
+  it("states what the script does with its state, and offers the state to its owner", () => {
+    mockContract.mockReturnValue(
+      query({
+        contract: { ...contract, state: { reads_state: true, saves_state: true, revision: 41 } },
+        owned: true,
+      }),
+    );
+    renderPage();
+    expect(screen.getByText("carried between runs, revision 41")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "State" })).toBeInTheDocument();
+    expect(mockState).toHaveBeenCalledWith("script-001", true);
+  });
+
+  it("says a script keeps no state when its source neither reads nor saves any", () => {
+    mockContract.mockReturnValue(
+      query({
+        contract: { ...contract, state: { reads_state: false, saves_state: false, revision: 0 } },
+        owned: true,
+      }),
+    );
+    renderPage();
+    expect(screen.getByText("keeps none")).toBeInTheDocument();
   });
 
   // Moving a script to somebody else is the one control on this page that is
@@ -344,7 +386,7 @@ describe("ScriptDetailPage: what an owner may read", () => {
     // after everything the owner reads and does (#1406).
     expect(
       screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent),
-    ).toEqual(["Details", "Schedule", "About", "Source", "Run history", "Owner"]);
+    ).toEqual(["Details", "Schedule", "About", "Source", "Run history", "State", "Owner"]);
     admin = false;
   });
 

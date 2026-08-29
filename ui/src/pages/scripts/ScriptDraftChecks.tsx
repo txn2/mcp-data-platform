@@ -67,8 +67,20 @@ function ReachLists({ report }: { report: ScriptValidation }) {
       <Reached label="Output destinations" values={report.destinations} />
       {tools.length > 0 && <Reached label="Tools" values={tools} />}
       {refreshes.length > 0 && <Reached label="Refreshes" values={refreshes} />}
+      {(report.reads_state || report.saves_state) && (
+        <Reached label="State" values={stateUse(report)} />
+      )}
     </dl>
   );
+}
+
+// stateUse names what the source does with the state it carries between runs,
+// shown only when it does something: most scripts keep none.
+function stateUse(report: ScriptValidation): string[] {
+  const out: string[] = [];
+  if (report.reads_state) out.push("reads run.state");
+  if (report.saves_state) out.push("saves with platform.save_state");
+  return out;
 }
 
 // Reached is one list of what the source touches, naming the empty case rather
@@ -133,6 +145,17 @@ export function DryRunReport({ result }: { result: ScriptDryRun }) {
       </dl>
 
       <DryRunOutputs result={result} />
+
+      {result.state && (
+        <div className="space-y-1 text-xs">
+          <p className="text-muted-foreground">
+            Would save this state for the next run to read (a dry run saves nothing):
+          </p>
+          <pre className="max-h-40 overflow-auto rounded-md bg-muted p-2 font-mono">
+            {JSON.stringify(result.state, null, 2)}
+          </pre>
+        </div>
+      )}
 
       {result.log && (
         <div className="space-y-1">

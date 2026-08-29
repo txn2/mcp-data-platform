@@ -15515,6 +15515,185 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/scripts/{id}/state": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the one JSON object a script carries from run to run, with the revision the platform holds it at and who wrote it: the run that saved it, or the person who set or cleared it. Restricted to the script's owner and to administrators.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Get a script's state",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/scripthttp.stateResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Replaces the whole state object of a script the caller owns and moves its revision forward, recording who did it. The next run reads this object; a run already in flight that read the previous revision fails at its write, because the reset was after its premise. Refused when a value is not JSON-representable or the object is over the size bound.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Replace a script's state",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The whole state object",
+                        "name": "state",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/scripthttp.stateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/scripthttp.stateResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Resets the state of a script the caller owns to an empty object and moves its revision forward, recording who did it, so the next run starts over. A run already in flight that read the previous revision fails at its write.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Clear a script's state",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/scripthttp.stateResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/scripts/{id}/validate": {
             "post": {
                 "security": [
@@ -25174,6 +25353,14 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "state": {
+                    "description": "State says whether this script carries anything from one run to the next\n(#1537), and where that state stands. Nil only on a contract composed\nwithout a state read.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/script.ContractState"
+                        }
+                    ]
+                },
                 "status": {
                     "type": "string",
                     "example": "active"
@@ -25291,6 +25478,29 @@ const docTemplate = `{
                 }
             }
         },
+        "script.ContractState": {
+            "type": "object",
+            "properties": {
+                "reads_state": {
+                    "description": "Reads is true when the source reads run.state, Saves when it calls\nplatform.save_state. A script that does neither keeps no state, whatever\nthe revision says: a reset can have moved it.",
+                    "type": "boolean",
+                    "example": true
+                },
+                "revision": {
+                    "description": "Revision is the state's current revision, 0 when nothing was ever saved.",
+                    "type": "integer",
+                    "example": 3
+                },
+                "saves_state": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "updated_at": {
+                    "description": "UpdatedAt is when the state last changed, nil at revision 0.",
+                    "type": "string"
+                }
+            }
+        },
         "script.DryRun": {
             "type": "object",
             "properties": {
@@ -25328,6 +25538,11 @@ const docTemplate = `{
                 },
                 "script_id": {
                     "type": "string"
+                },
+                "state_written": {
+                    "description": "StateWritten is the state the draft would have saved, nil when the\nsource saved none. A draft persists no state, exactly as it persists no\noutput; the account carries the object so a reviewer reads what the\ncode would have carried forward.",
+                    "type": "object",
+                    "additionalProperties": {}
                 },
                 "status": {
                     "description": "Status is RunStatusSucceeded or RunStatusFailed. A draft run has no\npending state: it is executed inline, and the caller waits for it.",
@@ -25830,6 +26045,11 @@ const docTemplate = `{
                     "type": "string",
                     "example": "run_a1b2c3d4"
                 },
+                "state": {
+                    "description": "State is the object the source would have saved with\nplatform.save_state, absent when it saved none (#1537). The draft\npersists it no more than it persists an output.",
+                    "type": "object",
+                    "additionalProperties": {}
+                },
                 "status": {
                     "type": "string",
                     "example": "succeeded"
@@ -26037,6 +26257,21 @@ const docTemplate = `{
                 },
                 "started_at": {
                     "type": "string"
+                },
+                "state_read": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "state_revision": {
+                    "description": "StateRevision and StateRead are the state the run read at creation, an\ninput of the run beside its parameters (#1537). StateWritten and\nStateRevisionWritten are what a succeeded run saved and the revision\nthat produced, absent on a run that saved nothing.",
+                    "type": "integer"
+                },
+                "state_revision_written": {
+                    "type": "integer"
+                },
+                "state_written": {
+                    "type": "object",
+                    "additionalProperties": {}
                 },
                 "status": {
                     "type": "string",
@@ -26347,6 +26582,47 @@ const docTemplate = `{
                     "description": "Message states the outcome in the owner's terms.",
                     "type": "string",
                     "example": "Saved, and this version is what runs now."
+                }
+            }
+        },
+        "scripthttp.stateRequest": {
+            "type": "object",
+            "properties": {
+                "state": {
+                    "type": "object",
+                    "additionalProperties": {}
+                }
+            }
+        },
+        "scripthttp.stateResponse": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "description": "Message states what a write means for the next run.",
+                    "type": "string"
+                },
+                "revision": {
+                    "description": "Revision counts writes; 0 means nothing was ever saved or reset.",
+                    "type": "integer",
+                    "example": 3
+                },
+                "run_id": {
+                    "description": "RunID names the run that wrote this revision, and UpdatedBy the person\nwho set or cleared it; one of the two is set past revision 0.",
+                    "type": "string",
+                    "example": "dpx_a1b2c3d4"
+                },
+                "state": {
+                    "description": "State is the object itself, {} when nothing has been saved.",
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "updated_at": {
+                    "description": "UpdatedAt is when this revision was written, absent at revision 0.",
+                    "type": "string"
+                },
+                "updated_by": {
+                    "type": "string",
+                    "example": "jane@example.com"
                 }
             }
         },

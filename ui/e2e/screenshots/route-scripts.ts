@@ -7,6 +7,7 @@ import {
   openScriptRunsTab,
   openScriptSource,
   openScriptSchedule,
+  openScriptState,
   openScriptVersionHistory,
 } from "./route-actions";
 import { type ScreenshotRoute } from "./route-types";
@@ -61,6 +62,15 @@ export const userScriptRoutes: ScreenshotRoute[] = [
     path: "/portal/scripts/script-003",
     category: "user",
     beforeCapture: openScriptSchedule,
+  },
+  {
+    // The state a script carries from one run to the next (#1537): the object
+    // the next run reads, the revision and the run that wrote it, and the two
+    // resets. The run history above it states what each run read and saved.
+    slug: "script-state",
+    path: "/portal/scripts/script-001",
+    category: "user",
+    beforeCapture: openScriptState,
   },
   {
     // The code, and everything done to it, in one place (#1406): the portal's

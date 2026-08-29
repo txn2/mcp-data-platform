@@ -355,6 +355,7 @@ internal/platform/scriptrun -> internal/platform/toolratelimit
 internal/platform/scriptrun -> pkg/contenttype
 internal/platform/scriptrun -> pkg/script
 internal/platform/scriptrun -> pkg/toolkits/trino
+internal/platform/scriptstore -> internal/platform/scriptrun
 internal/platform/scriptstore -> pkg/indexjobs
 internal/platform/scriptstore -> pkg/script
 internal/platform/searchfed -> internal/tableavail
