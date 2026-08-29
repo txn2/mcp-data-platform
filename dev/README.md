@@ -106,6 +106,17 @@ require no login — open them directly.
 
 Press **Ctrl-C** to stop all services.
 
+### The api-test fixture behind TLS
+
+`acme-dev-api-test-tls` (nginx, host port 9284) terminates TLS in front of the
+api-test fixture with a self-signed certificate `dev/start.sh` generates into
+`dev/.tls` (gitignored). The `api-test-fixture-tls` connection reaches the
+fixture at `https://localhost:9284` and trusts that certificate through
+`tls_ca_bundle_pem`, while the fixture itself sees plain HTTP and writes
+`http://` into its `Link` and `@odata.nextLink` values. That is the shape a
+deployment behind a TLS-terminating proxy has, and the acceptance suite walks
+it (#1543); nothing else in the stack uses this connection.
+
 ### Trino and registered tables
 
 The stack runs a Trino (`acme-dev-trino`, host port 9283) with two catalogs

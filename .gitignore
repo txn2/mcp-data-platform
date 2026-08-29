@@ -94,6 +94,8 @@ ui/.claude/
 
 # Resolved dev ports written by dev/start.sh (auto-relocation)
 dev/.dev-ports.env
+# Self-signed certificate dev/start.sh generates for the api-test TLS terminator.
+dev/.tls/
 __pycache__/
 
 # Build residue: a docs build drops this empty lock in the repo root.

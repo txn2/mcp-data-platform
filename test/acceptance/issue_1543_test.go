@@ -78,3 +78,30 @@ func TestIssue1543_WithoutPaginateTheSignalIsReportedNotFollowed(t *testing.T) {
 		t.Fatalf("a call without paginate must not walk: %v", out)
 	}
 }
+
+// apiTestTLSConnection is the same fixture behind TLS termination
+// (dev/docker-compose.yml, api-test-tls): the connection's base_url is
+// https://, the fixture sees plain HTTP, and every next link it writes is
+// http://. This is the shape #1543 was found under, and the only one in
+// which the scheme rule runs for real.
+const apiTestTLSConnection = "api-test-fixture-tls"
+
+func TestIssue1543_ALinkThatDiffersOnlyInSchemeIsFollowed(t *testing.T) {
+	c := connect(t)
+	out := c.call("api_invoke_endpoint", map[string]any{
+		"connection": apiTestTLSConnection, "method": "GET", "path": "/v1/pagination/link",
+		"paginate": map[string]any{"items": "items"},
+		"purpose":  "Acceptance: walk a Link-header collection whose links carry the scheme behind the proxy.",
+	})
+	assertWholeCollection(t, out)
+}
+
+func TestIssue1543_AnODataLinkThatDiffersOnlyInSchemeIsFollowed(t *testing.T) {
+	c := connect(t)
+	out := c.call("api_invoke_endpoint", map[string]any{
+		"connection": apiTestTLSConnection, "method": "GET", "path": "/v1/pagination/odata",
+		"paginate": map[string]any{"items": "value"},
+		"purpose":  "Acceptance: walk an OData collection whose nextLink carries the scheme behind the proxy.",
+	})
+	assertWholeCollection(t, out)
+}
