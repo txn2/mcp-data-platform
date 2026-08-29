@@ -817,20 +817,21 @@ func TestInvoke_WithoutPaginateIsUnchanged(t *testing.T) {
 
 // --- util fetch_url --------------------------------------------------------
 
-// TestWalk_UtilFetchAddressIsTheBodyURL: on a handler=internal connection
-// whose body carries a url, the walk moves that url, and a next link is
-// pinned to the fetched host rather than the connection's.
-func TestWalk_UtilFetchAddressIsTheBodyURL(t *testing.T) {
-	up := (&pagedUpstream{t: t, pages: 3, perPage: 2, mode: "link"}).start()
-	// The internal handler is a stand-in for fetch_url: it reads the url from
-	// the body and relays that document.
-	var fetched []string
+// utilRelayToolkit builds a toolkit whose handler=internal "util"
+// connection stands in for fetch_url: it reads the url from the body and
+// relays that document, recording every url it fetched.
+func utilRelayToolkit(t *testing.T) (tk *Toolkit, fetched *[]string) {
+	t.Helper()
+	fetched = &[]string{}
 	internal := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
 			URL string `json:"url"`
 		}
-		_ = json.NewDecoder(r.Body).Decode(&in)
-		fetched = append(fetched, in.URL)
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		*fetched = append(*fetched, in.URL)
 		resp, err := http.Get(in.URL) //nolint:gosec,noctx // test relay of a test URL
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
@@ -841,22 +842,51 @@ func TestWalk_UtilFetchAddressIsTheBodyURL(t *testing.T) {
 		w.WriteHeader(resp.StatusCode)
 		_, _ = io.Copy(w, resp.Body)
 	})
-	tk := New("primary")
+	tk = New("primary")
 	tk.SetInternalHandler(internal)
 	if err := tk.AddConnection("util", map[string]any{"handler": "internal"}); err != nil {
 		t.Fatalf("AddConnection: %v", err)
 	}
-	_, out := invokeWalkCall(t, tk, InvokeInput{
-		Connection: "util", Method: "POST", Path: "/util/fetch",
-		Body:     map[string]any{"url": up.srv.URL + "/v1/x"},
-		Paginate: &PaginateInput{Items: "data"},
-	})
+	return tk, fetched
+}
+
+// assertUtilWalkedThreePages checks a fetch_url walk over a 3-page, 2-per-page
+// document fetched every page by advancing the url in the body.
+func assertUtilWalkedThreePages(t *testing.T, out InvokeOutput, fetched []string) {
+	t.Helper()
 	if out.WalkStats == nil || out.PagesFetched != 3 || out.ItemsMerged != 6 {
 		t.Fatalf("stats = %+v", out.WalkStats)
 	}
 	if len(fetched) != 3 || !strings.HasSuffix(fetched[1], "/v1/x?page=2") {
 		t.Errorf("fetched = %v; want the body url advanced per page", fetched)
 	}
+}
+
+// TestWalk_UtilFetchAddressIsTheBodyURL: on a handler=internal connection
+// whose body carries a url, the walk moves that url, and a next link is
+// pinned to the fetched host rather than the connection's.
+func TestWalk_UtilFetchAddressIsTheBodyURL(t *testing.T) {
+	up := (&pagedUpstream{t: t, pages: 3, perPage: 2, mode: "link"}).start()
+	tk, fetched := utilRelayToolkit(t)
+	_, out := invokeWalkCall(t, tk, InvokeInput{
+		Connection: "util", Method: "POST", Path: "/util/fetch",
+		Body:     map[string]any{"url": up.srv.URL + "/v1/x"},
+		Paginate: &PaginateInput{Items: "data"},
+	})
+	assertUtilWalkedThreePages(t, out, *fetched)
+}
+
+// TestWalk_UtilFetchBodyAsJSONString: a fetch_url body sent as a string of
+// JSON, the form a single fetch already accepts, walks the url it names.
+func TestWalk_UtilFetchBodyAsJSONString(t *testing.T) {
+	up := (&pagedUpstream{t: t, pages: 3, perPage: 2, mode: "link"}).start()
+	tk, fetched := utilRelayToolkit(t)
+	_, out := invokeWalkCall(t, tk, InvokeInput{
+		Connection: "util", Method: "POST", Path: "/util/fetch",
+		Body:     `{"url": "` + up.srv.URL + `/v1/x"}`,
+		Paginate: &PaginateInput{Items: "data"},
+	})
+	assertUtilWalkedThreePages(t, out, *fetched)
 }
 
 // --- failure corners the shape tests do not reach ---------------------------
