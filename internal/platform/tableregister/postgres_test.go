@@ -21,6 +21,7 @@ func registrationRows(rows ...[]driver.Value) *sqlmock.Rows {
 	out := sqlmock.NewRows([]string{
 		"id", "source_kind", "source_id", "connection_name", "catalog_name",
 		"schema_name", "table_name", "location", "columns", "registered_by", "registered_at",
+		"follow", "follow_error",
 	})
 	for _, r := range rows {
 		out.AddRow(r...)
@@ -33,7 +34,7 @@ func assetRow(id, sourceID, table string) []driver.Value {
 		id, KindAsset, sourceID, "scratch", "scratch", "uploads", table,
 		"s3://portal-assets/artifacts/u1/" + sourceID + "/",
 		[]byte(`[{"name":"store_id","type":"VARCHAR"}]`),
-		"alice@example.com", registeredAt,
+		"alice@example.com", registeredAt, false, "",
 	}
 }
 
@@ -46,7 +47,7 @@ func TestPostgresStore_InsertAndScan(t *testing.T) {
 	mock.ExpectExec("INSERT INTO table_registrations").
 		WithArgs("reg_1", KindAsset, "asset_1", "scratch", "scratch", "uploads",
 			"analyst_keys", "s3://b/d/", []byte(`[{"name":"id","type":"VARCHAR"}]`),
-			"alice@example.com").
+			"alice@example.com", true).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	require.NoError(t, store.Insert(context.Background(), Registration{
@@ -55,6 +56,7 @@ func TestPostgresStore_InsertAndScan(t *testing.T) {
 		Table: "analyst_keys", Location: "s3://b/d/",
 		Columns:      []Column{{Name: "id", Type: "VARCHAR"}},
 		RegisteredBy: "alice@example.com",
+		Follow:       true,
 	}))
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
@@ -70,11 +72,78 @@ func TestPostgresStore_InsertEncodesNoColumnsAsAnArray(t *testing.T) {
 	mock.ExpectExec("INSERT INTO table_registrations").
 		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
 			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
-			[]byte(`[]`), sqlmock.AnyArg()).
+			[]byte(`[]`), sqlmock.AnyArg(), false).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	require.NoError(t, NewPostgresStore(db).Insert(context.Background(), Registration{ID: "reg_1"}))
 	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestPostgresStore_Relocate is the store half of a follow (#1536): the row
+// moves onto the new directory with the new columns, and the failure of an
+// earlier follow is cleared in the same statement.
+func TestPostgresStore_Relocate(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	mock.ExpectExec("UPDATE table_registrations SET location = \\$2, columns = \\$3, follow_error = ''").
+		WithArgs("reg_1", "s3://b/v2/", []byte(`[{"name":"id","type":"VARCHAR"}]`)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE table_registrations SET location").
+		WithArgs("gone", "s3://b/v2/", []byte(`[]`)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	mock.ExpectExec("UPDATE table_registrations SET location").
+		WithArgs("reg_1", "s3://b/v3/", []byte(`[]`)).
+		WillReturnError(errors.New("connection reset"))
+
+	store := NewPostgresStore(db)
+	require.NoError(t, store.Relocate(context.Background(), "reg_1", "s3://b/v2/",
+		[]Column{{Name: "id", Type: "VARCHAR"}}))
+	assert.ErrorIs(t, store.Relocate(context.Background(), "gone", "s3://b/v2/", nil), ErrNotFound,
+		"a move of a registration that is not there is reported, not swallowed")
+	assert.ErrorContains(t, store.Relocate(context.Background(), "reg_1", "s3://b/v3/", nil), "relocating registration")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestPostgresStore_RecordFollowFailure keeps the reason on the row, so the
+// listing can say why a following registration is behind its file.
+func TestPostgresStore_RecordFollowFailure(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	mock.ExpectExec("UPDATE table_registrations SET follow_error = \\$2").
+		WithArgs("reg_1", "the coordinator refused the statement").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE table_registrations SET follow_error").
+		WithArgs("gone", "x").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("UPDATE table_registrations SET follow_error").
+		WithArgs("reg_1", "x").WillReturnError(errors.New("connection reset"))
+
+	store := NewPostgresStore(db)
+	require.NoError(t, store.RecordFollowFailure(context.Background(), "reg_1", "the coordinator refused the statement"))
+	assert.ErrorIs(t, store.RecordFollowFailure(context.Background(), "gone", "x"), ErrNotFound)
+	assert.ErrorContains(t, store.RecordFollowFailure(context.Background(), "reg_1", "x"), "recording the follow failure")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestPostgresStore_ScansTheFollowState reads the two follow columns back.
+func TestPostgresStore_ScansTheFollowState(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	row := assetRow("reg_1", "asset_1", "analyst_keys")
+	row[11], row[12] = true, "the coordinator refused the statement"
+	mock.ExpectQuery("SELECT (.+) FROM table_registrations WHERE id").
+		WithArgs("reg_1").WillReturnRows(registrationRows(row))
+
+	got, err := NewPostgresStore(db).Get(context.Background(), "reg_1")
+	require.NoError(t, err)
+	assert.True(t, got.Follow)
+	assert.Equal(t, "the coordinator refused the statement", got.FollowError)
 }
 
 // TestPostgresStore_InsertNameCollision pins the race between the registrar's
@@ -363,7 +432,7 @@ func TestPostgresStore_ListReportsFailedReads(t *testing.T) {
 		mock.ExpectQuery("SELECT .* FROM table_registrations").
 			WillReturnRows(registrationRows([]driver.Value{
 				"reg_1", KindAsset, "asset_1", "scratch", "scratch", "uploads", "t",
-				"s3://b/d/", []byte("not json"), "alice@example.com", registeredAt,
+				"s3://b/d/", []byte("not json"), "alice@example.com", registeredAt, false, "",
 			}))
 
 		_, _, err = NewPostgresStore(db).List(context.Background(), Filter{AllConnections: true})

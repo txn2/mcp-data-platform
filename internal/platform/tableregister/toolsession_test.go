@@ -39,7 +39,7 @@ func TestManageTableOverAnMCPSession(t *testing.T) {
 			ID: resourceID, Name: "Vendor rebates", Bucket: "resources",
 			Key: "resources/res_1/vendor_rebates.csv", ContentType: "text/csv", OwnerID: "u1",
 		}),
-	})
+	}, nil)
 	require.NotNil(t, adapter)
 
 	toolkit := portaltoolkit.New(portaltoolkit.Config{Name: "portal"})

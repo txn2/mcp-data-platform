@@ -7,7 +7,9 @@ a table on a Trino connection and joined to warehouse tables from then on.
 Nothing is copied. The registration creates an external table over the
 directory the file already sits in, so the table reads whatever the object
 holds now: a vendor drop that overwrites its file changes the query result on
-the next run with no further action.
+the next run with no further action. A new version of the file - a revision of
+a managed resource, an edit of an asset, a script's refresh - moves the table
+onto it as well, because a registration follows its file unless it was pinned.
 
 ## What it is for
 
@@ -108,6 +110,7 @@ stored file:
 
 ```
 manage_table action=register   reference=mcp:resource:... connection=scratch
+manage_table action=register   reference=mcp:resource:... connection=scratch follow=false
 manage_table action=register   reference=mcp:resource:... connection=scratch repair=true
 manage_table action=list       reference=mcp:asset:...
 manage_table action=unregister registration_id=...
@@ -117,9 +120,14 @@ manage_table action=unregister registration_id=...
 verbatim: `mcp:resource:<id>` for material somebody uploaded, `mcp:asset:<id>`
 for a saved asset. The kind travels inside the reference, so one action serves
 both and there is no argument naming which is which. `table_name` is optional;
-the default is a slug of the file's name. `repair` is what the second call
-above adds: it saves a corrected version of a file that cannot be read as a
-table the way it is stored, and registers that. See
+the default is a slug of the file's name. `follow` defaults to true: the table
+is moved onto each new revision or version written over the file. `follow=false`
+is what the second call above adds: it pins the table to the version of the
+file it is registered over, for a report that must keep returning the same
+rows until somebody registers it again. See
+[Following the file](#following-the-file). `repair` is what the third call
+adds: it saves a corrected version of a file that cannot be read as a table the
+way it is stored, and registers that. See
 [A CSV a query engine cannot read](#a-csv-a-query-engine-cannot-read).
 
 A reference that names no file you may register - one that does not exist, one
@@ -131,7 +139,7 @@ every case, so the tool cannot be used to find out which files exist.
 ```
 GET    /api/v1/table-connections
 GET    /api/v1/resources/{id}/tables
-POST   /api/v1/resources/{id}/tables       {"connection": "scratch", "table_name": "vendor_keys", "repair": false}
+POST   /api/v1/resources/{id}/tables       {"connection": "scratch", "table_name": "vendor_keys", "follow": true, "repair": false}
 DELETE /api/v1/resources/{id}/tables/{registrationID}
 GET    /api/v1/portal/assets/{id}/tables
 POST   /api/v1/portal/assets/{id}/tables
@@ -160,12 +168,18 @@ form's connection list, which narrows further to connections that can hold a
 drop that table out of the list for the person who made it, while the engine
 went on answering queries against it.
 
-Two states are called out because nothing else can report them. **Behind the
-file** is a registration whose source has a newer revision or version than the
-table points at, so it serves the one that was current when it was registered.
-**Source deleted** is a registration whose file is no longer on the platform;
-deleting a file unregisters its tables, so this is the residue of a cleanup
-that did not complete.
+The state column says which rule each table is under and whether it is
+keeping to it. **Follows the file** is the ordinary registration: each new
+version written over the file moves the table onto it. **Pinned** is a
+registration made with follow off, which stays on the version it was
+registered over until somebody registers it again. Two exceptions are called
+out because nothing else can report them. **Behind the file** is a registration
+whose source has a newer revision or version than the table points at: a
+pinned one by design, or a following one whose last follow could not move it,
+in which case the reason is on the registration. **Source deleted** is a
+registration whose file is no longer on the platform; deleting a file
+unregisters its tables, so this is the residue of a cleanup that did not
+complete.
 
 Opening a row opens the registration at an address of its own: the sample
 statement with the cast a join needs, the columns with their types, the file it
@@ -180,6 +194,11 @@ page, because it needs the file - the platform reads the header row to learn
 the columns.
 
 ![A table behind its file](../images/screenshots/light/user-scratch-table-stale-light.webp#only-light)![A table behind its file](../images/screenshots/dark/user-scratch-table-stale-dark.webp#only-dark)
+
+A table that follows its file and could not be moved says why, on the row and
+on its own page, until it is registered again.
+
+![A following table whose last follow failed](../images/screenshots/light/user-scratch-table-follow-failed-light.webp#only-light)![A following table whose last follow failed](../images/screenshots/dark/user-scratch-table-follow-failed-dark.webp#only-dark)
 
 The listing is driven by the stored registrations rather than by what can be
 registered, so a source of a format the register action does not yet accept
@@ -196,7 +215,7 @@ exist.
 
 ## The lifecycle
 
-Registration is a pointer and a name, not an import. Five things can happen to
+Registration is a pointer and a name, not an import. Six things can happen to
 one, and the portal's *Query as a table* panel is where four of them are done.
 
 **Register.** Pick a connection and, optionally, a name. The platform reads the
@@ -230,8 +249,14 @@ depending on the name:
   nothing is silently overwritten; an administrator is unrestricted and does
   replace it.
 
-**Go stale.** See the next section. The table keeps working; it is serving
-content that is no longer current.
+**Follow the file.** A registration made with follow on - the default - is
+moved onto each new revision or version written over the file, by the write
+that produced it. See [Following the file](#following-the-file).
+
+**Go stale.** A registration made with follow off stays on the version it was
+registered over, and a following one stays where it was when its last follow
+could not move it. The table keeps working; it is serving content that is no
+longer current, and the write that put it there said so.
 
 **Unregister.** Drops the table and forgets the registration. The file is not
 touched: dropping a Hive external table removes the catalog entry and nothing
@@ -400,28 +425,70 @@ exactly as it always did. No version is written, nothing is rewritten, and the
 result says nothing extra - including when the correction was asked for and
 turned out to be unnecessary.
 
-## Changing the file: two cases that behave oppositely
+## Following the file
 
-Both of these are "I changed the file", and they do not produce the same result,
-because a registration points at a directory rather than at a record id.
+A registration pins a directory: the directory the file's current version sat
+in when the table was registered. Every revision of a managed resource and
+every version of a portal asset writes the new content to a new directory and
+moves the head, so a registration left alone would go on reading the version
+that was current on the day it was made. A registration therefore **follows**
+its file by default: the write that produces a new version moves every
+following table over the file onto it, with the same statements a
+re-registration runs - drop, create at the new directory, columns re-read from
+the new version's header - under the same registrant, before the write
+returns. From the moment `replace_content`, the asset editor, or a script's
+`platform.export` answers, a query against the table reads the new contents. A
+version whose header differs gives the table the new columns.
+
+**The write says what happened to every table over the file.** The result of
+`manage_resource replace_content`, of `manage_asset` content edits and
+reverts, of the portal's and the admin console's content routes, and of a
+script's `platform.export` carries one sentence per registered table:
+`scratch.uploads.analyst_stores on scratch now reads version 7.` for a table
+that followed, or `... is pinned to the version it was registered over and is
+now behind this file; register it again to move it ...` for one that is not.
+A managed script's run log carries the same sentences, so a scheduled run that
+put a table behind its file says so in its history.
+
+**The write is never failed by the follow.** The file changed; that write
+succeeded. A follow the coordinator refuses leaves the registration where it
+was, with the reason recorded on it, so the table is behind the file exactly
+as a pinned one is and the listing says why. A create that fails after the
+drop ran puts the table back at its old directory first. A new version that
+cannot be read as a table - a second file in its directory, a CSV that needs
+correcting - is refused the way a registration would refuse it, the
+registration is reported behind with that reason, and nothing is corrected on
+the way: a follow never rewrites the person's file.
+
+**Pinning is the choice.** `follow=false` on the tool, `"follow": false` in
+the REST body, or the *Follow the file* box unticked in the portal registers a
+table that stays on the version of the file it was registered over. That is
+the right shape for a report that must keep returning the same rows until
+somebody decides otherwise. The choice is stored on the registration, shown
+as *Pinned* in Scratch Tables and on the registration's page, and re-settable
+by registering the same name again.
+
+**Changing the file, then, is three cases:**
 
 | What happened | What the table does | What to do |
 |---|---|---|
-| The object is overwritten at the same key. A vendor drop replacing yesterday's file, a script writing over its own output. | The next query returns the new contents. | Nothing. |
-| A new version is written. Every portal asset edit does this, as does every revision of a managed resource: the new content goes to a new directory and the head moves. | The table keeps serving the directory it was registered against. That is correct SQL over the version that was current when it was registered, and it will not change on its own. | Register again, same connection and name. |
+| The object is overwritten at the same key. A vendor drop replacing yesterday's file, a bucket destination a script writes to. | The next query returns the new contents. | Nothing. |
+| A new version is written over a file whose table follows it. Every portal asset edit does this, as does every revision of a managed resource. | The table is moved onto the new version before the write returns, and the write's result names it. | Nothing. |
+| A new version is written over a file whose table is pinned. | The table keeps serving the directory it was registered against. That is correct SQL over the version that was current when it was registered. The write's result says the table is behind. | Register again, same connection and name, when it should move. |
 
-The second case is reported as **stale** everywhere a registration is shown: in
-the portal panel, on a `search` hit, and in `manage_table action=list`. A stale
+The third case, and a follow that could not be completed, are reported as
+**stale** everywhere a registration is shown: in the portal panel, on a
+`search` hit, in Scratch Tables, and in `manage_table action=list`. A stale
 table is not broken and is not dropped, so a report built on it keeps running;
-it is behind, and the platform will not decide on its own that you wanted it
-moved forward.
+it is behind, and the platform will not move a pinned table forward on its
+own.
 
-This is worth knowing before pointing a table at an asset a
-[managed script](../scripts/running.md) rewrites on a schedule. Such an asset
-gains a version per run, so a table over it is stale from the first refresh
-onward and stays that way until somebody registers it again. A file the script
-overwrites in place instead has no such problem, and is the better shape when
-the table has to stay current by itself.
+A managed resource cannot be overwritten in place: every `replace_content` is
+a revision, which is what keeps a referenced file's history restorable. So a
+[managed script](../scripts/running.md) keeping a table current writes the
+resource and lets the table follow, which is what a registration does unless
+it was pinned. A bucket destination a script delivers to is the shape that
+overwrites in place, and needs no registration to move.
 
 ## Querying what you registered
 
@@ -539,6 +606,12 @@ recorded too. A registration that corrected the file first records what the
 correction changed on the same event, because it rewrote somebody's file on
 their behalf - and it records it even when the registration went on to be
 refused, since the file changed either way.
+
+Every follow writes a `table_follow` event under the registrant - the person
+whose table moved, not the caller of the write that moved it - naming the
+statements that ran, the version the table followed to, and the columns before
+and after when the header changed. A follow that failed is recorded with the
+failure, and so is the statement that put the table back.
 
 ## Related
 

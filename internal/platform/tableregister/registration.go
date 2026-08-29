@@ -58,6 +58,19 @@ type Registration struct {
 	Columns      []Column  `json:"columns"`
 	RegisteredBy string    `json:"registered_by"`
 	RegisteredAt time.Time `json:"registered_at"`
+	// Follow means the registration is moved to the source's new head
+	// directory when a revision or version is written (#1536). It is what a
+	// registration gets unless the caller pins it: a person or an agent that
+	// replaces a file expects the table over it to read the new contents.
+	// Pinned -- follow off -- is the choice for a report that must keep
+	// returning the rows it was registered over until somebody decides
+	// otherwise.
+	Follow bool `json:"follow"`
+	// FollowError is why the last follow did not move the registration, and is
+	// empty while it is where the file is. It is kept on the record because a
+	// follow never fails the write that triggered it, so the listing has to be
+	// able to say what is behind and why without the log of that write.
+	FollowError string `json:"follow_error,omitempty"`
 }
 
 // Result is one completed registration: the record, the source it was built
@@ -76,21 +89,32 @@ type Result struct {
 	Repair *RepairReport `json:"repair,omitempty"`
 }
 
-// RepairReport is what saving a corrected version of a file changed, and which
-// version it was saved as.
+// RepairReport is what saving a corrected version of a file changed, which
+// version it was saved as, and what that version did to the other tables
+// registered over the file.
 type RepairReport struct {
 	NormalizeReport
 	Version int `json:"version"`
+	// Followed is what writing the corrected version did to every OTHER
+	// registration over the file (#1536): a following one was moved onto it,
+	// a pinned one is now behind it. The registration the correction was made
+	// for is not among them, being current by construction.
+	Followed []FollowOutcome `json:"followed,omitempty"`
 }
 
 // Summary renders the correction as the sentence a person whose file changed
-// is told, in both surfaces.
+// is told, in both surfaces, followed by what it did to the other tables over
+// the file.
 func (r *RepairReport) Summary() string {
 	if r == nil {
 		return ""
 	}
-	return "Saved version " + strconv.Itoa(r.Version) + " of this file, which " + repairSummary(r.NormalizeReport) +
+	s := "Saved version " + strconv.Itoa(r.Version) + " of this file, which " + repairSummary(r.NormalizeReport) +
 		". The file as it was uploaded is still there as the version before it."
+	if lines := Sentences(r.Followed); len(lines) > 0 {
+		s += " " + strings.Join(lines, " ")
+	}
+	return s
 }
 
 // repairSummary says what a correction did, in the terms the person who
@@ -181,6 +205,14 @@ type Store interface {
 	// before it: the scratch schema is shared, so a reader could query a table
 	// through Trino that no surface would list (#1472).
 	List(ctx context.Context, f Filter) ([]Registration, int, error)
+	// Relocate moves a registration onto a new directory with the columns the
+	// file there declares, and clears the failure of any earlier follow. It
+	// is the store half of a follow (#1536): the table was already moved by
+	// the DDL, and the row has to say what the table now reads.
+	Relocate(ctx context.Context, id, location string, columns []Column) error
+	// RecordFollowFailure keeps why a follow did not move a registration, so
+	// a listing reports it behind the file with the reason.
+	RecordFollowFailure(ctx context.Context, id, reason string) error
 	Delete(ctx context.Context, id string) error
 }
 

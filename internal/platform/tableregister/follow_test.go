@@ -1,0 +1,457 @@
+package tableregister
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// A registration pins a directory, and every revision or version moves the
+// source's head to a new one (#1536). What these hold: a registration made
+// with follow is moved onto the new head by the write that produced it, with
+// the columns the new file declares, under the same registrant, and the write
+// is told; a pinned one stays and the write is told that too; and a follow
+// that cannot be completed leaves the registration behind the file with the
+// reason on it and never touches the write.
+
+// newHeadCSV is the file after a refresh: one more column than csvBody.
+const newHeadCSV = "store_id,vendor_code,rebate_pct,region\n101,ACME-NW,4.5,west\n"
+
+// revisedSource is testSource after a version moved its head to a fresh
+// per-version directory, which is what every revision and version write does.
+func revisedSource() Source {
+	src := testSource()
+	src.HeadKey = "artifacts/u1/asset_1/v2/content.csv"
+	return src
+}
+
+// moveHead models the write the follow answers: the new head's object exists
+// beside the old one, in a directory of its own, holding body.
+func (h *harness) moveHead(body string) Source {
+	src := revisedSource()
+	h.objects.entries = append(h.objects.entries, ObjectEntry{Key: src.HeadKey, Size: int64(len(body))})
+	h.objects.body = []byte(body)
+	h.trino.statements = nil
+	h.audit.events = nil
+	return src
+}
+
+func registerFollowing(t *testing.T, h *harness, follow bool) *Result {
+	t.Helper()
+	res, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch", Source: "mcp", Follow: follow})
+	require.NoError(t, err)
+	return res
+}
+
+// TestFollowSource_MovesAFollowingRegistrationOntoTheNewHead is the acceptance
+// assertion: after the write, the table reads the new directory with the new
+// columns, the record says so, and the audit trail names the version.
+func TestFollowSource_MovesAFollowingRegistrationOntoTheNewHead(t *testing.T) {
+	h := newHarness(t)
+	reg := registerFollowing(t, h, true)
+	assert.True(t, reg.Follow, "the choice is stored on the registration")
+	src := h.moveHead(newHeadCSV)
+
+	out := h.reg.FollowSource(context.Background(), src, 2)
+
+	require.Len(t, out, 1)
+	assert.Equal(t, FollowOutcome{
+		RegistrationID: reg.ID, Table: "scratch.uploads.analyst_content", Connection: "scratch",
+		Followed: true, Version: 2, ColumnsChanged: true,
+	}, out[0])
+	assert.Equal(t,
+		"scratch.uploads.analyst_content on scratch now reads version 2. Its columns changed with the file.",
+		out[0].Sentence())
+
+	// The same DDL a re-registration runs, at the new location, with the
+	// header the new file declares.
+	require.Len(t, h.trino.statements, 3)
+	assert.Contains(t, h.trino.statements[0], "CREATE SCHEMA IF NOT EXISTS")
+	assert.Equal(t, `DROP TABLE IF EXISTS "scratch"."uploads"."analyst_content"`, h.trino.statements[1])
+	assert.Contains(t, h.trino.statements[2], `external_location = 's3://portal-assets/artifacts/u1/asset_1/v2/'`)
+	assert.Contains(t, h.trino.statements[2], `"region" VARCHAR`)
+
+	stored, err := h.store.Get(context.Background(), reg.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "s3://portal-assets/artifacts/u1/asset_1/v2/", stored.Location)
+	assert.Len(t, stored.Columns, 4)
+	assert.Empty(t, stored.FollowError)
+	assert.False(t, stored.IsStale(src.Bucket, src.HeadKey), "a followed registration is current")
+	assert.Equal(t, "alice@example.com", stored.RegisteredBy, "the registrant is unchanged")
+
+	require.Len(t, h.audit.events, 1)
+	ev := h.audit.events[0]
+	assert.Equal(t, followEvent, ev.ToolName)
+	assert.Equal(t, "alice@example.com", ev.UserEmail, "recorded under the registrant, not the writer")
+	assert.True(t, ev.Success)
+	assert.Equal(t, 2, ev.Parameters["followed_version"])
+	assert.Equal(t, []string{"store_id", "vendor_code", "rebate_pct"}, ev.Parameters["columns_before"])
+	assert.Equal(t, []string{"store_id", "vendor_code", "rebate_pct", "region"}, ev.Parameters["columns_after"])
+	assert.Contains(t, ev.Parameters["sql"], "DROP TABLE")
+}
+
+// TestFollowSource_APinnedRegistrationStaysAndIsReported is the default: the
+// table serves what it was registered over, and the write is told it is now
+// behind and how to move it.
+func TestFollowSource_APinnedRegistrationStaysAndIsReported(t *testing.T) {
+	h := newHarness(t)
+	reg := registerFollowing(t, h, false)
+	src := h.moveHead(newHeadCSV)
+
+	out := h.reg.FollowSource(context.Background(), src, 2)
+
+	require.Len(t, out, 1)
+	assert.False(t, out[0].Followed)
+	assert.True(t, out[0].Pinned)
+	assert.Contains(t, out[0].Sentence(), "scratch.uploads.analyst_content on scratch is pinned")
+	assert.Contains(t, out[0].Sentence(), "with follow left on")
+	assert.Empty(t, h.trino.statements, "nothing runs for a pinned registration")
+	assert.Empty(t, h.audit.events)
+
+	stored, err := h.store.Get(context.Background(), reg.ID)
+	require.NoError(t, err)
+	assert.True(t, stored.IsStale(src.Bucket, src.HeadKey), "behind the file, exactly as before")
+	assert.Equal(t, reg.Location, stored.Location)
+}
+
+// TestFollowSource_APinnedRegistrationAlreadyAtTheHeadIsCurrent: a head
+// written at the directory the table already reads is not behind, and saying
+// so would be false.
+func TestFollowSource_APinnedRegistrationAlreadyAtTheHeadIsCurrent(t *testing.T) {
+	h := newHarness(t)
+	registerFollowing(t, h, false)
+	h.trino.statements = nil
+
+	out := h.reg.FollowSource(context.Background(), testSource(), 2)
+
+	require.Len(t, out, 1)
+	assert.True(t, out[0].Followed)
+	assert.False(t, out[0].Pinned)
+	assert.Empty(t, h.trino.statements)
+}
+
+// TestFollowSource_ReportsEveryRegistrationOverTheFile: one file, two tables,
+// one following and one pinned; each is answered on its own terms.
+func TestFollowSource_ReportsEveryRegistrationOverTheFile(t *testing.T) {
+	h := newHarness(t)
+	_, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch", TableName: "live", Follow: true})
+	require.NoError(t, err)
+	_, err = h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch", TableName: "snapshot"})
+	require.NoError(t, err)
+	src := h.moveHead(csvBody)
+
+	out := h.reg.FollowSource(context.Background(), src, 2)
+
+	require.Len(t, out, 2)
+	byTable := map[string]FollowOutcome{}
+	for _, o := range out {
+		byTable[o.Table] = o
+	}
+	assert.True(t, byTable["scratch.uploads.analyst_live"].Followed)
+	assert.False(t, byTable["scratch.uploads.analyst_live"].ColumnsChanged, "same header, columns unchanged")
+	assert.True(t, byTable["scratch.uploads.analyst_snapshot"].Pinned)
+	assert.Equal(t, 2, len(Sentences(out)))
+}
+
+// TestFollowSource_ACreateThatFailsAfterTheDropPutsTheTableBack. The write
+// succeeded either way; what must not be left is a registration naming a
+// table the failed follow took away.
+func TestFollowSource_ACreateThatFailsAfterTheDropPutsTheTableBack(t *testing.T) {
+	h := newHarness(t)
+	reg := registerFollowing(t, h, true)
+	src := h.moveHead(newHeadCSV)
+	h.trino.errFor = func(sql string) error {
+		if strings.HasPrefix(sql, createTablePrefix) && strings.Contains(sql, "/v2/") {
+			return errors.New("coordinator down")
+		}
+		return nil
+	}
+
+	out := h.reg.FollowSource(context.Background(), src, 2)
+
+	require.Len(t, out, 1)
+	assert.False(t, out[0].Followed)
+	assert.False(t, out[0].Pinned)
+	assert.Contains(t, out[0].Reason, "coordinator down")
+	assert.Contains(t, out[0].Sentence(), "follows this file but could not be moved to version 2")
+	assert.Contains(t, out[0].Sentence(), "behind the file until it is registered again")
+
+	// DROP, the failed CREATE at the new head, then the CREATE that restores
+	// the old table.
+	require.Len(t, h.trino.statements, 4)
+	assert.Contains(t, h.trino.statements[2], "/v2/")
+	assert.Contains(t, h.trino.statements[3], `external_location = 's3://portal-assets/artifacts/u1/asset_1/'`)
+	assert.True(t, h.trino.tables[`"scratch"."uploads"."analyst_content"`], "the old table stands again")
+
+	stored, err := h.store.Get(context.Background(), reg.ID)
+	require.NoError(t, err)
+	assert.Equal(t, reg.Location, stored.Location, "the registration is where it was")
+	assert.Contains(t, stored.FollowError, "coordinator down")
+	assert.True(t, stored.IsStale(src.Bucket, src.HeadKey))
+
+	// The failed follow and the restore are both on the trail.
+	require.Len(t, h.audit.events, 2)
+	assert.False(t, h.audit.events[0].Success)
+	assert.Contains(t, h.audit.events[0].ErrorMessage, "coordinator down")
+	assert.Equal(t, followEvent, h.audit.events[1].ToolName)
+	assert.Contains(t, h.audit.events[1].Parameters["sql"], "CREATE TABLE")
+}
+
+// TestFollowSource_ADropThatFailsChangedNothing: nothing ran that touched the
+// table, so nothing is put back, and the registration is behind with the
+// reason.
+func TestFollowSource_ADropThatFailsChangedNothing(t *testing.T) {
+	h := newHarness(t)
+	reg := registerFollowing(t, h, true)
+	src := h.moveHead(newHeadCSV)
+	h.trino.errFor = func(sql string) error {
+		if strings.HasPrefix(sql, dropTablePrefix) {
+			return errors.New("refused")
+		}
+		return nil
+	}
+
+	out := h.reg.FollowSource(context.Background(), src, 2)
+
+	require.Len(t, out, 1)
+	assert.False(t, out[0].Followed)
+	assert.Len(t, h.trino.statements, 2, "CREATE SCHEMA and the DROP that failed; no restore")
+	stored, err := h.store.Get(context.Background(), reg.ID)
+	require.NoError(t, err)
+	assert.Contains(t, stored.FollowError, "refused")
+}
+
+// TestFollowSource_ARestoreThatFailsIsAuditedAndTheReasonKept: a coordinator
+// that refuses every CREATE takes the table away and cannot put it back; both
+// statements are on the trail and the registration carries the reason.
+func TestFollowSource_ARestoreThatFailsIsAuditedAndTheReasonKept(t *testing.T) {
+	h := newHarness(t)
+	reg := registerFollowing(t, h, true)
+	src := h.moveHead(newHeadCSV)
+	h.trino.errFor = func(sql string) error {
+		if strings.HasPrefix(sql, createTablePrefix) {
+			return errors.New("coordinator down")
+		}
+		return nil
+	}
+
+	out := h.reg.FollowSource(context.Background(), src, 2)
+
+	require.Len(t, out, 1)
+	assert.Contains(t, out[0].Reason, "coordinator down")
+	require.Len(t, h.audit.events, 2)
+	assert.False(t, h.audit.events[1].Success, "the restore's failure is on the trail too")
+	stored, err := h.store.Get(context.Background(), reg.ID)
+	require.NoError(t, err)
+	assert.Contains(t, stored.FollowError, "coordinator down")
+}
+
+// TestFollowSource_RefusesWhatARegistrationWouldRefuse: the new head is read
+// the way a registration reads it, so a file a table cannot be built over
+// leaves the registration behind with the same reason a registration would
+// give -- and nothing is corrected on the way.
+func TestFollowSource_RefusesWhatARegistrationWouldRefuse(t *testing.T) {
+	cases := []struct {
+		name   string
+		body   string
+		src    func(Source) Source
+		extra  []ObjectEntry
+		reason string
+	}{
+		{
+			name:   "a file that needs correcting",
+			body:   macBody,
+			reason: "Register it again asking for the file to be corrected",
+		},
+		{
+			name:   "a file that cannot be corrected",
+			body:   "\xff\xfes\x00t\x00o\x00r\x00e\x00\n\x00",
+			reason: "Re-export it as UTF-8 CSV",
+		},
+		{
+			name:   "a second file in the new directory",
+			body:   csvBody,
+			extra:  []ObjectEntry{{Key: "artifacts/u1/asset_1/v2/extra.csv"}},
+			reason: "extra.csv sits beside it",
+		},
+		{
+			name: "a head that is no longer a CSV",
+			body: `{"a":1}`,
+			src: func(s Source) Source {
+				s.ContentType, s.HeadKey = "application/json", "artifacts/u1/asset_1/v2/content.json"
+				return s
+			},
+			reason: ErrNotCSV.Error(),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			reg := registerFollowing(t, h, true)
+			src := h.moveHead(tc.body)
+			if tc.src != nil {
+				src = tc.src(src)
+			}
+			h.objects.entries = append(h.objects.entries, tc.extra...)
+			h.reviser.saved = nil
+
+			out := h.reg.FollowSource(context.Background(), src, 2)
+
+			require.Len(t, out, 1)
+			assert.False(t, out[0].Followed)
+			assert.Contains(t, out[0].Reason, tc.reason)
+			assert.Empty(t, h.trino.statements, "nothing runs against a file that cannot be a table")
+			assert.Empty(t, h.reviser.saved, "a follow never rewrites the person's file")
+			stored, err := h.store.Get(context.Background(), reg.ID)
+			require.NoError(t, err)
+			assert.Contains(t, stored.FollowError, tc.reason)
+		})
+	}
+}
+
+// TestFollowSource_ARegistrationAlreadyAtTheHeadClearsAnOldFailure: the
+// second follow after a write finds nothing to move, and a failure recorded by
+// an earlier one is cleared because the registration is where the file is.
+func TestFollowSource_ARegistrationAlreadyAtTheHeadClearsAnOldFailure(t *testing.T) {
+	h := newHarness(t)
+	reg := registerFollowing(t, h, true)
+	src := h.moveHead(csvBody)
+	require.NoError(t, h.store.RecordFollowFailure(context.Background(), reg.ID, "an earlier attempt"))
+
+	first := h.reg.FollowSource(context.Background(), src, 2)
+	require.True(t, first[0].Followed)
+	statements := len(h.trino.statements)
+
+	second := h.reg.FollowSource(context.Background(), src, 2)
+
+	require.Len(t, second, 1)
+	assert.True(t, second[0].Followed)
+	assert.Len(t, h.trino.statements, statements, "nothing to run the second time")
+	stored, err := h.store.Get(context.Background(), reg.ID)
+	require.NoError(t, err)
+	assert.Empty(t, stored.FollowError)
+}
+
+// TestFollowSource_ClearsAnOldFailureWithoutMovingWhenAlreadyCurrent covers
+// the store write that only clears the reason.
+func TestFollowSource_ClearsAnOldFailureWithoutMovingWhenAlreadyCurrent(t *testing.T) {
+	h := newHarness(t)
+	reg := registerFollowing(t, h, true)
+	require.NoError(t, h.store.RecordFollowFailure(context.Background(), reg.ID, "an earlier attempt"))
+	h.trino.statements = nil
+
+	out := h.reg.FollowSource(context.Background(), testSource(), 1)
+
+	require.Len(t, out, 1)
+	assert.True(t, out[0].Followed)
+	assert.Empty(t, h.trino.statements)
+	stored, err := h.store.Get(context.Background(), reg.ID)
+	require.NoError(t, err)
+	assert.Empty(t, stored.FollowError)
+
+	// The clearing write failing is reported like any other follow failure.
+	require.NoError(t, h.store.RecordFollowFailure(context.Background(), reg.ID, "again"))
+	h.store.relocateErr = errors.New("store away")
+	out = h.reg.FollowSource(context.Background(), testSource(), 1)
+	assert.False(t, out[0].Followed)
+	assert.Contains(t, out[0].Reason, "store away")
+}
+
+// TestFollowSource_ATableMovedButNotRecordedSaysSo: the DDL succeeded and the
+// row could not be updated, which is the one state where the table is current
+// and the record is not; the reason names it so the person registers again.
+func TestFollowSource_ATableMovedButNotRecordedSaysSo(t *testing.T) {
+	h := newHarness(t)
+	reg := registerFollowing(t, h, true)
+	src := h.moveHead(csvBody)
+	h.store.relocateErr = errors.New("store away")
+
+	out := h.reg.FollowSource(context.Background(), src, 2)
+
+	require.Len(t, out, 1)
+	assert.False(t, out[0].Followed)
+	assert.Contains(t, out[0].Reason, "the table was moved but its record could not be updated")
+	stored, err := h.store.Get(context.Background(), reg.ID)
+	require.NoError(t, err)
+	assert.Contains(t, stored.FollowError, "store away")
+}
+
+// TestFollowSource_NothingToFollow: no registrations, an unwired registrar,
+// and a store that cannot answer all report nothing rather than failing the
+// write.
+func TestFollowSource_NothingToFollow(t *testing.T) {
+	h := newHarness(t)
+	assert.Nil(t, h.reg.FollowSource(context.Background(), revisedSource(), 2))
+
+	h.store.listErr = errors.New("store away")
+	assert.Nil(t, h.reg.FollowSource(context.Background(), revisedSource(), 2))
+
+	assert.Nil(t, New(Deps{}).FollowSource(context.Background(), revisedSource(), 2))
+	assert.Nil(t, Sentences(nil))
+}
+
+// TestRegister_ACorrectionFollowsTheOtherTablesOverTheFile: saving a
+// corrected version moves the head exactly as a revision does, so a following
+// registration made earlier over the same file is moved onto the corrected
+// version, a pinned one is reported behind, and the answer says both.
+func TestRegister_ACorrectionFollowsTheOtherTablesOverTheFile(t *testing.T) {
+	h := newHarness(t, func(h *harness) { h.objects.body = []byte(macBody) })
+	// Two registrations over the file as it was uploaded: the file has to be
+	// readable for that, so they are made over csvBody and the defective
+	// upload arrives afterwards.
+	h.objects.body = []byte(csvBody)
+	_, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch", TableName: "live", Follow: true})
+	require.NoError(t, err)
+	_, err = h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch", TableName: "snapshot"})
+	require.NoError(t, err)
+	h.objects.body = []byte(macBody)
+
+	res, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch", TableName: "corrected", Repair: true})
+	require.NoError(t, err)
+	require.NotNil(t, res.Repair)
+
+	require.Len(t, res.Repair.Followed, 2, "the registration just made is not among them")
+	byTable := map[string]FollowOutcome{}
+	for _, o := range res.Repair.Followed {
+		byTable[o.Table] = o
+	}
+	assert.True(t, byTable["scratch.uploads.analyst_live"].Followed)
+	assert.Equal(t, res.Repair.Version, byTable["scratch.uploads.analyst_live"].Version)
+	assert.True(t, byTable["scratch.uploads.analyst_snapshot"].Pinned)
+	assert.Contains(t, res.Repair.Summary(), "scratch.uploads.analyst_live on scratch now reads version")
+	assert.Contains(t, res.Repair.Summary(), "scratch.uploads.analyst_snapshot on scratch is pinned")
+
+	live, err := h.store.ByName(context.Background(), "scratch", "scratch", "uploads", "analyst_live")
+	require.NoError(t, err)
+	assert.Equal(t, res.Location, live.Location, "the following table reads the corrected version too")
+}
+
+// TestFollowOutcome_Sentence pins the three sentences a write carries.
+func TestFollowOutcome_Sentence(t *testing.T) {
+	base := FollowOutcome{Table: "scratch.uploads.t", Connection: "c", Version: 7}
+
+	followed := base
+	followed.Followed = true
+	assert.Equal(t, "scratch.uploads.t on c now reads version 7.", followed.Sentence())
+
+	pinned := base
+	pinned.Pinned = true
+	assert.Equal(t, "scratch.uploads.t on c is pinned to the version it was registered over and is now behind"+
+		" this file; register it again to move it, with follow left on if it should keep up with the file.",
+		pinned.Sentence())
+
+	failed := base
+	failed.Reason = "coordinator down."
+	assert.Equal(t, "scratch.uploads.t on c follows this file but could not be moved to version 7:"+
+		" coordinator down. It is behind the file until it is registered again.", failed.Sentence())
+}

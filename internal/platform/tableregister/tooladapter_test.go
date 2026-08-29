@@ -9,6 +9,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
+	portaltoolkit "github.com/txn2/mcp-data-platform/pkg/toolkits/portal"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 )
 
@@ -87,7 +88,7 @@ func newAdapterHarness(t *testing.T) (*ToolAdapter, *harness) {
 	h := newHarness(t)
 	adapter := NewToolAdapter(h.reg, []string{"admin"}, map[string]Subject{
 		KindAsset: assetSubjectFor(adapterAsset(), nil),
-	})
+	}, nil)
 	require.NotNil(t, adapter)
 	return adapter, h
 }
@@ -96,7 +97,7 @@ func TestToolAdapter_RegisterReportsWhatTheToolShows(t *testing.T) {
 	adapter, h := newAdapterHarness(t)
 
 	got, err := adapter.Register(
-		callerContext("alice@example.com", "analyst"), assetRef, "scratch", "vendor keys", false)
+		callerContext("alice@example.com", "analyst"), assetRef, "scratch", "vendor keys", portaltoolkit.RegisterOptions{})
 	require.NoError(t, err)
 
 	assert.Equal(t, "scratch", got.Connection)
@@ -129,11 +130,11 @@ func TestToolAdapter_ResolvesTheKindFromTheReference(t *testing.T) {
 			ID: "res_1", Name: "Vendor glossary", Bucket: "resources",
 			Key: "resources/res_1/glossary.csv", ContentType: "text/csv", OwnerID: "u1",
 		}),
-	})
+	}, nil)
 	require.NotNil(t, adapter)
 	ctx := callerContext("alice@example.com", "analyst")
 
-	got, err := adapter.Register(ctx, resourceRef, "scratch", "", false)
+	got, err := adapter.Register(ctx, resourceRef, "scratch", "", portaltoolkit.RegisterOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, "scratch.uploads.analyst_glossary", got.QueryTable)
 
@@ -155,8 +156,8 @@ func TestToolAdapter_UnreachableReferenceIsNotFound(t *testing.T) {
 	})
 
 	_, missingErr := adapter.Register(
-		callerContext("alice@example.com", "analyst"), "mcp:asset:nope", "scratch", "", false)
-	_, strangerErr := adapter.Register(stranger, assetRef, "scratch", "", false)
+		callerContext("alice@example.com", "analyst"), "mcp:asset:nope", "scratch", "", portaltoolkit.RegisterOptions{})
+	_, strangerErr := adapter.Register(stranger, assetRef, "scratch", "", portaltoolkit.RegisterOptions{})
 
 	require.ErrorIs(t, missingErr, ErrNoSuchFile)
 	require.ErrorIs(t, strangerErr, ErrNoSuchFile)
@@ -172,11 +173,11 @@ func TestToolAdapter_RefusesAReferenceThatIsNotAStoredFile(t *testing.T) {
 	adapter, _ := newAdapterHarness(t)
 	ctx := callerContext("alice@example.com", "analyst")
 
-	_, err := adapter.Register(ctx, "mcp:knowledge_page:kp_1", "scratch", "", false)
+	_, err := adapter.Register(ctx, "mcp:knowledge_page:kp_1", "scratch", "", portaltoolkit.RegisterOptions{})
 	require.ErrorIs(t, err, ErrBadReference)
 	assert.Contains(t, err.Error(), "knowledge_page")
 
-	_, err = adapter.Register(ctx, "not a reference", "scratch", "", false)
+	_, err = adapter.Register(ctx, "not a reference", "scratch", "", portaltoolkit.RegisterOptions{})
 	assert.ErrorIs(t, err, ErrBadReference)
 }
 
@@ -186,7 +187,7 @@ func TestToolAdapter_RefusesAReferenceThatIsNotAStoredFile(t *testing.T) {
 func TestToolAdapter_KindWithNoStoreIsUnavailable(t *testing.T) {
 	adapter, _ := newAdapterHarness(t)
 
-	_, err := adapter.Register(callerContext("alice@example.com", "analyst"), resourceRef, "scratch", "", false)
+	_, err := adapter.Register(callerContext("alice@example.com", "analyst"), resourceRef, "scratch", "", portaltoolkit.RegisterOptions{})
 	assert.ErrorIs(t, err, ErrUnavailable)
 }
 
@@ -204,10 +205,10 @@ func TestToolAdapter_AnonymousCallRegistersNothing(t *testing.T) {
 				Key: "artifacts/u1/asset_1/content.csv", ContentType: "text/csv",
 			}), true
 		},
-	})
+	}, nil)
 	require.NotNil(t, adapter)
 
-	_, err := adapter.Register(context.Background(), assetRef, "scratch", "", false)
+	_, err := adapter.Register(context.Background(), assetRef, "scratch", "", portaltoolkit.RegisterOptions{})
 	assert.ErrorIs(t, err, ErrNoIdentity)
 	assert.Empty(t, h.trino.statements)
 }
@@ -219,7 +220,7 @@ func TestToolAdapter_AdminIsResolvedFromRoles(t *testing.T) {
 	h := newHarness(t)
 	adapter := NewToolAdapter(h.reg, []string{"admin"}, map[string]Subject{
 		KindAsset: assetSubjectFor(adapterAsset(), &seen),
-	})
+	}, nil)
 	require.NotNil(t, adapter)
 	require.NoError(t, h.store.Insert(context.Background(), Registration{
 		ID: "reg_held", SourceKind: KindAsset, SourceID: "asset_9",
@@ -229,14 +230,14 @@ func TestToolAdapter_AdminIsResolvedFromRoles(t *testing.T) {
 
 	// A non-admin cannot take the name.
 	_, err := adapter.Register(
-		callerContext("carol@example.com", "root"), assetRef, "scratch", "content", false)
+		callerContext("carol@example.com", "root"), assetRef, "scratch", "content", portaltoolkit.RegisterOptions{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "bob@example.com")
 	assert.False(t, seen.IsAdmin)
 
 	// The same call from someone holding the admin role replaces it.
 	_, err = adapter.Register(
-		callerContext("carol@example.com", "root", "admin"), assetRef, "scratch", "content", false)
+		callerContext("carol@example.com", "root", "admin"), assetRef, "scratch", "content", portaltoolkit.RegisterOptions{})
 	require.NoError(t, err)
 	assert.True(t, seen.IsAdmin, "the resolver decides authority from the caller the adapter built")
 }
@@ -245,7 +246,7 @@ func TestToolAdapter_ListAndDrop(t *testing.T) {
 	adapter, _ := newAdapterHarness(t)
 	ctx := callerContext("alice@example.com", "analyst")
 
-	reg, err := adapter.Register(ctx, assetRef, "scratch", "", false)
+	reg, err := adapter.Register(ctx, assetRef, "scratch", "", portaltoolkit.RegisterOptions{})
 	require.NoError(t, err)
 
 	listed, err := adapter.Tables(ctx, assetRef)
@@ -278,7 +279,7 @@ func TestToolAdapter_DropAssetTables(t *testing.T) {
 	adapter, h := newAdapterHarness(t)
 	ctx := callerContext("alice@example.com", "analyst")
 
-	_, err := adapter.Register(ctx, assetRef, "scratch", "", false)
+	_, err := adapter.Register(ctx, assetRef, "scratch", "", portaltoolkit.RegisterOptions{})
 	require.NoError(t, err)
 
 	adapter.DropAssetTables(ctx, "asset_1")
@@ -302,11 +303,11 @@ func TestToolAdapter_ReportsStale(t *testing.T) {
 				Key: current.S3Key, ContentType: current.ContentType, OwnerID: current.OwnerID,
 			}), true
 		},
-	})
+	}, nil)
 	require.NotNil(t, adapter)
 	ctx := callerContext("alice@example.com", "analyst")
 
-	_, err := adapter.Register(ctx, assetRef, "scratch", "", false)
+	_, err := adapter.Register(ctx, assetRef, "scratch", "", portaltoolkit.RegisterOptions{})
 	require.NoError(t, err)
 
 	current.S3Key = "artifacts/u1/asset_1/v2/content.csv"
@@ -320,9 +321,9 @@ func TestToolAdapter_ReportsStale(t *testing.T) {
 // cannot register tables" rather than holding an adapter that always fails.
 func TestNewToolAdapter_UnwiredYieldsNil(t *testing.T) {
 	subjects := map[string]Subject{KindAsset: assetSubjectFor(adapterAsset(), nil)}
-	assert.Nil(t, NewToolAdapter(New(Deps{}), nil, subjects))
-	assert.Nil(t, NewToolAdapter(nil, nil, subjects))
-	assert.Nil(t, NewToolAdapter(newHarness(t).reg, nil, nil),
+	assert.Nil(t, NewToolAdapter(New(Deps{}), nil, subjects, nil))
+	assert.Nil(t, NewToolAdapter(nil, nil, subjects, nil))
+	assert.Nil(t, NewToolAdapter(newHarness(t).reg, nil, nil, nil),
 		"a registrar with no kind to resolve can register nothing through the tool")
 }
 
@@ -380,11 +381,11 @@ func TestToolAdapter_RepairIsCarriedAndReported(t *testing.T) {
 	h.objects.body = []byte("store_id,address\n101,\"12 Mill Rd\nSuite 4\"\n")
 
 	ctx := callerContext("alice@example.com", "analyst")
-	_, err := adapter.Register(ctx, assetRef, "scratch", "", false)
+	_, err := adapter.Register(ctx, assetRef, "scratch", "", portaltoolkit.RegisterOptions{})
 	require.Error(t, err, "unasked, a file a table cannot read is refused")
 	assert.ErrorIs(t, err, ErrNeedsRepair)
 
-	got, err := adapter.Register(ctx, assetRef, "scratch", "", true)
+	got, err := adapter.Register(ctx, assetRef, "scratch", "", portaltoolkit.RegisterOptions{Repair: true})
 	require.NoError(t, err)
 	assert.Contains(t, got.Repaired, "put 1 row back onto one line")
 	assert.False(t, got.Stale, "the registration points at the version the correction wrote")

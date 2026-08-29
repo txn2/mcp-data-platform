@@ -6,21 +6,17 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
-	"log/slog"
 	"net/http"
-	"slices"
-	"strings"
 	"sync"
 
 	"github.com/txn2/mcp-data-platform/internal/httpserver/tablehttp"
-	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/tablesource"
 	"github.com/txn2/mcp-data-platform/internal/platform/connreach"
 	"github.com/txn2/mcp-data-platform/internal/platform/connscope"
 	"github.com/txn2/mcp-data-platform/internal/platform/tableregister"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/portal/s3adapter"
-	"github.com/txn2/mcp-data-platform/pkg/resource"
 	portaltoolkit "github.com/txn2/mcp-data-platform/pkg/toolkits/portal"
 	trinotoolkit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 )
@@ -70,8 +66,8 @@ func buildTableRegistrar(p *platform.Platform) *tableregister.Registrar {
 }
 
 // tableRegistrarOnce caches the registrar per platform so the REST routes, the
-// asset toolkit, the discovery lookup and the two delete hooks all act through
-// one instance instead of five that happen to agree.
+// asset toolkit, the discovery lookup and the source hooks all act through one
+// instance instead of five that happen to agree.
 var tableRegistrarOnce = struct {
 	sync.Mutex
 	forPlatform *platform.Platform
@@ -203,28 +199,59 @@ func mountTableAPI(
 	log.Println("Registered tables listed on /api/v1/tables")
 }
 
-// TableCleanupHooks are the delete callbacks the surrounding surfaces install
-// so a deleted file leaves no table behind. Both are nil on a deployment that
-// cannot register.
-type TableCleanupHooks struct {
+// TableSourceHooks are the callbacks the surrounding surfaces install at the
+// two moments a source changes under its tables: a delete, so a deleted file
+// leaves no table behind, and a revision, so a following registration moves
+// onto the new head and a pinned one is reported behind (#1536). Every field
+// is nil on a deployment that cannot register.
+//
+// A revise hook returns what happened to each registration over the file, as
+// the sentences the write's result carries, and never fails the write.
+type TableSourceHooks struct {
 	AssetDeleted    func(context.Context, string)
 	ResourceDeleted func(context.Context, string)
+	AssetRevised    func(ctx context.Context, id string, version int) []string
+	ResourceRevised func(ctx context.Context, id string, version int) []string
 }
 
-// tableCleanupHooks builds the delete callbacks over the registrar.
-func tableCleanupHooks(p *platform.Platform) TableCleanupHooks {
+// tableSourceHooks builds the callbacks over the registrar.
+func tableSourceHooks(p *platform.Platform) TableSourceHooks {
 	registrar := tableRegistrar(p)
 	if !registrar.Available() {
-		return TableCleanupHooks{}
+		return TableSourceHooks{}
 	}
-	return TableCleanupHooks{
+	follower := sourceFollower{registrar: registrar, locate: platformTableLocator(p)}
+	return TableSourceHooks{
 		AssetDeleted: func(ctx context.Context, id string) {
 			registrar.UnregisterAllForSource(ctx, tableregister.KindAsset, id)
 		},
 		ResourceDeleted: func(ctx context.Context, id string) {
 			registrar.UnregisterAllForSource(ctx, tableregister.KindResource, id)
 		},
+		AssetRevised: func(ctx context.Context, id string, version int) []string {
+			return follower.follow(ctx, tableregister.KindAsset, id, version)
+		},
+		ResourceRevised: func(ctx context.Context, id string, version int) []string {
+			return follower.follow(ctx, tableregister.KindResource, id, version)
+		},
 	}
+}
+
+// sourceFollower is the follow a revise hook runs: resolve the record the
+// write changed, then follow the registrations over it. A record that cannot
+// be resolved has nothing to report -- the write happened, and there is no
+// table to say anything about.
+type sourceFollower struct {
+	registrar *tableregister.Registrar
+	locate    tableregister.Locator
+}
+
+func (f sourceFollower) follow(ctx context.Context, kind, id string, version int) []string {
+	src, ok := f.locate(ctx, kind, id)
+	if !ok {
+		return nil
+	}
+	return tableregister.Sentences(f.registrar.FollowSource(ctx, src, version))
 }
 
 // wireTableToolRegistrar hands the asset toolkit the registrar behind
@@ -240,7 +267,8 @@ func wireTableToolRegistrar(p *platform.Platform, adminRoles []string) {
 	if !registrar.Available() {
 		return
 	}
-	adapter := tableregister.NewToolAdapter(registrar, adminRoles, platformTableSubjects(p, adminRoles))
+	adapter := tableregister.NewToolAdapter(registrar, adminRoles, platformTableSubjects(p, adminRoles),
+		platformTableLocator(p))
 	if adapter == nil {
 		return
 	}
@@ -274,103 +302,17 @@ func wireTableLookup(p *platform.Platform, lookup *tableregister.Lookup) {
 	}
 }
 
-// tableSubjects is the one place a stored file is resolved and the caller's
-// authority over it is decided, per kind. Both surfaces take their resolvers
-// from here: the REST routes convert their authenticated portal user into a
-// Caller, and the tool reads one from the platform context.
-//
-// A kind whose store is absent has no entry, which leaves that kind
-// unregisterable on both surfaces rather than half-served on one.
-func tableSubjects(
-	resources resource.Store, resourceBucket string, assets portal.AssetStore, adminRoles []string,
-) map[string]tableregister.Subject {
-	subjects := make(map[string]tableregister.Subject, 2)
-	if resources != nil {
-		subjects[tableregister.KindResource] = resourceSubject(resources, resourceBucket)
-	}
-	if assets != nil {
-		subjects[tableregister.KindAsset] = assetSubject(assets, adminRoles)
-	}
-	return subjects
-}
-
 // platformTableSubjects reads the two stores off the platform and builds the
 // resolvers over them.
 func platformTableSubjects(p *platform.Platform, adminRoles []string) map[string]tableregister.Subject {
-	return tableSubjects(
+	return tablesource.Subjects(
 		p.ResourceStore(), p.Config().Resources.Managed.S3Bucket, p.PortalAssetStore(), adminRoles)
 }
 
-// resourceSubject resolves a managed resource for the table surfaces.
-//
-// The rule is authority to CHANGE the resource, not authority to read it:
-// resource.CanModifyResource, which is the uploader, a platform administrator,
-// or an administrator of the scope the resource lives in -- the same rule that
-// governs updating and deleting it. Registering publishes the file's contents
-// into a schema everyone granted the connection can read, and resource scopes
-// are not carried into Trino (docs/security/threat-model.md), so a read rule
-// here would let anyone who can see a persona-scoped file widen its audience.
-// This matches the asset rule below, so one sentence describes both kinds.
-func resourceSubject(store resource.Store, bucket string) tableregister.Subject {
-	return func(ctx context.Context, id string, caller tableregister.Caller) (tableregister.Source, bool) {
-		res, err := store.Get(ctx, id)
-		if err != nil || res == nil {
-			return tableregister.Source{}, false
-		}
-		claims := resource.BuildClaims(caller.UserID, caller.Email, caller.Persona, caller.Roles, caller.IsAdmin).
-			ActingFor(caller.OnBehalfOf)
-		if !resource.CanModifyResource(claims, res) {
-			return tableregister.Source{}, false
-		}
-		return tableregister.SourceFromResource(tableregister.Record{
-			ID: res.ID, Name: res.DisplayName, Bucket: bucket,
-			Key: res.S3Key, ContentType: res.MIMEType, OwnerID: res.UploaderSub,
-		}), true
-	}
-}
-
-// assetSubject resolves a portal asset for the table surfaces.
-func assetSubject(store portal.AssetStore, adminRoles []string) tableregister.Subject {
-	return func(ctx context.Context, id string, caller tableregister.Caller) (tableregister.Source, bool) {
-		asset, err := store.Get(ctx, id)
-		if err != nil || asset == nil || asset.DeletedAt != nil {
-			return tableregister.Source{}, false
-		}
-		if !assetVisibleTo(*asset, caller, adminRoles) {
-			return tableregister.Source{}, false
-		}
-		return tableregister.SourceFromAssetRecord(tableregister.Record{
-			ID: asset.ID, Name: asset.Name, Bucket: asset.S3Bucket,
-			Key: asset.S3Key, ContentType: asset.ContentType, OwnerID: asset.OwnerID,
-		}), true
-	}
-}
-
-// assetVisibleTo reports whether this caller may act on an asset through the
-// table surfaces.
-//
-// An asset belongs to one person, so the owner and an administrator reach it
-// and nobody else does; an editor share does not carry it, because registering
-// publishes the file's contents into a schema everyone with the connection can
-// read, which is owner authority the way sharing is.
-//
-// Both halves of an identity match must be non-empty. A caller with no id and
-// an asset with no owner id are not the same person, and matching them would
-// hand an unauthenticated request every unattributed asset on the platform.
-//
-// The administrator arm is checked twice on purpose: a caller assembled by a
-// surface that does not resolve IsAdmin still carries the roles it was
-// authenticated with, and an administrator is unrestricted whichever door they
-// came through.
-func assetVisibleTo(asset portal.Asset, caller tableregister.Caller, adminRoles []string) bool {
-	if caller.IsAdmin || hasAnyRoleIn(caller.Roles, adminRoles) {
-		return true
-	}
-	if asset.OwnerID != "" && asset.OwnerID == caller.UserID {
-		return true
-	}
-	return asset.OwnerEmail != "" && caller.Email != "" &&
-		strings.EqualFold(asset.OwnerEmail, caller.Email)
+// platformTableLocator reads the two stores off the platform and builds the
+// caller-less resolver a follow uses.
+func platformTableLocator(p *platform.Platform) tableregister.Locator {
+	return tablesource.Locator(p.ResourceStore(), p.Config().Resources.Managed.S3Bucket, p.PortalAssetStore())
 }
 
 // tableConnectionEnumerator fills the connection picker with the connections
@@ -395,7 +337,7 @@ func tableConnectionEnumerator(p *platform.Platform, adminRoles []string) tableh
 				personaName = info.Name
 			}
 		}
-		isAdmin := hasAnyRoleIn(user.Roles, adminRoles)
+		isAdmin := tablesource.HasAnyRole(user.Roles, adminRoles)
 
 		return scratchConnectionChoices(lister.ForPersona(ctx, personaName, isAdmin), exec)
 	}
@@ -486,92 +428,8 @@ func connectionVisibility(lister *connreach.Lister) tablehttp.Visibility {
 // authority over the SOURCE, which is a different and narrower question, and a
 // row is shown either way.
 func tableSourceLookup(p *platform.Platform, adminRoles []string) tableregister.Sources {
-	return sourceRefLookup(
+	return tablesource.RefLookup(
 		p.ResourceStore(), p.Config().Resources.Managed.S3Bucket, p.PortalAssetStore(), adminRoles)
-}
-
-// sourceRefLookup dispatches a listing's source resolution to the store that
-// holds that kind, the way tableSubjects does for the per-source routes.
-func sourceRefLookup(
-	resources resource.Store, bucket string, assets portal.AssetStore, adminRoles []string,
-) tableregister.Sources {
-	return func(
-		ctx context.Context, kind string, ids []string, caller tableregister.Caller,
-	) map[string]tableregister.SourceRef {
-		switch kind {
-		case tableregister.KindResource:
-			return resourceSourceRefs(ctx, resources, bucket, ids, caller)
-		case tableregister.KindAsset:
-			return assetSourceRefs(ctx, assets, adminRoles, ids, caller)
-		default:
-			return nil
-		}
-	}
-}
-
-// resourceSourceRefs reads a page of managed resources in one query.
-//
-// A read that fails answers with nothing rather than with an error: the
-// listing is about the registrations, and a resource store that stopped
-// answering leaves each row without a source name and without the unregister
-// action, which is a degraded listing rather than no listing at all.
-func resourceSourceRefs(
-	ctx context.Context, store resource.Store, bucket string, ids []string, caller tableregister.Caller,
-) map[string]tableregister.SourceRef {
-	if store == nil {
-		return nil
-	}
-	found, err := store.GetByIDs(ctx, ids)
-	if err != nil {
-		slog.Warn("registered tables: reading the resources a listing names failed",
-			"error", logsan.SanitizeForLog(err.Error()))
-		return nil
-	}
-	claims := resource.BuildClaims(caller.UserID, caller.Email, caller.Persona, caller.Roles, caller.IsAdmin).
-		ActingFor(caller.OnBehalfOf)
-	out := make(map[string]tableregister.SourceRef, len(found))
-	for id, res := range found {
-		if res == nil {
-			continue
-		}
-		out[id] = tableregister.SourceRef{
-			Name:      res.DisplayName,
-			Bucket:    bucket,
-			HeadKey:   res.S3Key,
-			CanModify: resource.CanModifyResource(claims, res),
-		}
-	}
-	return out
-}
-
-// assetSourceRefs reads a page of portal assets in one query. A soft-deleted
-// asset is left out, which is what the Subject resolver does with one.
-func assetSourceRefs(
-	ctx context.Context, store portal.AssetStore, adminRoles []string,
-	ids []string, caller tableregister.Caller,
-) map[string]tableregister.SourceRef {
-	if store == nil {
-		return nil
-	}
-	found, err := store.GetByIDs(ctx, ids)
-	if err != nil {
-		slog.Warn("registered tables: reading the assets a listing names failed",
-			"error", logsan.SanitizeForLog(err.Error()))
-		return nil
-	}
-	out := make(map[string]tableregister.SourceRef, len(found))
-	for id, asset := range found {
-		if asset == nil || asset.DeletedAt != nil {
-			continue
-		}
-		out[id] = tableregister.SourceRef{
-			Name:      asset.Name,
-			Bucket:    asset.S3Bucket,
-			HeadKey:   asset.S3Key,
-			CanModify: assetVisibleTo(*asset, caller, adminRoles),
-		}
-	}
-	return out
 }
 
 // tableCaller builds the registrar's view of an authenticated portal user.
@@ -582,7 +440,7 @@ func tableCaller(p *platform.Platform, adminRoles []string) func(*portal.User) t
 			UserID:  user.UserID,
 			Email:   user.Email,
 			Roles:   user.Roles,
-			IsAdmin: hasAnyRoleIn(user.Roles, adminRoles),
+			IsAdmin: tablesource.HasAnyRole(user.Roles, adminRoles),
 		}
 		if resolver != nil {
 			if info := resolver(user.Roles); info != nil {
@@ -591,14 +449,4 @@ func tableCaller(p *platform.Platform, adminRoles []string) func(*portal.User) t
 		}
 		return caller
 	}
-}
-
-// hasAnyRoleIn reports whether held contains any of want.
-func hasAnyRoleIn(held, want []string) bool {
-	for _, h := range held {
-		if slices.Contains(want, h) {
-			return true
-		}
-	}
-	return false
 }

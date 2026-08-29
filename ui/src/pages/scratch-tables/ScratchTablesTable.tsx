@@ -1,4 +1,4 @@
-import { AlertTriangle, FileX2 } from "lucide-react";
+import { AlertTriangle, FileX2, Pin } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -114,9 +114,11 @@ function SourceCell({ row }: { row: ScratchTable }) {
 }
 
 // StateBadge is the currency verdict, which is the second thing only a
-// cross-source read can answer. A current table says nothing at all: the
-// column exists to carry the exceptions, and a row of "Current" badges would
-// bury them.
+// cross-source read can answer. A current table says little: the column
+// exists to carry the exceptions, and a row of loud badges would bury them.
+// A table that follows its file is current by construction and says so
+// quietly; a pinned one is current only until the file moves, and says it is
+// pinned so a reader knows the next version will not reach it.
 function StateBadge({ row }: { row: ScratchTable }) {
   if (row.source.missing) {
     return (
@@ -128,11 +130,23 @@ function StateBadge({ row }: { row: ScratchTable }) {
   }
   if (row.stale) {
     return (
-      <Badge variant="warning" className="gap-1 whitespace-nowrap">
+      <Badge
+        variant="warning"
+        className="gap-1 whitespace-nowrap"
+        title={row.follow && row.follow_error ? row.follow_error : undefined}
+      >
         <AlertTriangle aria-hidden className="size-3" />
         Behind the file
       </Badge>
     );
   }
-  return <span className="text-xs text-muted-foreground">Current</span>;
+  if (row.follow) {
+    return <span className="text-xs text-muted-foreground">Follows the file</span>;
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+      <Pin aria-hidden className="size-3" />
+      Pinned
+    </span>
+  );
 }

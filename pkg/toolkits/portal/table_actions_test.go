@@ -3,6 +3,7 @@ package portal
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -28,23 +29,28 @@ const (
 // fakeTableRegistrar records what the tool asked for and returns what a real
 // registrar would.
 type fakeTableRegistrar struct {
-	registered    []TableRegistration
-	dropped       []string
-	droppedAll    []string
-	lastRef       string
-	lastConn      string
-	lastName      string
-	lastRepair    bool
-	repaired      string
+	registered []TableRegistration
+	dropped    []string
+	droppedAll []string
+	lastRef    string
+	lastConn   string
+	lastName   string
+	lastRepair bool
+	lastFollow bool
+	repaired   string
+	// followed is what the fake answers a content write with, and followedFor
+	// records which files it was asked about, as kind:id:version.
+	followed      []string
+	followedFor   []string
 	registerErr   error
 	unregisterErr error
 	listErr       error
 }
 
 func (f *fakeTableRegistrar) Register(
-	_ context.Context, reference, connection, tableName string, repair bool,
+	_ context.Context, reference, connection, tableName string, opts RegisterOptions,
 ) (*TableRegistration, error) {
-	f.lastRef, f.lastConn, f.lastName, f.lastRepair = reference, connection, tableName, repair
+	f.lastRef, f.lastConn, f.lastName, f.lastRepair, f.lastFollow = reference, connection, tableName, opts.Repair, opts.Follow
 	if f.registerErr != nil {
 		return nil, f.registerErr
 	}
@@ -56,6 +62,7 @@ func (f *fakeTableRegistrar) Register(
 		SampleSQL:      "SELECT CAST(store_id AS BIGINT) FROM scratch.uploads.analyst_vendor_keys",
 		RegisteredBy:   ownerEmail,
 		Repaired:       f.repaired,
+		Follow:         opts.Follow,
 	}
 	f.registered = append(f.registered, reg)
 	return &reg, nil
@@ -79,6 +86,16 @@ func (f *fakeTableRegistrar) Tables(_ context.Context, reference string) ([]Tabl
 
 func (f *fakeTableRegistrar) DropAssetTables(_ context.Context, assetID string) {
 	f.droppedAll = append(f.droppedAll, assetID)
+}
+
+func (f *fakeTableRegistrar) FollowAssetTables(_ context.Context, assetID string, version int) []string {
+	f.followedFor = append(f.followedFor, fmt.Sprintf("asset:%s:%d", assetID, version))
+	return f.followed
+}
+
+func (f *fakeTableRegistrar) FollowResourceTables(_ context.Context, resourceID string, version int) []string {
+	f.followedFor = append(f.followedFor, fmt.Sprintf("resource:%s:%d", resourceID, version))
+	return f.followed
 }
 
 // tableToolkit builds a toolkit owning one asset, with a registrar bound.

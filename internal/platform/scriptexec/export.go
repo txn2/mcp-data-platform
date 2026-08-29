@@ -176,7 +176,7 @@ func (w *outputWriter) writePortal(ctx context.Context, req scriptrun.ExportRequ
 		return nil, script.RunOutput{}, err
 	}
 	summary := fmt.Sprintf("%s v%d, run %s", w.script.Name, w.run.Version, w.run.ID)
-	version, err := w.storeVersion(ctx, asset.ID, identity, data, summary)
+	version, tables, err := w.storeVersion(ctx, asset.ID, identity, data, summary)
 	if err != nil {
 		return nil, script.RunOutput{}, fmt.Errorf("writing output %q: %w", req.Name, err)
 	}
@@ -184,22 +184,23 @@ func (w *outputWriter) writePortal(ctx context.Context, req scriptrun.ExportRequ
 		Name: req.Name, Destination: req.Destination.Name,
 		AssetID: asset.ID, AssetVersion: version,
 		Format: req.Format, RowCount: len(req.Rows), Document: req.Body != nil,
-		Bytes: len(data),
+		Bytes: len(data), Tables: tables,
 	}
-	return &scriptrun.ExportResult{AssetID: asset.ID, AssetVersion: version, Bytes: len(data)}, out, nil
+	return &scriptrun.ExportResult{AssetID: asset.ID, AssetVersion: version, Bytes: len(data), Tables: tables}, out, nil
 }
 
 // storeVersion is the one store step a script output version takes, shared by
 // the export write and the data-region refresh so how a version is stored —
 // the key scheme, the fields, the creating principal — cannot drift between
 // them: an immutable per-run object, then the version row that repoints the
-// asset at it.
-func (w *outputWriter) storeVersion(ctx context.Context, assetID string, identity scriptrun.OutputIdentity, data []byte, summary string) (int, error) {
+// asset at it, then the tables registered over the asset following that
+// version (#1536), reported as the sentences the run carries.
+func (w *outputWriter) storeVersion(ctx context.Context, assetID string, identity scriptrun.OutputIdentity, data []byte, summary string) (version int, tables []string, err error) {
 	key := w.objectKey(assetID, identity.Extension)
 	if err := w.deps.S3.PutObject(ctx, w.deps.Bucket, key, data, identity.ContentType); err != nil {
-		return 0, fmt.Errorf("uploading the object: %w", err)
+		return 0, nil, fmt.Errorf("uploading the object: %w", err)
 	}
-	version, err := w.deps.Versions.CreateVersion(ctx, portal.AssetVersion{
+	version, err = w.deps.Versions.CreateVersion(ctx, portal.AssetVersion{
 		ID:            uuid.New().String(),
 		AssetID:       assetID,
 		S3Key:         key,
@@ -210,9 +211,18 @@ func (w *outputWriter) storeVersion(ctx context.Context, assetID string, identit
 		ChangeSummary: summary,
 	})
 	if err != nil {
-		return 0, fmt.Errorf("recording the version: %w", err)
+		return 0, nil, fmt.Errorf("recording the version: %w", err)
 	}
-	return version, nil
+	return version, w.followTables(ctx, assetID, version), nil
+}
+
+// followTables reports what a version did to the tables registered over the
+// asset. A deployment with no registrar has none to report.
+func (w *outputWriter) followTables(ctx context.Context, assetID string, version int) []string {
+	if w.deps.FollowTables == nil {
+		return nil
+	}
+	return w.deps.FollowTables(ctx, assetID, version)
 }
 
 // assetFor finds the asset this output name maps to, creating it the first time

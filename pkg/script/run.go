@@ -104,6 +104,11 @@ type RunOutput struct {
 	// is the payload spliced in, not the document.
 	Refresh bool `json:"refresh,omitempty"`
 	Bytes   int  `json:"bytes"`
+	// Tables is what this version did to the tables registered over the
+	// output's file (#1536): one sentence per table, saying it followed onto
+	// the version or is pinned and now behind it. Absent when none is
+	// registered.
+	Tables []string `json:"tables,omitempty"`
 }
 
 // destinationOf reads a recorded output's destination, treating an unset one as

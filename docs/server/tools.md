@@ -1099,13 +1099,17 @@ The file is named by its `reference` — the string a `search` hit and a `fetch`
 | `reference` | string | Conditional | - | The file to act on: `mcp:resource:<id>` for uploaded reference material, `mcp:asset:<id>` for a saved asset. Pass it verbatim. Required for register and list |
 | `connection` | string | Conditional | - | Trino connection whose scratch schema holds the table (required for register). Call `list_connections` to see the ones you can reach |
 | `table_name` | string | No | filename slug | Name for the registered table; prefixed with your persona either way |
+| `follow` | boolean | No | `true` | Whether the table follows the file: each revision or version written over it moves the table onto the new contents. `false` pins the table to the version it is registered over |
+| `repair` | boolean | No | `false` | Save a corrected version of a file that cannot be read as a table the way it is stored, and register that |
 | `registration_id` | string | Conditional | - | Registration to drop (required for unregister). `action=list` reports them |
 
 **Actions:**
 
-- **register**: create the table and report its qualified name, its columns, and a sample join showing the `CAST` a typed column needs. Every column is `VARCHAR`, which is the storage format's rule rather than a platform choice
-- **list**: what is registered over this file, each entry saying whether it has gone `stale` — the file has a newer revision or version than the table points at
+- **register**: create the table and report its qualified name, its columns, a sample join showing the `CAST` a typed column needs, and whether it follows the file. Every column is `VARCHAR`, which is the storage format's rule rather than a platform choice
+- **list**: what is registered over this file, each entry saying whether it `follow`s the file, whether it has gone `stale` — the file has a newer revision or version than the table points at — and, for a following table that is stale, the `follow_error` that kept it there
 - **unregister**: drop one table. The file itself is unchanged
+
+A write over the file — `manage_resource replace_content`, a `manage_asset` content edit, a script's `platform.export` — moves every following table onto the version it wrote and reports each table in its result (`tables`), so the write that leaves a pinned table behind says so. See [Following the file](registered-tables.md#following-the-file).
 
 Registering is the authority to change the file, not the authority to read it: an asset by its owner or an administrator, a resource by its uploader or an administrator of its scope. A reference naming a file you may not register is answered as absent, whether it is missing, deleted, or somebody else's. See [Registered Tables](registered-tables.md).
 
@@ -1136,7 +1140,7 @@ The loop it closes is one call each way. `create` files the data and reports the
 **Actions:**
 
 - **create**: file new content and report its `resource_id`, its `mcp:resource:` reference, and its `mcp://` URI
-- **replace_content**: write new bytes over an existing resource and report the `version` the content was recorded as
+- **replace_content**: write new bytes over an existing resource and report the `version` the content was recorded as, and `tables`: one sentence per table registered over the file, saying it followed onto the new version or is pinned and now behind it ([Following the file](registered-tables.md#following-the-file))
 
 **Declaring the type.** A `create` says what the bytes are and a create that does not is refused. The type is not detected on this path because the families an agent writes cannot be named from content: SVG, HTML, JSX and Markdown are all stored `text/plain` when nothing is declared, and `text/plain` is served under `nosniff`, so an `<img>` naming that file is a broken image on every surface with nothing reporting a problem. A `replace_content` keeps the type the resource already carries, so refreshing a file cannot reclassify it under every reference to it; declare one there only to change what family the file is. The types to choose between are listed on the built-in knowledge page `mcp:knowledge_page:platform-content-types-for-stored-files` and in [Content Types and Viewers](content-viewers.md).
 

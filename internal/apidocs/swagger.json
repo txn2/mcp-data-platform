@@ -17662,7 +17662,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_txn2_mcp-data-platform_pkg_resource.Resource"
+                            "$ref": "#/definitions/resource.revisedResource"
                         }
                     },
                     "400": {
@@ -17877,7 +17877,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_txn2_mcp-data-platform_pkg_resource.Resource"
+                            "$ref": "#/definitions/resource.revisedResource"
                         }
                     },
                     "400": {
@@ -19250,6 +19250,13 @@
                 "status": {
                     "type": "string",
                     "example": "ok"
+                },
+                "tables": {
+                    "description": "Tables is what a content write did to the tables registered over the\nasset's file (#1536), one sentence per table, absent when there are\nnone.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -24030,6 +24037,13 @@
                 "status": {
                     "type": "string",
                     "example": "updated"
+                },
+                "tables": {
+                    "description": "Tables is what a content write did to the tables registered over the\nasset's file (#1536), one sentence per table, absent when there are\nnone.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -24911,6 +24925,100 @@
                 }
             }
         },
+        "resource.revisedResource": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string",
+                    "example": "Step-by-step procedures for ETL pipeline operations"
+                },
+                "display_name": {
+                    "type": "string",
+                    "example": "ETL Runbook"
+                },
+                "filename": {
+                    "type": "string",
+                    "example": "etl-runbook.md"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "res_01HK7R9F"
+                },
+                "last_read_at": {
+                    "description": "LastReadAt is when the resource's content was last served through any\nsurface, stamped by the read recorder. NULL means never read since the\ndeployment began auditing reads (#1014). It is the durable answer, unlike\nthe audit-derived Usage.LastReadAt, which is bounded by audit retention.",
+                    "type": "string"
+                },
+                "mime_type": {
+                    "type": "string",
+                    "example": "text/markdown"
+                },
+                "path": {
+                    "description": "Path is the slash-separated folder path this resource is filed under\ninside its library, and the tail of its URI ahead of the filename. A\none-segment path is what every resource carried before folders (#1529).",
+                    "type": "string",
+                    "example": "runbooks/etl"
+                },
+                "s3_key": {
+                    "type": "string",
+                    "example": "resources/res_01HK7R9F/etl-runbook.md"
+                },
+                "scope": {
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/resource.Scope"
+                        }
+                    ],
+                    "example": "persona"
+                },
+                "scope_id": {
+                    "description": "persona name or user sub; empty for global",
+                    "type": "string",
+                    "example": "data-engineer"
+                },
+                "size_bytes": {
+                    "type": "integer",
+                    "example": 34000
+                },
+                "tables": {
+                    "description": "Tables is one sentence per registered table -- followed onto the new\nversion, or pinned and now behind it -- and absent when there are none.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "uploader_email": {
+                    "type": "string",
+                    "example": "marcus.johnson@example.com"
+                },
+                "uploader_sub": {
+                    "type": "string",
+                    "example": "550e8400-e29b-41d4-a716-446655440000"
+                },
+                "uri": {
+                    "type": "string",
+                    "example": "mcp://persona/data-engineer/runbooks/etl-runbook.md"
+                },
+                "usage": {
+                    "description": "Usage is the audit-derived read activity of this resource. It is not a\nstored column: the detail read fills it from the audit rollup, and it is\nabsent everywhere the rollup was not consulted.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/resource.Usage"
+                        }
+                    ]
+                }
+            }
+        },
         "resource.versionListResponse": {
             "type": "object",
             "properties": {
@@ -25350,6 +25458,13 @@
                 },
                 "row_count": {
                     "type": "integer"
+                },
+                "tables": {
+                    "description": "Tables is what this version did to the tables registered over the\noutput's file (#1536): one sentence per table, saying it followed onto\nthe version or is pinned and now behind it. Absent when none is\nregistered.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },

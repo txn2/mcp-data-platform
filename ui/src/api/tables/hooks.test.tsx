@@ -28,6 +28,7 @@ const REGISTRATION: TableRegistration = {
   registered_at: "2026-08-23T10:00:00Z",
   query_table: "scratch.uploads.analyst_store_list",
   stale: false,
+  follow: true,
 };
 
 function stubRegister(body: TableRegistration) {

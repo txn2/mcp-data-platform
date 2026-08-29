@@ -64,6 +64,12 @@ type Request struct {
 	// wrong with it, because correcting somebody's file is not something to do
 	// on the way to something they asked for.
 	Repair bool
+	// Follow moves the registration to the file's new head whenever a
+	// revision or version of it is written (#1536). Off, the registration is
+	// pinned to the directory it was registered over, and a later write
+	// leaves it behind the file and says so. The surfaces default it to on;
+	// the registrar takes the resolved choice.
+	Follow bool
 }
 
 // Deps is what a Registrar needs.
@@ -197,6 +203,13 @@ func (r *Registrar) Register(ctx context.Context, caller Caller, src Source, req
 		r.rollBackTable(ctx, a, err)
 		return nil, repairedFailure(p.repair, fmt.Errorf("recording the registration: %w", err))
 	}
+	// A correction moved the file's head, which is the same move every other
+	// write makes, so every OTHER registration over the file is followed or
+	// reported behind exactly as it would be after a revision uploaded by
+	// hand. The one just written is current by construction.
+	if p.repair != nil {
+		p.repair.Followed = r.followOthers(ctx, p.src, p.repair.Version, p.reg.ID)
+	}
 	return &Result{Registration: p.reg, Source: p.src, Repair: p.repair}, nil
 }
 
@@ -264,6 +277,7 @@ func (r *Registrar) claim(ctx context.Context, caller Caller, req Request, p *pl
 		Schema:       target.Schema,
 		Table:        table,
 		RegisteredBy: caller.Email,
+		Follow:       req.Follow,
 	}
 
 	p.existing, err = r.deps.Store.ByName(ctx, req.Connection, target.Catalog, target.Schema, table)

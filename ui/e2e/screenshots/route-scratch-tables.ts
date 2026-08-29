@@ -25,11 +25,19 @@ export const scratchTableRoutes: ScreenshotRoute[] = [
     category: "user",
   },
   {
-    // The same page on a registration whose file has moved on since: the
-    // staleness verdict and what to do about it, which is the second thing
-    // only a cross-source read can tell a reader.
+    // The same page on a pinned registration whose file has moved on since:
+    // the staleness verdict and what to do about it, which is the second
+    // thing only a cross-source read can tell a reader.
     slug: "scratch-table-stale",
     path: "/portal/scratch-tables/reg_7b3d90",
+    category: "user",
+  },
+  {
+    // A registration that follows its file and could not be moved onto the
+    // current version (#1536): behind the file with the reason the follow
+    // recorded, which is the state a failed coordinator leaves.
+    slug: "scratch-table-follow-failed",
+    path: "/portal/scratch-tables/reg_e19c42",
     category: "user",
   },
 ];

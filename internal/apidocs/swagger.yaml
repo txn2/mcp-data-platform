@@ -997,6 +997,14 @@ definitions:
       status:
         example: ok
         type: string
+      tables:
+        description: |-
+          Tables is what a content write did to the tables registered over the
+          asset's file (#1536), one sentence per table, absent when there are
+          none.
+        items:
+          type: string
+        type: array
     type: object
   admin.statusUpdateRequest:
     properties:
@@ -4666,6 +4674,14 @@ definitions:
       status:
         example: updated
         type: string
+      tables:
+        description: |-
+          Tables is what a content write did to the tables registered over the
+          asset's file (#1536), one sentence per table, absent when there are
+          none.
+        items:
+          type: string
+        type: array
     type: object
   portal.updateAssetRequest:
     properties:
@@ -5373,6 +5389,83 @@ definitions:
         example: 42
         type: integer
     type: object
+  resource.revisedResource:
+    properties:
+      created_at:
+        type: string
+      description:
+        example: Step-by-step procedures for ETL pipeline operations
+        type: string
+      display_name:
+        example: ETL Runbook
+        type: string
+      filename:
+        example: etl-runbook.md
+        type: string
+      id:
+        example: res_01HK7R9F
+        type: string
+      last_read_at:
+        description: |-
+          LastReadAt is when the resource's content was last served through any
+          surface, stamped by the read recorder. NULL means never read since the
+          deployment began auditing reads (#1014). It is the durable answer, unlike
+          the audit-derived Usage.LastReadAt, which is bounded by audit retention.
+        type: string
+      mime_type:
+        example: text/markdown
+        type: string
+      path:
+        description: |-
+          Path is the slash-separated folder path this resource is filed under
+          inside its library, and the tail of its URI ahead of the filename. A
+          one-segment path is what every resource carried before folders (#1529).
+        example: runbooks/etl
+        type: string
+      s3_key:
+        example: resources/res_01HK7R9F/etl-runbook.md
+        type: string
+      scope:
+        allOf:
+        - $ref: '#/definitions/resource.Scope'
+        example: persona
+      scope_id:
+        description: persona name or user sub; empty for global
+        example: data-engineer
+        type: string
+      size_bytes:
+        example: 34000
+        type: integer
+      tables:
+        description: |-
+          Tables is one sentence per registered table -- followed onto the new
+          version, or pinned and now behind it -- and absent when there are none.
+        items:
+          type: string
+        type: array
+      tags:
+        items:
+          type: string
+        type: array
+      updated_at:
+        type: string
+      uploader_email:
+        example: marcus.johnson@example.com
+        type: string
+      uploader_sub:
+        example: 550e8400-e29b-41d4-a716-446655440000
+        type: string
+      uri:
+        example: mcp://persona/data-engineer/runbooks/etl-runbook.md
+        type: string
+      usage:
+        allOf:
+        - $ref: '#/definitions/resource.Usage'
+        description: |-
+          Usage is the audit-derived read activity of this resource. It is not a
+          stored column: the detail read fills it from the audit rollup, and it is
+          absent everywhere the rollup was not consulted.
+    type: object
   resource.versionListResponse:
     properties:
       current:
@@ -5731,6 +5824,15 @@ definitions:
         type: boolean
       row_count:
         type: integer
+      tables:
+        description: |-
+          Tables is what this version did to the tables registered over the
+          output's file (#1536): one sentence per table, saying it followed onto
+          the version or is pinned and now behind it. Absent when none is
+          registered.
+        items:
+          type: string
+        type: array
     type: object
   script.Schedule:
     properties:
@@ -18387,7 +18489,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_txn2_mcp-data-platform_pkg_resource.Resource'
+            $ref: '#/definitions/resource.revisedResource'
         "400":
           description: Bad Request
           schema:
@@ -18525,7 +18627,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_txn2_mcp-data-platform_pkg_resource.Resource'
+            $ref: '#/definitions/resource.revisedResource'
         "400":
           description: Bad Request
           schema:

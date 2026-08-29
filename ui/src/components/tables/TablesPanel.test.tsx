@@ -33,6 +33,7 @@ const REGISTERED: TableRegistrationList = {
       registered_at: "2026-08-20T14:12:00Z",
       query_table: "scratch.uploads.analyst_vendor_keys",
       stale: false,
+      follow: true,
     },
   ],
 };
@@ -138,11 +139,71 @@ describe("registering a stored file as a table", () => {
 
   it("warns when the file has moved on since the table was registered", async () => {
     stubFetch(CONNECTIONS, {
-      registrations: [{ ...REGISTERED.registrations[0], stale: true }],
+      registrations: [{ ...REGISTERED.registrations[0], stale: true, follow: false }],
     });
     renderPanel();
 
     expect(await screen.findByText(/newer version than the table points at/i)).toBeInTheDocument();
+    expect(screen.getByText("Pinned to its version")).toBeInTheDocument();
+  });
+
+  // A table follows its file unless it was pinned (#1536), and the panel says
+  // which rule each table is under, because the next version of the file will
+  // reach one and not the other.
+  it("says a table follows the file, and why one that follows is still behind", async () => {
+    stubFetch(CONNECTIONS, REGISTERED);
+    renderPanel();
+    expect(await screen.findByText("Follows the file")).toBeInTheDocument();
+
+    cleanup();
+    stubFetch(CONNECTIONS, {
+      registrations: [
+        {
+          ...REGISTERED.registrations[0],
+          stale: true,
+          follow: true,
+          follow_error: "the coordinator refused the statement.",
+        },
+      ],
+    });
+    renderPanel();
+    expect(
+      await screen.findByText(/could not be moved onto its current version: the coordinator refused/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/newer version than the table points at/i)).not.toBeInTheDocument();
+  });
+
+  it("registers a following table unless the person turns it off", async () => {
+    const bodies: string[] = [];
+    stubRegister(() => {
+      return new Response(JSON.stringify(REGISTERED.registrations[0]), { status: 201 });
+    });
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/table-connections")) {
+        return Promise.resolve(new Response(JSON.stringify(CONNECTIONS), { status: 200 }));
+      }
+      if (url.includes("/tables") && init?.method === "POST") {
+        bodies.push(String(init.body));
+        return Promise.resolve(new Response(JSON.stringify(REGISTERED.registrations[0]), { status: 201 }));
+      }
+      return Promise.resolve(new Response(JSON.stringify({ registrations: [] }), { status: 200 }));
+    });
+    renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: /register/i }));
+
+    const follow = await screen.findByTestId("table-follow");
+    expect((follow as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Register" }));
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(JSON.parse(bodies[0]!)).not.toHaveProperty("follow");
+
+    fireEvent.click(await screen.findByRole("button", { name: /register/i }));
+    fireEvent.click(await screen.findByTestId("table-follow"));
+    fireEvent.click(screen.getByRole("button", { name: "Register" }));
+    await waitFor(() => expect(bodies).toHaveLength(2));
+    expect(JSON.parse(bodies[1]!).follow).toBe(false);
   });
 
   // Registering is authority over the file, not access to it, so the routes

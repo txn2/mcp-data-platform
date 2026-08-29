@@ -116,6 +116,12 @@ WHAT IS AVAILABLE
       manage_resource replace_content writes new bytes over a managed
       resource and keeps its id, its mcp:// URI and its filename, so every
       asset referencing it serves the new content with no asset re-saved.
+      A table registered over that resource, or over an output this script
+      exports, follows the version you write unless it was registered with
+      follow=false: the write moves the table before it returns, its result
+      names every table over the file in "tables", and the run log carries
+      the same lines. A pinned table is reported as behind; nothing here
+      moves it.
       A run acts on what its author owns: it authenticates as script:<name>
       and carries the author's address, so it can refresh or patch a
       dashboard the author owns. An asset merely SHARED with them is not

@@ -144,7 +144,7 @@ func (t *Toolkit) handlePatch(ctx context.Context, input manageAssetInput) (*mcp
 		return toolkit.JSONResultTyped(result)
 	}
 
-	version, err := t.uploadContentUpdate(ctx, asset, contentEdit{
+	version, tables, err := t.uploadContentUpdate(ctx, asset, contentEdit{
 		content:      res.Body,
 		declaredType: asset.ContentType,
 		summary:      summary,
@@ -160,6 +160,7 @@ func (t *Toolkit) handlePatch(ctx context.Context, input manageAssetInput) (*mcp
 	result[fieldVersion] = version
 	result[fieldMessage] = fmt.Sprintf("Patched asset; new version %d.", version)
 	addRefFields(result, refCount)
+	addTableFields(result, tableFields(version, tables))
 	return toolkit.JSONResultTyped(result)
 }
 

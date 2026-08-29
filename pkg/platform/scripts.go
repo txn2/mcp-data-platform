@@ -32,6 +32,10 @@ func wireScripts(p *Platform) *scriptexec.Handle {
 			S3:       p.portalStore.S3Client(),
 			Bucket:   p.config.Portal.S3Bucket,
 			Prefix:   p.config.Portal.S3Prefix,
+			// A version a script writes moves the tables that follow its
+			// asset (#1536). The registrar does not exist yet; the portal
+			// layer reaches it through the toolkit it is bound to later.
+			FollowTables: p.portalStore.FollowAssetTables,
 		},
 		Audit:                 p.audit.Logger(),
 		Metrics:               p.obs.Metrics(),

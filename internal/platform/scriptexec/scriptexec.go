@@ -134,6 +134,12 @@ type ExportDeps struct {
 	S3       portal.S3Client
 	Bucket   string
 	Prefix   string
+	// FollowTables, when set, is called after every version an output writes,
+	// so the tables registered over the output's file follow it (#1536). It
+	// returns what happened to each table, which the run records on the
+	// output and prints into its log. Nil on a deployment that cannot
+	// register tables.
+	FollowTables func(ctx context.Context, assetID string, version int) []string
 }
 
 // ready reports whether an output can actually be written.

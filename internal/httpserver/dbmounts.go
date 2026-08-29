@@ -118,8 +118,11 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 		ImplementorLogoHTML: p.ImplementorLogoHTML(),
 		ImplementorURL:      p.Config().Portal.Implementor.URL,
 	}
-	// A deleted asset must not leave a table serving its file (#1327).
-	deps.OnAssetDeleted = tableCleanupHooks(p).AssetDeleted
+	// A deleted asset must not leave a table serving its file (#1327), and a
+	// new version of one moves the tables that follow it (#1536).
+	hooks := tableSourceHooks(p)
+	deps.OnAssetDeleted = hooks.AssetDeleted
+	deps.OnAssetRevised = hooks.AssetRevised
 
 	wirePortalNotifications(&deps, p, notify)
 
@@ -378,6 +381,9 @@ func mountResourcesAPI(mux *http.ServeMux, p *platform.Platform) {
 		return buildResourceClaims(user, pr, adminPersona)
 	}
 
+	// A deleted resource must not leave a table serving its file (#1327), and
+	// a revision of one moves the tables that follow it (#1536).
+	hooks := tableSourceHooks(p)
 	deps := resource.Deps{
 		Store:       p.ResourceStore(),
 		S3Client:    p.ResourceS3Client(),
@@ -386,8 +392,8 @@ func mountResourcesAPI(mux *http.ServeMux, p *platform.Platform) {
 		MaxVersions: p.Config().Resources.Managed.MaxVersions,
 		OnCreate:    p.RegisterManagedResource,
 		OnDelete:    p.UnregisterManagedResource,
-		// A deleted resource must not leave a table serving its file (#1327).
-		OnDeleteID: tableCleanupHooks(p).ResourceDeleted,
+		OnDeleteID:  hooks.ResourceDeleted,
+		OnRevised:   hooks.ResourceRevised,
 	}
 	// Content revision and version history are a capability of the store, not a
 	// requirement of it: the Postgres store implements VersionStore, and a store

@@ -1304,6 +1304,8 @@ The file is named by its `reference`, the string a `search` hit and a `fetch` do
 | `reference` | string | Conditional | - | The file: `mcp:resource:<id>` (uploaded reference material) or `mcp:asset:<id>` (saved asset). Required for `register` and `list` |
 | `connection` | string | Conditional | - | Trino connection whose scratch schema holds the table (required for `register`) |
 | `table_name` | string | No | filename slug | Name for the registered table; persona-prefixed either way |
+| `follow` | boolean | No | `true` | Whether the table follows the file: each revision or version written over it moves the table onto the new contents. `false` pins the table to the version it is registered over |
+| `repair` | boolean | No | `false` | Save a corrected version of a file that cannot be read as a table the way it is stored, and register that |
 | `registration_id` | string | Conditional | - | Registration to drop (required for `unregister`) |
 
 **Actions:**
@@ -1311,7 +1313,7 @@ The file is named by its `reference`, the string a `search` hit and a `fetch` do
 | Action | Description | Required Params |
 |--------|-------------|-----------------|
 | `register` | Create an external table over the file. Every column is `VARCHAR`, so the response carries a sample join showing the `CAST` | `reference`, `connection` |
-| `list` | The tables registered over this file, each with its columns and whether the file has moved on since (`stale`) | `reference` |
+| `list` | The tables registered over this file, each with its columns, whether it follows the file (`follow`), whether the file has moved on since (`stale`), and why a following table is behind (`follow_error`) | `reference` |
 | `unregister` | Drop one registered table. The file itself is unchanged | `registration_id` |
 
 **Response Schema (register):**
@@ -1326,7 +1328,8 @@ The file is named by its `reference`, the string a `search` hit and a `fetch` do
   "sample_sql": "SELECT ... CAST(u.store_id AS integer) ...",
   "registered_by": "analyst@example.com",
   "stale": false,
-  "message": "Registered as scratch.uploads.analyst_vendor_keys on connection scratch. Every column is VARCHAR, so a join to a typed column needs a CAST."
+  "follow": true,
+  "message": "Registered as scratch.uploads.analyst_vendor_keys on connection scratch. Every column is VARCHAR, so a join to a typed column needs a CAST. The table follows the file: each revision or version written moves it onto the new contents. Register with follow=false for a table pinned to this version."
 }
 ```
 
@@ -1397,7 +1400,7 @@ A `create` declares what the bytes are in `content_type`; a create that does not
 }
 ```
 
-`replace_content` returns the same shape plus `version`, the number the content was recorded as. A create reports no version: it records version 1 only where the deployment keeps a version trail, and a number the history may not hold is worse than none.
+`replace_content` returns the same shape plus `version`, the number the content was recorded as, and `tables` when a table is registered over the file: one sentence per table, saying it followed onto the new version (`scratch.uploads.analyst_stores on scratch now reads version 7.`) or is pinned and now behind it, with the same sentences appended to `message`. A create reports no version: it records version 1 only where the deployment keeps a version trail, and a number the history may not hold is worse than none. See [Following the file](../server/registered-tables.md#following-the-file).
 
 **Error Codes:**
 

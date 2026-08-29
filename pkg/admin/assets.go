@@ -339,13 +339,26 @@ func (h *Handler) updateAdminAssetContent(w http.ResponseWriter, r *http.Request
 		ChangeSummary: adminChangeSummary(r, "Content updated (admin)"),
 	}
 
-	if _, err := h.deps.VersionStore.CreateVersion(r.Context(), av); err != nil {
+	version, err := h.deps.VersionStore.CreateVersion(r.Context(), av)
+	if err != nil {
 		cleanupOrphanedS3(r.Context(), h.deps.S3Client, asset.S3Bucket, versionedKey)
 		writeError(w, http.StatusInternalServerError, "failed to create version")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, statusResponse{Status: statusUpdated})
+	writeJSON(w, http.StatusOK, statusResponse{
+		Status: statusUpdated,
+		Tables: h.followTables(r.Context(), id, version),
+	})
+}
+
+// followTables reports what a new version did to the tables registered over
+// the asset. A deployment with no registrar has none to report.
+func (h *Handler) followTables(ctx context.Context, id string, version int) []string {
+	if h.deps.OnAssetRevised == nil {
+		return nil
+	}
+	return h.deps.OnAssetRevised(ctx, id, version)
 }
 
 // uploadAdminThumbnail uploads a PNG thumbnail for an asset (no owner check for admins).
@@ -691,6 +704,7 @@ func (h *Handler) revertAdminVersion(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":  statusReverted,
 		"version": assignedVersion,
+		"tables":  h.followTables(r.Context(), id, assignedVersion),
 	})
 }
 

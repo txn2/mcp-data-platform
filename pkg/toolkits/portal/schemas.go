@@ -317,6 +317,10 @@ var manageTableSchema = json.RawMessage(`{
       "type": "string",
       "description": "Registration to drop (required for unregister). Call action=list to see the tables registered over a file."
     },
+    "follow": {
+      "type": "boolean",
+      "description": "For register: whether the table follows the file. Defaults to true: each revision or version written over the file -- manage_resource replace_content, an asset edit, a script's platform.export -- moves the table onto the new contents, and the write's result says so. Pass false to pin the table to the version of the file it is registered over, for a report that must keep returning the same rows until somebody registers it again; a later write then reports the table as behind the file."
+    },
     "repair": {
       "type": "boolean",
       "description": "For register: save a corrected version of the file and register that, when the file cannot be read as a table the way it is stored. A CSV whose lines end in a carriage return rather than a newline, one with a line break inside a cell, or one whose bytes are a legacy code page rather than UTF-8, is refused without this and the refusal says what is wrong with it. With it, a corrected version is written through the file's own version history -- the uploaded bytes stay as the version before it and the correction is revertible -- and the result says what changed. A file in a wide encoding (UTF-16, UTF-32) is refused whether or not this is set: it has to be re-exported as UTF-8 CSV."
@@ -335,7 +339,7 @@ var manageResourceSchema = json.RawMessage(`{
     "action": {
       "type": "string",
       "enum": ["create", "replace_content"],
-      "description": "What to do: file new content as a managed resource, or write new content over an existing one."
+      "description": "What to do: file new content as a managed resource, or write new content over an existing one. A replacement moves every table registered over the file that follows it (the default) onto the new contents, and reports each table in its result; a table registered with follow=false stays on the version it was registered over and is reported as behind."
     },
     "reference": {
       "type": "string",

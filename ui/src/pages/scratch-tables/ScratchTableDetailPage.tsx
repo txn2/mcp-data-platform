@@ -195,6 +195,18 @@ function StateNotice({ row }: { row: ScratchTable }) {
       </Alert>
     );
   }
+  if (row.stale && row.follow && row.follow_error) {
+    return (
+      <Alert variant="warning" className="py-2">
+        <AlertTriangle />
+        <AlertDescription>
+          This table follows its file but could not be moved onto the current version:{" "}
+          {row.follow_error} Queries return the version it last read. Open the file and register
+          the table again to move it.
+        </AlertDescription>
+      </Alert>
+    );
+  }
   if (row.stale) {
     return (
       <Alert variant="warning" className="py-2">
@@ -207,7 +219,19 @@ function StateNotice({ row }: { row: ScratchTable }) {
       </Alert>
     );
   }
-  return null;
+  if (row.follow) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        Follows the file: each new version written over the file moves this table onto it.
+      </p>
+    );
+  }
+  return (
+    <p className="text-xs text-muted-foreground">
+      Pinned to the version of the file it was registered over: a newer version leaves this table
+      where it is until somebody registers it again.
+    </p>
+  );
 }
 
 // UnregisterAction drops the table. It goes through the source's own route,
