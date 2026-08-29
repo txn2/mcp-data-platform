@@ -78,6 +78,15 @@ const (
 	// live in the refusal's slog line, not in a high-cardinality metric.
 	instRateLimited = "mcp_rate_limited"
 
+	// instRateLimitQueued counts tools/call requests from a script principal
+	// that the per-user rate limiter held until a token was available instead
+	// of refusing (issue #1534). Exposed name: mcp_rate_limit_queued_total. A
+	// growing value means a deployment's scheduled scripts are running against
+	// the sustained rate: the runs still complete, and the time they spend
+	// waiting is what raising rate_limit.requests_per_minute would recover.
+	// Carries no labels, for the same reason instRateLimited does not.
+	instRateLimitQueued = "mcp_rate_limit_queued"
+
 	// Toolkit and provider instruments (issue #461). Exposed names add the
 	// "_total" / "_seconds" suffixes the Prometheus exporter appends:
 	//   - trino_queries_total{status, query_kind}
@@ -241,6 +250,7 @@ type Metrics struct {
 	apigwInboundDuration  metric.Float64Histogram
 	auditEventsDropped    metric.Int64Counter
 	rateLimited           metric.Int64Counter
+	rateLimitQueued       metric.Int64Counter
 
 	// Toolkit / provider instruments (issue #461).
 	scriptRunsTotal   metric.Int64Counter
@@ -453,6 +463,13 @@ func (m *Metrics) registerInstruments(meter metric.Meter) error {
 	)
 	if err != nil {
 		return fmt.Errorf(instErrFmt, instRateLimited, err)
+	}
+	m.rateLimitQueued, err = meter.Int64Counter(
+		instRateLimitQueued,
+		metric.WithDescription("Total tools/call requests from a script principal held by the per-user rate limiter until a token was available (#1534). A growing value means scheduled scripts are running against the sustained rate; they complete, delayed by the wait."),
+	)
+	if err != nil {
+		return fmt.Errorf(instErrFmt, instRateLimitQueued, err)
 	}
 	if err := m.registerToolkitInstruments(meter); err != nil {
 		return err
@@ -707,6 +724,18 @@ func (m *Metrics) RecordRateLimited(ctx context.Context) {
 		return
 	}
 	m.rateLimited.Add(ctx, 1)
+}
+
+// RecordRateLimitQueued records one tools/call from a script principal that the
+// per-user rate limiter held until a token was available rather than refused
+// (issue #1534). A queued call is not a refusal and is not counted as one; this
+// counter is what lets an operator see that a deployment's scripts are running
+// against the limit. Nil-safe, like RecordRateLimited.
+func (m *Metrics) RecordRateLimitQueued(ctx context.Context) {
+	if m == nil {
+		return
+	}
+	m.rateLimitQueued.Add(ctx, 1)
 }
 
 // registeredPool pairs a *sql.DB with the bounded pool label it reports under.

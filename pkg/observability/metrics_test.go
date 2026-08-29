@@ -156,6 +156,33 @@ func TestRecordRateLimitedNilSafe(_ *testing.T) {
 	m.RecordRateLimited(context.Background()) // must not panic
 }
 
+func TestRecordRateLimitQueued(t *testing.T) {
+	m, err := New(Config{Enabled: true, ListenAddr: ":0"})
+	if err != nil {
+		t.Fatalf("New(enabled) err = %v", err)
+	}
+	defer func() { _ = m.Shutdown(context.Background()) }()
+
+	ctx := context.Background()
+	m.RecordRateLimitQueued(ctx)
+	m.RecordRateLimitQueued(ctx)
+
+	body := scrapeMetrics(t, m.Handler())
+	if !strings.Contains(body, "mcp_rate_limit_queued_total 2") {
+		t.Errorf("expected mcp_rate_limit_queued_total 2 in scrape body:\n%s", body)
+	}
+	if strings.Contains(body, "mcp_rate_limited_total 2") {
+		t.Errorf("a queued call must not count as a refusal:\n%s", body)
+	}
+}
+
+// TestRecordRateLimitQueuedNilSafe proves the recorder is a no-op on a nil
+// *Metrics, so the middleware can record unconditionally.
+func TestRecordRateLimitQueuedNilSafe(_ *testing.T) {
+	var m *Metrics
+	m.RecordRateLimitQueued(context.Background()) // must not panic
+}
+
 func TestRecordAPIGatewayInbound(t *testing.T) {
 	m, err := New(Config{Enabled: true, ListenAddr: ":0"})
 	if err != nil {

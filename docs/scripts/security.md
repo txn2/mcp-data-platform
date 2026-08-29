@@ -92,7 +92,10 @@ over a per-run in-memory session against the assembled server
 (`internal/platform/scriptrun/session.go`, `SessionCaller.CallTool`), so
 authentication, persona and connection authorization, rate limiting, and audit
 all apply exactly as they do to an agent's call. None of it is re-implemented,
-which is what keeps it from drifting. The persona filter is the entire
+which is what keeps it from drifting. The one place the chain reads the
+script principal's auth type is the rate limiter, which holds a platform run's
+over-limit call rather than refusing it; the check is the same, and what
+differs is what happens to a call that fails it. The persona filter is the entire
 authorization boundary at run time; there is no second, script-specific
 allowlist in front of it.
 
@@ -713,7 +716,12 @@ A platform run authenticates as `script:<name>` (`pkg/script/script.go`,
 `connect`). It is a distinct principal for every gate, rate limiter, and audit
 row, so a governed automation and the person who owns it are never confused for
 one another; the owner's address rides alongside on the same call, which is
-what keeps a run attributable to an accountable human.
+what keeps a run attributable to an accountable human. The rate limiter reads
+the auth type as well as the key: a call the principal makes over its limit is
+held until the sustained rate admits it rather than refused, because a run is
+a serial loop by construction and the caller the platform has the strongest
+reason to let finish (see [Failures](running.md#failures)). The sustained rate
+still applies to it; the burst refusal does not.
 
 The principal holds no authority of its own. Its roles are the version
 author's captured roles, and the middleware resolves them to a persona exactly

@@ -386,6 +386,7 @@ internal/platform/tableregister -> pkg/toolkits/trino
 internal/platform/toolargs -> pkg/middleware
 internal/platform/toolkitcfg -> internal/platform/cfgmap
 internal/platform/toolkitcfg -> pkg/platform/fieldcrypt
+internal/platform/toolratelimit -> internal/logsan
 internal/platform/toolratelimit -> pkg/middleware
 internal/platform/toolratelimit -> pkg/observability
 internal/platform/toolratelimit -> pkg/ratelimit
