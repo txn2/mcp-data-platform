@@ -16,9 +16,12 @@ import (
 // audit, metrics instrumentation — treats an internal connection
 // exactly like a network one.
 
-// int64Bits is the bitSize passed to strconv.ParseInt for a
-// Content-Length (an int64).
-const int64Bits = 64
+// intBase / int64Bits are the base and bitSize passed to strconv.ParseInt
+// for a Content-Length (an int64).
+const (
+	intBase   = 10
+	int64Bits = 64
+)
 
 // SetInternalHandler wires the in-process handler that
 // handler=internal connections dispatch to. Must be called before

@@ -13,12 +13,12 @@ import (
 	"net/url"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
 
+	"github.com/txn2/mcp-data-platform/internal/pagewalk"
 	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 )
@@ -46,14 +46,6 @@ var supportedMethods = map[string]bool{
 // Even an upstream that supports long-running calls is bounded — the
 // MCP request lifecycle is not designed for hour-long operations.
 const maxTimeoutSeconds = 600
-
-// strconv numeric base / bitSize constants. Pulled out so revive's
-// add-constant rule does not flag the literal repetitions across the
-// scalar-stringification switch.
-const (
-	intBase      = 10
-	floatBitSize = 64
-)
 
 // methodsAllowingBody is the set of methods for which an input body
 // is forwarded. GET and HEAD are explicitly excluded; some upstreams
@@ -91,6 +83,10 @@ type InvokeInput struct {
 	Headers        map[string]string `json:"headers,omitempty"`
 	Body           any               `json:"body,omitempty"`
 	TimeoutSeconds int               `json:"timeout_seconds,omitempty"`
+	// Paginate, when set, makes the call a page walk (issue #1535): the
+	// gateway follows the response's pagination signal itself and returns
+	// the merged array. Absent, the signal is reported and not followed.
+	Paginate *PaginateInput `json:"paginate,omitempty"`
 }
 
 // InvokeOutput is the structured result returned to the model and to
@@ -145,6 +141,9 @@ type InvokeOutput struct {
 	Hint       string `json:"hint,omitempty"`
 	DurationMs int64  `json:"duration_ms"`
 	Error      string `json:"error,omitempty"`
+	// WalkStats is set on a page walk: pages_fetched, items_merged, and
+	// stopped_by. nil on a single-page call, so its output is unchanged.
+	*WalkStats
 }
 
 // invocation bundles a connection lookup with its supporting types so
@@ -205,6 +204,45 @@ func invoke(ctx context.Context, inv invocation, in InvokeInput) (InvokeOutput, 
 		connection: inv.cfg.ConnectionName,
 		path:       in.Path,
 	})
+}
+
+// invokeWalk runs api_invoke_endpoint as a page walk: the pages are
+// merged inline under the connection's max_response_bytes and returned
+// as one array. A page that fails, fails the call, and the error names
+// the page; the caller renders it as a tool error. A walk that stops at
+// the byte cap or max_pages returns the pages that fit and, in
+// Pagination, the signal to resume from.
+func invokeWalk(ctx context.Context, inv invocation, authorize func(InvokeInput) error, in InvokeInput) (InvokeOutput, error) {
+	timeout := resolveTimeout(in.TimeoutSeconds, inv.cfg.CallTimeout)
+	callCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	limit := inv.cfg.MaxResponseBytes
+	if limit <= 0 {
+		limit = DefaultMaxResponseBytes
+	}
+	merge := &pagewalk.InlineMerge{Limit: limit}
+	walk, err := newPageWalk(inv, in, authorize, merge.Add)
+	if err != nil {
+		return InvokeOutput{}, err
+	}
+	start := time.Now()
+	if err := walk.Run(callCtx); err != nil {
+		return InvokeOutput{}, err //nolint:wrapcheck // the walk names the failed page; the caller renders it as the tool error
+	}
+	out := InvokeOutput{
+		Status:     walk.Last.Status,
+		Headers:    selectResponseHeaders(walk.Last.Header),
+		Body:       merge.Merged(),
+		Pagination: walk.Resume,
+		DurationMs: time.Since(start).Milliseconds(),
+		WalkStats:  &walk.Stats,
+	}
+	if walk.Stats.StoppedBy == pagewalk.StoppedByMaxBytes {
+		out.BodyTruncated = true
+		out.Hint = "merged pages reached max_response_bytes; use api_export with the same paginate block to stream the whole walk into a portal asset (no model-context cost), or resume from pagination"
+	}
+	return out, nil
 }
 
 // buildUpstreamRequest assembles the outbound *http.Request for a
@@ -458,26 +496,11 @@ func appendQueryValue(q url.Values, key string, val any) {
 }
 
 // scalarToString renders one JSON scalar as the text a wire format
-// carries it in. Shared by query-string assembly and multipart field
-// encoding so a number reaching the upstream reads the same whichever
-// side of the request it travels on — notably float64, which the JSON
-// decoder produces for every number and which %v would otherwise render
-// in exponent form.
+// carries it in. Shared by query-string assembly, multipart field
+// encoding, and the page walk's page parameter, so a number reaching the
+// upstream reads the same whichever side of the request it travels on.
 func scalarToString(val any) string {
-	switch v := val.(type) {
-	case string:
-		return v
-	case bool:
-		return strconv.FormatBool(v)
-	case int:
-		return strconv.Itoa(v)
-	case int64:
-		return strconv.FormatInt(v, intBase)
-	case float64:
-		return strconv.FormatFloat(v, 'f', -1, floatBitSize)
-	default:
-		return fmt.Sprintf("%v", v)
-	}
+	return pagewalk.ScalarString(val)
 }
 
 // applicationJSON is the canonical content-type literal used across

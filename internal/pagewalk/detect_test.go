@@ -1,4 +1,4 @@
-package apigateway
+package pagewalk
 
 import (
 	"net/http"
@@ -178,7 +178,7 @@ func TestDetectPagination_LinkHeaderTakesPrecedence(t *testing.T) {
 	h := http.Header{}
 	h.Set("Link", `<https://api.example.com/v1/items?cursor=link>; rel="next"`)
 	body := map[string]any{"next_cursor": "body-cursor"}
-	info := detectPagination(h, body)
+	info := Detect(h, body)
 	if info == nil {
 		t.Fatal("expected pagination info, got nil")
 	}
@@ -217,7 +217,7 @@ func TestDetectPagination_NoSignal(t *testing.T) {
 	h := http.Header{}
 	h.Set("Content-Type", "application/json") // unrelated header
 	body := map[string]any{"items": []any{"a", "b"}, "count": float64(2)}
-	if info := detectPagination(h, body); info != nil {
+	if info := Detect(h, body); info != nil {
 		t.Errorf("expected nil for response with no pagination signal; got %+v", info)
 	}
 }

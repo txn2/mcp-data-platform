@@ -247,6 +247,15 @@ func buildMCPAuditEvent(pc *PlatformContext, info auditCallInfo, policy auditPar
 	// Extract parameters from request, then apply the capture policy
 	// (drop-all or per-key redaction) before the values reach the event.
 	params := applyParamPolicy(extractMCPParameters(info.Request), policy)
+	// Facts a tool reports about the call's outcome (a page walk's page
+	// count, issue #1535) are recorded under parameters.result. They are
+	// not argument values, so the parameter policy does not apply.
+	if facts := readAuditResultMeta(callResult); len(facts) > 0 {
+		if params == nil {
+			params = map[string]any{}
+		}
+		params[auditResultKey] = facts
+	}
 
 	chars, blocks := calculateResponseSize(info.Result, info.Err)
 	reqChars := calculateRequestSize(info.Request)
@@ -357,6 +366,21 @@ func readAuditOutcomeMeta(result *mcp.CallToolResult) (outcome, message string) 
 	outcome, _ = result.Meta[observability.MetaAuditOutcome].(string)
 	message, _ = result.Meta[observability.MetaAuditOutcomeMessage].(string)
 	return outcome, message
+}
+
+// auditResultKey is the parameters key the tool-reported outcome facts
+// are recorded under.
+const auditResultKey = "result"
+
+// readAuditResultMeta extracts the outcome facts a tool stamped on its
+// result's _meta for the audit row. nil when the result, its Meta, the
+// key, or the map is absent.
+func readAuditResultMeta(result *mcp.CallToolResult) map[string]any {
+	if result == nil || result.Meta == nil {
+		return nil
+	}
+	facts, _ := result.Meta[observability.MetaAuditResult].(map[string]any)
+	return facts
 }
 
 // extractMCPErrorMessage extracts the error message from an MCP CallToolResult.

@@ -86,6 +86,42 @@ var getEndpointSchemaInputSchema = json.RawMessage(`{
   }
 }`)
 
+// paginateSchemaProperty is the `paginate` block both api_invoke_endpoint
+// and api_export take (issue #1535). One fragment spliced into both
+// schemas, so the two tools cannot drift on the block they share.
+const paginateSchemaProperty = `
+    "paginate": {
+      "type": "object",
+      "required": ["items"],
+      "additionalProperties": false,
+      "description": "Walk every page of a paginated collection inside this one call and merge the array that items names from each page. How the next page is reached is decided per page from the response: an RFC 5988 Link rel=\"next\" header, @odata.nextLink, or a URL-valued next field is followed (pinned to the connection's host and re-checked against the route policy on every page); a next_cursor / nextCursor / next_page_token / nextPageToken / next value is sent back as the query parameter cursor_param names; with neither signal, page_param is advanced by page_step from its value in query_params until a page has no items. The walk stops at the first page with no next signal or no items, at max_pages, or at the byte cap, and reports pages_fetched, items_merged, and stopped_by (end, max_pages, max_bytes). A 429 or 503 with Retry-After pauses the walk for that interval and retries the page; any other failed page fails the call, naming the page. Omit to fetch one page and have its pagination signal reported without being followed.",
+      "properties": {
+        "items": {
+          "type": "string",
+          "description": "Key of the array merged across pages (data, items, results, value), a dotted path to a nested one (result.items), or \"$\" when the page body itself is the array. Required."
+        },
+        "cursor_param": {
+          "type": "string",
+          "description": "Query parameter a body cursor is sent back as (cursor, page_token, starting_after). Required when the API pages by cursor and page_param is not named."
+        },
+        "page_param": {
+          "type": "string",
+          "description": "Query parameter advanced when a page carries no next signal (page, offset). Its starting value must be in query_params; the first page is requested exactly as given."
+        },
+        "page_step": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "What page_param is advanced by per page. Defaults to 1 (page numbers); set the page size for an offset parameter."
+        },
+        "max_pages": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000,
+          "description": "Upper bound on pages walked. Defaults to 100. Reaching it is reported as stopped_by max_pages with the signal for the next page in pagination."
+        }
+      }
+    }`
+
 // apiExportInputSchema is the JSON Schema for the api_export tool
 // input. Mirrors invokeEndpointSchema for connection/method/path/
 // query/headers/body and adds the portal-asset metadata fields
@@ -163,7 +199,7 @@ var apiExportInputSchema = json.RawMessage(`{
     "create_public_link": {
       "type": "boolean",
       "description": "When true, also create a public share link for the resulting asset. Returns share_url alongside the asset metadata."
-    }
+    },` + paginateSchemaProperty + `
   }
 }`)
 
@@ -219,6 +255,6 @@ var invokeEndpointSchema = json.RawMessage(`{
       "minimum": 1,
       "maximum": 600,
       "description": "Optional per-call timeout override in seconds. Capped to 600 (10 minutes). Defaults to the connection's call_timeout."
-    }
+    },` + paginateSchemaProperty + `
   }
 }`)
