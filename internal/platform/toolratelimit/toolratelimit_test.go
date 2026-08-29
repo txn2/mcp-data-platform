@@ -2,6 +2,8 @@ package toolratelimit
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -140,6 +142,17 @@ func TestMiddleware_BurstOverLimitRefuses(t *testing.T) {
 	require.NotNil(t, getErr)
 	assert.Contains(t, getErr.Error(), "RATE_LIMITED")
 	assert.Equal(t, categoryRateLimited, middleware.ErrorCategory(getErr))
+
+	// The interval the message names travels as data beside it, decoded the
+	// way a client sees it: through the JSON the envelope is sent as.
+	raw, err := json.Marshal(callResult.StructuredContent)
+	require.NoError(t, err)
+	var sc map[string]map[string]any
+	require.NoError(t, json.Unmarshal(raw, &sc))
+	env := sc["error"]
+	assert.Equal(t, CodeRateLimited, env["code"])
+	assert.Equal(t, float64(h.retryAfterSeconds), env["retry_after_seconds"])
+	assert.Contains(t, env["message"], fmt.Sprintf("Wait about %d second(s)", h.retryAfterSeconds))
 }
 
 func TestMiddleware_ExemptToolNeverRefused(t *testing.T) {

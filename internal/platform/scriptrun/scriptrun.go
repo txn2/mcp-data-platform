@@ -130,7 +130,10 @@ var (
 type Caller interface {
 	// CallTool invokes the named tool and returns its structured content. A
 	// tool that reports an error returns a non-nil error carrying the tool's
-	// message; the script sees it as a Starlark error and the run fails.
+	// message; the script sees it as a Starlark error and the run fails. The
+	// one exception is a *RefusalError whose Code is rate_limited: the engine
+	// waits its RetryAfter against the run's deadline and issues the call
+	// again, and the script sees only the admitted call's result.
 	CallTool(ctx context.Context, name string, args map[string]any) (map[string]any, error)
 }
 
@@ -348,7 +351,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	defer cancel()
 
 	log := &logBuffer{limit: opts.MaxLogBytes}
-	host := &hostState{opts: opts, ctx: runCtx}
+	host := &hostState{opts: opts, ctx: runCtx, log: log}
 	var overStep atomic.Bool
 
 	thread := &starlark.Thread{

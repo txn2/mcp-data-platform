@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -127,4 +128,35 @@ func TestAgentText(t *testing.T) {
 	assert.Equal(t, "msg (code: c) Hint: h", (&PlatformError{Code: "c", Message: "msg", Hint: "h"}).agentText())
 	assert.Equal(t, "msg (code: c)", (&PlatformError{Code: "c", Message: "msg"}).agentText())
 	assert.Equal(t, "msg", (&PlatformError{Message: "msg"}).agentText())
+}
+
+// TestBuildErrorResult_RetryAfterSeconds pins the envelope's retry interval: a
+// refusal that names one carries it as data beside the prose, and every other
+// error omits the field from the wire so an existing consumer of {code,
+// category, message, hint} sees exactly what it saw before.
+func TestBuildErrorResult_RetryAfterSeconds(t *testing.T) {
+	pe := NewToolError("rate_limited", "rate_limited", "too many calls", "pause and retry")
+	pe.RetryAfterSeconds = 2
+	p := envelope(t, BuildErrorResult(pe))
+	assert.Equal(t, 2, p.RetryAfterSeconds)
+	raw, err := json.Marshal(p)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), `"retry_after_seconds":2`)
+
+	raw, err = json.Marshal(envelope(t, NotFoundResult("no such thing", "name another")))
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), "retry_after_seconds",
+		"an error that names no interval must not put a zero on the wire")
+	assert.JSONEq(t, `{"code":"not_found","category":"not_found","message":"no such thing","hint":"name another"}`, string(raw))
+}
+
+// TestErrorEnvelopeProperty_DocumentsRetryAfter keeps the shared schema
+// fragment in step with the payload: a field the envelope can carry is a field
+// the advertised schema names.
+func TestErrorEnvelopeProperty_DocumentsRetryAfter(t *testing.T) {
+	schema := ErrorEnvelopeProperty()
+	prop, ok := schema.Properties["retry_after_seconds"]
+	require.True(t, ok)
+	assert.Equal(t, "integer", prop.Type)
+	assert.Contains(t, schema.PropertyOrder, "retry_after_seconds")
 }

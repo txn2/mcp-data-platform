@@ -131,6 +131,7 @@ func argErr(b *starlark.Builtin, err error) error {
 type hostState struct {
 	opts    Options
 	ctx     context.Context //nolint:containedctx // one run's context, bound for the life of that run and used only by its host bindings
+	log     *logBuffer
 	queries int
 	exports []ExportRecord
 }
@@ -235,7 +236,7 @@ func (h *hostState) query(_ *starlark.Thread, b *starlark.Builtin, args starlark
 	if connection != "" {
 		call["connection"] = connection
 	}
-	out, err := h.opts.Caller.CallTool(h.ctx, toolQuery, call)
+	out, err := h.callTool(toolQuery, call)
 	if err != nil {
 		return nil, argErr(b, err)
 	}
@@ -275,7 +276,7 @@ func (h *hostState) call(_ *starlark.Thread, b *starlark.Builtin, args starlark.
 	if err != nil {
 		return nil, argErr(b, err)
 	}
-	out, err := h.opts.Caller.CallTool(h.ctx, tool, payload)
+	out, err := h.callTool(tool, payload)
 	if err != nil {
 		return nil, argErr(b, err)
 	}

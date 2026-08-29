@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/toolratelimit"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -138,8 +139,10 @@ func assembledServer(t *testing.T) harness {
 }
 
 // assembledServerWith is assembledServer over a declared destination set, for
-// the tests that assert what validate and run_draft say about a destination.
-func assembledServerWith(t *testing.T, destinations []script.Destination) harness {
+// the tests that assert what validate and run_draft say about a destination,
+// and over any further middleware a test places where the platform places its
+// limiter: inner to the gates, outer to audit.
+func assembledServerWith(t *testing.T, destinations []script.Destination, inner ...mcp.Middleware) harness {
 	t.Helper()
 	const authorID = "user-jane@example.com"
 
@@ -175,6 +178,7 @@ func assembledServerWith(t *testing.T, destinations []script.Destination) harnes
 		[]string{"search"}, []string{"trino_query"}, searchgate.NewMemoryStore(time.Hour), time.Hour)
 
 	server.AddReceivingMiddleware(middleware.MCPAuditMiddleware(audit))
+	server.AddReceivingMiddleware(inner...)
 	server.AddReceivingMiddleware(middleware.MCPWorkflowGateMiddleware(tracker))
 	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(
 		&fakeAuthn{user: &middleware.UserInfo{
@@ -688,4 +692,30 @@ print("total %d" % sum([float(r["total"]) for r in res["rows"]]))
 	require.False(t, isErr, ran)
 	assert.Equal(t, "succeeded", ran["status"], ran["error"])
 	assert.Contains(t, ran["log"], "total 200")
+}
+
+// TestIntegration_RunDraftPacesARateLimitedCall is the draft half of the #1533
+// acceptance: a draft shares its author's bucket with the agent driving it, and
+// a call the limiter refuses is waited out under DraftTimeout rather than
+// failing the draft. With one token a second and a burst of three, create and
+// run_draft spend two, the first query spends the third, and the second query
+// is refused once and admitted a second later.
+func TestIntegration_RunDraftPacesARateLimitedCall(t *testing.T) {
+	ctx := context.Background()
+	limiter := toolratelimit.New(60, 3, nil, nil)
+	t.Cleanup(limiter.Close)
+	h := assembledServerWith(t, nil, limiter.Middleware())
+	session := connectAgent(ctx, t, h.server)
+
+	_, isErr := callTool(ctx, t, session, map[string]any{
+		"command": "create", "name": "two-queries",
+		"source": "a = platform.query(sql = \"SELECT 1\")\nprint(len(a[\"rows\"]))\nb = platform.query(sql = \"SELECT 2\")\nprint(len(b[\"rows\"]))\n",
+	})
+	require.False(t, isErr)
+
+	ran, isErr := callTool(ctx, t, session, map[string]any{"command": "run_draft", "name": "two-queries"})
+	require.False(t, isErr, ran)
+	assert.Equal(t, "succeeded", ran["status"], ran)
+	assert.Len(t, h.queries.calls(), 2, "both queries were served, the second after a wait")
+	assert.Equal(t, "2\nrate limit: trino_query was refused; waited 1s and retried\n2\n", ran["log"])
 }

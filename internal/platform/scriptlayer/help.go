@@ -167,6 +167,9 @@ WHAT IS NOT, AND WHAT TO WRITE INSTEAD
   import              There is no module system. json and date are already here.
   try / except        Errors fail the run by design, so the failure is recorded
                       rather than swallowed. Check first, or call fail("why").
+                      A rate-limit refusal of a call is not an error the script
+                      sees: the host waits the refusal's interval, within the
+                      run's deadline, and issues the call again.
   while               Unbounded loops are off so a script's cost is readable
                       from its source. Loop over a list, or do it in SQL.
   recursion           Off, for the same reason. Flatten it into a loop.
@@ -384,7 +387,9 @@ func (*Handle) handleHelp(_ context.Context, _ manageScriptInput) (*mcp.CallTool
 			"log_bytes":        scriptrun.MaxLogBytes,
 			"max_source_bytes": script.MaxSourceBytes,
 			"note": "A draft run is bounded more tightly than a platform run will be. " +
-				"A script error is deterministic, so it is never retried.",
+				"A script error is deterministic, so it is never retried. A rate-limit refusal of a " +
+				"call is not a script error: the host waits the refusal's interval within the run's " +
+				"deadline and issues the call again, and the wait is written to the run's log.",
 		},
 		"examples":        names,
 		"read_an_example": "Call get with name=" + examples[0].name + " to read one.",

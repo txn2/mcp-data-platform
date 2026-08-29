@@ -88,6 +88,11 @@ type PlatformError struct {
 	Message  string
 	Code     string
 	Hint     string
+	// RetryAfterSeconds is the interval after which the same call is expected
+	// to be admitted, for a refusal that is a matter of timing rather than of
+	// the call itself (a rate-limit refusal). Zero means the error carries no
+	// such interval and is omitted from the envelope.
+	RetryAfterSeconds int
 }
 
 // Error implements the error interface. It returns the bare message so audit
