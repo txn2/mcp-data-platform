@@ -419,7 +419,11 @@ These caches are per-replica. They affect behavior, not correctness:
   `requests_per_minute`/`burst`; the default (240 rpm, burst 60) is deliberately
   generous so ordinary use never touches it, so the per-replica multiplication is
   not a concern for the backstop's purpose. Each refusal increments
-  `mcp_rate_limited_total`. See [Tool-Call Rate Limiting](../server/configuration.md#tool-call-rate-limiting).
+  `mcp_rate_limited_total`. A platform run of a managed script is held at the
+  sustained rate rather than refused, and each held call increments
+  `mcp_rate_limit_queued_total`; a growing value there means the scripts are
+  running against the limit and completing later than they need to, which is
+  the signal to raise `requests_per_minute`. See [Tool-Call Rate Limiting](../server/configuration.md#tool-call-rate-limiting).
 
 ### Replica count and PostgreSQL connections
 

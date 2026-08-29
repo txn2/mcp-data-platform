@@ -1,7 +1,8 @@
 // Package ratelimit provides a per-key token-bucket rate limiter shared
 // across the platform's HTTP surfaces (the public portal viewer and the
-// OAuth authorization server). Keeping one implementation avoids per-caller
-// forks of the bucket math, cleanup goroutine, and eviction policy.
+// OAuth authorization server) and the per-user tool-call limiter. Keeping one
+// implementation avoids per-caller forks of the bucket math, cleanup
+// goroutine, and eviction policy.
 //
 // The limiter is keyed on an arbitrary string. Callers choose the key: a
 // client IP for per-client fairness, or a fixed sentinel for a global
@@ -12,6 +13,7 @@ package ratelimit
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -96,12 +98,41 @@ func (l *Limiter) Rate() float64 { return l.rate }
 // Allow checks whether a request under the given key should be allowed,
 // consuming one token when it is.
 func (l *Limiter) Allow(key string) bool {
+	ok, _ := l.take(key)
+	return ok
+}
+
+// Wait admits a request under the given key as soon as a token is available,
+// consuming it, or returns ctx's error if ctx ends first. It is the queueing
+// counterpart to Allow, for a caller that is delayed to the moment it is within
+// the rate rather than refused. One waiter on an empty bucket is admitted after
+// at most 1/Rate seconds; when several wait on one key, each refilled token
+// admits whichever wakes first and the others wait for the next.
+func (l *Limiter) Wait(ctx context.Context, key string) error {
+	for {
+		ok, until := l.take(key)
+		if ok {
+			return nil
+		}
+		timer := time.NewTimer(until)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return fmt.Errorf("waiting for a rate-limit token: %w", ctx.Err())
+		case <-timer.C:
+		}
+	}
+}
+
+// take consumes one token under key when one is available. When none is, it
+// reports how long the bucket needs to refill to a whole token.
+func (l *Limiter) take(key string) (ok bool, until time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	now := time.Now()
-	b, ok := l.buckets[key]
-	if !ok {
+	b, found := l.buckets[key]
+	if !found {
 		b = &bucket{tokens: float64(l.burst), lastSeen: now}
 		l.buckets[key] = b
 	}
@@ -115,10 +146,10 @@ func (l *Limiter) Allow(key string) bool {
 	b.lastSeen = now
 
 	if b.tokens < 1 {
-		return false
+		return false, time.Duration((1 - b.tokens) / l.rate * float64(time.Second))
 	}
 	b.tokens--
-	return true
+	return true, 0
 }
 
 // available reports whether a token is currently available for key WITHOUT

@@ -3,6 +3,12 @@
 // tools/call requests exceeding a generous per-identity token-bucket limit
 // before they reach the handler, audit pipeline, or upstream.
 //
+// A script principal is the exception (#1534): a platform run is a loop by
+// construction, its calls are serial, and it runs under roles captured at the
+// save through the persona filter, so an over-limit call from it is held until
+// the bucket admits it rather than refused. The sustained rate still governs
+// the run's throughput; what differs is that the call is delayed, not failed.
+//
 // It lives in its own package so the platform facade stays within its
 // field/method budget and so the ratelimit dependency stays localized to a
 // cohesive, independently-testable seam (mirroring reflexivecapture and the
@@ -22,9 +28,11 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/ratelimit"
@@ -111,7 +119,12 @@ func (h *Handle) IsExempt(toolName string) bool {
 // Middleware returns the MCP receiving middleware enforcing the per-user limit.
 // On a refusal it short-circuits with a RATE_LIMITED error result and never
 // invokes the underlying tool handler, so the throttled call consumes no
-// handler, audit, or upstream work.
+// handler, audit, or upstream work. A script principal's over-limit call is
+// held here until a token is available and then handed on; a wait the request
+// context ends first is returned as that context's error, so a run canceled
+// mid-wait (its context is the call's, and the client forwards its
+// cancellation to this side) ends as a canceled run rather than with a
+// refusal, and the handler never runs for that call.
 //
 // The middleware must be positioned INNER to MCPToolCallMiddleware so the
 // PlatformContext (identity, tool name) is available, and OUTER to audit,
@@ -125,48 +138,80 @@ func (h *Handle) Middleware() mcp.Middleware {
 			if method != methodToolsCall {
 				return next(ctx, method, req)
 			}
-			pc := middleware.GetPlatformContext(ctx)
-			if pc == nil {
-				return next(ctx, method, req)
-			}
-			if errResult := h.check(ctx, pc); errResult != nil {
-				return errResult, nil
-			}
-			return next(ctx, method, req)
+			return h.meter(ctx, method, req, next)
 		}
 	}
 }
 
-// check evaluates whether a tool call is within the per-user limit. It returns
-// nil when the call is allowed (consuming one token in that case) and an error
-// result when the principal is over its limit.
-func (h *Handle) check(ctx context.Context, pc *middleware.PlatformContext) mcp.Result {
+// meter admits, refuses, or holds one tools/call before handing it to next.
+func (h *Handle) meter(ctx context.Context, method string, req mcp.Request, next mcp.MethodHandler) (mcp.Result, error) {
+	pc := middleware.GetPlatformContext(ctx)
+	if pc == nil {
+		return next(ctx, method, req)
+	}
+	key := h.meteredKey(pc)
+	if key == "" || h.limiter.Allow(key) {
+		return next(ctx, method, req)
+	}
+	if pc.AuthType != middleware.AuthTypeScript {
+		return h.refuse(ctx, pc), nil
+	}
+	if err := h.queue(ctx, pc, key); err != nil {
+		return nil, err
+	}
+	return next(ctx, method, req)
+}
+
+// meteredKey returns the bucket a tool call is metered under, or "" for a call
+// the limiter lets through without consuming a token.
+func (h *Handle) meteredKey(pc *middleware.PlatformContext) string {
 	// Exempt tools always pass and consume no token.
 	if h.IsExempt(pc.ToolName) {
-		return nil
+		return ""
 	}
-
 	// With no attributable identity there is nothing to meter; fail open. A
 	// call that reached here has already passed auth, and refusing it on an
 	// un-keyable basis would penalize legitimate un-sessioned transports more
 	// than any abuser (see PlatformContext.RateLimitKey).
-	key := pc.RateLimitKey()
-	if key == "" {
-		return nil
-	}
+	return pc.RateLimitKey()
+}
 
-	if h.limiter.Allow(key) {
-		return nil
-	}
-
+// refuse records an over-limit call from an interactive principal and builds
+// the RATE_LIMITED result it is answered with.
+func (h *Handle) refuse(ctx context.Context, pc *middleware.PlatformContext) mcp.Result {
 	h.metrics.RecordRateLimited(ctx)
 	slog.Warn("rate limit: tool call refused",
-		"tool", pc.ToolName,
-		"user_id", pc.UserID,
+		"tool", logsan.SanitizeForLog(pc.ToolName),
+		"user_id", logsan.SanitizeForLog(pc.UserID),
 		"session_id", pc.SessionID,
 		"retry_after_seconds", h.retryAfterSeconds,
 	)
 	return h.createError(pc.ToolName)
+}
+
+// queue holds a script principal's call until its bucket admits it. The
+// distinction is the auth type: a platform run is the caller the platform knows
+// the most about and has the strongest reason to let finish, and a loop of
+// serial calls past the burst is exactly what the refusal was built to catch
+// in an agent. Its calls are serial and the bucket refills at the sustained
+// rate, so one wait is at most 1/rate and never contends with another call
+// from the same principal. A queued call is not a refusal: it is counted on its
+// own and logged at Info under the run's session id, so an operator can see
+// that a deployment's scripts are running against the limit.
+func (h *Handle) queue(ctx context.Context, pc *middleware.PlatformContext, key string) error {
+	start := time.Now()
+	if err := h.limiter.Wait(ctx, key); err != nil {
+		return fmt.Errorf("rate limit: the run ended while %s was waiting for a token: %w",
+			pc.ToolName, err)
+	}
+	h.metrics.RecordRateLimitQueued(ctx)
+	slog.Info("rate limit: tool call queued",
+		"tool", logsan.SanitizeForLog(pc.ToolName),
+		"user_id", logsan.SanitizeForLog(pc.UserID),
+		"session_id", pc.SessionID,
+		"waited_ms", time.Since(start).Milliseconds(),
+	)
+	return nil
 }
 
 // createError builds a RATE_LIMITED error result carrying a retry hint so an

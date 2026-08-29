@@ -1,14 +1,17 @@
 package toolratelimit
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
@@ -246,6 +249,123 @@ func TestMiddleware_RefusalIncrementsCounter(t *testing.T) {
 
 	body := scrapeMetrics(t, m.Handler())
 	assert.Contains(t, body, "mcp_rate_limited_total 1")
+}
+
+// scriptCtx builds a tools/call context for a platform run's script principal,
+// keyed on the run id as its session the way the runner threads it.
+func scriptCtx(name, tool string) context.Context {
+	pc := middleware.NewPlatformContext("req")
+	pc.UserID = "script:" + name
+	pc.AuthType = middleware.AuthTypeScript
+	pc.SessionID = "run_" + name
+	pc.ToolName = tool
+	return middleware.WithPlatformContext(context.Background(), pc)
+}
+
+// captureLog routes slog's default output into a buffer for the test's
+// duration, so the test can assert which line the limiter wrote.
+func captureLog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var out bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&out, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return &out
+}
+
+// TestMiddleware_ScriptPrincipalOverBurstIsQueuedNotRefused is the #1534 unit
+// acceptance: a script principal's call past the burst is admitted after the
+// sustained rate refills a token, its result is the handler's, it is counted as
+// queued and not as refused, and the log carries the queued line and not the
+// refusal warning.
+func TestMiddleware_ScriptPrincipalOverBurstIsQueuedNotRefused(t *testing.T) {
+	m, err := observability.New(observability.Config{Enabled: true, ListenAddr: ":0"})
+	require.NoError(t, err)
+	defer func() { _ = m.Shutdown(context.Background()) }()
+	out := captureLog(t)
+
+	// 600 rpm = one token every 100ms.
+	h := New(600, 1, nil, m)
+	defer h.Close()
+	call, _ := rlCall(h)
+	ctx := scriptCtx("nightly", rlToolTrinoQuery)
+
+	result, err := call(ctx) // consumes the burst
+	require.NoError(t, err)
+	assert.Equal(t, rlSuccessResult, result)
+
+	start := time.Now()
+	result, err = call(ctx) // over the burst: held, then admitted
+	require.NoError(t, err)
+	assert.Equal(t, rlSuccessResult, result, "a queued call returns the handler's own result")
+	assert.GreaterOrEqual(t, time.Since(start), 90*time.Millisecond, "admitted before the token refilled")
+
+	body := scrapeMetrics(t, m.Handler())
+	assert.Contains(t, body, "mcp_rate_limit_queued_total 1")
+	assert.NotContains(t, body, "mcp_rate_limited_total 1", "a queued call is not a refusal")
+	assert.Contains(t, out.String(), "tool call queued")
+	assert.Contains(t, out.String(), "session_id=run_nightly")
+	assert.NotContains(t, out.String(), "tool call refused")
+}
+
+// TestMiddleware_ScriptPrincipalWaitEndsWithTheContext: a run torn down while
+// its call is waiting for a token gets the context's error back promptly, as a
+// method error rather than a RATE_LIMITED result, and no counter moves.
+func TestMiddleware_ScriptPrincipalWaitEndsWithTheContext(t *testing.T) {
+	m, err := observability.New(observability.Config{Enabled: true, ListenAddr: ":0"})
+	require.NoError(t, err)
+	defer func() { _ = m.Shutdown(context.Background()) }()
+
+	// 6 rpm = one token every 10s: the wait can only end with the context.
+	h := New(6, 1, nil, m)
+	defer h.Close()
+	call, ran := rlCall(h)
+	_, err = call(scriptCtx("nightly", rlToolTrinoQuery))
+	require.NoError(t, err)
+	*ran = false
+
+	ctx, cancel := context.WithTimeout(scriptCtx("nightly", rlToolTrinoQuery), 50*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	result, err := call(ctx)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Nil(t, result)
+	assert.Less(t, time.Since(start), 2*time.Second)
+	assert.False(t, *ran, "a call the run ended while it waited never runs")
+
+	body := scrapeMetrics(t, m.Handler())
+	assert.NotContains(t, body, "mcp_rate_limit_queued_total 1")
+	assert.NotContains(t, body, "mcp_rate_limited_total 1")
+}
+
+// TestMiddleware_InteractiveCallerOverBurstIsStillRefused pins the other side
+// of #1534: every auth type but script keeps the refusal, with the envelope
+// unchanged, and the refusal warning is what the log carries.
+func TestMiddleware_InteractiveCallerOverBurstIsStillRefused(t *testing.T) {
+	out := captureLog(t)
+	h := New(6, 1, nil, nil)
+	defer h.Close()
+	call, _ := rlCall(h)
+
+	for _, authType := range []string{middleware.AuthTypeOIDC, middleware.AuthTypeOAuth, middleware.AuthTypeAPIKey} {
+		pc := middleware.NewPlatformContext("req")
+		pc.UserID = "person-" + authType
+		pc.AuthType = authType
+		pc.ToolName = rlToolTrinoQuery
+		ctx := middleware.WithPlatformContext(context.Background(), pc)
+
+		_, err := call(ctx)
+		require.NoError(t, err)
+		start := time.Now()
+		result, err := call(ctx)
+		require.NoError(t, err, authType)
+		assert.Less(t, time.Since(start), 500*time.Millisecond, "%s must be refused, not held", authType)
+		getErr := toolResult(t, result).GetError()
+		require.NotNil(t, getErr, authType)
+		assert.Contains(t, getErr.Error(), "RATE_LIMITED")
+	}
+	assert.Contains(t, out.String(), "tool call refused")
+	assert.NotContains(t, out.String(), "tool call queued")
 }
 
 func TestClose_NilSafeAndIdempotent(_ *testing.T) {

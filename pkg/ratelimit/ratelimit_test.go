@@ -110,3 +110,49 @@ func TestLimiterCleanupLoopTickerFires(t *testing.T) {
 	l.mu.Unlock()
 	assert.False(t, hasStale, "stale entry should be cleaned up by loop")
 }
+
+// TestLimiterWaitAdmitsWithoutDelayWhileTokensRemain: Wait consumes a token
+// exactly as Allow does when one is available, and returns at once.
+func TestLimiterWaitAdmitsWithoutDelayWhileTokensRemain(t *testing.T) {
+	l := New(Config{RequestsPerMinute: 60, BurstSize: 2})
+	defer l.Close()
+
+	start := time.Now()
+	assert.NoError(t, l.Wait(context.Background(), "k"))
+	assert.NoError(t, l.Wait(context.Background(), "k"))
+	assert.Less(t, time.Since(start), 500*time.Millisecond)
+	assert.False(t, l.Allow("k"), "Wait consumed the burst")
+}
+
+// TestLimiterWaitHoldsUntilARefill: an empty bucket admits the waiter once
+// the sustained rate has refilled one token, 1/Rate seconds later, and the
+// wait is bounded by that interval rather than open-ended.
+func TestLimiterWaitHoldsUntilARefill(t *testing.T) {
+	// 600 rpm = 10 tokens/second = one token every 100ms.
+	l := New(Config{RequestsPerMinute: 600, BurstSize: 1})
+	defer l.Close()
+	assert.True(t, l.Allow("k"))
+
+	start := time.Now()
+	assert.NoError(t, l.Wait(context.Background(), "k"))
+	waited := time.Since(start)
+	assert.GreaterOrEqual(t, waited, 90*time.Millisecond, "admitted before the token refilled")
+	assert.Less(t, waited, 2*time.Second, "waited far past one refill interval")
+}
+
+// TestLimiterWaitReturnsWhenTheContextEnds: a canceled context ends the wait
+// with its error and leaves the bucket untouched, so no token is consumed for a
+// call that will not run.
+func TestLimiterWaitReturnsWhenTheContextEnds(t *testing.T) {
+	// 6 rpm = one token every 10 seconds: the wait cannot end by refill.
+	l := New(Config{RequestsPerMinute: 6, BurstSize: 1})
+	defer l.Close()
+	assert.True(t, l.Allow("k"))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	err := l.Wait(ctx, "k")
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Less(t, time.Since(start), 2*time.Second)
+}

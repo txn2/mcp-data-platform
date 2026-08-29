@@ -216,6 +216,110 @@ func TestChain_RateLimitPerUserIsolation(t *testing.T) {
 	}
 }
 
+// TestChain_ScriptPrincipalIsQueuedThroughTheAssembledChain is the #1534
+// acceptance through the real chain: a script principal issuing more calls than
+// the burst admits, against a small burst and a low sustained rate, gets every
+// call's result, the handler serves every call, and the wall clock reflects the
+// sustained rate. The client is a plain session with no pacing of its own, so a
+// result that is never an error proves the wait happened in the middleware.
+func TestChain_ScriptPrincipalIsQueuedThroughTheAssembledChain(t *testing.T) {
+	const (
+		burst      = 2
+		totalCalls = 5
+		// 600 rpm = one token every 100ms; three calls past the burst wait
+		// three refills between them.
+		rpm       = 600
+		minElapse = 250 * time.Millisecond
+	)
+
+	var handlerRuns atomic.Int64
+	auditStore := &countingAuditStore{}
+	authenticator := &fakeAuthenticator{info: &middleware.UserInfo{
+		UserID: "script:nightly-report", Email: "owner@example.com", Roles: []string{itAnalyst}, AuthType: middleware.AuthTypeScript,
+	}}
+	h := toolratelimit.New(rpm, burst, nil, nil)
+	defer h.Close()
+
+	server := mcp.NewServer(&mcp.Implementation{Name: "test-platform", Version: "v0.0.1"}, nil)
+	addTrinoTool(server, func() { handlerRuns.Add(1) })
+	server.AddReceivingMiddleware(middleware.MCPAuditMiddleware(auditStore))
+	server.AddReceivingMiddleware(h.Middleware())
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, &fakeAuthorizer{persona: "data-analyst"},
+		fakeToolkitLookup{}, middleware.ToolCallConfig{Transport: itStdio, AdminPersona: "admin"}))
+
+	session := connect(t, server)
+	defer func() { _ = session.Close() }()
+
+	start := time.Now()
+	for i := range totalCalls {
+		result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+			Name:      itToolTrinoQuery,
+			Arguments: map[string]any{"sql": "SELECT 1"},
+		})
+		if err != nil {
+			t.Fatalf("call %d: %v", i, err)
+		}
+		if result.IsError {
+			t.Fatalf("call %d was refused; a script principal is queued, not refused: %s", i, resultText(result))
+		}
+	}
+	if elapsed := time.Since(start); elapsed < minElapse {
+		t.Errorf("five calls against burst 2 at 10/s took %s; the sustained rate must govern (want >= %s)", elapsed, minElapse)
+	}
+	if got := handlerRuns.Load(); got != totalCalls {
+		t.Errorf("handler ran %d times, want every one of %d calls", got, totalCalls)
+	}
+	if events := waitForAuditCount(t, auditStore, totalCalls); events != totalCalls {
+		t.Errorf("audit store received %d events, want one per admitted call (%d)", events, totalCalls)
+	}
+}
+
+// TestChain_ScriptPrincipalWaitEndsWithTheRun: a run canceled while a call is
+// waiting for a token releases the wait promptly and the handler never runs.
+// The run's context is the client call's; the SDK forwards its cancellation to
+// the server as notifications/canceled, which ends the request context the
+// wait is bound to. Closing the session is not the signal: the SDK's Close
+// waits for in-flight requests to finish rather than canceling them.
+func TestChain_ScriptPrincipalWaitEndsWithTheRun(t *testing.T) {
+	var handlerRuns atomic.Int64
+	authenticator := &fakeAuthenticator{info: &middleware.UserInfo{
+		UserID: "script:nightly-report", Email: "owner@example.com", Roles: []string{itAnalyst}, AuthType: middleware.AuthTypeScript,
+	}}
+	// 6 rpm = one token every 10s: the second call can only end with the run.
+	h := toolratelimit.New(6, 1, nil, nil)
+	defer h.Close()
+
+	server := mcp.NewServer(&mcp.Implementation{Name: "test-platform", Version: "v0.0.1"}, nil)
+	addTrinoTool(server, func() { handlerRuns.Add(1) })
+	server.AddReceivingMiddleware(h.Middleware())
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, &fakeAuthorizer{persona: "data-analyst"},
+		fakeToolkitLookup{}, middleware.ToolCallConfig{Transport: itStdio, AdminPersona: "admin"}))
+
+	session := connect(t, server)
+	defer func() { _ = session.Close() }()
+	params := &mcp.CallToolParams{Name: itToolTrinoQuery, Arguments: map[string]any{"sql": "SELECT 1"}}
+	if _, err := session.CallTool(context.Background(), params); err != nil {
+		t.Fatalf("first call: %v", err)
+	}
+
+	runCtx, cancelRun := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancelRun()
+	start := time.Now()
+	_, err := session.CallTool(runCtx, params)
+	if err == nil {
+		t.Fatal("a call whose run ended mid-wait must not report success")
+	}
+	if waited := time.Since(start); waited > 2*time.Second {
+		t.Errorf("the waiting call returned %s after the run ended; it must not wait for the next refill", waited)
+	}
+	// The server-side wait returns on the cancellation notification, not on
+	// the client giving up: the handler must never run for that call.
+	time.Sleep(200 * time.Millisecond)
+	if got := handlerRuns.Load(); got != 1 {
+		t.Errorf("handler ran %d times; the canceled call must not reach it", got)
+	}
+}
+
 func resultText(r *mcp.CallToolResult) string {
 	var b strings.Builder
 	for _, c := range r.Content {
