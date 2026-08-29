@@ -48,9 +48,31 @@ if [ -z "$production_go" ]; then
     exit 0
 fi
 
+# MCP is JSON-RPC, and a parameter whose schema is untyped accepts more than
+# one JSON form. #1548 reached a release with its acceptance test green
+# because every check sent api_invoke_endpoint.body as an object and the
+# client sent a string. The acceptance test sends every form the schema
+# admits, and the transcript of the run lives at build/<n>/acceptance.md,
+# opening with a "Wire forms:" line naming the forms sent. Missing or
+# unmarked, this check fails: no transcript, no check.
 if [ -n "$acceptance" ]; then
     count="$(printf '%s\n' "$acceptance" | grep -c . || true)"
-    echo "acceptance-check: ${count} acceptance file(s) changed beside the Go changes."
+    missing=""
+    for file in $acceptance; do
+        n="$(basename "$file" | sed -nE 's/^issue_([0-9]+)_test\.go$/\1/p')"
+        [ -n "$n" ] || continue
+        transcript="build/${n}/acceptance.md"
+        if [ ! -s "$transcript" ] || ! grep -q '^Wire forms:' "$transcript"; then
+            missing="${missing}  ${file} -> ${transcript}\n"
+        fi
+    done
+    if [ -n "$missing" ]; then
+        printf 'FAIL acceptance-check: %s acceptance file(s) changed, but the run transcript is missing or does not open with a "Wire forms:" line:\n' "$count" >&2
+        printf '%b' "$missing" >&2
+        echo '  Run the ticket'"'"'s acceptance against the dev stack (make acceptance) sending every JSON form each touched parameter accepts, and keep the transcript at build/<n>/acceptance.md starting with "Wire forms: <the forms sent>".' >&2
+        exit 1
+    fi
+    echo "acceptance-check: ${count} acceptance file(s) changed beside the Go changes, each with a run transcript under build/<n>/."
     exit 0
 fi
 

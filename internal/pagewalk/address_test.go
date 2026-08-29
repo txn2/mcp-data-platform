@@ -134,6 +134,35 @@ func TestFetchAddress(t *testing.T) {
 	}
 }
 
+// TestFetchAddress_BodyAsJSONString: the gateway passes a body sent as a
+// string of JSON through as JSON, so a fetch_url body in that form is the
+// same document and is walked the same way.
+func TestFetchAddress_BodyAsJSONString(t *testing.T) {
+	a, err := NewAddress(AddressSpec{Path: "/util/fetch", Body: `{"url": "https://files.example.com/report?page=1"}`, WalkBodyURL: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := a.(*fetchAddress); !ok {
+		t.Fatalf("a JSON-string body picked %T", a)
+	}
+	if err := a.FollowURL("https://files.example.com/report?page=2"); err != nil {
+		t.Fatalf("same-host link refused: %v", err)
+	}
+	got, _ := a.Target().Body.(map[string]any)
+	if got["url"] != "https://files.example.com/report?page=2" {
+		t.Errorf("body url = %v", got["url"])
+	}
+	for _, body := range []any{"not json", `["url"]`, `null`, `{"url": 1}`, 7} {
+		a, err := NewAddress(AddressSpec{BaseURL: "https://api.example.com", Body: body, WalkBodyURL: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := a.(*pathAddress); !ok {
+			t.Errorf("body %v picked %T", body, a)
+		}
+	}
+}
+
 func TestNewAddress_PicksByBody(t *testing.T) {
 	a, err := NewAddress(AddressSpec{BaseURL: "https://api.example.com", Body: map[string]any{"url": "https://h/x"}})
 	if err != nil {

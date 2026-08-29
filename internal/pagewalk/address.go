@@ -1,6 +1,7 @@
 package pagewalk
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -58,13 +59,30 @@ type AddressSpec struct {
 // is addressed by path and query.
 func NewAddress(spec AddressSpec) (Address, error) {
 	if spec.WalkBodyURL {
-		if body, ok := spec.Body.(map[string]any); ok {
+		if body, ok := bodyObject(spec.Body); ok {
 			if raw, ok := body["url"].(string); ok {
 				return newFetchAddress(spec, body, raw)
 			}
 		}
 	}
 	return newPathAddress(spec)
+}
+
+// bodyObject returns the request body as an object: one sent as a map,
+// or one sent as a string of JSON that decodes to a map. The gateway
+// accepts a body in either form (a string that parses as JSON passes
+// through as JSON), so a fetch_url body is walked in either.
+func bodyObject(body any) (map[string]any, bool) {
+	switch b := body.(type) {
+	case map[string]any:
+		return b, true
+	case string:
+		var m map[string]any
+		if err := json.Unmarshal([]byte(b), &m); err == nil && m != nil {
+			return m, true
+		}
+	}
+	return nil, false
 }
 
 // pathAddress addresses a page by the path and query joined to the
