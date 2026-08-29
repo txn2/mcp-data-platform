@@ -1707,15 +1707,19 @@ ON CONFLICT (id) DO NOTHING;
 -- ============================================================================
 
 -- 130 global resources so the admin All/Global tabs exceed the 100-row page.
+--
+-- The paths are two and three folders deep as well as one (#1529), so the dev
+-- library is a tree with something in it at every level rather than four flat
+-- lists that would exercise drilling in not at all.
 INSERT INTO resources (
-  id, scope, scope_id, category, filename, display_name, description,
+  id, scope, scope_id, path, filename, display_name, description,
   mime_type, size_bytes, s3_key, uri, tags, uploader_sub, uploader_email,
   created_at, updated_at
 )
 SELECT
   'res-seed-' || lpad(n::text, 4, '0'),
   'global', NULL,
-  (ARRAY['samples','playbooks','templates','references'])[(n % 4) + 1],
+  (ARRAY['samples','playbooks/onboarding','templates','references/glossary/terms'])[(n % 4) + 1],
   'reference-' || lpad(n::text, 4, '0')
     || (ARRAY['.md','.csv','.json','.txt'])[(n % 4) + 1],
   (ARRAY['Onboarding Playbook','Sample Dataset','Report Template','Glossary Reference'])[(n % 4) + 1]
@@ -1724,7 +1728,7 @@ SELECT
   (ARRAY['text/markdown','text/csv','application/json','text/plain'])[(n % 4) + 1],
   (ARRAY[2480, 9720, 4340, 1890])[(n % 4) + 1],
   'resources/global/res-seed-' || lpad(n::text, 4, '0'),
-  'mcp://global/' || (ARRAY['samples','playbooks','templates','references'])[(n % 4) + 1]
+  'mcp://global/' || (ARRAY['samples','playbooks/onboarding','templates','references/glossary/terms'])[(n % 4) + 1]
     || '/res-seed-' || lpad(n::text, 4, '0'),
   ARRAY['demo', (ARRAY['onboarding','sample','template','glossary'])[(n % 4) + 1]],
   'apikey:admin', 'admin@apikey.local',

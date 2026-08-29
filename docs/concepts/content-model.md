@@ -29,7 +29,7 @@ The consequences of getting the split wrong are concrete. A report template save
 - Is it a fact you want found, cited, and synthesized into new answers? **Knowledge page.**
 - Is it about how one person works? **Memory.**
 
-Resource categories carry the same distinction one level down: `data` are records to read as fact rather than as an example, `templates` are layouts a deliverable must be produced in, `playbooks` are procedures to follow rather than summarize, `samples` are examples to pattern-match against, and `references` are documents to consult. The line between `data` and `samples` is what the agent does with the rows: read them, or copy their shape. `visual` is the one category named for what the file is rather than for what the agent does with it -- logos, photographs, diagrams, and design elements meant to be displayed. An asset that needs one of those names it by URI rather than writing its bytes into the markup; see [Asset References](../server/asset-references.md).
+A resource is filed under a folder path inside its library, and the suggested first-level folders carry the same distinction one level down: `data` are records to read as fact rather than as an example, `templates` are layouts a deliverable must be produced in, `playbooks` are procedures to follow rather than summarize, `samples` are examples to pattern-match against, and `references` are documents to consult. The line between `data` and `samples` is what the agent does with the rows: read them, or copy their shape. `visual` is the one suggestion named for what the file is rather than for what the agent does with it -- logos, photographs, diagrams, and design elements meant to be displayed. They are suggestions and not a closed set: a path nests as deep as a library needs. An asset that needs one of those names it by URI rather than writing its bytes into the markup; see [Asset References](../server/asset-references.md).
 
 Some knowledge pages arrive with the platform itself: the [built-in pages](../server/portal-user.md#built-in-pages) documenting the features whose purpose is not readable from tool schemas (managed-script authoring, export identity, the dashboard refresh pattern, asset references and the refresh loop, provenance and the capture loop). Each states its mechanism as a mermaid diagram as well as in prose. They are reconciled from the binary at startup, badged **Built-in**, read-only where people edit, and a deployment can hide one (and later restore it) and write its own page on the topic. Search ranking is not their only way in: the instruction baseline's scripts bullet and `manage_script help` name them by slug, and `fetch` takes a page's slug in place of its id, so an agent reads the page that bears on the decision in front of it rather than hoping a query surfaces it.
 
@@ -55,7 +55,7 @@ server:
   agent_instructions: |
     Reporting standard: every report, summary, or briefing you produce must use the
     approved template for that deliverable. Before writing one, search for a resource
-    in the `templates` category matching the deliverable's name. If one exists, fetch
+    under the `templates` folder matching the deliverable's name. If one exists, fetch
     it and produce your output in its structure, section order, and headings. Do not
     restructure it, and do not substitute your own layout. If no approved template
     exists, say so in one line before the output so the gap is visible.

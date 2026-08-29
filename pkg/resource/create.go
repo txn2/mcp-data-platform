@@ -16,11 +16,11 @@ import (
 // Every field is already validated by the time it reaches CreateResource. The
 // caller owns validation because the two surfaces read their input from
 // different places -- a multipart form, a tool call -- and reporting a bad
-// category as a form error or as a tool result is theirs to decide.
+// folder path as a form error or as a tool result is theirs to decide.
 type NewResource struct {
 	Scope       Scope
 	ScopeID     string
-	Category    string
+	Path        string
 	Filename    string
 	DisplayName string
 	Description string
@@ -53,7 +53,7 @@ func CreateResource(ctx context.Context, deps Deps, claims *Claims, in NewResour
 	if scheme == "" {
 		scheme = DefaultURIScheme
 	}
-	uri := BuildURI(scheme, in.Scope, in.ScopeID, in.Category, in.Filename)
+	uri := BuildURI(scheme, in.Scope, in.ScopeID, in.Path, in.Filename)
 	s3Key := BuildS3Key(in.Scope, in.ScopeID, id, in.Filename)
 
 	// A stored type that disagrees with what the client sent is the one thing
@@ -76,7 +76,7 @@ func CreateResource(ctx context.Context, deps Deps, claims *Claims, in NewResour
 	// made by whoever happens to own the script.
 	res := Resource{
 		ID: id, Scope: in.Scope, ScopeID: in.ScopeID,
-		Category: in.Category, Filename: in.Filename,
+		Path: in.Path, Filename: in.Filename,
 		DisplayName: in.DisplayName, Description: in.Description,
 		MIMEType: in.MIMEType, SizeBytes: int64(len(in.Data)),
 		S3Key: s3Key, URI: uri, Tags: in.Tags,
@@ -96,7 +96,7 @@ func CreateResource(ctx context.Context, deps Deps, claims *Claims, in NewResour
 			_ = deps.S3Client.DeleteObject(ctx, deps.S3Bucket, s3Key)
 		}
 		if strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "unique") {
-			return nil, &conflictError{msg: "a resource with this scope, category, and filename already exists"}
+			return nil, &conflictError{msg: "a resource with this library, folder, and filename already exists"}
 		}
 		slog.Error("resource upload: db insert failed", msgError, err)
 		return nil, fmt.Errorf("saving resource metadata: %w", err)

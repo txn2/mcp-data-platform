@@ -1595,8 +1595,6 @@ definitions:
           the delete on purpose (#1474), so this is the one place the owner learns
           their report is now serving with something missing.
         type: boolean
-      category:
-        type: string
       content_url:
         description: |-
           ContentURL is the reference's own serving URL, the same one the rewrite
@@ -1613,8 +1611,8 @@ definitions:
         type: string
       filename:
         description: |-
-          Resource-only fields: the file's own name, its category and the scope it
-          is filed under.
+          Resource-only fields: the file's own name, the folder path it is filed
+          under and the library it lives in.
         type: string
       mime_type:
         type: string
@@ -1631,6 +1629,8 @@ definitions:
           OwnerEmail names who owns a referenced asset. It is the asset row's
           counterpart of a resource's scope: the one fact that says whose thing
           this is.
+        type: string
+      path:
         type: string
       position:
         type: integer
@@ -1708,13 +1708,13 @@ definitions:
           deleted template would simply vanish from the editor while the served
           prompt kept reporting a missing material.
         type: boolean
-      category:
-        type: string
       description:
         type: string
       display_name:
         type: string
       mime_type:
+        type: string
+      path:
         type: string
       position:
         type: integer
@@ -3074,9 +3074,6 @@ definitions:
     type: object
   github_com_txn2_mcp-data-platform_pkg_resource.Resource:
     properties:
-      category:
-        example: runbooks
-        type: string
       created_at:
         type: string
       description:
@@ -3100,6 +3097,13 @@ definitions:
         type: string
       mime_type:
         example: text/markdown
+        type: string
+      path:
+        description: |-
+          Path is the slash-separated folder path this resource is filed under
+          inside its library, and the tail of its URI ahead of the filename. A
+          one-segment path is what every resource carried before folders (#1529).
+        example: runbooks/etl
         type: string
       s3_key:
         example: resources/res_01HK7R9F/etl-runbook.md
@@ -5209,6 +5213,29 @@ definitions:
         example: 4
         type: integer
     type: object
+  resource.FolderMove:
+    properties:
+      from:
+        type: string
+      moved:
+        description: Moved is one entry per resource rewritten, in listing order.
+        items:
+          $ref: '#/definitions/resource.FolderMoveEntry'
+        type: array
+      to:
+        type: string
+    type: object
+  resource.FolderMoveEntry:
+    properties:
+      from_uri:
+        type: string
+      id:
+        type: string
+      path:
+        type: string
+      uri:
+        type: string
+    type: object
   resource.Scope:
     enum:
     - global
@@ -5221,11 +5248,15 @@ definitions:
     - ScopeUser
   resource.Update:
     properties:
-      category:
-        type: string
       description:
         type: string
       display_name:
+        type: string
+      path:
+        description: |-
+          Path refiles the resource in another folder of its library. Like Scope it
+          is not metadata: the folder path is half of the resource's URI, so an edit
+          to it rewrites the address and records the one it vacated (#1528).
         type: string
       scope:
         allOf:
@@ -5314,6 +5345,22 @@ definitions:
     properties:
       error:
         example: descriptive error message
+        type: string
+    type: object
+  resource.folderMoveRequest:
+    properties:
+      from:
+        example: data/media-manager
+        type: string
+      scope:
+        allOf:
+        - $ref: '#/definitions/resource.Scope'
+        example: user
+      scope_id:
+        example: 550e8400-e29b-41d4-a716-446655440000
+        type: string
+      to:
+        example: data/shows
         type: string
     type: object
   resource.listResponse:
@@ -18029,9 +18076,10 @@ paths:
         in: query
         name: scope_id
         type: string
-      - description: Filter by category
+      - description: Filter by folder path; returns that folder and everything beneath
+          it
         in: query
-        name: category
+        name: path
         type: string
       - description: Filter by tag
         in: query
@@ -18105,9 +18153,9 @@ paths:
         in: formData
         name: scope_id
         type: string
-      - description: Resource category (e.g. runbooks, templates)
+      - description: Folder path inside the library (e.g. runbooks, datasets/media-manager)
         in: formData
-        name: category
+        name: path
         required: true
         type: string
       - description: Optional description
@@ -18221,8 +18269,8 @@ paths:
     patch:
       consumes:
       - application/json
-      description: Update mutable metadata fields of a managed resource, and/or move
-        it to another library by naming the target scope.
+      description: Update mutable metadata fields of a managed resource, and/or refile
+        it by naming a target scope, a target folder path, or both.
       parameters:
       - description: Resource ID
         in: path
@@ -18506,6 +18554,58 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Restore a resource version
+      tags:
+      - Resources
+  /resources/folders/move:
+    post:
+      consumes:
+      - application/json
+      description: Rewrites the folder path of every resource beneath one path prefix
+        in one library, in a single transaction. Each resource's previous URI is recorded
+        as an alias, so citations of the old addresses keep resolving. Refused whole
+        on any conflict; nothing is moved.
+      parameters:
+      - description: The folder and its destination
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/resource.folderMoveRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/resource.FolderMove'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Move or rename a folder
       tags:
       - Resources
 securityDefinitions:

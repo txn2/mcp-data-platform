@@ -43,10 +43,10 @@ func (f *fakeResourceWriter) Create(
 		return nil, f.createErr
 	}
 	return &resource.Resource{
-		ID: "res1", Scope: in.Scope, ScopeID: in.ScopeID, Category: in.Category,
+		ID: "res1", Scope: in.Scope, ScopeID: in.ScopeID, Path: in.Path,
 		Filename: in.Filename, DisplayName: in.DisplayName, MIMEType: in.MIMEType,
 		SizeBytes: int64(len(in.Data)),
-		URI:       resource.BuildURI("mcp", in.Scope, in.ScopeID, in.Category, in.Filename),
+		URI:       resource.BuildURI("mcp", in.Scope, in.ScopeID, in.Path, in.Filename),
 		S3Key:     "resources/res1/" + in.Filename,
 	}, nil
 }
@@ -76,7 +76,7 @@ func (f *fakeResourceWriter) existingOrDefault() *resource.Resource {
 		return f.existing
 	}
 	return &resource.Resource{
-		ID: "res1", Scope: resource.ScopeUser, ScopeID: "user1", Category: "datasets",
+		ID: "res1", Scope: resource.ScopeUser, ScopeID: "user1", Path: "datasets",
 		Filename: "weather.csv", DisplayName: "Daily Weather", MIMEType: "text/csv",
 		URI: "mcp://user/user1/datasets/weather.csv", S3Key: "resources/res1/weather.csv",
 	}
@@ -105,7 +105,7 @@ func callResource(t *testing.T, tk *Toolkit, input manageResourceInput) *mcp.Cal
 func createInputFor() manageResourceInput {
 	return manageResourceInput{
 		Action: resourceActionCreate, Filename: "Weather Daily.CSV",
-		DisplayName: "Daily Weather", Category: "datasets",
+		DisplayName: "Daily Weather", Path: "datasets",
 		Description: "Highs and lows", Content: "day,high\nmon,71\ntue,68\n",
 		ContentType: "text/csv",
 	}
@@ -240,7 +240,7 @@ func TestCreateValidatesItsPlacement(t *testing.T) {
 	}{
 		{"no filename", func(i *manageResourceInput) { i.Filename = "" }, "filename is required"},
 		{"a refused extension", func(i *manageResourceInput) { i.Filename = "run.sh" }, "extension"},
-		{"no category", func(i *manageResourceInput) { i.Category = "" }, "shelf the file sits on"},
+		{"no folder path", func(i *manageResourceInput) { i.Path = "" }, "folder chain the file is filed under"},
 		{"no display name", func(i *manageResourceInput) { i.DisplayName = "" }, "display_name is required"},
 		{"an unknown scope", func(i *manageResourceInput) { i.Scope = "team" }, "unknown scope"},
 		{"a persona scope with no id", func(i *manageResourceInput) { i.Scope = "persona" }, "scope_id is required"},
@@ -519,7 +519,7 @@ func TestCreateStoresADeclaredActiveType(t *testing.T) {
 func TestReplaceKeepsTheTypeTheResourceCarries(t *testing.T) {
 	tk, w := resourceToolkit(t)
 	w.existing = &resource.Resource{
-		ID: "res1", Scope: resource.ScopeUser, ScopeID: "user1", Category: "brand",
+		ID: "res1", Scope: resource.ScopeUser, ScopeID: "user1", Path: "brand",
 		Filename: "badge.svg", DisplayName: "Badge", MIMEType: "image/svg+xml",
 		URI: "mcp://user/user1/brand/badge.svg",
 	}
@@ -553,7 +553,7 @@ func TestReplaceHonoursADeclaredType(t *testing.T) {
 func TestReplaceUpgradesAGenericStoredType(t *testing.T) {
 	tk, w := resourceToolkit(t)
 	w.existing = &resource.Resource{
-		ID: "res1", Scope: resource.ScopeUser, ScopeID: "user1", Category: "datasets",
+		ID: "res1", Scope: resource.ScopeUser, ScopeID: "user1", Path: "datasets",
 		Filename: "weather.csv", DisplayName: "Daily Weather", MIMEType: "application/octet-stream",
 		URI: "mcp://user/user1/datasets/weather.csv",
 	}
@@ -583,7 +583,7 @@ func TestManageResourcePointsAtTheContentTypePage(t *testing.T) {
 func TestReplaceDoesNotInheritADeniedStoredType(t *testing.T) {
 	tk, w := resourceToolkit(t)
 	w.existing = &resource.Resource{
-		ID: "res1", Scope: resource.ScopeUser, ScopeID: "user1", Category: "runbooks",
+		ID: "res1", Scope: resource.ScopeUser, ScopeID: "user1", Path: "runbooks",
 		Filename: "legacy.xhtml", DisplayName: "Legacy", MIMEType: contenttype.XHTML,
 		URI: "mcp://user/user1/runbooks/legacy.xhtml",
 	}

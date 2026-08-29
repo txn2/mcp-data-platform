@@ -64,7 +64,7 @@ type manageResourceInput struct {
 	// Placement and description, for create.
 	Filename    string   `json:"filename,omitempty"`
 	DisplayName string   `json:"display_name,omitempty"`
-	Category    string   `json:"category,omitempty"`
+	Path        string   `json:"path,omitempty"`
 	Description string   `json:"description,omitempty"`
 	Tags        []string `json:"tags,omitempty"`
 	Scope       string   `json:"scope,omitempty"`
@@ -90,7 +90,7 @@ type resourceOutput struct {
 	DisplayName string `json:"display_name"`
 	Scope       string `json:"scope"`
 	ScopeID     string `json:"scope_id,omitempty"`
-	Category    string `json:"category"`
+	Path        string `json:"path"`
 	ContentType string `json:"content_type"`
 	SizeBytes   int64  `json:"size_bytes"`
 	// Version is the version number a replacement was recorded as, and is
@@ -149,7 +149,7 @@ func (t *Toolkit) handleCreateResource(
 
 	res, err := t.resourceWriter.Create(ctx, resource.NewResource{
 		Scope: scope, ScopeID: scopeID,
-		Category: input.Category, Filename: filename,
+		Path: input.Path, Filename: filename,
 		DisplayName: input.DisplayName, Description: input.Description,
 		Tags: normalizeTags(input.Tags),
 		Data: data, MIMEType: mimeType, DeclaredMIMEType: input.ContentType,
@@ -324,9 +324,9 @@ func validateResourcePlacement(scope resource.Scope, scopeID string, input manag
 	if err := resource.ValidateScope(scope, scopeID); err != nil {
 		return fmt.Errorf(validationFmt, err)
 	}
-	if err := resource.ValidateCategory(input.Category); err != nil {
-		return fmt.Errorf("%w. A category is the shelf the file sits on in the resource library, "+
-			"for example \"datasets\" or \"runbooks\"", err)
+	if err := resource.ValidatePath(input.Path); err != nil {
+		return fmt.Errorf("%w. A path is the folder chain the file is filed under inside the library, "+
+			"for example \"datasets\" or \"datasets/media-manager/shows\"", err)
 	}
 	if err := resource.ValidateDisplayName(input.DisplayName); err != nil {
 		return fmt.Errorf(validationFmt, err)
@@ -381,7 +381,7 @@ func resourceReport(res *resource.Resource, version int, message string) resourc
 		DisplayName: res.DisplayName,
 		Scope:       string(res.Scope),
 		ScopeID:     res.ScopeID,
-		Category:    res.Category,
+		Path:        res.Path,
 		ContentType: res.MIMEType,
 		SizeBytes:   res.SizeBytes,
 		Version:     version,

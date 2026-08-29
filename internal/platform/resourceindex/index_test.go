@@ -62,7 +62,7 @@ func expectLoad(mock sqlmock.Sqlmock, id, mime, s3Key, contentText string) {
 // expectLoadRow is expectLoad with the full fixture, for the
 // too-large-to-read guard.
 func expectLoadRow(mock sqlmock.Sqlmock, id string, f loadFixture) {
-	mock.ExpectQuery("SELECT display_name, description, category, filename, tags, mime_type, size_bytes, s3_key, content_text").
+	mock.ExpectQuery("SELECT display_name, description, path, filename, tags, mime_type, size_bytes, s3_key, content_text").
 		WithArgs(id).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"display_name", "description", "category", "filename", "tags", "mime_type", "size_bytes", "s3_key",

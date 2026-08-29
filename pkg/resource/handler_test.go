@@ -81,7 +81,7 @@ func (m *mockStore) List(_ context.Context, filter Filter) ([]Resource, int, err
 	for _, r := range m.resources {
 		for _, sf := range filter.Scopes {
 			if sf.Scope == r.Scope && (sf.Scope == ScopeGlobal || sf.ScopeID == r.ScopeID) {
-				if filter.Category == "" || filter.Category == r.Category {
+				if PathUnder(r.Path, filter.Path) {
 					result = append(result, *r)
 				}
 				break
@@ -105,36 +105,55 @@ func (m *mockStore) Update(_ context.Context, id string, u Update) error {
 	if u.Tags != nil {
 		r.Tags = u.Tags
 	}
-	if u.Category != nil {
-		r.Category = *u.Category
-	}
+	// Deliberately not the path: the real buildUpdate writes no path column,
+	// because refiling a resource in another folder rewrites its URI and takes
+	// the Move transaction. A fake that wrote it here would let a handler that
+	// never called Move pass.
 	return nil
 }
 
-// Move models the real store's refile: the three columns that say where the
+// Move models the real store's refile: the four columns that say where each
 // resource lives are rewritten, the address it leaves becomes an alias, and the
 // address it takes stops being one. GetByURI above resolves a live URI only, so
 // the alias map is read there too -- a fake that dropped the alias would let a
 // test pass that the real store fails.
-func (m *mockStore) Move(_ context.Context, id string, mv Move) error {
-	r, ok := m.resources[id]
-	if !ok {
-		return fmt.Errorf("resource not found: %s", id)
+//
+// The batch is all-or-nothing, like the transaction it stands for: every
+// destination is checked against every resource outside the batch before
+// anything is written, so a refused folder rename leaves the library untouched
+// here exactly as it does in PostgreSQL.
+func (m *mockStore) Move(_ context.Context, moves []Move) error {
+	moving := make(map[string]bool, len(moves))
+	for _, mv := range moves {
+		if _, ok := m.resources[mv.ID]; !ok {
+			return fmt.Errorf("resource not found: %s", mv.ID)
+		}
+		moving[mv.ID] = true
 	}
-	for other, res := range m.resources {
-		if other != id && res.URI == mv.URI {
+	taken := make(map[string]bool, len(moves))
+	for _, mv := range moves {
+		if taken[mv.URI] {
 			return ErrURIConflict
+		}
+		taken[mv.URI] = true
+		for other, res := range m.resources {
+			if !moving[other] && res.URI == mv.URI {
+				return ErrURIConflict
+			}
 		}
 	}
 	if m.aliases == nil {
 		m.aliases = map[string]string{}
 	}
-	if mv.FromURI != "" && mv.FromURI != mv.URI {
-		m.aliases[mv.FromURI] = id
+	for _, mv := range moves {
+		r := m.resources[mv.ID]
+		if mv.FromURI != "" && mv.FromURI != mv.URI {
+			m.aliases[mv.FromURI] = mv.ID
+		}
+		delete(m.aliases, mv.URI)
+		r.Scope, r.ScopeID, r.Path, r.URI = mv.Scope, mv.ScopeID, mv.Path, mv.URI
+		r.UpdatedAt = time.Now().UTC()
 	}
-	delete(m.aliases, mv.URI)
-	r.Scope, r.ScopeID, r.URI = mv.Scope, mv.ScopeID, mv.URI
-	r.UpdatedAt = time.Now().UTC()
 	return nil
 }
 
@@ -270,7 +289,7 @@ func seedResource(store *mockStore, s3 *mockS3, id string, scope Scope, scopeID,
 		ID:            id,
 		Scope:         scope,
 		ScopeID:       scopeID,
-		Category:      "samples",
+		Path:          "samples",
 		Filename:      "test.csv",
 		DisplayName:   "Test Resource",
 		Description:   "A test resource.",
@@ -298,7 +317,7 @@ func TestHandleCreate_Success(t *testing.T) {
 
 	fields := map[string]string{
 		"scope":        "global",
-		"category":     "samples",
+		"path":         "samples",
 		"display_name": "My File",
 		"description":  "A sample CSV.",
 	}
@@ -314,8 +333,8 @@ func TestHandleCreate_Success(t *testing.T) {
 	if resp["display_name"] != "My File" {
 		t.Errorf("display_name = %v", resp["display_name"])
 	}
-	if resp["category"] != "samples" {
-		t.Errorf("category = %v", resp["category"])
+	if resp["path"] != "samples" {
+		t.Errorf("category = %v", resp["path"])
 	}
 
 	// Verify S3 received the object.
@@ -344,7 +363,7 @@ func TestOnCreate_CalledOnCreate(t *testing.T) {
 
 	fields := map[string]string{
 		"scope":        "global",
-		"category":     "samples",
+		"path":         "samples",
 		"display_name": "Notify Test",
 		"description":  "Testing notify callback",
 	}
@@ -400,7 +419,7 @@ func TestHandleCreate_Unauthorized(t *testing.T) {
 
 	fields := map[string]string{
 		"scope":        "global",
-		"category":     "samples",
+		"path":         "samples",
 		"display_name": "My File",
 		"description":  "A sample.",
 	}
@@ -426,7 +445,7 @@ func TestHandleCreate_ValidationErrors(t *testing.T) {
 			name: "missing display_name",
 			fields: map[string]string{
 				"scope":       "global",
-				"category":    "samples",
+				"path":        "samples",
 				"description": "A sample.",
 			},
 		},
@@ -434,7 +453,7 @@ func TestHandleCreate_ValidationErrors(t *testing.T) {
 			name: "missing description",
 			fields: map[string]string{
 				"scope":        "global",
-				"category":     "samples",
+				"path":         "samples",
 				"display_name": "My File",
 			},
 		},
@@ -450,7 +469,7 @@ func TestHandleCreate_ValidationErrors(t *testing.T) {
 			name: "invalid scope",
 			fields: map[string]string{
 				"scope":        "bogus",
-				"category":     "samples",
+				"path":         "samples",
 				"display_name": "My File",
 				"description":  "A sample.",
 			},
@@ -487,7 +506,7 @@ func TestHandleCreate_PermissionDenied(t *testing.T) {
 	// Non-admin user tries to write to global scope.
 	fields := map[string]string{
 		"scope":        "global",
-		"category":     "samples",
+		"path":         "samples",
 		"display_name": "My File",
 		"description":  "A sample.",
 	}
@@ -903,7 +922,7 @@ func TestValidateUpdate(t *testing.T) {
 
 	// Invalid category.
 	badCat := "INVALID"
-	if err := validateUpdate(Update{Category: &badCat}); err == nil {
+	if err := validateUpdate(Update{Path: &badCat}); err == nil {
 		t.Error("expected error for invalid category")
 	}
 
@@ -921,7 +940,7 @@ func TestHandleCreate_NoFile(t *testing.T) {
 	// Send multipart form without a file.
 	fields := map[string]string{
 		"scope":        "global",
-		"category":     "samples",
+		"path":         "samples",
 		"display_name": "My File",
 		"description":  "A sample.",
 	}
@@ -1333,7 +1352,7 @@ func TestHandleGetContent_Disposition(t *testing.T) {
 			r := &Resource{
 				ID:            "res-bin",
 				Scope:         ScopeGlobal,
-				Category:      "samples",
+				Path:          "samples",
 				Filename:      tc.filename,
 				DisplayName:   "A File",
 				Description:   "A test file.",
@@ -1383,7 +1402,7 @@ func TestHandleCreate_StoreInsertError(t *testing.T) {
 
 	fields := map[string]string{
 		"scope":        "global",
-		"category":     "samples",
+		"path":         "samples",
 		"display_name": "My File",
 		"description":  "A sample.",
 	}
@@ -1413,7 +1432,7 @@ func TestHandleCreate_S3PutError(t *testing.T) {
 
 	fields := map[string]string{
 		"scope":        "global",
-		"category":     "samples",
+		"path":         "samples",
 		"display_name": "My File",
 		"description":  "A sample.",
 	}
@@ -1450,7 +1469,7 @@ func TestHandleCreate_UserScope(t *testing.T) {
 	fields := map[string]string{
 		"scope":        "user",
 		"scope_id":     "user-123",
-		"category":     "samples",
+		"path":         "samples",
 		"display_name": "My File",
 		"description":  "A sample.",
 	}
@@ -1471,7 +1490,7 @@ func TestHandleCreate_NoS3Client(t *testing.T) {
 
 	fields := map[string]string{
 		"scope":        "global",
-		"category":     "samples",
+		"path":         "samples",
 		"display_name": "My File",
 		"description":  "A sample.",
 	}
@@ -1510,7 +1529,7 @@ func TestHandleCreate_GetAfterInsertFails(t *testing.T) {
 
 	fields := map[string]string{
 		"scope":        "global",
-		"category":     "samples",
+		"path":         "samples",
 		"display_name": "My File",
 		"description":  "A sample.",
 	}
@@ -1616,7 +1635,7 @@ func TestHandleCreate_DeniedMIMEType(t *testing.T) {
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
 	_ = w.WriteField("scope", "global")
-	_ = w.WriteField("category", "samples")
+	_ = w.WriteField("path", "samples")
 	_ = w.WriteField("display_name", "Evil Script")
 	_ = w.WriteField("description", "A shell script.")
 
@@ -1649,7 +1668,7 @@ func TestValidateUpdate_AllFields(t *testing.T) {
 	u := Update{
 		DisplayName: &name,
 		Description: &desc,
-		Category:    &cat,
+		Path:        &cat,
 		Tags:        tags,
 	}
 	if err := validateUpdate(u); err != nil {
@@ -1673,7 +1692,7 @@ func TestHandleCreate_EmptyMIMETypeDefaultsToOctetStream(t *testing.T) {
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
 	_ = w.WriteField("scope", "global")
-	_ = w.WriteField("category", "samples")
+	_ = w.WriteField("path", "samples")
 	_ = w.WriteField("display_name", "Binary File")
 	_ = w.WriteField("description", "A binary file.")
 
@@ -1704,7 +1723,7 @@ func TestHandleCreate_FileWithNoContentTypeHeader(t *testing.T) {
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
 	_ = w.WriteField("scope", "global")
-	_ = w.WriteField("category", "samples")
+	_ = w.WriteField("path", "samples")
 	_ = w.WriteField("display_name", "No MIME")
 	_ = w.WriteField("description", "No MIME type.")
 

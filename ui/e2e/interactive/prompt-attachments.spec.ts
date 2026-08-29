@@ -121,6 +121,9 @@ test.describe("Resource dependency view", () => {
     // The page opens on "My Resources"; the seeded attachment is a global one.
     await page.getByRole("tab", { name: "Global" }).click();
 
+    // A library is a tree (#1530), so the file is inside the folder it is filed
+    // in; the search spans the whole library and reaches it from the root.
+    await page.getByLabel("Search resources").fill("SQL Style Guide");
     await page.getByText("SQL Style Guide").first().click();
     const usedBy = page.getByTestId("resource-used-by-prompts");
     await expect(usedBy).toBeVisible();

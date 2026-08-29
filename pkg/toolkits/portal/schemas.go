@@ -361,9 +361,9 @@ var manageResourceSchema = json.RawMessage(`{
       "type": "string",
       "description": "Human-readable name shown in the resource library (required for create)."
     },
-    "category": {
+    "path": {
       "type": "string",
-      "description": "The shelf the file sits on in the library (required for create), for example datasets, runbooks or templates. Lowercase letters, digits and hyphens, starting with a letter."
+      "description": "The folder path the file is filed under inside its library (required for create), for example datasets or datasets/media-manager/shows. Slash-separated; each folder name is lowercase letters, digits and hyphens starting with a letter, at most 31 characters; at most 8 folders deep and 200 characters overall; no leading or trailing slash. It becomes part of the resource's mcp:// uri. Two files with the same filename in the same folder collide; in two folders they do not."
     },
     "description": {
       "type": "string",

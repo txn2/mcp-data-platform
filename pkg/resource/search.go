@@ -41,7 +41,7 @@ const MaxContentIndexBytes = 32 << 10
 const MaxContentReadBytes = 8 << 20
 
 // IndexText composes the text a resource is embedded and lexically indexed on:
-// its display name, description, category, filename, tags, and contentText, the
+// its display name, description, folder path, filename, tags, and contentText, the
 // bounded text prefix the index consumer extracted from the uploaded file. The
 // indexjobs resource consumer and the request-path search MUST agree on this
 // composition so a stored embedding lives in the same space as the query; it is
@@ -49,7 +49,7 @@ const MaxContentReadBytes = 8 << 20
 // not pad the text with blank lines. The lexical arm's resource_fts (migration
 // 000091) composes the same corpus from the same columns.
 func IndexText(r Resource, contentText string) string {
-	fields := []string{r.DisplayName, r.Description, r.Category, r.Filename, strings.Join(r.Tags, " "), contentText}
+	fields := []string{r.DisplayName, r.Description, r.Path, r.Filename, strings.Join(r.Tags, " "), contentText}
 	parts := make([]string, 0, len(fields))
 	for _, f := range fields {
 		if f != "" {
@@ -101,13 +101,13 @@ var _ Searcher = (*postgresStore)(nil)
 
 // searchColumns is the column list every ranked-search SELECT reads, in the
 // order scanRow expects, so the scan cannot drift from the query.
-const searchColumns = `id, scope, scope_id, category, filename, display_name, description, ` +
+const searchColumns = `id, scope, scope_id, path, filename, display_name, description, ` +
 	`mime_type, size_bytes, s3_key, uri, tags, uploader_sub, uploader_email, created_at, updated_at, last_read_at`
 
 // ftsExpr is the full-text expression the lexical arm matches and ranks against.
 // It calls resource_fts() (migration 000091) with the same argument order so the
 // planner uses idx_resources_search_fts, the GIN index built on that same call.
-const ftsExpr = `resource_fts(display_name, description, category, filename, tags, content_text)`
+const ftsExpr = `resource_fts(display_name, description, path, filename, tags, content_text)`
 
 // lexRankNormalization is the ts_rank_cd normalization bitmask for the lexical
 // relevance score: bit 1 divides the rank by 1 + log(document length) so a

@@ -684,7 +684,7 @@ func TestCreate_RecordsVersionOne(t *testing.T) {
 	fx := newVersionedHandler(t, okExtractor)
 	h, versions := fx.handler, fx.versions
 	req := buildMultipartRequest(t, map[string]string{
-		"scope": "global", "category": "samples", "display_name": "Seed", "description": "d",
+		"scope": "global", "path": "samples", "display_name": "Seed", "description": "d",
 	}, []byte("a,b\n1,2\n"), "seed.csv")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -887,7 +887,7 @@ func TestCreate_SucceedsWhenTheInitialVersionCannotBeRecorded(t *testing.T) {
 	versions.addErr = errors.New("db down")
 
 	req := buildMultipartRequest(t, map[string]string{
-		"scope": "global", "category": "samples", "display_name": "Seed", "description": "d",
+		"scope": "global", "path": "samples", "display_name": "Seed", "description": "d",
 	}, []byte("a,b\n"), "seed.csv")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)

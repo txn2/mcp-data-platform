@@ -92,22 +92,22 @@ func seededResources() *fakeResourceStore {
 		"res_g": "column,description\ngross_margin_pct,margin after COGS\n",
 	}, resources: []resource.Resource{
 		{
-			ID: "res_g", Scope: resource.ScopeGlobal, Category: "references", Filename: "dict.csv",
+			ID: "res_g", Scope: resource.ScopeGlobal, Path: "references", Filename: "dict.csv",
 			DisplayName: "Sales Dictionary", Description: "Field reference", MIMEType: "text/csv",
 			SizeBytes: 60, S3Key: "k-global", URI: "mcp://global/references/dict.csv",
 		},
 		{
-			ID: "res_p", Scope: resource.ScopePersona, ScopeID: "analyst", Category: "playbooks",
+			ID: "res_p", Scope: resource.ScopePersona, ScopeID: "analyst", Path: "playbooks",
 			Filename: "play.md", DisplayName: "Analyst playbook", MIMEType: "text/markdown",
 			SizeBytes: 10, S3Key: "k-persona", URI: "mcp://persona/analyst/playbooks/play.md",
 		},
 		{
-			ID: "res_u", Scope: resource.ScopeUser, ScopeID: "sub-a", Category: "notes",
+			ID: "res_u", Scope: resource.ScopeUser, ScopeID: "sub-a", Path: "notes",
 			Filename: "notes.md", DisplayName: "Personal notes", MIMEType: "text/markdown",
 			SizeBytes: 10, S3Key: "k-user", URI: "mcp://user/sub-a/notes/notes.md",
 		},
 		{
-			ID: "res_bin", Scope: resource.ScopeGlobal, Category: "references", Filename: "logo.png",
+			ID: "res_bin", Scope: resource.ScopeGlobal, Path: "references", Filename: "logo.png",
 			DisplayName: "Brand logo", MIMEType: "image/png", SizeBytes: 4096,
 			S3Key: "k-bin", URI: "mcp://global/references/logo.png",
 		},

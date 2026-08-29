@@ -159,7 +159,7 @@ function promptAttachmentList(promptId: string) {
       ...base,
       display_name: res.display_name,
       description: res.description,
-      category: res.category,
+      path: res.path,
       mime_type: res.mime_type,
       size_bytes: res.size_bytes,
       uri: res.uri,
@@ -2933,14 +2933,19 @@ export const handlers = [
     const url = new URL(request.url);
     const scope = url.searchParams.get("scope");
     const scopeId = url.searchParams.get("scope_id");
-    const category = url.searchParams.get("category");
+    const path = url.searchParams.get("path");
     const tag = url.searchParams.get("tag");
     const q = url.searchParams.get("q");
 
     let filtered = [...mockResources.resources];
     if (scope) filtered = filtered.filter((r) => r.scope === scope);
     if (scopeId) filtered = filtered.filter((r) => r.scope_id === scopeId);
-    if (category) filtered = filtered.filter((r) => r.category === category);
+    // A folder and everything beneath it, which is the prefix predicate the
+    // store applies (pkg/resource/store.go). Matching only the exact path would
+    // let a tree test pass here and show an empty folder against the server.
+    if (path) {
+      filtered = filtered.filter((r) => r.path === path || r.path.startsWith(path + "/"));
+    }
     if (tag) {
       filtered = filtered.filter((r) =>
         r.tags.some((t: string) => t.toLowerCase().includes(tag.toLowerCase())),
@@ -2956,7 +2961,7 @@ export const handlers = [
     }
 
     // The order the store returns, which is what the library renders in and now
-    // also what its category sections are ordered by (#1471). sort=last_read
+    // also what a folder's files are ordered by (#1471). sort=last_read
     // puts read recency first with never-read last and falls back to update
     // recency, and anything else is update recency alone -- the two branches of
     // resource.Sort.orderByClause (pkg/resource/types.go).
@@ -3004,20 +3009,59 @@ export const handlers = [
     const body = (await request.json()) as Record<string, unknown>;
     if (typeof body.display_name === "string") resource.display_name = body.display_name;
     if (typeof body.description === "string") resource.description = body.description;
-    if (typeof body.category === "string") resource.category = body.category;
+    // A folder change rewrites the canonical URI, which is #1528: the stored
+    // path and the address printed beside it are the same fact, and the fixture
+    // has to move both or a test passes on a disagreement the server no longer
+    // allows.
+    if (typeof body.path === "string") {
+      resource.uri = resource.uri.replace(
+        `/${resource.path}/${resource.filename}`,
+        `/${body.path}/${resource.filename}`,
+      );
+      resource.path = body.path;
+    }
     if (Array.isArray(body.tags)) resource.tags = body.tags as string[];
     if (typeof body.scope === "string") {
       const scopeID = typeof body.scope_id === "string" ? body.scope_id : "";
-      const path = resource.uri.split("/").slice(-2).join("/");
+      const tail = `${resource.path}/${resource.filename}`;
       resource.scope = body.scope as typeof resource.scope;
       resource.scope_id = scopeID;
       resource.uri =
         body.scope === "global"
-          ? `mcp://global/${path}`
-          : `mcp://${body.scope}/${scopeID}/${path}`;
+          ? `mcp://global/${tail}`
+          : `mcp://${body.scope}/${scopeID}/${tail}`;
     }
     resource.updated_at = new Date().toISOString();
     return HttpResponse.json(resource);
+  }),
+
+  // The folder move (#1529): one prefix rewrite over every resource beneath the
+  // folder, in one transaction. It is modelled rather than acknowledged --
+  // every matching fixture's path and URI move together -- because the tree
+  // redraws off the listing afterwards and an acknowledgement would leave the
+  // folder still standing there.
+  http.post("/api/v1/resources/folders/move", async ({ request }) => {
+    const body = (await request.json()) as { scope: string; scope_id?: string; from: string; to: string };
+    const inLibrary = mockResources.resources.filter(
+      (r) => r.scope === body.scope && (r.scope_id ?? "") === (body.scope_id ?? ""),
+    );
+    const beneath = inLibrary.filter(
+      (r) => r.path === body.from || r.path.startsWith(body.from + "/"),
+    );
+    if (beneath.length === 0) {
+      return HttpResponse.json(
+        { error: "no resources are filed under that folder" },
+        { status: 404 },
+      );
+    }
+    const moved = beneath.map((r) => {
+      const from_uri = r.uri;
+      const next = body.to + r.path.slice(body.from.length);
+      r.uri = r.uri.replace(`/${r.path}/${r.filename}`, `/${next}/${r.filename}`);
+      r.path = next;
+      return { id: r.id, path: r.path, uri: r.uri, from_uri };
+    });
+    return HttpResponse.json({ from: body.from, to: body.to, moved });
   }),
 
   // Content download: the preview pane, the Download button and the library's

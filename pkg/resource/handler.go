@@ -141,6 +141,7 @@ func NewHandler(deps Deps, extractFn ClaimsExtractor, authMiddle func(http.Handl
 
 func (h *Handler) registerRoutesOn(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/resources", h.handleCreate)
+	mux.HandleFunc("POST /api/v1/resources/folders/move", h.handleFolderMove)
 	mux.HandleFunc("GET /api/v1/resources", h.handleList)
 	mux.HandleFunc("GET /api/v1/resources/{id}", h.handleGet)
 	mux.HandleFunc("GET /api/v1/resources/{id}/content", h.handleGetContent)
@@ -158,7 +159,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 type createInput struct {
 	scope       Scope
 	scopeID     string
-	category    string
+	path        string
 	displayName string
 	description string
 	tags        []string
@@ -168,7 +169,7 @@ type createInput struct {
 func validateCreateInput(r *http.Request) (*createInput, error) {
 	scope := Scope(r.FormValue("scope"))
 	scopeID := r.FormValue("scope_id")
-	category := r.FormValue("category")
+	path := r.FormValue("path")
 	displayName := r.FormValue("display_name")
 	description := r.FormValue("description")
 	tags := r.Form["tags"]
@@ -176,7 +177,7 @@ func validateCreateInput(r *http.Request) (*createInput, error) {
 	if err := ValidateScope(scope, scopeID); err != nil {
 		return nil, err
 	}
-	if err := ValidateCategory(category); err != nil {
+	if err := ValidatePath(path); err != nil {
 		return nil, err
 	}
 	if err := ValidateDisplayName(displayName); err != nil {
@@ -195,7 +196,7 @@ func validateCreateInput(r *http.Request) (*createInput, error) {
 	return &createInput{
 		scope:       scope,
 		scopeID:     scopeID,
-		category:    category,
+		path:        path,
 		displayName: displayName,
 		description: description,
 		tags:        tags,
@@ -297,7 +298,7 @@ type listResponse struct { //nolint:unused // swagger model
 // @Param        display_name formData  string  true   "Human-readable display name"
 // @Param        scope        formData  string  true   "Visibility scope"  Enums(global, persona, user)
 // @Param        scope_id     formData  string  false  "Persona name or user sub (required for persona/user scopes)"
-// @Param        category     formData  string  true   "Resource category (e.g. runbooks, templates)"
+// @Param        path         formData  string  true   "Folder path inside the library (e.g. runbooks, datasets/media-manager)"
 // @Param        description  formData  string  false  "Optional description"
 // @Param        tags         formData  []string false  "Optional tags" collectionFormat(multi)
 // @Success      201  {object}  resource.Resource
@@ -341,7 +342,7 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request) {
 
 	res, err := CreateResource(r.Context(), h.deps, claims, NewResource{
 		Scope: input.scope, ScopeID: input.scopeID,
-		Category: input.category, Filename: uf.filename,
+		Path: input.path, Filename: uf.filename,
 		DisplayName: input.displayName, Description: input.description,
 		Tags: input.tags,
 		Data: uf.data, MIMEType: uf.mimeType, DeclaredMIMEType: uf.declaredMIMEType,
@@ -388,7 +389,7 @@ func narrowScopes(visible []ScopeFilter, scopeParam, scopeIDParam string) []Scop
 // @Produce      json
 // @Param        scope    query  string  false  "Filter by scope"  Enums(global, persona, user)
 // @Param        scope_id query  string  false  "Filter by scope ID (persona name or user sub)"
-// @Param        category query  string  false  "Filter by category"
+// @Param        path     query  string  false  "Filter by folder path; returns that folder and everything beneath it"
 // @Param        tag      query  string  false  "Filter by tag"
 // @Param        q        query  string  false  "Search display_name and description"
 // @Param        sort     query  string  false  "Ordering (default updated)"  Enums(updated, last_read)
@@ -429,13 +430,13 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	filter := Filter{
-		Scopes:   scopes,
-		Category: r.URL.Query().Get("category"),
-		Tag:      r.URL.Query().Get("tag"),
-		Query:    r.URL.Query().Get("q"),
-		Sort:     Sort(r.URL.Query().Get("sort")),
-		Limit:    limit,
-		Offset:   offset,
+		Scopes: scopes,
+		Path:   r.URL.Query().Get("path"),
+		Tag:    r.URL.Query().Get("tag"),
+		Query:  r.URL.Query().Get("q"),
+		Sort:   Sort(r.URL.Query().Get("sort")),
+		Limit:  limit,
+		Offset: offset,
 	}
 
 	resources, total, err := h.deps.Store.List(r.Context(), filter)
@@ -567,8 +568,8 @@ func validateUpdate(u Update) error {
 			return err
 		}
 	}
-	if u.Category != nil {
-		if err := ValidateCategory(*u.Category); err != nil {
+	if u.Path != nil {
+		if err := ValidatePath(*u.Path); err != nil {
 			return err
 		}
 	}
@@ -578,7 +579,7 @@ func validateUpdate(u Update) error {
 // handleUpdate handles PATCH /api/v1/resources/{id}.
 //
 // @Summary      Update resource
-// @Description  Update mutable metadata fields of a managed resource, and/or move it to another library by naming the target scope.
+// @Description  Update mutable metadata fields of a managed resource, and/or refile it by naming a target scope, a target folder path, or both.
 // @Tags         Resources
 // @Accept       json
 // @Produce      json
@@ -660,21 +661,36 @@ func (h *Handler) applyFields(w http.ResponseWriter, r *http.Request, id string,
 	return true
 }
 
-// applyMove performs the move half of a PATCH, if the body carried one, and
-// returns the URI the resource vacated ("" when it did not move). It writes the
-// error response and returns ok=false on failure, so the caller stops.
+// applyMove performs the relocation half of a PATCH, if the body carried one,
+// and returns the URI the resource vacated ("" when it did not move). It writes
+// the error response and returns ok=false on failure, so the caller stops.
+//
+// A library and a folder named in the same request are one relocation, not two:
+// they are the two halves of one URI, so the resource takes one new address,
+// records one alias for the one it left, and produces one audit event (#1528).
+// Whichever half the request does not name keeps the value the row already has.
 func (h *Handler) applyMove(w http.ResponseWriter, r *http.Request, claims *Claims, res *Resource, u Update) (string, bool) {
-	if u.Scope == nil {
+	if !u.Relocates() {
 		return "", true
 	}
-	var toID string
-	if u.ScopeID != nil {
-		toID = *u.ScopeID
+	to := Destination{Scope: res.Scope, ScopeID: res.ScopeID, Path: res.Path}
+	if u.Scope != nil {
+		to.Scope = *u.Scope
+		// A scope id on its own names no library, so it is read only alongside a
+		// scope -- and an omitted one under a named scope is the global library,
+		// which has none.
+		to.ScopeID = ""
+		if u.ScopeID != nil {
+			to.ScopeID = *u.ScopeID
+		}
+	}
+	if u.Path != nil {
+		to.Path = *u.Path
 	}
 	// Read before the move for the reason MoveResource snapshots its own: the
 	// resource this holds may be the row the store rewrites.
 	vacated := res.URI
-	uri, err := MoveResource(r.Context(), h.deps, claims, res, ScopeFilter{Scope: *u.Scope, ScopeID: toID})
+	uri, err := MoveResource(r.Context(), h.deps, claims, res, to)
 	switch {
 	case err == nil:
 	case errors.Is(err, ErrMoveForbidden):
@@ -683,7 +699,7 @@ func (h *Handler) applyMove(w http.ResponseWriter, r *http.Request, claims *Clai
 	case IsMoveConflict(err):
 		writeError(w, http.StatusConflict, err.Error())
 		return "", false
-	case IsInvalidScope(err):
+	case IsInvalidScope(err), IsInvalidPath(err):
 		writeError(w, http.StatusBadRequest, err.Error())
 		return "", false
 	default:

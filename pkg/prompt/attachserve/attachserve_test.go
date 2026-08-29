@@ -69,7 +69,7 @@ func (*fakeResources) List(context.Context, resource.Filter) ([]resource.Resourc
 	return nil, 0, nil
 }
 func (*fakeResources) Update(context.Context, string, resource.Update) error { return nil }
-func (*fakeResources) Move(context.Context, string, resource.Move) error {
+func (*fakeResources) Move(context.Context, []resource.Move) error {
 	return errors.New("fakeResources does not move resources")
 }
 func (*fakeResources) Delete(context.Context, string) error { return nil }

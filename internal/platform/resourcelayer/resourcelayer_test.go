@@ -291,7 +291,7 @@ func (*countingStore) Update(_ context.Context, _ string, _ resource.Update) err
 
 // Move is refused rather than silently accepted: nothing in this package
 // refiles a resource, so a test that reached it would be testing a lie.
-func (*countingStore) Move(_ context.Context, _ string, _ resource.Move) error {
+func (*countingStore) Move(_ context.Context, _ []resource.Move) error {
 	return errors.New("countingStore does not move resources")
 }
 func (*countingStore) Delete(_ context.Context, _ string) error { return nil }

@@ -42,9 +42,11 @@ const (
 	paramDisplayName = "display_name"
 	paramFromScope   = "from_scope"
 	paramFromScopeID = "from_scope_id"
+	paramFromPath    = "from_path"
 	paramFromURI     = "from_uri"
 	paramToScope     = "to_scope"
 	paramToScopeID   = "to_scope_id"
+	paramToPath      = "to_path"
 	paramToURI       = "to_uri"
 )
 
@@ -191,9 +193,13 @@ func sourceForSurface(surface string) string {
 	return middleware.SourceMCP
 }
 
-// RecordMove writes one resource_move audit event. A failure is logged and
-// swallowed: the resource has already been refiled, and a lost audit row must
-// not become a failed move reported to somebody whose file did move.
+// RecordMove writes one resource_move audit event. A folder rename produces one
+// per resource it carried, which is what makes the trail answer "what address
+// does this file have now" for each of them rather than only for the folder.
+//
+// A failure is logged and swallowed: the resource has already been refiled, and
+// a lost audit row must not become a failed move reported to somebody whose file
+// did move.
 //
 // It shares the Recorder with reads because it shares everything that decides
 // how the row is written -- the logger, the identity overlay, the delivery
@@ -228,9 +234,11 @@ func moveEvent(ctx context.Context, ev resource.MoveEvent, at time.Time) middlew
 			paramDisplayName: ev.DisplayName,
 			paramFromScope:   string(ev.FromScope),
 			paramFromScopeID: ev.FromScopeID,
+			paramFromPath:    ev.FromPath,
 			paramFromURI:     ev.FromURI,
 			paramToScope:     string(ev.ToScope),
 			paramToScopeID:   ev.ToScopeID,
+			paramToPath:      ev.ToPath,
 			paramToURI:       ev.ToURI,
 		},
 	}

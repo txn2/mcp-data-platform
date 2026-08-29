@@ -1,32 +1,55 @@
-import { FileUp, FolderOpen, Loader2 } from "lucide-react";
+import { FileUp, FolderOpen, Loader2, Search } from "lucide-react";
 import { EmptyState } from "@/components/patterns/EmptyState";
 import { Button } from "@/components/ui/button";
 import { RESOURCE_POSITIONING } from "@/lib/positioning";
 import type { Resource } from "@/api/resources/types";
-import { ResourceGroups } from "./ResourceGroups";
+import { FolderList } from "./FolderList";
+import { ResourceGrid } from "./ResourceGrid";
+import { ResourcesTable } from "./ResourcesTable";
+import { SearchHits } from "./SearchHits";
+import type { Selection } from "./selection";
+import { isImageResource } from "./groups";
+import type { FolderView } from "./tree";
 
-// ResourceResults is what the library shows for the scope in view: the list --
-// grouped by category, since a library holds datasets and photographs as well
-// as documents (#1471) -- or the state standing in for it while it loads and
-// when there is nothing to show.
+/**
+ * What the library shows at one location: the folders and files in it, or the
+ * state standing in for them while it loads and when there is nothing there.
+ *
+ * A search replaces both with hits from across the library, because a search
+ * that only looked in the open folder would make the tree worse than the flat
+ * list it replaced.
+ */
 export function ResourceResults({
-  resources,
+  view,
+  searching,
   isLoading,
   filtering,
   admin,
   complete,
+  canWrite,
+  selection,
   readOnlyNote,
   onOpen,
+  onOpenFolder,
+  onRenameFolder,
+  onDropResources,
+  onDropFolder,
+  onReveal,
   onUpload,
 }: {
-  resources: Resource[];
+  /** The folders and files at the location in view, or the search's hits. */
+  view: FolderView;
+  searching: boolean;
   isLoading: boolean;
-  /** True when every page of this library has been loaded; see ResourceGroups. */
+  /** True when every page of this library has been loaded; see FolderList. */
   complete: boolean;
   // Set when a filter is narrowing the view, which is a different emptiness
-  // from a library nobody has uploaded to.
+  // from a folder nobody has uploaded to.
   filtering: boolean;
   admin: boolean;
+  /** False leaves out the controls the server would refuse. */
+  canWrite: boolean;
+  selection: Selection;
   // Where this library's material comes from, set only when the caller has no
   // write authority over the scope in view. It is the one signal for that: it
   // replaces the Upload control rather than sitting beside it, so the empty
@@ -34,6 +57,11 @@ export function ResourceResults({
   // empty library the reader may not fill is not a prompt to upload.
   readOnlyNote?: string;
   onOpen: (resource: Resource) => void;
+  onOpenFolder: (path: string) => void;
+  onRenameFolder: (path: string) => void;
+  onDropResources: (ids: string[], to: string) => void;
+  onDropFolder: (from: string, to: string) => void;
+  onReveal: (resource: Resource) => void;
   onUpload: () => void;
 }) {
   if (isLoading) {
@@ -45,22 +73,79 @@ export function ResourceResults({
     );
   }
 
-  if (resources.length > 0) {
+  if (searching) {
+    if (view.files.length === 0) {
+      return (
+        <EmptyState icon={Search} data-testid="resources-empty">
+          <p className="font-medium text-foreground">No resources match this search</p>
+          <p className="mt-1 text-xs">The whole library was searched, not just this folder.</p>
+        </EmptyState>
+      );
+    }
+    return <SearchHits resources={view.files} admin={admin} onOpen={onOpen} onReveal={onReveal} />;
+  }
+
+  if (view.folders.length === 0 && view.files.length === 0) {
     return (
-      <ResourceGroups resources={resources} admin={admin} complete={complete} onOpen={onOpen} />
+      <EmptyResults filtering={filtering} readOnlyNote={readOnlyNote} onUpload={onUpload} />
     );
   }
 
-  // A filter that matched nothing is not an empty library, and saying so would
-  // send someone off to upload a file they already have.
+  return (
+    <div className="space-y-3">
+      <FolderList
+        folders={view.folders}
+        complete={complete}
+        canWrite={canWrite}
+        onOpen={onOpenFolder}
+        onRename={onRenameFolder}
+        onDropResources={onDropResources}
+        onDropFolder={onDropFolder}
+      />
+      {view.files.length > 0 &&
+        // A folder holding only images is shown as images, read off the content
+        // rather than off the folder's name, so a photograph filed under
+        // references is still shown as a photograph (#1471).
+        (view.files.every(isImageResource) ? (
+          <ResourceGrid
+            resources={view.files}
+            admin={admin}
+            selection={selection}
+            onOpen={onOpen}
+          />
+        ) : (
+          <ResourcesTable
+            resources={view.files}
+            admin={admin}
+            selection={selection}
+            onOpen={onOpen}
+          />
+        ))}
+    </div>
+  );
+}
+
+/**
+ * The three ways a location can be empty, which are three different things to
+ * say: a filter that matched nothing, a library nobody may fill, and a folder
+ * waiting for its first file.
+ */
+function EmptyResults({
+  filtering,
+  readOnlyNote,
+  onUpload,
+}: {
+  filtering: boolean;
+  readOnlyNote?: string;
+  onUpload: () => void;
+}) {
   if (filtering) {
     return (
       <EmptyState icon={FolderOpen} data-testid="resources-empty">
-        <p className="font-medium text-foreground">No resources match this search</p>
+        <p className="font-medium text-foreground">No resources match this filter</p>
       </EmptyState>
     );
   }
-
   return (
     <EmptyState
       icon={FolderOpen}
@@ -74,7 +159,7 @@ export function ResourceResults({
         )
       }
     >
-      <p className="font-medium text-foreground">No resources yet</p>
+      <p className="font-medium text-foreground">Nothing here yet</p>
       {readOnlyNote && (
         <p data-testid="resources-read-only" className="mt-1 text-xs">
           {readOnlyNote}

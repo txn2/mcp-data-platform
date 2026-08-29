@@ -28,7 +28,7 @@ func TestPostgresStore_Insert(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	r := Resource{
-		ID: "id-1", Scope: ScopeGlobal, Category: "samples", Filename: "test.csv",
+		ID: "id-1", Scope: ScopeGlobal, Path: "samples", Filename: "test.csv",
 		DisplayName: "Test", Description: "A test resource", MIMEType: "text/csv",
 		SizeBytes: 100, S3Key: "s3/key", URI: "mcp://global/samples/test.csv",
 		Tags: []string{"tag1"}, UploaderSub: "sub-1", UploaderEmail: "user@example.com",
@@ -51,7 +51,7 @@ func TestPostgresStore_Get(t *testing.T) {
 	store := NewPostgresStore(db)
 	now := time.Now()
 	rows := sqlmock.NewRows([]string{
-		"id", "scope", "scope_id", "category", "filename", "display_name", "description",
+		"id", "scope", "scope_id", "path", "filename", "display_name", "description",
 		"mime_type", "size_bytes", "s3_key", "uri", "tags", "uploader_sub", "uploader_email",
 		"created_at", "updated_at", "last_read_at",
 	}).AddRow(
@@ -85,7 +85,7 @@ func TestPostgresStore_GetByURI(t *testing.T) {
 	store := NewPostgresStore(db)
 	now := time.Now()
 	rows := sqlmock.NewRows([]string{
-		"id", "scope", "scope_id", "category", "filename", "display_name", "description",
+		"id", "scope", "scope_id", "path", "filename", "display_name", "description",
 		"mime_type", "size_bytes", "s3_key", "uri", "tags", "uploader_sub", "uploader_email",
 		"created_at", "updated_at", "last_read_at",
 	}).AddRow(
@@ -121,7 +121,7 @@ func TestPostgresStore_List(t *testing.T) {
 
 	// Select query
 	rows := sqlmock.NewRows([]string{
-		"id", "scope", "scope_id", "category", "filename", "display_name", "description",
+		"id", "scope", "scope_id", "path", "filename", "display_name", "description",
 		"mime_type", "size_bytes", "s3_key", "uri", "tags", "uploader_sub", "uploader_email",
 		"created_at", "updated_at", "last_read_at",
 	}).AddRow(
@@ -155,7 +155,7 @@ func TestPostgresStore_List_ClampsLimit(t *testing.T) {
 	// A client-supplied limit above MaxListLimit must reach the SELECT clamped to
 	// MaxListLimit (the scope arg, then the clamped limit, then the offset).
 	rows := sqlmock.NewRows([]string{
-		"id", "scope", "scope_id", "category", "filename", "display_name", "description",
+		"id", "scope", "scope_id", "path", "filename", "display_name", "description",
 		"mime_type", "size_bytes", "s3_key", "uri", "tags", "uploader_sub", "uploader_email",
 		"created_at", "updated_at", "last_read_at",
 	})
@@ -303,7 +303,7 @@ func TestPostgresStore_Update_AllFields(t *testing.T) {
 	err = store.Update(context.Background(), "id-1", Update{
 		DisplayName: &name,
 		Description: &desc,
-		Category:    &cat,
+		Path:        &cat,
 		Tags:        tags,
 	})
 	if err != nil {
@@ -324,7 +324,7 @@ func TestPostgresStore_Get_NullTagsAndScopeID(t *testing.T) {
 	mock.ExpectQuery("SELECT .+ FROM resources WHERE id = \\$1").
 		WithArgs("id-null").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "scope", "scope_id", "category", "filename", "display_name", "description",
+			"id", "scope", "scope_id", "path", "filename", "display_name", "description",
 			"mime_type", "size_bytes", "s3_key", "uri", "tags", "uploader_sub", "uploader_email",
 			"created_at", "updated_at", "last_read_at",
 		}).AddRow(
@@ -367,7 +367,7 @@ func TestPostgresStore_GetByIDs(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	cols := []string{
-		"id", "scope", "scope_id", "category", "filename", "display_name", "description",
+		"id", "scope", "scope_id", "path", "filename", "display_name", "description",
 		"mime_type", "size_bytes", "s3_key", "uri", "tags", "uploader_sub", "uploader_email",
 		"created_at", "updated_at", "last_read_at",
 	}

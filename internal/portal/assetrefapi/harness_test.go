@@ -166,7 +166,7 @@ type fakeResources struct {
 func newFakeResources() *fakeResources {
 	return &fakeResources{byID: map[string]*resource.Resource{
 		logoID: {
-			ID: logoID, Scope: resource.ScopeGlobal, Category: "brand",
+			ID: logoID, Scope: resource.ScopeGlobal, Path: "brand",
 			Filename: "logo.png", DisplayName: "Company logo",
 			MIMEType: "image/png", SizeBytes: 4096, URI: logoURI,
 		},

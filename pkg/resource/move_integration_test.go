@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
@@ -96,8 +97,24 @@ func (m *memResources) GetByURI(ctx context.Context, uri string) (*resource.Reso
 	return nil, errNoRow
 }
 
-func (*memResources) List(_ context.Context, _ resource.Filter) ([]resource.Resource, int, error) {
-	return nil, 0, nil
+// List models the store's listing closely enough for the folder move to plan
+// over it: the caller's libraries, narrowed to a folder and everything beneath
+// it. A fake that answered only the exact folder would let a rename that misses
+// every subfolder pass here and fail in PostgreSQL.
+func (m *memResources) List(_ context.Context, filter resource.Filter) ([]resource.Resource, int, error) {
+	var out []resource.Resource
+	for _, r := range m.rows {
+		for _, sf := range filter.Scopes {
+			if sf.Scope != r.Scope || (sf.Scope != resource.ScopeGlobal && sf.ScopeID != r.ScopeID) {
+				continue
+			}
+			if resource.PathUnder(r.Path, filter.Path) {
+				out = append(out, *r)
+			}
+			break
+		}
+	}
+	return out, len(out), nil
 }
 
 func (m *memResources) Update(_ context.Context, id string, u resource.Update) error {
@@ -108,27 +125,38 @@ func (m *memResources) Update(_ context.Context, id string, u resource.Update) e
 	if u.DisplayName != nil {
 		r.DisplayName = *u.DisplayName
 	}
-	if u.Category != nil {
-		r.Category = *u.Category
-	}
+	// Deliberately not the path: buildUpdate writes no path column, because
+	// refiling a resource in another folder rewrites its URI and takes the Move
+	// transaction instead.
 	return nil
 }
 
-func (m *memResources) Move(_ context.Context, id string, mv resource.Move) error {
-	r, ok := m.rows[id]
-	if !ok {
-		return errNoRow
+// Move models the store's batch refile: every destination is checked against
+// every row outside the batch before anything is written, so a refused move
+// leaves the library untouched here as it does inside the transaction.
+func (m *memResources) Move(_ context.Context, moves []resource.Move) error {
+	moving := make(map[string]bool, len(moves))
+	for _, mv := range moves {
+		if _, ok := m.rows[mv.ID]; !ok {
+			return errNoRow
+		}
+		moving[mv.ID] = true
 	}
-	for other, res := range m.rows {
-		if other != id && res.URI == mv.URI {
-			return resource.ErrURIConflict
+	for _, mv := range moves {
+		for other, res := range m.rows {
+			if !moving[other] && res.URI == mv.URI {
+				return resource.ErrURIConflict
+			}
 		}
 	}
-	if mv.FromURI != "" && mv.FromURI != mv.URI {
-		m.aliases[mv.FromURI] = id
+	for _, mv := range moves {
+		r := m.rows[mv.ID]
+		if mv.FromURI != "" && mv.FromURI != mv.URI {
+			m.aliases[mv.FromURI] = mv.ID
+		}
+		delete(m.aliases, mv.URI)
+		r.Scope, r.ScopeID, r.Path, r.URI = mv.Scope, mv.ScopeID, mv.Path, mv.URI
 	}
-	delete(m.aliases, mv.URI)
-	r.Scope, r.ScopeID, r.URI = mv.Scope, mv.ScopeID, mv.URI
 	return nil
 }
 
@@ -291,7 +319,7 @@ func newMovePlatformOn(t *testing.T, store resource.Store) *movePlatform {
 	}
 
 	res, err := resource.CreateResource(t.Context(), deps, owner(), resource.NewResource{
-		Scope: resource.ScopeUser, ScopeID: "sub-1", Category: "templates",
+		Scope: resource.ScopeUser, ScopeID: "sub-1", Path: "templates",
 		Filename: "report.docx", DisplayName: "Report", Description: "the template",
 		Data: []byte(fileBytes), MIMEType: "text/plain",
 	})
@@ -450,7 +478,7 @@ func TestALiveAddressWinsOverAVacatedOne(t *testing.T) {
 	replacement, err := resource.CreateResource(t.Context(), resource.Deps{
 		Store: p.store, S3Client: p.blobs, S3Bucket: testBucket, URIScheme: "mcp",
 	}, owner(), resource.NewResource{
-		Scope: resource.ScopeUser, ScopeID: "sub-1", Category: "templates",
+		Scope: resource.ScopeUser, ScopeID: "sub-1", Path: "templates",
 		Filename: "report.docx", DisplayName: "Report v2", Description: "the new one",
 		Data: []byte("newer"), MIMEType: "text/plain",
 	})
@@ -491,5 +519,189 @@ func TestTheMovedFileLeavesTheMoversLibrary(t *testing.T) {
 	outsider := resource.Claims{Sub: "sub-9", Email: "them@example.com", Personas: []string{"finance"}}
 	if resource.CanReadResource(outsider, moved) {
 		t.Error("somebody outside the persona can read a persona-scoped file")
+	}
+}
+
+// patchResource sends one PATCH through the real route and returns what it
+// answered, so a test states the request a person's Save produces rather than
+// the store call it should reach.
+func (p *movePlatform) patchResource(t *testing.T, body map[string]any) *httptest.ResponseRecorder {
+	t.Helper()
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	p.patch.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPatch,
+		"/api/v1/resources/"+p.res.ID, bytes.NewReader(encoded)))
+	return rec
+}
+
+// moveFolder sends one folder move through the real route.
+func (p *movePlatform) moveFolder(t *testing.T, body map[string]any) *httptest.ResponseRecorder {
+	t.Helper()
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	p.patch.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost,
+		"/api/v1/resources/folders/move", bytes.NewReader(encoded)))
+	return rec
+}
+
+// TestEditingTheFolderRewritesTheURI is #1528 taken end to end: the breadcrumb
+// is rendered from the path column and the Details panel from the uri column,
+// and before this the two printed different addresses for the same file.
+func TestEditingTheFolderRewritesTheURI(t *testing.T) {
+	p := newMovePlatform(t)
+
+	if rec := p.patchResource(t, map[string]any{"path": "data"}); rec.Code != http.StatusOK {
+		t.Fatalf("PATCH: status %d, body %s", rec.Code, rec.Body.String())
+	}
+
+	moved := p.row(t)
+	if moved.Path != "data" {
+		t.Errorf("path = %q", moved.Path)
+	}
+	if moved.URI != "mcp://user/sub-1/data/report.docx" {
+		t.Errorf("uri = %q, want the address the new folder composes", moved.URI)
+	}
+	// The address it left keeps resolving, exactly as a library move's does.
+	got, err := p.store.GetByURI(t.Context(), "mcp://user/sub-1/templates/report.docx")
+	if err != nil || got.ID != p.res.ID {
+		t.Errorf("the vacated address no longer resolves: %v", err)
+	}
+}
+
+// TestAnAssetKeepsRenderingAResourceAcrossAFolderEdit is the acceptance
+// criterion that the reference survives, proven through the serve path rather
+// than by asserting a store call.
+func TestAnAssetKeepsRenderingAResourceAcrossAFolderEdit(t *testing.T) {
+	p := newMovePlatform(t)
+
+	if rec := p.patchResource(t, map[string]any{"path": "data/weekly"}); rec.Code != http.StatusOK {
+		t.Fatalf("PATCH: status %d, body %s", rec.Code, rec.Body.String())
+	}
+
+	code, body := p.renderedReference(t)
+	if code != http.StatusOK || body != fileBytes {
+		t.Fatalf("after the folder edit: status %d, body %q", code, body)
+	}
+}
+
+// TestOneRequestCarryingBothHalvesTakesOneAddress is the acceptance criterion
+// for a library and a folder named together: one URI reflecting both, one alias
+// for the address vacated, and one audit event.
+func TestOneRequestCarryingBothHalvesTakesOneAddress(t *testing.T) {
+	p := newMovePlatform(t)
+
+	rec := p.patchResource(t, map[string]any{"scope": "persona", "scope_id": "ops", "path": "data/weekly"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PATCH: status %d, body %s", rec.Code, rec.Body.String())
+	}
+
+	moved := p.row(t)
+	if moved.URI != "mcp://persona/ops/data/weekly/report.docx" {
+		t.Errorf("uri = %q, want both halves in one address", moved.URI)
+	}
+	if moved.Scope != resource.ScopePersona || moved.ScopeID != "ops" || moved.Path != "data/weekly" {
+		t.Errorf("row = %s/%s at %q", moved.Scope, moved.ScopeID, moved.Path)
+	}
+	got, err := p.store.GetByURI(t.Context(), "mcp://user/sub-1/templates/report.docx")
+	if err != nil || got.ID != p.res.ID {
+		t.Errorf("the one address it vacated no longer resolves: %v", err)
+	}
+}
+
+// TestAFolderEditOntoAnOccupiedAddressIsRefused is the acceptance criterion for
+// a collision: named, and with the folder left where it was.
+func TestAFolderEditOntoAnOccupiedAddressIsRefused(t *testing.T) {
+	p := newMovePlatform(t)
+	if _, err := resource.CreateResource(t.Context(), resource.Deps{
+		Store: p.store, S3Client: p.blobs, S3Bucket: testBucket, URIScheme: "mcp",
+	}, owner(), resource.NewResource{
+		Scope: resource.ScopeUser, ScopeID: "sub-1", Path: "data",
+		Filename: "report.docx", DisplayName: "The Other Report", Description: "already there",
+		Data: []byte("other"), MIMEType: "text/plain",
+	}); err != nil {
+		t.Fatalf("CreateResource: %v", err)
+	}
+
+	rec := p.patchResource(t, map[string]any{"path": "data"})
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, body %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "The Other Report") {
+		t.Errorf("the refusal does not name the conflict: %s", rec.Body.String())
+	}
+	if unchanged := p.row(t); unchanged.Path != "templates" {
+		t.Errorf("the refused edit changed the folder to %q", unchanged.Path)
+	}
+}
+
+// TestARefusedFolderPathIsABadRequest keeps a mistyped folder from reading as a
+// server failure.
+func TestARefusedFolderPathIsABadRequest(t *testing.T) {
+	p := newMovePlatform(t)
+	rec := p.patchResource(t, map[string]any{"path": "data//shows"})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "empty folder name") {
+		t.Errorf("the refusal does not name the rule: %s", rec.Body.String())
+	}
+}
+
+// TestAFolderRenameKeepsAnAssetRendering is #1529's acceptance criterion for the
+// rename, proven through the same serve path.
+func TestAFolderRenameKeepsAnAssetRendering(t *testing.T) {
+	p := newMovePlatform(t)
+
+	rec := p.moveFolder(t, map[string]any{
+		"scope": "user", "scope_id": "sub-1", "from": "templates", "to": "docs/templates",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("folder move: status %d, body %s", rec.Code, rec.Body.String())
+	}
+
+	moved := p.row(t)
+	if moved.Path != "docs/templates" || moved.URI != "mcp://user/sub-1/docs/templates/report.docx" {
+		t.Errorf("after the rename: path %q, uri %q", moved.Path, moved.URI)
+	}
+	code, body := p.renderedReference(t)
+	if code != http.StatusOK || body != fileBytes {
+		t.Fatalf("after the rename: status %d, body %q", code, body)
+	}
+	got, err := p.store.GetByURI(t.Context(), "mcp://user/sub-1/templates/report.docx")
+	if err != nil || got.ID != p.res.ID {
+		t.Errorf("the vacated address no longer resolves: %v", err)
+	}
+}
+
+// TestRenamingAFolderNothingIsFiledUnderIsNotFound is the consequence of
+// deriving folders from the paths in use: an empty folder does not exist.
+func TestRenamingAFolderNothingIsFiledUnderIsNotFound(t *testing.T) {
+	p := newMovePlatform(t)
+	rec := p.moveFolder(t, map[string]any{
+		"scope": "user", "scope_id": "sub-1", "from": "nothing-here", "to": "archive",
+	})
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, body %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestRenamingAFolderIntoItselfIsRefused covers the one path pair no rewrite can
+// express.
+func TestRenamingAFolderIntoItselfIsRefused(t *testing.T) {
+	p := newMovePlatform(t)
+	rec := p.moveFolder(t, map[string]any{
+		"scope": "user", "scope_id": "sub-1", "from": "templates", "to": "templates/old",
+	})
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, body %s", rec.Code, rec.Body.String())
+	}
+	if unchanged := p.row(t); unchanged.Path != "templates" {
+		t.Errorf("the refused rename moved the file to %q", unchanged.Path)
 	}
 }

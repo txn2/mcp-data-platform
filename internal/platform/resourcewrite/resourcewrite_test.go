@@ -51,7 +51,7 @@ func newFixture(t *testing.T) *fixture {
 func newResource() resource.NewResource {
 	return resource.NewResource{
 		Scope: resource.ScopeUser, ScopeID: authorSub,
-		Category: "datasets", Filename: "weather.csv",
+		Path: "datasets", Filename: "weather.csv",
 		DisplayName: "Daily Weather", Description: "Highs and lows",
 		Tags: []string{}, Data: []byte("day,high\nmon,71\n"), MIMEType: "text/csv",
 	}

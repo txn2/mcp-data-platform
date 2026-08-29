@@ -18,7 +18,7 @@ const (
 	// button, and any direct API client).
 	SurfaceDownload = "rest_download"
 	// SurfacePreview is the portal rendering a resource's own bytes as part of
-	// showing the library: an image tile in a category grid, where the object
+	// showing the library: an image tile in a folder grid, where the object
 	// itself stands in for the thumbnail a resource does not have (#1471).
 	//
 	// It is a door of its own because it is not somebody using the file. A

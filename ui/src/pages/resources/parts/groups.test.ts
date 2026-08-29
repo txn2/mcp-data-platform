@@ -1,15 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { fakeLocalStorage } from "@/test/localStorage";
+import { describe, it, expect } from "vitest";
 import type { Resource } from "@/api/resources/types";
 import {
   TILE_INLINE_LIMIT,
   exceedsTileLimit,
-  groupByCategory,
   isImageResource,
   neverRead,
-  readCollapsed,
   tagOptions,
-  writeCollapsed,
 } from "./groups";
 
 const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
@@ -19,7 +15,7 @@ function resource(overrides: Partial<Resource> = {}): Resource {
     id: "res-1",
     scope: "user",
     scope_id: "analyst@example.com",
-    category: "references",
+    path: "references",
     filename: "notes.md",
     display_name: "Notes",
     description: "",
@@ -37,53 +33,7 @@ function resource(overrides: Partial<Resource> = {}): Resource {
 }
 
 const photo = (id: string, extra: Partial<Resource> = {}) =>
-  resource({ id, category: "visual", filename: `${id}.png`, mime_type: "image/png", ...extra });
-
-describe("dividing the library into its sections", () => {
-  it("puts each category in its own section, keeping the store's order inside it", () => {
-    const groups = groupByCategory([
-      resource({ id: "a", category: "playbooks" }),
-      resource({ id: "b", category: "playbooks" }),
-      resource({ id: "c", category: "data" }),
-    ]);
-
-    expect(groups.map((g) => g.category)).toEqual(["playbooks", "data"]);
-    expect(groups[0]!.resources.map((r) => r.id)).toEqual(["a", "b"]);
-  });
-
-  // The server has already ordered the list by whatever the sort control asked
-  // for. Sections follow the order their first member arrived in, so grouping
-  // regroups the answer without reordering it: the resource the sort put first
-  // is still the first row of the first section. A fixed category rank here
-  // would leave "Recently read" selected and showing category order.
-  it("takes its section order from the order the server returned", () => {
-    const groups = groupByCategory([
-      resource({ id: "a", category: "zebra" }),
-      resource({ id: "b", category: "references" }),
-      resource({ id: "c", category: "guides" }),
-      resource({ id: "d", category: "zebra" }),
-    ]);
-
-    expect(groups.map((g) => g.category)).toEqual(["zebra", "references", "guides"]);
-    expect(groups[0]!.resources.map((r) => r.id)).toEqual(["a", "d"]);
-  });
-
-  it("marks a section of nothing but images as one to show as images", () => {
-    const groups = groupByCategory([photo("a"), photo("b")]);
-    expect(groups[0]!.images).toBe(true);
-  });
-
-  // The grid is driven by what the section holds, not by what it is called.
-  it("marks an image section as such under a category that says nothing about images", () => {
-    const groups = groupByCategory([photo("a", { category: "references" })]);
-    expect(groups[0]!.images).toBe(true);
-  });
-
-  it("leaves a section holding one written note as rows", () => {
-    const groups = groupByCategory([photo("a"), resource({ id: "b", category: "visual" })]);
-    expect(groups[0]!.images).toBe(false);
-  });
-});
+  resource({ id, path: "visual", filename: `${id}.png`, mime_type: "image/png", ...extra });
 
 describe("what counts as an image tile", () => {
   it("takes the raster families", () => {
@@ -159,28 +109,3 @@ describe("the tag facet's choices", () => {
 // This jsdom realm has no localStorage of its own, which is why every read and
 // write of it in the app is guarded. The persistence itself still has to be
 // exercised, so the tests below supply a store to persist into.
-describe("remembering which sections this reader folded", () => {
-  beforeEach(() => vi.stubGlobal("localStorage", fakeLocalStorage()));
-  afterEach(() => vi.unstubAllGlobals());
-
-  it("round-trips the folded set", () => {
-    writeCollapsed(["visual", "data"]);
-    expect(readCollapsed()).toEqual(["visual", "data"]);
-  });
-
-  it("reads no preference from an empty store", () => {
-    expect(readCollapsed()).toEqual([]);
-  });
-
-  // Storage is written by this browser and read back by it, but it is still
-  // outside the page: unparseable or wrongly-shaped content is no preference,
-  // not a library that fails to render.
-  it("reads no preference from content it cannot use", () => {
-    globalThis.localStorage.setItem("resource-library-collapsed", "not json");
-    expect(readCollapsed()).toEqual([]);
-    globalThis.localStorage.setItem("resource-library-collapsed", '{"visual":true}');
-    expect(readCollapsed()).toEqual([]);
-    globalThis.localStorage.setItem("resource-library-collapsed", '["visual",7]');
-    expect(readCollapsed()).toEqual(["visual"]);
-  });
-});

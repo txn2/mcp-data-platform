@@ -9,41 +9,53 @@ import (
 	"testing"
 )
 
-// --- MovedURI ---
+// --- RelocatedURI ---
 
-func TestMovedURIKeepsThePathAndSwapsTheLibrary(t *testing.T) {
-	// The stored URI says "samples" while the row's category says "data": a
-	// category edit has never rewritten the URI, so this drift already exists
-	// in deployed data. A move must not silently repair it, because the person
-	// moving the file did not ask for its address to change beyond the library.
-	r := &Resource{URI: "mcp://user/sub-1/samples/x.csv", Category: "data", Filename: "x.csv"}
+func TestRelocatedURIComposesTheLibraryAndTheFolderPath(t *testing.T) {
+	r := &Resource{URI: "mcp://user/sub-1/samples/x.csv", Path: "samples", Filename: "x.csv"}
 
 	tests := []struct {
 		name    string
 		scope   Scope
 		scopeID string
+		path    string
 		want    string
 	}{
-		{"to global", ScopeGlobal, "", "mcp://global/samples/x.csv"},
-		{"to a persona", ScopePersona, "ops", "mcp://persona/ops/samples/x.csv"},
-		{"to another person", ScopeUser, "her@example.com", "mcp://user/her@example.com/samples/x.csv"},
+		{"to global", ScopeGlobal, "", "samples", "mcp://global/samples/x.csv"},
+		{"to a persona", ScopePersona, "ops", "samples", "mcp://persona/ops/samples/x.csv"},
+		{"to another person", ScopeUser, "her@example.com", "samples", "mcp://user/her@example.com/samples/x.csv"},
+		{"to another folder", ScopeUser, "sub-1", "data/media-manager", "mcp://user/sub-1/data/media-manager/x.csv"},
+		{"to another library and folder at once", ScopeGlobal, "", "data/weekly", "mcp://global/data/weekly/x.csv"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := MovedURI("mcp", r, tc.scope, tc.scopeID); got != tc.want {
-				t.Errorf("MovedURI = %q, want %q", got, tc.want)
+			if got := RelocatedURI("mcp", r, tc.scope, tc.scopeID, tc.path); got != tc.want {
+				t.Errorf("RelocatedURI = %q, want %q", got, tc.want)
 			}
 		})
 	}
 }
 
-func TestMovedURIFallsBackWhenTheStoredURIWillNotParse(t *testing.T) {
+// TestRelocatedURIKeepsTheFilenameTheAddressWasMintedWith is what a relocation
+// changes and what it does not: both halves ahead of the last segment are the
+// caller's, and the last segment is whatever the stored address already ends in.
+func TestRelocatedURIKeepsTheFilenameTheAddressWasMintedWith(t *testing.T) {
+	// A row whose stored filename was normalized after its URI was minted. The
+	// URI is what every citation uses, so its own last segment is the one the
+	// relocation carries forward.
+	r := &Resource{URI: "mcp://user/sub-1/samples/Report.CSV", Path: "samples", Filename: "report.csv"}
+	if got := RelocatedURI("mcp", r, ScopeGlobal, "", "data"); got != "mcp://global/data/Report.CSV" {
+		t.Errorf("RelocatedURI = %q", got)
+	}
+}
+
+func TestRelocatedURIFallsBackWhenTheStoredURIWillNotParse(t *testing.T) {
 	// A row whose URI predates the scheme, or was written by hand, still has to
 	// move: composing the address it would have been minted with today beats
 	// refusing over something the mover never chose.
-	r := &Resource{URI: "not-a-resource-uri", Category: "data", Filename: "x.csv"}
-	if got := MovedURI("mcp", r, ScopeGlobal, ""); got != "mcp://global/data/x.csv" {
-		t.Errorf("MovedURI = %q, want the composed address", got)
+	r := &Resource{URI: "not-a-resource-uri", Path: "data", Filename: "x.csv"}
+	if got := RelocatedURI("mcp", r, ScopeGlobal, "", "data"); got != "mcp://global/data/x.csv" {
+		t.Errorf("RelocatedURI = %q, want the composed address", got)
 	}
 }
 
@@ -56,10 +68,10 @@ func TestURIInLibraryOfAnUnknownScope(t *testing.T) {
 	}
 }
 
-func TestMovedURIUsesTheConfiguredScheme(t *testing.T) {
-	r := &Resource{URI: "acme://user/sub-1/data/x.csv", Category: "data", Filename: "x.csv"}
-	if got := MovedURI("acme", r, ScopeGlobal, ""); got != "acme://global/data/x.csv" {
-		t.Errorf("MovedURI = %q", got)
+func TestRelocatedURIUsesTheConfiguredScheme(t *testing.T) {
+	r := &Resource{URI: "acme://user/sub-1/data/x.csv", Path: "data", Filename: "x.csv"}
+	if got := RelocatedURI("acme", r, ScopeGlobal, "", "data"); got != "acme://global/data/x.csv" {
+		t.Errorf("RelocatedURI = %q", got)
 	}
 }
 
@@ -128,7 +140,7 @@ func TestUpdateFields(t *testing.T) {
 		{"nothing", Update{}, false},
 		{"display name", Update{DisplayName: &s}, true},
 		{"description", Update{Description: &s}, true},
-		{"category", Update{Category: &s}, true},
+		{"a folder change alone is not a metadata edit", Update{Path: &s}, false},
 		{"tags, even empty", Update{Tags: []string{}}, true},
 		{"a move alone is not a metadata edit", Update{Scope: &scope, ScopeID: &empty}, false},
 	}
@@ -171,11 +183,13 @@ func (m *moveStore) GetByURI(_ context.Context, uri string) (*Resource, error) {
 	return nil, fmt.Errorf("not found: %w", sql.ErrNoRows)
 }
 
-func (m *moveStore) Move(_ context.Context, id string, mv Move) error {
+func (m *moveStore) Move(_ context.Context, moves []Move) error {
 	if m.moveErr != nil {
 		return m.moveErr
 	}
-	m.movedID, m.moved = id, &mv
+	for i := range moves {
+		m.movedID, m.moved = moves[i].ID, &moves[i]
+	}
 	return nil
 }
 
@@ -189,7 +203,7 @@ func (r *recordingMoves) RecordMove(_ context.Context, ev MoveEvent) {
 func ownedResource() *Resource {
 	return &Resource{
 		ID: "res-1", Scope: ScopeUser, ScopeID: "sub-1",
-		Category: "templates", Filename: "report.docx", DisplayName: "Report",
+		Path: "templates", Filename: "report.docx", DisplayName: "Report",
 		URI:         "mcp://user/sub-1/templates/report.docx",
 		S3Key:       "resources/user/sub-1/res-1/report.docx",
 		UploaderSub: "sub-1", UploaderEmail: "me@example.com",
@@ -203,7 +217,7 @@ func TestMoveResourceRefilesAndRecordsWhatItLeft(t *testing.T) {
 	claims := &Claims{Sub: "sub-1", Email: "me@example.com", Personas: []string{"ops"}}
 	res := ownedResource()
 
-	uri, err := MoveResource(context.Background(), deps, claims, res, ScopeFilter{Scope: ScopePersona, ScopeID: "ops"})
+	uri, err := MoveResource(context.Background(), deps, claims, res, Destination{Scope: ScopePersona, ScopeID: "ops", Path: res.Path})
 	if err != nil {
 		t.Fatalf("MoveResource: %v", err)
 	}
@@ -242,7 +256,7 @@ func TestMoveResourceToWhereItAlreadyIsChangesNothing(t *testing.T) {
 	claims := &Claims{Sub: "sub-1"}
 
 	uri, err := MoveResource(context.Background(), Deps{Store: store, MoveRecorder: moves},
-		claims, res, ScopeFilter{Scope: ScopeUser, ScopeID: "sub-1"})
+		claims, res, Destination{Scope: ScopeUser, ScopeID: "sub-1", Path: res.Path})
 	if err != nil {
 		t.Fatalf("MoveResource: %v", err)
 	}
@@ -259,7 +273,7 @@ func TestMoveResourceRefusesALibraryTheCallerCannotWrite(t *testing.T) {
 	res := ownedResource()
 	claims := &Claims{Sub: "sub-1", Personas: []string{"ops"}}
 
-	_, err := MoveResource(context.Background(), Deps{Store: store}, claims, res, ScopeFilter{Scope: ScopeGlobal, ScopeID: ""})
+	_, err := MoveResource(context.Background(), Deps{Store: store}, claims, res, Destination{Scope: ScopeGlobal, ScopeID: "", Path: res.Path})
 	if !errors.Is(err, ErrMoveForbidden) {
 		t.Fatalf("err = %v, want ErrMoveForbidden", err)
 	}
@@ -272,7 +286,7 @@ func TestMoveResourceRefusesAnUnusableTarget(t *testing.T) {
 	store := newMoveStore()
 	claims := &Claims{Sub: "sub-1", IsAdmin: true}
 
-	_, err := MoveResource(context.Background(), Deps{Store: store}, claims, ownedResource(), ScopeFilter{Scope: ScopePersona, ScopeID: ""})
+	_, err := MoveResource(context.Background(), Deps{Store: store}, claims, ownedResource(), Destination{Scope: ScopePersona, ScopeID: "", Path: "templates"})
 	if !IsInvalidScope(err) {
 		t.Fatalf("err = %v, want an invalid-scope error", err)
 	}
@@ -290,7 +304,7 @@ func TestMoveResourceNamesTheResourceItCollidesWith(t *testing.T) {
 	claims := &Claims{Sub: "sub-1", Personas: []string{"ops"}}
 
 	_, err := MoveResource(context.Background(), Deps{Store: store}, claims,
-		ownedResource(), ScopeFilter{Scope: ScopePersona, ScopeID: "ops"})
+		ownedResource(), Destination{Scope: ScopePersona, ScopeID: "ops", Path: "templates"})
 	if !IsMoveConflict(err) {
 		t.Fatalf("err = %v, want a conflict", err)
 	}
@@ -317,7 +331,7 @@ func TestMoveResourceReclaimsAnAddressOnlyAnAliasHolds(t *testing.T) {
 	claims := &Claims{Sub: "sub-1", Personas: []string{"ops"}}
 
 	uri, err := MoveResource(context.Background(), Deps{Store: store}, claims,
-		ownedResource(), ScopeFilter{Scope: ScopePersona, ScopeID: "ops"})
+		ownedResource(), Destination{Scope: ScopePersona, ScopeID: "ops", Path: "templates"})
 	if err != nil {
 		t.Fatalf("MoveResource: %v", err)
 	}
@@ -334,7 +348,7 @@ func TestMoveResourceSurfacesAFailedCollisionRead(t *testing.T) {
 	// A read that failed is not a free address: moving anyway would hit the
 	// UNIQUE constraint and report a database error where the answer was "taken".
 	_, err := MoveResource(context.Background(), Deps{Store: store}, claims,
-		ownedResource(), ScopeFilter{Scope: ScopePersona, ScopeID: "ops"})
+		ownedResource(), Destination{Scope: ScopePersona, ScopeID: "ops", Path: "templates"})
 	if err == nil || store.moved != nil {
 		t.Fatalf("err = %v, moved = %v", err, store.moved)
 	}
@@ -348,7 +362,7 @@ func TestMoveResourceSurfacesTheStoresConflict(t *testing.T) {
 	// The pre-check and the write are not atomic, so the constraint is the last
 	// word and has to reach the caller as a conflict rather than as a 500.
 	_, err := MoveResource(context.Background(), Deps{Store: store}, claims,
-		ownedResource(), ScopeFilter{Scope: ScopePersona, ScopeID: "ops"})
+		ownedResource(), Destination{Scope: ScopePersona, ScopeID: "ops", Path: "templates"})
 	if !IsMoveConflict(err) {
 		t.Fatalf("err = %v, want a conflict", err)
 	}
@@ -359,7 +373,7 @@ func TestMoveResourceWithoutARecorderStillMoves(t *testing.T) {
 	claims := &Claims{Sub: "sub-1", Personas: []string{"ops"}}
 
 	if _, err := MoveResource(context.Background(), Deps{Store: store}, claims,
-		ownedResource(), ScopeFilter{Scope: ScopePersona, ScopeID: "ops"}); err != nil {
+		ownedResource(), Destination{Scope: ScopePersona, ScopeID: "ops", Path: "templates"}); err != nil {
 		t.Fatalf("MoveResource: %v", err)
 	}
 	if store.moved == nil {

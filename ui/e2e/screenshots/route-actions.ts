@@ -1,4 +1,5 @@
 import { type Page } from "@playwright/test";
+import { openResourceNamed } from "./route-actions-library";
 
 /**
  * Capture actions that more than one route in the manifest performs, or that
@@ -226,12 +227,7 @@ export async function openKnowledgeGraphCorpus(page: Page): Promise<void> {
  * is the only one carrying both a read-activity rollup and a version history.
  */
 export async function openResourceDetail(page: Page): Promise<void> {
-  await page
-    .getByText("SQL Style Guide", { exact: true })
-    .first()
-    .click({ timeout: 3_000 })
-    .catch(() => {});
-  await page.waitForTimeout(700);
+  await openResourceNamed(page, "SQL Style Guide");
 }
 
 /**
@@ -267,11 +263,7 @@ export async function openResourceMove(page: Page): Promise<void> {
   // fixture the other captures open: the file this documents is one whose
   // library is about to widen, and the global fixture is already where the
   // widest move would land.
-  await page
-    .getByText("Query Templates", { exact: true })
-    .first()
-    .click({ timeout: 3_000 });
-  await page.waitForTimeout(700);
+  await openResourceNamed(page, "Query Templates");
   await page.getByRole("button", { name: "Edit" }).first().click({ timeout: 3_000 });
   await page.getByRole("combobox", { name: "Library" }).click({ timeout: 3_000 });
   await page.getByRole("option", { name: "Global" }).click({ timeout: 3_000 });
@@ -516,12 +508,7 @@ export async function openAssetTables(page: Page): Promise<void> {
  * points at, which is the one state a reader cannot discover from the rows.
  */
 export async function openGlossaryResourceTables(page: Page): Promise<void> {
-  await page
-    .getByText("Business Glossary Export", { exact: true })
-    .first()
-    .click({ timeout: 3_000 })
-    .catch(() => {});
-  await page.waitForTimeout(700);
+  await openResourceNamed(page, "Business Glossary Export");
   await showTablesPanel(page);
 }
 
@@ -542,12 +529,7 @@ export async function openTableRegisterForm(page: Page): Promise<void> {
  * registered-table panel (#1441).
  */
 export async function openStoreListResourceTables(page: Page): Promise<void> {
-  await page
-    .getByText("Store List", { exact: true })
-    .first()
-    .click({ timeout: 3_000 })
-    .catch(() => {});
-  await page.waitForTimeout(700);
+  await openResourceNamed(page, "Store List");
   await showTablesPanel(page);
 }
 

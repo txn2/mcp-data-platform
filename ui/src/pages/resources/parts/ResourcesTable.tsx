@@ -14,7 +14,9 @@ import { markdownToPlainText } from "@/lib/markdownText";
 import { cn } from "@/lib/utils";
 import type { Resource } from "@/api/resources/types";
 import { ScopeBadge } from "./badges";
+import { dragResources } from "./drag";
 import { neverRead } from "./groups";
+import type { Selection } from "./selection";
 
 // lastReadLabel renders a resource's read recency for the admin table: a date
 // when it has been read, and "Never" when it has not — flagged once the
@@ -38,13 +40,17 @@ interface Column {
 // the two width sets are stated in full rather than patched at each cell. Each
 // set adds up to 100%, which fixed layout requires.
 //
-// There is no category column: the table is a category's own section and the
-// section header names it (#1471), so a column here would repeat one word down
-// every row of it.
-function columns(admin: boolean): Column[] {
+// There is no folder column: the table is one folder's contents and the
+// breadcrumb above it says which, so a column here would repeat one path down
+// every row of it. A search spans the whole library and does need it, which is
+// why the hit list is its own component rather than this table with a column
+// switched on.
+function columns(admin: boolean, selectable: boolean): Column[] {
+  const select: Column[] = selectable ? [{ label: "", width: "4%" }] : [];
   if (!admin) {
     return [
-      { label: "Name", width: "38%" },
+      ...select,
+      { label: "Name", width: selectable ? "34%" : "38%" },
       { label: "Type", width: "14%" },
       { label: "Tags", width: "14%" },
       { label: "Size", width: "7%", align: "right" },
@@ -54,7 +60,8 @@ function columns(admin: boolean): Column[] {
     ];
   }
   return [
-    { label: "Name", width: "28%" },
+    ...select,
+    { label: "Name", width: selectable ? "24%" : "28%" },
     { label: "Scope", width: "12%" },
     { label: "Type", width: "12%" },
     { label: "Tags", width: "13%" },
@@ -71,15 +78,26 @@ function columns(admin: boolean): Column[] {
 function ResourceRow({
   resource: r,
   admin,
+  selection,
   onOpen,
 }: {
   resource: Resource;
   admin: boolean;
+  // Absent on a table nothing can be done to in bulk, which is what leaves the
+  // checkbox column off rather than showing one that does nothing.
+  selection?: Selection;
   onOpen: () => void;
 }) {
-  const lastRead = lastReadLabel(r);
+  const picked = selection?.has(r.id) ?? false;
   return (
-    <TableRow onClick={onOpen} className="cursor-pointer">
+    <TableRow
+      onClick={onOpen}
+      className={cn("cursor-pointer", picked && "bg-accent/50")}
+      data-testid={`resource-row-${r.id}`}
+      draggable={selection !== undefined}
+      onDragStart={(e) => selection && dragResources(e.dataTransfer, r.id, selection.ids)}
+    >
+      {selection && <SelectCell resource={r} selection={selection} />}
       <TableCell className="max-w-0 px-4 py-2.5">
         <div className="flex items-center gap-2">
           <File className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -99,18 +117,7 @@ function ResourceRow({
       <TableCell className="max-w-0 truncate px-4 py-2.5 text-xs text-muted-foreground">
         {r.mime_type}
       </TableCell>
-      <TableCell className="max-w-0 px-4 py-2.5">
-        <div className="flex flex-wrap gap-1">
-          {(r.tags ?? []).slice(0, 3).map((t) => (
-            <Badge key={t} variant="muted" className="max-w-[80px] truncate px-1.5">
-              {t}
-            </Badge>
-          ))}
-          {(r.tags ?? []).length > 3 && (
-            <span className="text-xs text-muted-foreground">+{(r.tags ?? []).length - 3}</span>
-          )}
-        </div>
-      </TableCell>
+      <TagsCell tags={r.tags ?? []} />
       <TableCell className="px-4 py-2.5 text-right text-muted-foreground">
         {formatBytes(r.size_bytes)}
       </TableCell>
@@ -120,18 +127,7 @@ function ResourceRow({
       <TableCell className="px-4 py-2.5 text-xs text-muted-foreground">
         {new Date(r.updated_at).toLocaleDateString()}
       </TableCell>
-      {admin && (
-        <TableCell
-          className={cn(
-            "px-4 py-2.5 text-xs",
-            lastRead.stale ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground",
-          )}
-          data-testid={`resource-last-read-${r.id}`}
-          title={lastRead.stale ? "No reads since it was uploaded" : undefined}
-        >
-          {lastRead.text}
-        </TableCell>
-      )}
+      {admin && <LastReadCell resource={r} />}
       <TableCell className="px-2 py-2.5">
         <Button
           variant="ghost"
@@ -150,17 +146,72 @@ function ResourceRow({
   );
 }
 
+/** The pick box, in a cell that swallows the click so the row does not open. */
+function SelectCell({ resource: r, selection }: { resource: Resource; selection: Selection }) {
+  return (
+    <TableCell className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
+      <input
+        type="checkbox"
+        checked={selection.has(r.id)}
+        onChange={() => selection.toggle(r.id)}
+        aria-label={`Select ${r.display_name}`}
+      />
+    </TableCell>
+  );
+}
+
+/** The first three tags and a count of whatever is left. */
+function TagsCell({ tags }: { tags: string[] }) {
+  return (
+    <TableCell className="max-w-0 px-4 py-2.5">
+      <div className="flex flex-wrap gap-1">
+        {tags.slice(0, 3).map((t) => (
+          <Badge key={t} variant="muted" className="max-w-[80px] truncate px-1.5">
+            {t}
+          </Badge>
+        ))}
+        {tags.length > 3 && (
+          <span className="text-xs text-muted-foreground">+{tags.length - 3}</span>
+        )}
+      </div>
+    </TableCell>
+  );
+}
+
+/** Read recency, flagged once a never-read file is old enough for it to mean
+ * something. */
+function LastReadCell({ resource: r }: { resource: Resource }) {
+  const lastRead = lastReadLabel(r);
+  return (
+    <TableCell
+      className={cn(
+        "px-4 py-2.5 text-xs",
+        lastRead.stale ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground",
+      )}
+      data-testid={`resource-last-read-${r.id}`}
+      title={lastRead.stale ? "No reads since it was uploaded" : undefined}
+    >
+      {lastRead.text}
+    </TableCell>
+  );
+}
+
 // ResourcesTable is the library's list body: one row per resource, with the
-// admin-only scope and last-read columns folded in for the admin view.
+// admin-only scope and last-read columns folded in for the admin view, and a
+// selection column wherever a selection can be acted on.
 export function ResourcesTable({
   resources,
   admin,
+  selection,
   onOpen,
 }: {
   resources: Resource[];
   admin: boolean;
+  selection?: Selection;
   onOpen: (resource: Resource) => void;
 }) {
+  const allPicked =
+    selection !== undefined && resources.length > 0 && resources.every((r) => selection.has(r.id));
   return (
     <div className="overflow-hidden rounded-lg border bg-card">
       {/* ui/table puts `whitespace-nowrap` on every cell, so under the default
@@ -173,20 +224,39 @@ export function ResourcesTable({
       <Table className="table-fixed">
         <TableHeader>
           <TableRow className="bg-muted/50 hover:bg-muted/50">
-            {columns(admin).map((c) => (
+            {columns(admin, selection !== undefined).map((c, i) => (
               <TableHead
-                key={c.label || "actions"}
+                key={c.label || `col-${i}`}
                 className={cn("px-4 text-muted-foreground", c.align === "right" && "text-right")}
                 style={{ width: c.width }}
               >
-                {c.label}
+                {selection && i === 0 ? (
+                  <input
+                    type="checkbox"
+                    checked={allPicked}
+                    onChange={() =>
+                      allPicked
+                        ? selection.clear()
+                        : selection.add(resources.map((r) => r.id))
+                    }
+                    aria-label={allPicked ? "Clear selection" : "Select every file here"}
+                  />
+                ) : (
+                  c.label
+                )}
               </TableHead>
             ))}
           </TableRow>
         </TableHeader>
         <TableBody>
           {resources.map((r) => (
-            <ResourceRow key={r.id} resource={r} admin={admin} onOpen={() => onOpen(r)} />
+            <ResourceRow
+              key={r.id}
+              resource={r}
+              admin={admin}
+              selection={selection}
+              onOpen={() => onOpen(r)}
+            />
           ))}
         </TableBody>
       </Table>

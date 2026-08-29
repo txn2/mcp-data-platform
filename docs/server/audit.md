@@ -233,7 +233,7 @@ These rows are what the portal's resource usage panel aggregates into 30- and 90
 
 ### Resource moves
 
-A managed resource can be refiled in another library after it is uploaded ([Moving a resource to another library](portal-user.md#moving-a-resource-to-another-library)). Each move writes one `resource_move` row under `tool_name = resource_move`, carrying the resource's id and display name and the library on each side: `from_scope`, `from_scope_id`, `from_uri`, `to_scope`, `to_scope_id`, `to_uri`.
+A managed resource can be refiled after it is uploaded — in another library, in another folder of the one it is in, or both ([Moving a resource to another library](portal-user.md#moving-a-resource-to-another-library)). Each move writes one `resource_move` row under `tool_name = resource_move`, carrying the resource's id and display name and where it was filed on each side: `from_scope`, `from_scope_id`, `from_path`, `from_uri`, `to_scope`, `to_scope_id`, `to_path`, `to_uri`. Renaming a folder writes one such row per resource it carried, because the question the trail answers is what address a given file has now.
 
 Both sides are on the row because two different questions are asked of it. "Who put this file in front of the whole platform" is answered by the destination; "what address did this file used to have" is answered by the origin, and that is what an operator needs when a knowledge page or a script body cites a URI the resource no longer holds. Refiling a resource to the library it is already in writes nothing: a move that changed nothing would read as somebody having refiled the file.
 

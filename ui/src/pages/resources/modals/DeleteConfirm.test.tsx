@@ -14,7 +14,7 @@ const RESOURCE: Resource = {
   id: "res-logo",
   scope: "global",
   scope_id: "",
-  category: "brand",
+  path: "brand",
   filename: "logo.png",
   display_name: "Company logo",
   description: "",

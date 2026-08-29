@@ -103,7 +103,7 @@ func uploadRequest(t *testing.T, declared, filename string, content []byte) *htt
 	w := multipart.NewWriter(&buf)
 	for k, v := range map[string]string{
 		"scope":        "global",
-		"category":     "references",
+		"path":         "references",
 		"display_name": "Reference material",
 		"description":  "Uploaded for the content-type test.",
 	} {

@@ -1,6 +1,7 @@
 import { Suspense, lazy, useState, useEffect, useCallback, useRef } from "react";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
+import { folderAddress } from "@/pages/resources/parts/libraryUrl";
 import { useAuthStore } from "@/stores/auth";
 
 // Every page below is its own chunk. The shell used to import all of them
@@ -74,7 +75,15 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ThumbnailQueue } from "@/components/ThumbnailQueue";
 import { AdminPages } from "./AdminPages";
 import { AdminOnlyNotice, PageNotFound } from "./RouteFallbacks";
-import { canonicalRoute, isAdminRoute, isInSection, isKnownRoute } from "@/lib/portalRoutes";
+import {
+  canonicalRoute,
+  isAdminRoute,
+  isCollapsingRoute,
+  isInSection,
+  isKnownRoute,
+  isResourceLibraryRoute,
+  isResourceViewerRoute,
+} from "@/lib/portalRoutes";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 
 const pageTitles: Record<string, string> = {
@@ -133,7 +142,12 @@ const detailTitles: readonly { prefix: string; title: string }[] = [
 // pageTitleFor resolves the header title for a route with no detail view of
 // its own in the chain below: a section's own detail routes answer here rather
 // than adding a branch to it.
+//
+// Browsing a resource library is a route under /resources that is not a detail
+// view, so it is matched before the prefixes: a folder is the section, and
+// heading it "Resource" would name one file (#1530).
 function pageTitleFor(route: string): string {
+  if (isResourceLibraryRoute(route)) return "Resources";
   const detail = detailTitles.find((d) => route.startsWith(d.prefix));
   if (detail) return detail.title;
   return pageTitles[route] ?? "Assets";
@@ -205,29 +219,21 @@ const SIDEBAR_STORAGE_KEY = "sidebar-collapsed";
 /** Vite base path — must match vite.config.ts `base`. */
 const BASE = import.meta.env.BASE_URL.replace(/\/+$/, "");
 
-/** Read the in-app path from the current URL. */
+/**
+ * Read the in-app path from the current URL, query string and hash included.
+ *
+ * The query has to be here. navigate() keeps it on the path it records, so a
+ * popstate that rebuilt the path without it would hand a page LESS than the
+ * entry it is returning to: pressing Back onto a narrowed library restored the
+ * library and dropped the search that narrowed it. Every consumer that wants
+ * the bare route strips at the first "?" or "#" for itself.
+ */
 function readPath(): string {
-  const { pathname, hash } = window.location;
-  let route = pathname.startsWith(BASE)
+  const { pathname, search, hash } = window.location;
+  const route = pathname.startsWith(BASE)
     ? pathname.slice(BASE.length) || "/activity"
     : pathname;
-  if (hash) route += hash;
-  return route;
-}
-
-/** Routes that auto-collapse the sidebar (detail/viewer/editor views). */
-function isAssetRoute(path: string): boolean {
-  const route = path.split("#")[0] ?? "";
-  return (
-    /^\/assets\/.+$/.test(route) ||
-    /^\/admin\/assets\/.+$/.test(route) ||
-    /^\/collections\/.+\/assets\/.+$/.test(route) ||
-    /^\/shared\/assets\/.+$/.test(route) ||
-    /^\/prompts\/.+$/.test(route) ||
-    /^\/resources\/[^/]+$/.test(route) ||
-    /^\/admin\/resources\/[^/]+$/.test(route) ||
-    /^\/admin\/personas$/.test(route)
-  );
+  return route + search + hash;
 }
 
 const MOBILE_BREAKPOINT = 768;
@@ -254,11 +260,11 @@ export function AppShell() {
   // Sidebar collapsed state: auto-collapse on asset deep-link, otherwise restore from localStorage
   const initialPath = useRef(readPath()).current;
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
-    if (isAssetRoute(initialPath)) return true;
+    if (isCollapsingRoute(initialPath)) return true;
     return localStorage.getItem(SIDEBAR_STORAGE_KEY) === "true";
   });
   // Track whether we auto-collapsed so we can restore on navigation away
-  const autoCollapsed = useRef(isAssetRoute(initialPath));
+  const autoCollapsed = useRef(isCollapsingRoute(initialPath));
 
   const toggleSidebar = useCallback(() => {
     setSidebarCollapsed((prev) => {
@@ -273,8 +279,8 @@ export function AppShell() {
   const prevPath = useRef(currentPath);
   useEffect(() => {
     if (prevPath.current === currentPath) return;
-    const wasOnAsset = isAssetRoute(prevPath.current);
-    const onAsset = isAssetRoute(currentPath);
+    const wasOnAsset = isCollapsingRoute(prevPath.current);
+    const onAsset = isCollapsingRoute(currentPath);
     prevPath.current = currentPath;
 
     if (onAsset && !wasOnAsset && !sidebarCollapsed) {
@@ -385,7 +391,8 @@ export function AppShell() {
   const assetMatch = route.match(/^\/assets\/(.+)$/);
   const adminAssetMatch = route.match(/^\/admin\/assets\/(.+)$/);
   const promptViewMatch = route.match(/^\/prompts\/(.+)$/);
-  const resourceViewMatch = route.match(/^\/resources\/([^/]+)$/);
+  const resourceViewMatch = isResourceViewerRoute(route) ? route.match(/\/([^/]+)$/) : null;
+  const resourceLibraryRoute = route === "/resources" || route.startsWith("/resources/lib/");
   // Knowledge-page routes (#709): the page list and the URL-addressable page
   // detail. Both render the Knowledge hub focused on its Knowledge Pages sub-tab.
   const knowledgePageMatch = route.match(/^\/knowledge\/pages\/(.+)$/);
@@ -503,13 +510,14 @@ export function AppShell() {
               onNavigate={navigate}
             />
           )}
-          {!adminRoute && route === "/resources" && (
-            <ResourcesPage onNavigate={navigate} />
+          {!adminRoute && resourceLibraryRoute && (
+            <ResourcesPage location={currentPath} onNavigate={navigate} />
           )}
           {!adminRoute && resourceViewMatch && (
             <ResourceViewerPage
               resourceId={resourceViewMatch[1]!}
               onBack={() => goBack("/resources")}
+              onOpenFolder={(tab, path) => navigate(folderAddress("/resources", tab, path))}
             />
           )}
           {!adminRoute && isInSection(route, "/scratch-tables") && (

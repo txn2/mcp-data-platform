@@ -115,7 +115,7 @@ func (*memStore) Update(_ context.Context, _ string, _ resource.Update) error { 
 // Move is refused: the write path under test creates and revises resources and
 // never refiles one, so accepting a move would model a store this package does
 // not exercise.
-func (*memStore) Move(_ context.Context, _ string, _ resource.Move) error {
+func (*memStore) Move(_ context.Context, _ []resource.Move) error {
 	return errors.New("memStore does not move resources")
 }
 
@@ -220,7 +220,7 @@ func (s metadataOnlyStore) Update(ctx context.Context, id string, u resource.Upd
 
 // Move is refused for the same reason Update is delegated: this store models a
 // deployment without version support, not one that refiles resources.
-func (metadataOnlyStore) Move(context.Context, string, resource.Move) error {
+func (metadataOnlyStore) Move(context.Context, []resource.Move) error {
 	return errors.New("metadataOnlyStore does not move resources")
 }
 

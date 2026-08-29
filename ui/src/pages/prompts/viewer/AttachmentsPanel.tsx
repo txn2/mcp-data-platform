@@ -310,9 +310,9 @@ interface PickerProps {
   onError: (msg: string | null) => void;
 }
 
-// ALL_CATEGORIES is the picker's unfiltered choice; a Select item cannot carry
+// ALL_FOLDERS is the picker's unfiltered choice; a Select item cannot carry
 // the empty value the query parameter uses for it.
-const ALL_CATEGORIES = "__all__";
+const ALL_FOLDERS = "__all__";
 
 // AttachmentPicker searches the caller's visible resources and attaches one.
 // It does not pre-filter by scope: the server owns that rule, and showing a
@@ -320,10 +320,10 @@ const ALL_CATEGORIES = "__all__";
 // better than silently hiding candidates.
 function AttachmentPicker({ promptId, attached, onClose, onError }: PickerProps) {
   const [query, setQuery] = useState("");
-  const [category, setCategory] = useState("");
+  const [folder, setFolder] = useState("");
   const { data, isLoading } = useResources({
     q: query.trim() || undefined,
-    category: category || undefined,
+    path: folder || undefined,
   });
   const attach = useAttachResource(promptId);
 
@@ -331,8 +331,11 @@ function AttachmentPicker({ promptId, attached, onClose, onError }: PickerProps)
     () => (data?.resources ?? []).filter((r) => !attached.includes(r.id)),
     [data, attached],
   );
-  const categories = useMemo(
-    () => [...new Set((data?.resources ?? []).map((r) => r.category).filter(Boolean))].sort(),
+  // The folders the candidates are actually in, offered as a narrowing. The
+  // server reads the value as a path prefix, so picking one shows that folder
+  // and everything beneath it.
+  const folders = useMemo(
+    () => [...new Set((data?.resources ?? []).map((r) => r.path).filter(Boolean))].sort(),
     [data],
   );
 
@@ -348,16 +351,16 @@ function AttachmentPicker({ promptId, attached, onClose, onError }: PickerProps)
           className="h-8 min-w-0 flex-1 text-xs md:text-xs"
         />
         <Select
-          value={category || ALL_CATEGORIES}
-          onValueChange={(v) => setCategory(v === ALL_CATEGORIES ? "" : v)}
+          value={folder || ALL_FOLDERS}
+          onValueChange={(v) => setFolder(v === ALL_FOLDERS ? "" : v)}
         >
-          <SelectTrigger size="sm" aria-label="Filter by category" className="text-xs">
+          <SelectTrigger size="sm" aria-label="Filter by folder" className="text-xs">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={ALL_CATEGORIES} className="text-xs">All categories</SelectItem>
-            {categories.map((c) => (
-              <SelectItem key={c} value={c} className="text-xs">{c}</SelectItem>
+            <SelectItem value={ALL_FOLDERS} className="text-xs">All folders</SelectItem>
+            {folders.map((f) => (
+              <SelectItem key={f} value={f} className="text-xs">{f}</SelectItem>
             ))}
           </SelectContent>
         </Select>

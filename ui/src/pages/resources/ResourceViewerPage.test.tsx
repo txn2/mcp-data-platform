@@ -18,7 +18,7 @@ const RESOURCE: Resource = {
   id: "res-1",
   scope: "persona",
   scope_id: "inventory-analyst",
-  category: "references",
+  path: "references",
   filename: "seasonal-factors.csv",
   display_name: "Seasonal Factors",
   description: "Monthly demand multipliers.",

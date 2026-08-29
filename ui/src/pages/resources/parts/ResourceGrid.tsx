@@ -2,9 +2,12 @@ import { ImageOff } from "lucide-react";
 import { ThumbCard } from "@/components/cards/ThumbCard";
 import { BASE_URL } from "@/api/resources/client";
 import { formatBytes } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import type { Resource } from "@/api/resources/types";
 import { ScopeBadge } from "./badges";
+import { dragResources } from "./drag";
 import { exceedsTileLimit, neverRead } from "./groups";
+import type { Selection } from "./selection";
 
 /**
  * The address a tile draws its image from.
@@ -35,6 +38,7 @@ export function previewURL(id: string): string {
 export function ResourceGrid({
   resources,
   admin,
+  selection,
   onOpen,
 }: {
   resources: Resource[];
@@ -43,12 +47,31 @@ export function ResourceGrid({
   // carry: which library the file is in, and whether anything has read it.
   // Without them an image section is the one place those answers go missing.
   admin: boolean;
+  // The same selection the row table carries, so picking files in one folder
+  // and picking them in a folder of photographs are the same act.
+  selection?: Selection;
   onOpen: (resource: Resource) => void;
 }) {
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
       {resources.map((r) => (
-        <div key={r.id} data-testid={`resource-tile-${r.id}`}>
+        <div
+          key={r.id}
+          data-testid={`resource-tile-${r.id}`}
+          className={cn("relative rounded-lg", selection?.has(r.id) && "ring-2 ring-primary")}
+          draggable={selection !== undefined}
+          onDragStart={(e) => selection && dragResources(e.dataTransfer, r.id, selection.ids)}
+        >
+          {selection && (
+            <input
+              type="checkbox"
+              checked={selection.has(r.id)}
+              onChange={() => selection.toggle(r.id)}
+              onClick={(e) => e.stopPropagation()}
+              aria-label={`Select ${r.display_name}`}
+              className="absolute top-2 left-2 z-10"
+            />
+          )}
           <ThumbCard
             onClick={() => onOpen(r)}
             thumbnailSrc={exceedsTileLimit(r) ? undefined : previewURL(r.id)}

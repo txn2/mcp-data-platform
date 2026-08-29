@@ -6,24 +6,40 @@ import (
 	"fmt"
 )
 
-// MoveEvent describes one resource refiled into another library, as the audit
-// trail records it: who moved what, out of which library and into which.
+// MoveEvent describes one resource refiled, as the audit trail records it: who
+// moved what, out of which library and folder and into which.
 //
 // Both URIs are carried because the move rewrites the address. An event naming
 // only the resource id would answer "who published this to everyone" but not
 // "what is the address a knowledge page written last year still cites", and the
 // second question is the one an alias exists to answer.
+//
+// A relocation that changes only the folder is the same event with the two
+// library halves equal, and it is one event even when the library changes in the
+// same request: the resource took one new address, so the trail records one move
+// to it (#1528).
 type MoveEvent struct {
 	ResourceID  string
 	DisplayName string
 	FromScope   Scope
 	FromScopeID string
+	FromPath    string
 	FromURI     string
 	ToScope     Scope
 	ToScopeID   string
+	ToPath      string
 	ToURI       string
 	UserID      string
 	UserEmail   string
+}
+
+// Destination is where a resource is being refiled: the library, and the folder
+// path inside it. Both halves travel together because they are the two halves of
+// one URI (#1528).
+type Destination struct {
+	Scope   Scope
+	ScopeID string
+	Path    string
 }
 
 // MoveRecorder records a completed move.
@@ -49,58 +65,73 @@ type moveConflictError struct{ msg string }
 
 func (e *moveConflictError) Error() string { return e.msg }
 
-// IsMoveConflict reports whether an error from MoveResource means the target
-// library already holds a resource at the destination URI.
+// IsMoveConflict reports whether an error from MoveResource means another
+// resource already answers at the destination URI.
 func IsMoveConflict(err error) bool {
 	var c *moveConflictError
 	return errors.As(err, &c) || errors.Is(err, ErrURIConflict)
 }
 
-// MoveResource files an existing resource in another library.
+// invalidPathError marks a destination folder path that breaks the path rules.
+// It is a type rather than a wrapped sentinel so the sentence ValidatePath wrote
+// -- which names the rule that was broken -- reaches the person unchanged.
+type invalidPathError struct{ msg string }
+
+func (e *invalidPathError) Error() string { return e.msg }
+
+// IsInvalidPath reports whether an error names an unusable folder path, so a
+// caller several layers above ValidatePath answers 400 rather than treating it
+// as a failure of its own.
+func IsInvalidPath(err error) bool {
+	var e *invalidPathError
+	return errors.As(err, &e)
+}
+
+// MoveResource refiles an existing resource: in another library, in another
+// folder of the one it is in, or both at once.
 //
 // The caller has already established that claims may modify res
 // (CanModifyResource); this checks the destination half and performs the write.
-// It returns the moved resource's new URI, or ("", nil) when the resource is
-// already in the named library -- a move to where the file already is is not an
-// error, and refusing it would make an idempotent PATCH fail.
+// It returns the resource's new URI, or ("", nil) when the resource already
+// lives at that address -- refiling a file where it already is is not an error,
+// and refusing it would make an idempotent PATCH fail.
+//
+// The comparison that decides "already there" includes the URI the destination
+// composes, not just the library and the path columns. A row whose stored URI
+// disagreed with its folder -- which every category edit before #1528 produced --
+// is at the right destination by both columns and still answers at the wrong
+// address, and saving the folder it already shows is how a person repairs it.
 //
 // The blob is not copied and the reference rows are not touched. An asset or a
 // prompt that declared this resource keeps rendering it: both key on the
 // resource id, and the serve-time rewrite matches the URI string recorded on the
 // reference row, which is what the author wrote and stays what they wrote.
-func MoveResource(ctx context.Context, deps Deps, claims *Claims, res *Resource, to ScopeFilter) (string, error) {
-	if err := ValidateScope(to.Scope, to.ScopeID); err != nil {
+func MoveResource(ctx context.Context, deps Deps, claims *Claims, res *Resource, to Destination) (string, error) {
+	_, uri, err := checkRelocation(claims, res, to, deps.URIScheme)
+	if err != nil || uri == "" {
 		return "", err
 	}
-	if res.Scope == to.Scope && res.ScopeID == to.ScopeID {
-		return "", nil
-	}
-	if !CanMoveToLibrary(*claims, to.Scope, to.ScopeID) {
-		return "", ErrMoveForbidden
-	}
-
-	scheme := deps.URIScheme
-	if scheme == "" {
-		scheme = DefaultURIScheme
-	}
-	uri := MovedURI(scheme, res, to.Scope, to.ScopeID)
 
 	if err := checkURIFree(ctx, deps, res.ID, uri); err != nil {
 		return "", err
 	}
 
-	// The library being left is read before the write, not after. A store is
-	// free to hand back the same *Resource it later mutates, and every "from"
-	// field -- the alias recorded, the audit event's origin -- would then name
-	// the destination on both sides.
+	// Where the resource is being taken from is read before the write, not
+	// after. A store is free to hand back the same *Resource it later mutates,
+	// and every "from" field -- the alias recorded, the audit event's origin --
+	// would then name the destination on both sides.
 	ev := MoveEvent{
 		ResourceID: res.ID, DisplayName: res.DisplayName,
-		FromScope: res.Scope, FromScopeID: res.ScopeID, FromURI: res.URI,
-		ToScope: to.Scope, ToScopeID: to.ScopeID, ToURI: uri,
+		FromScope: res.Scope, FromScopeID: res.ScopeID, FromPath: res.Path, FromURI: res.URI,
+		ToScope: to.Scope, ToScopeID: to.ScopeID, ToPath: to.Path, ToURI: uri,
 		UserID: claims.Sub, UserEmail: PersonAddress(*claims),
 	}
-	dest := Move{Scope: to.Scope, ScopeID: to.ScopeID, URI: uri, FromURI: res.URI}
-	if err := deps.Store.Move(ctx, res.ID, dest); err != nil {
+	dest := Move{ID: res.ID, Scope: to.Scope, ScopeID: to.ScopeID, Path: to.Path, URI: uri, FromURI: res.URI}
+	if err := deps.Store.Move(ctx, []Move{dest}); err != nil {
+		if errors.Is(err, ErrURIConflict) {
+			return "", &moveConflictError{msg: fmt.Sprintf(
+				"another resource already answers at %s; rename or remove it first", uri)}
+		}
 		return "", fmt.Errorf("refiling resource: %w", err)
 	}
 
@@ -112,6 +143,51 @@ func MoveResource(ctx context.Context, deps Deps, claims *Claims, res *Resource,
 		deps.MoveRecorder.RecordMove(ctx, ev)
 	}
 	return uri, nil
+}
+
+// checkRelocation validates the destination and resolves the address it
+// composes, or reports ("", nil) when the resource already answers there.
+//
+// The "already there" test includes the composed URI, not just the two columns.
+// A row whose stored URI disagreed with its folder -- which every category edit
+// before #1528 produced -- is at the right destination by both columns and
+// still answers at the wrong address, and saving the folder it already shows is
+// how a person repairs it.
+func checkRelocation(claims *Claims, res *Resource, to Destination, configured string) (scheme, uri string, err error) {
+	if err := ValidateScope(to.Scope, to.ScopeID); err != nil {
+		return "", "", err
+	}
+	if err := ValidatePath(to.Path); err != nil {
+		return "", "", &invalidPathError{msg: err.Error()}
+	}
+	scheme = configured
+	if scheme == "" {
+		scheme = DefaultURIScheme
+	}
+	uri = RelocatedURI(scheme, res, to.Scope, to.ScopeID, to.Path)
+	if alreadyThere(res, to, uri) {
+		return scheme, "", nil
+	}
+	// Only a change of library needs authority over a library. A person who may
+	// modify the resource may file it anywhere inside the one it is already in.
+	if res.Scope != to.Scope || res.ScopeID != to.ScopeID {
+		if !CanMoveToLibrary(*claims, to.Scope, to.ScopeID) {
+			return "", "", ErrMoveForbidden
+		}
+	}
+	return scheme, uri, nil
+}
+
+// alreadyThere reports whether the resource holds the destination in full: the
+// library, the folder, AND the address the two compose.
+//
+// The address is part of the comparison because the two columns and the URI
+// could disagree: every category edit before #1528 left the URI alone, so a row
+// can be at the right destination by both columns and still answer at the wrong
+// address. Saving the folder it already shows is how a person repairs it.
+func alreadyThere(res *Resource, to Destination, uri string) bool {
+	return res.Scope == to.Scope && res.ScopeID == to.ScopeID &&
+		res.Path == to.Path && res.URI == uri
 }
 
 // checkURIFree refuses a move onto an address another resource occupies, naming
@@ -138,6 +214,6 @@ func checkURIFree(ctx context.Context, deps Deps, id, uri string) error {
 		return nil
 	}
 	return &moveConflictError{msg: fmt.Sprintf(
-		"the target library already holds %q at %s; rename or remove it first",
+		"%q already answers at %s; rename or remove it first",
 		existing.DisplayName, uri)}
 }

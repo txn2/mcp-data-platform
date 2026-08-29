@@ -8,49 +8,60 @@ import (
 // DefaultURIScheme is used when no scheme is configured.
 const DefaultURIScheme = "mcp"
 
-// BuildURI constructs the canonical resource URI from its components.
-func BuildURI(scheme string, scope Scope, scopeID, category, filename string) string {
-	return URIInLibrary(scheme, scope, scopeID, category+"/"+filename)
+// BuildURI constructs the canonical resource URI from its components: the
+// library prefix, the folder path inside it, and the filename.
+func BuildURI(scheme string, scope Scope, scopeID, path, filename string) string {
+	return URIInLibrary(scheme, scope, scopeID, path+"/"+filename)
 }
 
-// URIInLibrary constructs a resource URI naming a library and a path within it,
-// where path is the "category/filename" tail BuildURI composes.
+// URIInLibrary constructs a resource URI naming a library and a tail within it,
+// where tail is the "path/filename" BuildURI composes.
 //
-// It is separate from BuildURI because a move must not disturb the path. A
-// resource's stored URI can already disagree with its category column -- editing
-// the category has never rewritten the URI -- so rebuilding the whole URI on a
-// move would silently change the address as a side effect of refiling the file,
-// which is not what the person asked for. The move parses the path off the URI
-// it has and passes it through here (see MovedURI).
-func URIInLibrary(scheme string, scope Scope, scopeID, path string) string {
+// It is separate from BuildURI because the two halves of the tail move
+// independently: refiling a resource in another library keeps its folder path,
+// and refiling it in another folder keeps its library. Each rewrite composes the
+// half it changes with the half it does not and passes the result through here
+// (see RelocatedURI).
+func URIInLibrary(scheme string, scope Scope, scopeID, tail string) string {
 	if scheme == "" {
 		scheme = DefaultURIScheme
 	}
 	switch scope {
 	case ScopeGlobal:
-		return fmt.Sprintf("%s://global/%s", scheme, path)
+		return fmt.Sprintf("%s://global/%s", scheme, tail)
 	case ScopePersona:
-		return fmt.Sprintf("%s://persona/%s/%s", scheme, scopeID, path)
+		return fmt.Sprintf("%s://persona/%s/%s", scheme, scopeID, tail)
 	case ScopeUser:
-		return fmt.Sprintf("%s://user/%s/%s", scheme, scopeID, path)
+		return fmt.Sprintf("%s://user/%s/%s", scheme, scopeID, tail)
 	default:
-		return fmt.Sprintf("%s://unknown/%s", scheme, path)
+		return fmt.Sprintf("%s://unknown/%s", scheme, tail)
 	}
 }
 
-// MovedURI is the URI a resource takes when it is refiled in another library:
-// its own path under the target library's prefix.
+// RelocatedURI is the URI a resource takes when it is refiled: under the target
+// library's prefix, at the target folder path, keeping its own filename.
 //
-// A stored URI that will not parse falls back to composing the path from the
-// row's category and filename, which is what the URI would have been had it
-// been minted now. That is the only answer available for a row whose URI
-// predates the current scheme or was written by hand, and it is better than
-// refusing the move over an address the mover never chose.
-func MovedURI(scheme string, r *Resource, scope Scope, scopeID string) string {
-	if p, err := ParseURI(scheme, r.URI); err == nil && p.Path != "" {
-		return URIInLibrary(scheme, scope, scopeID, p.Path)
+// The filename is read off the stored URI rather than off the row's filename
+// column, so a resource whose stored address was minted under an older scheme
+// keeps answering at the address its citations use for everything except the
+// half being changed. A stored URI that will not parse, or whose tail carries no
+// filename, falls back to the row's own filename, which is what the URI would
+// have been had it been minted now: that is the only answer available for an
+// address the mover never chose, and it is better than refusing the move over
+// it.
+func RelocatedURI(scheme string, r *Resource, scope Scope, scopeID, path string) string {
+	return URIInLibrary(scheme, scope, scopeID, path+"/"+URIFilename(scheme, r))
+}
+
+// URIFilename is the last segment of a resource's stored URI, falling back to
+// its filename column when the stored URI does not parse into one.
+func URIFilename(scheme string, r *Resource) string {
+	if p, err := ParseURI(scheme, r.URI); err == nil {
+		if i := strings.LastIndex(p.Path, "/"); i >= 0 && i+1 < len(p.Path) {
+			return p.Path[i+1:]
+		}
 	}
-	return BuildURI(scheme, scope, scopeID, r.Category, r.Filename)
+	return r.Filename
 }
 
 // BuildS3Key constructs the S3 object key for a resource blob.

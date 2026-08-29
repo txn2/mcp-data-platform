@@ -1,5 +1,6 @@
 import { type Page } from "@playwright/test";
 import { openAssetProvenance, openPersonaScopeTab } from "./route-actions";
+import { openResourceNamed } from "./route-actions-library";
 
 // The capture actions for the reference surface (#1475, #1488), both ends of
 // it: the panel on the asset that lists what it depends on -- uploaded files
@@ -91,12 +92,7 @@ export async function openAssetThumbnail(page: Page): Promise<void> {
  */
 export async function openResourceUsedByAssets(page: Page): Promise<void> {
   await openPersonaScopeTab(page);
-  await page
-    .getByText("Warehouse Floor Plan", { exact: true })
-    .first()
-    .click({ timeout: 3_000 })
-    .catch(() => {});
-  await page.waitForTimeout(700);
+  await openResourceNamed(page, "Warehouse Floor Plan");
   await page
     .getByTestId("used-by-assets")
     .scrollIntoViewIfNeeded({ timeout: 3_000 })
