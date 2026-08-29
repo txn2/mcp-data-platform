@@ -538,7 +538,10 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"Method is restricted to GET, POST, PUT, DELETE, PATCH, HEAD, " +
 			"PROPFIND, MKCOL, MOVE, COPY; " +
 			"path is joined to the connection's base_url; response bodies above the connection's " +
-			"max_response_bytes are truncated and flagged. Use list_connections to discover " +
+			"max_response_bytes are truncated and flagged. A response's pagination signal is " +
+			"reported in `pagination` and not followed; pass `paginate` to walk every page in " +
+			"this one call and receive the merged array (api_export takes the same block and " +
+			"streams the walk into an asset). Use list_connections to discover " +
 			"available kind=api connections. " + toolkit.CaptureRoute,
 		InputSchema: invokeEndpointSchema,
 	}, t.handleInvoke)
@@ -1268,6 +1271,9 @@ func (t *Toolkit) handleInvoke(ctx context.Context, _ *mcp.CallToolRequest, in I
 	// already authorized the call, so the streamed path inherits the
 	// same gating as the buffered path.
 	if raw := rawPassthroughFromContext(ctx); raw != nil {
+		if in.Paginate != nil {
+			return toolkit.ErrorResult("paginate is not available on the raw passthrough route; call api_invoke_endpoint through the enveloped route or api_export"), nil, nil
+		}
 		return t.handleInvokeRaw(ctx, c, in, raw)
 	}
 
@@ -1278,7 +1284,12 @@ func (t *Toolkit) handleInvoke(ctx context.Context, _ *mcp.CallToolRequest, in I
 	hasExport := t.exportDeps != nil
 	t.mu.RUnlock()
 
-	out, err := invoke(ctx, invocation{cfg: c.cfg, auth: c.auth, client: c.client, specs: c.specs, webdavRoutes: c.webdavRoutes(), budget: budget}, in)
+	inv := invocation{cfg: c.cfg, auth: c.auth, client: c.client, specs: c.specs, webdavRoutes: c.webdavRoutes(), budget: budget}
+	if in.Paginate != nil {
+		return handleInvokeWalk(ctx, inv, pageAuthorizer(ctx, policy, c), in, hasExport)
+	}
+
+	out, err := invoke(ctx, inv, in)
 	if err != nil {
 		// A binary body refused before buffering renders as a
 		// structured 415 with a steer to api_export; budget rejections
@@ -1307,6 +1318,37 @@ func (t *Toolkit) handleInvoke(ctx context.Context, _ *mcp.CallToolRequest, in I
 		out.ResolvedPath = in.Path
 	}
 	return buildInvokeResult(out), out, nil
+}
+
+// handleInvokeWalk is the `paginate` branch of handleInvoke (issue
+// #1535). The route policy is re-run on every page's address, so a next
+// link cannot walk the call onto an operation the persona is not allowed.
+// A failed page is a tool error naming the page; a budget refusal keeps
+// its structured 429 shape.
+func handleInvokeWalk(ctx context.Context, inv invocation, authorize func(InvokeInput) error, in InvokeInput, hasExport bool) (*mcp.CallToolResult, any, error) {
+	out, err := invokeWalk(ctx, inv, authorize, in)
+	if err != nil {
+		return budgetOrErrorResult(err), nil, nil
+	}
+	if !hasExport {
+		out.Hint = ""
+	}
+	if in.OperationID != "" {
+		out.ResolvedPath = in.Path
+	}
+	return buildInvokeResult(out), out, nil
+}
+
+// pageAuthorizer is the route policy check a walk runs on every page.
+// nil when no policy is installed, so a deployment without one pays
+// nothing per page.
+func pageAuthorizer(ctx context.Context, policy RoutePolicy, c *conn) func(InvokeInput) error {
+	if policy == nil {
+		return nil
+	}
+	return func(in InvokeInput) error {
+		return routePolicyError(ctx, policy, in, routeTemplateFor(policy, c, in.Method, in.Path))
+	}
 }
 
 // buildInvokeResult wraps an InvokeOutput in a CallToolResult,
@@ -1339,7 +1381,25 @@ func buildInvokeResult(out InvokeOutput) *mcp.CallToolResult {
 	if outcome == observability.OutcomeTransportErr || outcome == observability.OutcomeUpstreamTimeout {
 		result.IsError = true
 	}
+	stampWalkMeta(result, out.WalkStats)
 	return result
+}
+
+// stampWalkMeta puts a walk's page count on the result's _meta for the
+// audit middleware, which records it on the one call's row under
+// parameters.result. A single-page call stamps nothing.
+func stampWalkMeta(result *mcp.CallToolResult, stats *WalkStats) {
+	if stats == nil {
+		return
+	}
+	if result.Meta == nil {
+		result.Meta = mcp.Meta{}
+	}
+	result.Meta[observability.MetaAuditResult] = map[string]any{
+		"pages_fetched": stats.PagesFetched,
+		"items_merged":  stats.ItemsMerged,
+		"stopped_by":    stats.StoppedBy,
+	}
 }
 
 // auditOutcomeMessage returns the human-readable summary string the
@@ -1375,15 +1435,25 @@ func auditOutcomeMessage(out InvokeOutput) string {
 // the calls that operation serves. It is empty when the connection has
 // no catalog or none of its operations declare a matching path.
 func checkRoutePolicy(ctx context.Context, policy RoutePolicy, in InvokeInput, template string) *mcp.CallToolResult {
+	if err := routePolicyError(ctx, policy, in, template); err != nil {
+		return toolkit.ErrorResult(err.Error())
+	}
+	return nil
+}
+
+// routePolicyError is checkRoutePolicy's decision as an error, so a page
+// walk can run the same gate on every page and fail the call in the
+// policy's own words.
+func routePolicyError(ctx context.Context, policy RoutePolicy, in InvokeInput, template string) error {
 	if policy == nil {
 		return nil
 	}
-	method, mErr := validateMethod(in.Method)
-	if mErr != nil {
-		return toolkit.ErrorResult(mErr.Error())
+	method, err := validateMethod(in.Method)
+	if err != nil {
+		return err
 	}
-	if pErr := validatePath(in.Path); pErr != nil {
-		return toolkit.ErrorResult(pErr.Error())
+	if err := validatePath(in.Path); err != nil {
+		return err
 	}
 	allowed, reason := policy.Allow(ctx, in.Connection, method, in.Path, template)
 	if allowed {
@@ -1393,7 +1463,7 @@ func checkRoutePolicy(ctx context.Context, policy RoutePolicy, in InvokeInput, t
 	if reason != "" {
 		msg = msg + ": " + reason
 	}
-	return toolkit.ErrorResult(msg)
+	return errors.New(msg)
 }
 
 // newHTTPClient builds the per-connection HTTP client. Redirects

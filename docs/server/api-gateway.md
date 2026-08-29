@@ -48,6 +48,56 @@ OpenAPI specs that describe each upstream are stored separately in **API catalog
 
 Supply one form or the other, not both. `path_params` is only valid alongside `operation_id`.
 
+## Pagination
+
+`api_invoke_endpoint` recognizes the common pagination signals on a response and reports them as `pagination: {has_more, next_cursor, next_url, source}`: an RFC 5988 `Link: rel="next"` header, `@odata.nextLink`, `next_cursor`, `nextCursor`, `next_page_token`, `nextPageToken`, or `next` in the top-level body. A URL-valued signal is reported as `next_url`, a token as `next_cursor`, and `source` names which one was found. Without a `paginate` block the signal is reported and not followed: each page is one call, one audit row, and one model turn, which keeps a short loop observable in the conversation.
+
+### Walking a paginated operation
+
+`api_invoke_endpoint` and `api_export` take the same optional `paginate` block. With it, the gateway walks the pages itself inside the one call: `api_export` streams the merged array into one asset, `api_invoke_endpoint` returns it inline.
+
+```json
+{
+  "connection": "vendor",
+  "operation_id": "listChangelog",
+  "query_params": {"per_page": 100},
+  "paginate": {
+    "items": "data",
+    "cursor_param": "cursor",
+    "page_param": "page",
+    "max_pages": 500
+  },
+  "name": "changelog.json"
+}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `items` | yes | The key of the array merged across pages (`data`, `items`, `results`, `value`), a dotted path to a nested one (`result.items`), or `$` when the page body itself is the array. It is required because guessing the key is how a merged result silently becomes a list of envelopes. |
+| `cursor_param` | no | The query parameter a body cursor is sent back as (`cursor`, `page_token`, `starting_after`). |
+| `page_param` | no | The query parameter advanced when a page carries no next signal (`page`, `offset`). Its starting value must be present in `query_params`; the first page is requested exactly as given. |
+| `page_step` | no | What `page_param` is advanced by per page. Defaults to 1; set the page size for an offset parameter. |
+| `max_pages` | no | Upper bound on pages walked. Defaults to 100, at most 10000. |
+
+How the next page is reached is decided per page, from the signal that page carries:
+
+1. A `next_url` (a `Link` header, `@odata.nextLink`, or a URL-valued `next`) is followed. It is pinned to the connection's scheme and host and must fall under its `base_url` path; the path is then validated and checked against the persona's route policy exactly as the first page was, so a next link cannot move the walk to another host or to an operation the persona is not allowed. Both refusals fail the call before any request is sent to the link.
+2. A `next_cursor` is sent back as the query parameter `cursor_param` names. A cursor on a page that names no `cursor_param` and no `page_param` fails the walk: the gateway has no way to send it.
+3. With neither signal, and `page_param` named, that parameter is advanced by `page_step`. A body cursor is ignored in this mode, so an API that pages by number but writes `next: true` still walks.
+
+The walk stops at the first page with no next signal or no items, at `max_pages`, or at the byte cap, and reports where it stopped on the output of both tools: `pages_fetched`, `items_merged`, and `stopped_by` (`end`, `max_pages`, `max_bytes`). A page-numbered walk has no signal to end on, so it ends on the first empty page, which counts as fetched. A walk stopped at `max_pages` also reports `pagination` with the signal for the page it would have requested next, so the caller can resume from it.
+
+Pacing is the gateway's. An upstream that answers a page with `429` or `503` carrying `Retry-After` pauses the walk for that interval, bounded by the call's timeout (`api_export` defaults to 5 minutes and caps at 30; `api_invoke_endpoint` uses the connection's `call_timeout`), and requests the same page again; an interval the remaining timeout cannot contain fails the call naming it, and a page refused more than ten times in a row fails rather than being polled until the timeout. A page that fails for any other reason (a `500`, a `429` with no `Retry-After`, a transport error, a body that is not JSON, a body whose `items` is not an array) fails the call with the page number in the error, and no asset is written.
+
+Each page is read under the connection's `max_response_bytes`, the same cap a single call has; a page past it fails the walk with a steer to ask the upstream for a smaller page. Beyond that the two tools differ:
+
+- `api_export` streams: the merged array is opened, each page's items are written to storage as they arrive, copied byte for byte from the page, and the array is closed, so memory holds one page whatever the page count. The asset is one `application/json` document whose content is the merged array. Its provenance records the `paginate` block, `pages_fetched`, `items_merged`, `stopped_by`, and the cursor or link that addressed the last page. A walk whose merged output would pass `portal.export.max_bytes` fails all-or-nothing, as a single oversize response does. The idempotency key covers the whole walk.
+- `api_invoke_endpoint` merges inline under `max_response_bytes`. A page that would take the merged array past the cap is not merged: the call returns the pages that fit with `stopped_by: "max_bytes"`, `body_truncated: true`, a hint steering to `api_export`, and `pagination` holding the signal for the unmerged page. `status` and `headers` are the last page's.
+
+One tool call is one rate-limit token, one audit row, and, from a managed script, one `platform.call`. The audit row for the call records the walk under `parameters.result` (`pages_fetched`, `items_merged`, `stopped_by`) beside the `paginate` block it was called with, which is the observability the per-call loop was keeping.
+
+On the built-in `util` connection, a `POST /util/fetch` walk pages the document named by the `url` in the request body: a next link is pinned to that document's host, and a cursor or page parameter is added to that URL's query. The REST shim's raw passthrough route streams one body and refuses `paginate`.
+
 ## Request bodies
 
 The `body` argument is a JSON value, and the connection's catalog decides how it reaches the upstream. The resolved operation's declared `requestBody` media type drives the encoding, so a caller passes the data and never the framing:

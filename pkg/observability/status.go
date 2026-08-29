@@ -52,6 +52,14 @@ const (
 	// the scrubbed transport error). Used to populate
 	// audit_logs.error_message when no other source is available.
 	MetaAuditOutcomeMessage = "audit_outcome_message"
+
+	// MetaAuditResult is the _meta key under which a tool reports facts
+	// about the call's outcome for the audit row: a map the audit
+	// middleware records under parameters.result. The api gateway's page
+	// walk stamps its pages_fetched, items_merged, and stopped_by here,
+	// which is how one call that walked 160 pages stays observable in
+	// audit (issue #1535).
+	MetaAuditResult = "audit_result"
 )
 
 // HTTP status class labels for outbound calls. The "other" bucket

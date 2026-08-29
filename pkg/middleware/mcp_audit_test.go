@@ -967,3 +967,42 @@ func TestMCPAuditMiddleware_KeepsAValueWithinTheBound(t *testing.T) {
 	event := auditMWWithParams(t, map[string]any{"sql": sql})
 	assert.Equal(t, sql, event.Parameters["sql"])
 }
+
+// TestReadAuditResultMeta covers the nil-safety of the result-facts
+// reader: a missing or mistyped value yields nil rather than a panic.
+func TestReadAuditResultMeta(t *testing.T) {
+	assert.Nil(t, readAuditResultMeta(nil))
+	assert.Nil(t, readAuditResultMeta(&mcp.CallToolResult{}))
+	assert.Nil(t, readAuditResultMeta(&mcp.CallToolResult{Meta: mcp.Meta{observability.MetaAuditResult: "not a map"}}))
+	facts := map[string]any{"pages_fetched": 3}
+	assert.Equal(t, facts, readAuditResultMeta(&mcp.CallToolResult{Meta: mcp.Meta{observability.MetaAuditResult: facts}}))
+}
+
+// TestBuildMCPAuditEvent_ResultFactsRecordedUnderParameters: facts a tool
+// stamps on its result land under parameters.result, beside the
+// arguments, and are recorded even when argument logging is off because
+// they are not argument values (issue #1535).
+func TestBuildMCPAuditEvent_ResultFactsRecordedUnderParameters(t *testing.T) {
+	pc := &PlatformContext{ToolName: "api_export"}
+	req := createAuditTestRequest(t, "api_export", map[string]any{"connection": "vendor", "paginate": map[string]any{"items": "data"}})
+	facts := map[string]any{"pages_fetched": 160, "items_merged": 16000, "stopped_by": "end"}
+	result := &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: "{}"}},
+		Meta:    mcp.Meta{observability.MetaAuditResult: facts},
+	}
+
+	ev := buildMCPAuditEvent(pc, auditCallInfo{Request: req, Result: result}, defaultAuditParamPolicy())
+	assert.Equal(t, "vendor", ev.Parameters["connection"], "arguments are still recorded beside the facts")
+	assert.Equal(t, facts, ev.Parameters["result"])
+	assert.True(t, ev.Success)
+
+	off := auditParamPolicy{logParameters: false, redactKeys: map[string]struct{}{}}
+	ev = buildMCPAuditEvent(pc, auditCallInfo{Request: req, Result: result}, off)
+	assert.Nil(t, ev.Parameters["connection"], "arguments are dropped by the policy")
+	assert.Equal(t, facts, ev.Parameters["result"], "the facts are not arguments and survive the policy")
+
+	plain := &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "{}"}}}
+	ev = buildMCPAuditEvent(pc, auditCallInfo{Request: req, Result: plain}, defaultAuditParamPolicy())
+	_, has := ev.Parameters["result"]
+	assert.False(t, has, "a result with no facts adds no key")
+}

@@ -32,7 +32,7 @@ audit:
 | `database.dsn` | string | - | PostgreSQL connection string. Required for audit logging. |
 | `audit.enabled` | bool | `false` | Master switch for audit logging. |
 | `audit.log_tool_calls` | bool | `false` | Log every `tools/call` request. Both this and `enabled` must be `true`. |
-| `audit.log_parameters` | bool | `true` | Capture tool-call arguments. Set `false` to store a null `parameters` field. See [Parameter Sanitization](#parameter-sanitization). |
+| `audit.log_parameters` | bool | `true` | Capture tool-call arguments. Set `false` to drop them; `parameters` then holds only a `result` a tool reports about the call's outcome, or null. See [Parameter Sanitization](#parameter-sanitization). |
 | `audit.redact_keys` | list of strings | `[]` | Top-level argument keys whose values become `[REDACTED]` before the event leaves the request path. Case-insensitive; top-level only. See [Parameter Sanitization](#parameter-sanitization). |
 | `audit.delivery` | string | `async` | Store-write path: `async` (best-effort, never blocks the tool call) or `sync` (writes on the request goroutine for backpressure and zero queue drops). See [Delivery semantics](#delivery-semantics). |
 | `audit.retention_days` | int | `90` | Days to keep audit logs before automatic cleanup. |
@@ -81,7 +81,7 @@ Every successful or failed tool call produces one row in `audit_logs`:
 | `toolkit_name` | VARCHAR(100) | Toolkit instance name from configuration (e.g., `production`, `staging`). For gateway proxied tools, the gateway toolkit's own name (typically `primary`). |
 | `connection` | VARCHAR(100) | Connection name. For native toolkits, the connection used to route the call (e.g., `prod-trino`). For gateway proxied tools, the upstream MCP connection name (e.g., `vendor`) — populated via the registry's `ConnectionResolver` interface so per-upstream auditing is accurate without relying on caller-supplied args. |
 | `purpose` | TEXT | The one sentence the caller gave for **why** this call was made: the wider task it serves. Stated by the agent as the `purpose` argument and taken off the request before the tool saw it. `NULL` on rows written before the column existed; empty on a tool the platform does not gate and on a caller that cannot thread arguments (an MCP App, a script run, the REST shim). It is not an argument value, so [Parameter Sanitization](#parameter-sanitization) does not apply to it. See [Why a call happened](#why-a-call-happened). |
-| `parameters` | JSONB | Tool call arguments with sensitive values redacted. See [Parameter Sanitization](#parameter-sanitization). |
+| `parameters` | JSONB | Tool call arguments with sensitive values redacted, plus a `result` key when the tool reports facts about the call's outcome: an API gateway [page walk](api-gateway.md#walking-a-paginated-operation) records `pages_fetched`, `items_merged`, and `stopped_by` there. See [Parameter Sanitization](#parameter-sanitization). |
 | `success` | BOOLEAN | `true` if the tool handler returned without error and `IsError` was not set. |
 | `error_message` | TEXT | Error description if `success` is `false`. |
 | `session_id` | VARCHAR(255) | Session identity. For agents (`source=mcp`) this is the explicit session handle (`dps_…`) or the transport session ID. Portal-driven runs (`source=admin`) carry a distinct portal session ID (`dpp_…`) so they are attributable and never collide with an agent session. Links tool calls within the same session for pattern analysis. |
@@ -256,7 +256,7 @@ A built-in baseline replaces the values of these well-known keys with `[REDACTED
 
 This baseline matching is case-sensitive and exact. A parameter named `user_password` would **not** be caught by it (only `password` is matched). It is a safety net, not a substitute for configuring your own sensitive argument names.
 
-For your own keys, set `audit.redact_keys`, a case-insensitive list of top-level argument keys whose values are masked in the middleware, before the event ever leaves the request path. Nested keys are not matched (top-level only, by design). For tools whose inputs cannot be made safe to retain even with redaction, set `audit.log_parameters: false` to drop the arguments entirely (a null `parameters` field).
+For your own keys, set `audit.redact_keys`, a case-insensitive list of top-level argument keys whose values are masked in the middleware, before the event ever leaves the request path. Nested keys are not matched (top-level only, by design). For tools whose inputs cannot be made safe to retain even with redaction, set `audit.log_parameters: false` to drop the arguments entirely. A `result` key a tool reports about the call's outcome is not an argument value and is recorded either way; with arguments dropped it is all `parameters` holds.
 
 ## Delivery semantics
 

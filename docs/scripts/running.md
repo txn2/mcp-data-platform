@@ -77,6 +77,28 @@ platform.call("manage_asset", {
 })
 ```
 
+A collection an API serves in pages is one call, not a loop. Pass `paginate`
+to `api_export` (or `api_invoke_endpoint`) and the gateway walks the pages
+inside that call, pacing on the upstream's `Retry-After`, streaming the merged
+array into one asset, and returning the asset's metadata with `pages_fetched`
+and `stopped_by`. A 160-page changelog is one `platform.call`, one rate-limit
+token, one audit row, and no page bodies held in the script:
+
+```python
+asset = platform.call("api_export", {
+    "connection": "vendor",
+    "operation_id": "listChangelog",
+    "query_params": {"per_page": 100},
+    "paginate": {"items": "data", "cursor_param": "cursor", "max_pages": 500},
+    "name": "changelog.json",
+})
+print(asset["pages_fetched"], asset["stopped_by"])
+```
+
+See [Walking a paginated
+operation](../server/api-gateway.md#walking-a-paginated-operation) for how the
+next page is found and where the walk stops.
+
 A script is executed top to bottom; there is no `main` and nothing calls one.
 
 **A statement passed to `trino_execute` is not parameter-bound.** `platform.query`

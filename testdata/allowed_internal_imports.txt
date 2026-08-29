@@ -737,6 +737,7 @@ pkg/textpatch -> pkg/contenttype
 pkg/textpatch/patchmcp -> pkg/middleware
 pkg/textpatch/patchmcp -> pkg/textpatch
 pkg/toolkits/apigateway -> internal/logsan
+pkg/toolkits/apigateway -> internal/pagewalk
 pkg/toolkits/apigateway -> pkg/authevents
 pkg/toolkits/apigateway -> pkg/blobserve
 pkg/toolkits/apigateway -> pkg/connoauth
