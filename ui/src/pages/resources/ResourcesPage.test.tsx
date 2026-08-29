@@ -139,25 +139,25 @@ describe("the Resources page offers Upload only where the caller may add", () =>
     expect(screen.queryByTestId("scope-read-only")).toBeNull();
   });
 
-  // A platform admin reading their own portal is a reader, not an operator.
-  // The override that makes every library writable belongs to the
-  // administrator's section; offering the same Upload on the portal's Global
-  // tab put publishing to everyone signed in one click away from browsing.
-  it("withholds it from a platform admin on the user page's global library", () => {
+  // The server grants a platform admin every library whatever route the request
+  // arrived on, so the page offers it on every tab the administrator is looking
+  // at. Withholding it here left them reading a global library they hold the
+  // authority to publish to, on a page that would not let them (#1527).
+  it("offers it to a platform admin on the user page's global library", () => {
     signIn({ is_admin: true });
     renderPage();
     selectTab("Global");
 
-    expect(screen.queryByRole("button", { name: "Upload" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Upload Resource" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Upload" })).toBeTruthy();
+    expect(screen.queryByTestId("scope-read-only")).toBeNull();
   });
 
-  it("withholds it from a platform admin on the user page's persona library", () => {
+  it("offers it to a platform admin on the user page's persona library", () => {
     signIn({ is_admin: true });
     renderPage();
     selectTab("analyst");
 
-    expect(screen.queryByRole("button", { name: "Upload" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Upload" })).toBeTruthy();
   });
 
   it("still offers it to a platform admin on their own library", () => {
@@ -165,26 +165,6 @@ describe("the Resources page offers Upload only where the caller may add", () =>
     renderPage();
 
     expect(screen.getByRole("button", { name: "Upload" })).toBeTruthy();
-  });
-
-  // Withholding a control from somebody who holds the authority has to name
-  // where the authority is exercised, or it reads as the platform having lost
-  // track of who they are.
-  it("tells the platform admin where they do add to the library instead", () => {
-    signIn({ is_admin: true });
-    renderPage();
-    selectTab("Global");
-
-    expect(screen.getByTestId("scope-read-only").textContent).toContain(
-      "Add to it from Admin > Resources.",
-    );
-  });
-
-  it("says no such thing to a reader who has no such authority", () => {
-    renderPage();
-    selectTab("Global");
-
-    expect(screen.getByTestId("scope-read-only").textContent).not.toContain("Admin > Resources");
   });
 
   it("keeps every library writable in the administrator's own section", () => {
@@ -283,6 +263,20 @@ describe("an upload from the user page is filed under the tab it was started fro
 
     const form = await fillAndSubmit(container);
     expect(form.get("path")).toBe("data/weekly");
+  });
+
+  // The tab is the destination for an administrator too. A file they meant for
+  // everyone signed in silently landing in their own library would be the worse
+  // half of the defect the Upload control's absence hid (#1527).
+  it("sends the global scope when a platform admin uploads from the Global tab", async () => {
+    signIn({ is_admin: true });
+    const { container } = renderPage();
+    selectTab("Global");
+    fireEvent.click(screen.getByRole("button", { name: "Upload" }));
+
+    const form = await fillAndSubmit(container);
+    expect(form.get("scope")).toBe("global");
+    expect(form.get("scope_id")).toBeNull();
   });
 });
 

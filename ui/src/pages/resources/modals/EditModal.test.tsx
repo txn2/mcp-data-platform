@@ -62,12 +62,12 @@ function stubApi() {
   );
 }
 
-function renderModal(admin = false) {
+function renderModal() {
   stubApi();
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <EditModal resource={RESOURCE} admin={admin} onClose={() => {}} />
+      <EditModal resource={RESOURCE} onClose={() => {}} />
     </QueryClientProvider>,
   );
 }
@@ -140,7 +140,7 @@ describe("the library field on the edit dialog", () => {
 
   it("asks an administrator for the address when they pick a person's library", async () => {
     signIn({ is_admin: true });
-    renderModal(true);
+    renderModal();
 
     await pickLibrary("A person's library...");
     fireEvent.click(screen.getByText("Save"));
@@ -157,24 +157,29 @@ describe("the library field on the edit dialog", () => {
     expect(patched).toEqual({ scope: "user", scope_id: "her@example.com" });
   });
 
+  // The dialog opens from the resource's own page, on the portal and in the
+  // administrator's section alike, and the same identity is offered the same
+  // targets on both. Withholding Global from the person the server grants it to
+  // was the defect (#1527).
   it("offers an administrator the global library and every persona", async () => {
     signIn({ is_admin: true });
-    renderModal(true);
+    renderModal();
 
     await openLibraryPicker();
     expect(screen.getByRole("option", { name: "Global" })).toBeTruthy();
-    // The deployment's persona list is fetched, so the option arrives with it.
+    // Their own claims name the persona they belong to; the deployment's list is
+    // fetched for them, so the personas they administer nothing of arrive too.
+    expect(screen.getByRole("option", { name: "ops persona" })).toBeTruthy();
     expect(await screen.findByRole("option", { name: "finance persona" })).toBeTruthy();
   });
 
-  it("withholds the global library on the reader's own page", async () => {
-    // Same rule the Upload control applies: publishing to everyone signed in is
-    // not offered inside a page reached by browsing.
-    signIn({ is_admin: true });
-    renderModal(false);
+  it("offers a reader neither the global library nor a persona they have no claim on", async () => {
+    signIn();
+    renderModal();
 
     await openLibraryPicker();
     expect(screen.getByRole("option", { name: "ops persona" })).toBeTruthy();
     expect(screen.queryByRole("option", { name: "Global" })).toBeNull();
+    expect(screen.queryByRole("option", { name: "finance persona" })).toBeNull();
   });
 });

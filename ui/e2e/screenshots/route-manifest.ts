@@ -89,21 +89,21 @@ export const routes: ScreenshotRoute[] = [
     beforeCapture: openPersonaScopeTab,
   },
   {
-    // The libraries the reader's own page does not upload to (#1470). The
-    // platform-admin override belongs to the administrator's section, so an
-    // administrator reading their own Resources page is offered Upload on
-    // their own library alone -- and is told, in the control's place, where
-    // the rest of their authority is exercised.
-    slug: "resources-read-only",
+    // The global library on the reader's own Resources page, where a platform
+    // administrator is offered Upload (#1527). The control follows the caller's
+    // authority rather than which section the page was mounted in, so the tab
+    // an administrator can publish to says so on the page they were already
+    // reading it on.
+    slug: "resources-global",
     path: "/portal/resources",
     category: "user",
     beforeCapture: async (page) => {
       await page.getByRole("tab", { name: "Global" }).click({ timeout: 3_000 });
       // Waited on rather than timed out: a swallowed click would ship the
-      // caller's own library captioned as the one they cannot add to, which is
-      // the opposite of what this documents.
+      // caller's own library captioned as the global one, which is the opposite
+      // of what this documents.
       await page
-        .getByTestId("scope-read-only")
+        .getByRole("button", { name: "Upload", exact: true })
         .waitFor({ state: "visible", timeout: 5_000 });
       await page.waitForTimeout(400);
     },

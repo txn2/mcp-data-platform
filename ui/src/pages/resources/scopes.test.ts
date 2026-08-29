@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { UserProfile } from "@/stores/auth";
 import {
-  adminReachNote,
   canWriteScope,
   currentLibrary,
   libraryCopy,
@@ -80,48 +79,21 @@ describe("who may add to a library", () => {
     expect(canWriteScope(user, { scope: "global", scope_id: "" })).toBe(false);
   });
 
-  it("grants a platform admin every library in their own section, however their admin status is stated", () => {
+  // The server grants a platform admin every library whatever route the request
+  // arrived on (CanWriteScope, pkg/resource/permission.go), so the browser does
+  // too: the authority is the identity's, not the page's (#1527).
+  it("grants a platform admin every library, however their admin status is stated", () => {
     for (const admin of [
       reader({ is_admin: true }),
       reader({ roles: ["admin"] }),
       reader({ roles: ["platform-admin"] }),
     ]) {
-      expect(canWriteScope(admin, { scope: "global", scope_id: "" }, "admin")).toBe(true);
-      expect(canWriteScope(admin, { scope: "persona", scope_id: "finance" }, "admin")).toBe(true);
-      expect(
-        canWriteScope(admin, { scope: "user", scope_id: "someone@example.com" }, "admin"),
-      ).toBe(true);
+      expect(canWriteScope(admin, { scope: "global", scope_id: "" })).toBe(true);
+      expect(canWriteScope(admin, { scope: "persona", scope_id: "finance" })).toBe(true);
+      expect(canWriteScope(admin, { scope: "user", scope_id: "someone@example.com" })).toBe(true);
       // The admin all-scopes tab names no library; the dialog picks there.
-      expect(canWriteScope(admin, null, "admin")).toBe(true);
+      expect(canWriteScope(admin, null)).toBe(true);
     }
-  });
-
-  // The same admin on their own Resources page is a reader. The override is
-  // the administrator's section's, not the identity's, so browsing one's own
-  // material never puts publishing to everyone signed in one click away.
-  it("withholds every library but their own from a platform admin on the portal", () => {
-    const admin = reader({ is_admin: true });
-    expect(canWriteScope(admin, { scope: "global", scope_id: "" }, "portal")).toBe(false);
-    expect(canWriteScope(admin, { scope: "persona", scope_id: "finance" }, "portal")).toBe(false);
-    expect(
-      canWriteScope(admin, { scope: "user", scope_id: "someone@example.com" }, "portal"),
-    ).toBe(false);
-    expect(canWriteScope(admin, null, "portal")).toBe(false);
-    expect(canWriteScope(admin, targetForTab("user", admin), "portal")).toBe(true);
-  });
-
-  // A persona's own administrator holds that authority as themselves, so the
-  // portal keeps offering it: withholding it there would leave them with no
-  // surface at all, since the administrator's section is platform-admin only.
-  it("keeps a persona administrator their own persona library on the portal", () => {
-    const user = reader({ roles: ["dp_persona-admin:analyst"] });
-    expect(canWriteScope(user, { scope: "persona", scope_id: "analyst" }, "portal")).toBe(true);
-    expect(canWriteScope(user, { scope: "persona", scope_id: "finance" }, "portal")).toBe(false);
-  });
-
-  it("defaults to the administrator's reading when no surface is named", () => {
-    const admin = reader({ is_admin: true });
-    expect(canWriteScope(admin, { scope: "global", scope_id: "" })).toBe(true);
   });
 
   it("refuses a reader the all-scopes tab, which names no library to check", () => {
@@ -134,22 +106,6 @@ describe("who may add to a library", () => {
 
   it("refuses a caller with no resolved id their own library rather than matching on empty", () => {
     expect(canWriteScope(reader({ user_id: "" }), { scope: "user", scope_id: "" })).toBe(false);
-  });
-});
-
-describe("where an administrator is told to exercise the authority the portal withholds", () => {
-  it("names the administrator's section for a platform admin on the portal", () => {
-    expect(adminReachNote(reader({ is_admin: true }), "portal")).toContain("Admin > Resources");
-  });
-
-  it("says nothing in the administrator's own section, where nothing is withheld", () => {
-    expect(adminReachNote(reader({ is_admin: true }), "admin")).toBe("");
-  });
-
-  it("says nothing to a reader who holds no such authority", () => {
-    expect(adminReachNote(reader(), "portal")).toBe("");
-    expect(adminReachNote(reader({ roles: ["dp_persona-admin:analyst"] }), "portal")).toBe("");
-    expect(adminReachNote(null, "portal")).toBe("");
   });
 });
 
@@ -171,32 +127,39 @@ describe("what a library is called", () => {
 
 describe("the libraries a resource can be moved to", () => {
   it("offers a persona the caller merely belongs to, which Upload does not", () => {
-    const targets = moveTargets(reader(), [], "portal");
+    const targets = moveTargets(reader(), []);
     expect(targets.map((t) => targetKey(t))).toEqual([
       "user:analyst@example.com",
       "persona:analyst",
     ]);
     // The looser arm is the whole point: belonging is enough to receive a file
     // you already own, while adding a new one still takes the admin role.
-    expect(canWriteScope(reader(), { scope: "persona", scope_id: "analyst" }, "portal")).toBe(false);
+    expect(canWriteScope(reader(), { scope: "persona", scope_id: "analyst" })).toBe(false);
   });
 
   it("offers nothing but their own library to a reader in no persona", () => {
-    const targets = moveTargets(reader({ persona: undefined, roles: [] }), [], "portal");
+    const targets = moveTargets(reader({ persona: undefined, roles: [] }), []);
     expect(targets.map((t) => targetKey(t))).toEqual(["user:analyst@example.com"]);
   });
 
   it("names a persona once even when the caller both belongs to it and administers it", () => {
-    const targets = moveTargets(
-      reader({ persona: "finance", roles: ["dp_persona-admin:finance"] }),
-      [],
-      "portal",
-    );
+    const targets = moveTargets(reader({ persona: "finance", roles: ["dp_persona-admin:finance"] }), []);
     expect(targets.filter((t) => t.scope === "persona")).toHaveLength(1);
   });
 
+  // A reader is never offered a persona out of the deployment's list, whatever
+  // list they are handed: the fetched names are the administrator's, and the
+  // page that has no administrator to fetch them for passes none.
+  it("offers a reader nothing out of a persona list they hold no authority over", () => {
+    const targets = moveTargets(reader(), ["finance", "ops"]);
+    expect(targets.map((t) => targetKey(t))).toEqual([
+      "user:analyst@example.com",
+      "persona:analyst",
+    ]);
+  });
+
   it("gives an administrator every persona, the global library, and a named person", () => {
-    const targets = moveTargets(reader({ is_admin: true }), ["finance", "ops"], "admin");
+    const targets = moveTargets(reader({ is_admin: true, persona: undefined }), ["finance", "ops"]);
     expect(targets.map((t) => targetKey(t))).toEqual([
       "user:analyst@example.com",
       "persona:finance",
@@ -206,16 +169,29 @@ describe("the libraries a resource can be moved to", () => {
     ]);
   });
 
-  it("withholds the platform-admin override on the reader's own page", () => {
-    // Same rule canWriteScope applies: publishing to everyone signed in is not
-    // offered inside a page reached by browsing.
-    const targets = moveTargets(reader({ is_admin: true }), ["finance"], "portal");
-    expect(targets.map((t) => targetKey(t))).not.toContain("global:");
-    expect(targets.map((t) => targetKey(t))).not.toContain(`user:${PERSON_TARGET}`);
+  // The same targets wherever the picker is drawn: the override is the
+  // identity's and not the page's, and withholding Global from the person the
+  // server grants it to was the defect (#1527).
+  it("keeps an administrator the personas their own claims name before the list arrives", () => {
+    const targets = moveTargets(reader({ is_admin: true, persona: "analyst" }), []);
+    expect(targets.map((t) => targetKey(t))).toEqual([
+      "user:analyst@example.com",
+      "persona:analyst",
+      "global:",
+      `user:${PERSON_TARGET}`,
+    ]);
+  });
+
+  it("names a persona once when both the list and the caller's claims carry it", () => {
+    const targets = moveTargets(reader({ is_admin: true, persona: "finance" }), ["finance", "ops"]);
+    expect(targets.filter((t) => t.scope === "persona").map((t) => t.scope_id)).toEqual([
+      "finance",
+      "ops",
+    ]);
   });
 
   it("offers nobody anything when nobody is signed in", () => {
-    expect(moveTargets(null, ["finance"], "admin")).toEqual([]);
+    expect(moveTargets(null, ["finance"])).toEqual([]);
   });
 });
 
@@ -248,12 +224,7 @@ describe("the library a resource is in now", () => {
 
 describe("the options the Library picker offers", () => {
   it("puts the current library first and never twice", () => {
-    const options = libraryOptions(
-      { scope: "user", scope_id: "analyst@example.com" },
-      reader(),
-      [],
-      "portal",
-    );
+    const options = libraryOptions({ scope: "user", scope_id: "analyst@example.com" }, reader(), []);
     expect(options.map((t) => targetKey(t))).toEqual([
       "user:analyst@example.com",
       "persona:analyst",
@@ -267,7 +238,6 @@ describe("the options the Library picker offers", () => {
       { scope: "user", scope_id: "her@example.com" },
       reader({ is_admin: true }),
       ["ops"],
-      "admin",
     );
     expect(options[0]).toMatchObject({ scope: "user", scope_id: "her@example.com" });
   });
@@ -276,6 +246,6 @@ describe("the options the Library picker offers", () => {
     // A picker whose only entry is where the file already sits is a control
     // that cannot do anything, so the field is not shown at all.
     const own = { scope: "user", scope_id: "analyst@example.com" } as const;
-    expect(libraryOptions(own, reader({ persona: undefined, roles: [] }), [], "portal")).toEqual([]);
+    expect(libraryOptions(own, reader({ persona: undefined, roles: [] }), [])).toEqual([]);
   });
 });

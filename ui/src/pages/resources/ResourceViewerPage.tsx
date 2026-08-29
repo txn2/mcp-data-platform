@@ -14,6 +14,7 @@ import { FolderBreadcrumbs } from "./parts/FolderBreadcrumbs";
 import { libraryTabFor } from "./parts/libraryUrl";
 import { ResourceContent } from "./parts/ResourceContent";
 import { ResourceSidebar } from "./parts/ResourceSidebar";
+import { canWriteScope } from "./scopes";
 import { scopeIcon, scopeLabel } from "./shared";
 
 // downloadResource pulls the current content and hands it to the browser under
@@ -34,9 +35,6 @@ async function downloadResource(r: Resource) {
 
 interface Props {
   resourceId: string;
-  /** True on the administrator's copy of the section, which is what carries
-   * authority over a resource somebody else uploaded. */
-  admin?: boolean;
   /** Where the library this was opened from lives. */
   onBack: () => void;
   /**
@@ -59,7 +57,7 @@ interface Props {
  * Editing and deleting stay dialogs. They are bounded forms, which is the shape
  * ModalShell is for.
  */
-export function ResourceViewerPage({ resourceId, admin = false, onBack, onOpenFolder }: Props) {
+export function ResourceViewerPage({ resourceId, onBack, onOpenFolder }: Props) {
   const { data: resource, isLoading } = useResource(resourceId);
   const currentUser = useAuthStore((s) => s.user);
   const [editing, setEditing] = useState(false);
@@ -86,8 +84,15 @@ export function ResourceViewerPage({ resourceId, admin = false, onBack, onOpenFo
   }
 
   const ScopeIcon = scopeIcon(resource.scope);
-  // Users can only edit/delete their own resources. Admins can edit/delete any.
-  const canModify = admin || resource.uploader_sub === currentUser?.user_id;
+  // Who may edit or delete this file, read the way CanModifyResource reads it
+  // (pkg/resource/permission.go): whoever uploaded it, and whoever may add to
+  // the library it lives in. Which page the viewer was opened from is not part
+  // of it -- keying the check on that withheld Edit from a platform
+  // administrator looking at a file they did not upload, on a resource the
+  // server would have let them rewrite (#1527).
+  const canModify =
+    (resource.uploader_sub !== "" && resource.uploader_sub === currentUser?.user_id) ||
+    canWriteScope(currentUser, { scope: resource.scope, scope_id: resource.scope_id });
 
   return (
     <>
@@ -148,7 +153,7 @@ export function ResourceViewerPage({ resourceId, admin = false, onBack, onOpenFo
       </ViewerLayout>
 
       {editing && (
-        <EditModal resource={resource} admin={admin} onClose={() => setEditing(false)} />
+        <EditModal resource={resource} onClose={() => setEditing(false)} />
       )}
 
       {deleting && (

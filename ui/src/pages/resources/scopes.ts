@@ -26,9 +26,18 @@ export function personaAdminNames(roles: string[]): string[] {
   return names;
 }
 
-// Mirrors isPlatformAdmin in pkg/resource/permission.go: the persona-resolved
-// admin flag the server sends on /me, or either unprefixed platform role.
-function isPlatformAdmin(user: UserProfile): boolean {
+/**
+ * isPlatformAdmin mirrors the function of the same name in
+ * pkg/resource/permission.go: the persona-resolved admin flag the server sends
+ * on /me, or either unprefixed platform role.
+ *
+ * Exported because it is also what decides whether a page fetches the
+ * deployment's persona list: the libraries an administrator may move a
+ * resource into include every persona, which the caller's own claims do not
+ * name.
+ */
+export function isPlatformAdmin(user: UserProfile | null): boolean {
+  if (!user) return false;
   const roles = user.roles ?? [];
   return user.is_admin || roles.includes("admin") || roles.includes("platform-admin");
 }
@@ -45,43 +54,24 @@ export function targetForTab(tab: string, user: UserProfile | null): ScopeTarget
 }
 
 /**
- * Which Resources surface is asking.
- *
- * "admin" is the administrator's section, where the platform-admin override
- * applies and every library is writable. "portal" is the reader's own
- * Resources page, where it does not: a platform admin reading their own portal
- * is offered Upload on their own library alone, and adds to a persona's or the
- * global library from Admin > Resources instead.
- *
- * The two surfaces differ because the portal's tabs are the libraries a reader
- * can SEE, and a reader browsing their own material is not administering the
- * platform. Offering the same Upload on every one of those tabs put publishing
- * to everyone signed in one click away from browsing, with nothing on screen
- * marking the difference.
- *
- * This narrows no authority: the same admin adds to the same libraries on
- * Admin > Resources, which is where adminReachNote points them.
- */
-export type Surface = "portal" | "admin";
-
-/**
  * canWriteScope answers, for the browser, the question CanWriteScope answers
  * for the request (pkg/resource/permission.go): may this caller add to this
- * library, on the surface they are asking from? Deriving the Upload control
- * from the same rule is what keeps the portal from offering an upload the
- * server will refuse — or, worse, silently redirect into the caller's own
- * library.
+ * library? Deriving the Upload control from the same rule is what keeps the
+ * page from offering an upload the server will refuse — or, worse, silently
+ * redirect into the caller's own library.
+ *
+ * It reads the caller's identity and nothing else. Which page is asking is not
+ * part of the question: the server grants a platform administrator every
+ * library whatever route the request came in on, and a control that recognizes
+ * that authority well enough to say where else to exercise it, while refusing
+ * to offer it here, is a defect rather than a safeguard (#1527).
  *
  * A null target is the admin "all" tab, which names no single library; the
  * dialog's own scope picker chooses there.
  */
-export function canWriteScope(
-  user: UserProfile | null,
-  target: ScopeTarget | null,
-  surface: Surface = "admin",
-): boolean {
+export function canWriteScope(user: UserProfile | null, target: ScopeTarget | null): boolean {
   if (!user) return false;
-  if (surface === "admin" && isPlatformAdmin(user)) return true;
+  if (isPlatformAdmin(user)) return true;
   if (!target) return false;
   return holdsScope(user, target);
 }
@@ -90,7 +80,7 @@ export function canWriteScope(
  * holdsScope is the authority a caller has over one library as themselves,
  * with no platform-admin override: their own library, and a persona they carry
  * the admin role for. Global is nobody's by this rule — reaching it is the
- * override, which only the administrator's section applies.
+ * platform-admin override, which canWriteScope applies above.
  */
 function holdsScope(user: UserProfile, target: ScopeTarget): boolean {
   switch (target.scope) {
@@ -101,20 +91,6 @@ function holdsScope(user: UserProfile, target: ScopeTarget): boolean {
     case "global":
       return false;
   }
-}
-
-/**
- * adminReachNote is the sentence that follows the read-only note for a caller
- * whose platform-admin authority WOULD let them add here, on a surface that
- * does not offer it. Empty for everyone else.
- *
- * A control withheld from someone who holds the authority has to say where the
- * authority is exercised, or it reads as the platform having lost track of who
- * they are.
- */
-export function adminReachNote(user: UserProfile | null, surface: Surface): string {
-  if (surface !== "portal" || !user || !isPlatformAdmin(user)) return "";
-  return "Add to it from Admin > Resources.";
 }
 
 /** How one library is described to the person looking at it. */
@@ -175,23 +151,19 @@ export const PERSON_TARGET = "__person__";
  * the reader's own resolved persona appears here and does not appear on the
  * Upload control.
  *
- * The platform-admin override is withheld on the portal surface, the same way
- * canWriteScope withholds it: these are the libraries a reader can see, and
- * publishing somebody's file to everyone signed in should not sit inside the
- * Edit dialog of a page they reached by browsing. The administrator moves it
- * from Admin > Resources, where every target is offered.
+ * A platform administrator is offered every target the server would accept:
+ * every persona, the global library, and a named person's library. That holds
+ * wherever the picker is drawn — the authority is the identity's, not the
+ * page's (#1527).
  *
- * personaNames is the deployment's full persona list, which only the
- * administrator's section fetches; the portal surface passes none and derives
- * its personas from the caller's own claims.
+ * personaNames is the deployment's full persona list, which a page fetches only
+ * for a platform administrator; everyone else's personas are the ones their own
+ * claims name, so a caller handed a list they hold no authority over is still
+ * offered nothing from it.
  */
-export function moveTargets(
-  user: UserProfile | null,
-  personaNames: string[],
-  surface: Surface = "admin",
-): MoveTarget[] {
+export function moveTargets(user: UserProfile | null, personaNames: string[]): MoveTarget[] {
   if (!user) return [];
-  const admin = surface === "admin" && isPlatformAdmin(user);
+  const admin = isPlatformAdmin(user);
   const targets: MoveTarget[] = [];
 
   if (user.user_id) {
@@ -202,18 +174,15 @@ export function moveTargets(
     });
   }
 
-  // Deduplicated because a persona-admin of the persona they belong to would
-  // otherwise be offered it twice.
-  const personas = admin
-    ? personaNames
-    : [
-        ...new Set(
-          [user.persona, ...personaAdminNames(user.roles ?? [])].filter(
-            Boolean,
-          ),
-        ),
-      ];
-  for (const name of personas as string[]) {
+  // The caller's own personas are kept alongside the fetched list rather than
+  // replaced by it, so an administrator whose persona list has not arrived yet
+  // is still offered the personas they belong to and administer. Deduplicated
+  // because either source can name the same persona.
+  const personas = new Set<string>([
+    ...(admin ? personaNames : []),
+    ...([user.persona, ...personaAdminNames(user.roles ?? [])].filter(Boolean) as string[]),
+  ]);
+  for (const name of personas) {
     targets.push({
       scope: "persona",
       scope_id: name,
@@ -269,10 +238,9 @@ export function libraryOptions(
   target: ScopeTarget,
   user: UserProfile | null,
   personaNames: string[],
-  surface: Surface = "admin",
 ): MoveTarget[] {
   const current = currentLibrary(target, user);
-  const rest = moveTargets(user, personaNames, surface).filter(
+  const rest = moveTargets(user, personaNames).filter(
     (t) => targetKey(t) !== targetKey(current),
   );
   if (rest.length === 0) return [];
