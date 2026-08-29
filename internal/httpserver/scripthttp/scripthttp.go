@@ -41,6 +41,12 @@ type Deps struct {
 	// Nil leaves the listing's last-run column empty rather than unmounting it.
 	LatestRuns LatestRunReader
 
+	// States holds each script's one object of state (#1537): what a run
+	// reads as run.state and saves with platform.save_state. Nil leaves the
+	// state routes unmounted and a draft reading {}, which is the shape of a
+	// deployment that keeps no state.
+	States script.StateStore
+
 	// DryRuns records and resolves the accounts of draft executions (#1364).
 	// Nil runs drafts without keeping an account of them, which leaves every
 	// version reading as one nobody dry-ran — the state before the account

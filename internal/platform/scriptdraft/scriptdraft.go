@@ -84,7 +84,12 @@ type Request struct {
 	// Params is the already-bound parameter set. Binding is the domain's
 	// (script.BindParams) and happens before a Runner is involved, so a draft
 	// and a platform run bind by one rule.
-	Params   map[string]any
+	Params map[string]any
+	// State is the script's live state, read by the caller, handed to the
+	// draft as run.state (#1537). A draft reads what a platform run created
+	// now would read, and writes nothing back: what it would have saved is on
+	// the outcome's result.
+	State    map[string]any
 	Identity Identity
 }
 
@@ -174,7 +179,7 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Outcome, error) {
 		// The fire time is pinned here, once, and handed to the script as
 		// run.fire_time: even a draft never reads a clock, so what an author
 		// verifies in the loop is what a scheduled run will do.
-		FireTime: r.now(), Params: req.Params, Caller: caller,
+		FireTime: r.now(), Params: req.Params, State: req.State, Caller: caller,
 		Destinations: r.destinations,
 	})
 	return &Outcome{RunID: runID, Result: result, Err: runErr}, nil

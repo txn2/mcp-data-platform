@@ -30,7 +30,18 @@ const defaultRunListLimit = 50
 const runColumns = `id, script_id, script_version_id, version, trigger_kind, status,
 	params, fire_time, requested_by, scheduled_for, started_at, finished_at, attempt,
 	locked_until, locked_by, error, log_text, log_truncated, metrics, outputs,
-	COALESCE(schedule_id::text, ''), created_at, updated_at`
+	COALESCE(schedule_id::text, ''), state_revision, state_read, state_written,
+	state_revision_written, created_at, updated_at`
+
+// stateAtCreation is the VALUES fragment every run insert carries for the two
+// state columns pinned at creation (#1537): the revision the script's state
+// holds now and the object itself, or revision 0 and {} for a script with no
+// state row. Read in the insert rather than by the caller so the row and the
+// state it records cannot come from two different moments. $2 is the script
+// id in both inserts that carry it (Enqueue and insertScheduledRun), which
+// is what lets the fragment stay a constant the prepare gate can read.
+const stateAtCreation = `COALESCE((SELECT revision FROM script_state WHERE script_id = $2), 0),
+		        COALESCE((SELECT state FROM script_state WHERE script_id = $2), '{}'::jsonb)`
 
 // runSelect is the base SELECT for the run columns.
 const runSelect = "SELECT " + runColumns + " FROM script_runs"
@@ -45,11 +56,16 @@ const dueClause = `((status = 'pending' AND scheduled_for <= NOW())
 // scanRun reads one row in runColumns order into a Run.
 func scanRun(sc rowScanner) (*script.Run, error) {
 	r := &script.Run{}
-	var paramsJSON, metricsJSON, outputsJSON []byte
+	var (
+		paramsJSON, metricsJSON, outputsJSON []byte
+		stateRead, stateWritten              []byte
+		revisionWritten                      sql.NullInt64
+	)
 	err := sc.Scan(&r.ID, &r.ScriptID, &r.VersionID, &r.Version, &r.Trigger, &r.Status,
 		&paramsJSON, &r.FireTime, &r.RequestedBy, &r.ScheduledFor, &r.StartedAt, &r.FinishedAt,
 		&r.Attempt, &r.LockedUntil, &r.LockedBy, &r.Error, &r.Log, &r.LogTruncated,
-		&metricsJSON, &outputsJSON, &r.ScheduleID, &r.CreatedAt, &r.UpdatedAt)
+		&metricsJSON, &outputsJSON, &r.ScheduleID, &r.StateRevision, &stateRead, &stateWritten,
+		&revisionWritten, &r.CreatedAt, &r.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("scanning script run row: %w", err)
 	}
@@ -62,6 +78,20 @@ func scanRun(sc rowScanner) (*script.Run, error) {
 	if err := json.Unmarshal(outputsJSON, &r.Outputs); err != nil {
 		return nil, fmt.Errorf("unmarshal run outputs: %w", err)
 	}
+	if err := json.Unmarshal(stateRead, &r.StateRead); err != nil {
+		return nil, fmt.Errorf("unmarshal run state read: %w", err)
+	}
+	// state_written is NULL on a run that saved nothing, which scans as no
+	// bytes; a run that saved {} has bytes and reads back as an empty object.
+	if len(stateWritten) > 0 {
+		if err := json.Unmarshal(stateWritten, &r.StateWritten); err != nil {
+			return nil, fmt.Errorf("unmarshal run state written: %w", err)
+		}
+		if r.StateWritten == nil {
+			r.StateWritten = map[string]any{}
+		}
+	}
+	r.StateRevisionWritten = revisionWritten.Int64
 	return r, nil
 }
 
@@ -82,16 +112,24 @@ func (s *Store) Enqueue(ctx context.Context, r *script.Run) error {
 	// A zero ScheduledFor or FireTime means "now", stamped with the database
 	// clock so the claim predicate sees the row immediately regardless of
 	// host/DB clock skew. The two are separate columns because a retry moves one
-	// and must never move the other.
+	// and must never move the other. The state read is pinned in the same
+	// statement, for the same reason the parameters are bound before the row
+	// exists: it is an input of the run.
+	var stateRead []byte
 	row := s.db.QueryRowContext(ctx, `
 		INSERT INTO script_runs (id, script_id, script_version_id, version, trigger_kind,
-		                         status, params, requested_by, fire_time, scheduled_for)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9, NOW()), COALESCE($10, NOW()))
-		RETURNING fire_time, scheduled_for, created_at, updated_at`,
+		                         status, params, requested_by, fire_time, scheduled_for,
+		                         state_revision, state_read)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9, NOW()), COALESCE($10, NOW()),
+		        `+stateAtCreation+`)
+		RETURNING fire_time, scheduled_for, state_revision, state_read, created_at, updated_at`,
 		r.ID, r.ScriptID, r.VersionID, r.Version, r.Trigger, script.RunStatusPending,
 		params, r.RequestedBy, orNilTime(r.FireTime), orNilTime(r.ScheduledFor))
-	if err := row.Scan(&r.FireTime, &r.ScheduledFor, &r.CreatedAt, &r.UpdatedAt); err != nil {
+	if err := row.Scan(&r.FireTime, &r.ScheduledFor, &r.StateRevision, &stateRead, &r.CreatedAt, &r.UpdatedAt); err != nil {
 		return fmt.Errorf("enqueue script run: %w", err)
+	}
+	if err := json.Unmarshal(stateRead, &r.StateRead); err != nil {
+		return fmt.Errorf("unmarshal run state read: %w", err)
 	}
 	r.Status = script.RunStatusPending
 	// Best-effort wakeup; the worker's poll ticker is the fallback.
@@ -270,27 +308,105 @@ func (s *Store) RecordOutput(ctx context.Context, lease script.RunLease, out scr
 }
 
 // Finish records a terminal result for the claimed run and clears its lease.
+//
+// A succeeded run that staged state (#1537) has that state applied here, in
+// the same transaction that marks it succeeded, predicated on the revision the
+// run read. The two are one fact: a run recorded as succeeded whose state did
+// not land, or state that landed for a run recorded as failed, would each make
+// the run history lie about what the next run reads. A refused write turns
+// THIS result into a failure naming the writer, and the run row records that;
+// the run's outputs stand, because they were produced from the state it read.
 func (s *Store) Finish(ctx context.Context, lease script.RunLease, result script.RunResult) error {
 	metrics, err := json.Marshal(result.Metrics)
 	if err != nil {
 		return fmt.Errorf("marshal run metrics: %w", err)
 	}
-	res, err := s.db.ExecContext(ctx, `
-		UPDATE script_runs
-		   SET status = $4, error = $5, log_text = $6, log_truncated = $7,
-		       metrics = $8, finished_at = NOW(), locked_until = NULL,
-		       updated_at = NOW()`+leaseClause,
-		lease.RunID, lease.Worker, lease.Attempt,
-		result.Status, result.Error, result.Log, result.LogTruncated, metrics)
-	if err != nil {
-		return fmt.Errorf("finish script run: %w", err)
-	}
-	if err := requireLease(res, lease); err != nil {
+	if result.State == nil || result.Status != script.RunStatusSucceeded {
+		if err := finishRow(ctx, s.db, terminalRow{lease: lease, result: result, metrics: metrics}); err != nil {
+			return err
+		}
+	} else if err := s.finishWithState(ctx, lease, result, metrics); err != nil {
 		return err
 	}
 	// Wake anything waiting on this run's completion.
 	_, _ = s.db.ExecContext(ctx, `SELECT pg_notify($1, $2)`, NotifyChannel, lease.RunID)
 	return nil
+}
+
+// finishWithState applies the run's staged state and records the outcome in
+// one transaction. The script id and the revision the run read are taken from
+// the run row under the lease, not from the caller, so a stale worker's write
+// is refused before it reaches the state row.
+func (s *Store) finishWithState(ctx context.Context, lease script.RunLease, result script.RunResult, metrics []byte) error {
+	return s.withTx(ctx, "finish script run", func(tx *sql.Tx) error {
+		w := runStateWrite{runID: lease.RunID, value: result.State.Value}
+		err := tx.QueryRowContext(ctx,
+			`SELECT script_id, state_revision FROM script_runs`+leaseClause+` FOR UPDATE`,
+			lease.RunID, lease.Worker, lease.Attempt).Scan(&w.scriptID, &w.read)
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("run %s attempt %d is no longer held by %s: %w",
+				lease.RunID, lease.Attempt, lease.Worker, script.ErrLeaseLost)
+		}
+		if err != nil {
+			return fmt.Errorf("reading the run's state revision: %w", err)
+		}
+		revision, err := writeRunState(ctx, tx, w)
+		var conflict *script.StateConflictError
+		switch {
+		case errors.As(err, &conflict):
+			// The interleaving is the run's failure, recorded on its row. Its
+			// outputs are already recorded; nothing here touches them.
+			result.Status, result.Error = script.RunStatusFailed, conflict.Error()
+			return finishRow(ctx, tx, terminalRow{lease: lease, result: result, metrics: metrics})
+		case err != nil:
+			return err
+		}
+		written, err := json.Marshal(orEmptyParams(result.State.Value))
+		if err != nil {
+			return fmt.Errorf("marshal run state written: %w", err)
+		}
+		return finishRow(ctx, tx, terminalRow{lease: lease, result: result, metrics: metrics, written: written, revision: revision})
+	})
+}
+
+// terminalRow is one run's terminal write: the lease it is fenced on, the
+// result, its encoded metrics, and the state it saved with the revision that
+// produced, both NULL when it saved nothing.
+type terminalRow struct {
+	lease    script.RunLease
+	result   script.RunResult
+	metrics  []byte
+	written  []byte
+	revision int64
+}
+
+// execer is what finishRow writes through: the pool, or the transaction a
+// state write shares.
+type execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+// finishRow writes the terminal columns of the claimed run.
+func finishRow(ctx context.Context, db execer, row terminalRow) error {
+	var (
+		stateWritten    any
+		revisionWritten any
+	)
+	if row.written != nil {
+		stateWritten, revisionWritten = row.written, row.revision
+	}
+	res, err := db.ExecContext(ctx, `
+		UPDATE script_runs
+		   SET status = $4, error = $5, log_text = $6, log_truncated = $7,
+		       metrics = $8, state_written = $9, state_revision_written = $10,
+		       finished_at = NOW(), locked_until = NULL, updated_at = NOW()`+leaseClause,
+		row.lease.RunID, row.lease.Worker, row.lease.Attempt,
+		row.result.Status, row.result.Error, row.result.Log, row.result.LogTruncated, row.metrics,
+		stateWritten, revisionWritten)
+	if err != nil {
+		return fmt.Errorf("finish script run: %w", err)
+	}
+	return requireLease(res, row.lease)
 }
 
 // Retry returns the claimed run to pending, due after backoff. It is for

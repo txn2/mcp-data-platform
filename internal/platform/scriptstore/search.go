@@ -10,6 +10,7 @@ import (
 	"github.com/lib/pq"
 	"github.com/pgvector/pgvector-go"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -343,7 +344,15 @@ func (s *Store) Contract(ctx context.Context, id string) (*script.Contract, erro
 	if err != nil {
 		return nil, err
 	}
+	state, err := s.GetState(ctx, id)
+	if err != nil {
+		return nil, err
+	}
 	c := script.BuildContract(sc, sched, lastRun)
+	// What the source does with state is read from the source, the same read
+	// validate reports; the revision is the store's. Together they tell a
+	// reader whether the next run continues from the last one's save.
+	c.State = script.ContractStateOf(scriptrun.Validate(sc.Source).StateUse, state)
 	return &c, nil
 }
 

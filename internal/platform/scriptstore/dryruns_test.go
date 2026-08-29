@@ -22,7 +22,7 @@ import (
 // in dryRunColumns order.
 var dryRunColumnNames = []string{
 	"id", "script_id", "source_sha256", "requested_by", "status", "error",
-	"log", "log_truncated", "metrics", "outputs", "created_at",
+	"log", "log_truncated", "metrics", "outputs", "state_written", "created_at",
 }
 
 // dryRunRow is one full account row in dryRunColumns order.
@@ -32,7 +32,7 @@ func dryRunRow(status string) []driver.Value {
 		status, "", "printed", false,
 		[]byte(`{"steps":12,"duration_ms":40,"queries":1,"exports":1}`),
 		[]byte(`[{"name":"daily","destination":"portal","format":"csv","row_count":3,"bytes":90}]`),
-		rowTime,
+		nil, rowTime,
 	}
 }
 
@@ -44,7 +44,7 @@ func TestRecordDryRun_StoresTheAccountAndBoundsTheAuthorsHistory(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO script_dry_runs")).
 		WithArgs("dpx_draft_1", "script_1", script.SourceDigest("x = 1\n"), "jane@example.com",
-			script.RunStatusSucceeded, "", "printed", false, sqlmock.AnyArg(), sqlmock.AnyArg()).
+			script.RunStatusSucceeded, "", "printed", false, sqlmock.AnyArg(), sqlmock.AnyArg(), nil).
 		WillReturnRows(sqlmock.NewRows([]string{"created_at"}).AddRow(rowTime))
 	mock.ExpectExec(regexp.QuoteMeta("DELETE FROM script_dry_runs")).
 		WithArgs("script_1", "jane@example.com", dryRunHistoryPerAuthor).

@@ -188,7 +188,7 @@ mcp-data-platform/
 │   ├── connid/                     # Connection identity: the instance a connection is stored under, the name a call binds it by, the toolkit serving it, and which half of the config owns it — one Resolver, distinct types
 │   ├── connview/                   # Builds the list_connections view (configured + discovered)
 │   ├── contenttype/                # Media-type detection and normalization for every content write path
-│   ├── database/                   # Database utilities (migrate/ = golang-migrate runner + 131 embedded SQL migrations)
+│   ├── database/                   # Database utilities (migrate/ = golang-migrate runner + 132 embedded SQL migrations)
 │   ├── embedding/                  # Text embedding generation for memory vector search
 │   ├── indexjobs/                  # Postgres-backed, source-kind-agnostic background indexer
 │   ├── knowledge/                  # Unified read path for platform knowledge (federation/ = live toolkit registry adapter)
@@ -438,6 +438,13 @@ scripts:
       bucket: acme-exports
       prefix: weekly
 ```
+
+A script carries one JSON object of state between runs (`run.state` in,
+`platform.save_state` out, 64 KiB): applied when the run succeeds, in the
+transaction that marks it so, under a compare-and-set on the revision the run
+read at creation; a failed run leaves it alone, the loser of two runs that read
+one revision fails naming the winner, and the owner or an administrator resets
+it with `manage_script command=state` or on the script's page.
 
 A run still pending or running is never swept. The default is far longer than
 the notification queue's because a scheduled script's run history is its refresh

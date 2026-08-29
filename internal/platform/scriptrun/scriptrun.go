@@ -149,6 +149,12 @@ type Options struct {
 	FireTime time.Time
 	Params   map[string]any
 
+	// State is the script's state as it stood when the run was created,
+	// handed to the script as run.state (#1537). Nil reads as {}: a script
+	// that has never saved any. It is an input of the run exactly as Params
+	// are, pinned by the caller and never read here.
+	State map[string]any
+
 	// Caller issues the script's platform tool calls. A nil Caller leaves the
 	// platform module predeclared but every call on it fails, which is what a
 	// syntax-only execution wants.
@@ -317,6 +323,11 @@ type Result struct {
 	Queries int `json:"queries"`
 	// Exports lists what every platform.export call did, in call order.
 	Exports []ExportRecord `json:"exports"`
+	// State is the object the script staged with platform.save_state, nil
+	// when it called it never. The last call wins: a run's write is one write,
+	// and whether it is applied is the caller's decision — a platform run's
+	// store applies it when the run succeeds, a draft reports it.
+	State *script.StateWrite `json:"state,omitempty"`
 }
 
 // fileOptions is the dialect every managed script is parsed and resolved under.
@@ -393,6 +404,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		Duration:     time.Since(started),
 		Queries:      host.queries,
 		Exports:      host.exports,
+		State:        host.state,
 	}
 	if execErr != nil {
 		return result, classifyExecError(runCtx, execErr, overStep.Load(), opts.MaxSteps)
@@ -459,6 +471,7 @@ func predeclared(host *hostState) starlark.StringDict {
 				"export":       starlark.NewBuiltin(CapabilityExport, host.export),
 				"publish_data": starlark.NewBuiltin(CapabilityPublishData, host.publishData),
 				"call":         starlark.NewBuiltin(CapabilityCall, host.call),
+				"save_state":   starlark.NewBuiltin(CapabilitySaveState, host.saveState),
 			},
 		},
 		"json":         json.Module,

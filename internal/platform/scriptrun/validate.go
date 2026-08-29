@@ -75,6 +75,12 @@ type Report struct {
 	// instead, because the connection is the only claim this report makes
 	// about what is inside those arguments.
 	DynamicTools bool `json:"dynamic_tools"`
+	// StateUse reports whether the source reads run.state and whether it calls
+	// platform.save_state (#1537), so a reader learns from the contract whether
+	// a run continues from the previous run's save. Both are read from the
+	// source: an access written as run.state, and the save_state member in
+	// Capabilities.
+	script.StateUse
 }
 
 // CheckDestinations reports each destination a source names literally that the
@@ -166,6 +172,7 @@ func Validate(source string) Report {
 	report.DynamicDestinations = found.dynamicDestinations
 	report.DynamicRefreshTargets = found.dynamicRefreshTargets
 	report.DynamicTools = found.dynamicTools
+	report.StateUse = script.StateUse{Reads: found.readsState, Saves: found.capabilities[CapabilitySaveState]}
 
 	if _, resolveErr := starlark.FileProgram(file, isPredeclaredName); resolveErr != nil {
 		findings = append(findings, translate(resolveFindings(resolveErr))...)
@@ -419,7 +426,11 @@ type inspection struct {
 	dynamicDestinations   bool
 	dynamicRefreshTargets bool
 	dynamicTools          bool
-	findings              []Finding
+	// readsState is set by any run.state access. A script that reads the
+	// record some other way (getattr(run, "state")) is not seen, which
+	// understates its use; the save side is a call and is always seen.
+	readsState bool
+	findings   []Finding
 }
 
 // inspect walks the parsed file for what the script would reach: which members
@@ -435,9 +446,23 @@ func inspect(file *syntax.File) *inspection {
 		if call, dot, ok := platformCall(n); ok {
 			ins.visit(call, dot)
 		}
+		if isRunStateRead(n) {
+			ins.readsState = true
+		}
 		return true
 	})
 	return ins
+}
+
+// isRunStateRead recognizes run.state, the one read of the state a script
+// carries between runs.
+func isRunStateRead(n syntax.Node) bool {
+	dot, ok := n.(*syntax.DotExpr)
+	if !ok || dot.Name.Name != "state" {
+		return false
+	}
+	ident, ok := dot.X.(*syntax.Ident)
+	return ok && ident.Name == "run"
 }
 
 // platformCall recognizes a call on the platform module and reports the call

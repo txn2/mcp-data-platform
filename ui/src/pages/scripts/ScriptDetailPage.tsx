@@ -21,6 +21,7 @@ import { ScriptOwnerTransfer } from "./ScriptOwnerTransfer";
 import { ScriptRunHistory } from "./ScriptRunHistory";
 import { ScriptScheduleEditor } from "./ScriptScheduleEditor";
 import { ScriptSourceEditor } from "./ScriptSourceEditor";
+import { ScriptStateCard } from "./ScriptStateCard";
 
 // ScriptDetailPage is one script in full: what it is and what it takes, what
 // will execute it, on what schedule, and — for its owner — everything it has
@@ -147,6 +148,10 @@ function ScriptDetail({
             openRunId={openRunId}
             onNavigate={onNavigate}
           />
+          {/* The state the runs above carry between them (#1537), read after
+              the history because a watermark is explained by the run that
+              wrote it. Keyed on the script for the reason the editors are. */}
+          <ScriptStateCard key={`state-${scriptId}`} scriptId={scriptId} contract={contract} />
         </>
       )}
 
@@ -211,6 +216,7 @@ function ScriptFacts({ contract }: { contract: ScriptContract }) {
           label="Status"
           value={contract.enabled ? contract.status : `${contract.status} (disabled)`}
         />
+        {contract.state && <Fact label="State" value={stateFact(contract.state)} />}
       </dl>
       <div className="space-y-2">
         <p className="text-xs text-muted-foreground">Parameters</p>
@@ -218,6 +224,20 @@ function ScriptFacts({ contract }: { contract: ScriptContract }) {
       </div>
     </div>
   );
+}
+
+// stateFact is what the script does with the state it carries between runs
+// (#1537), in one line: read from the source, with the revision the platform
+// holds. A script that keeps none says so, whatever an old revision says.
+function stateFact(state: NonNullable<ScriptContract["state"]>): string {
+  const keeps = state.reads_state || state.saves_state;
+  if (!keeps) return "keeps none";
+  const does = state.reads_state && state.saves_state
+    ? "carried between runs"
+    : state.saves_state
+      ? "saved, never read"
+      : "read, never saved";
+  return state.revision === 0 ? `${does}, nothing saved yet` : `${does}, revision ${state.revision}`;
 }
 
 function Fact({ label, value }: { label: string; value: string }) {

@@ -48,6 +48,11 @@ const (
 	// call is refused by the middleware in the middleware's own words, exactly
 	// as it refuses an agent.
 	CapabilityCall = "platform.call"
+	// CapabilitySaveState replaces the script's one object of state (#1537).
+	// It is not a tool call: the object is staged on the run and applied by
+	// the platform when the run succeeds, in the write that marks it so, with
+	// a compare-and-set on the revision the run read.
+	CapabilitySaveState = "platform.save_state"
 )
 
 // Capabilities is the full member set of the platform module, in the order help
@@ -57,7 +62,7 @@ const (
 // member" refusal. It is not a boundary: platform.call reaches every tool the
 // run's persona authorizes, and what a script reaches is read from the source
 // by Validate, which reports the tool names it names.
-var Capabilities = []string{CapabilityQuery, CapabilityExport, CapabilityPublishData, CapabilityCall}
+var Capabilities = []string{CapabilityQuery, CapabilityExport, CapabilityPublishData, CapabilityCall, CapabilitySaveState}
 
 // The formats platform.export accepts, split by what serializes them. A format
 // may appear in both sets: markdown and text are sometimes a table computed
@@ -93,6 +98,10 @@ const maxExports = 16
 // by position: name, rows, and format. Everything after them decides where the
 // output goes and must be named, so a static read of the source can report it.
 const exportPositionalArgs = 3
+
+// minStateEntryBytes is the fewest bytes one state entry costs serialized: two
+// quotes, a colon and a separator around an empty key and a one-byte value.
+const minStateEntryBytes = 5
 
 // callArgsPosition is which positional argument of platform.call carries the
 // tool's argument set: the tool name is first, the arguments second. Named so
@@ -134,6 +143,64 @@ type hostState struct {
 	log     *logBuffer
 	queries int
 	exports []ExportRecord
+	// state is what platform.save_state staged, nil until it is called. A
+	// second call replaces the first: the run's write is one write.
+	state *script.StateWrite
+}
+
+// saveState implements platform.save_state: stage the whole state object the
+// next run of this script will read.
+//
+// Nothing is written here. The object is checked now — every value must be
+// JSON-representable and the whole must fit the bound — because the author
+// reads the refusal inside a run that has already queried, and a refusal at
+// the write would arrive after the outputs. Whether it is applied is decided
+// by whoever runs the script: a platform run's store applies it when the run
+// succeeds, in the same transaction that marks it so, and a draft reports it
+// beside the outputs it would have written.
+func (h *hostState) saveState(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var value *starlark.Dict
+	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "state", &value); err != nil {
+		return nil, argErr(b, err)
+	}
+	object, err := stateObject(value)
+	if err != nil {
+		return nil, argErr(b, err)
+	}
+	if err := script.ValidateState(object); err != nil {
+		return nil, argErr(b, err)
+	}
+	h.state = &script.StateWrite{Value: object}
+	return starlark.None, nil
+}
+
+// stateObject converts the dict a script passed to save_state into the plain
+// object the platform stores. A value that cannot cross into JSON — a function,
+// a set — is refused naming its key, so the author is told which entry to fix.
+func stateObject(value *starlark.Dict) (map[string]any, error) {
+	if value == nil {
+		return map[string]any{}, nil
+	}
+	// Every key costs at least its quotes, a colon and a separator once
+	// serialized, so a dict with more keys than the bound can hold is refused
+	// before it is walked rather than converted whole and then measured.
+	if value.Len()*minStateEntryBytes > script.MaxStateBytes {
+		return nil, fmt.Errorf("the state has %d keys, more than the %d-byte limit can hold; state is a cursor or a summary, so keep a table as a resource instead",
+			value.Len(), script.MaxStateBytes)
+	}
+	out := make(map[string]any, value.Len())
+	for _, item := range value.Items() {
+		key, ok := item[0].(starlark.String)
+		if !ok {
+			return nil, fmt.Errorf("state keys must be strings, got %s", item[0].Type())
+		}
+		converted, err := fromStarlark(item[1])
+		if err != nil {
+			return nil, fmt.Errorf("state key %q: %w", string(key), err)
+		}
+		out[string(key)] = converted
+	}
+	return out, nil
 }
 
 // resolveDestination turns the destination a script named into the address the
@@ -182,7 +249,8 @@ func destinationNames(destinations []script.Destination) []string {
 }
 
 // runValue builds the frozen run record — the script's ONLY source of time and
-// of caller input, read as run.run_id, run.fire_time, and run.params["name"].
+// of caller input, read as run.run_id, run.fire_time, run.params["name"], and
+// run.state, the state as it stood when the run was created.
 //
 // It is frozen so nothing downstream in the script can rewrite the fire time
 // and make a run unreproducible from its own record. fire_time is a value
@@ -202,10 +270,23 @@ func (h *hostState) runValue() starlark.Value {
 		}
 		_ = params.SetKey(starlark.String(name), v)
 	}
+	state := starlark.NewDict(len(h.opts.State))
+	for _, name := range sortedKeys(h.opts.State) {
+		v, err := toStarlark(h.opts.State[name])
+		if err != nil {
+			// State was validated as JSON-representable when it was saved, so
+			// an unconvertible value here is a defect in the store, not author
+			// input; None keeps the run readable rather than failing it with
+			// a message no author can act on.
+			v = starlark.None
+		}
+		_ = state.SetKey(starlark.String(name), v)
+	}
 	rec := starlarkstruct.FromStringDict(starlark.String("run"), starlark.StringDict{
 		"run_id":    starlark.String(h.opts.RunID),
 		"fire_time": starlark.String(h.opts.FireTime.UTC().Format(timeLayout)),
 		"params":    params,
+		"state":     state,
 	})
 	rec.Freeze()
 	return rec

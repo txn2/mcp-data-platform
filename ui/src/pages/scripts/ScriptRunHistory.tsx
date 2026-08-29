@@ -303,7 +303,34 @@ function RunFacts({ run }: { run: ScriptRunDetail }) {
             : params.map(([k, v]) => `${k}=${String(v)}`).join(", ")}
         </dd>
       </div>
+      <RunStateFacts run={run} />
     </dl>
+  );
+}
+
+// RunStateFacts is the state half of a run's own account (#1537): what it
+// read, which is an input of the run beside its parameters, and what it saved.
+// A run that read nothing and saved nothing says nothing here, because most
+// scripts keep no state and a row of "{}" on every run would be noise.
+function RunStateFacts({ run }: { run: ScriptRunDetail }) {
+  const read = run.state_read ?? {};
+  const readSomething = Object.keys(read).length > 0 || (run.state_revision ?? 0) > 0;
+  if (!readSomething && !run.state_written) return null;
+  return (
+    <>
+      <div className="sm:col-span-3">
+        <dt className="text-muted-foreground">State read (revision {run.state_revision ?? 0})</dt>
+        <dd className="font-mono break-words">{JSON.stringify(read)}</dd>
+      </div>
+      {run.state_written && (
+        <div className="sm:col-span-3">
+          <dt className="text-muted-foreground">
+            State saved (revision {run.state_revision_written ?? "?"})
+          </dt>
+          <dd className="font-mono break-words">{JSON.stringify(run.state_written)}</dd>
+        </div>
+      )}
+    </>
   );
 }
 

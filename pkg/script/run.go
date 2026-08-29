@@ -177,6 +177,20 @@ type Run struct {
 	Metrics      RunMetrics  `json:"metrics"`
 	Outputs      []RunOutput `json:"outputs,omitempty"`
 
+	// StateRevision and StateRead are the script's state as it stood when the
+	// run was created (#1537): the revision, and the object handed to the
+	// script as run.state. Both are pinned at creation exactly as Params are,
+	// because the state read is an input of the run: a re-read of the row
+	// explains the run, and a run delayed past a reset still executes against
+	// what it recorded and then fails at its write.
+	StateRevision int64          `json:"state_revision"`
+	StateRead     map[string]any `json:"state_read,omitempty"`
+	// StateWritten and StateRevisionWritten are what a succeeded run saved
+	// with platform.save_state and the revision that write produced. Both are
+	// absent on a run that saved nothing, and on one whose write was refused.
+	StateWritten         map[string]any `json:"state_written,omitempty"`
+	StateRevisionWritten int64          `json:"state_revision_written,omitempty"`
+
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -232,6 +246,11 @@ type RunResult struct {
 	Log          string
 	LogTruncated bool
 	Metrics      RunMetrics
+	// State is the object the run staged with platform.save_state, nil when
+	// it saved nothing. The store applies it only to a succeeded run, with a
+	// compare-and-set on the revision the run read, in the transaction that
+	// records the status.
+	State *StateWrite
 }
 
 // RefuseRun reports why the platform must not execute this script, or nil when

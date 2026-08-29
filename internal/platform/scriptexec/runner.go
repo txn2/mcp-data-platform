@@ -72,6 +72,11 @@ func (r *runner) execute(ctx context.Context, run *script.Run, sc *script.Script
 	// produced on time, or the delay would silently change the answer.
 	opts.FireTime = run.FireTime.UTC()
 	opts.Params = run.Params
+	// The state as it stood when the run was created, from the run's own row
+	// (#1537): a run executes against what it recorded, never against a fresh
+	// read, so a reset between creation and execution fails the run at its
+	// write instead of silently changing what it computed.
+	opts.State = run.StateRead
 	opts.Caller = caller
 	opts.Destinations = r.destinations
 	opts.Exporter = r.exporter(run, sc, caller)
@@ -98,6 +103,11 @@ func attemptFrom(result *scriptrun.Result, runErr error) attempt {
 			Queries:    result.Queries,
 			Exports:    len(result.Exports),
 		}
+		// Staged state travels with the result whatever the outcome; the store
+		// applies it only to a succeeded run, so a failed run leaves the state
+		// where it was and a watermark never moves past work that did not
+		// happen.
+		out.result.State = result.State
 	}
 	if runErr != nil {
 		out.result.Status = script.RunStatusFailed
@@ -193,14 +203,15 @@ func (r *runner) recordAudit(ctx context.Context, run *script.Run, sc *script.Sc
 		EventKind:  string(audit.EventTypeScriptRun),
 		DurationMS: res.Metrics.DurationMS,
 		Parameters: map[string]any{
-			"script":       sc.Name,
-			"script_id":    sc.ID,
-			"version":      v.Version,
-			"run_id":       run.ID,
-			"owner":        sc.OwnerEmail,
-			"trigger":      run.Trigger,
-			"requested_by": run.RequestedBy,
-			"attempt":      run.Attempt,
+			"script":         sc.Name,
+			"script_id":      sc.ID,
+			"version":        v.Version,
+			"run_id":         run.ID,
+			"owner":          sc.OwnerEmail,
+			"trigger":        run.Trigger,
+			"requested_by":   run.RequestedBy,
+			"attempt":        run.Attempt,
+			"state_revision": run.StateRevision,
 		},
 		ErrorMessage: res.Error,
 	}

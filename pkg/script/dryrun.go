@@ -61,6 +61,11 @@ type DryRun struct {
 	LogTruncated bool           `json:"log_truncated,omitempty"`
 	Metrics      RunMetrics     `json:"metrics"`
 	Outputs      []DryRunOutput `json:"outputs,omitempty"`
+	// StateWritten is the state the draft would have saved, nil when the
+	// source saved none. A draft persists no state, exactly as it persists no
+	// output; the account carries the object so a reviewer reads what the
+	// code would have carried forward.
+	StateWritten map[string]any `json:"state_written,omitempty"`
 	CreatedAt    time.Time      `json:"created_at"`
 }
 

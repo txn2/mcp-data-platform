@@ -5,6 +5,7 @@ import type {
   ScriptRun,
   ScriptRunDetail,
   ScriptSchedule,
+  ScriptState,
 } from "@/api/portal/hooks/scripts";
 
 // Managed-script fixtures. The set is chosen to show the states the surfaces
@@ -28,6 +29,10 @@ rows = platform.query(
 )
 
 platform.export(name="daily-sales", format="csv", rows=rows["rows"])
+
+# The day this run covered, carried to the next run as run.state so a fire
+# missed to downtime is visible to the run that follows it (#1537).
+platform.save_state({"synced_through": run["params"]["report_date"], "rows": rows["row_count"]})
 `;
 
 const churnSource = `# Accounts with no orders in 90 days, for the retention review.
@@ -420,6 +425,10 @@ export const mockScriptRunDetails: Record<string, ScriptRunDetail> = {
     params: { report_date: "2026-08-13" },
     log: salesRunLog,
     metrics: { steps: 1_284, duration_ms: 8_420, queries: 1, exports: 1 },
+    state_revision: 40,
+    state_read: { synced_through: "2026-08-12", rows: 1_388 },
+    state_written: { synced_through: "2026-08-13", rows: 1_420 },
+    state_revision_written: 41,
     outputs: [
       {
         name: "daily-sales",
@@ -594,6 +603,7 @@ export const mockScriptContracts: Record<string, ScriptContract> = {
         },
       ],
     },
+    state: { reads_state: false, saves_state: true, revision: 41, updated_at: hoursAgo(2) },
   },
   "script-002": {
     id: "script-002",
@@ -653,5 +663,16 @@ export const mockScriptContracts: Record<string, ScriptContract> = {
         },
       ],
     },
+  },
+};
+
+// The state each script carries between runs (#1537), keyed by script id. A
+// script absent here has never saved any and reads as revision 0 and {}.
+export const mockScriptStates: Record<string, ScriptState> = {
+  "script-001": {
+    state: { synced_through: "2026-08-13", rows: 1_420 },
+    revision: 41,
+    updated_at: hoursAgo(2),
+    run_id: "run-001",
   },
 };

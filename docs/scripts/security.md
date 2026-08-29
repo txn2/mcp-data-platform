@@ -944,15 +944,43 @@ it.
 
 The contract is:
 
-> Same script version + same parameters + same underlying data produce the same
-> output.
+> Same script version + same parameters + same state read + same underlying
+> data produce the same output.
 
 It is not "identical forever." The warehouse changes between runs, and that is
 the point of re-running. What the platform eliminates is every source of
 variation it controls: no clock or randomness is reachable, the fire time is a
-pinned value on `run.fire_time` rather than a clock read, enrichment is off,
-and map keys are converted in sorted order
+pinned value on `run.fire_time` rather than a clock read, the state a run reads
+is pinned on its row at creation rather than read fresh at execution,
+enrichment is off, and map keys are converted in sorted order
 (`internal/platform/scriptrun/convert.go`).
+
+### State: one object per script, one write per run
+
+A script carries one JSON object between runs (#1537): `run.state` on the way
+in, `platform.save_state` on the way out, bounded at `script.MaxStateBytes`
+(64 KiB) and checked for JSON-representability at the call so a refusal names
+the key (`pkg/script/state.go`, `ValidateState`). It grants nothing: a run
+reads only its own script's state, and the write reaches only its own
+script's row.
+
+The write is applied by `RunStore.Finish`, for a succeeded run only, in the
+transaction that records the status, as an upsert predicated on the revision
+the run read at creation (`internal/platform/scriptstore/state.go`,
+`writeRunState`; `runs.go`, `finishWithState`). A refused predicate turns the
+run into a failure naming the writer of the current revision, and its outputs
+stand. The lease is checked before the state row is touched, so a reclaimed
+run's stale worker cannot move it. A failed run's staged state is dropped. A
+person's reset (`SetState`) is unconditional, moves the revision, and is
+recorded with who did it, which is what fails a run in flight that read the
+old revision. The two tool actions that write, `state set` and `state clear`,
+are refused from inside a run (`internal/platform/scriptlayer/state.go`): a
+run's one write is `save_state` under the compare-and-set, and a run that
+could reset state through the tool would step around it.
+
+State is not an asset and not an output: it is not versioned, not shared, not
+delivered anywhere, and is deleted with the script (`script_state`,
+`ON DELETE CASCADE`). A draft reads the live state and writes nothing.
 
 Determinism is a security property here as well as a correctness one: it is
 what makes a run explainable after the fact from its own record, and what makes

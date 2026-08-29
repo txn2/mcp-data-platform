@@ -138,6 +138,10 @@ type dryRunResponse struct {
 	LogTruncated bool                  `json:"log_truncated,omitempty"`
 	Metrics      script.RunMetrics     `json:"metrics"`
 	Outputs      []script.DryRunOutput `json:"outputs"`
+	// State is the object the source would have saved with
+	// platform.save_state, absent when it saved none (#1537). The draft
+	// persists it no more than it persists an output.
+	State map[string]any `json:"state,omitempty"`
 	// Message states what did and did not happen, because "succeeded" on a run
 	// that deliberately wrote nothing is the sentence most likely to be
 	// misread.
@@ -188,6 +192,9 @@ func (h *Handler) portalDryRunSource(w http.ResponseWriter, r *http.Request, use
 	}
 	outcome, err := h.deps.Drafts.Run(r.Context(), scriptdraft.Request{
 		Source: source, Name: sc.Name, Params: params,
+		// The live state, so the draft reads what a platform run created now
+		// would read; what it would have saved is reported, never written.
+		State: h.liveState(r.Context(), sc),
 		Identity: scriptdraft.Identity{
 			UserID: user.UserID, Email: user.Email, Roles: user.Roles,
 			AuthType: user.AuthType,
@@ -261,6 +268,10 @@ func draftOutcome(outcome *scriptdraft.Outcome) dryRunResponse {
 		out.Log = outcome.Result.Log
 		out.LogTruncated = outcome.Result.LogTruncated
 		out.Metrics = draftMetrics(outcome.Result)
+		if outcome.Result.State != nil {
+			out.State = orEmptyObject(outcome.Result.State.Value)
+			out.Message += " platform.save_state reported the state a platform run would have saved and did not save it."
+		}
 	}
 	if outcome.Failed() {
 		out.Status = script.RunStatusFailed
@@ -315,6 +326,7 @@ func (h *Handler) recordDryRun(ctx context.Context, ran executedDraft) {
 		RequestedBy: ran.user.owner(), Status: ran.result.Status, Error: ran.result.Error,
 		Log: ran.result.Log, LogTruncated: ran.result.LogTruncated,
 		Metrics: ran.result.Metrics, Outputs: ran.result.Outputs,
+		StateWritten: ran.result.State,
 	})
 	if err != nil {
 		slog.Error("failed to record a script dry run", "script", ran.script.Name, "error", err)

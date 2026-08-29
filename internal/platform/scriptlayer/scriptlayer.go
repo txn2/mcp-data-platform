@@ -66,7 +66,11 @@ type Handle struct {
 	versions script.VersionStore
 	// schedules is the same store narrowed to its schedule contract, nil where
 	// the deployment has no database and so nothing to schedule with.
-	schedules    script.ScheduleStore
+	schedules script.ScheduleStore
+	// states is the same store narrowed to its state contract (#1537), nil
+	// where the deployment has no database and so nothing to carry between
+	// runs.
+	states       script.StateStore
 	runs         script.RunStore
 	adminPersona string
 	// portalURL is the public portal address show_scripts points the human at,
@@ -99,6 +103,7 @@ func New(cfg Config) *Handle {
 	}
 	h.versions, _ = h.store.(script.VersionStore)
 	h.schedules, _ = h.store.(script.ScheduleStore)
+	h.states, _ = h.store.(script.StateStore)
 	return h
 }
 

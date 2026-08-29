@@ -186,11 +186,14 @@ func materializing() *script.Run {
 	}
 }
 
+// materializeReturning is the column set a scheduled insert hands back.
+var materializeReturning = []string{"state_revision", "state_read", "created_at", "updated_at"}
+
 func TestMaterializeRun(t *testing.T) {
 	t.Run("the insert lands and wakes a worker", func(t *testing.T) {
 		s, mock := newMock(t)
 		mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO script_runs")).
-			WillReturnRows(sqlmock.NewRows([]string{"created_at", "updated_at"}).AddRow(rowTime, rowTime))
+			WillReturnRows(sqlmock.NewRows(materializeReturning).AddRow(int64(0), []byte("{}"), rowTime, rowTime))
 		mock.ExpectExec(regexp.QuoteMeta("SELECT pg_notify")).
 			WithArgs(NotifyChannel, "dpx_1").WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -205,7 +208,7 @@ func TestMaterializeRun(t *testing.T) {
 	t.Run("a conflict on an existing fire is another replica, not a fault", func(t *testing.T) {
 		s, mock := newMock(t)
 		mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO script_runs")).
-			WillReturnRows(sqlmock.NewRows([]string{"created_at", "updated_at"}))
+			WillReturnRows(sqlmock.NewRows(materializeReturning))
 		mock.ExpectQuery(regexp.QuoteMeta("SELECT EXISTS")).
 			WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
@@ -218,11 +221,11 @@ func TestMaterializeRun(t *testing.T) {
 	t.Run("a conflict with no row for the fire is an overlap, recorded as a run", func(t *testing.T) {
 		s, mock := newMock(t)
 		mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO script_runs")).
-			WillReturnRows(sqlmock.NewRows([]string{"created_at", "updated_at"}))
+			WillReturnRows(sqlmock.NewRows(materializeReturning))
 		mock.ExpectQuery(regexp.QuoteMeta("SELECT EXISTS")).
 			WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 		mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO script_runs")).
-			WillReturnRows(sqlmock.NewRows([]string{"created_at", "updated_at"}).AddRow(rowTime, rowTime))
+			WillReturnRows(sqlmock.NewRows(materializeReturning).AddRow(int64(0), []byte("{}"), rowTime, rowTime))
 
 		run := materializing()
 		outcome, err := s.MaterializeRun(context.Background(), run)
@@ -236,11 +239,11 @@ func TestMaterializeRun(t *testing.T) {
 	t.Run("losing the race to record the skip reports the duplicate", func(t *testing.T) {
 		s, mock := newMock(t)
 		mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO script_runs")).
-			WillReturnRows(sqlmock.NewRows([]string{"created_at", "updated_at"}))
+			WillReturnRows(sqlmock.NewRows(materializeReturning))
 		mock.ExpectQuery(regexp.QuoteMeta("SELECT EXISTS")).
 			WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 		mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO script_runs")).
-			WillReturnRows(sqlmock.NewRows([]string{"created_at", "updated_at"}))
+			WillReturnRows(sqlmock.NewRows(materializeReturning))
 
 		outcome, err := s.MaterializeRun(context.Background(), materializing())
 		require.NoError(t, err)
@@ -260,7 +263,7 @@ func TestMaterializeRun(t *testing.T) {
 	t.Run("a failed fire lookup is wrapped", func(t *testing.T) {
 		s, mock := newMock(t)
 		mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO script_runs")).
-			WillReturnRows(sqlmock.NewRows([]string{"created_at", "updated_at"}))
+			WillReturnRows(sqlmock.NewRows(materializeReturning))
 		mock.ExpectQuery(regexp.QuoteMeta("SELECT EXISTS")).WillReturnError(errors.New("boom"))
 
 		_, err := s.MaterializeRun(context.Background(), materializing())
