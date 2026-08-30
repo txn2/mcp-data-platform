@@ -21,14 +21,16 @@ import (
 // inherited from the no-database implementation and unused here.
 type fakeAssets struct {
 	portaldomain.AssetStore
-	owned []portaldomain.Asset
-	total int
-	err   error
-	gotID string
+	owned    []portaldomain.Asset
+	total    int
+	err      error
+	gotID    string
+	gotOwner portaldomain.AssetOwner
 }
 
 func (f *fakeAssets) List(_ context.Context, filter portaldomain.AssetFilter) ([]portaldomain.Asset, int, error) {
-	f.gotID = filter.OwnerID
+	f.gotID = filter.Owner.UserID
+	f.gotOwner = filter.Owner
 	if f.err != nil {
 		return nil, 0, f.err
 	}
@@ -293,7 +295,22 @@ func TestBuildNothingToSayReturnsNilAndLeavesTheWatermark(t *testing.T) {
 	assert.Zero(t, marks.setCall, "an empty digest was never delivered, so nothing was seen")
 }
 
-func TestBuildOwnerlessCallerHasNoOwnedAssetsToCarryFeedback(t *testing.T) {
+func TestBuildUnidentifiedCallerHasNoOwnedAssetsToCarryFeedback(t *testing.T) {
+	assets := &fakeAssets{owned: ownedAsset()}
+	thr := &fakeThreads{found: openThread()}
+	h := testHandle(assets, &fakeShares{refs: newShare()}, thr, &fakeMarks{mark: &testMark})
+
+	digest := h.Build(context.Background(), &middleware.PlatformContext{AuthType: "oidc"})
+
+	assert.Nil(t, digest, "a caller with neither identifier owns nothing to be told about")
+	assert.False(t, assets.gotOwner.Identified(), "an unscoped asset listing is every owner's")
+	assert.Empty(t, thr.gotFil.TargetAssetIDs, "the thread query must never run unscoped")
+}
+
+// A caller carrying only an address still owns what is recorded under it: that
+// is how an asset a managed script wrote reaches the person who owns the script
+// (#1551), and feedback on it has to reach the same person.
+func TestBuildAnAddressOnlyCallerOwnsWhatIsRecordedUnderIt(t *testing.T) {
 	assets := &fakeAssets{owned: ownedAsset()}
 	thr := &fakeThreads{found: openThread()}
 	h := testHandle(assets, &fakeShares{refs: newShare()}, thr, &fakeMarks{mark: &testMark})
@@ -301,9 +318,9 @@ func TestBuildOwnerlessCallerHasNoOwnedAssetsToCarryFeedback(t *testing.T) {
 	digest := h.Build(context.Background(), &middleware.PlatformContext{UserEmail: callerEmail, AuthType: "oidc"})
 
 	require.NotNil(t, digest)
-	assert.Empty(t, digest.Feedback, "ownership is by user id; without one the caller owns nothing")
-	assert.Empty(t, assets.gotID)
-	assert.Empty(t, thr.gotFil.TargetAssetIDs, "the thread query must never run unscoped")
+	assert.Equal(t, callerEmail, assets.gotOwner.Email)
+	assert.Len(t, digest.Feedback, 1)
+	assert.Equal(t, []string{"asset-1"}, thr.gotFil.TargetAssetIDs)
 	assert.Len(t, digest.NewShares, 1, "shares still resolve by email")
 }
 

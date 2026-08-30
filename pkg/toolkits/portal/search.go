@@ -21,10 +21,11 @@ const (
 )
 
 // handleSearch ranks the caller's saved assets by relevance to a free-text
-// query. Owner scope is enforced server-side by owner_id — the same key
-// handleList and the ownership checks use, so search returns exactly the assets
-// the caller can list — and fails closed: a caller with no resolved identity
-// cannot search (it would otherwise scope to the shared "anonymous" bucket).
+// query. Owner scope is enforced server-side by the same judgment handleList
+// applies (callerAssetScope), so search returns exactly the assets the caller
+// can list — and fails closed: a caller with no resolved identity cannot search
+// (it would otherwise scope to the shared "anonymous" bucket, and an empty
+// scope at the store means every owner).
 // Ranking is hybrid (semantic + lexical) when an embedding provider is
 // configured and lexical-only otherwise, reported as the "ranking" field so the
 // caller knows which path produced the results.
@@ -42,8 +43,8 @@ func (t *Toolkit) handleSearch(ctx context.Context, input manageAssetInput) (*mc
 		return middleware.MissingParameterResult("query"), nil, nil
 	}
 
-	ownerID := resolveOwnerID(ctx)
-	if strings.TrimSpace(ownerID) == "" || ownerID == anonymousUserName {
+	owner := callerAssetScope(ctx)
+	if !owner.Identified() {
 		return middleware.UnauthorizedResult(
 			"a user identity is required to search assets",
 			"Authenticate so the search can be scoped to your assets. This is an identity problem, not a platform outage.",
@@ -59,7 +60,7 @@ func (t *Toolkit) handleSearch(ctx context.Context, input manageAssetInput) (*mc
 	scored, err := searcher.SearchAssets(ctx, portal.AssetSearchQuery{
 		Embedding: emb,
 		QueryText: query,
-		OwnerID:   ownerID,
+		Owner:     owner,
 		Limit:     input.Limit,
 	})
 	if err != nil {

@@ -70,6 +70,10 @@ func (c *Checker) IsAdmin(user *User) bool {
 // through the admin API, so refusing them the weaker rights to share it, list
 // its shares, or revoke one was an artifact of the gate being written as a bare
 // ID comparison rather than a decision (#1293).
+//
+// Assets use CanManageAsset instead: their ownership is recorded as an id and
+// an address, and only the pair identifies the person a managed script's output
+// was produced for (#1551).
 func (c *Checker) CanManage(ownerID string, user *User) bool {
 	if user == nil {
 		return false
@@ -89,6 +93,42 @@ func (c *Checker) CanManageEmail(ownerEmail string, user *User) bool {
 		return true
 	}
 	return c.IsAdmin(user)
+}
+
+// AssetOwnerOf is the ownership identity a portal user is judged by: the id
+// they authenticated with and their address.
+//
+// The address is a second key, not a fallback. A managed script's output is
+// stamped with the script principal as its owner id and the script owner's
+// address as owner_email, so a check on the id alone leaves the person the
+// output was produced for unable to see it (#1551). It is a no-op on an asset a
+// person saved themselves, whose two identifiers name the same person.
+func AssetOwnerOf(user *User) portaldomain.AssetOwner {
+	if user == nil {
+		return portaldomain.AssetOwner{}
+	}
+	return portaldomain.NewAssetOwner(user.UserID, user.Email)
+}
+
+// OwnsAsset reports whether the asset belongs to the user, on either of the two
+// identifiers it records. It is the one judgment of "this asset is this
+// person's" the portal makes, so an owner-only affordance and an owner-scoped
+// listing cannot come to different answers about the same row.
+func OwnsAsset(asset *portaldomain.Asset, user *User) bool {
+	if user == nil || asset == nil {
+		return false
+	}
+	return AssetOwnerOf(user).OwnsAsset(asset)
+}
+
+// CanManageAsset reports whether the user holds owner authority over the asset:
+// its owner, or an admin. It is CanManage for assets, which record ownership as
+// an id and an address rather than as an id alone.
+func (c *Checker) CanManageAsset(asset *portaldomain.Asset, user *User) bool {
+	if user == nil {
+		return false
+	}
+	return OwnsAsset(asset, user) || c.IsAdmin(user)
 }
 
 // HasTool reports whether the user's resolved persona grants the named tool,
@@ -233,7 +273,7 @@ func (c *Checker) ResolveAssetPermission(ctx context.Context, assetID string, us
 // avoid a collection query on the hot path, where callers resolve many assets
 // in a loop.
 func (c *Checker) CanViewAsset(ctx context.Context, assetID string, asset *portaldomain.Asset, user *User) bool {
-	if asset.OwnerID == user.UserID {
+	if OwnsAsset(asset, user) {
 		return true
 	}
 	if perm, err := c.AssetSharePermission(ctx, assetID, user); err == nil && perm != "" {
@@ -248,7 +288,7 @@ func (c *Checker) CanViewAsset(ctx context.Context, assetID string, asset *porta
 // lookup failed and no collection grant covered for it, which callers surface as
 // 500 rather than 403.
 func (c *Checker) AssetViewGrant(ctx context.Context, assetID string, asset *portaldomain.Asset, user *User) (bool, error) {
-	if asset.OwnerID == user.UserID {
+	if OwnsAsset(asset, user) {
 		return true, nil
 	}
 	perm, err := c.AssetSharePermission(ctx, assetID, user)
@@ -269,7 +309,7 @@ func (c *Checker) CanEditAssetSilent(ctx context.Context, assetID string, user *
 	if err != nil || asset.DeletedAt != nil {
 		return false
 	}
-	if c.CanManage(asset.OwnerID, user) {
+	if c.CanManageAsset(asset, user) {
 		return true
 	}
 	perm, _ := c.AssetSharePermission(ctx, assetID, user)
@@ -374,9 +414,10 @@ func (c *Checker) OwnedAssetIDs(ctx context.Context, ids []string, user *User) [
 	if err != nil {
 		return nil
 	}
+	owner := AssetOwnerOf(user)
 	owned := make([]string, 0, len(ids))
 	for _, id := range ids {
-		if a, ok := assets[id]; ok && a != nil && a.DeletedAt == nil && a.OwnerID == user.UserID {
+		if a, ok := assets[id]; ok && a != nil && a.DeletedAt == nil && owner.OwnsAsset(a) {
 			owned = append(owned, id)
 		}
 	}

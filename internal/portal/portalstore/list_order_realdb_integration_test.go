@@ -70,7 +70,7 @@ func TestAssetListOrder_RealDB(t *testing.T) {
 	stampAsset(t, db, "asset_untouched", may, may)
 
 	t.Run("defaults to most recently touched", func(t *testing.T) {
-		got, total, err := store.List(ctx, portaldomain.AssetFilter{OwnerID: orderOwner})
+		got, total, err := store.List(ctx, portaldomain.AssetFilter{Owner: portaldomain.NewAssetOwner(orderOwner, "")})
 		require.NoError(t, err)
 		assert.Equal(t, 2, total)
 		assert.Equal(t, []string{"asset_revised", "asset_untouched"}, ids(got))
@@ -78,7 +78,7 @@ func TestAssetListOrder_RealDB(t *testing.T) {
 
 	t.Run("created_at is still reachable, and disagrees", func(t *testing.T) {
 		got, _, err := store.List(ctx, portaldomain.AssetFilter{
-			OwnerID: orderOwner, SortBy: "created_at", SortDir: portaldomain.SortDesc,
+			Owner: portaldomain.NewAssetOwner(orderOwner, ""), SortBy: "created_at", SortDir: portaldomain.SortDesc,
 		})
 		require.NoError(t, err)
 		assert.Equal(t, []string{"asset_untouched", "asset_revised"}, ids(got))
@@ -86,7 +86,7 @@ func TestAssetListOrder_RealDB(t *testing.T) {
 
 	t.Run("name ascending", func(t *testing.T) {
 		got, _, err := store.List(ctx, portaldomain.AssetFilter{
-			OwnerID: orderOwner, SortBy: "name", SortDir: portaldomain.SortAsc,
+			Owner: portaldomain.NewAssetOwner(orderOwner, ""), SortBy: "name", SortDir: portaldomain.SortAsc,
 		})
 		require.NoError(t, err)
 		assert.Equal(t, []string{"asset_untouched", "asset_revised"}, ids(got))
@@ -94,7 +94,7 @@ func TestAssetListOrder_RealDB(t *testing.T) {
 
 	t.Run("size descending", func(t *testing.T) {
 		got, _, err := store.List(ctx, portaldomain.AssetFilter{
-			OwnerID: orderOwner, SortBy: "size_bytes", SortDir: portaldomain.SortDesc,
+			Owner: portaldomain.NewAssetOwner(orderOwner, ""), SortBy: "size_bytes", SortDir: portaldomain.SortDesc,
 		})
 		require.NoError(t, err)
 		assert.Equal(t, []string{"asset_revised", "asset_untouched"}, ids(got))
@@ -104,7 +104,7 @@ func TestAssetListOrder_RealDB(t *testing.T) {
 		// If the column reached the statement at all, Postgres would answer
 		// with an error rather than the default ordering.
 		got, _, err := store.List(ctx, portaldomain.AssetFilter{
-			OwnerID: orderOwner, SortBy: "s3_key; DROP TABLE portal_assets",
+			Owner: portaldomain.NewAssetOwner(orderOwner, ""), SortBy: "s3_key; DROP TABLE portal_assets",
 		})
 		require.NoError(t, err)
 		assert.Equal(t, []string{"asset_revised", "asset_untouched"}, ids(got))
@@ -127,7 +127,7 @@ func TestAssetListPagingIsStableOnATie_RealDB(t *testing.T) {
 	var walked []string
 	for offset := 0; offset < 3; offset++ {
 		page, _, err := store.List(ctx, portaldomain.AssetFilter{
-			OwnerID: orderOwner, Limit: 1, Offset: offset,
+			Owner: portaldomain.NewAssetOwner(orderOwner, ""), Limit: 1, Offset: offset,
 		})
 		require.NoError(t, err)
 		require.Len(t, page, 1)

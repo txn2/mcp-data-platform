@@ -229,10 +229,37 @@ func (s *postgresAssetStore) List(ctx context.Context, filter portaldomain.Asset
 	return assets, total, nil
 }
 
+// buildAssetCount renders the listing's count statement. It is a function so a
+// test can hand the statement a filter assembles to a real PostgreSQL to parse
+// and plan (#1512): the ownership arm is built rather than written down, so
+// nothing in the source reaches it otherwise.
+func buildAssetCount(filter portaldomain.AssetFilter) (query string, args []any, err error) {
+	qb := applyAssetFilter(psq.Select("COUNT(*)").From("portal_assets"), filter).
+		Where("deleted_at IS NULL")
+	return qb.ToSql() //nolint:wrapcheck // rendered by the caller, which wraps
+}
+
+// buildAssetSelect renders the listing's page statement, for the same reason.
+func buildAssetSelect(filter portaldomain.AssetFilter) (query string, args []any, err error) {
+	qb := applyAssetFilter(psq.Select(
+		"id", "owner_id", "owner_email", "name", "description", "content_type", "s3_bucket", "s3_key",
+		"thumbnail_s3_key", "thumbnail_dark_s3_key", "thumbnail_version", "thumbnail_dark_version",
+		"size_bytes", "tags", "provenance", "session_id", "current_version",
+		"created_at", "updated_at", "deleted_at", "COALESCE(idempotency_key, '')", "max_versions",
+	).From("portal_assets"), filter).
+		Where("deleted_at IS NULL").
+		OrderBy(filter.Order()...)
+	if limit := filter.EffectiveLimit(); limit > 0 {
+		qb = qb.Limit(uint64(limit)) //nolint:gosec // validated positive
+	}
+	if filter.Offset > 0 {
+		qb = qb.Offset(uint64(filter.Offset)) //nolint:gosec // validated positive
+	}
+	return qb.ToSql() //nolint:wrapcheck // rendered by the caller, which wraps
+}
+
 func (s *postgresAssetStore) countAssets(ctx context.Context, filter portaldomain.AssetFilter) (int, error) {
-	countQB := applyAssetFilter(psq.Select("COUNT(*)").From("portal_assets"), filter)
-	countQB = countQB.Where("deleted_at IS NULL")
-	countQuery, countArgs, err := countQB.ToSql()
+	countQuery, countArgs, err := buildAssetCount(filter)
 	if err != nil {
 		return 0, fmt.Errorf("building count query: %w", err)
 	}
@@ -245,24 +272,7 @@ func (s *postgresAssetStore) countAssets(ctx context.Context, filter portaldomai
 }
 
 func (s *postgresAssetStore) queryAssets(ctx context.Context, filter portaldomain.AssetFilter) ([]portaldomain.Asset, error) {
-	limit := filter.EffectiveLimit()
-	selectQB := applyAssetFilter(psq.Select(
-		"id", "owner_id", "owner_email", "name", "description", "content_type", "s3_bucket", "s3_key",
-		"thumbnail_s3_key", "thumbnail_dark_s3_key", "thumbnail_version", "thumbnail_dark_version",
-		"size_bytes", "tags", "provenance", "session_id", "current_version",
-		"created_at", "updated_at", "deleted_at", "COALESCE(idempotency_key, '')", "max_versions",
-	).From("portal_assets"), filter).
-		Where("deleted_at IS NULL").
-		OrderBy(filter.Order()...)
-
-	if limit > 0 {
-		selectQB = selectQB.Limit(uint64(limit)) //nolint:gosec // validated positive
-	}
-	if filter.Offset > 0 {
-		selectQB = selectQB.Offset(uint64(filter.Offset)) //nolint:gosec // validated positive
-	}
-
-	selectQuery, selectArgs, err := selectQB.ToSql()
+	selectQuery, selectArgs, err := buildAssetSelect(filter)
 	if err != nil {
 		return nil, fmt.Errorf("building select query: %w", err)
 	}
@@ -1134,9 +1144,39 @@ func unmarshalAssetJSON(asset *portaldomain.Asset, tags, prov []byte) error {
 	return nil
 }
 
+// assetOwnerPredicate renders the ownership arm of an asset query: the row's
+// owner id, or the address it records for the person it belongs to.
+//
+// The address arm is what makes a managed script's output belong to the person
+// who owns the script rather than to the principal the run authenticated as
+// (#1551). It is bound only when the caller has an address to match, so the
+// anonymous sentinel never reaches a parameter and an unattributed row is never
+// matched by an unauthenticated caller. The comparison is case-folded because
+// addresses reach the platform from several identity providers, and it is
+// index-backed by idx_portal_assets_owner_email_lower (migration 000133).
+func assetOwnerPredicate(owner portaldomain.AssetOwner) sq.Sqlizer {
+	email := owner.EmailKey()
+	byEmail := sq.Expr("LOWER(owner_email) = LOWER(?)", email)
+	switch {
+	case owner.UserID == "" && email == "":
+		// An identity naming nobody matches nothing. Callers scope the
+		// listing before they get here (applyAssetFilter asks nothing of the
+		// store for an unidentified owner, which is the administrator's
+		// all-owners listing); this is what keeps the two apart if one ever
+		// does not.
+		return sq.Expr("FALSE")
+	case owner.UserID == "":
+		return byEmail
+	case email == "":
+		return sq.Eq{colOwnerID: owner.UserID}
+	default:
+		return sq.Or{sq.Eq{colOwnerID: owner.UserID}, byEmail}
+	}
+}
+
 func applyAssetFilter(qb sq.SelectBuilder, filter portaldomain.AssetFilter) sq.SelectBuilder {
-	if filter.OwnerID != "" {
-		qb = qb.Where(sq.Eq{colOwnerID: filter.OwnerID})
+	if filter.Owner.Identified() {
+		qb = qb.Where(assetOwnerPredicate(filter.Owner))
 	}
 	if filter.ContentType != "" {
 		qb = qb.Where(sq.Eq{colContentType: filter.ContentType})

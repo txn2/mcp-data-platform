@@ -86,19 +86,16 @@ func clampSearchLimit(limit int) int {
 
 // AssetSearchQuery describes a relevance ranking request over saved assets.
 // Owner scoping is applied before ranking (you cannot rank an asset you cannot
-// view): OwnerID is mandatory and the search is restricted to the caller's own
-// non-deleted assets. OwnerID (not owner_email) is the scope key because it is
-// the ownership key the rest of the asset subsystem uses — the library list,
-// handleList, and the update/delete ownership checks all key on owner_id, and
-// owner_email is a secondary field that can diverge from it (API-key vs OIDC
-// identity, differing configured email, empty on legacy rows). A nil Embedding
+// view): Owner is mandatory and the search is restricted to the caller's own
+// non-deleted assets, matched on either identifier the row records the way
+// every other asset surface matches it (see AssetOwner). A nil Embedding
 // selects lexical-only ranking (the graceful-degradation path when no embedding
 // provider is configured); a non-nil Embedding selects hybrid ranking.
 type AssetSearchQuery struct {
-	Embedding []float32 // query vector; nil selects lexical-only ranking
-	QueryText string    // raw query text for the lexical arm
-	OwnerID   string    // caller identity; mandatory owner scope (owner_id)
-	Limit     int       // max results; clamped into [1, maxSearchLimit]
+	Embedding []float32  // query vector; nil selects lexical-only ranking
+	QueryText string     // raw query text for the lexical arm
+	Owner     AssetOwner // caller identity; mandatory owner scope
+	Limit     int        // max results; clamped into [1, maxSearchLimit]
 }
 
 // EffectiveLimit clamps the requested limit into the search bounds.

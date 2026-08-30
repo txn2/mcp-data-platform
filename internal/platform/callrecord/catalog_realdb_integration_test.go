@@ -29,6 +29,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/platform/auditwiring"
 	"github.com/txn2/mcp-data-platform/internal/platform/callrecord"
+	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/internal/testdb"
 	memstore "github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -566,7 +567,7 @@ func TestCallCatalogRealDBSatisfiesOnlyTheCallsAnAssetNamed(t *testing.T) {
 
 	// The provenance panel is unaffected: the asset still records the session's
 	// work, which is what makes the write checkable.
-	assets, _, err := portal.NewPostgresAssetStore(db).List(ctx, portal.AssetFilter{OwnerID: analystID})
+	assets, _, err := portal.NewPostgresAssetStore(db).List(ctx, portal.AssetFilter{Owner: portaldomain.NewAssetOwner(analystID, "")})
 	require.NoError(t, err)
 	require.Len(t, assets, 1)
 	require.Len(t, assets[0].Provenance.Captures, 1)

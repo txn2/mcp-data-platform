@@ -68,7 +68,7 @@ func current(version int) thumbState {
 func pendingIDs(t *testing.T, store *postgresAssetStore) []string {
 	t.Helper()
 	assets, _, err := store.List(context.Background(), portaldomain.AssetFilter{
-		OwnerID: pendingOwner, ThumbnailPending: true,
+		Owner: portaldomain.NewAssetOwner(pendingOwner, ""), ThumbnailPending: true,
 	})
 	require.NoError(t, err)
 	return ids(assets)

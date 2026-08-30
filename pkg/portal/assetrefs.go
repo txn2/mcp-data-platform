@@ -230,7 +230,7 @@ func (h *Handler) copyableAssets(
 		if asset == nil || asset.DeletedAt != nil {
 			continue
 		}
-		out[id] = h.access.CanManage(asset.OwnerID, user) ||
+		out[id] = h.access.CanManageAsset(asset, user) ||
 			h.access.CanViewAsset(ctx, id, asset, user)
 	}
 	return out

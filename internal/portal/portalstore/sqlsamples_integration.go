@@ -20,7 +20,16 @@ func SQLSamples() map[string]string {
 	assetQuery := portaldomain.AssetSearchQuery{
 		Embedding: make([]float32, 768),
 		QueryText: "quarterly report",
-		OwnerID:   "550e8400-e29b-41d4-a716-446655440444",
+		Owner: portaldomain.NewAssetOwner(
+			"550e8400-e29b-41d4-a716-446655440444", "analyst@example.com"),
+		Limit: 10,
+	}
+	// A caller with no address renders a different ownership arm, and an
+	// arm nothing prepares is an arm the gate does not cover.
+	assetQueryIDOnly := portaldomain.AssetSearchQuery{
+		Embedding: make([]float32, 768),
+		QueryText: "quarterly report",
+		Owner:     portaldomain.NewAssetOwner("550e8400-e29b-41d4-a716-446655440444", ""),
 		Limit:     10,
 	}
 	collectionQuery := portaldomain.CollectionSearchQuery{
@@ -30,12 +39,37 @@ func SQLSamples() map[string]string {
 		Limit:     10,
 	}
 
+	// The listing's ownership arm is assembled, not written down, and it is the
+	// arm a script's output is returned through, so both shapes are prepared.
+	listFilter := portaldomain.AssetFilter{
+		Owner: portaldomain.NewAssetOwner(
+			"550e8400-e29b-41d4-a716-446655440444", "analyst@example.com"),
+		ContentType: "text/csv", Tag: "script", Search: "revenue", Limit: 10, Offset: 20,
+	}
+	listFilterIDOnly := portaldomain.AssetFilter{
+		Owner:            portaldomain.NewAssetOwner("550e8400-e29b-41d4-a716-446655440444", ""),
+		ThumbnailPending: true,
+	}
+	assetCount, _, _ := buildAssetCount(listFilter)
+	assetSelect, _, _ := buildAssetSelect(listFilter)
+	assetCountIDOnly, _, _ := buildAssetCount(listFilterIDOnly)
+	assetSelectIDOnly, _, _ := buildAssetSelect(listFilterIDOnly)
+
 	assetHybrid, _ := buildAssetHybridSearch(assetQuery)
+	assetHybridIDOnly, _ := buildAssetHybridSearch(assetQueryIDOnly)
+	assetLexical, _ := buildAssetLexicalSearch(assetQuery)
+	assetLexicalIDOnly, _ := buildAssetLexicalSearch(assetQueryIDOnly)
 	collectionHybrid, _ := buildCollectionHybridSearch(collectionQuery)
 
 	return map[string]string{
+		"buildAssetCount":                 assetCount,
+		"buildAssetCount/idOnly":          assetCountIDOnly,
+		"buildAssetSelect":                assetSelect,
+		"buildAssetSelect/idOnly":         assetSelectIDOnly,
 		"buildAssetHybridSearch":          assetHybrid,
-		"buildAssetLexicalSearch":         buildAssetLexicalSearch(assetQuery),
+		"buildAssetHybridSearch/idOnly":   assetHybridIDOnly,
+		"buildAssetLexicalSearch":         assetLexical,
+		"buildAssetLexicalSearch/idOnly":  assetLexicalIDOnly,
 		"buildCollectionHybridSearch":     collectionHybrid,
 		"buildCollectionLexicalSearch":    buildCollectionLexicalSearch(collectionQuery),
 		"buildActiveShareForTarget/asset": buildActiveShareForTarget(colAssetID),

@@ -33,7 +33,23 @@ This starts:
 
 On first run, seed data (~5K audit events, 8 knowledge insights) is automatically loaded.
 
-**API Key**: `acme-dev-key-2024`
+**API Key**: `acme-dev-key-2024` (the `admin` persona)
+
+Four more keys authenticate as somebody other than an administrator, which is
+what an owner-authority check has to be executed by:
+
+| Key | Address | Persona |
+|---|---|---|
+| `acme-analyst-key` | `rachel.thompson@example.com` | `inventory-analyst` |
+| `acme-engineer-key` | `marcus.johnson@example.com` | `data-engineer` |
+| `acme-director-key` | `david.park@example.com` | `regional-director` |
+| `acme-owner-key` | `asset.owner@example.com` | `collaborator` |
+| `acme-peer-key` | `asset.peer@example.com` | `collaborator` |
+
+The last two are a pair of ordinary people who reach the whole tool surface and
+hold no administrator role: one owns their own scripts, assets and resources,
+and the other is somebody else. The acceptance suite uses them wherever a
+criterion is about who may reach what.
 
 ### Managed scripts
 

@@ -71,12 +71,12 @@ func TestToolAdapter_FollowResourceTablesUsesTheResourceKind(t *testing.T) {
 	h := newHarness(t)
 	rec := Record{
 		ID: "res_1", Name: "Glossary", Bucket: "managed-resources",
-		Key: "resources/global/reference/v/rev-1/glossary.csv", ContentType: "text/csv", OwnerID: "u1",
+		Key: "resources/global/reference/v/rev-1/glossary.csv", ContentType: "text/csv",
 	}
 	src := SourceFromResource(rec)
 	h.objects.entries = []ObjectEntry{{Key: src.HeadKey}}
 	adapter := NewToolAdapter(h.reg, nil, map[string]Subject{
-		KindResource: resourceSubjectFor(rec),
+		KindResource: resourceSubjectFor(rec, "u1"),
 	}, locatorFor(&src))
 	_, err := adapter.Register(callerContext("alice@example.com", "analyst"), resourceRef, "scratch", "",
 		portaltoolkit.RegisterOptions{Follow: true})

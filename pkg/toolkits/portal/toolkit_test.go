@@ -670,7 +670,7 @@ func (s *inMemoryAssetStore) List(_ context.Context, filter portal.AssetFilter) 
 		if a.DeletedAt != nil {
 			continue
 		}
-		if filter.OwnerID != "" && a.OwnerID != filter.OwnerID {
+		if filter.Owner.Identified() && !filter.Owner.OwnsAsset(&a) {
 			continue
 		}
 		result = append(result, a)
@@ -998,19 +998,25 @@ func TestManageAsset_GetDeletedAsset(t *testing.T) {
 	assert.Contains(t, tc.Text, "deleted")
 }
 
+// A call with no identity is refused rather than answered from the shared
+// "anonymous" bucket. An empty owner scope on the store means every owner, so
+// the refusal is what stands between an unauthenticated call and the listing an
+// administrator gets.
 func TestManageAsset_ListNoContext(t *testing.T) {
 	store := newInMemoryAssetStore()
 	_ = store.Insert(context.Background(), portal.Asset{
-		ID: "a1", OwnerID: "anonymous", Name: "Anon Asset", Tags: []string{},
-		Provenance: portal.Provenance{},
+		ID: "a1", OwnerID: "u1", OwnerEmail: "alice@example.com", Name: "Alice Asset",
+		Tags: []string{}, Provenance: portal.Provenance{},
 	})
 
 	tk := New(Config{Name: "test", AssetStore: store, S3Bucket: "bucket"})
 
-	// Call without PlatformContext — should default to "anonymous".
 	result, _, err := tk.handleManageAsset(context.Background(), nil, manageAssetInput{Action: "list"})
 	require.NoError(t, err)
-	assert.False(t, result.IsError)
+	require.True(t, result.IsError)
+	tc, ok := result.Content[0].(*mcp.TextContent) //nolint:errcheck // test assertion
+	require.True(t, ok)
+	assert.Contains(t, tc.Text, "user identity")
 }
 
 func TestSaveAsset_ValidationDescription(t *testing.T) {

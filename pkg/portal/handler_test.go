@@ -3274,7 +3274,7 @@ func TestListPendingThumbnails(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 	require.NotNil(t, store.lastFilter)
 	assert.True(t, store.lastFilter.ThumbnailPending)
-	assert.Equal(t, "u1", store.lastFilter.OwnerID,
+	assert.Equal(t, "u1", store.lastFilter.Owner.UserID,
 		"capture reads the whole body of every asset it is offered, so the list is the caller's own")
 	assert.Equal(t, thumbnailPendingLimit, store.lastFilter.Limit)
 

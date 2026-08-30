@@ -177,7 +177,7 @@ func (h *handler) visibleAssets(
 		// owner, for the reason viewableAsset states: an operator asking what a
 		// delete would break has to get the whole answer, not the part of it
 		// they happen to hold a share on.
-		if !h.access.CanManage(asset.OwnerID, user) &&
+		if !h.access.CanManageAsset(asset, user) &&
 			!h.access.CanViewAsset(r.Context(), ref.AssetID, asset, user) {
 			hidden++
 			continue

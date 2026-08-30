@@ -1,6 +1,7 @@
 package notices
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"fmt"
@@ -167,7 +168,7 @@ func (h *Handle) collect(ctx context.Context, c caller, since time.Time) (*Diges
 // caller owns, with activity since the watermark, plus how many such threads
 // exist in total.
 func (h *Handle) feedback(ctx context.Context, c caller, since time.Time) ([]FeedbackNotice, int, error) {
-	names, ids, err := h.ownedAssets(ctx, c.id)
+	names, ids, err := h.ownedAssets(ctx, portaldomain.NewAssetOwner(c.id, c.email))
 	if err != nil || len(ids) == 0 {
 		return nil, 0, err
 	}
@@ -202,20 +203,23 @@ func (h *Handle) feedback(ctx context.Context, c caller, since time.Time) ([]Fee
 }
 
 // ownedAssets returns the caller's assets as an id-to-name map and the id list
-// the thread query is scoped to. Ownership is by user id, matching how the
-// portal scopes every other owned-artifact view, so a caller without one owns
-// nothing here.
-func (h *Handle) ownedAssets(ctx context.Context, ownerID string) (names map[string]string, ids []string, err error) {
-	if ownerID == "" {
+// the thread query is scoped to. Ownership is the portal's own judgment (id or
+// address), so feedback on a managed script's output reaches the person who
+// owns the script; a caller with neither identifier owns nothing here.
+func (h *Handle) ownedAssets(
+	ctx context.Context, owner portaldomain.AssetOwner,
+) (names map[string]string, ids []string, err error) {
+	if !owner.Identified() {
 		return nil, nil, nil
 	}
-	owned, total, listErr := h.assets.List(ctx, portaldomain.AssetFilter{OwnerID: ownerID, Limit: maxOwnedAssets})
+	owned, total, listErr := h.assets.List(ctx, portaldomain.AssetFilter{Owner: owner, Limit: maxOwnedAssets})
 	if listErr != nil {
 		return nil, nil, fmt.Errorf("listing owned assets: %w", listErr)
 	}
 	if total > len(owned) {
 		slog.WarnContext(ctx, "notices: owned asset set truncated; feedback on the remainder is not reported",
-			"owner", logsan.SanitizeForLog(ownerID), "total", total, "cap", maxOwnedAssets)
+			"owner", logsan.SanitizeForLog(cmp.Or(owner.UserID, owner.Email)),
+			"total", total, "cap", maxOwnedAssets)
 	}
 	names = make(map[string]string, len(owned))
 	ids = make([]string, 0, len(owned))

@@ -141,11 +141,11 @@ func TestAssetUpdatedAt_RealDB_ARecapturePassDoesNotReorderTheLibrary(t *testing
 		require.NoError(t, err)
 	}
 
-	before, _, err := store.List(ctx, portaldomain.AssetFilter{OwnerID: stampOwner})
+	before, _, err := store.List(ctx, portaldomain.AssetFilter{Owner: portaldomain.NewAssetOwner(stampOwner, "")})
 	require.NoError(t, err)
 	require.Equal(t, []string{"asset_august", "asset_june", "asset_march"}, ids(before))
 
-	pending, _, err := store.List(ctx, portaldomain.AssetFilter{OwnerID: stampOwner, ThumbnailPending: true})
+	pending, _, err := store.List(ctx, portaldomain.AssetFilter{Owner: portaldomain.NewAssetOwner(stampOwner, ""), ThumbnailPending: true})
 	require.NoError(t, err)
 	require.Len(t, pending, 3, "every legacy-key row is due for re-capture")
 
@@ -157,7 +157,7 @@ func TestAssetUpdatedAt_RealDB_ARecapturePassDoesNotReorderTheLibrary(t *testing
 		}))
 	}
 
-	after, _, err := store.List(ctx, portaldomain.AssetFilter{OwnerID: stampOwner})
+	after, _, err := store.List(ctx, portaldomain.AssetFilter{Owner: portaldomain.NewAssetOwner(stampOwner, "")})
 	require.NoError(t, err)
 	assert.Equal(t, ids(before), ids(after))
 	for _, a := range after {

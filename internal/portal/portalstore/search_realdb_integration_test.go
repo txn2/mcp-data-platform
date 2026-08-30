@@ -39,7 +39,7 @@ func TestSearchAssetsLexical_RealDB_Differentiates(t *testing.T) {
 	require.NoError(t, store.Insert(ctx, short))
 	require.NoError(t, store.Insert(ctx, long))
 
-	results, err := store.SearchAssets(ctx, portaldomain.AssetSearchQuery{QueryText: "revenue", OwnerID: realdbOwner, Limit: 10})
+	results, err := store.SearchAssets(ctx, portaldomain.AssetSearchQuery{QueryText: "revenue", Owner: portaldomain.NewAssetOwner(realdbOwner, ""), Limit: 10})
 	require.NoError(t, err)
 
 	scores := map[string]float64{}

@@ -205,7 +205,6 @@ type Record struct {
 	Bucket      string
 	Key         string
 	ContentType string
-	OwnerID     string
 }
 
 // SourceFromResource builds a managed-resource source: its head key is the
@@ -231,7 +230,6 @@ func sourceFrom(kind string, rec Record) Source {
 		Bucket:      rec.Bucket,
 		HeadKey:     rec.Key,
 		ContentType: rec.ContentType,
-		OwnerID:     rec.OwnerID,
 	}
 }
 

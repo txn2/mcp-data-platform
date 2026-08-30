@@ -67,16 +67,16 @@ func assetSubjectFor(asset portal.Asset, seen *Caller) Subject {
 		}
 		return SourceFromAssetRecord(Record{
 			ID: asset.ID, Name: asset.Name, Bucket: asset.S3Bucket,
-			Key: asset.S3Key, ContentType: asset.ContentType, OwnerID: asset.OwnerID,
+			Key: asset.S3Key, ContentType: asset.ContentType,
 		}), true
 	}
 }
 
-// resourceSubjectFor resolves one managed resource, readable only by its
-// uploader.
-func resourceSubjectFor(rec Record) Subject {
+// resourceSubjectFor resolves one managed resource, readable only by the
+// uploader named by ownerID.
+func resourceSubjectFor(rec Record, ownerID string) Subject {
 	return func(_ context.Context, id string, caller Caller) (Source, bool) {
-		if id != rec.ID || (!caller.IsAdmin && caller.UserID != rec.OwnerID) {
+		if id != rec.ID || (!caller.IsAdmin && caller.UserID != ownerID) {
 			return Source{}, false
 		}
 		return SourceFromResource(rec), true
@@ -128,8 +128,8 @@ func TestToolAdapter_ResolvesTheKindFromTheReference(t *testing.T) {
 		KindAsset: assetSubjectFor(adapterAsset(), nil),
 		KindResource: resourceSubjectFor(Record{
 			ID: "res_1", Name: "Vendor glossary", Bucket: "resources",
-			Key: "resources/res_1/glossary.csv", ContentType: "text/csv", OwnerID: "u1",
-		}),
+			Key: "resources/res_1/glossary.csv", ContentType: "text/csv",
+		}, "u1"),
 	}, nil)
 	require.NotNil(t, adapter)
 	ctx := callerContext("alice@example.com", "analyst")
@@ -300,7 +300,7 @@ func TestToolAdapter_ReportsStale(t *testing.T) {
 		KindAsset: func(_ context.Context, _ string, _ Caller) (Source, bool) {
 			return SourceFromAssetRecord(Record{
 				ID: current.ID, Name: current.Name, Bucket: current.S3Bucket,
-				Key: current.S3Key, ContentType: current.ContentType, OwnerID: current.OwnerID,
+				Key: current.S3Key, ContentType: current.ContentType,
 			}), true
 		},
 	}, nil)
@@ -345,7 +345,7 @@ func TestParseReference(t *testing.T) {
 }
 
 func TestSourceConstructorsCarryTheirKind(t *testing.T) {
-	rec := Record{ID: "r1", Name: "R", Bucket: "b", Key: "d/f.csv", ContentType: "text/csv", OwnerID: "u1"}
+	rec := Record{ID: "r1", Name: "R", Bucket: "b", Key: "d/f.csv", ContentType: "text/csv"}
 
 	res := SourceFromResource(rec)
 	assert.Equal(t, KindResource, res.Kind)
