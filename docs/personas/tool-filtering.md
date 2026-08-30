@@ -286,6 +286,13 @@ To verify your rules work as expected, check which tools are available for each 
 2. Ask Claude to list available tools
 3. Verify the expected tools are present/absent
 
+![Admin Tools: the Visibility tab, previewing a persona's decision](../images/screenshots/light/admin-admin-tools-visibility-light.webp#only-light)![Admin Tools: the Visibility tab, previewing a persona's decision](../images/screenshots/dark/admin-admin-tools-visibility-dark.webp#only-dark)
+
+The portal answers the same question without a client: **Admin > Tools >
+Visibility** previews a given persona's decision for the selected tool before
+any rule is changed, and **Admin > Tools > Overview** carries that tool's full
+per-persona matrix with the pattern that matched.
+
 Or test programmatically by checking the tool filter logic:
 
 ```go

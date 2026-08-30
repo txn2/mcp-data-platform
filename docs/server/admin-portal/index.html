@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Moved &mdash; Admin Portal</title>
+<meta name="robots" content="noindex">
+<link rel="canonical" href="https://mcp-data-platform.txn2.com/portal/">
+<!--
+  This page moved. It was one of the two single-page portal guides; the portal
+  documentation is now a section of its own at /portal/, one page per surface.
+
+  The file is a hand-written redirect rather than a mkdocs-redirects entry
+  because docs/requirements.txt is hash-pinned and adding a plugin there needs
+  a pip-compile run. MkDocs copies any non-Markdown file under docs/ verbatim,
+  so this sits at the old URL and answers it.
+
+  MAP covers EVERY anchor the old page published, not only the ones something
+  linked to, because a bookmark can name any of them. A reader who saved a
+  link into the middle of the old guide lands on the section it meant.
+-->
+<script>
+  (function () {
+    var MAP = {
+  "activity": "admin-tools/#activity",
+  "activity-dashboard-tabs": "admin-dashboard/#activity-dashboard-tabs",
+  "add-mcp-connection": "admin-connections/#add-mcp-connection",
+  "agent-instructions": "admin-settings/#agent-instructions",
+  "api-catalogs": "admin-connections/#api-catalogs",
+  "api-gateway": "admin-dashboard/#api-gateway",
+  "api-keys": "admin-access/#api-keys",
+  "assets-admin": "admin-content/#assets-admin",
+  "branding": "#branding",
+  "calls": "admin-sessions/#calls",
+  "change-log": "admin-settings/#change-log",
+  "collections-admin": "admin-content/#collections-admin",
+  "connections": "admin-connections/#connections",
+  "connections-and-catalogs": "admin-connections/",
+  "content": "admin-content/",
+  "cross-enrichment-rules-drawer": "admin-connections/#cross-enrichment-rules-drawer",
+  "dashboard": "admin-dashboard/",
+  "description": "admin-settings/#description",
+  "email-logo": "#email-logo",
+  "enrichment": "admin-tools/#enrichment",
+  "events": "admin-dashboard/#events",
+  "generating-screenshots": "admin-settings/#generating-screenshots",
+  "health": "admin-dashboard/#health",
+  "indexing": "admin-dashboard/#indexing",
+  "keys-and-users": "admin-access/",
+  "knowledge--memory-review-and-promotion": "admin-knowledge/",
+  "knowledge-review": "admin-knowledge/",
+  "local-development": "admin-settings/#local-development",
+  "mcp": "admin-dashboard/#mcp",
+  "mcp-gateway-connections": "admin-connections/#mcp-gateway-connections",
+  "notifications": "admin-dashboard/#notifications",
+  "oauth-connect-button": "admin-connections/#oauth-connect-button",
+  "observed-warehouse-state": "admin-knowledge/#observed-warehouse-state",
+  "one-script": "admin-content/#one-script",
+  "overview": "admin-tools/#overview",
+  "personas": "admin-personas/",
+  "prompts-admin": "admin-content/#prompts-admin",
+  "public-viewer-branding": "#public-viewer-branding",
+  "public-viewer-features": "#public-viewer-features",
+  "resources-admin": "admin-content/#resources-admin",
+  "runs": "admin-content/#runs",
+  "scripts-admin": "admin-content/#scripts-admin",
+  "sessions": "admin-sessions/#sessions",
+  "sessions-and-calls": "admin-sessions/",
+  "settings": "admin-settings/#settings",
+  "settings-and-change-log": "admin-settings/",
+  "tools": "admin-tools/",
+  "try-it": "admin-tools/#try-it",
+  "users": "admin-access/#users",
+  "version-link": "#version-link",
+  "visibility": "admin-tools/#visibility"
+};
+    var frag = location.hash.replace(/^#/, "");
+    location.replace("../../portal/" + (MAP[frag] || ""));
+  })();
+</script>
+<meta http-equiv="refresh" content="0; url=../../portal/">
+<style>
+  body { font-family: system-ui, sans-serif; margin: 4rem auto; max-width: 40rem; padding: 0 1rem; }
+</style>
+</head>
+<body>
+<h1>This page moved</h1>
+<p>The portal documentation is now a section of its own, one page per surface.</p>
+<p><a href="../../portal/">Go to the portal tour</a></p>
+</body>
+</html>

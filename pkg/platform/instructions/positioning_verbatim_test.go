@@ -36,7 +36,7 @@ func TestResourcePositioningIsVerbatim(t *testing.T) {
 	for _, rel := range []string{
 		"ui/src/lib/positioning.ts",
 		"docs/concepts/content-model.md",
-		"docs/server/portal-user.md",
+		"docs/portal/resources.md",
 	} {
 		body, err := os.ReadFile(filepath.Join(root, rel)) //nolint:gosec // test reads project sources
 		if err != nil {

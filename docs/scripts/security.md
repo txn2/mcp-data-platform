@@ -163,6 +163,8 @@ behaviors described below; it grants nothing (`pkg/middleware/mcp.go`).
 |---|---|
 | Script author (any authenticated caller) | Creates, edits, runs, and schedules their own scripts; runs drafts as themselves. Saving a version makes it the version that runs, presenting their own captured roles |
 | Admin persona | The above on every script, plus lifecycle changes and the owner transfer, which re-captures the run identity from the administrator making it |
+
+![Admin Scripts: every script on the deployment, across owners](../images/screenshots/light/admin-admin-scripts-light.webp#only-light)![Admin Scripts: every script on the deployment, across owners](../images/screenshots/dark/admin-admin-scripts-dark.webp#only-dark)
 | Operator (deployment configuration) | Declares the bucket destinations scripts may deliver to (`scripts.destinations`), and decides which replicas execute (`scripts.worker.enabled`) |
 | Schedule owner (the script's owner, or an admin) | Sets the cadence, timezone, and bound parameters of a script's schedule, and turns it on or off, from `manage_script` or from the portal; grants nothing |
 | Script principal (`script:<name>`) | Exists only inside a platform run; presents the version author's captured roles and nothing else |
@@ -256,6 +258,11 @@ acts for (`middleware.UserInfo.OnBehalfOf`, read by tools as
 `PlatformContext.OnBehalfOfEmail`, set by
 `internal/platform/scriptexec/runner.go`). Ownership checks accept either the
 caller's user id or that address (`pkg/toolkits/portal`, `ownsResource`).
+
+![Transferring a script to another owner](../images/screenshots/light/admin-admin-script-owner-light.webp#only-light)![Transferring a script to another owner](../images/screenshots/dark/admin-admin-script-owner-dark.webp#only-dark)
+
+The transfer is an administrator's action, and it re-captures the run identity
+from the administrator making it.
 
 The managed resource library reads the same address, for the same reason and on
 the same terms (`resource.Claims.OnBehalfOf`, built by `BuildClaimsFor`). A

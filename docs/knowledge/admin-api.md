@@ -84,6 +84,11 @@ curl -s "https://mcp.example.com/api/v1/admin/knowledge/insights?status=pending&
 
 ### Get Insight
 
+![An insight's detail drawer in the portal](../images/screenshots/light/admin-knowledge-insight-detail-light.webp#only-light)![An insight's detail drawer in the portal](../images/screenshots/dark/admin-knowledge-insight-detail-dark.webp#only-dark)
+
+The portal's review drawer shows the same insight; the fields below are what
+this endpoint returns for it.
+
 ```
 GET /api/v1/admin/knowledge/insights/{id}
 ```

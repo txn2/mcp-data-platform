@@ -213,6 +213,13 @@ The audit log includes:
 - Selected persona
 - Tool access decisions
 
+![The persona editor's Roles and Priority fields](../images/screenshots/light/admin-admin-persona-create-light.webp#only-light)![The persona editor's Roles and Priority fields](../images/screenshots/dark/admin-admin-persona-create-dark.webp#only-dark)
+
+The portal editor carries the same two inputs this page is about: **Roles**,
+the list a caller's roles are matched against, and **Priority**, which decides
+the winner when a caller matches more than one persona. The persona list
+beside it states how many roles and how many tools each persona has.
+
 ## Common Issues
 
 **User gets wrong persona:**

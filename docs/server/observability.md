@@ -77,6 +77,14 @@ and a README covering how to load them and confirm scraping with
 
 ## Exposed metrics
 
+![Dashboard: the Health tab](../images/screenshots/light/admin-admin-audit-health-light.webp#only-light)![Dashboard: the Health tab](../images/screenshots/dark/admin-admin-audit-health-dark.webp#only-dark)
+
+The portal reads a subset of these back per node under **Admin > Dashboard >
+Health**: uptime, CPU, resident memory, heap, goroutine count and in-flight
+calls, with per-node CPU and memory trend charts beneath them and any metric
+the scrape did not return rendered as a dash. Prometheus remains the place to
+query them; the tab is the at-a-glance read.
+
 | Name | Type | Labels |
 |---|---|---|
 | `mcp_tool_calls_total` | counter | `tool`, `toolkit_kind`, `persona`, `status_category` |
@@ -143,7 +151,7 @@ histogram_quantile(0.95, sum by (le) (rate(script_run_duration_seconds_bucket[24
 ```
 
 The portal's admin Scripts page reads these on its Runs tab, beside the run
-rows themselves; see [Admin portal](admin-portal.md).
+rows themselves; see [Admin portal](../portal/index.md).
 
 **Enrichment overhead**: `mcp_enrichment_bytes_total` accumulates the byte
 size of the cross-enrichment content (semantic context, memories, knowledge

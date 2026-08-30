@@ -167,6 +167,28 @@ content type renders identically wherever it is opened.
 Media types are never edited: the platform stores audio, video and images, it
 does not transcode them.
 
+The formats a report is usually written in, as the asset viewer renders them.
+Markdown, HTML and JSX are one family in the table above -- Markup -- and each
+gets its own renderer within it. Markdown, with mermaid, GFM tables and
+highlighted code:
+
+![The Markdown viewer](../images/screenshots/light/user-asset-markdown-light.webp#only-light)![The Markdown viewer](../images/screenshots/dark/user-asset-markdown-dark.webp#only-dark)
+
+HTML, sandboxed, and a JSX artifact, which runs under a policy of its own
+(see [The JSX artifact's own policy](#the-jsx-artifacts-own-policy)):
+
+![The HTML viewer](../images/screenshots/light/user-asset-html-light.webp#only-light)![The HTML viewer](../images/screenshots/dark/user-asset-html-dark.webp#only-dark)
+
+![The JSX artifact viewer](../images/screenshots/light/user-asset-jsx-light.webp#only-light)![The JSX artifact viewer](../images/screenshots/dark/user-asset-jsx-dark.webp#only-dark)
+
+SVG, sanitized and rendered inline rather than framed:
+
+![The SVG viewer](../images/screenshots/light/user-asset-svg-light.webp#only-light)![The SVG viewer](../images/screenshots/dark/user-asset-svg-dark.webp#only-dark)
+
+And a CSV, in the sortable, searchable table the tabular family gets:
+
+![The tabular viewer over a CSV asset](../images/screenshots/light/user-asset-csv-light.webp#only-light)![The tabular viewer over a CSV asset](../images/screenshots/dark/user-asset-csv-dark.webp#only-dark)
+
 ### Size limits
 
 The inline preview limit is per family, not global:
@@ -177,6 +199,11 @@ The inline preview limit is per family, not global:
   refused.
 - Families rendered as one continuous block of text keep a 2 MB cutoff, above
   which the viewer offers a download.
+
+![A CSV asset registered as a queryable table](../images/screenshots/light/user-asset-table-light.webp#only-light)![A CSV asset registered as a queryable table](../images/screenshots/dark/user-asset-table-dark.webp#only-dark)
+
+A tabular asset can also be registered as a table and queried, rather than
+only read — see [Registered Tables](registered-tables.md).
 
 ## Serving raw content
 

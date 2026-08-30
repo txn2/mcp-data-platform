@@ -77,7 +77,7 @@ When `portal.enabled: true`, an interactive web dashboard is served at `/portal/
 
 The portal requires authentication — access it with the same credentials used for admin API requests. In production builds, the service worker (`mockServiceWorker.js`) is stripped automatically.
 
-See the [Admin Portal guide](admin-portal.md) for a complete visual walkthrough.
+See the [Admin Portal guide](../portal/index.md) for a complete visual walkthrough.
 
 ## Error Format
 

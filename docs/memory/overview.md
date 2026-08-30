@@ -40,6 +40,12 @@ flowchart TB
 
 ### Memory Types
 
+![Knowledge: the Memory tab](../images/screenshots/light/user-knowledge-memory-light.webp#only-light)![Knowledge: the Memory tab](../images/screenshots/dark/user-knowledge-memory-dark.webp#only-dark)
+
+The portal lists what has been captured under **Knowledge > Memory**: counts
+of total, active, stale and archived records above a searchable list, each
+record carrying its state, its category, and the entity it hangs off.
+
 Memories are classified by LOCOMO dimension for structured retrieval:
 
 | Dimension | Purpose | Examples |

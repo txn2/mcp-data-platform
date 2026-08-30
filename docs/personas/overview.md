@@ -41,6 +41,15 @@ graph LR
 
 Define personas in your configuration:
 
+![Admin Personas: the personas defined on the deployment](../images/screenshots/light/admin-admin-personas-light.webp#only-light)![Admin Personas: the personas defined on the deployment](../images/screenshots/dark/admin-admin-personas-dark.webp#only-dark)
+
+A persona is defined in the YAML below or in the portal under **Admin >
+Personas**, and the two produce the same persona. The editor previews what the
+patterns admit as they are typed, counting the tools, connections and API
+endpoints each decision allows and denies.
+
+![Creating a persona in the portal](../images/screenshots/light/admin-admin-persona-create-light.webp#only-light)![Creating a persona in the portal](../images/screenshots/dark/admin-admin-persona-create-dark.webp#only-dark)
+
 ```yaml
 personas:
   analyst:
@@ -400,6 +409,8 @@ Globs use the same wildcard syntax as tool and connection patterns, where `*` do
 A rule written as a glob is shown as the glob it was typed as and is not rewritten when the persona is saved. Use the rule editor directly for a pattern no indexed operation corresponds to, such as a path prefix on a connection whose spec has not been loaded yet.
 
 **Settings > Personas > Test access** answers a `(connection, method, path)` question against the saved persona and returns the rule that decided it.
+
+![A persona's API endpoint rules](../images/screenshots/light/admin-admin-persona-api-routes-light.webp#only-light)![A persona's API endpoint rules](../images/screenshots/dark/admin-admin-persona-api-routes-dark.webp#only-dark)
 
 ### What this does not do
 

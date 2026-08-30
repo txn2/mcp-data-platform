@@ -1,4 +1,4 @@
-import { test, type Page } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
@@ -27,6 +27,44 @@ async function navigateClientSide(page: Page, appPath: string): Promise<void> {
   }, appPath);
   await page.waitForTimeout(1000);
   await page.waitForLoadState("networkidle");
+}
+
+
+/**
+ * Strings that mean the capture is broken.
+ *
+ * A screenshot test passes whether or not the page rendered, so a failure
+ * state is committed as documentation and nobody notices until a reader asks
+ * why the docs show an error. #1484 shipped three of these: a PDF fixture the
+ * headless browser has no plugin for, rendered as the viewer's download
+ * fallback where the prose promises content; and the mock content endpoint's
+ * placeholder body served for `application/sql` and `text/csv` resources, so
+ * a SQL file read "binary contents of query-templates.sql" and a CSV rendered
+ * as a one-column, one-row table.
+ *
+ * Every entry has to be a string no correct page can contain. Legitimate
+ * failure states the docs DO document -- the not-found page, a failed script
+ * run, a stale table registration -- are deliberately absent from this list.
+ */
+const FAILURE_MARKERS = [
+  "binary contents of",
+  "This browser cannot display PDFs inline",
+  "Something went wrong",
+  "Unexpected Application Error",
+  "Failed to fetch",
+  "TypeError:",
+  "ReferenceError:",
+  "Cannot read properties of",
+] as const;
+
+async function assertNothingBroken(page: Page, name: string): Promise<void> {
+  const body = await page.locator("body").innerText();
+  for (const marker of FAILURE_MARKERS) {
+    expect(
+      body.includes(marker),
+      `${name}: the page shows "${marker}", so this capture would be committed as a broken screenshot`,
+    ).toBe(false);
+  }
 }
 
 test.describe("Portal Screenshots", () => {
@@ -101,6 +139,7 @@ test.describe("Portal Screenshots", () => {
           }
 
           await waitForPageReady(page, route);
+          await assertNothingBroken(page, name);
 
           await page.screenshot({
             path: path.join(OUTPUT_DIR, theme, `${name}.png`),

@@ -17,9 +17,8 @@ going stale. A few topics have their own deeper reference:
   URN mapping when Trino and DataHub name the same data differently
 - [Lineage Inheritance](../cross-enrichment/lineage.md) - lineage-aware
   column metadata inheritance (`semantic.lineage`)
-- [Admin Portal](../server/admin-portal.md) and
-  [User Portal](../server/portal-user.md) - portal branding, sharing, and
-  the public viewer
+- [The Portal](../portal/index.md) - enabling it, branding, and the public
+  viewer, with the guided tour of every screen it serves
 - [Knowledge Capture](../knowledge/overview.md) and
   [Memory Layer](../memory/configuration.md) - knowledge/memory subsystem
   configuration

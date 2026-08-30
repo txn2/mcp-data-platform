@@ -53,6 +53,18 @@ The platform ships with `platform-info` embedded in the binary. It registers aut
 - Feature flags (enabled / disabled)
 - Active personas
 
+![The platform-info app's Overview tab](../images/screenshots/light/app-platform-info-light.webp#only-light)![The platform-info app's Overview tab](../images/screenshots/dark/app-platform-info-dark.webp#only-dark)
+
+The panel is tabbed. **Platform** carries the connected toolkits with their
+descriptions, and sub-tabs for the capability flags and the deployment's tags:
+
+![The platform-info app's Platform tab](../images/screenshots/light/app-platform-info-platform-light.webp#only-light)![The platform-info app's Platform tab](../images/screenshots/dark/app-platform-info-platform-dark.webp#only-dark)
+
+**Agent Instructions** renders the standing guidance the deployment sets, so a
+person can read what their agent was told:
+
+![The platform-info app's Agent Instructions tab](../images/screenshots/light/app-platform-info-agent-instructions-light.webp#only-light)![The platform-info app's Agent Instructions tab](../images/screenshots/dark/app-platform-info-agent-instructions-dark.webp#only-dark)
+
 ### Branding
 
 Operators can inject custom branding via config without touching any HTML:
@@ -67,7 +79,7 @@ mcpapps:
         logo_svg: "<svg ...>"
 ```
 
-All branding fields are optional. When unset the app falls back to the server name and a default data-graph logo.
+All branding fields are optional. When unset the app falls back to the server name and a default data-graph logo. The panels above are captured with a `brand_name` set, which is where the header's title comes from.
 
 ## Built-in App: prompt-browser
 
@@ -78,6 +90,11 @@ The platform also ships with `prompt-browser` embedded in the binary, bound to t
 - A detail view with full prompt content, provenance, and a form generated from the prompt's argument specs
 - Run resolves the prompt through the `manage_prompt` `use` command with the filled arguments; when the host supports conversation insertion (`ui/message`), the rendered prompt is placed directly into the chat, otherwise the app offers the rendered content for copy
 
+![The prompt-browser app](../images/screenshots/light/app-prompt-browser-light.webp#only-light)![The prompt-browser app](../images/screenshots/dark/app-prompt-browser-dark.webp#only-dark)
+
+Each card carries the prompt's scope, its version, and, for an approved one,
+who approved it and when; a personal draft is badged as one.
+
 The app is presentation only: the same `manage_prompt` calls return complete structured JSON in clients that do not render apps, so nothing is lost outside app-capable hosts. It follows the same organization model as the portal library (collections, buckets, usage) with no app-local state.
 
 Like `platform-info`, an operator `mcpapps.apps.prompt-browser` entry can override the injected config or replace the embedded HTML entirely via `assets_path`.
@@ -85,6 +102,11 @@ Like `platform-info`, an operator `mcpapps.apps.prompt-browser` entry can overri
 ## Example App: query-results
 
 The repository includes a community example app at `apps/query-results/` that demonstrates sortable tables, charts, search/filter, and dark mode for `trino_query` output. It is not built into the binary — operators deploy it as a custom app by mounting the assets directory. See [Configuration](configuration.md) for details.
+
+![The query-results example app](../images/screenshots/light/app-query-results-light.webp#only-light)![The query-results example app](../images/screenshots/dark/app-query-results-dark.webp#only-dark)
+
+The footer states the query's duration, its id, and the row count, so the
+panel answers where the numbers came from as well as what they are.
 
 ## Next Steps
 

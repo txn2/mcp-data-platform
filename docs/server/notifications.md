@@ -9,7 +9,7 @@ blocks the originating request, and respects per-user preferences including
 a daily digest mode.
 
 Email is one of three ways the platform tells someone that something needs
-them. The [portal activity feed](portal-user.md#activity) shows it to anyone who
+them. The [portal activity feed](../portal/activity.md) shows it to anyone who
 opens the portal, and [session-start notices](session-notices.md) put it in
 front of a person working through an agent, who may open neither.
 
@@ -98,6 +98,11 @@ write-only: no API response ever includes it.
 | `host`, `port` | SMTP server address. Port 587 for STARTTLS, 465 for implicit TLS. |
 | `username`, `password` | SMTP AUTH credentials. The auth mechanism is negotiated automatically from what the server advertises (SCRAM-SHA-1/256, LOGIN, PLAIN, CRAM-MD5, and others). Leave username empty for unauthenticated relays. An empty password on update keeps the stored one. |
 | `from`, `from_name` | Sender address and optional display name. |
+
+![Admin Settings: the SMTP card and the review-queue alert card](../images/screenshots/light/admin-admin-settings-light.webp#only-light)![Admin Settings: the SMTP card and the review-queue alert card](../images/screenshots/dark/admin-admin-settings-dark.webp#only-dark)
+
+The Settings page carries both cards: the mail server above, and the review
+queue alert below it.
 | `tls_mode` | `starttls` (default), `implicit`, or `none` (closed-network relays only). |
 
 The read and update responses carry a `warnings` array describing accepted
@@ -221,6 +226,12 @@ Users with no stored preferences get the defaults: immediate delivery with
 all categories enabled. Turning notifications off drops events at enqueue
 time; nothing is queued.
 
+![Settings: delivery mode, category toggles, and recent notifications](../images/screenshots/light/user-settings-light.webp#only-light)![Settings: delivery mode, category toggles, and recent notifications](../images/screenshots/dark/user-settings-dark.webp#only-dark)
+
+The same screen carries the delivery history described below, so a user can
+see what the platform actually sent them next to the switches that decided
+it.
+
 ```
 GET /api/v1/portal/notification-prefs
 PUT /api/v1/portal/notification-prefs   {"mode": "daily", "shares_enabled": true, "comments_enabled": false}
@@ -336,6 +347,8 @@ sit behind the admin persona gate:
 GET /api/v1/admin/notifications?status=failed&recipient=user@example.com
 GET /api/v1/admin/notifications/stats
 ```
+
+![Dashboard: the Notifications tab](../images/screenshots/light/admin-admin-audit-notifications-light.webp#only-light)![Dashboard: the Notifications tab](../images/screenshots/dark/admin-admin-audit-notifications-dark.webp#only-dark)
 
 **Users (Settings > Recent notifications)** see the notifications addressed
 to them, alongside the preferences that govern them, because the two answer

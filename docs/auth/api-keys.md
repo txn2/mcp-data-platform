@@ -79,6 +79,19 @@ keys:
 
 These roles are used for persona mapping. A key with roles `["analyst", "data_engineer"]` could map to either persona if both roles are configured.
 
+![Admin API Keys: the keys defined on the deployment](../images/screenshots/light/admin-admin-keys-light.webp#only-light)![Admin API Keys: the keys defined on the deployment](../images/screenshots/dark/admin-admin-keys-dark.webp#only-dark)
+
+**Admin > API Keys** lists every key beside the ones this YAML declares. Each
+row is badged `file` or `database` for where it came from: a key from the
+config file is shown with `config file` in place of a delete action, since the
+file owns it, while a database key is created and deleted there.
+
+![Admin API Keys: the create form and the key list](../images/screenshots/light/admin-admin-key-create-light.webp#only-light)![Admin API Keys: the create form and the key list](../images/screenshots/dark/admin-admin-key-create-dark.webp#only-dark)
+
+The create form takes a name, an email, a description, the same roles this
+YAML sets, and an expiration. The generated key is shown once in a copy-now
+banner and never again.
+
 ## Multiple Keys
 
 You can define multiple keys with different access levels:

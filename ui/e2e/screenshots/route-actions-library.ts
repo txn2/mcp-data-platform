@@ -74,12 +74,21 @@ export async function openResourceSelection(page: Page): Promise<void> {
 }
 
 /**
- * openEmptyResourceLibrary opens a library with nothing in it: a folder nobody
- * has filed anything under does not exist, so the only empty view a tree has is
- * a library nobody has uploaded to.
+ * openResourceSearch runs a library-wide search that finds things.
+ *
+ * The sentence this illustrates is that search spans the whole library and
+ * that each hit names the path it was found at. A search matching nothing
+ * demonstrates neither, so the query is one that returns files from more than
+ * one folder.
  */
-export async function openEmptyResourceLibrary(page: Page): Promise<void> {
-  await page.getByLabel("Search resources").fill("nothing-is-filed-under-this");
-  await page.getByTestId("resources-empty").waitFor({ state: "visible", timeout: 5_000 });
-  await page.waitForTimeout(400);
+export async function openResourceSearch(page: Page): Promise<void> {
+  // A term that matches files filed under DIFFERENT folders, because the point
+  // of the capture is that search spans the whole library and each hit names
+  // the path it was found at. A query that matched nothing showed neither.
+  await page.getByLabel("Search resources").fill("sql");
+  await page
+    .getByTestId("resources-empty")
+    .waitFor({ state: "detached", timeout: 5_000 })
+    .catch(() => {});
+  await page.waitForTimeout(600);
 }

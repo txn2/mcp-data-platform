@@ -7,7 +7,8 @@ import "strings"
 //
 // It is the single source of truth for that wording. The agent-facing note
 // below embeds it, the portal renders it from ui/src/lib/positioning.ts, and
-// docs/concepts/content-model.md quotes it; TestResourcePositioningIsVerbatim
+// docs/concepts/content-model.md and docs/portal/resources.md quote it;
+// TestResourcePositioningIsVerbatim
 // fails when any of those copies drifts from this constant.
 const ResourcePositioning = "Resources are human-uploaded inputs an agent uses as-is: report templates, " +
 	"brand files, data dictionaries, sample payloads, and reference documents. Assets are AI-generated " +

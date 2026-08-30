@@ -54,7 +54,7 @@ At most **20** references per asset, of both kinds together. A save above the ca
 
 A declaration is checked once, against the author, at the moment of the save: they must be able to read the target, and a save naming one they cannot is refused with the reference named and nothing created. An agent reads a resource through its scope claims and an asset through ownership and shares, which are the same two checks those surfaces apply everywhere else.
 
-From then on the reference carries the **referencing asset's** audience. Anyone who can open that asset can load the target through it, including an anonymous viewer of a [public share link](portal-user.md). This is the grant model a [managed script](../scripts/security.md) already uses, where a run acts as its version author rather than as its caller. The tool response states it when the reference is made:
+From then on the reference carries the **referencing asset's** audience. Anyone who can open that asset can load the target through it, including an anonymous viewer of a [public share link](../portal/index.md). This is the grant model a [managed script](../scripts/security.md) already uses, where a run acts as its version author rather than as its caller. The tool response states it when the reference is made:
 
 > Anyone this asset is shared with can load these files through it, including anyone holding a public link, now and later.
 
@@ -82,9 +82,15 @@ The frame reports what it could not load, so a capture in which a referenced fil
 
 An asset's viewer sidebar carries a **References** panel listing what the asset depends on. A resource row names the file, its scope and its content type, with a thumbnail where it is an image; an asset row is marked as one and names the asset, its content type and its owner. A thumbnail loads through the reference's own URL rather than through the target's own route, so it renders for a reader who was only ever shown the asset.
 
+![The References panel on an asset](../images/screenshots/light/user-asset-refs-light.webp#only-light)![The References panel on an asset](../images/screenshots/dark/user-asset-refs-dark.webp#only-dark)
+
 Every row carries the reference string with a copy control. That is the point of the panel rather than a detail of it: adding a reference does not change the asset's content, and the markup has to name the reference for the target to load.
 
 An owner, an editor on a shared asset, and an administrator can add a reference through a picker with a tab for each kind — the resources they can read, and the assets they can open — and remove one. The picker states what the reference gives away and names the asset's current audience before anything is added — a public link, people it is shared with, or neither yet. A reader with no edit authority sees the list and is offered neither control.
+
+![The reference picker, on its resources tab](../images/screenshots/light/user-asset-ref-picker-light.webp#only-light)![The reference picker, on its resources tab](../images/screenshots/dark/user-asset-ref-picker-dark.webp#only-dark)
+
+![The reference picker, on its assets tab](../images/screenshots/light/user-asset-ref-picker-assets-light.webp#only-light)![The reference picker, on its assets tab](../images/screenshots/dark/user-asset-ref-picker-assets-dark.webp#only-dark)
 
 A row whose target has been deleted is flagged rather than dropped. It names the target id, which is what the owner needs in order to clean it up, and it is the only place they learn the report is now serving without it.
 
@@ -99,6 +105,10 @@ Each reference made through the panel is logged as `asset_reference.granted` and
 ### The reverse view
 
 A resource's own detail page carries a **Used by** section beside the one listing the prompts that attach it, naming the assets whose content references it. An asset's viewer sidebar carries the same section, answering the same question about the asset itself: which reports read this one's content. An asset carrying a public link is flagged in both, because that is the reference that widens the target's audience furthest. Referencing assets the reader cannot open are counted but not named — someone deciding whether to delete something has to know the list is not the whole of what would break.
+
+![A resource's Used by section](../images/screenshots/light/admin-resource-used-by-assets-light.webp#only-light)![A resource's Used by section](../images/screenshots/dark/admin-resource-used-by-assets-dark.webp#only-dark)
+
+![An asset's Used by section](../images/screenshots/light/user-asset-used-by-light.webp#only-light)![An asset's Used by section](../images/screenshots/dark/user-asset-used-by-dark.webp#only-dark)
 
 The asset's own section is refused to a reader who cannot open the asset: who reads an asset is part of the asset, not public knowledge about it.
 

@@ -17,15 +17,46 @@ edit_uri: edit/main/docs/
 not_in_nav: |
   /research/
 
-copyright: Copyright &copy; 2025 - 2026 <a href="https://imti.co">Craig Johnston</a> / <a href="https://deasil.works">Deasil Works, Inc.</a> / <a href="https://plexara.io">Plexara</a>
+# The homepage does not read this: docs/overrides/home.html replaces Material's
+# footer wholesale for that one page, so its home-footer__base line carries the
+# same names and has to be edited alongside this value.
+copyright: Copyright &copy; 2025 - 2026 <a href="https://imti.co">Craig Johnston</a> / <a href="https://deasil.works">Deasil Works, Inc.</a> / <a href="https://plexara.io">Plexara.io</a>
 
 theme:
   name: material
   custom_dir: docs/overrides
   logo: images/logo.png
   favicon: images/logo.png
+  # Two schemes, so the light half of docs/images/screenshots renders. Every
+  # screenshot reference on the site is an #only-light / #only-dark pair, and
+  # Material's bundled palette CSS hides the half that does not match the
+  # active scheme; with a single scheme configured the light half was dead
+  # weight (issue #1484).
+  #
+  # The reader's own system setting decides which scheme they land in: the
+  # media queries below are what Material's bundle matches on a first visit,
+  # and the toggle then overrides it and is remembered. A small script in
+  # partials/header.html applies the same match before the page paints, so a
+  # light-preference reader does not get a dark flash first.
+  #
+  # slate is listed FIRST for the fallback. base.html stamps `palette | first`
+  # on <body>, and Material's own resolver clamps a no-match to index 0, so a
+  # browser too old to support prefers-color-scheme at all gets dark. Note
+  # this is NOT the "expressed no preference" case: per the media-queries
+  # spec, `prefers-color-scheme: light` matches when the user has asked for
+  # light OR has asked for nothing, so a modern browser always resolves to one
+  # of the two.
   palette:
-    scheme: slate
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: switch to light
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: switch to dark
   font: false
   icon:
     repo: fontawesome/brands/github
@@ -49,98 +80,124 @@ theme:
     - toc.follow
     - announce.dismiss
 
+# Three sections: home, docs, portal. The rail header
+# (docs/overrides/partials/header.html) shows exactly those, and this tree's
+# top level is exactly those, so the rail's active item and the sidebar
+# section a reader is in never disagree. Nothing here may be orphaned --
+# TestDocsPagesInNavOrExcluded fails on any docs/**/*.md that is in neither
+# this tree nor not_in_nav nor exclude_docs.
 nav:
   - Home: index.md
-  - Ecosystem: ecosystem/index.md
-  - Getting Started:
-    - Overview: server/overview.md
-    - Deployment Shapes: server/deployment-shapes.md
-    - The Data Stack: concepts/components.md
-    - Content Model: concepts/content-model.md
-    - Authorization Model: concepts/authorization.md
-    - Installation: server/installation.md
-    - Configuration: server/configuration.md
-    - Deployment: server/deployment.md
-  - Features:
-    - Tools: server/tools.md
-    - Cross-Enrichment:
-      - Overview: cross-enrichment/overview.md
-      - Trino to DataHub: cross-enrichment/trino-datahub.md
-      - DataHub to Trino: cross-enrichment/datahub-trino.md
-      - S3 Enrichment: cross-enrichment/s3.md
-      - Lineage Inheritance: cross-enrichment/lineage.md
-    - Multi-Provider: server/multi-provider.md
-    - Authentication:
-      - Overview: auth/overview.md
-      - OIDC: auth/oidc.md
-      - API Keys: auth/api-keys.md
-      - OAuth 2.1 Server (inbound): auth/oauth-server.md
-      - OAuth to Upstream MCPs (outbound): auth/oauth-gateway.md
-    - Personas:
-      - Overview: personas/overview.md
-      - Tool Filtering: personas/tool-filtering.md
-      - Role Mapping: personas/role-mapping.md
-    - Knowledge Capture:
-      - Overview: knowledge/overview.md
-      - Governance Workflow: knowledge/governance.md
-      - Admin API: knowledge/admin-api.md
-    - Memory Layer:
-      - Overview: memory/overview.md
-      - Configuration: memory/configuration.md
-    - Managed Scripts:
-      - Running Scripts: scripts/running.md
-      - Security Model: scripts/security.md
-    - Registered Tables: server/registered-tables.md
-    - Administration:
-      - User Portal: server/portal-user.md
+  - Docs:
+    - Install:
+      - Overview: server/overview.md
+      - Installation: server/installation.md
+      - Configuration: server/configuration.md
+      - Deployment: server/deployment.md
+      - Deployment Shapes: server/deployment-shapes.md
+      - Concepts:
+        - The Data Stack: concepts/components.md
+        - Content Model: concepts/content-model.md
+        - Authorization Model: concepts/authorization.md
+    - End User:
+      - Tools: server/tools.md
       - Content Types and Viewers: server/content-viewers.md
       - Asset References: server/asset-references.md
       - Provenance: server/provenance.md
-      - Admin Portal: server/admin-portal.md
-      - Admin API: server/admin-api.md
-      - Email Notifications: server/notifications.md
+      - Registered Tables: server/registered-tables.md
       - Session-Start Notices: server/session-notices.md
-    - Operations:
+      - Managed Scripts: scripts/running.md
+      - Knowledge Capture: knowledge/overview.md
+      - Knowledge Governance: knowledge/governance.md
+      - Memory Layer: memory/overview.md
+      - Memory Configuration: memory/configuration.md
+    - Administrator:
+      - Authentication:
+        - Overview: auth/overview.md
+        - OIDC: auth/oidc.md
+        - API Keys: auth/api-keys.md
+        - OAuth 2.1 Server (inbound): auth/oauth-server.md
+        - OAuth to Upstream MCPs (outbound): auth/oauth-gateway.md
+      - Personas:
+        - Overview: personas/overview.md
+        - Tool Filtering: personas/tool-filtering.md
+        - Role Mapping: personas/role-mapping.md
+      - Connections: server/multi-provider.md
+      - Admin API: server/admin-api.md
+      - Knowledge Admin API: knowledge/admin-api.md
       - Audit Logging: server/audit.md
       - Observability: server/observability.md
+      - Email Notifications: server/notifications.md
+      - Gateways:
+        - Gateway Toolkit: server/gateway.md
+        - API Gateway Toolkit: server/api-gateway.md
+        - API Catalogs: server/api-catalogs.md
       - Operating Modes: server/operating-modes.md
       - Session Externalization: server/session-externalization.md
-      - Gateway Toolkit: server/gateway.md
-      - API Gateway Toolkit: server/api-gateway.md
-      - API Catalogs: server/api-catalogs.md
-      - API Operation Browser: server/api-browser.md
       - Self-Configuration: server/self-configuration.md
-    - MCP Apps:
-      - Overview: mcpapps/overview.md
-      - Configuration: mcpapps/configuration.md
-      - Development: mcpapps/development.md
-      - Tutorial: mcpapps/tutorial.md
-  - Evaluation:
-    - Knowledge-Layer Benchmark: reference/benchmarks.md
-    - "Benchmark Report: Knowledge Layer": reference/benchmark-report.md
-    - "Benchmark Report: Knowledge Use": reference/benchmark-report-knowledge-use.md
-    - "Benchmark Report: Knowledge Pollution": reference/benchmark-report-knowledge-pollution.md
-    - "Benchmark Report: Graph Completion": reference/benchmark-report-graph-completion.md
-  - Security:
-    - Threat Model: security/threat-model.md
-    - Managed Scripts: scripts/security.md
-  - Go Library:
-    - Overview: library/overview.md
-    - Quick Start: library/quickstart.md
-    - Architecture: library/architecture.md
-    - Extensibility: library/extensibility.md
-    - API Stability: library/stability.md
-  - Examples:
-    - Gallery: examples/index.md
-  - Reference:
-    - Tools API: reference/tools-api.md
-    - Configuration: reference/configuration.md
-    - Providers: reference/providers.md
-    - Middleware: reference/middleware.md
-    - Tuning and Scaling: reference/tuning-and-scaling.md
+      - Cross-Enrichment:
+        - Overview: cross-enrichment/overview.md
+        - Trino to DataHub: cross-enrichment/trino-datahub.md
+        - DataHub to Trino: cross-enrichment/datahub-trino.md
+        - S3 Enrichment: cross-enrichment/s3.md
+        - Lineage Inheritance: cross-enrichment/lineage.md
+      - MCP Apps:
+        - Overview: mcpapps/overview.md
+        - Configuration: mcpapps/configuration.md
+        - Development: mcpapps/development.md
+        - Tutorial: mcpapps/tutorial.md
+      - Security:
+        - Threat Model: security/threat-model.md
+        - Managed Scripts: scripts/security.md
+    - API Reference:
+      - Tools API: reference/tools-api.md
+      - Configuration: reference/configuration.md
+      - Providers: reference/providers.md
+      - Middleware: reference/middleware.md
+      - Tuning and Scaling: reference/tuning-and-scaling.md
+    - Go Library:
+      - Overview: library/overview.md
+      - Quick Start: library/quickstart.md
+      - Architecture: library/architecture.md
+      - Extensibility: library/extensibility.md
+      - API Stability: library/stability.md
+    - Evaluation:
+      - Knowledge-Layer Benchmark: reference/benchmarks.md
+      - "Benchmark Report: Knowledge Layer": reference/benchmark-report.md
+      - "Benchmark Report: Knowledge Use": reference/benchmark-report-knowledge-use.md
+      - "Benchmark Report: Knowledge Pollution": reference/benchmark-report-knowledge-pollution.md
+      - "Benchmark Report: Graph Completion": reference/benchmark-report-graph-completion.md
+    - Examples:
+      - Gallery: examples/index.md
+    - Ecosystem: ecosystem/index.md
     - Support:
       - Release Highlights: release-highlights.md
       - Troubleshooting: support/troubleshooting.md
+  - Portal:
+    - The Portal: portal/index.md
+    - Your Work:
+      - Activity: portal/activity.md
+      - Assets: portal/assets.md
+      - Collections: portal/collections.md
+      - Resources: portal/resources.md
+      - Scratch Tables: portal/scratch-tables.md
+      - APIs: portal/apis.md
+      - Shared With Me: portal/shared.md
+      - Feedback: portal/feedback.md
+      - Knowledge and Memory: portal/knowledge.md
+      - Prompts: portal/prompts.md
+      - Scripts: portal/scripts.md
+      - Settings: portal/settings.md
+    - Administration:
+      - Dashboard: portal/admin-dashboard.md
+      - Tools: portal/admin-tools.md
+      - Sessions and Calls: portal/admin-sessions.md
+      - Knowledge Review: portal/admin-knowledge.md
+      - Content: portal/admin-content.md
+      - Connections and Catalogs: portal/admin-connections.md
+      - Personas: portal/admin-personas.md
+      - Keys and Users: portal/admin-access.md
+      - Settings and Change Log: portal/admin-settings.md
 
 extra:
   social:

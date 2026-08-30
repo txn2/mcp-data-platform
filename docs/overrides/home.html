@@ -70,6 +70,15 @@
       </p>
     </div>
 
+    <div class="hero__sponsor">
+      <p class="hero__sponsor__line">
+        Sponsored by <a href="https://deasil.works"><em class="serif">Deasil Works, Inc.</em></a> and <a href="https://plexara.io"><em class="serif">Plexara.io</em></a>
+      </p>
+      <p class="hero__sponsor__hosted">
+        <a href="https://plexara.io">Plexara.io</a> offers fully hosted and managed versions of mcp-data-platform, so you can run the platform without operating it yourself.
+      </p>
+    </div>
+
     <aside class="hero__ticker" aria-hidden="true">
       <div class="ticker">
         <div class="ticker__track">
@@ -249,7 +258,7 @@ p.Run(ctx)</pre>
       </li>
       <li class="stack__row">
         <div class="stack__main">
-          <a class="stack__name" href="server/admin-portal/">admin &amp; user portal</a>
+          <a class="stack__name" href="portal/">admin &amp; user portal</a>
           <p class="stack__desc">Built-in web dashboard. Admins manage connections, personas, API keys, configuration entries, audit, knowledge, and gateway connections. Users see their activity, prompts, assets, collections, resources, and shared work. Configurable branding (light/dark logos, implementor brand, public-share notices). Markdown asset viewer with mermaid, GFM tables, and code highlighting.</p>
         </div>
         <span class="stack__year" aria-hidden="true">↗</span>
@@ -276,7 +285,7 @@ p.Run(ctx)</pre>
     <div class="coda">
       <p class="coda__kicker">// open source</p>
       <p class="coda__big">
-        mcp-data-platform is one of several open source components by <a href="https://imti.co"><em class="serif">Craig Johnston</em></a>, sponsored by <a href="https://deasil.works"><em class="serif">Deasil Works, Inc.</em></a>. Released under the Apache 2.0 license. Built to give AI assistants a safe, composable, semantic-first bridge to your data infrastructure.
+        mcp-data-platform is one of several open source components by <a href="https://imti.co"><em class="serif">Craig Johnston</em></a>, sponsored by <a href="https://deasil.works"><em class="serif">Deasil Works, Inc.</em></a> and <a href="https://plexara.io"><em class="serif">Plexara.io</em></a>. Released under the Apache 2.0 license. Built to give AI assistants a safe, composable, semantic-first bridge to your data infrastructure.
       </p>
       <div class="coda__cta">
         <a class="btn btn--big" href="https://github.com/txn2/mcp-data-platform">github.com/txn2/mcp-data-platform →</a>
@@ -298,7 +307,7 @@ p.Run(ctx)</pre>
   <div class="home-footer__inner">
     <div class="home-footer__col">
       <p class="home-footer__label">about</p>
-      <p class="home-footer__text">A composable, semantic-first MCP server platform by <a href="https://imti.co">Craig Johnston</a>, part of the <a href="https://txn2.com">txn2</a> open source organization, sponsored by <a href="https://deasil.works">Deasil Works, Inc.</a></p>
+      <p class="home-footer__text">A composable, semantic-first MCP server platform by <a href="https://imti.co">Craig Johnston</a>, part of the <a href="https://txn2.com">txn2</a> open source organization, sponsored by <a href="https://deasil.works">Deasil Works, Inc.</a> and <a href="https://plexara.io">Plexara.io</a>, which offers fully hosted and managed versions of mcp-data-platform.</p>
     </div>
     <div class="home-footer__col">
       <p class="home-footer__label">docs</p>
@@ -317,7 +326,7 @@ p.Run(ctx)</pre>
       <ul class="home-footer__links">
         <li><a href="server/overview/">standalone server</a></li>
         <li><a href="library/overview/">go library</a></li>
-        <li><a href="server/admin-portal/">admin portal</a></li>
+        <li><a href="portal/">portal</a></li>
         <li><a href="server/admin-api/">admin api</a></li>
         <li><a href="https://pkg.go.dev/github.com/txn2/mcp-data-platform">pkg.go.dev</a></li>
         <li><a href="ecosystem/">ecosystem</a></li>
@@ -340,7 +349,10 @@ p.Run(ctx)</pre>
     </div>
   </div>
   <div class="home-footer__base">
-    <p>© 2025-2026 · <a href="https://txn2.com">txn2</a> · mcp-data-platform released under Apache 2.0.</p>
+    {# Kept in step with the `copyright` value in mkdocs.yml, which this block
+       replaces on the homepage: home.html overrides Material's footer
+       entirely, so that value never reaches this page. #}
+    <p>© 2025-2026 · <a href="https://imti.co">Craig Johnston</a> · <a href="https://deasil.works">Deasil Works, Inc.</a> · <a href="https://plexara.io">Plexara.io</a> · <a href="https://txn2.com">txn2</a> · mcp-data-platform released under Apache 2.0.</p>
     <p class="home-footer__base__tag"><a href="https://txn2.com">design · txn2.com&nbsp;↗</a></p>
   </div>
 </footer>

@@ -30,6 +30,8 @@ description explaining its purpose and is attributed to **`system`** (it is
 provisioned by the binary, not authored by an operator), distinguishing it from
 connections an admin creates.
 
+![Admin Connections, where the built-in platform-admin connection appears](../images/screenshots/light/admin-admin-connections-light.webp#only-light)![Admin Connections, where the built-in platform-admin connection appears](../images/screenshots/dark/admin-admin-connections-dark.webp#only-dark)
+
 ```mermaid
 flowchart LR
     A[Admin in MCP session] -->|api_invoke_endpoint| G[API gateway toolkit]

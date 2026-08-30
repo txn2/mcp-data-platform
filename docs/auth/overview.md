@@ -247,6 +247,14 @@ This enables:
 - **Persona mapping** - User's roles determine which tools they can access
 - **Audit logging** - Track who ran what query and when
 
+![Admin Users: the people the platform knows](../images/screenshots/light/admin-admin-users-light.webp#only-light)![Admin Users: the people the platform knows](../images/screenshots/dark/admin-admin-users-dark.webp#only-dark)
+
+Signing in records the person under **Admin > Users**, the directory the
+portal shares assets and prompts against. Someone who has never signed in can
+be added there by email so they can be shared with before they do. It is a
+directory of people, not of authority: roles and personas are resolved per
+call from the token, and are read in the [audit log](../server/audit.md).
+
 ## Audit Integration
 
 For HTTP deployments, enable audit logging:
