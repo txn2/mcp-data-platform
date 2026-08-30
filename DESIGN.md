@@ -33,7 +33,7 @@ mcp-data-platform mirrors the implementation pattern established by sister proje
 | Mermaid theme        | upstream `DESIGN.md` `mcp__card--feature` block |
 | MkDocs Material file map | sister `mcp-datahub/DESIGN.md` File map |
 
-Tokens are mirrored as CSS custom properties in `docs/stylesheets/extra.css` `:root`. They are duplicated for runtime use, not as a divergence point. When upstream changes a token, update the value in `extra.css` and ship.
+Tokens are mirrored as CSS custom properties in `docs/stylesheets/extra.css`. They are duplicated for runtime use, not as a divergence point. When upstream changes a token, update the value in `extra.css` and ship. Since #1484 the colour tokens are defined TWICE, once per scheme: the dark set on `:root, [data-md-color-scheme="slate"]` and the light set on `[data-md-color-scheme="default"]`. A token edit that touches only the first half leaves the light scheme stale, so change both. Typography and metrics stay on bare `:root`, which is scheme-independent.
 
 ## Adoption level: token alignment
 
@@ -49,7 +49,7 @@ mcp-data-platform runs at **level 2**, matching its sister projects mcp-datahub,
 
 | Path | Role |
 |------|------|
-| `mkdocs.yml`                              | Single dark `slate` palette. `font: false` so CSS loads the upstream Google Fonts URL with trimmed axes. |
+| `mkdocs.yml`                              | Two palettes, `slate` and `default`, each with a `media` query so the reader's system setting picks one and the toggle overrides it; `slate` is listed first, so it is the pre-hydration paint and the fallback for a browser with no `prefers-color-scheme` support at all (a modern browser always matches one of the two, since `light` also matches "no preference expressed"). `font: false` so CSS loads the upstream Google Fonts URL with trimmed axes. |
 | `docs/index.md`                           | Stub front matter with `template: home.html`. All homepage HTML lives in the template. |
 | `docs/overrides/main.html`                | Adds the upstream Google Fonts `<link>`, full SEO surface (OG, Twitter, JSON-LD `SoftwareApplication`), the canonical/author meta tags per the upstream "SEO and social cards" spec, and includes `mermaid-fullscreen.js` before Material's bundle. Inherited by every page. |
 | `docs/images/mcp-data-platform-og.svg`    | Source for the 1200x630 social card. Edit this, then re-rasterise. |
@@ -58,7 +58,7 @@ mcp-data-platform runs at **level 2**, matching its sister projects mcp-datahub,
 | `docs/llms.txt`                           | LLM-friendly docs map per the upstream `llms.txt` spec. Update when new top-level docs pages ship. |
 | `docs/overrides/home.html`                | Custom homepage template. Overrides `block header` (rail), `block tabs` (empty), `block container` (page--home shell with hero, sections, flagship cards, stack, coda), `block footer` (home-footer). |
 | `docs/overrides/404.html`                 | Restyled not-found page. Inherits `main.html`, uses `.md-typeset` body so the rail and footer match. |
-| `docs/stylesheets/extra.css`              | All design rules. Two halves: homepage components scoped under `.page--home`, and Material chrome restyle for inner pages via `[data-md-color-scheme="slate"]` variable overrides. Also re-skins the existing `.mermaid-fullscreen-overlay` viewer against txn2 tokens. |
+| `docs/stylesheets/extra.css`              | All design rules. Two halves: homepage components scoped under `.page--home`, and Material chrome restyle for inner pages via variable overrides mapped once for both schemes. Also re-skins the existing `.mermaid-fullscreen-overlay` viewer against txn2 tokens. |
 
 ## Project-specific components
 
@@ -99,7 +99,7 @@ The visual reads as composition: three data sources (DataHub, Trino, S3) feeding
 The Material learnings list applies to every MkDocs Material project re-skinned to the txn2 identity. mcp-data-platform inherits them all from kubefwd, mcp-datahub, mcp-s3, and mcp-trino. Read the full set in [`txn2/kubefwd/DESIGN.md`](https://github.com/txn2/kubefwd/blob/master/DESIGN.md) "MkDocs Material learnings". Brief summary so this file remains useful in isolation:
 
 1. Override the homepage via a separate template, not via CSS hacks.
-2. Re-skin inner pages via Material variable overrides on `[data-md-color-scheme="slate"]`.
+2. Re-skin inner pages via Material variable overrides. One mapping block serves both schemes because it resolves through the colour tokens, which are themselves scheme-aware; only the tokens are defined per scheme.
 3. `font: false` to load fonts directly from CSS.
 4. Scope every homepage component class under `.page--home`.
 5. Rename `.footer` to `.home-footer` to avoid collision.
@@ -107,7 +107,7 @@ The Material learnings list applies to every MkDocs Material project re-skinned 
 7. Tabbed content nests boxes by default. Strip `.tabbed-set` background and border, keep only the label underline.
 8. Mermaid via Material's `--md-mermaid-*` CSS variables, not via separate init.
 9. Guard inline scripts against `navigation.instant` rehydration. The live UTC clock uses a `window.__mcpDataPlatformClock` sentinel.
-10. Drop the light/dark toggle. Single `scheme: slate`.
+10. Ship both schemes with a `media`-driven default (#1484). The screenshot corpus is `#only-light` / `#only-dark` pairs and Material hides the half that does not match, so a single scheme made half the corpus dead weight. A surface with a fixed ground in both schemes -- the homepage terminal -- must pin its FOREGROUND colours too, or the scheme tokens drop its text to unreadable contrast on a ground that did not move.
 11. Atmospheric overlays at low z-index (grain and vignette at z-index 1, below rail at z-50).
 12. Hugo-only token compilation does not exist in MkDocs. Token sync is a manual edit to `extra.css`.
 13. Image headings (`# ![alt](banner.svg)`) used by some inner pages need `.md-typeset h1:has(img)` margin/padding zeroing so the banner sits flush.
@@ -128,9 +128,9 @@ Defers to upstream. Briefly:
 When the upstream `txn2/www/DESIGN.md` or `tokens.json` changes:
 
 1. Read the upstream diff. Identify which tokens, components, or rules changed.
-2. Update the matching CSS variables in `docs/stylesheets/extra.css` `:root`.
+2. Update the matching CSS variables in `docs/stylesheets/extra.css`, in BOTH scheme blocks (see Tokens above).
 3. If a component contract changed (padding, border, hover behavior), update the homepage template in `docs/overrides/home.html` and the matching CSS rules.
 4. Update this file's File map / Project-specific components sections if a new component is added or removed.
-5. Run `mkdocs build --strict` and verify in the browser before committing. Verify the home page hero, flagship cards, terminal, stack, coda, and home-footer. Verify an inner page (`/server/overview/`, `/library/overview/`, `/cross-enrichment/overview/`) still inherits the look.
+5. Run `mkdocs build --strict` and verify in the browser before committing, IN BOTH SCHEMES via the rail's palette toggle. Verify the home page hero, sponsor block, flagship cards, terminal, stack, coda, and home-footer. Verify an inner page (`/server/overview/`, `/library/overview/`, `/portal/`) still inherits the look, and that a page with screenshots shows the light half under the light scheme and the dark half under the dark one.
 
 Keep this file thin. If a section grows past 30 lines, ask whether it belongs upstream instead.

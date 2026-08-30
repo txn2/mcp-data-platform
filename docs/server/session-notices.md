@@ -71,8 +71,8 @@ floor rather than as the whole set.
 
 Both lists are a briefing rather than an inbox. The watermark advances past what
 did not fit, so what a capped list left out is not re-offered next session: the
-portal's [activity feed](portal-user.md#activity) and
-[Shared With Me](portal-user.md#shared-with-me) remain the complete views, and
+portal's [activity feed](../portal/activity.md) and
+[Shared With Me](../portal/shared.md) remain the complete views, and
 the agent instructions say so.
 
 The block is absent entirely when there is nothing to report, and for an
@@ -106,7 +106,7 @@ asynchronously during the very session whose digest is being computed.
 | Surface | Reaches | Timing |
 |---------|---------|--------|
 | [Email notifications](notifications.md) | People who read email | On the event, or in a daily digest |
-| [Portal activity feed](portal-user.md#activity) | People who open the portal | Whenever they look |
+| [Portal activity feed](../portal/activity.md) | People who open the portal | Whenever they look |
 | Session-start notices | People working through an agent | First call of a session |
 
 The three are independent: turning email off does not affect notices, and a

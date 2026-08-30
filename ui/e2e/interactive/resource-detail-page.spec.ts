@@ -43,11 +43,15 @@ async function expectWithinViewport(target: Locator, height: number): Promise<vo
   expect(box!.y + box!.height).toBeLessThanOrEqual(height + 1);
 }
 
+// RESOURCE names a markdown document whose own first heading is its title, so
+// a heading query has to be narrowed to the first match: the page header. An
+// unscoped one matches the rendered document's <h1> as well and trips
+// Playwright's strict mode.
 test.describe("A resource has an address", () => {
   test("opening one from the library puts it in the address bar", async ({ page }) => {
     await openDetail(page);
     await expect(page).toHaveURL(/\/portal\/admin\/resources\/res-001$/);
-    await expect(page.getByRole("heading", { name: RESOURCE })).toBeVisible();
+    await expect(page.getByRole("heading", { name: RESOURCE }).first()).toBeVisible();
     // No dialog is involved any more: the resource is the page.
     await expect(panel(page)).toHaveCount(0);
   });
@@ -56,7 +60,7 @@ test.describe("A resource has an address", () => {
     await openDetail(page);
     await page.reload();
 
-    await expect(page.getByRole("heading", { name: RESOURCE })).toBeVisible();
+    await expect(page.getByRole("heading", { name: RESOURCE }).first()).toBeVisible();
     await expect(page.getByTestId("resource-versions")).toBeVisible();
   });
 

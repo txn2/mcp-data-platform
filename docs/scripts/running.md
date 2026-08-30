@@ -249,6 +249,8 @@ history re-reads itself while anything is pending or running and stops once
 nothing is. The response carries no result — a run may take ten minutes, and
 the history is where a run is followed.
 
+![A script's own page: contract, run form, and run history](../images/screenshots/light/user-script-detail-light.webp#only-light)![A script's own page: contract, run form, and run history](../images/screenshots/dark/user-script-detail-dark.webp#only-dark)
+
 Two things it cannot do:
 
 - It cannot run what the platform would refuse. Whether a run would be admitted
@@ -267,6 +269,12 @@ the page. They execute identically.
 A schedule is what turns a script into an automation: a cadence, a timezone,
 and the parameter values every fire binds. Every fire executes the latest saved
 version.
+
+![A script's schedule, paused](../images/screenshots/light/user-script-schedule-paused-light.webp#only-light)![A script's schedule, paused](../images/screenshots/dark/user-script-schedule-paused-dark.webp#only-dark)
+
+The portal shows the cadence, the timezone, the next fire, and whether the
+schedule is running or paused, along with how many fires a pause has missed
+and the note that a gap is never caught up on.
 
 ```json
 {
@@ -319,6 +327,8 @@ administrator's transfer.
 
 The source is parsed before anything is stored, so code that cannot run is
 refused at the keyboard rather than at the next fire.
+
+![Editing a script's source in the portal](../images/screenshots/light/user-script-source-light.webp#only-light)![Editing a script's source in the portal](../images/screenshots/dark/user-script-source-dark.webp#only-dark)
 
 ### Documenting a script
 
@@ -382,6 +392,8 @@ reach, with a correction for every finding. It executes nothing and stores
 nothing. Where a list is known to be incomplete — a `platform.query` call that
 computes its connection rather than naming one — the report says so, because a
 list that silently omitted a computed name would be a false statement.
+
+![A draft run of an unsaved edit](../images/screenshots/light/user-script-dry-run-light.webp#only-light)![A draft run of an unsaved edit](../images/screenshots/dark/user-script-dry-run-dark.webp#only-dark)
 
 Validate also checks each destination the source names literally against the
 set this deployment declares, and reports the ones it cannot serve in the
@@ -450,7 +462,7 @@ their script on: `GET` and `PUT /api/v1/portal/scripts/{id}/schedule`, and `POST
 /api/v1/portal/scripts/{id}/schedule/enable` and `.../disable`, restricted to
 the script's owner and to administrators and answering "not yours" exactly as
 they answer "no such script". See
-[Scripts in the portal](../server/portal-user.md#the-cadence).
+[Scripts in the portal](../portal/scripts.md#the-schedule).
 
 A cadence on a disabled or retired script saves and stays inert — which both
 the tool and the page say plainly rather than leaving an owner waiting on an
@@ -886,15 +898,21 @@ skips what it already produced.
 
 The portal's **Scripts** page is the human view of all of this: every script you
 can see, its owner where that is not you, its cadence and next fire, and how its
-last run went. Opening one shows its contract, and — for a script you own — its version
+last run went.
+
+![Scripts: every script you can see](../images/screenshots/light/user-scripts-light.webp#only-light)![Scripts: every script you can see](../images/screenshots/dark/user-scripts-dark.webp#only-dark) Opening one shows its contract, and — for a script you own — its version
 history with each version's author and the roles a run of it presents, and its
 run history with each run's trigger, duration, outputs, and the log it printed.
-See the [portal guide](../server/portal-user.md#scripts).
+See the [portal guide](../portal/scripts.md).
 
 A run is the owner's and the administrator's to read, plus whoever requested
 that particular run. Asking an agent to show you your scripts opens the same
 pages through the presentation-only `show_scripts` tool; every script operation
 an agent performs for its own work uses `manage_script`, which renders nothing.
+
+![A script's run history](../images/screenshots/light/user-script-runs-light.webp#only-light)![A script's run history](../images/screenshots/dark/user-script-runs-dark.webp#only-dark)
+
+![One run's log](../images/screenshots/light/user-script-run-log-light.webp#only-light)![One run's log](../images/screenshots/dark/user-script-run-log-dark.webp#only-dark)
 
 ## Run history retention
 

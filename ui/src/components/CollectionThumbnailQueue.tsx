@@ -11,6 +11,9 @@ const MAX_TILES = 4;
 // Queue component — mount on the collections list page
 // ---------------------------------------------------------------------------
 
+/** How many times one collection's thumbnail generation is retried. */
+const MAX_ATTEMPTS = 3;
+
 interface QueueProps {
   collections: Collection[];
 }
@@ -25,12 +28,19 @@ export function CollectionThumbnailQueue({ collections }: QueueProps) {
   const qc = useQueryClient();
   const [queue, setQueue] = useState<Collection[]>([]);
   const [busy, setBusy] = useState(false);
-  const processedRef = useRef(new Set<string>());
+  // Attempts per collection rather than a processed set. A collection used to
+  // be marked done the moment it was picked up, so one transient failure --
+  // a thumbnail fetch that lost a race, a refetch landing mid-generation --
+  // left that card showing its folder placeholder for the life of the page,
+  // with nothing to retry it.
+  const attemptsRef = useRef(new Map<string, number>());
 
   // Build queue of collections needing thumbnails
   useEffect(() => {
     const needs = collections.filter(
-      (c) => !c.thumbnail_s3_key && !processedRef.current.has(c.id),
+      (c) =>
+        !c.thumbnail_s3_key &&
+        (attemptsRef.current.get(c.id) ?? 0) < MAX_ATTEMPTS,
     );
     setQueue(needs);
   }, [collections]);
@@ -39,22 +49,34 @@ export function CollectionThumbnailQueue({ collections }: QueueProps) {
   useEffect(() => {
     if (busy || queue.length === 0) return;
     const next = queue[0]!;
-    processedRef.current.add(next.id);
+    attemptsRef.current.set(
+      next.id,
+      (attemptsRef.current.get(next.id) ?? 0) + 1,
+    );
     setBusy(true);
 
     processCollection(next.id)
       .then((uploaded) => {
         if (uploaded) {
+          // Generated: no further attempt, whatever the refetch reports.
+          attemptsRef.current.set(next.id, MAX_ATTEMPTS);
           void qc.invalidateQueries({ queryKey: ["collections"] });
           void qc.invalidateQueries({ queryKey: ["collection"] });
         }
       })
       .catch(() => {
-        // skip on error
+        // Left below MAX_ATTEMPTS so the next queue rebuild picks it up again.
       })
       .finally(() => {
         setBusy(false);
-        setQueue((q) => q.slice(1));
+        // Remove the item that was processed, by id rather than by position.
+        // A successful upload invalidates ["collections"], which rebuilds the
+        // queue from the refetched list while this one is still in flight, so
+        // slice(1) dropped whichever collection happened to be first in the
+        // NEW queue -- one that had never been processed. Those collections
+        // then kept their folder placeholder forever, because a card attempts
+        // generation once per mount.
+        setQueue((q) => q.filter((c) => c.id !== next.id));
       });
   }, [queue, busy, qc]);
 

@@ -15,6 +15,10 @@ import {
   openShareDialogPublicLink,
   openShareDialogWithRecipient,
 } from "./route-actions";
+import {
+  runToolTryIt,
+  waitForCollectionThumbnails,
+} from "./route-actions-tools";
 import { type ScreenshotRoute } from "./route-types";
 
 export type { ScreenshotRoute };
@@ -68,6 +72,7 @@ export const routes: ScreenshotRoute[] = [
     slug: "collections",
     path: "/portal/collections",
     category: "user",
+    beforeCapture: waitForCollectionThumbnails,
   },
   ...apiBrowserUserRoutes,
   {
@@ -229,15 +234,6 @@ export const routes: ScreenshotRoute[] = [
   },
   ...userScriptRoutes,
   {
-    // An address with no page behind it (#1359). Captured because the failure
-    // it replaced was invisible: the shell rendered its chrome, a section
-    // title, and an empty content area, which reads as "you have none of
-    // these" rather than "there is nothing here".
-    slug: "not-found",
-    path: "/portal/nonesuch",
-    category: "user",
-  },
-  {
     // Personal prompt create form.
     slug: "prompt-create",
     path: "/portal/prompts",
@@ -390,6 +386,7 @@ export const routes: ScreenshotRoute[] = [
     slug: "admin-tools-tryit",
     path: "/portal/admin/tools?selected=trino_query&tab=tryit",
     category: "admin",
+    beforeCapture: runToolTryIt,
   },
   {
     slug: "admin-tools-activity",

@@ -63,7 +63,7 @@ wide, and being in it is **not** a claim that a given call produced the asset: a
 session that read a notification history and looked up a user before saving had
 both captured, and neither answered the question the asset answers. What
 distinguishes the two is **naming**, described below, and the
-[call catalog](portal-user.md#my-calls) derives a call's outcome from naming
+[call catalog](../portal/activity.md#my-calls) derives a call's outcome from naming
 rather than from the window.
 
 Calls the platform serves for its own bookkeeping are never an asset's source:
@@ -104,7 +104,7 @@ never be recorded as another person's provenance, and an id that names nothing
 the caller ran is dropped, with the capture reporting that it holds fewer calls
 than were asked for.
 
-The same id names the call in the [call catalog](portal-user.md#my-calls),
+The same id names the call in the [call catalog](../portal/activity.md#my-calls),
 where the call is a record in its own right: what it was for, what it
 addressed, and what came of it. An asset **naming** a call is what makes that
 record read as `satisfied`; a call the default window swept up reads `ran`, and
@@ -146,7 +146,7 @@ Opening a call shows the full statement or request, its outcome, and its
 
 ![A captured call, with its stated purpose, its failure, and its call reference](../images/screenshots/light/user-asset-provenance-call-light.webp#only-light)![A captured call, with its stated purpose, its failure, and its call reference](../images/screenshots/dark/user-asset-provenance-call-dark.webp#only-dark)
 
-The panel also links to the [session](portal-user.md) the calls belong to,
+The panel also links to the [session](../portal/index.md) the calls belong to,
 which holds everything that session did — before and after the write.
 
 ## Limits

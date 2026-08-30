@@ -43,6 +43,11 @@ If `audit.enabled` is `true` but no database is configured, the platform logs a 
 
 Every successful or failed tool call produces one row in `audit_logs`:
 
+![Dashboard: the Events tab](../images/screenshots/light/admin-admin-audit-events-light.webp#only-light)![Dashboard: the Events tab](../images/screenshots/dark/admin-admin-audit-events-dark.webp#only-dark)
+
+Those rows are what the portal's **Admin > Dashboard > Events** tab lists,
+filtered and sorted; the JSON below is one row of it.
+
 ```json
 {
   "id": "3sK2DlE7x9mPqR4vNw8bYA",
@@ -66,6 +71,11 @@ Every successful or failed tool call produces one row in `audit_logs`:
 ```
 
 ### Field Reference
+
+![An audit event's detail drawer](../images/screenshots/light/admin-admin-audit-event-detail-light.webp#only-light)![An audit event's detail drawer](../images/screenshots/dark/admin-admin-audit-event-detail-dark.webp#only-dark)
+
+Opening a row in the Events tab shows one call's identity, execution and
+result: the fields the table below defines.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -119,6 +129,8 @@ The platform's own session records cannot serve that purpose. They are working s
 
 A session id says where it came from, and the prefix is the only classification the platform has, since the ids of isolated runs are never persisted:
 
+![Admin Sessions: sessions derived from the audit log](../images/screenshots/light/admin-admin-sessions-light.webp#only-light)![Admin Sessions: sessions derived from the audit log](../images/screenshots/dark/admin-admin-sessions-dark.webp#only-dark)
+
 | Kind | Prefix | What it is |
 |------|--------|-----------|
 | `agent` | `dps_` | A handle minted by `platform_info` and threaded by the agent across calls |
@@ -143,7 +155,9 @@ GET /api/v1/admin/sessions/dps_9f2c1a4b8e7d6c5a4b3e2d1c0f9e8a7b
 GET /api/v1/admin/audit/events?session_id=dps_9f2c1a4b8e7d6c5a4b3e2d1c0f9e8a7b
 ```
 
-or in the portal under **Admin > Sessions**. See [Session Endpoints](admin-api.md#session-endpoints) for the full parameter and response reference and [Sessions](admin-portal.md#sessions) for the UI.
+or in the portal under **Admin > Sessions**. See [Session Endpoints](admin-api.md#session-endpoints) for the full parameter and response reference and [Sessions](../portal/admin-sessions.md#sessions) for the UI.
+
+![One session: its summary, outputs, and ordered calls](../images/screenshots/light/admin-admin-session-detail-light.webp#only-light)![One session: its summary, outputs, and ordered calls](../images/screenshots/dark/admin-admin-session-detail-dark.webp#only-dark)
 
 Two indexes support the joins (migration 000106): `idx_portal_assets_session_id` on live assets and `idx_memory_records_session_id` on the metadata expression. `audit_logs` was already indexed on `session_id`.
 
@@ -233,7 +247,7 @@ These rows are what the portal's resource usage panel aggregates into 30- and 90
 
 ### Resource moves
 
-A managed resource can be refiled after it is uploaded — in another library, in another folder of the one it is in, or both ([Moving a resource to another library](portal-user.md#moving-a-resource-to-another-library)). Each move writes one `resource_move` row under `tool_name = resource_move`, carrying the resource's id and display name and where it was filed on each side: `from_scope`, `from_scope_id`, `from_path`, `from_uri`, `to_scope`, `to_scope_id`, `to_path`, `to_uri`. Renaming a folder writes one such row per resource it carried, because the question the trail answers is what address a given file has now.
+A managed resource can be refiled after it is uploaded — in another library, in another folder of the one it is in, or both ([Moving a resource to another library](../portal/resources.md#moving-a-resource-to-another-library)). Each move writes one `resource_move` row under `tool_name = resource_move`, carrying the resource's id and display name and where it was filed on each side: `from_scope`, `from_scope_id`, `from_path`, `from_uri`, `to_scope`, `to_scope_id`, `to_path`, `to_uri`. Renaming a folder writes one such row per resource it carried, because the question the trail answers is what address a given file has now.
 
 Both sides are on the row because two different questions are asked of it. "Who put this file in front of the whole platform" is answered by the destination; "what address did this file used to have" is answered by the origin, and that is what an operator needs when a knowledge page or a script body cites a URI the resource no longer holds. Refiling a resource to the library it is already in writes nothing: a move that changed nothing would read as somebody having refiled the file.
 

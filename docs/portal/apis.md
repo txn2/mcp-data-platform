@@ -4,7 +4,7 @@ description: Browsing the operations an API connection exposes - the operator's 
 
 # API Operation Browser
 
-The platform indexes the operations of every OpenAPI spec in an [API catalog](api-catalogs.md), and an agent reaches them three ways: `api_list_endpoints` for a connection's operations, `api_get_endpoint_schema` for one operation's parameters and shapes, and relevance hits from `search`. The operation browser is the same index for a person.
+The platform indexes the operations of every OpenAPI spec in an [API catalog](../server/api-catalogs.md), and an agent reaches them three ways: `api_list_endpoints` for a connection's operations, `api_get_endpoint_schema` for one operation's parameters and shapes, and relevance hits from `search`. The operation browser is the same index for a person.
 
 There are two of them, and the difference is what they are drawn from.
 
@@ -34,7 +34,7 @@ The index is grouped by component spec and then by the tag the spec's author gav
 - parameters by location — path, query, header — each with its type, whether it is required, its description, and its enumeration when it has one;
 - the request body: its media types, whether it is required, and the shape it takes;
 - one entry per declared response status, with its media types, headers and body shape;
-- on a connection, the requests [promoted from calls that worked](portal-user.md#my-calls) against that endpoint.
+- on a connection, the requests [promoted from calls that worked](../portal/activity.md#my-calls) against that endpoint.
 
 Every schema is shown as the shape a caller produces or receives, with the raw document one click away. It is the platform's own resolution — the same flattening `api_get_endpoint_schema` returns — not a second parse of the same document.
 
@@ -47,7 +47,7 @@ The selection is in the address bar, so one operation can be linked to:
 
 ## The call an operation produces
 
-On the caller's view, every operation carries the request that performs it through the [REST gateway](api-gateway.md#rest-gateway-for-non-mcp-clients), copyable:
+On the caller's view, every operation carries the request that performs it through the [REST gateway](../server/api-gateway.md#rest-gateway-for-non-mcp-clients), copyable. The host in the command is the address you are reading the portal at, so it runs against your own deployment as copied; the capture below was taken against a local one.
 
 ![The gateway call an operation produces](../images/screenshots/light/user-apis-call-snippet-light.webp#only-light)![The gateway call an operation produces](../images/screenshots/dark/user-apis-call-snippet-dark.webp#only-dark)
 

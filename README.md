@@ -120,7 +120,7 @@ Each feature links to its full documentation.
 | [Memory layer](https://mcp-data-platform.txn2.com/memory/overview/) | Persistent agent memory across sessions, PostgreSQL + pgvector, hybrid semantic/lexical recall |
 | [Knowledge capture](https://mcp-data-platform.txn2.com/knowledge/overview/) | Agents record domain insights during sessions; approved knowledge is written back to DataHub or canonical knowledge pages |
 | [Governance workflow](https://mcp-data-platform.txn2.com/knowledge/governance/) | Human-in-the-loop review, approve/reject, changeset tracking, and rollback for every applied change |
-| [Managed resources](https://mcp-data-platform.txn2.com/server/portal-user/#resources) | Human-uploaded reference files (data, visual, playbooks, samples, templates, references) served to agents as MCP resources |
+| [Managed resources](https://mcp-data-platform.txn2.com/portal/resources/) | Human-uploaded reference files (data, visual, playbooks, samples, templates, references) served to agents as MCP resources |
 
 ### Gateways and extensibility
 
@@ -157,11 +157,11 @@ Each feature links to its full documentation.
 
 A built-in web portal serves both operators and end users. Enable with `portal.enabled: true`.
 
-**For operators**: dashboards with activity timelines and performance percentiles, a searchable audit log, an interactive tool explorer with per-persona visibility and inline test runs, knowledge insight governance, connection and persona management, API keys, and indexing health. See the [Admin Portal guide](https://mcp-data-platform.txn2.com/server/admin-portal/).
+**For operators**: dashboards with activity timelines and performance percentiles, a searchable audit log, an interactive tool explorer with per-persona visibility and inline test runs, knowledge insight governance, connection and persona management, API keys, and indexing health. See the [Admin Portal guide](https://mcp-data-platform.txn2.com/portal/).
 
 ![Admin Dashboard](docs/images/screenshots/light/admin-admin-dashboard-light.webp)
 
-**For users**: AI-generated assets (reports, charts, documents) are saved from any session with the `save_asset` tool, organized into shareable [collections](https://mcp-data-platform.txn2.com/server/portal-user/#collections), and shared with teammates or through public links. A [prompt library](https://mcp-data-platform.txn2.com/server/portal-user/#prompts), [feedback threads](https://mcp-data-platform.txn2.com/server/portal-user/#feedback) on any asset, and personal knowledge and activity views round out the [User Portal](https://mcp-data-platform.txn2.com/server/portal-user/).
+**For users**: AI-generated assets (reports, charts, documents) are saved from any session with the `save_asset` tool, organized into shareable [collections](https://mcp-data-platform.txn2.com/portal/collections/), and shared with teammates or through public links. A [prompt library](https://mcp-data-platform.txn2.com/portal/prompts/), [feedback threads](https://mcp-data-platform.txn2.com/portal/shared/#feedback) on any asset, and personal knowledge and activity views round out the [User Portal](https://mcp-data-platform.txn2.com/portal/).
 
 ![Collections](docs/images/screenshots/light/user-collection-view-light.webp)
 
@@ -333,4 +333,4 @@ Contributions for bug fixes, tests, and documentation are welcome. Please run `m
 
 ---
 
-Open source by [Craig Johnston](https://imti.co/about/), sponsored by [Deasil Works, Inc.](https://deasil.works/) and [Plexara](https://plexara.io)
+Open source by [Craig Johnston](https://imti.co/about/), sponsored by [Deasil Works, Inc.](https://deasil.works/) and [Plexara.io](https://plexara.io)

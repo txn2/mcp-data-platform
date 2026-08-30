@@ -4,7 +4,9 @@
 
 For the security architecture rationale, see: https://imti.co/mcp-defense/
 
-**Document version: v1.120.0, revised 2026-08-10.** This project releases often. If your copy of this page is older than the current release on https://github.com/txn2/mcp-data-platform/releases/latest, re-fetch it before grounding an assessment on it; earlier revisions described a narrower system.
+**Document version: v1.120.0, revised 2026-08-29.** This project releases often. If your copy of this page is older than the current release on https://github.com/txn2/mcp-data-platform/releases/latest, re-fetch it before grounding an assessment on it; earlier revisions described a narrower system.
+
+**How the documentation site is organized.** Three sections: `home`, `docs` (everything written about the platform -- install, the End User and Administrator references, the API reference, the Go library, evaluation, examples and support), and `portal` (a guided tour of every screen the built-in web portal serves, split into Your Work and Administration). The portal tour lives under /portal/; it replaced the two single-page guides that used to sit at /server/portal-user/ and /server/admin-portal/.
 
 ---
 
@@ -2589,9 +2591,9 @@ Knowledge capture uses two PostgreSQL tables (migrations 000006, 000007, 000008)
 
 ---
 
-# User Portal
+# Portal: Your Work
 
-The user portal is the day-to-day interface for analysts, engineers, and data consumers.
+The user portal is the day-to-day interface for analysts, engineers, and data consumers. On the site it is the `portal` rail section's Your Work group, one page per surface: Activity (https://mcp-data-platform.txn2.com/portal/activity/), Assets (https://mcp-data-platform.txn2.com/portal/assets/), Collections (https://mcp-data-platform.txn2.com/portal/collections/), Resources (https://mcp-data-platform.txn2.com/portal/resources/), Scratch Tables (https://mcp-data-platform.txn2.com/portal/scratch-tables/), Shared With Me (https://mcp-data-platform.txn2.com/portal/shared/), Knowledge and Memory (https://mcp-data-platform.txn2.com/portal/knowledge/), Prompts (https://mcp-data-platform.txn2.com/portal/prompts/), Scripts (https://mcp-data-platform.txn2.com/portal/scripts/) and Settings (https://mcp-data-platform.txn2.com/portal/settings/). The tour's entry page is https://mcp-data-platform.txn2.com/portal/, which also covers enabling and branding the portal.
 
 Every page is addressable. Path recognition is one table (`ui/src/lib/portalRoutes.ts`) rather than a final `else` in the shell's switch, because the switch is spread across five section components that each own their own matching and none can see whether another matched: a retired or guessed name (`/assets`, `/shared`, `/knowledge-pages`) redirects to the surface it meant, a trailing slash is dropped when what is left is a real route, and a path with no page renders a not-found page naming the address and offering the way back. The old behaviour was the failure mode the platform refuses everywhere else — the shell rendered its chrome, a section title, and an empty content area, having requested nothing, which is indistinguishable from being told you own none of what you asked for (#1359). A drift gate reads the route literals and detail patterns back out of the shell and the section components and asserts the table knows each one, so a route added to the shell cannot silently become a refusal.
 
@@ -2853,7 +2855,7 @@ At most **20** references per asset, of both kinds together. A save above the ca
 
 A declaration is checked once, against the author, at the moment of the save: they must be able to read the target, and a save naming one they cannot is refused with the reference named and nothing created. An agent reads a resource through its scope claims and an asset through ownership and shares, which are the same two checks those surfaces apply everywhere else.
 
-From then on the reference carries the **referencing asset's** audience. Anyone who can open that asset can load the target through it, including an anonymous viewer of a [public share link](portal-user.md). This is the grant model a [managed script](../scripts/security.md) already uses, where a run acts as its version author rather than as its caller. The tool response states it when the reference is made:
+From then on the reference carries the **referencing asset's** audience. Anyone who can open that asset can load the target through it, including an anonymous viewer of a [public share link](https://mcp-data-platform.txn2.com/portal/assets/). This is the grant model a [managed script](../scripts/security.md) already uses, where a run acts as its version author rather than as its caller. The tool response states it when the reference is made:
 
 > Anyone this asset is shared with can load these files through it, including anyone holding a public link, now and later.
 
@@ -2974,7 +2976,9 @@ A capture records at most 100 calls, and the default window looks back at most 5
 
 ---
 
-# Admin Portal
+# Portal: Administration
+
+On the site this is the `portal` rail section's Administration group: Dashboard (https://mcp-data-platform.txn2.com/portal/admin-dashboard/), Tools (https://mcp-data-platform.txn2.com/portal/admin-tools/), Sessions and Calls (https://mcp-data-platform.txn2.com/portal/admin-sessions/), Knowledge Review (https://mcp-data-platform.txn2.com/portal/admin-knowledge/), Content (https://mcp-data-platform.txn2.com/portal/admin-content/), Connections and Catalogs (https://mcp-data-platform.txn2.com/portal/admin-connections/), Personas (https://mcp-data-platform.txn2.com/portal/admin-personas/), Keys and Users (https://mcp-data-platform.txn2.com/portal/admin-access/) and Settings and Change Log (https://mcp-data-platform.txn2.com/portal/admin-settings/).
 
 The Admin Portal is a built-in web dashboard for monitoring and managing the platform. Enable with `portal.enabled: true` in configuration.
 
@@ -3093,7 +3097,7 @@ Audit trail of configuration changes. Config key, action (set), timestamp.
 
 Run with mock data (no backend): `cd ui && VITE_MSW=true npm run dev`
 Full-stack: `make dev-up` + `go run ./cmd/mcp-data-platform --config dev/platform.yaml` + `psql -f dev/seed.sql` + `cd ui && npm run dev`
-Screenshots: `cd ui && npm run screenshots && npm run screenshots:convert`
+Screenshots: `cd ui && npm run screenshots && npm run screenshots:apps && npm run screenshots:convert`
 
 ---
 

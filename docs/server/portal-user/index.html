@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Moved &mdash; User Portal</title>
+<meta name="robots" content="noindex">
+<link rel="canonical" href="https://mcp-data-platform.txn2.com/portal/">
+<!--
+  This page moved. It was one of the two single-page portal guides; the portal
+  documentation is now a section of its own at /portal/, one page per surface.
+
+  The file is a hand-written redirect rather than a mkdocs-redirects entry
+  because docs/requirements.txt is hash-pinned and adding a plugin there needs
+  a pip-compile run. MkDocs copies any non-Markdown file under docs/ verbatim,
+  so this sits at the old URL and answers it.
+
+  MAP covers EVERY anchor the old page published, not only the ones something
+  linked to, because a bookmark can name any of them. A reader who saved a
+  link into the middle of the old guide lands on the section it meant.
+-->
+<script>
+  (function () {
+    var MAP = {
+  "about": "scripts/#about",
+  "acting-on-several-files-and-on-a-folder": "resources/#acting-on-several-files-and-on-a-folder",
+  "activity": "activity/",
+  "asking-for-the-pages": "scripts/#asking-for-the-pages",
+  "asset-viewer": "assets/#asset-viewer",
+  "assets": "assets/",
+  "attaching-resources-to-a-prompt": "resources/#attaching-resources-to-a-prompt",
+  "built-in-pages": "knowledge/#built-in-pages",
+  "cards-and-graph": "knowledge/#cards-and-graph",
+  "catalog": "knowledge/#catalog",
+  "checking-a-change-before-you-send-it": "scripts/#checking-a-change-before-you-send-it",
+  "collections": "collections/",
+  "context-docs": "knowledge/#context-docs",
+  "domain-endpoints": "knowledge/#domain-endpoints",
+  "domains": "knowledge/#domains",
+  "every-run-across-your-scripts": "scripts/#every-run-across-your-scripts",
+  "feedback": "shared/#feedback",
+  "folders": "resources/#folders",
+  "glossary": "knowledge/#glossary",
+  "glossary-endpoints": "knowledge/#glossary-endpoints",
+  "insights": "knowledge/#insights",
+  "knowledge": "knowledge/",
+  "knowledge-and-memory": "knowledge/",
+  "knowledge-default": "knowledge/#knowledge-default",
+  "leaving-feedback-through-a-public-link": "shared/#leaving-feedback-through-a-public-link",
+  "memory": "knowledge/#memory",
+  "mentioning-a-teammate": "shared/#mentioning-a-teammate",
+  "moving-a-resource-to-another-library": "resources/#moving-a-resource-to-another-library",
+  "my-calls": "activity/#my-calls",
+  "my-sessions": "activity/#my-sessions",
+  "one-script": "scripts/#one-script",
+  "overview": "activity/#overview",
+  "personal-naming-and-scope-prefixes": "prompts/#personal-naming-and-scope-prefixes",
+  "prompts": "prompts/",
+  "querying-a-csv-asset-as-a-table": "assets/#querying-a-csv-asset-as-a-table",
+  "querying-a-csv-resource-as-a-table": "resources/#querying-a-csv-resource-as-a-table",
+  "reading-an-older-version": "assets/#reading-an-older-version",
+  "references": "assets/#references",
+  "requesting-promotion": "prompts/#requesting-promotion",
+  "resources": "resources/",
+  "revising-a-resources-content": "resources/#revising-a-resources-content",
+  "run-from-chat": "prompts/#run-from-chat",
+  "run-history": "scripts/#run-history",
+  "scratch-tables": "scratch-tables/",
+  "scripts": "scripts/",
+  "seeing-what-is-actually-used": "resources/#seeing-what-is-actually-used",
+  "settings": "settings/",
+  "shared-with-me": "shared/",
+  "sharing-a-prompt": "prompts/#sharing-a-prompt",
+  "sharing-collections": "collections/#sharing-collections",
+  "state": "scripts/#state",
+  "tables": "knowledge/#tables",
+  "tag-endpoints": "knowledge/#tag-endpoints",
+  "tags": "knowledge/#tags",
+  "the-code-and-running-it": "scripts/#the-code-and-running-it",
+  "the-feedback-panel": "shared/#the-feedback-panel",
+  "the-schedule": "scripts/#the-schedule",
+  "turning-feedback-into-knowledge": "shared/#turning-feedback-into-knowledge",
+  "version-history": "scripts/#version-history",
+  "version-history-and-diffs": "prompts/#version-history-and-diffs",
+  "version-retention": "assets/#version-retention",
+  "viewing-a-collection": "collections/#viewing-a-collection",
+  "what-a-page-links-to": "knowledge/#what-a-page-links-to"
+};
+    var frag = location.hash.replace(/^#/, "");
+    location.replace("../../portal/" + (MAP[frag] || ""));
+  })();
+</script>
+<meta http-equiv="refresh" content="0; url=../../portal/">
+<style>
+  body { font-family: system-ui, sans-serif; margin: 4rem auto; max-width: 40rem; padding: 0 1rem; }
+</style>
+</head>
+<body>
+<h1>This page moved</h1>
+<p>The portal documentation is now a section of its own, one page per surface.</p>
+<p><a href="../../portal/">Go to the portal tour</a></p>
+</body>
+</html>

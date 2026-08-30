@@ -595,7 +595,7 @@ Capture is **recall-first**: before writing, it runs a similarity check over the
 
 **Confirming the query that answered the question.** Every query and API call
 returns its own `call_id`. Naming that id in `sources` is how an agent says the
-statement was worth running: the [call record](portal-user.md#my-calls) becomes
+statement was worth running: the [call record](../portal/activity.md#my-calls) becomes
 `satisfied`, with the capture as its route, and enters the review queue for
 promotion to the catalog. It is the only route for the common case where the
 answer went into the conversation and was never saved as an asset. It
@@ -1073,7 +1073,7 @@ The patch and navigation arguments (`edits`, `base_version`, `dry_run`, `find`, 
 
 - **list**: Show the current user's assets with metadata
 - **get**: Retrieve full asset metadata by ID (the metadata row, not the body)
-- **update**: Change name, description, tags, version retention, or replace the whole content. A version pushed past `max_versions` is deleted along with its stored content, which is what makes the setting worth reaching for on an asset a schedule rewrites; see [Version retention](portal-user.md#version-retention)
+- **update**: Change name, description, tags, version retention, or replace the whole content. A version pushed past `max_versions` is deleted along with its stored content, which is what makes the setting worth reaching for on an asset a schedule rewrites; see [Version retention](../portal/assets.md#version-retention)
 - **delete**: Soft-delete an asset
 - **search**: Rank the caller's own assets by relevance to `query`. Uses the same hybrid (vector + lexical) ranking as the prompt and Knowledge & Memory search: weighted hybrid when an embedding provider is configured, automatic lexical-only fallback otherwise. Returns each match with a `score` and reports `ranking` (`hybrid` or `lexical`). Scoped server-side to the caller's own assets by `owner_id`, the same ownership key the asset library and update/delete checks use, so search returns exactly what you see in the library, and fails closed when the caller has no identity, so a user can never find an asset they cannot view.
 - **patch / locate / get_content / outline / stats / diff**: read and edit the body without moving the whole document. See below.
@@ -1117,7 +1117,7 @@ Registering is the authority to change the file, not the authority to read it: a
 
 ### manage_resource
 
-Write a file into the [managed resource library](portal-user.md#resources). A managed resource is the only kind of file a saved asset can reference, and until this tool existed the only way to put one there was a person at an upload form. That left the data half of a referencing asset unrefreshable by the platform itself: an agent could rewrite a report on a schedule and could not rewrite the CSV the report reads.
+Write a file into the [managed resource library](../portal/resources.md). A managed resource is the only kind of file a saved asset can reference, and until this tool existed the only way to put one there was a person at an upload form. That left the data half of a referencing asset unrefreshable by the platform itself: an agent could rewrite a report on a schedule and could not rewrite the CSV the report reads.
 
 The loop it closes is one call each way. `create` files the data and reports the `mcp://` URI to hand to `save_asset`'s `references` argument; `replace_content` writes new bytes over that file later. Because a replacement keeps the resource's id, its canonical URI and its filename, every asset referencing it serves the new content without being re-saved, and every citation and prompt attachment pointing at it keeps resolving.
 
@@ -1158,7 +1158,7 @@ A [managed script](../scripts/running.md) reaches this tool through `platform.ca
 
 "Share this with John" is one call, not a trip to the portal. `manage_asset action=share` takes the same three decisions the portal's share dialog takes — who, what they may do, how it ends — and mints the same share row, through the same constructor the REST routes use, so a share created here is indistinguishable from one created in the UI.
 
-**Naming a person.** `recipient` accepts an email address, or a person's name. A name is resolved against the [known-users directory](admin-portal.md#users) — the same directory the portal's share picker reads — matching case-insensitively against email, first name, and last name; a full name ("John Smith") is resolved by narrowing to the entries every word appears in. The lookup refuses to guess: a name matching nobody, or more than one person, comes back as an error naming the candidates, and no share is created. An email address is taken as written, so a person who has never signed in can still be shared with.
+**Naming a person.** `recipient` accepts an email address, or a person's name. A name is resolved against the [known-users directory](../portal/admin-access.md#users) — the same directory the portal's share picker reads — matching case-insensitively against email, first name, and last name; a full name ("John Smith") is resolved by narrowing to the entries every word appears in. The lookup refuses to guess: a name matching nobody, or more than one person, comes back as an error naming the candidates, and no share is created. An email address is taken as written, so a person who has never signed in can still be shared with.
 
 A person share is `restricted`: it opens only for the named recipient (and its creator), whoever else holds the URL. It is `viewer` unless `permission: editor` is asked for, it never expires — it ends when it is revoked — and the recipient gets the same "shared with you" email the portal sends, subject to their own notification preferences. The response reports `notified`, so an agent only says someone was emailed when one was actually sent.
 
@@ -1330,6 +1330,8 @@ Review and respond to human feedback on your work. Feedback is its own tool (rat
 
 The portal at `/admin/tools` is a master-detail view: a left rail listing every registered tool grouped by connection or kind, and a right pane with five tabs for the selected tool.
 
+![Admin Tools: the Overview tab](../images/screenshots/light/admin-admin-tools-overview-light.webp#only-light)![Admin Tools: the Overview tab](../images/screenshots/dark/admin-admin-tools-overview-dark.webp#only-dark)
+
 ### Detail tabs
 
 | Tab | Purpose |
@@ -1339,6 +1341,21 @@ The portal at `/admin/tools` is a master-detail view: a left rail listing every 
 | Activity | 24-hour aggregate from the audit log: call count, success rate, average duration. Links to `/admin/audit?tool=<name>`. |
 | Enrichment | Gateway-proxied tools only. Lists [cross-enrichment](../cross-enrichment/overview.md) rules attached to this tool, with merge strategy and enabled state. Links to the connection's enrichment drawer. |
 | Visibility | Toggle the global kill-switch (see [`tools.deny`](#global-kill-switch-toolsdeny) below) and preview a persona's decision for this tool without editing persona rules. |
+
+Try It submits a real `tools/call` against the running platform, so the result
+below the form is the result an agent would get:
+
+![Admin Tools: the Try It tab](../images/screenshots/light/admin-admin-tools-tryit-light.webp#only-light)![Admin Tools: the Try It tab](../images/screenshots/dark/admin-admin-tools-tryit-dark.webp#only-dark)
+
+Activity reads the same audit rows the [audit log](audit.md) holds, narrowed
+to this one tool:
+
+![Admin Tools: the Activity tab](../images/screenshots/light/admin-admin-tools-activity-light.webp#only-light)![Admin Tools: the Activity tab](../images/screenshots/dark/admin-admin-tools-activity-dark.webp#only-dark)
+
+Enrichment appears only for a gateway-proxied tool, and lists the rules
+attached to it:
+
+![Admin Tools: the Enrichment tab](../images/screenshots/light/admin-admin-tools-enrichment-light.webp#only-light)![Admin Tools: the Enrichment tab](../images/screenshots/dark/admin-admin-tools-enrichment-dark.webp#only-dark)
 
 ### Description overrides
 
@@ -1355,6 +1372,8 @@ The Overview tab shows an `overridden` badge with the author when a database ove
 ### Global kill-switch (`tools.deny`)
 
 `tools.deny` is a glob list that hides matching tools from `tools/list` responses for **all clients**. It is a cosmetic / token-budget filter, not a security boundary — persona authorization continues to gate `tools/call` independently.
+
+![Admin Tools: the Visibility tab](../images/screenshots/light/admin-admin-tools-visibility-light.webp#only-light)![Admin Tools: the Visibility tab](../images/screenshots/dark/admin-admin-tools-visibility-dark.webp#only-dark)
 
 Three equivalent ways to set it:
 
@@ -1413,7 +1432,7 @@ Non-admins manage only their own personal prompts; admins manage every scope. An
 
 **Versioning and review.** Every mutation of a prompt's content, display name, description, arguments, or tags snapshots an immutable version with its author; approval stamps bind to the specific version approved. Editing the content or arguments of an **approved global or persona** prompt does not apply immediately: `update` returns `status: "pending_approval"` with the draft's `pending_version`, and every caller keeps being served the approved snapshot until an admin approves the draft (in the admin portal, or `POST /api/v1/admin/prompts/{id}/versions/{version}/approve`). A gated content edit cannot be combined with scope/status/other non-versioned changes in one call; submit them separately. Personal prompts and never-approved drafts version silently. `get` and `list` also report `run_count` and `last_run_at` per prompt, aggregated from prompt-serve audit events (each `prompts/get` and resolved `use` counts as a serve), and `list` results include the shared `collections` list (the portal's organization model) when the store supports collections.
 
-**Attached materials.** A prompt can carry the reference material its procedure depends on: the report template it fills, the checklist it follows, the brand header it embeds, the sample payload it matches. Attachments are links to [managed resources](portal-user.md#resources), stored by resource id, so editing the uploaded file updates every prompt that attaches it.
+**Attached materials.** A prompt can carry the reference material its procedure depends on: the report template it fills, the checklist it follows, the brand header it embeds, the sample payload it matches. Attachments are links to [managed resources](../portal/resources.md), stored by resource id, so editing the uploaded file updates every prompt that attaches it.
 
 A resolved prompt delivers them after the prompt text. Text material at or below 64 KiB arrives inline as an MCP embedded resource; anything binary or larger arrives as a resource link the client reads on demand. `use` also lists them in an `attachments` array carrying each item's URI, media type, size, and availability, so the agent can state what materials it received. The delivered material is framed as authoritative: an attached template is to be filled rather than reinvented, an attached checklist followed.
 
@@ -1477,7 +1496,7 @@ The Starlark is never embedded, and that is a visibility rule rather than a pref
 
 Opens the user's managed scripts in the portal for the human to look at: what they own, what each one is scheduled to do, and how its recent runs went. Call it only when the human wants to see their scripts, schedules, or automations, or asks what ran and why something did not update ("show me my scripts", "did the daily report run"). It performs no data operation and returns a short confirmation with a link to the pages where the deployment is configured with its public address. For reading a script, its runs, or its log as part of your own work, use `manage_script`, which returns data and renders no UI. Optional `search` pre-focuses the pages.
 
-The pages themselves are read-only and described in the [portal guide](portal-user.md#scripts). Approving a version stays on the admin surface; the source, the capability grants, and the run history are the script's owner's and an administrator's to read, and one run is additionally readable by whoever requested it.
+The pages themselves are read-only and described in the [portal guide](../portal/scripts.md). Approving a version stays on the admin surface; the source, the capability grants, and the run history are the script's owner's and an administrator's to read, and one run is additionally readable by whoever requested it.
 
 ---
 

@@ -1,5 +1,5 @@
 ---
-description: Two operating modes for mcp-data-platform: standalone (no database) and database-backed. Feature availability comparison and example configurations.
+description: "Two operating modes for mcp-data-platform: standalone (no database) and database-backed. Feature availability comparison and example configurations."
 ---
 
 # Operating Modes

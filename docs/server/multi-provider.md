@@ -8,6 +8,26 @@ mcp-data-platform supports connecting to multiple instances of each service type
 
 ## Configuring Multiple Instances
 
+The config file is one of the two places a connection can come from; the other
+is the database, through **Admin > Connections**, which lists every connection
+the deployment has whichever half owns it.
+
+![Admin Connections: every connection on the deployment, grouped by kind](../images/screenshots/light/admin-admin-connections-light.webp#only-light)![Admin Connections: every connection on the deployment, grouped by kind](../images/screenshots/dark/admin-admin-connections-dark.webp#only-dark)
+
+A connection this file declares cannot be edited or deleted there: the detail
+pane says the file declares it and offers neither action. **Add Connection**
+creates a database-only one instead, through a kind-aware editor, so a
+deployment can add one without a config-file change and a restart. It offers
+the four kinds that support several instances -- Trino, S3, MCP gateway and API
+gateway. DataHub is not among them: the platform connects to one catalog,
+configured in the file (`pkg/admin/connection_handler.go`,
+`knownConnectionKinds`).
+
+![Creating a connection in the portal](../images/screenshots/light/admin-admin-connection-create-light.webp#only-light)![Creating a connection in the portal](../images/screenshots/dark/admin-admin-connection-create-dark.webp#only-dark)
+
+See the [Admin Portal guide](../portal/admin-connections.md#connections) for what the source
+badges do and do not mean. The rest of this page is the config-file half.
+
 Each toolkit section accepts multiple named instances:
 
 ```yaml
@@ -112,7 +132,6 @@ Tool call: `trino_query` with:
 - `connection`: `staging`
 
 ## Listing Available Connections
-
 `list_connections` enumerates every connection across every kind, narrowed to
 the ones the caller's persona is granted. It replaces the per-toolkit
 `trino_list_connections`, `datahub_list_connections` and `s3_list_connections`

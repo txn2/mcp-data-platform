@@ -32,7 +32,7 @@ What this shape provides:
 - [API catalogs](api-catalogs.md): versioned OpenAPI bundles with semantic endpoint ranking
 - The [knowledge layer](../knowledge/overview.md): insight capture, human-in-the-loop review, and promotion to canonical knowledge pages
 - The [memory layer](../memory/overview.md): persistent recall across sessions
-- The [portal](portal-user.md): saved assets, collections, prompts, feedback threads, sharing
+- The [portal](../portal/index.md): saved assets, collections, prompts, feedback threads, sharing
 - `search` and `fetch` federating over knowledge pages, assets, prompts, connections, insights, and memory
 - The full security and operations envelope: OIDC and API-key auth, the OAuth 2.1 server, personas, audit logging, observability, notifications
 

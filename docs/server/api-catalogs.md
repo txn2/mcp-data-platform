@@ -4,7 +4,7 @@ OpenAPI specs describe **the API**, not the credential pointed at it. An organiz
 
 An **API catalog** is a versioned, globally-owned bundle of component OpenAPI 3.x specs. Each `(name, version)` pair is its own catalog row. Connections of kind `api` reference one catalog by id via `config.catalog_id`; the toolkit resolves connection, catalog, and specs at runtime and exposes the merged operation index through `api_list_endpoints` and `api_get_endpoint_schema`.
 
-To read what a catalog exposes without opening the spec text, use the [operation browser](api-browser.md).
+To read what a catalog exposes without opening the spec text, use the [operation browser](../portal/apis.md).
 
 ## What's in a catalog
 
@@ -56,11 +56,17 @@ Every entry is a candidate for the drop rule, so each connection resolves agains
 
 The **API Catalogs** page lives in the admin sidebar alongside Connections. It shows every catalog grouped by `name` with each version listed underneath. Selecting a catalog opens an editor that lets you rename, update the display name and description, clone to a new version, or delete (delete is refused while any connection still references the catalog).
 
+![Admin API Catalogs](../images/screenshots/light/admin-admin-api-catalogs-light.webp#only-light)![Admin API Catalogs](../images/screenshots/dark/admin-admin-api-catalogs-dark.webp#only-dark)
+
+![Creating a catalog](../images/screenshots/light/admin-admin-catalog-create-light.webp#only-light)![Creating a catalog](../images/screenshots/dark/admin-admin-catalog-create-dark.webp#only-dark)
+
 Inside the editor, the **Component specs** section lists each spec in the catalog. Click **Add spec** to open a modal with three tabs:
 
 - **Paste** — paste YAML or JSON directly into the textarea. The server validates the content as OpenAPI 3.x before saving; a bad spec returns an error inline.
 - **Upload** — pick a `.yaml`/`.yml`/`.json` file. Max 10 MB. Same validation step.
 - **URL** — paste a public HTTPS URL. The server fetches once at save time, captures the ETag, and stores the content. Click **Refresh** on the spec row later to re-fetch.
+
+![The Add spec modal, with its Paste, Upload and URL tabs](../images/screenshots/light/admin-catalog-spec-modal-light.webp#only-light)![The Add spec modal, with its Paste, Upload and URL tabs](../images/screenshots/dark/admin-catalog-spec-modal-dark.webp#only-dark)
 
 URL-fetch enforces strict SSRF guards: HTTPS only, private/loopback/link-local/CGNAT IP ranges blocked (with a dial-time recheck to defeat DNS rebinding), 10 MB body cap, redirects refused. A public URL like `https://petstore3.swagger.io/api/v3/openapi.json` works; private-network URLs are rejected.
 
@@ -130,6 +136,11 @@ The catalog editor renders the job queue's state directly:
 - **Per-spec badge.** `47/47 indexed` (green) when fully embedded, `indexing N/47` (blue) while a worker is processing where N is the chunk-progress counter that ticks up during the run, `queued` (amber) while waiting for a worker, `failed` (red, tooltip carries the last error) after retries are exhausted.
 - **Catalog header summary** — one-line roll-up: `All N specs indexed` (green) or `K indexed / M total (2 running, 1 failed)` (amber/red).
 - **Retry button** — visible only on failed rows; enqueues a `manual_retry` job. The reconciler's automatic path is the default; this is the escape hatch for "model changed externally."
+
+![Dashboard: the Indexing tab](../images/screenshots/light/admin-admin-audit-indexing-light.webp#only-light)![Dashboard: the Indexing tab](../images/screenshots/dark/admin-admin-audit-indexing-dark.webp#only-dark)
+
+**Admin > Dashboard > Indexing** is the cross-kind view of the same queue,
+covering every consumer of `index_jobs` rather than one catalog.
 
 The `/api/v1/admin/api-catalogs/{id}/embedding-health` and `/api/v1/admin/api-catalogs/{id}/embedding-status` endpoints expose the same data for programmatic consumers. Polling them every 5 seconds is sufficient; the worker is the source of truth.
 

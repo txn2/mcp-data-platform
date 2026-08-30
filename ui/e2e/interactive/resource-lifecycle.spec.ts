@@ -66,7 +66,7 @@ test.describe("Resource version history", () => {
     // The identity is what must survive a revision: same id, same URI.
     const body = (await resp.json()) as { id: string; uri: string };
     expect(body.id).toBe("res-001");
-    expect(body.uri).toContain("sql-style-guide.pdf");
+    expect(body.uri).toContain("sql-style-guide.md");
   });
 
   test("restoring a prior revision posts the restore", async ({ page }) => {

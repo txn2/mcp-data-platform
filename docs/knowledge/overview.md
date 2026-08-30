@@ -100,6 +100,13 @@ Rolling back a changeset returns its source insights to `pending`, so the review
 
 ## Visibility
 
+![Knowledge: the promoted, shared, canonical pages](../images/screenshots/light/user-knowledge-knowledge-light.webp#only-light)![Knowledge: the promoted, shared, canonical pages](../images/screenshots/dark/user-knowledge-knowledge-dark.webp#only-dark)
+
+The portal's **Knowledge** section is where the three statuses become
+visible to a reader: the Knowledge tab holds what has been promoted, the
+Insights tab what is proposed, and the Memory tab what was captured
+automatically.
+
 Applying an insight is what turns one person's capture into knowledge the organization holds, so `applied` is also the visibility boundary:
 
 | Status | Who can find it with `search` and read it with `fetch` |
@@ -112,6 +119,14 @@ Two properties follow from this:
 
 - No insight is public. Reaching applied insights requires an identified caller, so an anonymous visitor to a shared portal link never sees them.
 - Discovery does not depend on the sink. Before this boundary existed, an applied fact reached other people only if it happened to land on a knowledge page, or if a tool result named the dataset it hung off; a fact applied to the DataHub catalog on a table the agent was not already looking at had no search-time route to anyone but its capturer.
+
+![Knowledge: the catalog view](../images/screenshots/light/user-knowledge-catalog-light.webp#only-light)![Knowledge: the catalog view](../images/screenshots/dark/user-knowledge-catalog-dark.webp#only-dark)
+
+The Catalog view browses the same corpus by catalog entity for one connection
+-- tables, context docs, tags, domains and glossary terms -- rather than by
+the page that holds a fact.
+
+![Knowledge: the corpus graph](../images/screenshots/light/user-knowledge-graph-light.webp#only-light)![Knowledge: the corpus graph](../images/screenshots/dark/user-knowledge-graph-dark.webp#only-dark)
 
 ### Delivered insights say when they are checkable
 
@@ -263,7 +278,7 @@ A capture can also name the calls it confirms. Every query and API invocation
 returns its own `call_id`, and `memory_capture` takes those ids in `sources`.
 
 That is not bookkeeping: it is the agent's verdict on its own query. The named
-[call record](../server/portal-user.md#my-calls) becomes `satisfied` with the
+[call record](../portal/activity.md#my-calls) becomes `satisfied` with the
 capture as its route, and enters the review queue that promotes it to a Query
 entity in the catalog. Without it, the most valuable queries would be the ones
 the platform never learns about, since a refined statement that answers a
@@ -297,7 +312,7 @@ the way a person does — by what it was for, not by an id it kept (#1322):
 Both are scoped in the read itself: a session is derived from the calls one
 caller made, so another caller's session id is answered exactly as an id that
 never ran. The same read model serves the portal's
-[My Sessions](../server/portal-user.md#my-sessions), so what an agent recalls
+[My Sessions](../portal/activity.md#my-sessions), so what an agent recalls
 and what its owner opens are the same session.
 
 ## Feedback Bridge

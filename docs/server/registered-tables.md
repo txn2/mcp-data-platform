@@ -637,7 +637,7 @@ failure, and so is the statement that put the table back.
 
 ## Related
 
-- [Managed Resources](portal-user.md) - uploading the files this registers.
+- [Resources](../portal/resources.md) - uploading the files this registers.
 - [Authorization Model](../concepts/authorization.md) - why the Trino identity
   is the boundary.
 - [Threat Model](../security/threat-model.md) - what the scratch schema exposes.

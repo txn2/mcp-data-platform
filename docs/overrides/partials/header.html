@@ -32,11 +32,53 @@
     </label>
     {%- endif %}
 
+    {#-
+      Three sections, matching the top level of the mkdocs nav exactly so the
+      rail's active item and the sidebar section a reader is in never
+      disagree. `docs` claims everything written about the platform; `portal`
+      claims the guided tour of the web interface. The scopes are path
+      prefixes and the longest match wins (see the trackRail script in
+      main.html), so a page has to sit under portal/ for the portal item to
+      light up; the shared surfaces that still live under server/ belong to
+      `docs`.
+    -#}
     <a href="{{ '.' | url }}" data-scope="$home"{% if page.is_homepage %} aria-current="page"{% endif %}>home</a>
-    <a href="{{ 'server/installation/' | url }}" data-scope="server/installation">install</a>
-    <a href="{{ 'server/overview/' | url }}" data-scope="server cross-enrichment auth personas knowledge memory mcpapps concepts security">server</a>
-    <a href="{{ 'library/overview/' | url }}" data-scope="library">library</a>
-    <a href="{{ 'reference/tools-api/' | url }}" data-scope="reference support release-highlights">reference</a>
+    <a href="{{ 'server/overview/' | url }}" data-scope="server concepts reference cross-enrichment auth personas knowledge memory scripts mcpapps security library examples ecosystem support release-highlights">docs</a>
+    <a href="{{ 'portal/' | url }}" data-scope="portal">portal</a>
+
+    {#-
+      Material's own header renders these two partials; the rail replaces that
+      header wholesale, so a palette configured as a list would otherwise ship
+      no toggle control and no script to persist the choice.
+    -#}
+    {%- if config.theme.palette and not config.theme.palette is mapping %}
+      {% include "partials/palette.html" %}
+      {% include "partials/javascripts/palette.html" %}
+      <script>
+        // Material's palette script above restores a STORED choice only. On a
+        // first visit the body keeps whatever base.html stamped from
+        // `palette | first` (slate), and the deferred bundle applies the
+        // media match only after the page has painted -- a dark flash on
+        // every load for a reader whose system asks for light. This runs in
+        // the same place, before the page below it is parsed, and applies the
+        // same match the bundle would. __md_get is defined in <head> by
+        // partials/javascripts/base.html.
+        (function () {
+          if (__md_get("__palette")) return;
+          var inputs = document.querySelectorAll("[data-md-color-media]");
+          for (var i = 0; i < inputs.length; i++) {
+            var media = inputs[i].getAttribute("data-md-color-media");
+            if (media && matchMedia(media).matches) {
+              document.body.setAttribute(
+                "data-md-color-scheme",
+                inputs[i].getAttribute("data-md-color-scheme")
+              );
+              return;
+            }
+          }
+        })();
+      </script>
+    {%- endif %}
 
     {%- if "material/search" in config.plugins %}
       {%- set search = config.plugins["material/search"] | attr("config") %}

@@ -50,6 +50,8 @@ configuration.
 After saving the connection, the operator clicks **Connect** in the
 admin portal:
 
+![A gateway connection's OAuth settings in the admin portal](../images/screenshots/light/admin-admin-connection-edit-light.webp#only-light)![A gateway connection's OAuth settings in the admin portal](../images/screenshots/dark/admin-admin-connection-edit-dark.webp#only-dark)
+
 ```
 1. Portal POST /api/v1/admin/gateway/connections/{name}/oauth-start
    → returns authorization URL with code_challenge, state, redirect_uri
@@ -255,5 +257,5 @@ untouched until Salesforce invalidates the refresh token.
 
 - [Gateway Toolkit](../server/gateway.md) — full connection-config reference
 - [Admin API: Gateway Endpoints](../server/admin-api.md#gateway-endpoints) — `oauth-start`, callback, connection CRUD
-- [Admin Portal: MCP Gateway Connections](../server/admin-portal.md#mcp-gateway-connections) — UI walkthrough
+- [Admin Portal: MCP Gateway Connections](../portal/admin-connections.md#mcp-gateway-connections) — UI walkthrough
 - [Operating Modes](../server/operating-modes.md#mcp-gateway-requirements) — DB / encryption requirements

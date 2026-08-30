@@ -1,5 +1,5 @@
 import {
-  openEmptyResourceLibrary,
+  openResourceSearch,
   openResourceSelection,
   openResourceSubfolder,
 } from "./route-actions-library";
@@ -48,13 +48,14 @@ export const adminResourceRoutes: ScreenshotRoute[] = [
     beforeCapture: openResourceSelection,
   },
   {
-    // A library with nothing to show. A folder exists because a resource is
-    // filed under it, so there is no empty folder to capture -- only a library
-    // nothing matches.
-    slug: "resource-library-empty",
+    // Search across the whole library: hits from more than one folder, each
+    // naming the path it was found at. Captured with a term that MATCHES --
+    // the sentence this illustrates is about what a hit shows, which a
+    // no-result search cannot demonstrate.
+    slug: "resource-search",
     path: "/portal/admin/resources",
     category: "admin",
-    beforeCapture: openEmptyResourceLibrary,
+    beforeCapture: openResourceSearch,
   },
   {
     // Resource detail as it opens: the content at the page's own width, with

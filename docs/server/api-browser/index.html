@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Moved &mdash; API Operation Browser</title>
+<meta name="robots" content="noindex">
+<link rel="canonical" href="https://mcp-data-platform.txn2.com/portal/apis/">
+<!--
+  This page moved. The operation browser is a portal screen (/apis and
+  /admin/apis), so it now sits in the portal tour rather than under server/.
+  Hand-written because docs/requirements.txt is hash-pinned; MkDocs copies any
+  non-Markdown file under docs/ verbatim, so this answers the old URL. Every
+  anchor the page published is carried across.
+-->
+<script>
+  (function () {
+    var MAP = {
+  "reading-an-operation": "#reading-an-operation",
+  "the-call-an-operation-produces": "#the-call-an-operation-produces",
+  "the-callers-view": "#the-callers-view",
+  "the-operators-view": "#the-operators-view",
+  "the-read-routes": "#the-read-routes",
+  "what-it-is-not": "#what-it-is-not"
+};
+    var frag = location.hash.replace(/^#/, "");
+    location.replace("../../portal/apis/" + (MAP[frag] || ""));
+  })();
+</script>
+<meta http-equiv="refresh" content="0; url=../../portal/apis/">
+<style>body{font-family:system-ui,sans-serif;margin:4rem auto;max-width:40rem;padding:0 1rem}</style>
+</head>
+<body>
+<h1>This page moved</h1>
+<p>The API operation browser is part of the portal tour.</p>
+<p><a href="../../portal/apis/">Go to the APIs page</a></p>
+</body>
+</html>

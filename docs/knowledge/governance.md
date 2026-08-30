@@ -12,6 +12,13 @@ This page covers the admin-side workflow for reviewing captured insights and wri
 
 All captured insights start with status `pending`. Admins review them through the `apply_knowledge` tool or the [Admin REST API](admin-api.md).
 
+![The review queue: pending insights with age, category, and confidence](../images/screenshots/light/user-knowledge-review-light.webp#only-light)![The review queue: pending insights with age, category, and confidence](../images/screenshots/dark/user-knowledge-review-dark.webp#only-dark)
+
+The portal carries the same queue under **Knowledge > Insights > Review
+queue**: pending count and the age of the oldest item above the list, then
+every insight with who captured it, its category, its confidence, and its
+status.
+
 ### Bulk Review
 
 Get an overview of all pending insights:
@@ -110,7 +117,19 @@ The marker is advisory in the strict sense: it changes what a reviewer sees, nev
 
 Row counts require `enrichment.estimate_row_counts` ([Configuration](../server/configuration.md)), which is off by default because `COUNT(*)` can scan a whole table. With it off, the observation still states that the entity exists and is queryable — which is the larger half of the question — and claims no count.
 
-A deployment with no query provider, an entity URN that does not resolve, a table reported unavailable, and an insight already decided all carry no observation at all: the payload and the drawer are exactly what they were. See the [Admin REST API](admin-api.md#observed-warehouse-state) for the field shape and the [Admin Portal guide](../server/admin-portal.md#observed-warehouse-state) for the review surface.
+A deployment with no query provider, an entity URN that does not resolve, a table reported unavailable, and an insight already decided all carry no observation at all: the payload and the drawer are exactly what they were. See the [Admin REST API](admin-api.md#observed-warehouse-state) for the field shape and the [Admin Portal guide](../portal/admin-knowledge.md#observed-warehouse-state) for the review surface.
+
+![A pending insight with the warehouse observation beside the claim](../images/screenshots/light/admin-knowledge-insight-observed-light.webp#only-light)![A pending insight with the warehouse observation beside the claim](../images/screenshots/dark/admin-knowledge-insight-observed-dark.webp#only-dark)
+
+When the claim states a number the table disagrees with, the item carries
+the advisory conflict marker naming both:
+
+![An insight whose claimed count conflicts with the observed one](../images/screenshots/light/admin-knowledge-insight-conflict-light.webp#only-light)![An insight whose claimed count conflicts with the observed one](../images/screenshots/dark/admin-knowledge-insight-conflict-dark.webp#only-dark)
+
+With `enrichment.estimate_row_counts` off, the observation still states that
+the entity exists and is queryable, and claims no count:
+
+![An insight observation with no row-count estimate](../images/screenshots/light/admin-knowledge-insight-no-estimate-light.webp#only-light)![An insight observation with no row-count estimate](../images/screenshots/dark/admin-knowledge-insight-no-estimate-dark.webp#only-dark)
 
 ### Approve or Reject
 
