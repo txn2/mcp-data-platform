@@ -96,6 +96,18 @@ auth:
         name: "director"
         email: "david.park@example.com"
         roles: ["regional_director"]
+      # Two ordinary people who own their own work. They hold no admin role,
+      # which is what makes them the pair an owner-authority check is exercised
+      # against: one owns a script and what its runs produce, the other is
+      # somebody else.
+      - key: "acme-owner-key"
+        name: "owner"
+        email: "asset.owner@example.com"
+        roles: ["collaborator"]
+      - key: "acme-peer-key"
+        name: "peer"
+        email: "asset.peer@example.com"
+        roles: ["collaborator"]
 
 oauth:
   enabled: false
@@ -125,6 +137,26 @@ personas:
     context:
       description_prefix: |
         You are the ACME data platform administrator with full access.
+
+  collaborator:
+    display_name: "Collaborator"
+    roles:
+      - collaborator
+      - dp_collaborator
+    tools:
+      # "*" with no deny, rather than an enumerated list: the tools a person
+      # needs to own their own work are a unit (search gates the query tools,
+      # fetch dereferences what search returns), and an enumerated list loses
+      # every tool a later release adds.
+      allow:
+        - "*"
+      deny: []
+    connections:
+      allow:
+        - "*"
+    context:
+      description_prefix: |
+        You are helping an ACME collaborator with their own assets, scripts and reference material.
 
   data-engineer:
     display_name: "Data Engineer"

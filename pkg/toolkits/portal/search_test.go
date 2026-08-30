@@ -18,12 +18,13 @@ import (
 type searchableAssetStore struct {
 	*inMemoryAssetStore
 	gotQuery portal.AssetSearchQuery
+	searched bool
 	result   []portal.ScoredAsset
 	err      error
 }
 
 func (s *searchableAssetStore) SearchAssets(_ context.Context, q portal.AssetSearchQuery) ([]portal.ScoredAsset, error) {
-	s.gotQuery = q
+	s.gotQuery, s.searched = q, true
 	return s.result, s.err
 }
 
@@ -91,10 +92,26 @@ func TestHandleSearch_FailClosedAnonymous(t *testing.T) {
 func TestHandleSearch_FailClosedWhitespaceIdentity(t *testing.T) {
 	store := &searchableAssetStore{inMemoryAssetStore: newInMemoryAssetStore()}
 	tk := New(Config{Name: "test", AssetStore: store, S3Bucket: "b"})
-	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "   ", UserEmail: searchTestEmail})
+	ctx := middleware.WithPlatformContext(context.Background(),
+		&middleware.PlatformContext{UserID: "   ", UserEmail: "  "})
 	r, _, _ := tk.handleManageAsset(ctx, nil, manageAssetInput{Action: actionSearch, Query: "sales"})
 	require.True(t, r.IsError)
 	assert.Contains(t, errText(t, r), "user identity")
+	assert.False(t, store.searched, "an unscoped search must never reach the store")
+}
+
+// An address is an identity of its own: it is the key an asset a managed script
+// wrote records for the person who owns the script (#1551), so a caller
+// carrying one searches rather than being refused.
+func TestHandleSearch_ScopesOnTheAddressWhenTheIDIsBlank(t *testing.T) {
+	store := &searchableAssetStore{inMemoryAssetStore: newInMemoryAssetStore()}
+	tk := New(Config{Name: "test", AssetStore: store, S3Bucket: "b"})
+	ctx := middleware.WithPlatformContext(context.Background(),
+		&middleware.PlatformContext{UserID: "   ", UserEmail: searchTestEmail})
+	r, _, _ := tk.handleManageAsset(ctx, nil, manageAssetInput{Action: actionSearch, Query: "sales"})
+	require.False(t, r.IsError)
+	assert.Equal(t, searchTestEmail, store.gotQuery.Owner.Email)
+	assert.Empty(t, store.gotQuery.Owner.UserID)
 }
 
 func TestHandleSearch_Success(t *testing.T) {
@@ -113,7 +130,7 @@ func TestHandleSearch_Success(t *testing.T) {
 	assert.EqualValues(t, 1, m[fieldTotal])
 
 	// Owner scope (owner_id from PlatformContext.UserID) and query reach the store.
-	assert.Equal(t, "u1", store.gotQuery.OwnerID)
+	assert.Equal(t, "u1", store.gotQuery.Owner.UserID)
 	assert.Equal(t, "cohort retention", store.gotQuery.QueryText)
 	assert.Equal(t, 4, store.gotQuery.Limit)
 	assert.Nil(t, store.gotQuery.Embedding)

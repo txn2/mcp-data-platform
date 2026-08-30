@@ -110,8 +110,8 @@ func TestSearchMyAssets_Success(t *testing.T) {
 	assert.InDelta(t, 0.88, resp.Data[0].Score, 1e-9)
 	assert.Equal(t, 1, resp.Total)
 	assert.Equal(t, 5, resp.Limit)
-	// Owner scope reaches the store as the caller's owner_id (withUser sets it).
-	assert.Equal(t, "user-123", store.gotQuery.OwnerID)
+	// Owner scope reaches the store as the caller's identity (withUser sets it).
+	assert.Equal(t, "user-123", store.gotQuery.Owner.UserID)
 	assert.Equal(t, "cohort retention", store.gotQuery.QueryText)
 	assert.Equal(t, 5, store.gotQuery.Limit)
 }
@@ -222,12 +222,12 @@ func TestIntegration_SearchMyAssets_RealStoreEnforcesOwnerScope(t *testing.T) {
 	store := NewPostgresAssetStore(db)
 	const callerID = "u1"
 
-	// Hybrid binds $1=vector, $2=query, $3=owner_id. If the handler failed to
-	// scope by the caller, this expectation would not be met.
+	// Hybrid binds $1=vector, $2=query, $3=owner_id, $4=owner_email. If the
+	// handler failed to scope by the caller, this expectation would not be met.
 	rows := sqlmock.NewRows(append(append([]string{}, rankedAssetCols...), "vec_score", "lex_match"))
 	rows.AddRow(rankedAssetRow("a-1", callerID, "Cohort retention", 0.9, true)...)
 	mock.ExpectQuery("UNION ALL").
-		WithArgs(sqlmock.AnyArg(), "retention", callerID).
+		WithArgs(sqlmock.AnyArg(), "retention", callerID, "alice@example.com").
 		WillReturnRows(rows)
 	mock.ExpectQuery("FROM portal_collection_items").
 		WillReturnRows(sqlmock.NewRows([]string{"asset_id", "id", "name"}))

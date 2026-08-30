@@ -28,9 +28,6 @@ type Source struct {
 	Bucket      string
 	HeadKey     string
 	ContentType string
-	// OwnerID is who the source belongs to. It decides whether a caller may
-	// replace an existing registration of the same name.
-	OwnerID string
 }
 
 // Caller is who is asking. Persona drives the connection boundary and the

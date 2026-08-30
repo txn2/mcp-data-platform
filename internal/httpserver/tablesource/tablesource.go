@@ -19,13 +19,14 @@
 package tablesource
 
 import (
+	"cmp"
 	"context"
 	"log/slog"
 	"slices"
-	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/tableregister"
+	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
@@ -93,7 +94,7 @@ func readResource(ctx context.Context, store resource.Store, id string) (*resour
 func resourceSource(res *resource.Resource, bucket string) tableregister.Source {
 	return tableregister.SourceFromResource(tableregister.Record{
 		ID: res.ID, Name: res.DisplayName, Bucket: bucket,
-		Key: res.S3Key, ContentType: res.MIMEType, OwnerID: res.UploaderSub,
+		Key: res.S3Key, ContentType: res.MIMEType,
 	})
 }
 
@@ -125,7 +126,7 @@ func readAsset(ctx context.Context, store portal.AssetStore, id string) (*portal
 func assetSource(asset *portal.Asset) tableregister.Source {
 	return tableregister.SourceFromAssetRecord(tableregister.Record{
 		ID: asset.ID, Name: asset.Name, Bucket: asset.S3Bucket,
-		Key: asset.S3Key, ContentType: asset.ContentType, OwnerID: asset.OwnerID,
+		Key: asset.S3Key, ContentType: asset.ContentType,
 	})
 }
 
@@ -137,9 +138,9 @@ func assetSource(asset *portal.Asset) tableregister.Source {
 // publishes the file's contents into a schema everyone with the connection can
 // read, which is owner authority the way sharing is.
 //
-// Both halves of an identity match must be non-empty. A caller with no id and
-// an asset with no owner id are not the same person, and matching them would
-// hand an unauthenticated request every unattributed asset on the platform.
+// Ownership is the portal's own judgment (assetOwnerOf), so a table over a
+// managed script's output is registered, listed and dropped by the same person
+// the portal calls its owner, and by nobody else.
 //
 // The administrator arm is checked twice on purpose: a caller assembled by a
 // surface that does not resolve IsAdmin still carries the roles it was
@@ -149,11 +150,18 @@ func AssetVisibleTo(asset portal.Asset, caller tableregister.Caller, adminRoles 
 	if caller.IsAdmin || HasAnyRole(caller.Roles, adminRoles) {
 		return true
 	}
-	if asset.OwnerID != "" && asset.OwnerID == caller.UserID {
-		return true
-	}
-	return asset.OwnerEmail != "" && caller.Email != "" &&
-		strings.EqualFold(asset.OwnerEmail, caller.Email)
+	return assetOwnerOf(caller).OwnsAsset(&asset)
+}
+
+// assetOwnerOf is the ownership identity a table-surface caller is judged by.
+//
+// The address is the one the caller is acting as: their own, or for a managed
+// script run the address of the person whose authority the run presents. Using
+// the run's own address instead would pair one person's authority with
+// another's ownership after a transfer, which is the pairing the run's identity
+// binding refuses to make.
+func assetOwnerOf(caller tableregister.Caller) portaldomain.AssetOwner {
+	return portaldomain.NewAssetOwner(caller.UserID, cmp.Or(caller.OnBehalfOf, caller.Email))
 }
 
 // Locator resolves a source by kind and id with no authority check. It

@@ -3,6 +3,8 @@ package portal
 import (
 	"net/http"
 	"strings"
+
+	"github.com/txn2/mcp-data-platform/internal/portal/access"
 )
 
 // searchMyAssets handles GET /api/v1/portal/assets/search.
@@ -53,7 +55,7 @@ func (h *Handler) searchMyAssets(w http.ResponseWriter, r *http.Request) {
 	scored, err := searcher.SearchAssets(r.Context(), AssetSearchQuery{
 		Embedding: h.embedSearchQuery(r.Context(), query),
 		QueryText: query,
-		OwnerID:   user.UserID,
+		Owner:     access.AssetOwnerOf(user),
 		Limit:     limit,
 	})
 	if err != nil {

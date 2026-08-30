@@ -152,7 +152,7 @@ behaviors described below; it grants nothing (`pkg/middleware/mcp.go`).
 | `scripts.destinations` configuration | The complete set of addresses a script's output can leave the platform for |
 | Data reachable through `platform.query` | Whatever the running identity's persona and connections allow |
 | Run records (`script_runs`) | Parameters, timings, output ids, and the log a run printed; readable by the script's owner, an administrator, and whoever requested that particular run |
-| Output assets | Portal assets a run writes, with the script principal as owner and the script's owner as the accountable person |
+| Output assets | Portal assets a run writes. The row records the run's principal as its owner id and the script owner's address beside it, and ownership is judged on either, so the asset is the script owner's to open, change, share and delete (#1551) |
 | Delivered objects | Data a run writes out of the platform, into the bucket and prefix a configured destination names, where the platform's own access controls no longer apply |
 | Run logs | Bounded free text a script chooses to emit; may echo queried data |
 | Connection credentials | Never reachable from a script; held by the platform and used by the toolkit |
@@ -245,9 +245,9 @@ configuration it would duplicate.
 ### Who a run acts for
 
 A run authenticates as `script:<name>` and presents the roles its version author
-held. That principal is right for attribution — audit rows name it, and the
-assets `platform.export` creates belong to it — and wrong for one thing:
-it owns nothing a PERSON owns. Every ownership check compares an owner id
+held. That principal is right for attribution — audit rows name it, and it is
+what `platform.export` stamps as the owner id of the assets it writes — and
+wrong for one thing: it owns nothing a PERSON owns. Every ownership check compares an owner id
 against the caller's, so judged on the principal alone a run is refused the very
 assets its own author can edit. That refusal is not the persona filter's, and a
 feature whose rule is that a script reaches what its author reaches cannot have
@@ -310,9 +310,12 @@ Five limits, stated rather than implied:
   their scripts. A grant made to a person is not a grant to everything that
   person automates.
 - **Asset enumeration stays the script's own.** `manage_asset list` and `search`
-  over assets scope to the calling principal, so a script's asset listing is the
-  outputs that script produced, not its author's library. Acting on a named
-  asset is the widened path; the inventory is not.
+  over assets scope to the calling principal alone, so a script's asset listing
+  is the outputs that script produced, not its author's library and not its
+  owner's. Acting on a named asset is the widened path; the inventory is not.
+  The two are separate judgments in the code for that reason
+  (`callerAssetScope` and `callerAssetOwner` in `pkg/toolkits/portal`,
+  `assetScopeOf` and `assetOwnerOf` in `pkg/knowledge`).
 - **Resource enumeration is the author's, and only their own library.** A
   managed resource is scoped rather than owned, and a personal library is keyed
   by an identifier a run does not have, so the resource rules read the address:

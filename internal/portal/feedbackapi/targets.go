@@ -44,8 +44,12 @@ type TargetGatherer struct {
 // permission satisfies keep.
 func (g TargetGatherer) AssetIDs(ctx context.Context, keep ShareKeep) ([]string, error) {
 	var ids []string
-	if g.Assets != nil {
-		owned, total, err := g.Assets.List(ctx, portaldomain.AssetFilter{OwnerID: g.UserID, Limit: targetGatherCap})
+	owner := portaldomain.NewAssetOwner(g.UserID, g.Email)
+	if g.Assets != nil && owner.Identified() {
+		owned, total, err := g.Assets.List(ctx, portaldomain.AssetFilter{
+			Owner: owner,
+			Limit: targetGatherCap,
+		})
 		if err != nil {
 			return nil, fmt.Errorf("listing owned assets: %w", err)
 		}

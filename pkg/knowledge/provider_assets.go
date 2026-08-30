@@ -1,12 +1,14 @@
 package knowledge
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 )
@@ -25,9 +27,10 @@ type AssetSearcher interface {
 }
 
 // AssetsProvider exposes a caller's managed portal assets to the
-// router. It is per-user: results are restricted to assets the caller owns
-// (assets.owner_id == caller UUID), which is why it keys on Caller.UserID
-// rather than the email the memory and insight providers use.
+// router. It is per-user: results are restricted to the assets the caller owns,
+// judged on the pair of identifiers an asset records (assetOwnerOf), so an
+// output a managed script wrote for its owner is discoverable by that person
+// and not by anybody else (#1551).
 type AssetsProvider struct {
 	searcher AssetSearcher
 	tables   TableLookup
@@ -54,16 +57,17 @@ func (*AssetsProvider) Name() string { return SourceAssets }
 func (*AssetsProvider) Scope() Scope { return ScopePerUser }
 
 // Search returns the caller's assets ranked by relevance. It fails closed on a
-// missing caller UUID rather than searching across all owners.
+// caller with no identity at all rather than searching across all owners.
 func (p *AssetsProvider) Search(ctx context.Context, q Query) ([]Hit, error) {
-	if q.Caller.UserID == "" {
+	owner := assetScopeOf(q.Caller)
+	if !owner.Identified() {
 		return nil, nil
 	}
 
 	scored, err := p.searcher.SearchAssets(ctx, portal.AssetSearchQuery{
 		Embedding: q.Embedding,
 		QueryText: q.Intent,
-		OwnerID:   q.Caller.UserID,
+		Owner:     owner,
 		Limit:     q.Limit,
 	})
 	if err != nil {
@@ -110,7 +114,8 @@ func (p *AssetsProvider) Fetch(ctx context.Context, ref string, caller Caller) (
 		// tries the next provider. The parse error is intentionally not propagated.
 		return nil, false, nil //nolint:nilerr // a non-asset reference is a decline, not a failure
 	}
-	if caller.UserID == "" {
+	owner := assetOwnerOf(caller)
+	if !owner.Identified() {
 		return nil, true, ErrNotFound
 	}
 	asset, err := p.searcher.Get(ctx, parsed.AssetID)
@@ -126,7 +131,7 @@ func (p *AssetsProvider) Fetch(ctx context.Context, ref string, caller Caller) (
 	// Fail closed on ownership: a missing, deleted, or other-owner asset is
 	// indistinguishable to the caller (all ErrNotFound), so fetch leaks neither the
 	// content nor the existence of an asset the caller could not have searched.
-	if asset == nil || asset.DeletedAt != nil || asset.OwnerID != caller.UserID {
+	if asset == nil || asset.DeletedAt != nil || !owner.OwnsAsset(asset) {
 		return nil, true, ErrNotFound
 	}
 	return &Document{
@@ -139,6 +144,34 @@ func (p *AssetsProvider) Fetch(ctx context.Context, ref string, caller Caller) (
 			Kind: TableKindAsset, ID: asset.ID, Bucket: asset.S3Bucket, HeadKey: asset.S3Key,
 		}),
 	}, true, nil
+}
+
+// assetOwnerOf is the ownership identity a caller is judged by when it names an
+// asset.
+//
+// The id is what a person carries. The address is what makes discovery agree
+// with the rest of the asset surfaces: a managed script's output records the
+// script principal as its owner id and the script owner's address as
+// owner_email, so an id-only check hides from a person the very asset a run
+// produced for them (#1551). For an unattended caller the address is the one it
+// acts for, which is the same person its authority came from, so a run reaches
+// what its author reaches and nothing else (#1419).
+func assetOwnerOf(c Caller) portaldomain.AssetOwner {
+	return portaldomain.NewAssetOwner(c.UserID, cmp.Or(c.OnBehalfOf, c.Email))
+}
+
+// assetScopeOf is the identity a SEARCH is scoped to: the caller's own library.
+//
+// An unattended caller carries no address here. Its own address is the script
+// owner's, carried for accountability, and ranking on it would return the whole
+// of that person's library to every run of their script. A run's inventory is
+// the outputs it produced; acting on a named asset its author owns is the
+// widened path, and it is the one above.
+func assetScopeOf(c Caller) portaldomain.AssetOwner {
+	if c.OnBehalfOf != "" {
+		return portaldomain.NewAssetOwner(c.UserID, "")
+	}
+	return portaldomain.NewAssetOwner(c.UserID, c.Email)
 }
 
 // assetOutboundRefs are the links an asset declares: the session that produced

@@ -46,10 +46,10 @@ func TestAssetsProvider_Metadata(t *testing.T) {
 	}
 }
 
-func TestAssetsProvider_FailsClosedWithoutUserID(t *testing.T) {
+func TestAssetsProvider_FailsClosedWithoutAnIdentity(t *testing.T) {
 	s := &fakeAssetSearcher{}
 	p := NewAssetsProvider(s)
-	hits, err := p.Search(context.Background(), Query{Caller: Caller{Email: "email-only@example.com"}})
+	hits, err := p.Search(context.Background(), Query{Caller: Caller{}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -57,7 +57,56 @@ func TestAssetsProvider_FailsClosedWithoutUserID(t *testing.T) {
 		t.Errorf("expected no hits, got %+v", hits)
 	}
 	if s.called {
-		t.Error("searcher must not run without a caller UUID")
+		t.Error("searcher must not run for a caller with neither identifier")
+	}
+}
+
+// An address alone is an identity: it is the key a managed script's output is
+// recorded under for the person who owns the script (#1551), so discovery must
+// scope on it rather than refuse.
+func TestAssetsProvider_ScopesOnTheAddressWhenThereIsNoUserID(t *testing.T) {
+	s := &fakeAssetSearcher{}
+	p := NewAssetsProvider(s)
+	if _, err := p.Search(context.Background(),
+		Query{Caller: Caller{Email: "email-only@example.com"}}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !s.called {
+		t.Fatal("the searcher must run for a caller carrying an address")
+	}
+	if s.got.Owner.Email != "email-only@example.com" || s.got.Owner.UserID != "" {
+		t.Errorf("Owner = %+v, want scoped to the address alone", s.got.Owner)
+	}
+}
+
+// A managed-script run's search stays its own inventory: neither the script
+// owner's address it carries for accountability nor the author's address it
+// acts for widens the ranking to a person's whole library. Acting on a named
+// asset is the widened path (assetOwnerOf), and it is checked below.
+func TestAssetsProvider_SearchScopesAnUnattendedCallerToItsOwnOutputs(t *testing.T) {
+	s := &fakeAssetSearcher{}
+	p := NewAssetsProvider(s)
+	if _, err := p.Search(context.Background(), Query{Caller: Caller{
+		UserID: "script:weekly", Email: "owner@example.com", OnBehalfOf: "author@example.com",
+	}}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if s.got.Owner.Email != "" {
+		t.Errorf("Owner.Email = %q, want no address on an unattended search", s.got.Owner.Email)
+	}
+	if s.got.Owner.UserID != "script:weekly" {
+		t.Errorf("Owner.UserID = %q, want the run's own principal", s.got.Owner.UserID)
+	}
+}
+
+// Naming an asset is the widened path: a run reaches what the person it acts
+// for owns.
+func TestAssetsProvider_FetchScopesAnUnattendedCallerToTheAddressItActsFor(t *testing.T) {
+	owner := assetOwnerOf(Caller{
+		UserID: "script:weekly", Email: "owner@example.com", OnBehalfOf: "author@example.com",
+	})
+	if owner.Email != "author@example.com" {
+		t.Errorf("Owner.Email = %q, want the address the run acts for", owner.Email)
 	}
 }
 
@@ -77,8 +126,8 @@ func TestAssetsProvider_ScopesAndMaps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if s.got.OwnerID != "uuid-1" {
-		t.Errorf("OwnerID = %q, want scoped to caller UUID", s.got.OwnerID)
+	if s.got.Owner.UserID != "uuid-1" {
+		t.Errorf("Owner.UserID = %q, want scoped to caller UUID", s.got.Owner.UserID)
 	}
 	if len(hits) != 2 {
 		t.Fatalf("len = %d, want 2", len(hits))

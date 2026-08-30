@@ -657,9 +657,18 @@ func (h *Handler) listAssets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// An authenticated user with neither identifier owns nothing; an empty
+	// owner scope on the store means every owner, which is the administrator's
+	// listing and not this route's.
+	owner := access.AssetOwnerOf(user)
+	if !owner.Identified() {
+		writeJSON(w, http.StatusOK, paginatedResponse{Data: []Asset{}, Total: 0, Limit: defaultLimit})
+		return
+	}
+
 	sortBy, sortDir := sortParams(r)
 	filter := AssetFilter{
-		OwnerID:     user.UserID,
+		Owner:       owner,
 		ContentType: r.URL.Query().Get("content_type"),
 		Tag:         r.URL.Query().Get("tag"),
 		Limit:       intParam(r, paramLimit, defaultLimit),
@@ -737,7 +746,7 @@ func (h *Handler) getAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := assetResponse{Asset: *asset, IsOwner: asset.OwnerID == user.UserID}
+	resp := assetResponse{Asset: *asset, IsOwner: access.OwnsAsset(asset, user)}
 
 	if !resp.IsOwner {
 		// Resolve the highest permission across a direct share and the collection
@@ -1068,8 +1077,13 @@ func (h *Handler) listPendingThumbnails(w http.ResponseWriter, r *http.Request) 
 	// the whole body of every asset it is offered, and a background task that
 	// pulls other people's documents into a browser because of who is signed in
 	// is not what an admin asked for by opening the portal.
+	owner := access.AssetOwnerOf(user)
+	if !owner.Identified() {
+		writeJSON(w, http.StatusOK, paginatedResponse{Data: []Asset{}, Total: 0, Limit: thumbnailPendingLimit})
+		return
+	}
 	filter := AssetFilter{
-		OwnerID:          user.UserID,
+		Owner:            owner,
 		ThumbnailPending: true,
 		Limit:            intParam(r, paramLimit, thumbnailPendingLimit),
 	}
@@ -1202,7 +1216,7 @@ func (h *Handler) requireManageableAsset(w http.ResponseWriter, r *http.Request)
 		return nil, false
 	}
 
-	if !h.access.CanManage(asset.OwnerID, user) {
+	if !h.access.CanManageAsset(asset, user) {
 		writeError(w, http.StatusForbidden, "only the owner can update this asset")
 		return nil, false
 	}
@@ -1394,7 +1408,7 @@ func (h *Handler) updateAsset(w http.ResponseWriter, r *http.Request) {
 	// this field alone is owner-or-admin -- which is also what the manage_asset
 	// update action allows.
 	if updates.MaxVersions != nil || updates.ClearMaxVersions {
-		if !h.access.CanManage(asset.OwnerID, user) {
+		if !h.access.CanManageAsset(asset, user) {
 			writeError(w, http.StatusForbidden, "only the owner or an administrator can change version retention")
 			return
 		}
@@ -1441,7 +1455,7 @@ func (h *Handler) deleteAsset(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errAssetNotFound)
 		return
 	}
-	if !h.access.CanManage(asset.OwnerID, user) {
+	if !h.access.CanManageAsset(asset, user) {
 		writeError(w, http.StatusForbidden, "only the owner can delete this asset")
 		return
 	}
@@ -1808,7 +1822,7 @@ func (h *Handler) createShare(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errAssetNotFound)
 		return
 	}
-	if !h.access.CanManage(asset.OwnerID, user) {
+	if !h.access.CanManageAsset(asset, user) {
 		writeError(w, http.StatusForbidden, "only the owner can share this asset")
 		return
 	}
@@ -1907,7 +1921,7 @@ func (h *Handler) listShares(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errAssetNotFound)
 		return
 	}
-	if !h.access.CanManage(asset.OwnerID, user) {
+	if !h.access.CanManageAsset(asset, user) {
 		writeError(w, http.StatusForbidden, "only the owner can view shares for this asset")
 		return
 	}
@@ -1979,7 +1993,7 @@ func (h *Handler) revokeShare(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "associated asset not found")
 			return
 		}
-		if !h.access.CanManage(asset.OwnerID, user) {
+		if !h.access.CanManageAsset(asset, user) {
 			writeError(w, http.StatusForbidden, "only the owner can revoke this share")
 			return
 		}
@@ -2672,7 +2686,7 @@ func (h *Handler) userCanViewAsset(r *http.Request, assetID string, asset *Asset
 // canEditAsset checks owner, admin, or editor share access, writing an HTTP
 // error on failure.
 func (h *Handler) canEditAsset(w http.ResponseWriter, r *http.Request, assetID string, asset *Asset, user *User) bool {
-	if h.access.CanManage(asset.OwnerID, user) {
+	if h.access.CanManageAsset(asset, user) {
 		return true
 	}
 	perm, err := h.access.ResolveAssetPermission(r.Context(), assetID, user)

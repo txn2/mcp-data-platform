@@ -287,7 +287,7 @@ func TestPostgresAssetStoreList(t *testing.T) {
 		sqlmock.NewRows([]string{"asset_id", "id", "name"}),
 	)
 
-	assets, total, err := store.List(context.Background(), portaldomain.AssetFilter{OwnerID: "user1"})
+	assets, total, err := store.List(context.Background(), portaldomain.AssetFilter{Owner: portaldomain.NewAssetOwner("user1", "")})
 	require.NoError(t, err)
 	assert.Equal(t, 1, total)
 	assert.Len(t, assets, 1)
@@ -321,7 +321,7 @@ func TestPostgresAssetStoreListThumbnailPending(t *testing.T) {
 		}))
 
 	assets, total, err := store.List(context.Background(),
-		portaldomain.AssetFilter{OwnerID: "user1", ThumbnailPending: true})
+		portaldomain.AssetFilter{Owner: portaldomain.NewAssetOwner("user1", ""), ThumbnailPending: true})
 	require.NoError(t, err)
 	assert.Equal(t, 0, total)
 	assert.Empty(t, assets)
@@ -783,7 +783,7 @@ func TestPostgresAssetStoreListCountError(t *testing.T) {
 
 	mock.ExpectQuery("SELECT COUNT").WillReturnError(fmt.Errorf("db error"))
 
-	_, _, err = store.List(context.Background(), portaldomain.AssetFilter{OwnerID: "user1"})
+	_, _, err = store.List(context.Background(), portaldomain.AssetFilter{Owner: portaldomain.NewAssetOwner("user1", "")})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "counting assets")
 	assert.NoError(t, mock.ExpectationsWereMet())
@@ -799,7 +799,7 @@ func TestPostgresAssetStoreListQueryError(t *testing.T) {
 	mock.ExpectQuery("SELECT COUNT").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	mock.ExpectQuery("SELECT .+ FROM portal_assets").WillReturnError(fmt.Errorf("db error"))
 
-	_, _, err = store.List(context.Background(), portaldomain.AssetFilter{OwnerID: "user1"})
+	_, _, err = store.List(context.Background(), portaldomain.AssetFilter{Owner: portaldomain.NewAssetOwner("user1", "")})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "querying assets")
 	assert.NoError(t, mock.ExpectationsWereMet())
@@ -832,7 +832,7 @@ func TestPostgresAssetStoreListWithOffset(t *testing.T) {
 	)
 
 	assets, _, err := store.List(context.Background(), portaldomain.AssetFilter{
-		OwnerID: "user1", Offset: 10, Limit: 5,
+		Owner: portaldomain.NewAssetOwner("user1", ""), Offset: 10, Limit: 5,
 	})
 	require.NoError(t, err)
 	assert.Len(t, assets, 1)
@@ -1441,22 +1441,22 @@ func TestPostgresAssetStoreListOrdering(t *testing.T) {
 	}{
 		{
 			name:      "defaults to most recently touched",
-			filter:    portaldomain.AssetFilter{OwnerID: "user1"},
+			filter:    portaldomain.AssetFilter{Owner: portaldomain.NewAssetOwner("user1", "")},
 			wantOrder: "ORDER BY updated_at DESC, id DESC",
 		},
 		{
 			name:      "name ascending",
-			filter:    portaldomain.AssetFilter{OwnerID: "user1", SortBy: "name", SortDir: portaldomain.SortAsc},
+			filter:    portaldomain.AssetFilter{Owner: portaldomain.NewAssetOwner("user1", ""), SortBy: "name", SortDir: portaldomain.SortAsc},
 			wantOrder: "ORDER BY name ASC, id ASC",
 		},
 		{
 			name:      "size descending",
-			filter:    portaldomain.AssetFilter{OwnerID: "user1", SortBy: "size_bytes", SortDir: portaldomain.SortDesc},
+			filter:    portaldomain.AssetFilter{Owner: portaldomain.NewAssetOwner("user1", ""), SortBy: "size_bytes", SortDir: portaldomain.SortDesc},
 			wantOrder: "ORDER BY size_bytes DESC, id DESC",
 		},
 		{
 			name:      "an unlisted column orders by the default instead",
-			filter:    portaldomain.AssetFilter{OwnerID: "user1", SortBy: "s3_key"},
+			filter:    portaldomain.AssetFilter{Owner: portaldomain.NewAssetOwner("user1", ""), SortBy: "s3_key"},
 			wantOrder: "ORDER BY updated_at DESC, id DESC",
 		},
 	}

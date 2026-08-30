@@ -60,7 +60,7 @@ func TestSearchAssets_Hybrid(t *testing.T) {
 	scored, err := store.SearchAssets(context.Background(), portaldomain.AssetSearchQuery{
 		Embedding: []float32{0.1, 0.2, 0.3},
 		QueryText: "retention",
-		OwnerID:   "alice@example.com",
+		Owner:     portaldomain.NewAssetOwner("alice@example.com", ""),
 	})
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -84,7 +84,7 @@ func TestSearchAssets_HybridDedupKeepsHigher(t *testing.T) {
 	expectEmptyCollections(mock)
 
 	scored, err := store.SearchAssets(context.Background(), portaldomain.AssetSearchQuery{
-		Embedding: []float32{0.1}, QueryText: "x", OwnerID: "alice@example.com",
+		Embedding: []float32{0.1}, QueryText: "x", Owner: portaldomain.NewAssetOwner("alice@example.com", ""),
 	})
 	require.NoError(t, err)
 	require.Len(t, scored, 1)
@@ -105,7 +105,7 @@ func TestSearchAssets_Lexical(t *testing.T) {
 	expectEmptyCollections(mock)
 
 	scored, err := store.SearchAssets(context.Background(), portaldomain.AssetSearchQuery{
-		QueryText: "notes", OwnerID: "alice@example.com", // nil embedding -> lexical
+		QueryText: "notes", Owner: portaldomain.NewAssetOwner("alice@example.com", ""), // nil embedding -> lexical
 	})
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -122,7 +122,7 @@ func TestSearchAssets_HybridQueryError(t *testing.T) {
 
 	mock.ExpectQuery("UNION ALL").WillReturnError(assert.AnError)
 	_, err = store.SearchAssets(context.Background(), portaldomain.AssetSearchQuery{
-		Embedding: []float32{0.1}, QueryText: "x", OwnerID: "alice@example.com",
+		Embedding: []float32{0.1}, QueryText: "x", Owner: portaldomain.NewAssetOwner("alice@example.com", ""),
 	})
 	require.Error(t, err)
 }
@@ -135,7 +135,7 @@ func TestSearchAssets_LexicalQueryError(t *testing.T) {
 
 	mock.ExpectQuery("ORDER BY lex_rank DESC").WillReturnError(assert.AnError)
 	_, err = store.SearchAssets(context.Background(), portaldomain.AssetSearchQuery{
-		QueryText: "x", OwnerID: "alice@example.com",
+		QueryText: "x", Owner: portaldomain.NewAssetOwner("alice@example.com", ""),
 	})
 	require.Error(t, err)
 }
@@ -152,7 +152,7 @@ func TestSearchAssets_CollectionPopulateError(t *testing.T) {
 	mock.ExpectQuery("FROM portal_collection_items").WillReturnError(assert.AnError)
 
 	_, err = store.SearchAssets(context.Background(), portaldomain.AssetSearchQuery{
-		QueryText: "x", OwnerID: "alice@example.com",
+		QueryText: "x", Owner: portaldomain.NewAssetOwner("alice@example.com", ""),
 	})
 	require.Error(t, err)
 }
@@ -173,7 +173,7 @@ func TestSearchAssets_HybridScanError(t *testing.T) {
 	mock.ExpectQuery("UNION ALL").WillReturnRows(rows)
 
 	_, err = store.SearchAssets(context.Background(), portaldomain.AssetSearchQuery{
-		Embedding: []float32{0.1}, QueryText: "x", OwnerID: "alice@example.com",
+		Embedding: []float32{0.1}, QueryText: "x", Owner: portaldomain.NewAssetOwner("alice@example.com", ""),
 	})
 	require.Error(t, err)
 }
@@ -189,7 +189,7 @@ func TestSearchAssets_Empty(t *testing.T) {
 	// No populate query: zero results.
 
 	scored, err := store.SearchAssets(context.Background(), portaldomain.AssetSearchQuery{
-		QueryText: "none", OwnerID: "alice@example.com",
+		QueryText: "none", Owner: portaldomain.NewAssetOwner("alice@example.com", ""),
 	})
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())

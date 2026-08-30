@@ -426,6 +426,54 @@ func TestCanManage(t *testing.T) {
 	assert.True(t, none.CanManage("u-owner", owner()))
 }
 
+// TestCanManageAssetMatchesTheScriptOutput pins the asset form of the owner
+// gate. A managed script's output records the script principal as its owner id
+// and the script owner's address as owner_email, so an id-only gate leaves the
+// person it was produced for unable to rename, share or delete it (#1551).
+func TestCanManageAssetMatchesTheScriptOutput(t *testing.T) {
+	c := New(Config{AdminRoles: []string{"dp_admin"}})
+	scriptOutput := &portaldomain.Asset{
+		ID: "a1", OwnerID: "script:weekly-revenue", OwnerEmail: "Owner@Example.com",
+	}
+	ownSaved := &portaldomain.Asset{ID: "a2", OwnerID: "u-owner", OwnerEmail: "owner@example.com"}
+	unattributed := &portaldomain.Asset{ID: "a3"}
+
+	assert.True(t, c.CanManageAsset(scriptOutput, owner()), "the script's owner manages its output")
+	assert.True(t, OwnsAsset(scriptOutput, owner()), "and is reported as its owner")
+	assert.False(t, c.CanManageAsset(scriptOutput, viewer()), "nobody else does")
+	assert.True(t, c.CanManageAsset(scriptOutput, admin()), "an administrator still does")
+	assert.False(t, c.CanManageAsset(scriptOutput, nil))
+
+	assert.True(t, c.CanManageAsset(ownSaved, owner()), "the address arm is a no-op on a saved asset")
+	assert.False(t, c.CanManageAsset(ownSaved, viewer()))
+
+	assert.False(t, c.CanManageAsset(unattributed, &User{}),
+		"absence of an identity is not a shared identity")
+	assert.False(t, OwnsAsset(nil, owner()))
+}
+
+// The view checks read the same judgment, so an owner never has to hold a share
+// on what a run produced for them.
+func TestCanViewAssetMatchesTheScriptOutput(t *testing.T) {
+	c := New(Config{Shares: &fakeShareStore{}})
+	scriptOutput := &portaldomain.Asset{
+		ID: "a1", OwnerID: "script:weekly-revenue", OwnerEmail: "owner@example.com",
+	}
+
+	assert.True(t, c.CanViewAsset(context.Background(), "a1", scriptOutput, owner()))
+	granted, err := c.AssetViewGrant(context.Background(), "a1", scriptOutput, owner())
+	require.NoError(t, err)
+	assert.True(t, granted)
+	assert.False(t, c.CanViewAsset(context.Background(), "a1", scriptOutput, viewer()))
+}
+
+// AssetOwnerOf is what every surface builds its scope from, so a nil user must
+// name nobody rather than an empty-string owner that a query would match.
+func TestAssetOwnerOfNilUser(t *testing.T) {
+	assert.False(t, AssetOwnerOf(nil).Identified())
+	assert.True(t, AssetOwnerOf(owner()).Identified())
+}
+
 // TestCanManageEmail covers the email-keyed form used for prompts, whose
 // ownership is an address rather than a user ID.
 func TestCanManageEmail(t *testing.T) {

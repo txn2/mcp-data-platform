@@ -3,6 +3,7 @@
 package portal
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
+	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
@@ -803,11 +805,21 @@ func (t *Toolkit) handleManageAsset(ctx context.Context, _ *mcp.CallToolRequest,
 }
 
 func (t *Toolkit) handleList(ctx context.Context, input manageAssetInput) (*mcp.CallToolResult, any, error) {
-	ownerID := resolveOwnerID(ctx)
+	// A caller with no resolved identity owns nothing. Refusing here rather
+	// than passing an empty scope to the store is what keeps an unauthenticated
+	// call from reading the listing an administrator gets.
+	owner := callerAssetScope(ctx)
+	if !owner.Identified() {
+		return middleware.UnauthorizedResult(
+			"a user identity is required to list assets",
+			"Authenticate so the listing can be scoped to your assets. "+
+				"This is an identity problem, not a platform outage.",
+		), nil, nil
+	}
 
 	assets, total, err := t.assetStore.List(ctx, portal.AssetFilter{
-		OwnerID: ownerID,
-		Limit:   input.Limit,
+		Owner: owner,
+		Limit: input.Limit,
 	})
 	if err != nil {
 		return toolkit.ErrorResult("failed to list assets: " + err.Error()), nil, nil
@@ -1200,30 +1212,61 @@ func resolveOwnerID(ctx context.Context) string {
 	return anonymousUserName
 }
 
-// ownsResource reports whether the caller owns a resource, judged on the
-// identity the call actually carries.
+// callerAssetScope is the identity an asset ENUMERATION is scoped to: what the
+// caller's own library holds.
 //
-// A person is matched on user id, which is what every human caller has. A
-// managed-script run is matched on the address it acts for: it authenticates as
-// script:<name>, a principal that owns nothing a person owns, so an id-only
-// check refuses a script the very assets its own author can edit. That refusal
-// is not the persona filter's, and a feature whose rule is that a script
-// reaches what its author reaches cannot have one (#1419).
-//
-// It grants nothing new. The address is the version author's, captured from an
-// authenticated context at the save exactly as the run's roles are, so the run
-// reaches what that person reaches and nothing else. Both sides must be
-// non-empty: a version with no recorded author must never match a resource with
-// no recorded owner, because absence of an identity is not a shared one.
-func ownsResource(ctx context.Context, ownerID, ownerEmail string) bool {
-	if ownerID != "" && ownerID == resolveOwnerID(ctx) {
-		return true
-	}
+// It is deliberately narrower than callerAssetOwner for an unattended caller. A
+// run's own address is its script OWNER's, carried for accountability, and a
+// listing scoped on it would hand every run of a script the whole of that
+// person's library. Acting on a named asset its author owns is the widened path
+// (#1419); the inventory is not, and it stays the outputs the script produced.
+// For a person the two are the same identity.
+func callerAssetScope(ctx context.Context) portaldomain.AssetOwner {
 	pc := middleware.GetPlatformContext(ctx)
-	if pc == nil || pc.OnBehalfOfEmail == "" || ownerEmail == "" {
-		return false
+	if pc == nil {
+		return portaldomain.AssetOwner{}
 	}
-	return strings.EqualFold(ownerEmail, pc.OnBehalfOfEmail)
+	if pc.Source == middleware.SourceScript {
+		return portaldomain.NewAssetOwner(pc.UserID, "")
+	}
+	return portaldomain.NewAssetOwner(pc.UserID, pc.UserEmail)
+}
+
+// callerAssetOwner is the ownership identity this call carries: the id it
+// authenticated as, and the address of the person it is acting as.
+//
+// The id is what every human caller has. The address is what makes ownership
+// survive the two places an id alone cannot reach:
+//
+//   - a managed-script run authenticates as script:<name>, a principal that
+//     owns nothing a person owns, so an id-only check refuses the run the very
+//     assets its own author can edit (#1419). Its address is the author's,
+//     captured from an authenticated context at the save exactly as the run's
+//     roles are, so the run reaches what that person reaches and nothing else;
+//   - everything that run writes is stamped with the principal as its owner id
+//     and the script owner's address as owner_email, so an id-only check hides a
+//     run's output from the only person it was produced for (#1551).
+//
+// The anonymous sentinel is not an identity: NewAssetOwner drops it, so an
+// unauthenticated caller carries no key and matches nothing.
+func callerAssetOwner(ctx context.Context) portaldomain.AssetOwner {
+	pc := middleware.GetPlatformContext(ctx)
+	if pc == nil {
+		return portaldomain.AssetOwner{}
+	}
+	return portaldomain.NewAssetOwner(pc.UserID, cmp.Or(pc.OnBehalfOfEmail, pc.UserEmail))
+}
+
+// ownsResource reports whether the caller owns a record recorded under
+// (ownerID, ownerEmail). It is the one judgment of "this is this person's" the
+// tool surface makes, and it is the same one the portal's REST surface and its
+// ranked search make.
+//
+// Both sides of an arm must name somebody: absence of an identity is not a
+// shared identity, so an unattributed record is never matched by a caller with
+// no identity of their own.
+func ownsResource(ctx context.Context, ownerID, ownerEmail string) bool {
+	return callerAssetOwner(ctx).Owns(ownerID, ownerEmail)
 }
 
 // shareIdentity is the (id, address) pair a SHARE lookup is keyed on.

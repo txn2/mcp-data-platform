@@ -424,7 +424,7 @@ func (h *handler) fillAsset(
 	view.MIMEType = target.ContentType
 	view.SizeBytes = target.SizeBytes
 	view.OwnerEmail = target.OwnerEmail
-	view.Readable = h.access.CanManage(target.OwnerID, user) ||
+	view.Readable = h.access.CanManageAsset(target, user) ||
 		h.access.CanViewAsset(r.Context(), target.ID, target, user)
 }
 
@@ -546,7 +546,7 @@ func (h *handler) viewableAsset(
 		httpjson.WriteError(w, http.StatusGone, errAssetDeleted)
 		return nil, false
 	}
-	if h.access.CanManage(asset.OwnerID, user) {
+	if h.access.CanManageAsset(asset, user) {
 		return asset, true
 	}
 	granted, err := h.access.AssetViewGrant(r.Context(), id, asset, user)
@@ -659,7 +659,7 @@ func (h *handler) readableAssetTarget(
 		httpjson.WriteError(w, http.StatusNotFound, errAssetNotFound)
 		return target{}, false
 	}
-	if !h.access.CanManage(found.OwnerID, user) &&
+	if !h.access.CanManageAsset(found, user) &&
 		!h.access.CanViewAsset(r.Context(), found.ID, found, user) {
 		httpjson.WriteError(w, http.StatusNotFound, errAssetNotFound)
 		return target{}, false

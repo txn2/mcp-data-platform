@@ -145,7 +145,7 @@ type scopedAssetStore struct {
 func (s *scopedAssetStore) SearchAssets(_ context.Context, q portal.AssetSearchQuery) ([]portal.ScoredAsset, error) {
 	var out []portal.ScoredAsset
 	for _, a := range s.assets {
-		if a.OwnerID == q.OwnerID {
+		if q.Owner.OwnsAsset(&a) {
 			out = append(out, portal.ScoredAsset{Asset: a, Score: 0.5})
 		}
 	}

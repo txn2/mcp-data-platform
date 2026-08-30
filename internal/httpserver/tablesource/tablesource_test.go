@@ -106,7 +106,6 @@ func TestResourceSubject_RequiresAuthorityToChangeTheFile(t *testing.T) {
 	assert.Equal(t, tableregister.KindResource, src.Kind)
 	assert.Equal(t, "resource-bucket", src.Bucket)
 	assert.Equal(t, "resources/res_1/rebates.csv", src.HeadKey)
-	assert.Equal(t, "u1", src.OwnerID)
 
 	// A member of the persona the resource is scoped to can READ it, which is
 	// deliberately not enough to publish it to everyone with the connection.
@@ -390,14 +389,14 @@ func TestLocator(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, tableregister.Source{
 		Kind: tableregister.KindResource, ID: "res_1", Name: "Stores",
-		Bucket: "managed-resources", HeadKey: res.S3Key, ContentType: "text/csv", OwnerID: "u1",
+		Bucket: "managed-resources", HeadKey: res.S3Key, ContentType: "text/csv",
 	}, src)
 
 	src, ok = locate(context.Background(), tableregister.KindAsset, "a1")
 	require.True(t, ok)
 	assert.Equal(t, tableregister.Source{
 		Kind: tableregister.KindAsset, ID: "a1", Name: "Sales",
-		Bucket: "portal-assets", HeadKey: asset.S3Key, ContentType: "text/csv", OwnerID: "u1",
+		Bucket: "portal-assets", HeadKey: asset.S3Key, ContentType: "text/csv",
 	}, src)
 
 	_, ok = locate(context.Background(), "prompt", "p1")

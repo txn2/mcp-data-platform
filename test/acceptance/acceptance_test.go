@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -54,6 +55,9 @@ type client struct {
 	ctx       context.Context
 	session   *mcp.ClientSession
 	sessionID string
+	// apiKey is the identity this session authenticated with, kept so a REST
+	// route can be reached as the same person the tool calls are made by.
+	apiKey string
 }
 
 // baseURL is where the suite connects: MCP_BASE_URL, or the dev server on
@@ -78,6 +82,16 @@ func connect(t *testing.T) *client {
 	if apiKey == "" {
 		apiKey = defaultDevAPIKey
 	}
+	return connectAs(t, apiKey)
+}
+
+// connectAs is connect for a named identity: a criterion about who may reach
+// what has to be executed by the person it is about, not by the administrator
+// the default key authenticates as. The dev stack carries two ordinary people
+// for exactly this (dev/platform.yaml), and a deployment the suite is pointed
+// at elsewhere supplies its own keys.
+func connectAs(t *testing.T, apiKey string) *client {
+	t.Helper()
 	target := baseURL()
 
 	ctx, cancel := context.WithTimeout(context.Background(), sessionTimeout)
@@ -101,7 +115,47 @@ func connect(t *testing.T) *client {
 		"intent": "acceptance suite discovery", "limit": 1,
 		"purpose": "The acceptance suite performs the discovery the search-first gate requires.",
 	})
+	c.apiKey = apiKey
 	return c
+}
+
+// devOwnerAPIKey and devPeerAPIKey are the two ordinary, non-administrator
+// people the dev stack carries: one owns their own work, the other is somebody
+// else. A criterion about owner authority is executed by them rather than by
+// the administrator the default key authenticates as.
+const (
+	devOwnerAPIKey   = "acme-owner-key"
+	devOwnerEmail    = "asset.owner@example.com"
+	devPeerAPIKey    = "acme-peer-key"
+	devPeerEmailAddr = "asset.peer@example.com"
+)
+
+// rest issues an authenticated REST request as this client's identity and
+// returns the status and the decoded body. The portal's own pages read these
+// routes, so a criterion about what the Assets page shows is checked here
+// rather than only through the tool surface.
+func (c *client) rest(method, path string, body io.Reader) (int, map[string]any) {
+	c.t.Helper()
+	req, err := http.NewRequestWithContext(c.ctx, method, baseURL()+path, body)
+	if err != nil {
+		c.t.Fatalf("%s %s: %v", method, path, err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		c.t.Fatalf("%s %s: %v", method, path, err)
+	}
+	defer res.Body.Close() //nolint:errcheck // best-effort close after read
+	raw, err := io.ReadAll(res.Body)
+	if err != nil {
+		c.t.Fatalf("%s %s: reading the body: %v", method, path, err)
+	}
+	var out map[string]any
+	if len(raw) > 0 {
+		_ = json.Unmarshal(raw, &out) //nolint:errcheck // a non-object body leaves out nil
+	}
+	return res.StatusCode, out
 }
 
 // rateLimitRetries bounds how many times a call refused by the tool-call

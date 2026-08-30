@@ -142,6 +142,7 @@ internal/httpserver/tablehttp -> internal/platform/tableregister
 internal/httpserver/tablehttp -> pkg/portal
 internal/httpserver/tablesource -> internal/logsan
 internal/httpserver/tablesource -> internal/platform/tableregister
+internal/httpserver/tablesource -> internal/portal/portaldomain
 internal/httpserver/tablesource -> pkg/portal
 internal/httpserver/tablesource -> pkg/resource
 internal/httpserver/unsubhttp -> pkg/notification
@@ -524,6 +525,7 @@ pkg/indexjobs -> internal/logsan
 pkg/indexjobs -> pkg/embedding
 pkg/knowledge -> internal/platform/callrecord
 pkg/knowledge -> internal/platform/sessionview
+pkg/knowledge -> internal/portal/portaldomain
 pkg/knowledge -> internal/tableavail
 pkg/knowledge -> pkg/contenttype
 pkg/knowledge -> pkg/embedding

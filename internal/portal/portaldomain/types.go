@@ -386,12 +386,16 @@ type ShareSummary struct {
 
 // AssetFilter defines filtering criteria for listing assets.
 type AssetFilter struct {
-	OwnerID     string `json:"owner_id,omitempty"`
-	ContentType string `json:"content_type,omitempty"`
-	Tag         string `json:"tag,omitempty"`
-	Search      string `json:"search,omitempty"`
-	Limit       int    `json:"limit,omitempty"`
-	Offset      int    `json:"offset,omitempty"`
+	// Owner scopes the listing to one person's assets, matched on either
+	// identifier the row records (see AssetOwner). The zero value scopes to
+	// nobody, which is how the administrator's all-assets listing asks for
+	// every owner.
+	Owner       AssetOwner `json:"owner,omitzero"`
+	ContentType string     `json:"content_type,omitempty"`
+	Tag         string     `json:"tag,omitempty"`
+	Search      string     `json:"search,omitempty"`
+	Limit       int        `json:"limit,omitempty"`
+	Offset      int        `json:"offset,omitempty"`
 	// SortBy names the ordering column. It must be a key of
 	// AssetSortColumns; anything else falls back to SortUpdatedAt.
 	SortBy string `json:"sort_by,omitempty"`

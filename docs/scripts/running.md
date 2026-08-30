@@ -141,9 +141,12 @@ A tool that answers with plain text rather than a structured object arrives as
 `{"text": "..."}`, so a call always returns something the script can read.
 
 A run acts on what its author owns. It authenticates as `script:<name>`, which
-is what audit records and what its exported assets belong to, and it carries the
-address of the version's author so ownership checks recognize it: a script can
-refresh a dashboard its author owns, patch a document they own, or share one.
+is what audit records and what it stamps on the assets it writes, and it carries
+the address of the version's author so ownership checks recognize it: a script
+can refresh a dashboard its author owns, patch a document they own, or share
+one. (What its outputs belong to is a separate question, answered in [Who the
+output belongs to](#who-the-output-belongs-to): the script's owner, on the
+address the write records beside the principal.)
 The author, not the script's owner, because the run presents the author's roles
 and the two halves have to be the same person — so after an administrator
 transfers or edits a script, its runs act for that administrator while the owner
@@ -589,6 +592,25 @@ stable: the pair of (script, output name) maps to **one** asset, and each run
 writes a new version of it. A daily report therefore keeps its identity, its
 shares, and its history instead of producing a new asset every morning, and a
 year of runs leaves one asset with a year of versions.
+
+### Who the output belongs to
+
+The asset belongs to the person who owns the script. It sits in their Assets
+page and in their `manage_asset action=list` beside the ones they saved
+themselves, `search` finds it, `fetch` resolves its `mcp:asset:` reference, and
+they open, rename, retag, share, register a table over and delete it with no
+administrator. A second person reaches it only through a share, as with any
+other asset of theirs.
+
+The row itself records two identifiers, and both are the truth about it. Its
+`owner_id` is the run's principal (`script:<name>`) — that is what keeps one
+asset per (script, output) and what the stored object key is built from — and
+its `owner_email` is the script owner's address. Ownership is judged on either,
+which is why the principal on the row is not a fact anybody has to work around.
+A person's own saved asset carries their address in the same column, so the same
+rule answers for both. Transferring a script to another owner therefore hands
+over what its runs have already produced along with everything else that is the
+script's.
 
 A table registered over an output, or over a managed resource the script
 refreshes with `manage_resource replace_content`, follows the file unless it

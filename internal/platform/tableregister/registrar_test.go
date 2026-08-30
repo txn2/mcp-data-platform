@@ -394,7 +394,6 @@ func testSource() Source {
 		Bucket:      "portal-assets",
 		HeadKey:     "artifacts/u1/asset_1/content.csv",
 		ContentType: "text/csv",
-		OwnerID:     "u1",
 	}
 }
 

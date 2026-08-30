@@ -292,7 +292,7 @@ func newHarness(t *testing.T, opts ...func(*harness)) *harness {
 		assets: map[string]tableregister.Source{
 			"asset_1": tableregister.SourceFromAssetRecord(tableregister.Record{
 				ID: "asset_1", Name: "Vendor keys", Bucket: "portal-assets",
-				Key: "artifacts/u1/asset_1/content.csv", ContentType: "text/csv", OwnerID: "u1",
+				Key: "artifacts/u1/asset_1/content.csv", ContentType: "text/csv",
 			}),
 		},
 	}
@@ -624,7 +624,7 @@ func TestKindRoutes_ResourcesAreServedToo(t *testing.T) {
 			}
 			return tableregister.SourceFromResource(tableregister.Record{
 				ID: "res_1", Name: "Keys", Bucket: "managed-resources",
-				Key: "resources/global/global/res_1/keys.csv", ContentType: "text/csv", OwnerID: "u1",
+				Key: "resources/global/global/res_1/keys.csv", ContentType: "text/csv",
 			}), true
 		},
 		Caller: func(u *portal.User) tableregister.Caller {

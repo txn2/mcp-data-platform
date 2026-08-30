@@ -45,16 +45,30 @@ const (
 	assetFTSQueryLexical = "plainto_tsquery('english', $1)"
 )
 
+// hybridOwnerPlaceholder and lexicalOwnerPlaceholder are the first placeholder
+// each ranked statement has left for the ownership arm: the hybrid arms bind
+// the vector and the query text first, the lexical one only the query text.
+const (
+	hybridOwnerPlaceholder  = 3
+	lexicalOwnerPlaceholder = 2
+)
+
 // SearchAssets ranks the caller's non-deleted assets by relevance to the query.
 // A non-nil q.Embedding selects hybrid (semantic + lexical) ranking; a nil
 // embedding selects the lexical-only fallback used when no embedding provider is
 // configured. Owner scope is applied in SQL before ranking, so an asset the
 // caller does not own is never returned.
+//
+// A caller with neither identifier owns nothing, and is answered with nothing
+// rather than with every unattributed asset on the platform.
 func (s *postgresAssetStore) SearchAssets(ctx context.Context, q portaldomain.AssetSearchQuery) ([]portaldomain.ScoredAsset, error) { //nolint:revive // interface impl
 	var (
 		scored []portaldomain.ScoredAsset
 		err    error
 	)
+	if !q.Owner.Identified() {
+		return nil, nil
+	}
 	if len(q.Embedding) > 0 {
 		scored, err = s.searchAssetsHybrid(ctx, q)
 	} else {
@@ -74,8 +88,9 @@ func (s *postgresAssetStore) SearchAssets(ctx context.Context, q portaldomain.As
 // statement to a real PostgreSQL to parse and plan (#1512).
 func buildAssetHybridSearch(q portaldomain.AssetSearchQuery) (query string, args []any) {
 	limit := q.EffectiveLimit()
-	base := "deleted_at IS NULL AND owner_id = $3"
-	args = []any{pgvector.NewVector(q.Embedding), q.QueryText, q.OwnerID}
+	scope, scopeArgs := assetSearchOwnerScope(q.Owner, hybridOwnerPlaceholder)
+	base := "deleted_at IS NULL AND " + scope
+	args = append([]any{pgvector.NewVector(q.Embedding), q.QueryText}, scopeArgs...)
 
 	// #nosec G201 -- column list and FTS expr are constants; base uses only
 	// parameterized placeholders; limit is a sanitized int. No user input is
@@ -162,19 +177,48 @@ func collectHybridAssets(rows *sql.Rows, limit int) ([]portaldomain.ScoredAsset,
 	return scored, nil
 }
 
-// buildAssetLexicalSearch renders the lexical statement, for the same reason
-// buildAssetHybridSearch exists. Its two arguments are the query text and the
-// owner, which the caller passes.
-func buildAssetLexicalSearch(q portaldomain.AssetSearchQuery) string {
-	// #nosec G201 -- column list and FTS expr are constants; owner_id is a
-	// parameterized placeholder; limit and the normalization bitmask are
-	// sanitized ints.
-	return fmt.Sprintf(
+// buildAssetLexicalSearch renders the lexical statement and its arguments, for
+// the same reason buildAssetHybridSearch exists.
+func buildAssetLexicalSearch(q portaldomain.AssetSearchQuery) (query string, args []any) {
+	scope, scopeArgs := assetSearchOwnerScope(q.Owner, lexicalOwnerPlaceholder)
+	// #nosec G201 -- column list and FTS expr are constants; the owner scope
+	// contributes only parameterized placeholders; limit and the normalization
+	// bitmask are sanitized ints.
+	query = fmt.Sprintf(
 		"SELECT %s, ts_rank_cd(%s, %s, %d) AS lex_rank "+
-			"FROM portal_assets WHERE deleted_at IS NULL AND owner_id = $2 "+
+			"FROM portal_assets WHERE deleted_at IS NULL AND %s "+
 			"AND %s @@ %s ORDER BY lex_rank DESC LIMIT %d",
 		assetSearchColumns, assetFTSExpr, assetFTSQueryLexical, lexRankNormalization,
-		assetFTSExpr, assetFTSQueryLexical, q.EffectiveLimit())
+		scope, assetFTSExpr, assetFTSQueryLexical, q.EffectiveLimit())
+	return query, append([]any{q.QueryText}, scopeArgs...)
+}
+
+// assetSearchOwnerScope renders the ownership arm of a ranked-search statement
+// and the arguments it binds, numbering its placeholders from $next.
+//
+// It is the raw-SQL counterpart of assetOwnerPredicate: a managed script's
+// output is stamped with the script principal as its owner id and the script
+// owner's address as owner_email, so a search that scoped on the id alone could
+// never return to a person what a run produced for them (#1551). The address is
+// bound only when the caller has one, so the anonymous sentinel is never a
+// parameter and an unattributed row is not matched by an unauthenticated
+// caller.
+func assetSearchOwnerScope(owner portaldomain.AssetOwner, next int) (scope string, args []any) {
+	email := owner.EmailKey()
+	switch {
+	case owner.UserID == "" && email == "":
+		// SearchAssets refuses an identity naming nobody before it gets here;
+		// this is what keeps a caller that does not from ranking every
+		// unattributed asset on the platform.
+		return "FALSE", nil
+	case owner.UserID == "":
+		return fmt.Sprintf("LOWER(owner_email) = LOWER($%d)", next), []any{email}
+	case email == "":
+		return fmt.Sprintf("owner_id = $%d", next), []any{owner.UserID}
+	default:
+		return fmt.Sprintf("(owner_id = $%d OR LOWER(owner_email) = LOWER($%d))", next, next+1),
+			[]any{owner.UserID, email}
+	}
 }
 
 // searchAssetsLexical ranks the caller's non-deleted assets by full-text
@@ -183,9 +227,9 @@ func buildAssetLexicalSearch(q portaldomain.AssetSearchQuery) string {
 // rows, and orders by a length-normalized ts_rank_cd score (lexRankNormalization)
 // so single-match records do not collapse to a flat 0.1.
 func (s *postgresAssetStore) searchAssetsLexical(ctx context.Context, q portaldomain.AssetSearchQuery) ([]portaldomain.ScoredAsset, error) {
-	query := buildAssetLexicalSearch(q)
+	query, args := buildAssetLexicalSearch(q)
 
-	rows, err := s.db.QueryContext(ctx, query, q.QueryText, q.OwnerID)
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("search assets (lexical): %w", err)
 	}
