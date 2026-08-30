@@ -282,11 +282,15 @@ export async function openResourceMove(page: Page): Promise<void> {
  * is why its visibility is checked rather than assumed.
  */
 export async function openPersonaScopeTab(page: Page): Promise<void> {
-  const tab = page.locator("text=data-engineer").first();
-  if (await tab.isVisible()) {
-    await tab.click();
+  // The library is one listbox now rather than a strip of tabs (#1553).
+  await page.getByRole("combobox", { name: "Library" }).click({ timeout: 3_000 });
+  const option = page.getByRole("option", { name: "data-engineer", exact: true });
+  if (await option.isVisible()) {
+    await option.click();
     await page.waitForTimeout(500);
+    return;
   }
+  await page.keyboard.press("Escape");
 }
 
 /**

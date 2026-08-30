@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
 import type { UserProfile } from "@/stores/auth";
 import {
+  ALL_LIBRARIES,
+  canUpload,
   canWriteScope,
+  libraryChoices,
   currentLibrary,
   libraryCopy,
   libraryOptions,
@@ -9,6 +12,7 @@ import {
   personaAdminNames,
   targetForTab,
   targetKey,
+  uploadTargets,
   PERSON_TARGET,
 } from "./scopes";
 
@@ -247,5 +251,98 @@ describe("the options the Library picker offers", () => {
     // that cannot do anything, so the field is not shown at all.
     const own = { scope: "user", scope_id: "analyst@example.com" } as const;
     expect(libraryOptions(own, reader({ persona: undefined, roles: [] }), [])).toEqual([]);
+  });
+});
+
+describe("the library picker offers the libraries a caller can reach", () => {
+  it("gives a reader All, their own, their persona and the global one", () => {
+    expect(libraryChoices(reader(), []).map((l) => l.key)).toEqual([
+      ALL_LIBRARIES,
+      "user",
+      "analyst",
+      "global",
+    ]);
+  });
+
+  it("opens on All", () => {
+    expect(libraryChoices(reader(), [])[0]!.key).toBe(ALL_LIBRARIES);
+  });
+
+  it("names a persona the caller only administers, alongside the one they are in", () => {
+    const keys = libraryChoices(
+      reader({ roles: ["dp_analyst", "dp_persona-admin:finance"] }),
+      [],
+    ).map((l) => l.key);
+    expect(keys).toContain("analyst");
+    expect(keys).toContain("finance");
+  });
+
+  // Listing is membership-scoped for an ordinary caller, so a persona they are
+  // not in would list nothing; the deployment's persona list is not theirs.
+  it("does not hand a reader the deployment's other personas", () => {
+    const keys = libraryChoices(reader(), ["ops", "finance"]).map((l) => l.key);
+    expect(keys).not.toContain("ops");
+    expect(keys).not.toContain("finance");
+  });
+
+  // An administrator may write and list every persona (resource.ListScopes), so
+  // hiding one would hide a library they own material in (#1553).
+  it("gives a platform administrator every persona the deployment defines", () => {
+    const keys = libraryChoices(reader({ is_admin: true }), ["ops", "finance"]).map((l) => l.key);
+    expect(keys).toEqual([ALL_LIBRARIES, "user", "analyst", "finance", "ops", "global"]);
+  });
+
+  it("names a persona once when the deployment list and the caller's own agree", () => {
+    const keys = libraryChoices(reader({ is_admin: true }), ["analyst"]).map((l) => l.key);
+    expect(keys.filter((k) => k === "analyst")).toHaveLength(1);
+  });
+
+  it("offers nothing to a caller who is not signed in", () => {
+    expect(libraryChoices(null, ["ops"]).map((l) => l.key)).toEqual([
+      ALL_LIBRARIES,
+      "user",
+      "global",
+    ]);
+  });
+});
+
+describe("where an upload may land", () => {
+  it("is the caller's own library and nothing else for an ordinary reader", () => {
+    expect(uploadTargets(reader(), []).map(targetKey)).toEqual(["user:analyst@example.com"]);
+  });
+
+  // A persona a reader BELONGS to accepts a file they already own but not a new
+  // upload, which is the one arm where CanMoveToLibrary is looser than
+  // CanWriteScope. The move picker offers it; this must not.
+  it("leaves out a persona the caller only belongs to", () => {
+    expect(uploadTargets(reader(), []).map(targetKey)).not.toContain("persona:analyst");
+    expect(moveTargets(reader(), []).map(targetKey)).toContain("persona:analyst");
+  });
+
+  it("includes a persona the caller administers", () => {
+    const keys = uploadTargets(reader({ roles: ["dp_persona-admin:finance"] }), []).map(targetKey);
+    expect(keys).toContain("persona:finance");
+  });
+
+  it("gives an administrator every persona, the global library and a named person", () => {
+    const keys = uploadTargets(reader({ is_admin: true }), ["ops"]).map(targetKey);
+    expect(keys).toContain("persona:ops");
+    expect(keys).toContain("global:");
+    expect(keys).toContain(`user:${PERSON_TARGET}`);
+  });
+});
+
+describe("the Upload control on a view that names no library", () => {
+  it("is offered to anyone with a library of their own", () => {
+    expect(canUpload(reader(), null, [])).toBe(true);
+  });
+
+  it("follows the one library when the view names one", () => {
+    expect(canUpload(reader(), targetForTab("user", reader()), [])).toBe(true);
+    expect(canUpload(reader(), targetForTab("global", reader()), [])).toBe(false);
+  });
+
+  it("is withheld from a caller who is not signed in", () => {
+    expect(canUpload(null, null, [])).toBe(false);
   });
 });

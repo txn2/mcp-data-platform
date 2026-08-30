@@ -55,19 +55,18 @@ export function neverRead(r: Resource): boolean {
 }
 
 /**
- * tagOptions is the tag facet's choices: the tags carried by the resources in
- * view, plus whichever tag is already selected.
+ * tagOptions is the tag facet's choices: every tag the library holds, plus
+ * whichever is already selected.
  *
- * The selected one has to be added back, because selecting it narrows the view
- * to the resources carrying it — a facet built from the view alone would drop
- * every other choice the moment one was made, leaving no way back but the
- * unfiltered entry.
+ * The tags are the library's, reported by the facets endpoint, rather than the
+ * ones a loaded page happens to carry (#1555): a facet built from the page was
+ * empty at a library root, where no page is loaded at all, and short everywhere
+ * else. The selected one is added back because it may name a tag no longer in
+ * use, and a facet that dropped it would leave no way back but the unfiltered
+ * entry.
  */
-export function tagOptions(resources: Resource[], selected: string): FilterOption[] {
-  const tags = new Set<string>();
-  for (const r of resources) {
-    for (const t of r.tags ?? []) tags.add(t);
-  }
+export function tagOptions(libraryTags: string[], selected: string): FilterOption[] {
+  const tags = new Set<string>(libraryTags);
   if (selected) tags.add(selected);
   return [
     { value: "", label: "All tags" },

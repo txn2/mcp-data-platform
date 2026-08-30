@@ -26,6 +26,35 @@ type Store interface {
 	GetByIDs(ctx context.Context, ids []string) (map[string]*Resource, error)
 	GetByURI(ctx context.Context, uri string) (*Resource, error)
 	List(ctx context.Context, filter Filter) ([]Resource, int, error)
+	// Folders returns every folder holding a resource the filter admits, with
+	// the exact number filed under each at every depth.
+	//
+	// It exists because a folder is derived from the paths in use rather than
+	// stored, and the portal used to derive it in the browser from the paged
+	// listing: drawing four folder names cost a fetch of the whole library, the
+	// counts read "25+" until the last page arrived, and the root offered a
+	// Load-more control over rows it never displayed (#1555). One grouped query
+	// answers it exactly and in one round trip.
+	Folders(ctx context.Context, filter Filter) ([]Folder, error)
+	// SetThumbnail records a capture: the object it was stored under and the
+	// moment it was taken.
+	//
+	// It is not an Update. Update bumps updated_at and drops the stored
+	// embedding, and a capture must do neither: bumping the timestamp would
+	// mark the capture that just landed as older than the row it came from,
+	// which is the definition of pending, so every capture would queue itself
+	// again forever (#1554).
+	SetThumbnail(ctx context.Context, id string, t ThumbnailCapture) error
+	// ClearThumbnail forgets a capture, which is how a wrong tile is asked to
+	// be taken again.
+	ClearThumbnail(ctx context.Context, id, variant string) error
+	// PendingThumbnails lists resources whose capture is missing or older than
+	// the file it came from, most recently changed first, capped at limit.
+	PendingThumbnails(ctx context.Context, filter Filter, limit int) ([]Resource, error)
+	// Tags returns the distinct tags carried by the resources the filter
+	// admits, so the tag facet offers what the library holds rather than what
+	// one page of it happened to carry.
+	Tags(ctx context.Context, filter Filter) ([]string, error)
 	Update(ctx context.Context, id string, u Update) error
 	// Move refiles resources, rewriting the four columns that say where each one
 	// lives -- scope, scope_id, path and uri -- and recording the URI each used
@@ -79,7 +108,9 @@ type S3Client interface {
 // expects them.
 const selectColumns = `id, scope, scope_id, path, filename, display_name, description,
 		       mime_type, size_bytes, s3_key, uri, tags, uploader_sub, uploader_email,
-		       created_at, updated_at, last_read_at`
+		       created_at, updated_at, last_read_at,
+		       thumbnail_s3_key, thumbnail_dark_s3_key,
+		       thumbnail_captured_at, thumbnail_dark_captured_at`
 
 // selectResource opens every read with that column list, so the projection is
 // written once rather than at each of the five call sites.
@@ -237,7 +268,10 @@ func listPageBounds(filter Filter) []any {
 }
 
 func (s *postgresStore) List(ctx context.Context, filter Filter) ([]Resource, int, error) { //nolint:revive // interface impl
-	if len(filter.Scopes) == 0 {
+	// No scopes and no unrestricted listing is a caller who named a library
+	// they may not read: no rows, and no statement, since an empty scope set
+	// builds no predicate to run.
+	if len(filter.Scopes) == 0 && !filter.AllScopes {
 		return nil, 0, nil
 	}
 
@@ -306,6 +340,241 @@ func buildUpdate(id string, u Update) (query string, args []any) {
 	query = fmt.Sprintf("UPDATE resources SET %s WHERE id = $%d", // #nosec G201 -- dynamic SET clause with parameterized values
 		strings.Join(setClauses, ", "), idx)
 	return query, append(args, id)
+}
+
+// MaxThumbnailSourceBytes is the largest resource a capture is attempted from.
+//
+// Capture renders the document a second time and rasterizes it on the main
+// thread, so its cost tracks the file. It is the same cap the asset queue
+// applies, and the outliers it excludes are exactly the ones that stall the tab
+// doing the work.
+const MaxThumbnailSourceBytes = 1 << 20 // 1 MB
+
+// thumbnailCapturableTypes are the content families a browser can rasterize
+// into a tile, matched as fragments of the media type so every spelling of a
+// family is covered. Images are here because a capture DOWNSCALES them: the
+// tile used to be the original object, so an image cost its full size to draw
+// and anything past the cutoff drew nothing (#1554).
+//
+// Everything else -- PDF, spreadsheets, archives, binaries -- has no renderer,
+// keeps its content-type icon, and is never offered.
+var thumbnailCapturableTypes = []string{"html", "svg", "markdown", "csv", "json", "image/"}
+
+// thumbnailThemeableTypes are the families rendered on a forced background and
+// so needing a second capture for dark mode. HTML, SVG and a raster image carry
+// their own colors and store a single image.
+var thumbnailThemeableTypes = []string{"markdown", "csv", "json"}
+
+// ThumbnailVariantLight and ThumbnailVariantDark name the two captures a
+// resource can carry. A content type that brings its own colors stores only
+// the light one and serves it in both modes.
+const (
+	ThumbnailVariantLight = "light"
+	ThumbnailVariantDark  = "dark"
+)
+
+// ThumbnailCapture is one stored capture: which of the two it is, the object it
+// was written to, and when it was taken.
+type ThumbnailCapture struct {
+	Variant    string
+	S3Key      string
+	CapturedAt time.Time
+}
+
+// thumbnailColumns names the pair a variant writes.
+func thumbnailColumns(variant string) (keyCol, atCol string) {
+	if variant == ThumbnailVariantDark {
+		return "thumbnail_dark_s3_key", "thumbnail_dark_captured_at"
+	}
+	return "thumbnail_s3_key", "thumbnail_captured_at"
+}
+
+// SetThumbnail records a capture against the resource.
+func (s *postgresStore) SetThumbnail(ctx context.Context, id string, t ThumbnailCapture) error { //nolint:revive // interface impl
+	keyCol, atCol := thumbnailColumns(t.Variant)
+	// #nosec G201 -- the column names come from thumbnailColumns, a closed set
+	// of constants; the values are bound.
+	query := fmt.Sprintf("UPDATE resources SET %s = $1, %s = $2 WHERE id = $3", keyCol, atCol)
+	res, err := s.db.ExecContext(ctx, query, t.S3Key, t.CapturedAt, id)
+	if err != nil {
+		return fmt.Errorf("recording thumbnail: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("resource not found: %s", id)
+	}
+	return nil
+}
+
+// ClearThumbnail forgets a capture, leaving the resource pending again.
+func (s *postgresStore) ClearThumbnail(ctx context.Context, id, variant string) error { //nolint:revive // interface impl
+	keyCol, atCol := thumbnailColumns(variant)
+	// #nosec G201 -- closed set of column names, as above.
+	query := fmt.Sprintf("UPDATE resources SET %s = '', %s = NULL WHERE id = $1", keyCol, atCol)
+	res, err := s.db.ExecContext(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("clearing thumbnail: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("resource not found: %s", id)
+	}
+	return nil
+}
+
+// buildPendingThumbnails renders the statement PendingThumbnails runs.
+//
+// Pending is: no capture recorded, or a capture older than the row it came
+// from. The dark variant is asked only of the types that carry one -- a file
+// that brings its own colors stores a single image and serves it in both
+// modes, so reading its empty dark key as pending would offer it forever, which
+// is the mistake the asset predicate documents at length.
+//
+// The size cap is the same one the asset queue applies: capture renders the
+// document a second time and rasterizes it on the main thread, so the cost
+// tracks the file, and the outliers are exactly the ones that stall the tab
+// they are captured in.
+func buildPendingThumbnails(filter Filter, limit int) (query string, args []any) {
+	where, args := buildScopeWhere(filter)
+	idx := len(args) + 1
+
+	typePatterns := make([]string, 0, len(thumbnailCapturableTypes))
+	for _, fragment := range thumbnailCapturableTypes {
+		typePatterns = append(typePatterns, "%"+fragment+"%")
+	}
+	themeablePatterns := make([]string, 0, len(thumbnailThemeableTypes))
+	for _, fragment := range thumbnailThemeableTypes {
+		themeablePatterns = append(themeablePatterns, "%"+fragment+"%")
+	}
+
+	// #nosec G201 -- the only interpolation is the scope predicate and the
+	// placeholder numbering; every value is bound.
+	query = fmt.Sprintf(`
+		%s FROM resources
+		WHERE %s
+		  AND mime_type ILIKE ANY($%d)
+		  AND size_bytes <= $%d
+		  AND (
+		        thumbnail_s3_key = ''
+		     OR thumbnail_captured_at IS NULL
+		     OR thumbnail_captured_at < updated_at
+		     OR (
+		          mime_type ILIKE ANY($%d)
+		          AND (
+		                thumbnail_dark_s3_key = ''
+		             OR thumbnail_dark_captured_at IS NULL
+		             OR thumbnail_dark_captured_at < updated_at
+		          )
+		        )
+		  )
+		ORDER BY updated_at DESC
+		LIMIT $%d`, selectResource, where, idx, idx+1, idx+2, idx+3)
+
+	args = append(args, pq.Array(typePatterns), MaxThumbnailSourceBytes, pq.Array(themeablePatterns), limit)
+	return query, args
+}
+
+// PendingThumbnails lists the resources whose capture is missing or behind.
+func (s *postgresStore) PendingThumbnails(ctx context.Context, filter Filter, limit int) ([]Resource, error) { //nolint:revive // interface impl
+	if len(filter.Scopes) == 0 && !filter.AllScopes {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = DefaultListLimit
+	}
+
+	query, args := buildPendingThumbnails(filter, limit)
+	// #nosec G701 -- the statement is assembled by buildPendingThumbnails from
+	// constants and placeholder numbers alone: the projection is selectResource,
+	// the column names and the type fragments are package constants, and every
+	// caller-supplied value -- the scopes, the patterns, the size cap, the limit
+	// -- is bound as a parameter rather than written into the text.
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("listing pending thumbnails: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []Resource
+	for rows.Next() {
+		r, err := s.scanRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating pending thumbnail rows: %w", err)
+	}
+	return out, nil
+}
+
+// buildFolders renders the statement Folders runs, with the arguments its
+// visibility predicate binds.
+//
+// A folder's count is everything beneath it at EVERY depth, so a resource at
+// "a/b/c" counts toward "a", "a/b" and "a/b/c". That is what the lateral
+// expansion does: each row is turned into its own chain of ancestor paths, and
+// the chain is what is grouped. Doing it in SQL rather than over a fetched page
+// is the whole point -- the browser used to derive this from the listing and
+// could only ever report what had arrived (#1555).
+//
+// It is assembled here rather than written as a constant because the visibility
+// predicate is built from the caller's scopes, so a test hands a representative
+// rendering to a real PostgreSQL to parse and plan (#1512).
+func buildFolders(filter Filter) (query string, args []any) {
+	where, args := buildScopeWhere(filter)
+	// generate_subscripts walks the path's segments; array_to_string rebuilds
+	// the prefix ending at each one. A path is validated to at most 8 segments,
+	// so the expansion is bounded.
+	// #nosec G202 -- the only interpolation is the scope predicate above, whose
+	// values are bound as parameters.
+	query = `
+		SELECT chain.folder, COUNT(*) AS count
+		FROM resources r
+		CROSS JOIN LATERAL (
+			SELECT array_to_string(parts[1:i], '/') AS folder
+			FROM (SELECT string_to_array(r.path, '/') AS parts) AS p,
+			     generate_subscripts(p.parts, 1) AS i
+		) AS chain
+		WHERE ` + where + `
+		GROUP BY chain.folder
+		ORDER BY chain.folder`
+	return query, args
+}
+
+// Folders returns every folder the filter admits, with the exact number of
+// resources filed under each at every depth.
+func (s *postgresStore) Folders(ctx context.Context, filter Filter) ([]Folder, error) { //nolint:revive // interface impl
+	// The same guard List applies: no scopes and no unrestricted listing is a
+	// caller who named a library they may not read, which has no folders.
+	if len(filter.Scopes) == 0 && !filter.AllScopes {
+		return nil, nil
+	}
+
+	query, args := buildFolders(filter)
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("listing folders: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var folders []Folder
+	for rows.Next() {
+		var f Folder
+		if err := rows.Scan(&f.Path, &f.Count); err != nil {
+			return nil, fmt.Errorf("scanning folder row: %w", err)
+		}
+		// A resource with an empty path has no folder to report. Validation
+		// refuses one, so this is a guard against a row that predates it
+		// rather than an expected shape.
+		if f.Path == "" {
+			continue
+		}
+		folders = append(folders, f)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating folder rows: %w", err)
+	}
+	return folders, nil
 }
 
 func (s *postgresStore) Update(ctx context.Context, id string, u Update) error { //nolint:revive // interface impl
@@ -496,9 +765,11 @@ func (s *postgresStore) Delete(ctx context.Context, id string) error { //nolint:
 // row. One value carries them all so adding a nullable column touches this type
 // and nothing else at the call sites.
 type resourceScan struct {
-	scopeID  sql.NullString
-	tags     []string
-	lastRead sql.NullTime
+	scopeID     sql.NullString
+	tags        []string
+	lastRead    sql.NullTime
+	captured    sql.NullTime
+	darkCapture sql.NullTime
 }
 
 // dest returns the scan destinations for a resource row, in the column order
@@ -512,6 +783,7 @@ func (s *resourceScan) dest(r *Resource) []any {
 		&r.Description, &r.MIMEType, &r.SizeBytes, &r.S3Key, &r.URI,
 		pq.Array(&s.tags), &r.UploaderSub, &r.UploaderEmail,
 		&r.CreatedAt, &r.UpdatedAt, &s.lastRead,
+		&r.ThumbnailS3Key, &r.ThumbnailDarkS3Key, &s.captured, &s.darkCapture,
 	}
 }
 
@@ -530,6 +802,16 @@ func (s *resourceScan) finish(r *Resource) {
 	if s.lastRead.Valid {
 		t := s.lastRead.Time
 		r.LastReadAt = &t
+	}
+	// A NULL capture time leaves the pointer nil, which is how "never captured"
+	// is told apart from a capture taken at the zero time (#1554).
+	if s.captured.Valid {
+		t := s.captured.Time
+		r.ThumbnailCapturedAt = &t
+	}
+	if s.darkCapture.Valid {
+		t := s.darkCapture.Time
+		r.ThumbnailDarkCapturedAt = &t
 	}
 }
 
@@ -576,6 +858,20 @@ func scopeVisibilityWhere(scopes []ScopeFilter, startIdx int) (where string, arg
 	return "(" + strings.Join(conds, " OR ") + ")", args, idx
 }
 
+// listVisibilityWhere is the visibility clause a listing runs under: the
+// caller's scopes, or the constant TRUE for a listing that spans every library.
+//
+// Separate from scopeVisibilityWhere because only the listing path can be
+// unrestricted. The ranked search shares the scope predicate and is deliberately
+// membership-scoped whoever asks: an administrator's authority over a management
+// surface is not a widening of what an agent reads (see ListScopes).
+func listVisibilityWhere(filter Filter) (where string, args []any, next int) {
+	if filter.AllScopes {
+		return "TRUE", nil, 1
+	}
+	return scopeVisibilityWhere(filter.Scopes, 1)
+}
+
 // likePrefix escapes a value so it matches literally inside a LIKE pattern. A
 // folder name cannot contain % or _ today, but the pattern is built from a
 // caller-supplied path and a filter that silently widened on a wildcard would
@@ -587,7 +883,7 @@ func likePrefix(v string) string {
 // buildScopeWhere builds a WHERE clause for scope visibility filtering,
 // plus optional path, tag, and text search filters.
 func buildScopeWhere(filter Filter) (where string, args []any) {
-	where, args, idx := scopeVisibilityWhere(filter.Scopes, 1)
+	where, args, idx := listVisibilityWhere(filter)
 
 	if filter.Path != "" {
 		// The folder itself and everything beneath it. Two bindings rather than
@@ -611,6 +907,48 @@ func buildScopeWhere(filter Filter) (where string, args []any) {
 	}
 
 	return where, args
+}
+
+// buildTags renders the statement Tags runs. The tags column is a text array,
+// so the rollup unnests it and takes the distinct values.
+func buildTags(filter Filter) (query string, args []any) {
+	where, args := buildScopeWhere(filter)
+	// #nosec G202 -- the only interpolation is the scope predicate above, whose
+	// values are bound as parameters.
+	query = `
+		SELECT DISTINCT tag
+		FROM resources r
+		CROSS JOIN LATERAL unnest(r.tags) AS tag
+		WHERE ` + where + `
+		ORDER BY tag`
+	return query, args
+}
+
+// Tags returns the distinct tags carried by the resources the filter admits.
+func (s *postgresStore) Tags(ctx context.Context, filter Filter) ([]string, error) { //nolint:revive // interface impl
+	if len(filter.Scopes) == 0 && !filter.AllScopes {
+		return nil, nil
+	}
+
+	query, args := buildTags(filter)
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("listing tags: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var tags []string
+	for rows.Next() {
+		var tag string
+		if err := rows.Scan(&tag); err != nil {
+			return nil, fmt.Errorf("scanning tag row: %w", err)
+		}
+		tags = append(tags, tag)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating tag rows: %w", err)
+	}
+	return tags, nil
 }
 
 // Verify interface compliance.

@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/textproto"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -79,16 +80,162 @@ func (m *mockStore) List(_ context.Context, filter Filter) ([]Resource, int, err
 	m.lastListFilter = filter
 	var result []Resource
 	for _, r := range m.resources {
-		for _, sf := range filter.Scopes {
-			if sf.Scope == r.Scope && (sf.Scope == ScopeGlobal || sf.ScopeID == r.ScopeID) {
-				if PathUnder(r.Path, filter.Path) {
-					result = append(result, *r)
-				}
-				break
+		// AllScopes is every library, whatever Scopes holds -- the same reading
+		// the postgres store's visibility clause gives it (#1553). A fake that
+		// only understood the scope set would report an unrestricted listing as
+		// empty.
+		if filter.AllScopes {
+			if PathUnder(r.Path, filter.Path) {
+				result = append(result, *r)
 			}
+			continue
+		}
+		if visibleTo(filter.Scopes, r) && PathUnder(r.Path, filter.Path) {
+			result = append(result, *r)
 		}
 	}
 	return result, len(result), nil
+}
+
+// Folders derives the ancestor chain of every visible resource's path and
+// counts each prefix, which is what the grouped query does (#1555). A fake that
+// returned nothing would let a handler test pass over a library with folders.
+func (m *mockStore) Folders(_ context.Context, filter Filter) ([]Folder, error) {
+	counts := map[string]int{}
+	for _, r := range m.resources {
+		if !filter.AllScopes && !visibleTo(filter.Scopes, r) {
+			continue
+		}
+		parts := strings.Split(r.Path, "/")
+		for i := range parts {
+			prefix := strings.Join(parts[:i+1], "/")
+			if prefix == "" {
+				continue
+			}
+			counts[prefix]++
+		}
+	}
+	paths := make([]string, 0, len(counts))
+	for p := range counts {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	folders := make([]Folder, 0, len(paths))
+	for _, p := range paths {
+		folders = append(folders, Folder{Path: p, Count: counts[p]})
+	}
+	return folders, nil
+}
+
+// Tags collects the distinct tags of the visible resources, which is what the
+// rollup does. A fake returning nothing would let a facet test pass over a
+// library whose files are tagged.
+func (m *mockStore) Tags(_ context.Context, filter Filter) ([]string, error) {
+	seen := map[string]bool{}
+	for _, r := range m.resources {
+		if !filter.AllScopes && !visibleTo(filter.Scopes, r) {
+			continue
+		}
+		for _, t := range r.Tags {
+			seen[t] = true
+		}
+	}
+	tags := make([]string, 0, len(seen))
+	for t := range seen {
+		tags = append(tags, t)
+	}
+	sort.Strings(tags)
+	return tags, nil
+}
+
+// SetThumbnail, ClearThumbnail and PendingThumbnails model the capture contract
+// (#1554): a capture records a key and a time WITHOUT touching updated_at, and
+// pending is a capture that is missing or older than the row it came from. A
+// fake that bumped updated_at here would hide the loop the real write is
+// written to avoid.
+func (m *mockStore) SetThumbnail(_ context.Context, id string, t ThumbnailCapture) error {
+	r, ok := m.resources[id]
+	if !ok {
+		return fmt.Errorf("resource not found: %s", id)
+	}
+	at := t.CapturedAt
+	if t.Variant == ThumbnailVariantDark {
+		r.ThumbnailDarkS3Key, r.ThumbnailDarkCapturedAt = t.S3Key, &at
+		return nil
+	}
+	r.ThumbnailS3Key, r.ThumbnailCapturedAt = t.S3Key, &at
+	return nil
+}
+
+func (m *mockStore) ClearThumbnail(_ context.Context, id, variant string) error {
+	r, ok := m.resources[id]
+	if !ok {
+		return fmt.Errorf("resource not found: %s", id)
+	}
+	if variant == ThumbnailVariantDark {
+		r.ThumbnailDarkS3Key, r.ThumbnailDarkCapturedAt = "", nil
+		return nil
+	}
+	r.ThumbnailS3Key, r.ThumbnailCapturedAt = "", nil
+	return nil
+}
+
+func (m *mockStore) PendingThumbnails(_ context.Context, filter Filter, limit int) ([]Resource, error) {
+	var out []Resource
+	for _, r := range m.resources {
+		if !filter.AllScopes && !visibleTo(filter.Scopes, r) {
+			continue
+		}
+		if !capturableType(r.MIMEType) || r.SizeBytes > MaxThumbnailSourceBytes {
+			continue
+		}
+		if thumbnailBehind(r, ThumbnailVariantLight) ||
+			(themeableType(r.MIMEType) && thumbnailBehind(r, ThumbnailVariantDark)) {
+			out = append(out, *r)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+// thumbnailBehind is the per-variant half of the pending rule.
+func thumbnailBehind(r *Resource, variant string) bool {
+	key, at := r.ThumbnailS3Key, r.ThumbnailCapturedAt
+	if variant == ThumbnailVariantDark {
+		key, at = r.ThumbnailDarkS3Key, r.ThumbnailDarkCapturedAt
+	}
+	return key == "" || at == nil || at.Before(r.UpdatedAt)
+}
+
+func capturableType(mime string) bool {
+	for _, fragment := range thumbnailCapturableTypes {
+		if strings.Contains(strings.ToLower(mime), fragment) {
+			return true
+		}
+	}
+	return false
+}
+
+func themeableType(mime string) bool {
+	for _, fragment := range thumbnailThemeableTypes {
+		if strings.Contains(strings.ToLower(mime), fragment) {
+			return true
+		}
+	}
+	return false
+}
+
+// visibleTo is the scope arm of the fake's List, Folders and Tags, stated once.
+func visibleTo(scopes []ScopeFilter, r *Resource) bool {
+	for _, sf := range scopes {
+		if sf.Scope == r.Scope && (sf.Scope == ScopeGlobal || sf.ScopeID == r.ScopeID) {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *mockStore) Update(_ context.Context, id string, u Update) error {
@@ -547,6 +694,73 @@ func TestHandleList_Success(t *testing.T) {
 	}
 	if resp["total"] != float64(2) {
 		t.Errorf("total = %v, want 2", resp["total"])
+	}
+}
+
+// The listing predicate the route runs under (#1553). What the mock store
+// returns is not the point -- the filter it was handed is, since that is what a
+// real store's visibility clause is built from.
+func TestHandleList_ScopePredicate(t *testing.T) {
+	tests := []struct {
+		name      string
+		extractor ClaimsExtractor
+		query     string
+		wantAll   bool
+		wantScope []ScopeFilter
+	}{
+		{
+			name:      "an administrator's unfiltered listing spans every library",
+			extractor: okExtractor, query: "", wantAll: true,
+		},
+		{
+			name:      "an ordinary caller's unfiltered listing is their own scopes",
+			extractor: memberExtractor, query: "",
+			wantScope: VisibleScopes(*memberClaims()),
+		},
+		{
+			name:      "an administrator lists a persona they do not belong to",
+			extractor: okExtractor, query: "?scope=persona&scope_id=finance",
+			wantScope: []ScopeFilter{{Scope: ScopePersona, ScopeID: "finance"}},
+		},
+		{
+			name:      "an ordinary caller naming that persona lists nothing",
+			extractor: memberExtractor, query: "?scope=persona&scope_id=finance",
+			wantScope: nil,
+		},
+		{
+			name:      "an ordinary caller lists a persona they belong to",
+			extractor: memberExtractor, query: "?scope=persona&scope_id=analyst",
+			wantScope: []ScopeFilter{{Scope: ScopePersona, ScopeID: "analyst"}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newMockStore()
+			h := newTestHandler(store, nil, tt.extractor)
+
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/resources"+tt.query, http.NoBody)
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+			}
+			got := store.lastListFilter
+			if got.AllScopes != tt.wantAll {
+				t.Errorf("AllScopes = %v, want %v", got.AllScopes, tt.wantAll)
+			}
+			if tt.wantAll {
+				return
+			}
+			if len(got.Scopes) != len(tt.wantScope) {
+				t.Fatalf("Scopes = %v, want %v", got.Scopes, tt.wantScope)
+			}
+			for i, want := range tt.wantScope {
+				if got.Scopes[i] != want {
+					t.Errorf("Scopes[%d] = %v, want %v", i, got.Scopes[i], want)
+				}
+			}
+		})
 	}
 }
 
@@ -1846,5 +2060,209 @@ func TestByIDHandlers_PersonaAdminConfinedToTheirPersona(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("GET = %d, want 404 for a persona they do not administer", rec.Code)
+	}
+}
+
+// --- The facets a library's controls are drawn from (#1555) ---
+
+// folderCounts reads the facets envelope's folders into path -> count. It reads
+// every field with the comma-ok form: a shape that is not what the route
+// promises is a failed assertion here rather than a panic in the middle of the
+// case that was meant to explain it.
+func folderCounts(t *testing.T, body []byte) map[string]float64 {
+	t.Helper()
+	var env struct {
+		Folders []struct {
+			Path  string  `json:"path"`
+			Count float64 `json:"count"`
+		} `json:"folders"`
+	}
+	if err := json.Unmarshal(body, &env); err != nil {
+		t.Fatalf("decoding the facets envelope: %v\n%s", err, body)
+	}
+	counts := make(map[string]float64, len(env.Folders))
+	for _, f := range env.Folders {
+		counts[f.Path] = f.Count
+	}
+	return counts
+}
+
+// stringsField reads one array-of-strings field out of a JSON envelope, leaving
+// the envelope's other fields undecoded: they have shapes of their own and are
+// not what this is being asked about.
+func stringsField(t *testing.T, body []byte, field string) []string {
+	t.Helper()
+	var env map[string]json.RawMessage
+	if err := json.Unmarshal(body, &env); err != nil {
+		t.Fatalf("decoding the envelope: %v\n%s", err, body)
+	}
+	raw, ok := env[field]
+	if !ok {
+		t.Fatalf("the envelope carries no %q: %s", field, body)
+	}
+	var out []string
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatalf("decoding %s: %v\n%s", field, err, raw)
+	}
+	return out
+}
+
+// seedIn files a resource in one library at one path, with tags. The library is
+// one value rather than a scope and an id side by side, which is how every
+// other rule in this package names one.
+func seedIn(store *mockStore, id, path string, lib ScopeFilter, tags ...string) {
+	store.resources[id] = &Resource{
+		ID: id, Scope: lib.Scope, ScopeID: lib.ScopeID, Path: path,
+		Filename: id + ".md", DisplayName: id, MIMEType: "text/markdown", Tags: tags,
+	}
+}
+
+func TestHandleFacets_FoldersCountEveryDepth(t *testing.T) {
+	store := newMockStore()
+	seedIn(store, "a", "data", ScopeFilter{Scope: ScopeGlobal})
+	seedIn(store, "b", "data/media-manager", ScopeFilter{Scope: ScopeGlobal})
+	seedIn(store, "c", "data/media-manager/shows", ScopeFilter{Scope: ScopeGlobal})
+	seedIn(store, "d", "other", ScopeFilter{Scope: ScopeGlobal})
+	h := newTestHandler(store, nil, okExtractor)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/resources/facets", http.NoBody)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	counts := folderCounts(t, rec.Body.Bytes())
+	// Everything beneath, at every depth: three files are under "data".
+	for path, want := range map[string]float64{
+		"data":                     3,
+		"data/media-manager":       2,
+		"data/media-manager/shows": 1,
+		"other":                    1,
+	} {
+		if counts[path] != want {
+			t.Errorf("count for %q = %v, want %v (all: %v)", path, counts[path], want, counts)
+		}
+	}
+}
+
+func TestHandleFacets_TagsAreTheLibrarys(t *testing.T) {
+	store := newMockStore()
+	seedIn(store, "a", "data", ScopeFilter{Scope: ScopeGlobal}, "finance", "q3")
+	seedIn(store, "b", "data", ScopeFilter{Scope: ScopeGlobal}, "finance")
+	seedIn(store, "c", "other", ScopeFilter{Scope: ScopeGlobal})
+	h := newTestHandler(store, nil, okExtractor)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/resources/facets", http.NoBody)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	got := stringsField(t, rec.Body.Bytes(), "tags")
+	// Each tag once, in order, whatever how many files carry it.
+	if len(got) != 2 || got[0] != "finance" || got[1] != "q3" {
+		t.Errorf("tags = %v, want [finance q3]", got)
+	}
+}
+
+// The facets run under the listing's own visibility rule, so an administrator
+// reaches a persona they are not in and an ordinary caller does not (#1553).
+func TestHandleFacets_FollowsTheListingAuthority(t *testing.T) {
+	tests := []struct {
+		name      string
+		extractor ClaimsExtractor
+		wantEmpty bool
+	}{
+		{"an administrator reaches a persona they are not in", okExtractor, false},
+		{"an ordinary caller does not", memberExtractor, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newMockStore()
+			seedIn(store, "a", "data", ScopeFilter{Scope: ScopePersona, ScopeID: "finance"}, "q3")
+			h := newTestHandler(store, nil, tt.extractor)
+
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+				"/api/v1/resources/facets?scope=persona&scope_id=finance", http.NoBody)
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+			}
+			body := decodeJSON(t, rec.Body)
+			list, _ := body["folders"].([]any)
+			empty := len(list) == 0
+			if empty != tt.wantEmpty {
+				t.Errorf("folders empty = %v, want %v: %v", empty, tt.wantEmpty, body)
+			}
+		})
+	}
+}
+
+// A rollup that fails is reported, not answered with a half-drawn library: a
+// tree missing folders reads as a library missing files.
+func TestHandleFacets_ReportsAFailedRollup(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		store Store
+	}{
+		{"folders", failingFolders{newMockStore()}},
+		{"tags", failingTags{newMockStore()}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			h := NewHandler(Deps{Store: tt.store, URIScheme: "mcp"}, okExtractor, nil)
+
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/resources/facets", http.NoBody)
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusInternalServerError {
+				t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+// failingFolders and failingTags are the mock store with one rollup broken.
+type failingFolders struct{ *mockStore }
+
+func (failingFolders) Folders(_ context.Context, _ Filter) ([]Folder, error) {
+	return nil, errors.New("rollup failed")
+}
+
+type failingTags struct{ *mockStore }
+
+func (failingTags) Tags(_ context.Context, _ Filter) ([]string, error) {
+	return nil, errors.New("rollup failed")
+}
+
+// A caller with no identity is refused before any rollup runs.
+func TestHandleFacets_RefusesAnUnauthenticatedCaller(t *testing.T) {
+	h := newTestHandler(newMockStore(), nil, failExtractor)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/resources/facets", http.NoBody)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// An envelope is never null: a page that has to test for it before iterating is
+// a page that will eventually forget.
+func TestHandleFacets_EmptyLibraryAnswersWithArrays(t *testing.T) {
+	h := newTestHandler(newMockStore(), nil, okExtractor)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/resources/facets", http.NoBody)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	body := decodeJSON(t, rec.Body)
+	if _, ok := body["folders"].([]any); !ok {
+		t.Errorf("folders = %v, want an array", body["folders"])
+	}
+	if _, ok := body["tags"].([]any); !ok {
+		t.Errorf("tags = %v, want an array", body["tags"])
 	}
 }

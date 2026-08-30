@@ -1,106 +1,97 @@
 import { describe, it, expect } from "vitest";
-import type { Resource } from "@/api/resources/types";
-import { everyFolder, folderView, isUnder, joinPath, parentPath, segments } from "./tree";
+import type { Folder } from "@/api/resources/types";
+import { childFolders, folderPaths, isUnder, joinPath, parentPath, segments } from "./tree";
 
-// A folder exists because a resource is filed under it. What is asserted here
-// is that the tree derived from a set of paths is the tree a person expects,
+// A folder exists because a resource is filed under it, and the server says
+// which folders those are and how much each holds (#1555). What is asserted
+// here is that the level drawn from that answer is the level a person expects,
 // including the two cases a naive prefix comparison gets wrong: a sibling whose
 // name starts with the same letters, and a folder deeper than the level in view.
 
-function at(path: string, id = path): Resource {
-  return {
-    id,
-    scope: "user",
-    scope_id: "sub-1",
-    path,
-    filename: `${id}.csv`,
-    display_name: id,
-    description: "",
-    mime_type: "text/csv",
-    size_bytes: 1,
-    s3_key: "k",
-    uri: `mcp://user/sub-1/${path}/${id}.csv`,
-    tags: [],
-    uploader_sub: "sub-1",
-    uploader_email: "me@example.com",
-    created_at: "2026-01-01T00:00:00Z",
-    updated_at: "2026-01-01T00:00:00Z",
-  };
+function folder(path: string, count = 1): Folder {
+  return { path, count };
 }
 
-describe("the tree a set of paths makes", () => {
+describe("the level drawn from the server's folders", () => {
+  // What the server answers for a library filed like this: every folder that
+  // holds anything, each counting everything beneath it at every depth.
   const library = [
-    at("data", "top"),
-    at("data/media-manager", "mid"),
-    at("data/media-manager/shows", "deep"),
-    at("data/weekly", "weekly"),
-    at("data-archive", "sibling"),
-    at("other", "elsewhere"),
+    folder("data", 4),
+    folder("data/media-manager", 2),
+    folder("data/media-manager/shows", 1),
+    folder("data/weekly", 1),
+    folder("data-archive", 1),
+    folder("other", 1),
   ];
 
-  it("shows the folders and files at the root", () => {
-    const view = folderView(library, "");
-    expect(view.folders.map((f) => f.name)).toEqual(["data", "data-archive", "other"]);
-    // Nothing is filed at the library's own root in this fixture, so there are
-    // no files beside the folders.
-    expect(view.files).toEqual([]);
+  it("shows the folders at the root", () => {
+    expect(childFolders(library, "").map((f) => f.name)).toEqual([
+      "data",
+      "data-archive",
+      "other",
+    ]);
   });
 
-  it("counts everything beneath a folder, at every depth", () => {
-    const data = folderView(library, "").folders.find((f) => f.name === "data");
-    expect(data?.count).toBe(4);
+  it("carries the server's count, which is everything beneath at every depth", () => {
+    expect(childFolders(library, "").find((f) => f.name === "data")?.count).toBe(4);
   });
 
   it("shows one level down when a folder is opened", () => {
-    const view = folderView(library, "data");
-    expect(view.folders.map((f) => f.name)).toEqual(["media-manager", "weekly"]);
-    expect(view.files.map((r) => r.id)).toEqual(["top"]);
+    expect(childFolders(library, "data").map((f) => f.name)).toEqual([
+      "media-manager",
+      "weekly",
+    ]);
   });
 
   it("keeps going down", () => {
-    expect(folderView(library, "data/media-manager").folders.map((f) => f.name)).toEqual(["shows"]);
-    expect(folderView(library, "data/media-manager/shows").files.map((r) => r.id)).toEqual(["deep"]);
+    expect(childFolders(library, "data/media-manager").map((f) => f.name)).toEqual(["shows"]);
+    expect(childFolders(library, "data/media-manager/shows")).toEqual([]);
   });
 
   // The one a prefix comparison without the separator gets wrong.
   it("does not draw a sibling into a folder whose name it starts with", () => {
-    expect(folderView(library, "data").folders.map((f) => f.name)).not.toContain("archive");
-    expect(folderView(library, "data").files.map((r) => r.id)).not.toContain("sibling");
+    expect(childFolders(library, "data").map((f) => f.name)).not.toContain("archive");
   });
 
-  it("orders folders by name and leaves files in the order they arrived", () => {
-    const view = folderView([at("data/b", "b"), at("data/a", "a"), at("data", "z"), at("data", "y")], "data");
-    expect(view.folders.map((f) => f.name)).toEqual(["a", "b"]);
-    expect(view.files.map((r) => r.id)).toEqual(["z", "y"]);
+  // A grandchild is inside one of the children and is already counted in it;
+  // drawing it here would show the same file twice at one level.
+  it("shows only the level directly below, not everything beneath", () => {
+    expect(childFolders(library, "").map((f) => f.name)).not.toContain("media-manager");
+  });
+
+  it("orders folders by name", () => {
+    expect(childFolders([folder("data/b"), folder("data/a")], "data").map((f) => f.name)).toEqual([
+      "a",
+      "b",
+    ]);
   });
 
   it("shows nothing for a folder nothing is filed under", () => {
-    expect(folderView(library, "nowhere")).toEqual({ folders: [], files: [] });
+    expect(childFolders(library, "nowhere")).toEqual([]);
   });
 
   it("carries the full path each folder opens at", () => {
-    expect(folderView(library, "data").folders.map((f) => f.path)).toEqual([
+    expect(childFolders(library, "data").map((f) => f.path)).toEqual([
       "data/media-manager",
       "data/weekly",
     ]);
   });
 });
 
-describe("every folder in view", () => {
-  // A picker that offered only the paths resources are filed at would make the
-  // levels above them unreachable, which is exactly where somebody moving a
-  // file wants to put it.
-  it("includes the intermediate levels, not only the leaves", () => {
-    expect(everyFolder([at("data/media-manager/shows"), at("other")])).toEqual([
+describe("every folder in the library", () => {
+  // A picker offers what the server reports, which already includes the levels
+  // above a leaf: those are exactly where somebody moving a file wants to put
+  // it, and they hold resources of their own.
+  it("lists every folder path, in order", () => {
+    expect(folderPaths([folder("other"), folder("data/media-manager"), folder("data")])).toEqual([
       "data",
       "data/media-manager",
-      "data/media-manager/shows",
       "other",
     ]);
   });
 
-  it("lists each folder once however many files are in it", () => {
-    expect(everyFolder([at("data", "a"), at("data", "b")])).toEqual(["data"]);
+  it("is empty for a library with nothing in it", () => {
+    expect(folderPaths([])).toEqual([]);
   });
 });
 

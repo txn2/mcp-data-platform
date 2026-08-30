@@ -197,6 +197,74 @@ func CanReadResource(c Claims, r *Resource) bool {
 	return false
 }
 
+// CanSeeLibrary reports whether the caller may read the named library at all.
+//
+// It is the listing rule plus write authority, which is the same pair
+// CanAccessResource applies to one resource: membership is what makes a library
+// visible, and an administrator who may write a library they are not a member
+// of must still be able to read and reorganize it.
+//
+// A platform administrator who uploads into a persona they do not belong to is
+// the case this exists for. CanWriteScope permits the upload and
+// CanAccessResource permits every later read of the file by id, so a library
+// rule built on membership alone left that administrator holding material they
+// could create and could not find.
+func CanSeeLibrary(c Claims, lib ScopeFilter) bool {
+	for _, sf := range VisibleScopes(c) {
+		if sf.Scope == lib.Scope && (sf.Scope == ScopeGlobal || sf.ScopeID == lib.ScopeID) {
+			return true
+		}
+	}
+	return CanWriteScope(c, lib.Scope, lib.ScopeID)
+}
+
+// narrowScopes keeps the visible scopes matching the caller-requested scope and
+// optional scope id. A request naming a scope the caller has none of narrows to
+// nothing, which is a listing with no rows rather than an unfiltered one.
+func narrowScopes(visible []ScopeFilter, scopeParam, scopeIDParam string) []ScopeFilter {
+	var narrowed []ScopeFilter
+	for _, sf := range visible {
+		if string(sf.Scope) == scopeParam {
+			if scopeIDParam == "" || sf.ScopeID == scopeIDParam {
+				narrowed = append(narrowed, sf)
+			}
+		}
+	}
+	return narrowed
+}
+
+// ListScopes is the visibility predicate one listing request runs under: the
+// scopes it may read, and whether it is unrestricted.
+//
+// An unnarrowed listing by a platform administrator is every library in the
+// deployment. That is what the control asking for it has always been labeled,
+// and it is the only reading under which an administrator's own uploads into a
+// persona library appear in a listing at all. Every other caller's unnarrowed
+// listing is their visible scopes, unchanged.
+//
+// A narrowed listing accepts one library the caller may see or write, which is
+// the rule a folder move already runs under (CanSeeLibrary). Naming a library
+// the caller may not reach narrows to nothing rather than widening: the empty
+// set is a listing with no rows, which is what the store returns for it.
+//
+// A scope named without an id is a kind rather than a library -- "persona",
+// with no persona -- so it can only narrow the caller's own memberships. The
+// portal never sends one; a hand-written request that does gets the membership
+// answer rather than a widened one.
+func ListScopes(c Claims, scopeParam, scopeIDParam string) (scopes []ScopeFilter, all bool) {
+	if scopeParam == "" {
+		if isPlatformAdmin(c) {
+			return nil, true
+		}
+		return VisibleScopes(c), false
+	}
+	named := ScopeFilter{Scope: Scope(scopeParam), ScopeID: scopeIDParam}
+	if scopeIDParam != "" && CanSeeLibrary(c, named) {
+		return []ScopeFilter{named}, false
+	}
+	return narrowScopes(VisibleScopes(c), scopeParam, scopeIDParam), false
+}
+
 // VisibleScopes returns the set of (scope, scope_id) tuples the caller is
 // allowed to see. Always derived from claims, never from request input.
 func VisibleScopes(c Claims) []ScopeFilter {

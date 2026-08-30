@@ -25,6 +25,16 @@ export interface Resource {
   last_read_at?: string;
   // usage is present only on the detail read, and only when audit is enabled.
   usage?: ResourceUsage;
+  // The captured PNGs stored beside the resource's own object, absent until one
+  // is taken (#1554). Before them the library drew the original file scaled
+  // down, so a non-image had no tile at all and an image cost its full size.
+  thumbnail_s3_key?: string;
+  thumbnail_dark_s3_key?: string;
+  // When each capture was taken. Older than updated_at means the capture is
+  // behind the file it came from, which is what puts the resource back on the
+  // pending list; a resource row carries no version, so this is the comparison.
+  thumbnail_captured_at?: string;
+  thumbnail_dark_captured_at?: string;
 }
 
 // ResourceUsage is the audit-derived read activity of a resource. Both counts
@@ -59,6 +69,24 @@ export interface ResourceVersionListResponse {
   // current is the version number the resource head currently serves.
   current: number;
   max_versions: number;
+}
+
+// Folder is one folder of a library and how much it holds. A folder is derived
+// from the paths in use rather than stored, and the server derives it: deriving
+// it in the browser from a page of the listing could only ever report what had
+// arrived, which is what "25+" on a folder row used to mean (#1555).
+export interface Folder {
+  path: string;
+  // count is the resources filed at this path and beneath it, at every depth.
+  count: number;
+}
+
+// FacetsResponse is what a library holds, for the controls that narrow it: its
+// folders with exact counts, and every tag its resources carry. One request,
+// because a page needs both to draw a tree and a tag filter.
+export interface FacetsResponse {
+  folders: Folder[];
+  tags: string[];
 }
 
 export interface ResourceListResponse {

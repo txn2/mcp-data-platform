@@ -1,4 +1,4 @@
-import type { Resource } from "@/api/resources/types";
+import type { Folder, Resource } from "@/api/resources/types";
 
 /**
  * The folder tree a library is browsed as (#1530).
@@ -48,51 +48,29 @@ export function joinPath(at: string, name: string): string {
 }
 
 /**
- * folderView divides what is loaded into the folders and the files at one
- * location.
+ * childFolders is the folders directly inside one location, built from the
+ * server's answer rather than from the resources a page happens to hold.
  *
- * Only the resources beneath the location count, so the same function serves a
- * page that fetched the whole library and one that fetched a single subtree.
- * Folders are sorted by name and files are left in the server's order, because
- * the sort control orders files and ordering folders by it would make a control
- * over recency look like a control over the tree.
+ * The counts are the server's and are exact. The browser used to derive this
+ * from the paged listing, so a folder read "25+" until the last page landed and
+ * a library root offered a Load-more control whose only visible effect was to
+ * firm that number up (#1555).
  */
-export function folderView(resources: Resource[], at: string): FolderView {
-  const counts = new Map<string, number>();
-  const files: Resource[] = [];
+export function childFolders(folders: Folder[], at: string): FolderEntry[] {
   const depth = at === "" ? 0 : segments(at).length;
-
-  for (const r of resources) {
-    if (!isUnder(r.path, at)) continue;
-    if (r.path === at) {
-      files.push(r);
-      continue;
-    }
-    const name = segments(r.path)[depth];
-    if (name === undefined) continue;
-    counts.set(name, (counts.get(name) ?? 0) + 1);
+  const entries: FolderEntry[] = [];
+  for (const f of folders) {
+    if (!isUnder(f.path, at) || f.path === at) continue;
+    const parts = segments(f.path);
+    // Only the level directly below: a folder deeper than that is inside one of
+    // these, and is already counted in it.
+    if (parts.length !== depth + 1) continue;
+    entries.push({ name: parts[depth]!, path: f.path, count: f.count });
   }
-
-  const folders = [...counts.entries()]
-    .map(([name, count]) => ({ name, path: joinPath(at, name), count }))
-    .sort((a, b) => a.name.localeCompare(b.name));
-  return { folders, files };
+  return entries.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/**
- * everyFolder is every folder path in view, which is what a destination picker
- * offers and what a path field suggests.
- *
- * It includes each intermediate folder, not only the paths resources are
- * actually filed at: "data/media-manager/shows" means "data" and
- * "data/media-manager" are folders too, and a picker that offered only the leaf
- * would make the levels above it unreachable.
- */
-export function everyFolder(resources: Resource[]): string[] {
-  const all = new Set<string>();
-  for (const r of resources) {
-    const parts = segments(r.path);
-    for (let i = 1; i <= parts.length; i++) all.add(parts.slice(0, i).join("/"));
-  }
-  return [...all].sort((a, b) => a.localeCompare(b));
+/** Every folder path the library holds, for a picker's completions. */
+export function folderPaths(folders: Folder[]): string[] {
+  return folders.map((f) => f.path).sort((a, b) => a.localeCompare(b));
 }

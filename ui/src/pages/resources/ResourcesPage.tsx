@@ -1,33 +1,31 @@
 import { useCallback, useMemo, useState } from "react";
-import {
-  FileUp,
-  Globe,
-  Users,
-  User,
-  FolderOpen,
-  type LucideIcon,
-} from "lucide-react";
 import { useAuthStore } from "@/stores/auth";
 import { usePersonas } from "@/api/admin/hooks";
 import { InfiniteFooter } from "@/components/InfiniteFooter";
-import { FilterSelect } from "@/components/patterns/FilterSelect";
-import { SearchInput } from "@/components/patterns/SearchInput";
-import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  getStoredViewMode,
+  storeViewMode,
+  RESOURCE_VIEW_STORAGE_KEY,
+  type ViewMode,
+} from "@/components/listView";
 import type { Resource } from "@/api/resources/types";
 import { BulkActionModal, type BulkAction } from "./modals/BulkActionModal";
 import { FolderMoveModal } from "./modals/FolderMoveModal";
 import { UploadModal } from "./modals/UploadModal";
 import { FolderBreadcrumbs } from "./parts/FolderBreadcrumbs";
 import { tagOptions } from "./parts/groups";
+import { RecentResources } from "./parts/RecentResources";
+import { ResourceFilterBar } from "./parts/ResourceFilterBar";
 import { ResourceResults } from "./parts/ResourceResults";
 import { SelectionBar } from "./parts/SelectionBar";
 import { useSelection } from "./parts/selection";
-import { everyFolder, folderView, isUnder, type FolderView } from "./parts/tree";
+import { childFolders, folderPaths, isUnder } from "./parts/tree";
 import { useResourceLibrary, type ResourceSort } from "./parts/useResourceLibrary";
 import {
+  canUpload,
   canWriteScope,
   isPlatformAdmin,
+  libraryChoices,
   libraryCopy,
   targetForTab,
   type ScopeTarget,
@@ -44,34 +42,6 @@ interface Props {
   onNavigate?: (path: string, opts?: { replace?: boolean }) => void;
 }
 
-const SORT_OPTIONS = [
-  { value: "updated", label: "Recently updated" },
-  { value: "last_read", label: "Recently read" },
-];
-
-// scopeTabs is the set of libraries a caller can look at. A reader sees their
-// own, their persona's, and the global one; an admin sees every persona's plus
-// the unfiltered "All".
-function scopeTabs(
-  admin: boolean,
-  personaNames: string[],
-  userPersona: string | undefined,
-): { key: string; label: string; icon: LucideIcon }[] {
-  if (!admin) {
-    return [
-      { key: "user", label: "My Resources", icon: User },
-      ...(userPersona ? [{ key: userPersona, label: userPersona, icon: Users }] : []),
-      { key: "global", label: "Global", icon: Globe },
-    ];
-  }
-  return [
-    { key: "all", label: "All Resources", icon: FolderOpen },
-    { key: "global", label: "Global", icon: Globe },
-    ...personaNames.map((name) => ({ key: name, label: name, icon: Users })),
-    { key: "user", label: "User", icon: User },
-  ];
-}
-
 /** What dialog the library currently has open, if any. */
 type Dialog =
   | { kind: "upload" }
@@ -81,39 +51,62 @@ type Dialog =
 
 export function ResourcesPage({ admin = false, location, onNavigate }: Props) {
   const user = useAuthStore((s) => s.user);
-  const userPersona = user?.persona;
-  // The deployment's persona list, which the picker in the Edit dialog and the
-  // administrator's tab strip are both filled from. Fetched for a platform
-  // administrator on either page: the libraries they may file a resource into
-  // include every persona, and their own claims name only the personas they
-  // belong to (#1527). Everyone else derives their personas from those claims
-  // and never asks.
+  // The deployment's persona list, which the picker in the Edit dialog, the
+  // library picker and the upload destinations are all filled from. Fetched for
+  // a platform administrator on either page: the libraries they may file a
+  // resource into include every persona, and their own claims name only the
+  // personas they belong to (#1527). Everyone else derives their personas from
+  // those claims and never asks.
   const { data: personaData } = usePersonas(isPlatformAdmin(user));
-  const personaNames = (personaData?.personas ?? []).map((p) => p.name);
+  const personaNames = useMemo(
+    () => (personaData?.personas ?? []).map((p) => p.name),
+    [personaData],
+  );
 
   // The section this library belongs to, which is both where its own address
   // is written and where a resource opened from it lives.
   const basePath = admin ? "/admin/resources" : "/resources";
-  const tabs = scopeTabs(admin, personaNames, userPersona);
-  const library = useResourceLibrary(
-    admin,
-    tabs.map((t) => t.key),
-    { basePath, location, onNavigate },
+  const libraries = useMemo(
+    () => libraryChoices(user, personaNames),
+    [user, personaNames],
   );
+  const library = useResourceLibrary(libraries.map((l) => l.key), {
+    basePath,
+    location,
+    onNavigate,
+  });
   const selection = useSelection();
   const [dialog, setDialog] = useState<Dialog>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>(() =>
+    getStoredViewMode(RESOURCE_VIEW_STORAGE_KEY),
+  );
 
   const target = targetForTab(library.activeTab, user);
+  const writable = canUpload(user, target, personaNames);
+  // Renaming a folder rewrites the path of every file under it in ONE library,
+  // so it is offered only where the view names one. The All view names none,
+  // and a folder there can hold files from several.
+  const renamable = target !== null && canWriteScope(user, target);
   const view = useMemo(
     // A search is not a location, so its hits are handed through whole and the
     // tree is not built over them: they are from all over the library.
     () =>
-      library.searching
+      library.flat
         ? { folders: [], files: library.resources }
-        : folderView(library.resources, library.path),
-    [library.resources, library.path, library.searching],
+        : {
+            folders: childFolders(library.folders, library.path),
+            // The files directly here. The listing is narrowed to this folder
+            // AND everything beneath it -- which is what makes a subfolder's
+            // count mean something -- so the ones filed deeper belong to those
+            // subfolders rather than to this level.
+            files: library.resources.filter((r) => r.path === library.path),
+          },
+    [library.folders, library.resources, library.path, library.flat],
   );
-  const folders = useMemo(() => everyFolder(library.resources), [library.resources]);
+  // Every folder the library holds, for the pickers' completions. It is the
+  // server's list, so it is complete rather than whatever a page happened to
+  // carry (#1555).
+  const folders = useMemo(() => folderPaths(library.folders), [library.folders]);
   const picked = useMemo(
     () => library.resources.filter((r) => selection.has(r.id)),
     [library.resources, selection],
@@ -149,49 +142,97 @@ export function ResourcesPage({ admin = false, location, onNavigate }: Props) {
     [selection],
   );
 
-  return (
-    <Tabs value={library.activeTab} onValueChange={library.setActiveTab} className="gap-4">
-      {/* An admin sees a tab per persona, so this bar is the one that has to
-          survive a long list: it scrolls rather than wrapping, and its faces are
-          tight enough that a typical deployment's personas still fit. */}
-      <TabsList
-        variant="line"
-        className="group-data-[orientation=horizontal]/tabs:h-auto w-full justify-start gap-0 overflow-x-auto border-b p-0"
-      >
-        {tabs.map((tab) => (
-          <TabsTrigger
-            key={tab.key}
-            value={tab.key}
-            className="flex-none gap-1 px-2.5 py-2 group-data-[orientation=horizontal]/tabs:after:bottom-[-1px]"
-          >
-            <tab.icon className="size-3.5" />
-            {tab.label}
-          </TabsTrigger>
-        ))}
-      </TabsList>
+  function changeViewMode(mode: ViewMode) {
+    setViewMode(mode);
+    storeViewMode(mode, RESOURCE_VIEW_STORAGE_KEY);
+  }
 
-      {/* One library body redrawn per scope: only the active tab's panel is
-          mounted, so the filter bar and list below are written once. */}
-      {tabs.map((tab) => (
-        <LibraryPanel
-          key={tab.key}
-          tabKey={tab.key}
-          tabLabel={tab.label}
-          admin={admin}
-          library={library}
-          selection={selection}
-          view={view}
-          onAct={(action) => setDialog({ kind: "bulk", action })}
-          onOpenResource={openResource}
-          onRenameFolder={(from) => setDialog({ kind: "folder", from })}
-          onDropResources={dropResources}
-          onDropFolder={(from, to) =>
-            setDialog({ kind: "folder", from, to: `${to}/${from.split("/").pop()}` })
-          }
-          onReveal={reveal}
-          onUpload={() => setDialog({ kind: "upload" })}
+  // The library's own name for its trail, and where its material comes from
+  // when the caller may not add to it. The note is set only then: it replaces
+  // the Upload control rather than sitting beside it.
+  const libraryLabel = headingFor(libraries, library.activeTab, target);
+  const readOnlyNote = writable ? undefined : libraryCopy(target).source;
+
+  return (
+    <div className="space-y-4">
+      <FolderBreadcrumbs
+        library={libraryLabel}
+        path={library.path}
+        onOpen={library.openFolder}
+        className="text-sm"
+      />
+
+      <ResourceFilterBar
+        libraries={libraries}
+        activeLibrary={library.activeTab}
+        onLibraryChange={library.setActiveTab}
+        search={library.searchInput}
+        onSearchChange={library.setSearchInput}
+        tag={library.tag}
+        onTagChange={library.setTag}
+        tagOptions={tagOptions(library.tags, library.tag)}
+        sort={library.sort}
+        onSortChange={(s: ResourceSort) => library.setSort(s)}
+        showSort={admin}
+        viewMode={viewMode}
+        onViewModeChange={changeViewMode}
+        canUpload={writable}
+        onUpload={() => setDialog({ kind: "upload" })}
+        readOnlyNote={readOnlyNote}
+      />
+
+      <SelectionBar
+        count={selection.ids.length}
+        onAct={(action) => setDialog({ kind: "bulk", action })}
+        onClear={selection.clear}
+      />
+
+      {/* At the root of a library, and only with nothing narrowing it: a
+          search and a tag filter are already an answer to "what here is
+          relevant", and a differently-ordered second answer above them
+          competes with the one that was asked for. */}
+      {library.path === "" && !library.filtering && (
+        <RecentResources
+          activeTab={library.activeTab}
+          viewMode={viewMode}
+          onOpen={openResource}
         />
-      ))}
+      )}
+
+      <ResourceResults
+        view={view}
+        viewMode={viewMode}
+        flat={library.flat}
+        searching={library.searching}
+        isLoading={library.isLoading}
+        filtering={library.filtering}
+        admin={admin}
+        canWrite={writable}
+        canRenameFolder={renamable}
+        selection={selection}
+        readOnlyNote={readOnlyNote}
+        onOpen={openResource}
+        onOpenFolder={library.openFolder}
+        onRenameFolder={(from) => setDialog({ kind: "folder", from })}
+        onDropResources={dropResources}
+        onDropFolder={(from, to) =>
+          setDialog({ kind: "folder", from, to: `${to}/${from.split("/").pop()}` })
+        }
+        onReveal={reveal}
+        onUpload={() => setDialog({ kind: "upload" })}
+      />
+
+      <InfiniteFooter
+        hasMore={library.hasNextPage}
+        isLoadingMore={library.isFetchingNextPage}
+        onLoadMore={library.fetchNextPage}
+      />
+
+      {library.listing && library.total > library.resources.length && (
+        <p className="text-center text-sm text-muted-foreground">
+          Showing {library.resources.length} of {library.total} resources
+        </p>
+      )}
 
       <LibraryDialogs
         dialog={dialog}
@@ -207,140 +248,23 @@ export function ResourcesPage({ admin = false, location, onNavigate }: Props) {
           setDialog(null);
         }}
       />
-    </Tabs>
+    </div>
   );
 }
 
 /**
- * One library's body: its trail, its filters, its selection bar and its
- * contents.
+ * What heads the folder trail: the picker's own name for the library in view.
  *
- * A component rather than an inline map body because only the active tab's
- * panel is mounted, so this is written once for every library the caller can
- * look at.
+ * The All view spans every library and is the target of none, so a heading read
+ * off a move target would call it "My Resources" -- a different library, and
+ * another entry in the picker beside it.
  */
-function LibraryPanel({
-  tabKey,
-  tabLabel,
-  admin,
-  library,
-  selection,
-  view,
-  onAct,
-  onOpenResource,
-  onRenameFolder,
-  onDropResources,
-  onDropFolder,
-  onReveal,
-  onUpload,
-}: {
-  tabKey: string;
-  /** What the tab calls this library, which is what heads its folder trail. */
-  tabLabel: string;
-  admin: boolean;
-  library: ReturnType<typeof useResourceLibrary>;
-  selection: ReturnType<typeof useSelection>;
-  view: FolderView;
-  onAct: (action: BulkAction) => void;
-  onOpenResource: (r: Resource) => void;
-  onRenameFolder: (path: string) => void;
-  onDropResources: (ids: string[], to: string) => void;
-  onDropFolder: (from: string, to: string) => void;
-  onReveal: (r: Resource) => void;
-  onUpload: () => void;
-}) {
-  const user = useAuthStore((s) => s.user);
-  // The Upload control is offered only on a tab the caller may actually add to,
-  // read from the same authority the server applies to the request. Where it is
-  // not offered, the note in its place says who fills this library instead.
-  const target = targetForTab(tabKey, user);
-  const writable = canWriteScope(user, target);
-  const source = libraryCopy(target).source;
-  const tags = tagOptions(library.resources, library.tag);
-
-  return (
-    <TabsContent value={tabKey} className="space-y-4">
-      <FolderBreadcrumbs
-        // The tab's own name, not the destination copy: the administrator's
-        // "All Resources" tab spans every library and is the target of none, so
-        // naming it from a target would head the trail "My Resources".
-        library={tabLabel}
-        path={library.path}
-        onOpen={library.openFolder}
-        className="text-sm"
-      />
-
-      <div className="flex flex-wrap items-center gap-3">
-        <SearchInput
-          className="min-w-[200px] flex-1"
-          value={library.searchInput}
-          onChange={(e) => library.setSearchInput(e.target.value)}
-          placeholder="Search the whole library..."
-          aria-label="Search resources"
-        />
-        <FilterSelect
-          label="Filter by tag"
-          value={library.tag}
-          onChange={library.setTag}
-          options={tags}
-          disabled={tags.length === 1}
-          className="h-9 text-sm"
-        />
-        {admin && (
-          <FilterSelect
-            label="Sort resources"
-            value={library.sort}
-            onChange={(v) => library.setSort(v as ResourceSort)}
-            options={SORT_OPTIONS}
-            className="h-9 text-sm"
-          />
-        )}
-        {writable ? (
-          <Button onClick={onUpload}>
-            <FileUp />
-            Upload
-          </Button>
-        ) : (
-          <p data-testid="scope-read-only" className="text-xs text-muted-foreground">
-            {source}
-          </p>
-        )}
-      </div>
-
-      <SelectionBar count={selection.ids.length} onAct={onAct} onClear={selection.clear} />
-
-      <ResourceResults
-        view={view}
-        searching={library.searching}
-        isLoading={library.isLoading}
-        filtering={library.filtering}
-        admin={admin}
-        complete={!library.hasNextPage}
-        canWrite={writable}
-        selection={selection}
-        readOnlyNote={writable ? undefined : source}
-        onOpen={onOpenResource}
-        onOpenFolder={library.openFolder}
-        onRenameFolder={onRenameFolder}
-        onDropResources={onDropResources}
-        onDropFolder={onDropFolder}
-        onReveal={onReveal}
-        onUpload={onUpload}
-      />
-
-      <InfiniteFooter
-        hasMore={library.hasNextPage}
-        isLoadingMore={library.isFetchingNextPage}
-        onLoadMore={library.fetchNextPage}
-      />
-
-      {library.total > library.resources.length && (
-        <p className="text-center text-sm text-muted-foreground">
-          Showing {library.resources.length} of {library.total} resources
-        </p>
-      )}
-    </TabsContent>
-  );
+function headingFor(
+  libraries: { key: string; label: string }[],
+  activeTab: string,
+  target: ScopeTarget | null,
+): string {
+  return libraries.find((l) => l.key === activeTab)?.label ?? libraryCopy(target).name;
 }
 
 /**
@@ -349,7 +273,7 @@ function LibraryPanel({
  *
  * Together rather than inline because they share what they act on -- the
  * library in view, its folders, the files picked -- and because a page whose
- * body is three conditionals plus a tab strip is a page nobody can read.
+ * body is three conditionals plus a filter bar is a page nobody can read.
  */
 function LibraryDialogs({
   dialog,

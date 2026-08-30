@@ -52,7 +52,7 @@ GOLINT := golangci-lint
 	frontend-dev frontend-mock frontend-test frontend-lint frontend-e2e \
 	frontend-e2e-public-viewer \
 	e2e-up e2e-down e2e-seed e2e-test e2e e2e-logs e2e-clean \
-	dev dev-info dev-up dev-down mock-check \
+	dev dev-info dev-up dev-stop dev-down dev-kill-hosts mock-check \
 	preview-apps preview-platform-info
 
 ## all: Build and test
@@ -808,6 +808,29 @@ frontend-lint:
 
 ## frontend-e2e: Run the interactive Playwright suite against the MSW-mocked dev server (mirrors CI's frontend-e2e job)
 frontend-e2e:
+	@# Refuse to run against somebody else's dev server.
+	@#
+	@# The suite reuses whatever is on :5173, and it cannot tell an MSW server
+	@# from any other Vite there (see e2e/interactive/playwright.config.ts). A
+	@# `make dev` left running is one WITHOUT VITE_MSW, so the suite binds to the
+	@# live backend, the shell 401s, and all 213 cases fail in authenticate()
+	@# with a timeout that names none of them. That is twenty minutes to
+	@# diagnose and the answer is never in the output.
+	@#
+	@# So it is checked here, where the answer fits on one line.
+	@# The marker is the flag main.tsx reads, which Vite inlines into the source
+	@# it serves: an MSW server answers with "VITE_MSW": "true" in
+	@# /portal/src/main.tsx and a plain one does not. mockServiceWorker.js is no
+	@# use here -- it is a static file in public/ and both servers serve it.
+	@port=$${E2E_PORT:-5173}; \
+	if curl -sf -m 3 "http://localhost:$$port/portal/src/main.tsx" 2>/dev/null | grep -q '"VITE_MSW": *"true"'; then \
+		true; \
+	elif curl -sf -m 3 "http://localhost:$$port/portal/" > /dev/null 2>&1; then \
+		echo "FAIL frontend-e2e: :$$port is serving a dev server that is NOT the MSW one (a 'make dev' is probably running)." >&2; \
+		echo "  The suite reuses whatever is on that port, so it would bind to the live backend and fail every case at sign-in." >&2; \
+		echo "  Stop it with 'make dev-stop' (keeps your data), or run beside it with: E2E_PORT=5199 make frontend-e2e" >&2; \
+		exit 1; \
+	fi
 	cd $(UI_DIR) && npx playwright install chromium && npm run test:e2e
 
 ## frontend-e2e-public-viewer: Run the public share viewer suite against a live stack (needs `make dev`; not part of verify)
@@ -933,22 +956,43 @@ dev-up:
 	@echo "API Key: acme-dev-key-2024"
 	@echo ""
 
-## dev-down: Stop ACME dev environment and remove volumes
+## dev-stop: Stop ACME dev environment, KEEPING its data
+## This is the one to use to free the ports -- for `make verify`, which needs
+## 5173, or to get out of the way. The containers stop and the volumes stay, so
+## the database and the blob store survive and the next `make dev` comes back to
+## the stack you left: seeded rows, uploaded files, and captured thumbnails.
+##
+## Use dev-down only to deliberately reset. A thumbnail lives in Postgres and
+## SeaweedFS, both of which are volumes, so `down -v` throws away every capture
+## the portal has made and the queue starts the whole library again from zero.
+dev-stop:
+	@echo "Stopping ACME dev environment (keeping volumes)..."
+	$(DEV_COMPOSE) stop
+	$(MAKE) --no-print-directory dev-kill-hosts
+	@echo "ACME dev environment stopped. Data kept; 'make dev' resumes it."
+
+## dev-down: Stop ACME dev environment and DELETE its data (volumes)
+## Destructive: removes the Postgres and SeaweedFS volumes, so seeded rows,
+## uploaded blobs and every captured thumbnail go with them. To free the ports
+## without losing any of that, use `make dev-stop`.
 dev-down:
-	@echo "Stopping ACME dev environment..."
+	@echo "Stopping ACME dev environment and REMOVING its volumes (data will be lost)..."
 	$(DEV_COMPOSE) down -v
-	@# Kill leftover host processes that dev/start.sh's trap may have
-	@# missed (e.g., when the script was backgrounded and the parent
-	@# shell exited). Without these, ports 5173/8080 stay occupied
-	@# even though Docker is clean and the next 'make dev' fails its
-	@# port pre-flight check.
+	$(MAKE) --no-print-directory dev-kill-hosts
+	@echo "ACME dev environment stopped and its data removed."
+
+## dev-kill-hosts: Kill the host-side dev processes (internal; used by dev-stop/dev-down)
+## Docker being clean is not enough: dev/start.sh also runs air, vite and the
+## MCP mock on the host, and its trap misses them when the script was
+## backgrounded and the parent shell exited. Left behind, they hold 5173 and
+## 9180 and the next `make dev` fails its port pre-flight.
+dev-kill-hosts:
 	@pkill -f "build/air/mcp-data-platform" 2>/dev/null || true
 	@pkill -f "air -c dev/.air.toml" 2>/dev/null || true
 	@pkill -f "ui/node_modules/.bin/vite" 2>/dev/null || true
 	@pkill -f "@esbuild/.*/bin/esbuild --service" 2>/dev/null || true
 	@pkill -f "go run ./cmd/dev-mcp-mock" 2>/dev/null || true
 	@pkill -f "/dev-mcp-mock$$" 2>/dev/null || true
-	@echo "ACME dev environment stopped."
 
 ## dev: Start full dev environment with hot-reload (Docker + Go + Vite)
 ## Runs pre-flight checks (Docker, air, ports), starts services sequentially,

@@ -3,26 +3,36 @@ import type { Scope } from "@/components/ScopeFilter";
 
 const VIEW_STORAGE_KEY = "asset-view-mode";
 
+/**
+ * Where the Resources library remembers its layout.
+ *
+ * Its own key rather than the assets one: a library is a folder tree and the
+ * Assets page is a flat gallery, so a reader who wants rows in one and tiles in
+ * the other is not confused, they are looking at two different things.
+ */
+export const RESOURCE_VIEW_STORAGE_KEY = "resource-view-mode";
+
 /** A gallery of thumbnails, or a dense table. */
 export type ViewMode = "grid" | "table";
 
 /**
  * Read the persisted layout. Shared by the Assets and Collections lists so the
- * choice carries across them, the way `ScopeFilter` shares the ownership scope.
+ * choice carries across them, the way `ScopeFilter` shares the ownership scope;
+ * the Resources library passes its own key and keeps its own choice.
  * Defensive against environments without localStorage (jsdom/SSR); defaults to
  * the gallery, which is what a saved asset is recognised by.
  */
-export function getStoredViewMode(): ViewMode {
+export function getStoredViewMode(key: string = VIEW_STORAGE_KEY): ViewMode {
   try {
-    return globalThis.localStorage?.getItem(VIEW_STORAGE_KEY) === "table" ? "table" : "grid";
+    return globalThis.localStorage?.getItem(key) === "table" ? "table" : "grid";
   } catch {
     return "grid";
   }
 }
 
-export function storeViewMode(mode: ViewMode) {
+export function storeViewMode(mode: ViewMode, key: string = VIEW_STORAGE_KEY) {
   try {
-    globalThis.localStorage?.setItem(VIEW_STORAGE_KEY, mode);
+    globalThis.localStorage?.setItem(key, mode);
   } catch {
     /* persistence is best-effort */
   }

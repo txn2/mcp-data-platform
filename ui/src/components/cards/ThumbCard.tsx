@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import { AuthImg } from "@/components/AuthImg";
 import { Card } from "@/components/ui/card";
@@ -34,6 +35,11 @@ export function ThumbCard({
   className?: string;
   children: React.ReactNode;
 }) {
+  const [broken, setBroken] = useState(false);
+  // A new source is a new chance: a re-capture, or a card recycled onto another
+  // item, must not inherit the last one's failure.
+  useEffect(() => setBroken(false), [thumbnailSrc]);
+
   return (
     <Card
       asChild
@@ -45,11 +51,17 @@ export function ThumbCard({
       <button type="button" onClick={onClick}>
         {aspect !== null && (
           <div className={cn("w-full bg-muted", aspect)}>
-            {thumbnailSrc ? (
+            {thumbnailSrc && !broken ? (
               <AuthImg
                 src={thumbnailSrc}
                 alt=""
                 className="h-full w-full object-cover object-top"
+                // A recorded thumbnail whose object is gone, and an image the
+                // browser cannot decode, both used to paint the broken-image
+                // glyph: the fallback below was reached only when there was no
+                // URL at all. A tile that cannot draw its image is a tile with
+                // no image, which is what the icon is for (#1554).
+                onError={() => setBroken(true)}
               />
             ) : (
               <div className="flex h-full w-full items-center justify-center">

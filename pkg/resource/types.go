@@ -50,6 +50,19 @@ type Resource struct {
 	// stored column: the detail read fills it from the audit rollup, and it is
 	// absent everywhere the rollup was not consulted.
 	Usage *Usage `json:"usage,omitempty"`
+
+	// ThumbnailS3Key and ThumbnailDarkS3Key are the captured PNGs stored beside
+	// the resource's own object, empty until one is taken (#1554). The library
+	// used to draw the original file scaled down instead, which meant a
+	// non-image had no tile at all and an image cost its full size to show.
+	ThumbnailS3Key     string `json:"thumbnail_s3_key,omitempty"`
+	ThumbnailDarkS3Key string `json:"thumbnail_dark_s3_key,omitempty"`
+	// ThumbnailCapturedAt and ThumbnailDarkCapturedAt are when each capture was
+	// taken. A capture older than the resource's UpdatedAt is behind the file it
+	// came from, which is what the pending list is built on; see migration
+	// 000134 for why this is a timestamp rather than a version.
+	ThumbnailCapturedAt     *time.Time `json:"thumbnail_captured_at,omitempty"`
+	ThumbnailDarkCapturedAt *time.Time `json:"thumbnail_dark_captured_at,omitempty"`
 }
 
 // Sort names an ordering for the list path.
@@ -86,6 +99,28 @@ type Filter struct {
 	Sort   Sort   // ordering; empty selects SortUpdated
 	Limit  int
 	Offset int
+	// AllScopes lists every library in the deployment, whatever Scopes holds.
+	//
+	// It is the one predicate a set of (scope, scope_id) pairs cannot express:
+	// the user libraries are keyed by subject and address, and the platform
+	// keeps no roster of them to enumerate, so "every library" has to be said
+	// rather than listed. Only a platform administrator's unnarrowed listing
+	// sets it (ListScopes), and nothing else in the package reads Scopes when
+	// it is set.
+	AllScopes bool
+}
+
+// Folder is one folder of a library and how much it holds.
+//
+// A folder is not a stored row: it exists because a resource is filed under it
+// and stops existing when the last one leaves. Count is everything beneath it
+// at every depth, which is what makes the number on a folder mean something to
+// somebody deciding whether to open it.
+type Folder struct {
+	// Path is the folder's full slash-separated path inside its library.
+	Path string `json:"path" example:"data/media-manager"`
+	// Count is the resources filed at this path and beneath it.
+	Count int `json:"count" example:"12"`
 }
 
 // ScopeFilter identifies a single scope+id pair for visibility filtering.
@@ -117,6 +152,15 @@ type Update struct {
 	// the global library. It is read only when Scope is set: a scope id on its
 	// own names no library.
 	ScopeID *string `json:"scope_id,omitempty"`
+	// ThumbnailS3Key and ThumbnailCapturedAt record a capture (#1554). They are
+	// written by the capture route alone and are not part of the metadata edit
+	// the PATCH route accepts: a person editing a description is not saying
+	// anything about the image.
+	ThumbnailS3Key      *string    `json:"-"`
+	ThumbnailCapturedAt *time.Time `json:"-"`
+	// ThumbnailVariant names which of the two a capture is for. Empty is the
+	// light one.
+	ThumbnailVariant string `json:"-"`
 }
 
 // Fields reports whether the update carries any metadata edit. A request that is

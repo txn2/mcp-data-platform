@@ -96,7 +96,7 @@ func MoveFolder(ctx context.Context, deps Deps, claims *Claims, move FolderRenam
 	// Without this, naming somebody else's library and guessing a path would
 	// answer 404 for a folder that is not there and 403 for one that is, which
 	// is a listing of a library the caller cannot list.
-	if !canSeeLibrary(*claims, lib) {
+	if !CanSeeLibrary(*claims, lib) {
 		return nil, ErrMoveForbidden
 	}
 	found, err := listFolder(ctx, deps, lib, from)
@@ -154,21 +154,6 @@ func writeFolderMove(
 		out.Moved = append(out.Moved, FolderMoveEntry{ID: m.ID, Path: m.Path, URI: m.URI, FromURI: m.FromURI})
 	}
 	return out, nil
-}
-
-// canSeeLibrary reports whether the caller may read the named library at all.
-//
-// It is the listing rule plus write authority, which is the same pair
-// CanAccessResource applies to one resource: membership is what makes a library
-// visible, and an administrator who may write a library they are not a member
-// of must still be able to reorganize it.
-func canSeeLibrary(c Claims, lib ScopeFilter) bool {
-	for _, sf := range VisibleScopes(c) {
-		if sf.Scope == lib.Scope && (sf.Scope == ScopeGlobal || sf.ScopeID == lib.ScopeID) {
-			return true
-		}
-	}
-	return CanWriteScope(c, lib.Scope, lib.ScopeID)
 }
 
 // validateFolderMove checks the library and the two paths, including the one

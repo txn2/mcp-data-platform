@@ -37,6 +37,12 @@ func SQLSamples() map[string]string {
 	}
 	lastRead := filter
 	lastRead.Sort = SortLastRead
+	// The administrator's unrestricted listing, whose visibility clause is a
+	// constant rather than a scope predicate, so every later placeholder in the
+	// statement is numbered from a different starting point (#1553).
+	everyLibrary := filter
+	everyLibrary.Scopes = nil
+	everyLibrary.AllScopes = true
 
 	name, desc := "Q4 report", "the quarterly numbers"
 	update := Update{
@@ -50,6 +56,17 @@ func SQLSamples() map[string]string {
 	updateSQL, _ := buildUpdate("r-1", update)
 	count, page, _ := buildList(filter)
 	_, lastReadPage, _ := buildList(lastRead)
+	everyCount, everyPage, _ := buildList(everyLibrary)
+	// The folder rollup (#1555): a lateral expansion over each path's segments,
+	// which is the one statement here whose shape the planner has to accept
+	// rather than just its predicate.
+	folders, _ := buildFolders(Filter{Scopes: scopes})
+	// The pending-capture predicate (#1554): an ILIKE ANY over a bound array,
+	// two nullable timestamp comparisons, and the whole resource projection.
+	pending, _ := buildPendingThumbnails(Filter{Scopes: scopes}, 25)
+	setThumb := "UPDATE resources SET thumbnail_s3_key = $1, thumbnail_captured_at = $2 WHERE id = $3"
+	clearThumb := "UPDATE resources SET thumbnail_dark_s3_key = '', thumbnail_dark_captured_at = NULL WHERE id = $1"
+	foldersAll, _ := buildFolders(Filter{AllScopes: true})
 
 	return map[string]string{
 		"buildHybridSearch":       hybrid,
@@ -58,5 +75,12 @@ func SQLSamples() map[string]string {
 		"buildList/count":         count,
 		"buildList/page":          page,
 		"buildList/page.lastRead": lastReadPage,
+		"buildList/count.all":     everyCount,
+		"buildList/page.all":      everyPage,
+		"buildFolders":            folders,
+		"buildPendingThumbnails":  pending,
+		"setThumbnail":            setThumb,
+		"clearThumbnail":          clearThumb,
+		"buildFolders/all":        foldersAll,
 	}
 }

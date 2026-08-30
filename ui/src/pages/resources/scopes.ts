@@ -42,12 +42,92 @@ export function isPlatformAdmin(user: UserProfile | null): boolean {
   return user.is_admin || roles.includes("admin") || roles.includes("platform-admin");
 }
 
+/** One entry in the library picker: the key a view is addressed by, and its name. */
+export interface LibraryChoice {
+  key: string;
+  label: string;
+}
+
+/** The key of the unnarrowed library, which is what a page opens on. */
+export const ALL_LIBRARIES = "all";
+
 /**
- * targetForTab names the library a scope tab is showing. The admin "all" tab
+ * personasFor is the personas a caller sees a library for: the one they are
+ * resolved to, the ones they administer, and -- for a platform administrator --
+ * every persona the deployment defines.
+ *
+ * An administrator's list is the whole deployment because their authority is
+ * the whole deployment: CanWriteScope lets them upload into any persona and
+ * ListScopes lets them list any persona, so a picker built from membership
+ * alone would hide libraries they own material in (#1553).
+ */
+function personasFor(user: UserProfile | null, personaNames: string[]): string[] {
+  if (!user) return [];
+  const mine = [user.persona, ...personaAdminNames(user.roles ?? [])].filter(Boolean) as string[];
+  const all = isPlatformAdmin(user) ? [...personaNames, ...mine] : mine;
+  return [...new Set(all)].sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * libraryChoices is what the library picker offers, in the order it offers
+ * them: everything the caller can reach, their own, each persona, then the
+ * global one.
+ *
+ * All heads the list and is where a page opens. A reader's libraries are few
+ * and mostly full of other people's material, so the useful first view is all
+ * of it at once; narrowing to one is the deliberate act.
+ */
+export function libraryChoices(
+  user: UserProfile | null,
+  personaNames: string[],
+): LibraryChoice[] {
+  return [
+    { key: ALL_LIBRARIES, label: "All" },
+    { key: "user", label: "Mine" },
+    ...personasFor(user, personaNames).map((name) => ({ key: name, label: name })),
+    { key: "global", label: "Global" },
+  ];
+}
+
+/**
+ * uploadTargets lists the libraries this caller may add a NEW file to, which is
+ * CanWriteScope's answer rather than CanMoveToLibrary's: uploading into a
+ * persona takes that persona's admin role, while moving a file you already own
+ * into a persona you belong to does not (see moveTargets).
+ *
+ * It is what the upload dialog offers when the view names no single library --
+ * the All view, which every page now opens on. Without it the Upload control
+ * would be admin-only there, and an ordinary reader would have to narrow to
+ * their own library before they could add anything to it.
+ */
+export function uploadTargets(
+  user: UserProfile | null,
+  personaNames: string[],
+): MoveTarget[] {
+  if (!user) return [];
+  return moveTargets(user, personaNames).filter((t) => canWriteScope(user, t));
+}
+
+/**
+ * canUpload answers whether the Upload control is offered for the view in
+ * hand: write authority over the one library it names, or over any library at
+ * all when it names none.
+ */
+export function canUpload(
+  user: UserProfile | null,
+  target: ScopeTarget | null,
+  personaNames: string[],
+): boolean {
+  if (target) return canWriteScope(user, target);
+  return uploadTargets(user, personaNames).length > 0;
+}
+
+/**
+ * targetForTab names the library a picker entry is showing. The All entry
  * spans every library and names none, so it resolves to null.
  */
 export function targetForTab(tab: string, user: UserProfile | null): ScopeTarget | null {
-  if (tab === "all") return null;
+  if (tab === ALL_LIBRARIES) return null;
   if (tab === "global") return { scope: "global", scope_id: "" };
   if (tab === "user") return { scope: "user", scope_id: user?.user_id ?? "" };
   return { scope: "persona", scope_id: tab };

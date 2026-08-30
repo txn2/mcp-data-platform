@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useInfiniteResources } from "@/api/resources/hooks";
+import { useFacets, useInfiniteResources } from "@/api/resources/hooks";
+import type { InfiniteResult } from "@/api/portal/hooks/infinite";
+import type { Resource } from "@/api/resources/types";
+import { ALL_LIBRARIES } from "../scopes";
 import {
   folderPath,
   libraryPath,
@@ -10,17 +13,24 @@ import {
 
 export type { ResourceSort } from "./libraryUrl";
 
-// scopeParams narrows a query to the library the active tab names. The admin
-// "all" tab sends no scope at all, which is what makes it unfiltered.
-function scopeParams(activeTab: string): Record<string, string> {
-  if (activeTab === "all") return {};
+/**
+ * scopeParams narrows a query to the library the picker names. The All entry
+ * sends no scope at all, which is what makes it unfiltered: the server answers
+ * it with every library the caller may read (resource.ListScopes).
+ *
+ * Exported because the recently-updated strip asks the same question of the
+ * same library through its own request, and the two have to be narrowed
+ * identically or the strip would report a library nobody is looking at.
+ */
+export function scopeParams(activeTab: string): Record<string, string> {
+  if (activeTab === ALL_LIBRARIES) return {};
   if (activeTab === "user" || activeTab === "global") return { scope: activeTab };
   return { scope: "persona", scope_id: activeTab };
 }
 
 // liveScope keeps the selection on a library that still exists. The persona
 // scopes come from a live list, so the one in view can disappear under the
-// reader; falling back to the first keeps the query and the tab strip agreeing
+// reader; falling back to the first keeps the query and the picker agreeing
 // instead of leaving the page with nothing selected and nothing shown.
 function liveScope(selected: string, scopes: string[]): string {
   return scopes.includes(selected) ? selected : (scopes[0] ?? selected);
@@ -63,8 +73,12 @@ interface LibrarySection {
  * set, and canonicalizing off the clamped value would discard the link before
  * its scope had loaded.
  */
-export function useResourceLibrary(admin: boolean, scopes: string[], section: LibrarySection) {
-  const defaultTab = admin ? "all" : "user";
+export function useResourceLibrary(scopes: string[], section: LibrarySection) {
+  // Both pages open on All. A reader's libraries are few and mostly hold other
+  // people's material, so the useful first view is all of it at once (#1553);
+  // narrowing to one is the deliberate act, and it is a place, so it is in the
+  // address and Back returns from it.
+  const defaultTab = ALL_LIBRARIES;
   const { basePath, location, onNavigate } = section;
   const view = readLibraryView(location, basePath, defaultTab);
   const activeTab = liveScope(view.tab, scopes);
@@ -101,8 +115,11 @@ export function useResourceLibrary(admin: boolean, scopes: string[], section: Li
     [basePath, defaultTab, onNavigate, location],
   );
 
-  const searching = view.q !== "";
-  const query = useInfiniteResources(listingFor(view, activeTab, searching));
+  const { searching, flat, listing } = viewShape(view);
+  // The tree comes from the server, exactly, in one request (#1555).
+  const facets = useFacets(scopeParams(activeTab));
+
+  const query = useInfiniteResources(listingFor(view, activeTab, searching), listing);
 
   return {
     /** The library in view, clamped to one the caller may look at. */
@@ -110,6 +127,11 @@ export function useResourceLibrary(admin: boolean, scopes: string[], section: Li
     /** The folder in view, "" at the library's root. */
     path: view.path,
     searching,
+    /**
+     * True when the view is a flat list of hits from across the library rather
+     * than one level of its tree: a search, or a tag chosen at the root.
+     */
+    flat,
     searchInput,
     setSearchInput,
     tag: view.tag,
@@ -124,16 +146,69 @@ export function useResourceLibrary(admin: boolean, scopes: string[], section: Li
     addressOf: (path: string) => folderPath(basePath, view, defaultTab, path),
     /** Where this view lives, search box included even mid-debounce. */
     address: libraryPath(basePath, { ...view, q: searchInput }, defaultTab),
-    resources: query.data?.data ?? [],
-    total: query.data?.total ?? 0,
-    isLoading: query.isLoading,
-    hasNextPage: query.hasNextPage,
-    isFetchingNextPage: query.isFetchingNextPage,
-    fetchNextPage: query.fetchNextPage,
+    ...pageOf(query, listing),
+    /** True while the view in hand is still being fetched. */
+    isLoading: listing ? query.isLoading : facets.isLoading,
+    /** The library's folders, exact, whatever level is on screen. */
+    folders: facets.data?.folders ?? [],
+    /** Every tag the library's resources carry, for the tag facet. */
+    tags: facets.data?.tags ?? [],
+    /** True when this view lists files, which is what a count line counts. */
+    listing,
     /** True when a filter is narrowing the view, which is a different
      * emptiness from a folder nobody has uploaded to. */
     filtering: searching || view.tag !== "",
   };
+}
+
+/**
+ * pageOf is what a view contributes from the listing: its rows, its total, and
+ * whether more can be asked for.
+ *
+ * A view that lists no files contributes none of it, whatever the query holds.
+ * The query is disabled there, so what it holds is whatever the last listing
+ * left in the cache -- and a Load-more control over that is a control over rows
+ * nobody is looking at (#1555).
+ */
+function pageOf(query: InfiniteResult<Resource>, listing: boolean) {
+  return {
+    resources: listing ? (query.data?.data ?? []) : [],
+    total: listing ? (query.data?.total ?? 0) : 0,
+    hasNextPage: listing && query.hasNextPage,
+    isFetchingNextPage: listing && query.isFetchingNextPage,
+    fetchNextPage: query.fetchNextPage,
+  };
+}
+
+/**
+ * viewShape is what kind of view an address names, which is what decides
+ * whether a listing runs at all.
+ *
+ * A library's ROOT lists no files: every resource is filed under a folder, so
+ * the root is the folder list and the recently-updated section above it. The
+ * listing used to run there anyway -- to derive the tree from rows it then
+ * never displayed -- which is what put a Load-more control and a
+ * "showing 100 of 138" line over content that was nowhere on screen (#1555).
+ *
+ * Three things override that, and they are the same thing said three ways: each
+ * asks a question about the library rather than about a level of it, so each
+ * replaces the tree with a flat list of what it found.
+ *
+ *   - a search, whose hits ARE the view;
+ *   - a tag, which reaches files in any folder;
+ *   - an ordering other than the default, which is a curator asking the whole
+ *     library "what has nothing read it", and means nothing applied to a list
+ *     of folder names.
+ *
+ * Each of the last two was a control on screen with no listing behind it until
+ * it was added here: choosing it at a root changed nothing at all.
+ */
+function viewShape(view: LibraryView): { searching: boolean; flat: boolean; listing: boolean } {
+  const searching = view.q !== "";
+  const atRoot = view.path === "";
+  const asksTheLibrary = view.tag !== "" || view.sort !== "updated";
+  const flat = searching || (atRoot && asksTheLibrary);
+  return { searching, flat, listing: flat || !atRoot };
 }
 
 /**

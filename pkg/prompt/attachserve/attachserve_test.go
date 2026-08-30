@@ -460,3 +460,27 @@ func TestScopeOfFallsBackToFilename(t *testing.T) {
 	assert.Equal(t, "runbook.md", got.DisplayName)
 	assert.Equal(t, "user", got.Scope)
 }
+
+// Folders is not exercised here: this fake stands in for the read paths a
+// fakeResources uses, and none of them lists a library's folders.
+func (*fakeResources) Folders(_ context.Context, _ resource.Filter) ([]resource.Folder, error) {
+	return nil, nil
+}
+
+// Tags is not exercised here: this fake stands in for the read paths a
+// fakeResources uses, and none of them lists a library's tags.
+func (*fakeResources) Tags(_ context.Context, _ resource.Filter) ([]string, error) {
+	return nil, nil
+}
+
+// The capture routes are not exercised here: this fake stands in for the read
+// paths a fakeResources uses, and none of them captures or lists a thumbnail.
+func (*fakeResources) SetThumbnail(_ context.Context, _ string, _ resource.ThumbnailCapture) error {
+	return nil
+}
+
+func (*fakeResources) ClearThumbnail(_ context.Context, _, _ string) error { return nil }
+
+func (*fakeResources) PendingThumbnails(_ context.Context, _ resource.Filter, _ int) ([]resource.Resource, error) {
+	return nil, nil
+}

@@ -23,7 +23,9 @@ async function openAdminResources(page: Page): Promise<void> {
 test.describe("Resources positioning copy", () => {
   test("the empty scope states what a resource is for", async ({ page }) => {
     await openAdminResources(page);
-    await page.getByRole("tab", { name: "admin", exact: true }).click();
+    // The picker is one listbox now (#1553).
+    await page.getByRole("combobox", { name: "Library" }).click();
+    await page.getByRole("option", { name: "admin", exact: true }).click();
 
     const empty = page.getByTestId("resources-empty");
     await expect(empty).toContainText("Nothing here yet");
@@ -49,15 +51,22 @@ test.describe("Resources positioning copy", () => {
     const dialog = page.getByRole("heading", { name: "Upload Resource" }).locator("../..");
     await expect(dialog).toContainText(RESOURCE_POSITIONING);
 
-    // The hint tracks the folder being typed, so the meaning is in front of the
-    // person at the moment they choose. It is read off the FIRST segment, so a
-    // path nested under a seed folder keeps saying what that folder is for.
-    const folder = dialog.getByLabel("Folder");
+    // The hint tracks the folder chosen, so the meaning is in front of the
+    // person at the moment they choose.
     const hint = page.getByTestId("path-hint");
     await expect(hint).toHaveText("Example payloads and extracts the agent can pattern-match against.");
 
-    await folder.fill("templates");
+    await dialog.getByRole("combobox", { name: "Folder" }).click();
+    await page.getByRole("option", { name: "templates", exact: true }).click();
     await expect(hint).toHaveText("Layouts a deliverable must be produced in, used verbatim.");
+
+    // A folder that does not exist yet is typed, and the hint is read off the
+    // FIRST segment, so a path nested under a seed folder keeps saying what
+    // that folder is for (#1553: the control is a listbox until it is told to
+    // take a new name).
+    await dialog.getByRole("combobox", { name: "Folder" }).click();
+    await page.getByRole("option", { name: "New folder..." }).click();
+    const folder = dialog.getByLabel("Folder");
 
     await folder.fill("references/glossary/terms");
     await expect(hint).toHaveText("Data dictionaries, standards, and background documents to consult.");

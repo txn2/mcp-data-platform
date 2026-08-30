@@ -17267,7 +17267,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "List managed resources visible to the caller, with optional filters.",
+                "description": "List managed resources the caller may read: their own, their personas', and global. A platform administrator's unfiltered listing spans every library, and a scope they may write to is listable whether or not they belong to it.",
                 "produces": [
                     "application/json"
                 ],
@@ -17472,6 +17472,65 @@
                 }
             }
         },
+        "/resources/facets": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The folders of the libraries the caller may read, each with the exact number of resources filed under it at every depth, and the distinct tags those resources carry. Both are derived from the rows rather than stored, so this is what a tree and a tag filter are drawn from; deriving them from a page of the listing could only ever report what had arrived.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "List a library's facets",
+                "parameters": [
+                    {
+                        "enum": [
+                            "global",
+                            "persona",
+                            "user"
+                        ],
+                        "type": "string",
+                        "description": "Filter by scope",
+                        "name": "scope",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by scope ID (persona name or user sub)",
+                        "name": "scope_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/resource.facetsResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/resources/folders/move": {
             "post": {
                 "security": [
@@ -17537,6 +17596,54 @@
                     },
                     "409": {
                         "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/resources/thumbnails/pending": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Resources the caller may read whose thumbnail is missing or older than the file it was captured from, most recently changed first. Nothing on a server can rasterize a document, so this is the work list a portal tab does on the deployment's behalf.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "List resources needing a thumbnail",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Max results to return (default 100, max 200)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/resource.listResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
                         "schema": {
                             "$ref": "#/definitions/resource.errorResponse"
                         }
@@ -17876,6 +17983,191 @@
                     },
                     "503": {
                         "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/resources/{id}/thumbnail": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Serve the captured PNG for a resource. Reading a tile is the authority to read the resource; a resource with no capture answers 404, which is what tells a card to draw its content-type icon instead.",
+                "produces": [
+                    "image/png"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "Read a resource's thumbnail",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Resource ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "enum": [
+                            "light",
+                            "dark"
+                        ],
+                        "type": "string",
+                        "description": "Which capture to serve",
+                        "name": "variant",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Upload a captured PNG for a resource. Capturing is the authority to change the file, which is its uploader or an administrator of its library -- the same rule replacing its content runs under.",
+                "consumes": [
+                    "image/png"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "Store a resource's thumbnail",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Resource ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "enum": [
+                            "light",
+                            "dark"
+                        ],
+                        "type": "string",
+                        "description": "Which capture this is",
+                        "name": "variant",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_txn2_mcp-data-platform_pkg_resource.Resource"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "413": {
+                        "description": "Request Entity Too Large",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Forget a resource's capture, which leaves it pending and asks the portal to take another. It is the way back from a tile that is wrong.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "Clear a resource's thumbnail",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Resource ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "enum": [
+                            "light",
+                            "dark"
+                        ],
+                        "type": "string",
+                        "description": "Which capture to clear",
+                        "name": "variant",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/resource.errorResponse"
                         }
@@ -22159,6 +22451,20 @@
                         "type": "string"
                     }
                 },
+                "thumbnail_captured_at": {
+                    "description": "ThumbnailCapturedAt and ThumbnailDarkCapturedAt are when each capture was\ntaken. A capture older than the resource's UpdatedAt is behind the file it\ncame from, which is what the pending list is built on; see migration\n000134 for why this is a timestamp rather than a version.",
+                    "type": "string"
+                },
+                "thumbnail_dark_captured_at": {
+                    "type": "string"
+                },
+                "thumbnail_dark_s3_key": {
+                    "type": "string"
+                },
+                "thumbnail_s3_key": {
+                    "description": "ThumbnailS3Key and ThumbnailDarkS3Key are the captured PNGs stored beside\nthe resource's own object, empty until one is taken (#1554). The library\nused to draw the original file scaled down instead, which meant a\nnon-image had no tile at all and an image cost its full size to show.",
+                    "type": "string"
+                },
                 "updated_at": {
                     "type": "string"
                 },
@@ -24903,6 +25209,21 @@
                 }
             }
         },
+        "resource.Folder": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "description": "Count is the resources filed at this path and beneath it.",
+                    "type": "integer",
+                    "example": 12
+                },
+                "path": {
+                    "description": "Path is the folder's full slash-separated path inside its library.",
+                    "type": "string",
+                    "example": "data/media-manager"
+                }
+            }
+        },
         "resource.FolderMove": {
             "type": "object",
             "properties": {
@@ -25064,6 +25385,23 @@
                 }
             }
         },
+        "resource.facetsResponse": {
+            "type": "object",
+            "properties": {
+                "folders": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/resource.Folder"
+                    }
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "resource.folderMoveRequest": {
             "type": "object",
             "properties": {
@@ -25172,6 +25510,20 @@
                     "items": {
                         "type": "string"
                     }
+                },
+                "thumbnail_captured_at": {
+                    "description": "ThumbnailCapturedAt and ThumbnailDarkCapturedAt are when each capture was\ntaken. A capture older than the resource's UpdatedAt is behind the file it\ncame from, which is what the pending list is built on; see migration\n000134 for why this is a timestamp rather than a version.",
+                    "type": "string"
+                },
+                "thumbnail_dark_captured_at": {
+                    "type": "string"
+                },
+                "thumbnail_dark_s3_key": {
+                    "type": "string"
+                },
+                "thumbnail_s3_key": {
+                    "description": "ThumbnailS3Key and ThumbnailDarkS3Key are the captured PNGs stored beside\nthe resource's own object, empty until one is taken (#1554). The library\nused to draw the original file scaled down instead, which meant a\nnon-image had no tile at all and an image cost its full size to show.",
+                    "type": "string"
                 },
                 "updated_at": {
                     "type": "string"

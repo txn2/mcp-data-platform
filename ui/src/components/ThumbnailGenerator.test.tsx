@@ -1,10 +1,14 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, waitFor } from "@testing-library/react";
 
 // html2canvas rasterizes through a real canvas, which jsdom does not have, so
 // it is stood in for. What was drawn is asserted against the capture containers
 // still in the document, which is where #1432 was visible.
+// The uploader builds the whole URL and calls fetch itself, because an asset
+// and a resource live under different API roots (#1554). Watching a client mock
+// here would watch a client it no longer uses.
 const { fetchRaw } = vi.hoisted(() => ({ fetchRaw: vi.fn() }));
+const fetchMock = vi.fn();
 vi.mock("html2canvas", () => ({
   default: () => Promise.resolve({ toBlob: (cb: (b: Blob | null) => void) => cb(new Blob()) }),
 }));
@@ -16,11 +20,25 @@ import { ThumbnailGenerator } from "./ThumbnailGenerator";
 beforeEach(() => {
   fetchRaw.mockReset();
   fetchRaw.mockResolvedValue({ ok: true });
+  fetchMock.mockReset();
+  fetchMock.mockResolvedValue({ ok: true, status: 200 });
+  vi.stubGlobal("fetch", fetchMock);
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 /** The variant of every upload the capture made, in order. */
 function uploadedVariants(): string[] {
-  return fetchRaw.mock.calls.map((call) => (String(call[0]).includes("variant=dark") ? "dark" : "light"));
+  return uploads().map((url) => (url.includes("variant=dark") ? "dark" : "light"));
+}
+
+/** The URLs the capture PUT to, which is what says where an upload went. */
+function uploads(): string[] {
+  return fetchMock.mock.calls
+    .filter((call) => (call[1] as RequestInit | undefined)?.method === "PUT")
+    .map((call) => String(call[0]));
 }
 
 const DOC = '{"name":"acme","rows":[1,2]}';
@@ -45,7 +63,9 @@ describe("a JSON asset", () => {
   it("records the version the capture was rendered from", async () => {
     render(<ThumbnailGenerator assetId="ast-1" content={DOC} contentType="application/json" version={3} />);
     await waitFor(() => expect(uploadedVariants()).toEqual(["light", "dark"]));
-    expect(String(fetchRaw.mock.calls[0]?.[0])).toContain("version=3");
+    // The full URL, so an upload sent to the wrong API root fails here rather
+    // than passing on a fragment a client mock would have prefixed (#1554).
+    expect(uploads()[0]).toBe("/api/v1/portal/assets/ast-1/thumbnail?version=3");
   });
 
   it("is recognized through a vendor dialect", async () => {
@@ -131,7 +151,7 @@ describe("the families the capturer already drew", () => {
       <ThumbnailGenerator assetId="ast-4" content="%PDF-1.7" contentType="application/pdf" />,
     );
     expect(container).toBeEmptyDOMElement();
-    expect(fetchRaw).not.toHaveBeenCalled();
+    expect(uploads()).toEqual([]);
   });
 });
 
@@ -179,7 +199,7 @@ describe("an artifact that lost its references", () => {
     ready(2);
 
     await waitFor(() => expect(onFailed).toHaveBeenCalled());
-    expect(fetchRaw).not.toHaveBeenCalled();
+    expect(uploads()).toEqual([]);
   });
 
   it("is stored when every reference loaded", async () => {
@@ -198,7 +218,7 @@ describe("an artifact that lost its references", () => {
     ready(0);
 
     await waitFor(() => expect(onCaptured).toHaveBeenCalled());
-    expect(String(fetchRaw.mock.calls[0]?.[0])).toContain("/assets/ast-11/thumbnail?version=3");
+    expect(uploads()[0]).toBe("/api/v1/portal/assets/ast-11/thumbnail?version=3");
   });
 
   // A frame from before this message carried no count. Reading its absence as a
@@ -218,6 +238,36 @@ describe("an artifact that lost its references", () => {
     ready();
 
     await waitFor(() => expect(onCaptured).toHaveBeenCalled());
-    expect(fetchRaw).toHaveBeenCalled();
+    expect(uploads()).not.toEqual([]);
+  });
+});
+
+// A type none of the three capture paths handles.
+//
+// The queue holds one item at a time and moves on when the capture reports
+// back, so a generator that quietly rendered nothing left it holding that item
+// forever: one undispatchable entry and no thumbnail after it was ever captured
+// in that tab, for either kind (#1554). Reporting the failure is what keeps the
+// queue moving.
+describe("a content type nothing can render", () => {
+  it("reports a failure rather than rendering nothing", async () => {
+    const onCaptured = vi.fn();
+    const onFailed = vi.fn();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    render(
+      <ThumbnailGenerator
+        assetId="ast-x"
+        content="%PDF-1.7"
+        contentType="application/pdf"
+        onCaptured={onCaptured}
+        onFailed={onFailed}
+      />,
+    );
+
+    await waitFor(() => expect(onFailed).toHaveBeenCalledTimes(1));
+    expect(onCaptured).not.toHaveBeenCalled();
+    // And nothing was uploaded for it.
+    expect(uploads()).toEqual([]);
   });
 });

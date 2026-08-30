@@ -16,6 +16,7 @@ import {
   captureIframe,
   uploadThumbnail,
   isThemeable,
+  type ThumbnailTarget,
 } from "@/lib/thumbnail";
 import { CT, normalizeContentType } from "@/lib/contentType";
 import {
@@ -34,9 +35,16 @@ import {
   type JsonThumbnailLines,
   type NdjsonThumbnailRecord,
 } from "@/components/thumbnail/JsonThumbnailBody";
+import { ImageCapture } from "@/components/thumbnail/ImageCapture";
 
 interface Props {
   assetId: string;
+  /**
+   * What the capture belongs to. A managed resource is captured by the same
+   * capturer and uploaded to its own route (#1554); absent, this is an asset,
+   * which is what every existing caller means.
+   */
+  kind?: "asset" | "resource";
   content: string;
   contentType: string;
   /**
@@ -56,13 +64,25 @@ interface Props {
  * Calls onFailed (or onCaptured) after CAPTURE_TIMEOUT_MS if capture hasn't
  * completed, so the caller can move on.
  */
-export function ThumbnailGenerator({ assetId, content, contentType, version, onCaptured, onFailed }: Props) {
+export function ThumbnailGenerator({
+  assetId,
+  kind = "asset",
+  content,
+  contentType,
+  version,
+  onCaptured,
+  onFailed,
+}: Props) {
   const ct = contentType.toLowerCase();
+  // Memoized: a fresh object each render would re-fire every capture effect
+  // that depends on it, which for the image path means re-uploading on every
+  // parent render.
+  const target = useMemo<ThumbnailTarget>(() => ({ kind, id: assetId }), [kind, assetId]);
 
   if (ct.includes("html") || ct.includes("jsx")) {
     return (
       <IframeCapture
-        assetId={assetId}
+        target={target}
         content={content}
         contentType={contentType}
         version={version}
@@ -75,7 +95,7 @@ export function ThumbnailGenerator({ assetId, content, contentType, version, onC
   if (domKind(contentType) !== null) {
     return (
       <DomCapture
-        assetId={assetId}
+        target={target}
         content={content}
         contentType={contentType}
         version={version}
@@ -85,6 +105,45 @@ export function ThumbnailGenerator({ assetId, content, contentType, version, onC
     );
   }
 
+  // A raster image is not rendered, it is resized (#1554). The tile used to be
+  // the original object scaled down by CSS, so a gallery pulled every file at
+  // full size to draw postage stamps and anything past a cutoff drew nothing.
+  if (ct.startsWith("image/")) {
+    return (
+      <ImageCapture
+        target={target}
+        contentType={contentType}
+        version={version}
+        onCaptured={onCaptured}
+        onFailed={onFailed}
+      />
+    );
+  }
+
+  // A type none of the three can render. Saying so is not optional: the queue
+  // holds one item at a time and moves on when the capture reports back, so a
+  // generator that quietly rendered nothing left `current` set forever and the
+  // whole queue stopped -- one undispatchable item and no thumbnail after it
+  // was ever captured, in that tab, for any asset or resource (#1554).
+  //
+  // The server offers only types this dispatches, so reaching here means the
+  // two lists have drifted apart; the queue spends an attempt and keeps going.
+  return <UnsupportedType contentType={contentType} onFailed={onFailed} />;
+}
+
+/** Reports, once, that nothing here can render this type. */
+function UnsupportedType({
+  contentType,
+  onFailed,
+}: {
+  contentType: string;
+  onFailed?: () => void;
+}) {
+  useEffect(() => {
+    // eslint-disable-next-line no-console
+    console.warn(`thumbnail: nothing renders ${contentType}; skipping this capture`);
+    onFailed?.();
+  }, [contentType, onFailed]);
   return null;
 }
 
@@ -119,14 +178,14 @@ function domKind(contentType: string): DomKind | null {
  * then captures the iframe content directly.
  */
 function IframeCapture({
-  assetId,
+  target,
   content,
   contentType,
   version,
   onCaptured,
   onFailed,
 }: {
-  assetId: string;
+  target: ThumbnailTarget;
   content: string;
   contentType: string;
   version?: number;
@@ -135,6 +194,9 @@ function IframeCapture({
 }) {
   const capturedRef = useRef(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  // The id names the iframe's message channel, which is a different job from
+  // naming the route the capture is uploaded to.
+  const assetId = target.id;
   const isJsx = contentType.toLowerCase().includes("jsx");
 
   const blobUrl = useMemo(() => {
@@ -160,12 +222,12 @@ function IframeCapture({
     }
     try {
       const blob = await captureIframe(iframeRef.current);
-      await uploadThumbnail(assetId, blob, "light", version);
+      await uploadThumbnail(target, blob, "light", version);
       onCaptured?.();
     } catch {
       onFailed?.();
     }
-  }, [assetId, version, onCaptured, onFailed]);
+  }, [target, version, onCaptured, onFailed]);
 
   useEffect(() => {
     function handleMessage(e: MessageEvent) {
@@ -292,14 +354,14 @@ async function captureContainer(container: HTMLElement, bg: string): Promise<Blo
  * to their respective variants; SVG carries its own colors and is captured once.
  */
 function DomCapture({
-  assetId,
+  target,
   content,
   contentType,
   version,
   onCaptured,
   onFailed,
 }: {
-  assetId: string;
+  target: ThumbnailTarget;
   content: string;
   contentType: string;
   version?: number;
@@ -370,7 +432,7 @@ function DomCapture({
         // Let layout settle after mermaid SVGs are inserted
         await new Promise((r) => requestAnimationFrame(r));
         const blob = await captureContainer(container, scheme.tokens.bg);
-        await uploadThumbnail(assetId, blob, scheme.variant, version);
+        await uploadThumbnail(target, blob, scheme.variant, version);
         anySucceeded = true;
       } catch {
         // Skip this variant; other variants and a later retry can still fill it.
@@ -381,7 +443,7 @@ function DomCapture({
     } else {
       onFailed?.();
     }
-  }, [assetId, schemes, version, onCaptured, onFailed]);
+  }, [target, schemes, version, onCaptured, onFailed]);
 
   useEffect(() => {
     void doCapture();

@@ -6,6 +6,7 @@ import {
 } from "@/api/portal/hooks/infinite";
 import { resourceFetch, resourceFetchRaw } from "./client";
 import type {
+  FacetsResponse,
   FolderMoveRequest,
   FolderMoveResult,
   Resource,
@@ -44,6 +45,49 @@ function resourceParams(params: ResourceQuery | undefined): URLSearchParams {
   return sp;
 }
 
+/**
+ * useFacets is what the library in view holds: its folders with exact counts,
+ * and the tags its resources carry.
+ *
+ * Both used to be derived in the browser from the paged listing, so drawing
+ * four folder names cost a fetch of the whole library, every count read "25+"
+ * until the last page arrived, and the tag filter offered only the tags that
+ * page happened to mention (#1555). One request answers both exactly.
+ */
+export function useFacets(params?: { scope?: string; scope_id?: string }) {
+  const sp = new URLSearchParams();
+  if (params?.scope) sp.set("scope", params.scope);
+  if (params?.scope_id) sp.set("scope_id", params.scope_id);
+  const qs = sp.toString();
+
+  return useQuery({
+    queryKey: ["resource-facets", qs],
+    queryFn: () => resourceFetch<FacetsResponse>(`/facets${qs ? `?${qs}` : ""}`),
+  });
+}
+
+/** How often a tab asks the server what still needs a capture. */
+const THUMBNAIL_PENDING_POLL_MS = 5 * 60_000;
+
+/**
+ * usePendingResourceThumbnails lists the resources whose capture is missing or
+ * older than the file it came from.
+ *
+ * The server decides what is pending, from the row rather than from queue
+ * state, so a tab does not have to be displaying a resource -- or be on the
+ * Resources page at all -- to capture one (#1554).
+ */
+export function usePendingResourceThumbnails() {
+  return useQuery({
+    queryKey: ["resource-thumbnails-pending"],
+    queryFn: () => resourceFetch<ResourceListResponse>("/thumbnails/pending"),
+    refetchInterval: THUMBNAIL_PENDING_POLL_MS,
+    refetchOnWindowFocus: true,
+    staleTime: THUMBNAIL_PENDING_POLL_MS,
+    select: (r) => ({ data: r.resources, total: r.total }),
+  });
+}
+
 export function useResources(params?: ResourceQuery) {
   const qs = resourceParams(params).toString();
 
@@ -64,10 +108,17 @@ const resourceKey = (r: Resource): string => r.id;
 // accumulates pages so a deployment with more than one page of resources can
 // reach all of them (#972). The list endpoint returns a `{resources,total}`
 // envelope, adapted to the shared PaginatedResponse shape here.
-export function useInfiniteResources(params?: ResourceQuery): InfiniteResult<Resource> {
+export function useInfiniteResources(
+  params?: ResourceQuery,
+  // enabled is false on a view that lists no files -- a library root, whose
+  // tree comes from the folder endpoint (#1555). The listing used to run there
+  // to derive the tree from rows it never displayed.
+  enabled = true,
+): InfiniteResult<Resource> {
   const qs = resourceParams(params).toString();
   return useOffsetInfiniteQuery<Resource>({
     queryKey: ["resources", "infinite", qs],
+    enabled,
     pageSize: RESOURCE_PAGE_SIZE,
     keyOf: resourceKey,
     fetchPage: (offset, limit) => {

@@ -4,17 +4,84 @@ import {
   openResourceSubfolder,
 } from "./route-actions-library";
 import {
+  openCorrectedVersion,
   openGlossaryResourceTables,
+  openPersonaScopeTab,
   openResourceDetail,
   openResourceLifecycle,
   openResourceMove,
   openTableRegisterForm,
   openTableRepairOffer,
   openTableRepaired,
-  openCorrectedVersion,
 } from "./route-actions";
 import { openResourceUsedByAssets } from "./route-actions-refs";
 import { type ScreenshotRoute } from "./route-types";
+
+// The reader's own Resources page, as against the administrator's section
+// below. They live here rather than inline in the manifest for the reason the
+// admin ones do: one surface grown past what belongs in a shared file.
+export const userResourceRoutes: ScreenshotRoute[] = [
+  {
+    slug: "resources",
+    path: "/portal/resources",
+    category: "user",
+    beforeCapture: openPersonaScopeTab,
+  },
+  {
+    // The library as it opens (#1553): every library the reader can reach at
+    // once, the ten files that changed last above the folders, and each file
+    // as a card rather than a row. It is the default view, so it is captured
+    // with nothing done to it.
+    slug: "resources-recent",
+    path: "/portal/resources",
+    category: "user",
+    beforeCapture: async (page) => {
+      await page
+        .getByTestId("recent-resources")
+        .waitFor({ state: "visible", timeout: 5_000 })
+        .catch(() => {});
+      await page.waitForTimeout(400);
+    },
+  },
+  {
+    // The global library on the reader's own Resources page, where a platform
+    // administrator is offered Upload (#1527). The control follows the caller's
+    // authority rather than which section the page was mounted in, so the
+    // library an administrator can publish to says so on the page they were
+    // already reading it on.
+    slug: "resources-global",
+    path: "/portal/resources",
+    category: "user",
+    beforeCapture: async (page) => {
+      await page.getByRole("combobox", { name: "Library" }).click({ timeout: 3_000 });
+      await page.getByRole("option", { name: "Global", exact: true }).click({ timeout: 3_000 });
+      // Waited on rather than timed out: a swallowed click would ship the
+      // caller's own library captioned as the global one, which is the opposite
+      // of what this documents.
+      await page
+        .getByRole("button", { name: "Upload", exact: true })
+        .waitFor({ state: "visible", timeout: 5_000 });
+      await page.waitForTimeout(400);
+    },
+  },
+  {
+    // Resource upload modal.
+    slug: "resource-upload",
+    path: "/portal/resources",
+    category: "user",
+    beforeCapture: async (page) => {
+      // Open the Upload modal via the always-visible header "Upload" button
+      // (the empty-state "Upload Resource" button is absent once resources
+      // are populated, which previously left this capture showing the list).
+      await page
+        .getByRole("button", { name: "Upload", exact: true })
+        .first()
+        .click({ timeout: 3_000 })
+        .catch(() => {});
+      await page.waitForTimeout(700);
+    },
+  },
+];
 
 // Every managed-resource capture on the admin surface: the page as it opens,
 // the lifecycle surfaces below its sidebar's fold, and the registered-table

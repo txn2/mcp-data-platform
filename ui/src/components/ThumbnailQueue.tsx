@@ -1,8 +1,11 @@
 import { Suspense, lazy, useState, useEffect, useCallback, useRef } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type QueryKey } from "@tanstack/react-query";
 import { apiFetchRaw } from "@/api/portal/client";
+import { resourceFetchRaw } from "@/api/resources/client";
 import { usePendingThumbnails } from "@/api/portal/hooks/assets";
+import { usePendingResourceThumbnails } from "@/api/resources/hooks";
 import type { Asset } from "@/api/portal/types";
+import type { Resource } from "@/api/resources/types";
 import { useIdleGate } from "@/lib/idle";
 
 // The capturer pulls in html2canvas, the markdown renderer and the diagram
@@ -14,15 +17,15 @@ const ThumbnailGenerator = lazy(() =>
 );
 
 /**
- * How many assets one batch will capture.
+ * How many attempts one asset gets before the queue leaves it alone.
  *
- * Capture is a long main-thread task per asset, so an unbounded backfill of a
- * large library is a tab that stalls repeatedly rather than once. The server
- * offers more than this per poll so that assets whose capture fails do not
- * crowd out the ones that would succeed; the rest are picked up by the next
- * poll, and a library fills in over a few of them.
+ * A capture that fails used to be recorded and never offered again for the life
+ * of the tab, so one transient failure -- a fetch that lost a race, a renderer
+ * that had not finished loading -- meant that asset kept its placeholder until
+ * somebody reloaded the page (#1554). A bounded retry is the difference between
+ * "this document cannot be rasterized" and "not this time".
  */
-const MAX_CAPTURES_PER_BATCH = 8;
+const MAX_ATTEMPTS_PER_ASSET = 3;
 
 /**
  * The state that put this asset on the pending list.
@@ -52,6 +55,64 @@ function attemptKey(a: Asset): string {
 }
 
 /**
+ * Where one kind's capture work comes from.
+ *
+ * An asset and a managed resource are captured by the same capturer in the same
+ * tab under the same idle gate; what differs is the work list, the route the
+ * content is read from, and what makes an item's pending state different from
+ * the one already tried. Forking the queue per kind would have duplicated the
+ * accounting that took three tickets to get right.
+ */
+interface CaptureSource<T> {
+  kind: "asset" | "resource";
+  usePending: () => { data?: { data: T[] }; dataUpdatedAt: number };
+  fetchContent: (item: T) => Promise<Response>;
+  attemptKey: (item: T) => string;
+  id: (item: T) => string;
+  contentType: (item: T) => string;
+  /** The version a capture is stamped with, for a kind that has one. */
+  version?: (item: T) => number | undefined;
+  /** What to refresh once a run of captures has landed. */
+  invalidateKey: QueryKey;
+}
+
+const assetSource: CaptureSource<Asset> = {
+  kind: "asset",
+  usePending: usePendingThumbnails,
+  fetchContent: (a) => apiFetchRaw(`/assets/${a.id}/content`),
+  attemptKey,
+  id: (a) => a.id,
+  contentType: (a) => a.content_type,
+  version: (a) => a.current_version,
+  invalidateKey: ["assets"],
+};
+
+/**
+ * The same for a managed resource (#1554).
+ *
+ * A resource row carries no version: its revisions live in resource_versions
+ * and the server stamps a capture with the resource's own updated_at, so
+ * nothing is sent and the attempt key turns on that timestamp instead.
+ */
+const resourceSource: CaptureSource<Resource> = {
+  kind: "resource",
+  usePending: usePendingResourceThumbnails,
+  fetchContent: (r) => resourceFetchRaw(`/${r.id}/content`),
+  attemptKey: (r) =>
+    [
+      r.id,
+      r.updated_at,
+      r.thumbnail_captured_at ?? "",
+      r.thumbnail_dark_captured_at ?? "",
+      r.thumbnail_s3_key ?? "",
+      r.thumbnail_dark_s3_key ?? "",
+    ].join("\u0000"),
+  id: (r) => r.id,
+  contentType: (r) => r.mime_type,
+  invalidateKey: ["resources"],
+};
+
+/**
  * Background queue that fills in thumbnails the portal is missing or holding a
  * stale copy of.
  *
@@ -71,14 +132,30 @@ function attemptKey(a: Asset): string {
  * moved on -- is a new reason and is offered again (#1501).
  */
 export function ThumbnailQueue() {
+  return (
+    <>
+      <CaptureQueue source={assetSource} />
+      <CaptureQueue source={resourceSource} />
+    </>
+  );
+}
+
+/**
+ * One kind's queue. The capturer, the idle gate and the attempt accounting are
+ * the same for both; a source says where the work list comes from, where the
+ * content is read, and what makes one item's pending state different from the
+ * last (#1554).
+ */
+function CaptureQueue<T>({ source }: { source: CaptureSource<T> }) {
   const qc = useQueryClient();
-  const { data, dataUpdatedAt } = usePendingThumbnails();
-  const [current, setCurrent] = useState<{ asset: Asset; content: string } | null>(null);
+  const { data, dataUpdatedAt } = source.usePending();
+  const [current, setCurrent] = useState<{ item: T; content: string; key: string } | null>(null);
   // Bumped when an asset is passed over, which is the one transition that
   // changes what comes next without changing any state of its own.
   const [, forceRecheck] = useState(0);
-  const attemptedRef = useRef(new Set<string>());
-  const capturedThisBatch = useRef(0);
+  // Attempts per reason rather than a set of reasons seen, so a failure costs
+  // one try instead of the whole tab (#1554).
+  const attemptsRef = useRef(new Map<string, number>());
   // Set when a capture uploads during the current drain. The asset list is
   // refreshed once, when the queue goes idle, rather than after every capture:
   // a per-capture invalidation refetched the list and re-rendered the grid on
@@ -86,18 +163,27 @@ export function ThumbnailQueue() {
   // in-flight loads) so thumbnails never settled.
   const dirtyRef = useRef(false);
 
-  // A fresh answer from the server starts a fresh batch: the budget below is
-  // per batch, so a tab left open all day keeps picking up work rather than
-  // spending one allowance and stopping.
+  // A fresh answer from the server is a fresh set of reasons: an asset whose
+  // state moved is a new key and is offered again on its own.
   useEffect(() => {
-    capturedThisBatch.current = 0;
+    // Read so the effect re-runs on a refetch; the map is keyed on state that
+    // the refetch may have changed, so nothing has to be cleared.
+    void dataUpdatedAt;
   }, [dataUpdatedAt]);
 
   const pending = data?.data;
-  const next =
-    !current && capturedThisBatch.current < MAX_CAPTURES_PER_BATCH
-      ? pending?.find((a) => !attemptedRef.current.has(attemptKey(a)))
-      : undefined;
+  // The whole pending list, one asset at a time, until it is done. There used
+  // to be a budget of eight per poll here, and the poll is five minutes apart:
+  // a library needing two hundred captures filled in at eight per five minutes,
+  // which to anybody watching is a queue that captured a few and quit (#1554).
+  // What protects the reader's page is the idle gate below -- the queue works
+  // only while the browser is idle with the tab in front -- not an arbitrary
+  // count.
+  const next = current
+    ? undefined
+    : pending?.find(
+        (a) => (attemptsRef.current.get(source.attemptKey(a)) ?? 0) < MAX_ATTEMPTS_PER_ASSET,
+      );
 
   const idle = useIdleGate(!!next);
 
@@ -107,24 +193,22 @@ export function ThumbnailQueue() {
   useEffect(() => {
     if (!idle || !next) return;
 
-    // Marked attempted before the fetch, so a failure moves the queue on rather
-    // than offering the same asset again the moment this effect re-runs.
-    attemptedRef.current.add(attemptKey(next));
+    // Counted before the fetch, so a failure moves the queue on rather than
+    // offering the same asset again the moment this effect re-runs. The count
+    // is what lets it come back later rather than never.
+    const key = source.attemptKey(next);
+    attemptsRef.current.set(key, (attemptsRef.current.get(key) ?? 0) + 1);
 
     let cancelled = false;
-    apiFetchRaw(`/assets/${next.id}/content`)
+    source
+      .fetchContent(next)
       .then((res) => {
         if (!res.ok) throw new Error("fetch failed");
         return res.text();
       })
       .then((text) => {
         if (cancelled) return;
-        // The budget counts captures, not attempts. Spending it here — where
-        // the content is in hand and the capture is about to run — is what
-        // keeps an abandoned attempt from consuming a slot and eventually
-        // wedging the queue with a budget it never spent on anything.
-        capturedThisBatch.current++;
-        setCurrent({ asset: next, content: text });
+        setCurrent({ item: next, content: text, key });
       })
       .catch(() => {
         if (!cancelled) forceRecheck((n) => n + 1);
@@ -135,10 +219,16 @@ export function ThumbnailQueue() {
   }, [idle, next]);
 
   const handleCaptured = useCallback(() => {
-    // Deferred to the drain effect below so a batch of captures triggers a
+    // A captured reason is spent, whatever its attempt count: the server stops
+    // offering the asset once it holds the image, and until that answer arrives
+    // the queue must not pick the same one up again.
+    setCurrent((c) => {
+      if (c) attemptsRef.current.set(c.key, MAX_ATTEMPTS_PER_ASSET);
+      return null;
+    });
+    // Deferred to the drain effect below so a run of captures triggers a
     // single refetch instead of one per capture.
     dirtyRef.current = true;
-    setCurrent(null);
   }, []);
 
   const handleFailed = useCallback(() => {
@@ -151,19 +241,20 @@ export function ThumbnailQueue() {
   useEffect(() => {
     if (!current && !next && dirtyRef.current) {
       dirtyRef.current = false;
-      void qc.invalidateQueries({ queryKey: ["assets"] });
+      void qc.invalidateQueries({ queryKey: source.invalidateKey });
     }
-  }, [current, next, qc]);
+  }, [current, next, qc, source]);
 
   if (!current) return null;
 
   return (
     <Suspense fallback={null}>
       <ThumbnailGenerator
-        assetId={current.asset.id}
+        assetId={source.id(current.item)}
+        kind={source.kind}
         content={current.content}
-        contentType={current.asset.content_type}
-        version={current.asset.current_version}
+        contentType={source.contentType(current.item)}
+        version={source.version?.(current.item)}
         onCaptured={handleCaptured}
         onFailed={handleFailed}
       />

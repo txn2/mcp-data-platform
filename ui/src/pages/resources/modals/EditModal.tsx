@@ -1,6 +1,6 @@
 import { useCallback, useId, useMemo, useState } from "react";
 import { X, Loader2 } from "lucide-react";
-import { useResources, useUpdateResource } from "@/api/resources/hooks";
+import { useFacets, useUpdateResource } from "@/api/resources/hooks";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,7 +13,7 @@ import { useAuthStore } from "@/stores/auth";
 import { ModalShell } from "@/components/ModalShell";
 import { PathField } from "../parts/PathField";
 import { pathProblem } from "../parts/pathRules";
-import { everyFolder } from "../parts/tree";
+import { folderPaths } from "../parts/tree";
 import { LibraryField } from "./LibraryField";
 import {
   isPlatformAdmin,
@@ -50,8 +50,6 @@ function moveFields(
  * than the list of folders that exist -- the field takes any path typed into it
  * -- so one page is the right amount to pay for on a dialog.
  */
-const FOLDER_SUGGESTION_LIMIT = 200;
-
 /** What the form holds, as the fields a PATCH would carry. */
 interface EditDraft {
   displayName: string;
@@ -92,19 +90,20 @@ export function EditModal({
   onClose: () => void;
 }) {
   const update = useUpdateResource();
-  // The folders already in this file's own library, offered as completions on
-  // the path field. Read here rather than passed in because the dialog opens
-  // from the resource's own page, which knows one resource and not a library --
-  // and a field that suggested nothing would grow three spellings of the same
-  // folder.
-  const { data: inThisLibrary } = useResources({
+  // The folders already in this file's own library, offered on the path field.
+  // Read here rather than passed in because the dialog opens from the
+  // resource's own page, which knows one resource and not a library -- and a
+  // field that suggested nothing would grow three spellings of the same folder.
+  //
+  // The server's list, so it is every folder rather than the ones a capped page
+  // of the listing happened to mention (#1555).
+  const { data: libraryFacets } = useFacets({
     scope: r.scope,
     scope_id: r.scope_id || undefined,
-    limit: FOLDER_SUGGESTION_LIMIT,
   });
   const folders = useMemo(
-    () => everyFolder(inThisLibrary?.resources ?? []),
-    [inThisLibrary],
+    () => folderPaths(libraryFacets?.folders ?? []),
+    [libraryFacets],
   );
   const user = useAuthStore((s) => s.user);
   // The deployment's personas, which the Library picker offers a platform

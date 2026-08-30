@@ -233,3 +233,27 @@ func TestResolveResourcesCarriesTheCallerScopes(t *testing.T) {
 		"a prompt with no attachments resolves to nothing")
 	assert.Nil(t, b.ResolveResources(context.Background(), pr, nil))
 }
+
+// Folders is not exercised here: this fake stands in for the read paths a
+// noResources uses, and none of them lists a library's folders.
+func (noResources) Folders(_ context.Context, _ resource.Filter) ([]resource.Folder, error) {
+	return nil, nil
+}
+
+// Tags is not exercised here: this fake stands in for the read paths a
+// noResources uses, and none of them lists a library's tags.
+func (noResources) Tags(_ context.Context, _ resource.Filter) ([]string, error) {
+	return nil, nil
+}
+
+// The capture routes are not exercised here: this fake stands in for the read
+// paths a noResources uses, and none of them captures or lists a thumbnail.
+func (noResources) SetThumbnail(_ context.Context, _ string, _ resource.ThumbnailCapture) error {
+	return nil
+}
+
+func (noResources) ClearThumbnail(_ context.Context, _, _ string) error { return nil }
+
+func (noResources) PendingThumbnails(_ context.Context, _ resource.Filter, _ int) ([]resource.Resource, error) {
+	return nil, nil
+}
