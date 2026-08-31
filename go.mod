@@ -28,13 +28,13 @@ require (
 	github.com/txn2/mcp-trino v1.4.0
 	github.com/wneessen/go-mail v0.8.1
 	github.com/yosida95/uritemplate/v3 v3.0.2
-	go.opentelemetry.io/otel v1.45.0
+	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.45.0
 	go.opentelemetry.io/otel/exporters/prometheus v0.67.0
-	go.opentelemetry.io/otel/metric v1.45.0
-	go.opentelemetry.io/otel/sdk v1.45.0
-	go.opentelemetry.io/otel/sdk/metric v1.45.0
-	go.opentelemetry.io/otel/trace v1.45.0
+	go.opentelemetry.io/otel/metric v1.46.0
+	go.opentelemetry.io/otel/sdk v1.46.0
+	go.opentelemetry.io/otel/sdk/metric v1.46.0
+	go.opentelemetry.io/otel/trace v1.46.0
 	go.starlark.net v0.0.0-20260708150628-5395d018f003
 	go.uber.org/goleak v1.3.0
 	golang.org/x/crypto v0.55.0
