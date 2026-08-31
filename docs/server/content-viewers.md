@@ -39,6 +39,16 @@ Detection runs on every write path that accepts outside content:
   family renders as executing markup (`.html`, `.js`, `.svg`) never wins,
   because a filename is not a declaration. The other write paths carry no
   filename and are unaffected.
+- **And where nothing else has an answer.** When the declaration is generic or
+  absent and the bytes turn out to be unstructured text, the extension is taken
+  on its own: a `notes.md` uploaded as `text/plain`, `application/octet-stream`
+  or nothing at all is stored as `text/markdown`. Markdown has no content
+  signature, so without this nothing could ever recover it, and the file opened
+  in the plain-text viewer and got no thumbnail. It is the last signal there is,
+  and it is trusted only where it cannot do harm: a mislabeled binary never
+  reaches this rule, because the bytes were already recognized, and a name whose
+  family a browser renders as a document (`.html`, `.js`, `.svg`, `.xml`) is
+  still refused, for the same reason content may not talk itself into executing.
 - **Binary families come from magic bytes.** Images, audio, video, PDF and
   archives are recognized from the first 512 bytes.
 - **Structured text is layered on top.** JSON, NDJSON, XML, YAML, CSV and TSV
@@ -66,6 +76,11 @@ unstructured text (Markdown, plain text, SQL, Python, CSS), which nothing in the
 bytes distinguishes. Both land on `text/plain`, and raw content is served under
 `nosniff`, so `text/plain` is final: an `<img>` naming an SVG stored that way is
 a broken image on every surface, with nothing reporting a problem.
+
+On the two write paths that carry a filename the extension covers the second of
+those families -- a `notes.md` is stored as `text/markdown` however it was
+declared -- but not the first, which is refused there for the same reason it is
+refused everywhere else. A door with no filename has neither.
 
 `save_asset` and `manage_resource action=create` therefore require
 `content_type`. Creating the file is the one moment the type is known for

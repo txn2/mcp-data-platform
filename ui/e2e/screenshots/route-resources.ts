@@ -14,7 +14,7 @@ import {
   openTableRepairOffer,
   openTableRepaired,
 } from "./route-actions";
-import { openResourceUsedByAssets } from "./route-actions-refs";
+import { openResourceThumbnail, openResourceUsedByAssets } from "./route-actions-refs";
 import { type ScreenshotRoute } from "./route-types";
 
 // The reader's own Resources page, as against the administrator's section
@@ -144,6 +144,16 @@ export const adminResourceRoutes: ScreenshotRoute[] = [
     path: "/portal/admin/resources",
     category: "admin",
     beforeCapture: openResourceLifecycle,
+  },
+  {
+    // The tile everyone else sees of this file, and the way back from one that
+    // shows the wrong thing (#1568). A managed resource is captured by the same
+    // capturer as a portal asset and stored under the same rule, and had
+    // neither the picture nor the button until this.
+    slug: "resource-thumbnail",
+    path: "/portal/admin/resources",
+    category: "admin",
+    beforeCapture: openResourceThumbnail,
   },
   {
     // The library a resource is filed in, as an editable field (#1502). It was

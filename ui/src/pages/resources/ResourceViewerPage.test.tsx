@@ -215,6 +215,45 @@ describe("what the page lets the reader do to the resource", () => {
     expect(screen.getByRole("button", { name: "Delete" })).toBeTruthy();
   });
 
+  // A resource is captured by the same capturer as an asset and stored under
+  // the same rule, and its owner had neither the picture nor the button until
+  // this: a capture that rendered an error is a valid PNG and is stored like
+  // any other, so without a control only replacing the content replaced it
+  // (#1568).
+  it("shows the stored tile and the control that takes it again", async () => {
+    stubApi({
+      ...RESOURCE,
+      thumbnail_s3_key: "resources/res-1/.thumbnail.png",
+      thumbnail_captured_at: RESOURCE.updated_at,
+      thumbnail_dark_s3_key: "resources/res-1/.thumbnail_dark.png",
+      thumbnail_dark_captured_at: RESOURCE.updated_at,
+    });
+    renderPage();
+
+    const panel = await screen.findByTestId("thumbnail-panel");
+    expect(
+      within(panel).getByAltText("Thumbnail for Seasonal Factors").getAttribute("src"),
+    ).toContain("/api/v1/resources/res-1/thumbnail");
+    expect(within(panel).getByRole("button", { name: /recapture/i })).toBeTruthy();
+  });
+
+  // Storing a capture is the authority to change the file, which is the rule
+  // the clear route enforces; offering the control to anyone else would end in
+  // a refused request.
+  it("withholds the thumbnail panel from a reader who may not change the file", async () => {
+    signIn({ user_id: "someone-else", email: "someone.else@example.com", persona: undefined });
+    renderPage();
+    await screen.findByTestId("resource-usage");
+    expect(screen.queryByTestId("thumbnail-panel")).toBeNull();
+  });
+
+  it("withholds it for a type nothing rasterizes", async () => {
+    stubApi({ ...RESOURCE, mime_type: "application/pdf", filename: "report.pdf" });
+    renderPage();
+    await screen.findByTestId("resource-usage");
+    expect(screen.queryByTestId("thumbnail-panel")).toBeNull();
+  });
+
   it("leaves the page once the resource it addresses is deleted", async () => {
     const onBack = vi.fn();
     renderPage({ onBack });

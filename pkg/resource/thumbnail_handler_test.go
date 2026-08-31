@@ -324,17 +324,38 @@ func TestThumbnailDarkVariantIsItsOwnCapture(t *testing.T) {
 	if stored.ThumbnailS3Key != "resources/res-1/.thumbnail.png" {
 		t.Errorf("light key changed to %q", stored.ThumbnailS3Key)
 	}
+}
 
-	// Clearing one leaves the other.
-	rec = httptest.NewRecorder()
+// A clear takes both variants, whatever the reader's own color mode is.
+//
+// They are two views of one file, and asking for the tile to be taken again
+// means the tile (#1568). Clearing the light one alone would be enough to put
+// the resource back on the pending list, but it would leave a themeable file
+// serving the stale dark capture until the replacement landed -- which is the
+// wrong picture that was being complained about.
+func TestClearThumbnailTakesBothVariants(t *testing.T) {
+	now := time.Now().UTC()
+	store := newMockStore()
+	r := captured(store, "res-1", now)
+	r.MIMEType = "text/markdown"
+	r.ThumbnailDarkS3Key = "resources/res-1/.thumbnail_dark.png"
+	r.ThumbnailDarkCapturedAt = &now
+	h := newTestHandler(store, newMockS3(), okExtractor)
+
+	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete,
-		"/api/v1/resources/res-1/thumbnail?variant=dark", http.NoBody)
+		"/api/v1/resources/res-1/thumbnail", http.NoBody)
 	h.ServeHTTP(rec, req)
-	if store.resources["res-1"].ThumbnailDarkS3Key != "" {
-		t.Errorf("dark capture survived its own clear")
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if store.resources["res-1"].ThumbnailS3Key == "" {
-		t.Errorf("clearing dark took the light capture with it")
+	stored := store.resources["res-1"]
+	if stored.ThumbnailS3Key != "" {
+		t.Errorf("light capture survived the clear: %q", stored.ThumbnailS3Key)
+	}
+	if stored.ThumbnailDarkS3Key != "" {
+		t.Errorf("dark capture survived the clear: %q", stored.ThumbnailDarkS3Key)
 	}
 }
 

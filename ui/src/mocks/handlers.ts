@@ -23,6 +23,7 @@ import { mockEnrichmentRules } from "./data/enrichment";
 import { mockAssets, mockShares, mockSharedWithMe } from "./data/assets";
 import { versionsForAsset } from "./data/assetVersions";
 import {
+  isThemeable,
   isThumbnailSupported,
   thumbnailBehind,
   THUMBNAIL_SOURCE_LIMIT,
@@ -850,6 +851,27 @@ const STATIC_THUMBNAILS: Record<string, string> = {
 <text x="210" y="136" font-family="monospace" font-size="7" fill="#f59e0b">2.1s</text>
 <text x="270" y="136" font-family="monospace" font-size="7" fill="#ef4444">4.8s</text>
 <rect x="330" y="128" width="30" height="12" rx="6" fill="#fef9c3"/><text x="333" y="137" font-family="system-ui" font-size="6" fill="#ca8a04">WARN</text>
+</svg>`,
+  // res-001 is the SQL Style Guide, a markdown resource. A managed resource's
+  // tile is a capture exactly as an asset's is (#1554), and its own page now
+  // shows that tile beside a Recapture control (#1568): without an entry here
+  // both surfaces document a placeholder.
+  "res-001": `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">
+<rect width="400" height="300" fill="white"/>
+<text x="16" y="30" font-family="system-ui" font-size="15" font-weight="700" fill="#0f172a">SQL Style Guide</text>
+<text x="16" y="50" font-family="system-ui" font-size="8" fill="#64748b">Formatting and naming conventions for all data teams</text>
+<text x="16" y="76" font-family="system-ui" font-size="10" font-weight="600" fill="#1e293b">Naming</text>
+<text x="16" y="92" font-family="system-ui" font-size="8" fill="#334155">Tables are plural and snake_case: daily_sales, store_inventory.</text>
+<text x="16" y="106" font-family="system-ui" font-size="8" fill="#334155">A column that holds an identifier ends in _id, and nothing else does.</text>
+<text x="16" y="130" font-family="system-ui" font-size="10" font-weight="600" fill="#1e293b">Common table expressions</text>
+<rect x="16" y="138" width="368" height="58" rx="4" fill="#f1f5f9"/>
+<text x="24" y="154" font-family="monospace" font-size="8" fill="#334155">WITH recent_orders AS (</text>
+<text x="24" y="168" font-family="monospace" font-size="8" fill="#334155">  SELECT store_id, total FROM analytics.daily_sales</text>
+<text x="24" y="182" font-family="monospace" font-size="8" fill="#334155">  WHERE order_date &gt;= CURRENT_DATE - INTERVAL '30' DAY</text>
+<text x="16" y="216" font-family="system-ui" font-size="10" font-weight="600" fill="#1e293b">Join ordering</text>
+<text x="16" y="232" font-family="system-ui" font-size="8" fill="#334155">Put the largest table first and let the planner reorder from there.</text>
+<text x="16" y="246" font-family="system-ui" font-size="8" fill="#334155">Every join names its keys; a natural join is never used.</text>
+<text x="16" y="270" font-family="system-ui" font-size="8" fill="#64748b">Aliases are the table's initials, lowercase, and never a single letter.</text>
 </svg>`,
 };
 const portalShares: Record<string, Share[]> = JSON.parse(
@@ -3006,6 +3028,44 @@ export const handlers = [
   // Resources (shared — /api/v1/resources)
   // =========================================================================
 
+  // What a library holds, for the controls that narrow it: its folders with
+  // exact counts, and every tag its resources carry (#1555). Registered ahead
+  // of the by-id read, which would otherwise take "facets" for a resource id
+  // and answer 404 -- which is what it did, so a library's folder rows never
+  // rendered under the mocks and the two screenshots that open a folder could
+  // not be produced at all.
+  //
+  // A folder counts everything beneath it at every depth, which is the lateral
+  // expansion the store does: each resource contributes to every prefix of its
+  // own path, so `data` counts what is filed at `data/weekly` too.
+  http.get("/api/v1/resources/facets", ({ request }) => {
+    const url = new URL(request.url);
+    const scope = url.searchParams.get("scope");
+    const scopeId = url.searchParams.get("scope_id");
+
+    let visible = [...mockResources.resources];
+    if (scope) visible = visible.filter((r) => r.scope === scope);
+    if (scopeId) visible = visible.filter((r) => r.scope_id === scopeId);
+
+    const counts = new Map<string, number>();
+    const tags = new Set<string>();
+    for (const r of visible) {
+      const segments = r.path.split("/").filter(Boolean);
+      for (let i = 1; i <= segments.length; i++) {
+        const prefix = segments.slice(0, i).join("/");
+        counts.set(prefix, (counts.get(prefix) ?? 0) + 1);
+      }
+      for (const t of r.tags) tags.add(t);
+    }
+
+    return HttpResponse.json({
+      folders: [...counts.entries()]
+        .map(([path, count]) => ({ path, count }))
+        .sort((a, b) => a.path.localeCompare(b.path)),
+      tags: [...tags].sort(),
+    });
+  }),
+
   http.get("/api/v1/resources", ({ request }) => {
     const url = new URL(request.url);
     const scope = url.searchParams.get("scope");
@@ -3061,6 +3121,80 @@ export const handlers = [
       resources: filtered.slice(offset, offset + limit),
       total: filtered.length,
     });
+  }),
+
+  // The capture routes a managed resource carries (#1554), which its library
+  // tiles and its own Thumbnail panel read (#1568). Registered before the
+  // by-id read below so "thumbnails" cannot be taken for a resource id.
+  http.get("/api/v1/resources/thumbnails/pending", () => {
+    // The server's predicate, which is what makes the queue terminate: a
+    // capture is wanted when it is missing or older than the file, and the dark
+    // one is asked for only of the families that carry one. Reading an empty
+    // dark key as pending on a family that stores a single image would offer
+    // the resource forever.
+    const behind = (key?: string, at?: string, updated?: string) =>
+      !key || !at || at < (updated ?? "");
+    const pending = mockResources.resources.filter(
+      (r) =>
+        isThumbnailSupported(r.mime_type) &&
+        r.size_bytes <= THUMBNAIL_SOURCE_LIMIT &&
+        (behind(r.thumbnail_s3_key, r.thumbnail_captured_at, r.updated_at) ||
+          (isThemeable(r.mime_type) &&
+            behind(r.thumbnail_dark_s3_key, r.thumbnail_dark_captured_at, r.updated_at))),
+    );
+    return HttpResponse.json({ resources: pending, total: pending.length });
+  }),
+
+  // Where a capture the browser took is recorded. Without it the upload falls
+  // through to the dev proxy and fails, the row never records a capture, and
+  // the resource stays on the pending list -- so the queue re-fetches and
+  // re-rasterizes it on every page for the life of the suite, on the same main
+  // thread the tests are waiting on.
+  //
+  // The capture is dated to the resource's own updated_at, as the server dates
+  // it: a resource row carries no version, so that timestamp is what says a
+  // capture has caught up with the file it came from.
+  http.put("/api/v1/resources/:id/thumbnail", async ({ params, request }) => {
+    const resource = mockResources.resources.find((r) => r.id === params.id);
+    if (!resource) {
+      return HttpResponse.json({ error: "not found" }, { status: 404 });
+    }
+    const variant = new URL(request.url).searchParams.get("variant");
+    const buffer = await request.arrayBuffer();
+    if (variant === "dark") {
+      thumbnailStore.set(`${resource.id}:dark`, buffer);
+      resource.thumbnail_dark_s3_key = `thumbnails/${resource.id}_dark.png`;
+      resource.thumbnail_dark_captured_at = resource.updated_at;
+    } else {
+      thumbnailStore.set(resource.id, buffer);
+      resource.thumbnail_s3_key = `thumbnails/${resource.id}.png`;
+      resource.thumbnail_captured_at = resource.updated_at;
+    }
+    return HttpResponse.json(resource);
+  }),
+
+  http.get("/api/v1/resources/:id/thumbnail", ({ params, request }) => {
+    const id = params.id as string;
+    const resource = mockResources.resources.find((r) => r.id === id);
+    if (!resource?.thumbnail_s3_key) {
+      return HttpResponse.json({ error: "no thumbnail" }, { status: 404 });
+    }
+    const variant = new URL(request.url).searchParams.get("variant");
+    return serveThumbnail(id, variant) ?? HttpResponse.json({ error: "no thumbnail" }, { status: 404 });
+  }),
+
+  // Both variants, which is what the route does: two views of one file, and a
+  // reader asking for the tile to be taken again means the tile.
+  http.delete("/api/v1/resources/:id/thumbnail", ({ params }) => {
+    const resource = mockResources.resources.find((r) => r.id === params.id);
+    if (!resource) {
+      return HttpResponse.json({ error: "not found" }, { status: 404 });
+    }
+    resource.thumbnail_s3_key = undefined;
+    resource.thumbnail_dark_s3_key = undefined;
+    resource.thumbnail_captured_at = undefined;
+    resource.thumbnail_dark_captured_at = undefined;
+    return new HttpResponse(null, { status: 204 });
   }),
 
   // The detail read is the only one that carries usage: the server consults the

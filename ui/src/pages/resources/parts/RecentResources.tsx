@@ -4,8 +4,9 @@ import { ThumbCard } from "@/components/cards/ThumbCard";
 import { contentTypeIcon } from "@/components/ContentTypeBadge";
 import type { ViewMode } from "@/components/listView";
 import { formatBytes } from "@/lib/format";
+import { resourceThumbnailSrc } from "@/lib/thumbnailSupport";
+import { useResolvedDark } from "@/stores/theme";
 import type { Resource } from "@/api/resources/types";
-import { tileImage } from "./ResourceGrid";
 import { scopeParams } from "./useResourceLibrary";
 
 /** How many of the most recently changed files the strip carries. */
@@ -48,6 +49,8 @@ export function RecentResources({
     limit: RECENT_COUNT,
   });
   const recent = data?.resources ?? [];
+  // The same capture the grid draws, in the scheme the reader is in (#1568).
+  const isDark = useResolvedDark();
 
   // Nothing to say while it loads, and nothing to say about an empty library:
   // the folder list below already carries that library's own empty state.
@@ -65,7 +68,7 @@ export function RecentResources({
             <ThumbCard
               key={r.id}
               onClick={() => onOpen(r)}
-              thumbnailSrc={tileImage(r)}
+              thumbnailSrc={resourceThumbnailSrc(r, isDark)}
               fallbackIcon={contentTypeIcon(r.mime_type)}
               aspect="aspect-video"
               bodyClassName="p-2"

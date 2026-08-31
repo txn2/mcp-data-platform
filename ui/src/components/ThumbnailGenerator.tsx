@@ -1,6 +1,4 @@
 import { useEffect, useRef, useCallback, useMemo, useId } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import Papa from "papaparse";
 import DOMPurify from "dompurify";
 import html2canvas from "html2canvas";
@@ -16,25 +14,13 @@ import {
   captureIframe,
   uploadThumbnail,
   isThemeable,
+  captureFamily,
   type ThumbnailTarget,
 } from "@/lib/thumbnail";
 import { CT, normalizeContentType } from "@/lib/contentType";
-import {
-  LIGHT_SCHEME,
-  DARK_SCHEME,
-  csvProseCss,
-  markdownProseCss,
-  type ProseTokens,
-  type Scheme,
-} from "@/components/thumbnail/schemes";
-import {
-  buildJsonLines,
-  buildNdjsonRecords,
-  JsonThumbnailBody,
-  NdjsonThumbnailBody,
-  type JsonThumbnailLines,
-  type NdjsonThumbnailRecord,
-} from "@/components/thumbnail/JsonThumbnailBody";
+import { LIGHT_SCHEME, DARK_SCHEME, type Scheme } from "@/components/thumbnail/schemes";
+import { buildJsonLines, buildNdjsonRecords } from "@/components/thumbnail/JsonThumbnailBody";
+import { DomBody, type DomKind } from "@/components/thumbnail/DomThumbnailBody";
 import { ImageCapture } from "@/components/thumbnail/ImageCapture";
 
 interface Props {
@@ -73,28 +59,17 @@ export function ThumbnailGenerator({
   onCaptured,
   onFailed,
 }: Props) {
-  const ct = contentType.toLowerCase();
   // Memoized: a fresh object each render would re-fire every capture effect
   // that depends on it, which for the image path means re-uploading on every
   // parent render.
   const target = useMemo<ThumbnailTarget>(() => ({ kind, id: assetId }), [kind, assetId]);
+  // The family comes from the same table the surfaces that OFFER a capture read,
+  // so what is offered and what can be drawn cannot disagree (#1568).
+  const family = captureFamily(contentType);
 
-  if (ct.includes("html") || ct.includes("jsx")) {
+  if (family === "iframe") {
     return (
       <IframeCapture
-        target={target}
-        content={content}
-        contentType={contentType}
-        version={version}
-        onCaptured={onCaptured}
-        onFailed={onFailed}
-      />
-    );
-  }
-
-  if (domKind(contentType) !== null) {
-    return (
-      <DomCapture
         target={target}
         content={content}
         contentType={contentType}
@@ -108,10 +83,23 @@ export function ThumbnailGenerator({
   // A raster image is not rendered, it is resized (#1554). The tile used to be
   // the original object scaled down by CSS, so a gallery pulled every file at
   // full size to draw postage stamps and anything past a cutoff drew nothing.
-  if (ct.startsWith("image/")) {
+  if (family === "image") {
     return (
       <ImageCapture
         target={target}
+        contentType={contentType}
+        version={version}
+        onCaptured={onCaptured}
+        onFailed={onFailed}
+      />
+    );
+  }
+
+  if (family !== null) {
+    return (
+      <DomCapture
+        target={target}
+        content={content}
         contentType={contentType}
         version={version}
         onCaptured={onCaptured}
@@ -147,29 +135,37 @@ function UnsupportedType({
   return null;
 }
 
-/** The families drawn into the page and rasterized, rather than into an iframe. */
-type DomKind = "csv" | "svg" | "json" | "ndjson" | "markdown";
-
 /**
- * The family a content type is drawn as, or null when the capturer has no
- * rendering for it. The tests are substring tests for the same reason
- * lib/thumbnailSupport's are: a stored type carries parameters and vendor
- * prefixes ("text/markdown; charset=utf-8", "application/vnd.acme+json").
+ * The family a content type is drawn as, derived from the one table that says
+ * what gets a thumbnail at all (lib/thumbnailSupport).
  *
- * NDJSON is separated from JSON by the normalized type rather than by a
- * substring, because it is a stream of independent documents drawn as a list of
- * records and its spellings ("application/x-ndjson", "application/jsonl") both
- * contain "json". What this returns must stay a subset of what
- * isThumbnailSupported admits, or the queue offers an asset nothing can draw.
+ * It used to be a second list of substring tests, and it had drifted from the
+ * lists the stores and the browser gate read (#1568). Deriving it means a
+ * family added there is drawn here or fails to compile, and the only thing left
+ * for this to decide is the one distinction the shared table deliberately does
+ * not make: NDJSON is separated from JSON by the normalized type rather than by
+ * a substring, because it is a stream of independent documents drawn as a list
+ * of records and its spellings ("application/x-ndjson", "application/jsonl")
+ * both contain "json".
+ *
+ * The iframe and image families are dispatched before this is reached, so
+ * neither is a DOM kind.
  */
 function domKind(contentType: string): DomKind | null {
-  const ct = contentType.toLowerCase();
-  if (ct.includes("svg")) return "svg";
-  if (ct.includes("csv")) return "csv";
-  if (normalizeContentType(contentType) === CT.ndjson) return "ndjson";
-  if (ct.includes("json")) return "json";
-  if (ct.includes("markdown")) return "markdown";
-  return null;
+  switch (captureFamily(contentType)) {
+    case "svg":
+      return "svg";
+    case "csv":
+      return "csv";
+    case "json":
+      return normalizeContentType(contentType) === CT.ndjson ? "ndjson" : "json";
+    case "markdown":
+      return "markdown";
+    case "text":
+      return "text";
+    default:
+      return null;
+  }
 }
 
 /**
@@ -501,75 +497,5 @@ function DomCapture({
         );
       })}
     </>
-  );
-}
-
-/** One asset's content as the family it belongs to, for one color scheme. */
-function DomBody({
-  kind,
-  tokens,
-  scope,
-  content,
-  csvTable,
-  sanitizedSvg,
-  jsonLines,
-  ndjsonRecords,
-}: {
-  kind: DomKind;
-  tokens: ProseTokens;
-  scope: string;
-  content: string;
-  csvTable: CsvTable | null;
-  sanitizedSvg: string;
-  jsonLines: JsonThumbnailLines | null;
-  ndjsonRecords: NdjsonThumbnailRecord[] | null;
-}) {
-  if (kind === "csv" && csvTable) return <CsvBody table={csvTable} tokens={tokens} scope={scope} />;
-  if (kind === "svg") return <div dangerouslySetInnerHTML={{ __html: sanitizedSvg }} />;
-  if (kind === "json" && jsonLines) return <JsonThumbnailBody lines={jsonLines} tokens={tokens} scope={scope} />;
-  if (kind === "ndjson" && ndjsonRecords) {
-    return <NdjsonThumbnailBody records={ndjsonRecords} tokens={tokens} scope={scope} />;
-  }
-  return (
-    <div style={{ maxWidth: "none" }}>
-      <style>{markdownProseCss(tokens, scope)}</style>
-      <div className={scope}>
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
-      </div>
-    </div>
-  );
-}
-
-/** The parsed head of a CSV document: its header row and the rows drawn under it. */
-interface CsvTable {
-  cols: string[];
-  rows: Record<string, unknown>[];
-}
-
-function CsvBody({ table, tokens, scope }: { table: CsvTable; tokens: ProseTokens; scope: string }) {
-  return (
-    <div>
-      <style>{csvProseCss(tokens, scope)}</style>
-      <div className={scope}>
-        <table>
-          <thead>
-            <tr>
-              {table.cols.map((col) => (
-                <th key={col}>{col}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {table.rows.map((row, ri) => (
-              <tr key={ri}>
-                {table.cols.map((col) => (
-                  <td key={col}>{String(row[col] ?? "")}</td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
   );
 }

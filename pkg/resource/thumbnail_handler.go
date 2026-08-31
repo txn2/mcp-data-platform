@@ -268,12 +268,23 @@ func (h *Handler) handleGetThumbnail(w http.ResponseWriter, r *http.Request) {
 
 // handleClearThumbnail handles DELETE /api/v1/resources/{id}/thumbnail.
 //
+// Both variants go together, which is why this takes no variant. They are two
+// views of one file, and a reader asking for the tile to be taken again means
+// the tile, not the half of it their color mode happens to be showing -- the
+// same rule the asset route applies (pkg/portal.clearThumbnail). Clearing the
+// light one alone would be enough to put the resource back on the pending list,
+// but it would leave a themeable file serving the stale dark capture until the
+// replacement landed, which is exactly the wrong picture being complained about.
+//
+// A capture writes a deterministic key beside the resource's own object, so the
+// next one overwrites what this forgets and leaving the objects in place
+// orphans nothing.
+//
 // @Summary      Clear a resource's thumbnail
-// @Description  Forget a resource's capture, which leaves it pending and asks the portal to take another. It is the way back from a tile that is wrong.
+// @Description  Forget a resource's captures, both variants, which leaves it pending and asks the portal to take them again. It is the way back from a tile that is wrong.
 // @Tags         Resources
 // @Produce      json
 // @Param        id       path   string  true   "Resource ID"
-// @Param        variant  query  string  false  "Which capture to clear"  Enums(light, dark)
 // @Success      204
 // @Failure      403  {object}  resource.errorResponse
 // @Failure      404  {object}  resource.errorResponse
@@ -290,10 +301,12 @@ func (h *Handler) handleClearThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.deps.Store.ClearThumbnail(r.Context(), res.ID, readVariant(r)); err != nil {
-		slog.Error("clearing thumbnail failed", msgError, err)
-		writeError(w, http.StatusInternalServerError, "clearing the thumbnail")
-		return
+	for _, variant := range []string{ThumbnailVariantLight, ThumbnailVariantDark} {
+		if err := h.deps.Store.ClearThumbnail(r.Context(), res.ID, variant); err != nil {
+			slog.Error("clearing thumbnail failed", msgError, err)
+			writeError(w, http.StatusInternalServerError, "clearing the thumbnail")
+			return
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

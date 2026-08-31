@@ -18795,20 +18795,14 @@ paths:
       - Resources
   /resources/{id}/thumbnail:
     delete:
-      description: Forget a resource's capture, which leaves it pending and asks the
-        portal to take another. It is the way back from a tile that is wrong.
+      description: Forget a resource's captures, both variants, which leaves it pending
+        and asks the portal to take them again. It is the way back from a tile that
+        is wrong.
       parameters:
       - description: Resource ID
         in: path
         name: id
         required: true
-        type: string
-      - description: Which capture to clear
-        enum:
-        - light
-        - dark
-        in: query
-        name: variant
         type: string
       produces:
       - application/json

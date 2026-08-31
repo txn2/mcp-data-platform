@@ -1,6 +1,5 @@
 import html2canvas from "html2canvas";
-import { useAuthStore } from "@/stores/auth";
-import { applyCsrfHeader } from "@/api/csrf";
+import { authedFetch } from "@/api/authed";
 import {
   transformJsx,
   escapeScriptClose,
@@ -9,12 +8,21 @@ import {
   viewerOrigin,
   REF_PATH_PREFIX,
 } from "@/components/renderers/JsxRenderer";
-import { THUMB_WIDTH, THUMB_HEIGHT } from "@/lib/thumbnailSupport";
+import { THUMB_WIDTH, THUMB_HEIGHT, thumbnailBase } from "@/lib/thumbnailSupport";
+import type { ThumbnailTarget } from "@/lib/thumbnailSupport";
 
 // Re-exported so the capturer has one import for everything it needs. Callers
 // that only ask which types are supported import lib/thumbnailSupport directly
 // and stay clear of html2canvas.
-export { THUMB_WIDTH, THUMB_HEIGHT, THUMBNAIL_SOURCE_LIMIT, isThumbnailSupported, isThemeable } from "@/lib/thumbnailSupport";
+export {
+  THUMB_WIDTH,
+  THUMB_HEIGHT,
+  THUMBNAIL_SOURCE_LIMIT,
+  isThumbnailSupported,
+  isThemeable,
+  captureFamily,
+} from "@/lib/thumbnailSupport";
+export type { ThumbnailTarget } from "@/lib/thumbnailSupport";
 
 /** Desktop viewport dimensions used for rendering before scaling down. */
 export const RENDER_WIDTH = 1280;
@@ -245,18 +253,6 @@ export type ThumbnailVariant = "light" | "dark";
  * isThemeable). Defaults to the light/shared variant.
  */
 /**
- * What a capture belongs to: a portal asset, or a managed resource (#1554).
- *
- * The capturer is the same for both -- nothing on a server can rasterize a
- * document -- so the kind travels with the id rather than being forked into a
- * second component.
- */
-export interface ThumbnailTarget {
-  kind: "asset" | "resource";
-  id: string;
-}
-
-/**
  * The route a target's capture is uploaded to and served from, in full.
  *
  * An absolute path rather than a fragment for one client to prefix: an asset
@@ -267,16 +263,12 @@ export interface ThumbnailTarget {
  * URL that would be requested, and so agreed with the bug.
  */
 export function thumbnailPath(target: ThumbnailTarget): string {
-  return target.kind === "resource"
-    ? `/api/v1/resources/${target.id}/thumbnail`
-    : `/api/v1/portal/assets/${target.id}/thumbnail`;
+  return `${thumbnailBase(target)}/${target.id}/thumbnail`;
 }
 
 /** The route a target's own bytes are read from. */
 export function contentPath(target: ThumbnailTarget): string {
-  return target.kind === "resource"
-    ? `/api/v1/resources/${target.id}/content`
-    : `/api/v1/portal/assets/${target.id}/content`;
+  return `${thumbnailBase(target)}/${target.id}/content`;
 }
 
 /**
@@ -340,26 +332,6 @@ async function loadImage(src: string): Promise<HTMLImageElement> {
     // way, and leaving it allocated leaks for the life of the document.
     URL.revokeObjectURL(url);
   }
-}
-
-/**
- * Fetch a full URL with whatever credentials this session carries.
- *
- * It takes the whole path rather than a fragment because the two kinds live
- * under different API roots, and a helper that prefixed one root would send
- * half its traffic to the wrong place -- which is how every resource capture
- * came to PUT at /api/v1/portal/resources/... and 404 (#1554).
- */
-function authedFetch(url: string, init?: RequestInit): Promise<Response> {
-  const { apiKey, authMethod } = useAuthStore.getState();
-  const headers: Record<string, string> = {
-    ...(init?.headers as Record<string, string>),
-  };
-  if (authMethod === "apikey" && apiKey) {
-    headers["X-API-Key"] = apiKey;
-  }
-  applyCsrfHeader(headers, init?.method);
-  return fetch(url, { ...init, headers, credentials: "include" });
 }
 
 export async function uploadThumbnail(
