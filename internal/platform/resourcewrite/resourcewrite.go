@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
 
@@ -61,6 +62,8 @@ type Deps struct {
 	URIScheme   string
 	MaxVersions int
 	Registered  func(*resource.Resource)
+	// Producers records what wrote each resource (#1569). Nil records nothing.
+	Producers producedby.Store
 }
 
 // New builds the writer, or nil when the deployment has no managed-resource
@@ -85,6 +88,7 @@ func New(d Deps) *Writer {
 			S3Bucket:    d.Bucket,
 			URIScheme:   d.URIScheme,
 			MaxVersions: d.MaxVersions,
+			Producers:   d.Producers,
 		},
 		registered: d.Registered,
 	}

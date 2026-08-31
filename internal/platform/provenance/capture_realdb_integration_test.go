@@ -137,8 +137,8 @@ func newReplica(t *testing.T, db *sql.DB, sessions pkgsession.Store, s3 *memS3) 
 
 	toolkit := portalkit.New(portalkit.Config{
 		Name:              "portal",
-		AssetStore:        portal.NewPostgresAssetStore(db),
-		VersionStore:      portal.NewPostgresVersionStore(db, nil, nil),
+		AssetStore:        portal.NewPostgresAssetStore(db, nil),
+		VersionStore:      portal.NewPostgresVersionStore(db, nil, nil, nil),
 		S3Client:          s3,
 		S3Bucket:          capBucket,
 		S3Prefix:          "assets/",

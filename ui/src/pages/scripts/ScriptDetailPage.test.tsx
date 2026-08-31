@@ -40,6 +40,31 @@ vi.mock("@/api/portal/hooks/scripts", () => ({
   RUN_PAGE_SIZE: 25,
 }));
 
+// Everything this script has produced (#1569) has its own tests; here it only
+// has to answer, so the page renders without a query client. The fixture is one
+// asset, which is what the section assertion below reads.
+vi.mock("@/api/portal/hooks/producers", () => ({
+  useScriptProduced: () => ({
+    data: {
+      data: [
+        {
+          target_kind: "asset",
+          target_id: "ast-001",
+          name: "Q4 Revenue Dashboard",
+          created: true,
+          first_write_at: "2026-07-01T09:00:00Z",
+          last_write_at: "2026-08-20T09:00:00Z",
+          write_count: 41,
+          last_version: 8,
+        },
+      ],
+      total: 1,
+    },
+    isLoading: false,
+    error: null,
+  }),
+}));
+
 // The transfer control offers the known-users directory as type-ahead. It has
 // its own tests; here it only has to answer, so the page renders without a
 // query client.
@@ -279,7 +304,15 @@ describe("ScriptDetailPage: the details", () => {
     const sections = screen
       .getAllByRole("heading", { level: 3 })
       .map((h) => h.textContent);
-    expect(sections).toEqual(["Details", "Schedule", "About", "Source", "Run history", "State"]);
+    expect(sections).toEqual([
+      "Details",
+      "Schedule",
+      "About",
+      "Source",
+      "Run history",
+      "Files written (1)",
+      "State",
+    ]);
   });
 
   // Running the script lives with the code it executes (#1406). There is no
@@ -386,7 +419,16 @@ describe("ScriptDetailPage: what an owner may read", () => {
     // after everything the owner reads and does (#1406).
     expect(
       screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent),
-    ).toEqual(["Details", "Schedule", "About", "Source", "Run history", "State", "Owner"]);
+    ).toEqual([
+      "Details",
+      "Schedule",
+      "About",
+      "Source",
+      "Run history",
+      "Files written (1)",
+      "State",
+      "Owner",
+    ]);
     admin = false;
   });
 

@@ -18,6 +18,7 @@ import { scheduleLine } from "./cadence";
 import { executionState, formatWhen } from "./runFormat";
 import { ScriptDocumentation } from "./ScriptDocumentation";
 import { ScriptOwnerTransfer } from "./ScriptOwnerTransfer";
+import { ScriptProducedPanel } from "./ScriptProducedPanel";
 import { ScriptRunHistory } from "./ScriptRunHistory";
 import { ScriptScheduleEditor } from "./ScriptScheduleEditor";
 import { ScriptSourceEditor } from "./ScriptSourceEditor";
@@ -51,6 +52,10 @@ interface Props {
   /** openRunId is one run of this script named by the address, opened in the
    * history without a click (#1405). */
   openRunId?: string;
+  /** Where a file this script produced opens for this reader (#1569). The
+   * portal and the admin console hold the same file at different addresses;
+   * absent, a produced file is named without being linked. */
+  filePath?: (kind: "asset" | "resource", id: string) => string;
 }
 
 export function ScriptDetailPage({
@@ -59,6 +64,7 @@ export function ScriptDetailPage({
   onNavigate,
   backLabel = "Scripts",
   openRunId,
+  filePath,
 }: Props) {
   const { data, isLoading, error } = useScriptContract(scriptId);
 
@@ -76,6 +82,7 @@ export function ScriptDetailPage({
       onNavigate={onNavigate}
       backLabel={backLabel}
       openRunId={openRunId}
+      filePath={filePath}
     />
   );
 }
@@ -90,6 +97,7 @@ function ScriptDetail({
   onNavigate,
   backLabel,
   openRunId,
+  filePath,
 }: {
   scriptId: string;
   data: { contract: ScriptContract; owned: boolean; source?: string; draft_params?: ScriptParam[] };
@@ -97,6 +105,7 @@ function ScriptDetail({
   onNavigate: (path: string) => void;
   backLabel: string;
   openRunId?: string;
+  filePath?: (kind: "asset" | "resource", id: string) => string;
 }) {
   const { contract, owned, source } = data;
   const state = executionState(contract);
@@ -146,6 +155,15 @@ function ScriptDetail({
           <ScriptRunHistory
             scriptId={scriptId}
             openRunId={openRunId}
+            onNavigate={onNavigate}
+          />
+          {/* Everything the runs above have written, as one list rather than
+              per-run output lines (#1569). It reads after the history for the
+              same reason the history reads after the source: it is the
+              aggregate the individual accounts add up to. */}
+          <ScriptProducedPanel
+            scriptId={scriptId}
+            filePath={filePath}
             onNavigate={onNavigate}
           />
           {/* The state the runs above carry between them (#1537), read after

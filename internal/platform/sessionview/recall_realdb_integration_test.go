@@ -389,7 +389,7 @@ func TestSessionRecallRealDBRefusesAnotherCallersSession(t *testing.T) {
 // toolkit writes through.
 func saveAsset(ctx context.Context, t *testing.T, db *sql.DB, handle, name string) {
 	t.Helper()
-	require.NoError(t, portalstore.NewPostgresAssetStore(db).Insert(ctx, portaldomain.Asset{
+	require.NoError(t, portalstore.NewPostgresAssetStore(db, nil).Insert(ctx, portaldomain.Asset{
 		ID:          "ast_" + name[:2] + handle[4:12],
 		OwnerID:     analystID,
 		OwnerEmail:  analystMail,

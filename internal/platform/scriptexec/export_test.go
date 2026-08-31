@@ -85,13 +85,19 @@ type fakeVersionStore struct {
 	// The refresh path reads the asset row to find the current bytes, so a fake
 	// that skipped this would hide a read of a stale key.
 	onCreate func(v portal.AssetVersion, version int)
+	// onCreateCtx observes the context the store is handed, which is where the
+	// producer of the write is named (#1569).
+	onCreateCtx func(ctx context.Context)
 }
 
 func newFakeVersionStore() *fakeVersionStore {
 	return &fakeVersionStore{counts: map[string]int{}}
 }
 
-func (f *fakeVersionStore) CreateVersion(_ context.Context, v portal.AssetVersion) (int, error) {
+func (f *fakeVersionStore) CreateVersion(ctx context.Context, v portal.AssetVersion) (int, error) {
+	if f.onCreateCtx != nil {
+		f.onCreateCtx(ctx)
+	}
 	if f.createErr != nil {
 		return 0, f.createErr
 	}

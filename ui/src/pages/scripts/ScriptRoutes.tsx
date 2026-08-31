@@ -29,6 +29,7 @@ export function PortalScriptRoutes({
         openRunId={run[2]!}
         onNavigate={onNavigate}
         onBack={() => onNavigate("/scripts")}
+        filePath={portalFilePath}
       />
     );
   }
@@ -40,6 +41,14 @@ export function PortalScriptRoutes({
       scriptId={detail[1]!}
       onNavigate={onNavigate}
       onBack={() => onNavigate("/scripts")}
+      filePath={portalFilePath}
     />
   );
+}
+
+// portalFilePath is where a file this script produced opens for its owner: the
+// reader's own asset and resource libraries, which is where they can open it.
+function portalFilePath(kind: "asset" | "resource", id: string): string {
+  const section = kind === "asset" ? "assets" : "resources";
+  return `/${section}/${encodeURIComponent(id)}`;
 }

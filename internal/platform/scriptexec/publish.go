@@ -31,6 +31,7 @@ func (w *outputWriter) PublishData(ctx context.Context, req scriptrun.PublishReq
 	// A data region is a property of a portal document, so the destination is
 	// the portal by construction.
 	destination := script.DestinationPortal
+	ctx = w.producing(ctx)
 	if err := w.refuseRepeat(req.Name, destination); err != nil {
 		return nil, err
 	}

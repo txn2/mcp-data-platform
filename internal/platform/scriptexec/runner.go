@@ -11,6 +11,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
+	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -129,10 +130,17 @@ func attemptFrom(result *scriptrun.Result, runErr error) attempt {
 //     caller, so the persona is the authority of record;
 //   - the session: the run id itself, threaded on so all of a run's calls share
 //     one session id in audit and none of them touch the owner's own discovery
-//     or gate state.
+//     or gate state;
+//   - the producer: the script's ID, which every asset and resource this run
+//     writes is recorded against (#1569). It is stamped here because this is
+//     the only layer that holds the id: the principal carries the script's
+//     NAME, and a name does not survive a rename.
 func (r *runner) connect(ctx context.Context, run *script.Run, sc *script.Script, v *script.Version) (scriptrun.Caller, func(), error) {
 	serverCtx := middleware.WithSource(ctx, middleware.SourceScript)
 	serverCtx = pkgsession.WithAwareSessionID(serverCtx, run.ID)
+	serverCtx = producedby.With(serverCtx, producedby.Producer{
+		Kind: producedby.KindScript, ID: sc.ID, Label: sc.Name,
+	})
 	serverCtx = middleware.WithPreAuthenticatedUser(serverCtx, &middleware.UserInfo{
 		UserID:   sc.Principal(),
 		Email:    sc.OwnerEmail,

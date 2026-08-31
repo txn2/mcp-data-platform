@@ -11,6 +11,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
+	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
@@ -328,6 +329,37 @@ func TestContentRefsAccessorReturnsTheInjectedStore(t *testing.T) {
 	var nilHandle *Handle
 	if nilHandle.ContentRefs() != nil {
 		t.Error("nil Handle ContentRefs() != nil")
+	}
+}
+
+// stubProducers satisfies producedby.Store without a database.
+type stubProducers struct{}
+
+func (stubProducers) Record(context.Context, producedby.Write) error { return nil }
+
+func (stubProducers) ListByTarget(context.Context, string, string) ([]producedby.Row, error) {
+	return nil, nil
+}
+
+func (stubProducers) ListByProducer(context.Context, string, string, int) ([]producedby.Row, error) {
+	return nil, nil
+}
+
+// TestProducersAccessorReturnsTheInjectedStore covers the read the portal's
+// producer surfaces take, and the write the asset and version stores are handed
+// (#1569). It is the same record from both ends, so it must be the same store.
+func TestProducersAccessorReturnsTheInjectedStore(t *testing.T) {
+	t.Parallel()
+	producers := stubProducers{}
+	h := NewFromStores(Stores{Producers: producers}, nil, Config{Name: "default"})
+
+	if h.Producers() != producedby.Store(producers) {
+		t.Error("Producers() did not return the injected store")
+	}
+
+	var nilHandle *Handle
+	if nilHandle.Producers() != nil {
+		t.Error("nil Handle Producers() != nil")
 	}
 }
 

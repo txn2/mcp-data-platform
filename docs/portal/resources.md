@@ -100,6 +100,14 @@ Opening a resource shows which prompts attach it as reference material. Deleting
 
 ![Assets referencing a resource](../images/screenshots/light/admin-resource-used-by-assets-light.webp#only-light)![Assets referencing a resource](../images/screenshots/dark/admin-resource-used-by-assets-dark.webp#only-dark)
 
+**Written by** lists what has written the file: every managed script, agent session and person that created or modified it, most recent writer first, each marked as having **created** the file or having only **modified** it. A script and a session open on their own page.
+
+Until this existed a resource recorded only its uploader, and for a managed-script run that was the script's *name* — so renaming the script severed the link, and a script that replaced the content of a file somebody else uploaded left no trace at all. Both are now recorded: a script is identified by its id, so a rename changes only what the row displays, and a file with two writers lists two.
+
+![What produced a resource](../images/screenshots/light/admin-resource-producers-light.webp#only-light)![What produced a resource](../images/screenshots/dark/admin-resource-producers-dark.webp#only-dark)
+
+A file uploaded before this shipped shows no panel rather than a guessed writer. The one case the platform can derive without guessing is a resource a managed script uploaded, where exactly one script bears the name it was filed under.
+
 Clicking a row opens the resource at `/resources/{id}` — `/admin/resources/{id}` in the administrator's section — so a resource can be linked to, bookmarked, reloaded and opened in a second tab, and Back returns to the library on the scope, the folder and the filters it was left on. The page takes the same shape a portal asset takes, because a resource is the same kind of object: the content at the full width of the page, and what the resource is beside it — its library, its folder path as a clickable trail back into the library, metadata, canonical URI, tags, read activity, revision trail, table registration, and the prompts that attach it. Download, Edit and Delete are in the page header, so a long document or a deep revision trail never pushes them off the screen. Editing and deleting are still dialogs; they are bounded forms.
 
 ![Resource detail](../images/screenshots/light/admin-resource-detail-light.webp#only-light)![Resource detail](../images/screenshots/dark/admin-resource-detail-dark.webp#only-dark)

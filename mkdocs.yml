@@ -104,6 +104,7 @@ nav:
       - Content Types and Viewers: server/content-viewers.md
       - Asset References: server/asset-references.md
       - Provenance: server/provenance.md
+      - What Produced a File: server/content-producers.md
       - Registered Tables: server/registered-tables.md
       - Session-Start Notices: server/session-notices.md
       - Managed Scripts: scripts/running.md

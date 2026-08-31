@@ -55,7 +55,7 @@ func TestPostgresVersionStoreCreateVersion(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgres(db, nil, nil)
+	store := NewPostgres(db, nil, nil, nil)
 
 	version := portaldomain.AssetVersion{
 		ID:            "v1",
@@ -96,7 +96,7 @@ func TestPostgresVersionStoreCreateVersionInsertError(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgres(db, nil, nil)
+	store := NewPostgres(db, nil, nil, nil)
 
 	mock.ExpectBegin()
 	mock.ExpectQuery("SELECT current_version, max_versions FROM portal_assets").
@@ -117,7 +117,7 @@ func TestPostgresVersionStoreCreateVersionUpdateError(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgres(db, nil, nil)
+	store := NewPostgres(db, nil, nil, nil)
 
 	mock.ExpectBegin()
 	mock.ExpectQuery("SELECT current_version, max_versions FROM portal_assets").
@@ -140,7 +140,7 @@ func TestPostgresVersionStoreCreateVersionBeginError(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgres(db, nil, nil)
+	store := NewPostgres(db, nil, nil, nil)
 
 	mock.ExpectBegin().WillReturnError(errors.New("db error"))
 
@@ -155,7 +155,7 @@ func TestPostgresVersionStoreListByAsset(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgres(db, nil, nil)
+	store := NewPostgres(db, nil, nil, nil)
 	now := time.Now()
 
 	mock.ExpectQuery("SELECT COUNT").
@@ -187,7 +187,7 @@ func TestPostgresVersionStoreListByAssetCountError(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgres(db, nil, nil)
+	store := NewPostgres(db, nil, nil, nil)
 
 	mock.ExpectQuery("SELECT COUNT").
 		WithArgs("abc123").
@@ -204,7 +204,7 @@ func TestPostgresVersionStoreListByAssetQueryError(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgres(db, nil, nil)
+	store := NewPostgres(db, nil, nil, nil)
 
 	mock.ExpectQuery("SELECT COUNT").
 		WithArgs("abc123").
@@ -225,7 +225,7 @@ func TestPostgresVersionStoreListByAssetDefaults(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgres(db, nil, nil)
+	store := NewPostgres(db, nil, nil, nil)
 
 	mock.ExpectQuery("SELECT COUNT").
 		WithArgs("abc123").
@@ -250,7 +250,7 @@ func TestPostgresVersionStoreGetByVersion(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgres(db, nil, nil)
+	store := NewPostgres(db, nil, nil, nil)
 	now := time.Now()
 
 	rows := sqlmock.NewRows([]string{
@@ -276,7 +276,7 @@ func TestPostgresVersionStoreGetByVersionNotFound(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgres(db, nil, nil)
+	store := NewPostgres(db, nil, nil, nil)
 
 	mock.ExpectQuery("SELECT .+ FROM portal_asset_versions").
 		WithArgs("abc123", 99).
@@ -293,7 +293,7 @@ func TestPostgresVersionStoreGetLatest(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgres(db, nil, nil)
+	store := NewPostgres(db, nil, nil, nil)
 	now := time.Now()
 
 	rows := sqlmock.NewRows([]string{
@@ -318,7 +318,7 @@ func TestPostgresVersionStoreGetLatestNotFound(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgres(db, nil, nil)
+	store := NewPostgres(db, nil, nil, nil)
 
 	mock.ExpectQuery("SELECT .+ FROM portal_asset_versions").
 		WithArgs("abc123").
@@ -376,7 +376,7 @@ func TestCreateVersion_UnlimitedRunsNoPrune(t *testing.T) {
 	defer db.Close() //nolint:errcheck // test cleanup
 
 	objects := &countingDeleter{}
-	store := NewPostgres(db, objects, nil)
+	store := NewPostgres(db, objects, nil, nil)
 	v := retentionVersion()
 
 	expectVersionWrite(mock, v, 40, portaldomain.MaxVersionsUnlimited)
@@ -397,7 +397,7 @@ func TestCreateVersion_PruneCutoffAndObjects(t *testing.T) {
 	defer db.Close() //nolint:errcheck // test cleanup
 
 	objects := &countingDeleter{}
-	store := NewPostgres(db, objects, nil)
+	store := NewPostgres(db, objects, nil, nil)
 	v := retentionVersion()
 
 	expectVersionWrite(mock, v, 9, 3)
@@ -442,7 +442,7 @@ func TestCreateVersion_PruneFailureRollsBackTheWrite(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgres(db, &countingDeleter{}, nil)
+	store := NewPostgres(db, &countingDeleter{}, nil, nil)
 	v := retentionVersion()
 
 	expectVersionWrite(mock, v, 200, nil)
@@ -465,7 +465,7 @@ func TestCreateVersion_ObjectDeleteFailureDoesNotFailTheWrite(t *testing.T) {
 	defer db.Close() //nolint:errcheck // test cleanup
 
 	objects := &failingDeleter{}
-	store := NewPostgres(db, objects, nil)
+	store := NewPostgres(db, objects, nil, nil)
 	v := retentionVersion()
 
 	expectVersionWrite(mock, v, 100, 1)
@@ -487,7 +487,7 @@ func TestCreateVersion_NoObjectClientStillPrunes(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgres(db, nil, nil)
+	store := NewPostgres(db, nil, nil, nil)
 	v := retentionVersion()
 
 	expectVersionWrite(mock, v, 100, 1)
@@ -507,7 +507,7 @@ func TestCreateVersion_PruneScanError(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgres(db, nil, nil)
+	store := NewPostgres(db, nil, nil, nil)
 	v := retentionVersion()
 
 	expectVersionWrite(mock, v, 100, 1)
@@ -532,7 +532,7 @@ func TestCreateVersion_KeepsAnObjectASurvivingVersionStillOwns(t *testing.T) {
 
 	const sharedKey = "artifacts/scripts/s1/abc123/run-7.html"
 	objects := &countingDeleter{}
-	store := NewPostgres(db, objects, nil)
+	store := NewPostgres(db, objects, nil, nil)
 	v := retentionVersion()
 
 	expectVersionWrite(mock, v, 9, 2)
@@ -560,7 +560,7 @@ func TestCreateVersion_KeepsTheCurrentThumbnailOfASharedDirectory(t *testing.T) 
 
 	const dir = "artifacts/scripts/s1/abc123/"
 	objects := &countingDeleter{}
-	store := NewPostgres(db, objects, nil)
+	store := NewPostgres(db, objects, nil, nil)
 	v := retentionVersion()
 	v.S3Key = dir + "run-9.html"
 
@@ -588,7 +588,7 @@ func TestCreateVersion_KeepsTheThumbnailTheAssetRowPointsAt(t *testing.T) {
 	defer db.Close() //nolint:errcheck // test cleanup
 
 	objects := &countingDeleter{}
-	store := NewPostgres(db, objects, nil)
+	store := NewPostgres(db, objects, nil, nil)
 	v := retentionVersion()
 	const prunedKey = "artifacts/o/abc123/v8/content.html"
 	const liveThumb = "artifacts/o/abc123/v8/.thumbnail.png"
@@ -619,7 +619,7 @@ func TestCreateVersion_StoredThumbnailReadFailureFailsTheWrite(t *testing.T) {
 	defer db.Close() //nolint:errcheck // test cleanup
 
 	objects := &countingDeleter{}
-	store := NewPostgres(db, objects, nil)
+	store := NewPostgres(db, objects, nil, nil)
 	v := retentionVersion()
 
 	expectVersionWrite(mock, v, 9, 1)
@@ -647,7 +647,7 @@ func TestCreateVersion_BelowTheCapIssuesNoStatement(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgres(db, &countingDeleter{}, nil)
+	store := NewPostgres(db, &countingDeleter{}, nil, nil)
 	v := retentionVersion()
 
 	// Version 5 under a cap of 5: the oldest kept version is 1, so nothing is
@@ -668,7 +668,7 @@ func TestCreateVersion_SurvivingKeyReadFailureRollsBackTheWrite(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgres(db, &countingDeleter{}, nil)
+	store := NewPostgres(db, &countingDeleter{}, nil, nil)
 	v := retentionVersion()
 
 	expectVersionWrite(mock, v, 100, 1)

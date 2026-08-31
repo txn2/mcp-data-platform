@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/tableregister"
+	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
@@ -31,7 +32,7 @@ func tableRevisers(p *platform.Platform) map[string]tableregister.Reviser {
 	managed, portalCfg := p.Config().Resources.Managed, p.Config().Portal
 	return revisersFor(
 		resourceReviserFor(p.ResourceStore(), p.ResourceS3Client(), managed.S3Bucket, managed.MaxVersions,
-			p.RegisterManagedResource),
+			p.RegisterManagedResource, producedby.NewPostgres(p.DB())),
 		assetReviserFor(p.PortalAssetStore(), p.PortalVersionStore(), p.PortalS3Client(),
 			portalCfg.S3Bucket, portalCfg.S3Prefix),
 	)
@@ -70,7 +71,8 @@ type resourceReviser struct {
 // trail is a capability of the store rather than a requirement of it, the same
 // way the replace-content route treats it.
 func resourceReviserFor(
-	store resource.Store, blobs resource.S3Client, bucket string, maxVersions int, revised func(*resource.Resource),
+	store resource.Store, blobs resource.S3Client, bucket string, maxVersions int,
+	revised func(*resource.Resource), producers producedby.Store,
 ) *resourceReviser {
 	if store == nil || blobs == nil {
 		return nil
@@ -86,6 +88,7 @@ func resourceReviserFor(
 			S3Client:    blobs,
 			S3Bucket:    bucket,
 			MaxVersions: maxVersions,
+			Producers:   producers,
 		},
 		revised: revised,
 	}

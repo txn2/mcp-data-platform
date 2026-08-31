@@ -25,7 +25,7 @@ func TestPostgresAssetStoreInsert(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresAssetStore(db)
+	store := NewPostgresAssetStore(db, nil)
 
 	asset := portaldomain.Asset{
 		ID:          "abc123",
@@ -69,7 +69,7 @@ func TestPostgresAssetStoreInsertNilTags(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresAssetStore(db)
+	store := NewPostgresAssetStore(db, nil)
 
 	asset := portaldomain.Asset{
 		ID:          "abc123",
@@ -107,7 +107,7 @@ func TestPostgresAssetStoreGetNullTags(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresAssetStore(db)
+	store := NewPostgresAssetStore(db, nil)
 	now := time.Now()
 	prov, _ := json.Marshal(portaldomain.Provenance{})
 
@@ -135,7 +135,7 @@ func TestPostgresAssetStoreGet(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresAssetStore(db)
+	store := NewPostgresAssetStore(db, nil)
 	now := time.Now()
 
 	tags, _ := json.Marshal([]string{"report"})
@@ -168,7 +168,7 @@ func TestPostgresAssetStoreGetNotFound(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresAssetStore(db)
+	store := NewPostgresAssetStore(db, nil)
 
 	mock.ExpectQuery("SELECT .+ FROM portal_assets WHERE id").
 		WithArgs("missing").
@@ -184,7 +184,7 @@ func TestPostgresAssetStoreGetByIdempotencyKey(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresAssetStore(db)
+	store := NewPostgresAssetStore(db, nil)
 	now := time.Now()
 	tags, _ := json.Marshal([]string{"export"})
 	prov, _ := json.Marshal(portaldomain.Provenance{SessionID: "sess1"})
@@ -214,7 +214,7 @@ func TestPostgresAssetStoreGetByIdempotencyKeyNotFound(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresAssetStore(db)
+	store := NewPostgresAssetStore(db, nil)
 
 	mock.ExpectQuery("SELECT .+ FROM portal_assets WHERE owner_id").
 		WithArgs("user1", "missing-key").
@@ -230,7 +230,7 @@ func TestPostgresAssetStoreInsertWithIdempotencyKey(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresAssetStore(db)
+	store := NewPostgresAssetStore(db, nil)
 
 	asset := portaldomain.Asset{
 		ID:             "abc123",
@@ -263,7 +263,7 @@ func TestPostgresAssetStoreList(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresAssetStore(db)
+	store := NewPostgresAssetStore(db, nil)
 	now := time.Now()
 
 	tags, _ := json.Marshal([]string{})
@@ -305,7 +305,7 @@ func TestPostgresAssetStoreListThumbnailPending(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresAssetStore(db)
+	store := NewPostgresAssetStore(db, nil)
 
 	// The per-variant version comparison is what distinguishes this filter from
 	// every other listing, so both statements are matched on it.
@@ -333,7 +333,7 @@ func TestPostgresAssetStoreUpdate(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresAssetStore(db)
+	store := NewPostgresAssetStore(db, nil)
 
 	mock.ExpectExec("UPDATE portal_assets").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -349,7 +349,7 @@ func TestPostgresAssetStoreUpdateAllFields(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresAssetStore(db)
+	store := NewPostgresAssetStore(db, nil)
 
 	mock.ExpectExec("UPDATE portal_assets").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -374,7 +374,7 @@ func TestPostgresAssetStoreUpdateNotFound(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresAssetStore(db)
+	store := NewPostgresAssetStore(db, nil)
 
 	mock.ExpectExec("UPDATE portal_assets").
 		WillReturnResult(sqlmock.NewResult(0, 0))
@@ -391,7 +391,7 @@ func TestPostgresAssetStoreUpdateClearDescription(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresAssetStore(db)
+	store := NewPostgresAssetStore(db, nil)
 
 	mock.ExpectExec("UPDATE portal_assets").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -407,7 +407,7 @@ func TestPostgresAssetStoreUpdateThumbnailKey(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresAssetStore(db)
+	store := NewPostgresAssetStore(db, nil)
 
 	mock.ExpectExec("UPDATE portal_assets").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -423,7 +423,7 @@ func TestPostgresAssetStoreUpdateThumbnailDarkKey(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresAssetStore(db)
+	store := NewPostgresAssetStore(db, nil)
 
 	// The query must set the dark column specifically.
 	mock.ExpectExec("UPDATE portal_assets SET thumbnail_dark_s3_key").
@@ -440,7 +440,7 @@ func TestPostgresAssetStoreUpdateClearThumbnail(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresAssetStore(db)
+	store := NewPostgresAssetStore(db, nil)
 
 	mock.ExpectExec("UPDATE portal_assets").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -511,7 +511,7 @@ func TestPostgresAssetStoreUpdateStampsOnlyAuthoredChanges(t *testing.T) {
 			require.NoError(t, err)
 			defer db.Close() //nolint:errcheck // test cleanup
 
-			store := NewPostgresAssetStore(db)
+			store := NewPostgresAssetStore(db, nil)
 			mock.ExpectExec("UPDATE portal_assets").WillReturnResult(sqlmock.NewResult(0, 1))
 
 			require.NoError(t, store.Update(context.Background(), "abc123", tt.update))
@@ -527,7 +527,7 @@ func TestPostgresAssetStoreUpdateNoFields(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresAssetStore(db)
+	store := NewPostgresAssetStore(db, nil)
 	err = store.Update(context.Background(), "abc123", portaldomain.AssetUpdate{})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no fields to update")
@@ -538,7 +538,7 @@ func TestPostgresAssetStoreSoftDelete(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresAssetStore(db)
+	store := NewPostgresAssetStore(db, nil)
 
 	mock.ExpectExec("UPDATE portal_assets SET deleted_at").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -553,7 +553,7 @@ func TestPostgresAssetStoreSoftDeleteNotFound(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresAssetStore(db)
+	store := NewPostgresAssetStore(db, nil)
 
 	mock.ExpectExec("UPDATE portal_assets SET deleted_at").
 		WillReturnResult(sqlmock.NewResult(0, 0))
@@ -761,7 +761,7 @@ func TestPostgresAssetStoreInsertError(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresAssetStore(db)
+	store := NewPostgresAssetStore(db, nil)
 
 	mock.ExpectExec("INSERT INTO portal_assets").
 		WillReturnError(fmt.Errorf("db error"))
@@ -779,7 +779,7 @@ func TestPostgresAssetStoreListCountError(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresAssetStore(db)
+	store := NewPostgresAssetStore(db, nil)
 
 	mock.ExpectQuery("SELECT COUNT").WillReturnError(fmt.Errorf("db error"))
 
@@ -794,7 +794,7 @@ func TestPostgresAssetStoreListQueryError(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresAssetStore(db)
+	store := NewPostgresAssetStore(db, nil)
 
 	mock.ExpectQuery("SELECT COUNT").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	mock.ExpectQuery("SELECT .+ FROM portal_assets").WillReturnError(fmt.Errorf("db error"))
@@ -810,7 +810,7 @@ func TestPostgresAssetStoreListWithOffset(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresAssetStore(db)
+	store := NewPostgresAssetStore(db, nil)
 
 	mock.ExpectQuery("SELECT COUNT").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
@@ -844,7 +844,7 @@ func TestPostgresAssetStoreListFilterByTag(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresAssetStore(db)
+	store := NewPostgresAssetStore(db, nil)
 
 	mock.ExpectQuery("SELECT COUNT").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 	mock.ExpectQuery("SELECT .+ FROM portal_assets").WillReturnRows(
@@ -865,7 +865,7 @@ func TestPostgresAssetStoreListFilterByContentType(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresAssetStore(db)
+	store := NewPostgresAssetStore(db, nil)
 
 	mock.ExpectQuery("SELECT COUNT").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 	mock.ExpectQuery("SELECT .+ FROM portal_assets").WillReturnRows(
@@ -886,7 +886,7 @@ func TestPostgresAssetStoreListFilterBySearch(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresAssetStore(db)
+	store := NewPostgresAssetStore(db, nil)
 
 	mock.ExpectQuery("SELECT COUNT").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 	mock.ExpectQuery("SELECT .+ FROM portal_assets").WillReturnRows(
@@ -907,7 +907,7 @@ func TestPostgresAssetStoreUpdateExecError(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresAssetStore(db)
+	store := NewPostgresAssetStore(db, nil)
 
 	mock.ExpectExec("UPDATE portal_assets").
 		WillReturnError(fmt.Errorf("db error"))
@@ -924,7 +924,7 @@ func TestPostgresAssetStoreSoftDeleteExecError(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresAssetStore(db)
+	store := NewPostgresAssetStore(db, nil)
 
 	mock.ExpectExec("UPDATE portal_assets SET deleted_at").
 		WillReturnError(fmt.Errorf("db error"))
@@ -1242,7 +1242,7 @@ func TestPostgresAssetStoreGetWithDeletedAt(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresAssetStore(db)
+	store := NewPostgresAssetStore(db, nil)
 	now := time.Now()
 	deletedAt := now.Add(-1 * time.Hour)
 
@@ -1467,7 +1467,7 @@ func TestPostgresAssetStoreListOrdering(t *testing.T) {
 			require.NoError(t, err)
 			defer db.Close() //nolint:errcheck // test cleanup
 
-			store := NewPostgresAssetStore(db)
+			store := NewPostgresAssetStore(db, nil)
 			mock.ExpectQuery("SELECT COUNT").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 			mock.ExpectQuery(tc.wantOrder).WillReturnRows(sqlmock.NewRows([]string{
 				"id", "owner_id", "owner_email", "name", "description", "content_type", "s3_bucket", "s3_key",
@@ -1492,7 +1492,7 @@ func TestPostgresAssetStoreAppendProvenanceCapture(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresAssetStore(db)
+	store := NewPostgresAssetStore(db, nil)
 	capture := portaldomain.ProvenanceCapture{
 		Tool: "save_asset", Version: 1, EventIDs: []string{"evt-1"},
 		Calls: []portaldomain.ProvenanceCall{{EventID: "evt-1", Kind: portaldomain.ProvenanceKindSQL}},
@@ -1532,7 +1532,7 @@ func TestPostgresAssetStoreAppendProvenanceCaptureMissingRow(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresAssetStore(db)
+	store := NewPostgresAssetStore(db, nil)
 	mock.ExpectExec("UPDATE portal_assets").
 		WithArgs(sqlmock.AnyArg(), "gone").
 		WillReturnResult(sqlmock.NewResult(0, 0))
@@ -1547,7 +1547,7 @@ func TestPostgresAssetStoreAppendProvenanceCaptureExecError(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresAssetStore(db)
+	store := NewPostgresAssetStore(db, nil)
 	mock.ExpectExec("UPDATE portal_assets").
 		WithArgs(sqlmock.AnyArg(), "abc123").
 		WillReturnError(errors.New("connection reset"))

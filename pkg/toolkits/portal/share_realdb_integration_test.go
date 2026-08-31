@@ -30,7 +30,7 @@ func TestRealDB_ShareActions(t *testing.T) {
 		UserID: "owner_1280", UserEmail: "owner1280@example.com",
 	})
 
-	assets := portal.NewPostgresAssetStore(db)
+	assets := portal.NewPostgresAssetStore(db, nil)
 	shares := portal.NewPostgresShareStore(db)
 	seed := func(id, name string) {
 		t.Helper()

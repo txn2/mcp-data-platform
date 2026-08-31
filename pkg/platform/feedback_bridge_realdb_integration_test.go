@@ -40,7 +40,7 @@ func TestRealDB_FeedbackBridge_CaptureLinksThreadAndChain(t *testing.T) {
 	const owner = "550e8400-e29b-41d4-a716-446655440000"
 
 	// Real stores.
-	assetStore := portal.NewPostgresAssetStore(db)
+	assetStore := portal.NewPostgresAssetStore(db, nil)
 	threadStore := portal.NewPostgresThreadStore(db)
 	// memory_capture (#633) writes directly to the memory store; reviewed
 	// sink-classes carry the pending-insight overlay apply_knowledge reads.

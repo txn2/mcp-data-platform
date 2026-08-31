@@ -33,6 +33,7 @@ export function AdminScriptRoutes({
         backLabel="All scripts"
         onBack={() => onNavigate("/admin/scripts")}
         onNavigate={onNavigate}
+        filePath={adminFilePath}
       />
     );
   }
@@ -45,6 +46,15 @@ export function AdminScriptRoutes({
       backLabel="All scripts"
       onBack={() => onNavigate("/admin/scripts")}
       onNavigate={onNavigate}
+      filePath={adminFilePath}
     />
   );
+}
+
+// adminFilePath is where a file this script produced opens for an operator: the
+// console's own libraries, which hold every asset and every resource rather
+// than the ones scoped to them.
+function adminFilePath(kind: "asset" | "resource", id: string): string {
+  const section = kind === "asset" ? "assets" : "resources";
+  return `/admin/${section}/${encodeURIComponent(id)}`;
 }

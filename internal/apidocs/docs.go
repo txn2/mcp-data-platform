@@ -9439,6 +9439,73 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/assets/{id}/producers": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the scripts, sessions and people that created or modified this asset, most recent writer first, marking which one created it and whether each producer still exists.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Portal"
+                ],
+                "summary": "List what produced an asset",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/producerapi.producersResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "410": {
+                        "description": "Gone",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/assets/{id}/references": {
             "get": {
                 "security": [
@@ -14423,6 +14490,61 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/resources/{id}/producers": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the scripts, sessions and people that created or modified this resource, most recent writer first, marking which one created it and whether each producer still exists.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "List what produced a managed resource",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Resource ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/producerapi.producersResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/resources/{id}/prompts": {
             "get": {
                 "security": [
@@ -14994,6 +15116,61 @@ const docTemplate = `{
                     },
                     "409": {
                         "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/scripts/{id}/produced": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns every portal asset and managed resource this script has created or modified, across all runs, most recently written first. Restricted to the script's owner and to administrators.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "List what a script has produced",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/scripthttp.producedListResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -24932,6 +25109,94 @@ const docTemplate = `{
                 "PermissionEditor"
             ]
         },
+        "producedview.Item": {
+            "type": "object",
+            "properties": {
+                "created": {
+                    "description": "Created marks a file this producer brought into existence, as against one\nit has only changed since.",
+                    "type": "boolean"
+                },
+                "deleted": {
+                    "description": "Deleted reports a file that has since been removed. The row stays: that\nthis producer wrote it is still true, and somebody deciding whether to\nretire a script needs to see what it wrote that is already gone.",
+                    "type": "boolean"
+                },
+                "first_write_at": {
+                    "type": "string"
+                },
+                "last_version": {
+                    "description": "LastVersion is the file version this producer last wrote, or zero for a\nfile whose kind does not number its writes.",
+                    "type": "integer"
+                },
+                "last_write_at": {
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Name is what the file is called now, empty when it no longer exists.",
+                    "type": "string"
+                },
+                "target_id": {
+                    "type": "string"
+                },
+                "target_kind": {
+                    "description": "TargetKind is \"asset\" or \"resource\"; TargetID is the id within that kind.",
+                    "type": "string"
+                },
+                "write_count": {
+                    "type": "integer"
+                }
+            }
+        },
+        "producerapi.producerView": {
+            "type": "object",
+            "properties": {
+                "created": {
+                    "description": "Created marks the producer that brought the file into existence, as\nagainst one that has only changed it since.",
+                    "type": "boolean"
+                },
+                "exists": {
+                    "description": "Exists reports whether the producer can still be opened. It is false only\nwhere the platform positively determined the producer is gone -- a script\nid that resolves to nothing -- so a surface can say \"a script that no\nlonger exists\" rather than link to a page that 404s.",
+                    "type": "boolean"
+                },
+                "first_write_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "description": "Kind is \"script\", \"session\" or \"person\"; ID is the stable identity the\nsurface links to.",
+                    "type": "string"
+                },
+                "label": {
+                    "description": "Label is what to call the producer: a script's current name, falling back\nto the name it had when it wrote if it has since been deleted, and a\nperson's address. Empty for a session, whose id is its own label.",
+                    "type": "string"
+                },
+                "last_version": {
+                    "description": "LastVersion is the file version this producer last wrote, or zero for a\nfile whose kind does not number its writes.",
+                    "type": "integer"
+                },
+                "last_write_at": {
+                    "type": "string"
+                },
+                "write_count": {
+                    "type": "integer"
+                }
+            }
+        },
+        "producerapi.producersResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/producerapi.producerView"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
         "prompt.Argument": {
             "type": "object",
             "properties": {
@@ -26765,6 +27030,20 @@ const docTemplate = `{
                 "version": {
                     "type": "integer",
                     "example": 3
+                }
+            }
+        },
+        "scripthttp.producedListResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/producedview.Item"
+                    }
+                },
+                "total": {
+                    "type": "integer"
                 }
             }
         },

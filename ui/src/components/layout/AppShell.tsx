@@ -1,7 +1,6 @@
 import { Suspense, lazy, useState, useEffect, useCallback, useRef } from "react";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
-import { folderAddress } from "@/pages/resources/parts/libraryUrl";
 import { useAuthStore } from "@/stores/auth";
 
 // Every page below is its own chunk. The shell used to import all of them
@@ -49,8 +48,10 @@ const CollectionEditorPage = lazy(() =>
 const ResourcesPage = lazy(() =>
   import("@/pages/resources/ResourcesPage").then((m) => ({ default: m.ResourcesPage })),
 );
-const ResourceViewerPage = lazy(() =>
-  import("@/pages/resources/ResourceViewerPage").then((m) => ({ default: m.ResourceViewerPage })),
+const PortalResourceViewer = lazy(() =>
+  import("@/pages/resources/PortalResourceViewer").then((m) => ({
+    default: m.PortalResourceViewer,
+  })),
 );
 const ScratchTableRoutes = lazy(() =>
   import("@/pages/scratch-tables/ScratchTableRoutes").then((m) => ({
@@ -514,10 +515,10 @@ export function AppShell() {
             <ResourcesPage location={currentPath} onNavigate={navigate} />
           )}
           {!adminRoute && resourceViewMatch && (
-            <ResourceViewerPage
+            <PortalResourceViewer
               resourceId={resourceViewMatch[1]!}
-              onBack={() => goBack("/resources")}
-              onOpenFolder={(tab, path) => navigate(folderAddress("/resources", tab, path))}
+              navigate={navigate}
+              goBack={goBack}
             />
           )}
           {!adminRoute && isInSection(route, "/scratch-tables") && (

@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
+	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -64,6 +65,7 @@ func newOutputWriter(deps ExportDeps, runs script.RunStore, run *script.Run, sc 
 // Export writes one output to the destination the host resolved, and records
 // it on the run.
 func (w *outputWriter) Export(ctx context.Context, req scriptrun.ExportRequest) (*scriptrun.ExportResult, error) {
+	ctx = w.producing(ctx)
 	if err := w.refuseRepeat(req.Name, req.Destination.Name); err != nil {
 		return nil, err
 	}
@@ -84,6 +86,19 @@ func (w *outputWriter) Export(ctx context.Context, req scriptrun.ExportRequest) 
 	}
 	w.record(ctx, out)
 	return written, nil
+}
+
+// producing names this script as the producer of everything written under the
+// returned context (#1569).
+//
+// The writer stores through the portal's own write funnels, which record what
+// produced what they are given by reading the context. Those calls do not cross
+// the MCP middleware, so the script is named here as well as on the run's
+// session -- by id, so a rename leaves the record pointing at the same script.
+func (w *outputWriter) producing(ctx context.Context) context.Context {
+	return producedby.With(ctx, producedby.Producer{
+		Kind: producedby.KindScript, ID: w.script.ID, Label: w.script.Name,
+	})
 }
 
 // write sends one formatted output to its destination.

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/producedby"
 )
 
 // NewResource is a resource about to exist: where it is filed, what it is
@@ -104,6 +105,7 @@ func CreateResource(ctx context.Context, deps Deps, claims *Claims, in NewResour
 
 	saved := readBackCreated(ctx, deps, id, res)
 	recordInitialVersion(ctx, deps, saved, claims)
+	noteProducer(ctx, deps, claims, producedby.Write{TargetID: saved.ID, Created: true, Version: 1})
 	return saved, nil
 }
 

@@ -14,6 +14,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	pkgsession "github.com/txn2/mcp-data-platform/pkg/session"
 )
@@ -404,7 +405,41 @@ func authenticateAndAuthorize(
 		params.workflowTracker.RecordToolCall(ctx, params.pc.DiscoveryScopeKey(), params.toolName)
 	}
 
-	return next(ctx, method, req)
+	// After the session resolver, whose validated handle is the session a write
+	// made by this call is recorded against.
+	return next(stampProducer(ctx, params.pc), method, req)
+}
+
+// stampProducer names, for every write this call goes on to make, what produced
+// it (#1569). The portal asset and managed-resource write funnels read the
+// producer off the context, so it is resolved once here rather than at each of
+// them.
+//
+// A producer already on the context is left alone. A managed-script run stamps
+// its own script id where it opens its session, which is the identity that
+// survives a rename; this middleware runs inside that and knows only the
+// script:<name> principal, which does not.
+//
+// Otherwise the producer is the session the call was made in. A session is what
+// a reader can open and follow, and it names the person on its own page, so an
+// agent's save is filed under the session rather than under both. A call with
+// no session at all -- which resolveSessionID makes rare -- is filed under the
+// caller.
+func stampProducer(ctx context.Context, pc *PlatformContext) context.Context {
+	if producedby.Has(ctx) || pc == nil {
+		return ctx
+	}
+	if pc.SessionID != "" {
+		return producedby.With(ctx, producedby.Producer{
+			Kind: producedby.KindSession,
+			ID:   pc.SessionID,
+		})
+	}
+	return producedby.With(ctx, producedby.Producer{
+		Kind:  producedby.KindPerson,
+		ID:    pc.UserID,
+		Label: pc.UserEmail,
+	})
 }
 
 // extractSessionID extracts the session ID from a request.

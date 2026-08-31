@@ -14,7 +14,11 @@ import {
   openTableRepairOffer,
   openTableRepaired,
 } from "./route-actions";
-import { openResourceThumbnail, openResourceUsedByAssets } from "./route-actions-refs";
+import {
+  openResourceProducers,
+  openResourceThumbnail,
+  openResourceUsedByAssets,
+} from "./route-actions-refs";
 import { type ScreenshotRoute } from "./route-types";
 
 // The reader's own Resources page, as against the administrator's section
@@ -174,6 +178,17 @@ export const adminResourceRoutes: ScreenshotRoute[] = [
     path: "/portal/admin/resources",
     category: "admin",
     beforeCapture: openResourceUsedByAssets,
+  },
+  {
+    // What wrote this file (#1569). A resource recorded only an uploader, and
+    // for a managed-script run that was the script's NAME -- so a rename
+    // severed the link and a script that replaced the content of a file it did
+    // not upload left no trace. This is the record that survives both, with the
+    // uploader and the refreshing script both listed.
+    slug: "resource-producers",
+    path: "/portal/admin/resources",
+    category: "admin",
+    beforeCapture: openResourceProducers,
   },
   {
     // The registered-table panel on a managed CSV resource, showing a

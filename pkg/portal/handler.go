@@ -22,7 +22,9 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/portal/feedbackapi"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/internal/portal/producerapi"
 	"github.com/txn2/mcp-data-platform/internal/portal/viewerlimit"
+	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/blobserve"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
@@ -275,6 +277,16 @@ type Deps struct {
 	ResourceBlobs  assetrefs.BlobReader
 	// ResourceS3Bucket is the bucket managed-resource blobs live in.
 	ResourceS3Bucket string
+
+	// Producers is the record of what wrote each asset and each managed
+	// resource (#1569), read by the producer routes from the target end. Nil
+	// (no database) leaves those routes unregistered. Its type is named
+	// directly for the reason ContentRefs's is.
+	Producers producedby.Store
+	// ScriptNames resolves a script producer to the name it carries now, and
+	// so to whether it still exists at all. Nil reports every script producer
+	// as existing.
+	ScriptNames producerapi.ScriptNames
 }
 
 // Handler provides portal REST API endpoints.
@@ -460,6 +472,18 @@ func (h *Handler) registerRoutes() {
 	// The managed resources an asset's content references, from both ends:
 	// the asset's own list and the resource's "what uses this?" (#1475).
 	h.registerRefAPI()
+
+	// What produced an asset or a managed resource (#1569). The other end of
+	// the same relation -- what a script has produced -- is registered beside
+	// the script routes, where the authority to see a script is resolved.
+	producerapi.Register(h.mux, producerapi.Config{
+		Producers: h.deps.Producers,
+		Assets:    h.deps.AssetStore,
+		Resources: h.deps.ResourceReader,
+		Access:    h.access,
+		Claims:    h.resourceClaims,
+		Scripts:   h.deps.ScriptNames,
+	})
 
 	// Collection routes
 	if h.deps.CollectionStore != nil {

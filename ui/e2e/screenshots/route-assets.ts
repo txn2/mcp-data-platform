@@ -1,4 +1,5 @@
 import {
+  openAssetProducers,
   openAssetRefPicker,
   openAssetRefPickerAssets,
   openAssetRefs,
@@ -94,6 +95,16 @@ export const assetViewerRoutes: ScreenshotRoute[] = [
     path: "/portal/assets/ast-004",
     category: "user",
     beforeCapture: openAssetUsedBy,
+  },
+  {
+    // What wrote this asset (#1569): the script that refreshes it hourly and
+    // the person who edits it, with the creator distinguished from the
+    // modifier. It sits beside the provenance panel, which answers the other
+    // question -- which data calls the content was built from.
+    slug: "asset-producers",
+    path: "/portal/assets/ast-001",
+    category: "user",
+    beforeCapture: openAssetProducers,
   },
   {
     // The tile everyone else sees of this asset, and the way back from one that

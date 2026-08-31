@@ -27,7 +27,7 @@ const realdbThreadOwner = "550e8400-e29b-41d4-a716-446655440000"
 
 func seedAsset(t *testing.T, db *sql.DB, id, owner string) {
 	t.Helper()
-	store := portalstore.NewPostgresAssetStore(db)
+	store := portalstore.NewPostgresAssetStore(db, nil)
 	require.NoError(t, store.Insert(context.Background(), portaldomain.Asset{
 		ID: id, OwnerID: owner, OwnerEmail: "owner@example.com", Name: id,
 		ContentType: "text/markdown", S3Bucket: "b", S3Key: "k", Tags: []string{}, CurrentVersion: 1,
