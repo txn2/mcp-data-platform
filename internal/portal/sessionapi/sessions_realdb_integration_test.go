@@ -75,7 +75,7 @@ func twoUserFixture(t *testing.T) *sessionview.PostgresStore {
 	log(sessionOfA, userA, "a@example.com", "save_asset", "Saving the finished table.", base.Add(2*time.Minute))
 	log(sessionOfB, userB, "b@example.com", "search", "Checking last month's signups.", base.Add(3*time.Minute))
 
-	assets := portalstore.NewPostgresAssetStore(db)
+	assets := portalstore.NewPostgresAssetStore(db, nil)
 	require.NoError(t, assets.Insert(ctx, portaldomain.Asset{
 		ID:          "ast_realdb_1319",
 		OwnerID:     userA,

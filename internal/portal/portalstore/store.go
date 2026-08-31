@@ -19,6 +19,7 @@ import (
 	"github.com/lib/pq"
 
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/internal/thumbtypes"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/portal/shareaccess"
@@ -57,13 +58,24 @@ type postgresAssetStore struct {
 	// the time one embed takes rather than on the reconciler's next sweep
 	// (#1256). Nil when no queue is wired; every call on it is nil-safe.
 	index *indexjobs.Producer
+	// producers records what wrote each asset (#1569). Insert is the funnel
+	// every asset's creation passes through -- save_asset, manage_asset, the
+	// exports, the managed-script output writer -- so the producer is noted
+	// here rather than at each of them. Nil on a deployment with no store,
+	// where the note is skipped and the write is unaffected.
+	producers producedby.Store
 }
 
-// NewPostgresAssetStore creates a new PostgreSQL asset store. Pass
+// NewPostgresAssetStore creates a new PostgreSQL asset store. producers records
+// what produced each asset and may be nil, which records nothing. Pass
 // indexjobs.WithProducer to have asset writes enqueue their own index job;
 // without it, assets are indexed on the reconciler's next sweep.
-func NewPostgresAssetStore(db *sql.DB, opts ...indexjobs.StoreOption) portaldomain.AssetStore {
-	return &postgresAssetStore{db: db, index: indexjobs.ResolveStoreOptions(opts).Producer}
+func NewPostgresAssetStore(db *sql.DB, producers producedby.Store, opts ...indexjobs.StoreOption) portaldomain.AssetStore {
+	return &postgresAssetStore{
+		db:        db,
+		index:     indexjobs.ResolveStoreOptions(opts).Producer,
+		producers: producers,
+	}
 }
 
 func (s *postgresAssetStore) Insert(ctx context.Context, asset portaldomain.Asset) error { //nolint:revive // interface impl
@@ -108,6 +120,15 @@ func (s *postgresAssetStore) Insert(ctx context.Context, asset portaldomain.Asse
 	// After the write, never before: a job claimed while the row still holds its
 	// pre-write text would have the worker stamp that snapshot as current.
 	s.index.NotifyWrite(ctx, asset.ID)
+	// The create, recorded against whatever produced it. The first version's
+	// content is written straight after this by CreateVersion, which does not
+	// count that version again: one save is one write, not two.
+	producedby.Note(ctx, s.producers, producedby.Write{
+		TargetKind: producedby.TargetAsset,
+		TargetID:   asset.ID,
+		Created:    true,
+		Version:    currentVersion,
+	})
 	return nil
 }
 

@@ -235,6 +235,26 @@ and to administrators. A script you can see but do not own shows its details and
 says about itself, and nothing else.
 
 
+## Files written
+
+Below the run history, on a script you own, is **Files written**: every portal asset and
+managed resource this script has created or modified, across every run, most recently
+written first. Each row names the file, its kind, how many times this script has written it, and
+when it last did, and marks whether the script **created** the file or has only
+**modified** it. Clicking a row opens the file.
+
+The run history above answers what one run did, which is a different question. A script
+that has run three hundred times has three hundred output lists, and a file the script
+modified without declaring it as an output — through `manage_asset` or `manage_resource`
+— appears in none of them. This is the list that answers what the script actually
+touches, and what goes stale if you retire it.
+
+A file the script wrote that has since been deleted stays listed, named by its id and
+marked deleted: that the script wrote it is still true, and it is part of what somebody
+deciding whether to retire the script has to see.
+
+![What a script has produced](../images/screenshots/light/user-script-produced-light.webp#only-light)![What a script has produced](../images/screenshots/dark/user-script-produced-dark.webp#only-dark)
+
 ## State
 
 Below the run history, on a script you own, is the **State** the script carries from one

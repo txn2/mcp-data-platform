@@ -29,6 +29,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/notices"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefstore"
+	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
@@ -82,8 +83,13 @@ type Handle struct {
 	knowledgePageStore knowledgepage.Store
 	s3Client           portal.S3Client
 	contentRefs        assetrefs.Store
-	declarer           *assetrefs.Declarer
-	toolkit            *portalkit.Toolkit
+	// producers is the record of what wrote each asset and each managed
+	// resource (#1569), written by the asset and version stores above and read
+	// by the portal's producer surfaces from both ends. Nil on a Handle with
+	// no database, where nothing is recorded and every surface reports none.
+	producers producedby.Store
+	declarer  *assetrefs.Declarer
+	toolkit   *portalkit.Toolkit
 	// notices assembles a caller's session-start digest from the asset, share
 	// and thread stores above plus its own watermark table (#1278). Set only by
 	// New, which has the *sql.DB the watermark needs; a Handle assembled from
@@ -113,6 +119,11 @@ type Stores struct {
 	// references (#1474). Nil on a Handle assembled without a database, which
 	// leaves every surface that would declare a reference refusing to.
 	ContentRefs assetrefs.Store
+	// Producers records what wrote each asset and each managed resource
+	// (#1569). It is handed to the asset and version stores as well, so the
+	// same record the surfaces read is the one those write funnels fill. Nil
+	// on a Handle assembled without a database.
+	Producers producedby.Store
 }
 
 // New assembles the six Postgres-backed stores and the asset toolkit from an
@@ -132,15 +143,20 @@ func New(db *sql.DB, s3Client portal.S3Client, embedder embedding.Provider, cfg 
 	collections := indexjobs.NewProducer(collectionindex.SourceKind)
 	pages := indexjobs.NewProducer(knowledgepageindex.SourceKind)
 
+	// One producer record, written by both asset write funnels and read by the
+	// surfaces that ask what produced a file and what a script has written.
+	producers := producedby.NewPostgres(db)
+
 	h := NewFromStores(Stores{
-		Asset:         portal.NewPostgresAssetStore(db, indexjobs.WithProducer(assets)),
+		Asset:         portal.NewPostgresAssetStore(db, producers, indexjobs.WithProducer(assets)),
 		Share:         portal.NewPostgresShareStore(db),
-		Version:       portal.NewPostgresVersionStore(db, s3Client, cfg.MaxVersions),
+		Version:       portal.NewPostgresVersionStore(db, s3Client, cfg.MaxVersions, producers),
 		Collection:    portal.NewPostgresCollectionStore(db, indexjobs.WithProducer(collections)),
 		Thread:        portal.NewPostgresThreadStore(db),
 		KnowledgePage: knowledgepage.NewPostgresStore(db, indexjobs.WithProducer(pages)),
 		S3Client:      s3Client,
 		ContentRefs:   assetrefstore.New(db),
+		Producers:     producers,
 	}, embedder, cfg)
 	h.indexProducers = []*indexjobs.Producer{assets, collections, pages}
 	h.notices = notices.New(db, h.assetStore, h.shareStore, h.threadStore)
@@ -161,6 +177,7 @@ func NewFromStores(s Stores, embedder embedding.Provider, cfg Config) *Handle {
 		knowledgePageStore: s.KnowledgePage,
 		s3Client:           s.S3Client,
 		contentRefs:        s.ContentRefs,
+		producers:          s.Producers,
 	}
 	// The declaration path is built here, over the two stores it checks
 	// against, so an asset reference works on a deployment with no
@@ -186,6 +203,16 @@ func NewFromStores(s Stores, embedder embedding.Provider, cfg Config) *Handle {
 	})
 	h.toolkit.SetContentRefs(h.declarer)
 	return h
+}
+
+// Producers returns the record of what wrote each asset and each managed
+// resource, or nil on a nil Handle. The portal's producer surfaces read it;
+// the asset and version stores write it.
+func (h *Handle) Producers() producedby.Store {
+	if h == nil {
+		return nil
+	}
+	return h.producers
 }
 
 // ContentRefs returns the store of the things assets reference, or nil on a

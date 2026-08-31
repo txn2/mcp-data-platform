@@ -10,6 +10,7 @@ import {
   openScriptState,
   openScriptVersionHistory,
 } from "./route-actions";
+import { openScriptProduced } from "./route-actions-refs";
 import { type ScreenshotRoute } from "./route-types";
 
 // Every managed-script capture, on both surfaces: what a person who owns a
@@ -115,6 +116,17 @@ export const userScriptRoutes: ScreenshotRoute[] = [
     path: "/portal/scripts/script-001",
     category: "user",
     beforeCapture: openScriptRunLog,
+  },
+  {
+    // Everything the script has written, across every run (#1569), as one list
+    // rather than per-run output lines: the report it refreshes, the managed
+    // resource it rewrites, and a file it wrote that has since been deleted.
+    // It is the answer to "what does this script touch" and "what goes stale
+    // if I retire it", which no run history can give.
+    slug: "script-produced",
+    path: "/portal/scripts/script-001",
+    category: "user",
+    beforeCapture: openScriptProduced,
   },
   {
     // Every run of every script this person owns (#1405), which is the question

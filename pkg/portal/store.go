@@ -6,6 +6,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/portal/portalnoop"
 	"github.com/txn2/mcp-data-platform/internal/portal/portalstore"
 	"github.com/txn2/mcp-data-platform/internal/portal/portalversions"
+	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 )
 
@@ -39,11 +40,12 @@ const (
 	thumbSizeLarge = "large"
 )
 
-// NewPostgresAssetStore creates a new PostgreSQL asset store. Pass
+// NewPostgresAssetStore creates a new PostgreSQL asset store. producers records
+// what produced each asset (#1569) and may be nil, which records nothing. Pass
 // indexjobs.WithProducer to have asset writes enqueue their own index job
 // instead of waiting for the reconciler's next sweep.
-func NewPostgresAssetStore(db *sql.DB, opts ...indexjobs.StoreOption) AssetStore {
-	return portalstore.NewPostgresAssetStore(db, opts...)
+func NewPostgresAssetStore(db *sql.DB, producers producedby.Store, opts ...indexjobs.StoreOption) AssetStore {
+	return portalstore.NewPostgresAssetStore(db, producers, opts...)
 }
 
 // NewPostgresShareStore creates a new PostgreSQL share store.
@@ -53,9 +55,10 @@ func NewPostgresShareStore(db *sql.DB) ShareStore { return portalstore.NewPostgr
 // s3Client deletes the objects of versions the retention cap prunes and may be
 // nil in database-only mode, where the prune still trims the table; maxVersions
 // is the deployment default a per-asset override supersedes, nil selecting the
-// platform default of 100.
-func NewPostgresVersionStore(db *sql.DB, s3Client S3Client, maxVersions *int) VersionStore {
-	return portalversions.NewPostgres(db, s3Client, maxVersions)
+// platform default of 100; producers records what produced each version and may
+// be nil.
+func NewPostgresVersionStore(db *sql.DB, s3Client S3Client, maxVersions *int, producers producedby.Store) VersionStore {
+	return portalversions.NewPostgres(db, s3Client, maxVersions, producers)
 }
 
 // NewPostgresCollectionStore creates a new PostgreSQL collection store. Pass

@@ -165,8 +165,8 @@ func newReplica(t *testing.T, db *sql.DB, sessions pkgsession.Store, s3 *memS3, 
 
 	toolkit := portalkit.New(portalkit.Config{
 		Name:              "portal",
-		AssetStore:        portal.NewPostgresAssetStore(db),
-		VersionStore:      portal.NewPostgresVersionStore(db, nil, nil),
+		AssetStore:        portal.NewPostgresAssetStore(db, nil),
+		VersionStore:      portal.NewPostgresVersionStore(db, nil, nil, nil),
 		S3Client:          s3,
 		S3Bucket:          bucket,
 		S3Prefix:          "assets/",
@@ -567,7 +567,7 @@ func TestCallCatalogRealDBSatisfiesOnlyTheCallsAnAssetNamed(t *testing.T) {
 
 	// The provenance panel is unaffected: the asset still records the session's
 	// work, which is what makes the write checkable.
-	assets, _, err := portal.NewPostgresAssetStore(db).List(ctx, portal.AssetFilter{Owner: portaldomain.NewAssetOwner(analystID, "")})
+	assets, _, err := portal.NewPostgresAssetStore(db, nil).List(ctx, portal.AssetFilter{Owner: portaldomain.NewAssetOwner(analystID, "")})
 	require.NoError(t, err)
 	require.Len(t, assets, 1)
 	require.Len(t, assets[0].Provenance.Captures, 1)
@@ -617,7 +617,7 @@ func TestCallCatalogRealDBExportCitesTheStatementItStreamed(t *testing.T) {
 
 	// The capture an export takes: the window it swept up, then its own call,
 	// which appendOwn marks as cited (see the provenance package's tests).
-	require.NoError(t, portal.NewPostgresAssetStore(db).Insert(ctx, portal.Asset{
+	require.NoError(t, portal.NewPostgresAssetStore(db, nil).Insert(ctx, portal.Asset{
 		ID: "ast-export-1", OwnerID: analystID, OwnerEmail: analystMail,
 		Name: "Exported revenue", ContentType: "text/csv",
 		S3Bucket: bucket, S3Key: "assets/ast-export-1.csv", SessionID: sessionID,

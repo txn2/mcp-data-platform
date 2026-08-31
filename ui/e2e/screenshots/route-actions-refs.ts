@@ -118,3 +118,53 @@ export async function openResourceThumbnail(page: Page): Promise<void> {
     .catch(() => {});
   await page.waitForTimeout(500);
 }
+
+/**
+ * openAssetProducers scrolls the asset viewer's sidebar to the section naming
+ * what wrote this file (#1569): the script that refreshes it and the person who
+ * has edited it, with the one that created it marked.
+ *
+ * It is a capture of its own rather than part of the provenance one because the
+ * two answer different questions and sit next to each other saying so:
+ * provenance is which data calls the content was built from, this is who did
+ * the building.
+ */
+export async function openAssetProducers(page: Page): Promise<void> {
+  await openAssetProvenance(page);
+  await page
+    .getByTestId("producers-panel")
+    .scrollIntoViewIfNeeded({ timeout: 5_000 })
+    .catch(() => {});
+  await page.waitForTimeout(500);
+}
+
+/**
+ * openResourceProducers opens a managed file a script rewrites and scrolls to
+ * what wrote it (#1569). A resource recorded only an uploader before this, and
+ * for a run that was the script's name -- so this is the section that shows a
+ * file with two writers at all.
+ */
+export async function openResourceProducers(page: Page): Promise<void> {
+  await openPersonaScopeTab(page);
+  await openResourceNamed(page, "Warehouse Floor Plan");
+  await page
+    .getByTestId("producers-panel")
+    .scrollIntoViewIfNeeded({ timeout: 3_000 })
+    .catch(() => {});
+  await page.waitForTimeout(500);
+}
+
+/**
+ * openScriptProduced scrolls a script's page to everything it has written
+ * across every run (#1569), including a file it wrote that has since been
+ * deleted. The run history above it answers what one run did; this is the
+ * aggregate those accounts add up to, and it is the answer to "what goes stale
+ * if I retire this script".
+ */
+export async function openScriptProduced(page: Page): Promise<void> {
+  await page
+    .getByTestId("script-produced")
+    .scrollIntoViewIfNeeded({ timeout: 5_000 })
+    .catch(() => {});
+  await page.waitForTimeout(500);
+}

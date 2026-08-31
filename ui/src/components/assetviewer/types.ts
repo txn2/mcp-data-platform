@@ -49,6 +49,11 @@ export interface AssetViewerProps {
   /** Where another asset this one references opens for this reader, per
    * surface. Absent, a referenced asset is named without being linked. */
   assetPath?: (assetId: string) => string;
+  /** Where a managed script that produced this asset opens for this reader
+   * (#1569). The portal and the admin console hold the same script at
+   * different addresses; absent, a producing script is named without being
+   * linked, which is also what a deleted one gets. */
+  scriptPath?: (scriptId: string) => string;
   /**
    * Which route this reader reads an asset's stored thumbnail through. The
    * portal's view grant has no admin arm, so the console reads a tile it is

@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/blobserve"
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 )
@@ -67,6 +68,11 @@ type Deps struct {
 	// MoveRecorder audits a resource refiled into another library. Absent when
 	// audit is disabled, which silences the event without affecting the move.
 	MoveRecorder MoveRecorder
+	// Producers records what wrote each resource (#1569): the script, session
+	// or person behind the create and behind every content revision since.
+	// Absent on a deployment with no database, which records nothing and
+	// leaves the writes themselves unaffected.
+	Producers producedby.Store
 }
 
 // ClaimsExtractor extracts resource Claims from an HTTP request.

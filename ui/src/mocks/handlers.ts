@@ -36,6 +36,7 @@ import { scriptHandlers } from "./handlers/scripts";
 import { sessionHandlers } from "./handlers/sessions";
 import { callHandlers } from "./handlers/calls";
 import { assetRefHandlers, rewriteRefs } from "./handlers/assetRefs";
+import { producerHandlers } from "./handlers/producers";
 import {
   mockDataHubConnections,
   catalogBrowse,
@@ -4032,4 +4033,5 @@ export const handlers = [
   ...sessionHandlers,
   ...callHandlers,
   ...assetRefHandlers,
+  ...producerHandlers,
 ];

@@ -22,7 +22,7 @@ const realdbPromoteOwner = "550e8400-e29b-41d4-a716-446655440000"
 
 func seedPromoteAsset(t *testing.T, db *sql.DB, id, owner string) {
 	t.Helper()
-	store := NewPostgresAssetStore(db)
+	store := NewPostgresAssetStore(db, nil)
 	require.NoError(t, store.Insert(context.Background(), Asset{
 		ID: id, OwnerID: owner, OwnerEmail: "owner@example.com", Name: id,
 		ContentType: "text/markdown", S3Bucket: "b", S3Key: "k", Tags: []string{}, CurrentVersion: 1,

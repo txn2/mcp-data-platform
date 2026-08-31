@@ -14,6 +14,7 @@ import { shortSessionId } from "@/pages/sessions/kind";
 import { AssetMetadataForm } from "./AssetMetadataForm";
 import { ThumbnailPanel } from "@/components/thumbnail/ThumbnailPanel";
 import { ReferencesPanel } from "./ReferencesPanel";
+import { ProducersPanel } from "@/components/producers/ProducersPanel";
 import { UsedByAssets } from "@/components/references/UsedByAssets";
 import type { RetentionMode } from "./AssetRetentionField";
 import type { MutationLike } from "./types";
@@ -56,6 +57,8 @@ interface AssetMetadataSidebarProps {
   resourcePath?: (resourceId: string) => string;
   /** Where another asset opens for this reader, per surface. */
   assetPath?: (assetId: string) => string;
+  /** Where a script that produced this asset opens for this reader (#1569). */
+  scriptPath?: (scriptId: string) => string;
   onNavigate?: (path: string) => void;
   versions?: AssetVersion[];
   versionsLoading?: boolean;
@@ -90,6 +93,7 @@ export function AssetMetadataSidebar({
   sessionPath,
   resourcePath,
   assetPath,
+  scriptPath,
   onNavigate,
   versions,
   versionsLoading,
@@ -207,6 +211,21 @@ export function AssetMetadataSidebar({
           <UsedByAssets
             target={{ kind: "asset", id: asset.id }}
             assetPath={assetPath}
+            onNavigate={onNavigate}
+            className="border-t pt-4"
+          />
+
+          {/*
+            What wrote this asset (#1569). It sits beside the provenance panel
+            above rather than replacing it: provenance answers which data calls
+            the content was built from, and this answers who did the building.
+            An asset written before the relation existed lists nothing and the
+            panel is absent, rather than claiming nothing wrote it.
+          */}
+          <ProducersPanel
+            target={{ kind: "asset", id: asset.id }}
+            scriptPath={scriptPath}
+            sessionPath={sessionPath}
             onNavigate={onNavigate}
             className="border-t pt-4"
           />

@@ -5033,6 +5033,89 @@ definitions:
     x-enum-varnames:
     - PermissionViewer
     - PermissionEditor
+  producedview.Item:
+    properties:
+      created:
+        description: |-
+          Created marks a file this producer brought into existence, as against one
+          it has only changed since.
+        type: boolean
+      deleted:
+        description: |-
+          Deleted reports a file that has since been removed. The row stays: that
+          this producer wrote it is still true, and somebody deciding whether to
+          retire a script needs to see what it wrote that is already gone.
+        type: boolean
+      first_write_at:
+        type: string
+      last_version:
+        description: |-
+          LastVersion is the file version this producer last wrote, or zero for a
+          file whose kind does not number its writes.
+        type: integer
+      last_write_at:
+        type: string
+      name:
+        description: Name is what the file is called now, empty when it no longer
+          exists.
+        type: string
+      target_id:
+        type: string
+      target_kind:
+        description: TargetKind is "asset" or "resource"; TargetID is the id within
+          that kind.
+        type: string
+      write_count:
+        type: integer
+    type: object
+  producerapi.producerView:
+    properties:
+      created:
+        description: |-
+          Created marks the producer that brought the file into existence, as
+          against one that has only changed it since.
+        type: boolean
+      exists:
+        description: |-
+          Exists reports whether the producer can still be opened. It is false only
+          where the platform positively determined the producer is gone -- a script
+          id that resolves to nothing -- so a surface can say "a script that no
+          longer exists" rather than link to a page that 404s.
+        type: boolean
+      first_write_at:
+        type: string
+      id:
+        type: string
+      kind:
+        description: |-
+          Kind is "script", "session" or "person"; ID is the stable identity the
+          surface links to.
+        type: string
+      label:
+        description: |-
+          Label is what to call the producer: a script's current name, falling back
+          to the name it had when it wrote if it has since been deleted, and a
+          person's address. Empty for a session, whose id is its own label.
+        type: string
+      last_version:
+        description: |-
+          LastVersion is the file version this producer last wrote, or zero for a
+          file whose kind does not number its writes.
+        type: integer
+      last_write_at:
+        type: string
+      write_count:
+        type: integer
+    type: object
+  producerapi.producersResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/producerapi.producerView'
+        type: array
+      total:
+        type: integer
+    type: object
   prompt.Argument:
     properties:
       description:
@@ -6567,6 +6650,15 @@ definitions:
         type: string
       version:
         example: 3
+        type: integer
+    type: object
+  scripthttp.producedListResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/producedview.Item'
+        type: array
+      total:
         type: integer
     type: object
   scripthttp.referenced:
@@ -13275,6 +13367,50 @@ paths:
       summary: Copy asset
       tags:
       - Assets
+  /portal/assets/{id}/producers:
+    get:
+      description: Returns the scripts, sessions and people that created or modified
+        this asset, most recent writer first, marking which one created it and whether
+        each producer still exists.
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/producerapi.producersResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "410":
+          description: Gone
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List what produced an asset
+      tags:
+      - Portal
   /portal/assets/{id}/references:
     get:
       description: Returns what an asset's content references -- managed resources
@@ -16565,6 +16701,42 @@ paths:
       summary: Prompt usage stats (portal)
       tags:
       - Prompts
+  /portal/resources/{id}/producers:
+    get:
+      description: Returns the scripts, sessions and people that created or modified
+        this resource, most recent writer first, marking which one created it and
+        whether each producer still exists.
+      parameters:
+      - description: Resource ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/producerapi.producersResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List what produced a managed resource
+      tags:
+      - Resources
   /portal/resources/{id}/prompts:
     get:
       description: 'Returns the prompts that attach a resource, so the cost of editing
@@ -16915,6 +17087,42 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Transfer a script to a new owner
+      tags:
+      - Scripts
+  /portal/scripts/{id}/produced:
+    get:
+      description: Returns every portal asset and managed resource this script has
+        created or modified, across all runs, most recently written first. Restricted
+        to the script's owner and to administrators.
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/scripthttp.producedListResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List what a script has produced
       tags:
       - Scripts
   /portal/scripts/{id}/runs:

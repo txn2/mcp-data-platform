@@ -18,6 +18,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
+	"github.com/txn2/mcp-data-platform/internal/producedview"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -82,6 +83,18 @@ type Deps struct {
 	// request carries no user. Nil leaves the portal routes unmounted, which is
 	// what the admin surface passes.
 	PortalUser func(r *http.Request) *PortalIdentity
+
+	// Produced lists everything a script has written across every run (#1569).
+	// Nil leaves that route unmounted, which is the shape of a deployment that
+	// records no producers.
+	Produced ProducedReader
+}
+
+// ProducedReader lists what one script has produced, most recently written
+// first, resolving each file to its current name. limit is the cap on rows,
+// non-positive selecting the reader's own default.
+type ProducedReader interface {
+	Produced(ctx context.Context, scriptID string, limit int) ([]producedview.Item, error)
 }
 
 // AuditRecorder writes one audit event. It is the write half of audit.Logger:

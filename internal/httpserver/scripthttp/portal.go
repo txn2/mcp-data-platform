@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
+	"github.com/txn2/mcp-data-platform/internal/producedview"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -119,6 +120,12 @@ func (h *Handler) RegisterPortal(mux *http.ServeMux, wrap func(http.Handler) htt
 	}
 	if h.deps.Schedules != nil {
 		h.registerPortalSchedules(mux, wrap)
+	}
+	// Everything the script has ever written (#1569), which no per-run listing
+	// can answer: a file a run modified is one line in that run's outputs, and
+	// the question "what does this script touch" is about all of them at once.
+	if h.deps.Produced != nil {
+		mux.Handle("GET /api/v1/portal/scripts/{id}/produced", wrap(h.portalHandler(h.portalListProduced)))
 	}
 	if h.deps.Runs == nil {
 		return
@@ -766,6 +773,48 @@ func (h *Handler) portalGetRun(w http.ResponseWriter, r *http.Request, user *Por
 		return
 	}
 	httpjson.WriteJSON(w, http.StatusOK, detailRun(run))
+}
+
+// producedListResponse is everything one script has produced or modified.
+type producedListResponse struct {
+	Data  []producedview.Item `json:"data"`
+	Total int                 `json:"total"`
+}
+
+// portalListProduced returns every asset and managed resource this script has
+// produced or modified, across every run.
+//
+// It is deliberately not assembled from the run history. A run's outputs record
+// what THAT run wrote, which is a different question and stays where it is; a
+// script that has run three hundred times has three hundred such lists, and
+// walking them answers "what does this script touch" slowly and incompletely --
+// a file the script modified without declaring it as an output appears in
+// neither. This reads the producer relation directly, by script id, so a
+// renamed script keeps its list and a modification counts the same as a create.
+//
+// @Summary      List what a script has produced
+// @Description  Returns every portal asset and managed resource this script has created or modified, across all runs, most recently written first. Restricted to the script's owner and to administrators.
+// @Tags         Scripts
+// @Produce      json
+// @Param        id  path  string  true  "Script ID"
+// @Success      200  {object}  producedListResponse
+// @Failure      401  {object}  httpjson.ProblemDetail
+// @Failure      404  {object}  httpjson.ProblemDetail
+// @Failure      500  {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/scripts/{id}/produced [get]
+func (h *Handler) portalListProduced(w http.ResponseWriter, r *http.Request, user *PortalIdentity) {
+	sc, ok := h.ownedScript(w, r, user)
+	if !ok {
+		return
+	}
+	items, err := h.deps.Produced.Produced(r.Context(), sc.ID, 0)
+	if err != nil {
+		httpjson.WriteError(w, http.StatusInternalServerError, "failed to list what this script produced")
+		return
+	}
+	httpjson.WriteJSON(w, http.StatusOK, producedListResponse{Data: items, Total: len(items)})
 }
 
 // ownedScript resolves the script named by the path and refuses a caller who

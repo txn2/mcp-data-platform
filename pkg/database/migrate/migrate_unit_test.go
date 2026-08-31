@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	migrateTestFileCount    = 268
+	migrateTestFileCount    = 270
 	migrateTestSuccess      = "success"
 	migrateTestFactoryError = "factory error"
 )

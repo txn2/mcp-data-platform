@@ -20,6 +20,7 @@ import (
 	"log/slog"
 
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/internal/producedby"
 )
 
 // --- PostgreSQL VersionStore ---
@@ -41,13 +42,18 @@ type store struct {
 	// every asset that carries no override of its own. Nil selects
 	// portaldomain.DefaultMaxVersions.
 	platformMaxVersions *int
+	// producers records what wrote each version (#1569). CreateVersion is the
+	// one door every asset content write passes through, so a producer noted
+	// here is a producer nothing can route around. Nil records nothing.
+	producers producedby.Store
 }
 
 // NewPostgres creates the PostgreSQL asset version store. objects deletes the
 // blobs of versions the retention cap prunes and may be nil; platformMaxVersions
-// is the deployment default a per-asset override supersedes.
-func NewPostgres(db *sql.DB, objects ObjectDeleter, platformMaxVersions *int) portaldomain.VersionStore {
-	return &store{db: db, objects: objects, platformMaxVersions: platformMaxVersions}
+// is the deployment default a per-asset override supersedes; producers records
+// what produced each version and may be nil, which records nothing.
+func NewPostgres(db *sql.DB, objects ObjectDeleter, platformMaxVersions *int, producers producedby.Store) portaldomain.VersionStore {
+	return &store{db: db, objects: objects, platformMaxVersions: platformMaxVersions, producers: producers}
 }
 
 func (s *store) CreateVersion(ctx context.Context, version portaldomain.AssetVersion) (int, error) { //nolint:revive // interface impl
@@ -59,7 +65,24 @@ func (s *store) CreateVersion(ctx context.Context, version portaldomain.AssetVer
 	// that outlives its row is reclaimable while a row whose object was deleted
 	// under a rolled-back transaction is a version that lists and cannot be read.
 	s.deletePrunedObjects(ctx, version.AssetID, pruned)
+	s.noteProducer(ctx, version.AssetID, nextVersion)
 	return nextVersion, nil
+}
+
+// noteProducer records this version against whatever produced it (#1569).
+//
+// Version 1 is recorded but not counted. It is the content half of the create
+// the asset store has already recorded, and counting it again would report
+// every first save as two writes by the same producer -- but it is still the
+// version that producer wrote, so the row carries it. Every version after it is
+// a write in its own right, whoever made it.
+func (s *store) noteProducer(ctx context.Context, assetID string, version int) {
+	producedby.Note(ctx, s.producers, producedby.Write{
+		TargetKind: producedby.TargetAsset,
+		TargetID:   assetID,
+		Version:    version,
+		Uncounted:  version <= 1,
+	})
 }
 
 // createVersionTx records the version, moves the asset head, and prunes history

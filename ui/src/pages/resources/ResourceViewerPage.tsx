@@ -43,6 +43,16 @@ interface Props {
    * to send the reader shows.
    */
   onOpenFolder?: (tab: string, path: string) => void;
+  /**
+   * Opens another page in this surface, for the links the sidebar carries:
+   * today, the script or the session that wrote this file (#1569). Absent
+   * leaves a producer named without being linked.
+   */
+  onNavigate?: (path: string) => void;
+  /** Where a script that wrote this file opens, per surface. */
+  scriptPath?: (scriptId: string) => string;
+  /** Where a session that wrote this file opens, per surface. */
+  sessionPath?: (sessionId: string) => string;
 }
 
 /**
@@ -57,7 +67,14 @@ interface Props {
  * Editing and deleting stay dialogs. They are bounded forms, which is the shape
  * ModalShell is for.
  */
-export function ResourceViewerPage({ resourceId, onBack, onOpenFolder }: Props) {
+export function ResourceViewerPage({
+  resourceId,
+  onBack,
+  onOpenFolder,
+  onNavigate,
+  scriptPath,
+  sessionPath,
+}: Props) {
   const { data: resource, isLoading } = useResource(resourceId);
   const currentUser = useAuthStore((s) => s.user);
   const [editing, setEditing] = useState(false);
@@ -143,7 +160,15 @@ export function ResourceViewerPage({ resourceId, onBack, onOpenFolder }: Props) 
             )}
           </div>
         }
-        sidebar={<ResourceSidebar resource={resource} canModify={canModify} />}
+        sidebar={
+          <ResourceSidebar
+            resource={resource}
+            canModify={canModify}
+            onNavigate={onNavigate}
+            scriptPath={scriptPath}
+            sessionPath={sessionPath}
+          />
+        }
         // A resource is what its metadata says it is, and this page replaced a
         // dialog that showed all of it at once; opening with the column closed
         // would hide behind a toggle everything the dialog put in front.

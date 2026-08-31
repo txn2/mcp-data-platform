@@ -219,7 +219,7 @@ func TestIntegration_SearchMyAssets_RealStoreEnforcesOwnerScope(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresAssetStore(db)
+	store := NewPostgresAssetStore(db, nil)
 	const callerID = "u1"
 
 	// Hybrid binds $1=vector, $2=query, $3=owner_id, $4=owner_email. If the

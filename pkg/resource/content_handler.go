@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/blobserve"
 )
 
@@ -202,6 +203,7 @@ func ReviseContent(
 		"size_bytes", version.SizeBytes,
 	)
 
+	noteProducer(ctx, deps, claims, producedby.Write{TargetID: res.ID, Version: version.Version})
 	pruneRevisions(ctx, deps, res.ID)
 
 	updated, err := deps.Store.Get(ctx, res.ID)

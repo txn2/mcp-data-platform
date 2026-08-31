@@ -46,6 +46,18 @@ The newest capture is shown expanded and every earlier one sits behind a disclos
 
 ![Provenance panel](../images/screenshots/light/user-asset-provenance-light.webp#only-light)![Provenance panel](../images/screenshots/dark/user-asset-provenance-dark.webp#only-dark)
 
+### Written by
+
+Provenance answers what the content was built from. **Written by**, beside it, answers who did the building: every managed script, agent session and person that has created or modified this asset, most recent writer first.
+
+Each row names the writer, marks whether it **created** the asset or has only **modified** it since, and says how many times it has written and when it last did. A script and a session open on their own page, so a report an hourly script refreshes and its owner edits shows both and either can be followed. Retiring the script is then a decision made with the list of what goes stale in front of you.
+
+A script is recorded by its id rather than its name, so renaming one keeps its history; deleting one leaves the rows it wrote in place, and the row says the script no longer exists rather than linking to a page that is gone.
+
+![What produced an asset](../images/screenshots/light/user-asset-producers-light.webp#only-light)![What produced an asset](../images/screenshots/dark/user-asset-producers-dark.webp#only-dark)
+
+An asset written before this shipped shows no panel, except where the platform could derive its writer without guessing: an asset a managed script created as one of its declared outputs names that script.
+
 ### References
 
 An asset's content can name a [managed resource](../server/asset-references.md) by its `mcp://` URI rather than carrying the file's bytes — a logo, a photograph, a design element — or another asset by its `mcp:asset:<id>` reference, which resolves to that asset's current content every time the page is read. The **References** panel in the metadata sidebar lists what this asset depends on: each one's name and type, a scope for a file and an owner for an asset, a thumbnail where it is an image, a link to it where you can open it on your own, and the reference with a copy control.

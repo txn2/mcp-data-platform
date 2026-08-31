@@ -185,6 +185,9 @@ export function AdminPages({
           resourceId={resource.viewing}
           onBack={() => onBack("/admin/resources")}
           onOpenFolder={(tab, path) => navigate(folderAddress("/admin/resources", tab, path))}
+          onNavigate={navigate}
+          scriptPath={(id) => `/admin/scripts/${encodeURIComponent(id)}`}
+          sessionPath={(id) => `/admin/sessions/${encodeURIComponent(id)}`}
         />
       )}
       {/* The three sections that own a subtree and match inside it. Guarded

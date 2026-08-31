@@ -36,7 +36,7 @@ func boundProducer(kind string) (*indexjobs.Producer, *fakeEnqueuer) {
 
 func indexedAssetStore(db *sql.DB) (portaldomain.AssetStore, *fakeEnqueuer) {
 	p, enq := boundProducer("portal-assets")
-	return NewPostgresAssetStore(db, indexjobs.WithProducer(p)), enq
+	return NewPostgresAssetStore(db, nil, indexjobs.WithProducer(p)), enq
 }
 
 func indexedCollectionStore(db *sql.DB) (portaldomain.CollectionStore, *fakeEnqueuer) {

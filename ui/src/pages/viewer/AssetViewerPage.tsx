@@ -56,6 +56,10 @@ export function AssetViewerPage({ assetId, onNavigate, onBack }: Props) {
       // reader's own asset library. Both lists only link the ones the server
       // said this reader can open on their own.
       assetPath={(id) => `/assets/${encodeURIComponent(id)}`}
+      // A script that wrote this asset opens on the reader's own scripts
+      // section, which shows it to its owner and to an administrator and
+      // answers everybody else not-found -- the same rule its page applies.
+      scriptPath={(id) => `/scripts/${encodeURIComponent(id)}`}
       versions={versionsData?.data}
       versionsLoading={versionsLoading}
       revertMutation={revertMutation}

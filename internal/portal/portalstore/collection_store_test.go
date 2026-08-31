@@ -499,7 +499,7 @@ func TestGetByIDsEmpty(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresAssetStore(db)
+	store := NewPostgresAssetStore(db, nil)
 
 	result, err := store.GetByIDs(context.Background(), []string{})
 	require.NoError(t, err)
@@ -513,7 +513,7 @@ func TestGetByIDsSuccess(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresAssetStore(db)
+	store := NewPostgresAssetStore(db, nil)
 	now := time.Now()
 
 	tags, _ := json.Marshal([]string{"tag1"})

@@ -8,6 +8,7 @@ import { formatBytes } from "@/lib/format";
 import { resourceSubject } from "@/lib/thumbnailSupport";
 import type { Resource } from "@/api/resources/types";
 import { UsagePanel } from "./UsagePanel";
+import { ProducersPanel } from "@/components/producers/ProducersPanel";
 import { UsedByAssets } from "@/components/references/UsedByAssets";
 import { UsedByPrompts } from "./UsedByPrompts";
 import { VersionsPanel } from "./VersionsPanel";
@@ -18,9 +19,16 @@ import { VersionsPanel } from "./VersionsPanel";
 export function ResourceSidebar({
   resource: r,
   canModify,
+  onNavigate,
+  scriptPath,
+  sessionPath,
 }: {
   resource: Resource;
   canModify: boolean;
+  /** Opens another page in this surface, for the producer links (#1569). */
+  onNavigate?: (path: string) => void;
+  scriptPath?: (scriptId: string) => string;
+  sessionPath?: (sessionId: string) => string;
 }) {
   return (
     <>
@@ -83,6 +91,19 @@ export function ResourceSidebar({
       <UsedByPrompts resourceId={r.id} />
 
       <UsedByAssets target={{ kind: "resource", id: r.id }} />
+
+      {/*
+        What wrote this file (#1569). A resource recorded only an uploader, and
+        for a managed-script run that was the script's NAME -- so a rename
+        severed the link and a script that replaced the content of a file it did
+        not upload left no trace at all. This is the record that survives both.
+      */}
+      <ProducersPanel
+        target={{ kind: "resource", id: r.id }}
+        scriptPath={scriptPath}
+        sessionPath={sessionPath}
+        onNavigate={onNavigate}
+      />
 
       {/*
         The tile everyone else sees of this file, and the way back from one that

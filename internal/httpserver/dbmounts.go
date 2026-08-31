@@ -32,6 +32,8 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
+	"github.com/txn2/mcp-data-platform/internal/producedby"
+	"github.com/txn2/mcp-data-platform/internal/producedview"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
@@ -100,6 +102,10 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 		ResourceReader:   p.ResourceStore(),
 		ResourceBlobs:    p.ResourceS3Client(),
 		ResourceS3Bucket: p.Config().Resources.Managed.S3Bucket,
+		// What produced an asset or a managed resource (#1569), and the lookup
+		// that says whether a script producer still exists.
+		Producers:   producedby.NewPostgres(p.DB()),
+		ScriptNames: portalScriptNames(p.DB()),
 		RateLimit: portal.RateLimitConfig{
 			RequestsPerMinute: p.Config().Portal.RateLimit.RequestsPerMinute,
 			BurstSize:         p.Config().Portal.RateLimit.BurstSize,
@@ -264,6 +270,10 @@ func scriptDeps(p *platform.Platform) (scripthttp.Deps, bool) {
 		// The same declared set the run worker and the tool arm resolve
 		// against, so all three answer one question about a destination.
 		Destinations: p.Config().Scripts.ScriptDestinations(),
+		// Everything the script has written, across every run (#1569), read
+		// from the producer relation rather than walked out of run history.
+		Produced: producedview.New(
+			producedby.NewPostgres(p.DB()), p.PortalAssetStore(), p.ResourceStore(), store),
 	}
 	if auditStore := p.Audit().Store(); auditStore != nil {
 		deps.Audit = auditStore
@@ -395,6 +405,11 @@ func mountResourcesAPI(mux *http.ServeMux, p *platform.Platform) {
 		OnDelete:    p.UnregisterManagedResource,
 		OnDeleteID:  hooks.ResourceDeleted,
 		OnRevised:   hooks.ResourceRevised,
+		// What produced each resource (#1569). Built here from the platform's
+		// database, as the script store on this mux is: the store holds no
+		// state of its own, so one built here is the same record the portal's
+		// write funnels fill.
+		Producers: producedby.NewPostgres(p.DB()),
 	}
 	// Content revision and version history are a capability of the store, not a
 	// requirement of it: the Postgres store implements VersionStore, and a store

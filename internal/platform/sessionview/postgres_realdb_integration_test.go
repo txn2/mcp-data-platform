@@ -91,7 +91,7 @@ func realDBFixture(t *testing.T) (*PostgresStore, context.Context) {
 		},
 	}))
 
-	assets := portalstore.NewPostgresAssetStore(db)
+	assets := portalstore.NewPostgresAssetStore(db, nil)
 	require.NoError(t, assets.Insert(ctx, portaldomain.Asset{
 		ID:          "ast_realdb_1",
 		OwnerID:     realDBUser,
@@ -333,7 +333,7 @@ func TestSessionView_RealDB_SearchFindsSessionByAssetName(t *testing.T) {
 
 	// A name sharing no word with any stated purpose, so a hit can only have
 	// come through the asset arm.
-	assets := portalstore.NewPostgresAssetStore(store.db)
+	assets := portalstore.NewPostgresAssetStore(store.db, nil)
 	require.NoError(t, assets.Insert(ctx, portaldomain.Asset{
 		ID:          "ast_realdb_2",
 		OwnerID:     realDBUser,

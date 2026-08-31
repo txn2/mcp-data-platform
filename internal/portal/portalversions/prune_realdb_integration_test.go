@@ -117,7 +117,7 @@ func intPtr(n int) *int { return &n }
 func TestAssetVersionPrune_RealDB_ConvergesOnTheCap(t *testing.T) {
 	db := testdb.New(t)
 	objects := &recordingDeleter{}
-	store := NewPostgres(db, objects, intPtr(3))
+	store := NewPostgres(db, objects, intPtr(3), nil)
 	id := seedAsset(t, db, nil)
 
 	for n := 2; n <= 8; n++ {
@@ -140,7 +140,7 @@ func TestAssetVersionPrune_RealDB_NeverDeletesTheLiveKey(t *testing.T) {
 	db := testdb.New(t)
 	objects := &recordingDeleter{}
 	// A cap of 1 asks for the most aggressive prune there is.
-	store := NewPostgres(db, objects, intPtr(1))
+	store := NewPostgres(db, objects, intPtr(1), nil)
 	id := seedAsset(t, db, nil)
 
 	// The state the guard exists for: the asset row still names version 1's flat
@@ -197,7 +197,7 @@ func TestAssetVersionPrune_RealDB_PerAssetOverride(t *testing.T) {
 
 	t.Run("0 keeps every version", func(t *testing.T) {
 		objects := &recordingDeleter{}
-		store := NewPostgres(db, objects, intPtr(2))
+		store := NewPostgres(db, objects, intPtr(2), nil)
 		id := seedAsset(t, db, intPtr(portaldomain.MaxVersionsUnlimited))
 		for n := 2; n <= 5; n++ {
 			writeVersion(t, store, id, n)
@@ -207,7 +207,7 @@ func TestAssetVersionPrune_RealDB_PerAssetOverride(t *testing.T) {
 	})
 
 	t.Run("1 keeps only the current version", func(t *testing.T) {
-		store := NewPostgres(db, &recordingDeleter{}, intPtr(100))
+		store := NewPostgres(db, &recordingDeleter{}, intPtr(100), nil)
 		id := seedAsset(t, db, intPtr(1))
 		for n := 2; n <= 4; n++ {
 			writeVersion(t, store, id, n)
@@ -219,7 +219,7 @@ func TestAssetVersionPrune_RealDB_PerAssetOverride(t *testing.T) {
 	})
 
 	t.Run("null inherits the deployment default", func(t *testing.T) {
-		store := NewPostgres(db, &recordingDeleter{}, intPtr(2))
+		store := NewPostgres(db, &recordingDeleter{}, intPtr(2), nil)
 		id := seedAsset(t, db, nil)
 		for n := 2; n <= 5; n++ {
 			writeVersion(t, store, id, n)
@@ -233,7 +233,7 @@ func TestAssetVersionPrune_RealDB_PerAssetOverride(t *testing.T) {
 // over the cap converges when it is next written.
 func TestAssetVersionPrune_RealDB_ExistingHistoryTrimsAtTheNextWrite(t *testing.T) {
 	db := testdb.New(t)
-	store := NewPostgres(db, &recordingDeleter{}, intPtr(3))
+	store := NewPostgres(db, &recordingDeleter{}, intPtr(3), nil)
 	id := seedAsset(t, db, nil)
 
 	// Ten versions accumulated before the cap existed, written straight to the
@@ -264,7 +264,7 @@ func TestAssetVersionPrune_RealDB_ExistingHistoryTrimsAtTheNextWrite(t *testing.
 func TestAssetVersionPrune_RealDB_SharedKeyAcrossVersions(t *testing.T) {
 	db := testdb.New(t)
 	objects := &recordingDeleter{}
-	store := NewPostgres(db, objects, intPtr(2))
+	store := NewPostgres(db, objects, intPtr(2), nil)
 	id := seedAsset(t, db, nil)
 
 	dir := "artifacts/scripts/s1/" + id + "/"
@@ -305,7 +305,7 @@ func TestAssetVersionPrune_RealDB_SharedKeyAcrossVersions(t *testing.T) {
 func TestAssetVersionPrune_RealDB_DeleteFailureDoesNotFailTheWrite(t *testing.T) {
 	db := testdb.New(t)
 	objects := &recordingDeleter{err: fmt.Errorf("storage unavailable")}
-	store := NewPostgres(db, objects, intPtr(1))
+	store := NewPostgres(db, objects, intPtr(1), nil)
 	id := seedAsset(t, db, nil)
 
 	assigned := writeVersion(t, store, id, 2)
@@ -318,7 +318,7 @@ func TestAssetVersionPrune_RealDB_DeleteFailureDoesNotFailTheWrite(t *testing.T)
 // database-only mode, where there are no objects to lose.
 func TestAssetVersionPrune_RealDB_NoObjectClientStillTrimsTheTable(t *testing.T) {
 	db := testdb.New(t)
-	store := NewPostgres(db, nil, intPtr(2))
+	store := NewPostgres(db, nil, intPtr(2), nil)
 	id := seedAsset(t, db, nil)
 
 	for n := 2; n <= 5; n++ {
@@ -347,7 +347,7 @@ func TestAssetVersionPrune_RealDB_NegativeOverrideIsRefusedByTheColumn(t *testin
 // image -- and the version columns are what say it has not caught up.
 func TestAssetVersionWrite_RealDB_KeepsTheThumbnailPointers(t *testing.T) {
 	db := testdb.New(t)
-	store := NewPostgres(db, &recordingDeleter{}, nil)
+	store := NewPostgres(db, &recordingDeleter{}, nil, nil)
 	id := seedAsset(t, db, nil)
 
 	thumb := "artifacts/owner/" + id + "/.thumbnail.png"
@@ -378,7 +378,7 @@ func TestAssetVersionWrite_RealDB_KeepsTheThumbnailPointers(t *testing.T) {
 func TestAssetVersionPrune_RealDB_KeepsTheThumbnailTheAssetPointsAt(t *testing.T) {
 	db := testdb.New(t)
 	objects := &recordingDeleter{}
-	store := NewPostgres(db, objects, intPtr(1))
+	store := NewPostgres(db, objects, intPtr(1), nil)
 	id := seedAsset(t, db, nil)
 
 	// A capture taken beside version 2's content, which version 3 then prunes.

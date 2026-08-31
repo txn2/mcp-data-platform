@@ -1879,6 +1879,9 @@ func (p *Platform) initManagedResources() error {
 		URIScheme:   handle.URIScheme(),
 		MaxVersions: p.config.Resources.Managed.MaxVersions,
 		Registered:  p.RegisterManagedResource,
+		// The same record the portal's asset write funnels fill, so an agent's
+		// resource write and its asset write name the same producer (#1569).
+		Producers: p.portalStore.Producers(),
 	}); w != nil {
 		p.portalStore.BindResourceWriter(w)
 	}

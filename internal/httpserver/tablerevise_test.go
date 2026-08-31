@@ -360,11 +360,11 @@ func TestRevisersFor(t *testing.T) {
 func TestResourceReviserFor(t *testing.T) {
 	objects := newReviseObjects()
 	withTrail := &reviseResourceStore{}
-	assert.Nil(t, resourceReviserFor(nil, objects, "b", 10, nil), "no store")
-	assert.Nil(t, resourceReviserFor(withTrail, nil, "b", 10, nil), "nowhere to put the blob")
-	assert.Nil(t, resourceReviserFor(&storeWithoutTrail{}, objects, "b", 10, nil), "no version trail")
+	assert.Nil(t, resourceReviserFor(nil, objects, "b", 10, nil, nil), "no store")
+	assert.Nil(t, resourceReviserFor(withTrail, nil, "b", 10, nil, nil), "nowhere to put the blob")
+	assert.Nil(t, resourceReviserFor(&storeWithoutTrail{}, objects, "b", 10, nil, nil), "no version trail")
 
-	built := resourceReviserFor(withTrail, objects, "managed-resources", 10, nil)
+	built := resourceReviserFor(withTrail, objects, "managed-resources", 10, nil, nil)
 	require.NotNil(t, built)
 	assert.Equal(t, "managed-resources", built.deps.S3Bucket)
 	assert.Equal(t, 10, built.deps.MaxVersions)

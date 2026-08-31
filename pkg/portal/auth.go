@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
@@ -115,6 +116,16 @@ func RequirePortalAuth(auth *Authenticator) func(http.Handler) http.Handler {
 			}
 
 			ctx := ContextWithUser(r.Context(), user)
+			// A write made through the portal's own HTTP surface is made by
+			// this person at a keyboard, and is recorded against them rather
+			// than against a session (#1569). Every portal write funnel reads
+			// the producer off the context, so it is stamped here, where the
+			// caller is resolved, rather than at each of them.
+			ctx = producedby.With(ctx, producedby.Producer{
+				Kind:  producedby.KindPerson,
+				ID:    user.UserID,
+				Label: user.Email,
+			})
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

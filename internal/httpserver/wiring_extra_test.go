@@ -7,6 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
@@ -330,4 +334,16 @@ func TestMountPortalUI_AssetsAvailable(t *testing.T) {
 	if got := mountedPattern(mux, "/portal/"); got == "" {
 		t.Error("portal UI enabled but no handler mounted on /portal/")
 	}
+}
+
+// TestPortalScriptNames covers the lookup the producer routes report a deleted
+// script through: a deployment with no database has none, which those routes
+// read as "no lookup" rather than as "no script exists".
+func TestPortalScriptNames(t *testing.T) {
+	assert.Nil(t, portalScriptNames(nil))
+
+	db, _, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+	assert.NotNil(t, portalScriptNames(db))
 }

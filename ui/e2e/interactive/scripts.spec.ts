@@ -77,6 +77,7 @@ test.describe("Portal script pages", () => {
       "About",
       "Source",
       "Run history",
+      "Files written (3)",
       "State",
       "Owner",
     ]);

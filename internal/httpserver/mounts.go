@@ -2,6 +2,7 @@ package httpserver
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
@@ -20,7 +21,11 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/connreach"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
 	"github.com/txn2/mcp-data-platform/internal/platform/reviewalert"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/sessionview"
+	"github.com/txn2/mcp-data-platform/internal/portal/producerapi"
+	"github.com/txn2/mcp-data-platform/internal/producedby"
+	"github.com/txn2/mcp-data-platform/internal/producedview"
 	"github.com/txn2/mcp-data-platform/internal/ui"
 	"github.com/txn2/mcp-data-platform/pkg/admin"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
@@ -864,4 +869,15 @@ func registerOAuthRoutes(mux *http.ServeMux, handler http.Handler) {
 	mux.Handle("/callback", handler)
 	mux.Handle("/token", handler)
 	mux.Handle("/register", handler)
+}
+
+// portalScriptNames resolves a script producer to the name it carries now, or
+// nil on a deployment with no scripts -- which the producer routes read as "no
+// lookup" and report every producer as still existing, rather than as "no
+// script exists" and report every one of them as deleted.
+func portalScriptNames(db *sql.DB) producerapi.ScriptNames {
+	if db == nil {
+		return nil
+	}
+	return producedview.New(producedby.NewPostgres(db), nil, nil, scriptstore.New(db))
 }
