@@ -858,6 +858,12 @@ func scopeVisibilityWhere(scopes []ScopeFilter, startIdx int) (where string, arg
 	return "(" + strings.Join(conds, " OR ") + ")", args, idx
 }
 
+// unrestrictedVisibility is the visibility clause of a listing that spans every
+// library: a constant the planner folds away, rather than a predicate built
+// from a scope set. Only a platform administrator's unnarrowed listing reaches
+// it (see ListScopes).
+const unrestrictedVisibility = "TRUE"
+
 // listVisibilityWhere is the visibility clause a listing runs under: the
 // caller's scopes, or the constant TRUE for a listing that spans every library.
 //
@@ -867,7 +873,7 @@ func scopeVisibilityWhere(scopes []ScopeFilter, startIdx int) (where string, arg
 // surface is not a widening of what an agent reads (see ListScopes).
 func listVisibilityWhere(filter Filter) (where string, args []any, next int) {
 	if filter.AllScopes {
-		return "TRUE", nil, 1
+		return unrestrictedVisibility, nil, 1
 	}
 	return scopeVisibilityWhere(filter.Scopes, 1)
 }

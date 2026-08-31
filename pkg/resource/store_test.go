@@ -123,8 +123,8 @@ func TestBuildScopeWhere_AllFilters(t *testing.T) {
 // placeholders from $1.
 func TestBuildScopeWhere_EveryLibrary(t *testing.T) {
 	where, args := buildScopeWhere(Filter{AllScopes: true})
-	if where != "TRUE" {
-		t.Fatalf("where = %q, want TRUE", where)
+	if where != unrestrictedVisibility {
+		t.Fatalf("where = %q, want %s", where, unrestrictedVisibility)
 	}
 	if len(args) != 0 {
 		t.Fatalf("expected no args, got %d: %v", len(args), args)
@@ -150,7 +150,7 @@ func TestBuildScopeWhere_EveryLibraryIgnoresScopes(t *testing.T) {
 		AllScopes: true,
 		Scopes:    []ScopeFilter{{Scope: ScopeUser, ScopeID: "u1"}},
 	})
-	if where != "TRUE" || len(args) != 0 {
+	if where != unrestrictedVisibility || len(args) != 0 {
 		t.Fatalf("where = %q args = %v, want an unnarrowed listing", where, args)
 	}
 }
