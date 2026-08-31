@@ -1,3 +1,9 @@
+// A relative path rather than the "@/" alias: vite.config.ts imports this
+// fixture module (through assetRefs) in a plain Node context where the alias is
+// not configured, so a "@/" specifier there is resolved as a bare package name
+// and the dev server fails to start.
+import { isThemeable, isThumbnailSupported } from "../../lib/thumbnailSupport";
+
 interface Resource {
   id: string;
   scope: "global" | "persona" | "user";
@@ -18,6 +24,13 @@ interface Resource {
   updated_at: string;
   last_read_at?: string;
   usage?: ResourceUsage;
+  // The captured PNGs stored beside the resource's own object (#1554). A
+  // themeable family carries both; one that brings its own colours carries only
+  // the light key and serves it in both modes.
+  thumbnail_s3_key?: string;
+  thumbnail_dark_s3_key?: string;
+  thumbnail_captured_at?: string;
+  thumbnail_dark_captured_at?: string;
 }
 
 interface ResourceUsage {
@@ -73,6 +86,13 @@ const resources: Resource[] = [
     uploader_email: "sarah.chen@example.com",
     created_at: daysAgo(45),
     updated_at: daysAgo(12),
+    // Both captures, dated to the file's own last write, which is what makes
+    // this resource NOT pending: it is the one that documents a stored tile and
+    // the Recapture control beside it (#1568).
+    thumbnail_s3_key: "resources/global/documentation/.thumbnail.png",
+    thumbnail_dark_s3_key: "resources/global/documentation/.thumbnail_dark.png",
+    thumbnail_captured_at: daysAgo(12),
+    thumbnail_dark_captured_at: daysAgo(12),
   },
   {
     id: "res-002",
@@ -951,6 +971,28 @@ for (const r of resources) {
   const usage = mockResourceUsage[r.id];
   if (usage?.last_read_at) {
     r.last_read_at = usage.last_read_at;
+  }
+}
+
+// Every fixture a browser could capture carries a settled capture, dated to the
+// file's own last write, which is what the server compares against.
+//
+// The library has to be settled for the same reason the asset fixtures are: the
+// capture queue is mounted in the portal shell, so an unsettled library is work
+// on the main thread of EVERY page under test -- a content fetch and an
+// html2canvas rasterization per file, on every navigation -- and the tests
+// waiting on that thread time out. The one spec that wants a capture to happen
+// marks its own subject stale (`__STALE_THUMBNAILS__`).
+//
+// res-001 is left as it was declared above: it is the fixture with a drawn tile
+// behind it, which is what the library and the thumbnail-panel captures show.
+for (const r of resources) {
+  if (!isThumbnailSupported(r.mime_type)) continue;
+  r.thumbnail_s3_key ??= `thumbnails/${r.id}.png`;
+  r.thumbnail_captured_at ??= r.updated_at;
+  if (isThemeable(r.mime_type)) {
+    r.thumbnail_dark_s3_key ??= `thumbnails/${r.id}_dark.png`;
+    r.thumbnail_dark_captured_at ??= r.updated_at;
   }
 }
 

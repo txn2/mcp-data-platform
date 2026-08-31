@@ -311,6 +311,12 @@ func Detect(declared string, prefix []byte) string {
 // name: a .csv holding a PNG sniffs as image/png, disagrees with the name, and
 // keeps its declaration.
 //
+// When the declaration is generic or absent and the content turns out to be
+// unstructured text, the extension is consulted on its own: nothing else has an
+// answer, and a family with no content signature -- markdown above all -- is
+// otherwise unreachable. See namedTextType for what that will and will not
+// name.
+//
 // A filename of "" makes this identical to Detect.
 func DetectFile(declared, filename string, prefix []byte) string {
 	norm := Normalize(declared)
@@ -333,9 +339,36 @@ func DetectFile(declared, filename string, prefix []byte) string {
 	if sniffed == PlainText {
 		// Textual but unstructured. Upgrading application/octet-stream to
 		// text/plain is passive and lets the viewer show it as text.
-		return PlainText
+		return namedTextType(filename)
 	}
 	return fallback(norm)
+}
+
+// namedTextType is the type the filename claims for content already known to
+// be unstructured text, or text/plain when the name claims nothing usable.
+//
+// It is the last signal there is. The declaration said nothing (it was absent
+// or generic), the binary sniffer said only "text", and the structured
+// heuristics found no shape -- so without this a notes.md uploaded as
+// text/plain, application/octet-stream or nothing at all was stored as
+// text/plain, and markdown has no content signature that could ever recover it
+// (#1568). A file stored as text/plain opens in the plain-text viewer rather
+// than the markdown renderer, and until this ticket got no thumbnail either.
+//
+// The name is trusted only where it cannot do harm. A specific declaration
+// still wins, which is decided before this is reached, so this cannot
+// contradict a writer. It cannot promote a mislabeled binary, because content
+// the sniffer recognized as a binary family never reaches here. And it refuses
+// to name a family a browser renders as a document -- HTML, JSX, SVG,
+// JavaScript, XML -- which is the same refusal the active-type rule above
+// makes: content may not talk itself into executing, and a filename is weaker
+// evidence than content.
+func namedTextType(filename string) string {
+	named := TypeForFilename(filename)
+	if named == "" || !IsTextual(named) || IsScriptableDocument(named) {
+		return PlainText
+	}
+	return named
 }
 
 // declaredOrNamed resolves a specific declaration against the filename and the

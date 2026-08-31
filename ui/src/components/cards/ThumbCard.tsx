@@ -62,6 +62,11 @@ export function ThumbCard({
                 // URL at all. A tile that cannot draw its image is a tile with
                 // no image, which is what the icon is for (#1554).
                 onError={() => setBroken(true)}
+                // And on an API-key session, where the bytes are fetched ahead
+                // of the element: a refused read produces no element to error,
+                // so without this the tile stayed an empty box rather than
+                // falling back to its icon (#1568).
+                onLoadFailed={() => setBroken(true)}
               />
             ) : (
               <div className="flex h-full w-full items-center justify-center">

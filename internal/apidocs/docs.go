@@ -18135,7 +18135,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Forget a resource's capture, which leaves it pending and asks the portal to take another. It is the way back from a tile that is wrong.",
+                "description": "Forget a resource's captures, both variants, which leaves it pending and asks the portal to take them again. It is the way back from a tile that is wrong.",
                 "produces": [
                     "application/json"
                 ],
@@ -18150,16 +18150,6 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
-                    },
-                    {
-                        "enum": [
-                            "light",
-                            "dark"
-                        ],
-                        "type": "string",
-                        "description": "Which capture to clear",
-                        "name": "variant",
-                        "in": "query"
                     }
                 ],
                 "responses": {

@@ -146,6 +146,27 @@ describe("the families the capturer already drew", () => {
     expect(container.querySelectorAll("svg")).toHaveLength(1);
   });
 
+  // Plain text is one of the commonest things anyone uploads and had no
+  // thumbnail at all, for either kind, until #1568 -- and a .md stored as
+  // text/plain, which is what every generic declaration used to produce, lands
+  // here too.
+  it("draws a plain-text file as text, in both schemes", async () => {
+    const { container } = render(
+      <ThumbnailGenerator
+        assetId="ast-7"
+        content={"# Release notes\n\nNot markdown: the type says so.\n"}
+        contentType="text/plain; charset=utf-8"
+      />,
+    );
+    await waitFor(() => expect(uploadedVariants()).toEqual(["light", "dark"]));
+    const blocks = container.querySelectorAll("pre");
+    expect(blocks).toHaveLength(2);
+    // The markup is left alone rather than interpreted: the type says the
+    // markdown is not meant to be read as markdown.
+    expect(blocks[0]?.textContent).toContain("# Release notes");
+    expect(container.querySelector("h1")).toBeNull();
+  });
+
   it("leaves a type it cannot draw to its placeholder icon", () => {
     const { container } = render(
       <ThumbnailGenerator assetId="ast-4" content="%PDF-1.7" contentType="application/pdf" />,

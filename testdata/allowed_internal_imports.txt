@@ -438,6 +438,7 @@ internal/portal/portaldomain -> pkg/contenttype
 internal/portal/portaldomain -> pkg/portal/shareaccess
 internal/portal/portalnoop -> internal/portal/portaldomain
 internal/portal/portalstore -> internal/portal/portaldomain
+internal/portal/portalstore -> internal/thumbtypes
 internal/portal/portalstore -> pkg/indexjobs
 internal/portal/portalstore -> pkg/portal/shareaccess
 internal/portal/portalversions -> internal/portal/portaldomain
@@ -729,6 +730,7 @@ pkg/registry -> pkg/toolkits/gateway
 pkg/registry -> pkg/toolkits/s3
 pkg/registry -> pkg/toolkits/trino
 pkg/resource -> internal/logsan
+pkg/resource -> internal/thumbtypes
 pkg/resource -> pkg/blobserve
 pkg/resource -> pkg/contenttype
 pkg/resource -> pkg/indexjobs

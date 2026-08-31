@@ -9,9 +9,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DetailRow } from "@/components/viewer/DetailRow";
 import { formatBytes } from "@/lib/format";
+import { assetSubject } from "@/lib/thumbnailSupport";
 import { shortSessionId } from "@/pages/sessions/kind";
 import { AssetMetadataForm } from "./AssetMetadataForm";
-import { ThumbnailPanel } from "./ThumbnailPanel";
+import { ThumbnailPanel } from "@/components/thumbnail/ThumbnailPanel";
 import { ReferencesPanel } from "./ReferencesPanel";
 import { UsedByAssets } from "@/components/references/UsedByAssets";
 import type { RetentionMode } from "./AssetRetentionField";
@@ -217,9 +218,8 @@ export function AssetMetadataSidebar({
             that did not load.
           */}
           <ThumbnailPanel
-            asset={asset}
-            isOwner={isOwner}
-            assetApiBase={assetApiBase}
+            subject={assetSubject(asset, assetApiBase)}
+            canModify={isOwner}
             onRecapture={onRecaptureThumbnail}
           />
 

@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useState } from "react";
-import { render, screen, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, render, screen, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { useAuthStore, type UserProfile } from "@/stores/auth";
+import { useThemeStore } from "@/stores/theme";
 
 const uploadResource = vi.hoisted(() => vi.fn());
 const updateResource = vi.hoisted(() => vi.fn());
@@ -63,6 +64,9 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   useAuthStore.setState({ user: null });
+  // A module-level store: a case that puts the portal in dark mode would
+  // otherwise leave every case after it there.
+  useThemeStore.setState({ theme: "system" });
 });
 
 // chooseOption drives a Radix listbox: jsdom has no PointerEvent, so the
@@ -920,6 +924,18 @@ const IMAGE: Resource = {
   mime_type: "image/png",
 };
 
+// A markdown file with both captures stored, which is the state a themeable
+// resource reaches once the queue has been over it (#1568).
+const CAPTURED_MARKDOWN: Resource = {
+  ...LISTED,
+  path: "mixed",
+  mime_type: "text/markdown",
+  thumbnail_s3_key: "resources/res-1/.thumbnail.png",
+  thumbnail_captured_at: "2026-08-30T10:00:00Z",
+  thumbnail_dark_s3_key: "resources/res-1/.thumbnail_dark.png",
+  thumbnail_dark_captured_at: "2026-08-30T10:00:00Z",
+};
+
 describe("the library is drawn the way the reader asked", () => {
   it("draws tiles by default, one for every file whatever its type", () => {
     // The mixed folder is the case: it used to fall to rows because one file in
@@ -957,6 +973,44 @@ describe("the library is drawn the way the reader asked", () => {
     expect(sources.some((src) => src?.includes("res-1"))).toBe(false);
   });
 
+  // A themeable file stores a capture per color scheme, and the grid asked for
+  // neither: a markdown, CSV, JSON or plain-text resource was drawn from its
+  // light capture in a dark portal, a white card in a dark grid, even though
+  // the dark one was already stored (#1568).
+  it("draws the dark capture in a dark portal, and follows the reader back to light", () => {
+    listing([CAPTURED_MARKDOWN]);
+    useThemeStore.setState({ theme: "dark" });
+    const { container } = renderPage({ start: "/resources/lib/user/mixed" });
+
+    const sources = () => [...container.querySelectorAll("img")].map((i) => i.getAttribute("src"));
+    expect(sources().some((src) => src?.includes("variant=dark"))).toBe(true);
+
+    // Switching the portal back is a re-render, not a reload: the tile follows.
+    act(() => useThemeStore.setState({ theme: "light" }));
+    expect(sources().some((src) => src?.includes("variant=dark"))).toBe(false);
+    expect(sources().some((src) => src?.includes("res-1/thumbnail"))).toBe(true);
+  });
+
+  // An HTML file carries its own colors and stores one capture, so its empty
+  // dark key means "use the light one", not "no thumbnail".
+  it("draws the one stored capture in both modes for a file that carries its own colors", () => {
+    listing([
+      {
+        ...LISTED,
+        path: "mixed",
+        mime_type: "text/html",
+        thumbnail_s3_key: "resources/res-1/.thumbnail.png",
+        thumbnail_captured_at: "2026-08-30T10:00:00Z",
+      },
+    ]);
+    useThemeStore.setState({ theme: "dark" });
+    const { container } = renderPage({ start: "/resources/lib/user/mixed" });
+
+    const sources = [...container.querySelectorAll("img")].map((i) => i.getAttribute("src"));
+    expect(sources.some((src) => src?.includes("res-1/thumbnail"))).toBe(true);
+    expect(sources.some((src) => src?.includes("variant=dark"))).toBe(false);
+  });
+
   // The choice persists across a reload; that half is the storage helper's,
   // which this environment has no localStorage to exercise (listView.test.ts).
   it("switches to rows on the reader's word", () => {
@@ -981,6 +1035,19 @@ describe("the recently updated strip", () => {
     const strip = screen.getByTestId("recent-resources");
     expect(strip.textContent).toContain("Seasonal Factors");
     expect(strip.textContent).toContain("references");
+  });
+
+  // The strip imported the grid's tile builder, so it inherited the same bug:
+  // both surfaces are asserted because one fix serves both (#1568).
+  it("draws the dark capture too, being the same tile", () => {
+    listing([]);
+    recents([CAPTURED_MARKDOWN]);
+    useThemeStore.setState({ theme: "dark" });
+    renderPage();
+
+    const strip = screen.getByTestId("recent-resources");
+    const sources = [...strip.querySelectorAll("img")].map((i) => i.getAttribute("src"));
+    expect(sources.some((src) => src?.includes("variant=dark"))).toBe(true);
   });
 
   it("asks for the library in view, ten of them, newest first", () => {

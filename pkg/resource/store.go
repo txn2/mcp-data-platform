@@ -10,6 +10,7 @@ import (
 
 	"github.com/lib/pq"
 
+	"github.com/txn2/mcp-data-platform/internal/thumbtypes"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 )
 
@@ -350,21 +351,6 @@ func buildUpdate(id string, u Update) (query string, args []any) {
 // doing the work.
 const MaxThumbnailSourceBytes = 1 << 20 // 1 MB
 
-// thumbnailCapturableTypes are the content families a browser can rasterize
-// into a tile, matched as fragments of the media type so every spelling of a
-// family is covered. Images are here because a capture DOWNSCALES them: the
-// tile used to be the original object, so an image cost its full size to draw
-// and anything past the cutoff drew nothing (#1554).
-//
-// Everything else -- PDF, spreadsheets, archives, binaries -- has no renderer,
-// keeps its content-type icon, and is never offered.
-var thumbnailCapturableTypes = []string{"html", "svg", "markdown", "csv", "json", "image/"}
-
-// thumbnailThemeableTypes are the families rendered on a forced background and
-// so needing a second capture for dark mode. HTML, SVG and a raster image carry
-// their own colors and store a single image.
-var thumbnailThemeableTypes = []string{"markdown", "csv", "json"}
-
 // ThumbnailVariantLight and ThumbnailVariantDark name the two captures a
 // resource can carry. A content type that brings its own colors stores only
 // the light one and serves it in both modes.
@@ -436,14 +422,8 @@ func buildPendingThumbnails(filter Filter, limit int) (query string, args []any)
 	where, args := buildScopeWhere(filter)
 	idx := len(args) + 1
 
-	typePatterns := make([]string, 0, len(thumbnailCapturableTypes))
-	for _, fragment := range thumbnailCapturableTypes {
-		typePatterns = append(typePatterns, "%"+fragment+"%")
-	}
-	themeablePatterns := make([]string, 0, len(thumbnailThemeableTypes))
-	for _, fragment := range thumbnailThemeableTypes {
-		themeablePatterns = append(themeablePatterns, "%"+fragment+"%")
-	}
+	typePatterns := thumbtypes.ILikePatterns(thumbtypes.Capturable)
+	themeablePatterns := thumbtypes.ILikePatterns(thumbtypes.Themeable)
 
 	// #nosec G201 -- the only interpolation is the scope predicate and the
 	// placeholder numbering; every value is bound.
@@ -484,7 +464,8 @@ func (s *postgresStore) PendingThumbnails(ctx context.Context, filter Filter, li
 	query, args := buildPendingThumbnails(filter, limit)
 	// #nosec G701 -- the statement is assembled by buildPendingThumbnails from
 	// constants and placeholder numbers alone: the projection is selectResource,
-	// the column names and the type fragments are package constants, and every
+	// the column names are package constants and the type fragments
+	// come from internal/thumbtypes, and every
 	// caller-supplied value -- the scopes, the patterns, the size cap, the limit
 	// -- is bound as a parameter rather than written into the text.
 	rows, err := s.db.QueryContext(ctx, query, args...)

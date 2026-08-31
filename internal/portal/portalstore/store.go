@@ -19,6 +19,7 @@ import (
 	"github.com/lib/pq"
 
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/internal/thumbtypes"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/portal/shareaccess"
 )
@@ -1209,29 +1210,6 @@ func applyAssetFilter(qb sq.SelectBuilder, filter portaldomain.AssetFilter) sq.S
 // will ever accept is not offered forever.
 const maxThumbnailSourceBytes = 1 << 20 // 1 MB
 
-// thumbnailSupportedTypes are the content-type fragments the portal can
-// rasterize, and thumbnailThemeableTypes those it renders on a forced
-// background and therefore captures twice, once per color scheme. A type
-// carrying its own colors (HTML, JSX, SVG) stores one image and serves it in
-// both modes.
-//
-// They are fragments rather than exact media types because the stored type
-// carries parameters and vendor prefixes ("text/markdown; charset=utf-8",
-// "text/jsx"), and they are matched case-insensitively for the same reason.
-// They live here, beside the only query that reads them, rather than with the
-// asset type: what a browser can rasterize is what the refresh queue is allowed
-// to offer, and nothing else in Go asks the question.
-//
-// The "json" fragment covers both JSON families at once: every spelling of
-// newline-delimited JSON contains it ("application/x-ndjson",
-// "application/jsonl"), as do the vendor dialects ("application/vnd.acme+json").
-// The browser draws each family in its own form; which one is a question only
-// the capturer asks.
-var (
-	thumbnailSupportedTypes = []string{"html", "jsx", "svg", "markdown", "csv", "json"}
-	thumbnailThemeableTypes = []string{"markdown", "csv", "json"}
-)
-
 // thumbnailPendingPredicate matches the assets a browser should capture a
 // thumbnail for: one the portal can rasterize, small enough to be worth
 // rendering twice, and carrying a capture that is missing, behind the current
@@ -1248,12 +1226,12 @@ var (
 // reading its empty dark key as "pending" would offer it forever.
 func thumbnailPendingPredicate() sq.Sqlizer {
 	return sq.And{
-		sq.Expr("content_type ILIKE ANY(?)", pq.Array(fragmentPatterns(thumbnailSupportedTypes))),
+		sq.Expr("content_type ILIKE ANY(?)", pq.Array(thumbtypes.ILikePatterns(thumbtypes.Capturable))),
 		sq.LtOrEq{"size_bytes": maxThumbnailSourceBytes},
 		sq.Or{
 			variantPendingPredicate(portaldomain.ThumbnailVariantLight),
 			sq.And{
-				sq.Expr("content_type ILIKE ANY(?)", pq.Array(fragmentPatterns(thumbnailThemeableTypes))),
+				sq.Expr("content_type ILIKE ANY(?)", pq.Array(thumbtypes.ILikePatterns(thumbtypes.Themeable))),
 				variantPendingPredicate(portaldomain.ThumbnailVariantDark),
 			},
 		},
@@ -1279,16 +1257,6 @@ func variantPendingPredicate(variant string) sq.Sqlizer {
 		sq.Expr(versionCol + " < current_version"),
 		sq.Expr("substring("+keyCol+" from '[^/]*$') = ?", portaldomain.LegacyThumbnailFilenameFor(variant)),
 	}
-}
-
-// fragmentPatterns wraps content-type fragments as ILIKE patterns, which is how
-// the substring test the portal applies in JavaScript is asked of a column.
-func fragmentPatterns(fragments []string) []string {
-	patterns := make([]string, 0, len(fragments))
-	for _, f := range fragments {
-		patterns = append(patterns, "%"+f+"%")
-	}
-	return patterns
 }
 
 // assetScanDest returns the scan destinations for one asset row in the column

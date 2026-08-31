@@ -191,6 +191,39 @@ export function useDeleteResource() {
   });
 }
 
+/**
+ * useClearResourceThumbnail discards a resource's stored captures so a fresh
+ * one is taken.
+ *
+ * It is the way back from a tile that shows the wrong thing. Nothing on the
+ * server rasterizes a document, and the refresh queue offers only resources
+ * whose row says a capture is missing or older than the file, so a resource
+ * holding a picture of its own error state stayed that way until someone
+ * replaced its content (#1568). Clearing the row's pointers is what puts it
+ * back in front of a capturer. The route clears both variants, which is why
+ * this sends no variant.
+ */
+export function useClearResourceThumbnail() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await resourceFetchRaw(`/${id}/thumbnail`, { method: "DELETE" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(body.error || res.statusText);
+      }
+    },
+    onSuccess: (_data, id) => {
+      // The resource query is what the viewer reads to decide a capture is
+      // wanted, so refreshing it is what starts the new one; the listing is
+      // what draws the tile everywhere else.
+      void qc.invalidateQueries({ queryKey: ["resources", id] });
+      void qc.invalidateQueries({ queryKey: ["resources"] });
+      void qc.invalidateQueries({ queryKey: ["resource-thumbnails-pending"] });
+    },
+  });
+}
+
 // useResourceVersions lists a resource's content revisions, newest first.
 export function useResourceVersions(id: string, enabled = true) {
   return useQuery({

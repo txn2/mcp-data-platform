@@ -139,6 +139,11 @@ func TestResourceStore_Thumbnails_RealDB(t *testing.T) {
 	}
 	insert("res_t_md", "text/markdown", 100)
 	insert("res_t_png", "image/png", 100)
+	// The two families this store had lost against the other copies of the rule
+	// (#1568): the capturer renders JSX and has prose CSS that draws plain text,
+	// and neither was ever offered the work.
+	insert("res_t_jsx", "text/jsx", 100)
+	insert("res_t_txt", "text/plain; charset=utf-8", 100)
 	// A type nothing can rasterize, and one past the source cap: neither is
 	// ever offered, so neither can crowd out the ones that would succeed.
 	insert("res_t_pdf", "application/pdf", 100)
@@ -157,6 +162,8 @@ func TestResourceStore_Thumbnails_RealDB(t *testing.T) {
 	ids := pendingIDs()
 	assert.True(t, ids["res_t_md"], "a markdown resource with no capture is pending")
 	assert.True(t, ids["res_t_png"], "an image is captured too: the tile used to be the file")
+	assert.True(t, ids["res_t_jsx"], "the capturer renders JSX, so a JSX resource is offered")
+	assert.True(t, ids["res_t_txt"], "plain text is drawn with the capturer's prose CSS")
 	assert.False(t, ids["res_t_pdf"], "nothing can rasterize a PDF, so it is never offered")
 	assert.False(t, ids["res_t_big"], "past the source cap the capture would stall the tab doing it")
 
@@ -181,6 +188,19 @@ func TestResourceStore_Thumbnails_RealDB(t *testing.T) {
 		Variant: ThumbnailVariantLight, S3Key: "k/png.png", CapturedAt: png.UpdatedAt,
 	}))
 	assert.False(t, pendingIDs()["res_t_png"], "one capture is enough for a type with its own colours")
+
+	// Plain text is drawn on a forced background, so like markdown it is asked
+	// for both variants rather than settled by the light one.
+	txt, err := store.Get(ctx, "res_t_txt")
+	require.NoError(t, err)
+	require.NoError(t, store.SetThumbnail(ctx, "res_t_txt", ThumbnailCapture{
+		Variant: ThumbnailVariantLight, S3Key: "k/txt.png", CapturedAt: txt.UpdatedAt,
+	}))
+	assert.True(t, pendingIDs()["res_t_txt"], "still pending on its dark variant")
+	require.NoError(t, store.SetThumbnail(ctx, "res_t_txt", ThumbnailCapture{
+		Variant: ThumbnailVariantDark, S3Key: "k/txt_dark.png", CapturedAt: txt.UpdatedAt,
+	}))
+	assert.False(t, pendingIDs()["res_t_txt"], "both variants captured and current")
 
 	// The capture round-trips onto the row.
 	got, err := store.Get(ctx, "res_t_md")

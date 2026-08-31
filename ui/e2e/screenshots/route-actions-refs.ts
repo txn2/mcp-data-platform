@@ -1,5 +1,5 @@
 import { type Page } from "@playwright/test";
-import { openAssetProvenance, openPersonaScopeTab } from "./route-actions";
+import { openAssetProvenance, openPersonaScopeTab, openResourceDetail } from "./route-actions";
 import { openResourceNamed } from "./route-actions-library";
 
 // The capture actions for the reference surface (#1475, #1488), both ends of
@@ -74,7 +74,7 @@ export async function openAssetUsedBy(page: Page): Promise<void> {
 export async function openAssetThumbnail(page: Page): Promise<void> {
   await openAssetProvenance(page);
   await page
-    .getByTestId("asset-thumbnail-panel")
+    .getByTestId("thumbnail-panel")
     .scrollIntoViewIfNeeded({ timeout: 5_000 })
     .catch(() => {});
   await page.waitForTimeout(500);
@@ -96,6 +96,25 @@ export async function openResourceUsedByAssets(page: Page): Promise<void> {
   await page
     .getByTestId("used-by-assets")
     .scrollIntoViewIfNeeded({ timeout: 3_000 })
+    .catch(() => {});
+  await page.waitForTimeout(500);
+}
+
+/**
+ * openResourceThumbnail scrolls a managed resource's sidebar to the tile
+ * everyone else sees of the file, and the control that asks for it to be taken
+ * again (#1568).
+ *
+ * It sits beside openAssetThumbnail rather than with the other resource actions
+ * for the reason this module exists at all: route-actions.ts is at its line
+ * ceiling, and one panel captured on both kinds is a better seam than the line
+ * the limit happens to fall on.
+ */
+export async function openResourceThumbnail(page: Page): Promise<void> {
+  await openResourceDetail(page);
+  await page
+    .getByTestId("thumbnail-panel")
+    .scrollIntoViewIfNeeded({ timeout: 5_000 })
     .catch(() => {});
   await page.waitForTimeout(500);
 }

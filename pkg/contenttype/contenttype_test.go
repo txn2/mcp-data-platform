@@ -585,6 +585,83 @@ func TestDetectFileNamedTypeOverridesWrongDeclaration(t *testing.T) {
 	}
 }
 
+// TestDetectFileNamesUnstructuredTextByItsExtension is the other half of the
+// filename rule (#1568): where the declaration says nothing and the bytes are
+// unstructured text, the extension is the only signal left and is taken.
+//
+// It is what makes markdown reachable at all. Markdown has no content
+// signature and detectStructuredText does not look for one, so a notes.md
+// uploaded as text/plain, application/octet-stream or nothing was stored as
+// text/plain -- opened in the plain-text viewer rather than the markdown
+// renderer, and offered no thumbnail.
+//
+// The refusals below are the point of the rule being narrow, and they are what
+// keeps it from being a way to name a family from a filename: a name whose
+// family a browser builds a document from is refused even when the bytes are
+// admittedly text, because content may not talk itself into executing and a
+// name is weaker evidence than content.
+func TestDetectFileNamesUnstructuredTextByItsExtension(t *testing.T) {
+	t.Parallel()
+
+	prose := []byte("# Release notes\n\nA paragraph, and a [link](https://example.com).\n")
+
+	tests := []struct {
+		name     string
+		declared string
+		filename string
+		content  []byte
+		want     string
+	}{
+		// The reported case, in each form a generic declaration takes.
+		{"markdown with no declaration", "", "notes.md", prose, contenttype.Markdown},
+		{"markdown declared text/plain", contenttype.PlainText, "notes.md", prose, contenttype.Markdown},
+		{"markdown declared octet-stream", contenttype.OctetStream, "notes.md", prose, contenttype.Markdown},
+
+		// The other families with no content signature, which the same rule
+		// reaches: a viewer can show each as what it is rather than as text.
+		{"python", "", "etl.py", prose, "text/x-python"},
+		{"sql", "", "report.sql", prose, "application/sql"},
+		{"css", "", "theme.css", prose, "text/css"},
+		{"yaml", "", "values.yaml", []byte("name: acme\n"), contenttype.YAML},
+
+		// A .txt is what it says, and is what a name with nothing to say falls
+		// back to.
+		{"plain text", "", "notes.txt", prose, contenttype.PlainText},
+		{"unknown extension", "", "notes.xyzzy", prose, contenttype.PlainText},
+		{"no extension", "", "notes", prose, contenttype.PlainText},
+		{"no filename", "", "", prose, contenttype.PlainText},
+
+		// The refusals. Each of these is text by the sniffer's reckoning, and
+		// each names a family a browser turns into a document whose render tree
+		// the author of the bytes controls.
+		{"html name is refused", "", "page.html", prose, contenttype.PlainText},
+		{"jsx name is refused", "", "panel.jsx", prose, contenttype.PlainText},
+		{"svg name is refused", "", "logo.svg", prose, contenttype.PlainText},
+		{"javascript name is refused", "", "app.js", prose, contenttype.PlainText},
+		{"xml name is refused", "", "feed.xml", prose, contenttype.PlainText},
+		{"xhtml name is refused", "", "page.xhtml", prose, contenttype.PlainText},
+
+		// A name for a family that is not text at all decides nothing: the
+		// content is text and stays text.
+		{"binary name over text content", "", "chart.png", prose, contenttype.PlainText},
+		{"pdf name over text content", "", "report.pdf", prose, contenttype.PlainText},
+
+		// A specific declaration is settled before the name is consulted, and
+		// content the sniffer recognizes never reaches the rule at all.
+		{"specific declaration wins", contenttype.CSV, "notes.md", prose, contenttype.CSV},
+		{"a .md holding a PNG is a PNG", "", "notes.md", pngBytes, "image/png"},
+		{"a .md holding a PDF is a PDF", contenttype.OctetStream, "notes.md", pdfBytes, contenttype.PDF},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tt.want, contenttype.DetectFileBytes(tt.declared, tt.filename, tt.content))
+			require.Equal(t, tt.want, contenttype.DetectFile(tt.declared, tt.filename, tt.content))
+		})
+	}
+}
+
 // TestDetectFileMatchesDetectWithoutAName pins the equivalence the package doc
 // claims: every existing caller keeps the behavior it had.
 func TestDetectFileMatchesDetectWithoutAName(t *testing.T) {

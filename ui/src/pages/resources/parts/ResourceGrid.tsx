@@ -1,35 +1,16 @@
 import { ThumbCard } from "@/components/cards/ThumbCard";
 import { contentTypeIcon, ContentTypeBadge } from "@/components/ContentTypeBadge";
 import { Badge } from "@/components/ui/badge";
-import { BASE_URL } from "@/api/resources/client";
 import { formatBytes } from "@/lib/format";
 import { markdownToPlainText } from "@/lib/markdownText";
+import { resourceThumbnailSrc } from "@/lib/thumbnailSupport";
 import { cn } from "@/lib/utils";
+import { useResolvedDark } from "@/stores/theme";
 import type { Resource } from "@/api/resources/types";
 import { ScopeBadge } from "./badges";
 import { dragResources } from "./drag";
 import { neverRead } from "./groups";
 import type { Selection } from "./selection";
-
-/**
- * The image a tile shows, or undefined for the icon that stands in for one.
- *
- * It is the resource's stored capture (#1554): a PNG a portal tab rendered and
- * uploaded, served from the resource's own thumbnail route. The URL carries the
- * moment the capture was taken, so a re-capture is a different URL and the old
- * one can be cached for the hour the route allows.
- *
- * The tile used to be the original object -- an image scaled down by CSS, and
- * nothing at all past a size cutoff -- so a library of documents was a wall of
- * identical icons and an image library pulled megabytes to draw postage stamps.
- * A resource with no capture yet, and one of a type nothing can rasterize,
- * returns undefined and draws its content-type icon.
- */
-export function tileImage(r: Resource): string | undefined {
-  if (!r.thumbnail_s3_key) return undefined;
-  const taken = r.thumbnail_captured_at ?? "";
-  return `${BASE_URL}/${r.id}/thumbnail?c=${encodeURIComponent(taken)}`;
-}
 
 /**
  * A library's files, as tiles rather than rows.
@@ -60,6 +41,10 @@ export function ResourceGrid({
   selection?: Selection;
   onOpen: (resource: Resource) => void;
 }) {
+  // Asked once for the grid rather than once per card: it subscribes to the
+  // theme store and to the OS preference, and a library page draws fifty of
+  // these.
+  const isDark = useResolvedDark();
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
       {resources.map((r) => (
@@ -80,7 +65,7 @@ export function ResourceGrid({
               className="absolute top-2 left-2 z-10"
             />
           )}
-          <ResourceCard resource={r} admin={admin} onOpen={() => onOpen(r)} />
+          <ResourceCard resource={r} admin={admin} isDark={isDark} onOpen={() => onOpen(r)} />
         </div>
       ))}
     </div>
@@ -91,16 +76,24 @@ export function ResourceGrid({
 function ResourceCard({
   resource: r,
   admin,
+  isDark,
   onOpen,
 }: {
   resource: Resource;
   admin: boolean;
+  /**
+   * The colour scheme the reader is in, which decides which of a themeable
+   * file's two captures its tile draws. The tile used to ask for neither, so a
+   * markdown, CSV, JSON or plain-text file was a white card in a dark grid even
+   * though the dark capture was already stored (#1568).
+   */
+  isDark: boolean;
   onOpen: () => void;
 }) {
   const Icon = contentTypeIcon(r.mime_type);
   const tags = r.tags ?? [];
   return (
-    <ThumbCard onClick={onOpen} thumbnailSrc={tileImage(r)} fallbackIcon={Icon}>
+    <ThumbCard onClick={onOpen} thumbnailSrc={resourceThumbnailSrc(r, isDark)} fallbackIcon={Icon}>
       <div className="mb-2 flex w-full items-center gap-2">
         <Icon className="size-5 shrink-0 text-muted-foreground" />
         <span className="flex-1 truncate text-sm font-medium" title={r.display_name}>

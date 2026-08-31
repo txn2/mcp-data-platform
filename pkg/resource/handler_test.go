@@ -16,6 +16,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/thumbtypes"
 )
 
 // --- mock store ---
@@ -211,7 +213,7 @@ func thumbnailBehind(r *Resource, variant string) bool {
 }
 
 func capturableType(mime string) bool {
-	for _, fragment := range thumbnailCapturableTypes {
+	for _, fragment := range thumbtypes.Capturable {
 		if strings.Contains(strings.ToLower(mime), fragment) {
 			return true
 		}
@@ -220,7 +222,7 @@ func capturableType(mime string) bool {
 }
 
 func themeableType(mime string) bool {
-	for _, fragment := range thumbnailThemeableTypes {
+	for _, fragment := range thumbtypes.Themeable {
 		if strings.Contains(strings.ToLower(mime), fragment) {
 			return true
 		}

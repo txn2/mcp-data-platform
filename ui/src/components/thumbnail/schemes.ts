@@ -130,6 +130,22 @@ export function csvProseCss(t: ProseTokens, scope: string): string {
 }
 
 /**
+ * Plain text: the file as it reads, in the body font rather than a monospace
+ * one -- a .txt is prose far more often than it is code, and the families that
+ * are code (JSON, NDJSON) have stylesheets of their own.
+ *
+ * Long lines wrap instead of running off the right edge, because a plain-text
+ * file has no structure to tell the reader what they are looking at: the first
+ * few sentences are the whole of what the tile can say, and clipping them at
+ * the container edge would throw away half of each one.
+ */
+export function textProseCss(t: ProseTokens, scope: string): string {
+  return `
+    .${scope} { margin: 0; font-family: inherit; font-size: 11px; line-height: 1.55; color: ${t.fg}; white-space: pre-wrap; overflow-wrap: break-word; }
+  `;
+}
+
+/**
  * Formatted JSON: an indented monospace document with the punctuation left in
  * the muted tone so the values it separates carry the eye.
  */

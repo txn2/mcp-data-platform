@@ -175,3 +175,33 @@ func TestThumbnailPending_RealDB_JSONFamilies(t *testing.T) {
 		[]string{"asset_json", "asset_ndjson", "asset_vendor_json", "asset_json_dark_missing"},
 		pendingIDs(t, store))
 }
+
+// TestThumbnailPending_RealDB_FamiliesUnifiedWithResources covers the families
+// this store had lost against the other three copies of the rule (#1568).
+//
+// A raster image asset was never offered although the capturer downscales one,
+// and a plain-text asset was never offered although the capturer has prose CSS
+// that draws it. Both were reachable only because the rule was written out four
+// times; there is one Go definition now (internal/thumbtypes) and one browser
+// definition, held together by a test.
+func TestThumbnailPending_RealDB_FamiliesUnifiedWithResources(t *testing.T) {
+	db := testdb.New(t)
+	store := &postgresAssetStore{db: db}
+
+	seedPendingAsset(t, db, store, "asset_png", "image/png", 100, 1, thumbState{})
+	seedPendingAsset(t, db, store, "asset_text", "text/plain; charset=utf-8", 100, 1, thumbState{})
+	// A raster image carries its own colors: one downscale serves both modes, so
+	// an empty dark key is not a gap and must not offer it forever.
+	seedPendingAsset(t, db, store, "asset_png_light_only", "image/jpeg", 100, 2, thumbState{
+		light: "k/x/.thumbnail.png", lightVersion: 2,
+	})
+	// Plain text is drawn on a forced background, so it is asked for both.
+	seedPendingAsset(t, db, store, "asset_text_dark_missing", "text/plain", 100, 2, thumbState{
+		light: "k/x/.thumbnail.png", lightVersion: 2,
+	})
+	seedPendingAsset(t, db, store, "asset_text_current", "text/plain", 100, 1, current(1))
+
+	assert.ElementsMatch(t,
+		[]string{"asset_png", "asset_text", "asset_text_dark_missing"},
+		pendingIDs(t, store))
+}

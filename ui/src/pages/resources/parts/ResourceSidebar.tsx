@@ -3,7 +3,9 @@ import { CollapsibleMarkdown } from "@/components/renderers/CollapsibleMarkdown"
 import { TablesPanel } from "@/components/tables/TablesPanel";
 import { Badge } from "@/components/ui/badge";
 import { DetailRow } from "@/components/viewer/DetailRow";
+import { ThumbnailPanel } from "@/components/thumbnail/ThumbnailPanel";
 import { formatBytes } from "@/lib/format";
+import { resourceSubject } from "@/lib/thumbnailSupport";
 import type { Resource } from "@/api/resources/types";
 import { UsagePanel } from "./UsagePanel";
 import { UsedByAssets } from "@/components/references/UsedByAssets";
@@ -81,6 +83,16 @@ export function ResourceSidebar({
       <UsedByPrompts resourceId={r.id} />
 
       <UsedByAssets target={{ kind: "resource", id: r.id }} />
+
+      {/*
+        The tile everyone else sees of this file, and the way back from one that
+        shows the wrong thing. A resource is captured by the same capturer as an
+        asset and stored under the same rule, and had neither the picture nor
+        the button until this (#1568). It decides for itself whether to render:
+        a reader who may not change the file, and a type nothing rasterizes, are
+        shown nothing.
+      */}
+      <ThumbnailPanel subject={resourceSubject(r)} canModify={canModify} />
     </>
   );
 }

@@ -17,7 +17,10 @@ test.describe("Thumbnail refresh", () => {
       const url = r.url();
       if (url.includes("/thumbnails/pending")) asked.push(url);
       if (r.method() === "GET" && /\/assets\/[^/]+\/content/.test(url)) fetched.push(url);
-      if (r.method() === "PUT" && url.includes("/thumbnail")) uploaded.push(url);
+      // Assets only. A managed resource is captured by the same queue in the
+      // same tab, so "the first upload" is not necessarily the one this test is
+      // about (#1568).
+      if (r.method() === "PUT" && /\/assets\/[^/]+\/thumbnail/.test(url)) uploaded.push(url);
     });
 
     // The fixture library is settled, so nothing in the portal is pending by
@@ -92,7 +95,10 @@ test.describe("Thumbnail refresh", () => {
     const fetched: string[] = [];
     page.on("request", (r) => {
       const url = r.url();
-      if (r.method() === "PUT" && url.includes("/thumbnail")) uploaded.push(url);
+      // Assets only. A managed resource is captured by the same queue in the
+      // same tab, so "the first upload" is not necessarily the one this test is
+      // about (#1568).
+      if (r.method() === "PUT" && /\/assets\/[^/]+\/thumbnail/.test(url)) uploaded.push(url);
       if (r.method() === "GET" && /\/assets\/[^/]+\/content/.test(url)) fetched.push(url);
     });
 
@@ -125,7 +131,10 @@ test.describe("Thumbnail refresh", () => {
     const uploaded: string[] = [];
     page.on("request", (r) => {
       const url = r.url();
-      if (r.method() === "PUT" && url.includes("/thumbnail")) uploaded.push(url);
+      // Assets only. A managed resource is captured by the same queue in the
+      // same tab, so "the first upload" is not necessarily the one this test is
+      // about (#1568).
+      if (r.method() === "PUT" && /\/assets\/[^/]+\/thumbnail/.test(url)) uploaded.push(url);
     });
 
     await page.addInitScript(() => {

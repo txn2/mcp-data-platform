@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Asset } from "@/api/portal/types";
+import type { Resource } from "@/api/resources/types";
+import { assetSubject, resourceSubject } from "@/lib/thumbnailSupport";
 import { ThumbnailPanel } from "./ThumbnailPanel";
 
 // A person looking at a tile that shows the artifact's error state had nothing
@@ -50,13 +52,49 @@ function renderPanel(asset: Asset = ASSET, isOwner = true, assetApiBase?: string
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const tree = (a: Asset) => (
     <QueryClientProvider client={qc}>
-      <ThumbnailPanel asset={a} isOwner={isOwner} assetApiBase={assetApiBase} />
+      <ThumbnailPanel subject={assetSubject(a, assetApiBase)} canModify={isOwner} />
     </QueryClientProvider>
   );
   const result = render(tree(asset));
   // Rerenders the same panel against a later state of the asset row, which is
   // how the clear and the capture that follows it reach this component.
   return { ...result, rerender: (a: Asset) => result.rerender(tree(a)) };
+}
+
+// The same panel over a managed resource. A resource is captured by the same
+// capturer and stored under the same rule, and had neither the picture nor the
+// button until #1568; what differs is that it carries no version, so its
+// captures are dated against the file's own updated_at.
+const RESOURCE: Resource = {
+  id: "res-notes",
+  scope: "user",
+  scope_id: "u1",
+  path: "notes",
+  filename: "notes.md",
+  display_name: "Release notes",
+  description: "",
+  mime_type: "text/markdown",
+  size_bytes: 900,
+  s3_key: "user/u1/notes/notes.md",
+  uri: "mcp://user/u1/notes/notes.md",
+  tags: [],
+  uploader_sub: "u1",
+  uploader_email: "alex.rivera@example.com",
+  created_at: "2026-08-01T00:00:00Z",
+  updated_at: "2026-08-02T00:00:00Z",
+  thumbnail_s3_key: "user/u1/notes/.thumbnail.png",
+  thumbnail_dark_s3_key: "user/u1/notes/.thumbnail_dark.png",
+  thumbnail_captured_at: "2026-08-02T00:00:00Z",
+  thumbnail_dark_captured_at: "2026-08-02T00:00:00Z",
+};
+
+function renderResourcePanel(resource: Resource = RESOURCE, canModify = true) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={qc}>
+      <ThumbnailPanel subject={resourceSubject(resource)} canModify={canModify} />
+    </QueryClientProvider>,
+  );
 }
 
 /** The panel as a surface that reads tiles through a route of its own. */
@@ -174,5 +212,45 @@ describe("ThumbnailPanel", () => {
   it("is absent for a document too large to capture", () => {
     const { container } = renderPanel({ ...ASSET, size_bytes: 5 * 1024 * 1024 } as Asset);
     expect(container).toBeEmptyDOMElement();
+  });
+
+  // A managed resource's owner had no picture of their tile and no way to
+  // replace one that was wrong (#1568). These are the same three assertions
+  // made of the asset above, through the resource's own route.
+  it("shows a managed resource's stored tile", () => {
+    renderResourcePanel();
+    const img = screen.getByAltText("Thumbnail for Release notes");
+    expect(img.getAttribute("src")).toContain("/api/v1/resources/res-notes/thumbnail");
+  });
+
+  it("discards a managed resource's stored image through the resource route", async () => {
+    renderResourcePanel();
+    fireEvent.click(screen.getByRole("button", { name: /recapture/i }));
+
+    await waitFor(() => expect(calls[0]).toBeDefined());
+    expect(calls[0]).toMatchObject({
+      url: "/api/v1/resources/res-notes/thumbnail",
+      method: "DELETE",
+    });
+  });
+
+  // Changing a resource is its uploader and whoever may add to its library
+  // (CanModifyResource), which is the same authority the route enforces on the
+  // clear this control sends.
+  it("is absent for a reader who may not change the resource", () => {
+    const { container } = renderResourcePanel(RESOURCE, false);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("says a capture is being taken while a resource has none stored", () => {
+    renderResourcePanel({
+      ...RESOURCE,
+      thumbnail_s3_key: undefined,
+      thumbnail_dark_s3_key: undefined,
+      thumbnail_captured_at: undefined,
+      thumbnail_dark_captured_at: undefined,
+    });
+    expect(screen.getByText("Being taken")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /recapture/i })).toBeEnabled();
   });
 });
