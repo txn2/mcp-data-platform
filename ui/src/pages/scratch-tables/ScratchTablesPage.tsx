@@ -48,13 +48,6 @@ export function ScratchTablesPage({ onNavigate }: { onNavigate: (path: string) =
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">
-        Every file registered as a query-engine table, whichever kind of file it came from. A
-        registration points the engine at the file where it already sits, so the table reads
-        whatever that file holds now &mdash; and the schema is shared, so a table here is one
-        anybody granted its connection can query.
-      </p>
-
       <Filters value={filters} rows={data?.data} onChange={changeFilters} />
 
       <Listing

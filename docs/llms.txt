@@ -154,7 +154,7 @@ Configuring and operating the platform. These are the pages under `docs` > Admin
 
 The `portal` rail section: a guided tour of every screen the built-in web portal serves. Its two halves are the sidebar's own, Your Work and Administration.
 
-- [The Portal](https://mcp-data-platform.txn2.com/portal/): What the portal is, how to enable it, how branding resolves (brand name, theme-aware logos, the version link, the public viewer's own branding and CSP), and the map of the tour
+- [The Portal](https://mcp-data-platform.txn2.com/portal/): What the portal is, how to enable it, how branding resolves (brand name, theme-aware logos, the version link, the public viewer's own branding and CSP), the map of the tour, and the statement each section opens with of what it holds
 - [Activity](https://mcp-data-platform.txn2.com/portal/activity/): Your own sessions and the calls they made, each with the purpose the agent stated for it
 - [Assets](https://mcp-data-platform.txn2.com/portal/assets/): Your own asset library — what you saved and what your managed scripts produced, on the same terms — plus the asset viewer, its provenance panel, references, version history and retention, and sharing
 - [Collections](https://mcp-data-platform.txn2.com/portal/collections/): Grouping assets, and sharing a group as one

@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { authenticate } from "../screenshots/helpers/auth";
+import { sectionIntroFor } from "../../src/components/patterns/sectionIntros";
 
 // Interactive coverage for the feedback thread UI. Runs against MSW with seeded
 // threads on ast-001 (asset) and a standalone channel. Exercises: opening the
@@ -80,7 +81,10 @@ test.describe("Feedback hub page", () => {
   test("Recent tab lists activity across my items", async ({ page }) => {
     await authenticate(page);
     await page.goto("/portal/feedback");
-    await expect(page.getByText(/Feedback across everything you can access/)).toBeVisible();
+    // The page's positioning line is the section intro's now (#1570).
+    await expect(page.getByTestId("section-intro")).toContainText(
+      sectionIntroFor("/feedback")!.summary,
+    );
     // Recent is the default tab: rows carry the target's display label and title.
     await expect(page.getByText("Q4 Revenue Dashboard").first()).toBeVisible();
     await expect(page.getByText("We don't use that term")).toBeVisible();

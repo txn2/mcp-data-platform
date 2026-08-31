@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { MessageCircle, Clock, Inbox, Megaphone, Plus, type LucideIcon } from "lucide-react";
+import { Clock, Inbox, Megaphone, Plus, type LucideIcon } from "lucide-react";
 import { usePractitionerWorklist, useSMEWorklist } from "@/api/portal/hooks";
 import { ActivityFeed } from "@/components/feedback/ActivityFeed";
 import { InboxPanel } from "@/components/feedback/InboxPanel";
@@ -7,7 +7,6 @@ import { FeedbackPanel } from "@/components/feedback/FeedbackPanel";
 import { ThreadSlideOver } from "@/components/feedback/ThreadSlideOver";
 import { SlideOver } from "@/components/feedback/SlideOver";
 import { NewThreadForm } from "@/components/feedback/NewThreadForm";
-import { PageHeader } from "@/components/patterns/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -50,26 +49,19 @@ export function FeedbackPage({ onNavigate }: Props) {
 
   return (
     <div className="flex h-full flex-col gap-4">
-      <PageHeader
-        icon={MessageCircle}
-        title="Feedback"
-        subtitle={
-          <span className="block max-w-2xl">
-            Feedback across everything you can access, your open worklist, and the shared channel.
-          </span>
-        }
-        actions={
-          <Button
-            type="button"
-            onClick={() => {
-              setOpenThreadId(null);
-              setComposing(true);
-            }}
-          >
-            <Plus /> New feedback
-          </Button>
-        }
-      />
+      {/* The section is named by the header bar and by its intro, so this row
+          carries the action alone rather than a third copy of the title. */}
+      <div className="flex justify-end">
+        <Button
+          type="button"
+          onClick={() => {
+            setOpenThreadId(null);
+            setComposing(true);
+          }}
+        >
+          <Plus /> New feedback
+        </Button>
+      </div>
 
       <Tabs
         value={tab}

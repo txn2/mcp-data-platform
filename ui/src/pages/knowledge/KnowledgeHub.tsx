@@ -16,7 +16,6 @@ import {
 } from "@/pages/knowledge/KnowledgePage";
 import { InfoHint } from "@/components/patterns/InfoHint";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { LifecycleHeader } from "@/pages/knowledge/hub/LifecycleHeader";
 import { SubTabBar } from "@/pages/knowledge/hub/SubTabBar";
 import { UnifiedSearch } from "@/pages/knowledge/hub/UnifiedSearch";
 
@@ -269,8 +268,6 @@ export function KnowledgeHub({
 
   return (
     <div className="space-y-6">
-      <LifecycleHeader />
-
       {/* The primary tab bar is the page's only underline bar: the levels below
           it are pill bars (SubTabBar), so the three tiers of navigation read as
           a hierarchy rather than three identical rows. */}

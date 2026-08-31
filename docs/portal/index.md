@@ -64,6 +64,48 @@ platform are documented alongside them:
 [Provenance](../server/provenance.md) and
 [Registered Tables](../server/registered-tables.md).
 
+## What each section is for
+
+Every reader-facing section opens with a statement of what it holds, what
+belongs in it, and what does not along with the section that takes it instead.
+The distinction between an asset and a resource is the whole
+[content model](../concepts/content-model.md), and it is not readable from a
+tab strip and a filter bar.
+
+A section you have never opened shows the statement in full. Close it and the
+section keeps a one-line summary beside its own icon; the choice is remembered
+per section, so a section you have closed opens closed the next time and every
+other section still introduces itself. Knowledge draws its summary rather than
+writing it: the Memory to Insight to Knowledge pipeline is its one line.
+
+![Assets](../images/screenshots/light/user-assets-intro-collapsed-light.webp#only-light)![Assets](../images/screenshots/dark/user-assets-intro-collapsed-dark.webp#only-dark)
+
+![Prompts](../images/screenshots/light/user-prompts-intro-collapsed-light.webp#only-light)![Prompts](../images/screenshots/dark/user-prompts-intro-collapsed-dark.webp#only-dark)
+
+![Scripts](../images/screenshots/light/user-scripts-intro-collapsed-light.webp#only-light)![Scripts](../images/screenshots/dark/user-scripts-intro-collapsed-dark.webp#only-dark)
+
+![Resources](../images/screenshots/light/user-resources-intro-collapsed-light.webp#only-light)![Resources](../images/screenshots/dark/user-resources-intro-collapsed-dark.webp#only-dark)
+
+![Scratch Tables](../images/screenshots/light/user-scratch-tables-intro-collapsed-light.webp#only-light)![Scratch Tables](../images/screenshots/dark/user-scratch-tables-intro-collapsed-dark.webp#only-dark)
+
+![Feedback](../images/screenshots/light/user-feedback-intro-collapsed-light.webp#only-light)![Feedback](../images/screenshots/dark/user-feedback-intro-collapsed-dark.webp#only-dark)
+
+![Knowledge](../images/screenshots/light/user-knowledge-intro-collapsed-light.webp#only-light)![Knowledge](../images/screenshots/dark/user-knowledge-intro-collapsed-dark.webp#only-dark)
+
+![APIs](../images/screenshots/light/user-apis-intro-collapsed-light.webp#only-light)![APIs](../images/screenshots/dark/user-apis-intro-collapsed-dark.webp#only-dark)
+
+![Activity](../images/screenshots/light/user-activity-intro-collapsed-light.webp#only-light)![Activity](../images/screenshots/dark/user-activity-intro-collapsed-dark.webp#only-dark)
+
+The expanded form of each is on that section's own page, above. Settings has no
+intro: it is controls, not a place things live.
+
+What a section tells a person and what
+[`platform_info` tells an agent](../concepts/content-model.md#what-the-agent-is-told)
+are separate strings with separate registers. They agree because both are drawn
+from the content model, not because one renders the other: the agent's
+statement is `instructions.ResourcePositioning`, which the resources empty
+state and the upload dialog still render verbatim.
+
 ## Addresses
 
 Every page is addressable, so a link to one can be bookmarked or handed to a
