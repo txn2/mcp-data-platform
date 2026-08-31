@@ -145,6 +145,8 @@ test.describe("Portal Screenshots", () => {
             path: path.join(OUTPUT_DIR, theme, `${name}.png`),
             fullPage: false,
           });
+
+          if (route.afterCapture) await route.afterCapture(page);
         });
       }
     }

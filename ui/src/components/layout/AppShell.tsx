@@ -1,6 +1,7 @@
 import { Suspense, lazy, useState, useEffect, useCallback, useRef } from "react";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
+import { MobileSidebarOverlay } from "./MobileSidebarOverlay";
 import { useAuthStore } from "@/stores/auth";
 
 // Every page below is its own chunk. The shell used to import all of them
@@ -74,6 +75,7 @@ const ApisPage = lazy(() =>
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ThumbnailQueue } from "@/components/ThumbnailQueue";
+import { SectionIntro } from "@/components/patterns/SectionIntro";
 import { AdminPages } from "./AdminPages";
 import { AdminOnlyNotice, PageNotFound } from "./RouteFallbacks";
 import {
@@ -447,24 +449,12 @@ export function AppShell() {
         />
       )}
 
-      {/* Mobile sidebar overlay */}
       {isMobile && mobileSidebarOpen && (
-        <>
-          <div
-            className="fixed inset-0 z-40 bg-black/50"
-            onClick={() => setMobileSidebarOpen(false)}
-          />
-          <div className="fixed inset-y-0 left-0 z-50">
-            <Sidebar
-              currentPath={currentPath}
-              onNavigate={navigate}
-              collapsed={false}
-              onToggleCollapse={() => {}}
-              mobile
-              onClose={() => setMobileSidebarOpen(false)}
-            />
-          </div>
-        </>
+        <MobileSidebarOverlay
+          currentPath={currentPath}
+          onNavigate={navigate}
+          onClose={() => setMobileSidebarOpen(false)}
+        />
       )}
 
       <div className="flex flex-1 flex-col overflow-hidden">
@@ -477,6 +467,7 @@ export function AppShell() {
             the ramp's own middle step, and a muted wash would land on top of
             the fills (tab tracks, code blocks) that also derive from muted. */}
         <main className="flex-1 overflow-auto bg-background p-3 sm:p-6">
+          <SectionIntro route={route} />
           {/* Two boundaries around the page area, both scoped to it so the
               sidebar and header stay painted and navigation still works. The
               Suspense one holds the space while the route's chunk arrives; the

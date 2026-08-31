@@ -3,6 +3,7 @@ import { adminResourceRoutes, userResourceRoutes } from "./route-resources";
 import { drawerRoutes } from "./route-drawers";
 import { scratchTableRoutes } from "./route-scratch-tables";
 import { apiBrowserAdminRoutes, apiBrowserUserRoutes } from "./route-apis";
+import { sectionIntroRoutes } from "./route-section-intros";
 import { adminPersonaRoutes } from "./route-personas";
 import { adminScriptRoutes, userScriptRoutes } from "./route-scripts";
 import {
@@ -525,6 +526,13 @@ export const routes: ScreenshotRoute[] = [
   },
 
   ...drawerRoutes,
+
+  // =========================================================================
+  // Section intros (#1570): every reader-facing section's intro, collapsed.
+  // Last in the manifest, and each one restores the expanded default, so
+  // nothing earlier in the run is captured in a state these left behind.
+  // =========================================================================
+  ...sectionIntroRoutes,
 ];
 
 /**
