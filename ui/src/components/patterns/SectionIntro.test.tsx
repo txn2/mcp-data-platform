@@ -23,14 +23,15 @@ describe("section intro copy", () => {
     }
   });
 
-  it("gives every section its own storage key and non-empty copy", () => {
+  it("gives every section its own storage key, a summary and a description", () => {
     const keys = new Set<string>();
     for (const intro of SECTION_INTROS) {
       expect(keys.has(intro.storageKey), intro.storageKey).toBe(false);
       keys.add(intro.storageKey);
-      expect(intro.summary.length, intro.path).toBeGreaterThan(0);
-      expect(intro.belongs.length, intro.path).toBeGreaterThan(0);
-      expect(intro.notHere.length, intro.path).toBeGreaterThan(0);
+      // Exactly one of the two draws the compact row; a summary that is never
+      // rendered is copy nobody reads and nobody maintains.
+      expect(Boolean(intro.summary) !== Boolean(intro.compact), intro.path).toBe(true);
+      expect(intro.about, intro.path).toBeTruthy();
     }
   });
 
@@ -40,9 +41,18 @@ describe("section intro copy", () => {
     expect(sectionIntroFor("/knowledge")?.storageKey).toBe("knowledge.lifecycle.expanded");
   });
 
-  it("has Assets and Resources each point at the other", () => {
-    expect(sectionIntroFor("/")?.notHere).toContain("Resource");
-    expect(sectionIntroFor("/resources")?.notHere).toContain("Asset");
+  it("describes the section rather than instructing the reader", () => {
+    // A person reading this is finding out what they are looking at. Copy that
+    // tells them what to do, or what does not belong, is the thing #1570 was
+    // corrected away from.
+    for (const intro of SECTION_INTROS) {
+      if (intro.summary) {
+        expect(intro.summary, intro.path).not.toMatch(/what belongs|does not belong|goes instead/i);
+      }
+      if (typeof intro.about === "string") {
+        expect(intro.about, intro.path).not.toMatch(/what belongs|does not belong/i);
+      }
+    }
   });
 });
 
@@ -120,7 +130,7 @@ describe("SectionIntro", () => {
   it("opens expanded for a reader who has never opened the section", () => {
     render(<SectionIntro route="/resources" />);
     expect(screen.getByRole("button", { name: /hide/i })).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText(/Brand material/)).toBeInTheDocument();
+    expect(screen.getByText(/A place to upload the files your work depends on/)).toBeInTheDocument();
     expect(screen.getByTestId("section-intro-detail")).toHaveAttribute("aria-hidden", "false");
   });
 
@@ -132,7 +142,7 @@ describe("SectionIntro", () => {
     expect(screen.getByRole("button")).toHaveAttribute("aria-expanded", "false");
     // The one-line summary survives the collapse; only the disclosure closes,
     // and closed means out of the reading order, not merely clipped.
-    expect(screen.getByText("Files you give agents and scripts to work from.")).toBeInTheDocument();
+    expect(screen.getByText(sectionIntroFor("/resources")!.summary as string)).toBeInTheDocument();
     expect(screen.getByTestId("section-intro-detail")).toHaveAttribute("aria-hidden", "true");
     first.unmount();
 

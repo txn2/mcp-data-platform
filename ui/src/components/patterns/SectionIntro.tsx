@@ -10,11 +10,10 @@ import { sectionIntroPath, sectionIntroFor, type SectionIntroCopy } from "./sect
  *
  * Open any section of the portal and its controls say what you can do but
  * nothing says what the section holds, and the difference between an asset and
- * a resource is the whole content model. The compact row is the at-a-glance
- * summary a returning reader sees; what belongs here, what does not, and where
- * that goes instead are progressively disclosed. The choice persists per
- * section, so a first-timer is taught once and a returning reader is not
- * nagged (#1570).
+ * a resource is the whole content model. The compact row is the one-line
+ * description a returning reader sees; the fuller one is progressively
+ * disclosed, and the choice persists per section, so a first-timer reads it
+ * once and a returning reader is not nagged (#1570).
  *
  * A section whose summary is better drawn than written supplies its own
  * compact row (Knowledge draws the Memory -> Insight -> Knowledge pipeline);
@@ -111,25 +110,9 @@ function IntroCard({ intro }: { intro: SectionIntroCopy }) {
         }`}
       >
         <div className="overflow-hidden">
-          <div className="space-y-3 border-t px-4 py-3">
-            {intro.detail}
-            {/* Labelled lines rather than a paragraph: the reader is deciding
-                which section a thing belongs in, and that is a comparison. */}
-            <dl className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                  What belongs here
-                </dt>
-                <dd className="text-sm leading-relaxed text-foreground">{intro.belongs}</dd>
-              </div>
-              <div className="space-y-1">
-                <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                  What does not
-                </dt>
-                <dd className="text-sm leading-relaxed text-muted-foreground">{intro.notHere}</dd>
-              </div>
-            </dl>
-          </div>
+          <p className="border-t px-4 py-3 text-sm leading-relaxed text-muted-foreground">
+            {intro.about}
+          </p>
         </div>
       </div>
     </section>

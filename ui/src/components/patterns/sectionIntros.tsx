@@ -2,38 +2,37 @@ import { Fragment, type ReactNode } from "react";
 import { Database, Lightbulb, BookOpen } from "lucide-react";
 
 /**
- * What one portal section says about itself.
+ * What one portal section says it is.
  *
  * The name and the icon are not here: they come from the section's own nav
  * entry (portalNavItems), so the header a reader sees and the item they
- * clicked cannot disagree. SECTION_INTRO_COVERAGE fails when a reader-facing
- * nav entry has no entry in this table.
+ * clicked cannot disagree. A test fails when a reader-facing nav entry has no
+ * entry in this table.
  *
- * The wording is drawn from docs/concepts/content-model.md and each section's
- * own doc page. It is what a person is told; RESOURCE_POSITIONING
- * (lib/positioning.ts) is what the agent is told. They agree because both are
- * drawn from that document, not because one renders the other.
+ * Both fields describe the section. Neither instructs the reader: a person
+ * reading this is finding out what they are looking at, not being told where
+ * to file something.
  */
 export interface SectionIntroCopy {
   /** The section's nav path, and the key this table is read by. */
   path: string;
-  /** The one line a returning reader sees, next to the section's icon. */
-  summary: string;
-  /** What belongs in this section. */
-  belongs: string;
-  /** What does not, and the section it goes to instead. */
-  notHere: string;
+  /**
+   * The one line a returning reader sees, next to the section's icon. Absent
+   * only where `compact` draws that line instead.
+   */
+  summary?: string;
+  /** The fuller description behind the disclosure. */
+  about: ReactNode;
   /** localStorage key holding this section's expanded/collapsed choice. */
   storageKey: string;
   /** Disclosure button label when collapsed. Defaults to "What is this?". */
   toggleLabel?: string;
   /**
-   * Drawn in place of the icon/name/summary row, for a section whose summary
-   * is a picture. One line tall, like the row it replaces.
+   * Drawn in place of the icon and summary row, for a section whose summary is
+   * a picture. One line tall, like the row it replaces, and the reason
+   * `summary` may be absent.
    */
   compact?: ReactNode;
-  /** Rendered above the belongs/not-here lines when the intro is expanded. */
-  detail?: ReactNode;
 }
 
 // The three lifecycle stages, color-coded by maturity: raw memory (neutral),
@@ -99,9 +98,9 @@ function KnowledgeLifecycle() {
   );
 }
 
-function KnowledgeDetail() {
+function KnowledgeAbout() {
   return (
-    <p className="text-sm leading-relaxed text-muted-foreground">
+    <>
       Everything the platform learns is a{" "}
       <strong className="font-medium text-foreground">Memory</strong>. Most memories are personal
       or operational and stay yours. When a memory asserts something true about the business or the
@@ -113,7 +112,7 @@ function KnowledgeDetail() {
       canonical. Each promotion lands where it fits best, decided when it is applied: a fact tied to
       a specific dataset or column goes to the DataHub catalog, while broader business or domain
       knowledge becomes a knowledge page.
-    </p>
+    </>
   );
 }
 
@@ -125,77 +124,69 @@ function KnowledgeDetail() {
 export const SECTION_INTROS: SectionIntroCopy[] = [
   {
     path: "/",
-    summary: "What your agents and scripts produced, kept to share.",
-    belongs:
-      "Reports, dashboards, exports and documents an agent or a script made during a session or a run.",
-    notHere: "A file you uploaded for an agent to work from. That is a Resource.",
+    summary: "Reports, dashboards, data exports and documents your agents and scripts produced.",
+    about:
+      "Every asset keeps its versions, so one an agent or a scheduled script rewrites can still be read as it stood. Assets are shared with people or by link, grouped into collections, and cited by other work.",
     storageKey: "portal.intro.assets",
   },
   {
     path: "/prompts",
-    summary: "Reusable instructions for a job an agent does often.",
-    belongs: "Templates for procedures you want run the same way every time.",
-    notHere: "Facts you want an agent to look up. Those are Knowledge pages.",
+    summary: "Formalized agent instructions for complex tasks.",
+    about:
+      "A prompt is written once and reused, so a task an agent performs often is performed the same way each time. Prompts take arguments, carry attachments, keep their version history, and are shared with other people.",
     storageKey: "portal.intro.prompts",
   },
   {
     path: "/scripts",
-    summary: "Jobs the platform runs for you, on demand or on a schedule.",
-    belongs: "Saved jobs that query data, call APIs, and write assets or resources.",
-    notHere: "One-off work. Ask an agent directly.",
+    summary: "Code an agent can write, run on demand or on a schedule.",
+    about:
+      "A script queries data, calls APIs, and writes assets and resources. Each run keeps its output and its history, and a script carries one object of state from one run to the next.",
     storageKey: "portal.intro.scripts",
   },
   {
     path: "/resources",
-    summary: "Files you give agents and scripts to work from.",
-    belongs:
-      "Brand material, spreadsheets and CSV data, templates and reference documents. Uploaded by you, or written by a script.",
-    notHere: "Something an agent produced. That is an Asset.",
+    summary:
+      "Logos, templates and ad-hoc data stored as business resources, usable by agents and scripts.",
+    about:
+      "A place to upload the files your work depends on, and for scripts to add or update ad-hoc datasets such as CSVs. Reports, dashboards and data exports an agent produced are assets instead.",
     storageKey: "portal.intro.resources",
   },
   {
     path: "/scratch-tables",
-    summary: "CSV files registered so you can query them with SQL.",
-    belongs:
-      "Tables built over an asset or a resource, with the name to write in a FROM clause. A table reads whatever its file holds now, and anyone granted its connection can query it.",
-    notHere:
-      "The file itself, and registering a new table. Both stay on the file's own page in Assets or Resources.",
+    summary: "Spreadsheets that have become datasets, alongside your data warehouse.",
+    about:
+      "A registration points the query engine at a file already held in Assets or Resources. The table reads whatever that file holds now, and everyone granted its connection can use it, the same way they use the warehouse's own tables.",
     storageKey: "portal.intro.scratch-tables",
   },
   {
     path: "/feedback",
-    summary: "Comments and corrections people left on your work.",
-    belongs:
-      "Questions, corrections and approvals on an asset, collection, prompt or knowledge page, and threads in the shared channel.",
-    notHere:
-      "A change you want made. Say it on the asset itself, so the person who owns it sees it in context.",
+    summary: "Comments and corrections people left on assets, collections, prompts and knowledge pages.",
+    about:
+      "A thread hangs off the thing it is about, including work an agent or a script produced, and carries its status and its sign-off. A thread that settles on something true is captured as an insight.",
     storageKey: "portal.intro.feedback",
   },
   {
     path: "/knowledge",
-    summary: "Facts worth keeping, that agents search and cite.",
-    belongs:
-      "Reviewed business and domain facts, and the memories and insights they are promoted from.",
-    notHere: "A document you want reproduced word for word. That is a Resource.",
+    about: <KnowledgeAbout />,
     // The key predates this component: a reader who had already collapsed the
     // Knowledge lifecycle header does not get it back (#1570).
     storageKey: "knowledge.lifecycle.expanded",
     toggleLabel: "How it works",
     compact: <KnowledgeLifecycle />,
-    detail: <KnowledgeDetail />,
   },
   {
     path: "/apis",
-    summary: "The API operations agents can call here.",
-    belongs: "The operations of every connected API, with the call each one produces.",
-    notHere: "Adding an API. An administrator does that under Connections and API Catalogs.",
+    summary:
+      "The configured and authenticated API endpoints agents reach through the platform.",
+    about:
+      "Every operation each connected API exposes, with its parameters, the shapes it returns, and the call an agent makes to invoke it.",
     storageKey: "portal.intro.apis",
   },
   {
     path: "/activity",
-    summary: "What you and your agents have been doing.",
-    belongs: "Your sessions, the calls they made, and what each one was for.",
-    notHere: "Everyone's activity. That is the admin Sessions page.",
+    summary: "Your sessions, the calls they made, and what each one produced.",
+    about:
+      "A session is read back long after it ended, as far as this deployment's audit history reaches. Each recorded call carries its statement, its stated purpose, its outcome, and what came of it.",
     storageKey: "portal.intro.activity",
   },
 ];

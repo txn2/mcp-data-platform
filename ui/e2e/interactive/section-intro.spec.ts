@@ -28,27 +28,26 @@ test.describe("Section intros", () => {
   for (const intro of SECTION_INTROS) {
     const label = portalNavItems.find((i) => i.path === intro.path)?.label ?? intro.path;
 
-    test(`${label} states what it holds and what it does not`, async ({ page }) => {
+    test(`${label} describes itself on arrival`, async ({ page }) => {
       await open(page, intro.path);
 
       const card = page.getByTestId("section-intro");
-      await expect(card).toContainText(intro.belongs);
-      await expect(card).toContainText(intro.notHere);
+      if (intro.summary) await expect(card).toContainText(intro.summary);
+      if (typeof intro.about === "string") await expect(card).toContainText(intro.about);
       await expect(page.getByTestId("section-intro-detail")).toBeVisible();
       await expect(toggle(page)).toHaveAttribute("aria-expanded", "true");
     });
   }
 
-  test("Assets and Resources each send the other kind of file to the other section", async ({
-    page,
-  }) => {
-    await open(page, "/");
-    await expect(page.getByTestId("section-intro")).toContainText(
-      sectionIntroFor("/")!.notHere,
-    );
+  test("Knowledge draws its compact row where the rest write theirs", async ({ page }) => {
+    await open(page, "/knowledge");
+    // The lifecycle pipeline stands in for the summary line on this one section.
+    expect(sectionIntroFor("/knowledge")!.summary).toBeUndefined();
+    await expect(page.getByTestId("section-intro")).toContainText("captured automatically");
+
     await page.goto(`${PORTAL}/resources`);
     await expect(page.getByTestId("section-intro")).toContainText(
-      sectionIntroFor("/resources")!.notHere,
+      sectionIntroFor("/resources")!.summary!,
     );
   });
 

@@ -66,17 +66,17 @@ platform are documented alongside them:
 
 ## What each section is for
 
-Every reader-facing section opens with a statement of what it holds, what
-belongs in it, and what does not along with the section that takes it instead.
-The distinction between an asset and a resource is the whole
+Every reader-facing section opens with a description of itself: one line beside
+the section's own icon, and a fuller paragraph behind a disclosure. The
+distinction between an asset and a resource is the whole
 [content model](../concepts/content-model.md), and it is not readable from a
 tab strip and a filter bar.
 
-A section you have never opened shows the statement in full. Close it and the
-section keeps a one-line summary beside its own icon; the choice is remembered
-per section, so a section you have closed opens closed the next time and every
-other section still introduces itself. Knowledge draws its summary rather than
-writing it: the Memory to Insight to Knowledge pipeline is its one line.
+A section you have never opened shows the full description. Close it and the
+one-line description remains; the choice is remembered per section, so a
+section you have closed opens closed the next time and every other section
+still introduces itself. Knowledge draws its line rather than writing it: the
+Memory to Insight to Knowledge pipeline is its summary.
 
 ![Assets](../images/screenshots/light/user-assets-intro-collapsed-light.webp#only-light)![Assets](../images/screenshots/dark/user-assets-intro-collapsed-dark.webp#only-dark)
 
