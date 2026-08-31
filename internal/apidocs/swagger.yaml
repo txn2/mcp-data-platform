@@ -3131,6 +3131,24 @@ definitions:
         items:
           type: string
         type: array
+      thumbnail_captured_at:
+        description: |-
+          ThumbnailCapturedAt and ThumbnailDarkCapturedAt are when each capture was
+          taken. A capture older than the resource's UpdatedAt is behind the file it
+          came from, which is what the pending list is built on; see migration
+          000134 for why this is a timestamp rather than a version.
+        type: string
+      thumbnail_dark_captured_at:
+        type: string
+      thumbnail_dark_s3_key:
+        type: string
+      thumbnail_s3_key:
+        description: |-
+          ThumbnailS3Key and ThumbnailDarkS3Key are the captured PNGs stored beside
+          the resource's own object, empty until one is taken (#1554). The library
+          used to draw the original file scaled down instead, which meant a
+          non-image had no tile at all and an image cost its full size to show.
+        type: string
       updated_at:
         type: string
       uploader_email:
@@ -5229,6 +5247,17 @@ definitions:
         example: 4
         type: integer
     type: object
+  resource.Folder:
+    properties:
+      count:
+        description: Count is the resources filed at this path and beneath it.
+        example: 12
+        type: integer
+      path:
+        description: Path is the folder's full slash-separated path inside its library.
+        example: data/media-manager
+        type: string
+    type: object
   resource.FolderMove:
     properties:
       from:
@@ -5363,6 +5392,17 @@ definitions:
         example: descriptive error message
         type: string
     type: object
+  resource.facetsResponse:
+    properties:
+      folders:
+        items:
+          $ref: '#/definitions/resource.Folder'
+        type: array
+      tags:
+        items:
+          type: string
+        type: array
+    type: object
   resource.folderMoveRequest:
     properties:
       from:
@@ -5447,6 +5487,24 @@ definitions:
         items:
           type: string
         type: array
+      thumbnail_captured_at:
+        description: |-
+          ThumbnailCapturedAt and ThumbnailDarkCapturedAt are when each capture was
+          taken. A capture older than the resource's UpdatedAt is behind the file it
+          came from, which is what the pending list is built on; see migration
+          000134 for why this is a timestamp rather than a version.
+        type: string
+      thumbnail_dark_captured_at:
+        type: string
+      thumbnail_dark_s3_key:
+        type: string
+      thumbnail_s3_key:
+        description: |-
+          ThumbnailS3Key and ThumbnailDarkS3Key are the captured PNGs stored beside
+          the resource's own object, empty until one is taken (#1554). The library
+          used to draw the original file scaled down instead, which meant a
+          non-image had no tile at all and an image cost its full size to show.
+        type: string
       updated_at:
         type: string
       uploader_email:
@@ -18377,7 +18435,9 @@ paths:
       - Feedback
   /resources:
     get:
-      description: List managed resources visible to the caller, with optional filters.
+      description: 'List managed resources the caller may read: their own, their personas'',
+        and global. A platform administrator''s unfiltered listing spans every library,
+        and a scope they may write to is listable whether or not they belong to it.'
       parameters:
       - description: Filter by scope
         enum:
@@ -18733,6 +18793,128 @@ paths:
       summary: Replace resource content
       tags:
       - Resources
+  /resources/{id}/thumbnail:
+    delete:
+      description: Forget a resource's capture, which leaves it pending and asks the
+        portal to take another. It is the way back from a tile that is wrong.
+      parameters:
+      - description: Resource ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Which capture to clear
+        enum:
+        - light
+        - dark
+        in: query
+        name: variant
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Clear a resource's thumbnail
+      tags:
+      - Resources
+    get:
+      description: Serve the captured PNG for a resource. Reading a tile is the authority
+        to read the resource; a resource with no capture answers 404, which is what
+        tells a card to draw its content-type icon instead.
+      parameters:
+      - description: Resource ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Which capture to serve
+        enum:
+        - light
+        - dark
+        in: query
+        name: variant
+        type: string
+      produces:
+      - image/png
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Read a resource's thumbnail
+      tags:
+      - Resources
+    put:
+      consumes:
+      - image/png
+      description: Upload a captured PNG for a resource. Capturing is the authority
+        to change the file, which is its uploader or an administrator of its library
+        -- the same rule replacing its content runs under.
+      parameters:
+      - description: Resource ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Which capture this is
+        enum:
+        - light
+        - dark
+        in: query
+        name: variant
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_txn2_mcp-data-platform_pkg_resource.Resource'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "413":
+          description: Request Entity Too Large
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Store a resource's thumbnail
+      tags:
+      - Resources
   /resources/{id}/versions:
     get:
       description: Lists the recorded content revisions of a resource, newest first.
@@ -18871,6 +19053,47 @@ paths:
       summary: Restore a resource version
       tags:
       - Resources
+  /resources/facets:
+    get:
+      description: The folders of the libraries the caller may read, each with the
+        exact number of resources filed under it at every depth, and the distinct
+        tags those resources carry. Both are derived from the rows rather than stored,
+        so this is what a tree and a tag filter are drawn from; deriving them from
+        a page of the listing could only ever report what had arrived.
+      parameters:
+      - description: Filter by scope
+        enum:
+        - global
+        - persona
+        - user
+        in: query
+        name: scope
+        type: string
+      - description: Filter by scope ID (persona name or user sub)
+        in: query
+        name: scope_id
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/resource.facetsResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List a library's facets
+      tags:
+      - Resources
   /resources/folders/move:
     post:
       consumes:
@@ -18921,6 +19144,38 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Move or rename a folder
+      tags:
+      - Resources
+  /resources/thumbnails/pending:
+    get:
+      description: Resources the caller may read whose thumbnail is missing or older
+        than the file it was captured from, most recently changed first. Nothing on
+        a server can rasterize a document, so this is the work list a portal tab does
+        on the deployment's behalf.
+      parameters:
+      - description: Max results to return (default 100, max 200)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/resource.listResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List resources needing a thumbnail
       tags:
       - Resources
 securityDefinitions:

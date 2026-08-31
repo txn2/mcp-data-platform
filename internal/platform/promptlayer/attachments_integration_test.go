@@ -502,3 +502,27 @@ func TestUnreadableAttachmentStoreBlocksTheWrite(t *testing.T) {
 	assert.True(t, res.IsError)
 	assert.Zero(t, store.updates)
 }
+
+// Folders is not exercised here: this fake stands in for the read paths a
+// resStore uses, and none of them lists a library's folders.
+func (*resStore) Folders(_ context.Context, _ resource.Filter) ([]resource.Folder, error) {
+	return nil, nil
+}
+
+// Tags is not exercised here: this fake stands in for the read paths a
+// resStore uses, and none of them lists a library's tags.
+func (*resStore) Tags(_ context.Context, _ resource.Filter) ([]string, error) {
+	return nil, nil
+}
+
+// The capture routes are not exercised here: this fake stands in for the read
+// paths a resStore uses, and none of them captures or lists a thumbnail.
+func (*resStore) SetThumbnail(_ context.Context, _ string, _ resource.ThumbnailCapture) error {
+	return nil
+}
+
+func (*resStore) ClearThumbnail(_ context.Context, _, _ string) error { return nil }
+
+func (*resStore) PendingThumbnails(_ context.Context, _ resource.Filter, _ int) ([]resource.Resource, error) {
+	return nil, nil
+}

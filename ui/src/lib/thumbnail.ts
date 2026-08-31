@@ -1,5 +1,6 @@
 import html2canvas from "html2canvas";
-import { apiFetchRaw } from "@/api/portal/client";
+import { useAuthStore } from "@/stores/auth";
+import { applyCsrfHeader } from "@/api/csrf";
 import {
   transformJsx,
   escapeScriptClose,
@@ -8,7 +9,7 @@ import {
   viewerOrigin,
   REF_PATH_PREFIX,
 } from "@/components/renderers/JsxRenderer";
-import { THUMB_WIDTH } from "@/lib/thumbnailSupport";
+import { THUMB_WIDTH, THUMB_HEIGHT } from "@/lib/thumbnailSupport";
 
 // Re-exported so the capturer has one import for everything it needs. Callers
 // that only ask which types are supported import lib/thumbnailSupport directly
@@ -243,8 +244,126 @@ export type ThumbnailVariant = "light" | "dark";
  * color scheme; "dark" is only captured for themeable content types (see
  * isThemeable). Defaults to the light/shared variant.
  */
+/**
+ * What a capture belongs to: a portal asset, or a managed resource (#1554).
+ *
+ * The capturer is the same for both -- nothing on a server can rasterize a
+ * document -- so the kind travels with the id rather than being forked into a
+ * second component.
+ */
+export interface ThumbnailTarget {
+  kind: "asset" | "resource";
+  id: string;
+}
+
+/**
+ * The route a target's capture is uploaded to and served from, in full.
+ *
+ * An absolute path rather than a fragment for one client to prefix: an asset
+ * lives under /api/v1/portal and a resource under /api/v1/resources, so a
+ * fragment handed to the wrong client is a 404 -- which is exactly what every
+ * resource capture did until this was written out (#1554). The test that was
+ * supposed to catch it asserted the fragment the mock received instead of the
+ * URL that would be requested, and so agreed with the bug.
+ */
+export function thumbnailPath(target: ThumbnailTarget): string {
+  return target.kind === "resource"
+    ? `/api/v1/resources/${target.id}/thumbnail`
+    : `/api/v1/portal/assets/${target.id}/thumbnail`;
+}
+
+/** The route a target's own bytes are read from. */
+export function contentPath(target: ThumbnailTarget): string {
+  return target.kind === "resource"
+    ? `/api/v1/resources/${target.id}/content`
+    : `/api/v1/portal/assets/${target.id}/content`;
+}
+
+/**
+ * Downscale an image to tile size, as a PNG.
+ *
+ * The image is drawn to COVER the tile -- scaled until it fills both axes and
+ * centred -- because that is how the card displays it. Storing a letterboxed
+ * copy would mean the card cropping an image that was already cropped.
+ *
+ * The element loads the source itself, so the browser does the decoding, and
+ * `crossOrigin` is deliberately not set: the content route is same-origin and
+ * asking for CORS on it would taint the canvas and make toBlob throw.
+ */
+export async function downscaleImage(src: string, contentType: string): Promise<Blob> {
+  const img = await loadImage(src);
+  const canvas = document.createElement("canvas");
+  canvas.width = THUMB_WIDTH;
+  canvas.height = THUMB_HEIGHT;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error(`no 2d context for ${contentType}`);
+
+  const scale = Math.max(THUMB_WIDTH / img.naturalWidth, THUMB_HEIGHT / img.naturalHeight);
+  const w = img.naturalWidth * scale;
+  const h = img.naturalHeight * scale;
+  ctx.drawImage(img, (THUMB_WIDTH - w) / 2, (THUMB_HEIGHT - h) / 2, w, h);
+
+  return await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => (blob ? resolve(blob) : reject(new Error("canvas produced no image"))),
+      "image/png",
+    );
+  });
+}
+
+/**
+ * Load an image element from an authenticated route.
+ *
+ * The bytes are fetched with the session's own credentials and handed to the
+ * element as a blob URL, rather than pointing the element at the route: an
+ * `<img src>` carries no `X-API-Key`, so on an API-key session -- which is how
+ * the dev portal and every API-key deployment sign in -- the load 401s and the
+ * capture fails silently. It is the same reason AuthImg exists.
+ *
+ * A blob URL is also same-origin, so the canvas it is drawn onto stays untainted
+ * and toBlob can read it back.
+ */
+async function loadImage(src: string): Promise<HTMLImageElement> {
+  const res = await authedFetch(src);
+  if (!res.ok) throw new Error(`could not read ${src}: HTTP ${res.status}`);
+  const url = URL.createObjectURL(await res.blob());
+  try {
+    return await new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error(`could not decode ${src}`));
+      img.src = url;
+    });
+  } finally {
+    // The element holds the decoded bitmap; the URL has done its job either
+    // way, and leaving it allocated leaks for the life of the document.
+    URL.revokeObjectURL(url);
+  }
+}
+
+/**
+ * Fetch a full URL with whatever credentials this session carries.
+ *
+ * It takes the whole path rather than a fragment because the two kinds live
+ * under different API roots, and a helper that prefixed one root would send
+ * half its traffic to the wrong place -- which is how every resource capture
+ * came to PUT at /api/v1/portal/resources/... and 404 (#1554).
+ */
+function authedFetch(url: string, init?: RequestInit): Promise<Response> {
+  const { apiKey, authMethod } = useAuthStore.getState();
+  const headers: Record<string, string> = {
+    ...(init?.headers as Record<string, string>),
+  };
+  if (authMethod === "apikey" && apiKey) {
+    headers["X-API-Key"] = apiKey;
+  }
+  applyCsrfHeader(headers, init?.method);
+  return fetch(url, { ...init, headers, credentials: "include" });
+}
+
 export async function uploadThumbnail(
-  assetId: string,
+  target: ThumbnailTarget,
   blob: Blob,
   variant: ThumbnailVariant = "light",
   version?: number,
@@ -253,18 +372,21 @@ export async function uploadThumbnail(
   // records what the image actually shows. Without it the server can only date
   // the capture to whatever version the asset is on when the upload lands, and
   // an asset rewritten mid-capture would be marked current while showing the
-  // version before it (#1431).
+  // version before it (#1431). A resource sends none: its row has no version
+  // column, and the server stamps the capture with the resource's own
+  // updated_at, which says the same thing without the round trip.
   const params = new URLSearchParams();
   if (variant === "dark") params.set("variant", "dark");
   if (version != null) params.set("version", String(version));
   const query = params.toString();
-  const res = await apiFetchRaw(`/assets/${assetId}/thumbnail${query ? `?${query}` : ""}`, {
+  const url = `${thumbnailPath(target)}${query ? `?${query}` : ""}`;
+  const res = await authedFetch(url, {
     method: "PUT",
     headers: { "Content-Type": "image/png" },
     body: blob,
   });
   if (!res.ok) {
-    throw new Error("Failed to upload thumbnail");
+    throw new Error(`Failed to upload thumbnail: ${url} answered ${res.status}`);
   }
 }
 

@@ -153,7 +153,8 @@ registered-table tests (`make acceptance`) need the stack's Trino.
 ### Stop and Clean Up
 
 ```bash
-make dev-down    # Stop Docker services + kill leftover host processes
+make dev-stop    # Stop services, KEEP the data (use this to free the ports)
+make dev-down    # Stop services and DELETE the volumes (wipes DB, blobs, thumbnails)
 ```
 
 `dev-down` removes the Postgres / SeaweedFS volumes AND kills the host

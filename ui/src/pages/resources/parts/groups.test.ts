@@ -79,22 +79,27 @@ describe("what counts as never read", () => {
 });
 
 describe("the tag facet's choices", () => {
-  it("offers the tags the resources in view carry, in name order", () => {
-    const options = tagOptions(
-      [resource({ id: "a", tags: ["q3", "finance"] }), resource({ id: "b", tags: ["finance"] })],
-      "",
-    );
-    expect(options).toEqual([
+  // The tags are the library's, from the facets endpoint, rather than the ones
+  // a loaded page happens to carry (#1555): at a library root no page is loaded
+  // at all, and the facet was empty there.
+  it("offers every tag the library holds, in name order", () => {
+    expect(tagOptions(["q3", "finance"], "")).toEqual([
       { value: "", label: "All tags" },
       { value: "finance", label: "finance" },
       { value: "q3", label: "q3" },
     ]);
   });
 
-  // Selecting a tag narrows the view to the resources carrying it, so a facet
-  // built from the view alone would drop every other choice the moment one was
-  // made. The selected tag is added back so the control still names itself.
-  it("keeps the selected tag among them even when nothing in view carries it", () => {
+  it("names each tag once however many files carry it", () => {
+    expect(tagOptions(["finance", "finance"], "")).toEqual([
+      { value: "", label: "All tags" },
+      { value: "finance", label: "finance" },
+    ]);
+  });
+
+  // The selected tag may name one no longer in use, and a facet that dropped it
+  // would leave no way back but the unfiltered entry.
+  it("keeps the selected tag among them even when the library no longer holds it", () => {
     expect(tagOptions([], "q3")).toEqual([
       { value: "", label: "All tags" },
       { value: "q3", label: "q3" },
@@ -102,7 +107,7 @@ describe("the tag facet's choices", () => {
   });
 
   it("offers only the unfiltered entry for a library nobody has tagged", () => {
-    expect(tagOptions([resource()], "")).toEqual([{ value: "", label: "All tags" }]);
+    expect(tagOptions([], "")).toEqual([{ value: "", label: "All tags" }]);
   });
 });
 

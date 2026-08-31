@@ -66,10 +66,10 @@ port_conflict_msg() {
   if [ -n "$container" ]; then
     case "$container" in
       acme-dev-*)
-        echo "Port $port is held by dev container '$container'. Run 'make dev-down' (removes dev volumes) or free just this port with: docker stop $container"
+        echo "Port $port is held by dev container '$container'. Run 'make dev-stop' (keeps your data) or free just this port with: docker stop $container"
         ;;
       *)
-        echo "Port $port is held by NON-dev container '$container' -- 'make dev-down' will NOT free it (and would wipe your dev volumes). Stop it with: docker stop $container"
+        echo "Port $port is held by NON-dev container '$container' -- neither 'make dev-stop' nor 'make dev-down' will free it. Stop it with: docker stop $container"
         ;;
     esac
     return

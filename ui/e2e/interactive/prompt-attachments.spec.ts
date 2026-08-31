@@ -118,8 +118,10 @@ test.describe("Resource dependency view", () => {
   test("the resource detail lists the prompts that attach it", async ({ page }) => {
     await authenticate(page);
     await page.goto("/portal/resources");
-    // The page opens on "My Resources"; the seeded attachment is a global one.
-    await page.getByRole("tab", { name: "Global" }).click();
+    // The page opens on All; the seeded attachment is a global one, and this
+    // narrows to it. The picker is one listbox now (#1553).
+    await page.getByRole("combobox", { name: "Library" }).click();
+    await page.getByRole("option", { name: "Global", exact: true }).click();
 
     // A library is a tree (#1530), so the file is inside the folder it is filed
     // in; the search spans the whole library and reaches it from the root.

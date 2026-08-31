@@ -77,7 +77,7 @@ type source struct {
 // "joining" it.
 var sampleSources = map[string]source{
 	"github.com/txn2/mcp-data-platform/pkg/audit/postgres":            {auditpg.SQLSamples, 0},
-	"github.com/txn2/mcp-data-platform/pkg/resource":                  {resource.SQLSamples, 6},
+	"github.com/txn2/mcp-data-platform/pkg/resource":                  {resource.SQLSamples, 10},
 	"github.com/txn2/mcp-data-platform/internal/portal/portalstore":   {portalstore.SQLSamples, 8},
 	"github.com/txn2/mcp-data-platform/pkg/prompt/postgres":           {promptpg.SQLSamples, 5},
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore": {scriptstore.SQLSamples, 4},

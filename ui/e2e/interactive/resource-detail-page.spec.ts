@@ -18,6 +18,13 @@ function panel(page: Page): Locator {
   return page.getByTestId("modal-panel");
 }
 
+// selectLibrary picks a library from the picker, which is one listbox now
+// rather than a strip of tabs (#1553).
+async function selectLibrary(page: Page, name: string): Promise<void> {
+  await page.getByRole("combobox", { name: "Library" }).click();
+  await page.getByRole("option", { name, exact: true }).click();
+}
+
 // openNamed reaches one file in a library by searching for it. A library is a
 // tree (#1530), so a file is not on the page the library opens at -- it is
 // inside whichever folder it is filed in, and searching reaches it from
@@ -75,7 +82,7 @@ test.describe("A resource has an address", () => {
   test("the page's own Back arrow returns to the library as it was left", async ({ page }) => {
     await authenticate(page);
     await page.goto(USER_RESOURCES);
-    await page.getByRole("tab", { name: "Global" }).click();
+    await selectLibrary(page, "Global");
     // The library is a route segment now, and the search a query parameter on
     // it (#1530).
     await expect(page).toHaveURL(/\/portal\/resources\/lib\/global$/);
@@ -88,10 +95,7 @@ test.describe("A resource has an address", () => {
     // The arrow, not the browser button: it used to navigate to a bare
     // /resources, which dropped the scope and the filters (#1470).
     await page.getByRole("button", { name: "Back", exact: true }).click();
-    await expect(page.getByRole("tab", { name: "Global" })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
+    await expect(page.getByRole("combobox", { name: "Library" })).toContainText("Global");
     await expect(page.getByLabel("Search resources")).toHaveValue("SQL");
   });
 
@@ -102,15 +106,16 @@ test.describe("A resource has an address", () => {
     await page.getByRole("button", { name: "Back", exact: true }).click();
 
     await expect(page).toHaveURL(/\/portal\/resources$/);
-    await expect(page.getByRole("tab", { name: "My Resources" })).toBeVisible();
+    // The picker's own default, which is where a fallback lands.
+    await expect(page.getByRole("combobox", { name: "Library" })).toContainText("All");
   });
 
   test("Back returns to the library with its scope and its search intact", async ({ page }) => {
     await authenticate(page);
     await page.goto(USER_RESOURCES);
 
-    // The library opens on My Resources; the fixture is global.
-    await page.getByRole("tab", { name: "Global" }).click();
+    // The library opens on All; the case is about one library in particular.
+    await selectLibrary(page, "Global");
     await expect(page).toHaveURL(/\/portal\/resources\/lib\/global$/);
     await page.getByLabel("Search resources").fill("SQL");
     await expect(page).toHaveURL(/q=SQL/);
@@ -119,10 +124,7 @@ test.describe("A resource has an address", () => {
     await expect(page).toHaveURL(/\/portal\/resources\/res-001$/);
 
     await page.goBack();
-    await expect(page.getByRole("tab", { name: "Global" })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
+    await expect(page.getByRole("combobox", { name: "Library" })).toContainText("Global");
     await expect(page.getByLabel("Search resources")).toHaveValue("SQL");
   });
 });

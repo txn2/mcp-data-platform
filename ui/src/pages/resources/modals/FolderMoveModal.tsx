@@ -102,6 +102,10 @@ export function FolderMoveModal({
         folders={folders.filter((f) => !isUnder(f, from))}
         disabled={move.isPending}
         autoFocus
+        // Renaming a folder is naming one that does not exist yet, so this is
+        // the one caller that opens on the text field. The folders that do
+        // exist stay one click away, which is how it is nested under one.
+        startTyping
       />
     </ModalShell>
   );

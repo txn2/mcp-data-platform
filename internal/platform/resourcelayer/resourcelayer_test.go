@@ -419,3 +419,27 @@ func TestIndexProducer(t *testing.T) {
 		t.Error("nil handle IndexProducer() should be nil")
 	}
 }
+
+// Folders is not exercised here: this fake stands in for the read paths a
+// countingStore uses, and none of them lists a library's folders.
+func (*countingStore) Folders(_ context.Context, _ resource.Filter) ([]resource.Folder, error) {
+	return nil, nil
+}
+
+// Tags is not exercised here: this fake stands in for the read paths a
+// countingStore uses, and none of them lists a library's tags.
+func (*countingStore) Tags(_ context.Context, _ resource.Filter) ([]string, error) {
+	return nil, nil
+}
+
+// The capture routes are not exercised here: this fake stands in for the read
+// paths a countingStore uses, and none of them captures or lists a thumbnail.
+func (*countingStore) SetThumbnail(_ context.Context, _ string, _ resource.ThumbnailCapture) error {
+	return nil
+}
+
+func (*countingStore) ClearThumbnail(_ context.Context, _, _ string) error { return nil }
+
+func (*countingStore) PendingThumbnails(_ context.Context, _ resource.Filter, _ int) ([]resource.Resource, error) {
+	return nil, nil
+}

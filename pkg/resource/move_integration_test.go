@@ -705,3 +705,27 @@ func TestRenamingAFolderIntoItselfIsRefused(t *testing.T) {
 		t.Errorf("the refused rename moved the file to %q", unchanged.Path)
 	}
 }
+
+// Folders is not exercised here: this fake stands in for the read paths a move
+// uses, and none of them lists a library's folders.
+func (*memResources) Folders(_ context.Context, _ resource.Filter) ([]resource.Folder, error) {
+	return nil, nil
+}
+
+// Tags is not exercised here: this fake stands in for the read paths a move
+// uses, and none of them lists a library's tags.
+func (*memResources) Tags(_ context.Context, _ resource.Filter) ([]string, error) {
+	return nil, nil
+}
+
+// The capture routes are not exercised here: this fake stands in for the read
+// paths a move uses, and none of them captures or lists a thumbnail.
+func (*memResources) SetThumbnail(_ context.Context, _ string, _ resource.ThumbnailCapture) error {
+	return nil
+}
+
+func (*memResources) ClearThumbnail(_ context.Context, _, _ string) error { return nil }
+
+func (*memResources) PendingThumbnails(_ context.Context, _ resource.Filter, _ int) ([]resource.Resource, error) {
+	return nil, nil
+}

@@ -147,6 +147,11 @@ func NewHandler(deps Deps, extractFn ClaimsExtractor, authMiddle func(http.Handl
 
 func (h *Handler) registerRoutesOn(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/resources", h.handleCreate)
+	mux.HandleFunc("GET /api/v1/resources/facets", h.handleFacets)
+	mux.HandleFunc("GET /api/v1/resources/thumbnails/pending", h.handlePendingThumbnails)
+	mux.HandleFunc("PUT /api/v1/resources/{id}/thumbnail", h.handleUploadThumbnail)
+	mux.HandleFunc("GET /api/v1/resources/{id}/thumbnail", h.handleGetThumbnail)
+	mux.HandleFunc("DELETE /api/v1/resources/{id}/thumbnail", h.handleClearThumbnail)
 	mux.HandleFunc("POST /api/v1/resources/folders/move", h.handleFolderMove)
 	mux.HandleFunc("GET /api/v1/resources", h.handleList)
 	mux.HandleFunc("GET /api/v1/resources/{id}", h.handleGet)
@@ -291,6 +296,14 @@ type listResponse struct { //nolint:unused // swagger model
 	Total     int        `json:"total" example:"42"`
 }
 
+// facetsResponse is the JSON envelope returned by the facets endpoint: what a
+// library holds, for the controls that narrow it.
+// Used by swagger annotations only.
+type facetsResponse struct { //nolint:unused // swagger model
+	Folders []Folder `json:"folders"`
+	Tags    []string `json:"tags"`
+}
+
 // --- Create ---
 
 // handleCreate handles POST /api/v1/resources.
@@ -373,24 +386,10 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request) {
 
 // --- List ---
 
-// narrowScopes filters visible scopes to match the caller-requested scope
-// and optional scope ID. If no matches are found the original list is returned.
-func narrowScopes(visible []ScopeFilter, scopeParam, scopeIDParam string) []ScopeFilter {
-	var narrowed []ScopeFilter
-	for _, sf := range visible {
-		if string(sf.Scope) == scopeParam {
-			if scopeIDParam == "" || sf.ScopeID == scopeIDParam {
-				narrowed = append(narrowed, sf)
-			}
-		}
-	}
-	return narrowed
-}
-
 // handleList handles GET /api/v1/resources.
 //
 // @Summary      List resources
-// @Description  List managed resources visible to the caller, with optional filters.
+// @Description  List managed resources the caller may read: their own, their personas', and global. A platform administrator's unfiltered listing spans every library, and a scope they may write to is listable whether or not they belong to it.
 // @Tags         Resources
 // @Produce      json
 // @Param        scope    query  string  false  "Filter by scope"  Enums(global, persona, user)
@@ -413,10 +412,7 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	scopes := VisibleScopes(*claims)
-	if scopeParam := r.URL.Query().Get("scope"); scopeParam != "" {
-		scopes = narrowScopes(scopes, scopeParam, r.URL.Query().Get("scope_id"))
-	}
+	scopes, allScopes := ListScopes(*claims, r.URL.Query().Get("scope"), r.URL.Query().Get("scope_id"))
 
 	offset := 0
 	if o := r.URL.Query().Get("offset"); o != "" {
@@ -436,13 +432,14 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	filter := Filter{
-		Scopes: scopes,
-		Path:   r.URL.Query().Get("path"),
-		Tag:    r.URL.Query().Get("tag"),
-		Query:  r.URL.Query().Get("q"),
-		Sort:   Sort(r.URL.Query().Get("sort")),
-		Limit:  limit,
-		Offset: offset,
+		Scopes:    scopes,
+		AllScopes: allScopes,
+		Path:      r.URL.Query().Get("path"),
+		Tag:       r.URL.Query().Get("tag"),
+		Query:     r.URL.Query().Get("q"),
+		Sort:      Sort(r.URL.Query().Get("sort")),
+		Limit:     limit,
+		Offset:    offset,
 	}
 
 	resources, total, err := h.deps.Store.List(r.Context(), filter)
@@ -459,6 +456,53 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 		"resources": resources,
 		"total":     total,
 	})
+}
+
+// handleFacets handles GET /api/v1/resources/facets.
+//
+// @Summary      List a library's facets
+// @Description  The folders of the libraries the caller may read, each with the exact number of resources filed under it at every depth, and the distinct tags those resources carry. Both are derived from the rows rather than stored, so this is what a tree and a tag filter are drawn from; deriving them from a page of the listing could only ever report what had arrived.
+// @Tags         Resources
+// @Produce      json
+// @Param        scope    query  string  false  "Filter by scope"  Enums(global, persona, user)
+// @Param        scope_id query  string  false  "Filter by scope ID (persona name or user sub)"
+// @Success      200  {object}  resource.facetsResponse
+// @Failure      401  {object}  resource.errorResponse
+// @Failure      500  {object}  resource.errorResponse
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /resources/facets [get]
+func (h *Handler) handleFacets(w http.ResponseWriter, r *http.Request) {
+	claims, ok := h.authenticate(w, r)
+	if !ok {
+		return
+	}
+
+	scopes, allScopes := ListScopes(*claims, r.URL.Query().Get("scope"), r.URL.Query().Get("scope_id"))
+
+	filter := Filter{Scopes: scopes, AllScopes: allScopes}
+
+	folders, err := h.deps.Store.Folders(r.Context(), filter)
+	if err != nil {
+		slog.Error("resource folder list failed", msgError, err)
+		writeError(w, http.StatusInternalServerError, "listing folders")
+		return
+	}
+	if folders == nil {
+		folders = []Folder{}
+	}
+
+	tags, err := h.deps.Store.Tags(r.Context(), filter)
+	if err != nil {
+		slog.Error("resource tag list failed", msgError, err)
+		writeError(w, http.StatusInternalServerError, "listing tags")
+		return
+	}
+	if tags == nil {
+		tags = []string{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"folders": folders, "tags": tags})
 }
 
 // --- Get ---

@@ -445,3 +445,94 @@ func TestTheUploaderArmIgnoresEveryOtherScope(t *testing.T) {
 			"a persona or global file still takes the scope authority the roles carry: %s", r.Scope)
 	}
 }
+
+// --- The listing predicate (#1553) ---
+
+// admin1553 is a platform administrator who belongs to one persona and no other.
+func admin1553() Claims {
+	return Claims{Sub: "admin-sub", Email: "admin@example.com", Personas: []string{"admin"}, IsAdmin: true}
+}
+
+// member1553 is an ordinary person in one persona, holding no admin role.
+func member1553() Claims {
+	return Claims{Sub: "member-sub", Email: "member@example.com", Personas: []string{"analyst"}}
+}
+
+func TestListScopesUnnarrowed(t *testing.T) {
+	scopes, all := ListScopes(admin1553(), "", "")
+	assert.True(t, all, "an administrator's unfiltered listing spans every library")
+	assert.Empty(t, scopes, "an unrestricted listing needs no scope predicate")
+
+	scopes, all = ListScopes(member1553(), "", "")
+	assert.False(t, all, "an ordinary caller's listing is never unrestricted")
+	assert.ElementsMatch(t, VisibleScopes(member1553()), scopes)
+}
+
+func TestListScopesNarrowedToALibraryTheCallerIsNotIn(t *testing.T) {
+	// The case the change exists for: an administrator uploads into a persona
+	// they do not belong to, which CanWriteScope permits, and must then be able
+	// to list it.
+	scopes, all := ListScopes(admin1553(), "persona", "finance")
+	assert.False(t, all)
+	assert.Equal(t, []ScopeFilter{{Scope: ScopePersona, ScopeID: "finance"}}, scopes)
+
+	// The same request by somebody with no authority over that persona narrows
+	// to nothing, which the store reads as a listing with no rows.
+	scopes, all = ListScopes(member1553(), "persona", "finance")
+	assert.False(t, all)
+	assert.Empty(t, scopes)
+}
+
+func TestListScopesNarrowedToAPersonaAdminsOwnPersona(t *testing.T) {
+	// A persona administrator's authority over the library is the role, not
+	// membership, so their listing of it is the library itself.
+	c := Claims{
+		Sub: "curator-sub", Email: "curator@example.com",
+		Roles: []string{"dp_persona-admin:finance"}, AdminOfPersonas: []string{"finance"},
+	}
+	scopes, all := ListScopes(c, "persona", "finance")
+	assert.False(t, all)
+	assert.Equal(t, []ScopeFilter{{Scope: ScopePersona, ScopeID: "finance"}}, scopes)
+}
+
+func TestListScopesNarrowedToTheCallersOwnMemberships(t *testing.T) {
+	scopes, all := ListScopes(member1553(), "persona", "analyst")
+	assert.False(t, all)
+	assert.Equal(t, []ScopeFilter{{Scope: ScopePersona, ScopeID: "analyst"}}, scopes)
+
+	scopes, _ = ListScopes(member1553(), "user", "member-sub")
+	assert.Equal(t, []ScopeFilter{{Scope: ScopeUser, ScopeID: "member-sub"}}, scopes)
+
+	scopes, _ = ListScopes(member1553(), "global", "")
+	assert.Equal(t, []ScopeFilter{{Scope: ScopeGlobal}}, scopes)
+}
+
+func TestListScopesWithAScopeKindAndNoLibrary(t *testing.T) {
+	// "persona" with no persona names a kind rather than a library, so even an
+	// administrator gets the memberships they hold rather than every persona:
+	// there is no set of pairs that says "every persona" and no roster to
+	// build one from.
+	scopes, all := ListScopes(admin1553(), "persona", "")
+	assert.False(t, all)
+	assert.Equal(t, []ScopeFilter{{Scope: ScopePersona, ScopeID: "admin"}}, scopes)
+}
+
+func TestListScopesRefusesAnUnknownScope(t *testing.T) {
+	scopes, all := ListScopes(admin1553(), "bogus", "anything")
+	assert.False(t, all)
+	assert.Empty(t, scopes, "a scope that names no kind of library lists nothing")
+}
+
+func TestCanSeeLibrary(t *testing.T) {
+	admin, member := admin1553(), member1553()
+
+	assert.True(t, CanSeeLibrary(member, ScopeFilter{Scope: ScopeGlobal}))
+	assert.True(t, CanSeeLibrary(member, ScopeFilter{Scope: ScopePersona, ScopeID: "analyst"}))
+	assert.True(t, CanSeeLibrary(member, ScopeFilter{Scope: ScopeUser, ScopeID: "member-sub"}))
+	assert.False(t, CanSeeLibrary(member, ScopeFilter{Scope: ScopePersona, ScopeID: "finance"}))
+	assert.False(t, CanSeeLibrary(member, ScopeFilter{Scope: ScopeUser, ScopeID: "someone-else"}))
+
+	assert.True(t, CanSeeLibrary(admin, ScopeFilter{Scope: ScopePersona, ScopeID: "finance"}),
+		"write authority over a library is authority to read it")
+	assert.True(t, CanSeeLibrary(admin, ScopeFilter{Scope: ScopeUser, ScopeID: "someone-else"}))
+}

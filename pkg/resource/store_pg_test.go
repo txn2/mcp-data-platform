@@ -54,10 +54,12 @@ func TestPostgresStore_Get(t *testing.T) {
 		"id", "scope", "scope_id", "path", "filename", "display_name", "description",
 		"mime_type", "size_bytes", "s3_key", "uri", "tags", "uploader_sub", "uploader_email",
 		"created_at", "updated_at", "last_read_at",
+		"thumbnail_s3_key", "thumbnail_dark_s3_key",
+		"thumbnail_captured_at", "thumbnail_dark_captured_at",
 	}).AddRow(
 		"id-1", "global", nil, "samples", "test.csv", "Test", "desc",
 		"text/csv", int64(50), "s3/key", "mcp://global/samples/test.csv",
-		pq.Array([]string{"t1"}), "sub-1", "user@example.com", now, now, nil,
+		pq.Array([]string{"t1"}), "sub-1", "user@example.com", now, now, nil, "", "", nil, nil,
 	)
 	mock.ExpectQuery("SELECT .+ FROM resources WHERE id = \\$1").
 		WithArgs("id-1").
@@ -88,10 +90,12 @@ func TestPostgresStore_GetByURI(t *testing.T) {
 		"id", "scope", "scope_id", "path", "filename", "display_name", "description",
 		"mime_type", "size_bytes", "s3_key", "uri", "tags", "uploader_sub", "uploader_email",
 		"created_at", "updated_at", "last_read_at",
+		"thumbnail_s3_key", "thumbnail_dark_s3_key",
+		"thumbnail_captured_at", "thumbnail_dark_captured_at",
 	}).AddRow(
 		"id-1", "user", "sub-1", "samples", "test.csv", "Test", "desc",
 		"text/csv", int64(50), "s3/key", "mcp://user/sub-1/samples/test.csv",
-		pq.Array([]string{}), "sub-1", "user@example.com", now, now, nil,
+		pq.Array([]string{}), "sub-1", "user@example.com", now, now, nil, "", "", nil, nil,
 	)
 	mock.ExpectQuery("SELECT .+ FROM resources WHERE uri = \\$1").
 		WithArgs("mcp://user/sub-1/samples/test.csv").
@@ -124,10 +128,12 @@ func TestPostgresStore_List(t *testing.T) {
 		"id", "scope", "scope_id", "path", "filename", "display_name", "description",
 		"mime_type", "size_bytes", "s3_key", "uri", "tags", "uploader_sub", "uploader_email",
 		"created_at", "updated_at", "last_read_at",
+		"thumbnail_s3_key", "thumbnail_dark_s3_key",
+		"thumbnail_captured_at", "thumbnail_dark_captured_at",
 	}).AddRow(
 		"id-1", "global", nil, "samples", "test.csv", "Test", "desc",
 		"text/csv", int64(50), "s3/key", "mcp://global/samples/test.csv",
-		pq.Array([]string{}), "sub-1", "user@example.com", now, now, nil,
+		pq.Array([]string{}), "sub-1", "user@example.com", now, now, nil, "", "", nil, nil,
 	)
 	mock.ExpectQuery("SELECT .+ FROM resources WHERE").WillReturnRows(rows)
 
@@ -158,6 +164,8 @@ func TestPostgresStore_List_ClampsLimit(t *testing.T) {
 		"id", "scope", "scope_id", "path", "filename", "display_name", "description",
 		"mime_type", "size_bytes", "s3_key", "uri", "tags", "uploader_sub", "uploader_email",
 		"created_at", "updated_at", "last_read_at",
+		"thumbnail_s3_key", "thumbnail_dark_s3_key",
+		"thumbnail_captured_at", "thumbnail_dark_captured_at",
 	})
 	mock.ExpectQuery("SELECT .+ FROM resources WHERE").
 		WithArgs(string(ScopeGlobal), MaxListLimit, 7).
@@ -189,6 +197,31 @@ func TestPostgresStore_List_EmptyScopes(t *testing.T) {
 	}
 	if total != 0 || resources != nil {
 		t.Errorf("expected empty, got total=%d resources=%v", total, resources)
+	}
+}
+
+// An unrestricted listing has no scopes and must still run: the short-circuit
+// on an empty scope set is for a caller who named a library they may not read,
+// not for an administrator listing every library (#1553).
+func TestPostgresStore_List_EveryLibraryRuns(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	store := NewPostgresStore(db)
+	mock.ExpectQuery("SELECT COUNT").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	_, total, err := store.List(context.Background(), Filter{AllScopes: true})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if total != 0 {
+		t.Errorf("total = %d, want 0", total)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("an unrestricted listing did not run its count: %v", err)
 	}
 }
 
@@ -327,10 +360,12 @@ func TestPostgresStore_Get_NullTagsAndScopeID(t *testing.T) {
 			"id", "scope", "scope_id", "path", "filename", "display_name", "description",
 			"mime_type", "size_bytes", "s3_key", "uri", "tags", "uploader_sub", "uploader_email",
 			"created_at", "updated_at", "last_read_at",
+			"thumbnail_s3_key", "thumbnail_dark_s3_key",
+			"thumbnail_captured_at", "thumbnail_dark_captured_at",
 		}).AddRow(
 			"id-null", "global", nil, "samples", "t.csv", "T", "d",
 			"text/csv", int64(1), "k", "mcp://global/samples/t.csv",
-			nil, "sub", "u@example.com", now, now, nil,
+			nil, "sub", "u@example.com", now, now, nil, "", "", nil, nil,
 		))
 
 	got, err := NewPostgresStore(db).Get(context.Background(), "id-null")
@@ -354,6 +389,9 @@ func resourceRow(id, name string) []driver.Value {
 		"text/csv", int64(50), "resources/" + id + "/" + name + ".csv",
 		"mcp://global/samples/" + name + ".csv",
 		pq.Array([]string{"t1"}), "sub-1", "user@example.com", now, now, nil,
+		// No capture taken, which is every resource until a portal tab takes
+		// one (#1554).
+		"", "", nil, nil,
 	}
 }
 
@@ -370,6 +408,8 @@ func TestPostgresStore_GetByIDs(t *testing.T) {
 		"id", "scope", "scope_id", "path", "filename", "display_name", "description",
 		"mime_type", "size_bytes", "s3_key", "uri", "tags", "uploader_sub", "uploader_email",
 		"created_at", "updated_at", "last_read_at",
+		"thumbnail_s3_key", "thumbnail_dark_s3_key",
+		"thumbnail_captured_at", "thumbnail_dark_captured_at",
 	}
 	mock.ExpectQuery("SELECT .+ FROM resources WHERE id = ANY").
 		WithArgs(pq.Array([]string{"id-1", "id-2", "gone"})).
@@ -432,5 +472,132 @@ func TestPostgresStore_GetByIDsReportsAFailedRead(t *testing.T) {
 
 	if _, err := NewPostgresStore(db).GetByIDs(context.Background(), []string{"id-1"}); err == nil {
 		t.Fatal("a failed read must be reported")
+	}
+}
+
+// A caller who named a library they may not read has no folders and no tags,
+// and the store answers without running a statement (#1555).
+func TestPostgresStore_FacetsShortCircuitOnNoScopes(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	store := NewPostgresStore(db)
+	folders, err := store.Folders(context.Background(), Filter{})
+	if err != nil || folders != nil {
+		t.Errorf("Folders = %v, %v; want nil, nil", folders, err)
+	}
+	tags, err := store.Tags(context.Background(), Filter{})
+	if err != nil || tags != nil {
+		t.Errorf("Tags = %v, %v; want nil, nil", tags, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("a short-circuit ran a statement: %v", err)
+	}
+}
+
+// The capture writes and the pending read (#1554). The real numbers are proved
+// against PostgreSQL in the integration gate; what these pin is the statement
+// each one runs and the not-found contract, which sqlmock can answer for.
+func TestPostgresStore_SetAndClearThumbnail(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	store := NewPostgresStore(db)
+	now := time.Now()
+
+	// A capture writes the key and the moment, and nothing else: bumping
+	// updated_at here would mark the capture behind the row it came from.
+	mock.ExpectExec("UPDATE resources SET thumbnail_s3_key = \\$1, thumbnail_captured_at = \\$2 WHERE id = \\$3").
+		WithArgs("k/light.png", now, "id-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	if err := store.SetThumbnail(context.Background(), "id-1", ThumbnailCapture{
+		Variant: ThumbnailVariantLight, S3Key: "k/light.png", CapturedAt: now,
+	}); err != nil {
+		t.Fatalf("SetThumbnail: %v", err)
+	}
+
+	// The dark variant writes its own pair.
+	mock.ExpectExec("UPDATE resources SET thumbnail_dark_s3_key = \\$1, thumbnail_dark_captured_at = \\$2 WHERE id = \\$3").
+		WithArgs("k/dark.png", now, "id-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	if err := store.SetThumbnail(context.Background(), "id-1", ThumbnailCapture{
+		Variant: ThumbnailVariantDark, S3Key: "k/dark.png", CapturedAt: now,
+	}); err != nil {
+		t.Fatalf("SetThumbnail dark: %v", err)
+	}
+
+	mock.ExpectExec("UPDATE resources SET thumbnail_s3_key = '', thumbnail_captured_at = NULL WHERE id = \\$1").
+		WithArgs("id-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	if err := store.ClearThumbnail(context.Background(), "id-1", ThumbnailVariantLight); err != nil {
+		t.Fatalf("ClearThumbnail: %v", err)
+	}
+
+	// A row that is not there is an error, not a silent success: the caller
+	// would otherwise report a capture nothing recorded.
+	mock.ExpectExec("UPDATE resources SET").WillReturnResult(sqlmock.NewResult(0, 0))
+	if err := store.SetThumbnail(context.Background(), "gone", ThumbnailCapture{
+		Variant: ThumbnailVariantLight, S3Key: "k", CapturedAt: now,
+	}); err == nil {
+		t.Error("SetThumbnail on a missing resource reported success")
+	}
+	mock.ExpectExec("UPDATE resources SET").WillReturnResult(sqlmock.NewResult(0, 0))
+	if err := store.ClearThumbnail(context.Background(), "gone", ThumbnailVariantLight); err == nil {
+		t.Error("ClearThumbnail on a missing resource reported success")
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStore_PendingThumbnails(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	cols := []string{
+		"id", "scope", "scope_id", "path", "filename", "display_name", "description",
+		"mime_type", "size_bytes", "s3_key", "uri", "tags", "uploader_sub", "uploader_email",
+		"created_at", "updated_at", "last_read_at",
+		"thumbnail_s3_key", "thumbnail_dark_s3_key",
+		"thumbnail_captured_at", "thumbnail_dark_captured_at",
+	}
+	mock.ExpectQuery("SELECT .+ FROM resources WHERE .+ thumbnail_captured_at").
+		WillReturnRows(sqlmock.NewRows(cols).AddRow(resourceRow("id-1", "First")...))
+
+	got, err := NewPostgresStore(db).PendingThumbnails(context.Background(),
+		Filter{Scopes: []ScopeFilter{{Scope: ScopeGlobal}}}, 25)
+	if err != nil {
+		t.Fatalf("PendingThumbnails: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "id-1" {
+		t.Errorf("pending = %v", got)
+	}
+}
+
+// A caller who named a library they may not read has nothing pending, and the
+// store answers without running a statement.
+func TestPostgresStore_PendingThumbnailsShortCircuits(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	got, err := NewPostgresStore(db).PendingThumbnails(context.Background(), Filter{}, 25)
+	if err != nil || got != nil {
+		t.Errorf("PendingThumbnails = %v, %v; want nil, nil", got, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("a short-circuit ran a statement: %v", err)
 	}
 }

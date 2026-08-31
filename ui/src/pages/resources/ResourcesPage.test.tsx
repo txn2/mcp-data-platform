@@ -11,6 +11,11 @@ const moveFolder = vi.hoisted(() => vi.fn());
 // The page's only data dependencies. The library list is stubbed empty so the
 // empty state — the other place the Upload control appears — is what renders.
 vi.mock("@/api/resources/hooks", () => ({
+  // The recently-updated strip's own request. Empty here, which is what leaves
+  // it off the page: every case below is about the library list beneath it.
+  useResources: vi.fn(() => ({ data: { resources: [], total: 0 }, isLoading: false })),
+  // The library's folders, which the tree is drawn from (#1555).
+  useFacets: vi.fn(() => ({ data: { folders: [], tags: [] }, isLoading: false })),
   useInfiniteResources: vi.fn(() => ({
     data: { data: [], total: 0 },
     isLoading: false,
@@ -28,7 +33,7 @@ vi.mock("@/api/admin/hooks", () => ({
   usePersonas: vi.fn(() => ({ data: { personas: [] } })),
 }));
 
-import { useInfiniteResources } from "@/api/resources/hooks";
+import { useFacets, useInfiniteResources, useResources } from "@/api/resources/hooks";
 import type { Resource } from "@/api/resources/types";
 import { ResourcesPage } from "./ResourcesPage";
 
@@ -60,10 +65,27 @@ afterEach(() => {
   useAuthStore.setState({ user: null });
 });
 
-// Radix tabs activate on pointer-down, not on a synthesized click.
-function selectTab(name: string) {
-  fireEvent.mouseDown(screen.getByRole("tab", { name }), { button: 0 });
+// chooseOption drives a Radix listbox: jsdom has no PointerEvent, so the
+// trigger's pointerdown handler never fires and it is opened from the keyboard.
+function chooseOption(name: string, option: string): void {
+  fireEvent.keyDown(screen.getByRole("combobox", { name }), { key: "Enter" });
+  fireEvent.click(screen.getByRole("option", { name: option }));
 }
+
+// The library in view is one listbox now rather than a strip of tabs (#1553).
+function selectLibrary(name: string) {
+  chooseOption("Library", name);
+}
+
+// A folder control is a listbox too: an existing folder is chosen from the
+// list, and one that does not exist yet is typed after the new-folder entry
+// swaps the control over to a text field.
+function typeFolder(scope: HTMLElement, label: string, value: string) {
+  fireEvent.keyDown(within(scope).getByRole("combobox", { name: label }), { key: "Enter" });
+  fireEvent.click(screen.getByRole("option", { name: "New folder..." }));
+  fireEvent.change(within(scope).getByLabelText(label), { target: { value } });
+}
+
 
 /**
  * The shell, as far as this page can tell: it holds the location and hands the
@@ -108,7 +130,7 @@ describe("the Resources page offers Upload only where the caller may add", () =>
 
   it("withholds it on the global library, naming who publishes there instead", () => {
     renderPage();
-    selectTab("Global");
+    selectLibrary("Global");
 
     expect(screen.queryByRole("button", { name: "Upload" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Upload Resource" })).toBeNull();
@@ -122,7 +144,7 @@ describe("the Resources page offers Upload only where the caller may add", () =>
 
   it("withholds it on a persona library the caller only belongs to", () => {
     renderPage();
-    selectTab("analyst");
+    selectLibrary("analyst");
 
     expect(screen.queryByRole("button", { name: "Upload" })).toBeNull();
     expect(screen.getByTestId("scope-read-only").textContent).toContain(
@@ -133,7 +155,7 @@ describe("the Resources page offers Upload only where the caller may add", () =>
   it("offers it on a persona library the caller administers", () => {
     signIn({ roles: ["dp_analyst", "dp_persona-admin:analyst"] });
     renderPage();
-    selectTab("analyst");
+    selectLibrary("analyst");
 
     expect(screen.getByRole("button", { name: "Upload" })).toBeTruthy();
     expect(screen.queryByTestId("scope-read-only")).toBeNull();
@@ -146,7 +168,7 @@ describe("the Resources page offers Upload only where the caller may add", () =>
   it("offers it to a platform admin on the user page's global library", () => {
     signIn({ is_admin: true });
     renderPage();
-    selectTab("Global");
+    selectLibrary("Global");
 
     expect(screen.getByRole("button", { name: "Upload" })).toBeTruthy();
     expect(screen.queryByTestId("scope-read-only")).toBeNull();
@@ -155,7 +177,7 @@ describe("the Resources page offers Upload only where the caller may add", () =>
   it("offers it to a platform admin on the user page's persona library", () => {
     signIn({ is_admin: true });
     renderPage();
-    selectTab("analyst");
+    selectLibrary("analyst");
 
     expect(screen.getByRole("button", { name: "Upload" })).toBeTruthy();
   });
@@ -170,7 +192,7 @@ describe("the Resources page offers Upload only where the caller may add", () =>
   it("keeps every library writable in the administrator's own section", () => {
     signIn({ is_admin: true });
     renderPage({ admin: true });
-    selectTab("Global");
+    selectLibrary("Global");
 
     expect(screen.getByRole("button", { name: "Upload" })).toBeTruthy();
     expect(screen.queryByTestId("scope-read-only")).toBeNull();
@@ -180,6 +202,7 @@ describe("the Resources page offers Upload only where the caller may add", () =>
 describe("the upload dialog states where the file will land", () => {
   it("names the caller's own library before a file is chosen", () => {
     renderPage();
+    selectLibrary("Mine");
     fireEvent.click(screen.getByRole("button", { name: "Upload" }));
 
     const destination = screen.getByTestId("upload-destination");
@@ -189,10 +212,33 @@ describe("the upload dialog states where the file will land", () => {
     expect(screen.getByText("Choose file (max 100 MB)")).toBeTruthy();
   });
 
+  // The All view names no library, so the dialog asks. Without this the Upload
+  // control on the view every page opens on would either be missing for an
+  // ordinary reader or file silently (#1553).
+  it("asks which library on the All view, defaulting to the caller's own", () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Upload" }));
+
+    const picker = screen.getByTestId("upload-destination-picker");
+    expect(picker.textContent).toContain("My Resources");
+    expect(picker.textContent).toContain("Only you can see it.");
+    expect(screen.queryByTestId("upload-destination")).toBeNull();
+  });
+
+  it("offers a persona the caller administers as a destination on the All view", () => {
+    signIn({ roles: ["dp_analyst", "dp_persona-admin:analyst"] });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Upload" }));
+
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "Destination" }), { key: "Enter" });
+    expect(screen.getByRole("option", { name: "My Resources" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "analyst persona" })).toBeTruthy();
+  });
+
   it("names the persona library when that is the tab in view", () => {
     signIn({ roles: ["dp_analyst", "dp_persona-admin:analyst"] });
     renderPage();
-    selectTab("analyst");
+    selectLibrary("analyst");
     fireEvent.click(screen.getByRole("button", { name: "Upload" }));
 
     expect(screen.getByTestId("upload-destination").textContent).toContain("analyst persona");
@@ -214,7 +260,9 @@ describe("the upload dialog states where the file will land", () => {
     renderPage({ start: "/resources/lib/user/data/media-manager" });
     fireEvent.click(screen.getByRole("button", { name: "Upload" }));
 
-    expect((screen.getByLabelText("Folder") as HTMLInputElement).value).toBe(
+    // The folder is a listbox now, so the destination is what its trigger says
+    // rather than an input's value (#1553).
+    expect(screen.getByRole("combobox", { name: "Folder" }).textContent).toContain(
       "data/media-manager",
     );
   });
@@ -239,6 +287,7 @@ async function fillAndSubmit(container: HTMLElement) {
 describe("an upload from the user page is filed under the tab it was started from", () => {
   it("sends the caller's own scope from My Resources", async () => {
     const { container } = renderPage();
+    selectLibrary("Mine");
     fireEvent.click(screen.getByRole("button", { name: "Upload" }));
 
     const form = await fillAndSubmit(container);
@@ -249,7 +298,7 @@ describe("an upload from the user page is filed under the tab it was started fro
   it("sends the persona scope from a persona tab the caller administers", async () => {
     signIn({ roles: ["dp_analyst", "dp_persona-admin:analyst"] });
     const { container } = renderPage();
-    selectTab("analyst");
+    selectLibrary("analyst");
     fireEvent.click(screen.getByRole("button", { name: "Upload" }));
 
     const form = await fillAndSubmit(container);
@@ -271,7 +320,7 @@ describe("an upload from the user page is filed under the tab it was started fro
   it("sends the global scope when a platform admin uploads from the Global tab", async () => {
     signIn({ is_admin: true });
     const { container } = renderPage();
-    selectTab("Global");
+    selectLibrary("Global");
     fireEvent.click(screen.getByRole("button", { name: "Upload" }));
 
     const form = await fillAndSubmit(container);
@@ -303,7 +352,25 @@ function at(path: string, over: Partial<Resource> = {}): Resource {
   return { ...LISTED, id: `res-${path}`, path, display_name: path, ...over };
 }
 
+// listing seeds both halves of what a library shows: the files the listing
+// returns, and the folders the server reports for them. They are seeded
+// together because the server derives the second from the first (#1555), so a
+// test that set only one would describe a library that cannot exist.
 function listing(resources: Resource[]) {
+  const counts = new Map<string, number>();
+  for (const r of resources) {
+    const parts = r.path.split("/").filter(Boolean);
+    for (let i = 0; i < parts.length; i++) {
+      const prefix = parts.slice(0, i + 1).join("/");
+      counts.set(prefix, (counts.get(prefix) ?? 0) + 1);
+    }
+  }
+  const tags = [...new Set(resources.flatMap((r) => r.tags ?? []))].sort();
+  vi.mocked(useFacets).mockReturnValue({
+    data: { folders: [...counts].map(([path, count]) => ({ path, count })), tags },
+    isLoading: false,
+  } as unknown as ReturnType<typeof useFacets>);
+
   vi.mocked(useInfiniteResources).mockReturnValue({
     data: { data: resources, total: resources.length },
     isLoading: false,
@@ -383,7 +450,7 @@ describe("browsing the library as a tree", () => {
     renderPage();
 
     fireEvent.click(screen.getByTestId("folder-row-data"));
-    expect(navigations).toContain("/resources/lib/user/data");
+    expect(navigations).toContain("/resources/lib/all/data");
     expect(screen.getByTestId("folder-row-data/media-manager")).toBeTruthy();
     expect(screen.getByTestId("folder-row-data/weekly")).toBeTruthy();
   });
@@ -401,9 +468,7 @@ describe("browsing the library as a tree", () => {
     listing(TREE);
     renderPage({ start: "/resources/lib/global/data/weekly" });
 
-    expect(useInfiniteResources).toHaveBeenLastCalledWith(
-      expect.objectContaining({ scope: "global", path: "data/weekly" }),
-    );
+    expect(useInfiniteResources).toHaveBeenLastCalledWith(expect.objectContaining({ scope: "global", path: "data/weekly" }), true);
   });
 
   it("walks back up through the breadcrumb", () => {
@@ -417,19 +482,19 @@ describe("browsing the library as a tree", () => {
 
   it("names the library at the head of the trail and does not make it a control", () => {
     listing([]);
-    renderPage();
+    renderPage({ start: "/resources/lib/user" });
     const trail = screen.getAllByLabelText("Folder path")[0]!;
-    expect(trail.textContent).toContain("My Resources");
+    expect(trail.textContent).toContain("Mine");
     expect(within(trail).queryByRole("button")).toBeNull();
   });
 
-  // The administrator's "All Resources" tab spans every library and is the
-  // destination of none, so a head read off a move target would call it "My
-  // Resources" -- which is a different library, and one of the tabs beside it.
-  it("heads the trail with the tab's own name on the unfiltered admin library", () => {
+  // The All view spans every library and is the destination of none, so a head
+  // read off a move target would call it "My Resources" -- which is a different
+  // library, and another entry in the picker beside it.
+  it("heads the trail with the picker's own name on the unnarrowed library", () => {
     listing([]);
     renderPage({ admin: true });
-    expect(screen.getAllByLabelText("Folder path")[0]!.textContent).toContain("All Resources");
+    expect(screen.getAllByLabelText("Folder path")[0]!.textContent).toContain("All");
   });
 });
 
@@ -441,9 +506,7 @@ describe("searching a library from inside a folder", () => {
     // The folder is dropped from the request: a hit elsewhere in the library is
     // the point of searching from inside a folder.
     await waitFor(() =>
-      expect(useInfiniteResources).toHaveBeenLastCalledWith(
-        expect.objectContaining({ q: "demand", path: undefined }),
-      ),
+      expect(useInfiniteResources).toHaveBeenLastCalledWith(expect.objectContaining({ q: "demand", path: undefined }), true),
     );
   });
 
@@ -497,9 +560,7 @@ describe("acting on several files at once", () => {
     fireEvent.click(within(screen.getByTestId("selection-bar")).getByRole("button", { name: "Move" }));
 
     const dialog = screen.getByRole("dialog");
-    fireEvent.change(within(dialog).getByLabelText("Destination folder"), {
-      target: { value: "archive" },
-    });
+    typeFolder(dialog, "Destination folder", "archive");
     fireEvent.click(within(dialog).getByRole("button", { name: "Move" }));
 
     await waitFor(() => expect(updateResource).toHaveBeenCalledTimes(2));
@@ -522,9 +583,7 @@ describe("acting on several files at once", () => {
     fireEvent.click(within(screen.getByTestId("selection-bar")).getByRole("button", { name: "Move" }));
 
     const dialog = screen.getByRole("dialog");
-    fireEvent.change(within(dialog).getByLabelText("Destination folder"), {
-      target: { value: "archive" },
-    });
+    typeFolder(dialog, "Destination folder", "archive");
     fireEvent.click(within(dialog).getByRole("button", { name: "Move" }));
 
     const report = await screen.findByTestId("bulk-report");
@@ -540,9 +599,7 @@ describe("acting on several files at once", () => {
     fireEvent.click(within(screen.getByTestId("selection-bar")).getByRole("button", { name: "Move" }));
 
     const dialog = screen.getByRole("dialog");
-    fireEvent.change(within(dialog).getByLabelText("Destination folder"), {
-      target: { value: "Archive" },
-    });
+    typeFolder(dialog, "Destination folder", "Archive");
     fireEvent.click(within(dialog).getByRole("button", { name: "Move" }));
 
     await waitFor(() => expect(within(dialog).getByRole("alert")).toBeTruthy());
@@ -651,14 +708,14 @@ describe("dragging things onto a folder", () => {
     renderPage({ start: "/resources/lib/user/data" });
 
     const dataTransfer = transfer({});
-    fireEvent.dragStart(screen.getByTestId("resource-row-a"), { dataTransfer });
+    fireEvent.dragStart(screen.getByTestId("resource-tile-a"), { dataTransfer });
     fireEvent.drop(screen.getByTestId("folder-row-data/weekly"), { dataTransfer });
 
     // The move still asks: dragging is easy to do by accident and this one
     // rewrites an address. The destination is already the folder it was
     // dropped on.
     const dialog = await screen.findByRole("dialog");
-    expect((within(dialog).getByLabelText("Destination folder") as HTMLInputElement).value).toBe(
+    expect(within(dialog).getByRole("combobox", { name: "Destination folder" }).textContent).toContain(
       "data/weekly",
     );
     fireEvent.click(within(dialog).getByRole("button", { name: "Move" }));
@@ -717,7 +774,7 @@ describe("the library's view lives in its address", () => {
     renderPage();
     navigations.length = 0;
 
-    selectTab("Global");
+    selectLibrary("Global");
     expect(navigations).toContain("/resources/lib/global");
   });
 
@@ -725,11 +782,9 @@ describe("the library's view lives in its address", () => {
     listing([]);
     renderPage({ start: "/resources/lib/global/data?q=demand&tag=q3" });
 
-    expect(screen.getByRole("tab", { name: "Global" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("combobox", { name: "Library" }).textContent).toContain("Global");
     expect((screen.getByLabelText("Search resources") as HTMLInputElement).value).toBe("demand");
-    expect(useInfiniteResources).toHaveBeenCalledWith(
-      expect.objectContaining({ scope: "global", q: "demand", tag: "q3" }),
-    );
+    expect(useInfiniteResources).toHaveBeenCalledWith(expect.objectContaining({ scope: "global", q: "demand", tag: "q3" }), true);
   });
 });
 
@@ -764,18 +819,23 @@ describe("the library's tag filter", () => {
     renderPage();
     await chooseTag("q3");
 
-    expect(useInfiniteResources).toHaveBeenLastCalledWith(
-      expect.objectContaining({ tag: "q3", scope: "user" }),
-    );
+    // The All view sends no scope: the server answers it with every library
+    // the caller may read (#1553).
+    expect(useInfiniteResources).toHaveBeenLastCalledWith(expect.objectContaining({ tag: "q3" }), true);
+    const calls = vi.mocked(useInfiniteResources).mock.calls;
+    expect(calls[calls.length - 1]![0]!.scope).toBeUndefined();
   });
 
   // A tag that matched nothing is a filter that missed, not a library nobody
-  // has uploaded to; the two send the reader to different places.
+  // has uploaded to; the two send the reader to different places. A tag spans
+  // the library the way a search does, so the refusal says so (#1555).
   it("reads a tag that matched nothing as a filter, not as an empty library", () => {
     listing([]);
     renderPage({ start: "/resources/lib/user?tag=q3" });
 
-    expect(screen.getByTestId("resources-empty").textContent).toContain("No resources match");
+    const empty = screen.getByTestId("resources-empty").textContent ?? "";
+    expect(empty).toContain("Nothing here matches");
+    expect(empty).toContain("The whole library was looked through");
   });
 
   it("goes inert on a library nobody has tagged", () => {
@@ -785,14 +845,255 @@ describe("the library's tag filter", () => {
     expect((screen.getByLabelText("Filter by tag") as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("carries the tag across a scope tab change", async () => {
+  // Opening another library is a place, not a narrowing of the one in hand, so
+  // it drops the filters and lands at that library's root. The test that stood
+  // here was named for carrying the tag across and only ever asserted the
+  // scope; the tag has always been cleared (see setActiveTab).
+  it("drops the tag when another library is opened, and lands at its root", async () => {
     listing([LISTED, TAGGED]);
     renderPage();
     await chooseTag("q3");
-    selectTab("Global");
+    selectLibrary("Global");
 
-    expect(useInfiniteResources).toHaveBeenLastCalledWith(
-      expect.objectContaining({ scope: "global" }),
-    );
+    expect(useFacets).toHaveBeenLastCalledWith({ scope: "global" });
+    // A root lists no files, so nothing is paged there (#1555).
+    const calls = vi.mocked(useInfiniteResources).mock.calls;
+    const last = calls[calls.length - 1]!;
+    expect(last[0]).toEqual(expect.objectContaining({ scope: "global", tag: undefined }));
+    expect(last[1]).toBe(false);
+  });
+
+  // A curator asking "what has nothing read it" is asking the whole library, and
+  // it means nothing applied to a list of folder names. Like a tag, it was a
+  // control on screen with no listing behind it until this (#1555).
+  it("lists the library when an ordering other than the default is chosen at a root", async () => {
+    listing([LISTED, TAGGED]);
+    renderPage({ admin: true, start: "/admin/resources?sort=last_read" });
+
+    const calls = vi.mocked(useInfiniteResources).mock.calls;
+    const last = calls[calls.length - 1]!;
+    expect(last[0]).toEqual(expect.objectContaining({ sort: "last_read", path: undefined }));
+    expect(last[1]).toBe(true);
+  });
+
+  // The default ordering is what a tree is shown under, so it does not turn the
+  // root into a list.
+  it("leaves the tree alone under the default ordering", () => {
+    listing([at("data")]);
+    renderPage({ admin: true });
+
+    expect(screen.getByTestId("folder-list")).toBeTruthy();
+    const calls = vi.mocked(useInfiniteResources).mock.calls;
+    expect(calls[calls.length - 1]![1]).toBe(false);
+  });
+
+  // A tag spans the library, so at a root it replaces the tree rather than
+  // narrowing a level of it: without this the control was on screen and the
+  // listing behind it never ran (#1555).
+  it("lists the library's tagged files when a tag is chosen at a root", async () => {
+    listing([LISTED, TAGGED]);
+    renderPage();
+    await chooseTag("q3");
+
+    const calls = vi.mocked(useInfiniteResources).mock.calls;
+    const last = calls[calls.length - 1]!;
+    expect(last[0]).toEqual(expect.objectContaining({ tag: "q3", path: undefined }));
+    expect(last[1]).toBe(true);
+  });
+});
+
+// --- The library's layout, its recents, and its folder picker (#1553) ---
+
+function recents(resources: Resource[]) {
+  vi.mocked(useResources).mockReturnValue({
+    data: { resources, total: resources.length },
+    isLoading: false,
+  } as unknown as ReturnType<typeof useResources>);
+}
+
+const IMAGE: Resource = {
+  ...LISTED,
+  id: "res-img",
+  path: "visual",
+  filename: "logo.png",
+  display_name: "Logo",
+  mime_type: "image/png",
+};
+
+describe("the library is drawn the way the reader asked", () => {
+  it("draws tiles by default, one for every file whatever its type", () => {
+    // The mixed folder is the case: it used to fall to rows because one file in
+    // it was not an image, so nothing in it got a thumbnail. A root lists no
+    // files (#1555), so this stands in the folder that holds them.
+    listing([{ ...LISTED, path: "mixed" }, { ...IMAGE, path: "mixed" }]);
+    renderPage({ start: "/resources/lib/user/mixed" });
+
+    expect(screen.getByTestId("resource-tile-res-1")).toBeTruthy();
+    expect(screen.getByTestId("resource-tile-res-img")).toBeTruthy();
+    expect(screen.queryByTestId("resource-row-res-1")).toBeNull();
+  });
+
+  // The tile is the resource's stored capture, not the file (#1554): a PNG a
+  // portal tab rendered, served from the thumbnail route with the moment it was
+  // taken on it so a re-capture is a different URL. A resource with no capture
+  // yet draws its content-type icon and requests nothing.
+  it("draws a captured tile from the thumbnail route and nothing for an uncaptured file", () => {
+    listing([
+      { ...LISTED, path: "mixed" },
+      {
+        ...IMAGE,
+        path: "mixed",
+        thumbnail_s3_key: "resources/res-img/.thumbnail.png",
+        thumbnail_captured_at: "2026-08-30T10:00:00Z",
+      },
+    ]);
+    const { container } = renderPage({ start: "/resources/lib/user/mixed" });
+
+    const sources = [...container.querySelectorAll("img")].map((i) => i.getAttribute("src"));
+    expect(sources.some((src) => src?.includes("res-img/thumbnail"))).toBe(true);
+    // The capture's moment is on the URL, so a re-capture is not the same one.
+    expect(sources.some((src) => src?.includes("c=2026-08-30"))).toBe(true);
+    // The uncaptured file issues no request at all.
+    expect(sources.some((src) => src?.includes("res-1"))).toBe(false);
+  });
+
+  // The choice persists across a reload; that half is the storage helper's,
+  // which this environment has no localStorage to exercise (listView.test.ts).
+  it("switches to rows on the reader's word", () => {
+    listing([{ ...LISTED, path: "mixed" }]);
+    renderPage({ start: "/resources/lib/user/mixed" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Table view" }));
+    expect(screen.getByTestId("resource-row-res-1")).toBeTruthy();
+    expect(screen.queryByTestId("resource-tile-res-1")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Grid view" }));
+    expect(screen.getByTestId("resource-tile-res-1")).toBeTruthy();
+  });
+});
+
+describe("the recently updated strip", () => {
+  it("heads the library with the files that changed last", () => {
+    listing([at("data")]);
+    recents([{ ...LISTED, path: "references" }]);
+    renderPage();
+
+    const strip = screen.getByTestId("recent-resources");
+    expect(strip.textContent).toContain("Seasonal Factors");
+    expect(strip.textContent).toContain("references");
+  });
+
+  it("asks for the library in view, ten of them, newest first", () => {
+    listing([]);
+    recents([LISTED]);
+    renderPage();
+    selectLibrary("Global");
+
+    expect(useResources).toHaveBeenLastCalledWith({
+      scope: "global",
+      sort: "updated",
+      limit: 10,
+    });
+  });
+
+  // Inside a folder and under a filter the view is already an answer to "what
+  // here is relevant", and a differently ordered second answer above it
+  // competes with the one that was asked for.
+  it("is left off inside a folder", () => {
+    listing([at("data/weekly")]);
+    recents([LISTED]);
+    renderPage({ start: "/resources/lib/user/data" });
+
+    expect(screen.queryByTestId("recent-resources")).toBeNull();
+  });
+
+  it("is left off while a search or a tag filter is narrowing the library", () => {
+    listing([LISTED]);
+    recents([LISTED]);
+    renderPage({ start: "/resources/lib/user?q=demand" });
+    expect(screen.queryByTestId("recent-resources")).toBeNull();
+
+    cleanup();
+    renderPage({ start: "/resources/lib/user?tag=q3" });
+    expect(screen.queryByTestId("recent-resources")).toBeNull();
+  });
+
+  it("says nothing about a library with nothing in it", () => {
+    listing([]);
+    recents([]);
+    renderPage();
+
+    expect(screen.queryByTestId("recent-resources")).toBeNull();
+  });
+});
+
+describe("choosing the folder an upload lands in", () => {
+  it("offers the folders the library already has, and the seeds", async () => {
+    listing([at("data/media-manager"), at("references")]);
+    renderPage({ start: "/resources/lib/user" });
+    fireEvent.click(screen.getByRole("button", { name: "Upload" }));
+
+    const dialog = screen.getByRole("dialog");
+    fireEvent.keyDown(within(dialog).getByRole("combobox", { name: "Folder" }), { key: "Enter" });
+
+    expect(await screen.findByRole("option", { name: "data/media-manager" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "references" })).toBeTruthy();
+    // A seed the library has not used yet is still a reasonable place to start.
+    expect(screen.getByRole("option", { name: "playbooks" })).toBeTruthy();
+  });
+
+  it("files into a folder chosen from that list", async () => {
+    listing([at("data/media-manager")]);
+    const { container } = renderPage({ start: "/resources/lib/user" });
+    fireEvent.click(screen.getByRole("button", { name: "Upload" }));
+
+    const dialog = screen.getByRole("dialog");
+    fireEvent.keyDown(within(dialog).getByRole("combobox", { name: "Folder" }), { key: "Enter" });
+    fireEvent.click(await screen.findByRole("option", { name: "data/media-manager" }));
+
+    const form = await fillAndSubmit(container);
+    expect(form.get("path")).toBe("data/media-manager");
+  });
+
+  // A folder is created by filing something into it, so a folder that does not
+  // exist yet has to stay typeable -- it is the ordering that changed.
+  it("files into a folder that does not exist yet", async () => {
+    listing([at("references")]);
+    const { container } = renderPage({ start: "/resources/lib/user" });
+    fireEvent.click(screen.getByRole("button", { name: "Upload" }));
+
+    const dialog = screen.getByRole("dialog");
+    typeFolder(dialog, "Folder", "data/new-thing");
+
+    const form = await fillAndSubmit(container);
+    expect(form.get("path")).toBe("data/new-thing");
+  });
+
+  it("leads back to the list after the new-folder field is opened", async () => {
+    listing([at("references")]);
+    renderPage({ start: "/resources/lib/user" });
+    fireEvent.click(screen.getByRole("button", { name: "Upload" }));
+
+    const dialog = screen.getByRole("dialog");
+    typeFolder(dialog, "Folder", "data/new-thing");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Choose an existing folder" }));
+
+    expect(within(dialog).getByRole("combobox", { name: "Folder" })).toBeTruthy();
+  });
+});
+
+describe("renaming a folder names one library", () => {
+  it("is not offered on the view that spans several", () => {
+    listing([at("data")]);
+    renderPage();
+
+    expect(screen.queryByLabelText("Rename or move data")).toBeNull();
+  });
+
+  it("is offered once the picker names one the caller may write", () => {
+    listing([at("data")]);
+    renderPage({ start: "/resources/lib/user" });
+
+    expect(screen.getByLabelText("Rename or move data")).toBeTruthy();
   });
 });

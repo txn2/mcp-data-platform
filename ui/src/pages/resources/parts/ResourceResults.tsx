@@ -2,13 +2,13 @@ import { FileUp, FolderOpen, Loader2, Search } from "lucide-react";
 import { EmptyState } from "@/components/patterns/EmptyState";
 import { Button } from "@/components/ui/button";
 import { RESOURCE_POSITIONING } from "@/lib/positioning";
+import type { ViewMode } from "@/components/listView";
 import type { Resource } from "@/api/resources/types";
 import { FolderList } from "./FolderList";
 import { ResourceGrid } from "./ResourceGrid";
 import { ResourcesTable } from "./ResourcesTable";
 import { SearchHits } from "./SearchHits";
 import type { Selection } from "./selection";
-import { isImageResource } from "./groups";
 import type { FolderView } from "./tree";
 
 /**
@@ -21,12 +21,14 @@ import type { FolderView } from "./tree";
  */
 export function ResourceResults({
   view,
+  viewMode,
+  flat,
   searching,
   isLoading,
   filtering,
   admin,
-  complete,
   canWrite,
+  canRenameFolder,
   selection,
   readOnlyNote,
   onOpen,
@@ -39,16 +41,27 @@ export function ResourceResults({
 }: {
   /** The folders and files at the location in view, or the search's hits. */
   view: FolderView;
+  /** Tiles or rows, which is the reader's standing choice rather than the
+   * folder's contents: a folder holding one PDF among fifty photographs used to
+   * be fifty rows of filename and size (#1553). */
+  viewMode: ViewMode;
+  /**
+   * True when the view is a flat list of hits from across the library rather
+   * than one level of its tree: a search, or a tag chosen at the root. Each hit
+   * names the folder it was found in, which a level of the tree does not need.
+   */
+  flat: boolean;
   searching: boolean;
   isLoading: boolean;
-  /** True when every page of this library has been loaded; see FolderList. */
-  complete: boolean;
   // Set when a filter is narrowing the view, which is a different emptiness
   // from a folder nobody has uploaded to.
   filtering: boolean;
   admin: boolean;
   /** False leaves out the controls the server would refuse. */
   canWrite: boolean;
+  /** False leaves out the folder rename, which names one library and so is not
+   * offered on a view that spans several. */
+  canRenameFolder: boolean;
   selection: Selection;
   // Where this library's material comes from, set only when the caller has no
   // write authority over the scope in view. It is the one signal for that: it
@@ -73,12 +86,14 @@ export function ResourceResults({
     );
   }
 
-  if (searching) {
+  if (flat) {
     if (view.files.length === 0) {
       return (
         <EmptyState icon={Search} data-testid="resources-empty">
-          <p className="font-medium text-foreground">No resources match this search</p>
-          <p className="mt-1 text-xs">The whole library was searched, not just this folder.</p>
+          <p className="font-medium text-foreground">
+            {searching ? "No resources match this search" : "Nothing here matches"}
+          </p>
+          <p className="mt-1 text-xs">The whole library was looked through, not just this folder.</p>
         </EmptyState>
       );
     }
@@ -95,18 +110,16 @@ export function ResourceResults({
     <div className="space-y-3">
       <FolderList
         folders={view.folders}
-        complete={complete}
+        viewMode={viewMode}
         canWrite={canWrite}
+        canRename={canRenameFolder}
         onOpen={onOpenFolder}
         onRename={onRenameFolder}
         onDropResources={onDropResources}
         onDropFolder={onDropFolder}
       />
       {view.files.length > 0 &&
-        // A folder holding only images is shown as images, read off the content
-        // rather than off the folder's name, so a photograph filed under
-        // references is still shown as a photograph (#1471).
-        (view.files.every(isImageResource) ? (
+        (viewMode === "grid" ? (
           <ResourceGrid
             resources={view.files}
             admin={admin}

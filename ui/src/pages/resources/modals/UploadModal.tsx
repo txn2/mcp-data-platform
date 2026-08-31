@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useMemo } from "react";
 import { X, Loader2 } from "lucide-react";
 import { useUploadResource } from "@/api/resources/hooks";
 import { useAuthStore } from "@/stores/auth";
@@ -7,6 +7,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { formatBytes } from "@/lib/format";
 import { parseTags } from "@/lib/tags";
 import { RESOURCE_POSITIONING } from "@/lib/positioning";
@@ -15,7 +22,13 @@ import { scopeLabel } from "../shared";
 import { PathField } from "../parts/PathField";
 import { pathProblem } from "../parts/pathRules";
 import { UploadTargets } from "./UploadTargets";
-import { libraryCopy, type ScopeTarget } from "../scopes";
+import {
+  libraryCopy,
+  targetKey,
+  uploadTargets,
+  type MoveTarget,
+  type ScopeTarget,
+} from "../scopes";
 
 const MAX_BYTES = 100 * 1024 * 1024;
 
@@ -81,8 +94,13 @@ export function UploadModal({
   admin: boolean;
   personaNames: string[];
   // The library this upload lands in when the caller is given no choice: the
-  // scope tab the page is showing. The dialog states it before a file is
+  // library the picker is showing. The dialog states it before a file is
   // chosen, so the file is never filed somewhere the reader did not expect.
+  //
+  // Null is the All view, which names no library. An administrator chooses
+  // there through the fan-out block below; everyone else gets a plain list of
+  // the libraries they may add to, which is what keeps Upload usable on the
+  // view every page opens on (#1553).
   destination: ScopeTarget | null;
   // The folder the person is standing in, which is where the file lands unless
   // they change it. Uploading from inside a folder and having the file appear
@@ -94,9 +112,15 @@ export function UploadModal({
   const upload = useUploadResource();
   const user = useAuthStore((s) => s.user);
   const fileRef = useRef<HTMLInputElement>(null);
-  // Only the admin page offers a choice of library; elsewhere the tab in view
-  // is the destination. The state below drives that picker alone.
+  // The admin page's fan-out scope: one upload into every persona chosen, or
+  // into every address named. The state below drives that block alone; the
+  // ordinary caller's single-destination picker is `chosen`.
   const [scope, setScope] = useState(admin ? "global" : "user");
+  // The libraries an ordinary caller may add to, offered when the view names
+  // none. Their own library heads the list and is where an upload lands unless
+  // they say otherwise.
+  const choices = useMemo(() => uploadTargets(user, personaNames), [user, personaNames]);
+  const [chosen, setChosen] = useState(() => (choices[0] ? targetKey(choices[0]) : ""));
   const [selectedPersonas, setSelectedPersonas] = useState<string[]>([]);
   const [userEmails, setUserEmails] = useState("");
   const [path, setPath] = useState(folder || "samples");
@@ -118,16 +142,21 @@ export function UploadModal({
   // Build the list of (scope, scope_id) pairs to upload to.
   const resolveTargets = useCallback((): { scope: string; scope_id: string }[] => {
     // Off the admin page the destination is the library in view, which the
-    // caller already chose by selecting its tab and which the page only offers
-    // Upload on when they may write to it.
-    if (!admin) return [destination ?? { scope: "user", scope_id: user?.user_id || "" }];
+    // caller already chose in the picker and which the page only offers Upload
+    // on when they may write to it. A view naming no library falls back to what
+    // the dialog's own picker chose.
+    if (!admin) {
+      if (destination) return [destination];
+      const picked = choices.find((c) => targetKey(c) === chosen) ?? choices[0];
+      return [picked ?? { scope: "user", scope_id: user?.user_id || "" }];
+    }
     if (scope === "global") return [{ scope: "global", scope_id: "" }];
     if (scope === "persona") {
       return selectedPersonas.map((name) => ({ scope: "persona", scope_id: name }));
     }
     const emails = userEmails.split(",").map((e) => e.trim()).filter(Boolean);
     return emails.map((email) => ({ scope: "user", scope_id: email }));
-  }, [scope, selectedPersonas, admin, userEmails, user, destination]);
+  }, [scope, selectedPersonas, admin, userEmails, user, destination, choices, chosen]);
 
   const submitting = useRef(false);
 
@@ -229,12 +258,19 @@ export function UploadModal({
             userEmails={userEmails}
             onUserEmailsChange={setUserEmails}
           />
-        ) : (
+        ) : destination ? (
           <div data-testid="upload-destination" className="rounded-md border bg-muted/40 px-3 py-2">
             <p className="text-xs text-muted-foreground">Destination</p>
             <p className="text-sm font-medium text-foreground">{fixedDestination.name}</p>
             <p className="text-xs text-muted-foreground">{fixedDestination.audience}</p>
           </div>
+        ) : (
+          <DestinationPicker
+            choices={choices}
+            value={chosen}
+            onChange={setChosen}
+            disabled={uploading}
+          />
         )}
         <PathField
           label="Folder"
@@ -299,5 +335,47 @@ export function UploadModal({
         </div>
       </div>
     </ModalShell>
+  );
+}
+
+/**
+ * Which library an upload lands in, for a view that names none.
+ *
+ * The audience line under it is the point: "Mine" and a persona's library are
+ * one click apart, and the difference between them is who else can read the
+ * file. A picker that stated only the names would make that difference
+ * invisible at the moment it is chosen.
+ */
+function DestinationPicker({
+  choices,
+  value,
+  onChange,
+  disabled,
+}: {
+  choices: MoveTarget[];
+  value: string;
+  onChange: (key: string) => void;
+  disabled: boolean;
+}) {
+  const picked = choices.find((c) => targetKey(c) === value);
+  return (
+    <div className="space-y-1" data-testid="upload-destination-picker">
+      <Label className="text-xs text-muted-foreground">Destination</Label>
+      <Select value={value} onValueChange={onChange} disabled={disabled}>
+        <SelectTrigger aria-label="Destination" className="w-full">
+          <SelectValue placeholder="Choose a library" />
+        </SelectTrigger>
+        <SelectContent>
+          {choices.map((c) => (
+            <SelectItem key={targetKey(c)} value={targetKey(c)}>
+              {c.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {picked && (
+        <p className="text-xs text-muted-foreground">{libraryCopy(picked).audience}</p>
+      )}
+    </div>
   );
 }

@@ -124,6 +124,9 @@ test.describe("Admin resources table", () => {
     // The column belongs to a folder's own table, and the two fixtures are
     // filed in different folders (#1530), so each is read where it lives.
     await page.goto(`${ADMIN_RESOURCES}/lib/all/documentation`);
+    // The library is drawn as tiles by default (#1553); the columns this is
+    // about are the table's, so it asks for rows.
+    await page.getByRole("button", { name: "Table view" }).click();
     await expect(page.getByRole("columnheader", { name: "Last read" })).toBeVisible();
     // res-001 has read activity.
     await expect(page.getByTestId("resource-last-read-res-001")).not.toHaveText("Never");

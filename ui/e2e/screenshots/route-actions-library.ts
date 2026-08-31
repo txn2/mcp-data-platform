@@ -61,8 +61,11 @@ export async function openResourceSubfolder(page: Page): Promise<void> {
  */
 export async function openResourceSelection(page: Page): Promise<void> {
   // A folder holding several files, so the capture shows a selection of more
-  // than one against the rows it was made from.
+  // than one against the rows it was made from. Rows, not tiles: a selection
+  // over a table is where the columns say what each picked file is, and the
+  // library is drawn as tiles by default (#1553).
   await openResourceFolder(page, "runbooks");
+  await page.getByRole("button", { name: "Table view" }).click({ timeout: 3_000 });
   // The first checkbox is the header's select-all; the rows follow it.
   const boxes = page.getByRole("checkbox");
   await boxes.nth(1).check({ timeout: 3_000 });
