@@ -138,6 +138,34 @@ func TestResourceSubject_AGlobalResourceIsStillItsUploadersToRegister(t *testing
 	assert.True(t, ok)
 }
 
+// TestResourceSubject_ARunRegistersWhatItsAuthorRegisters is the register
+// surface's half of #1576. The rule here is authority to CHANGE the file, so a
+// run reaches exactly what the person it acts for reaches -- including a file
+// that has since been moved out of its uploader's own library, which the person
+// still registers through the uploader arm and which their script therefore
+// registers too. A run acting for somebody who never uploaded it is refused.
+func TestResourceSubject_ARunRegistersWhatItsAuthorRegisters(t *testing.T) {
+	moved := &resource.Resource{
+		ID: "res_1", Scope: resource.ScopePersona, ScopeID: "finance",
+		S3Key: "resources/res_1/rebates.csv", MIMEType: "text/csv",
+		UploaderSub: "u1", UploaderEmail: "author@example.com",
+	}
+	subject := ResourceSubject(stubResourceStore{res: moved}, "b")
+
+	_, ok := subject(context.Background(), "res_1", tableregister.Caller{UserID: "u1"})
+	require.True(t, ok, "the premise: the person who uploaded it still registers it after the move")
+
+	_, ok = subject(context.Background(), "res_1", tableregister.Caller{
+		UserID: "script:weekly-refresh", OnBehalfOf: "author@example.com",
+	})
+	assert.True(t, ok, "their script must reach what they reach")
+
+	_, ok = subject(context.Background(), "res_1", tableregister.Caller{
+		UserID: "script:someone-elses", OnBehalfOf: "stranger@example.com",
+	})
+	assert.False(t, ok, "a run acting for somebody with no claim on the file")
+}
+
 // TestResourceSubject_AbsentOrFailedReadsAreNotFound. A store that could not
 // answer is reported the same way a missing row is, because the surfaces above
 // turn ok=false into "no such file" and there is nothing else to say.

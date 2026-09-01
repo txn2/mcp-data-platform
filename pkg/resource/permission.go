@@ -137,16 +137,14 @@ func CanMoveToLibrary(c Claims, scope Scope, scopeID string) bool {
 }
 
 // CanModifyResource checks whether the caller can update or delete a resource.
-// The caller must be the original uploader OR have write permission for the
-// scope.
+// The caller must be the recorded uploader OR have write permission for the
+// scope the resource lives in.
 //
-// A managed-script run is the uploader when its version author is: the run
-// authenticates as a principal with no uploaded file of its own, so matching on
-// uploader_sub alone refuses it the very files its author uploaded. The match is
-// on the recorded uploader address, which is the same rule the asset toolkit's
-// ownership check applies to a run (#1419).
+// "The recorded uploader" is uploadedByCaller, and it is one rule for the person
+// and for anything acting for them, which is what keeps the two from diverging
+// in either direction (#1419, #1576). See it for what each half is for.
 func CanModifyResource(c Claims, r *Resource) bool {
-	if (r.UploaderSub != "" && r.UploaderSub == c.Sub) || uploadedBy(c, r) {
+	if uploadedByCaller(c, r) {
 		return true
 	}
 	return CanWriteScope(c, r.Scope, r.ScopeID)
@@ -177,7 +175,9 @@ func CanModifyResource(c Claims, r *Resource) bool {
 // uploaded the file INTO THEIR OWN LIBRARY (uploadedBy). That is the same grant
 // CanReadResource already gives the person, reached by the only identifier such
 // a caller has, and it carries none of the decay the warning above is about --
-// see uploadedBy for why the scope is part of the test.
+// see uploadedBy for why the scope is part of the test. What a caller may CHANGE
+// is a wider set than this, and deliberately so; a surface that authorizes on
+// CanModifyResource alone is granting that wider set (#1576).
 func CanAccessResource(c Claims, r *Resource) bool {
 	return CanReadResource(c, r) || CanWriteScope(c, r.Scope, r.ScopeID) || uploadedBy(c, r)
 }
@@ -336,16 +336,16 @@ func isOwnScope(c Claims, scopeID string) bool {
 
 // uploadedBy reports whether a resource is one the person an unattended caller
 // acts for uploaded INTO THEIR OWN LIBRARY, matched on the address the row
-// records.
+// records. It is the visibility arm: CanAccessResource uses this, and
+// CanModifyResource uses the wider, symmetric uploadedByCaller.
 //
 // The scope is part of the test rather than incidental to it. The uploader arm
 // is the one grant on a resource that is never re-derived from current
 // authority, which is why CanAccessResource refuses it: an administrator who
 // uploaded into somebody else's scope and later lost the role would otherwise
 // keep reading that person's private file forever. Admitting an unattended
-// caller on the address alone would hand a script exactly that permanent reach,
-// and it would outlive the author's own -- the person is refused where their
-// script would not be, which is an authority nobody has.
+// caller to SEE a resource on the address alone would hand a script exactly that
+// permanent reach over material its author was only ever entrusted to place.
 //
 // Narrowing it to a file sitting in its own uploader's user library leaves only
 // the case this exists for: a person's own script reaching a file they uploaded
@@ -365,6 +365,62 @@ func uploadedBy(c Claims, r *Resource) bool {
 	return c.OnBehalfOf != "" && r.UploaderEmail != "" &&
 		r.Scope == ScopeUser && r.UploaderSub != "" && r.UploaderSub == r.ScopeID &&
 		strings.EqualFold(r.UploaderEmail, c.OnBehalfOf)
+}
+
+// uploadedByCaller reports whether a resource records this caller as its
+// uploader. It is the uploader arm of CanModifyResource, and it is deliberately
+// ONE rule rather than a person's rule beside a stand-in for it.
+//
+// A resource records two things about who filed it. The SUBJECT is whoever made
+// the call, which for a run is the principal script:<name>. The ADDRESS is
+// PersonAddress at the time of the write: the person themselves, or the person
+// an unattended caller acted for. Both sides of both comparisons must be
+// non-empty -- absence of an identity is not a shared identity.
+//
+// The subject admits a caller acting as THEMSELVES only. A person's subject
+// comes from the identity provider and names one person; a script principal is
+// script:<name> and a script name is unique only within its OWNER
+// (idx_scripts_name_owner, migration 000119), so two people who each keep a
+// daily-sales would present the same subject, and matching an unattended caller
+// on it would hand one person's automation the files the other's filed. The
+// address is what identifies an unattended caller, and a run's own writes record
+// it, so nothing is lost by reading only that for them.
+//
+// Reading the address makes the arm survive a MOVE. A move rewrites the library,
+// the folder and the mcp:// address and never the uploader columns, so a person
+// who uploaded a file goes on modifying it after it is filed into a persona
+// library they merely belong to, which CanMoveToLibrary deliberately permits
+// (#1576). Before that the uploader arm for an unattended caller required the
+// file to be sitting in its own uploader's user library, so a person who moved a
+// CSV their own scheduled script refreshes broke the schedule: nothing warned at
+// the move, the schedule stayed enabled, and whether it broke turned on whether
+// the author happened to be a platform administrator.
+//
+// Reading the address for the PERSON too, and not only for what acts for them,
+// is what keeps the two from diverging the other way. A resource a run filed
+// records the principal as its subject and the author as its address, so a
+// person's own subject does not match it; once such a file leaves their library
+// their scope authority ends with it, and an arm that read the address only for
+// unattended callers would leave every OTHER script that person writes able to
+// rewrite a file they cannot touch themselves.
+//
+// The address is folded for case, unlike the scope id isOwnScope compares: this
+// reads a value off the row rather than a scope id the store lists by, so there
+// is no listing predicate for it to disagree with. It matches the asset
+// toolkit's ownsResource, which folds for the same reason.
+//
+// The grant is not re-derived from current authority, which is why
+// CanAccessResource refuses it and uses the narrower uploadedBy instead: an
+// administrator who uploaded into somebody else's scope and later lost the role
+// keeps MODIFY authority over that row, and so does anything acting for them.
+// That decay is unchanged; what changed is that it reaches the person and their
+// scripts alike rather than whichever of the two the scope happened to favor.
+func uploadedByCaller(c Claims, r *Resource) bool {
+	if c.OnBehalfOf == "" && r.UploaderSub != "" && r.UploaderSub == c.Sub {
+		return true
+	}
+	addr := PersonAddress(c)
+	return addr != "" && r.UploaderEmail != "" && strings.EqualFold(r.UploaderEmail, addr)
 }
 
 func isPlatformAdmin(c Claims) bool {

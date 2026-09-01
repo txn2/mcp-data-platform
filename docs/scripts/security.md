@@ -311,8 +311,9 @@ on the platform through the admin arm of each check.
 The address is captured from an authenticated context at the save, exactly as
 the roles are (`scriptlayer.go`, `callerAuthor`), and is never accepted as an
 argument on any surface. A run reaches what that person owns, and for a managed
-resource what sits in that person's own library — not what they can merely read,
-and not what they uploaded somewhere else.
+resource what sits in that person's own library — not what they can merely read.
+Replacing the content of a file its author uploaded is the one rule that follows
+the person rather than the library, for the reason given in the bullet below.
 
 Five limits, stated rather than implied:
 
@@ -337,12 +338,41 @@ Five limits, stated rather than implied:
   `CanModifyResource` (`pkg/resource/permission.go`). A run therefore lists,
   reads, creates and replaces in its author's library, which is also where a
   `manage_resource` create with no scope named files the file. It is not the
-  author's whole reach: a persona or global resource still takes the scope
-  authority the roles carry, and the uploader arm — the one grant on a resource
-  that is never re-derived from current authority — is admitted only for a file
-  sitting in its own uploader's user library. A file the author uploaded into
-  somebody else's scope while holding a role they have since lost stays out of
-  reach, which is the case that arm is otherwise notorious for.
+  author's whole reach: creating a persona or global resource still takes the
+  scope authority the roles carry, and what a run can SEE outside its author's
+  own library is what that library's own rules give it — a persona the author
+  belongs to, and the global library. A file the author uploaded into somebody
+  else's scope while holding a role they have since lost stays out of sight,
+  which is the case the uploader arm is otherwise notorious for.
+- **Replacing content follows the person, not the library the file is in.** A
+  move rewrites a resource's library, folder and `mcp://` address and never its
+  uploader columns, so the person who uploaded a file may still replace its
+  content after somebody files it elsewhere — and their script may too. Holding
+  the run to the library instead meant a person who moved a CSV into a persona
+  they merely belong to, which the platform deliberately permits, silently broke
+  the schedule that refreshes it: nothing warned at the move, the schedule stayed
+  enabled, and whether it broke at all depended on whether the author happened to
+  be a platform administrator. The uploader arm is now ONE rule for the person
+  and for what acts for them (`uploadedByCaller`, `pkg/resource/permission.go`),
+  which is what stops them diverging in either direction — the earlier stand-in
+  written for the run alone would have left every OTHER script that person writes
+  able to rewrite a file the person cannot touch, on a row a run filed (whose
+  subject is the principal, so the person's own subject does not match it). That
+  rule reads the recorded ADDRESS for an unattended caller and the recorded
+  SUBJECT only for a caller acting as themselves, because a script principal is
+  `script:<name>` and a script name is unique only within its owner: two people
+  who each keep a `daily-sales` present the same subject. The decay the arm is
+  known for is unchanged and now falls on the person and their script
+  identically: an administrator who uploaded into somebody else's scope and later
+  lost the role keeps modify authority over that row, and so does their script.
+  It adds nothing to what a run may SEE — `CanAccessResource`
+  still admits an unattended caller only for a file sitting in its own uploader's
+  user library — but "may change" is a wider set than "may see", and a surface
+  that authorizes on `CanModifyResource` alone grants that wider set to the run
+  exactly as it does to the person: registering a managed resource as a Trino
+  table is deliberately such a surface ([Querying a CSV resource as a table](../portal/resources.md#querying-a-csv-resource-as-a-table)),
+  so a file the person may register and not read is one their script may register
+  and not read (#1576).
 - **A draft carries no second identity.** `run_draft` authenticates as the
   caller, a person with a real user id, so ownership already resolves on the id
   and `OnBehalfOfEmail` is empty.

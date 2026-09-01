@@ -445,3 +445,150 @@ func TestARunWritesIntoItsAuthorsLibrary(t *testing.T) {
 	assert.True(t, resource.CanReadResource(resource.Claims{Sub: "sub-of-author", Email: author}, res),
 		"a file a run wrote must land where the person who scheduled it will look")
 }
+
+// --- A move does not revoke the script that maintains the file (#1576) ---
+
+// uploadedThenMoved is the sequence the ticket describes, over the real writer,
+// the real move and the real permission rules: a person uploads a CSV into
+// their own library, and it is later refiled into another one by the caller
+// given. It returns the resource as it stands after the move.
+func uploadedThenMoved(
+	t *testing.T, f *fixture, author resource.Claims, mover resource.Claims, to resource.Destination,
+) *resource.Resource {
+	t.Helper()
+	in := newResource()
+	in.Scope, in.ScopeID = resource.ScopeUser, author.Sub
+	original, err := f.writer.Create(t.Context(), in, author)
+	require.NoError(t, err)
+
+	deps := resource.Deps{Store: f.store, S3Client: f.blobs, S3Bucket: testBucket, URIScheme: testScheme}
+	uri, err := resource.MoveResource(t.Context(), deps, &mover, original, to)
+	require.NoError(t, err, "the premise: the move itself is one the platform permits")
+	require.NotEmpty(t, uri)
+
+	moved, err := f.store.Get(t.Context(), original.ID)
+	require.NoError(t, err)
+	require.Equal(t, to.Scope, moved.Scope)
+	return moved
+}
+
+// TestARunRefreshesAFileMovedIntoAPersonaTheAuthorBelongsTo is criterion 1. The
+// person moves the CSV their own scheduled script refreshes into a persona
+// library they are a member of -- a move CanMoveToLibrary deliberately permits
+// without persona-admin authority -- and the next run has to go on refreshing
+// it.
+func TestARunRefreshesAFileMovedIntoAPersonaTheAuthorBelongsTo(t *testing.T) {
+	f := newFixture(t)
+	moved := uploadedThenMoved(t, f, analyst(), analyst(),
+		resource.Destination{Scope: resource.ScopePersona, ScopeID: "analyst", Path: "datasets"})
+
+	_, version, err := f.writer.Replace(t.Context(), moved.ID, resource.RevisionUpload{
+		Data: []byte("day,high\nmon,88\n"), MIMEType: "text/csv", ChangeSummary: "hourly refresh",
+	}, runFor(authorMail))
+
+	require.NoError(t, err, "the move left the person able to replace the content; their script must be too")
+	assert.Equal(t, 2, version)
+}
+
+// TestARunRefreshesAFileAnAdministratorPublishedForItsAuthor is criterion 2:
+// the same move made to the global library by an administrator on behalf of a
+// non-administrator author, whose script must go on writing it.
+func TestARunRefreshesAFileAnAdministratorPublishedForItsAuthor(t *testing.T) {
+	f := newFixture(t)
+	moved := uploadedThenMoved(t, f, analyst(), admin(),
+		resource.Destination{Scope: resource.ScopeGlobal, Path: "datasets"})
+
+	_, version, err := f.writer.Replace(t.Context(), moved.ID, resource.RevisionUpload{
+		Data: []byte("day,high\nmon,91\n"), MIMEType: "text/csv",
+	}, runFor(authorMail))
+
+	require.NoError(t, err, "who made the move must not decide whether the author's automation survives it")
+	assert.Equal(t, 2, version)
+}
+
+// TestAMovedFileIsRefusedToAScriptWithNoClaimOnIt is criterion 3's other half:
+// a run whose author never uploaded the file and holds no authority over the
+// library it now sits in is refused, and the refusal names the library.
+func TestAMovedFileIsRefusedToAScriptWithNoClaimOnIt(t *testing.T) {
+	f := newFixture(t)
+	moved := uploadedThenMoved(t, f, analyst(), admin(),
+		resource.Destination{Scope: resource.ScopeGlobal, Path: "datasets"})
+
+	_, _, err := f.writer.Replace(t.Context(), moved.ID, resource.RevisionUpload{
+		Data: []byte("x"), MIMEType: "text/csv",
+	}, runFor("stranger@example.com"))
+
+	require.ErrorIs(t, err, resourcewrite.ErrRefused)
+	assert.Contains(t, err.Error(), "the global scope",
+		"a refusal a scheduled run logs has to name what it was refused")
+}
+
+// TestAMoveWidensNothingARunCanSee is criterion 4 over the real writer: the
+// modify predicate is not the visibility gate, and Replace reads the file
+// through CanAccessResource before it asks whether it may be changed. A persona
+// library the author does not belong to therefore stays absent to their script,
+// uploader arm or not.
+//
+// The person is refused the same read, which is the pairing the uploader arm is
+// held to: a surface that reads before it writes refuses both of them here, and
+// one that authorizes on modify alone admits both.
+func TestAMoveWidensNothingARunCanSee(t *testing.T) {
+	f := newFixture(t)
+	moved := uploadedThenMoved(t, f, analyst(), admin(),
+		resource.Destination{Scope: resource.ScopePersona, ScopeID: "finance", Path: "datasets"})
+
+	_, _, err := f.writer.Replace(t.Context(), moved.ID, resource.RevisionUpload{
+		Data: []byte("x"), MIMEType: "text/csv",
+	}, runFor(authorMail))
+
+	require.ErrorIs(t, err, resourcewrite.ErrNoSuchResource)
+
+	_, _, err = f.writer.Replace(t.Context(), moved.ID, resource.RevisionUpload{
+		Data: []byte("x"), MIMEType: "text/csv",
+	}, analyst())
+	require.ErrorIs(t, err, resourcewrite.ErrNoSuchResource,
+		"the person is answered the same way, which is what makes the pair one grant")
+}
+
+// TestARunRefreshesAFileItsAuthorsOtherScriptFiled is the row the two holders
+// record differently, over the real writer: a run filed it, so its subject is
+// the principal and its address is the author. The author replaces its content
+// after a move, and so does a DIFFERENT script of theirs -- neither more nor
+// less than the other.
+func TestARunRefreshesAFileItsAuthorsOtherScriptFiled(t *testing.T) {
+	f := newFixture(t)
+	in := newResource()
+	in.Scope, in.ScopeID = resource.ScopeUser, authorMail
+	filed, err := f.writer.Create(t.Context(), in, runFor(authorMail))
+	require.NoError(t, err)
+	require.Equal(t, "script:weekly-refresh", filed.UploaderSub, "the premise: the principal filed it")
+	require.Equal(t, authorMail, filed.UploaderEmail)
+
+	deps := resource.Deps{Store: f.store, S3Client: f.blobs, S3Bucket: testBucket, URIScheme: testScheme}
+	mover := admin()
+	_, err = resource.MoveResource(t.Context(), deps, &mover, filed,
+		resource.Destination{Scope: resource.ScopeGlobal, Path: "datasets"})
+	require.NoError(t, err)
+
+	_, version, err := f.writer.Replace(t.Context(), filed.ID, resource.RevisionUpload{
+		Data: []byte("day,high\nmon,70\n"), MIMEType: "text/csv",
+	}, analyst())
+	require.NoError(t, err, "the person whose authority filed it may still replace it")
+	assert.Equal(t, 2, version)
+
+	sibling := resource.BuildClaims("script:monthly-rollup", authorMail, "analyst",
+		[]string{"analyst"}, false).ActingFor(authorMail)
+	_, version, err = f.writer.Replace(t.Context(), filed.ID, resource.RevisionUpload{
+		Data: []byte("day,high\nmon,71\n"), MIMEType: "text/csv",
+	}, sibling)
+	require.NoError(t, err, "and their other scripts reach exactly what they reach")
+	assert.Equal(t, 3, version)
+
+	stranger := resource.BuildClaims("script:weekly-refresh", "stranger@example.com", "analyst",
+		[]string{"analyst"}, false).ActingFor("stranger@example.com")
+	_, _, err = f.writer.Replace(t.Context(), filed.ID, resource.RevisionUpload{
+		Data: []byte("x"), MIMEType: "text/csv",
+	}, stranger)
+	require.ErrorIs(t, err, resourcewrite.ErrRefused,
+		"another person's script of the same name is another person's script")
+}
