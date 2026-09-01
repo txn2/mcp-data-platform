@@ -25,7 +25,7 @@ func NewPostgresStore(db *sql.DB) Store {
 // selectColumns is the column list every read shares, in the order scanRow
 // expects them.
 const selectColumns = `id, source_kind, source_id, connection_name, catalog_name,
-	schema_name, table_name, location, columns, registered_by, registered_at, follow, follow_error`
+	schema_name, table_name, location, columns, registered_by, registered_at, follow, repair, follow_error`
 
 // ErrNameTaken is returned when the unique index on the table name rejects an
 // insert. The registrar checks for a holder before it writes; this is the race
@@ -44,11 +44,11 @@ func (s *postgresStore) Insert(ctx context.Context, r Registration) error {
 	}
 	const q = `INSERT INTO table_registrations
 		(id, source_kind, source_id, connection_name, catalog_name, schema_name,
-		 table_name, location, columns, registered_by, registered_at, follow)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), $11)`
+		 table_name, location, columns, registered_by, registered_at, follow, repair)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), $11, $12)`
 	_, err = s.db.ExecContext(ctx, q,
 		r.ID, r.SourceKind, r.SourceID, r.Connection, r.Catalog, r.Schema,
-		r.Table, r.Location, cols, r.RegisteredBy, r.Follow)
+		r.Table, r.Location, cols, r.RegisteredBy, r.Follow, r.Repair)
 	if err != nil {
 		var pqErr *pq.Error
 		if errors.As(err, &pqErr) && pqErr.Code == uniqueViolation {
@@ -203,7 +203,7 @@ func scanRow(sc rowScanner) (*Registration, error) {
 	)
 	if err := sc.Scan(&reg.ID, &reg.SourceKind, &reg.SourceID, &reg.Connection,
 		&reg.Catalog, &reg.Schema, &reg.Table, &reg.Location, &cols,
-		&reg.RegisteredBy, &reg.RegisteredAt, &reg.Follow, &reg.FollowError); err != nil {
+		&reg.RegisteredBy, &reg.RegisteredAt, &reg.Follow, &reg.Repair, &reg.FollowError); err != nil {
 		return nil, err //nolint:wrapcheck // callers distinguish sql.ErrNoRows
 	}
 	if len(cols) > 0 {

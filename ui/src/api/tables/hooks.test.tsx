@@ -29,6 +29,7 @@ const REGISTRATION: TableRegistration = {
   query_table: "scratch.uploads.analyst_store_list",
   stale: false,
   follow: true,
+  repair: true,
 };
 
 function stubRegister(body: TableRegistration) {

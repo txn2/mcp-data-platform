@@ -1305,7 +1305,7 @@ The file is named by its `reference`, the string a `search` hit and a `fetch` do
 | `connection` | string | Conditional | - | Trino connection whose scratch schema holds the table (required for `register`) |
 | `table_name` | string | No | filename slug | Name for the registered table; persona-prefixed either way |
 | `follow` | boolean | No | `true` | Whether the table follows the file: each revision or version written over it moves the table onto the new contents. `false` pins the table to the version it is registered over |
-| `repair` | boolean | No | `false` | Save a corrected version of a file that cannot be read as a table the way it is stored, and register that |
+| `repair` | boolean | No | `false` | Save a corrected version of a file that cannot be read as a table the way it is stored, and register that. The choice is kept on the registration: a following table corrects each later version carrying the same kind of defect and moves onto the corrected version |
 | `registration_id` | string | Conditional | - | Registration to drop (required for `unregister`) |
 
 **Actions:**

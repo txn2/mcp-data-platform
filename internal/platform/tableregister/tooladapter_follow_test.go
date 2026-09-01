@@ -106,3 +106,34 @@ func TestToolAdapter_FollowWithNothingToResolve(t *testing.T) {
 	assert.Nil(t, located.FollowAssetTables(context.Background(), "asset_9", 2))
 	assert.Nil(t, located.FollowAssetTables(context.Background(), "asset_1", 2), "nothing registered over it")
 }
+
+// TestToolAdapter_ListSaysWhichTablesCorrectTheirFile. A table that corrects
+// its file writes versions of it nobody typed (#1577), so the listing an agent
+// reads says which tables do that -- the same thing the portal's panel says.
+func TestToolAdapter_ListSaysWhichTablesCorrectTheirFile(t *testing.T) {
+	adapter, h := newAdapterHarness(t)
+	ctx := callerContext("alice@example.com", "analyst")
+
+	corrects, err := adapter.Register(ctx, assetRef, "scratch", "live",
+		portaltoolkit.RegisterOptions{Follow: true, Repair: true})
+	require.NoError(t, err)
+	assert.True(t, corrects.Repair)
+	plain, err := adapter.Register(ctx, assetRef, "scratch", "snapshot",
+		portaltoolkit.RegisterOptions{Follow: true})
+	require.NoError(t, err)
+	assert.False(t, plain.Repair)
+
+	stored, err := h.store.Get(context.Background(), corrects.RegistrationID)
+	require.NoError(t, err)
+	assert.True(t, stored.Repair)
+
+	listed, err := adapter.Tables(ctx, assetRef)
+	require.NoError(t, err)
+	require.Len(t, listed, 2)
+	byTable := map[string]bool{}
+	for _, reg := range listed {
+		byTable[reg.QueryTable] = reg.Repair
+	}
+	assert.True(t, byTable["scratch.uploads.analyst_live"])
+	assert.False(t, byTable["scratch.uploads.analyst_snapshot"])
+}

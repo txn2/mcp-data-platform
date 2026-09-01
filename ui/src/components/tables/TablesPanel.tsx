@@ -228,7 +228,10 @@ function RegistrationRow({
             on <span className="font-medium text-foreground">{reg.connection}</span> · registered by{" "}
             {reg.registered_by}
           </p>
-          <FollowBadge reg={reg} />
+          <div className="mt-1 flex flex-wrap gap-1">
+            <FollowBadge reg={reg} />
+            <RepairBadge reg={reg} />
+          </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <CopyButton text={reg.query_table} label="Copy the table name" />
@@ -278,16 +281,41 @@ function RegistrationRow({
 function FollowBadge({ reg }: { reg: TableRegistration }) {
   if (reg.follow) {
     return (
-      <Badge variant="muted" className="mt-1 gap-1">
+      <Badge variant="muted" className="gap-1">
         <RefreshCw aria-hidden className="size-3" />
         Follows the file
       </Badge>
     );
   }
   return (
-    <Badge variant="muted" className="mt-1 gap-1">
+    <Badge variant="muted" className="gap-1">
       <Pin aria-hidden className="size-3" />
       Pinned to its version
+    </Badge>
+  );
+}
+
+// RepairBadge says that this table corrects its file: a new version that a
+// query engine cannot read past, in one of the ways the platform can correct,
+// is saved corrected as the file's next version and the table moves onto that
+// version (#1577). A reader of the file's version history will find versions
+// nobody typed, so the table that produces them says so.
+//
+// It is shown only for a table that follows its file, because that is the only
+// table it does anything for: a pinned table is not moved onto a new version
+// at all, so it never meets one to correct.
+function RepairBadge({ reg }: { reg: TableRegistration }) {
+  if (!reg.follow || !reg.repair) {
+    return null;
+  }
+  return (
+    <Badge
+      variant="muted"
+      className="gap-1"
+      title="A new version of this file that cannot be read as a table is saved corrected, and the table moves onto the corrected version."
+    >
+      <Wrench aria-hidden className="size-3" />
+      Corrects the file
     </Badge>
   );
 }
@@ -346,6 +374,7 @@ function RegisterForm({
       { onSuccess: (reg) => onDone(reg.repaired) },
     );
   };
+
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -432,6 +461,7 @@ function RegisterForm({
             <RepairOffer
               shown={needsRepair(register.error)}
               pending={register.isPending}
+              follow={follow}
               onClick={() => send(true)}
             />
           </AlertDescription>
@@ -461,10 +491,13 @@ function RegisterForm({
 function RepairOffer({
   shown,
   pending,
+  follow,
   onClick,
 }: {
   shown: boolean;
   pending: boolean;
+  /** follow decides whether the correction keeps happening; see below. */
+  follow: boolean;
   onClick: () => void;
 }) {
   if (!shown) {
@@ -486,6 +519,19 @@ function RepairOffer({
       <span className="block text-xs">
         The file you uploaded is kept as the version before it, so the correction can be undone from
         the version history.
+        {/*
+          The correction keeps happening only for a table that follows its
+          file: a pinned one is never moved onto a new version, so it never
+          meets one to correct (#1577). The offer says which of the two this
+          registration will be, because the box above it is the person's to
+          untick and the promise would otherwise be one the platform does not
+          keep.
+        */}
+        {follow
+          ? " The table keeps correcting: a later version of the file with the same problem is saved" +
+            " corrected too, and the table moves onto it."
+          : " This corrects the file once. The table is pinned to the corrected version, so a later" +
+            " version of the file is left alone; tick Follow the file to keep correcting it."}
       </span>
     </span>
   );

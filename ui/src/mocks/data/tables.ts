@@ -46,6 +46,9 @@ export const mockTableRegistrations: Record<string, TableRegistration[]> = {
         'SELECT * FROM scratch.uploads.analyst_regional_sales_summary\n-- every column is VARCHAR, so a join to a typed column casts:\n-- JOIN scratch.uploads.analyst_regional_sales_summary t ON w.id = CAST(t."region" AS BIGINT)',
       stale: false,
       follow: true,
+      // Registered with the correction on, so this table corrects its file:
+      // the state the panel renders a second badge for (#1577).
+      repair: true,
     },
   ],
   // A pinned registration left behind by a later revision: the file has a
@@ -72,6 +75,7 @@ export const mockTableRegistrations: Record<string, TableRegistration[]> = {
       sample_sql: "SELECT * FROM scratch.uploads.analyst_glossary",
       stale: true,
       follow: false,
+      repair: false,
     },
   ],
   // A following registration whose last follow did not move it (#1536): the
@@ -98,6 +102,7 @@ export const mockTableRegistrations: Record<string, TableRegistration[]> = {
       sample_sql: "SELECT * FROM scratch.uploads.finance_vendor_rebates",
       stale: true,
       follow: true,
+      repair: false,
       follow_error:
         "registering the table: the coordinator refused the statement (Access Denied: Cannot create table scratch.uploads.finance_vendor_rebates)",
     },
@@ -181,6 +186,9 @@ export async function mockRegisterTable(
     stale: false,
     // Following is the default; the form sends follow only to turn it off.
     follow: body.follow !== false,
+    // The correction is a standing choice, kept on the registration: the
+    // second submission of the form is what asks for it (#1577).
+    repair: body.repair === true,
     repaired: needsRepair
       ? `Saved version 2 of this file, which ${tornCSVRepairSummary}. The file as it was ` +
         "uploaded is still there as the version before it."
@@ -242,6 +250,7 @@ const orphanedRegistration: TableRegistration = {
   query_table: "scratch.uploads.analyst_q1_promo_codes",
   stale: true,
   follow: false,
+  repair: false,
 };
 
 /** scratchTableRows is every registration the listing spans, newest first. */

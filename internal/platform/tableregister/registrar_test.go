@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/csv"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 	"unicode/utf16"
 
 	"github.com/stretchr/testify/assert"
@@ -159,9 +161,18 @@ type memStore struct {
 	// onInsert runs just before Insert answers, which is how a test arranges
 	// the request to be canceled by the time the row is written.
 	onInsert func()
+	// clock stamps registered_at, one second apart, so rows written in order
+	// are ordered by it -- which is what the column's NOW() default gives the
+	// real store.
+	clock time.Time
 }
 
-func newMemStore() *memStore { return &memStore{rows: map[string]Registration{}} }
+func newMemStore() *memStore {
+	return &memStore{rows: map[string]Registration{}, clock: memStoreEpoch}
+}
+
+// memStoreEpoch is where the fake's registered_at clock starts.
+var memStoreEpoch = time.Date(2026, 8, 20, 14, 12, 0, 0, time.UTC)
 
 func (m *memStore) Insert(_ context.Context, r Registration) error {
 	m.mu.Lock()
@@ -177,6 +188,13 @@ func (m *memStore) Insert(_ context.Context, r Registration) error {
 			existing.Schema == r.Schema && existing.Table == r.Table {
 			return ErrNameTaken
 		}
+	}
+	// The column is NOT NULL DEFAULT NOW(), so the store stamps it and the
+	// record always carries one. A fake that left it zero would hide every
+	// ordering the real store decides by it.
+	if r.RegisteredAt.IsZero() {
+		m.clock = m.clock.Add(time.Second)
+		r.RegisteredAt = m.clock
 	}
 	m.rows[r.ID] = r
 	return nil
@@ -216,7 +234,22 @@ func (m *memStore) BySource(_ context.Context, kind, sourceID string) ([]Registr
 			out = append(out, r)
 		}
 	}
-	return out, nil
+	return newestFirst(out), nil
+}
+
+// newestFirst is the order postgresStore's reads return rows in
+// (`ORDER BY registered_at DESC, id`). Ranging a map returns them in a
+// randomized one, so a fake that handed them back as they came would let a
+// caller that depends on the order pass here and behave differently against
+// the database.
+func newestFirst(regs []Registration) []Registration {
+	sort.SliceStable(regs, func(i, j int) bool {
+		if !regs[i].RegisteredAt.Equal(regs[j].RegisteredAt) {
+			return regs[i].RegisteredAt.After(regs[j].RegisteredAt)
+		}
+		return regs[i].ID < regs[j].ID
+	})
+	return regs
 }
 
 func (m *memStore) ForSources(_ context.Context, kind string, ids []string) (map[string][]Registration, error) {
@@ -330,6 +363,11 @@ type fakeReviser struct {
 	// afterSave runs once a version has been written, which is how a test
 	// arranges a refusal that arrives after the file has already changed.
 	afterSave func()
+	// baseVersion is the version already on the file's trail, so the first
+	// correction is the one above it. A registration corrects the version it
+	// was handed, which is version 1; a follow corrects the version a write
+	// just produced, and a test of that says which one that was (#1577).
+	baseVersion int
 }
 
 // savedRevision is one thing the reviser was asked to write.
@@ -350,7 +388,7 @@ func (f *fakeReviser) Revise(
 	f.saved = append(f.saved, savedRevision{
 		sourceKind: src.Kind, sourceID: src.ID, by: caller.Email, summary: summary, content: content,
 	})
-	version := len(f.saved) + 1
+	version := f.baseVersion + len(f.saved)
 	key := DirectoryOf(src.HeadKey) + "v/rev_" + strconv.Itoa(version) + "/" + fileNameOf(src.HeadKey)
 	if f.objects != nil {
 		// The new head holds the corrected bytes, which is what a read of it
@@ -428,7 +466,7 @@ func newHarness(t *testing.T, opts ...func(*harness)) *harness {
 	for _, opt := range opts {
 		opt(h)
 	}
-	h.reviser = &fakeReviser{objects: h.objects}
+	h.reviser = &fakeReviser{objects: h.objects, baseVersion: 1}
 	n := 0
 	h.reg = New(Deps{
 		Store:    h.store,
@@ -1193,10 +1231,10 @@ func TestRegister_RepairSavesAVersionAndRegistersIt(t *testing.T) {
 	assert.False(t, res.IsStale(res.Source.Bucket, res.Source.HeadKey),
 		"a registration made against the version it just wrote is not stale")
 
-	require.NotNil(t, res.Repair)
-	assert.Equal(t, 2, res.Repair.RowsRepaired)
-	assert.Equal(t, 2, res.Repair.Version)
-	assert.Contains(t, res.Repair.Summary(), "version 2")
+	require.NotNil(t, res.Correction)
+	assert.Equal(t, 2, res.Correction.RowsRepaired)
+	assert.Equal(t, 2, res.Correction.Version)
+	assert.Contains(t, res.Correction.Summary(), "version 2")
 
 	stored, err := h.store.Get(context.Background(), res.ID)
 	require.NoError(t, err)
@@ -1218,9 +1256,9 @@ func TestRegister_RepairConvertsBytesThatAreNotUTF8(t *testing.T) {
 
 	require.Len(t, h.reviser.saved, 1)
 	assert.Contains(t, string(h.reviser.saved[0].content), "15% © ACME")
-	require.NotNil(t, res.Repair)
-	assert.Equal(t, "windows-1252", res.Repair.FromEncoding)
-	assert.Zero(t, res.Repair.RowsRepaired)
+	require.NotNil(t, res.Correction)
+	assert.Equal(t, "windows-1252", res.Correction.FromEncoding)
+	assert.Zero(t, res.Correction.RowsRepaired)
 }
 
 // TestRegister_RefusesACSVWhoseLinesEndInACarriageReturn. A file the reader
@@ -1266,9 +1304,9 @@ func TestRegister_RepairGivesACarriageReturnFileTheRowsItHolds(t *testing.T) {
 		{Name: "address", Type: "VARCHAR"},
 	}, res.Columns, "the table declares the file's own columns")
 
-	require.NotNil(t, res.Repair)
-	assert.Equal(t, "carriage return", res.Repair.FromLineEndings)
-	assert.Zero(t, res.Repair.RowsRepaired, "no cell held a line break")
+	require.NotNil(t, res.Correction)
+	assert.Equal(t, "carriage return", res.Correction.FromLineEndings)
+	assert.Zero(t, res.Correction.RowsRepaired, "no cell held a line break")
 }
 
 // TestRegister_RepairRefusesARaggedFile: filling in a short record invents data
@@ -1302,7 +1340,7 @@ func TestRegister_LineSafeFileIsRegisteredUntouched(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Empty(t, h.reviser.saved, "nothing was rewritten")
-		assert.Nil(t, res.Repair, "and nothing is reported")
+		assert.Nil(t, res.Correction, "and nothing is reported")
 		assert.Equal(t, "s3://portal-assets/artifacts/u1/asset_1/", res.Location)
 		assert.Equal(t, "artifacts/u1/asset_1/content.csv", res.Source.HeadKey)
 	}
@@ -1824,7 +1862,7 @@ func TestRegister_ARaggedFileWithNothingElseWrongStillRegisters(t *testing.T) {
 		Request{Connection: "scratch"})
 	require.NoError(t, err)
 
-	assert.Nil(t, res.Repair, "nothing was corrected")
+	assert.Nil(t, res.Correction, "nothing was corrected")
 	assert.Empty(t, h.reviser.saved)
 	assert.NotEmpty(t, h.trino.statements, "the table is created")
 	assert.Len(t, h.store.rows, 1)
@@ -1869,4 +1907,86 @@ func utf16LEUnmarked(text string) []byte {
 		out = append(out, byte(unit&0xFF), byte((unit>>8)&0xFF))
 	}
 	return out
+}
+
+// TestRegister_TheRepairChoiceIsTheOneMadeAtTheCurrentRegistration. The choice
+// to correct the file is carried on the registration and re-applied by every
+// later follow (#1577), so it has to be settable and un-settable by the only
+// thing that decides a registration's terms: registering it.
+func TestRegister_TheRepairChoiceIsTheOneMadeAtTheCurrentRegistration(t *testing.T) {
+	h := tornHarness(t)
+
+	first, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch", Follow: true, Repair: true})
+	require.NoError(t, err)
+	require.NotNil(t, first.Repair, "the file it was registered over had to be corrected")
+	assert.True(t, first.Repair)
+	stored, err := h.store.Get(context.Background(), first.ID)
+	require.NoError(t, err)
+	assert.True(t, stored.Repair, "and the record carries it")
+
+	// The correction left a version the registration reads cleanly, so
+	// registering the same name again needs no correction and asks for none.
+	second, err := h.reg.Register(context.Background(), testCaller(), first.Source,
+		Request{Connection: "scratch", Follow: true})
+	require.NoError(t, err)
+	assert.False(t, second.Repair, "the registration that is current made no such choice")
+	stored, err = h.store.Get(context.Background(), second.ID)
+	require.NoError(t, err)
+	assert.False(t, stored.Repair)
+	_, err = h.store.Get(context.Background(), first.ID)
+	assert.ErrorIs(t, err, ErrNotFound, "there is one registration of this name, not two")
+}
+
+// TestSaveCorrected_SeparatesARefusalFromAPlatformFailure. Both callers of the
+// one correction -- the registration that was asked to correct its file, and
+// the follow of a registration carrying that choice (#1577) -- gate on
+// Defect.Correctable first, so a file the CSV package then refuses is a
+// disagreement between the two. It is answered here rather than left to
+// whichever caller met it: a refusal the person can act on is not the same
+// answer as a platform failure, and a surface renders them differently.
+func TestSaveCorrected_SeparatesARefusalFromAPlatformFailure(t *testing.T) {
+	h := newHarness(t)
+	src := testSource()
+
+	// A file whose records do not have the header's fields is one the
+	// correction will not adjust, and the sentence saying so is the answer.
+	ragged := []byte("store_id,vendor_code\n101,ACME,extra\n")
+	_, _, err := h.reg.saveCorrected(context.Background(), &src, testCaller(), ragged)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrRefused)
+	assert.Contains(t, err.Error(), "its records do not all have the header's 2 fields")
+
+	// Anything else is the platform's, and keeps its own error rather than
+	// being dressed up as something the caller did.
+	_, _, err = h.reg.saveCorrected(context.Background(), &src, testCaller(), nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrEmptyHeader)
+	assert.NotErrorIs(t, err, ErrRefused)
+
+	assert.Empty(t, h.reviser.saved, "neither wrote a version")
+	assert.Equal(t, testSource(), src, "and neither moved the source off the bytes it was handed")
+}
+
+// TestResult_CarriesTheChoiceAndTheCorrectionSeparately. A Result embeds the
+// Registration, so a field named on both sides at two depths is a shadow in Go
+// and a dropped field in JSON: encoding/json keeps the shallower tag and emits
+// neither. The registration's standing choice (#1577) and what one correction
+// changed (#1441) are different answers to different questions, and a surface
+// that renders the Result has to be able to read both.
+func TestResult_CarriesTheChoiceAndTheCorrectionSeparately(t *testing.T) {
+	res := Result{
+		Registration: Registration{ID: "reg_1", Follow: true, Repair: true},
+		Correction:   &RepairReport{Version: 4},
+	}
+
+	raw, err := json.Marshal(res)
+	require.NoError(t, err)
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(raw, &out))
+
+	assert.Equal(t, true, out["repair"], "the standing choice the registration was made with")
+	correction, ok := out["correction"].(map[string]any)
+	require.True(t, ok, "what the correction changed, under its own name: %s", raw)
+	assert.Equal(t, float64(4), correction["version"])
 }

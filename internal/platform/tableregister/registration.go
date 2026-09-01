@@ -61,6 +61,19 @@ type Registration struct {
 	// returning the rows it was registered over until somebody decides
 	// otherwise.
 	Follow bool `json:"follow"`
+	// Repair means the registration corrects its file: a version of the source
+	// carrying a defect a reader cannot see past, of a kind the platform can
+	// correct, is saved corrected as the file's next version and the table is
+	// moved onto that version (#1577). Off -- the default, and what a
+	// registration made without asking gets -- such a version leaves the
+	// registration where it was with the reason recorded on it, because nobody
+	// asked for the file to be rewritten.
+	//
+	// It is on the record because the follow has nothing else to act on: the
+	// choice was made once, at a registration, and the versions it applies to
+	// arrive afterwards. It does nothing for a registration that is not
+	// following, which never meets a new version at all.
+	Repair bool `json:"repair"`
 	// FollowError is why the last follow did not move the registration, and is
 	// empty while it is where the file is. It is kept on the record because a
 	// follow never fails the write that triggered it, so the listing has to be
@@ -79,9 +92,15 @@ type Registration struct {
 type Result struct {
 	Registration
 	Source Source `json:"-"`
-	// Repair is what saving a corrected version changed, or nil when the file
-	// was registered exactly as it was stored.
-	Repair *RepairReport `json:"repair,omitempty"`
+	// Correction is what saving a corrected version changed, or nil when the
+	// file was registered exactly as it was stored.
+	//
+	// It is not called Repair. The embedded Registration carries a Repair of
+	// its own -- the standing choice this registration was made with (#1577) --
+	// and two fields under one name at two depths is a shadow in Go and a
+	// dropped field in JSON: encoding/json keeps the shallower tag and emits
+	// neither the report nor the choice.
+	Correction *RepairReport `json:"correction,omitempty"`
 	// Siblings is what a replacing registration found about the OTHER
 	// registrations on the connection after its DROP ran (#1546): one outcome
 	// per table that no longer exists. Empty when every other table is still

@@ -86,7 +86,7 @@ func (a *ToolAdapter) Register(
 	// version the correction wrote, and reporting staleness against the
 	// version it replaced would call a fresh registration stale.
 	view := toolView(res.Registration, res.Source)
-	view.Repaired = res.Repair.Summary()
+	view.Repaired = res.Correction.Summary()
 	view.Tables = Sentences(res.Siblings)
 	return &view, nil
 }
@@ -249,6 +249,7 @@ func toolView(reg Registration, src Source) portaltoolkit.TableRegistration {
 		Stale:          reg.IsStale(src.Bucket, src.HeadKey),
 		Follow:         reg.Follow,
 		FollowError:    reg.FollowError,
+		Repair:         reg.Repair,
 	}
 }
 

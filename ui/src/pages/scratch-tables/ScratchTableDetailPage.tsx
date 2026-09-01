@@ -223,6 +223,14 @@ function StateNotice({ row }: { row: ScratchTable }) {
     return (
       <p className="text-xs text-muted-foreground">
         Follows the file: each new version written over the file moves this table onto it.
+        {/*
+          A table registered with the correction writes versions of somebody's
+          file that nobody typed (#1577), so the page that lists what is
+          registered on a shared schema says which tables do that.
+        */}
+        {row.repair &&
+          " It also corrects the file: a new version a query engine cannot read is saved corrected," +
+            " as the file's next version, and this table moves onto the corrected version."}
       </p>
     );
   }

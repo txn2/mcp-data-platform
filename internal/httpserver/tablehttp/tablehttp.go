@@ -221,7 +221,7 @@ func (h *Handler) register(subject Subject) http.HandlerFunc {
 		// version the correction wrote, and staleness measured against the
 		// version it replaced would mark a fresh registration stale.
 		view := viewOf(res.Registration, res.Source)
-		view.Repaired = res.Repair.Summary()
+		view.Repaired = res.Correction.Summary()
 		writeJSON(w, http.StatusCreated, view)
 	}
 }
