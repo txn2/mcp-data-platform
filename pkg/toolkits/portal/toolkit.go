@@ -3,7 +3,6 @@
 package portal
 
 import (
-	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -19,6 +18,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
@@ -808,8 +808,8 @@ func (t *Toolkit) handleList(ctx context.Context, input manageAssetInput) (*mcp.
 	// A caller with no resolved identity owns nothing. Refusing here rather
 	// than passing an empty scope to the store is what keeps an unauthenticated
 	// call from reading the listing an administrator gets.
-	owner := callerAssetScope(ctx)
-	if !owner.Identified() {
+	owner, producer := callerAssetScope(ctx)
+	if !owner.Identified() && !producer.Named() {
 		return middleware.UnauthorizedResult(
 			"a user identity is required to list assets",
 			"Authenticate so the listing can be scoped to your assets. "+
@@ -818,8 +818,9 @@ func (t *Toolkit) handleList(ctx context.Context, input manageAssetInput) (*mcp.
 	}
 
 	assets, total, err := t.assetStore.List(ctx, portal.AssetFilter{
-		Owner: owner,
-		Limit: input.Limit,
+		Owner:      owner,
+		ProducedBy: producer,
+		Limit:      input.Limit,
 	})
 	if err != nil {
 		return toolkit.ErrorResult("failed to list assets: " + err.Error()), nil, nil
@@ -1212,24 +1213,60 @@ func resolveOwnerID(ctx context.Context) string {
 	return anonymousUserName
 }
 
-// callerAssetScope is the identity an asset ENUMERATION is scoped to: what the
-// caller's own library holds.
+// callerAssetScope is what an asset ENUMERATION is limited to: for a person the
+// assets they own, and for a managed-script run the assets that run's own
+// script produced. Exactly one of the two is returned; a caller for whom
+// neither names anything is refused by the handler rather than passed to the
+// store.
 //
-// It is deliberately narrower than callerAssetOwner for an unattended caller. A
-// run's own address is its script OWNER's, carried for accountability, and a
-// listing scoped on it would hand every run of a script the whole of that
-// person's library. Acting on a named asset its author owns is the widened path
-// (#1419); the inventory is not, and it stays the outputs the script produced.
-// For a person the two are the same identity.
-func callerAssetScope(ctx context.Context) portaldomain.AssetOwner {
+// The two are separate judgments because the enumeration is deliberately
+// narrower than callerAssetOwner for an unattended caller. A run's own address
+// is a person's, and a listing scoped on it would hand every run of a script
+// that person's whole library. Acting on a named asset its author owns is the
+// widened path (#1419); the inventory is not, and it stays the outputs the
+// script produced.
+//
+// A run is scoped by the PRODUCER the platform recorded for every write it made
+// (producedby, content_producers), not by either identifier on the row. The
+// owner id is the principal script:<name>, which two owners' same-named scripts
+// share, so it enumerates the other person's outputs (#1579); the owner_email is
+// the script owner's address AS OF THE ROW'S INSERT, and a transfer changes a
+// script's owner without rewriting a single asset row, so neither it nor the
+// pair of the two survives one. A producer id is the script's own uuid: it is
+// unique, it survives a rename, and it survives a transfer.
+//
+// The caller is unattended when it carries an address it acts FOR, which is the
+// same test the discovery provider makes (knowledge.assetScopeOf). It is not
+// PlatformContext.Source: a DRAFT run is tagged SourceScript too and
+// authenticates as the person at the keyboard, with no address it acts for and
+// no script producer, so keying on the tag would refuse a person the listing of
+// their own library while they iterate on a script.
+func callerAssetScope(ctx context.Context) (portaldomain.AssetOwner, portaldomain.ContentProducer) {
 	pc := middleware.GetPlatformContext(ctx)
 	if pc == nil {
-		return portaldomain.AssetOwner{}
+		return portaldomain.AssetOwner{}, portaldomain.ContentProducer{}
 	}
-	if pc.Source == middleware.SourceScript {
-		return portaldomain.NewAssetOwner(pc.UserID, "")
+	if pc.OnBehalfOfEmail != "" {
+		return portaldomain.AssetOwner{}, callerProducer(ctx)
 	}
-	return portaldomain.NewAssetOwner(pc.UserID, pc.UserEmail)
+	return portaldomain.NewAssetOwner(pc.UserID, pc.UserEmail), portaldomain.ContentProducer{}
+}
+
+// callerProducer is the producer scope of a managed-script run: the script the
+// run executes, named by the id its own writes are recorded under.
+//
+// It reads the producer off the context rather than rebuilding one, so what an
+// enumeration returns and what a write records can never name different things.
+// The run's context carries it from the moment the session opens
+// (scriptexec.runner.connect), and the MCP middleware leaves the more specific
+// producer in place. A caller carrying none, or one that is not a script, is
+// scoped by nothing and refused.
+func callerProducer(ctx context.Context) portaldomain.ContentProducer {
+	p, ok := producedby.From(ctx)
+	if !ok || p.Kind != producedby.KindScript {
+		return portaldomain.ContentProducer{}
+	}
+	return portaldomain.NewContentProducer(p.Kind, p.ID)
 }
 
 // callerAssetOwner is the ownership identity this call carries: the id it
@@ -1249,12 +1286,20 @@ func callerAssetScope(ctx context.Context) portaldomain.AssetOwner {
 //
 // The anonymous sentinel is not an identity: NewAssetOwner drops it, so an
 // unauthenticated caller carries no key and matches nothing.
+//
+// A run is judged on that address alone. ActingFor drops the principal because
+// it is not unique to one person -- Script.Principal() is script:<name> and a
+// script name is unique only within its OWNER -- so matching it would let a run
+// of one person's daily-sales reach the outputs of another person's
+// daily-sales, which is the same inversion #1576 fixed on the resource side
+// (#1579). Nothing is lost: a run's own writes record the address beside the
+// principal.
 func callerAssetOwner(ctx context.Context) portaldomain.AssetOwner {
 	pc := middleware.GetPlatformContext(ctx)
 	if pc == nil {
 		return portaldomain.AssetOwner{}
 	}
-	return portaldomain.NewAssetOwner(pc.UserID, cmp.Or(pc.OnBehalfOfEmail, pc.UserEmail))
+	return portaldomain.NewAssetOwner(pc.UserID, pc.UserEmail).ActingFor(pc.OnBehalfOfEmail)
 }
 
 // ownsResource reports whether the caller owns a record recorded under

@@ -86,7 +86,7 @@ func TestStoreConstructorsReturnTheRightImplementation(t *testing.T) {
 	// The version store also takes the blob client its retention prune deletes
 	// through, and the deployment's default cap (#1421).
 	require.NotNil(t, NewPostgresVersionStore(db, &mockS3Client{}, nil, nil))
-	require.NotNil(t, NewPostgresCollectionStore(db))
+	require.NotNil(t, NewPostgresCollectionStore(db, nil))
 
 	// The no-database stores must answer, not panic, with no handle.
 	assets, shares := NewNoopAssetStore(), NewNoopShareStore()

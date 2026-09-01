@@ -19,7 +19,6 @@
 package tablesource
 
 import (
-	"cmp"
 	"context"
 	"log/slog"
 	"slices"
@@ -160,8 +159,13 @@ func AssetVisibleTo(asset portal.Asset, caller tableregister.Caller, adminRoles 
 // the run's own address instead would pair one person's authority with
 // another's ownership after a transfer, which is the pairing the run's identity
 // binding refuses to make.
+//
+// A run is judged on that address alone. ActingFor drops the principal, which
+// is script:<name> and so is unique only within its owner: matched here it would
+// let a run of one person's script register, list and drop tables over the
+// outputs of another person's same-named script (#1579).
 func assetOwnerOf(caller tableregister.Caller) portaldomain.AssetOwner {
-	return portaldomain.NewAssetOwner(caller.UserID, cmp.Or(caller.OnBehalfOf, caller.Email))
+	return portaldomain.NewAssetOwner(caller.UserID, caller.Email).ActingFor(caller.OnBehalfOf)
 }
 
 // Locator resolves a source by kind and id with no authority check. It

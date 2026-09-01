@@ -19,6 +19,7 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/knowledge"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/query"
@@ -495,6 +496,7 @@ func (t *Toolkit) callerFromContext(ctx context.Context) knowledge.Caller {
 	caller := knowledge.Caller{
 		UserID: pc.UserID, Email: pc.UserEmail, Persona: pc.PersonaName,
 		OnBehalfOf: pc.OnBehalfOfEmail, SessionID: pc.SessionID,
+		ProducerID: scriptProducerID(ctx),
 	}
 	if t.personasForRoles != nil {
 		caller.Personas = t.personasForRoles(pc.Roles)
@@ -513,3 +515,16 @@ var _ interface {
 	SetQueryProvider(provider query.Provider)
 	Close() error
 } = (*Toolkit)(nil)
+
+// scriptProducerID is the id of the managed script this call is a run of, read
+// off the producer its own writes are recorded under, or "" for every other
+// caller. It is what scopes a run's asset discovery to what that script
+// produced, since the principal it authenticates as is shared by every
+// same-named script on the platform (#1579).
+func scriptProducerID(ctx context.Context) string {
+	p, ok := producedby.From(ctx)
+	if !ok || p.Kind != producedby.KindScript {
+		return ""
+	}
+	return p.ID
+}

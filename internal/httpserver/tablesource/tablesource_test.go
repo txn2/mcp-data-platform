@@ -468,3 +468,28 @@ func TestLocator_AbsentDeletedAndUnwired(t *testing.T) {
 		})
 	}
 }
+
+// A table registered over an asset is registered, listed and dropped by the
+// asset's owner. A run of one person's script must not reach the outputs of
+// another person's same-named script, which is what matching the shared
+// principal script:<name> would have let it do (#1579).
+func TestAssetVisibleTo_ARunDoesNotReachASameNamedScriptsOutput(t *testing.T) {
+	output := portal.Asset{
+		ID: "a1", Name: "Weekly revenue",
+		OwnerID: "script:weekly-revenue", OwnerEmail: "alice@example.com",
+	}
+
+	assert.True(t, AssetVisibleTo(output, tableregister.Caller{
+		UserID: "script:weekly-revenue", Email: "alice@example.com",
+		OnBehalfOf: "alice@example.com",
+	}, nil), "the author's own run still registers over its own output")
+
+	assert.False(t, AssetVisibleTo(output, tableregister.Caller{
+		UserID: "script:weekly-revenue", Email: "bob@example.com",
+		OnBehalfOf: "bob@example.com",
+	}, nil), "another owner's same-named script must not reach it")
+
+	assert.False(t, AssetVisibleTo(output, tableregister.Caller{
+		UserID: "u-bob", Email: "bob@example.com",
+	}, nil), "the person that run acts for cannot reach it either")
+}

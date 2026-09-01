@@ -16,6 +16,16 @@
 //
 // Recording is best effort at the write funnels every write already passes
 // through. Losing the note that a write happened must never lose the write.
+//
+// Since #1579 the relation is also LOAD-BEARING for what a managed-script run
+// enumerates: a run's asset listing, its ranked asset search, its collection
+// listing and the references its fetch will dereference are all scoped by the
+// producer recorded here, because neither identifier a row records names one
+// script. A note that is dropped therefore leaves the asset or collection out
+// of that run's inventory permanently, with the write itself standing and only
+// the warning below to say so. The two properties pull against each other and
+// the order is deliberate: a lost note is a missing row in one listing, a lost
+// write is a missing file.
 package producedby
 
 import (
@@ -23,11 +33,16 @@ import (
 	"time"
 )
 
-// Target kinds. Asset ids and resource ids are separate id spaces, so the kind
-// is part of every key and every lookup.
+// Target kinds. Asset, resource and collection ids are separate id spaces, so
+// the kind is part of every key and every lookup.
 const (
 	TargetAsset    = "asset"
 	TargetResource = "resource"
+	// TargetCollection was added by #1579, which needed the one identifier
+	// that says WHICH script created a collection: a run's collections record
+	// the principal script:<name>, and a script name is unique only within its
+	// owner, so two owners' same-named scripts share one owner id.
+	TargetCollection = "collection"
 )
 
 // Producer kinds.

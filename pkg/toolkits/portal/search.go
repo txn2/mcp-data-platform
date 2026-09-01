@@ -43,8 +43,8 @@ func (t *Toolkit) handleSearch(ctx context.Context, input manageAssetInput) (*mc
 		return middleware.MissingParameterResult("query"), nil, nil
 	}
 
-	owner := callerAssetScope(ctx)
-	if !owner.Identified() {
+	owner, producer := callerAssetScope(ctx)
+	if !owner.Identified() && !producer.Named() {
 		return middleware.UnauthorizedResult(
 			"a user identity is required to search assets",
 			"Authenticate so the search can be scoped to your assets. This is an identity problem, not a platform outage.",
@@ -58,10 +58,11 @@ func (t *Toolkit) handleSearch(ctx context.Context, input manageAssetInput) (*mc
 	}
 
 	scored, err := searcher.SearchAssets(ctx, portal.AssetSearchQuery{
-		Embedding: emb,
-		QueryText: query,
-		Owner:     owner,
-		Limit:     input.Limit,
+		Embedding:  emb,
+		QueryText:  query,
+		Owner:      owner,
+		ProducedBy: producer,
+		Limit:      input.Limit,
 	})
 	if err != nil {
 		return toolkit.ErrorResult("failed to search assets: " + err.Error()), nil, nil

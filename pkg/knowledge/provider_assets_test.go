@@ -88,14 +88,38 @@ func TestAssetsProvider_SearchScopesAnUnattendedCallerToItsOwnOutputs(t *testing
 	p := NewAssetsProvider(s)
 	if _, err := p.Search(context.Background(), Query{Caller: Caller{
 		UserID: "script:weekly", Email: "owner@example.com", OnBehalfOf: "author@example.com",
+		ProducerID: "script-uuid",
 	}}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if s.got.Owner.Email != "" {
-		t.Errorf("Owner.Email = %q, want no address on an unattended search", s.got.Owner.Email)
+	// Neither identifier on the row names one script: the owner id is the
+	// principal every same-named script shares, and the owner_email is the
+	// script owner's address as of the insert, which a transfer does not
+	// rewrite. A run is scoped by the producer its own writes recorded (#1579).
+	if s.got.Owner.Identified() {
+		t.Errorf("Owner = %+v, want no owner scope on an unattended search", s.got.Owner)
 	}
-	if s.got.Owner.UserID != "script:weekly" {
-		t.Errorf("Owner.UserID = %q, want the run's own principal", s.got.Owner.UserID)
+	if s.got.ProducedBy.Kind != "script" || s.got.ProducedBy.ID != "script-uuid" {
+		t.Errorf("ProducedBy = %+v, want the run's own script id", s.got.ProducedBy)
+	}
+}
+
+// A run in a deployment that records no producer is scoped by nothing, and is
+// answered with nothing rather than with the rows its principal shares.
+func TestAssetsProvider_SearchRefusesARunWithNoProducer(t *testing.T) {
+	s := &fakeAssetSearcher{}
+	p := NewAssetsProvider(s)
+	hits, err := p.Search(context.Background(), Query{Caller: Caller{
+		UserID: "script:weekly", Email: "owner@example.com", OnBehalfOf: "author@example.com",
+	}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(hits) != 0 {
+		t.Errorf("hits = %d, want none", len(hits))
+	}
+	if s.called {
+		t.Error("the store must not be asked for a scope naming nothing")
 	}
 }
 
@@ -107,6 +131,60 @@ func TestAssetsProvider_FetchScopesAnUnattendedCallerToTheAddressItActsFor(t *te
 	})
 	if owner.Email != "author@example.com" {
 		t.Errorf("Owner.Email = %q, want the address the run acts for", owner.Email)
+	}
+	// And only that address. The principal is script:<name>, unique only
+	// within its owner, so reading it would let this run dereference a
+	// reference to another person's same-named script's output (#1579).
+	if owner.Owns("script:weekly", "someone-else@example.com") {
+		t.Error("a run must not reach another owner's same-named script's output")
+	}
+	if !owner.Owns("script:weekly", "author@example.com") {
+		t.Error("a run must still reach what the person it acts for owns")
+	}
+}
+
+// Fetch has to dereference everything Search returned. A run's search is scoped
+// by its producer, so its fetch reads the same relation: without that arm a run
+// whose author is not its script's owner -- what a transfer or an
+// administrator's edit leaves -- would rank its own output and then be refused
+// the reference to it (#1579).
+func TestAssetsProvider_FetchDereferencesWhatItsOwnScriptProduced(t *testing.T) {
+	// The row a transfer leaves: the principal as its owner id, and the
+	// PREVIOUS owner's address, which nothing rewrites.
+	s := &fakeAssetSearcher{asset: &portal.Asset{
+		ID: "a1", Name: "Weekly revenue",
+		OwnerID: "script:weekly", OwnerEmail: "previous.owner@example.com",
+	}}
+	run := Caller{
+		UserID: "script:weekly", Email: "new.owner@example.com",
+		OnBehalfOf: "admin@example.com", ProducerID: "script-uuid",
+	}
+
+	// Without the lookup the reference is refused: the run owns nothing on the
+	// row, which is what the address arm alone answers.
+	p := NewAssetsProvider(s)
+	if _, owned, err := p.Fetch(context.Background(), "mcp:asset:a1", run); !owned || !errors.Is(err, ErrNotFound) {
+		t.Fatalf("the premise fails: owned=%v err=%v", owned, err)
+	}
+
+	var askedAsset, askedScript string
+	p.SetProducerLookup(func(_ context.Context, assetID, scriptID string) bool {
+		askedAsset, askedScript = assetID, scriptID
+		return true
+	})
+	doc, owned, err := p.Fetch(context.Background(), "mcp:asset:a1", run)
+	if err != nil || !owned || doc == nil {
+		t.Fatalf("a run was refused a reference to its own output: owned=%v err=%v", owned, err)
+	}
+	if askedAsset != "a1" || askedScript != "script-uuid" {
+		t.Errorf("looked up (%q, %q), want the asset and the run's own script id", askedAsset, askedScript)
+	}
+
+	// The arm admits nothing the search does not: another script's output is
+	// still refused, and a person carries no producer id at all.
+	p.SetProducerLookup(func(context.Context, string, string) bool { return false })
+	if _, _, err := p.Fetch(context.Background(), "mcp:asset:a1", run); !errors.Is(err, ErrNotFound) {
+		t.Errorf("err = %v, want ErrNotFound for an asset this script did not produce", err)
 	}
 }
 

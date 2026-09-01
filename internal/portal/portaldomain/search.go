@@ -94,8 +94,14 @@ func clampSearchLimit(limit int) int {
 type AssetSearchQuery struct {
 	Embedding []float32  // query vector; nil selects lexical-only ranking
 	QueryText string     // raw query text for the lexical arm
-	Owner     AssetOwner // caller identity; mandatory owner scope
-	Limit     int        // max results; clamped into [1, maxSearchLimit]
+	Owner     AssetOwner // caller identity; the owner scope
+	// ProducedBy scopes the ranking to what one producer wrote, which is how a
+	// managed-script run's own outputs are ranked: the producer id is the
+	// script's, unlike the identifiers on the row (#1579). A query must carry
+	// an Owner or a ProducedBy; SearchAssets refuses one carrying neither
+	// rather than ranking every asset on the platform.
+	ProducedBy ContentProducer
+	Limit      int // max results; clamped into [1, maxSearchLimit]
 }
 
 // EffectiveLimit clamps the requested limit into the search bounds.

@@ -9,6 +9,7 @@ import (
 	"github.com/pgvector/pgvector-go"
 
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/internal/producedby"
 )
 
 // Compile-time check: the PostgreSQL asset store provides ranked search.
@@ -45,12 +46,12 @@ const (
 	assetFTSQueryLexical = "plainto_tsquery('english', $1)"
 )
 
-// hybridOwnerPlaceholder and lexicalOwnerPlaceholder are the first placeholder
-// each ranked statement has left for the ownership arm: the hybrid arms bind
-// the vector and the query text first, the lexical one only the query text.
+// hybridScopePlaceholder and lexicalScopePlaceholder are the first placeholder
+// each ranked statement has left for the scope arm: the hybrid arms bind the
+// vector and the query text first, the lexical one only the query text.
 const (
-	hybridOwnerPlaceholder  = 3
-	lexicalOwnerPlaceholder = 2
+	hybridScopePlaceholder  = 3
+	lexicalScopePlaceholder = 2
 )
 
 // SearchAssets ranks the caller's non-deleted assets by relevance to the query.
@@ -59,14 +60,15 @@ const (
 // configured. Owner scope is applied in SQL before ranking, so an asset the
 // caller does not own is never returned.
 //
-// A caller with neither identifier owns nothing, and is answered with nothing
-// rather than with every unattributed asset on the platform.
+// A query scoped by neither an owner nor a producer reaches nothing, and is
+// answered with nothing rather than with every unattributed asset on the
+// platform.
 func (s *postgresAssetStore) SearchAssets(ctx context.Context, q portaldomain.AssetSearchQuery) ([]portaldomain.ScoredAsset, error) { //nolint:revive // interface impl
 	var (
 		scored []portaldomain.ScoredAsset
 		err    error
 	)
-	if !q.Owner.Identified() {
+	if !q.Owner.Identified() && !q.ProducedBy.Named() {
 		return nil, nil
 	}
 	if len(q.Embedding) > 0 {
@@ -88,7 +90,7 @@ func (s *postgresAssetStore) SearchAssets(ctx context.Context, q portaldomain.As
 // statement to a real PostgreSQL to parse and plan (#1512).
 func buildAssetHybridSearch(q portaldomain.AssetSearchQuery) (query string, args []any) {
 	limit := q.EffectiveLimit()
-	scope, scopeArgs := assetSearchOwnerScope(q.Owner, hybridOwnerPlaceholder)
+	scope, scopeArgs := assetSearchScope(q, hybridScopePlaceholder)
 	base := "deleted_at IS NULL AND " + scope
 	args = append([]any{pgvector.NewVector(q.Embedding), q.QueryText}, scopeArgs...)
 
@@ -180,7 +182,7 @@ func collectHybridAssets(rows *sql.Rows, limit int) ([]portaldomain.ScoredAsset,
 // buildAssetLexicalSearch renders the lexical statement and its arguments, for
 // the same reason buildAssetHybridSearch exists.
 func buildAssetLexicalSearch(q portaldomain.AssetSearchQuery) (query string, args []any) {
-	scope, scopeArgs := assetSearchOwnerScope(q.Owner, lexicalOwnerPlaceholder)
+	scope, scopeArgs := assetSearchScope(q, lexicalScopePlaceholder)
 	// #nosec G201 -- column list and FTS expr are constants; the owner scope
 	// contributes only parameterized placeholders; limit and the normalization
 	// bitmask are sanitized ints.
@@ -193,31 +195,69 @@ func buildAssetLexicalSearch(q portaldomain.AssetSearchQuery) (query string, arg
 	return query, append([]any{q.QueryText}, scopeArgs...)
 }
 
-// assetSearchOwnerScope renders the ownership arm of a ranked-search statement
-// and the arguments it binds, numbering its placeholders from $next.
+// producerScopeArgs is how many placeholders the producer arm binds, which is
+// where the ownership arm's numbering resumes when a query carries both.
+const producerScopeArgs = 3
+
+// assetSearchScope renders the arm that limits a ranked-search statement to the
+// rows this query may return, and the arguments it binds, numbering its
+// placeholders from $next.
 //
-// It is the raw-SQL counterpart of assetOwnerPredicate: a managed script's
-// output is stamped with the script principal as its owner id and the script
-// owner's address as owner_email, so a search that scoped on the id alone could
-// never return to a person what a run produced for them (#1551). The address is
-// bound only when the caller has one, so the anonymous sentinel is never a
-// parameter and an unattributed row is not matched by an unauthenticated
-// caller.
+// It is the raw-SQL counterpart of assetOwnerPredicate and producedByPredicate
+// and reads the same values, so what a search ranks and what a listing returns
+// cannot disagree about whose row a row is.
+//
+// A managed script's output is stamped with the script principal as its owner
+// id and the script owner's address as owner_email, so a search that scoped on
+// the id alone could never return to a person what a run produced for them
+// (#1551). A RUN is scoped by neither: the principal is shared by every
+// same-named script on the platform and the address is the script owner's as of
+// the row's insert, which a transfer does not rewrite, so the run's own outputs
+// are found through the producer recorded for its writes instead (#1579). Each
+// value is bound only when it is an arm, so the anonymous sentinel is never a
+// parameter and an unattributed row is not matched by an unauthenticated caller.
+func assetSearchScope(q portaldomain.AssetSearchQuery, next int) (scope string, args []any) {
+	if q.ProducedBy.Named() {
+		// #nosec G201 -- the table and column names are constants; the
+		// producer's own values are bound.
+		byProducer := fmt.Sprintf(
+			"EXISTS (SELECT 1 FROM content_producers cp WHERE cp.target_kind = $%d "+
+				"AND cp.target_id = portal_assets.id AND cp.producer_kind = $%d "+
+				"AND cp.producer_id = $%d AND cp.created)", next, next+1, next+2)
+		if !q.Owner.Identified() {
+			return byProducer, []any{producedby.TargetAsset, q.ProducedBy.Kind, q.ProducedBy.ID}
+		}
+		// Both set narrows to their intersection, which is what the listing
+		// does with the same pair (applyAssetFilter adds each as its own
+		// WHERE). No in-tree caller sets both -- each surface scopes a person
+		// or a run, never a mixture -- but AssetSearchQuery is on the supported
+		// surface, and a search returning MORE than the listing for one query
+		// would be a widening nobody asked for.
+		ownerScope, ownerArgs := assetSearchOwnerScope(q.Owner, next+producerScopeArgs)
+		args = make([]any, 0, producerScopeArgs+len(ownerArgs))
+		args = append(args, producedby.TargetAsset, q.ProducedBy.Kind, q.ProducedBy.ID)
+		return "(" + byProducer + " AND " + ownerScope + ")", append(args, ownerArgs...)
+	}
+	return assetSearchOwnerScope(q.Owner, next)
+}
+
+// assetSearchOwnerScope renders the ownership half of the scope: the row's
+// owner id, the address it records, or neither.
 func assetSearchOwnerScope(owner portaldomain.AssetOwner, next int) (scope string, args []any) {
-	email := owner.EmailKey()
+	arms := owner.Arms()
 	switch {
-	case owner.UserID == "" && email == "":
-		// SearchAssets refuses an identity naming nobody before it gets here;
+	case arms.UserID == "" && arms.Email == "":
+		// SearchAssets refuses a query scoped by nothing before it gets here;
 		// this is what keeps a caller that does not from ranking every
 		// unattributed asset on the platform.
 		return "FALSE", nil
-	case owner.UserID == "":
-		return fmt.Sprintf("LOWER(owner_email) = LOWER($%d)", next), []any{email}
-	case email == "":
-		return fmt.Sprintf("owner_id = $%d", next), []any{owner.UserID}
+	case arms.UserID == "":
+		return fmt.Sprintf("LOWER(owner_email) = LOWER($%d)", next), []any{arms.Email}
+	case arms.Email == "":
+		return fmt.Sprintf("owner_id = $%d", next), []any{arms.UserID}
 	default:
 		return fmt.Sprintf("(owner_id = $%d OR LOWER(owner_email) = LOWER($%d))", next, next+1),
-			[]any{owner.UserID, email}
+			[]any{arms.UserID, arms.Email}
 	}
 }
 

@@ -510,3 +510,46 @@ func TestExportDeps_ReadyRequiresEveryPiece(t *testing.T) {
 		})
 	}
 }
+
+// TestOutputWriter_SameNamedScriptsOfTwoOwnersGetTwoAssets pins the property
+// #1579 asked about on the write side: two people who each keep a daily-sales
+// present the same principal (Script.Principal() is script:<name>, and
+// idx_scripts_name_owner makes a name unique only within its owner), and
+// GetByIdempotencyKey is keyed on that principal.
+//
+// They do not collide, because the idempotency key names the script by ID
+// (outputIdentityKey), so the lookup that would otherwise resolve one person's
+// output to the other's asset misses and each script mints its own. Nothing was
+// changed to make this true; the test is here so a later change to the key
+// scheme cannot make it false silently.
+func TestOutputWriter_SameNamedScriptsOfTwoOwnersGetTwoAssets(t *testing.T) {
+	ctx := context.Background()
+	h := newWriterHarness(t)
+
+	// The other person's script: the same name, so the same principal, and a
+	// different id and owner.
+	other := &script.Script{
+		ID: "script_2", Name: h.writer.script.Name, OwnerEmail: "bob@example.com",
+		Enabled: true, Status: script.StatusActive, Version: 1,
+	}
+	require.Equal(t, h.writer.script.Principal(), other.Principal(),
+		"the premise: two owners' same-named scripts present one principal")
+
+	otherRun := &script.Run{ID: "dpx_other", ScriptID: other.ID, VersionID: "sver_other", Version: 1}
+	require.NoError(t, h.runs.Enqueue(ctx, otherRun))
+	otherRun.LockedBy, otherRun.Attempt = "worker-a", 1
+	otherWriter := newOutputWriter(h.writer.deps, h.runs, otherRun, other, h.caller)
+
+	mine, err := h.writer.Export(ctx, csvRequest("daily"))
+	require.NoError(t, err)
+	theirs, err := otherWriter.Export(ctx, csvRequest("daily"))
+	require.NoError(t, err)
+
+	assert.NotEqual(t, mine.AssetID, theirs.AssetID,
+		"one person's output must not resolve to the other's asset")
+	require.Len(t, h.assets.inserted, 2)
+	assert.Equal(t, "jane@example.com", h.assets.inserted[0].OwnerEmail)
+	assert.Equal(t, "bob@example.com", h.assets.inserted[1].OwnerEmail,
+		"the address is what distinguishes the two rows sharing a principal")
+	assert.Equal(t, 1, theirs.AssetVersion, "the second script writes its own first version")
+}

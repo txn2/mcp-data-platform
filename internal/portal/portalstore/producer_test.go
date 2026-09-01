@@ -2,6 +2,7 @@ package portalstore
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -85,4 +86,49 @@ func TestInsertFailureRecordsNoProducer(t *testing.T) {
 	})
 	assert.Error(t, store.Insert(ctx, portaldomain.Asset{ID: "asset-1"}))
 	assert.Empty(t, rec.writes)
+}
+
+// AssetHasProducer is the point read behind one asset, beside the arm that
+// scopes a listing. A managed-script run dereferences a reference to its own
+// output through it, because neither identifier on the row names one script
+// (#1579).
+func TestAssetHasProducer(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		has  bool
+	}{{"produced by this script", true}, {"produced by another", false}} {
+		t.Run(tt.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			require.NoError(t, err)
+			defer db.Close() //nolint:errcheck // test cleanup
+
+			mock.ExpectQuery("SELECT EXISTS").
+				WithArgs(producedby.TargetAsset, "a1", producedby.KindScript, "script-uuid").
+				WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(tt.has))
+
+			store, ok := NewPostgresAssetStore(db, nil).(*postgresAssetStore)
+			require.True(t, ok)
+			got, err := store.AssetHasProducer(
+				context.Background(), "a1", producedby.KindScript, "script-uuid")
+			require.NoError(t, err)
+			assert.Equal(t, tt.has, got)
+			assert.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}
+
+// A read that failed is an error, not a false: the caller decides what a store
+// it could not reach means, and on the serving path it means "no".
+func TestAssetHasProducerReportsAFailedRead(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	mock.ExpectQuery("SELECT EXISTS").WillReturnError(errors.New("connection refused"))
+
+	store, ok := NewPostgresAssetStore(db, nil).(*postgresAssetStore)
+	require.True(t, ok)
+	has, err := store.AssetHasProducer(context.Background(), "a1", producedby.KindScript, "s1")
+	require.Error(t, err)
+	assert.False(t, has)
 }

@@ -1,7 +1,6 @@
 package knowledge
 
 import (
-	"cmp"
 	"context"
 	"database/sql"
 	"errors"
@@ -9,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 )
@@ -34,11 +34,39 @@ type AssetSearcher interface {
 type AssetsProvider struct {
 	searcher AssetSearcher
 	tables   TableLookup
+	produced ScriptProducerLookup
+}
+
+// ScriptProducerLookup reports whether the asset was produced by the managed
+// script with this id, read from the producer relation the write recorded
+// (content_producers). It is what keeps this provider's fetch able to
+// dereference everything its own search returns to a run.
+//
+// A nil lookup answers false everywhere, which is what a deployment keeping no
+// producer record gets: a run then reaches only what the person it acts for
+// owns, and its search returns nothing to dereference in the first place.
+type ScriptProducerLookup func(ctx context.Context, assetID, scriptID string) bool
+
+// AssetProducerReader is the optional capability an asset store implements to
+// answer whether one producer wrote one asset. The PostgreSQL store does,
+// because it holds the producer record it writes on every insert; federation
+// asserts it off the store exactly as it asserts AssetSearcher, so a store
+// without it leaves the provider serving what it always did.
+type AssetProducerReader interface {
+	AssetHasProducer(ctx context.Context, assetID, producerKind, producerID string) (bool, error)
 }
 
 // NewAssetsProvider builds the assets provider over an asset searcher.
 func NewAssetsProvider(searcher AssetSearcher) *AssetsProvider {
 	return &AssetsProvider{searcher: searcher}
+}
+
+// SetProducerLookup binds the lookup that tells a fetch whether an asset was
+// produced by the script an unattended caller is a run of. Called after
+// construction for the reason SetTableLookup is: a provider without it serves
+// what it always did.
+func (p *AssetsProvider) SetProducerLookup(lookup ScriptProducerLookup) {
+	p.produced = lookup
 }
 
 // SetTableLookup binds the lookup that tells a hit whether the asset behind it
@@ -59,16 +87,17 @@ func (*AssetsProvider) Scope() Scope { return ScopePerUser }
 // Search returns the caller's assets ranked by relevance. It fails closed on a
 // caller with no identity at all rather than searching across all owners.
 func (p *AssetsProvider) Search(ctx context.Context, q Query) ([]Hit, error) {
-	owner := assetScopeOf(q.Caller)
-	if !owner.Identified() {
+	owner, producer := assetScopeOf(q.Caller)
+	if !owner.Identified() && !producer.Named() {
 		return nil, nil
 	}
 
 	scored, err := p.searcher.SearchAssets(ctx, portal.AssetSearchQuery{
-		Embedding: q.Embedding,
-		QueryText: q.Intent,
-		Owner:     owner,
-		Limit:     q.Limit,
+		Embedding:  q.Embedding,
+		QueryText:  q.Intent,
+		Owner:      owner,
+		ProducedBy: producer,
+		Limit:      q.Limit,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("asset search: %w", err)
@@ -115,7 +144,7 @@ func (p *AssetsProvider) Fetch(ctx context.Context, ref string, caller Caller) (
 		return nil, false, nil //nolint:nilerr // a non-asset reference is a decline, not a failure
 	}
 	owner := assetOwnerOf(caller)
-	if !owner.Identified() {
+	if !owner.Identified() && caller.ProducerID == "" {
 		return nil, true, ErrNotFound
 	}
 	asset, err := p.searcher.Get(ctx, parsed.AssetID)
@@ -131,7 +160,7 @@ func (p *AssetsProvider) Fetch(ctx context.Context, ref string, caller Caller) (
 	// Fail closed on ownership: a missing, deleted, or other-owner asset is
 	// indistinguishable to the caller (all ErrNotFound), so fetch leaks neither the
 	// content nor the existence of an asset the caller could not have searched.
-	if asset == nil || asset.DeletedAt != nil || !owner.OwnsAsset(asset) {
+	if asset == nil || asset.DeletedAt != nil || !p.mayFetch(ctx, caller, owner, asset) {
 		return nil, true, ErrNotFound
 	}
 	return &Document{
@@ -146,6 +175,28 @@ func (p *AssetsProvider) Fetch(ctx context.Context, ref string, caller Caller) (
 	}, true, nil
 }
 
+// mayFetch reports whether this caller may dereference a reference to this
+// asset: it belongs to the person the caller acts as, or -- for a managed-script
+// run -- this run's own script produced it.
+//
+// The second arm exists so fetch can dereference everything search returned. A
+// run's search is scoped by its producer rather than by either identifier on the
+// row, because the owner id is the principal every same-named script shares and
+// the owner_email is the script owner's address as of the row's insert, which a
+// transfer does not rewrite (#1579). Without the matching arm here, a run whose
+// author is not its script's owner -- what a transfer or an administrator's edit
+// leaves -- would rank its own output and then be refused the reference to it.
+//
+// It admits nothing the search does not already return: both read the same
+// producer relation, and a person carries no producer id at all.
+func (p *AssetsProvider) mayFetch(ctx context.Context, caller Caller, owner portaldomain.AssetOwner, asset *portal.Asset) bool {
+	if owner.OwnsAsset(asset) {
+		return true
+	}
+	return caller.ProducerID != "" && p.produced != nil &&
+		p.produced(ctx, asset.ID, caller.ProducerID)
+}
+
 // assetOwnerOf is the ownership identity a caller is judged by when it names an
 // asset.
 //
@@ -155,23 +206,32 @@ func (p *AssetsProvider) Fetch(ctx context.Context, ref string, caller Caller) (
 // owner_email, so an id-only check hides from a person the very asset a run
 // produced for them (#1551). For an unattended caller the address is the one it
 // acts for, which is the same person its authority came from, so a run reaches
-// what its author reaches and nothing else (#1419).
+// what its author reaches and nothing else (#1419) -- and only that address,
+// since a script principal is unique only within its owner and reading it would
+// admit another person's same-named script's outputs (#1579).
 func assetOwnerOf(c Caller) portaldomain.AssetOwner {
-	return portaldomain.NewAssetOwner(c.UserID, cmp.Or(c.OnBehalfOf, c.Email))
+	return portaldomain.NewAssetOwner(c.UserID, c.Email).ActingFor(c.OnBehalfOf)
 }
 
-// assetScopeOf is the identity a SEARCH is scoped to: the caller's own library.
+// assetScopeOf is what a SEARCH is limited to: for a person their own library,
+// and for an unattended caller the assets its own script produced. Exactly one
+// of the two is returned.
 //
-// An unattended caller carries no address here. Its own address is the script
-// owner's, carried for accountability, and ranking on it would return the whole
-// of that person's library to every run of their script. A run's inventory is
-// the outputs it produced; acting on a named asset its author owns is the
-// widened path, and it is the one above.
-func assetScopeOf(c Caller) portaldomain.AssetOwner {
+// Ranking a run on the address it carries would return the whole of that
+// person's library to every run of their script. A run's inventory is the
+// outputs it produced; acting on a named asset its author owns is the widened
+// path, and it is the one above.
+//
+// A run is scoped by the PRODUCER recorded for every write it made
+// (content_producers), not by either identifier on the row: the owner id is the
+// principal script:<name>, which two owners' same-named scripts share (#1579),
+// and the owner_email is the script owner's address as of the row's insert,
+// which a transfer does not rewrite. The producer id is the script's own uuid.
+func assetScopeOf(c Caller) (portaldomain.AssetOwner, portaldomain.ContentProducer) {
 	if c.OnBehalfOf != "" {
-		return portaldomain.NewAssetOwner(c.UserID, "")
+		return portaldomain.AssetOwner{}, portaldomain.NewContentProducer(producedby.KindScript, c.ProducerID)
 	}
-	return portaldomain.NewAssetOwner(c.UserID, c.Email)
+	return portaldomain.NewAssetOwner(c.UserID, c.Email), portaldomain.ContentProducer{}
 }
 
 // assetOutboundRefs are the links an asset declares: the session that produced

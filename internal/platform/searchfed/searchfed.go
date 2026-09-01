@@ -32,9 +32,11 @@
 package searchfed
 
 import (
+	"context"
 	"log/slog"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/internal/tableavail"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/knowledge"
@@ -275,7 +277,9 @@ func appendPortalStoreProviders(cfg Config, providers []knowledge.Provider) []kn
 	}
 	// Assets are searchable and fetchable only through the postgres asset store.
 	if s, ok := cfg.AssetStore.(knowledge.AssetSearcher); ok {
-		providers = append(providers, knowledge.NewAssetsProvider(s))
+		ap := knowledge.NewAssetsProvider(s)
+		ap.SetProducerLookup(scriptProducedAsset(cfg.AssetStore))
+		providers = append(providers, ap)
 	}
 	// Managed resources (human-uploaded reference material) join the corpus
 	// through the postgres resource store, which is the only implementation that
@@ -370,4 +374,27 @@ func (h *Handle) Toolkit() *searchkit.Toolkit {
 		return nil
 	}
 	return h.toolkit
+}
+
+// scriptProducedAsset builds the lookup the assets provider dereferences a
+// run's own output through: whether this asset carries a producer row naming
+// this script.
+//
+// The capability is asserted off the asset store rather than wired as another
+// dependency, the same way the searcher itself is: the PostgreSQL store already
+// holds the producer record it writes on every insert, and a store that does not
+// implement the read leaves the provider serving what it always did.
+//
+// A store that cannot answer is treated as "no", the same way every other
+// producer read on a serving path is: the relation is a record of what wrote a
+// file, not an authority to be granted on a failed read.
+func scriptProducedAsset(store portal.AssetStore) knowledge.ScriptProducerLookup {
+	reader, ok := store.(knowledge.AssetProducerReader)
+	if !ok {
+		return nil
+	}
+	return func(ctx context.Context, assetID, scriptID string) bool {
+		has, err := reader.AssetHasProducer(ctx, assetID, producedby.KindScript, scriptID)
+		return err == nil && has
+	}
 }

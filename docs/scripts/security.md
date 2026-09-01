@@ -166,7 +166,7 @@ behaviors described below; it grants nothing (`pkg/middleware/mcp.go`).
 | `scripts.destinations` configuration | The complete set of addresses a script's output can leave the platform for |
 | Data reachable through `platform.query` | Whatever the running identity's persona and connections allow |
 | Run records (`script_runs`) | Parameters, timings, output ids, and the log a run printed; readable by the script's owner, an administrator, and whoever requested that particular run |
-| Output assets | Portal assets a run writes. The row records the run's principal as its owner id and the script owner's address beside it, and ownership is judged on either, so the asset is the script owner's to open, change, share and delete (#1551) |
+| Output assets | Portal assets a run writes. The row records the run's principal as its owner id and the script owner's address beside it. A person is judged on either, so the asset is the script owner's to open, change, share and delete (#1551); a run is judged on the address alone, since a principal is unique only within its owner, and ENUMERATES by the producer recorded for its own writes (#1579) |
 | Delivered objects | Data a run writes out of the platform, into the bucket and prefix a configured destination names, where the platform's own access controls no longer apply |
 | Run logs | Bounded free text a script chooses to emit; may echo queried data |
 | Connection credentials | Never reachable from a script; held by the platform and used by the toolkit |
@@ -270,8 +270,22 @@ one (#1419).
 A platform run therefore carries a second identity: the address of the person it
 acts for (`middleware.UserInfo.OnBehalfOf`, read by tools as
 `PlatformContext.OnBehalfOfEmail`, set by
-`internal/platform/scriptexec/runner.go`). Ownership checks accept either the
-caller's user id or that address (`pkg/toolkits/portal`, `ownsResource`).
+`internal/platform/scriptexec/runner.go`). A person is judged on either their
+user id or their address; an unattended caller is judged on the address alone
+(`portaldomain.AssetOwner.ActingFor`, read through `pkg/toolkits/portal`,
+`ownsResource`).
+
+The principal is dropped from that comparison because it is not unique to one
+person. `Script.Principal()` is `script:<name>` and `idx_scripts_name_owner` is
+`UNIQUE (owner_email, name)`, so a name is unique only within its OWNER: two
+people who each keep a `daily-sales` present the same subject, and matching it
+gave a run of one person's script the outputs of the other person's — readable,
+rewritable, and reachable wherever `ownsResource` is the gate, while the person
+that run acts for could reach none of it (#1579). Nothing is lost by dropping
+it, because a run's own writes record the address beside the principal. It is
+the same conclusion `CanModifyResource` reached on the resource side (#1576),
+and it is why an ownership identity states which kind of caller it belongs to
+rather than carrying two interchangeable keys.
 
 ![Transferring a script to another owner](../images/screenshots/light/admin-admin-script-owner-light.webp#only-light)![Transferring a script to another owner](../images/screenshots/dark/admin-admin-script-owner-dark.webp#only-dark)
 
@@ -325,12 +339,32 @@ Five limits, stated rather than implied:
   their scripts. A grant made to a person is not a grant to everything that
   person automates.
 - **Asset enumeration stays the script's own.** `manage_asset list` and `search`
-  over assets scope to the calling principal alone, so a script's asset listing
-  is the outputs that script produced, not its author's library and not its
-  owner's. Acting on a named asset is the widened path; the inventory is not.
-  The two are separate judgments in the code for that reason
+  over assets scope to the PRODUCER the platform recorded for the run's own
+  writes (`content_producers`, #1569), so a script's asset listing is the
+  outputs that script produced, not its author's library and not its owner's —
+  and not another owner's same-named script's, which the principal would have
+  enumerated (#1579). Acting on a named asset is the widened path; the inventory
+  is not. The two are separate judgments in the code for that reason
   (`callerAssetScope` and `callerAssetOwner` in `pkg/toolkits/portal`,
-  `assetScopeOf` and `assetOwnerOf` in `pkg/knowledge`).
+  `assetScopeOf` and `assetOwnerOf` in `pkg/knowledge`). A run's collection
+  listing is scoped the same way, on the same relation.
+
+  It is the producer rather than either identifier on the row because neither
+  names one script. The owner id is `script:<name>`, which every same-named
+  script on the platform shares; the owner_email is the script owner's address
+  as of the row's insert, and nothing rewrites it when a script is transferred.
+  A producer id is the script's own uuid, so an inventory is right after a
+  rename and after a transfer. `fetch` reads the same relation, so a run can
+  dereference everything its own search returned even when its author is no
+  longer its script's owner. It matches what a producer CREATED, so a script
+  that wrote one version over somebody else's asset does not thereby acquire it.
+
+  The cost of resting the inventory on that relation is stated rather than
+  glossed: the note is written best effort beside the write it describes
+  (`producedby.Note`), so a note that fails leaves the asset or collection out
+  of that run's inventory permanently while the write itself stands. A dropped
+  note is a missing row in one listing; a note inside the write's transaction
+  would make a failed note a lost file, which is the worse trade.
 - **Resource enumeration is the author's, and only their own library.** A
   managed resource is scoped rather than owned, and a personal library is keyed
   by an identifier a run does not have, so the resource rules read the address:
@@ -1063,6 +1097,7 @@ what makes a run explainable after the fact from its own record, and what makes
 | A script calls a tool its author may not | The persona filter refuses the call at run time, exactly as for a person; there is no script-side allowlist in front of it to drift | `pkg/persona/filter.go`, `host.go`, `hostState.call` |
 | A script is refused a resource its author owns, by something other than the persona filter | A run carries the address of the person it acts for, and ownership checks accept it | `runner.go`, `OnBehalfOf`; `pkg/toolkits/portal`, `ownsResource` |
 | A run reaches a resource its author does not own | The address is the version author's, captured from an authenticated context at the save and never an argument; both sides of the match must be non-empty, and shares are not inherited | `scriptlayer.go`, `callerAuthor`; `ownsResource` |
+| A run reaches an asset belonging to another owner's script of the same name | A principal is `script:<name>` and a name is unique only within its owner, so ownership reads the address alone for an unattended caller, and an enumeration reads neither identifier: it is scoped by the producer recorded for the run's own writes | `portaldomain/owner.go`, `AssetOwner.ActingFor`; `portaldomain/producer.go`, `ContentProducer` |
 | A reader cannot tell what tools a script reaches | `validate` reports the literal tool names as `tools`, reports `dynamic_tools` when a call computes one, and `dynamic_connections` when a call's argument set cannot be read | `validate.go`, `inspection.visitCall` |
 | A script starts a run that starts a run | `run_script` and `manage_script run_draft` are refused from inside a run, on `PlatformContext.Source` | `scriptlayer.go`, `refuseReentrantRun` |
 | A generic call pulls an unbounded result | The byte cap `platform.query` applies is applied to every `platform.call` result | `host.go`, `hostState.call` |

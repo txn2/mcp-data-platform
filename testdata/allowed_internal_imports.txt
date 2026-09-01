@@ -367,6 +367,7 @@ internal/platform/scriptrun -> pkg/toolkits/trino
 internal/platform/scriptstore -> internal/platform/scriptrun
 internal/platform/scriptstore -> pkg/indexjobs
 internal/platform/scriptstore -> pkg/script
+internal/platform/searchfed -> internal/producedby
 internal/platform/searchfed -> internal/tableavail
 internal/platform/searchfed -> pkg/embedding
 internal/platform/searchfed -> pkg/knowledge
@@ -548,6 +549,7 @@ pkg/indexjobs -> pkg/embedding
 pkg/knowledge -> internal/platform/callrecord
 pkg/knowledge -> internal/platform/sessionview
 pkg/knowledge -> internal/portal/portaldomain
+pkg/knowledge -> internal/producedby
 pkg/knowledge -> internal/tableavail
 pkg/knowledge -> pkg/contenttype
 pkg/knowledge -> pkg/embedding
@@ -818,6 +820,7 @@ pkg/toolkits/memory -> pkg/toolkit
 pkg/toolkits/portal -> internal/httpjson
 pkg/toolkits/portal -> internal/portal/assetrefs
 pkg/toolkits/portal -> internal/portal/portaldomain
+pkg/toolkits/portal -> internal/producedby
 pkg/toolkits/portal -> pkg/contenttype
 pkg/toolkits/portal -> pkg/embedding
 pkg/toolkits/portal -> pkg/middleware
@@ -837,6 +840,7 @@ pkg/toolkits/s3 -> pkg/observability
 pkg/toolkits/s3 -> pkg/query
 pkg/toolkits/s3 -> pkg/semantic
 pkg/toolkits/s3 -> pkg/toolkit
+pkg/toolkits/search -> internal/producedby
 pkg/toolkits/search -> pkg/knowledge
 pkg/toolkits/search -> pkg/middleware
 pkg/toolkits/search -> pkg/query

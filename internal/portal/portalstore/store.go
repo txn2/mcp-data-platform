@@ -1166,39 +1166,107 @@ func unmarshalAssetJSON(asset *portaldomain.Asset, tags, prov []byte) error {
 	return nil
 }
 
-// assetOwnerPredicate renders the ownership arm of an asset query: the row's
-// owner id, or the address it records for the person it belongs to.
+// AssetHasProducer reports whether this asset carries a producer row naming
+// this producer (content_producers, migration 000135).
+//
+// It is the point read behind a single asset, beside the producedByPredicate
+// arm that scopes a listing, and it exists so a managed-script run can
+// dereference a reference to its own output: neither identifier on the row
+// names one script, so the discovery surface scopes a run by its producer and
+// has to judge one asset the same way (#1579).
+//
+// It matches only the producer that CREATED the asset, for the reason
+// producedByPredicate does: fetch has to admit exactly what the search returns.
+//
+// It is not on portaldomain.AssetStore. Federation asserts it off the store as
+// an optional capability, so a store that keeps no producer record is not
+// obliged to answer.
+func (s *postgresAssetStore) AssetHasProducer(ctx context.Context, assetID, producerKind, producerID string) (bool, error) {
+	const query = `
+		SELECT EXISTS (
+			SELECT 1 FROM content_producers
+			WHERE target_kind = $1 AND target_id = $2
+			  AND producer_kind = $3 AND producer_id = $4
+			  AND created
+		)`
+	var has bool
+	err := s.db.QueryRowContext(ctx, query,
+		producedby.TargetAsset, assetID, producerKind, producerID).Scan(&has)
+	if err != nil {
+		return false, fmt.Errorf("reading the producers of asset %s: %w", assetID, err)
+	}
+	return has, nil
+}
+
+// producedByPredicate renders the arm that limits a listing to what one
+// producer wrote: a row of content_producers naming this target and this
+// producer (migration 000135, #1569).
+//
+// It is an EXISTS rather than a join because the relation is many-to-many -- one
+// file is written by many producers over its life -- so a join would return the
+// same row once per producer and every caller would have to dedupe it. The
+// subquery is index-backed by the table's primary key, whose leading columns are
+// (target_kind, target_id).
+//
+// idColumn is qualified because the outer statement's FROM and this subquery
+// both have an id: an unqualified one binds to content_producers and the
+// predicate would compare a producer's target to itself.
+//
+// It matches only the producer that CREATED the row, not every producer that
+// has since written to it. A producer row is recorded for each version too
+// (portalversions), so without cp.created a script that wrote one version over
+// somebody else's asset -- which an administrator's script may -- would carry
+// that asset in its own inventory from then on. "What this script produced" is
+// what the listing says it is.
+func producedByPredicate(targetKind, idColumn string, p portaldomain.ContentProducer) sq.Sqlizer {
+	// #nosec G201 -- targetKind and idColumn are package constants chosen by
+	// the caller, never caller input; the producer's own values are bound.
+	return sq.Expr(
+		"EXISTS (SELECT 1 FROM content_producers cp WHERE cp.target_kind = ? AND cp.target_id = "+
+			idColumn+" AND cp.producer_kind = ? AND cp.producer_id = ? AND cp.created)",
+		targetKind, p.Kind, p.ID)
+}
+
+// assetOwnerPredicate renders the ownership arm of an asset query from the
+// comparison the identity says it is matched by (portaldomain.OwnerArms): the
+// row's owner id, the address it records for the person it belongs to, or both
+// together.
 //
 // The address arm is what makes a managed script's output belong to the person
 // who owns the script rather than to the principal the run authenticated as
-// (#1551). It is bound only when the caller has an address to match, so the
-// anonymous sentinel never reaches a parameter and an unattributed row is never
-// matched by an unauthenticated caller. The comparison is case-folded because
-// addresses reach the platform from several identity providers, and it is
-// index-backed by idx_portal_assets_owner_email_lower (migration 000133).
+// (#1551). Each identifier is bound only when it is an arm, so the anonymous
+// sentinel never reaches a parameter, an unattributed row is never matched by an
+// unauthenticated caller, and a script principal -- which is unique only within
+// its owner -- is never bound alone (#1579). The comparison is case-folded
+// because addresses reach the platform from several identity providers, and it
+// is index-backed by idx_portal_assets_owner_email_lower (migration 000133).
 func assetOwnerPredicate(owner portaldomain.AssetOwner) sq.Sqlizer {
-	email := owner.EmailKey()
-	byEmail := sq.Expr("LOWER(owner_email) = LOWER(?)", email)
+	arms := owner.Arms()
+	byEmail := sq.Expr("LOWER(owner_email) = LOWER(?)", arms.Email)
+	byID := sq.Eq{colOwnerID: arms.UserID}
 	switch {
-	case owner.UserID == "" && email == "":
+	case arms.UserID == "" && arms.Email == "":
 		// An identity naming nobody matches nothing. Callers scope the
 		// listing before they get here (applyAssetFilter asks nothing of the
 		// store for an unidentified owner, which is the administrator's
 		// all-owners listing); this is what keeps the two apart if one ever
 		// does not.
 		return sq.Expr("FALSE")
-	case owner.UserID == "":
+	case arms.UserID == "":
 		return byEmail
-	case email == "":
-		return sq.Eq{colOwnerID: owner.UserID}
+	case arms.Email == "":
+		return byID
 	default:
-		return sq.Or{sq.Eq{colOwnerID: owner.UserID}, byEmail}
+		return sq.Or{byID, byEmail}
 	}
 }
 
 func applyAssetFilter(qb sq.SelectBuilder, filter portaldomain.AssetFilter) sq.SelectBuilder {
 	if filter.Owner.Identified() {
 		qb = qb.Where(assetOwnerPredicate(filter.Owner))
+	}
+	if filter.ProducedBy.Named() {
+		qb = qb.Where(producedByPredicate(producedby.TargetAsset, "portal_assets.id", filter.ProducedBy))
 	}
 	if filter.ContentType != "" {
 		qb = qb.Where(sq.Eq{colContentType: filter.ContentType})

@@ -41,7 +41,7 @@ func TestListAssetsScopesOnBothIdentifiers(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 	require.NotNil(t, store.lastFilter)
 	assert.Equal(t, "u-alice", store.lastFilter.Owner.UserID)
-	assert.Equal(t, "alice@example.com", store.lastFilter.Owner.EmailKey())
+	assert.Equal(t, "alice@example.com", store.lastFilter.Owner.Arms().Email)
 }
 
 // Opening a run's output reports the person it was produced for as its owner,

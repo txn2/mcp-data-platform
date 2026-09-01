@@ -59,7 +59,7 @@ func TestCollectionUpdate_ClearsEmbedding(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
-	store := NewPostgresCollectionStore(db)
+	store := NewPostgresCollectionStore(db, nil)
 
 	mock.ExpectExec("UPDATE portal_collections.*embedding = NULL").
 		WillReturnResult(sqlmock.NewResult(0, 1))

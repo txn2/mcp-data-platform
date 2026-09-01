@@ -618,12 +618,27 @@ other asset of theirs.
 The row itself records two identifiers, and both are the truth about it. Its
 `owner_id` is the run's principal (`script:<name>`) — that is what keeps one
 asset per (script, output) and what the stored object key is built from — and
-its `owner_email` is the script owner's address. Ownership is judged on either,
-which is why the principal on the row is not a fact anybody has to work around.
-A person's own saved asset carries their address in the same column, so the same
-rule answers for both. Transferring a script to another owner therefore hands
-over what its runs have already produced along with everything else that is the
-script's.
+its `owner_email` is the script owner's address at the moment the row was
+inserted. A PERSON is judged on either, which is why the principal on the row is
+not a fact anybody has to work around; a person's own saved asset carries their
+address in the same column, so the same rule answers for both.
+
+A RUN is judged on the address alone, because `script:<name>` names a script
+only within its owner and two people who each keep a `daily-sales` present the
+same principal: judged on it, a run of one person's script would own the outputs
+of the other's (#1579). Nothing is lost by dropping it, since a run's own writes
+record the address beside the principal.
+
+What a run ENUMERATES is neither identifier. `manage_asset action=list`,
+`search` over assets and the collection listing scope a run by the PRODUCER the
+platform recorded for its writes (`content_producers`), which names the script
+by id: unique, unaffected by a rename, and unaffected by a transfer. The owner
+columns are none of those. Nothing rewrites an asset row when a script changes
+hands, so transferring a script does NOT hand over the assets its runs have
+already produced: those rows keep the previous owner's address and stay that
+person's. What the new owner receives is the script, its schedule and everything
+its runs produce from then on -- which are new versions of the same assets, since
+an output keeps its identity across a transfer.
 
 A table registered over an output, or over a managed resource the script
 refreshes with `manage_resource replace_content`, follows the file unless it
