@@ -112,11 +112,50 @@ func (m *memStore) List(_ context.Context, _ resource.Filter) ([]resource.Resour
 
 func (*memStore) Update(_ context.Context, _ string, _ resource.Update) error { return nil }
 
-// Move is refused: the write path under test creates and revises resources and
-// never refiles one, so accepting a move would model a store this package does
-// not exercise.
-func (*memStore) Move(_ context.Context, _ []resource.Move) error {
-	return errors.New("memStore does not move resources")
+// Move refiles the resources named, the way the Postgres store does in one
+// transaction: the address is rewritten along with the library and the folder,
+// and an address another row already holds is a conflict rather than a
+// silently-shared URI.
+//
+// The uploader columns are deliberately untouched, which is the property #1576
+// turns on: a move rewrites where the file is filed and never who filed it, so
+// the row a run is later judged against still names the person who uploaded it.
+func (m *memStore) Move(_ context.Context, moves []resource.Move) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// Resolved and checked in full before anything is written, because the
+	// Postgres store does the batch in one transaction: a fake that mutated the
+	// first rows and then reported the batch failed would let a test observe a
+	// half-applied move the real store cannot produce.
+	//
+	// Addresses are compared against the rows the batch does NOT touch. The real
+	// store parks every moved row's address first so a batch can shuffle
+	// addresses among its own members (renaming a/b to a); that only arises for
+	// a folder rename, which this package does not perform, and it is modeled
+	// here as "a member of the batch is not an occupant" rather than left as a
+	// difference that would refuse what production accepts.
+	moving := make(map[string]bool, len(moves))
+	for _, mv := range moves {
+		moving[mv.ID] = true
+	}
+	staged := make([]*resource.Resource, 0, len(moves))
+	for _, mv := range moves {
+		r, ok := m.resources[mv.ID]
+		if !ok {
+			return fmt.Errorf("resource not found: %s", mv.ID)
+		}
+		for id, other := range m.resources {
+			if !moving[id] && other.URI == mv.URI {
+				return resource.ErrURIConflict
+			}
+		}
+		staged = append(staged, r)
+	}
+	for i, mv := range moves {
+		r := staged[i]
+		r.Scope, r.ScopeID, r.Path, r.URI = mv.Scope, mv.ScopeID, mv.Path, mv.URI
+	}
+	return nil
 }
 
 func (m *memStore) Delete(_ context.Context, id string) error {

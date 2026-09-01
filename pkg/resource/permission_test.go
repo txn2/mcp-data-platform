@@ -390,10 +390,18 @@ func TestThePersonCanManageWhatTheirScriptFiled(t *testing.T) {
 	assert.False(t, CanModifyResource(stranger, filed))
 }
 
-// TestARunDoesNotOutliveItsAuthorsOwnReach is the limit on the uploader arm. An
-// administrator who uploaded into somebody else's library and later lost the
-// role is refused that file; their script must be refused it too, or the script
-// reaches strictly more than the person it acts for.
+// TestARunDoesNotOutliveItsAuthorsOwnReach is the limit on the uploader arm for
+// VISIBILITY. An administrator who uploaded into somebody else's library and
+// later lost the role is refused sight of that file; their script must be
+// refused it too, or the script sees strictly more than the person it acts for.
+//
+// Modification is the other half and is deliberately not symmetric with it. The
+// uploader arm of CanModifyResource is never re-derived from current authority,
+// so the person keeps it on that row -- and the run therefore keeps it too. One
+// grant with one holder is the property; a run refused where the person is
+// admitted is the same authority nobody has, inverted (#1576). In practice the
+// run still cannot replace this file, because resourcewrite reads it through
+// CanAccessResource before it asks whether it may be modified.
 func TestARunDoesNotOutliveItsAuthorsOwnReach(t *testing.T) {
 	victimFile := &Resource{
 		Scope: ScopeUser, ScopeID: "bob-sub",
@@ -401,13 +409,16 @@ func TestARunDoesNotOutliveItsAuthorsOwnReach(t *testing.T) {
 	}
 	exAdmin := Claims{Sub: "ex-admin-sub", Email: "ex-admin@example.com"}
 	require.False(t, CanAccessResource(exAdmin, victimFile),
-		"the premise: the person themselves is already refused")
+		"the premise: the person themselves is already refused sight of it")
+	require.True(t, CanModifyResource(exAdmin, victimFile),
+		"the premise: the uploader arm is not re-derived, so the person keeps modify on the row")
 
 	run := ownRun("ex-admin@example.com")
 
 	assert.False(t, CanAccessResource(run, victimFile),
-		"a run reaching what its author cannot is an authority nobody has")
-	assert.False(t, CanModifyResource(run, victimFile))
+		"a run seeing what its author cannot is an authority nobody has")
+	assert.True(t, CanModifyResource(run, victimFile),
+		"and refusing the run where the person is admitted is that same authority, inverted")
 }
 
 // TestARunReachesAFileInItsAuthorsOwnLibrary is the case the uploader arm exists
@@ -435,15 +446,140 @@ func TestARunReachesAFileInItsAuthorsOwnLibrary(t *testing.T) {
 	assert.True(t, CanModifyResource(run, own))
 }
 
-func TestTheUploaderArmIgnoresEveryOtherScope(t *testing.T) {
-	run := ownRun("author@example.com")
-	for _, r := range []*Resource{
+// --- A move does not revoke the script that maintains the file (#1576) ---
+
+// movedFiles are the same uploaded file after each move CanMoveToLibrary
+// permits: into the global library, and into a persona library. A move rewrites
+// the library, the folder and the mcp:// address and never the uploader
+// columns, which is why the row still names the person who uploaded it.
+func movedFiles() []*Resource {
+	return []*Resource{
 		{Scope: ScopeGlobal, UploaderSub: "author-sub", UploaderEmail: "author@example.com"},
 		{Scope: ScopePersona, ScopeID: "finance", UploaderSub: "author-sub", UploaderEmail: "author@example.com"},
-	} {
-		assert.False(t, CanModifyResource(run, r),
-			"a persona or global file still takes the scope authority the roles carry: %s", r.Scope)
 	}
+}
+
+// TestAMoveDoesNotRevokeTheScriptThatMaintainsTheFile is #1576. A person moves a
+// CSV their own scheduled script refreshes into a library they belong to, which
+// CanMoveToLibrary deliberately permits, and the script has to go on refreshing
+// it: the person may still replace the content, so the script acting for them
+// may too.
+func TestAMoveDoesNotRevokeTheScriptThatMaintainsTheFile(t *testing.T) {
+	author := Claims{Sub: "author-sub", Email: "author@example.com"}
+	run := ownRun("author@example.com")
+
+	for _, r := range movedFiles() {
+		require.True(t, CanModifyResource(author, r),
+			"the premise: the move left the person able to replace the content: %s", r.Scope)
+		assert.True(t, CanModifyResource(run, r),
+			"the person's script must reach what the person reaches: %s", r.Scope)
+	}
+}
+
+// TestAMovedFileIsNoOneElsesScriptToChange is the other side of the same rule: a
+// run whose author never uploaded the file and holds no authority over the
+// library it sits in is refused, and so is that author.
+func TestAMovedFileIsNoOneElsesScriptToChange(t *testing.T) {
+	stranger := Claims{Sub: "stranger-sub", Email: "stranger@example.com"}
+	strangerRun := ownRun("stranger@example.com")
+
+	for _, r := range movedFiles() {
+		require.False(t, CanModifyResource(stranger, r),
+			"the premise: the person themselves may not replace it: %s", r.Scope)
+		assert.False(t, CanModifyResource(strangerRun, r),
+			"a script reaching what its author cannot is an authority nobody has: %s", r.Scope)
+	}
+}
+
+// TestAFileAScriptFiledIsTheAuthorsToChangeWherever holds the uploader arm
+// symmetric on the row where the two holders record differently. A run's create
+// writes the PRINCIPAL as the subject and the author as the address, so the
+// author's own subject does not match it and their scope authority is all they
+// have -- which the move takes away. Reading the address for the person as well
+// as for what acts for them is what keeps every other script that person writes
+// from reaching a file they cannot touch themselves.
+func TestAFileAScriptFiledIsTheAuthorsToChangeWherever(t *testing.T) {
+	const author = "author@example.com"
+	// Filed by one script into the author's library, then published to everyone.
+	filed := &Resource{
+		Scope: ScopeGlobal, UploaderSub: "script:weekly-refresh", UploaderEmail: author,
+	}
+	person := Claims{Sub: "author-sub", Email: author, Personas: []string{"analyst"}}
+	sibling := BuildClaims("script:monthly-rollup", author, "analyst", []string{"analyst"}, false).
+		ActingFor(author)
+
+	assert.True(t, CanModifyResource(person, filed),
+		"the person whose authority filed it is who may change it, wherever it is filed")
+	assert.True(t, CanModifyResource(sibling, filed),
+		"and their other scripts reach exactly that, neither more nor less")
+
+	stranger := Claims{Sub: "stranger-sub", Email: "stranger@example.com"}
+	assert.False(t, CanModifyResource(stranger, filed))
+	assert.False(t, CanModifyResource(ownRun("stranger@example.com"), filed),
+		"a script principal is script:<name> and a name is unique only within its owner, "+
+			"so two people's daily-sales present one subject; the address is what tells them apart")
+}
+
+// TestOneScriptNameIsNotOneIdentity states that last point on its own, on the
+// row where the two collide: the resource was filed by the author's script, and
+// somebody else's script of the SAME NAME presents the same principal.
+func TestOneScriptNameIsNotOneIdentity(t *testing.T) {
+	filed := &Resource{
+		Scope: ScopeGlobal,
+		// What Script.Principal() produces, and what a run's create records.
+		UploaderSub: "script:weekly-refresh", UploaderEmail: "author@example.com",
+	}
+
+	require.True(t, CanModifyResource(ownRun("author@example.com"), filed),
+		"the premise: the author's own run reaches it")
+	assert.False(t, CanModifyResource(ownRun("somebody-else@example.com"), filed),
+		"another person's script of the same name is another person's script")
+}
+
+// TestAMoveWidensNothingARunCanSee is criterion 4. CanAccessResource keeps the
+// scope-bound uploader arm, so the modify predicate admits nothing to the
+// visibility gate. The persona library here is one the run does not belong to;
+// what a move can actually reach -- a persona the author is a member of, and
+// the global library -- is readable on its own terms and needs no uploader arm.
+func TestAMoveWidensNothingARunCanSee(t *testing.T) {
+	run := ownRun("author@example.com")
+	elsewhere := &Resource{
+		Scope: ScopePersona, ScopeID: "finance",
+		UploaderSub: "author-sub", UploaderEmail: "author@example.com",
+	}
+
+	assert.False(t, CanAccessResource(run, elsewhere),
+		"a persona library the author does not belong to stays out of sight")
+}
+
+// TestTheModifyArmNeverMatchesAnAbsentIdentity is criterion 5: a run acting for
+// nobody, a caller with no address at all, and a row recording no uploader are
+// not the same party.
+func TestTheModifyArmNeverMatchesAnAbsentIdentity(t *testing.T) {
+	noUploader := &Resource{Scope: ScopeGlobal, UploaderSub: "author-sub"}
+	assert.False(t, CanModifyResource(ownRun("author@example.com"), noUploader),
+		"a row with no recorded uploader address is nobody's to change")
+
+	uploaded := &Resource{
+		Scope: ScopeGlobal, UploaderSub: "author-sub", UploaderEmail: "author@example.com",
+	}
+	forNobody := BuildClaims("script:weekly-refresh", "", "analyst", []string{"analyst"}, false)
+	assert.False(t, CanModifyResource(forNobody, uploaded),
+		"a run acting for nobody matches nobody")
+	assert.False(t, CanModifyResource(Claims{}, uploaded),
+		"and neither does a caller with no identity at all")
+	assert.False(t, CanModifyResource(Claims{}, &Resource{Scope: ScopeGlobal}),
+		"two absences are not one identity")
+}
+
+// TestTheModifyArmFoldsCaseAfterAMove holds the folding to the same rule the
+// uploader arm has always applied, on a row a move took out of its own library.
+func TestTheModifyArmFoldsCaseAfterAMove(t *testing.T) {
+	moved := &Resource{
+		Scope: ScopeGlobal, UploaderSub: "author-sub", UploaderEmail: "Author@Example.com",
+	}
+
+	assert.True(t, CanModifyResource(ownRun("author@example.com"), moved))
 }
 
 // --- The listing predicate (#1553) ---
