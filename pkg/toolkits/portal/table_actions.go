@@ -28,6 +28,11 @@ type TableRegistration struct {
 	// did not move it, empty while the table is where the file is.
 	Follow      bool   `json:"follow"`
 	FollowError string `json:"follow_error,omitempty"`
+	// Repair means the table corrects its file: a new version carrying a
+	// defect a reader cannot see past that the platform can correct is saved
+	// corrected, as the file's next version, and the table is moved onto that
+	// version (#1577). It is the choice made when the table was registered.
+	Repair bool `json:"repair"`
 	// Repaired says what a correction of the file changed before it could be
 	// registered, and is empty when none was needed (#1441). The file itself
 	// changed, so the person who asked for the registration is told so.

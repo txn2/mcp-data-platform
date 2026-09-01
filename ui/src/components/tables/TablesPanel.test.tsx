@@ -33,6 +33,7 @@ const REGISTERED: TableRegistrationList = {
       registered_at: "2026-08-20T14:12:00Z",
       query_table: "scratch.uploads.analyst_vendor_keys",
       stale: false,
+      repair: false,
       follow: true,
     },
   ],
@@ -173,6 +174,26 @@ describe("registering a stored file as a table", () => {
     expect(screen.queryByText(/newer version than the table points at/i)).not.toBeInTheDocument();
   });
 
+  it("says which tables correct the file, and only where that does something", async () => {
+    // A table that corrects its file writes versions of it nobody typed
+    // (#1577), so a reader of the file's history is told which table does it.
+    stubFetch(CONNECTIONS, {
+      registrations: [{ ...REGISTERED.registrations[0], follow: true, repair: true }],
+    });
+    renderPanel();
+    expect(await screen.findByText("Corrects the file")).toBeInTheDocument();
+
+    // A pinned table is never moved onto a new version, so it never meets one
+    // to correct: saying it corrects the file would promise nothing.
+    cleanup();
+    stubFetch(CONNECTIONS, {
+      registrations: [{ ...REGISTERED.registrations[0], follow: false, repair: true }],
+    });
+    renderPanel();
+    expect(await screen.findByText("Pinned to its version")).toBeInTheDocument();
+    expect(screen.queryByText("Corrects the file")).not.toBeInTheDocument();
+  });
+
   it("registers a following table unless the person turns it off", async () => {
     const bodies: string[] = [];
     stubRegister(() => {
@@ -275,6 +296,30 @@ describe("a CSV a query engine cannot read", () => {
     expect(await screen.findByTestId("table-repair-button")).toBeInTheDocument();
     // The uploaded file is kept, so the correction can be undone.
     expect(screen.getByText(/version before it/i)).toBeInTheDocument();
+    // Following is on, so the correction is a standing one (#1577).
+    expect(screen.getByText(/The table keeps correcting/)).toBeInTheDocument();
+  });
+
+  it("does not promise to keep correcting a table the person has pinned", async () => {
+    // repair is a standing choice only for a table that follows its file: a
+    // pinned one is never moved onto a new version, so it never meets one to
+    // correct (#1577). The offer has to say which of the two this will be,
+    // because the Follow the file box above it is the person's to untick.
+    stubRegister(
+      () =>
+        new Response(JSON.stringify(NEEDS_REPAIR), {
+          status: 409,
+          headers: { "Content-Type": "application/problem+json" },
+        }),
+    );
+    renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: /^register$/i }));
+    fireEvent.click(await screen.findByTestId("table-follow"));
+    fireEvent.click(await screen.findByRole("button", { name: /^register$/i }));
+
+    expect(await screen.findByTestId("table-repair-button")).toBeInTheDocument();
+    expect(screen.getByText(/This corrects the file once/)).toBeInTheDocument();
+    expect(screen.queryByText(/The table keeps correcting/)).not.toBeInTheDocument();
   });
 
   it("says what the correction changed once it is made", async () => {

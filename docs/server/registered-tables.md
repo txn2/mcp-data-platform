@@ -253,6 +253,12 @@ depending on the name:
 moved onto each new revision or version written over the file, by the write
 that produced it. See [Following the file](#following-the-file).
 
+**Correct the file.** A registration made with `repair` saves a corrected
+version of a file that cannot be read as a table the way it is stored, and
+registers that version. A following one keeps doing it: each later version
+carrying a defect of the same kind is corrected too. See [Correcting the
+file](#correcting-the-file).
+
 **Go stale.** A registration made with follow off stays on the version it was
 registered over, and a following one stays where it was when its last follow
 could not move it. The table keeps working; it is serving content that is no
@@ -361,6 +367,18 @@ the person's file changed. The same sentence is recorded on the version the
 correction wrote, for either kind, so the version panel says why the file
 changed without a reader having to find the registration that did it.
 
+**The choice is kept on the registration.** A source that produces the same
+defect every time it runs - a weekly spreadsheet export, a script writing a CSV
+whose text fields carry paragraph breaks - would otherwise correct cleanly on
+the day somebody registered it and stop on every version after that. So
+`repair` is recorded on the registration, and a table that follows its file
+corrects each new version the same way: see [Correcting the file as it
+follows](#correcting-the-file-as-it-follows). It only does anything for a
+following table, since a pinned one is never moved onto a new version and so
+never meets one to correct. The registration that is current holds the choice:
+registering the same name again without asking for the correction leaves a
+table that corrects nothing.
+
 A file the correction cannot put right is refused once, and no correction is
 offered for it. Two things put a file there. A record whose field count differs
 from the header's is one: filling in a short record invents data and dropping a
@@ -456,9 +474,10 @@ was, with the reason recorded on it, so the table is behind the file exactly
 as a pinned one is and the listing says why. A create that fails after the
 drop ran puts the table back at its old directory first. A new version that
 cannot be read as a table - a second file in its directory, a CSV that needs
-correcting - is refused the way a registration would refuse it, the
-registration is reported behind with that reason, and nothing is corrected on
-the way: a follow never rewrites the person's file.
+correcting - is refused the way a registration would refuse it, and the
+registration is reported behind with that reason. A follow rewrites the
+person's file only where the registration was made asking for exactly that:
+see [Correcting the file as it follows](#correcting-the-file-as-it-follows).
 
 **Pinning is the choice.** `follow=false` on the tool, `"follow": false` in
 the REST body, or the *Follow the file* box unticked in the portal registers a
@@ -468,15 +487,16 @@ somebody decides otherwise. The choice is stored on the registration, shown
 as *Pinned* in Scratch Tables and on the registration's page, and re-settable
 by registering the same name again.
 
-**Changing the file, then, is three cases:**
+**Changing the file, then, is four cases:**
 
 | What happened | What the table does | What to do |
 |---|---|---|
 | The object is overwritten at the same key. A vendor drop replacing yesterday's file, a bucket destination a script writes to. | The next query returns the new contents. | Nothing. |
 | A new version is written over a file whose table follows it. Every portal asset edit does this, as does every revision of a managed resource. | The table is moved onto the new version before the write returns, and the write's result names it. | Nothing. |
+| A new version carrying a correctable defect is written over a file whose table follows it and corrects it. | A corrected version is saved above it, under the registrant, and the table is moved onto that. The write's result names the table and the correction. | Nothing. |
 | A new version is written over a file whose table is pinned. | The table keeps serving the directory it was registered against. That is correct SQL over the version that was current when it was registered. The write's result says the table is behind. | Register again, same connection and name, when it should move. |
 
-The third case, and a follow that could not be completed, are reported as
+The last case, and a follow that could not be completed, are reported as
 **stale** everywhere a registration is shown: in the portal panel, on a
 `search` hit, in Scratch Tables, and in `manage_table action=list`. A stale
 table is not broken and is not dropped, so a report built on it keeps running;
@@ -489,6 +509,54 @@ a revision, which is what keeps a referenced file's history restorable. So a
 resource and lets the table follow, which is what a registration does unless
 it was pinned. A bucket destination a script delivers to is the shape that
 overwrites in place, and needs no registration to move.
+
+### Correcting the file as it follows
+
+A table registered with `repair` corrects its file, and goes on correcting it.
+When a new version arrives carrying a defect of the kind the correction can put
+right - a carriage-return line ending, a line break inside a cell, a
+windows-1252 code page - the follow saves a corrected version of the file
+through the version trail its kind already has, and moves the table onto that
+version. The version that carried the defect stays below it, exactly as the
+uploaded bytes do after a register-with-repair: it is in the version panel, it
+can be downloaded, and restoring it writes those bytes back as a new version.
+
+Restoring it does not leave them as the file's head. A restore is a new version
+like any other, so the follow meets it, finds the same defect, and corrects it
+again - which is what the registration is for. To keep the defective bytes as
+what the file serves, register the table again without asking for the
+correction, or with follow off.
+
+The corrected version is written **under the registrant**, not under whoever
+made the write that triggered the follow, which is the identity a follow
+already runs and is audited under. Its change summary is the same sentence a
+register-with-repair records, so a person reading the file's history finds a
+version nobody typed with the reason it appeared beside it. The write's result
+says both halves: `scratch.uploads.analyst_stores on scratch now reads version
+7. Saved version 7 of this file, which put 94 rows back onto one line. ...`
+
+The registrant is an address, and that is all a registration keeps of them. So
+the corrected version records the registrant as its author, while [what
+produced it](provenance.md) is whatever the write that triggered the follow was
+produced by - the session or the script whose data the corrected version holds.
+Those are different questions with different answers, and the version panel and
+the provenance panel each show their own.
+
+The file is corrected once for the version, not once per table over it. Where
+more than one registration over the file carries the choice, one corrected
+version is written - under the registrant of the **oldest** of them, the choice
+that has stood over this file the longest - and every following table lands on
+it, including any that did not ask for the correction: the corrected version is
+the file's head, and a following table reads the head. The correction is
+reported once, on the table whose follow saved it.
+
+What was refused stays refused. A defect the platform will not correct - a wide
+encoding, a NUL byte, records that do not match the header, bytes the reader
+cannot parse through - leaves the registration behind with the reason it gives
+today, and no version is written. A registration made without `repair` is left
+behind the same way, with the sentence offering the correction, because nobody
+asked for its file to be rewritten. A pinned registration is not moved onto a
+new version at all, so carrying the choice does nothing for it.
 
 ### When a table disappears
 

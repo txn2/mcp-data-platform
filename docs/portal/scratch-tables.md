@@ -14,7 +14,7 @@ What you see follows the **connection**, which is the same boundary the query en
 
 The state column says which rule each table is under. **Follows the file** is the ordinary registration: each new version written over the file moves the table onto it. **Pinned** is a registration made with the *Follow the file* box unticked, which stays on the version it was registered over. Two exceptions are called out. **Behind the file** means the file has a newer version than the table points at — a pinned table by design, or a following one whose last follow could not move it, with the reason shown — so queries return the version the table last read; open the file and register it again to move the table onto the current one. **Source deleted** means the file is no longer on the platform, so the table reads a directory whose contents are gone.
 
-Opening a row opens that registration on its own page: the sample statement with the cast a join needs, the columns with their types, the file it came from, and the directory it reads.
+Opening a row opens that registration on its own page: the sample statement with the cast a join needs, the columns with their types, the file it came from, and the directory it reads. A following table that was registered asking for its file to be corrected says so there: a new version a query engine cannot read is saved corrected, as the file's next version, and the table moves onto the corrected version. See [Correcting the file as it follows](../server/registered-tables.md#correcting-the-file-as-it-follows).
 
 ![One registered table](../images/screenshots/light/user-scratch-table-detail-light.webp#only-light)![One registered table](../images/screenshots/dark/user-scratch-table-detail-dark.webp#only-dark)
 

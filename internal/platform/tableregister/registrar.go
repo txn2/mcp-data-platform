@@ -209,7 +209,7 @@ func (r *Registrar) Register(ctx context.Context, caller Caller, src Source, req
 	if p.repair != nil {
 		p.repair.Followed = r.followOthers(ctx, p.src, p.repair.Version, p.reg.ID)
 	}
-	res := &Result{Registration: p.reg, Source: p.src, Repair: p.repair}
+	res := &Result{Registration: p.reg, Source: p.src, Correction: p.repair}
 	// A replacement ran DROP TABLE, so the other tables on the connection are
 	// checked afterwards (#1546), except the one just created.
 	if p.existing != nil {
@@ -284,6 +284,7 @@ func (r *Registrar) claim(ctx context.Context, caller Caller, req Request, p *pl
 		Table:        table,
 		RegisteredBy: caller.Email,
 		Follow:       req.Follow,
+		Repair:       req.Repair,
 	}
 
 	p.existing, err = r.deps.Store.ByName(ctx, req.Connection, target.Catalog, target.Schema, table)
@@ -324,30 +325,61 @@ func (r *Registrar) correct(
 			" version is saved and registered; the file as it was uploaded stays as the version before it.",
 			defect.Reason())
 	}
-	reviser := r.deps.Revisers[p.src.Kind]
-	if reviser == nil {
-		return nil, refusedf("%s This deployment keeps no version history for a stored %s, so there is nowhere to"+
-			" save a corrected version; correct the file where it was written and upload it again.",
-			defect.Reason(), p.src.Kind)
+	if r.deps.Revisers[p.src.Kind] == nil {
+		return nil, noReviserf(defect, p.src.Kind)
 	}
 
+	corrected, repair, err := r.saveCorrected(ctx, &p.src, caller, body)
+	if err != nil {
+		return nil, err
+	}
+	p.repair = repair
+	return corrected, nil
+}
+
+// noReviserf refuses a correction of a kind this deployment keeps no version
+// history for. A correction is a version of the file, so with nowhere to
+// record one there is nothing to offer: writing the corrected bytes anywhere
+// else would put a file in somebody's library that no version panel can undo.
+func noReviserf(defect *tablecsv.Defect, kind string) error {
+	return refusedf("%s This deployment keeps no version history for a stored %s, so there is nowhere to"+
+		" save a corrected version; correct the file where it was written and upload it again.",
+		defect.Reason(), kind)
+}
+
+// saveCorrected writes a corrected copy of a file as its next version and
+// moves src onto that version, reporting what the correction changed.
+//
+// It is the one correction the platform makes, taken by both the registration
+// that was asked to correct its file and the follow of a registration carrying
+// that choice (#1577). Sharing it is what keeps the two honest with each
+// other: the same bytes, the same change summary on the version trail, and the
+// same report a surface renders, whichever of them saved it.
+//
+// caller is who the version is written under, and is not always the person
+// making the request: a follow acts for the registrant.
+//
+// Checking that the kind has a reviser at all is the caller's: every call site
+// holds the defect the refusal has to name, which noReviserf writes.
+func (r *Registrar) saveCorrected(
+	ctx context.Context, src *Source, caller Caller, body []byte,
+) ([]byte, *RepairReport, error) {
 	corrected, report, err := tablecsv.Normalize(body)
 	if err != nil {
 		// A file the CSV package cannot correct is a refusal the caller can
 		// act on; anything else is the platform's.
 		if errors.Is(err, tablecsv.ErrUncorrectable) {
-			return nil, refusedf("%s", err.Error())
+			return nil, nil, refusedf("%s", err.Error())
 		}
-		return nil, err
+		return nil, nil, fmt.Errorf("correcting the file: %w", err)
 	}
-	revised, err := reviser.Revise(ctx, p.src, caller, corrected, repairSummary(report))
+	revised, err := r.deps.Revisers[src.Kind].Revise(ctx, *src, caller, corrected, repairSummary(report))
 	if err != nil {
-		return nil, fmt.Errorf("saving a corrected version of the file: %w", err)
+		return nil, nil, fmt.Errorf("saving a corrected version of the file: %w", err)
 	}
 
-	p.src.Bucket, p.src.HeadKey, p.src.ContentType = revised.Bucket, revised.Key, contenttype.CSV
-	p.repair = &RepairReport{NormalizeReport: report, Version: revised.Version}
-	return corrected, nil
+	src.Bucket, src.HeadKey, src.ContentType = revised.Bucket, revised.Key, contenttype.CSV
+	return corrected, &RepairReport{NormalizeReport: report, Version: revised.Version}, nil
 }
 
 // describe fills in what only the file decides: the directory the table reads

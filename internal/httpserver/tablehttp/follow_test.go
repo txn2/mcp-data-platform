@@ -63,3 +63,44 @@ func TestListRoute_ReportsWhyAFollowDidNotMoveTheTable(t *testing.T) {
 	assert.True(t, one.Follow)
 	assert.Equal(t, "coordinator down", one.FollowError)
 }
+
+// TestRegisterRoute_CarriesTheRepairChoice. Correcting the file is a standing
+// choice, not one submission's (#1577): the register body sets it, the record
+// keeps it, and every view carries it back so the panel can say which tables
+// rewrite their file.
+func TestRegisterRoute_CarriesTheRepairChoice(t *testing.T) {
+	h := newHarness(t)
+
+	w := h.do(http.MethodPost, "/api/v1/portal/assets/asset_1/tables",
+		`{"connection":"scratch","table_name":"live","repair":true}`)
+	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
+	var got registrationView
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.True(t, got.Repair)
+
+	stored, err := h.store.Get(context.Background(), got.ID)
+	require.NoError(t, err)
+	assert.True(t, stored.Repair)
+
+	// A body that does not ask for it gets a registration that corrects
+	// nothing, which is what registering somebody's file must default to.
+	w = h.do(http.MethodPost, "/api/v1/portal/assets/asset_1/tables",
+		`{"connection":"scratch","table_name":"snapshot"}`)
+	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.False(t, got.Repair)
+
+	w = h.do(http.MethodGet, "/api/v1/portal/assets/asset_1/tables", "")
+	require.Equal(t, http.StatusOK, w.Code)
+	var list struct {
+		Registrations []registrationView `json:"registrations"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &list))
+	require.Len(t, list.Registrations, 2)
+	byTable := map[string]bool{}
+	for _, reg := range list.Registrations {
+		byTable[reg.QueryTable] = reg.Repair
+	}
+	assert.True(t, byTable["scratch.uploads.analyst_live"])
+	assert.False(t, byTable["scratch.uploads.analyst_snapshot"])
+}

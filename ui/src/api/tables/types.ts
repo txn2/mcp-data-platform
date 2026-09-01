@@ -36,6 +36,12 @@ export interface TableRegistration {
   // is absent while the table is where the file is.
   follow: boolean;
   follow_error?: string;
+  // repair means the table corrects its file: a new version carrying a defect
+  // a query engine cannot read past, of the kind the platform can correct, is
+  // saved corrected as the file's next version and the table is moved onto
+  // that version (#1577). It is the choice made when the table was registered,
+  // and it only does anything for a table that follows its file.
+  repair: boolean;
   // repaired says what a correction of the file changed before it could be
   // registered (#1441). It is set only on the registration that made the
   // correction: it describes what just happened, not a property of the record.

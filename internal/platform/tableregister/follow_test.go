@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -418,18 +419,18 @@ func TestRegister_ACorrectionFollowsTheOtherTablesOverTheFile(t *testing.T) {
 	res, err := h.reg.Register(context.Background(), testCaller(), testSource(),
 		Request{Connection: "scratch", TableName: "corrected", Repair: true})
 	require.NoError(t, err)
-	require.NotNil(t, res.Repair)
+	require.NotNil(t, res.Correction)
 
-	require.Len(t, res.Repair.Followed, 2, "the registration just made is not among them")
+	require.Len(t, res.Correction.Followed, 2, "the registration just made is not among them")
 	byTable := map[string]FollowOutcome{}
-	for _, o := range res.Repair.Followed {
+	for _, o := range res.Correction.Followed {
 		byTable[o.Table] = o
 	}
 	assert.True(t, byTable["scratch.uploads.analyst_live"].Followed)
-	assert.Equal(t, res.Repair.Version, byTable["scratch.uploads.analyst_live"].Version)
+	assert.Equal(t, res.Correction.Version, byTable["scratch.uploads.analyst_live"].Version)
 	assert.True(t, byTable["scratch.uploads.analyst_snapshot"].Pinned)
-	assert.Contains(t, res.Repair.Summary(), "scratch.uploads.analyst_live on scratch now reads version")
-	assert.Contains(t, res.Repair.Summary(), "scratch.uploads.analyst_snapshot on scratch is pinned")
+	assert.Contains(t, res.Correction.Summary(), "scratch.uploads.analyst_live on scratch now reads version")
+	assert.Contains(t, res.Correction.Summary(), "scratch.uploads.analyst_snapshot on scratch is pinned")
 
 	live, err := h.store.ByName(context.Background(), "scratch", "scratch", "uploads", "analyst_live")
 	require.NoError(t, err)
@@ -557,4 +558,409 @@ func TestRegister_AReplacementReportsASiblingWhoseTableIsGone(t *testing.T) {
 		Request{Connection: "scratch", TableName: "y", Source: "mcp", Follow: true})
 	require.NoError(t, err)
 	assert.Empty(t, fresh.Siblings)
+}
+
+// --- a follow that corrects the file it follows (#1577) ---
+//
+// A registration made with repair saves a corrected version of a file a query
+// engine cannot read past, and registers that version. The choice was made
+// once and then forgotten, so the next version of the file carrying the same
+// defect stopped the follow dead -- which is what a source producing one
+// defect on a schedule does every time it runs. What these hold: the choice is
+// carried on the registration, a follow re-applies it, and everything that was
+// refused before is refused still.
+
+// registerCorrecting registers a table that follows its file and corrects it,
+// under a registrant who is nobody else in these tests.
+func registerCorrecting(t *testing.T, h *harness) *Result {
+	t.Helper()
+	res, err := h.reg.Register(context.Background(), correctingRegistrant(), testSource(),
+		Request{Connection: "scratch", TableName: "live", Source: "mcp", Follow: true, Repair: true})
+	require.NoError(t, err)
+	require.Nil(t, res.Correction, "the version it was registered over needed no correction")
+	require.True(t, res.Repair, "the choice is stored on the registration")
+	return res
+}
+
+// correctingRegistrant is who the registration was made by, and so who a
+// version a follow saves is written under. It is deliberately not the harness
+// default: attribution to the registrant has to be visible as a choice rather
+// than as the only address in the test.
+func correctingRegistrant() Caller {
+	return Caller{UserID: "u2", Email: "dana@example.com", Persona: "analyst"}
+}
+
+// tornNewVersion is the next version of the registered file, carrying the same
+// defect the registration was made to correct: a value with a line break in
+// it, which a table reads as the end of the row. Its header is the one the
+// table already declares, so what the follow does about the defect is the only
+// thing that changes.
+const tornNewVersion = "store_id,vendor_code,rebate_pct\n" +
+	"101,\"ACME\nNorth West\",4.5\n" +
+	"102,\"BAY\nSeattle\",6.0\n"
+
+// raggedNewVersion carries a defect the platform will not correct: its records
+// do not all have the header's fields, and neither filling one in nor dropping
+// one from another is something to do to somebody's data.
+var raggedNewVersion = "store_id,vendor_code,rebate_pct\n101,\"ACME\nNW\",4.5\n" +
+	strings.Repeat("9\n", 8)
+
+// defectiveHead moves the source's head onto a version whose cells carry line
+// breaks -- the shape a weekly spreadsheet export repeats. The write produced
+// version 2, so a correction saved above it is version 3.
+func defectiveHead(h *harness) Source {
+	src := h.moveHead(tornNewVersion)
+	h.reviser.saved, h.reviser.baseVersion = nil, defectiveVersion
+	return src
+}
+
+// defectiveVersion is the version number the write that triggers these follows
+// produced.
+const defectiveVersion = 2
+
+// TestFollowSource_ARepairingRegistrationCorrectsTheNewVersion is the
+// acceptance assertion for #1577: a later version carrying the same
+// correctable defect leaves the table reading that version's rows, through a
+// corrected version saved above it under the registrant.
+func TestFollowSource_ARepairingRegistrationCorrectsTheNewVersion(t *testing.T) {
+	h := newHarness(t)
+	reg := registerCorrecting(t, h)
+	src := defectiveHead(h)
+
+	out := h.reg.FollowSource(context.Background(), src, 2)
+
+	// The correction is the file's next version, written through the version
+	// trail rather than over the bytes the write produced, and recorded
+	// against the person whose registration asked for it.
+	require.Len(t, h.reviser.saved, 1, "exactly one version is written")
+	saved := h.reviser.saved[0]
+	assert.Equal(t, "dana@example.com", saved.by, "under the registrant, not whoever made the write")
+	assert.Equal(t, "put 2 rows back onto one line", saved.summary)
+	assert.NotContains(t, string(saved.content), "ACME\nNorth West")
+
+	// The table reads the corrected version, and the write is told both halves.
+	corrected := "s3://portal-assets/artifacts/u1/asset_1/v2/v/rev_3/"
+	require.Len(t, out, 1)
+	assert.True(t, out[0].Followed)
+	assert.Equal(t, 3, out[0].Version, "the corrected version, not the one the write produced")
+	assert.Equal(t,
+		"scratch.uploads.analyst_live on scratch now reads version 3."+
+			" Saved version 3 of this file, which put 2 rows back onto one line."+
+			" The file as it was uploaded is still there as the version before it.",
+		out[0].Sentence())
+
+	stored, err := h.store.Get(context.Background(), reg.ID)
+	require.NoError(t, err)
+	assert.Equal(t, corrected, stored.Location)
+	assert.Empty(t, stored.FollowError)
+	assert.True(t, stored.Repair, "the choice survives the follow that used it")
+	assert.Contains(t, h.trino.statements[len(h.trino.statements)-1], "external_location = '"+corrected+"'")
+
+	// The version carrying the defect is still an object of its own, in the
+	// directory the write put it in, which is what makes it revertible.
+	assert.Contains(t, objectKeys(h), src.HeadKey)
+}
+
+// objectKeys is every object the fake store holds, for an assertion about what
+// a correction left alone.
+func objectKeys(h *harness) []string {
+	keys := make([]string, 0, len(h.objects.entries))
+	for _, e := range h.objects.entries {
+		keys = append(keys, e.Key)
+	}
+	return keys
+}
+
+// TestFollowSource_ARegistrationWithoutTheChoiceRewritesNothing: the file is
+// somebody's, and a registration that did not ask for it to be corrected does
+// not get it corrected on the back of a write about something else.
+func TestFollowSource_ARegistrationWithoutTheChoiceRewritesNothing(t *testing.T) {
+	h := newHarness(t)
+	reg := registerFollowing(t, h, true)
+	assert.False(t, reg.Repair)
+	src := defectiveHead(h)
+
+	out := h.reg.FollowSource(context.Background(), src, 2)
+
+	require.Len(t, out, 1)
+	assert.False(t, out[0].Followed)
+	assert.Empty(t, out[0].Repaired)
+	assert.Contains(t, out[0].Reason, "Register it again asking for the file to be corrected")
+	assert.Empty(t, h.reviser.saved, "no version is written")
+	assert.Empty(t, h.trino.statements)
+
+	stored, err := h.store.Get(context.Background(), reg.ID)
+	require.NoError(t, err)
+	assert.Equal(t, reg.Location, stored.Location, "still on the version it was registered over")
+	assert.Contains(t, stored.FollowError, "asking for the file to be corrected")
+}
+
+// TestFollowSource_APinnedRegistrationCarryingTheChoiceCorrectsNothing: a
+// pinned table is not moved onto a new version at all, so it never meets one
+// to correct. Carrying the choice does not turn it into a following table.
+func TestFollowSource_APinnedRegistrationCarryingTheChoiceCorrectsNothing(t *testing.T) {
+	h := newHarness(t)
+	_, err := h.reg.Register(context.Background(), correctingRegistrant(), testSource(),
+		Request{Connection: "scratch", Source: "mcp", Follow: false, Repair: true})
+	require.NoError(t, err)
+	src := defectiveHead(h)
+
+	out := h.reg.FollowSource(context.Background(), src, 2)
+
+	require.Len(t, out, 1)
+	assert.True(t, out[0].Pinned)
+	assert.Empty(t, h.reviser.saved, "no version is written for a table that does not follow")
+}
+
+// TestFollowSource_AnUncorrectableVersionIsStillRefused: what the platform
+// cannot honestly correct it does not touch, whatever the registration asked
+// for. Bytes in an encoding it does not convert are read wrongly by the
+// correction too, and records that do not match the header are what the
+// correction refuses in turn (#1449).
+func TestFollowSource_AnUncorrectableVersionIsStillRefused(t *testing.T) {
+	cases := []struct {
+		name   string
+		body   string
+		reason string
+	}{
+		{
+			name:   "a wide encoding",
+			body:   "\xff\xfes\x00t\x00o\x00r\x00e\x00\n\x00",
+			reason: "Re-export it as UTF-8 CSV",
+		},
+		{
+			name:   "records that do not match the header",
+			body:   raggedNewVersion,
+			reason: "its records do not all have the header's 3 fields",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			reg := registerCorrecting(t, h)
+			src := h.moveHead(tc.body)
+			h.reviser.saved, h.reviser.baseVersion = nil, 2
+
+			out := h.reg.FollowSource(context.Background(), src, 2)
+
+			require.Len(t, out, 1)
+			assert.False(t, out[0].Followed)
+			assert.Contains(t, out[0].Reason, tc.reason)
+			assert.Equal(t, 2, out[0].Version, "behind the version the write produced")
+			assert.Empty(t, h.reviser.saved, "no version is written")
+			assert.Empty(t, h.trino.statements)
+
+			stored, err := h.store.Get(context.Background(), reg.ID)
+			require.NoError(t, err)
+			assert.Equal(t, reg.Location, stored.Location)
+			assert.Contains(t, stored.FollowError, tc.reason)
+		})
+	}
+}
+
+// TestFollowSource_OneCorrectionServesEveryTableOverTheFile: the correction is
+// a version of the file, so a defective version produces one of them however
+// many tables are over it, and every following table lands on it.
+func TestFollowSource_OneCorrectionServesEveryTableOverTheFile(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		secondCorrects bool
+	}{
+		{name: "both registrations correct the file", secondCorrects: true},
+		{name: "only one of them does", secondCorrects: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			first := registerCorrecting(t, h)
+			second, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+				Request{
+					Connection: "scratch", TableName: "second", Source: "mcp",
+					Follow: true, Repair: tc.secondCorrects,
+				})
+			require.NoError(t, err)
+			src := defectiveHead(h)
+
+			out := h.reg.FollowSource(context.Background(), src, 2)
+
+			require.Len(t, h.reviser.saved, 1, "the file is corrected once for the version")
+			assert.Equal(t, "dana@example.com", h.reviser.saved[0].by,
+				"under the registrant of the registration that asked for it")
+
+			corrected := "s3://portal-assets/artifacts/u1/asset_1/v2/v/rev_3/"
+			require.Len(t, out, 2)
+			for _, o := range out {
+				assert.True(t, o.Followed, o.Table)
+				assert.Equal(t, 3, o.Version, o.Table)
+			}
+			for _, id := range []string{first.ID, second.ID} {
+				stored, storeErr := h.store.Get(context.Background(), id)
+				require.NoError(t, storeErr)
+				assert.Equal(t, corrected, stored.Location, "both tables read the corrected version")
+			}
+
+			// One sentence about the file, carried by the follow that saved
+			// it, rather than the same sentence once per table.
+			var said int
+			for _, line := range Sentences(out) {
+				if strings.Contains(line, "Saved version 3 of this file") {
+					said++
+				}
+			}
+			assert.Equal(t, 1, said, "the correction is reported once")
+		})
+	}
+}
+
+// TestFollowSource_TheCorrectionIsAttributedToTheStandingChoice: where more
+// than one registration over a file asks for it to be corrected, the version
+// is written under the one that has been asking longest -- not under whichever
+// row the store happened to hand back first, which is the newest.
+func TestFollowSource_TheCorrectionIsAttributedToTheStandingChoice(t *testing.T) {
+	h := newHarness(t)
+	oldest := registerCorrecting(t, h)
+	newest, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch", TableName: "second", Source: "mcp", Follow: true, Repair: true})
+	require.NoError(t, err)
+
+	regs, err := h.store.BySource(context.Background(), KindAsset, "asset_1")
+	require.NoError(t, err)
+	require.Len(t, regs, 2)
+	require.Equal(t, newest.ID, regs[0].ID, "the store returns registrations newest first")
+
+	h.reg.FollowSource(context.Background(), defectiveHead(h), defectiveVersion)
+
+	require.Len(t, h.reviser.saved, 1)
+	assert.Equal(t, "dana@example.com", h.reviser.saved[0].by,
+		"the version is written under the oldest standing choice, not the newest registration")
+	assert.Equal(t, oldest.RegisteredBy, h.reviser.saved[0].by)
+}
+
+// TestFollowSource_ACorrectionSurvivesAFailureAfterIt: the person's file has a
+// new version whether or not the head could then be described, so a refusal
+// that arrives after the correction still says the file changed.
+func TestFollowSource_ACorrectionSurvivesAFailureAfterIt(t *testing.T) {
+	h := newHarness(t)
+	reg := registerCorrecting(t, h)
+	src := defectiveHead(h)
+	// A second object lands in the corrected version's directory, which is a
+	// directory a table cannot be pointed at: a table reads every file under
+	// its external location.
+	h.reviser.afterSave = func() {
+		h.objects.entries = append(h.objects.entries,
+			ObjectEntry{Key: "artifacts/u1/asset_1/v2/v/rev_3/notes.csv"})
+	}
+
+	out := h.reg.FollowSource(context.Background(), src, 2)
+
+	require.Len(t, h.reviser.saved, 1)
+	require.Len(t, out, 1)
+	assert.False(t, out[0].Followed)
+	assert.Contains(t, out[0].Reason, "notes.csv sits beside it")
+	assert.Contains(t, out[0].Sentence(), "Saved version 3 of this file")
+
+	stored, err := h.store.Get(context.Background(), reg.ID)
+	require.NoError(t, err)
+	assert.Contains(t, stored.FollowError, "notes.csv sits beside it")
+}
+
+// TestFollowSource_ACorrectionThatCannotBeSavedLeavesTheTableBehind: the
+// version trail refused the write, so there is no corrected version and the
+// registration is behind the file with the reason on it -- which is what every
+// other follow failure does.
+func TestFollowSource_ACorrectionThatCannotBeSavedLeavesTheTableBehind(t *testing.T) {
+	h := newHarness(t)
+	reg := registerCorrecting(t, h)
+	src := defectiveHead(h)
+	h.reviser.err = errors.New("the version trail is unreachable")
+
+	out := h.reg.FollowSource(context.Background(), src, 2)
+
+	require.Len(t, out, 1)
+	assert.False(t, out[0].Followed)
+	assert.Contains(t, out[0].Reason, "saving a corrected version of the file")
+	assert.Empty(t, h.trino.statements)
+
+	stored, err := h.store.Get(context.Background(), reg.ID)
+	require.NoError(t, err)
+	assert.Equal(t, reg.Location, stored.Location)
+	assert.Contains(t, stored.FollowError, "the version trail is unreachable")
+}
+
+// TestFollowSource_ADeploymentWithNoVersionTrailCannotCorrect: a kind this
+// deployment keeps no history for has nowhere to put a corrected version, so
+// the registration is left behind with the sentence that says why rather than
+// a corrected file appearing somewhere no version panel can undo it.
+func TestFollowSource_ADeploymentWithNoVersionTrailCannotCorrect(t *testing.T) {
+	h := newHarness(t)
+	reg := registerCorrecting(t, h)
+	src := defectiveHead(h)
+	h.reg.deps.Revisers = map[string]Reviser{}
+
+	out := h.reg.FollowSource(context.Background(), src, 2)
+
+	require.Len(t, out, 1)
+	assert.False(t, out[0].Followed)
+	assert.Contains(t, out[0].Reason, "keeps no version history for a stored asset")
+
+	stored, err := h.store.Get(context.Background(), reg.ID)
+	require.NoError(t, err)
+	assert.Equal(t, reg.Location, stored.Location)
+}
+
+// TestRepairRegistrant_PicksTheStandingChoice covers what decides which
+// registrant a corrected version is written under, including the cases the
+// store's own order would answer differently: the rows arrive newest first,
+// the choice is the oldest, and two made in the same instant are separated by
+// id so the answer is the same on every read rather than on the first one.
+func TestRepairRegistrant_PicksTheStandingChoice(t *testing.T) {
+	at := func(minute int) time.Time { return time.Date(2026, 8, 20, 14, minute, 0, 0, time.UTC) }
+	corrects := func(id string, registered time.Time) Registration {
+		return Registration{
+			ID: id, RegisteredBy: id + "@example.com", RegisteredAt: registered,
+			Follow: true, Repair: true,
+		}
+	}
+
+	cases := []struct {
+		name     string
+		regs     []Registration
+		exceptID string
+		want     string
+	}{
+		{
+			name: "no registration asked for the file to be corrected",
+			regs: []Registration{{ID: "a", Follow: true}},
+		},
+		{
+			name: "a pinned registration carrying the choice never meets a new version",
+			regs: []Registration{{ID: "a", Repair: true}},
+		},
+		{
+			name: "the oldest of several, whatever order they arrive in",
+			regs: []Registration{corrects("c", at(30)), corrects("a", at(10)), corrects("b", at(20))},
+			want: "a",
+		},
+		{
+			name: "two made in the same instant are separated by id",
+			regs: []Registration{corrects("b", at(10)), corrects("a", at(10))},
+			want: "a",
+		},
+		{
+			name:     "the registration a correction just registered is not its own author",
+			regs:     []Registration{corrects("a", at(10)), corrects("b", at(20))},
+			exceptID: "a",
+			want:     "b",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := repairRegistrant(tc.regs, tc.exceptID)
+			if tc.want == "" {
+				assert.Nil(t, got)
+				return
+			}
+			require.NotNil(t, got)
+			assert.Equal(t, tc.want, got.ID)
+		})
+	}
 }

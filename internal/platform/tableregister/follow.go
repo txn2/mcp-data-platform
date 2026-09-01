@@ -52,11 +52,29 @@ type FollowOutcome struct {
 	// gone afterwards (#1546). Reason says which write. The registration is
 	// kept, with the reason recorded on it, so the listing says so too.
 	Missing bool `json:"missing,omitempty"`
+	// Repaired is what a correction of the new version changed, when the
+	// version arrived with a defect a reader cannot see past and a
+	// registration carrying the repair choice had it corrected (#1577).
+	//
+	// It is carried by one outcome, not by every table over the file: the
+	// corrected version is a fact about the file, and the follow that read
+	// the new head is the one that saved it.
+	Repaired string `json:"repaired,omitempty"`
 }
 
 // Sentence renders the outcome as the write reports it: the table, what
-// happened to it, and what to do when something is left to do.
+// happened to it, what to do when something is left to do, and -- on the one
+// outcome that carries it -- what a correction of the new version changed.
 func (o FollowOutcome) Sentence() string {
+	s := o.tableSentence()
+	if o.Repaired != "" {
+		s += " " + o.Repaired
+	}
+	return s
+}
+
+// tableSentence is what happened to this one table.
+func (o FollowOutcome) tableSentence() string {
 	name := o.Table + " on " + o.Connection
 	switch {
 	case o.Followed:
@@ -131,11 +149,16 @@ func (r *Registrar) followOthers(ctx context.Context, src Source, version int, e
 		// whatever the number of tables moved on it.
 		movedOn = map[string]string{}
 	)
+	// Which registration a correction of a defective new version is made for,
+	// settled before the first follow rather than at whichever one meets the
+	// defect: the head is read once per write, so the file is corrected once
+	// for the version whatever the order the registrations come back in.
+	repairFor := repairRegistrant(regs, exceptID)
 	for _, reg := range regs {
 		if reg.ID == exceptID {
 			continue
 		}
-		o, moved := r.followOne(ctx, reg, src, version, &head)
+		o, moved := r.followOne(ctx, reg, src, version, &head, repairFor)
 		out = append(out, o)
 		if moved {
 			if _, seen := movedOn[o.Connection]; !seen {
@@ -143,11 +166,63 @@ func (r *Registrar) followOthers(ctx context.Context, src Source, version int, e
 			}
 		}
 	}
+	movedTo := strconv.Itoa(headVersion(head, version))
 	for _, connection := range sortedKeys(movedOn) {
 		out = append(out, r.reconcileConnection(ctx, connection, "",
-			"the table was removed while "+movedOn[connection]+" was moved to version "+strconv.Itoa(version)+".")...)
+			"the table was removed while "+movedOn[connection]+" was moved to version "+movedTo+".")...)
 	}
 	return out
+}
+
+// repairRegistrant is the registration a correction of a defective new version
+// is made for: the oldest following one carrying the repair choice. Nil means
+// no registration over this file asked for it to be corrected, and a defective
+// version then leaves every table where it was, exactly as it does today.
+//
+// One registration answers for the whole file, because the correction is a new
+// version of the file rather than something each table gets its own copy of.
+// Its registrant is who that version is written under, which is the identity a
+// follow already acts and is audited under.
+//
+// Which one is chosen here rather than taken from the order the rows arrived
+// in. A person's file must not be rewritten under a different name depending
+// on how a query sorted, and the store's own order is newest first -- so
+// taking the first row would attribute the correction to whoever registered
+// most recently. The oldest is the standing choice: the registration that has
+// been asking for this file to be corrected the longest.
+func repairRegistrant(regs []Registration, exceptID string) *Registration {
+	var oldest *Registration
+	for i := range regs {
+		reg := &regs[i]
+		if reg.ID == exceptID || !reg.Follow || !reg.Repair {
+			continue
+		}
+		if oldest == nil || registeredBefore(*reg, *oldest) {
+			oldest = reg
+		}
+	}
+	return oldest
+}
+
+// registeredBefore orders two registrations by when they were made, with the
+// id breaking a tie so two made in the same instant still resolve the same way
+// on every read.
+func registeredBefore(a, b Registration) bool {
+	if !a.RegisteredAt.Equal(b.RegisteredAt) {
+		return a.RegisteredAt.Before(b.RegisteredAt)
+	}
+	return a.ID < b.ID
+}
+
+// headVersion is the version a followed table now reads: the one the write
+// produced, or the corrected version saved above it. A head that was never
+// read -- no following registration over the file -- decided nothing, so the
+// write's own version stands.
+func headVersion(head *followHead, version int) int {
+	if head == nil {
+		return version
+	}
+	return head.version
 }
 
 // sortedKeys orders a set of connection names so a report is stable.
@@ -228,12 +303,18 @@ const missingPrefix = "The table no longer exists: "
 type followHead struct {
 	location string
 	columns  []Column
-	err      error
+	// version is what a followed table now reads: the version the write
+	// produced, or the corrected version saved above it.
+	version int
+	// repair is what a correction of the new version changed, and is nil when
+	// nothing was corrected.
+	repair *RepairReport
+	err    error
 }
 
 // followOne moves one registration, or explains why it stays.
 func (r *Registrar) followOne(
-	ctx context.Context, reg Registration, src Source, version int, head **followHead,
+	ctx context.Context, reg Registration, src Source, version int, head **followHead, repairFor *Registration,
 ) (FollowOutcome, bool) {
 	outcome := FollowOutcome{
 		RegistrationID: reg.ID, Table: reg.QualifiedName(), Connection: reg.Connection, Version: version,
@@ -247,8 +328,13 @@ func (r *Registrar) followOne(
 		return outcome, false
 	}
 	if *head == nil {
-		*head = r.readHead(ctx, src)
+		*head = r.readHead(ctx, src, version, repairFor)
+		// The correction is reported by the registration whose follow read
+		// the new head and saved it: one sentence about the file, rather than
+		// the same sentence repeated once per table over it.
+		outcome.Repaired = (*head).repair.Summary()
 	}
+	outcome.Version = (*head).version
 	if (*head).err != nil {
 		return r.followFailed(ctx, reg, outcome, (*head).err), false
 	}
@@ -261,32 +347,96 @@ func (r *Registrar) followOne(
 }
 
 // readHead reads what the new head decides: the directory the table has to
-// point at and the columns its header declares. It is the registration's own
-// description of a file, with one difference: nothing is corrected. A file
-// that cannot be read as a table the way it is stored leaves the registration
-// where it was, and the reason says how to move it.
-func (r *Registrar) readHead(ctx context.Context, src Source) *followHead {
+// point at, the columns its header declares, and the version the tables move
+// onto.
+//
+// It is the registration's own description of a file, with one difference:
+// what it does about a defect a reader cannot see past is decided by what the
+// registrations over the file asked for rather than by the caller of the
+// write. See repairHead.
+//
+// A correction survives a later failure. The file has a new version whatever
+// the directory listing or the header row then says about it, and a head that
+// dropped the correction on its way out would leave the person whose file
+// changed with a reason and no mention of the change.
+func (r *Registrar) readHead(ctx context.Context, src Source, version int, repairFor *Registration) *followHead {
 	body, err := r.contentFor(ctx, src)
 	if err != nil {
-		return &followHead{err: err}
+		return &followHead{version: version, err: err}
 	}
-	if defect := tablecsv.Inspect(body); defect != nil {
-		if !defect.Correctable() {
-			return &followHead{err: refusedf("%s %s", defect.Reason(), defect.Remedy())}
-		}
-		return &followHead{err: refusedf(
+	body, repair, err := r.repairHead(ctx, &src, body, repairFor)
+	head := &followHead{version: version, repair: repair}
+	if repair != nil {
+		head.version = repair.Version
+	}
+	if err != nil {
+		head.err = err
+		return head
+	}
+	if head.location, err = r.locationFor(ctx, src); err != nil {
+		head.err = err
+		return head
+	}
+	if head.columns, err = ReadHeaderColumns(body); err != nil {
+		head.err = err
+	}
+	return head
+}
+
+// repairHead answers a new version of a file that cannot be read as a table
+// the way it was written, and returns the bytes the head is described from.
+//
+// With no registration carrying the repair choice the answer is the refusal a
+// registration gives, which leaves every table over the file where it was with
+// the reason recorded on it: nobody asked for this file to be rewritten, and a
+// follow that corrected it anyway would rewrite a person's file on the back of
+// a write about something else.
+//
+// With one, that is exactly what was asked for at registration and #1577 is
+// that it stopped happening the day after. A corrected copy is saved as the
+// file's next version, through the same reviser a register-with-repair
+// corrects through, under the registrant rather than whoever made the write:
+// the defective version stays below it and is revertible, the change summary
+// says what changed, and src moves onto the corrected version so the tables
+// are pointed at it.
+//
+// An uncorrectable defect is refused whichever was asked for, and no version
+// is written. Bytes in an encoding the platform does not convert are read
+// wrongly by the correction too, and records that do not match the header are
+// what the correction refuses in turn (#1449).
+func (r *Registrar) repairHead(
+	ctx context.Context, src *Source, body []byte, reg *Registration,
+) ([]byte, *RepairReport, error) {
+	defect := tablecsv.Inspect(body)
+	if defect == nil {
+		return body, nil, nil
+	}
+	if !defect.Correctable() {
+		return nil, nil, refusedf("%s %s", defect.Reason(), defect.Remedy())
+	}
+	if reg == nil {
+		return nil, nil, refusedf(
 			"%s Register it again asking for the file to be corrected, and the corrected version is registered.",
-			defect.Reason())}
+			defect.Reason())
 	}
-	location, err := r.locationFor(ctx, src)
-	if err != nil {
-		return &followHead{err: err}
+	if r.deps.Revisers[src.Kind] == nil {
+		return nil, nil, noReviserf(defect, src.Kind)
 	}
-	columns, err := ReadHeaderColumns(body)
-	if err != nil {
-		return &followHead{err: err}
-	}
-	return &followHead{location: location, columns: columns}
+	return r.saveCorrected(ctx, src, registrantCaller(*reg), body)
+}
+
+// registrantCaller is who a follow acts as: the person whose registration is
+// being moved, named by the address the registration records.
+//
+// It is the identity the follow's own audit event is written under, and it is
+// deliberately no more than an address. A registration keeps who made it, not
+// a session, so a correction a follow saves is attributed to them and nothing
+// else about them is borrowed. The version's author is therefore the
+// registrant while what PRODUCED it stays whatever the triggering write was
+// produced by (#1569) -- two questions with two answers, and this one carries
+// no subject to answer the other with.
+func registrantCaller(reg Registration) Caller {
+	return Caller{Email: reg.RegisteredBy}
 }
 
 // alreadyThere answers a following registration that already reads the new

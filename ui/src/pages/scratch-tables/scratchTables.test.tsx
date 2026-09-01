@@ -47,6 +47,7 @@ function row(overrides: Partial<ScratchTable> = {}): ScratchTable {
     sample_sql: "SELECT * FROM scratch.uploads.analyst_regional_sales",
     stale: false,
     follow: true,
+    repair: false,
     source: { kind: "asset", id: "ast-008", name: "Regional sales summary", missing: false },
     can_unregister: true,
     ...overrides,
@@ -229,6 +230,18 @@ describe("one registration at an address of its own", () => {
     cleanup();
     open({ stale: true, follow: true, follow_error: "the coordinator refused the statement." });
     expect(screen.getByText(/could not be moved onto the current version: the coordinator refused/)).toBeTruthy();
+  });
+
+  it("says when a following table also corrects the file it follows", () => {
+    // A table registered with the correction writes versions of somebody's
+    // file nobody typed (#1577), so the page listing what is registered on a
+    // shared schema says which tables do that.
+    open({ repair: true });
+    expect(screen.getByText(/It also corrects the file/)).toBeTruthy();
+
+    cleanup();
+    open({ repair: false });
+    expect(screen.queryByText(/It also corrects the file/)).toBeNull();
   });
 
   it("offers no link for a file that is gone, and says why", () => {

@@ -170,6 +170,8 @@ A spreadsheet export often has a line break inside a cell — a multi-line addre
 
 The same description is recorded on the version the correction wrote, so Version history still says why the file changed after this answer is gone. The version below it has none: those are the bytes you uploaded.
 
+A table registered this way goes on correcting the file. If the next revision you upload has the same problem — the same weekly export from the same spreadsheet — the correction is made again, as a new version above the one you uploaded, and the table moves onto it. The revision you uploaded is still there and still restorable, and the reply to the upload says both what happened to the table and what the correction changed. The panel labels such a table *Corrects the file*. Registering the same name again without asking for the correction turns it off.
+
 ![The corrected version in Version history](../images/screenshots/light/admin-resource-corrected-version-light.webp#only-light)![The corrected version in Version history](../images/screenshots/dark/admin-resource-corrected-version-dark.webp#only-dark)
 
 See [Registered Tables](../server/registered-tables.md).

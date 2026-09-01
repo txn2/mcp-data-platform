@@ -172,6 +172,8 @@ A CSV asset can be registered as a table and joined to warehouse tables from the
 
 ![Registered table on a CSV asset](../images/screenshots/light/user-asset-table-light.webp#only-light)![Registered table on a CSV asset](../images/screenshots/dark/user-asset-table-dark.webp#only-dark)
 
+A table is labelled with the rules it was registered under: *Follows the file* or *Pinned to its version*, and *Corrects the file* for one that saves a corrected version of a CSV a query engine cannot read and moves onto it.
+
 Nothing is copied. The table reads the file where it already sits, so re-running the export that produced the asset changes what the table returns. Every column comes back as text, so a join to a typed warehouse column needs a `CAST` — the panel shows the table's name to copy into a query, and the platform's `search` results carry a sample statement.
 
 The **Register** control stays available after the first registration, because one file is not limited to one table. Registering under a different name, or onto a different connection, adds a second table over the same file and leaves the first alone. Registering the same name on the same connection replaces that registration, which is how a table is moved forward after the asset changes: editing an asset writes a new version, the table keeps serving the version it was registered against, and the panel says so and asks you to register again. Overwriting the file at the same key is different — the table returns the new contents on the next query with nothing to do.

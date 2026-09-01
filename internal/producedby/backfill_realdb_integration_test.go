@@ -25,11 +25,33 @@ const (
 	twinScriptB      = "33333333-3333-4333-8333-333333333333"
 )
 
+// preProducersVersion is the schema version before migration 000135 created
+// content_producers and backfilled it.
+const preProducersVersion = 134
+
 // rollBackTheRelation removes content_producers and its backfill, leaving the
 // schema as a deployment upgrading into this change has it.
+//
+// It steps down to a NAMED version rather than taking one step from the head.
+// testdb applies the whole set, so one step back undoes whichever migration
+// landed last, and this stopped undoing 000135 the moment another migration
+// was added on top of it -- leaving the backfill in place, the seeded rows
+// unread, and the assertions below failing about the backfill rather than
+// about the step. Every test here then steps forward one, which re-applies
+// 000135 and nothing else.
 func rollBackTheRelation(t *testing.T, db *sql.DB) {
 	t.Helper()
-	require.NoError(t, migrate.Steps(db, -1), "step migration 000135 down")
+	for {
+		version, dirty, err := migrate.Version(db)
+		require.NoError(t, err, "read migration version")
+		require.False(t, dirty, "migration state must not be dirty")
+		if version == preProducersVersion {
+			return
+		}
+		require.Greater(t, version, uint(preProducersVersion),
+			"stepped below migration 000135 without landing on the version before it")
+		require.NoError(t, migrate.Steps(db, -1), "roll back one migration")
+	}
 }
 
 // insertScript writes a scripts row directly: the backfill reads the table, and
