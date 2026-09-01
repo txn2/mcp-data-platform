@@ -46,12 +46,13 @@ const (
 	defaultLimit = 10
 	maxLimit     = 50
 
-	// candidateLimitPerSource is how many ranked candidates each provider
-	// returns to the allocator, independent of the display budget. It is
-	// larger than a typical display budget so the allocator has material to
-	// balance across sources and so coverage counts ("14 datasets matched")
-	// are meaningful beyond the few that are shown. Matched counts are capped
-	// at this value.
+	// candidateLimitPerSource is the floor on how many ranked candidates each
+	// provider returns to the allocator. It is larger than a typical display
+	// budget so the allocator has material to balance across sources and so
+	// coverage counts ("14 datasets matched") are meaningful beyond the few
+	// that are shown. A display budget larger than this raises the depth to
+	// the budget (candidateDepth), so a search narrowed to one source can
+	// actually display the limit it asked for (#1585).
 	candidateLimitPerSource = 25
 )
 
@@ -277,6 +278,29 @@ func clampInt(limit, def, upper int) int {
 // clampLimit constrains the per-provider result limit to valid bounds.
 func clampLimit(limit int) int { return clampInt(limit, defaultLimit, maxLimit) }
 
+// candidateDepth is how many candidates each provider is asked to rank for a
+// search with the given display budget: the standing per-source floor, or the
+// budget itself when the caller asked for more than that. Before #1585 the
+// depth was the floor unconditionally, so a search narrowed to one source could
+// never display more than 25 however large a limit it passed, and the tool
+// documented a maximum of 50 it could not honor.
+//
+// The raise is keyed on the budget rather than on whether the query narrowed to
+// one source, which does mean a wide search with a large limit fetches more
+// than it can display. That is the deliberate side to err on: the allocator
+// redistributes unspent budget, so a wide search where only one source has
+// depth spends it there, and a rule that raised the depth only for a
+// single-source query would leave a two-source search unable to honor its own
+// documented limit. The cost is bounded and is paid only by a caller who asked
+// for more than the floor -- the default budget of 10 leaves the depth at 25,
+// which is every search that does not ask for more.
+func candidateDepth(displayBudget int) int {
+	if displayBudget > candidateLimitPerSource {
+		return displayBudget
+	}
+	return candidateLimitPerSource
+}
+
 // Search runs one knowledge search from a caller-built Query. It embeds the
 // intent once (when present) and shares the vector across providers, queries
 // every shared provider plus every per-user provider for which the caller
@@ -292,9 +316,15 @@ func (r *Router) Search(ctx context.Context, q Query) (Result, error) {
 	q.Intent = strings.TrimSpace(q.Intent)
 	// The caller's limit is the display budget for the balanced set; each
 	// provider returns a deeper candidate list so the allocator can balance
-	// and so coverage counts mean something beyond what is shown.
+	// and so coverage counts mean something beyond what is shown. One past the
+	// depth is asked for deliberately: a provider that fills the probe slot is
+	// a provider with more to give, which is how coverage tells "matched
+	// exactly this many" apart from "matched at least this many" (#1585)
+	// without asking fifteen providers for a corpus total they cannot all
+	// produce. The extra candidate is trimmed in fanOut and never displayed.
 	displayBudget := clampLimit(q.Limit)
-	q.Limit = candidateLimitPerSource
+	depth := candidateDepth(displayBudget)
+	q.Limit = depth + 1
 
 	ranking := rankingEntity
 	if q.Intent != "" {
@@ -320,7 +350,7 @@ func (r *Router) Search(ctx context.Context, q Query) (Result, error) {
 		q.EntityURNs = r.lineage.Expand(ctx, q.EntityURNs)
 	}
 
-	results, attempted, errs := r.fanOut(ctx, q)
+	results, attempted, errs := r.fanOut(ctx, q, depth)
 
 	// Every queried provider failed: surface the failure rather than an empty
 	// success.
@@ -358,9 +388,19 @@ func (r *Router) selectProviders(q Query) []Provider {
 }
 
 // fanOut queries every applicable provider with the prepared query, returning each
-// provider's hits (plus the count its connection boundary withheld), the number of
-// providers actually queried, and any errors. A provider error is logged and
-// collected so a single unhealthy store does not blank the search.
+// provider's hits (plus the count its connection boundary withheld and whether it
+// had more than depth to give), the number of providers actually queried, and any
+// errors. A provider error is logged and collected so a single unhealthy store does
+// not blank the search.
+//
+// The query carries depth+1 as its limit, so an arm that comes back with more than
+// depth candidates is one the depth bound, not the corpus, decided the length of.
+// That arm is marked capped and trimmed back to depth; coverage then reports its
+// matched count as a floor rather than a total (#1585). The test is on the
+// candidates the caller may see, not on those plus the ones the connection boundary
+// removed: a provider that filters its whole corpus rather than a fetched window
+// reports every withheld record, and counting those would flag a source whose
+// visible matches fit inside the depth with room to spare.
 //
 // The applicable providers are independent (each Search shares no state with the
 // others, and several issue their own DB or network call), so the fan-out runs them
@@ -373,7 +413,7 @@ func (r *Router) selectProviders(q Query) []Provider {
 //
 // Each arm gets its own copy of the query carrying its own connection gate, so the
 // concurrent arms record their withheld counts without sharing state.
-func (r *Router) fanOut(ctx context.Context, q Query) (out []sourceResult, attempted int, errs []error) {
+func (r *Router) fanOut(ctx context.Context, q Query, depth int) (out []sourceResult, attempted int, errs []error) {
 	selected := r.selectProviders(q)
 	if len(selected) == 0 {
 		return nil, 0, nil
@@ -424,12 +464,27 @@ func (r *Router) fanOut(ctx context.Context, q Query) (out []sourceResult, attem
 			continue
 		}
 		if len(results[i].hits) > 0 || results[i].withheld > 0 {
+			hits, capped := trimToDepth(results[i].hits, depth)
 			out = append(out, sourceResult{
 				source:   selected[i].Name(),
-				hits:     results[i].hits,
+				hits:     hits,
 				withheld: results[i].withheld,
+				capped:   capped,
 			})
 		}
 	}
 	return out, attempted, errs
+}
+
+// trimToDepth cuts a provider's candidate list back to the depth the router
+// ranks over and reports whether there was more behind it. The router asks for
+// depth+1, so a list longer than depth is one the bound truncated: the extra
+// candidate is the probe and is dropped, since it was never part of the display
+// set the depth defines. Providers return their candidates ranked, so the
+// dropped one is the least relevant of the fetched window.
+func trimToDepth(hits []Hit, depth int) ([]Hit, bool) {
+	if depth <= 0 || len(hits) <= depth {
+		return hits, false
+	}
+	return hits[:depth], true
 }

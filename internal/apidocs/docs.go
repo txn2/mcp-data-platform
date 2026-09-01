@@ -23685,6 +23685,9 @@ const docTemplate = `{
                 "matched": {
                     "type": "integer"
                 },
+                "matched_capped": {
+                    "type": "boolean"
+                },
                 "shown": {
                     "type": "integer"
                 },

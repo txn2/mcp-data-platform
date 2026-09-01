@@ -121,7 +121,7 @@ var searchSchema = json.RawMessage(`{
     },
     "limit": {
       "type": "integer",
-      "description": "Search mode: total results to display across all sources (display budget, default 10, max 50). Browse mode: page size (default 50, max 100)."
+      "description": "Search mode: total results to display across all sources (display budget, default 10, max 50). It is also what bounds one source: each source ranks up to limit candidates, or 25 when limit is smaller, so a search narrowed to a single source returns up to limit from it. A source with more matching records than that carries matched_capped: true in its coverage entry, meaning its matched count is a floor, not a total. Browse mode: page size (default 50, max 100)."
     },
     "offset": {
       "type": "integer",
@@ -292,9 +292,12 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"or drill in with a scoped tool (trino_query, api_invoke_endpoint). Pass entity_urns to pull what " +
 			"you know about specific datasets. Personal results are scoped to you, except that an insight " +
 			"someone had applied is knowledge the organization holds and reaches everyone (its captured_by " +
-			"names who recorded it). To enumerate a whole source " +
+			"names who recorded it). Each source ranks up to `limit` candidates (25 when `limit` is smaller), " +
+			"so a coverage entry's `matched` counts within that bound and is not a corpus count: an entry " +
+			"carrying matched_capped: true has more behind it, and its `matched` reads as \"at least this " +
+			"many\". Raise `limit` to rank further into one source. To enumerate a whole source " +
 			"instead of relevance-ranking it (to audit or migrate it), call with exactly one `sources` entry, " +
-			"no intent, and an `offset`: this browses the complete set with a total count (browsable: " +
+			"no intent, and an `offset`: this browses the complete set with a true total count (browsable: " +
 			"knowledge_pages, context_documents). Freshness: catalog and context-document results come from " +
 			"DataHub's search index, which is eventually consistent and can briefly lag a recent catalog write, so " +
 			"a result may still show pre-edit text right after you change it. To confirm a specific entity's " +

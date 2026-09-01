@@ -188,7 +188,7 @@ func TestCatalogCandidateMergeInterleaves(t *testing.T) {
 	indexed := []catalogCandidate{{urn: "i1"}, {urn: "i2"}, {urn: "i3"}}
 	remote := []catalogCandidate{{urn: "r1"}, {urn: "r2"}}
 
-	got := mergeCandidates(0, indexed, remote)
+	got := mergeCandidates(0, nil, indexed, remote)
 	want := []string{"i1", "r1", "i2", "r2", "i3"}
 	if len(got) != len(want) {
 		t.Fatalf("len = %d, want %d (%v)", len(got), len(want), got)
@@ -200,22 +200,22 @@ func TestCatalogCandidateMergeInterleaves(t *testing.T) {
 	}
 
 	// A duplicate keeps the index's copy and does not consume a second slot.
-	dup := mergeCandidates(0, []catalogCandidate{{urn: "x", text: "from index"}}, []catalogCandidate{{urn: "x", text: "from datahub"}})
+	dup := mergeCandidates(0, nil, []catalogCandidate{{urn: "x", text: "from index"}}, []catalogCandidate{{urn: "x", text: "from datahub"}})
 	if len(dup) != 1 || dup[0].text != "from index" {
 		t.Errorf("dedup = %+v, want the index copy only", dup)
 	}
 
 	// The budget is a hard cap on the merged set.
-	capped := mergeCandidates(3, indexed, remote)
+	capped := mergeCandidates(3, nil, indexed, remote)
 	if len(capped) != 3 || capped[0].urn != "i1" || capped[1].urn != "r1" {
 		t.Errorf("capped = %+v, want the first three of the interleaved order", capped)
 	}
 
 	// One-sided inputs degrade to that side's own order.
-	if only := mergeCandidates(0, nil, remote); len(only) != 2 || only[0].urn != "r1" {
+	if only := mergeCandidates(0, nil, nil, remote); len(only) != 2 || only[0].urn != "r1" {
 		t.Errorf("index-less merge = %+v, want DataHub's order unchanged", only)
 	}
-	if only := mergeCandidates(0, indexed, nil); len(only) != 3 || only[0].urn != "i1" {
+	if only := mergeCandidates(0, nil, indexed, nil); len(only) != 3 || only[0].urn != "i1" {
 		t.Errorf("datahub-less merge = %+v, want the index order unchanged", only)
 	}
 }

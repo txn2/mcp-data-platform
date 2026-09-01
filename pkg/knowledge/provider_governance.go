@@ -336,17 +336,22 @@ func (p *GovernanceProvider) Search(ctx context.Context, q Query) ([]Hit, error)
 		return nil, err
 	}
 
-	candidates := mergeCandidates(q.Limit, lists...)
+	// The boundary is evaluated inside the merge, ahead of its truncation, so a
+	// withheld candidate does not consume one of the limited slots and leave a
+	// truncated source looking exhausted (#1585). It is evaluated at all even
+	// though a governance URN is unattributable today: the rule belongs to the
+	// boundary, not to an assumption about URN shapes here.
+	withheld := 0
+	candidates := mergeCandidates(q.Limit, func(urn string) bool {
+		if !q.Caller.allowsURN(urn) {
+			withheld++
+			return false
+		}
+		return true
+	}, lists...)
 	n := len(candidates)
 	hits := make([]Hit, 0, n)
-	withheld := 0
 	for i := range candidates {
-		// Evaluated even though a governance URN is unattributable today: the rule
-		// belongs to the boundary, not to an assumption about URN shapes here.
-		if !q.Caller.allowsURN(candidates[i].urn) {
-			withheld++
-			continue
-		}
 		hits = append(hits, Hit{
 			Text:       candidates[i].text,
 			Source:     SourceGovernance,

@@ -72,11 +72,17 @@ type SearchHit struct {
 // are shown, the anti-tunnel signal that breadth exists beyond the display set,
 // plus how many the caller's persona hid (#1108) so "nothing matched" and
 // "matches you may not see" render differently.
+//
+// MatchedCapped says the source had more matches than the search ranked, so
+// Matched is a floor rather than a total (#1585). The reader of a portal search
+// draws the same wrong conclusion from an unflagged capped count that an agent
+// does: that the list on screen is the whole of it.
 type SearchCoverage struct {
-	Source   string `json:"source"`
-	Matched  int    `json:"matched"`
-	Shown    int    `json:"shown"`
-	Withheld int    `json:"withheld,omitempty"`
+	Source        string `json:"source"`
+	Matched       int    `json:"matched"`
+	Shown         int    `json:"shown"`
+	MatchedCapped bool   `json:"matched_capped,omitempty"`
+	Withheld      int    `json:"withheld,omitempty"`
 }
 
 // registerSearchRoutes wires the unified knowledge-search endpoint. It is

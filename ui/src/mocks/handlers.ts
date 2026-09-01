@@ -4013,10 +4013,14 @@ export const handlers = [
     const filtered = sources.length
       ? groups.filter((g) => sources.includes(g.source))
       : groups;
+    // The datahub group stands in for a source the search ranked as deep as its
+    // budget went and no further: its matched is a floor, and the coverage line
+    // renders it "25+" rather than "25" (#1585).
     const coverage = filtered.map((g) => ({
       source: g.source,
-      matched: g.hits.length + 4,
+      matched: g.source === "datahub" ? 25 : g.hits.length + 4,
       shown: g.hits.length,
+      ...(g.source === "datahub" ? { matched_capped: true } : {}),
     }));
     const count = filtered.reduce((n, g) => n + g.hits.length, 0);
     return HttpResponse.json({ groups: filtered, coverage, count, ranking: "hybrid" });

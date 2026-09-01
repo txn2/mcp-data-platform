@@ -469,10 +469,14 @@ export interface SearchGroup {
 // shown, so breadth beyond the display set stays visible. withheld counts the
 // matches the caller's persona hid because they belong to connections it is not
 // granted (#1108); it separates "nothing matched" from "matches you may not see".
+// matched_capped says the source had more matches than the search ranked, so
+// matched is a floor rather than a total (#1585); it is rendered as "25+" so a
+// reader does not take a bound for the whole of what is there.
 export interface SearchCoverage {
   source: string;
   matched: number;
   shown: number;
+  matched_capped?: boolean;
   withheld?: number;
 }
 
