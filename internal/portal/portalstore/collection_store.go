@@ -12,6 +12,7 @@ import (
 	"github.com/lib/pq"
 
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 )
 
@@ -30,6 +31,11 @@ func wrapRowsAffected(err error) error {
 
 type postgresCollectionStore struct {
 	db *sql.DB
+	// producers records what created each collection (#1569's relation,
+	// extended to collections by #1579). Insert is the funnel every create
+	// passes through, so the note sits there. Nil in a deployment that keeps no
+	// such record; producedby.Note is nil-safe.
+	producers producedby.Store
 	// index receives a write-path index-job enqueue after a write that moves
 	// the collection's indexed text (name, description, section text), so a
 	// curated collection enters ranked search in roughly the time one embed
@@ -38,15 +44,21 @@ type postgresCollectionStore struct {
 	index *indexjobs.Producer
 }
 
-// NewPostgresCollectionStore creates a new PostgreSQL collection store. Pass
+// NewPostgresCollectionStore creates a new PostgreSQL collection store.
+// producers records what created each collection (#1579); pass nil in a
+// deployment that keeps no such record and the note is skipped. Pass
 // indexjobs.WithProducer to have collection writes enqueue their own index job;
 // without it, collections are indexed on the reconciler's next sweep.
 //
 // Only the writes that move the indexed text notify: UpdateConfig and
 // UpdateThumbnail leave name, description and section text alone, so they leave
 // the stored vector valid and owe no re-embed.
-func NewPostgresCollectionStore(db *sql.DB, opts ...indexjobs.StoreOption) portaldomain.CollectionStore {
-	return &postgresCollectionStore{db: db, index: indexjobs.ResolveStoreOptions(opts).Producer}
+func NewPostgresCollectionStore(db *sql.DB, producers producedby.Store, opts ...indexjobs.StoreOption) portaldomain.CollectionStore {
+	return &postgresCollectionStore{
+		db:        db,
+		producers: producers,
+		index:     indexjobs.ResolveStoreOptions(opts).Producer,
+	}
 }
 
 func (s *postgresCollectionStore) Insert(ctx context.Context, c portaldomain.Collection) error { //nolint:revive // interface impl
@@ -65,6 +77,15 @@ func (s *postgresCollectionStore) Insert(ctx context.Context, c portaldomain.Col
 	// After the write, never before: a job claimed while the row still holds its
 	// pre-write text would have the worker stamp that snapshot as current.
 	s.index.NotifyWrite(ctx, c.ID)
+	// The create, recorded against whatever produced it. It is what a managed
+	// script run's collection listing is scoped by, because the owner id such a
+	// row records is the principal two owners' same-named scripts share
+	// (#1579). A collection numbers no versions, so the write carries none.
+	producedby.Note(ctx, s.producers, producedby.Write{
+		TargetKind: producedby.TargetCollection,
+		TargetID:   c.ID,
+		Created:    true,
+	})
 	return nil
 }
 
@@ -245,6 +266,16 @@ func (*postgresCollectionStore) buildListQueries(filter portaldomain.CollectionF
 	if filter.OwnerID != "" {
 		countQB = countQB.Where(sq.Eq{colOwnerID: filter.OwnerID})
 		selectQB = selectQB.Where(sq.Eq{colOwnerID: filter.OwnerID})
+	}
+	if filter.ProducedBy.Named() {
+		// What this producer created, not what shares its owner id: a run's
+		// collections record the principal script:<name>, which two owners'
+		// same-named scripts share, while a producer id is the script's own
+		// (#1579).
+		byProducer := producedByPredicate(
+			producedby.TargetCollection, "portal_collections.id", filter.ProducedBy)
+		countQB = countQB.Where(byProducer)
+		selectQB = selectQB.Where(byProducer)
 	}
 	if filter.Search != "" {
 		like := "%" + filter.Search + "%"

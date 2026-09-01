@@ -390,12 +390,19 @@ type AssetFilter struct {
 	// identifier the row records (see AssetOwner). The zero value scopes to
 	// nobody, which is how the administrator's all-assets listing asks for
 	// every owner.
-	Owner       AssetOwner `json:"owner,omitzero"`
-	ContentType string     `json:"content_type,omitempty"`
-	Tag         string     `json:"tag,omitempty"`
-	Search      string     `json:"search,omitempty"`
-	Limit       int        `json:"limit,omitempty"`
-	Offset      int        `json:"offset,omitempty"`
+	Owner AssetOwner `json:"owner,omitzero"`
+	// ProducedBy narrows the listing to the rows one producer wrote, joined to
+	// content_producers rather than read off the asset row. It is what scopes a
+	// managed-script run to its own outputs: the producer id is the script's,
+	// so it survives a rename and a transfer, neither of which the identifiers
+	// on the row do (#1579). It is ANDed with Owner when both are set; the zero
+	// value narrows nothing.
+	ProducedBy  ContentProducer `json:"produced_by,omitzero"`
+	ContentType string          `json:"content_type,omitempty"`
+	Tag         string          `json:"tag,omitempty"`
+	Search      string          `json:"search,omitempty"`
+	Limit       int             `json:"limit,omitempty"`
+	Offset      int             `json:"offset,omitempty"`
 	// SortBy names the ordering column. It must be a key of
 	// AssetSortColumns; anything else falls back to SortUpdatedAt.
 	SortBy string `json:"sort_by,omitempty"`
@@ -875,9 +882,19 @@ type CollectionItem struct {
 // CollectionFilter defines filtering criteria for listing collections.
 type CollectionFilter struct {
 	OwnerID string `json:"owner_id,omitempty"`
-	Search  string `json:"search,omitempty"`
-	Limit   int    `json:"limit,omitempty"`
-	Offset  int    `json:"offset,omitempty"`
+	// ProducedBy narrows the listing to the collections one producer created,
+	// joined to content_producers. It is what scopes a managed-script run to
+	// its own collections: the owner id such a row records is the principal
+	// script:<name>, and a script name is unique only within its owner, so two
+	// people who each keep a daily-sales share one owner id (#1579). The
+	// producer id is the script's and shares nothing.
+	//
+	// The zero value narrows nothing, which is what a person passes: their own
+	// owner id already names one person.
+	ProducedBy ContentProducer `json:"produced_by,omitzero"`
+	Search     string          `json:"search,omitempty"`
+	Limit      int             `json:"limit,omitempty"`
+	Offset     int             `json:"offset,omitempty"`
 	// SortBy names the ordering column. It must be a key of
 	// CollectionSortColumns; anything else falls back to SortUpdatedAt.
 	SortBy string `json:"sort_by,omitempty"`

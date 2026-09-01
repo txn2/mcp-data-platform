@@ -41,7 +41,7 @@ func indexedAssetStore(db *sql.DB) (portaldomain.AssetStore, *fakeEnqueuer) {
 
 func indexedCollectionStore(db *sql.DB) (portaldomain.CollectionStore, *fakeEnqueuer) {
 	p, enq := boundProducer("portal-collections")
-	return NewPostgresCollectionStore(db, indexjobs.WithProducer(p)), enq
+	return NewPostgresCollectionStore(db, nil, indexjobs.WithProducer(p)), enq
 }
 
 // TestAssetInsertEnqueuesIndexJob: a saved asset produces one TriggerWrite job

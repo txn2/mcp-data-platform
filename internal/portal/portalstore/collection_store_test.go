@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/internal/producedby"
 )
 
 // --- CollectionStore tests ---
@@ -23,7 +24,7 @@ func TestPostgresCollectionStoreInsert(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresCollectionStore(db)
+	store := NewPostgresCollectionStore(db, nil)
 
 	coll := portaldomain.Collection{
 		ID:             "coll1",
@@ -49,7 +50,7 @@ func TestPostgresCollectionStoreInsertError(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresCollectionStore(db)
+	store := NewPostgresCollectionStore(db, nil)
 
 	coll := portaldomain.Collection{
 		ID:      "coll1",
@@ -72,7 +73,7 @@ func TestPostgresCollectionStoreGet(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresCollectionStore(db)
+	store := NewPostgresCollectionStore(db, nil)
 	now := time.Now()
 	configJSON, _ := json.Marshal(portaldomain.CollectionConfig{ThumbnailSize: "medium"})
 
@@ -139,7 +140,7 @@ func TestPostgresCollectionStoreGetNotFound(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresCollectionStore(db)
+	store := NewPostgresCollectionStore(db, nil)
 
 	mock.ExpectQuery("SELECT .+ FROM portal_collections WHERE id").
 		WithArgs("missing").
@@ -156,7 +157,7 @@ func TestPostgresCollectionStoreList(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresCollectionStore(db)
+	store := NewPostgresCollectionStore(db, nil)
 	now := time.Now()
 	configJSON, _ := json.Marshal(portaldomain.CollectionConfig{})
 
@@ -194,7 +195,7 @@ func TestPostgresCollectionStoreListEmpty(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresCollectionStore(db)
+	store := NewPostgresCollectionStore(db, nil)
 
 	// COUNT query returns 0
 	mock.ExpectQuery("SELECT COUNT").
@@ -221,7 +222,7 @@ func TestPostgresCollectionStoreListWithSearch(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresCollectionStore(db)
+	store := NewPostgresCollectionStore(db, nil)
 	now := time.Now()
 	configJSON, _ := json.Marshal(portaldomain.CollectionConfig{})
 
@@ -259,7 +260,7 @@ func TestPostgresCollectionStoreUpdate(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresCollectionStore(db)
+	store := NewPostgresCollectionStore(db, nil)
 
 	mock.ExpectExec("UPDATE portal_collections SET name").
 		WithArgs("New Name", "New Description", sqlmock.AnyArg(), "coll1").
@@ -275,7 +276,7 @@ func TestPostgresCollectionStoreUpdateNotFound(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresCollectionStore(db)
+	store := NewPostgresCollectionStore(db, nil)
 
 	mock.ExpectExec("UPDATE portal_collections SET name").
 		WithArgs("Name", "Desc", sqlmock.AnyArg(), "missing").
@@ -292,7 +293,7 @@ func TestPostgresCollectionStoreUpdateConfig(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresCollectionStore(db)
+	store := NewPostgresCollectionStore(db, nil)
 
 	mock.ExpectExec("UPDATE portal_collections SET config").
 		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "coll1").
@@ -308,7 +309,7 @@ func TestPostgresCollectionStoreUpdateThumbnail(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresCollectionStore(db)
+	store := NewPostgresCollectionStore(db, nil)
 
 	mock.ExpectExec("UPDATE portal_collections SET thumbnail_s3_key").
 		WithArgs("new/thumb.png", sqlmock.AnyArg(), "coll1").
@@ -324,7 +325,7 @@ func TestPostgresCollectionStoreSoftDelete(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresCollectionStore(db)
+	store := NewPostgresCollectionStore(db, nil)
 
 	mock.ExpectExec("UPDATE portal_collections SET deleted_at").
 		WithArgs(sqlmock.AnyArg(), "coll1").
@@ -340,7 +341,7 @@ func TestPostgresCollectionStoreSoftDeleteNotFound(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresCollectionStore(db)
+	store := NewPostgresCollectionStore(db, nil)
 
 	mock.ExpectExec("UPDATE portal_collections SET deleted_at").
 		WithArgs(sqlmock.AnyArg(), "missing").
@@ -357,7 +358,7 @@ func TestPostgresCollectionStoreSetSections(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresCollectionStore(db)
+	store := NewPostgresCollectionStore(db, nil)
 
 	sections := []portaldomain.CollectionSection{
 		{
@@ -435,7 +436,7 @@ func TestPostgresCollectionStorePopulateAssetTags(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresCollectionStore(db)
+	store := NewPostgresCollectionStore(db, nil)
 	now := time.Now()
 	configJSON, _ := json.Marshal(portaldomain.CollectionConfig{})
 
@@ -649,7 +650,7 @@ func TestPostgresCollectionStoreUpdateConfigNotFound(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresCollectionStore(db)
+	store := NewPostgresCollectionStore(db, nil)
 
 	mock.ExpectExec("UPDATE portal_collections").
 		WillReturnResult(sqlmock.NewResult(0, 0))
@@ -665,7 +666,7 @@ func TestPostgresCollectionStoreUpdateConfigError(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresCollectionStore(db)
+	store := NewPostgresCollectionStore(db, nil)
 
 	mock.ExpectExec("UPDATE portal_collections").
 		WillReturnError(fmt.Errorf("db error"))
@@ -681,7 +682,7 @@ func TestPostgresCollectionStoreUpdateThumbnailNotFound(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresCollectionStore(db)
+	store := NewPostgresCollectionStore(db, nil)
 
 	mock.ExpectExec("UPDATE portal_collections").
 		WillReturnResult(sqlmock.NewResult(0, 0))
@@ -697,7 +698,7 @@ func TestPostgresCollectionStoreUpdateThumbnailError(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresCollectionStore(db)
+	store := NewPostgresCollectionStore(db, nil)
 
 	mock.ExpectExec("UPDATE portal_collections").
 		WillReturnError(fmt.Errorf("db error"))
@@ -713,7 +714,7 @@ func TestPostgresCollectionStoreSetSectionsBeginError(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresCollectionStore(db)
+	store := NewPostgresCollectionStore(db, nil)
 
 	mock.ExpectBegin().WillReturnError(fmt.Errorf("begin error"))
 
@@ -728,7 +729,7 @@ func TestPostgresCollectionStoreSetSectionsDeleteError(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store := NewPostgresCollectionStore(db)
+	store := NewPostgresCollectionStore(db, nil)
 
 	mock.ExpectBegin()
 	mock.ExpectExec("DELETE FROM portal_collection_sections").
@@ -746,7 +747,7 @@ func TestPostgresCollectionStoreGetItemsBySectionsEmpty(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	store, ok := NewPostgresCollectionStore(db).(*postgresCollectionStore)
+	store, ok := NewPostgresCollectionStore(db, nil).(*postgresCollectionStore)
 	require.True(t, ok)
 
 	// getItemsBySections with empty slice should return empty map without querying
@@ -788,7 +789,7 @@ func TestPostgresCollectionStoreListOrdering(t *testing.T) {
 			require.NoError(t, err)
 			defer db.Close() //nolint:errcheck // test cleanup
 
-			store := NewPostgresCollectionStore(db)
+			store := NewPostgresCollectionStore(db, nil)
 			mock.ExpectQuery("SELECT COUNT").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 			mock.ExpectQuery(tc.wantOrder).WillReturnRows(sqlmock.NewRows([]string{
 				"id", "owner_id", "owner_email", "name", "description", "thumbnail_s3_key", "config",
@@ -831,4 +832,46 @@ func TestCollectionListQueryScopedToOwner(t *testing.T) {
 
 	assert.Contains(t, selectSQL, "owner_id =")
 	assert.Contains(t, args, "u-1")
+}
+
+// A managed script run's collection listing is scoped by the producer that
+// created the rows, not by the owner id they record: that id is the principal
+// script:<name>, and a script name is unique only within its owner, so scoping
+// on it hands a run of one person's daily-sales the collections another
+// person's daily-sales created (#1579).
+func TestCollectionListQueryScopedToAScriptsOwnCollections(t *testing.T) {
+	var store *postgresCollectionStore
+
+	countQB, selectQB := store.buildListQueries(portaldomain.CollectionFilter{
+		ProducedBy: portaldomain.NewContentProducer(producedby.KindScript, "script-uuid"),
+	}, 20)
+	selectSQL, args, err := selectQB.ToSql()
+	require.NoError(t, err)
+	countSQL, countArgs, err := countQB.ToSql()
+	require.NoError(t, err)
+
+	for _, tt := range []struct {
+		sql  string
+		args []any
+	}{{selectSQL, args}, {countSQL, countArgs}} {
+		assert.Contains(t, tt.sql, "EXISTS (SELECT 1 FROM content_producers cp")
+		assert.Contains(t, tt.sql, "cp.target_id = portal_collections.id",
+			"the id must be qualified or it binds to content_producers' own id")
+		assert.NotContains(t, tt.sql, "owner_id =")
+		assert.Equal(t,
+			[]any{producedby.TargetCollection, producedby.KindScript, "script-uuid"}, tt.args)
+	}
+}
+
+// A person carries no producer, so the listing they see is the one they saw
+// before a run's scope moved off the owner id.
+func TestCollectionListQueryAPersonBindsNoProducer(t *testing.T) {
+	var store *postgresCollectionStore
+
+	_, selectQB := store.buildListQueries(portaldomain.CollectionFilter{OwnerID: "u-1"}, 20)
+	selectSQL, args, err := selectQB.ToSql()
+	require.NoError(t, err)
+
+	assert.NotContains(t, selectSQL, "content_producers")
+	assert.Equal(t, []any{"u-1"}, args)
 }

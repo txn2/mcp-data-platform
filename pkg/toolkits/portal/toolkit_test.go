@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/textpatch"
@@ -645,6 +646,11 @@ func TestGenerateID(t *testing.T) {
 // inMemoryAssetStore is a simple in-memory implementation for tests.
 type inMemoryAssetStore struct {
 	assets map[string]portal.Asset
+	// producedBy models content_producers: the producer that CREATED each
+	// asset, keyed by asset id. The real store's listing joins to it (matching
+	// on the producer kind and id, and only where cp.created), which is how a
+	// managed-script run's inventory is scoped (#1579).
+	producedBy map[string]portaldomain.ContentProducer
 }
 
 func newInMemoryAssetStore() *inMemoryAssetStore {
@@ -671,6 +677,12 @@ func (s *inMemoryAssetStore) List(_ context.Context, filter portal.AssetFilter) 
 			continue
 		}
 		if filter.Owner.Identified() && !filter.Owner.OwnsAsset(&a) {
+			continue
+		}
+		// Keyed on the whole producer, not on its id alone: the real predicate
+		// compares (producer_kind, producer_id), and a fake that ignored the
+		// kind would let a session's write pass for a script's.
+		if filter.ProducedBy.Named() && s.producedBy[a.ID] != filter.ProducedBy {
 			continue
 		}
 		result = append(result, a)

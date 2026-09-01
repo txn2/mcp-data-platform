@@ -11,12 +11,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 )
 
 // inMemoryCollectionStore implements portal.CollectionStore for testing.
 type inMemoryCollectionStore struct {
+	// producedBy models content_producers: what created each collection, which
+	// is what the real store's listing joins to (#1579).
+	producedBy  map[string]portaldomain.ContentProducer
 	collections map[string]portal.Collection
 	sections    map[string][]portal.CollectionSection // keyed by collection ID
 	insertErr   error
@@ -60,6 +65,12 @@ func (s *inMemoryCollectionStore) List(_ context.Context, filter portal.Collecti
 			continue
 		}
 		if filter.OwnerID != "" && c.OwnerID != filter.OwnerID {
+			continue
+		}
+		// The producer scope narrows the listing to what one producer created,
+		// which is what the PostgreSQL store's buildListQueries renders as an
+		// EXISTS over content_producers (#1579).
+		if filter.ProducedBy.Named() && s.producedBy[c.ID] != filter.ProducedBy {
 			continue
 		}
 		result = append(result, c)
@@ -828,4 +839,83 @@ func TestGetActiveCollection_Success(t *testing.T) {
 	assert.NotNil(t, coll)
 	assert.Nil(t, errResult)
 	assert.Equal(t, "Active", coll.Name)
+}
+
+// A run's collection listing is its own script's, not every same-named
+// script's: two people who each keep a daily-sales present one principal as the
+// owner id their collections record, so the listing is scoped by the producer
+// each write recorded instead (#1579).
+func TestListCollections_ARunSeesOnlyItsOwnScriptsCollections(t *testing.T) {
+	cs := newInMemoryCollectionStore()
+	cs.collections["c1"] = portal.Collection{
+		ID: "c1", OwnerID: "script:daily-sales", OwnerEmail: "alice@example.com", Name: "Alice's",
+	}
+	cs.collections["c2"] = portal.Collection{
+		ID: "c2", OwnerID: "script:daily-sales", OwnerEmail: "bob@example.com", Name: "Bob's",
+	}
+	cs.producedBy = map[string]portaldomain.ContentProducer{
+		"c1": portaldomain.NewContentProducer(producedby.KindScript, "alices-script"),
+		"c2": portaldomain.NewContentProducer(producedby.KindScript, "bobs-script"),
+	}
+	tk := toolkitWithCollections(cs)
+
+	result, _, err := tk.handleManageAsset(
+		scriptRunProducerCtx("script:daily-sales", "alice@example.com", "alices-script"),
+		nil, manageAssetInput{Action: "list_collections"})
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+
+	out := extractJSON(t, result)
+	assert.Equal(t, float64(1), out["total"])
+	listed := out["collections"].([]any) //nolint:errcheck // test assertion
+	require.Len(t, listed, 1)
+	first := listed[0].(map[string]any) //nolint:errcheck // test assertion
+	assert.Equal(t, "c1", first["id"])
+}
+
+// A run carrying no producer is scoped by nothing and refused, rather than
+// falling back to the principal every same-named script shares.
+func TestListCollections_ARunWithNoProducerIsRefused(t *testing.T) {
+	cs := newInMemoryCollectionStore()
+	cs.collections["c1"] = portal.Collection{ID: "c1", OwnerID: "script:daily-sales", Name: "Nobody's"}
+	tk := toolkitWithCollections(cs)
+
+	result, _, err := tk.handleManageAsset(
+		scriptOutputRunCtx("script:daily-sales", "alice@example.com", "alice@example.com"),
+		nil, manageAssetInput{Action: "list_collections"})
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	assert.Contains(t, extractError(t, result), "a user identity is required to list collections")
+}
+
+// An administrator changes any collection, exactly as they change any asset: a
+// surface that scopes or hides for an administrator is a defect, and it is also
+// what keeps a run whose author is an administrator able to change the
+// collections its own script created after a transfer.
+func TestCollectionWrites_AnAdministratorIsUnrestricted(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		input manageAssetInput
+	}{
+		{"update", manageAssetInput{Action: "update_collection", CollectionID: "c1", Name: "Renamed"}},
+		{"set_sections", manageAssetInput{
+			Action: actionSetSections, CollectionID: "c1",
+			Sections: []sectionInput{{Title: "Overview"}},
+		}},
+		{"delete", manageAssetInput{Action: "delete_collection", CollectionID: "c1"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cs := newInMemoryCollectionStore()
+			cs.collections["c1"] = portal.Collection{
+				ID: "c1", OwnerID: "u-alice", OwnerEmail: "alice@example.com", Name: "Alice's",
+			}
+			tk := toolkitWithCollections(cs)
+			ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
+				UserID: "u-admin", UserEmail: "admin@example.com", IsAdmin: true,
+			})
+			result, _, err := tk.handleManageAsset(ctx, nil, tt.input)
+			require.NoError(t, err)
+			assert.False(t, result.IsError, extractError(t, result))
+		})
+	}
 }

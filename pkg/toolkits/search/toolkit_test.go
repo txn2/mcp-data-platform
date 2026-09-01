@@ -8,7 +8,9 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/stretchr/testify/assert"
 
+	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/knowledge"
 )
 
@@ -77,4 +79,23 @@ func TestHandleSearch_RouterErrorBecomesToolError(t *testing.T) {
 	if !res.IsError {
 		t.Fatal("expected a tool error result when the router fails")
 	}
+}
+
+// A run's asset discovery is scoped by the script it is a run of, read off the
+// producer its own writes are recorded under. The principal it authenticates as
+// is script:<name>, which every same-named script on the platform shares, so it
+// is not the identifier a scope can be built from (#1579).
+func TestScriptProducerID(t *testing.T) {
+	run := producedby.With(context.Background(), producedby.Producer{
+		Kind: producedby.KindScript, ID: "script-uuid", Label: "daily-sales",
+	})
+	assert.Equal(t, "script-uuid", scriptProducerID(run))
+
+	// Every other producer kind is a person or a session, neither of which
+	// scopes a script's inventory.
+	session := producedby.With(context.Background(), producedby.Producer{
+		Kind: producedby.KindSession, ID: "sess-1",
+	})
+	assert.Empty(t, scriptProducerID(session))
+	assert.Empty(t, scriptProducerID(context.Background()))
 }

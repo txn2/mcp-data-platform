@@ -6,6 +6,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
@@ -82,13 +83,21 @@ func (t *Toolkit) handleCreateCollection(ctx context.Context, input manageAssetI
 }
 
 func (t *Toolkit) handleListCollections(ctx context.Context, input manageAssetInput) (*mcp.CallToolResult, any, error) {
-	ownerID := resolveOwnerID(ctx)
+	ownerID, producer := collectionScope(ctx)
+	if ownerID == "" && !producer.Named() {
+		return middleware.UnauthorizedResult(
+			"a user identity is required to list collections",
+			"Authenticate so the listing can be scoped to your collections. "+
+				"This is an identity problem, not a platform outage.",
+		), nil, nil
+	}
 
 	collections, total, err := t.collectionStore.List(ctx, portal.CollectionFilter{
-		OwnerID: ownerID,
-		Search:  input.Search,
-		Limit:   input.Limit,
-		Offset:  input.Offset,
+		OwnerID:    ownerID,
+		ProducedBy: producer,
+		Search:     input.Search,
+		Limit:      input.Limit,
+		Offset:     input.Offset,
 	})
 	if err != nil {
 		return toolkit.ErrorResult("failed to list collections: " + err.Error()), nil, nil
@@ -129,7 +138,7 @@ func (t *Toolkit) handleUpdateCollection(ctx context.Context, input manageAssetI
 		return errResult, nil, nil
 	}
 
-	if !ownsResource(ctx, coll.OwnerID, coll.OwnerEmail) {
+	if !t.isAdmin(ctx) && !ownsResource(ctx, coll.OwnerID, coll.OwnerEmail) {
 		return toolkit.ErrorResult("you can only update your own collections"), nil, nil
 	}
 
@@ -171,7 +180,7 @@ func (t *Toolkit) handleDeleteCollection(ctx context.Context, input manageAssetI
 		return errResult, nil, nil
 	}
 
-	if !ownsResource(ctx, coll.OwnerID, coll.OwnerEmail) {
+	if !t.isAdmin(ctx) && !ownsResource(ctx, coll.OwnerID, coll.OwnerEmail) {
 		return toolkit.ErrorResult("you can only delete your own collections"), nil, nil
 	}
 
@@ -195,7 +204,7 @@ func (t *Toolkit) handleSetSections(ctx context.Context, input manageAssetInput)
 		return errResult, nil, nil
 	}
 
-	if !ownsResource(ctx, coll.OwnerID, coll.OwnerEmail) {
+	if !t.isAdmin(ctx) && !ownsResource(ctx, coll.OwnerID, coll.OwnerEmail) {
 		return toolkit.ErrorResult("you can only modify your own collections"), nil, nil
 	}
 
@@ -247,4 +256,28 @@ func convertSections(inputs []sectionInput) ([]portal.CollectionSection, error) 
 		return nil, fmt.Errorf("validating sections: %w", err)
 	}
 	return sections, nil
+}
+
+// collectionScope is what a collection ENUMERATION is limited to: for a person
+// the owner id every row they created records, and for a managed-script run the
+// producer that created them. Exactly one of the two is returned; a caller for
+// whom neither names anything is refused by the handler rather than passed to
+// the store.
+//
+// A run's collections carry the principal script:<name> as their owner id
+// (handleCreateCollection), and a script name is unique only within its owner,
+// so scoping on it hands a run of one person's daily-sales the collections
+// another person's daily-sales created (#1579). The producer id recorded beside
+// the row is the script's own uuid, which is unique and survives both a rename
+// and a transfer -- unlike the owner columns, which nothing rewrites after the
+// insert. It is the same judgment callerAssetScope makes for assets, on the
+// same relation, and it reads the same signal: a caller is unattended when it
+// carries an address it acts for, not when the request is tagged as a script
+// run -- a DRAFT run carries that tag and is a person.
+func collectionScope(ctx context.Context) (ownerID string, producer portaldomain.ContentProducer) {
+	pc := middleware.GetPlatformContext(ctx)
+	if pc != nil && pc.OnBehalfOfEmail != "" {
+		return "", callerProducer(ctx)
+	}
+	return resolveOwnerID(ctx), portaldomain.ContentProducer{}
 }

@@ -152,6 +152,35 @@ func TestRecordRefusesAnUnknownKind_RealDB(t *testing.T) {
 	store := NewPostgres(testdb.New(t))
 	ctx := context.Background()
 
-	assert.Error(t, store.Record(ctx, write("collection", "c-1", KindScript, "script-1", "s", true, 1)))
+	assert.Error(t, store.Record(ctx, write("robot", "r-1", KindScript, "script-1", "s", true, 1)))
 	assert.Error(t, store.Record(ctx, write(TargetAsset, "asset-6", "robot", "r-1", "r", true, 1)))
+}
+
+// TestRecordAcceptsACollection_RealDB pins migration 000137's constraint swap.
+// It drops the CHECK by the name PostgreSQL gave the inline one in 000135 and
+// re-adds it widened, so a name that did not match would leave the original
+// enforcing while the migration reported success -- and every collection note
+// would then fail at run time, silently, since the note is best effort.
+//
+// A collection's inventory is scoped by this relation (#1579), so the kind
+// being writable is what makes a run's collection listing its own.
+func TestRecordAcceptsACollection_RealDB(t *testing.T) {
+	store := NewPostgres(testdb.New(t))
+	ctx := context.Background()
+
+	require.NoError(t, store.Record(ctx,
+		write(TargetCollection, "c-1", KindScript, "script-1", "daily-sales", true, 0)))
+
+	rows, err := store.ListByTarget(ctx, TargetCollection, "c-1")
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, KindScript, rows[0].Producer.Kind)
+	assert.Equal(t, "script-1", rows[0].Producer.ID)
+	assert.True(t, rows[0].Created)
+
+	// The id spaces are separate, which is why target_kind is part of the key:
+	// the same string naming an asset is a different row.
+	assets, err := store.ListByTarget(ctx, TargetAsset, "c-1")
+	require.NoError(t, err)
+	assert.Empty(t, assets)
 }

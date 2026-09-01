@@ -61,11 +61,13 @@ func NewPostgresVersionStore(db *sql.DB, s3Client S3Client, maxVersions *int, pr
 	return portalversions.NewPostgres(db, s3Client, maxVersions, producers)
 }
 
-// NewPostgresCollectionStore creates a new PostgreSQL collection store. Pass
-// indexjobs.WithProducer to have collection writes enqueue their own index
-// job instead of waiting for the reconciler's next sweep.
-func NewPostgresCollectionStore(db *sql.DB, opts ...indexjobs.StoreOption) CollectionStore {
-	return portalstore.NewPostgresCollectionStore(db, opts...)
+// NewPostgresCollectionStore creates a new PostgreSQL collection store.
+// producers records what created each collection (#1579) and may be nil, which
+// records nothing. Pass indexjobs.WithProducer to have collection writes
+// enqueue their own index job instead of waiting for the reconciler's next
+// sweep.
+func NewPostgresCollectionStore(db *sql.DB, producers producedby.Store, opts ...indexjobs.StoreOption) CollectionStore {
+	return portalstore.NewPostgresCollectionStore(db, producers, opts...)
 }
 
 // NewNoopAssetStore creates a no-op AssetStore for use when no database is available.

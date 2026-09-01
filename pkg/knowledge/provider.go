@@ -102,6 +102,23 @@ type Caller struct {
 	// must keep using those.
 	OnBehalfOf string
 
+	// ProducerID is the id of the managed script an unattended caller is a run
+	// of, carried from the producer its own writes are recorded under
+	// (producedby, content_producers). It is what an asset enumeration scopes
+	// such a caller by.
+	//
+	// It is a second identifier rather than a reuse of UserID because the
+	// principal UserID carries is script:<name>, and idx_scripts_name_owner
+	// makes a name unique only within its OWNER: two people who each keep a
+	// daily-sales present the same principal, so an enumeration scoped on it
+	// returns the other person's outputs (#1579). A producer id is the script's
+	// own uuid, which is unique and survives both a rename and a transfer.
+	//
+	// Empty for every human caller, and empty for a run in a deployment that
+	// records no producers, which is scoped by nothing and answered with
+	// nothing rather than with somebody else's rows.
+	ProducerID string
+
 	// SessionID is the unit of work the request belongs to, not part of the
 	// identity the per-user providers scope on. The call catalog uses it and
 	// nothing else does: reuse of a recorded call is credited to the session

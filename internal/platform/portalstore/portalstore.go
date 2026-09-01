@@ -143,15 +143,16 @@ func New(db *sql.DB, s3Client portal.S3Client, embedder embedding.Provider, cfg 
 	collections := indexjobs.NewProducer(collectionindex.SourceKind)
 	pages := indexjobs.NewProducer(knowledgepageindex.SourceKind)
 
-	// One producer record, written by both asset write funnels and read by the
-	// surfaces that ask what produced a file and what a script has written.
+	// One producer record, written by the asset, version and collection write
+	// funnels and read by the surfaces that ask what produced a file and what a
+	// script has written.
 	producers := producedby.NewPostgres(db)
 
 	h := NewFromStores(Stores{
 		Asset:         portal.NewPostgresAssetStore(db, producers, indexjobs.WithProducer(assets)),
 		Share:         portal.NewPostgresShareStore(db),
 		Version:       portal.NewPostgresVersionStore(db, s3Client, cfg.MaxVersions, producers),
-		Collection:    portal.NewPostgresCollectionStore(db, indexjobs.WithProducer(collections)),
+		Collection:    portal.NewPostgresCollectionStore(db, producers, indexjobs.WithProducer(collections)),
 		Thread:        portal.NewPostgresThreadStore(db),
 		KnowledgePage: knowledgepage.NewPostgresStore(db, indexjobs.WithProducer(pages)),
 		S3Client:      s3Client,
