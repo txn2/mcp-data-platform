@@ -570,13 +570,23 @@ func TestRegister_AReplacementReportsASiblingWhoseTableIsGone(t *testing.T) {
 // carried on the registration, a follow re-applies it, and everything that was
 // refused before is refused still.
 
+// registerOver registers one more following table over the shared source,
+// named and made by a caller of the test's choosing, saying whether it carries
+// the repair choice -- so a test can decide which of two registrations over a
+// file was made first.
+func registerOver(t *testing.T, h *harness, name string, by Caller, repair bool) *Result {
+	t.Helper()
+	res, err := h.reg.Register(context.Background(), by, testSource(),
+		Request{Connection: "scratch", TableName: name, Source: "mcp", Follow: true, Repair: repair})
+	require.NoError(t, err)
+	return res
+}
+
 // registerCorrecting registers a table that follows its file and corrects it,
 // under a registrant who is nobody else in these tests.
 func registerCorrecting(t *testing.T, h *harness) *Result {
 	t.Helper()
-	res, err := h.reg.Register(context.Background(), correctingRegistrant(), testSource(),
-		Request{Connection: "scratch", TableName: "live", Source: "mcp", Follow: true, Repair: true})
-	require.NoError(t, err)
+	res := registerOver(t, h, "live", correctingRegistrant(), true)
 	require.Nil(t, res.Correction, "the version it was registered over needed no correction")
 	require.True(t, res.Repair, "the choice is stored on the registration")
 	return res
@@ -833,6 +843,87 @@ func TestFollowSource_TheCorrectionIsAttributedToTheStandingChoice(t *testing.T)
 	assert.Equal(t, "dana@example.com", h.reviser.saved[0].by,
 		"the version is written under the oldest standing choice, not the newest registration")
 	assert.Equal(t, oldest.RegisteredBy, h.reviser.saved[0].by)
+}
+
+// TestFollowSource_TheCorrectionIsReportedOnTheRegistrationThatAskedForIt is
+// the acceptance assertion for #1583. The correction is made for the oldest
+// registration carrying the repair choice, and the sentence saying the file
+// was corrected belongs to that registration -- not to whichever follow read
+// the new head first, which is the newest registration over the file whether
+// or not it asked for anything to be corrected.
+func TestFollowSource_TheCorrectionIsReportedOnTheRegistrationThatAskedForIt(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		repairingFirst bool
+	}{
+		{name: "the repairing registration was made first", repairingFirst: true},
+		{name: "the repairing registration was made last", repairingFirst: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			var repairing, plain *Result
+			if tc.repairingFirst {
+				repairing = registerOver(t, h, "corrects", correctingRegistrant(), true)
+				plain = registerOver(t, h, "plain", testCaller(), false)
+			} else {
+				plain = registerOver(t, h, "plain", testCaller(), false)
+				repairing = registerOver(t, h, "corrects", correctingRegistrant(), true)
+			}
+
+			out := h.reg.FollowSource(context.Background(), defectiveHead(h), defectiveVersion)
+
+			require.Len(t, h.reviser.saved, 1, "the file is corrected once for the version")
+			assert.Equal(t, "dana@example.com", h.reviser.saved[0].by,
+				"under the registrant that asked for the file to be corrected")
+
+			byID := map[string]FollowOutcome{}
+			for _, o := range out {
+				byID[o.RegistrationID] = o
+			}
+			require.Len(t, byID, 2)
+
+			asked := byID[repairing.ID]
+			assert.True(t, asked.Followed)
+			assert.Equal(t,
+				"scratch.uploads.analyst_corrects on scratch now reads version 3."+
+					" Saved version 3 of this file, which put 2 rows back onto one line."+
+					" The file as it was uploaded is still there as the version before it.",
+				asked.Sentence())
+
+			other := byID[plain.ID]
+			assert.True(t, other.Followed)
+			assert.Empty(t, other.Repaired,
+				"a registration made without the choice is not told it rewrote somebody's file")
+			assert.Equal(t, "scratch.uploads.analyst_plain on scratch now reads version 3.", other.Sentence())
+
+			var said int
+			for _, line := range Sentences(out) {
+				if strings.Contains(line, "Saved version 3 of this file") {
+					said++
+				}
+			}
+			assert.Equal(t, 1, said, "the correction is reported once, however many tables sit over the file")
+		})
+	}
+}
+
+// TestFollowSource_AVersionThatNeedsNoCorrectionReportsNone: the repair choice
+// says what to do about a defect a reader cannot see past, not that a sentence
+// about a correction is added to a write. A clean new version moves the tables
+// and reports only that.
+func TestFollowSource_AVersionThatNeedsNoCorrectionReportsNone(t *testing.T) {
+	h := newHarness(t)
+	registerOver(t, h, "corrects", correctingRegistrant(), true)
+	registerOver(t, h, "plain", testCaller(), false)
+
+	out := h.reg.FollowSource(context.Background(), h.moveHead(newHeadCSV), defectiveVersion)
+
+	require.Len(t, out, 2)
+	for _, o := range out {
+		assert.True(t, o.Followed, o.Table)
+		assert.Empty(t, o.Repaired, o.Table)
+	}
+	assert.Empty(t, h.reviser.saved, "nothing was corrected, so no version is written")
 }
 
 // TestFollowSource_ACorrectionSurvivesAFailureAfterIt: the person's file has a

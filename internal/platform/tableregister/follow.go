@@ -57,8 +57,8 @@ type FollowOutcome struct {
 	// registration carrying the repair choice had it corrected (#1577).
 	//
 	// It is carried by one outcome, not by every table over the file: the
-	// corrected version is a fact about the file, and the follow that read
-	// the new head is the one that saved it.
+	// corrected version is a fact about the file, and the registration whose
+	// repair choice produced it is the one that saved it (#1583).
 	Repaired string `json:"repaired,omitempty"`
 }
 
@@ -329,9 +329,15 @@ func (r *Registrar) followOne(
 	}
 	if *head == nil {
 		*head = r.readHead(ctx, src, version, repairFor)
-		// The correction is reported by the registration whose follow read
-		// the new head and saved it: one sentence about the file, rather than
-		// the same sentence repeated once per table over it.
+	}
+	// The correction is reported on the registration it was made for: one
+	// sentence about the file, rather than the same sentence once per table
+	// over it, and on the registration that asked for the file to be
+	// corrected rather than on whichever follow read the head first (#1583).
+	// The head is read by the first following registration in store order,
+	// which is the newest one over the file whether or not it carries the
+	// choice.
+	if repairFor != nil && reg.ID == repairFor.ID {
 		outcome.Repaired = (*head).repair.Summary()
 	}
 	outcome.Version = (*head).version
