@@ -52,7 +52,9 @@ At most **20** references per asset, of both kinds together. A save above the ca
 
 ## What declaring one gives away
 
-A declaration is checked once, against the author, at the moment of the save: they must be able to read the target, and a save naming one they cannot is refused with the reference named and nothing created. An agent reads a resource through its scope claims and an asset through ownership and shares, which are the same two checks those surfaces apply everywhere else.
+A declaration is checked once, against the author, at the moment of the save: they must be able to reach the target, and a save naming one they cannot is refused with the reference named and nothing created. The refusal names only the URI the author wrote, and nothing about the target behind it.
+
+"Reach" is the same question every other surface asks about a file the caller names. A resource is checked on the caller's visible scopes, **or** current write authority over the library it sits in, **or** the uploader arm — the rule the resource detail, content, thumbnail and replace paths all resolve through. An asset is checked through ownership and shares, which likewise admits an administrator. Library membership alone is the rule for **enumeration** — a resource listing, a search — because that hands a caller material they did not name; a declaration names one, so it is not enumeration. Before this, an administrator could read a file's bytes, replace them, register it as a table and move it between libraries, and was refused a reference to it whenever it sat in a persona library they did not belong to, which is where shared reference material naturally lives.
 
 From then on the reference carries the **referencing asset's** audience. Anyone who can open that asset can load the target through it, including an anonymous viewer of a [public share link](../portal/index.md). This is the grant model a [managed script](../scripts/security.md) already uses, where a run acts as its version author rather than as its caller. The tool response states it when the reference is made:
 
@@ -86,7 +88,7 @@ An asset's viewer sidebar carries a **References** panel listing what the asset 
 
 Every row carries the reference string with a copy control. That is the point of the panel rather than a detail of it: adding a reference does not change the asset's content, and the markup has to name the reference for the target to load.
 
-An owner, an editor on a shared asset, and an administrator can add a reference through a picker with a tab for each kind — the resources they can read, and the assets they can open — and remove one. The picker states what the reference gives away and names the asset's current audience before anything is added — a public link, people it is shared with, or neither yet. A reader with no edit authority sees the list and is offered neither control.
+An owner, an editor on a shared asset, and an administrator can add a reference through a picker with a tab for each kind — the resources they can reach, and the assets they can open — and remove one. The picker states what the reference gives away and names the asset's current audience before anything is added — a public link, people it is shared with, or neither yet. A reader with no edit authority sees the list and is offered neither control.
 
 ![The reference picker, on its resources tab](../images/screenshots/light/user-asset-ref-picker-light.webp#only-light)![The reference picker, on its resources tab](../images/screenshots/dark/user-asset-ref-picker-dark.webp#only-dark)
 

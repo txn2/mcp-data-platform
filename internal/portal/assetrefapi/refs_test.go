@@ -781,3 +781,41 @@ func TestListRefsRendersAssetRowsBrokenWhenTheAssetReadFails(t *testing.T) {
 	require.Len(t, body.Data, 1)
 	assert.True(t, body.Data[0].Broken)
 }
+
+// TestAddRefAllowsAnAdministratorOutsideThePersona is the panel's half of
+// #1584: the person's door to the act an agent performs at save time answers
+// the same way the agent's does.
+//
+// An administrator belongs to no persona, so the membership rule refused them a
+// reference to a file whose detail, content, replace and move routes all admit
+// them. They now add it.
+func TestAddRefAllowsAnAdministratorOutsideThePersona(t *testing.T) {
+	h := newHarness()
+
+	rec := h.do(t, admin(), http.MethodPost, refsPath(assetID),
+		fmt.Sprintf(`{"target_kind":"resource","target_id":%q}`, chartID))
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Len(t, h.refs.byAsset[assetID], 1)
+	assert.Equal(t, chartID, h.refs.byAsset[assetID][0].TargetID)
+	assert.Equal(t, chartURI, h.refs.byAsset[assetID][0].URI)
+}
+
+// TestListRefsMarksAPersonaFileReadableForAnAdministrator pins the flag the row
+// links on (#1584). The administrator's own resource page opens the chart, so a
+// panel that reported it unopenable sent them to a link it had just said would
+// fail, or withheld the link to a page that would have worked.
+func TestListRefsMarksAPersonaFileReadableForAnAdministrator(t *testing.T) {
+	h := newHarness()
+	h.declare(assetID, chartRef())
+
+	admins := h.do(t, admin(), http.MethodGet, refsPath(assetID), "")
+	require.Equal(t, http.StatusOK, admins.Code)
+	assert.True(t, decode[listResponse](t, admins).Data[0].Readable)
+
+	// The owner of the asset is in no persona and holds no authority over the
+	// finance library, so the same row is still not a link for them.
+	owners := h.do(t, owner(), http.MethodGet, refsPath(assetID), "")
+	require.Equal(t, http.StatusOK, owners.Code)
+	assert.False(t, decode[listResponse](t, owners).Data[0].Readable)
+}

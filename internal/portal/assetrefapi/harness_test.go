@@ -494,3 +494,20 @@ func serveBare(t *testing.T, mux http.Handler, path string) *httptest.ResponseRe
 	mux.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, http.NoBody))
 	return rec
 }
+
+// admin is a platform administrator in no persona. They hold write authority
+// over every library and are a member of none, which is the caller #1584 is
+// about: every other question about a persona-library file admits them, and the
+// reference surface refused them on a membership rule.
+func admin() *access.User {
+	return &access.User{UserID: "user-admin", Email: "admin@example.com", Roles: []string{"admin"}}
+}
+
+// chartRef is a declared reference to the finance-only chart, for the fixtures
+// that ask what a caller outside that persona is told about it.
+func chartRef() assetrefs.Ref {
+	return assetrefs.Ref{
+		TargetKind: assetrefs.TargetResource, TargetID: chartID,
+		URI: chartURI, RefToken: "tok-chart", DeclaredBy: ownerEmail,
+	}
+}

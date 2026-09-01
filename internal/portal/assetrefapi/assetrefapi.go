@@ -19,9 +19,9 @@
 //
 // It owns no policy of its own. Whether the caller may see or change an asset
 // goes through the portal's authorization core in internal/portal/access, and
-// whether they may read a resource goes through resource.CanReadResource with
-// claims the parent builds -- the same two checks the declaration path applies
-// to an agent.
+// whether they may reach a resource goes through resource.CanAccessResource
+// with claims the parent builds -- the same two checks the declaration path
+// applies to an agent (#1584).
 package assetrefapi
 
 import (

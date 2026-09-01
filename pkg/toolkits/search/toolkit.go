@@ -497,6 +497,7 @@ func (t *Toolkit) callerFromContext(ctx context.Context) knowledge.Caller {
 		UserID: pc.UserID, Email: pc.UserEmail, Persona: pc.PersonaName,
 		OnBehalfOf: pc.OnBehalfOfEmail, SessionID: pc.SessionID,
 		ProducerID: scriptProducerID(ctx),
+		Roles:      pc.Roles, IsAdmin: pc.IsAdmin,
 	}
 	if t.personasForRoles != nil {
 		caller.Personas = t.personasForRoles(pc.Roles)

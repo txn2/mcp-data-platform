@@ -87,6 +87,20 @@ type Caller struct {
 	// Empty when no resolver is wired, which is the same fallback the resources
 	// middleware applies.
 	Personas []string
+	// Roles and IsAdmin are the caller's authority, carried so a provider whose
+	// rule admits an administrator can ask (#1584). Only the managed-resource
+	// provider reads them, and only on Fetch: a file the caller NAMED is
+	// answered on resource.CanAccessResource, which has an administrator arm,
+	// while every enumeration here runs on resource.VisibleScopes, which is
+	// membership and consults neither field. Adding them therefore widens what
+	// a stated reference resolves to and nothing about what a search returns.
+	//
+	// They are the same two values every other claims derivation in the
+	// platform is built from (resource.BuildClaims), so "is this caller an
+	// administrator?" cannot come to mean one thing here and another at the
+	// REST routes.
+	Roles   []string
+	IsAdmin bool
 	// OnBehalfOf is the address of the person an unattended caller acts for,
 	// carried from PlatformContext.OnBehalfOfEmail. A managed-script run
 	// authenticates as script:<name>, a principal that is in nobody's library,

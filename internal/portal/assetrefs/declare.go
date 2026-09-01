@@ -290,6 +290,25 @@ func (d *Declarer) resourceScheme() string {
 // readableResource resolves an mcp:// URI to the managed resource it names and
 // checks the author may read it.
 //
+// The check is resource.CanAccessResource, which is the predicate every other
+// question about one named file is asked through: the resources REST detail,
+// content and thumbnail routes all resolve through it, and so does the
+// resource write path. CanReadResource is membership alone and has no
+// administrator arm, so a platform administrator was refused a reference to a
+// file the same session could fetch, replace, register as a table and move
+// between libraries (#1584).
+//
+// Widening the declaration widens what it grants -- a declared reference is
+// loadable by everyone the asset is shared with, including anyone holding a
+// public link -- and that is the intended reading. The question a declaration
+// asks is whether the AUTHOR may reach the file, and CanAccessResource is what
+// answers it everywhere else.
+//
+// Enumeration -- the resource listing, knowledge search -- is still
+// CanReadResource: it hands a caller material they did not name, and an
+// administrator's write authority is not a reason to put another persona's
+// library into their search results.
+//
 // The resource store reports a missing row as a wrapped sql.ErrNoRows rather
 // than as (nil, nil), so a URI naming nothing arrives here as an error and the
 // nil branch below is unreachable against it. resource.IsNotFound is what tells
@@ -316,7 +335,7 @@ func (d *Declarer) readableResource(
 	if err != nil || res == nil {
 		return Declared{}, fmt.Errorf("no managed resource at %q: %w", uri, ErrRefused)
 	}
-	if !resource.CanReadResource(claims, res) {
+	if !resource.CanAccessResource(claims, res) {
 		// The refusal names the URI the author wrote and nothing about the
 		// resource behind it: a caller who cannot read a file must not learn
 		// its name or its scope from being refused.
@@ -327,6 +346,14 @@ func (d *Declarer) readableResource(
 
 // readableAsset resolves an mcp:asset:<id> reference to the asset it names and
 // checks the author may read it (#1488).
+//
+// The gate is the caller's, through Author.ReadsAsset, and it already answers
+// the question the resource arm had to be widened to answer (#1584): the asset
+// toolkit supplies canReadAsset and the portal panel supplies CanManageAsset ||
+// CanViewAsset, both of which admit a platform administrator. There is no
+// narrower asset predicate to diverge from, because an asset is reached through
+// ownership and shares rather than through library membership, and neither of
+// those excludes an administrator.
 //
 // A store failure is answered as "no such asset", the same conflation every
 // other asset read in the portal makes, because the asset store reports a

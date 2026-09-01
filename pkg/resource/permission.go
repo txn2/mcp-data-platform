@@ -160,7 +160,8 @@ func CanModifyResource(c Claims, r *Resource) bool {
 // permits — was then refused GET, PATCH and DELETE on it: they could create
 // material they could neither manage nor remove. Use this as the visibility gate
 // on a resource the caller names by id; CanReadResource remains the membership
-// rule for enumeration and for content served into an agent's session.
+// rule for enumeration -- a listing, a search -- because that hands the caller
+// material they did not name.
 //
 // It deliberately checks CanWriteScope rather than CanModifyResource: the latter
 // also grants the original uploader, and that grant is not re-derived from
@@ -170,6 +171,13 @@ func CanModifyResource(c Claims, r *Resource) bool {
 // changes. Every legitimate uploader whose authority came from their own scope
 // (a user uploading to their own user scope) is already covered by
 // CanReadResource.
+//
+// "Names by id" covers a file named by its mcp:// URI as well, which is how an
+// asset reference declares one, and a file named by its mcp:resource: reference,
+// which is how knowledge fetch dereferences one (#1584). Each is a question
+// about what the caller may reach, asked about a file they stated; asking them
+// on the membership rule told one administrator, in one session, both that they
+// may read a file and that they may not.
 //
 // The one narrow exception is an unattended caller acting for the person who
 // uploaded the file INTO THEIR OWN LIBRARY (uploadedBy). That is the same grant

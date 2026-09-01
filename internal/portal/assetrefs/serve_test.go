@@ -11,6 +11,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
 
 const resourcesBucket = "managed-resources"
@@ -404,4 +405,54 @@ func TestServeAssetWithUnreadableOwnReferences(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), logoURI, "the content is served exactly as stored")
+}
+
+// TestServeAPersonaLibraryReferenceWithoutASession is criterion 3 of #1584: a
+// reference an administrator declared to a file in a persona library serves
+// through a public share exactly as a reference to a file in the author's own
+// library does.
+//
+// The route reads no identity at all, so the file's library never enters the
+// answer: what the declaration granted is that this asset's audience may load
+// this target, and the token in the path is that grant. The test states it
+// against the finance chart, which no anonymous reader is a member of and none
+// ever could be.
+func TestServeAPersonaLibraryReferenceWithoutASession(t *testing.T) {
+	const chartToken = "tok-chart"
+	refs := newFakeRefs()
+	refs.byAsset[testAssetID] = []assetrefs.Ref{{
+		AssetID: testAssetID, TargetKind: assetrefs.TargetResource,
+		TargetID: "res-chart", URI: "mcp://persona/finance/chart.png", RefToken: chartToken,
+	}}
+	blobs := &fakeBlobs{byKey: map[string]string{"resources/persona/finance/chart.png": "CHARTBYTES"}}
+
+	rec := get(t, serveFixture(t, readyDeps(refs, blobs)), assetrefs.PathPrefix+testAssetID+"/"+chartToken)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "CHARTBYTES", rec.Body.String())
+}
+
+// TestServeSurvivesTheTargetMovingLibrary is the first half of criterion 4 of
+// #1584: moving a resource into another library does not break an asset that
+// already references it.
+//
+// A reference records the target's id, and a move rewrites the row's scope and
+// URI while leaving its id and its stored object alone. The reference below was
+// declared against the global logo and is served after the row has moved into a
+// persona library.
+func TestServeSurvivesTheTargetMovingLibrary(t *testing.T) {
+	moved := fixtureResources()
+	logo := moved.byID["res-logo"]
+	logo.Scope = resource.ScopePersona
+	logo.ScopeID = "finance"
+	logo.URI = "mcp://persona/finance/logo.png"
+
+	deps := readyDeps(loadedRefs(), logoBlobs())
+	deps.Resources = moved
+
+	rec := get(t, serveFixture(t, deps), assetrefs.PathPrefix+testAssetID+"/"+logoToken)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "PNGBYTES", rec.Body.String(),
+		"the reference names the row, and the row still holds the same object")
 }

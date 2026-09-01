@@ -389,6 +389,12 @@ func (h *handler) views(
 
 // fillResource renders a resource row, or marks it broken when the resource is
 // gone.
+//
+// Readable decides whether the row links to the resource viewer, so it is
+// resource.CanAccessResource -- the predicate that viewer's own routes resolve
+// through. On the membership rule it reported a platform administrator as
+// unable to open a file whose detail, content and thumbnail routes would all
+// have served them (#1584).
 func fillResource(view *refView, res *resource.Resource, claims resource.Claims) {
 	if res == nil {
 		view.Broken = true
@@ -402,7 +408,7 @@ func fillResource(view *refView, res *resource.Resource, claims resource.Claims)
 	view.SizeBytes = res.SizeBytes
 	view.Scope = string(res.Scope)
 	view.ScopeID = res.ScopeID
-	view.Readable = resource.CanReadResource(claims, res)
+	view.Readable = resource.CanAccessResource(claims, res)
 }
 
 // fillAsset renders an asset row, or marks it broken when the asset is gone or
@@ -620,6 +626,14 @@ func (h *handler) readableTarget(
 // cannot read. A resource that does not exist and one outside the caller's
 // reach get the same answer, so being refused cannot be used to learn that a
 // file is there.
+//
+// "Cannot read" is resource.CanAccessResource, the same predicate the
+// declaration path applies to an agent's save (assetrefs.Declarer) and the same
+// one the resources REST routes resolve a named file through. It serves both
+// callers of this helper: adding a reference through the panel, which is the
+// person's door to the act an agent performs at save time, and the used-by
+// listing, which answers "what is holding this file up?" about a file the
+// caller named. Membership alone refused a platform administrator both (#1584).
 func (h *handler) readableResource(
 	w http.ResponseWriter, r *http.Request, id string, user *access.User,
 ) (*resource.Resource, bool) {
@@ -632,7 +646,7 @@ func (h *handler) readableResource(
 		httpjson.WriteError(w, http.StatusInternalServerError, "failed to read resource")
 		return nil, false
 	}
-	if res == nil || !resource.CanReadResource(h.cfg.Claims(user), res) {
+	if res == nil || !resource.CanAccessResource(h.cfg.Claims(user), res) {
 		httpjson.WriteError(w, http.StatusNotFound, errResourceNotFound)
 		return nil, false
 	}

@@ -486,3 +486,38 @@ func hasRef(out searchOutput, ref string) bool {
 	}
 	return false
 }
+
+// AC (#1584): an administrator's authority reaches the fetch of a file they
+// NAME, and reaches nothing about what a search returns.
+//
+// This is the wiring half of the change: the provider's rule admits an
+// administrator only if callerFromContext actually carries IsAdmin off the
+// platform context, and a unit test on the provider alone would pass with that
+// field dropped on the floor. The request below is built the way the middleware
+// builds one, and the two halves are asserted together because the pair is the
+// point -- fetch widens, discovery does not.
+func TestResources_AdministratorFetchesNamedMaterialButSearchesTheirOwn(t *testing.T) {
+	tk := assembledToolkit()
+
+	// An administrator in no persona: PersonaName is admin, and no role places
+	// them in the analyst persona the playbook belongs to.
+	adminCtx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
+		UserID: userBID, UserEmail: userBEmail, PersonaName: "admin",
+		Roles: []string{"admin"}, IsAdmin: true,
+	})
+
+	if got := callFetch(adminCtx, t, tk, "mcp:resource:res_playbook"); !got.Found {
+		t.Errorf("an administrator could not fetch a persona-library file they named: %+v", got)
+	}
+	if got := callFetch(adminCtx, t, tk, "mcp:resource:res_alice"); !got.Found {
+		t.Errorf("an administrator could not fetch another person's file they named: %+v", got)
+	}
+
+	_, adminOut := callSearchRaw(adminCtx, t, tk, "margin")
+	if hasRef(adminOut, "mcp:resource:res_playbook") {
+		t.Errorf("an administrator's search returned a persona library they are not a member of: %+v", hitsOf(adminOut))
+	}
+	if hasRef(adminOut, "mcp:resource:res_alice") {
+		t.Errorf("an administrator's search returned another person's library: %+v", hitsOf(adminOut))
+	}
+}
