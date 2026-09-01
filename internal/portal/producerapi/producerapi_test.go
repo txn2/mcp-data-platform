@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 	"time"
 
@@ -160,8 +161,12 @@ func newHarness() *harness {
 		Assets:    h.assets,
 		Resources: h.resources,
 		Scripts:   h.scripts,
+		// The parent supplies h.access.IsAdmin(user) here, so the fixture
+		// derives the same fact from the same role set the checker below is
+		// built with. Hardcoding false left the harness unable to express the
+		// caller #1584 is about.
 		Claims: func(u *access.User) resource.Claims {
-			return resource.BuildClaims(u.UserID, u.Email, "", u.Roles, false)
+			return resource.BuildClaims(u.UserID, u.Email, "", u.Roles, slices.Contains(u.Roles, "admin"))
 		},
 	}
 	return h
@@ -200,6 +205,13 @@ func decode(t *testing.T, rec *httptest.ResponseRecorder) producersResponse {
 }
 
 func owner() *access.User { return &access.User{UserID: ownerID, Email: ownerEmail} }
+
+// admin is a platform administrator in no persona: write authority over every
+// library, membership of none.
+func admin() *access.User {
+	return &access.User{UserID: "user-admin", Email: "admin@example.com", Roles: []string{"admin"}}
+}
+
 func stranger() *access.User {
 	return &access.User{UserID: strangerID, Email: strangerML}
 }
@@ -400,4 +412,30 @@ func TestEmptyProducerList(t *testing.T) {
 	got := decode(t, rec)
 	assert.Empty(t, got.Data)
 	assert.Equal(t, 0, got.Total)
+}
+
+// TestResourceProducersAllowsAnAdministratorOutsideTheLibrary is #1584 read at
+// this panel. It is drawn on the resource viewer page, and that page's own
+// routes resolve a named file through CanAccessResource, so an administrator
+// reached a page whose Producers panel answered not-found for the same file in
+// the same request cycle.
+//
+// The resource below is scoped to somebody else's library, which is the same
+// fixture TestResourceProducersUnreadableResourceReadsAsAbsent refuses the
+// owner on: the difference in the answer is the caller's authority and nothing
+// else.
+func TestResourceProducersAllowsAnAdministratorOutsideTheLibrary(t *testing.T) {
+	h := newHarness()
+	h.resources.byID[resourceID].Scope = resource.ScopeUser
+	h.resources.byID[resourceID].ScopeID = "somebody-else"
+	h.producers.byTarget[producedby.TargetResource+"/"+resourceID] = []producedby.Row{
+		scriptRow(producedby.TargetResource, resourceID),
+	}
+
+	rec := h.get(t, admin(), "/api/v1/portal/resources/"+resourceID+"/producers")
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	got := decode(t, rec)
+	require.Len(t, got.Data, 1)
+	assert.Equal(t, scriptID, got.Data[0].ID)
 }

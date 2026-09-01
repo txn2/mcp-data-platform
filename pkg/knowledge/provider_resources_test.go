@@ -515,3 +515,68 @@ func TestCallerClaimsCarryAnUnattendedCallersPerson(t *testing.T) {
 	human := callerClaims(Caller{UserID: "sub-1", Email: "person@example.com"})
 	assert.Empty(t, human.OnBehalfOf, "a person acts as themselves")
 }
+
+// TestResourcesProvider_FetchAdmitsAnAdministrator is #1584 at this provider: a
+// platform administrator states a reference to a file in a persona library they
+// do not belong to, and gets it.
+//
+// The same file was answered as not-found while every other read the same
+// session could make -- the REST detail and content routes, a content replace,
+// and an asset reference declaration -- resolved through
+// resource.CanAccessResource and served them. A fetch that a caller names is
+// not enumeration, so it is answered on the predicate the rest of the resource
+// surface uses.
+func TestResourcesProvider_FetchAdmitsAnAdministrator(t *testing.T) {
+	p := resourcesProvider()
+	admin := Caller{UserID: "sub-admin", Email: "admin@example.com", IsAdmin: true}
+
+	doc, owned, err := p.Fetch(context.Background(), "mcp:resource:res_p", admin)
+	if err != nil || !owned {
+		t.Fatalf("an administrator was refused a persona-library file: owned=%v err=%v", owned, err)
+	}
+	if doc.Title != "Analyst playbook" {
+		t.Fatalf("fetch returned the wrong document: %+v", doc)
+	}
+
+	// The persona-admin arm answers the same way for the one library it covers,
+	// and no other.
+	personaAdmin := Caller{UserID: "sub-pa", Email: "pa@example.com", Roles: []string{"persona-admin:analyst"}}
+	if _, _, err := p.Fetch(context.Background(), "mcp:resource:res_p", personaAdmin); err != nil {
+		t.Fatalf("the analyst library's administrator was refused its file: %v", err)
+	}
+	if _, _, err := p.Fetch(context.Background(), "mcp:resource:res_u", personaAdmin); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("authority over one library reached another person's: err=%v", err)
+	}
+}
+
+// TestResourcesProvider_SearchIsUnchangedForAnAdministrator is the other half of
+// the change above, and the reason it is safe: Search runs on
+// resource.VisibleScopes, which is membership and reads neither Roles nor
+// IsAdmin. Carrying authority onto the caller widens what a stated reference
+// resolves to and nothing about what a search returns, so an administrator's
+// discovery does not silently become every persona's library.
+func TestResourcesProvider_SearchIsUnchangedForAnAdministrator(t *testing.T) {
+	p := resourcesProvider()
+
+	member, err := p.Search(context.Background(), Query{
+		Intent: "Analyst playbook",
+		Caller: Caller{UserID: "sub-m", Email: "m@example.com", Personas: []string{"analyst"}},
+	})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(member) != 1 {
+		t.Fatalf("a member of the persona does not see its playbook: %v", member)
+	}
+
+	admin, err := p.Search(context.Background(), Query{
+		Intent: "Analyst playbook",
+		Caller: Caller{UserID: "sub-admin", Email: "admin@example.com", IsAdmin: true},
+	})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(admin) != 0 {
+		t.Fatalf("an administrator's search returned a library they are not a member of: %v", admin)
+	}
+}

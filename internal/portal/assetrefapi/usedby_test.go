@@ -264,3 +264,19 @@ func TestAssetUsedByUnauthenticated(t *testing.T) {
 	rec := h.do(t, nil, http.MethodGet, assetUsedByPath(assetID), "")
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
 }
+
+// TestUsedByAllowsAnAdministratorOutsideThePersona is the target-end half of
+// #1584. This panel is drawn on the resource viewer page, whose own routes
+// admit an administrator on every library, so answering not-found here put the
+// page and one of its panels in disagreement inside a single request cycle.
+func TestUsedByAllowsAnAdministratorOutsideThePersona(t *testing.T) {
+	h := newHarness()
+	h.declare(assetID, chartRef())
+
+	rec := h.do(t, admin(), http.MethodGet, usedByPath(chartID), "")
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := decode[usedByResponse](t, rec)
+	require.Len(t, body.Data, 1)
+	assert.Equal(t, assetID, body.Data[0].ID)
+}

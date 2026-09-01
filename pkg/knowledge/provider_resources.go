@@ -145,10 +145,18 @@ func (p *ResourcesProvider) Search(ctx context.Context, q Query) ([]Hit, error) 
 // and content is immutable.
 //
 // It owns only the resource reference form; any other reference is declined
-// (owned=false). The read re-applies the same visibility rule Search enforces
-// (resource.CanReadResource), so a resource outside the caller's scopes and one
-// that never existed are both a clean ErrNotFound: fetch reveals neither the
-// content nor the existence of material the caller could not have searched.
+// (owned=false). A resource the caller cannot reach and one that never existed
+// are both a clean ErrNotFound, so fetch reveals neither the content nor the
+// existence of material the caller has no way to.
+//
+// The rule is resource.CanAccessResource, which is what the resources REST
+// routes resolve a file named by id through and what an asset reference is
+// declared under (#1584). Search is narrower on purpose and stays that way: it
+// runs over resource.VisibleScopes, which is library membership, because a
+// listing hands the caller material they did not name. Fetch is the opposite
+// act -- the caller states the reference -- and answering it on the listing
+// rule told a platform administrator that a file whose bytes the same session
+// could GET and replace did not exist.
 func (p *ResourcesProvider) Fetch(ctx context.Context, ref string, caller Caller) (*Document, bool, error) {
 	parsed, err := knowledgepage.ParseEntityRef(ref)
 	if err != nil || parsed.TargetType != knowledgepage.RefTargetResource {
@@ -165,7 +173,7 @@ func (p *ResourcesProvider) Fetch(ctx context.Context, ref string, caller Caller
 		}
 		return nil, true, fmt.Errorf("getting resource %s: %w", parsed.ResourceID, err)
 	}
-	if res == nil || !resource.CanReadResource(callerClaims(caller), res) {
+	if res == nil || !resource.CanAccessResource(callerClaims(caller), res) {
 		return nil, true, ErrNotFound
 	}
 
@@ -227,9 +235,9 @@ func (p *ResourcesProvider) inlineContent(ctx context.Context, res *resource.Res
 }
 
 // callerClaims maps a search caller onto the resource permission claims, so the
-// provider derives visibility through resource.VisibleScopes / CanReadResource
-// exactly as the resources REST and MCP surfaces do rather than reimplementing
-// the scope rule.
+// provider derives visibility through resource.VisibleScopes and
+// resource.CanAccessResource exactly as the resources REST and MCP surfaces do
+// rather than reimplementing the scope rule.
 //
 // The persona set comes from Caller.Personas (membership derived from roles) and
 // ONLY from there. Caller.Persona — the persona the request resolved to — is
@@ -241,14 +249,17 @@ func (p *ResourcesProvider) inlineContent(ctx context.Context, res *resource.Res
 // what a caller gets if a deployment never binds the resolver (see
 // Toolkit.SetPersonasForRoles).
 //
-// Roles are not carried on a search caller, so the claims grant no persona-admin
-// or platform-admin authority: visibility here is the caller's own global +
-// persona + user scopes, matching what resources/list returns.
+// Roles and IsAdmin travel too (#1584), which is what lets Fetch answer a file
+// the caller NAMED on resource.CanAccessResource. They change nothing about
+// enumeration: Search runs on resource.VisibleScopes, which is global + the
+// caller's own user scope + the personas they belong to, and consults neither
+// field. An administrator's search still returns exactly what resources/list
+// returns for them.
 // An unattended caller's address travels too, so a run finds the material its
 // author can see and the file it wrote itself -- which is filed under the person
 // it acts for, not under the principal (#1487). It is inert for a human.
 func callerClaims(c Caller) resource.Claims {
-	claims := resource.BuildClaims(c.UserID, c.Email, "", nil, false).ActingFor(c.OnBehalfOf)
+	claims := resource.BuildClaims(c.UserID, c.Email, "", c.Roles, c.IsAdmin).ActingFor(c.OnBehalfOf)
 	claims.Personas = c.Personas
 	return claims
 }

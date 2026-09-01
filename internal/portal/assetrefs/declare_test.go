@@ -593,3 +593,129 @@ func TestResolveHonorsAConfiguredURIScheme(t *testing.T) {
 	require.Len(t, declared, 1)
 	assert.Equal(t, assetrefs.TargetResource, declared[0].Kind)
 }
+
+// adminClaims is a platform administrator who belongs to no persona. They can
+// write every library and can therefore reach every file in one, but
+// VisibleScopes puts none of those libraries in front of them.
+func adminClaims() resource.Claims {
+	return resource.BuildClaims("u-admin", "admin@example.com", "", nil, true)
+}
+
+// adminAuthor pairs that identity with the asset read gate an administrator
+// actually gets. Both doors that build an Author supply a gate with an admin
+// arm -- the toolkit's canReadAsset and the portal's CanManageAsset -- so the
+// fixture models one rather than the narrower ownedByAnyPerson.
+func adminAuthor() assetrefs.Author {
+	return assetrefs.Author{
+		Claims: adminClaims(),
+		ReadsAsset: func(_ context.Context, asset *portaldomain.Asset) bool {
+			return asset != nil
+		},
+	}
+}
+
+// TestResolveAdmitsAnAdministratorOutsideThePersona is the acceptance criterion
+// for #1584: an administrator may declare a reference to a file in a persona
+// library they do not belong to, which is where shared reference material
+// naturally lives.
+//
+// The chart is the finance persona's and this caller is in no persona, so
+// membership refuses them. Every other question about the same file -- the
+// detail read, the content read, the replace, the move -- is answered through
+// CanAccessResource and admits them, and the declaration now asks the same
+// question the same way.
+func TestResolveAdmitsAnAdministratorOutsideThePersona(t *testing.T) {
+	declared, err := declarer(newFakeRefs()).Resolve(t.Context(), []string{chartURI}, adminAuthor(), "")
+
+	require.NoError(t, err)
+	require.Len(t, declared, 1)
+	assert.Equal(t, "res-chart", declared[0].TargetID)
+	assert.Equal(t, chartURI, declared[0].URI, "the URI is recorded as the author wrote it")
+}
+
+// TestResolveStillRefusesACallerWithNoWayToTheFile is the other half of the
+// widening, and the reason it is CanAccessResource rather than an unconditional
+// yes: a caller with no membership, no write authority over the library and no
+// uploader claim on the row is refused exactly as before, and the refusal still
+// names only the URI the author wrote.
+func TestResolveStillRefusesACallerWithNoWayToTheFile(t *testing.T) {
+	_, err := declarer(newFakeRefs()).Resolve(t.Context(), []string{chartURI}, analystAuthor(), "")
+
+	require.ErrorIs(t, err, assetrefs.ErrRefused)
+	assert.Contains(t, err.Error(), chartURI)
+	assert.NotContains(t, err.Error(), "Forecast", "the refusal names nothing about the file")
+	assert.NotContains(t, err.Error(), "res-chart", "nor its id")
+	assert.Equal(t,
+		`you cannot read the resource at "`+chartURI+`": reference refused`, err.Error(),
+		"the refusal is the URI the author wrote and fixed wording, nothing else")
+}
+
+// TestResolveAdmitsAPersonaAdministratorOfThatLibrary pins the middle case the
+// widening also covers: authority over one persona's library, held by somebody
+// who is not a platform administrator and is not a member of it.
+func TestResolveAdmitsAPersonaAdministratorOfThatLibrary(t *testing.T) {
+	claims := resource.BuildClaims(anyPerson, author, "", []string{"persona-admin:finance"}, false)
+	a := assetrefs.Author{Claims: claims, ReadsAsset: ownedByAnyPerson}
+
+	declared, err := declarer(newFakeRefs()).Resolve(t.Context(), []string{chartURI}, a, "")
+
+	require.NoError(t, err)
+	require.Len(t, declared, 1)
+	assert.Equal(t, "res-chart", declared[0].TargetID)
+}
+
+// TestResolveAssetArmNeededNoWidening states why the asset arm of the same
+// declaration was left alone (#1584, criterion 5).
+//
+// A resource is reached through library membership, which has no administrator
+// in it; an asset is reached through ownership and shares, and every gate the
+// two doors supply already admits an administrator -- canReadAsset in the asset
+// toolkit and CanManageAsset in the portal panel, both of which are `owns ||
+// isAdmin`. So the administrator below declares an asset they do not own in the
+// same call that declares the persona-library file, and both arms answer yes
+// for the same reason.
+func TestResolveAssetArmNeededNoWidening(t *testing.T) {
+	declared, err := declarer(newFakeRefs()).
+		Resolve(t.Context(), []string{chartURI, closedAssetRef}, adminAuthor(), "")
+
+	require.NoError(t, err)
+	require.Len(t, declared, 2)
+	assert.Equal(t, assetrefs.TargetResource, declared[0].Kind)
+	assert.Equal(t, assetrefs.TargetAsset, declared[1].Kind)
+	assert.Equal(t, closedAssetID, declared[1].TargetID)
+
+	// The narrower gate the ordinary author carries still refuses the same
+	// asset, so the yes above comes from the administrator's gate and not from
+	// the arm having stopped checking.
+	_, err = declarer(newFakeRefs()).Resolve(t.Context(), []string{closedAssetRef}, analystAuthor(), "")
+	require.ErrorIs(t, err, assetrefs.ErrRefused)
+}
+
+// TestResolveAfterTheFileMovesLibrary is criterion 4 of #1584: a resource moved
+// into another library does not break a re-save of the asset that references
+// it, for a caller who can still reach the file.
+//
+// The move rewrites the row's scope and URI, so the author's second save
+// declares the file at its new address. An administrator resolves it there; the
+// analyst who could read it while it was global no longer can, which is the
+// move doing what it was asked to do rather than a defect.
+func TestResolveAfterTheFileMovesLibrary(t *testing.T) {
+	moved := fixtureResources()
+	movedURI := "mcp://persona/finance/logo.png"
+	logo := moved.byID["res-logo"]
+	logo.Scope = resource.ScopePersona
+	logo.ScopeID = "finance"
+	logo.URI = movedURI
+
+	d := assetrefs.NewDeclarer(newFakeRefs(), fixtureAssets())
+	d.BindResources(moved, "")
+
+	declared, err := d.Resolve(t.Context(), []string{movedURI}, adminAuthor(), "")
+	require.NoError(t, err)
+	require.Len(t, declared, 1)
+	assert.Equal(t, "res-logo", declared[0].TargetID,
+		"the reference resolves to the same row it always named")
+
+	_, err = d.Resolve(t.Context(), []string{movedURI}, analystAuthor(), "")
+	require.ErrorIs(t, err, assetrefs.ErrRefused)
+}

@@ -16,7 +16,7 @@
 //
 // It owns no policy of its own. Whether the caller may see an asset goes
 // through the portal's authorization core in internal/portal/access, and
-// whether they may read a resource goes through resource.CanReadResource with
+// whether they may reach a resource goes through resource.CanAccessResource with
 // claims the parent builds: the same two checks every other read of those
 // files makes.
 package producerapi
@@ -155,16 +155,22 @@ func (h *handler) viewableAsset(w http.ResponseWriter, r *http.Request, user *ac
 	return asset, true
 }
 
-// readableResource loads the {id} resource for a caller who may read it. A
-// resource they cannot read is reported as absent rather than as forbidden,
+// readableResource loads the {id} resource for a caller who may reach it. A
+// resource they cannot reach is reported as absent rather than as forbidden,
 // which is how every other resource read answers.
+//
+// The predicate is resource.CanAccessResource, the one the resources REST
+// routes resolve a named file through, because this panel is drawn on the
+// viewer page those routes serve. On the membership rule the page opened for a
+// platform administrator and its Producers panel answered 404 for the same
+// file in the same request cycle (#1584).
 func (h *handler) readableResource(w http.ResponseWriter, r *http.Request, user *access.User) (*resource.Resource, bool) {
 	res, err := h.cfg.Resources.Get(r.Context(), r.PathValue(pathKeyID))
 	if err != nil && !resource.IsNotFound(err) {
 		httpjson.WriteError(w, http.StatusInternalServerError, "failed to read resource")
 		return nil, false
 	}
-	if res == nil || !resource.CanReadResource(h.cfg.Claims(user), res) {
+	if res == nil || !resource.CanAccessResource(h.cfg.Claims(user), res) {
 		httpjson.WriteError(w, http.StatusNotFound, errResourceNotFound)
 		return nil, false
 	}
