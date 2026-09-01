@@ -279,6 +279,34 @@ its outputs stand.
 
 ![Script state](../images/screenshots/light/user-script-state-light.webp#only-light)![Script state](../images/screenshots/dark/user-script-state-dark.webp#only-dark)
 
+## Deleting a script
+
+At the bottom of a script you own is **Delete**. It is there for the same reason
+every other control on this page is: creating, editing, documenting, scheduling,
+running and handing over a script all happen here, and removing one used to be
+the single thing that sent you back to an agent to ask for it.
+
+The confirmation says what goes rather than asking whether you are sure. Every
+saved version of the code, including the one a run executes; the schedule, named
+in words, so nothing fires it again; the whole run history; and the state the
+script carried from one run to the next. A scheduled script's run history is its
+refresh history — if a report has been running for months, that record is part of
+what you are removing, and you should be deciding that rather than discovering
+it.
+
+It also says what stays. The assets and resources the script wrote are not the
+script's to take with it: they stay where they are, owned by whoever owns them,
+and they go on recording that this script wrote them, which is what **Written
+by** on each of those files shows. Deleting a script is not deleting the reports
+it produced.
+
+![Deleting a script](../images/screenshots/light/user-script-delete-light.webp#only-light)![Deleting a script](../images/screenshots/dark/user-script-delete-dark.webp#only-dark)
+
+Once the delete lands you are back at the script listing, with the script gone
+from it. It cannot be undone. An administrator can delete any script, on the
+same page and with the same confirmation; the alternative for anybody is
+`manage_script command=delete`, which removes exactly the same things.
+
 ## Asking for the pages
 
 Ask your agent to show you your scripts — "show me my scripts", "what scripts do I

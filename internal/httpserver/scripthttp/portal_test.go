@@ -283,9 +283,17 @@ func TestPortalGetScript_StoreFailure(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
+// TestPortalGetScript_UnmountedWithoutAContractReader holds the shape of a
+// deployment that cannot compose a contract: reading one script is not served.
+//
+// The answer is method-not-allowed rather than not-found because the delete
+// route (#1575) is mounted at this same address and is served, so the address
+// exists on this deployment while GET on it does not. That is what ServeMux
+// reports, and it discloses nothing: every id answers identically, whether or
+// not a script bears it.
 func TestPortalGetScript_UnmountedWithoutAContractReader(t *testing.T) {
 	rec := servePortal(t, portalDeps(portalStore(), nil, nil, owner), "/api/v1/portal/scripts/script_1")
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
 }
 
 func TestPortalListVersions_OwnerReadsTheSource(t *testing.T) {

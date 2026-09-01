@@ -266,14 +266,20 @@ func updateTx(ctx context.Context, tx *sql.Tx, sc *script.Script) (bool, error) 
 // past its last column value.
 const updateHashParam = 15
 
-// Delete removes a script by ID. Its versions cascade.
+// Delete removes a script by ID. Its versions, schedule, run history and
+// carried state cascade.
+//
+// A delete that affects no row wraps script.ErrNotFound rather than reporting a
+// generic failure: every caller reads the script before removing it, so the
+// only way to reach this is somebody having removed it in between, and that is
+// a not-found for the caller rather than the platform breaking.
 func (s *Store) Delete(ctx context.Context, id string) error {
 	res, err := s.db.ExecContext(ctx, `DELETE FROM scripts WHERE id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("delete script: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return fmt.Errorf("script %s not found", id)
+		return fmt.Errorf("delete script %s: %w", id, script.ErrNotFound)
 	}
 	return nil
 }

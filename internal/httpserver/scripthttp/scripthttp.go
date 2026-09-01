@@ -115,7 +115,11 @@ func New(deps Deps) *Handler { return &Handler{deps: deps} }
 
 // Shared literals.
 const (
-	pathID           = "id"
+	pathID = "id"
+	// keyScriptID is the script's id as both a log attribute and an audit
+	// parameter. One name for both is deliberate: an act on a script is found
+	// by the same key whichever record somebody is reading.
+	keyScriptID      = "script_id"
 	pathVersion      = "version"
 	pathRunID        = "runID"
 	errScriptNot     = "script not found"

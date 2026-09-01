@@ -33,6 +33,19 @@ and so does an administrator. Deleting it is the same rule, and it takes the
 script's schedule and history with it — nobody else could see it, run it, or
 notice it go.
 
+A delete is made from the script's page in the portal
+(`DELETE /api/v1/portal/scripts/{id}`) or with `manage_script command=delete`.
+Both call the same store, so the two surfaces remove exactly the same rows: the
+script, its saved versions, its schedule, its run history and the state it
+carried. What a delete does NOT remove is the work: the portal assets and
+managed resources the script wrote stay where they are, owned by whoever owns
+them, and the producer records naming the script as their writer stay with them
+(see [what wrote a file](../server/content-producers.md)) — a deleted script is
+still the answer to "what wrote this report". A delete from the portal is
+recorded in the audit log as a `script_delete` event of kind `admin`, naming
+the script and the owner who lost it; one made through the tool is already in
+the log as the `manage_script` call it was.
+
 An administrator can move a script to another owner, from the script's page in
 the portal (`PUT /api/v1/portal/scripts/{id}/owner`), choosing the new owner
 from the people who have signed in to this deployment at least once: an address

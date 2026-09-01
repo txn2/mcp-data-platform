@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -36,6 +37,10 @@ type stubStore struct {
 	// should answer with.
 	transferErr   error
 	transferredBy script.Author
+	// The delete half (#1575): what the store should answer with, and the ids
+	// it was actually asked to remove.
+	deleteErr  error
+	deletedIDs []string
 	// The schedule half, served by the methods in schedules_test.go.
 	schedule         *script.Schedule
 	scheduleErr      error
@@ -82,7 +87,26 @@ func (s *stubStore) Transfer(_ context.Context, id, newOwner string, author scri
 	return errors.New("script not found")
 }
 
-func (*stubStore) Delete(context.Context, string) error { return nil }
+// Delete removes the script the way the real store does, and answers a request
+// for one it does not hold by wrapping script.ErrNotFound rather than silently
+// succeeding: that is the contract the Postgres store states through
+// RowsAffected, and a fake that swallowed it would leave the handler's
+// already-deleted path untested.
+func (s *stubStore) Delete(_ context.Context, id string) error {
+	if s.deleteErr != nil {
+		return s.deleteErr
+	}
+	for i := range s.scripts {
+		if s.scripts[i].ID != id {
+			continue
+		}
+		s.deletedIDs = append(s.deletedIDs, id)
+		s.scripts = append(s.scripts[:i], s.scripts[i+1:]...)
+		return nil
+	}
+	return fmt.Errorf("delete script %s: %w", id, script.ErrNotFound)
+}
+
 func (s *stubStore) List(_ context.Context, filter script.ListFilter) ([]script.Script, error) {
 	s.lastFilter = filter
 	return s.scripts, s.listErr

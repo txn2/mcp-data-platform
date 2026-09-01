@@ -40,6 +40,12 @@ vi.mock("@/api/portal/hooks/scripts", () => ({
   RUN_PAGE_SIZE: 25,
 }));
 
+// Removing the script (#1575) has its own tests; here the hook only has to
+// answer, so the page composes with the section that offers the delete.
+vi.mock("@/api/portal/hooks/scriptDelete", () => ({
+  useDeleteScript: () => ({ mutateAsync: vi.fn(), isPending: false }),
+}));
+
 // Everything this script has produced (#1569) has its own tests; here it only
 // has to answer, so the page renders without a query client. The fixture is one
 // asset, which is what the section assertion below reads.
@@ -312,6 +318,9 @@ describe("ScriptDetailPage: the details", () => {
       "Run history",
       "Files written (1)",
       "State",
+      // Removing the script is last, because it is the last thing anybody does
+      // to one (#1575).
+      "Delete",
     ]);
   });
 
@@ -375,6 +384,20 @@ describe("ScriptDetailPage: what an owner may read", () => {
     expect(screen.queryByText("Run history")).not.toBeInTheDocument();
     // The state is the runs' input and belongs to the same reader (#1537).
     expect(screen.queryByRole("heading", { name: "State" })).not.toBeInTheDocument();
+    // And so is removing it (#1575): the control carries the same reach the
+    // route enforces, so a reader who is offered it is one the route admits.
+    expect(screen.queryByRole("button", { name: "Delete script" })).not.toBeInTheDocument();
+  });
+
+  // Removing a script is the owner's and an administrator's, which is the rule
+  // the tool's delete already applies (#1575). It was the one verb in a
+  // script's life that sent a person out of the portal and into an agent
+  // session.
+  it("offers the delete to a reader the script belongs to", () => {
+    renderPage();
+
+    expect(screen.getByRole("button", { name: "Delete script" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 3, name: "Delete" })).toBeInTheDocument();
   });
 
   // The state a script carries between runs is read with its runs (#1537): the
@@ -415,8 +438,8 @@ describe("ScriptDetailPage: what an owner may read", () => {
 
     expect(screen.getByRole("button", { name: "Transfer ownership" })).toBeInTheDocument();
     expect(screen.getByText(/only person who sees it/)).toBeInTheDocument();
-    // It is the last section on the page: an administrator's control comes
-    // after everything the owner reads and does (#1406).
+    // It comes after everything the owner reads and does (#1406), and before
+    // the delete, which is last on the page for every reader (#1575).
     expect(
       screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent),
     ).toEqual([
@@ -428,6 +451,7 @@ describe("ScriptDetailPage: what an owner may read", () => {
       "Files written (1)",
       "State",
       "Owner",
+      "Delete",
     ]);
     admin = false;
   });

@@ -265,6 +265,13 @@ type ListFilter struct {
 	Limit    int    // cap the number of rows returned; 0 means the store default
 }
 
+// ErrNotFound is what a store write reports when no script bears the ID it was
+// given. A delete is the surface that acts on it: the script's page and the
+// tool both read the script before removing it, so a delete that finds nothing
+// means somebody removed it in between, which is a not-found for the caller
+// rather than a failure of the platform.
+var ErrNotFound = errors.New("script not found")
+
 // Store defines the interface for script persistence. A script name is unique
 // within its owner and nowhere else, so every lookup by name names an owner
 // too: two analysts may each keep their own "daily-sales".
@@ -284,7 +291,11 @@ type Store interface {
 	// Update modifies an existing script.
 	Update(ctx context.Context, s *Script) error
 
-	// Delete removes a script by ID.
+	// Delete removes a script by ID, and everything that cascades from it: the
+	// version history, the schedule, the run history and the carried state. It
+	// returns an error wrapping ErrNotFound when no script bears the ID, which
+	// is what lets a caller tell "somebody removed it first" from a failure of
+	// the platform's own.
 	Delete(ctx context.Context, id string) error
 
 	// List returns scripts matching the filter, newest first.
