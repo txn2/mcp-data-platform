@@ -14842,6 +14842,59 @@ const docTemplate = `{
                         }
                     }
                 }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Removes a managed script and everything that belongs to it: its saved versions, its schedule, its run history, and the state it carried between runs. Restricted to the script's owner and to administrators, and answered as not-found for anybody else, so the refusal cannot be used to learn that a script exists. The assets and resources the script wrote are NOT removed, and the records naming it as their producer remain. It is the same removal manage_script command=delete performs, through the same store.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Delete a script",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/scripthttp.deleteResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
             }
         },
         "/portal/scripts/{id}/connections": {
@@ -26607,6 +26660,24 @@ const docTemplate = `{
                     "description": "Source names the boundary the set was drawn from.",
                     "type": "string",
                     "example": "persona"
+                }
+            }
+        },
+        "scripthttp.deleteResponse": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "description": "Message states what went and what did not, in the terms the confirmation\nstated them before the delete ran.",
+                    "type": "string",
+                    "example": "daily-sales-report is gone, with its saved versions, its schedule, its run history and the state it carried."
+                },
+                "name": {
+                    "type": "string",
+                    "example": "daily-sales-report"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "deleted"
                 }
             }
         },

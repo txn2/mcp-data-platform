@@ -133,6 +133,7 @@ internal/httpserver/notifyhttp -> internal/notification/notifyrender
 internal/httpserver/notifyhttp -> pkg/notification
 internal/httpserver/notifyhttp -> pkg/notification/smtp
 internal/httpserver/scripthttp -> internal/httpjson
+internal/httpserver/scripthttp -> internal/logsan
 internal/httpserver/scripthttp -> internal/platform/scriptdraft
 internal/httpserver/scripthttp -> internal/platform/scriptrun
 internal/httpserver/scripthttp -> internal/producedview

@@ -80,6 +80,9 @@ test.describe("Portal script pages", () => {
       "Files written (3)",
       "State",
       "Owner",
+      // Removing the script is last, because it is the last thing anybody does
+      // to one (#1575).
+      "Delete",
     ]);
 
     // The bindings every fire passes are inside the folded schedule section.
@@ -106,7 +109,7 @@ test.describe("Portal script pages", () => {
   test("opens a run and shows the log it captured", async ({ page }) => {
     await gotoScripts(page);
     await page.getByRole("row").filter({ hasText: "Daily Sales Report" }).click();
-    await expect(page.getByText("Run history")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Run history" })).toBeVisible();
 
     await page.getByRole("row").filter({ hasText: "succeeded" }).first().click();
 

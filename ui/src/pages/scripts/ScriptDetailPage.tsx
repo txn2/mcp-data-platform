@@ -16,6 +16,7 @@ import {
 import { useAuthStore } from "@/stores/auth";
 import { scheduleLine } from "./cadence";
 import { executionState, formatWhen } from "./runFormat";
+import { ScriptDelete } from "./ScriptDelete";
 import { ScriptDocumentation } from "./ScriptDocumentation";
 import { ScriptOwnerTransfer } from "./ScriptOwnerTransfer";
 import { ScriptProducedPanel } from "./ScriptProducedPanel";
@@ -174,6 +175,16 @@ function ScriptDetail({
       )}
 
       {isAdmin && <ScriptOwnerTransfer scriptId={scriptId} contract={contract} />}
+
+      {/* Removing the script (#1575), the last thing on the page because it is
+          the last thing anybody does to one. It is the owner's control and an
+          administrator's — the same reach `owned` already gates the editors by
+          — so it is the one destructive act on the page that does not send a
+          person to an agent session. Once it lands there is no page here to
+          come back to, so the reader goes where the back control goes. */}
+      {owned && (
+        <ScriptDelete scriptId={scriptId} contract={contract} onDeleted={onBack} />
+      )}
     </div>
   );
 }

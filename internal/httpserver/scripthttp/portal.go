@@ -103,6 +103,11 @@ func (h *Handler) RegisterPortal(mux *http.ServeMux, wrap func(http.Handler) htt
 	// refuses everybody else: it is mounted here because it is the same detail
 	// page, not because every caller of that page may use it (#1404).
 	mux.Handle("PUT /api/v1/portal/scripts/{id}/owner", wrap(h.portalHandler(h.portalTransferOwner)))
+	// Removing it is the owner's, and an administrator's over any script: the
+	// same rule the tool's delete applies, calling the same store, so the
+	// cascade cannot come out differently depending on which surface asked
+	// (#1575). Every other verb in a script's life was already on the page.
+	mux.Handle("DELETE /api/v1/portal/scripts/{id}", wrap(h.portalHandler(h.portalDeleteScript)))
 	// Checking an edit before saving it (#1364). Validating parses and
 	// reports; it executes nothing, needs no collaborator, and is therefore
 	// always available where the editor is.

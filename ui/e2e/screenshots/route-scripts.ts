@@ -1,4 +1,5 @@
 import {
+  openScriptDelete,
   openScriptDocumentation,
   openScriptDryRun,
   openScriptOwner,
@@ -9,7 +10,7 @@ import {
   openScriptSchedule,
   openScriptState,
   openScriptVersionHistory,
-} from "./route-actions";
+} from "./route-actions-scripts";
 import { openScriptProduced } from "./route-actions-refs";
 import { type ScreenshotRoute } from "./route-types";
 
@@ -127,6 +128,16 @@ export const userScriptRoutes: ScreenshotRoute[] = [
     path: "/portal/scripts/script-001",
     category: "user",
     beforeCapture: openScriptProduced,
+  },
+  {
+    // The confirmation behind the delete (#1575). It names what goes with the
+    // script -- its saved versions, its schedule, its run history and the state
+    // it carried -- and what does not, because "delete the script" reads to a
+    // lot of people as "delete the reports it wrote".
+    slug: "script-delete",
+    path: "/portal/scripts/script-001",
+    category: "user",
+    beforeCapture: openScriptDelete,
   },
   {
     // Every run of every script this person owns (#1405), which is the question

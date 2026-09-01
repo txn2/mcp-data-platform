@@ -345,6 +345,27 @@ export const scriptHandlers = [
     });
   }),
 
+  // Removing a script (#1575). It takes with it everything that belongs to the
+  // script, and nothing that does not: the assets and resources it wrote are
+  // not the script's, and neither is the record that it wrote them.
+  http.delete(`${PORTAL_BASE}/scripts/:id`, ({ params }) => {
+    const id = String(params.id);
+    const at = scripts.findIndex((s) => s.id === id);
+    if (at === -1) {
+      return HttpResponse.json({ detail: "script not found" }, { status: 404 });
+    }
+    const [removed] = scripts.splice(at, 1);
+    delete contracts[id];
+    return HttpResponse.json({
+      status: "deleted",
+      name: removed!.name,
+      message:
+        `${removed!.name} is gone, with its saved versions, its schedule, its run history ` +
+        "and the state it carried. The assets and resources it wrote remain, and they still " +
+        "record that it wrote them.",
+    });
+  }),
+
   // Editing the code (#1307). Every save applies: the saved version is the
   // version a run executes, which is the server's rule and what the editor's
   // outcome message states.

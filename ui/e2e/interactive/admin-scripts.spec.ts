@@ -106,6 +106,9 @@ test.describe("Admin script pages", () => {
     await expect(page.getByRole("button", { name: "Run", exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Source" })).toBeVisible();
     await expect(page.getByText("Version history")).toBeVisible();
-    await expect(page.getByText("Run history")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Run history" })).toBeVisible();
+    // Including removing it (#1575), which is the owner's control and an
+    // administrator's over every script.
+    await expect(page.getByRole("button", { name: "Delete script" })).toBeVisible();
   });
 });

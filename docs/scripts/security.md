@@ -125,6 +125,20 @@ What platform execution DOES add, and what this document does not minimize:
   naming the script and both ends of the move, whether they succeeded or were
   refused.
 
+  Removing a script is the owner's and an administrator's, from the script's
+  page in the portal or with `manage_script command=delete`. A delete made from
+  the portal is recorded as a `script_delete` event of kind `admin` naming the
+  script and the owner who lost it, whether the removal succeeded or failed at
+  the write; a delete made through the tool is already in the log as the
+  `manage_script` call it was. A caller the portal route refuses — somebody who
+  is neither the owner nor an administrator — is answered exactly as one who
+  named a script that does not exist, before the script is read, and no event is
+  written: that is what every portal script route does, and the tool surface is
+  where a refused attempt is recorded, since the middleware logs every
+  `manage_script` call including the ones it declines. Neither surface reaches
+  further than the script itself: what it wrote is not the script's to take, and
+  the record naming it as the writer outlives it.
+
   A script is reachable from `search` and `fetch` (`mcp:script:<id>`), from a
   prompt that references it, and from the portal's own script pages, in
   addition to `manage_script list`. Each of those surfaces applies the same
@@ -161,7 +175,7 @@ behaviors described below; it grants nothing (`pkg/middleware/mcp.go`).
 
 | Actor | Capability at this revision |
 |---|---|
-| Script author (any authenticated caller) | Creates, edits, runs, and schedules their own scripts; runs drafts as themselves. Saving a version makes it the version that runs, presenting their own captured roles |
+| Script author (any authenticated caller) | Creates, edits, runs, schedules and deletes their own scripts; runs drafts as themselves. Saving a version makes it the version that runs, presenting their own captured roles |
 | Admin persona | The above on every script, plus lifecycle changes and the owner transfer, which re-captures the run identity from the administrator making it |
 
 ![Admin Scripts: every script on the deployment, across owners](../images/screenshots/light/admin-admin-scripts-light.webp#only-light)![Admin Scripts: every script on the deployment, across owners](../images/screenshots/dark/admin-admin-scripts-dark.webp#only-dark)
