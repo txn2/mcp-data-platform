@@ -548,7 +548,10 @@ version is written - under the registrant of the **oldest** of them, the choice
 that has stood over this file the longest - and every following table lands on
 it, including any that did not ask for the correction: the corrected version is
 the file's head, and a following table reads the head. The correction is
-reported once, on the table whose follow saved it.
+reported once, on the table whose registration the correction was made for -
+the oldest one carrying the choice. A table registered without `repair` that
+lands on the corrected version is told only that it moved, because it did not
+ask for anybody's file to be rewritten.
 
 What was refused stays refused. A defect the platform will not correct - a wide
 encoding, a NUL byte, records that do not match the header, bytes the reader
