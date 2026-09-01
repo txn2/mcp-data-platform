@@ -197,20 +197,28 @@ func (p *CatalogProvider) searchByText(ctx context.Context, q Query, seen map[st
 	if err != nil {
 		return nil, err
 	}
-	candidates := mergeCandidates(q.Limit, indexed, remote)
+	// The de-duplication and the connection boundary run INSIDE the merge, ahead
+	// of its truncation, so neither an entity the caller already has from the
+	// entity arm nor one their persona may not see consumes a candidate slot. A
+	// dropped candidate that consumed a slot is not only recall lost for no
+	// reason: it also makes a truncated arm come back short, which is how the
+	// router reads "this source had nothing more to give" (#1585).
+	withheld := 0
+	candidates := mergeCandidates(q.Limit, func(urn string) bool {
+		if seen[urn] {
+			return false
+		}
+		seen[urn] = true
+		if !q.Caller.allowsURN(urn) {
+			withheld++
+			return false
+		}
+		return true
+	}, indexed, remote)
 
 	n := len(candidates)
 	hits := make([]Hit, 0, n)
-	withheld := 0
 	for i := range candidates {
-		if seen[candidates[i].urn] {
-			continue
-		}
-		seen[candidates[i].urn] = true
-		if !q.Caller.allowsURN(candidates[i].urn) {
-			withheld++
-			continue
-		}
 		hits = append(hits, Hit{
 			Text:       candidates[i].text,
 			Source:     SourceCatalog,
@@ -238,32 +246,58 @@ func (p *CatalogProvider) searchByText(ctx context.Context, q Query, seen map[st
 // surface; in the governance source it would let one vocabulary hide the other
 // two. The first list still leads, so the top hit is its top hit.
 //
+// keep is the caller's per-candidate predicate (de-duplication against an arm
+// that already ran, the persona connection boundary), and it is applied BEFORE
+// the truncation rather than by the caller afterwards. Order matters twice: a
+// rejected candidate must not consume one of the limited slots, and the router
+// reads a full list as evidence that the source had more to give, so a slot
+// spent on something never emitted would report a truncated source as exhausted
+// (#1585). A nil keep admits every candidate.
+//
 // The truncation is what keeps the coverage contract honest: SourceCoverage
-// documents Matched as capped at the per-source candidate limit, and unbounded
+// documents Matched as bounded by the per-source candidate depth, and unbounded
 // arms would report a multiple of that.
-func mergeCandidates(limit int, lists ...[]catalogCandidate) []catalogCandidate {
-	total, longest := 0, 0
-	for _, l := range lists {
-		total += len(l)
-		if len(l) > longest {
-			longest = len(l)
-		}
-	}
+func mergeCandidates(limit int, keep func(urn string) bool, lists ...[]catalogCandidate) []catalogCandidate {
+	total, longest := mergeSpans(lists)
 	merged := make([]catalogCandidate, 0, total)
 	seen := make(map[string]bool, total)
-	for i := 0; i < longest; i++ {
+	for i := range longest {
 		for _, l := range lists {
-			if i >= len(l) || seen[l[i].urn] {
-				continue
+			if i < len(l) && admitCandidate(seen, keep, l[i].urn) {
+				merged = append(merged, l[i])
 			}
-			seen[l[i].urn] = true
-			merged = append(merged, l[i])
 		}
 	}
 	if limit > 0 && len(merged) > limit {
 		merged = merged[:limit]
 	}
 	return merged
+}
+
+// mergeSpans reports the combined length of the candidate lists and the length
+// of the longest: the capacity one merged slice needs, and the number of
+// round-robin rounds that visits every element.
+func mergeSpans(lists [][]catalogCandidate) (total, longest int) {
+	for _, l := range lists {
+		total += len(l)
+		if len(l) > longest {
+			longest = len(l)
+		}
+	}
+	return total, longest
+}
+
+// admitCandidate records a URN as considered and reports whether it belongs in
+// the merged set: a URN an earlier list already contributed is a duplicate, and
+// one the caller's predicate rejects is dropped. Marking before the predicate
+// runs is what keeps a rejected URN from being re-examined (and, where the
+// predicate counts withheld candidates, re-counted) from a later list.
+func admitCandidate(seen map[string]bool, keep func(urn string) bool, urn string) bool {
+	if seen[urn] {
+		return false
+	}
+	seen[urn] = true
+	return keep == nil || keep(urn)
 }
 
 // indexCandidates ranks the intent against the platform's own index of catalog

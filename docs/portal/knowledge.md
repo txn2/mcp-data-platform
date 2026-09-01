@@ -18,7 +18,7 @@ Knowledge pages are facts to be searched and synthesized into new answers. A fil
 - **Browse** - With the search box empty, the tab browses the canonical knowledge pages. Personas with `apply_knowledge` can create, edit, and remove pages
 - **Changesets** (`apply_knowledge` holders) - The record of insights promoted into knowledge: the catalog and knowledge-page changes applied when your agent runs `apply_knowledge`, with rollback to undo a changeset's writes. They live here, with the promoted knowledge, rather than with the unpromoted insights in the review pipeline
 
-One query returns results grouped by source (catalog, knowledge pages, insights, memory, assets, prompts) with a per-source coverage summary and source filter chips.
+One query returns results grouped by source (catalog, knowledge pages, insights, memory, assets, prompts) with a per-source coverage summary and source filter chips. The coverage line reads "3 of 14 shown"; a source with more matches than the search ranked reads "3 of 25+ shown", because the count is a floor rather than a total and a bare 25 would say the list on screen is the whole of it.
 
 ![Unified search](../images/screenshots/light/user-knowledge-knowledge-light.webp#only-light)![Unified search](../images/screenshots/dark/user-knowledge-knowledge-dark.webp#only-dark)
 

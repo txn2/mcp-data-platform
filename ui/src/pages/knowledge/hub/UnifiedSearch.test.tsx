@@ -134,4 +134,32 @@ describe("UnifiedSearch withheld results", () => {
     expect(text).toContain("1 of 3 shown");
     expect(text).not.toContain("hidden");
   });
+
+  it("marks a capped match count as a floor rather than a total", () => {
+    const { container } = renderWith({
+      groups: [
+        { source: "catalog", hits: [{ text: "orders", source: "catalog", ref: "urn:1", score: 1 }] },
+      ],
+      coverage: [{ source: "catalog", matched: 25, shown: 1, matched_capped: true }],
+      count: 1,
+      ranking: "lexical",
+    });
+
+    expect(container.textContent ?? "").toContain("1 of 25+ shown");
+  });
+
+  it("shows the coverage line when a capped source shows everything it ranked", () => {
+    // matched === shown, which without the flag renders nothing at all and reads
+    // as "you have seen everything" -- the defect #1585 is about.
+    const { container } = renderWith({
+      groups: [
+        { source: "catalog", hits: [{ text: "orders", source: "catalog", ref: "urn:1", score: 1 }] },
+      ],
+      coverage: [{ source: "catalog", matched: 1, shown: 1, matched_capped: true }],
+      count: 1,
+      ranking: "lexical",
+    });
+
+    expect(container.textContent ?? "").toContain("1 of 1+ shown");
+  });
 });

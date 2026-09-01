@@ -41,9 +41,18 @@ type SourceGroup struct {
 // how many of those are shown in the grouped result. Matched can exceed Shown
 // when the balanced allocator spent its budget elsewhere; that gap is the
 // anti-tunnel signal that tells the agent where unshown answers live ("14
-// datasets matched, 3 shown"). Matched is the count of candidates the provider
-// returned for this query, capped at the per-source candidate fetch limit, not
-// a full-corpus count.
+// datasets matched, 3 shown").
+//
+// MatchedCapped says which kind of number Matched is (#1585). The router asks
+// each provider for a bounded candidate list, so a source with more matching
+// records than that bound returns the bound. Without the flag those two states
+// are one number on the wire: a source that matched exactly the bound and a
+// source that matched thousands both read as "matched 25, shown 25", which
+// tells the agent it has seen everything precisely when it has not. The flag
+// makes Matched a floor rather than a total: false (omitted) means the count is
+// exact, true means at least that many. A count the connection boundary
+// shortened is exact for what it says -- Matched is what the caller may see,
+// and Withheld carries the rest -- so a withheld-shortened arm is not flagged.
 //
 // Withheld is the separate, security-shaped gap: candidates that matched the
 // query and were then removed because they belong to a connection the caller's
@@ -53,20 +62,25 @@ type SourceGroup struct {
 // re-derive it, while a withheld count reads as "present, but not yours to see",
 // which is an actionable state.
 type SourceCoverage struct {
-	Source   string `json:"source"`
-	Matched  int    `json:"matched"`
-	Shown    int    `json:"shown"`
-	Withheld int    `json:"withheld,omitempty"`
+	Source        string `json:"source"`
+	Matched       int    `json:"matched"`
+	Shown         int    `json:"shown"`
+	MatchedCapped bool   `json:"matched_capped,omitempty"`
+	Withheld      int    `json:"withheld,omitempty"`
 }
 
 // sourceResult is one provider arm's outcome: the candidates it returned after
-// the connection boundary was applied, and how many that boundary removed. The
+// the connection boundary was applied, how many that boundary removed, and
+// whether the arm had more candidates than the router asked to look at. The
 // withheld count travels beside the hits (rather than being derivable from them)
-// because a source can be filtered down to nothing and must still report why.
+// because a source can be filtered down to nothing and must still report why,
+// and capped travels beside them because it is a fact about the fetch the
+// trimmed list no longer records.
 type sourceResult struct {
 	source   string
 	hits     []Hit
 	withheld int
+	capped   bool
 }
 
 // sourceState holds one source's normalized candidate list, how many of those
@@ -78,6 +92,7 @@ type sourceState struct {
 	matched  int
 	taken    int
 	withheld int
+	capped   bool
 }
 
 // allocate turns each provider's locally-scored candidate list into a balanced,
@@ -141,7 +156,8 @@ func buildStates(results []sourceResult) []*sourceState {
 			return norm[i].Ref < norm[j].Ref
 		})
 		states = append(states, &sourceState{
-			source: r.source, cands: norm, matched: len(norm), withheld: r.withheld,
+			source: r.source, cands: norm, matched: len(norm),
+			withheld: r.withheld, capped: r.capped,
 		})
 	}
 	sort.SliceStable(states, func(i, j int) bool {
@@ -259,17 +275,18 @@ func groupsFrom(states []*sourceState) []SourceGroup {
 	return groups
 }
 
-// coverageFrom reports matched, shown, and withheld counts for every source that
-// returned candidates or had candidates withheld, ordered by matched desc then
-// source name. Sources squeezed out of the display set (Shown == 0) are included
-// on purpose: their match counts are the breadth signal that keeps the agent
-// from tunneling, and their withheld counts are what turns an absent source into
-// an explainable one.
+// coverageFrom reports matched, shown, withheld, and capped counts for every
+// source that returned candidates or had candidates withheld, ordered by matched
+// desc then source name. Sources squeezed out of the display set (Shown == 0)
+// are included on purpose: their match counts are the breadth signal that keeps
+// the agent from tunneling, and their withheld counts are what turns an absent
+// source into an explainable one.
 func coverageFrom(states []*sourceState) []SourceCoverage {
 	cov := make([]SourceCoverage, 0, len(states))
 	for _, s := range states {
 		cov = append(cov, SourceCoverage{
-			Source: s.source, Matched: s.matched, Shown: s.taken, Withheld: s.withheld,
+			Source: s.source, Matched: s.matched, Shown: s.taken,
+			MatchedCapped: s.capped, Withheld: s.withheld,
 		})
 	}
 	sort.SliceStable(cov, func(i, j int) bool {

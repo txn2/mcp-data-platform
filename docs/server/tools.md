@@ -731,9 +731,21 @@ lexical-only otherwise; an entity-only query reports ranking `entity`. The
 response carries a `ranking` field, a `count` (total hits shown), a `groups`
 array (each `{source, hits[]}` where every hit pairs the matched `text` with its
 `source`, a `ref`, a relevance `score`, and where present `status`, `entity_urns`,
-and `dimension`), and a `coverage` array (`{source, matched, shown, withheld}`,
-where `withheld` is present only when the persona connection boundary removed
-matches, alongside a top-level `withheld_notice`).
+and `dimension`), and a `coverage` array (`{source, matched, shown, matched_capped,
+withheld}`, where `withheld` is present only when the persona connection boundary
+removed matches, alongside a top-level `withheld_notice`).
+
+**What bounds one source (`matched_capped`).** Each source ranks up to `limit`
+candidates, or 25 when `limit` is smaller, and `matched` counts within that bound.
+A source with more matching records than the bound carries `matched_capped: true`,
+which makes its `matched` a floor rather than a total ("at least 25", not "25").
+Without the flag the two states were one number: a source that matched exactly the
+bound and a source that matched thousands both read as `matched: 25, shown: 25`,
+which tells the agent it has seen everything at precisely the moment it has not
+(#1585). Raise `limit` to rank further into one source, or [browse](#search-browse-mode-enumeration)
+it for a true `total`. A count the persona connection boundary shortened is exact
+for what it says -- `matched` is what the caller may see and `withheld` carries the
+rest -- so a withheld-shortened source is not flagged.
 
 **Parameters:**
 
@@ -744,7 +756,7 @@ matches, alongside a top-level `withheld_notice`).
 | `entity_urns` | array | Conditional | - | Exact entity-keyed lookup: everything linked to these DataHub URNs (the catalog entity, insights about it, and your memory linked to it), expanded along lineage |
 | `status` | string | No | - | Optional filter by insight review status (pending, approved, rejected, applied, superseded) |
 | `sources` | array | No | - | Narrow the search to named sources (`catalog`, `governance`, `context_documents`, `knowledge_pages`, `memory`, `insights`, `feedback`, `assets`, `resources`, `prompts`, `scripts`, `calls`, `sessions`, `endpoints`, `connections`). Only narrows; never opts into a source the persona could not otherwise access. An unrecognized name is echoed back in the response `unknown_sources` rather than silently ignored |
-| `limit` | integer | No | 10 | Total results to display across all sources (max 50) |
+| `limit` | integer | No | 10 | Total results to display across all sources (max 50). Also the per-source ranking depth when it exceeds 25, so a search narrowed to one source returns up to `limit` from it |
 
 ---
 
@@ -769,7 +781,8 @@ an unknown source is a tool error that names what can be browsed.
 | `limit` | integer | No | 50 | Page size (max 100) |
 
 The response is a flat, unranked page: `{source, total, offset, limit, count,
-items[]}`, where `total` is the source's full member count (so the agent knows how
+items[]}`, where `total` is the source's full member count -- exact, never capped,
+which is why browse is the way to enumerate a source (so the agent knows how
 many pages remain) and each item carries the same `reference` that `fetch` reads in
 full. Context-document enumeration includes every document (drafts and hidden ones),
 so the page and `total` describe the same complete set. Scope mirrors `search`: the

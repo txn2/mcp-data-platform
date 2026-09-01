@@ -150,18 +150,24 @@ function Results({
 }
 
 // GroupCoverage says how much of a source's match set is on screen, and how much
-// of it the caller's persona is not allowed to see.
+// of it the caller's persona is not allowed to see. A capped match count is
+// rendered "25+" rather than "25": the search ranked as far as its budget went
+// and stopped, so the number is a floor and reading it as a total is the
+// mistake the count exists to prevent (#1585).
 function GroupCoverage({
   coverage,
 }: {
-  coverage: { matched: number; shown: number; withheld?: number } | undefined;
+  coverage:
+    | { matched: number; shown: number; matched_capped?: boolean; withheld?: number }
+    | undefined;
 }) {
   const withheld = coverage?.withheld ?? 0;
+  const matched = coverage ? `${coverage.matched}${coverage.matched_capped ? "+" : ""}` : "";
   return (
     <span className="flex items-center gap-2 text-[11px] text-muted-foreground">
-      {coverage && coverage.matched > coverage.shown && (
+      {coverage && (coverage.matched > coverage.shown || coverage.matched_capped) && (
         <span>
-          {coverage.shown} of {coverage.matched} shown
+          {coverage.shown} of {matched} shown
         </span>
       )}
       {withheld > 0 && (

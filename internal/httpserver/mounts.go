@@ -473,7 +473,8 @@ func (a portalSearchAdapter) Search(ctx context.Context, q portal.SearchQuery) (
 	}
 	for _, c := range res.Coverage {
 		out.Coverage = append(out.Coverage, portal.SearchCoverage{
-			Source: c.Source, Matched: c.Matched, Shown: c.Shown, Withheld: c.Withheld,
+			Source: c.Source, Matched: c.Matched, Shown: c.Shown,
+			MatchedCapped: c.MatchedCapped, Withheld: c.Withheld,
 		})
 	}
 	// The notice is rendered here, from the knowledge package, so the portal and the

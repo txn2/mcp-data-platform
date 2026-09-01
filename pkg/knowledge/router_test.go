@@ -359,7 +359,7 @@ func TestFanOut_RunsProvidersConcurrentlyInRegistrationOrder(t *testing.T) {
 
 	done := make(chan []sourceResult, 1)
 	go func() {
-		pp, _, _ := r.fanOut(context.Background(), Query{Intent: "x"})
+		pp, _, _ := r.fanOut(context.Background(), Query{Intent: "x"}, candidateLimitPerSource)
 		done <- pp
 	}()
 
@@ -392,7 +392,7 @@ func TestFanOut_RecoversProviderPanicWithoutBlankingSearch(t *testing.T) {
 	bad := panicProvider{name: "bad"}
 	r := NewRouter(nil, nil, bad, good)
 
-	pp, attempted, errs := r.fanOut(context.Background(), Query{Intent: "x"})
+	pp, attempted, errs := r.fanOut(context.Background(), Query{Intent: "x"}, candidateLimitPerSource)
 	if attempted != 2 {
 		t.Errorf("attempted = %d, want 2", attempted)
 	}
