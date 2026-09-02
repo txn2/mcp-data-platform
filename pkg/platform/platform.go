@@ -3220,16 +3220,47 @@ type ToolInfo struct {
 	Kind string
 }
 
-// PlatformTools returns tools registered directly on the platform outside of any toolkit.
+// PlatformTools returns tools registered directly on the platform outside of any
+// toolkit, under the same conditions finalizeSetup registers them: the prompt
+// and script tools exist only where their store does.
+//
+// It must name every one of them. The toolkit registry does not know these
+// tools, so a caller asking "can this caller reach tool X" from AllTools() alone
+// gets a no for any tool missing here -- which is why the instruction baseline's
+// prompt and script guidance never rendered on any deployment, and why an
+// operator naming one of these tools in agent_instructions was warned it did not
+// exist (#1586).
 func (p *Platform) PlatformTools() []ToolInfo {
 	tools := []ToolInfo{
 		{Name: defaultInitTool, Kind: kindPlatform},
 		{Name: toolListConns, Kind: kindPlatform},
+		{Name: platformFindToolsName, Kind: kindPlatform},
 	}
 	if p.prompts.Store() != nil {
-		tools = append(tools, ToolInfo{Name: "manage_prompt", Kind: kindPlatform})
+		tools = append(tools,
+			ToolInfo{Name: promptlayer.ToolNameManagePrompt, Kind: kindPlatform},
+			ToolInfo{Name: promptlayer.ToolNameShowPrompts, Kind: kindPlatform})
+	}
+	if p.scripts.HasStore() {
+		tools = append(tools,
+			ToolInfo{Name: scriptlayer.ToolNameManageScript, Kind: kindPlatform},
+			ToolInfo{Name: scriptlayer.ToolNameRunScript, Kind: kindPlatform},
+			ToolInfo{Name: scriptlayer.ToolNameShowScripts, Kind: kindPlatform})
 	}
 	return tools
+}
+
+// RegisteredToolNames is every tool name this deployment registers: the
+// toolkits' and the platform's own. It is what a caller gating on tool
+// availability must use; the toolkit registry alone silently omits the
+// platform's tools.
+func RegisteredToolNames(toolkitTools []string, platformTools []ToolInfo) []string {
+	names := make([]string, 0, len(toolkitTools)+len(platformTools))
+	names = append(names, toolkitTools...)
+	for _, t := range platformTools {
+		names = append(names, t.Name)
+	}
+	return names
 }
 
 // injectToolkitPlatformConfig injects platform-level configuration into

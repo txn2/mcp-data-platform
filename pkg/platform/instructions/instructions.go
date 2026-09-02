@@ -32,11 +32,18 @@ const (
 
 // Build returns the platform-owned "how to operate this platform" instruction
 // baseline (#646): the universal operating model that is true for every
-// deployment (discover before acting, reuse what is known, capture what you
-// learn). It is composed beneath the admin-configured business context
+// deployment. It is composed beneath the admin-configured business context
 // (server.agent_instructions) rather than re-authored per deployment, and it is
 // versioned with the binary so upgrading the platform updates it everywhere with
 // no per-deployment edits.
+//
+// It is an index, not a manual (#1586). A tool's own schema and description
+// document how to call it; what a schema cannot do is tell an agent that a
+// capability exists at all, or that the platform ships written guidance on it.
+// So each line names one capability, its entry-point tool, and the judgment the
+// agent has to make before reaching for it -- and the depth lives in the
+// built-in knowledge pages the second section indexes, which are fetched when
+// they are needed rather than carried in every session's first response.
 //
 // It names a tool only when that tool is in accessibleTools, so the baseline
 // never tells an agent to call a tool its persona cannot reach or that the
@@ -47,80 +54,182 @@ const (
 func Build(accessibleTools []string) string {
 	has := toolSet(accessibleTools)
 
-	var bullets []string
-	if has[toolSearch] {
-		bullets = append(bullets,
-			"Discover before you act. Call `search` first: one query reveals what is already "+
-				"known across every source you can reach (the data catalog, its context documents, your memory, captured "+
-				"insights, knowledge pages, your feedback, saved assets, uploaded reference material, prompts, "+
-				"API endpoints, and connections). "+
-				"The answer may span several sources, or may not be in the data warehouse at all, so do "+
-				"not assume a backend and do not stop at the first result.",
-			reuseBullet(has[toolFetch]))
-	}
-	if has[toolManagePrompt] {
-		bullets = append(bullets,
-			"Named procedures are prompts. When the user names a report, procedure, or recurring "+
-				"task (\"run the daily sales report\"), resolve it against the prompt library first: "+
-				"call `manage_prompt` with command `use` and the name as given. It accepts display "+
-				"names, mcp:prompt:<id> references, and free text, returns the ready-to-run prompt "+
-				"content with its arguments, and lists candidates when ambiguous, so resolve rather "+
-				"than enumerate.")
-	}
-	if has[toolTrinoQuery] {
-		bullets = append(bullets,
-			"A short list of outside keys needs no table. When the user brings keys that are not "+
-				"in the warehouse -- a pasted list of ids, a handful of codes -- join them inline: "+
-				"`JOIN (VALUES ('a'),('b')) AS t(id)` or `WHERE id IN (...)` through `trino_query` on "+
-				"a read-only connection. Do not ask for a table to be created and do not refuse; a "+
-				"few thousand rows join this way. Above that, the file belongs in the platform: "+
-				"upload it as a resource or save it as an asset, register it as a table, and join "+
-				"the registered table by name.")
-	}
-	if has[toolSaveAsset] {
-		bullets = append(bullets, referencesBullet(has[toolFetch]))
-	}
-	if has[toolManageScript] {
-		bullets = append(bullets, scriptsBullet(has[toolFetch]))
-	}
-	if has[toolMemoryCapture] {
-		bullets = append(bullets,
-			"Capture what you learn. When you establish something durable (a definition, a "+
-				"correction, a data-quality finding), record it with `memory_capture` so it is "+
-				"available next time instead of rediscovered.",
-			"Record the query that answered the question. Every query and API call returns its "+
-				"own `call_id`. When a result met the purpose you stated and the statement is worth "+
-				"running again (including when the answer only went into the conversation and was "+
-				"never saved as an asset), name that id in `memory_capture` `sources` with a "+
-				"description of what it answers and any caveats. That is what turns a one-off "+
-				"statement into something the next person finds, and what puts it up for promotion "+
-				"to the catalog.")
-	}
-	if has[toolApplyKnowledge] {
-		bullets = append(bullets,
-			"Synthesize durable knowledge. Captured insights enter a review queue you drive with "+
-				"`apply_knowledge`: list it via action `bulk_review` with `itemize:true`, then promote each "+
-				"insight to a DataHub catalog entity when the fact is tied to a specific dataset (a `urn:li:...` "+
-				"reference) or to a canonical knowledge page when it is broader business or domain knowledge "+
-				"(an `mcp:<type>:<key>` reference). These are two distinct namespaces: cite an entity from a page "+
-				"with the `reference` string that search results and `list_connections` carry, and never cross the "+
-				"two schemes (no `urn:li:mcp:...`). To make a citation a tracked, clickable reference, write it in "+
-				"plain text or a markdown link in the page body, or pass it in the page's `references` list; a "+
-				"reference inside backticks or a code block is treated as an example and ignored. Prefer several "+
-				"focused, cross-linked pages over one large page: cite related pages with `mcp:knowledge_page:` "+
-				"references and build a thin index page that links to them. Creating a page that duplicates an "+
-				"existing one is blocked with the candidates returned, so update in place rather than re-teaching a fact.")
+	bullets := make([]string, 0, len(capabilities))
+	for _, c := range capabilities {
+		if has[c.tool] {
+			bullets = append(bullets, c.line(has))
+		}
 	}
 	if len(bullets) == 0 {
 		return ""
 	}
 
-	lines := make([]string, 0, len(bullets)+1)
+	lines := make([]string, 0, len(bullets)+3)
 	lines = append(lines, "How to operate this platform:")
 	for _, bullet := range bullets {
 		lines = append(lines, "- "+bullet)
 	}
+	if pages := pageIndex(has); pages != "" {
+		lines = append(lines, "", pages)
+	}
 	return strings.Join(lines, "\n")
+}
+
+// capability is one line of the index: the tool that must be reachable for the
+// line to appear, and the line itself. Holding them together is what keeps a
+// line from naming a tool its own gate does not check.
+type capability struct {
+	tool string
+	line func(has map[string]bool) string
+}
+
+// capabilities is the index, in the order an agent meets them: discover, reuse
+// what discovery found, resolve a named procedure, settle repeating work into a
+// script, record what was learned, promote it, and the two judgments that are
+// made while composing rather than at a tool call.
+var capabilities = []capability{
+	{tool: toolSearch, line: func(map[string]bool) string {
+		return "Discover before you act. `search` is the one way in, and one query covers every " +
+			"source you can reach: the data catalog and its governance, context documents, " +
+			"knowledge pages, your memory, captured insights, feedback, saved assets, uploaded " +
+			"reference material, prompts, managed scripts, recorded calls and sessions, API " +
+			"endpoints, and connections. The answer may span several of them, or may not be in " +
+			"the data warehouse at all, so do not assume a backend and do not stop at the first " +
+			"result."
+	}},
+	{tool: toolSearch, line: func(has map[string]bool) string { return reuseBullet(has[toolFetch]) }},
+	{tool: toolManagePrompt, line: func(map[string]bool) string {
+		return "Named procedures are prompts. Resolve what the user names -- a report, a " +
+			"procedure, a recurring task -- with `manage_prompt` command `use`, which takes the " +
+			"name as given (stored name, display name, `mcp:prompt:<id>`, or free text). Resolve " +
+			"rather than enumerate."
+	}},
+	{tool: toolManageScript, line: func(map[string]bool) string {
+		return "Settled, repeating work becomes a script. Keep using the query tools while you " +
+			"are still exploring; once the logic is worked out and the work will repeat, write " +
+			"it with `manage_script` (command `help` first) so it is re-run rather than " +
+			"re-derived through a conversation."
+	}},
+	{tool: toolMemoryCapture, line: func(map[string]bool) string {
+		return "Capture what you learn, with the call that proves it. `memory_capture` records a " +
+			"durable finding. Every query and API call returns its own `call_id`: when the " +
+			"result met the purpose you stated and the statement is worth running again, name " +
+			"it as an `mcp:call:<id>` in `memory_capture` `sources`, including when the answer " +
+			"only went into the conversation."
+	}},
+	{tool: toolApplyKnowledge, line: func(map[string]bool) string {
+		return "Promote what holds. `apply_knowledge` drives the review queue captures enter: " +
+			"action `bulk_review` with `itemize:true` lists it, a dataset-specific fact promotes " +
+			"to a DataHub entity (`urn:li:...`) and broader domain knowledge to a knowledge page " +
+			"(`mcp:<type>:<key>`). The two namespaces never mix."
+	}},
+	{tool: toolSaveAsset, line: func(map[string]bool) string {
+		return "Name a file, do not carry it. When a document you save needs a logo, an image, or " +
+			"a data table already in the platform, write its reference where the file belongs in " +
+			"the markup and declare it in `references` on `save_asset` instead of embedding the " +
+			"bytes."
+	}},
+	{tool: toolTrinoQuery, line: func(map[string]bool) string {
+		return "A short list of outside keys needs no table. Join a pasted list of ids inline " +
+			"through `trino_query` -- `JOIN (VALUES ('a'),('b')) AS t(id)` or " +
+			"`WHERE id IN (...)` -- rather than asking for a table to be created; above a few " +
+			"thousand rows, upload the file, register it as a table, and join the registered " +
+			"table by name."
+	}},
+}
+
+// Built-in knowledge page slugs the baseline indexes. A built-in page's row id
+// is generated per deployment at reconcile time, so the slug is the only handle
+// the shipped text can name (#1476). They are constants here so
+// TestBaselinePagesAreShipped can bind every one to a page the binary actually
+// carries; a slug renamed on one side and not the other would otherwise leave
+// the baseline pointing an agent at nothing.
+const (
+	PageWritingManagedScripts = "platform-writing-managed-scripts"
+	PageScriptOutputs         = "platform-script-outputs-and-export-identity"
+	PageSemiDynamicDashboards = "platform-semi-dynamic-dashboards"
+	PageAssetReferences       = "platform-asset-references-and-the-refresh-loop"
+	PageProvenanceCapture     = "platform-provenance-and-the-capture-loop"
+	PageContentTypes          = "platform-content-types-for-stored-files"
+)
+
+// knowledgePageRef is the reference form `fetch` resolves a built-in page by.
+func knowledgePageRef(slug string) string { return "`mcp:knowledge_page:" + slug + "`" }
+
+// baselinePage is one entry of the page index: the tool whose capability the
+// page documents, the page's slug, and what reading it answers.
+type baselinePage struct {
+	tool  string
+	slug  string
+	about string
+}
+
+// baselinePages is the shipped guidance an agent should know exists. Each is
+// gated on the capability it documents, so a persona that cannot write scripts
+// is not handed three pages about writing them.
+var baselinePages = []baselinePage{
+	{
+		toolManageScript, PageWritingManagedScripts,
+		"the Starlark dialect and its deliberate absences, what a script may call and the persona that decides it, and the validate/dry-run loop a save follows",
+	},
+	{
+		toolManageScript, PageScriptOutputs,
+		"where a script's output lands and what identity it keeps across runs: a stable name refreshes one asset, a dated name archives",
+	},
+	{
+		toolManageScript, PageSemiDynamicDashboards,
+		"composing a whole document every run versus publishing one whose data region a scheduled script refreshes",
+	},
+	{
+		toolSaveAsset, PageAssetReferences,
+		"the two reference forms, the patterns an HTML or JSX document uses, and who can load a declared file",
+	},
+	{
+		toolMemoryCapture, PageProvenanceCapture,
+		"naming sources so an asset's provenance is exact, and the loop that turns session knowledge into reviewed catalog knowledge",
+	},
+	{
+		toolSaveAsset, PageContentTypes,
+		"the media type every stored file carries, the families detection cannot name from bytes, and what a write must declare",
+	},
+}
+
+// pageIndex renders the shipped-guidance index for the pages this caller's
+// capabilities make relevant, or "" when none are. It exists because a search
+// only surfaces a page once an agent already suspects it needs one; naming the
+// pages up front is what makes the platform's own guidance reachable on the
+// first attempt rather than the third.
+//
+// Without `fetch` a slug cannot be dereferenced, so the index says to find the
+// pages through `search` instead of handing over references the caller cannot
+// follow.
+func pageIndex(has map[string]bool) string {
+	entries := make([]string, 0, len(baselinePages))
+	for _, p := range baselinePages {
+		if !has[p.tool] {
+			continue
+		}
+		entries = append(entries, "- "+knowledgePageRef(p.slug)+" -- "+p.about+".")
+	}
+	if len(entries) == 0 {
+		return ""
+	}
+
+	// The index is only worth carrying for a caller who can read a page. Naming
+	// a tool the caller cannot reach would break the baseline's own rule, so a
+	// caller with neither way in is given no index rather than references it
+	// cannot follow.
+	const head = "What the platform documents about itself. These pages ship with the platform; "
+	var reach string
+	switch {
+	case has[toolFetch]:
+		reach = "`fetch` one by the reference named here rather than waiting for a search to surface it:"
+	case has[toolSearch]:
+		reach = "`search` finds one by the slug named here:"
+	default:
+		return ""
+	}
+	return strings.Join(append([]string{head + reach}, entries...), "\n")
 }
 
 // toolSet indexes the caller's accessible tool names for the has[tool] lookups
@@ -146,53 +255,6 @@ func reuseBullet(hasFetch bool) string {
 			"with the scoped tool a result points to, " + tail
 	}
 	return head + "drill in with the scoped tool a result points to, " + tail
-}
-
-// scriptsBullet returns the managed-script instruction: when a script is the
-// right shape of work at all, and where the platform's own authoring guidance
-// is. The pages are named by slug because a built-in page's row id is generated
-// per deployment at reconcile time, so the slug is the only identifier stable
-// enough to ship in this text (#1476). It names `fetch` as the way to read one
-// only when the caller can reach it, exactly as the reuse bullet does.
-func scriptsBullet(hasFetch bool) string {
-	const head = "Settled, repeating work becomes a script. When the logic is worked out and the " +
-		"work will repeat (a KPI report, a recurring export, a dashboard that refreshes on a " +
-		"schedule), write it as a managed script with `manage_script` so it is re-run rather than " +
-		"derived through a conversation again; keep using the query tools directly while you are " +
-		"still exploring. Call `manage_script` with command `help` before writing your first one, " +
-		"and read the platform's own authoring guidance rather than waiting for a search to " +
-		"surface it: "
-	const pages = "`mcp:knowledge_page:platform-writing-managed-scripts` for the dialect and the " +
-		"authoring loop, `mcp:knowledge_page:platform-script-outputs-and-export-identity` for " +
-		"where an output lands and what identity it keeps across runs, and " +
-		"`mcp:knowledge_page:platform-semi-dynamic-dashboards` for choosing between composing a " +
-		"whole document every run and refreshing only the data region of one a person can edit."
-	if hasFetch {
-		return head + "`fetch` " + pages
-	}
-	return head + "read the pages " + pages
-}
-
-// referencesBullet tells an agent to name a file from an asset's content
-// rather than carry it, and points at the page that covers the mechanism.
-//
-// A tool schema can describe the `references` argument, and the portal
-// toolkit's does; what it cannot do is reach an agent that is composing a
-// document and has not thought to look for the argument at all. The decision
-// is made while the markup is being written, which is before any tool call.
-func referencesBullet(hasFetch bool) string {
-	const head = "Name a file, do not carry it. When a document you save needs a logo, an image, a " +
-		"design element, or a data table that is already in the platform, write its reference " +
-		"where the file belongs in the markup and declare it in `references` on `save_asset` " +
-		"instead of embedding the bytes: the file is stored once rather than once per version, " +
-		"and replacing it refreshes every document naming it with no re-save. "
-	const page = "`mcp:knowledge_page:platform-asset-references-and-the-refresh-loop` for the two " +
-		"reference forms, the patterns an HTML or JSX document uses, and who can load the file " +
-		"once it is declared."
-	if hasFetch {
-		return head + "`fetch` " + page
-	}
-	return head + "Read " + page
 }
 
 // Compose joins the platform baseline above the rest of the instruction stack

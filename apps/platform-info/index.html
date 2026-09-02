@@ -273,24 +273,6 @@ if(__exports != exports)module.exports = exports;return module.exports}));
             border-color: var(--accent);
         }
 
-        .tags {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 5px;
-            position: relative;
-        }
-
-        .tag {
-            font-size: 9.5px;
-            font-weight: 500;
-            color: var(--accent);
-            background: var(--accent-bg);
-            border: 1px solid var(--accent-border);
-            border-radius: 20px;
-            padding: 2px 7px;
-        }
-
-        /* Sections */
         .sec {
             padding: 20px 20px;
             border-bottom: 1px solid var(--border);
@@ -326,43 +308,22 @@ if(__exports != exports)module.exports = exports;return module.exports}));
         .tab-pane { display: none; }
         .tab-pane.active { display: block; }
 
-        /* Sub-tabs (nested inside a top-level tab pane) */
-        .sub-tab-bar {
-            display: flex;
-            border-bottom: 1px solid var(--border);
-            margin-bottom: 14px;
-        }
-        .sub-tab-btn {
-            padding: 5px 12px;
-            font-size: 11.5px;
-            font-weight: 500;
+        .sec-label {
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
             color: var(--muted);
-            border: none;
-            background: transparent;
-            border-bottom: 2px solid transparent;
-            cursor: pointer;
-            margin-bottom: -1px;
-            transition: color .15s, border-color .15s;
+            margin-bottom: 11px;
         }
-        .sub-tab-btn.active {
-            color: var(--text);
-            border-bottom-color: var(--accent);
-        }
-        .sub-tab-btn:hover:not(.active) { color: var(--text-secondary); }
 
-        .sub-tab-pane { display: none; }
-        .sub-tab-pane.active { display: block; }
-
-        /* Tab intro text */
-        .tab-intro {
-            font-size: 12.5px;
-            color: var(--muted);
-            line-height: 1.6;
-            margin-bottom: 14px;
+        .desc-text {
+            font-size: 13.5px;
+            color: var(--text-secondary);
+            line-height: 1.72;
             max-width: 640px;
         }
 
-        /* Info banner */
         .info-banner {
             display: flex;
             align-items: flex-start;
@@ -377,6 +338,7 @@ if(__exports != exports)module.exports = exports;return module.exports}));
             line-height: 1.6;
             max-width: 640px;
         }
+
         .info-banner-icon {
             flex-shrink: 0;
             width: 16px; height: 16px;
@@ -384,203 +346,6 @@ if(__exports != exports)module.exports = exports;return module.exports}));
             margin-top: 1px;
         }
 
-        /* Description / welcome text */
-        .desc-text {
-            font-size: 13.5px;
-            color: var(--text-secondary);
-            line-height: 1.72;
-            max-width: 640px;
-        }
-        .desc-text p { margin: 0 0 10px; }
-        .desc-text p:last-child { margin-bottom: 0; }
-        .desc-text strong { color: var(--text); font-weight: 600; }
-        .desc-text em { font-style: italic; }
-        .desc-text code {
-            font-family: var(--font-mono);
-            font-size: 11.5px;
-            background: var(--surface-2);
-            border: 1px solid var(--border);
-            border-radius: 3px;
-            padding: 1px 5px;
-            color: var(--text);
-        }
-        .desc-text a { color: var(--accent); text-underline-offset: 2px; }
-
-        /* Headings */
-        .desc-text h1 {
-            font-size: 18px; font-weight: 700; color: var(--text);
-            margin: 22px 0 8px; padding-bottom: 7px;
-            border-bottom: 1px solid var(--border);
-            letter-spacing: -0.015em; line-height: 1.3;
-        }
-        .desc-text h1:first-child { margin-top: 0; }
-        .desc-text h2 {
-            font-size: 16px; font-weight: 700; color: var(--text);
-            margin: 22px 0 8px; padding-bottom: 7px;
-            border-bottom: 1px solid var(--border);
-            letter-spacing: -0.015em; line-height: 1.3;
-        }
-        .desc-text h2:first-child { margin-top: 0; }
-        .desc-text h3 {
-            font-size: 15px; font-weight: 700; color: var(--text);
-            margin: 22px 0 8px; padding-bottom: 7px;
-            border-bottom: 1px solid var(--border);
-            letter-spacing: -0.015em; line-height: 1.3;
-        }
-        .desc-text h3:first-child { margin-top: 0; }
-        .desc-text h4 {
-            font-size: 13px; font-weight: 600; color: var(--text);
-            margin: 18px 0 5px; line-height: 1.4;
-        }
-        .desc-text h5 {
-            font-size: 10.5px; font-weight: 700; color: var(--muted);
-            margin: 14px 0 5px;
-            text-transform: uppercase; letter-spacing: 0.07em;
-        }
-        .desc-text h6 {
-            font-size: 10px; font-weight: 700; color: var(--muted);
-            margin: 12px 0 5px;
-            text-transform: uppercase; letter-spacing: 0.07em;
-        }
-
-        /* Lists */
-        .desc-text ul, .desc-text ol { padding-left: 20px; margin: 4px 0 10px; }
-        .desc-text li { margin: 4px 0; line-height: 1.6; }
-        .desc-text li + li { margin-top: 2px; }
-
-        /* Tables */
-        .desc-text table { border-collapse: collapse; width: 100%; font-size: 12px; margin: 10px 0 14px; overflow-x: auto; display: block; }
-        .desc-text th {
-            padding: 7px 12px; background: var(--surface-2);
-            font-weight: 600; font-size: 11px; text-align: left;
-            color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em;
-            border-bottom: 1px solid var(--border);
-        }
-        .desc-text td {
-            padding: 6px 12px; border-bottom: 1px solid var(--border);
-            vertical-align: top; color: var(--text-secondary);
-        }
-        .desc-text tr:last-child td { border-bottom: none; }
-
-        /* Code blocks */
-        .desc-text pre {
-            background: var(--surface-2); border: 1px solid var(--border);
-            border-radius: 6px; padding: 13px 15px; overflow-x: auto;
-            margin: 8px 0 14px; font-family: var(--font-mono);
-            font-size: 11.5px; line-height: 1.6;
-        }
-        .desc-text pre code { background: none; border: none; padding: 0; font-size: inherit; }
-
-        /* HR */
-        .desc-text hr { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
-
-        /* Blockquotes */
-        .desc-text blockquote {
-            border-left: 3px solid var(--border);
-            margin: 8px 0 14px;
-            padding: 4px 14px;
-            color: var(--muted);
-        }
-        .desc-text blockquote p { margin: 4px 0; }
-
-        /* Strikethrough */
-        .desc-text del { color: var(--muted); }
-
-        /* Images */
-        .desc-text img { max-width: 100%; height: auto; border-radius: 6px; }
-
-        .sec-label {
-            font-size: 10px;
-            font-weight: 700;
-            letter-spacing: 0.1em;
-            text-transform: uppercase;
-            color: var(--muted);
-            margin-bottom: 11px;
-        }
-
-        /* Toolkits tab */
-        .tk-entry {
-            display: flex;
-            align-items: flex-start;
-            gap: 15px;
-            padding: 14px 0;
-            border-bottom: 1px solid var(--border);
-            max-width: 640px;
-        }
-        .tk-entry:first-child { padding-top: 2px; }
-        .tk-entry:last-child { border-bottom: none; }
-
-        .tk-entry-icon {
-            width: 36px; height: 36px;
-            flex-shrink: 0;
-            color: var(--accent);
-            background: var(--accent-bg);
-            border: 1px solid var(--accent-border);
-            border-radius: 8px;
-            display: flex; align-items: center; justify-content: center;
-        }
-        .tk-entry-icon svg { width: 20px; height: 20px; display: block; }
-
-        .tk-entry-body { min-width: 0; padding-top: 1px; }
-
-        .tk-entry-name {
-            font-size: 13.5px;
-            font-weight: 650;
-            color: var(--text);
-            margin-bottom: 4px;
-            letter-spacing: -0.01em;
-        }
-
-        .tk-entry-desc {
-            font-size: 12.5px;
-            color: var(--muted);
-            line-height: 1.65;
-        }
-
-        /* Capabilities */
-        #feat-list { max-width: 640px; }
-
-        .feat-item {
-            display: flex;
-            align-items: flex-start;
-            gap: 11px;
-            padding: 10px 0;
-            border-bottom: 1px solid var(--border);
-        }
-        .feat-item:last-child { border-bottom: none; }
-
-        .feat-dot-wrap { padding-top: 3px; flex-shrink: 0; }
-
-        .feat-dot {
-            width: 8px; height: 8px;
-            border-radius: 50%;
-        }
-        .feat-dot.on {
-            background: var(--success);
-            box-shadow: 0 0 0 3px var(--success-bg);
-        }
-        .feat-dot.off {
-            background: transparent;
-            border: 1.5px solid var(--border);
-        }
-
-        .feat-detail { min-width: 0; }
-
-        .feat-title {
-            font-size: 13px;
-            font-weight: 600;
-            color: var(--text);
-            margin-bottom: 2px;
-        }
-        .feat-title.off { color: var(--muted); }
-
-        .feat-desc {
-            font-size: 12px;
-            color: var(--muted);
-            line-height: 1.5;
-        }
-
-        /* Personas */
         .persona-row {
             display: flex;
             flex-wrap: wrap;
@@ -603,156 +368,6 @@ if(__exports != exports)module.exports = exports;return module.exports}));
             width: 15px; height: 15px;
             color: var(--muted);
             flex-shrink: 0;
-        }
-
-        /* Prompt cards */
-        .prompt-cards {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-
-        .prompt-card {
-            padding: 14px 16px;
-            background: var(--surface-2);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            transition: border-color .15s;
-        }
-        .prompt-card:hover {
-            border-color: var(--accent-border);
-        }
-
-        .prompt-card-header {
-            display: flex;
-            align-items: flex-start;
-            justify-content: space-between;
-            gap: 10px;
-            margin-bottom: 6px;
-        }
-
-        .prompt-card-title {
-            font-size: 13.5px;
-            font-weight: 600;
-            color: var(--text);
-            line-height: 1.3;
-        }
-
-        .prompt-card-slug {
-            font-family: var(--font-mono);
-            font-size: 11px;
-            color: var(--muted);
-            margin-top: 2px;
-        }
-
-        .prompt-card-desc {
-            font-size: 12.5px;
-            color: var(--muted);
-            line-height: 1.5;
-            margin-bottom: 8px;
-        }
-
-        .prompt-section-header {
-            font-size: 11px;
-            font-weight: 600;
-            color: var(--muted);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-bottom: 8px;
-            margin-top: 4px;
-        }
-        .prompt-section-header:not(:first-child) {
-            margin-top: 16px;
-        }
-
-        .prompt-card-args {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-            margin-bottom: 10px;
-        }
-
-        .prompt-arg-row {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .prompt-arg-label {
-            font-family: var(--font-mono);
-            font-size: 11px;
-            color: var(--muted);
-            white-space: nowrap;
-            min-width: 80px;
-        }
-        .prompt-arg-label .req {
-            color: var(--accent);
-            margin-left: 2px;
-        }
-
-        .prompt-arg-input {
-            flex: 1;
-            font-family: var(--font-mono);
-            font-size: 12px;
-            color: var(--text);
-            background: var(--bg);
-            border: 1px solid var(--border);
-            border-radius: 5px;
-            padding: 4px 8px;
-            outline: none;
-            transition: border-color .15s;
-        }
-        .prompt-arg-input:focus {
-            border-color: var(--accent);
-        }
-
-        .prompt-copy-btn {
-            font-family: var(--font-mono);
-            font-size: 11px;
-            color: var(--accent);
-            background: var(--accent-bg);
-            border: 1px solid var(--accent-border);
-            border-radius: 5px;
-            padding: 4px 10px;
-            cursor: pointer;
-            white-space: nowrap;
-            transition: background .15s, border-color .15s;
-            flex-shrink: 0;
-        }
-        .prompt-copy-btn:hover {
-            background: var(--accent-border);
-            border-color: var(--accent);
-        }
-        .prompt-copy-btn.copied {
-            color: var(--success);
-            background: var(--success-bg);
-            border-color: var(--success);
-        }
-
-        .prompt-template-toggle {
-            font-size: 11px;
-            color: var(--accent);
-            cursor: pointer;
-            margin-top: 4px;
-            user-select: none;
-        }
-        .prompt-template-toggle:hover { text-decoration: underline; }
-
-        .prompt-template {
-            margin-top: 8px;
-        }
-        .prompt-template pre {
-            font-family: var(--font-mono);
-            font-size: 11.5px;
-            line-height: 1.55;
-            color: var(--text-secondary);
-            background: var(--bg);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            padding: 10px 12px;
-            white-space: pre-wrap;
-            word-break: break-word;
-            margin: 0;
         }
 
         .hidden { display: none !important; }
@@ -783,37 +398,14 @@ if(__exports != exports)module.exports = exports;return module.exports}));
         </div>
 
         <div class="content-scroll">
-        <!-- Tabs: Overview / Platform / Agent Instructions -->
+        <!-- Tabs: Overview / Agent Instructions -->
         <div class="sec">
             <div id="tab-bar" class="tab-bar">
                 <button class="tab-btn active" data-tab="overview" onclick="showTab('overview')">Overview</button>
-                <button class="tab-btn" data-tab="platform" onclick="showTab('platform')">Platform</button>
-                <button class="tab-btn hidden" id="tab-btn-prompts" data-tab="prompts" onclick="showTab('prompts')">Prompts</button>
                 <button class="tab-btn hidden" id="tab-btn-agent-instructions" data-tab="agent-instructions" onclick="showTab('agent-instructions')">Agent Instructions</button>
             </div>
             <div id="tab-overview" class="tab-pane active">
                 <div id="desc" class="desc-text"></div>
-            </div>
-            <div id="tab-platform" class="tab-pane">
-                <div class="tab-intro">Current capabilities configured for this MCP platform instance.</div>
-                <div id="sub-tab-bar" class="sub-tab-bar">
-                    <button class="sub-tab-btn active" data-subtab="toolkits" onclick="showSubTab('toolkits')">Toolkits</button>
-                    <button class="sub-tab-btn" data-subtab="capabilities" onclick="showSubTab('capabilities')">Capabilities</button>
-                    <button class="sub-tab-btn hidden" id="sub-tab-btn-tags" data-subtab="tags" onclick="showSubTab('tags')">Tags</button>
-                </div>
-                <div id="subtab-toolkits" class="sub-tab-pane active">
-                    <div id="tk-list"></div>
-                </div>
-                <div id="subtab-capabilities" class="sub-tab-pane">
-                    <div id="feat-list"></div>
-                </div>
-                <div id="subtab-tags" class="sub-tab-pane">
-                    <div id="tags" class="tags"></div>
-                </div>
-            </div>
-            <div id="tab-prompts" class="tab-pane">
-                <div class="tab-intro" id="prompt-intro"></div>
-                <div id="prompt-list" class="prompt-cards"></div>
             </div>
             <div id="tab-agent-instructions" class="tab-pane">
                 <div class="info-banner">
@@ -828,9 +420,9 @@ if(__exports != exports)module.exports = exports;return module.exports}));
             </div>
         </div>
 
-        <!-- Personas -->
+        <!-- The caller's persona -->
         <div id="personas-sec" class="sec hidden">
-            <div class="sec-label">Personas</div>
+            <div class="sec-label">Your Persona</div>
             <div id="persona-row" class="persona-row"></div>
         </div>
         </div>
@@ -861,57 +453,8 @@ if(__exports != exports)module.exports = exports;return module.exports}));
         + '</svg>';
 
     // Toolkit icons (18×18)
-    var TK_ICONS = {
-        platform: '<svg viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">'
-            + '<circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.3"/>'
-            + '<circle cx="9" cy="9" r="2" fill="currentColor" opacity=".6"/>'
-            + '<path d="M9 2.5V5M9 13v2.5M2.5 9H5M13 9h2.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>'
-            + '</svg>',
-        trino: '<svg viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">'
-            + '<ellipse cx="9" cy="4.5" rx="6" ry="2.2" stroke="currentColor" stroke-width="1.3"/>'
-            + '<path d="M3 4.5v4.5c0 1.2 2.69 2.2 6 2.2s6-1 6-2.2V4.5" stroke="currentColor" stroke-width="1.3"/>'
-            + '<path d="M3 9v4.5c0 1.2 2.69 2.2 6 2.2s6-1 6-2.2V9" stroke="currentColor" stroke-width="1.3"/>'
-            + '</svg>',
-        datahub: '<svg viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">'
-            + '<circle cx="3.5"  cy="9"  r="2.2" stroke="currentColor" stroke-width="1.3"/>'
-            + '<circle cx="14.5" cy="4"  r="2.2" stroke="currentColor" stroke-width="1.3"/>'
-            + '<circle cx="14.5" cy="14" r="2.2" stroke="currentColor" stroke-width="1.3"/>'
-            + '<circle cx="9" cy="9" r="1.5" fill="currentColor" opacity=".5"/>'
-            + '<line x1="5.6"  y1="9"   x2="7.5"  y2="9"   stroke="currentColor" stroke-width="1.3"/>'
-            + '<line x1="10.3" y1="8.1" x2="12.4" y2="5.5"  stroke="currentColor" stroke-width="1.3"/>'
-            + '<line x1="10.3" y1="9.9" x2="12.4" y2="12.5" stroke="currentColor" stroke-width="1.3"/>'
-            + '</svg>',
-        s3: '<svg viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">'
-            + '<path d="M9 2L16 5.5v7L9 16 2 12.5v-7L9 2z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>'
-            + '<path d="M2 5.5L9 9l7-3.5" stroke="currentColor" stroke-width="1.3"/>'
-            + '<line x1="9" y1="9" x2="9" y2="16" stroke="currentColor" stroke-width="1.3"/>'
-            + '</svg>',
-        'default': '<svg viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">'
-            + '<rect x="2.5" y="2.5" width="13" height="13" rx="2" stroke="currentColor" stroke-width="1.3"/>'
-            + '<line x1="2.5" y1="7" x2="15.5" y2="7"  stroke="currentColor" stroke-width="1.3"/>'
-            + '<line x1="7"   y1="7" x2="7"    y2="15.5" stroke="currentColor" stroke-width="1.3"/>'
-            + '</svg>'
-    };
-
     // Default toolkit descriptions — dry technical facts.
     // Override per-toolkit via config: toolkits.<name>.description
-    var TK_DEFAULTS = {
-        platform:   'Core platform tools: deployment info, connection listing, and resource access.',
-        trino:      'Distributed SQL query engine. Federated queries across catalogs via ANSI SQL. Supports catalog/schema/table addressing.',
-        datahub:    'Metadata platform. Provides dataset search, schema inspection, ownership, tags, glossary terms, lineage, and quality scores.',
-        s3:         'S3-compatible object storage. Supports bucket and object listing, retrieval, metadata inspection, and presigned URL generation.',
-        opensearch: 'Distributed search and analytics engine. Supports full-text search and aggregations via SQL and JSON query DSL.',
-        knowledge:  'Insight capture and catalog write-back. Records domain knowledge observations and applies them to the metadata layer.'
-    };
-
-    var FEAT_DESCRIPTIONS = {
-        semantic_enrichment: 'Enriches Trino query results with business context from the data catalog — owners, tags, glossary terms, and deprecation warnings.',
-        query_enrichment: 'Adds query availability, row counts, and example SQL to catalog search results so you can go from discovery to querying in one step.',
-        storage_enrichment: 'Enriches S3 object listings and results with catalog metadata and lineage context.',
-        audit_logging: 'Records every tool call with user identity, duration, and result status for compliance tracking and debugging.',
-        knowledge_capture: 'Allows agents and users to capture and persist data insights directly back to the catalog during a session.'
-    };
-
     var PERSON_ICON = '<svg viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">'
         + '<circle cx="7.5" cy="4.5" r="2.5" stroke="currentColor" stroke-width="1.2"/>'
         + '<path d="M1.5 13c0-3.31 2.69-6 6-6s6 2.69 6 6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>'
@@ -1032,15 +575,6 @@ if(__exports != exports)module.exports = exports;return module.exports}));
         if (btn) { btn.classList.add('active'); }
     }
 
-    function showSubTab(name) {
-        document.querySelectorAll('.sub-tab-pane').forEach(function(p) { p.classList.remove('active'); });
-        document.querySelectorAll('.sub-tab-btn').forEach(function(t) { t.classList.remove('active'); });
-        var pane = document.getElementById('subtab-' + name);
-        if (pane) { pane.classList.add('active'); }
-        var btn = document.querySelector('[data-subtab="' + name + '"]');
-        if (btn) { btn.classList.add('active'); }
-    }
-
     function renderInfo(d) {
         var brandUrl  = CFG.brand_url  || '';
         var brandName = CFG.brand_name || 'MCP Data Platform';
@@ -1089,15 +623,6 @@ if(__exports != exports)module.exports = exports;return module.exports}));
             portalBtn.classList.remove('hidden');
         }
 
-        // Tags — rendered in a sub-tab under Platform
-        if (d.tags && d.tags.length) {
-            var tagEl = document.getElementById('tags');
-            tagEl.innerHTML = d.tags.map(function(t) {
-                return '<span class="tag">' + esc(t) + '</span>';
-            }).join('');
-            document.getElementById('sub-tab-btn-tags').classList.remove('hidden');
-        }
-
         // Description rendered as Markdown
         document.getElementById('desc').innerHTML = renderMd(d.description || '');
 
@@ -1107,209 +632,21 @@ if(__exports != exports)module.exports = exports;return module.exports}));
             document.getElementById('tab-btn-agent-instructions').classList.remove('hidden');
         }
 
-        // Toolkits (rendered into tab)
-        var tkEl = document.getElementById('tk-list');
-        if (d.toolkits && d.toolkits.length) {
-            var descMap = d.toolkit_descriptions || {};
-            tkEl.innerHTML = d.toolkits.map(function(tk) {
-                var key = tk.toLowerCase();
-                var ic = TK_ICONS[key] || TK_ICONS['default'];
-                var label = tk.charAt(0).toUpperCase() + tk.slice(1);
-                var desc = descMap[key] || descMap[tk] || TK_DEFAULTS[key] || '';
-                return '<div class="tk-entry">'
-                    + '<div class="tk-entry-icon">' + ic + '</div>'
-                    + '<div class="tk-entry-body">'
-                    + '<div class="tk-entry-name">' + esc(label) + '</div>'
-                    + (desc ? '<div class="tk-entry-desc">' + esc(desc) + '</div>' : '')
-                    + '</div>'
-                    + '</div>';
-            }).join('');
-        } else {
-            tkEl.innerHTML = '<span style="color:var(--muted);font-size:13px">None configured</span>';
-        }
-
-        // Capabilities (rendered into tab)
-        var fEl = document.getElementById('feat-list');
-        if (d.features && typeof d.features === 'object') {
-            fEl.innerHTML = Object.keys(d.features).map(function(k) {
-                var on = d.features[k];
-                var label = k.replace(/_/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
-                var desc = FEAT_DESCRIPTIONS[k] || '';
-                return '<div class="feat-item">'
-                    + '<div class="feat-dot-wrap"><div class="feat-dot ' + (on ? 'on' : 'off') + '"></div></div>'
-                    + '<div class="feat-detail">'
-                    + '<div class="feat-title ' + (on ? '' : 'off') + '">' + esc(label) + '</div>'
-                    + (desc ? '<div class="feat-desc">' + esc(desc) + '</div>' : '')
-                    + '</div>'
-                    + '</div>';
-            }).join('');
-        } else {
-            fEl.innerHTML = '<span style="color:var(--muted);font-size:13px">None configured</span>';
-        }
-
-        // Personas
-        if (d.personas && typeof d.personas === 'object' && Object.keys(d.personas).length) {
-            var pEl = document.getElementById('persona-row');
-            pEl.innerHTML = Object.keys(d.personas).map(function(k) {
-                var p = d.personas[k];
-                var label = (p && p.display_name)
-                    ? p.display_name
-                    : k.replace(/_/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
-                return '<div class="persona">'
-                    + '<span class="persona-icon">' + PERSON_ICON + '</span>'
-                    + '<span>' + esc(label) + '</span>'
-                    + '</div>';
-            }).join('');
+        // The caller's persona. platform_info reports the one persona the
+        // caller's roles mapped to, not the deployment's roster, so the section
+        // says whose view this is; a caller whose roles mapped to none has no
+        // persona to name and the section stays hidden.
+        if (d.persona && (d.persona.display_name || d.persona.name)) {
+            document.getElementById('persona-row').innerHTML =
+                '<div class="persona">'
+                + '<span class="persona-icon">' + PERSON_ICON + '</span>'
+                + '<span>' + esc(d.persona.display_name || d.persona.name) + '</span>'
+                + '</div>';
             document.getElementById('personas-sec').classList.remove('hidden');
-        }
-
-        // Prompts tab
-        if (d.prompts && d.prompts.length) {
-            renderPrompts(d.prompts, brandName);
-            document.getElementById('tab-btn-prompts').classList.remove('hidden');
         }
 
         document.getElementById('loading').classList.add('hidden');
         document.getElementById('content').classList.remove('hidden');
-    }
-
-    // Prompt data stored for copy
-    var _prompts = [];
-
-    function humanize(slug) {
-        return slug.replace(/[-_]/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
-    }
-
-    function renderPrompts(prompts, platformName) {
-        _prompts = prompts;
-
-        // Set intro text
-        platformName = platformName || 'This platform';
-        document.getElementById('prompt-intro').textContent =
-            platformName + ' has many capabilities built in, including the ability to find insights in your data, visualize it, generate reports, and more. Use the prompts below to kick off common workflows or copy a prompt name to invoke it in your MCP client.';
-
-        // Group by category
-        var workflows = [];
-        var quickActions = [];
-        prompts.forEach(function(p, idx) {
-            p._idx = idx;
-            if (p.category === 'workflow' || (p.arguments && p.arguments.length)) {
-                workflows.push(p);
-            } else {
-                quickActions.push(p);
-            }
-        });
-
-        var el = document.getElementById('prompt-list');
-        var html = '';
-        var hasMultipleSections = workflows.length > 0 && quickActions.length > 0;
-
-        if (workflows.length > 0) {
-            if (hasMultipleSections) {
-                html += '<div class="prompt-section-header">Workflows</div>';
-            }
-            html += workflows.map(renderPromptCard).join('');
-        }
-        if (quickActions.length > 0) {
-            if (hasMultipleSections) {
-                html += '<div class="prompt-section-header">Quick Actions</div>';
-            }
-            html += quickActions.map(renderPromptCard).join('');
-        }
-        el.innerHTML = html;
-    }
-
-    function renderPromptCard(p) {
-        var idx = p._idx;
-        var argsHtml = '';
-        if (p.arguments && p.arguments.length) {
-            argsHtml = '<div class="prompt-card-args">'
-                + p.arguments.map(function(a) {
-                    return '<div class="prompt-arg-row">'
-                        + '<span class="prompt-arg-label">' + esc(a.name)
-                        + (a.required ? '<span class="req">*</span>' : '')
-                        + '</span>'
-                        + '<input class="prompt-arg-input" data-prompt="' + idx
-                        + '" data-arg="' + esc(a.name)
-                        + '" placeholder="' + esc(a.description || a.name) + '">'
-                        + '</div>';
-                }).join('')
-                + '</div>';
-        }
-        var templateHtml = '';
-        if (p.content) {
-            templateHtml = '<div class="prompt-template-toggle" onclick="toggleTemplate(' + idx + ', this)">Show prompt template</div>'
-                + '<div class="prompt-template" id="prompt-tpl-' + idx + '" style="display:none">'
-                + '<pre>' + esc(p.content) + '</pre></div>';
-        }
-        return '<div class="prompt-card">'
-            + '<div class="prompt-card-header">'
-            + '<div>'
-            + '<div class="prompt-card-title">' + esc(humanize(p.name)) + '</div>'
-            + '<div class="prompt-card-slug">' + esc(p.name) + '</div>'
-            + '</div>'
-            + '<button class="prompt-copy-btn" onclick="copyPrompt(' + idx + ', this)">Copy</button>'
-            + '</div>'
-            + (p.description ? '<div class="prompt-card-desc">' + esc(p.description) + '</div>' : '')
-            + argsHtml
-            + templateHtml
-            + '</div>';
-    }
-
-    function toggleTemplate(idx, el) {
-        var tpl = document.getElementById('prompt-tpl-' + idx);
-        if (!tpl) { return; }
-        var hidden = tpl.style.display === 'none';
-        tpl.style.display = hidden ? 'block' : 'none';
-        el.textContent = hidden ? 'Hide prompt template' : 'Show prompt template';
-    }
-
-    function copyPrompt(idx, btn) {
-        var p = _prompts[idx];
-        if (!p) { return; }
-        var text = p.name;
-        if (p.arguments && p.arguments.length) {
-            var inputs = document.querySelectorAll('input[data-prompt="' + idx + '"]');
-            var parts = [];
-            inputs.forEach(function(inp) {
-                var val = inp.value.trim();
-                if (val) {
-                    parts.push(inp.getAttribute('data-arg') + ': ' + val);
-                }
-            });
-            if (parts.length) {
-                text += ' (' + parts.join(', ') + ')';
-            }
-        }
-
-        function onSuccess() {
-            btn.textContent = 'Copied!';
-            btn.classList.add('copied');
-            setTimeout(function() {
-                btn.textContent = 'Copy';
-                btn.classList.remove('copied');
-            }, 2000);
-        }
-
-        function fallbackCopy() {
-            try {
-                var ta = document.createElement('textarea');
-                ta.value = text;
-                ta.style.position = 'fixed';
-                ta.style.opacity = '0';
-                document.body.appendChild(ta);
-                ta.select();
-                var ok = document.execCommand('copy');
-                document.body.removeChild(ta);
-                if (ok) { onSuccess(); }
-            } catch (e) { /* fallback also failed */ }
-        }
-
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(text).then(onSuccess).catch(fallbackCopy);
-        } else {
-            fallbackCopy();
-        }
     }
 
     function showErr(msg) {

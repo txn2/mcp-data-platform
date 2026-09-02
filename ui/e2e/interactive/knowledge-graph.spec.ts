@@ -241,6 +241,12 @@ test.describe("Knowledge graph", () => {
     const neighbour = node(page, "Page: Net Revenue Definition");
     const unrelated = node(page, "Page: Fiscal Calendar");
 
+    // Like the drag test: hover() dispatches at a point measured a moment
+    // earlier, so on a loaded runner the still-animating layout carries the node
+    // out from under the pointer, the hover lands on empty canvas, and every
+    // node stays at full opacity.
+    await waitForSettledLayout(page, "Asset: Q4 Revenue Dashboard");
+
     await hub.hover();
 
     await expect(neighbour).toHaveAttribute("opacity", "1");

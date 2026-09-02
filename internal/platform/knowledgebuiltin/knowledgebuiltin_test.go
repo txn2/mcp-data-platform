@@ -287,3 +287,59 @@ func TestPages_CrossLinksNameShippedSlugs(t *testing.T) {
 	}
 	require.NotZero(t, links, "no page links to another, so this gate is asserting nothing")
 }
+
+// TestBaselinePagesAreShipped binds the instruction baseline's page index to the
+// pages this binary carries. The baseline names pages by slug because a built-in
+// page's row id is generated per deployment at reconcile time (#1476), and a
+// slug is a string on both sides: renaming a page here while the baseline keeps
+// the old name leaves every agent pointed at a reference that resolves to
+// nothing, and each side's own tests would still pass because each asserts its
+// own literal. This is the only check that fails when they disagree.
+func TestBaselinePagesAreShipped(t *testing.T) {
+	pages, err := Pages()
+	require.NoError(t, err)
+
+	shipped := make(map[string]bool, len(pages))
+	for _, p := range pages {
+		shipped[p.Slug] = true
+	}
+
+	// Every tool the baseline gates a page on, so the rendered index carries all
+	// of them at once.
+	baseline := instructions.Build([]string{
+		"search", "fetch", "memory_capture",
+		"apply_knowledge", "manage_prompt", "trino_query", "manage_script", "save_asset",
+	})
+
+	named := knowledgePageRefs(baseline)
+	assert.NotEmpty(t, named, "the baseline names no pages; the index has gone missing")
+	for _, slug := range named {
+		assert.Truef(t, shipped[slug],
+			"the instruction baseline points agents at %q, which this binary does not ship", slug)
+	}
+
+	// And the other direction: a page shipped but named by nothing is guidance
+	// no agent is told exists.
+	for _, p := range pages {
+		assert.Containsf(t, named, p.Slug,
+			"page %q ships but the instruction baseline never names it, so no agent knows it exists", p.Slug)
+	}
+}
+
+// knowledgePageRefs extracts the built-in page slugs an instruction text names.
+func knowledgePageRefs(text string) []string {
+	const marker = "mcp:knowledge_page:"
+	var slugs []string
+	for rest := text; ; {
+		i := strings.Index(rest, marker)
+		if i < 0 {
+			return slugs
+		}
+		rest = rest[i+len(marker):]
+		end := strings.IndexAny(rest, "` \n")
+		if end < 0 {
+			end = len(rest)
+		}
+		slugs = append(slugs, rest[:end])
+	}
+}

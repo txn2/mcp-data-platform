@@ -10,29 +10,27 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/knowledgelayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/notices"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	personapkg "github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform/instructions"
-	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/session"
-	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
 
 // Info contains information about the platform deployment.
 type Info struct {
-	Name                string                `json:"name"`
-	Version             string                `json:"version"`
-	Description         string                `json:"description,omitempty"`
-	Tags                []string              `json:"tags,omitempty"`
-	SessionID           string                `json:"session_id,omitempty"`
-	SessionExpiresAt    string                `json:"session_expires_at,omitempty"`
-	AgentInstructions   string                `json:"agent_instructions,omitempty"`
-	Toolkits            []string              `json:"toolkits"`
-	ToolkitDescriptions map[string]string     `json:"toolkit_descriptions,omitempty"`
-	PortalURL           string                `json:"portal_url,omitempty"`
-	Persona             *PersonaInfo          `json:"persona,omitempty"`
-	Prompts             []registry.PromptInfo `json:"prompts,omitempty"`
+	Name                string            `json:"name"`
+	Version             string            `json:"version"`
+	Description         string            `json:"description,omitempty"`
+	Tags                []string          `json:"tags,omitempty"`
+	SessionID           string            `json:"session_id,omitempty"`
+	SessionExpiresAt    string            `json:"session_expires_at,omitempty"`
+	AgentInstructions   string            `json:"agent_instructions,omitempty"`
+	Toolkits            []string          `json:"toolkits"`
+	ToolkitDescriptions map[string]string `json:"toolkit_descriptions,omitempty"`
+	PortalURL           string            `json:"portal_url,omitempty"`
+	Persona             *PersonaInfo      `json:"persona,omitempty"`
 	// Notices is what is waiting for this caller: unresolved feedback other
 	// people left on assets they own, and artifacts newly shared with them
 	// (#1278). Absent when there is nothing to report. Delivering it advances
@@ -78,15 +76,9 @@ type KnowledgeApplyInfo struct {
 	ReviewQueue       *ReviewQueueInfo `json:"review_queue,omitempty"`
 }
 
-// ReviewQueueInfo summarizes the pending apply_knowledge review queue so an agent
-// can nudge a reviewer about aging review debt, e.g. "6 insights pending review,
-// oldest 94 days" (#764). It is present only for a caller who can reach
-// apply_knowledge and only when the queue is non-empty.
-type ReviewQueueInfo struct {
-	Pending              int `json:"pending"`
-	OldestPendingAgeDays int `json:"oldest_pending_age_days,omitempty"`
-	PendingOver30d       int `json:"pending_over_30d,omitempty"`
-}
+// ReviewQueueInfo is the pending-review summary platform_info reports, aliased
+// so a library consumer can name the type KnowledgeApplyInfo carries.
+type ReviewQueueInfo = knowledgelayer.ReviewQueueInfo
 
 // Tool names whose platform_info feature flags are gated by persona access, so a
 // persona that cannot reach the tool is not told the capability exists (#686).
@@ -120,42 +112,11 @@ func (p *Platform) buildFeatures(ctx context.Context, accessibleTools []string) 
 		f.KnowledgeApply = &KnowledgeApplyInfo{
 			Enabled:           true,
 			DataHubConnection: p.config.Knowledge.Apply.DataHubConnection,
-			ReviewQueue:       p.reviewQueueInfo(ctx),
+			ReviewQueue:       p.knowledge.PendingReviewSummary(ctx),
 		}
 	}
 
 	return f
-}
-
-// reviewQueueInfo summarizes the pending review queue for platform_info so an
-// agent can nudge a reviewer about aging review debt (#764). It returns nil when
-// knowledge is disabled (no insight store), when the stats lookup fails, or when
-// the queue is empty; a failed lookup must not fail orientation, so the error is
-// logged and swallowed rather than propagated.
-func (p *Platform) reviewQueueInfo(ctx context.Context) *ReviewQueueInfo {
-	store := p.knowledge.InsightStore()
-	if store == nil {
-		return nil
-	}
-	// Prefer the store's cheap pending-count + staleness path over the full Stats
-	// fan-out: platform_info runs once per session and needs only the review-debt
-	// nudge, not the category/confidence group-bys (#764).
-	review, err := knowledgekit.PendingReviewOf(ctx, store)
-	if err != nil {
-		slog.WarnContext(ctx, "platform_info: pending review queue stats unavailable", "error", err)
-		return nil
-	}
-	if review.TotalPending == 0 {
-		return nil
-	}
-	info := &ReviewQueueInfo{
-		Pending:        review.TotalPending,
-		PendingOver30d: review.PendingOver30d,
-	}
-	if review.OldestPendingAt != nil {
-		info.OldestPendingAgeDays = knowledgekit.AgeDays(*review.OldestPendingAt, time.Now())
-	}
-	return info
 }
 
 // resolveCallerPersona returns a PersonaInfo for the calling user.
@@ -253,7 +214,11 @@ func (p *Platform) handleInfo(ctx context.Context, _ *mcp.CallToolRequest) (*mcp
 	// The tools this caller's persona may reach gate the instruction baseline, the
 	// resources note, and the knowledge feature flags, so a persona is never told
 	// about a capability it cannot drive.
-	accessibleTools := instructions.AccessibleTools(p.toolkitRegistry.AllTools(), caller, p.personaRegistry)
+	// Every registered tool, the platform's own included: gating on the toolkit
+	// registry alone withholds the baseline's prompt and script guidance from
+	// every caller, because those tools are registered outside it (#1586).
+	registeredTools := RegisteredToolNames(p.toolkitRegistry.AllTools(), p.PlatformTools())
+	accessibleTools := instructions.AccessibleTools(registeredTools, caller, p.personaRegistry)
 
 	// Compose the full instruction stack: the platform baseline (gated to the
 	// tools this caller may reach) beneath the admin business context, with the
@@ -271,7 +236,7 @@ func (p *Platform) handleInfo(ctx context.Context, _ *mcp.CallToolRequest) (*mcp
 	notes = append(notes, instructions.NoticesNote(accessibleTools, feedbackCount, shareCount))
 	agentInstructions := instructions.ComposeForCaller(
 		p.config.ServerAgentInstructions(ctx),
-		p.toolkitRegistry.AllTools(),
+		registeredTools,
 		caller,
 		p.personaRegistry,
 		notes...,
@@ -299,7 +264,6 @@ func (p *Platform) handleInfo(ctx context.Context, _ *mcp.CallToolRequest) (*mcp
 		ToolkitDescriptions: toolkitDescriptions,
 		PortalURL:           p.config.Portal.PublicBaseURL,
 		Persona:             persona,
-		Prompts:             p.AllPromptInfos(),
 		Notices:             digest,
 		Features:            p.buildFeatures(ctx, accessibleTools),
 		ConfigVersion: ConfigVersionInfo{
