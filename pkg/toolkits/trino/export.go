@@ -1,7 +1,6 @@
 package trino //nolint:revive // adapter types for cross-package wiring
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -246,9 +245,15 @@ func (t *Toolkit) SetExportDeps(deps ExportDeps) {
 	t.exportDeps = &deps
 }
 
-// registerExportTool registers trino_export on the MCP server.
+// registerExportTool registers trino_export on the MCP server through the
+// generic mcp.AddTool, so the SDK validates the arguments against
+// exportInputSchema and writes the handler's output value as the structured
+// result. The blocks the platform appends (the call reference, #1416) merge
+// into that result; a tool with no structured result keeps them in content as
+// a second text block, which is how trino_export reached a running deployment
+// before (#1589).
 func (t *Toolkit) registerExportTool(s *mcp.Server) {
-	s.AddTool(&mcp.Tool{
+	mcp.AddTool(s, &mcp.Tool{
 		Name: exportToolName,
 		Description: "Export query results directly to a portal asset file (CSV, JSON, Markdown, or text). " +
 			"Use ONLY after you have validated the query shape with trino_query using a small LIMIT. " +
@@ -264,34 +269,37 @@ func (t *Toolkit) registerExportTool(s *mcp.Server) {
 	}, t.handleExport)
 }
 
-// handleExport is the MCP tool handler for trino_export.
-func (t *Toolkit) handleExport(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+// handleExport is the MCP tool handler for trino_export. The SDK has already
+// validated the arguments against exportInputSchema and decoded them into in.
+// A success returns its exportOutput as the structured result; a refusal
+// returns an in-band error result and no structured value.
+func (t *Toolkit) handleExport(ctx context.Context, _ *mcp.CallToolRequest, in exportInput) (*mcp.CallToolResult, any, error) {
 	deps := t.exportDeps
 	if deps == nil {
-		return exportError("trino_export is not configured"), nil
+		return exportError("trino_export is not configured"), nil, nil
 	}
 
-	input, uc, errResult := t.validateAndPrepare(ctx, req, deps)
+	input, uc, errResult := t.validateAndPrepare(ctx, in, deps)
 	if errResult != nil {
-		return errResult, nil
+		return errResult, nil, nil
 	}
 
 	// Idempotency check
 	if input.IdempotencyKey != "" {
 		if hit := t.checkIdempotency(ctx, deps, uc, input); hit != nil {
-			return hit, nil
+			return exportSuccess(hit)
 		}
 	}
 
-	return t.executeAndPersist(ctx, deps, input, uc)
+	out, errResult := t.executeAndPersist(ctx, deps, input, uc)
+	if errResult != nil {
+		return errResult, nil, nil
+	}
+	return exportSuccess(out)
 }
 
-// validateAndPrepare parses input, validates it, enforces read-only, and extracts user context.
-func (*Toolkit) validateAndPrepare(ctx context.Context, req *mcp.CallToolRequest, deps *ExportDeps) (exportInput, *ExportUserContext, *mcp.CallToolResult) {
-	input, err := parseExportInput(*req)
-	if err != nil {
-		return exportInput{}, nil, exportError(err.Error())
-	}
+// validateAndPrepare validates the decoded input, enforces read-only, and extracts user context.
+func (*Toolkit) validateAndPrepare(ctx context.Context, input exportInput, deps *ExportDeps) (exportInput, *ExportUserContext, *mcp.CallToolResult) {
 	input.Name = sanitizeExportName(input.Name)
 	if err := validateExportInput(input, deps.Config); err != nil {
 		return exportInput{}, nil, exportError(err.Error())
@@ -312,24 +320,31 @@ func (*Toolkit) validateAndPrepare(ctx context.Context, req *mcp.CallToolRequest
 	return input, uc, nil
 }
 
-// checkIdempotency returns a success result if the idempotency key already exists.
-func (*Toolkit) checkIdempotency(ctx context.Context, deps *ExportDeps, uc *ExportUserContext, input exportInput) *mcp.CallToolResult {
+// checkIdempotency returns the existing asset's output if the idempotency key already exists.
+func (*Toolkit) checkIdempotency(ctx context.Context, deps *ExportDeps, uc *ExportUserContext, input exportInput) *exportOutput {
 	existing, lookupErr := deps.AssetStore.GetByIdempotencyKey(ctx, uc.UserID, input.IdempotencyKey)
 	if lookupErr == nil && existing != nil {
-		return exportSuccess(exportOutput{
-			AssetID:   existing.ID,
-			PortalURL: buildPortalURL(deps.BaseURL, existing.ID),
-			Format:    input.Format,
-			RowCount:  0,
-			SizeBytes: existing.SizeBytes,
-			Message:   "Asset already exists (idempotency key matched).",
-		})
+		return existingExportOutput(deps, existing, input)
 	}
 	return nil
 }
 
-// executeAndPersist runs the query, formats, uploads to S3, and saves the asset record.
-func (t *Toolkit) executeAndPersist(ctx context.Context, deps *ExportDeps, input exportInput, uc *ExportUserContext) (*mcp.CallToolResult, error) {
+// existingExportOutput is the output for an asset an earlier call with the
+// same idempotency key already wrote.
+func existingExportOutput(deps *ExportDeps, existing *ExportAssetRef, input exportInput) *exportOutput {
+	return &exportOutput{
+		AssetID:   existing.ID,
+		PortalURL: buildPortalURL(deps.BaseURL, existing.ID),
+		Format:    input.Format,
+		RowCount:  0,
+		SizeBytes: existing.SizeBytes,
+		Message:   "Asset already exists (idempotency key matched).",
+	}
+}
+
+// executeAndPersist runs the query, formats, uploads to S3, and saves the asset
+// record. It returns the output on success, or the error result to hand back.
+func (t *Toolkit) executeAndPersist(ctx context.Context, deps *ExportDeps, input exportInput, uc *ExportUserContext) (*exportOutput, *mcp.CallToolResult) {
 	timeout, limit := resolveExportLimits(input, deps.Config)
 
 	queryCtx, cancel := context.WithTimeout(ctx, timeout)
@@ -337,14 +352,14 @@ func (t *Toolkit) executeAndPersist(ctx context.Context, deps *ExportDeps, input
 
 	result, err := t.executeExportQuery(queryCtx, input.SQL, input.Connection, limit)
 	if err != nil {
-		return exportError(fmt.Sprintf("query execution failed: %v", err)), nil
+		return nil, exportError(fmt.Sprintf("query execution failed: %v", err))
 	}
 
 	columns, rows := convertQueryResult(result)
 
 	formatted, formatter, errResult := formatExportResult(input.Format, columns, rows, deps.Config.MaxBytes)
 	if errResult != nil {
-		return errResult, nil
+		return nil, errResult
 	}
 
 	sysTags := t.inheritSensitivityTags(ctx, input.SQL)
@@ -354,13 +369,13 @@ func (t *Toolkit) executeAndPersist(ctx context.Context, deps *ExportDeps, input
 
 	assetID, err := generateExportID()
 	if err != nil {
-		return exportError(fmt.Sprintf("generating asset ID: %v", err)), nil
+		return nil, exportError(fmt.Sprintf("generating asset ID: %v", err))
 	}
 
 	s3Key := buildExportS3Key(deps.S3Prefix, uc.UserID, assetID, formatter.FileExtension())
 
 	if err := deps.S3Client.PutObject(ctx, deps.S3Bucket, s3Key, formatted, formatter.ContentType()); err != nil {
-		return exportError(fmt.Sprintf("S3 upload failed: %v", err)), nil
+		return nil, exportError(fmt.Sprintf("S3 upload failed: %v", err))
 	}
 
 	sourceTables := extractSourceTableNames(input.SQL)
@@ -390,8 +405,8 @@ func (t *Toolkit) executeAndPersist(ctx context.Context, deps *ExportDeps, input
 		IdempotencyKey: input.IdempotencyKey,
 	}
 
-	if errResult := t.insertAssetWithRace(ctx, deps, asset, input, uc); errResult != nil {
-		return errResult, nil
+	if hit, errResult := t.insertAssetWithRace(ctx, deps, asset, input, uc); hit != nil || errResult != nil {
+		return hit, errResult
 	}
 
 	t.createExportVersion(ctx, deps, ExportVersion{
@@ -404,7 +419,7 @@ func (t *Toolkit) executeAndPersist(ctx context.Context, deps *ExportDeps, input
 
 	shareURL := t.maybeCreateShare(ctx, deps, input, assetID, uc.UserEmail)
 
-	return exportSuccess(exportOutput{
+	return &exportOutput{
 		AssetID:   assetID,
 		PortalURL: buildPortalURL(deps.BaseURL, assetID),
 		ShareURL:  shareURL,
@@ -412,28 +427,23 @@ func (t *Toolkit) executeAndPersist(ctx context.Context, deps *ExportDeps, input
 		RowCount:  len(rows),
 		SizeBytes: int64(len(formatted)),
 		Message:   fmt.Sprintf("Exported %d rows as %s.", len(rows), input.Format),
-	}), nil
+	}, nil
 }
 
-// insertAssetWithRace inserts the asset record, handling idempotency race conditions.
-func (*Toolkit) insertAssetWithRace(ctx context.Context, deps *ExportDeps, asset ExportAsset, input exportInput, uc *ExportUserContext) *mcp.CallToolResult {
-	if err := deps.AssetStore.InsertExportAsset(ctx, asset); err != nil {
-		// Handle idempotency race: if a concurrent request inserted with the same key,
-		// re-fetch and return the existing asset instead of failing.
-		if input.IdempotencyKey != "" {
-			if existing, lookupErr := deps.AssetStore.GetByIdempotencyKey(ctx, uc.UserID, input.IdempotencyKey); lookupErr == nil && existing != nil {
-				return exportSuccess(exportOutput{
-					AssetID:   existing.ID,
-					PortalURL: buildPortalURL(deps.BaseURL, existing.ID),
-					Format:    input.Format,
-					SizeBytes: existing.SizeBytes,
-					Message:   "Asset already exists (idempotency key matched).",
-				})
-			}
-		}
-		return exportError(fmt.Sprintf("saving asset record: %v", err))
+// insertAssetWithRace inserts the asset record. When the insert loses an
+// idempotency race to a concurrent call with the same key, it returns that
+// call's asset as the output; any other failure is returned as an error result.
+func (*Toolkit) insertAssetWithRace(ctx context.Context, deps *ExportDeps, asset ExportAsset, input exportInput, uc *ExportUserContext) (*exportOutput, *mcp.CallToolResult) {
+	err := deps.AssetStore.InsertExportAsset(ctx, asset)
+	if err == nil {
+		return nil, nil
 	}
-	return nil
+	if input.IdempotencyKey != "" {
+		if existing, lookupErr := deps.AssetStore.GetByIdempotencyKey(ctx, uc.UserID, input.IdempotencyKey); lookupErr == nil && existing != nil {
+			return existingExportOutput(deps, existing, input), nil
+		}
+	}
+	return nil, exportError(fmt.Sprintf("saving asset record: %v", err))
 }
 
 // maybeCreateShare creates a public share link if requested and returns the URL.
@@ -643,29 +653,6 @@ func buildExportProvenance(p exportProvenanceParams) ExportProvenance {
 	return prov
 }
 
-// parseExportInput parses the MCP request into an exportInput, refusing any
-// argument the schema does not publish so a misnamed field is reported by name
-// instead of being dropped (issue #1057).
-//
-// The refusal lives here rather than in the SDK because trino_export is
-// registered through the untyped Server.AddTool path, which does not validate
-// arguments against the tool's input schema; exportInputSchema's
-// "additionalProperties": false states the contract, and this decoder enforces
-// it. The platform-injected session_id argument never reaches this point: the
-// session resolver strips it in middleware.
-func parseExportInput(req mcp.CallToolRequest) (exportInput, error) {
-	if req.Params == nil || len(req.Params.Arguments) == 0 {
-		return exportInput{}, errors.New("missing arguments")
-	}
-	var input exportInput
-	dec := json.NewDecoder(bytes.NewReader(req.Params.Arguments))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&input); err != nil {
-		return exportInput{}, fmt.Errorf("parsing arguments: %w", err)
-	}
-	return input, nil
-}
-
 // validateExportInput validates all input fields.
 func validateExportInput(input exportInput, cfg ExportConfig) error {
 	if input.SQL == "" {
@@ -834,14 +821,15 @@ func exportError(msg string) *mcp.CallToolResult {
 	}
 }
 
-// exportSuccess returns a success result to the agent.
-func exportSuccess(out exportOutput) *mcp.CallToolResult {
+// exportSuccess returns a success result to the agent: the output as one JSON
+// text block, and the same value for the SDK to write as the structured result.
+func exportSuccess(out *exportOutput) (*mcp.CallToolResult, any, error) {
 	data, _ := json.Marshal(out) //nolint:errcheck // simple struct
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
 			&mcp.TextContent{Text: string(data)},
 		},
-	}
+	}, out, nil
 }
 
 // exportInputSchema returns the JSON Schema for trino_export input.
@@ -849,8 +837,10 @@ func exportInputSchema() map[string]any {
 	return map[string]any{
 		schemaKeyType: schemaTypeObject,
 		// Closed to unknown arguments: a misnamed field is refused by name
-		// rather than dropped (issue #1057). Enforced by parseExportInput,
-		// since the untyped registration path does not schema-validate.
+		// rather than dropped (issue #1057). Enforced by the SDK, which
+		// validates every call against this schema before the handler runs.
+		// The platform-injected session_id argument never reaches that check:
+		// the session resolver strips it in middleware.
 		"additionalProperties": false,
 		propProperties: map[string]any{
 			propSQL: map[string]any{

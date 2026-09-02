@@ -258,15 +258,29 @@ blocks alone is not context added to the tool's output, it is the tool's output
 replaced by the platform's additions, and a structured-output client then reads
 a response containing nothing it called the tool for.
 
-`trino_export` is the case this protects. It registers through the untyped
-`Server.AddTool` path, so the SDK writes no structured result and its whole
-payload (`asset_id`, `portal_url`, `row_count`, `size_bytes`) is a text block;
-the appended blocks stay in content beside it. `api_export` registers through
-the generic `mcp.AddTool` with a typed output, so the SDK does write one and the
-appended blocks merge into it. The same rule applies wherever a response has no
-object to merge into: a gateway-proxied tool whose upstream answered in text
-keeps its `call_reference` in content only, as does a tool whose structured
-result is an array.
+`trino_export` is the tool this rule was written against. While it registered
+through the untyped `Server.AddTool` path the SDK wrote no structured result,
+so its payload (`asset_id`, `portal_url`, `row_count`, `size_bytes`) was a text
+block and the appended `call_reference` arrived as a second text block beside
+it; a client that concatenates text blocks handed the agent two JSON documents
+run together (#1589). It now registers through the generic `mcp.AddTool` with
+a typed output, as `api_export` does, so the SDK writes its output as the
+structured result and the appended blocks merge into that one object. The rule
+still applies wherever a response has no object to merge into: a
+gateway-proxied tool whose upstream answered in text keeps its `call_reference`
+in content only, as does a tool whose structured result is an array.
+
+#### Tools on the untyped registration path
+
+Every first-party tool registers through the generic `mcp.AddTool`, which
+validates arguments against the input schema and writes the handler's output as
+the structured result. `TestUntypedToolRegistrationInventory` (`verify_test.go`)
+scans `pkg/`, `internal/` and `cmd/` for a registration through the untyped
+`Server.AddTool` and fails on any that is not listed with a reason. The list:
+
+| Registration | Reason |
+|---|---|
+| `pkg/toolkits/gateway/toolkit.go`, the forwarder for each tool an upstream MCP server exposes | The input schema and result shape are the upstream's, discovered at connect time; there is no Go type to register an output as. The forwarder relays the upstream's structured result when the upstream sends one. |
 
 ### MCPToolVisibilityMiddleware
 

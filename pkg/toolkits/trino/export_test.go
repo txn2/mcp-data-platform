@@ -160,6 +160,21 @@ func buildExportRequest(args map[string]any) *mcp.CallToolRequest {
 	}
 }
 
+// callExport decodes args into the typed input the way the SDK does for the
+// generic registration and invokes the handler directly. The SDK's own
+// schema validation and structured-result write are exercised through a real
+// server in export_typed_test.go.
+func callExport(t *testing.T, tk *Toolkit, args map[string]any) (result *mcp.CallToolResult, out any) {
+	t.Helper()
+	req := buildExportRequest(args)
+	var in exportInput
+	require.NoError(t, json.Unmarshal(req.Params.Arguments, &in))
+	var err error
+	result, out, err = tk.handleExport(context.Background(), req, in)
+	require.NoError(t, err)
+	return result, out
+}
+
 // --- Tests ---
 
 func TestValidateExportInput(t *testing.T) {
@@ -271,13 +286,15 @@ func TestExportError(t *testing.T) {
 }
 
 func TestExportSuccess(t *testing.T) {
-	result := exportSuccess(exportOutput{
+	out := &exportOutput{
 		AssetID:   "abc",
 		Format:    "csv",
 		RowCount:  100,
 		SizeBytes: 5000,
 		Message:   "done",
-	})
+	}
+	result, structured, err := exportSuccess(out)
+	require.NoError(t, err)
 	assert.False(t, result.IsError)
 	require.Len(t, result.Content, 1)
 
@@ -285,6 +302,9 @@ func TestExportSuccess(t *testing.T) {
 	require.True(t, ok)
 	assert.Contains(t, tc.Text, "abc")
 	assert.Contains(t, tc.Text, "csv")
+	// The same value is handed to the SDK for the structured result, so a
+	// client reading only structuredContent sees what the text block says.
+	assert.Same(t, out, structured)
 }
 
 func TestBuildPortalURL(t *testing.T) {
@@ -313,10 +333,9 @@ func TestHandleExport_NoAuth(t *testing.T) {
 	// Override to return nil (unauthenticated)
 	tk.exportDeps.GetUserContext = func(_ context.Context) *ExportUserContext { return nil }
 
-	result, err := tk.handleExport(context.Background(), buildExportRequest(map[string]any{
+	result, _ := callExport(t, tk, map[string]any{
 		"sql": "SELECT 1", "format": "csv", "name": "test",
-	}))
-	require.NoError(t, err)
+	})
 	assert.True(t, result.IsError)
 	assertResultContains(t, result, "authentication required")
 }
@@ -324,10 +343,9 @@ func TestHandleExport_NoAuth(t *testing.T) {
 func TestHandleExport_ReadOnlyViolation(t *testing.T) {
 	tk := newTestExportToolkit(&mockExportAssetStore{}, &mockExportVersionStore{}, &mockExportS3Client{})
 
-	result, err := tk.handleExport(context.Background(), buildExportRequest(map[string]any{
+	result, _ := callExport(t, tk, map[string]any{
 		"sql": "DROP TABLE users", "format": "csv", "name": "test",
-	}))
-	require.NoError(t, err)
+	})
 	assert.True(t, result.IsError)
 	assertResultContains(t, result, "write operations not allowed")
 }
@@ -349,10 +367,9 @@ func TestHandleExport_ReadOnlyEnforcedEvenWhenConfigAllowsWrite(t *testing.T) {
 		},
 	})
 
-	result, err := tk.handleExport(context.Background(), buildExportRequest(map[string]any{
+	result, _ := callExport(t, tk, map[string]any{
 		"sql": "INSERT INTO t VALUES (1)", "format": "csv", "name": "test",
-	}))
-	require.NoError(t, err)
+	})
 	assert.True(t, result.IsError)
 	assertResultContains(t, result, "write operations not allowed")
 }
@@ -363,10 +380,9 @@ func TestHandleExport_IdempotencyMatch(t *testing.T) {
 	}
 	tk := newTestExportToolkit(assetStore, &mockExportVersionStore{}, &mockExportS3Client{})
 
-	result, err := tk.handleExport(context.Background(), buildExportRequest(map[string]any{
+	result, _ := callExport(t, tk, map[string]any{
 		"sql": "SELECT 1", "format": "csv", "name": "test", "idempotency_key": "dedup-key",
-	}))
-	require.NoError(t, err)
+	})
 	assert.False(t, result.IsError)
 	assertResultContains(t, result, "existing-123")
 	assertResultContains(t, result, "idempotency key matched")
@@ -379,10 +395,9 @@ func TestHandleExport_S3Failure(t *testing.T) {
 
 	// Need a real Trino client for query execution — the handler will fail
 	// at query execution since we don't have one, which is expected.
-	result, err := tk.handleExport(context.Background(), buildExportRequest(map[string]any{
+	result, _ := callExport(t, tk, map[string]any{
 		"sql": "SELECT 1", "format": "csv", "name": "test",
-	}))
-	require.NoError(t, err)
+	})
 	assert.True(t, result.IsError)
 	// Should fail at query execution since no Trino client is configured
 	assertResultContains(t, result, "no Trino client")
@@ -393,10 +408,9 @@ func TestHandleExport_ByteCapExceeded(t *testing.T) {
 	// Set very small byte cap
 	tk.exportDeps.Config.MaxBytes = 10
 
-	result, err := tk.handleExport(context.Background(), buildExportRequest(map[string]any{
+	result, _ := callExport(t, tk, map[string]any{
 		"sql": "SELECT 1", "format": "csv", "name": "test",
-	}))
-	require.NoError(t, err)
+	})
 	assert.True(t, result.IsError)
 	// Will fail at query execution since no client, which is OK for this test
 }
@@ -432,8 +446,7 @@ func TestHandleExport_ValidationErrors(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := tk.handleExport(context.Background(), buildExportRequest(tt.args))
-			require.NoError(t, err)
+			result, _ := callExport(t, tk, tt.args)
 			assert.True(t, result.IsError)
 			assertResultContains(t, result, tt.wantErr)
 		})
@@ -444,10 +457,9 @@ func TestHandleExport_NoDeps(t *testing.T) {
 	tk := &Toolkit{name: "test"}
 	// exportDeps is nil
 
-	result, err := tk.handleExport(context.Background(), buildExportRequest(map[string]any{
+	result, _ := callExport(t, tk, map[string]any{
 		"sql": "SELECT 1", "format": "csv", "name": "test",
-	}))
-	require.NoError(t, err)
+	})
 	assert.True(t, result.IsError)
 	assertResultContains(t, result, "not configured")
 }
@@ -485,30 +497,6 @@ func TestExportInputSchema(t *testing.T) {
 	assert.Contains(t, required, "sql")
 	assert.Contains(t, required, "format")
 	assert.Contains(t, required, "name")
-}
-
-func TestParseExportInput(t *testing.T) {
-	rawArgs, _ := json.Marshal(map[string]any{
-		"sql":    "SELECT 1",
-		"format": "csv",
-		"name":   "My Export",
-		"tags":   []string{"tag1", "tag2"},
-		"limit":  500,
-	})
-	req := mcp.CallToolRequest{
-		Params: &mcp.CallToolParamsRaw{
-			Name:      "trino_export",
-			Arguments: rawArgs,
-		},
-	}
-
-	input, err := parseExportInput(req)
-	require.NoError(t, err)
-	assert.Equal(t, "SELECT 1", input.SQL)
-	assert.Equal(t, "csv", input.Format)
-	assert.Equal(t, "My Export", input.Name)
-	assert.Equal(t, []string{"tag1", "tag2"}, input.Tags)
-	assert.Equal(t, 500, input.Limit)
 }
 
 func TestToolsIncludesExport(t *testing.T) {
@@ -647,8 +635,9 @@ func TestInsertAssetWithRace_Success(t *testing.T) {
 	asset := ExportAsset{ID: "a1"}
 	input := exportInput{Format: "csv"}
 
-	result := tk.insertAssetWithRace(context.Background(), deps, asset, input, uc)
-	assert.Nil(t, result)
+	hit, errResult := tk.insertAssetWithRace(context.Background(), deps, asset, input, uc)
+	assert.Nil(t, hit)
+	assert.Nil(t, errResult)
 	assert.NotNil(t, store.inserted)
 }
 
@@ -658,9 +647,10 @@ func TestInsertAssetWithRace_FailNoIdempotency(t *testing.T) {
 	deps := &ExportDeps{AssetStore: store}
 	uc := &ExportUserContext{UserID: "u1"}
 
-	result := tk.insertAssetWithRace(context.Background(), deps, ExportAsset{}, exportInput{Format: "csv"}, uc)
-	assert.NotNil(t, result)
-	assert.True(t, result.IsError)
+	hit, errResult := tk.insertAssetWithRace(context.Background(), deps, ExportAsset{}, exportInput{Format: "csv"}, uc)
+	assert.Nil(t, hit)
+	require.NotNil(t, errResult)
+	assert.True(t, errResult.IsError)
 }
 
 func TestInsertAssetWithRace_RaceRecovery(t *testing.T) {
@@ -672,10 +662,12 @@ func TestInsertAssetWithRace_RaceRecovery(t *testing.T) {
 	deps := &ExportDeps{AssetStore: store, BaseURL: "https://example.com"}
 	uc := &ExportUserContext{UserID: "u1"}
 
-	result := tk.insertAssetWithRace(context.Background(), deps, ExportAsset{}, exportInput{Format: "csv", IdempotencyKey: "key1"}, uc)
-	assert.NotNil(t, result)
-	assert.False(t, result.IsError)
-	assertResultContains(t, result, "existing-1")
+	hit, errResult := tk.insertAssetWithRace(context.Background(), deps, ExportAsset{}, exportInput{Format: "csv", IdempotencyKey: "key1"}, uc)
+	assert.Nil(t, errResult)
+	require.NotNil(t, hit)
+	assert.Equal(t, "existing-1", hit.AssetID)
+	assert.EqualValues(t, 999, hit.SizeBytes)
+	assert.Equal(t, "https://example.com/portal/assets/existing-1", hit.PortalURL)
 }
 
 func TestCreateExportVersion(t *testing.T) {
@@ -738,13 +730,6 @@ func TestExecuteExportQuery_NoClient(t *testing.T) {
 	assert.Contains(t, err.Error(), "no Trino client")
 }
 
-func TestParseExportInput_NilParams(t *testing.T) {
-	req := mcp.CallToolRequest{}
-	_, err := parseExportInput(req)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "missing arguments")
-}
-
 func TestExportInputSchema_HasCreatePublicLink(t *testing.T) {
 	schema := exportInputSchema()
 	props, ok := schema["properties"].(map[string]any)
@@ -799,11 +784,10 @@ func TestHandleExport_FullFlow(t *testing.T) {
 		},
 	})
 
-	result, err := tk.handleExport(context.Background(), buildExportRequest(map[string]any{
+	result, _ := callExport(t, tk, map[string]any{
 		"sql": "SELECT id, name FROM users", "format": "csv", "name": "User Export",
 		"tags": []string{"export"}, "description": "test export",
-	}))
-	require.NoError(t, err)
+	})
 	if result.IsError {
 		tc, ok := result.Content[0].(*mcp.TextContent)
 		require.True(t, ok)
@@ -857,10 +841,9 @@ func TestHandleExport_S3FailureNoAsset(t *testing.T) {
 		},
 	})
 
-	result, err := tk.handleExport(context.Background(), buildExportRequest(map[string]any{
+	result, _ := callExport(t, tk, map[string]any{
 		"sql": "SELECT id FROM t", "format": "json", "name": "test",
-	}))
-	require.NoError(t, err)
+	})
 	assert.True(t, result.IsError)
 	assertResultContains(t, result, "S3 upload failed")
 
@@ -893,10 +876,9 @@ func TestHandleExport_WithCreatePublicLink(t *testing.T) {
 		},
 	})
 
-	result, err := tk.handleExport(context.Background(), buildExportRequest(map[string]any{
+	result, _ := callExport(t, tk, map[string]any{
 		"sql": "SELECT val FROM t", "format": "text", "name": "test", "create_public_link": true,
-	}))
-	require.NoError(t, err)
+	})
 	require.False(t, result.IsError)
 	assertResultContains(t, result, "portal/view/tok")
 	assert.NotEmpty(t, shareMock.lastAssetID)
@@ -924,10 +906,9 @@ func TestHandleExport_ByteCapExceeded_WithClient(t *testing.T) {
 		},
 	})
 
-	result, err := tk.handleExport(context.Background(), buildExportRequest(map[string]any{
+	result, _ := callExport(t, tk, map[string]any{
 		"sql": "SELECT big FROM t", "format": "csv", "name": "test",
-	}))
-	require.NoError(t, err)
+	})
 	assert.True(t, result.IsError)
 	assertResultContains(t, result, "exceeds deployment maximum")
 }
@@ -1105,13 +1086,9 @@ func TestValidateAndPrepare_NameSanitization(t *testing.T) {
 	s3Client := &mockExportS3Client{}
 	tk := newTestExportToolkit(assetStore, versionStore, s3Client)
 
-	req := buildExportRequest(map[string]any{
-		"sql":    "SELECT 1",
-		"format": "csv",
-		"name":   "Q1\u2014\u201cSales\u201d Report\u2026",
-	})
+	in := exportInput{SQL: "SELECT 1", Format: "csv", Name: "Q1\u2014\u201cSales\u201d Report\u2026"}
 
-	input, _, errResult := tk.validateAndPrepare(context.Background(), req, tk.exportDeps)
+	input, _, errResult := tk.validateAndPrepare(context.Background(), in, tk.exportDeps)
 	require.Nil(t, errResult, "validation should succeed")
 	assert.Equal(t, "Q1-\"Sales\" Report...", input.Name, "name should be sanitized to ASCII")
 }
@@ -1123,13 +1100,9 @@ func TestValidateAndPrepare_NameSanitizedToEmpty(t *testing.T) {
 	tk := newTestExportToolkit(assetStore, versionStore, s3Client)
 
 	// A name made up entirely of zero-width and control chars sanitizes to "".
-	req := buildExportRequest(map[string]any{
-		"sql":    "SELECT 1",
-		"format": "csv",
-		"name":   "\u200B\u200C\u200D",
-	})
+	in := exportInput{SQL: "SELECT 1", Format: "csv", Name: "\u200B\u200C\u200D"}
 
-	_, _, errResult := tk.validateAndPrepare(context.Background(), req, tk.exportDeps)
+	_, _, errResult := tk.validateAndPrepare(context.Background(), in, tk.exportDeps)
 	require.NotNil(t, errResult, "validation should fail when name sanitizes to empty")
 	assert.True(t, errResult.IsError)
 	assertResultContains(t, errResult, "name")
@@ -1141,14 +1114,9 @@ func TestValidateAndPrepare_SanitizationExpansionExceedsCap(t *testing.T) {
 	// sanitization and must still catch the over-cap result.
 	tk := newTestExportToolkit(&mockExportAssetStore{}, &mockExportVersionStore{}, &mockExportS3Client{})
 
-	name := strings.Repeat("\u2026", 100)
-	req := buildExportRequest(map[string]any{
-		"sql":    "SELECT 1",
-		"format": "csv",
-		"name":   name,
-	})
+	in := exportInput{SQL: "SELECT 1", Format: "csv", Name: strings.Repeat("\u2026", 100)}
 
-	_, _, errResult := tk.validateAndPrepare(context.Background(), req, tk.exportDeps)
+	_, _, errResult := tk.validateAndPrepare(context.Background(), in, tk.exportDeps)
 	require.NotNil(t, errResult, "validation should catch over-cap name after sanitization expansion")
 	assert.True(t, errResult.IsError)
 	assertResultContains(t, errResult, "exceeds")
