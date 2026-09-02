@@ -395,3 +395,76 @@ func TestMigration124_RepairsThumbnailStampedUpdatedAt_RealDB(t *testing.T) {
 	execMigrationFile(t, db, "000124_portal_asset_updated_at_repair.down.sql")
 	require.WithinDuration(t, mustParse(march), updatedAt("stamped"), time.Second)
 }
+
+// TestMigration138_ConsolidatesS3ToolsInPersonas_RealDB pins acceptance 3 of
+// #1591: a DB-backed persona that named the eight S3 tools, or the verb globs
+// that only ever matched them, is rewritten to s3_list and s3_object in both
+// its allow and deny lists, duplicates collapse to the first position, every
+// other entry keeps its place, and the down migration expands the two names
+// back to the tools they stood for.
+func TestMigration138_ConsolidatesS3ToolsInPersonas_RealDB(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+	db, cleanup := startPostgres(t)
+	defer cleanup()
+
+	// Only the table the migration rewrites. The full chain needs the
+	// pgvector extension, which this image does not ship.
+	_, err := db.Exec(`
+		CREATE TABLE persona_definitions (
+			name        TEXT  PRIMARY KEY,
+			tools_allow JSONB NOT NULL DEFAULT '[]',
+			tools_deny  JSONB NOT NULL DEFAULT '[]'
+		)`)
+	require.NoError(t, err)
+
+	_, err = db.Exec(`
+		INSERT INTO persona_definitions (name, tools_allow, tools_deny) VALUES
+			('reader',   '["search", "s3_list_buckets", "fetch", "s3_list_objects", "s3_get_object_metadata", "s3_get_object", "s3_presign_url"]', '["s3_put_object", "trino_execute", "s3_delete_*", "s3_copy_object"]'),
+			('globs',    '["s3_list_*", "s3_get_*"]', '["s3_put_*", "s3_copy_*", "s3_presign_*"]'),
+			('wildcard', '["*"]', '["s3_*", "apply_knowledge"]'),
+			('unrelated','["trino_query"]', '[]')`)
+	require.NoError(t, err)
+
+	lists := func(name string) (allow, deny string) {
+		require.NoError(t, db.QueryRow(
+			`SELECT tools_allow::text, tools_deny::text FROM persona_definitions WHERE name = $1`, name).Scan(&allow, &deny))
+		return allow, deny
+	}
+
+	execMigrationFile(t, db, "000138_consolidate_s3_tools_in_personas.up.sql")
+
+	allow, deny := lists("reader")
+	require.JSONEq(t, `["search", "s3_list", "fetch", "s3_object"]`, allow,
+		"exact names collapse to the consolidated tool at the first position, everything else keeps its place")
+	require.JSONEq(t, `["s3_object", "trino_execute"]`, deny,
+		"a deny of a write tool or its glob is a deny of s3_object: the migration fails closed")
+
+	allow, deny = lists("globs")
+	require.JSONEq(t, `["s3_list", "s3_object"]`, allow, "the verb globs that only matched the old tools are rewritten")
+	require.JSONEq(t, `["s3_object"]`, deny)
+
+	allow, deny = lists("wildcard")
+	require.JSONEq(t, `["*"]`, allow)
+	require.JSONEq(t, `["s3_*", "apply_knowledge"]`, deny, "a broader glob still matches the new names and is untouched")
+
+	allow, deny = lists("unrelated")
+	require.JSONEq(t, `["trino_query"]`, allow)
+	require.JSONEq(t, `[]`, deny)
+
+	// Idempotent: a second run finds nothing to rewrite.
+	execMigrationFile(t, db, "000138_consolidate_s3_tools_in_personas.up.sql")
+	allow, deny = lists("reader")
+	require.JSONEq(t, `["search", "s3_list", "fetch", "s3_object"]`, allow)
+	require.JSONEq(t, `["s3_object", "trino_execute"]`, deny)
+
+	execMigrationFile(t, db, "000138_consolidate_s3_tools_in_personas.down.sql")
+	allow, deny = lists("reader")
+	require.JSONEq(t, `["search", "s3_list_buckets", "s3_list_objects", "fetch", "s3_get_object", "s3_get_object_metadata", "s3_presign_url", "s3_put_object", "s3_copy_object", "s3_delete_object"]`, allow,
+		"down expands each consolidated name to every tool it stood for, in place")
+	require.JSONEq(t, `["s3_get_object", "s3_get_object_metadata", "s3_presign_url", "s3_put_object", "s3_copy_object", "s3_delete_object", "trino_execute"]`, deny)
+	allow, deny = lists("unrelated")
+	require.JSONEq(t, `["trino_query"]`, allow)
+	require.JSONEq(t, `[]`, deny)
+}

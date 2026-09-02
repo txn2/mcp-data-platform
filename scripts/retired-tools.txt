@@ -16,3 +16,15 @@ memory_recall
 # the old names returned an asset_id from a tool named for something else.
 save_artifact
 manage_artifact
+
+# The eight S3 tools were consolidated into s3_list and s3_object (#1591):
+# buckets or objects is one listing, and every verb over a (bucket, key) is one
+# action of one tool. The old names are not aliases and grant nothing.
+s3_list_buckets
+s3_list_objects
+s3_get_object
+s3_get_object_metadata
+s3_presign_url
+s3_put_object
+s3_copy_object
+s3_delete_object

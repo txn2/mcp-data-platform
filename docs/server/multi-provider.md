@@ -178,7 +178,7 @@ Which catalog or warehouse a request means when it names none is a deployment de
 
 A kind that is configured but not enabled is still asked for a default. The semantic, query and storage providers read an instance's settings through the same lookup whether or not the kind registers tools, so a catalog used only for enrichment still has to say which of its instances the enrichment reads.
 
-The `default:` answers the lookups that name no instance: the provider blocks below when their `instance` is left unset, `knowledge.apply.datahub_connection`, `resources.managed.s3_connection`, and the connection a Trino tool call uses when it passes no `connection` parameter.
+The `default:` answers the lookups that name no instance: the provider blocks below when their `instance` is left unset, `knowledge.apply.datahub_connection`, `resources.managed.s3_connection`, and the connection a Trino or S3 tool call uses when it passes no `connection` parameter. Trino and S3 are each one toolkit over all of their instances, routed by that parameter; DataHub is one toolkit per instance.
 
 ```yaml
 semantic:

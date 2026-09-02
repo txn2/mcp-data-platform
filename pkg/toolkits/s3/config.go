@@ -1,6 +1,7 @@
 package s3
 
 import (
+	"log/slog"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
@@ -35,6 +36,7 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 	c.SessionToken = getString(cfg, "session_token")
 	c.Profile = getString(cfg, "profile")
 	c.ConnectionName = getString(cfg, "connection_name")
+	c.Description = getString(cfg, "description")
 	c.BucketPrefix = getString(cfg, "bucket_prefix")
 
 	// Bool fields
@@ -56,6 +58,21 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 	c.Annotations = getAnnotationsMap(cfg, "annotations")
 
 	return c, nil
+}
+
+// ParseMultiConfig parses every instance of the s3 kind. An instance whose
+// config does not parse is logged and skipped rather than blocking startup.
+func ParseMultiConfig(defaultName string, instances map[string]map[string]any) (MultiConfig, error) {
+	mc := MultiConfig{DefaultConnection: defaultName, Instances: make(map[string]Config, len(instances))}
+	for name, raw := range instances {
+		cfg, err := ParseConfig(raw)
+		if err != nil {
+			slog.Warn("skipping invalid connection instance", "kind", "s3", "instance", name, "error", err)
+			continue
+		}
+		mc.Instances[name] = cfg
+	}
+	return mc, nil
 }
 
 // AnnotationConfig holds tool annotation overrides from configuration.

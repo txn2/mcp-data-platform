@@ -82,11 +82,12 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
       "trino_describe_table",
       "datahub_search",
       "datahub_browse",
-      "s3_list_objects",
+      "s3_list",
+      "s3_object",
       "save_asset",
       "memory_capture",
     ],
-    deny_tools: ["trino_explain", "datahub_get_lineage", "s3_get_object"],
+    deny_tools: ["trino_explain", "datahub_get_lineage", "s3_object"],
     api_routes: [],
     tools: resolveTools(
       [
@@ -94,11 +95,12 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
         "trino_describe_table",
         "datahub_search",
         "datahub_browse",
-        "s3_list_objects",
+        "s3_list",
+        "s3_object",
         "save_asset",
         "memory_capture",
       ],
-      ["trino_explain", "datahub_get_lineage", "s3_get_object"],
+      ["trino_explain", "datahub_get_lineage", "s3_object"],
     ),
     context: {
       description_prefix:
@@ -118,8 +120,8 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
       "trino_explain",
       "trino_describe_table",
       "datahub_get_lineage",
-      "s3_list_objects",
-      "s3_get_object",
+      "s3_list",
+      "s3_object",
     ],
     api_routes: [],
     tools: resolveTools(
@@ -128,8 +130,8 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
         "trino_explain",
         "trino_describe_table",
         "datahub_get_lineage",
-        "s3_list_objects",
-        "s3_get_object",
+        "s3_list",
+        "s3_object",
       ],
     ),
     context: {
@@ -166,9 +168,8 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
       "datahub_search",
       "datahub_get_lineage",
       "datahub_browse",
-      "s3_list_objects",
-      "s3_get_object",
-      "s3_list_buckets",
+      "s3_list",
+      "s3_object",
       "memory_capture",
     ],
     tools: resolveTools(
@@ -180,9 +181,8 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
         "datahub_search",
         "datahub_get_lineage",
         "datahub_browse",
-        "s3_list_objects",
-        "s3_get_object",
-        "s3_list_buckets",
+        "s3_list",
+        "s3_object",
         "memory_capture",
       ],
     ),
@@ -208,8 +208,8 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
     deny_tools: [
       "trino_explain",
       "datahub_get_lineage",
-      "s3_list_objects",
-      "s3_get_object",
+      "s3_list",
+      "s3_object",
     ],
     api_routes: [],
     tools: resolveTools(
@@ -222,8 +222,8 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
       [
         "trino_explain",
         "datahub_get_lineage",
-        "s3_list_objects",
-        "s3_get_object",
+        "s3_list",
+        "s3_object",
       ],
     ),
     context: {

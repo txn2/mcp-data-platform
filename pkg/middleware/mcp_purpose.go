@@ -55,8 +55,8 @@ var defaultPurposeTools = []string{
 	"api_invoke_endpoint",
 	"api_export",
 	"datahub_get_*",
-	"s3_get_object",
-	"s3_list_objects",
+	"s3_object",
+	"s3_list",
 	purposeKindPrefix + "mcp",
 }
 

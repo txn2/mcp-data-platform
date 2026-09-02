@@ -221,7 +221,7 @@ DataHub tokens need these permissions:
 
 ### Cannot connect to S3
 
-**Symptom:** `s3_list_buckets` returns credential errors.
+**Symptom:** `s3_list` returns credential errors.
 
 **Debug output example:**
 
@@ -469,7 +469,7 @@ personas:
 | Pattern | Matches | Doesn't Match |
 |---------|---------|---------------|
 | `trino_*` | `trino_query`, `trino_execute`, `trino_browse` | `datahub_search` |
-| `*_delete_*` | `s3_delete_object`, `trino_delete_row` | `s3_list_buckets` |
+| `datahub_*` | `datahub_browse`, `datahub_delete` | `s3_list` |
 | `*` | Everything | Nothing |
 
 **Step 3: List available tools**

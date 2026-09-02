@@ -57,9 +57,9 @@ func TestToolFilter_IsAllowed(t *testing.T) {
 			name: "prefix deny",
 			persona: &Persona{
 				Name:  filterTestAnalyst,
-				Tools: ToolRules{Allow: []string{filterTestWildcard}, Deny: []string{"s3_delete_*"}},
+				Tools: ToolRules{Allow: []string{filterTestWildcard}, Deny: []string{"datahub_delete*"}},
 			},
-			toolName: "s3_delete_object",
+			toolName: "datahub_delete",
 			want:     false,
 		},
 		{
@@ -117,7 +117,7 @@ func TestToolFilter_WhyAllowed(t *testing.T) {
 		{"trino_query", true, "trino_*", AccessSourceAllow, true},
 		{"datahub_search", true, "datahub_search", AccessSourceAllow, true},
 		{"trino_execute", false, "trino_execute", AccessSourceDeny, true},
-		{"s3_list_buckets", false, "", AccessSourceDefault, true},
+		{"s3_list", false, "", AccessSourceDefault, true},
 	}
 	for _, c := range cases {
 		t.Run(c.tool, func(t *testing.T) {
@@ -165,7 +165,7 @@ func TestToolFilter_FilterTools(t *testing.T) {
 		"trino_describe",
 		"trino_admin_users",
 		filterTestDatahubSearch,
-		"s3_list_buckets",
+		"s3_list",
 	}
 
 	allowed := filter.FilterTools(persona, tools)
@@ -277,7 +277,7 @@ func TestAuthorizer_IsAuthorized_ToolNotAllowed(t *testing.T) {
 	}
 	auth := NewAuthorizer(reg, mapper)
 
-	authorized, personaName, reason := auth.IsAuthorized(context.Background(), "user1", []string{filterTestAnalyst}, "s3_list_buckets", "")
+	authorized, personaName, reason := auth.IsAuthorized(context.Background(), "user1", []string{filterTestAnalyst}, "s3_list", "")
 	if authorized {
 		t.Error("expected not authorized for disallowed tool")
 	}

@@ -133,8 +133,8 @@ func (p *AssetsProvider) Search(ctx context.Context, q Query) ([]Hit, error) {
 // (owned=false). Assets are per-user, so the read is scoped to the caller exactly
 // as Search is: an asset the caller does not own, a missing id, or a soft-deleted
 // asset all return ErrNotFound, so fetch never reveals another owner's asset (or
-// even its existence). The blob bytes live in S3 and are reached with s3_get_object
-// / s3_presign_url; this returns the metadata record (name, description, tags, S3
+// even its existence). The blob bytes live in S3 and are reached with s3_object (get or
+// presign); this returns the metadata record (name, description, tags, S3
 // location, size, provenance).
 func (p *AssetsProvider) Fetch(ctx context.Context, ref string, caller Caller) (*Document, bool, error) {
 	parsed, err := knowledgepage.ParseEntityRef(ref)

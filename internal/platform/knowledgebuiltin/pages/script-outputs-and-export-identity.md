@@ -6,7 +6,7 @@ lands and what identity it keeps are decided by two things you choose: the
 destination and the name.
 
 It is not the only way a script writes. A script calls the tools its author can
-call, so `platform.call("s3_put_object", ...)` or `platform.call("trino_execute",
+call, so `platform.call("s3_object", {"action": "put", ...})` or `platform.call("trino_execute",
 ...)` writes too — but what those produce is not an output in this sense: it is
 not versioned, it does not appear on the run as an output, and it is recorded in
 the audit log like any other tool call. Use `platform.export` for the thing the
@@ -110,7 +110,7 @@ the deployment declares in configuration (`scripts.destinations`) receives the
 same bytes instead; the script names only the destination — the connection,
 bucket, and prefix come from the configuration. That declaration bounds where an
 EXPORT may address, which is not the same as bounding the script: a persona
-holding an S3 connection reaches `s3_put_object` directly. What the
+holding an S3 connection reaches `s3_object` directly. What the
 configuration buys is that a named destination can be repointed without touching
 the script. `destination` and `key` must be
 passed **by name**, not positionally. One output name may be written once per destination

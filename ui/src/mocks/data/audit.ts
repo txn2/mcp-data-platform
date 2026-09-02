@@ -95,12 +95,11 @@ const toolDefs: ToolDef[] = [
   { name: "datahub_search", connection: "acme-catalog-staging", kind: "datahub", toolkit: "acme-catalog-staging", weight: 2 },
   { name: "datahub_get_entity", connection: "acme-catalog-staging", kind: "datahub", toolkit: "acme-catalog-staging", weight: 1 },
   // acme-data-lake (s3) — 8% of traffic
-  { name: "s3_list_objects", connection: "acme-data-lake", kind: "s3", toolkit: "acme-data-lake", weight: 4 },
-  { name: "s3_get_object", connection: "acme-data-lake", kind: "s3", toolkit: "acme-data-lake", weight: 3 },
-  { name: "s3_list_buckets", connection: "acme-data-lake", kind: "s3", toolkit: "acme-data-lake", weight: 1 },
+  { name: "s3_list", connection: "acme-data-lake", kind: "s3", toolkit: "acme-data-lake", weight: 5 },
+  { name: "s3_object", connection: "acme-data-lake", kind: "s3", toolkit: "acme-data-lake", weight: 3 },
   // acme-reports (s3) — 4% of traffic
-  { name: "s3_list_objects", connection: "acme-reports", kind: "s3", toolkit: "acme-reports", weight: 2 },
-  { name: "s3_get_object", connection: "acme-reports", kind: "s3", toolkit: "acme-reports", weight: 2 },
+  { name: "s3_list", connection: "acme-reports", kind: "s3", toolkit: "acme-reports", weight: 2 },
+  { name: "s3_object", connection: "acme-reports", kind: "s3", toolkit: "acme-reports", weight: 2 },
 ];
 
 const totalToolWeight = toolDefs.reduce((s, t) => s + t.weight, 0);
@@ -215,12 +214,10 @@ function toolParameters(tool: ToolDef): Record<string, unknown> {
       };
     case "datahub_browse":
       return { type: seededItem(["tags", "domains", "data_products"]) };
-    case "s3_list_objects":
+    case "s3_list":
       return { bucket: seededItem(s3Buckets), prefix: seededItem(s3Prefixes) };
-    case "s3_get_object":
-      return { bucket: seededItem(s3Buckets), key: `${seededItem(s3Prefixes)}${seededItem(trinoTables)}.parquet` };
-    case "s3_list_buckets":
-      return {};
+    case "s3_object":
+      return { action: "get", bucket: seededItem(s3Buckets), key: `${seededItem(s3Prefixes)}${seededItem(trinoTables)}.parquet` };
     default:
       return {};
   }
@@ -255,8 +252,8 @@ const purposeGatedTools = new Set([
   "datahub_get_entity",
   "datahub_get_schema",
   "datahub_get_lineage",
-  "s3_get_object",
-  "s3_list_objects",
+  "s3_object",
+  "s3_list",
 ]);
 
 // toolPurpose returns the purpose a call carries. Only an MCP agent states one:
@@ -309,9 +306,8 @@ function toolDuration(tool: ToolDef): number {
     case "datahub_get_schema": return seededInt(25, 150);
     case "datahub_get_lineage": return seededInt(40, 350);
     case "datahub_browse": return seededInt(10, 100);
-    case "s3_list_objects": return seededInt(15, 100);
-    case "s3_get_object": return seededInt(20, 500);
-    case "s3_list_buckets": return seededInt(8, 40);
+    case "s3_list": return seededInt(15, 100);
+    case "s3_object": return seededInt(20, 500);
     default: return seededInt(10, 200);
   }
 }
@@ -655,8 +651,8 @@ export const mockToolBreakdown: BreakdownEntry[] = [
   { dimension: "datahub_search", count: 869, success_rate: 0.991, avg_duration_ms: 67.3 },
   { dimension: "trino_describe_table", count: 531, success_rate: 0.978, avg_duration_ms: 89.4 },
   { dimension: "datahub_get_entity", count: 434, success_rate: 0.967, avg_duration_ms: 78.2 },
-  { dimension: "s3_list_objects", count: 362, success_rate: 0.994, avg_duration_ms: 42.1 },
-  { dimension: "s3_get_object", count: 338, success_rate: 0.953, avg_duration_ms: 156.8 },
+  { dimension: "s3_list", count: 362, success_rate: 0.994, avg_duration_ms: 42.1 },
+  { dimension: "s3_object", count: 338, success_rate: 0.953, avg_duration_ms: 156.8 },
   { dimension: "datahub_get_schema", count: 241, success_rate: 0.988, avg_duration_ms: 62.5 },
   { dimension: "trino_browse", count: 193, success_rate: 1.0, avg_duration_ms: 28.3 },
 ];

@@ -67,7 +67,7 @@ func TestPurposeResolver_GatesCustomToolSet(t *testing.T) {
 		Lookup: purposeLookup{"vendor__list_contacts": "mcp"},
 	})
 	assert.True(t, r.Gates("trino_execute"))
-	assert.True(t, r.Gates("s3_get_object"))
+	assert.True(t, r.Gates("s3_object"))
 	assert.False(t, r.Gates("trino_query"), "not in the override set")
 	assert.False(t, r.Gates("vendor__list_contacts"), "an override drops the default kind:mcp entry")
 }

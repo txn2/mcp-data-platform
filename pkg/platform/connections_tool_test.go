@@ -85,7 +85,7 @@ func TestHandleListConnections(t *testing.T) {
 			kind:       "s3",
 			name:       "data-lake",
 			connection: "data-lake-s3",
-			tools:      []string{"s3_list_buckets"},
+			tools:      []string{"s3_list"},
 		}))
 
 		p := &Platform{

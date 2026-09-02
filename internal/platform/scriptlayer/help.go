@@ -109,7 +109,7 @@ WHAT IS AVAILABLE
       are built on, with the tool left to you, and it is how a script reaches
       everything else the platform can do: writing a table with
       trino_execute, fetching an external API server-side with
-      api_invoke_endpoint, reading an object with s3_get_object, capturing a
+      api_invoke_endpoint, reading an object with s3_object, capturing a
       memory, updating the catalog, refreshing the stored file a dashboard
       reads with manage_resource.
       That last one is how a referencing asset's data half stays current:

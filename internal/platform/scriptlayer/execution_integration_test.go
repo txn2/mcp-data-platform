@@ -368,11 +368,12 @@ type invokeInput struct {
 	Body        map[string]any `json:"body,omitempty"`
 }
 
-// putObjectInput mirrors the s3 toolkit's s3_put_object argument shape, which
+// putObjectInput mirrors the s3 toolkit's s3_object argument shape, which
 // is the tool a delivery is issued as. Delivery is not a private route to a
 // bucket: it is one ordinary tool call over the run's session, so it is served
 // here by a tool of the same name and the same arguments.
 type putObjectInput struct {
+	Action      string `json:"action"`
 	Bucket      string `json:"bucket"`
 	Key         string `json:"key"`
 	Content     string `json:"content"`
@@ -482,7 +483,7 @@ func execServerWithWorker(t *testing.T, workerOn bool, allowedConnections ...str
 		})
 
 	puts := &recordingPuts{}
-	mcp.AddTool(server, &mcp.Tool{Name: "s3_put_object", Description: "put"},
+	mcp.AddTool(server, &mcp.Tool{Name: "s3_object", Description: "object"},
 		func(_ context.Context, _ *mcp.CallToolRequest, in putObjectInput) (*mcp.CallToolResult, any, error) {
 			puts.record(in)
 			decoded, err := base64.StdEncoding.DecodeString(in.Content)
@@ -774,7 +775,7 @@ func TestIntegration_RunDeliversToAConfiguredBucket(t *testing.T) {
 	// script principal, on the connection it wrote over, in the run's session.
 	runID, _ := out["run_id"].(string)
 	require.NotEmpty(t, runID)
-	put := h.audit.waitFor(t, "s3_put_object")
+	put := h.audit.waitFor(t, "s3_object")
 	assert.Equal(t, "script:daily", put.UserID)
 	assert.Equal(t, middleware.SourceScript, put.Source)
 	assert.Equal(t, "acme-s3", put.Connection)

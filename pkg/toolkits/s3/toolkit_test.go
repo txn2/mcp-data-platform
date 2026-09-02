@@ -250,7 +250,7 @@ func TestNew(t *testing.T) {
 
 // TestCreateClient_PublicEndpointPresign proves the #575 fix end to end through
 // the real config path: a YAML map is parsed by ParseConfig, the toolkit builds
-// its client via createClient, and s3_presign_url signs against public_endpoint
+// its client via createClient, and s3_object presign signs against public_endpoint
 // when set, falling back to the internal endpoint when absent. Driving it from a
 // map (not a hand-built Config) is deliberate: it would catch ParseConfig
 // dropping the key. Presigning is local, so no network is required.
@@ -323,36 +323,20 @@ func TestToolkit_KindAndName(t *testing.T) {
 	if tk.Name() != s3TestToolkitName {
 		t.Errorf("Name() = %q", tk.Name())
 	}
-	if tk.Connection() != "test" {
-		t.Errorf("Connection() = %q, want 'test'", tk.Connection())
+	if tk.Connection() != s3TestToolkitName {
+		t.Errorf("Connection() = %q, want the default connection's bound name %q", tk.Connection(), s3TestToolkitName)
 	}
 }
 
-func TestToolkit_ToolsNonReadonly(t *testing.T) {
-	tk := newTestS3Toolkit()
-	tools := tk.Tools()
-	if len(tools) == 0 {
-		t.Error("expected non-empty tools list")
-	}
-	assertS3ToolContains(t, tools, "s3_list_buckets")
-	assertS3ToolContains(t, tools, "s3_list_objects")
-	assertS3ToolContains(t, tools, "s3_put_object")
-	assertS3ToolContains(t, tools, "s3_delete_object")
-}
-
-func assertS3ToolContains(t *testing.T, tools []string, name string) {
-	t.Helper()
-	if !slices.Contains(tools, name) {
-		t.Errorf("missing expected tool: %s", name)
-	}
-}
-
-func TestToolkit_ToolsReadonly(t *testing.T) {
-	tk := &Toolkit{name: "test-s3-readonly", config: Config{ReadOnly: true}}
-	tools := tk.Tools()
-	for _, tool := range tools {
-		if tool == "s3_put_object" || tool == "s3_delete_object" || tool == "s3_copy_object" {
-			t.Errorf("found write tool %s when readonly", tool)
+// TestToolkit_Tools pins the registered surface: s3_list and s3_object, and
+// nothing else, whatever read_only says (#1591). A read-only connection keeps
+// s3_object because its read actions are still served; the writing actions are
+// refused by the handler.
+func TestToolkit_Tools(t *testing.T) {
+	for name, cfg := range map[string]Config{"writable": {}, "read-only": {ReadOnly: true}} {
+		tk := &Toolkit{name: name, config: cfg}
+		if got := tk.Tools(); !slices.Equal(got, []string{"s3_list", "s3_object"}) {
+			t.Errorf("%s: Tools() = %v, want [s3_list s3_object]", name, got)
 		}
 	}
 }
@@ -384,75 +368,6 @@ func TestToolkit_ClientAndClose(t *testing.T) {
 	if err := tk.Close(); err != nil {
 		t.Errorf("Close() error = %v", err)
 	}
-}
-
-func TestToS3ToolNames(t *testing.T) {
-	t.Run("nil input", func(t *testing.T) {
-		result := toS3ToolNames(nil)
-		if result != nil {
-			t.Errorf("expected nil, got %v", result)
-		}
-	})
-
-	t.Run("valid conversion", func(t *testing.T) {
-		input := map[string]string{
-			"s3_list_buckets": "Custom list",
-			"s3_get_object":   "Custom get",
-		}
-		result := toS3ToolNames(input)
-		if len(result) != 2 {
-			t.Fatalf("expected 2 entries, got %d", len(result))
-		}
-		for k, v := range input {
-			if got := result[s3tools.ToolName(k)]; got != v {
-				t.Errorf("result[%q] = %q, want %q", k, got, v)
-			}
-		}
-	})
-
-	t.Run("empty map", func(t *testing.T) {
-		result := toS3ToolNames(map[string]string{})
-		if result == nil {
-			t.Error("expected non-nil empty map")
-		}
-		if len(result) != 0 {
-			t.Errorf("expected 0 entries, got %d", len(result))
-		}
-	})
-}
-
-func TestToS3Annotations(t *testing.T) {
-	t.Run("nil input", func(t *testing.T) {
-		result := toS3Annotations(nil)
-		if result != nil {
-			t.Errorf("expected nil, got %v", result)
-		}
-	})
-
-	t.Run("valid conversion", func(t *testing.T) {
-		readOnly := true
-		destructive := false
-		input := map[string]AnnotationConfig{
-			"s3_list_buckets": {
-				ReadOnlyHint:    &readOnly,
-				DestructiveHint: &destructive,
-			},
-		}
-		result := toS3Annotations(input)
-		if len(result) != 1 {
-			t.Fatalf("expected 1 entry, got %d", len(result))
-		}
-		ann := result[s3tools.ToolName("s3_list_buckets")]
-		if ann == nil {
-			t.Fatal("expected non-nil annotation")
-		}
-		if !ann.ReadOnlyHint {
-			t.Error("expected ReadOnlyHint=true")
-		}
-		if ann.DestructiveHint == nil || *ann.DestructiveHint {
-			t.Error("expected DestructiveHint=false")
-		}
-	})
 }
 
 func TestS3AnnotationConfigToMCP(t *testing.T) {
@@ -494,16 +409,6 @@ func TestS3AnnotationConfigToMCP(t *testing.T) {
 	})
 }
 
-func TestCreateToolkit_WithTitles(t *testing.T) {
-	// Use s3tools.NewToolkit(nil) directly (untyped nil avoids typed-nil interface panic)
-	// to confirm that the Titles option is wired correctly via toS3ToolNames.
-	titles := map[string]string{"s3_list_buckets": "List Buckets"}
-	tk := s3tools.NewToolkit(nil, s3tools.WithTitles(toS3ToolNames(titles)))
-	if tk == nil {
-		t.Fatal("expected non-nil toolkit")
-	}
-}
-
 func TestToolkit_RegisterTools(t *testing.T) {
 	t.Run("nil s3Toolkit does not panic", func(_ *testing.T) {
 		tk := &Toolkit{name: "test"}
@@ -511,35 +416,76 @@ func TestToolkit_RegisterTools(t *testing.T) {
 		tk.RegisterTools(server) // Should not panic
 	})
 
-	t.Run("non-readonly registers all tools", func(t *testing.T) {
-		tk := newTestS3Toolkit()
-		tk.s3Toolkit = s3tools.NewToolkit(nil)
-		server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1.0.0"}, nil)
-		tk.RegisterTools(server)
-
-		// Write tools should be present
-		for _, wt := range s3tools.WriteTools() {
-			if !slices.Contains(tk.Tools(), string(wt)) {
-				t.Errorf("expected write tool %s in non-readonly mode", wt)
+	t.Run("registers the two tools whatever read_only says", func(t *testing.T) {
+		for name, readOnly := range map[string]bool{"writable": false, "read-only": true} {
+			tk := &Toolkit{name: name, config: Config{ReadOnly: readOnly, ConnectionName: name}, s3Toolkit: s3tools.NewToolkit(nil)}
+			names := registeredToolNames(t, tk)
+			if !slices.Equal(names, []string{"s3_list", "s3_object"}) {
+				t.Errorf("%s: registered %v, want [s3_list s3_object]", name, names)
 			}
 		}
 	})
 
-	t.Run("readonly registers only read tools", func(t *testing.T) {
-		tk := &Toolkit{
-			name:      "test-readonly",
-			config:    Config{ReadOnly: true},
-			s3Toolkit: s3tools.NewToolkit(nil, s3tools.WithReadOnly(true)),
+	t.Run("instance overrides apply to the tool they name", func(t *testing.T) {
+		readOnly := true
+		tk := &Toolkit{name: "acme", s3Toolkit: s3tools.NewToolkit(nil), config: Config{
+			ConnectionName: "acme",
+			Titles:         map[string]string{"s3_list": "Browse the lake"},
+			Descriptions:   map[string]string{"s3_object": "One object of the lake."},
+			Annotations:    map[string]AnnotationConfig{"s3_object": {ReadOnlyHint: &readOnly}},
+		}}
+		tools := registeredTools(t, tk)
+		if tools["s3_list"].Title != "Browse the lake" {
+			t.Errorf("s3_list title = %q", tools["s3_list"].Title)
 		}
-		server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1.0.0"}, nil)
-		tk.RegisterTools(server)
-
-		// Verify Tools() does not include write tools (already tested)
-		tools := tk.Tools()
-		for _, wt := range s3tools.WriteTools() {
-			if slices.Contains(tools, string(wt)) {
-				t.Errorf("found write tool %s in readonly mode", wt)
-			}
+		if tools["s3_object"].Description != "One object of the lake." {
+			t.Errorf("s3_object description = %q", tools["s3_object"].Description)
+		}
+		if tools["s3_object"].Annotations == nil || !tools["s3_object"].Annotations.ReadOnlyHint {
+			t.Error("s3_object annotation override not applied")
+		}
+		if tools["s3_list"].Annotations == nil || !tools["s3_list"].Annotations.ReadOnlyHint {
+			t.Error("s3_list keeps its default read-only annotation")
 		}
 	})
+}
+
+// registeredTools registers the toolkit on a server and reads the tools back
+// through an in-memory client, keyed by name.
+func registeredTools(t *testing.T, tk *Toolkit) map[string]*mcp.Tool {
+	t.Helper()
+	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1.0.0"}, nil)
+	tk.RegisterTools(server)
+	ctx := context.Background()
+	st, ct := mcp.NewInMemoryTransports()
+	ss, err := server.Connect(ctx, st, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ss.Close() })
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "c", Version: "v0"}, nil).Connect(ctx, ct, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cs.Close() })
+	listed, err := cs.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := make(map[string]*mcp.Tool, len(listed.Tools))
+	for _, tool := range listed.Tools {
+		out[tool.Name] = tool
+	}
+	return out
+}
+
+func registeredToolNames(t *testing.T, tk *Toolkit) []string {
+	t.Helper()
+	tools := registeredTools(t, tk)
+	names := make([]string, 0, len(tools))
+	for name := range tools {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names
 }

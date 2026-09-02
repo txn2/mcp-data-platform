@@ -99,7 +99,7 @@ query them; the tab is the at-a-glance read.
 | `trino_query_duration_seconds` | histogram | `query_kind` |
 | `datahub_requests_total` | counter | `operation`, `status` |
 | `datahub_request_duration_seconds` | histogram | `operation` |
-| `s3_operations_total` | counter | `operation`, `status` |
+| `s3_operations_total` | counter | `operation` (`s3_list.buckets`, `s3_list.objects`, `s3_object.<action>`), `status` |
 | `s3_operation_duration_seconds` | histogram | `operation` |
 | `script_runs_total` | counter | `script`, `trigger`, `status` |
 | `script_run_duration_seconds` | histogram | `script` |

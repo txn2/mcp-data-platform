@@ -146,9 +146,9 @@ FROM
       ('datahub_get_entity',       'datahub', 'acme-catalog',          'acme-catalog',            6),
       ('datahub_get_schema',       'datahub', 'acme-catalog',          'acme-catalog',            3),
       ('datahub_get_lineage',      'datahub', 'acme-catalog',          'acme-catalog',            2),
-      ('s3_list_objects',          's3',      'acme-data-lake',        'acme-data-lake',          4),
-      ('s3_get_object',            's3',      'acme-data-lake',        'acme-data-lake',          3),
-      ('s3_list_objects',          's3',      'acme-reports',          'acme-reports',             2),
+      ('s3_list',                  's3',      'acme-data-lake',        'acme-data-lake',          4),
+      ('s3_object',                's3',      'acme-data-lake',        'acme-data-lake',          3),
+      ('s3_list',                  's3',      'acme-reports',          'acme-reports',             2),
       ('trino_query',              'trino',   'acme-staging',          'acme-staging',            4),
       ('datahub_search',           'datahub', 'acme-catalog-staging',  'acme-catalog-staging',    2)
     ) AS tools(tool_name, toolkit_kind, toolkit_name, connection, weight)
@@ -225,8 +225,8 @@ FROM
       ('datahub_search',       'datahub', 'acme-catalog',   'acme-catalog'),
       ('datahub_get_entity',   'datahub', 'acme-catalog',   'acme-catalog'),
       ('datahub_get_schema',   'datahub', 'acme-catalog',   'acme-catalog'),
-      ('s3_list_objects',      's3',      'acme-data-lake',  'acme-data-lake'),
-      ('s3_get_object',        's3',      'acme-data-lake',  'acme-data-lake')
+      ('s3_list',              's3',      'acme-data-lake',  'acme-data-lake'),
+      ('s3_object',            's3',      'acme-data-lake',  'acme-data-lake')
     ) AS tools(tool_name, toolkit_kind, toolkit_name, connection)
     OFFSET (n % 8)
     LIMIT 1
@@ -308,8 +308,8 @@ FROM
       ('trino_describe_table', 'trino',   'acme-warehouse', 'acme-warehouse'),
       ('datahub_search',       'datahub', 'acme-catalog',   'acme-catalog'),
       ('datahub_get_entity',   'datahub', 'acme-catalog',   'acme-catalog'),
-      ('s3_list_objects',      's3',      'acme-data-lake',  'acme-data-lake'),
-      ('s3_get_object',        's3',      'acme-data-lake',  'acme-data-lake')
+      ('s3_list',              's3',      'acme-data-lake',  'acme-data-lake'),
+      ('s3_object',            's3',      'acme-data-lake',  'acme-data-lake')
     ) AS tools(tool_name, toolkit_kind, toolkit_name, connection)
     OFFSET (n % 6)
     LIMIT 1

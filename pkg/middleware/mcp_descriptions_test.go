@@ -122,9 +122,9 @@ func TestMergedDescriptionOverrides(t *testing.T) {
 
 	t.Run("config adds new overrides", func(t *testing.T) {
 		merged := MergedDescriptionOverrides(map[string]string{
-			"s3_list_objects": "custom s3 description",
+			"s3_list": "custom s3 description",
 		})
-		assert.Contains(t, merged, "s3_list_objects")
+		assert.Contains(t, merged, "s3_list")
 		assert.Contains(t, merged, "trino_query")
 	})
 }

@@ -49,7 +49,7 @@ func TestLexicalFindTools(t *testing.T) {
 	t.Parallel()
 	desc := map[string]*mcp.Tool{
 		"trino_query":         tool("trino_query", "run SQL against Trino"),
-		"s3_list_objects":     tool("s3_list_objects", "list objects in a bucket"),
+		"s3_list":             tool("s3_list", "list objects in a bucket"),
 		"denied_tool":         tool("denied_tool", "should be filtered by persona"),
 		platformFindToolsName: tool(platformFindToolsName, "discovery"),
 	}
@@ -67,8 +67,8 @@ func TestLexicalFindTools(t *testing.T) {
 	for i, d := range all {
 		names[i] = d.Name
 	}
-	if len(names) != 2 || names[0] != "s3_list_objects" || names[1] != "trino_query" {
-		t.Errorf("empty query = %v; want [s3_list_objects trino_query]", names)
+	if len(names) != 2 || names[0] != "s3_list" || names[1] != "trino_query" {
+		t.Errorf("empty query = %v; want [s3_list trino_query]", names)
 	}
 
 	// Limit cap.

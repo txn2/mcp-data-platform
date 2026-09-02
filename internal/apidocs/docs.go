@@ -21357,7 +21357,7 @@ const docTemplate = `{
                     "example": [
                         "trino_query",
                         "datahub_search",
-                        "s3_list_objects"
+                        "s3_list"
                     ]
                 },
                 "user_labels": {

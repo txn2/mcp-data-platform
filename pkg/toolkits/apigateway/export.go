@@ -251,7 +251,7 @@ func (t *Toolkit) registerExportTool(s *mcp.Server) {
 		Name:  exportToolName,
 		Title: "Export API Endpoint Response",
 		Description: "Invoke an upstream API endpoint and stream the response into a portal asset INSTEAD of returning it through the model context. " +
-			"Use this when api_invoke_endpoint reports body_truncated, when you expect a response too large to be useful through the model, or when you want to hand off the data to trino_query / s3_get_object / a portal share. " +
+			"Use this when api_invoke_endpoint reports body_truncated, when you expect a response too large to be useful through the model, or when you want to hand off the data to trino_query / s3_object / a portal share. " +
 			"Address the operation either by operation_id (with any path template values in path_params) or by method+path directly, exactly like api_invoke_endpoint; supply one form, not both. " +
 			"Pass `paginate` to walk every page of a paginated collection in this one call: the merged array is streamed into the asset as pages arrive, and the result reports pages_fetched, items_merged, and stopped_by. " +
 			"Returns asset metadata (id, URL, size, content type) — the data is NOT returned through this response. " +

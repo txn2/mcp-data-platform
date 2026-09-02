@@ -684,109 +684,100 @@ Supported `what` values: `query`, `tag`, `domain`, `glossary_entity`, `data_prod
 
 ## S3 Tools
 
-### s3_list_buckets
+Two tools (#1591): `s3_list` lists buckets or one bucket's objects, `s3_object` performs one action over a `(bucket, key)`. Both are registered on every connection; `put`, `copy` and `delete` on a connection configured `read_only: true` are refused with an error naming the connection.
 
-List available S3 buckets.
+### s3_list
+
+List the buckets of a connection, or the objects in one bucket.
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
+| `bucket` | string | No | - | Bucket to list objects in; omit to list buckets |
+| `prefix` | string | No | - | Key prefix filter |
+| `delimiter` | string | No | - | Delimiter for hierarchy (typically `/`) |
+| `max_keys` | integer | No | 1000 | Objects per page (1-1000) |
+| `continuation_token` | string | No | - | Token from the previous page |
 | `connection` | string | No | first configured | S3 connection name |
 
-**Response Schema:**
+**Response Schema (no bucket):**
 
 ```json
 {
   "buckets": [
     {
       "name": "data-lake",
-      "creation_date": "2024-01-01T00:00:00Z",
-      "region": "us-east-1"
+      "creation_date": "2024-01-01T00:00:00Z"
     }
-  ]
+  ],
+  "count": 1
 }
 ```
 
----
-
-### s3_list_objects
-
-List objects in a bucket.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `bucket` | string | Yes | - | Bucket name |
-| `prefix` | string | No | - | Key prefix filter |
-| `delimiter` | string | No | - | Delimiter for hierarchy (typically `/`) |
-| `max_keys` | integer | No | 1000 | Maximum objects to return |
-| `connection` | string | No | first configured | S3 connection name |
-
-**Response Schema:**
+**Response Schema (bucket named):**
 
 ```json
 {
   "bucket": "data-lake",
   "prefix": "sales/orders/",
+  "delimiter": "/",
   "objects": [
     {
       "key": "sales/orders/2024/01/data.parquet",
       "size": 52428800,
       "last_modified": "2024-01-15T10:30:00Z",
+      "etag": "\"d41d8cd98f00b204e9800998ecf8427e\"",
       "storage_class": "STANDARD"
     }
   ],
   "common_prefixes": ["sales/orders/2024/02/"],
+  "count": 1,
   "is_truncated": false
 }
 ```
 
 ---
 
-### s3_get_object
+### s3_object
 
-Get object contents.
+Act on one object.
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
+| `action` | string | Yes | - | `get`, `metadata`, `put`, `copy`, `delete`, `presign` |
 | `bucket` | string | Yes | - | Bucket name |
 | `key` | string | Yes | - | Object key |
+| `content` | string | for `put` | - | Content as text, or base64 with `is_base64` |
+| `content_type` | string | No | `application/octet-stream` | MIME type (`put`) |
+| `is_base64` | boolean | No | false | `content` is base64-encoded binary (`put`) |
+| `metadata` | object | No | - | Custom metadata (`put`; on `copy` replaces the source's) |
+| `dest_bucket` | string | No | same bucket | Destination bucket (`copy`) |
+| `dest_key` | string | for `copy` | - | Destination key (`copy`) |
+| `method` | string | No | `GET` | `GET` or `PUT` (`presign`) |
+| `expires_in` | integer | No | 3600 | Seconds until the URL expires, max 604800 (`presign`) |
 | `connection` | string | No | first configured | S3 connection name |
 
-**Response Schema:**
+**Response Schema (`get`):**
 
 ```json
 {
   "bucket": "data-lake",
   "key": "config/settings.json",
-  "content": "{\"setting\": \"value\"}",
-  "content_type": "application/json",
   "size": 25,
-  "last_modified": "2024-01-15T10:30:00Z"
+  "content_type": "application/json",
+  "last_modified": "2024-01-15T10:30:00Z",
+  "etag": "\"d41d8cd98f00b204e9800998ecf8427e\"",
+  "content": "{\"setting\": \"value\"}",
+  "is_base64": false
 }
 ```
 
-Note: Content is limited by `max_get_size` configuration.
+Note: `get` is limited by `max_get_size`; binary content is returned base64-encoded with `is_base64: true`.
 
----
-
-### s3_get_object_metadata
-
-Get object metadata without downloading content.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `bucket` | string | Yes | - | Bucket name |
-| `key` | string | Yes | - | Object key |
-| `connection` | string | No | first configured | S3 connection name |
-
-**Response Schema:**
+**Response Schema (`metadata`):**
 
 ```json
 {
@@ -794,103 +785,42 @@ Get object metadata without downloading content.
   "key": "sales/orders/data.parquet",
   "size": 52428800,
   "content_type": "application/octet-stream",
+  "content_length": 52428800,
   "last_modified": "2024-01-15T10:30:00Z",
   "etag": "\"d41d8cd98f00b204e9800998ecf8427e\"",
   "metadata": {
-    "x-amz-meta-created-by": "etl-pipeline"
+    "created-by": "etl-pipeline"
   }
 }
 ```
 
----
-
-### s3_presign_url
-
-Generate a pre-signed URL.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `bucket` | string | Yes | - | Bucket name |
-| `key` | string | Yes | - | Object key |
-| `expires` | string | No | `15m` | URL expiration (e.g., `1h`, `30m`) |
-| `connection` | string | No | first configured | S3 connection name |
-
-**Response Schema:**
-
-```json
-{
-  "url": "https://bucket.s3.amazonaws.com/key?X-Amz-...",
-  "expires_at": "2024-01-15T11:00:00Z"
-}
-```
-
----
-
-### s3_list_connections
-
-List configured S3 connections.
-
-**Parameters:** None
-
-**Response Schema:**
-
-```json
-{
-  "connections": [
-    {
-      "name": "primary",
-      "display_name": "Data Lake",
-      "region": "us-east-1",
-      "read_only": true
-    }
-  ]
-}
-```
-
----
-
-### s3_put_object
-
-Upload an object. Only available when `read_only: false`.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `bucket` | string | Yes | - | Bucket name |
-| `key` | string | Yes | - | Object key |
-| `content` | string | Yes | - | Object content |
-| `content_type` | string | No | `application/octet-stream` | MIME type |
-| `connection` | string | No | first configured | S3 connection name |
-
-**Response Schema:**
+**Response Schema (`put`):**
 
 ```json
 {
   "bucket": "data-lake",
   "key": "uploads/file.json",
-  "etag": "\"d41d8cd98f00b204e9800998ecf8427e\"",
-  "size": 1024
+  "size": 1024,
+  "etag": "\"d41d8cd98f00b204e9800998ecf8427e\""
 }
 ```
 
----
+Note: `put` is limited by `max_put_size`.
 
-### s3_delete_object
+**Response Schema (`copy`):**
 
-Delete an object. Only available when `read_only: false`.
+```json
+{
+  "source_bucket": "data-lake",
+  "source_key": "original/file.json",
+  "dest_bucket": "data-lake",
+  "dest_key": "backup/file.json",
+  "etag": "\"d41d8cd98f00b204e9800998ecf8427e\"",
+  "last_modified": "2024-01-15T10:30:00Z"
+}
+```
 
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `bucket` | string | Yes | - | Bucket name |
-| `key` | string | Yes | - | Object key |
-| `connection` | string | No | first configured | S3 connection name |
-
-**Response Schema:**
+**Response Schema (`delete`):**
 
 ```json
 {
@@ -900,36 +830,23 @@ Delete an object. Only available when `read_only: false`.
 }
 ```
 
----
-
-### s3_copy_object
-
-Copy an object. Only available when `read_only: false`.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `source_bucket` | string | Yes | - | Source bucket name |
-| `source_key` | string | Yes | - | Source object key |
-| `dest_bucket` | string | Yes | - | Destination bucket name |
-| `dest_key` | string | Yes | - | Destination object key |
-| `connection` | string | No | first configured | S3 connection name |
-
-**Response Schema:**
+**Response Schema (`presign`):**
 
 ```json
 {
-  "source": {
-    "bucket": "data-lake",
-    "key": "original/file.json"
-  },
-  "destination": {
-    "bucket": "data-lake",
-    "key": "backup/file.json"
-  },
-  "copied": true
+  "bucket": "data-lake",
+  "key": "uploads/file.json",
+  "url": "https://bucket.s3.amazonaws.com/key?X-Amz-...",
+  "method": "GET",
+  "expires_in_seconds": 3600,
+  "expires_at": "2024-01-15T11:00:00Z"
 }
+```
+
+**Read-only refusal:** on a connection configured `read_only: true`, `put`, `copy` and `delete` return an error result:
+
+```
+Error: connection "archive" is read-only: s3_object action "delete" is not permitted on it
 ```
 
 ---

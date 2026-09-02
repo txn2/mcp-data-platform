@@ -32,14 +32,8 @@ memory_capture
 memory_manage
 platform_find_tools
 platform_info
-s3_copy_object
-s3_delete_object
-s3_get_object
-s3_get_object_metadata
-s3_list_buckets
-s3_list_objects
-s3_presign_url
-s3_put_object
+s3_list
+s3_object
 save_asset
 search
 trino_browse

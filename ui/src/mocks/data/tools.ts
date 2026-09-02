@@ -213,62 +213,84 @@ export const mockToolSchemas: Record<string, ToolSchema> = {
       },
     },
   },
-  s3_list_buckets: {
-    name: "s3_list_buckets",
+  s3_list: {
+    name: "s3_list",
     kind: "s3",
     description:
-      "List all accessible S3 buckets. Returns bucket names and creation dates.",
+      "List the buckets of an S3 connection, or the objects in one bucket. With no bucket: every bucket the connection can see. With a bucket: the objects under an optional prefix, grouped by an optional delimiter, up to max_keys per page, continued with continuation_token.",
     parameters: {
       type: "object",
       required: [],
-      properties: {},
-    },
-  },
-  s3_list_objects: {
-    name: "s3_list_objects",
-    kind: "s3",
-    description:
-      "List objects in an S3 bucket. Supports prefix filtering, delimiter for folder simulation, and pagination.",
-    parameters: {
-      type: "object",
-      required: ["bucket"],
       properties: {
         bucket: {
           type: "string",
-          description: "The S3 bucket name",
+          description: "Bucket to list objects in; omit it to list the connection's buckets",
         },
         prefix: {
           type: "string",
-          description: "Prefix to filter objects",
+          description: "Only objects whose key starts with this prefix",
         },
         delimiter: {
           type: "string",
-          description: "Delimiter for folder simulation (usually /)",
+          description: "Groups keys at this character, commonly '/' to list one folder level",
         },
         max_keys: {
           type: "integer",
-          description: "Maximum number of objects to return",
+          description: "Objects per page, 1-1000",
           default: 1000,
+        },
+        continuation_token: {
+          type: "string",
+          description: "The next_continuation_token of the previous page",
         },
       },
     },
   },
-  s3_get_object: {
-    name: "s3_get_object",
+  s3_object: {
+    name: "s3_object",
     kind: "s3",
     description:
-      "Retrieve the content of an S3 object. For text content, returns the content directly. For binary content, returns base64-encoded data. Large objects may be truncated based on size limits.",
+      "Act on one S3 object by (bucket, key). action is one of get, metadata, put, copy, delete, presign. put, copy and delete are refused on a read-only connection, and the refusal names the connection.",
     parameters: {
       type: "object",
-      required: ["bucket", "key"],
+      required: ["action", "bucket", "key"],
       properties: {
+        action: {
+          type: "string",
+          description: "One of get, metadata, put, copy, delete, presign",
+        },
         bucket: {
           type: "string",
-          description: "The S3 bucket name",
+          description: "Bucket holding the object",
         },
         key: {
           type: "string",
-          description: "The object key (path)",
+          description: "Key (path) of the object",
+        },
+        content: {
+          type: "string",
+          description: "put: the content to upload, as text or as base64 when is_base64 is true",
+        },
+        content_type: {
+          type: "string",
+          description: "put: MIME type of the content",
+        },
+        dest_bucket: {
+          type: "string",
+          description: "copy: destination bucket (default: the same bucket)",
+        },
+        dest_key: {
+          type: "string",
+          description: "copy: destination key",
+        },
+        method: {
+          type: "string",
+          description: "presign: GET for a download link (default) or PUT for an upload link",
+        },
+        expires_in: {
+          type: "integer",
+          description: "presign: seconds until the URL expires",
+          default: 3600,
         },
       },
     },
@@ -365,11 +387,9 @@ export function generateMockResult(
       return datahubLineageResult(params, duration);
     case "datahub_browse":
       return datahubBrowseResult(params, duration);
-    case "s3_list_buckets":
-      return s3ListBucketsResult(duration);
-    case "s3_list_objects":
-      return s3ListObjectsResult(params, duration);
-    case "s3_get_object":
+    case "s3_list":
+      return params.bucket ? s3ListObjectsResult(params, duration) : s3ListBucketsResult(duration);
+    case "s3_object":
       return s3GetObjectResult(params, duration);
     default:
       return textResult(`Unknown tool: ${toolName}`, duration);

@@ -168,8 +168,10 @@ personas:
         - "trino_*"
         - "datahub_*"
         - "s3_*"
-      deny:
-        - "s3_delete_*"
+      # No S3 deny: deleting an object is an action of s3_object, the same tool
+      # that reads one, so a deny here would withhold the reads too. Whether
+      # a connection accepts writes is its own read_only flag (toolkits.s3).
+      deny: []
     connections:
       allow:
         - "*"
@@ -194,7 +196,7 @@ personas:
         - "fetch"
         - "datahub_browse"
         - "datahub_get_lineage"
-        - "s3_list_*"
+        - "s3_list"
       deny: []
     connections:
       allow:
@@ -218,8 +220,8 @@ personas:
         - "search"
         - "fetch"
         - "datahub_browse"
-        - "s3_list_objects"
-        - "s3_get_object"
+        - "s3_list"
+        - "s3_object"
       deny: []
     connections:
       allow:
@@ -238,8 +240,8 @@ personas:
         - "search"
         - "fetch"
         - "datahub_browse"
-        - "s3_list_objects"
-        - "s3_get_object"
+        - "s3_list"
+        - "s3_object"
       deny: []
     connections:
       allow:
@@ -258,7 +260,7 @@ personas:
         - "trino_query"
         - "trino_describe_table"
         - "datahub_search"
-        - "s3_get_object"
+        - "s3_object"
       deny: []
     connections:
       allow:
@@ -376,6 +378,9 @@ toolkits:
     default: acme
 
   s3:
+    # Kind-level enabled is what the toolkit loader reads (pkg/registry/loader.go);
+    # without it no S3 tool is registered, however many instances are declared.
+    enabled: true
     instances:
       dev-s3:
         enabled: true
@@ -392,6 +397,19 @@ toolkits:
         # resolves to ::1, which SeaweedFS (bound to 127.0.0.1) refuses.
         use_path_style: true
         description: "Local SeaweedFS for portal assets and dev content"
+      # The same SeaweedFS, bound read-only: s3_object refuses put, copy and
+      # delete on this connection, naming it, while the reads still work.
+      # It is what the #1591 acceptance test exercises the refusal on.
+      dev-s3-readonly:
+        enabled: true
+        endpoint: "http://localhost:${DEV_S3_PORT:-9000}"
+        region: "us-east-1"
+        access_key_id: "dev-access-key"
+        secret_access_key: "dev-secret-key"
+        use_path_style: true
+        read_only: true
+        description: "Local SeaweedFS, read-only"
+    default: dev-s3
 
   # mcp gateway: connections live in the database (added/edited via the
   # admin portal). Enabling this kind makes them load on platform start.

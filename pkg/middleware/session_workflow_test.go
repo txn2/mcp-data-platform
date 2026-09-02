@@ -253,7 +253,7 @@ func TestSessionWorkflowTracker_SlidesOnNonQueryActivity(t *testing.T) {
 	// Only non-query, non-discovery activity from here, past the original TTL.
 	for range 3 {
 		time.Sleep(60 * time.Millisecond)
-		tracker.RecordToolCall(ctx, "s", "s3_list_objects")
+		tracker.RecordToolCall(ctx, "s", "s3_list")
 	}
 	assert.True(t, tracker.HasPerformedDiscovery(ctx, "s"),
 		"non-query activity by a discovered session must keep the gate open")

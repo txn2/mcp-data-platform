@@ -492,7 +492,7 @@ func updaterResolver() portal.PersonaResolver {
 
 func noAccessResolver() portal.PersonaResolver {
 	return func([]string) *portal.PersonaInfo {
-		return &portal.PersonaInfo{Name: "outsider", Tools: []string{"s3_list_objects"}}
+		return &portal.PersonaInfo{Name: "outsider", Tools: []string{"s3_list"}}
 	}
 }
 

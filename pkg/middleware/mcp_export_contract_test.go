@@ -88,7 +88,7 @@ func TestIsExportTool(t *testing.T) {
 	for _, name := range []string{"trino_export", "api_export", "s3_export"} {
 		assert.Truef(t, isExportTool(name), "%q must be treated as an export tool (bypass enrichment)", name)
 	}
-	for _, name := range []string{"trino_query", "trino_describe_table", "datahub_browse", "s3_get_object", "export_config"} {
+	for _, name := range []string{"trino_query", "trino_describe_table", "datahub_browse", "s3_object", "export_config"} {
 		assert.Falsef(t, isExportTool(name), "%q must not be treated as an export tool", name)
 	}
 }

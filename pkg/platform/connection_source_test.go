@@ -245,7 +245,7 @@ func TestBuildConnectionSourceMap_KeysByConnectionName(t *testing.T) {
 		kind: "datahub", name: "primary", connection: "Primary Catalog", tools: []string{"datahub_browse"},
 	}))
 	require.NoError(t, reg.Register(&mockToolkit{
-		kind: "s3", name: "data_lake", connection: "Data Lake", tools: []string{"s3_list_buckets"},
+		kind: "s3", name: "data_lake", connection: "Data Lake", tools: []string{"s3_list"},
 	}))
 
 	p := &Platform{toolkitRegistry: reg, config: &Config{}}
@@ -298,7 +298,7 @@ func TestBuildConnectionSourceMap_EveryServedConnection(t *testing.T) {
 func TestDatasetURNFor_UsesConnectionMapping(t *testing.T) {
 	reg := registry.NewRegistry()
 	require.NoError(t, reg.Register(&mockToolkit{
-		kind: "s3", name: "lake", connection: "Data Lake", tools: []string{"s3_list_buckets"},
+		kind: "s3", name: "lake", connection: "Data Lake", tools: []string{"s3_list"},
 	}))
 
 	p := &Platform{toolkitRegistry: reg, config: &Config{}}
@@ -322,7 +322,7 @@ func TestDatasetURNFor_UsesConnectionMapping(t *testing.T) {
 func TestBuildConnectionSourceMap_StoredOverrideReachesTheBoundName(t *testing.T) {
 	reg := registry.NewRegistry()
 	require.NoError(t, reg.Register(&mockToolkit{
-		kind: "s3", name: "data_lake", connection: "Data Lake", tools: []string{"s3_list_buckets"},
+		kind: "s3", name: "data_lake", connection: "Data Lake", tools: []string{"s3_list"},
 	}))
 
 	p := &Platform{

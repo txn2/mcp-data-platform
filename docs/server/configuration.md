@@ -792,7 +792,7 @@ toolkits:
 | `scratch.catalog` | string | - | Catalog a [registered table](registered-tables.md) is created in on this connection. Unset (or set without `schema`) means registration is unavailable here |
 | `scratch.schema` | string | - | Schema a registered table is created in. Required alongside `catalog`; a block naming only one is ignored with a warning |
 | `connection_name` | string | - | No effect; accepted for compatibility and warned about at startup. Trino routes by the `instances:` key, so that key is the name `list_connections` advertises, a `connection` parameter carries, an audit row records and a persona rule matches. See [Connection Names](multi-provider.md#connection-names) |
-| `descriptions` | map | `{}` | Override tool descriptions for this instance (key: tool name, value: description text) |
+| `descriptions` | map | `{}` | Override tool descriptions for this instance (key: `s3_list` or `s3_object`, value: description text) |
 
 A non-default connection could not be plain HTTP before #1436: `ssl: false`
 was indistinguishable from an absent `ssl`, so it reached the client as
@@ -849,7 +849,7 @@ toolkits:
 | `max_lineage_depth` | int | `5` | Maximum lineage traversal depth |
 | `connection_name` | string | instance name | The name a call binds this connection by: what an audit row records, what a persona's `connections.allow` / `connections.deny` rules match, and what the semantic layer resolves its platform and catalog mapping through. See [Connection Names](multi-provider.md#connection-names) |
 | `read_only` | bool | `false` | Restrict to read operations (disables write tools) |
-| `descriptions` | map | `{}` | Override tool descriptions for this instance (key: tool name, value: description text) |
+| `descriptions` | map | `{}` | Override tool descriptions for this instance (key: `s3_list` or `s3_object`, value: description text) |
 
 ### S3
 
@@ -881,7 +881,7 @@ toolkits:
 |-------|------|---------|-------------|
 | `region` | string | `us-east-1` | AWS region |
 | `endpoint` | string | - | Custom S3 endpoint for data operations (for MinIO, SeaweedFS, etc.) |
-| `public_endpoint` | string | - | Public-facing endpoint used only to sign presigned URLs (`s3_presign_url`). When set to an externally resolvable address, presigned URLs are signed against it instead of `endpoint`, while data traffic keeps using `endpoint`. Empty falls back to `endpoint`. |
+| `public_endpoint` | string | - | Public-facing endpoint used only to sign presigned URLs (`s3_object` `presign`). When set to an externally resolvable address, presigned URLs are signed against it instead of `endpoint`, while data traffic keeps using `endpoint`. Empty falls back to `endpoint`. |
 | `access_key_id` | string | - | AWS access key ID |
 | `secret_access_key` | string | - | AWS secret access key |
 | `session_token` | string | - | AWS session token (for temporary creds) |
@@ -889,12 +889,12 @@ toolkits:
 | `use_path_style` | bool | `false` | Use path-style S3 URLs |
 | `timeout` | duration | `30s` | Request timeout |
 | `disable_ssl` | bool | `false` | Disable SSL (for local testing) |
-| `read_only` | bool | `false` | Restrict to read operations |
+| `read_only` | bool | `false` | Refuse the writing actions of `s3_object` (`put`, `copy`, `delete`) on this connection; the refusal names the connection. Per connection, so a read-only connection added at run time is bound by its own flag. |
 | `max_get_size` | int64 | `10485760` | Max bytes to read from objects |
 | `max_put_size` | int64 | `104857600` | Max bytes to write to objects |
 | `connection_name` | string | instance name | The name a call binds this connection by: what an audit row records, what a persona's `connections.allow` / `connections.deny` rules match, and what the semantic layer resolves its platform and catalog mapping through. See [Connection Names](multi-provider.md#connection-names) |
 | `bucket_prefix` | string | - | Only show buckets with this prefix |
-| `descriptions` | map | `{}` | Override tool descriptions for this instance (key: tool name, value: description text) |
+| `descriptions` | map | `{}` | Override tool descriptions for this instance (key: `s3_list` or `s3_object`, value: description text) |
 
 ### MCP Gateway
 
@@ -1059,7 +1059,7 @@ purpose:
 | `require` | bool | `true` | Refuse a gated call that states no purpose with `PURPOSE_REQUIRED` (error category `purpose_required`). Set `false` to record a purpose whenever one is stated but never refuse a call for omitting it. |
 | `tools` | array | see below | The gated set. Entries are tool-name globs (`filepath.Match` semantics, e.g. `datahub_get_*`) plus `kind:<toolkit-kind>` entries that gate every tool a toolkit of that kind serves. |
 
-The default set is the data-access surface: `search`, `fetch`, `trino_query`, `trino_execute`, `trino_export`, `trino_describe_table`, `api_invoke_endpoint`, `api_export`, `datahub_get_*`, `s3_get_object`, `s3_list_objects`, and `kind:mcp` — the last covering every tool an MCP gateway connection proxies, whose names are chosen upstream and change when the upstream does. Orientation and platform-management tools (`platform_info`, `list_connections`, `platform_find_tools`, `memory_*`, `manage_*`, `save_asset`) are deliberately outside it: their purpose is their name, and gating them would tax every call an agent makes to set itself up.
+The default set is the data-access surface: `search`, `fetch`, `trino_query`, `trino_execute`, `trino_export`, `trino_describe_table`, `api_invoke_endpoint`, `api_export`, `datahub_get_*`, `s3_object`, `s3_list`, and `kind:mcp` — the last covering every tool an MCP gateway connection proxies, whose names are chosen upstream and change when the upstream does. Orientation and platform-management tools (`platform_info`, `list_connections`, `platform_find_tools`, `memory_*`, `manage_*`, `save_asset`) are deliberately outside it: their purpose is their name, and gating them would tax every call an agent makes to set itself up.
 
 ### Who is refused
 

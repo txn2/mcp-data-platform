@@ -57,7 +57,7 @@ func urnFixture(t *testing.T) (*Map, *registry.Registry) {
 		connections: []toolkit.ConnectionDetail{{Name: "warehouse-a"}, {Name: "warehouse-b"}},
 	}))
 	require.NoError(t, reg.Register(&mockToolkit{
-		kind: "s3", name: "lake", connection: "prod-lake", tools: []string{"s3_list_buckets"},
+		kind: "s3", name: "lake", connection: "prod-lake", tools: []string{"s3_list"},
 	}))
 
 	sources := NewMap()

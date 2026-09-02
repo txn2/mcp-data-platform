@@ -112,9 +112,9 @@ func TestToolsDenySnapshot_Resolution(t *testing.T) {
 	})
 
 	t.Run("stored override wins", func(t *testing.T) {
-		cfg := boundConfig(t, map[string]string{ConfigKeyToolsDeny: `["s3_delete_object"]`})
+		cfg := boundConfig(t, map[string]string{ConfigKeyToolsDeny: `["s3_object"]`})
 		cfg.Tools.Deny = []string{"trino_admin_kill"}
-		assert.Equal(t, []string{"s3_delete_object"}, cfg.ToolsDenySnapshot(ctx))
+		assert.Equal(t, []string{"s3_object"}, cfg.ToolsDenySnapshot(ctx))
 	})
 
 	t.Run("stored empty array clears the file deny list", func(t *testing.T) {
@@ -154,9 +154,9 @@ func TestToolDescriptionOverridesSnapshot_Resolution(t *testing.T) {
 
 	t.Run("stored rows layer over file config", func(t *testing.T) {
 		cfg := boundConfig(t, map[string]string{
-			"tool.trino_query.description":     "from db",
-			"tool.s3_list_objects.description": "also from db",
-			ConfigKeyServerDescription:         "unrelated key is ignored",
+			"tool.trino_query.description": "from db",
+			"tool.s3_list.description":     "also from db",
+			ConfigKeyServerDescription:     "unrelated key is ignored",
 		})
 		cfg.Tools.DescriptionOverrides = map[string]string{
 			"trino_query":    "from yaml",
@@ -164,7 +164,7 @@ func TestToolDescriptionOverridesSnapshot_Resolution(t *testing.T) {
 		}
 		got := cfg.ToolDescriptionOverridesSnapshot(ctx)
 		assert.Equal(t, "from db", got["trino_query"])
-		assert.Equal(t, "also from db", got["s3_list_objects"])
+		assert.Equal(t, "also from db", got["s3_list"])
 		assert.Equal(t, "yaml only", got["datahub_search"])
 		assert.NotContains(t, got, "server")
 	})
@@ -218,11 +218,11 @@ func TestOverrides_SharedStoreAcrossConfigs(t *testing.T) {
 
 	// Same for the other overridable keys.
 	shared.set(ConfigKeyServerAgentInstructions, "operator guidance")
-	shared.set(ConfigKeyToolsDeny, `["s3_delete_object"]`)
+	shared.set(ConfigKeyToolsDeny, `["s3_object"]`)
 	shared.set("tool.trino_query.description", "operator description")
 
 	assert.Equal(t, "operator guidance", replicaB.ServerAgentInstructions(ctx))
-	assert.Equal(t, []string{"s3_delete_object"}, replicaB.ToolsDenySnapshot(ctx))
+	assert.Equal(t, []string{"s3_object"}, replicaB.ToolsDenySnapshot(ctx))
 	assert.Equal(t, "operator description",
 		replicaB.ToolDescriptionOverridesSnapshot(ctx)["trino_query"])
 }
@@ -233,7 +233,7 @@ func TestEffectiveCopy(t *testing.T) {
 	cfg := boundConfig(t, map[string]string{
 		ConfigKeyServerDescription:       "stored description",
 		ConfigKeyServerAgentInstructions: "stored guidance",
-		ConfigKeyToolsDeny:               `["s3_delete_object"]`,
+		ConfigKeyToolsDeny:               `["s3_object"]`,
 		"tool.trino_query.description":   "stored tool description",
 	})
 	cfg.Server.Name = "unchanged"
@@ -245,7 +245,7 @@ func TestEffectiveCopy(t *testing.T) {
 
 	assert.Equal(t, "stored description", got.Server.Description)
 	assert.Equal(t, "stored guidance", got.Server.AgentInstructions)
-	assert.Equal(t, []string{"s3_delete_object"}, got.Tools.Deny)
+	assert.Equal(t, []string{"s3_object"}, got.Tools.Deny)
 	assert.Equal(t, "stored tool description", got.Tools.DescriptionOverrides["trino_query"])
 	assert.Equal(t, "unchanged", got.Server.Name, "non-overridable fields are carried through")
 

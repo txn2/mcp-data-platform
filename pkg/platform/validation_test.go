@@ -130,7 +130,7 @@ func TestHasKnownPrefix(t *testing.T) {
 	}{
 		{"trino_query", true},
 		{"datahub_search", true},
-		{"s3_list_buckets", true},
+		{"s3_list", true},
 		{"platform_info", true},
 		{"capture_insight", true},
 		{"apply_knowledge", true},

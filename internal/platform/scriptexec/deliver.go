@@ -13,7 +13,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
-// toolPutObject is the tool a delivery is issued as. Delivery is not a private
+// toolObject is the tool a delivery is issued as, with actionPut. Delivery is not a private
 // path to object storage: it is one ordinary platform tool call, so the write
 // crosses the same authentication, authorization, connection-scoping, and audit
 // middleware that the same call typed by a person crosses.
@@ -22,7 +22,10 @@ import (
 // authorized against the persona the script's roles resolve to, which is the
 // authority of record, so a destination whose connection that persona cannot
 // reach is refused however the configuration names it.
-const toolPutObject = "s3_put_object"
+const (
+	toolObject = "s3_object"
+	actionPut  = "put"
+)
 
 // deliver writes one output as an object in a configured bucket destination.
 //
@@ -55,7 +58,8 @@ func (w *outputWriter) deliver(ctx context.Context, req scriptrun.ExportRequest,
 	// that are not valid UTF-8 do not survive one intact — a single such byte
 	// in a cell would be silently rewritten and the delivered file would differ
 	// from the asset the same run stored.
-	out, err := w.caller.CallTool(ctx, toolPutObject, map[string]any{
+	out, err := w.caller.CallTool(ctx, toolObject, map[string]any{
+		"action":       actionPut,
 		"connection":   req.Destination.Connection,
 		"bucket":       req.Destination.Bucket,
 		"key":          key,
