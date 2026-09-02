@@ -414,6 +414,8 @@ export const scriptHandlers = [
     return HttpResponse.json({
       status: "deleted",
       name: removed!.name,
+      // The server names only what the script actually had (script.
+      // DeleteMessage, #1593). This fixture's scripts all carry the full set.
       message:
         `${removed!.name} is gone, with its saved versions, its schedule, its run history ` +
         "and the state it carried. The assets and resources it wrote remain, and they still " +
@@ -454,9 +456,12 @@ export const scriptHandlers = [
     contract.version = next;
     return HttpResponse.json({
       applied: true,
+      // The server composes this in one place for every surface that saves
+      // (script.SavedMessage, #1593); the mock answers the same words so a
+      // page rendered against it reads what the deployment renders.
       message:
-        "Saved. This is the version that runs: run_script executes it and any schedule " +
-        "fires it, presenting the roles you held at this save.",
+        "Saved, and this version is what runs now: it presents the roles you held " +
+        "when you saved it, and any schedule fires it.",
     });
   }),
 

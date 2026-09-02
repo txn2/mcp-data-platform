@@ -296,7 +296,12 @@ type Store interface {
 	// returns an error wrapping ErrNotFound when no script bears the ID, which
 	// is what lets a caller tell "somebody removed it first" from a failure of
 	// the platform's own.
-	Delete(ctx context.Context, id string) error
+	//
+	// It reports which of those the script actually had, read in the same
+	// transaction as the removal, so the account a surface gives its caller
+	// names what went rather than what could have gone (#1593). The report is
+	// zero when the delete failed.
+	Delete(ctx context.Context, id string) (Removed, error)
 
 	// List returns scripts matching the filter, newest first.
 	List(ctx context.Context, filter ListFilter) ([]Script, error)

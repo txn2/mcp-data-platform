@@ -37,7 +37,21 @@ A delete is made from the script's page in the portal
 (`DELETE /api/v1/portal/scripts/{id}`) or with `manage_script command=delete`.
 Both call the same store, so the two surfaces remove exactly the same rows: the
 script, its saved versions, its schedule, its run history and the state it
-carried. What a delete does NOT remove is the work: the portal assets and
+carried. Both also answer with the same account of the removal, composed once
+in `script.DeleteMessage` and naming only what the script actually had, so a
+script that was never scheduled and carried no state is not reported as having
+lost either:
+
+```json
+{
+  "name": "daily-sales-report",
+  "status": "deleted",
+  "message": "daily-sales-report is gone, with its saved versions, its schedule, its run history and the state it carried. The assets and resources it wrote remain, and they still record that it wrote them."
+}
+```
+
+An agent deleting a script on a person's behalf relays that sentence rather than
+inventing one. What a delete does NOT remove is the work: the portal assets and
 managed resources the script wrote stay where they are, owned by whoever owns
 them, and the producer records naming the script as their writer stay with them
 (see [what wrote a file](../server/content-producers.md)) — a deleted script is

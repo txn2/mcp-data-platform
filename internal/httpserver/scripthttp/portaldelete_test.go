@@ -32,6 +32,7 @@ const ownDeletePath = "/api/v1/portal/scripts/script_1"
 // consequence — what went with it, and what did not.
 func TestPortalDeleteScript_OwnerRemovesTheirOwnScript(t *testing.T) {
 	store := portalStore()
+	store.deleteCascade = script.Removed{Schedule: true, Runs: true, State: true}
 	log := &recordingAudit{}
 
 	rec := servePortalRequest(t, ownerDeps(store, owner, log), http.MethodDelete, ownDeletePath, "")
@@ -47,6 +48,25 @@ func TestPortalDeleteScript_OwnerRemovesTheirOwnScript(t *testing.T) {
 		"the message says what survives the delete, which is what a person is most likely to be wrong about")
 	assert.Equal(t, []string{"script_1"}, store.deletedIDs)
 	assert.Len(t, store.scripts, 1, "carol's script is untouched")
+}
+
+// TestPortalDeleteScript_NamesOnlyWhatTheScriptHad holds the answer to what was
+// actually removed. A script that was never scheduled and carried no state
+// loses neither, and telling its owner both were destroyed is the same defect
+// as saying nothing about them (#1593).
+func TestPortalDeleteScript_NamesOnlyWhatTheScriptHad(t *testing.T) {
+	store := portalStore()
+	store.deleteCascade = script.Removed{Runs: true}
+
+	rec := servePortalRequest(t, ownerDeps(store, owner, nil), http.MethodDelete, ownDeletePath, "")
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var body deleteResponse
+	decodeInto(t, rec, &body)
+	assert.Contains(t, body.Message, "its saved versions and its run history")
+	assert.NotContains(t, body.Message, "schedule")
+	assert.NotContains(t, body.Message, "state it carried")
+	assert.Contains(t, body.Message, "remain")
 }
 
 // TestPortalDeleteScript_AdminRemovesSomebodyElses proves the administrator's

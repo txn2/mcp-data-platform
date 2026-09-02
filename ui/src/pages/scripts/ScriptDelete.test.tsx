@@ -114,6 +114,14 @@ describe("ScriptDelete", () => {
     expect(screen.getByText(/Its whole run history/)).toBeInTheDocument();
   });
 
+  it("says nothing about state a script whose code uses it has never actually saved", () => {
+    renderControl({ state: { reads_state: true, saves_state: true, revision: 0 } });
+
+    open();
+
+    expect(screen.queryByText(/The state it carries/)).not.toBeInTheDocument();
+  });
+
   it("says what the delete does NOT take, which is what a person is likeliest to have wrong", () => {
     renderControl();
 

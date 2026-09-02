@@ -125,7 +125,10 @@ func TestRealDB_DeleteCascadesVersions(t *testing.T) {
 
 	sc := newScript("daily", "jane@example.com")
 	require.NoError(t, s.Create(ctx, sc, testAuthor), testAuthor)
-	require.NoError(t, s.Delete(ctx, sc.ID))
+	removed, delErr := s.Delete(ctx, sc.ID)
+	require.NoError(t, delErr)
+	assert.Equal(t, script.Removed{}, removed,
+		"a script that was never scheduled, never ran and saved no state reports none of the three (#1593)")
 
 	versions, err := s.ListVersions(ctx, sc.ID)
 	require.NoError(t, err)

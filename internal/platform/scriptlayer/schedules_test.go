@@ -334,7 +334,11 @@ func (s *scheduleless) GetByID(ctx context.Context, id string) (*script.Script, 
 func (s *scheduleless) Update(ctx context.Context, sc *script.Script) error {
 	return s.inner.Update(ctx, sc)
 }
-func (s *scheduleless) Delete(ctx context.Context, id string) error { return s.inner.Delete(ctx, id) }
+
+func (s *scheduleless) Delete(ctx context.Context, id string) (script.Removed, error) {
+	return s.inner.Delete(ctx, id)
+}
+
 func (s *scheduleless) List(ctx context.Context, f script.ListFilter) ([]script.Script, error) {
 	return s.inner.List(ctx, f)
 }

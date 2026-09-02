@@ -276,7 +276,8 @@ func TestRunCommands_Failures(t *testing.T) {
 		require.True(t, ok)
 		sc, err := store.GetByName(context.Background(), "jane@example.com", "daily")
 		require.NoError(t, err)
-		require.NoError(t, store.Delete(context.Background(), sc.ID))
+		_, delErr := store.Delete(context.Background(), sc.ID)
+		require.NoError(t, delErr)
 		assert.NotNil(t, runs)
 
 		res := call(t, h, authorCtx(), manageScriptInput{Command: cmdGetRun, RunID: runID})
@@ -387,7 +388,7 @@ func (s *unversionedStore) Update(ctx context.Context, sc *script.Script) error 
 	return s.inner.Update(ctx, sc)
 }
 
-func (s *unversionedStore) Delete(ctx context.Context, id string) error {
+func (s *unversionedStore) Delete(ctx context.Context, id string) (script.Removed, error) {
 	return s.inner.Delete(ctx, id)
 }
 

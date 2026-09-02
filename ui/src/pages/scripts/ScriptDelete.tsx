@@ -93,7 +93,14 @@ export function ScriptDelete({ scriptId, contract, onDeleted }: Props) {
 //
 // The schedule and the carried state are named only where the script has them:
 // a list that told somebody they were removing a schedule that never existed
-// would be teaching them not to read the next one.
+// would be teaching them not to read the next one. The account the delete
+// answers with follows the same rule (script.DeleteMessage, #1593), over what
+// the removal's own transaction found rather than over the contract.
+//
+// The run history is the exception, and it is the contract's limit rather than
+// a choice: the contract carries the last SUCCESSFUL run, so a script whose
+// every run failed would have this line withheld from it -- which is the case
+// where the history is worth the most.
 //
 // Every line is phrasing content. The dialog renders this inside its
 // description, which is a paragraph, so a list element here would be invalid
@@ -133,10 +140,12 @@ function stoppedSchedule(schedule: ScriptContract["schedule"]): string | null {
   return schedule.enabled ? words : `${words} (paused)`;
 }
 
-// keepsState reports whether this script has anything to lose between runs:
-// either its code works with state, or the platform is already holding an
-// object for it.
+// keepsState reports whether the platform is holding an object for this
+// script, which is the only state a delete removes. What the source DOES with
+// state is not it: a script whose code calls save_state but has never run has
+// nothing stored, and listing it here would warn somebody about a loss that
+// does not happen -- the defect this list is written to avoid.
 function keepsState(state: ScriptContract["state"]): boolean {
   if (!state) return false;
-  return state.reads_state || state.saves_state || state.revision > 0;
+  return state.revision > 0;
 }

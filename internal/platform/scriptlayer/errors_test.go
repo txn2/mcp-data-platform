@@ -36,9 +36,9 @@ func (f *failingStore) Create(ctx context.Context, sc *script.Script, author scr
 	return f.memStore.Create(ctx, sc, author)
 }
 
-func (f *failingStore) Delete(ctx context.Context, id string) error {
+func (f *failingStore) Delete(ctx context.Context, id string) (script.Removed, error) {
 	if f.deleteErr != nil {
-		return f.deleteErr
+		return script.Removed{}, f.deleteErr
 	}
 	return f.memStore.Delete(ctx, id)
 }

@@ -273,15 +273,62 @@ const updateHashParam = 15
 // generic failure: every caller reads the script before removing it, so the
 // only way to reach this is somebody having removed it in between, and that is
 // a not-found for the caller rather than the platform breaking.
-func (s *Store) Delete(ctx context.Context, id string) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM scripts WHERE id = $1`, id)
+//
+// What cascaded is read inside the same transaction as the removal, because
+// the surfaces report it to their caller (#1593) and only the transaction that
+// performed the delete can say what was there when it ran. Probing the three
+// stores separately beforehand would answer about a moment that is not the
+// moment of the delete.
+func (s *Store) Delete(ctx context.Context, id string) (script.Removed, error) {
+	var rm script.Removed
+	err := s.withTx(ctx, "delete script", func(tx *sql.Tx) error {
+		var txErr error
+		rm, txErr = deleteTx(ctx, tx, id)
+		return txErr
+	})
 	if err != nil {
-		return fmt.Errorf("delete script: %w", err)
+		return script.Removed{}, err
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return fmt.Errorf("delete script %s: %w", id, script.ErrNotFound)
+	return rm, nil
+}
+
+// deleteTx locks the script, reads what hangs off it, and removes it.
+//
+// The lock is taken before the read and held to the commit. At READ COMMITTED
+// each statement takes its own snapshot, so without it a child row inserted
+// and committed between the read and the DELETE -- a schedule firing on
+// another replica materializes a run -- would be cascaded away by a delete
+// that reported no run history. A foreign key insert takes FOR KEY SHARE on
+// the parent row, which FOR UPDATE conflicts with, so holding it is what makes
+// the account true rather than merely likely.
+//
+// It is also where a script that is already gone is answered: the lock finds
+// no row, which is the same not-found a second delete of one script gets.
+func deleteTx(ctx context.Context, tx *sql.Tx, id string) (script.Removed, error) {
+	var rm script.Removed
+	var locked string
+	err := tx.QueryRowContext(ctx, `SELECT id FROM scripts WHERE id = $1 FOR UPDATE`, id).Scan(&locked)
+	if errors.Is(err, sql.ErrNoRows) {
+		return rm, fmt.Errorf("delete script %s: %w", id, script.ErrNotFound)
 	}
-	return nil
+	if err != nil {
+		return rm, fmt.Errorf("lock script for delete: %w", err)
+	}
+	// A state row holding {} is a script that carried nothing: a reset writes
+	// the empty object rather than removing the row, and reporting that as
+	// state the delete took would name what was not there.
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS (SELECT 1 FROM script_schedules WHERE script_id = $1),
+		       EXISTS (SELECT 1 FROM script_runs      WHERE script_id = $1),
+		       EXISTS (SELECT 1 FROM script_state     WHERE script_id = $1
+		                                                AND state <> '{}'::jsonb)`,
+		id).Scan(&rm.Schedule, &rm.Runs, &rm.State); err != nil {
+		return script.Removed{}, fmt.Errorf("read what a script delete cascades: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM scripts WHERE id = $1`, id); err != nil {
+		return script.Removed{}, fmt.Errorf("delete script: %w", err)
+	}
+	return rm, nil
 }
 
 // List returns scripts matching the filter, newest first.

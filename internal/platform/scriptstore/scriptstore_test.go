@@ -198,19 +198,74 @@ func TestUpdate_MissingRowIsAnError(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+// expectLockedCascadeRead queues the two reads the delete makes before it
+// removes anything: the lock on the script row, which is what stops a child
+// row arriving between the read and the delete, and the read of what hangs
+// off it.
+func expectLockedCascadeRead(mock sqlmock.Sqlmock, id string, schedule, runs, state bool) {
+	mock.ExpectQuery(regexp.QuoteMeta("FROM scripts WHERE id = $1 FOR UPDATE")).WithArgs(id).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(id))
+	mock.ExpectQuery(regexp.QuoteMeta("FROM script_schedules")).WithArgs(id).
+		WillReturnRows(sqlmock.NewRows([]string{"a", "b", "c"}).AddRow(schedule, runs, state))
+}
+
 func TestDelete(t *testing.T) {
 	s, mock := newMock(t)
+	mock.ExpectBegin()
+	expectLockedCascadeRead(mock, "script_1", true, true, true)
 	mock.ExpectExec(regexp.QuoteMeta("DELETE FROM scripts")).WithArgs("script_1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	require.NoError(t, s.Delete(context.Background(), "script_1"))
+	mock.ExpectCommit()
+	removed, err := s.Delete(context.Background(), "script_1")
+	require.NoError(t, err)
+	assert.Equal(t, script.Removed{Schedule: true, Runs: true, State: true}, removed)
 
-	mock.ExpectExec(regexp.QuoteMeta("DELETE FROM scripts")).WithArgs("gone").
-		WillReturnResult(sqlmock.NewResult(0, 0))
-	assert.ErrorContains(t, s.Delete(context.Background(), "gone"), "not found")
+	// A script that was never scheduled, never ran and saved no state reports
+	// none of the three, which is what keeps the caller's account of the
+	// delete from naming what was not there.
+	mock.ExpectBegin()
+	expectLockedCascadeRead(mock, "bare", false, false, false)
+	mock.ExpectExec(regexp.QuoteMeta("DELETE FROM scripts")).WithArgs("bare").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	removed, err = s.Delete(context.Background(), "bare")
+	require.NoError(t, err)
+	assert.Equal(t, script.Removed{}, removed)
 
+	// A script already gone is found at the lock, before anything is read or
+	// removed, and is a not-found rather than a failure of the platform's own.
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("FOR UPDATE")).WithArgs("gone").
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectRollback()
+	_, err = s.Delete(context.Background(), "gone")
+	require.ErrorIs(t, err, script.ErrNotFound)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("FOR UPDATE")).WithArgs("unlockable").
+		WillReturnError(errors.New("boom"))
+	mock.ExpectRollback()
+	_, err = s.Delete(context.Background(), "unlockable")
+	assert.ErrorContains(t, err, "lock script for delete")
+
+	mock.ExpectBegin()
+	expectLockedCascadeRead(mock, "bad", false, false, false)
 	mock.ExpectExec(regexp.QuoteMeta("DELETE FROM scripts")).WithArgs("bad").
 		WillReturnError(errors.New("boom"))
-	assert.ErrorContains(t, s.Delete(context.Background(), "bad"), "delete script")
+	mock.ExpectRollback()
+	_, err = s.Delete(context.Background(), "bad")
+	assert.ErrorContains(t, err, "delete script")
+
+	// A failure reading the cascade fails the delete rather than reporting an
+	// empty account of a removal that happened.
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("FOR UPDATE")).WithArgs("unreadable").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("unreadable"))
+	mock.ExpectQuery(regexp.QuoteMeta("FROM script_schedules")).WithArgs("unreadable").
+		WillReturnError(errors.New("boom"))
+	mock.ExpectRollback()
+	_, err = s.Delete(context.Background(), "unreadable")
+	assert.ErrorContains(t, err, "read what a script delete cascades")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

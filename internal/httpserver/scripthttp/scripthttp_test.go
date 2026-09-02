@@ -43,9 +43,12 @@ type stubStore struct {
 	transferAsked script.TransferRequest
 	transferMoved script.Transferred
 	// The delete half (#1575): what the store should answer with, and the ids
-	// it was actually asked to remove.
-	deleteErr  error
-	deletedIDs []string
+	// it was actually asked to remove. deleteCascade is what the removal
+	// reports having taken with the script (#1593), which the real store reads
+	// in the delete's own transaction.
+	deleteErr     error
+	deletedIDs    []string
+	deleteCascade script.Removed
 	// The schedule half, served by the methods in schedules_test.go.
 	schedule         *script.Schedule
 	scheduleErr      error
@@ -100,9 +103,9 @@ func (s *stubStore) Transfer(_ context.Context, req script.TransferRequest, auth
 // succeeding: that is the contract the Postgres store states through
 // RowsAffected, and a fake that swallowed it would leave the handler's
 // already-deleted path untested.
-func (s *stubStore) Delete(_ context.Context, id string) error {
+func (s *stubStore) Delete(_ context.Context, id string) (script.Removed, error) {
 	if s.deleteErr != nil {
-		return s.deleteErr
+		return script.Removed{}, s.deleteErr
 	}
 	for i := range s.scripts {
 		if s.scripts[i].ID != id {
@@ -110,9 +113,9 @@ func (s *stubStore) Delete(_ context.Context, id string) error {
 		}
 		s.deletedIDs = append(s.deletedIDs, id)
 		s.scripts = append(s.scripts[:i], s.scripts[i+1:]...)
-		return nil
+		return s.deleteCascade, nil
 	}
-	return fmt.Errorf("delete script %s: %w", id, script.ErrNotFound)
+	return script.Removed{}, fmt.Errorf("delete script %s: %w", id, script.ErrNotFound)
 }
 
 func (s *stubStore) List(_ context.Context, filter script.ListFilter) ([]script.Script, error) {

@@ -160,24 +160,8 @@ func (h *Handle) persist(ctx context.Context, before, after *script.Script, extr
 	maps.Copy(out, extra)
 	out[fieldStatus] = "updated"
 	addDescriptionNotice(out, after)
-	out["message"] = runsNow(after)
+	out["message"] = script.SavedMessage(after)
 	return jsonResult(out)
-}
-
-// runsNow states what the saved script's state means for whether anything will
-// run it: the run gate refuses a disabled or deprecated script whatever was
-// just saved.
-func runsNow(sc *script.Script) string {
-	switch {
-	case !sc.Enabled:
-		return "Saved. It is disabled, so nothing executes it until it is enabled again."
-	case sc.Status == script.StatusDeprecated:
-		return "Saved. It is deprecated, so nothing executes it."
-	case sc.Status == script.StatusSuperseded:
-		return "Saved. It was superseded, so nothing executes it."
-	default:
-		return "Saved, and this version is what runs now: run_script executes it and any schedule fires it."
-	}
 }
 
 // editError maps an edit failure to a caller-facing message. The one the
@@ -197,16 +181,25 @@ func editError(err error) *mcp.CallToolResult {
 // person's, so a delete takes its schedule and its history with it and nobody
 // else loses anything; the caller has already been established as its owner or
 // an administrator by editable.
+//
+// It answers with the same account of the cascade the portal route answers
+// with, composed by script.DeleteMessage: an agent deleting a script on
+// somebody's behalf has to be able to tell them what went with it and what
+// stayed, and a bare status left it inventing the answer (#1593).
 func (h *Handle) handleDelete(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
 	existing, errResult := h.editable(ctx, input)
 	if errResult != nil {
 		return errResult, nil, nil
 	}
-	if err := h.store.Delete(ctx, existing.ID); err != nil {
+	removed, err := h.store.Delete(ctx, existing.ID)
+	if err != nil {
 		slog.Error("failed to delete script", fieldName, existing.Name, logKeyError, err)
 		return errorResult("failed to delete script"), nil, nil
 	}
-	return jsonResult(map[string]any{fieldStatus: "deleted", fieldName: existing.Name})
+	return jsonResult(map[string]any{
+		fieldStatus: "deleted", fieldName: existing.Name,
+		"message": script.DeleteMessage(existing.Name, removed),
+	})
 }
 
 // handleGet returns one script with its full source and parameter contract. A

@@ -467,18 +467,11 @@ func (h *Handler) auditScriptAct(
 type deleteResponse struct {
 	Status string `json:"status" example:"deleted"`
 	Name   string `json:"name" example:"daily-sales-report"`
-	// Message states what went and what did not, in the terms the confirmation
-	// stated them before the delete ran.
-	Message string `json:"message" example:"daily-sales-report is gone, with its saved versions, its schedule, its run history and the state it carried."`
-}
-
-// deleteMessage states the consequence, both halves of it. What went is the
-// part a person is warned about; what stayed is the part they are most likely
-// to be wrong about, because "delete the script" reads to many people as
-// "delete the reports it wrote".
-func deleteMessage(name string) string {
-	return name + " is gone, with its saved versions, its schedule, its run history and the state it carried. " +
-		"The assets and resources it wrote remain, and they still record that it wrote them."
+	// Message states what went and what did not. It names only what the
+	// removal actually took, which is a narrower statement than the
+	// confirmation makes before the fact: the dialog warns from the script's
+	// contract, this reports what the delete's own transaction found.
+	Message string `json:"message" example:"daily-sales-report is gone, with its saved versions, its schedule, its run history and the state it carried. The assets and resources it wrote remain, and they still record that it wrote them."`
 }
 
 // portalDeleteScript removes a script.
@@ -508,7 +501,7 @@ func (h *Handler) portalDeleteScript(w http.ResponseWriter, r *http.Request, use
 	// what the audit row is for is naming what was removed, and after the
 	// delete there is nothing left to read it from.
 	id, name, owner := sc.ID, sc.Name, sc.OwnerEmail
-	err := h.deps.Scripts.Delete(r.Context(), id)
+	removed, err := h.deps.Scripts.Delete(r.Context(), id)
 	h.auditScriptAct(r, user, scriptAct{tool: auditToolDelete, scriptID: id}, map[string]any{
 		"script": name, "owner": owner,
 	}, err)
@@ -519,7 +512,7 @@ func (h *Handler) portalDeleteScript(w http.ResponseWriter, r *http.Request, use
 	slog.Info("script deleted", keyScriptID, id,
 		"name", logsan.SanitizeForLog(name), "by", logsan.SanitizeForLog(user.owner()))
 	httpjson.WriteJSON(w, http.StatusOK, deleteResponse{
-		Status: "deleted", Name: name, Message: deleteMessage(name),
+		Status: "deleted", Name: name, Message: script.DeleteMessage(name, removed),
 	})
 }
 

@@ -185,8 +185,33 @@ func TestRealDB_StateFollowsTheScript(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), st.Revision, "a transfer keeps the state")
 
-	require.NoError(t, s.Delete(ctx, sc.ID))
+	removed, delErr := s.Delete(ctx, sc.ID)
+	require.NoError(t, delErr)
+	assert.True(t, removed.State, "the delete reports the carried state it took (#1593)")
 	var rows int
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM script_state WHERE script_id = $1`, sc.ID).Scan(&rows))
 	assert.Zero(t, rows, "deleting the script deletes its state")
+}
+
+// TestRealDB_DeleteDoesNotReportAClearedStateAsCarried holds the delete's
+// account to what the script actually had (#1593). A reset writes the empty
+// object rather than removing the row, so the row's existence is not the
+// question: a script whose state was cleared carried nothing, and a message
+// saying the delete took "the state it carried" would name what was not there.
+func TestRealDB_DeleteDoesNotReportAClearedStateAsCarried(t *testing.T) {
+	db := testdb.New(t)
+	s := New(db)
+	ctx := context.Background()
+	sc, _ := savedScript(ctx, t, s, "sync")
+
+	_, err := s.SetState(ctx, sc.ID, map[string]any{"synced_through": "2026-08-01"}, "jane@example.com")
+	require.NoError(t, err)
+	cleared, err := s.SetState(ctx, sc.ID, map[string]any{}, "jane@example.com")
+	require.NoError(t, err)
+	require.Equal(t, int64(2), cleared.Revision, "a clear is a write and moves the revision")
+
+	removed, delErr := s.Delete(ctx, sc.ID)
+	require.NoError(t, delErr)
+	assert.False(t, removed.State, "a state row holding {} is a script that carried nothing")
+	assert.Equal(t, script.Removed{}, removed)
 }
