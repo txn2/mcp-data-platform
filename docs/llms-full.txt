@@ -1698,7 +1698,7 @@ Get table schema and metadata.
 
 ### trino_export
 
-Export query results directly to a portal asset (CSV, JSON, Markdown, text), bypassing the LLM token budget. Use after validating the query shape with `trino_query`. Only metadata is returned to the agent. Requires portal + trino configured. SQL runs through the read-only interceptor. CSV escaping prevents formula injection. Sensitivity tags inherited from source datasets.
+Export query results directly to a portal asset (CSV, JSON, Markdown, text), bypassing the LLM token budget. Use after validating the query shape with `trino_query`. Only metadata is returned to the agent. Requires portal + trino configured. SQL runs through the read-only interceptor. CSV escaping prevents formula injection. Sensitivity tags inherited from source datasets. The response is one JSON object, returned as the tool's structured result and as a single text block; the platform's `call_reference` is merged into that object, so a client reading only the structured result sees `asset_id`, `portal_url`, `row_count`, `size_bytes` and `call_reference` together, as it does for `api_export`.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|

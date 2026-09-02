@@ -859,3 +859,70 @@ func configMapPlatformConfigs(t *testing.T, path string, manifest []byte) []ship
 	}
 	return out
 }
+
+// TestUntypedToolRegistrationInventory is the #1589 inventory: every
+// first-party tool registers through the generic mcp.AddTool, so the SDK
+// validates its arguments and writes its output as the structured result the
+// platform's appended blocks (the call reference, semantic context) merge
+// into. A tool on the untyped Server.AddTool path gets no structured result,
+// and those blocks reach the client as extra text blocks beside its own, which
+// is how trino_export shipped twice (#822, #1416, #1589).
+//
+// The one registration allowed on the untyped path is listed here with its
+// reason. Adding another requires adding it to this list with a reason, or
+// giving the tool a typed output.
+func TestUntypedToolRegistrationInventory(t *testing.T) {
+	// Path relative to the repository root => why the untyped path is the
+	// right one for it.
+	allowed := map[string]string{
+		// The gateway forwards a tool an upstream MCP server defines. Its
+		// input schema and result shape are the upstream's, discovered at
+		// connect time, so there is no Go type to register an output as; the
+		// forwarder relays the upstream's structured result when there is one.
+		"pkg/toolkits/gateway/toolkit.go": "proxies an upstream server's tool; the result shape is the upstream's",
+	}
+
+	// A receiver other than the mcp package calling AddTool: s.AddTool(...),
+	// t.server.AddTool(...). The generic path is mcp.AddTool(s, ...).
+	untyped := regexp.MustCompile(`(^|[^.\w])([\w.]+)\.AddTool\(`)
+
+	found := map[string][]int{}
+	for _, root := range []string{"pkg", "internal", "cmd"} {
+		err := filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			src, readErr := os.ReadFile(path) //nolint:gosec // path comes from walking the repository
+			if readErr != nil {
+				return fmt.Errorf("reading %s: %w", path, readErr)
+			}
+			for i, line := range strings.Split(string(src), "\n") {
+				trimmed := strings.TrimSpace(line)
+				if strings.HasPrefix(trimmed, "//") {
+					continue
+				}
+				m := untyped.FindStringSubmatch(line)
+				if len(m) < 3 || m[2] == "mcp" {
+					continue
+				}
+				found[filepath.ToSlash(path)] = append(found[filepath.ToSlash(path)], i+1)
+			}
+			return nil
+		})
+		require.NoError(t, err)
+	}
+
+	for path, lines := range found {
+		if _, ok := allowed[path]; !ok {
+			t.Errorf("%s registers a tool through the untyped Server.AddTool at line(s) %v: give it a typed output via mcp.AddTool, or list it here with the reason it cannot have one", path, lines)
+		}
+	}
+	for path, reason := range allowed {
+		if _, ok := found[path]; !ok {
+			t.Errorf("%s is listed as an allowed untyped registration (%s) but no longer registers one; remove it from the list", path, reason)
+		}
+	}
+}

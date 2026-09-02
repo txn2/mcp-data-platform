@@ -205,6 +205,8 @@ Requires portal to be enabled with S3 storage configured. Requires explicit pers
 - Format, row count, and file size in bytes
 - No query data (data is written to S3, not returned through the LLM)
 
+The response is one JSON object, returned as the tool's structured result and as a single text block. The platform's `call_reference` is merged into the same object, so a client that reads only the structured result sees `asset_id`, `portal_url`, `row_count`, `size_bytes` and `call_reference` together, as it does for `api_export`.
+
 **Security features:**
 
 - SQL runs through the same read-only interceptor as `trino_query`

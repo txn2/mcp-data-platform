@@ -210,15 +210,16 @@ func applyEnrichment(
 // called the tool for.
 //
 // trino_export is the tool that reached a running deployment this way twice
-// (#822 through enrichment, #1416 through the call reference): it registers
-// through the untyped Server.AddTool path (pkg/toolkits/trino/export.go), so
-// the SDK writes no structured result and its asset_id and portal_url live in a
-// text block alone. api_export registers through the generic mcp.AddTool with a
-// typed output, so the SDK does write one and the appended blocks merge into
-// it. The rule is not about exports: a gateway-proxied tool whose upstream
-// answered in text, and any tool whose structured result is an array, are the
-// same case, and their appended blocks stay in content where the response they
-// belong to is.
+// (#822 through enrichment, #1416 through the call reference) while it
+// registered through the untyped Server.AddTool path, where the SDK writes no
+// structured result and the appended reference arrived as a second text block
+// (#1589). It now registers through the generic mcp.AddTool with a typed
+// output, as api_export does, so the SDK writes one and the appended blocks
+// merge into it. The rule is not about exports: a gateway-proxied tool whose
+// upstream answered in text, and any tool whose structured result is an array,
+// have no object to merge into, and their appended blocks stay in content
+// where the response they belong to is. TestUntypedToolRegistrationInventory
+// (verify_test.go) holds the untyped path to that one registration.
 //
 // The three paths that append a block — semantic enrichment, the proven queries
 // a describe carries, and the call reference — all mirror through here, so the

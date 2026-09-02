@@ -1,6 +1,7 @@
 package trino
 
 import (
+	"context"
 	"encoding/json"
 	"reflect"
 	"strings"
@@ -47,38 +48,42 @@ func TestExportInputSchema_ClosedAndInSyncWithInputStruct(t *testing.T) {
 	}
 }
 
-// TestParseExportInput_RejectsUnknownArgumentByName proves the refusal is real
-// rather than declarative. trino_export is registered through the untyped
-// Server.AddTool path, which does NOT validate arguments against the tool's
-// input schema, so the decoder enforces what the schema states.
-func TestParseExportInput_RejectsUnknownArgumentByName(t *testing.T) {
-	req := mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{
+// TestExportRegistration_RejectsUnknownArgumentByName proves the refusal is
+// real rather than declarative. trino_export registers through the generic
+// mcp.AddTool, so the SDK validates every call against exportInputSchema before
+// the handler runs, and a misnamed argument is refused by name (#1057).
+func TestExportRegistration_RejectsUnknownArgumentByName(t *testing.T) {
+	sess := connectExportServer(t, newTestExportToolkit(&mockExportAssetStore{}, &mockExportVersionStore{}, &mockExportS3Client{}))
+	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: exportToolName,
-		Arguments: json.RawMessage(
-			`{"sql":"SELECT 1","format":"csv","name":"rows","parameters":{"limit":1}}`),
-	}}
-	_, err := parseExportInput(req)
-	if err == nil {
-		t.Fatal("unknown `parameters` argument accepted; want a parse error")
+		Arguments: map[string]any{
+			"sql": "SELECT 1", "format": "csv", "name": "rows", "parameters": map[string]any{"limit": 1},
+		},
+	})
+	if err != nil {
+		t.Fatalf("call: %v", err)
 	}
-	if !strings.Contains(err.Error(), "parameters") {
-		t.Errorf("error must name the offending property; got: %v", err)
+	if !res.IsError {
+		t.Fatal("unknown `parameters` argument accepted; want a refusal")
+	}
+	if text := firstTextBlock(res); !strings.Contains(text, "parameters") {
+		t.Errorf("refusal must name the offending property; got: %s", text)
+	}
+	if res.StructuredContent != nil {
+		t.Errorf("a refusal carries no structured result; got %v", res.StructuredContent)
 	}
 }
 
-// TestParseExportInput_AcceptsEveryPublishedProperty walks the schema's own
-// property set through the decoder, so closing the schema cannot narrow the
-// accepted surface.
-func TestParseExportInput_AcceptsEveryPublishedProperty(t *testing.T) {
+// TestExportRegistration_AcceptsEveryPublishedProperty walks the schema's own
+// property set through the registered tool, so closing the schema cannot
+// narrow the accepted surface: every published argument passes the SDK's
+// validation and reaches the handler decoded.
+func TestExportRegistration_AcceptsEveryPublishedProperty(t *testing.T) {
 	args := map[string]any{
 		"sql": "SELECT 1", "connection": "primary", "format": "csv",
 		"name": "rows", "description": "d", "tags": []string{"t"},
 		"limit": 10, "idempotency_key": "k1", "timeout_seconds": 30,
 		"create_public_link": false,
-	}
-	raw, err := json.Marshal(args)
-	if err != nil {
-		t.Fatalf("marshal args: %v", err)
 	}
 	// Every published property must appear in the sample, or the walk proves
 	// nothing about the ones it skipped.
@@ -98,13 +103,15 @@ func TestParseExportInput_AcceptsEveryPublishedProperty(t *testing.T) {
 		}
 	}
 
-	in, err := parseExportInput(mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{
-		Name: exportToolName, Arguments: raw,
-	}})
+	// The toolkit has no Trino client, so a call that passes validation and
+	// reaches the query is refused there, naming the missing client; a call
+	// refused by the SDK's validation never gets that far.
+	sess := connectExportServer(t, newTestExportToolkit(&mockExportAssetStore{}, &mockExportVersionStore{}, &mockExportS3Client{}))
+	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{Name: exportToolName, Arguments: args})
 	if err != nil {
-		t.Fatalf("valid arguments rejected: %v", err)
+		t.Fatalf("call: %v", err)
 	}
-	if in.SQL != "SELECT 1" || in.Format != formatCSV || in.Name != "rows" {
-		t.Errorf("decoded input lost fields: %+v", in)
+	if text := firstTextBlock(res); !strings.Contains(text, "query execution failed") {
+		t.Fatalf("valid arguments did not reach the handler's query step; got: %s", text)
 	}
 }

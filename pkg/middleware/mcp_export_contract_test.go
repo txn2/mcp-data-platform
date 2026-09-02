@@ -12,11 +12,13 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
 
-// exportResponsePayload mirrors the trino_export handler output: a single JSON
-// text block carrying asset metadata, with no StructuredContent, which is what
-// the untyped Server.AddTool path leaves (pkg/toolkits/trino/export.go
-// exportSuccess). api_export carries the same fields in a structured result
-// too — see exportStructuredPayload.
+// exportResponsePayload mirrors an export handler's own response: a single
+// JSON text block carrying asset metadata, with no StructuredContent. Both
+// export tools register through the generic mcp.AddTool with a typed output,
+// so on the running server the SDK writes the same object as the structured
+// result too — see exportStructuredPayload; a handler on the untyped
+// Server.AddTool path, such as the gateway forwarder, leaves the response as
+// this function returns it.
 func exportResponsePayload(t *testing.T) *mcp.CallToolResult {
 	t.Helper()
 	body, err := json.Marshal(map[string]any{
@@ -182,13 +184,17 @@ func TestExportContractViaAssembledChain(t *testing.T) {
 		toolName    string
 		toolkitKind string
 		// structured is whether this tool's real handler leaves the SDK a
-		// structured result to merge into: trino_export registers through the
-		// untyped Server.AddTool path and does not, api_export registers
-		// through the generic mcp.AddTool with a typed output and does.
+		// structured result to merge into. trino_export and api_export
+		// register through the generic mcp.AddTool with a typed output and do
+		// (#1589 moved trino_export there). A tool the gateway proxies from an
+		// upstream server that answered in text registers through the untyped
+		// Server.AddTool path and does not; its appended blocks stay in
+		// content beside the response they belong to.
 		structured bool
 	}{
-		{toolName: "trino_export", toolkitKind: "trino", structured: false},
+		{toolName: "trino_export", toolkitKind: "trino", structured: true},
 		{toolName: "api_export", toolkitKind: "api", structured: true},
+		{toolName: "mcp-test-fixture__echo", toolkitKind: "mcp", structured: false},
 	} {
 		t.Run(tc.toolName, func(t *testing.T) {
 			server := mcp.NewServer(&mcp.Implementation{Name: "export-chain-test", Version: "v0"}, nil)
@@ -209,7 +215,7 @@ func TestExportContractViaAssembledChain(t *testing.T) {
 			// then enrichment (pkg/platform/middleware_chain.go).
 			server.AddReceivingMiddleware(MCPSemanticEnrichmentMiddleware(
 				exportEnrichmentProvider(), nil, nil, EnrichmentConfig{EnrichTrinoResults: true}, nil))
-			server.AddReceivingMiddleware(MCPCallReferenceMiddleware([]string{"trino", "api"}))
+			server.AddReceivingMiddleware(MCPCallReferenceMiddleware([]string{"trino", "api", "mcp"}))
 			server.AddReceivingMiddleware(exportPlatformContextMiddleware(tc.toolkitKind))
 
 			ctx := context.Background()
@@ -253,9 +259,10 @@ func TestExportContractViaAssembledChain(t *testing.T) {
 }
 
 // exportStructuredPayload is the structured result the SDK writes for an export
-// tool registered with a typed output, which api_export is
-// (pkg/toolkits/apigateway/export.go returns its output value alongside the
-// result, and the SDK marshals it into StructuredContent).
+// tool registered with a typed output, which both are
+// (pkg/toolkits/apigateway/export.go and pkg/toolkits/trino/export.go return
+// their output value alongside the result, and the SDK marshals it into
+// StructuredContent).
 func exportStructuredPayload(t *testing.T) map[string]any {
 	t.Helper()
 	tc, ok := exportResponsePayload(t).Content[0].(*mcp.TextContent)
