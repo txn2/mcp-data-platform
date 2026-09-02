@@ -136,6 +136,28 @@ func TestDatahubProvider_EntityLookupReturnsCatalogEntity(t *testing.T) {
 }
 
 func TestDatahubProvider_EntityLookupNoDescriptionUsesName(t *testing.T) {
+	// The entity is documented by a tag rather than a description, so it is a
+	// real entry (#1605) whose hit text falls back to the dotted table name.
+	s := &fakeTableSearcher{
+		byTable: map[string]*semantic.TableContext{
+			testDatasetTable: {URN: testDatasetURN, Tags: []string{"pii"}},
+		},
+	}
+	p := NewCatalogProvider(s)
+	hits, err := p.Search(context.Background(), Query{EntityURNs: []string{testDatasetURN}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(hits) != 1 || hits[0].Text != testDatasetTable {
+		t.Errorf("expected the dotted table name as text, got %+v", hits)
+	}
+}
+
+// TestDatahubProvider_EntityLookupRejectsTheURNOnlyStub is #1605 on the search
+// side. A catalog answers a URN it has never ingested with a context carrying
+// that URN and nothing else, so an entity search on a made-up URN reported one
+// match and the reference it handed back then failed to fetch.
+func TestDatahubProvider_EntityLookupRejectsTheURNOnlyStub(t *testing.T) {
 	s := &fakeTableSearcher{
 		byTable: map[string]*semantic.TableContext{
 			testDatasetTable: {URN: testDatasetURN},
@@ -146,8 +168,8 @@ func TestDatahubProvider_EntityLookupNoDescriptionUsesName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(hits) != 1 || hits[0].Text != testDatasetTable {
-		t.Errorf("expected the dotted table name as text, got %+v", hits)
+	if len(hits) != 0 {
+		t.Errorf("a URN the catalog has no entry for produced %d hit(s): %+v", len(hits), hits)
 	}
 }
 
@@ -684,6 +706,53 @@ func TestCatalogProvider_FetchDataProduct(t *testing.T) {
 		_, owned, err = p.Fetch(context.Background(), productURN, Caller{})
 		if !owned || !errors.Is(err, ErrNotFound) {
 			t.Errorf("empty product: owned=%v err=%v, want owned + ErrNotFound", owned, err)
+		}
+	})
+}
+
+// TestCatalogProvider_FetchRejectsTheURNOnlyStub is #1605 at the arm rather
+// than at the rule: a catalog that answers a reference it has never ingested
+// with a record built out of that reference must produce a not-found, because
+// the arm's only other not-found conditions (an error, an empty URN) are ones a
+// real DataHub does not produce for a missing entity.
+func TestCatalogProvider_FetchRejectsTheURNOnlyStub(t *testing.T) {
+	t.Run("dataset", func(t *testing.T) {
+		p := NewCatalogProvider(&fakeTableSearcher{})
+		p.SetDatasetReader(&fakeDatasetReader{ds: &semantic.Dataset{
+			TableContext: semantic.TableContext{URN: testDatasetURN},
+			Name:         testDatasetTable,
+			Type:         "DATASET",
+			Platform:     "trino",
+			Schema:       &semantic.DatasetSchema{},
+		}})
+		doc, owned, err := p.Fetch(context.Background(), testDatasetURN, Caller{})
+		if !owned || !errors.Is(err, ErrNotFound) || doc != nil {
+			t.Errorf("doc=%+v owned=%v err=%v, want owned + ErrNotFound + no document", doc, owned, err)
+		}
+	})
+
+	t.Run("data product", func(t *testing.T) {
+		const productURN = "urn:li:dataProduct:never-ingested"
+		p := NewCatalogProvider(&fakeTableSearcher{})
+		p.SetDataProductReader(&fakeProductReader{product: &semantic.DataProduct{URN: productURN}})
+		doc, owned, err := p.Fetch(context.Background(), productURN, Caller{})
+		if !owned || !errors.Is(err, ErrNotFound) || doc != nil {
+			t.Errorf("doc=%+v owned=%v err=%v, want owned + ErrNotFound + no document", doc, owned, err)
+		}
+	})
+
+	// A dataset whose record is partial is not a stub: the arm cannot tell an
+	// absent aspect from one this read could not serve, so it resolves.
+	t.Run("a partial read still resolves", func(t *testing.T) {
+		p := NewCatalogProvider(&fakeTableSearcher{})
+		p.SetDatasetReader(&fakeDatasetReader{ds: &semantic.Dataset{
+			TableContext: semantic.TableContext{URN: testDatasetURN},
+			Name:         testDatasetTable,
+			Unavailable:  []string{"schema", "queries"},
+		}})
+		_, owned, err := p.Fetch(context.Background(), testDatasetURN, Caller{})
+		if !owned || err != nil {
+			t.Errorf("owned=%v err=%v, want the record to resolve", owned, err)
 		}
 	})
 }

@@ -739,6 +739,21 @@ out-of-scope reference returns `found: false` with an explanatory `message`, a
 answer. A malformed call (empty `reference`) and a real backend failure are tool
 errors.
 
+A catalog or governance reference is settled by what the record carries rather
+than by whether the catalog reported an error. DataHub answers a URN it has
+never ingested with a stub built from that URN -- the reference echoed back and
+a name, type and platform read out of it, with every real aspect empty -- and no
+error, so a record carrying nothing beyond what its own reference supplies is
+reported as not found. A dataset, data product, or glossary term that carries
+any documentation of its own (a description, an owner, a tag, a term, a domain,
+a declared schema, a saved query, a parent node, custom properties) resolves
+normally. The one case this reports as absent wrongly is a glossary term that
+exists, sits at the glossary root, and has no definition, no steward and no
+properties at all; it is tracked upstream as txn2/mcp-datahub#204, where the
+catalog will report the miss itself. The same rule governs `search` by
+`entity_urns`, so a URN that names nothing reports no match rather than a hit
+whose reference then fails to fetch.
+
 ---
 
 ### Knowledge pages (canonical business/domain knowledge)
