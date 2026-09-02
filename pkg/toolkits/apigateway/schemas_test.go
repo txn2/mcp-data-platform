@@ -79,8 +79,8 @@ func TestSchemas_QueryParamsRename(t *testing.T) {
 
 	// list_endpoints intentionally keeps `query` (search text, not
 	// HTTP query params). Guard against an over-eager rename.
-	list := string(listEndpointsSchema)
+	list := string(discoverSchema)
 	if !strings.Contains(list, `"query":`) {
-		t.Error("listEndpointsSchema must keep the `query` search-text property")
+		t.Error("discoverSchema must keep the `query` search-text property")
 	}
 }

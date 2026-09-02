@@ -193,7 +193,7 @@ export function SpecModal({
         <LabeledInput
           label="Spec name"
           help={
-            "A short label for this component within the catalog. Use 'default' if the catalog has one spec. Use multiple names (e.g. drive, gmail) only when the catalog bundles separate APIs; the model sees this label in the spec field of api_list_endpoints so it can pick the right operation. Lowercase letters, digits, hyphens, or underscores; typed input is auto-lowercased."
+            "A short label for this component within the catalog. Use 'default' if the catalog has one spec. Use multiple names (e.g. drive, gmail) only when the catalog bundles separate APIs; the model sees this label in the spec field of api_discover so it can pick the right operation. Lowercase letters, digits, hyphens, or underscores; typed input is auto-lowercased."
           }
           value={specName}
           onChange={(v) => setSpecName(normalizeSpecName(v))}
@@ -270,7 +270,7 @@ export function SpecModal({
 
         <LabeledInput
           label="Title (optional)"
-          help="Short label for this spec shown in api_list_specs and the multi-spec gate on api_list_endpoints, so the agent can pick the right section. When empty, the toolkit derives it from the spec's info.title. Set this to override an unhelpful title or give a deployment-specific name. Max 200 characters."
+          help="Short label for this spec shown at api_discover's specs level, so the agent can pick the right section. When empty, the toolkit derives it from the spec's info.title. Set this to override an unhelpful title or give a deployment-specific name. Max 200 characters."
           value={title}
           onChange={setTitle}
           placeholder="Orders API"
@@ -278,7 +278,7 @@ export function SpecModal({
 
         <LabeledTextarea
           label="Description (optional)"
-          help="One- or two-sentence summary shown alongside the title in api_list_specs. When empty, the toolkit derives it from the spec's info.description. Set this when the spec ships without a useful description. Max 2000 characters."
+          help="One- or two-sentence summary shown alongside the title at api_discover's specs level. When empty, the toolkit derives it from the spec's info.description. Set this when the spec ships without a useful description. Max 2000 characters."
           value={description}
           onChange={setDescription}
           placeholder="Create, list, and refund orders."

@@ -60,7 +60,7 @@ type Task struct {
 	ExpectedSQL string `yaml:"expected_sql,omitempty" json:"expected_sql,omitempty"`
 	// GoldOperations lists the operationIds the task requires (#1027).
 	// The runner computes retrieval hit rate from them: whether every
-	// gold operation surfaced in some api_list_endpoints result during
+	// gold operation surfaced in some api_discover result during
 	// the episode. Empty for tasks with no gold operation (irrelevance).
 	GoldOperations []string `yaml:"gold_operations,omitempty" json:"gold_operations,omitempty"`
 	// Grading is the deterministic grading spec.

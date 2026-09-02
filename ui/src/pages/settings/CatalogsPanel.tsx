@@ -27,9 +27,8 @@ export { SourceBadge } from "./catalogs/badges";
 // api-kind connection references via config.catalog_id. Catalogs
 // are versioned (each (name, version) is its own row), specs
 // inside a catalog are named (constituent, gift, action, ...), and
-// mutations fan out to live connections so api_list_endpoints
-// and api_get_endpoint_schema reflect the new content without a
-// process restart.
+// mutations fan out to live connections so api_discover reflects
+// the new content without a process restart.
 
 export function CatalogsPanel() {
   const { data: systemInfo } = useSystemInfo();
@@ -128,7 +127,7 @@ export function CatalogsPanel() {
             <span>
               <strong>Embedding provider not configured.</strong> Semantic ranking is
               disabled; spec saves will not produce per-operation embeddings and
-              api_list_endpoints falls back to lexical scoring. Set{" "}
+              api_discover falls back to lexical scoring. Set{" "}
               <code className="rounded bg-current/10 px-1 py-0.5 font-mono text-xs">
                 memory.embedding.provider
               </code>{" "}

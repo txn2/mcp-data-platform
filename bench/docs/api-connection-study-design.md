@@ -180,7 +180,7 @@ task set, the same models, the same repetition count. In `b0` and `b1-*` the
 platform serves MCP over HTTP exactly as in report 1 (auth, audit,
 identity-key pool). The search-first workflow gate is disabled in all arms
 (`workflow.require_search: false`): `b0` has no `search` tool at all, and
-within `b1-*` the discovery step under test is `api_list_endpoints` itself,
+within `b1-*` the discovery step under test is `api_discover` itself,
 so the gate would either block `b0` or inject an extra required call into
 `b1-*`. Only the toolkit under test is enabled per arm; no Trino, DataHub,
 S3, memory, or knowledge toolkits are present in any arm.
@@ -302,7 +302,7 @@ report corrects; success, cost, and latency always appear together.
 Arm-specific instrumentation:
 
 - **Retrieval hit rate (`b1-*`, RQ3)**: for each episode, from the episode
-  transcript's `api_list_endpoints` calls (arguments and returned
+  transcript's `api_discover` calls (arguments and returned
   operations; the platform's audit events carry tool name and outcome but
   not payloads, so the transcript is the payload source): whether the gold
   operationId appeared in any result set (hit@k at the limit used), and

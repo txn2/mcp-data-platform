@@ -13,44 +13,10 @@ import "encoding/json"
 // (middleware.SessionResolver, pkg/middleware/mcp_session_handle.go), so a
 // closed schema does not conflict with it.
 
-// listEndpointsSchema is the JSON Schema for the api_list_endpoints tool input.
+// discoverSchema is the JSON Schema for the api_discover tool input.
 //
 //nolint:gochecknoglobals // MCP tool schema must be a package-level var
-var listEndpointsSchema = json.RawMessage(`{
-  "type": "object",
-  "required": ["connection"],
-  "additionalProperties": false,
-  "properties": {
-    "connection": {
-      "type": "string",
-      "description": "Name of the registered API connection (kind=api). Required."
-    },
-    "query": {
-      "type": "string",
-      "description": "Optional case-insensitive search across operation_id, path, summary, spec name, and tags. Multiple whitespace-separated tokens combine with AND, so \"gift list\" matches operations containing both \"gift\" and \"list\" in any of those fields. Empty returns the full list (capped by limit)."
-    },
-    "limit": {
-      "type": "integer",
-      "minimum": 1,
-      "maximum": 500,
-      "description": "Optional cap on the number of operations returned. Defaults to 50. Pass a higher value when exploring large APIs."
-    },
-    "spec": {
-      "type": "string",
-      "description": "Optional component-spec filter for multi-spec catalogs. Restricts results to operations whose spec field matches this value exactly. Pair with query to narrow to a section of a large catalog (e.g. spec=\"orders\" + query=\"refund\"). Values come from the spec field on operations in a prior api_list_endpoints response."
-    },
-    "ranking": {
-      "type": "string",
-      "enum": ["lexical", "semantic", "hybrid"],
-      "description": "Optional ranking algorithm. Defaults to \"hybrid\" whenever this connection has an embedding index available (the platform default), otherwise \"lexical\". \"hybrid\" blends embedding cosine similarity with per-token substring match: best for free-form intent queries that may also share path/tag vocabulary, and the recommended choice. \"semantic\" ranks by embedding cosine similarity only, which finds endpoints by intent (\"create order\" finds POST /v1/orders) even when no words overlap. \"lexical\" is a fast, deterministic per-token substring match with no embedding dependency; pass it explicitly to opt out of semantic ranking. semantic and hybrid require an embedding provider; if unavailable they fall back to lexical and a note explains the reason."
-    }
-  }
-}`)
-
-// listSpecsSchema is the JSON Schema for the api_list_specs tool input.
-//
-//nolint:gochecknoglobals // MCP tool schema must be a package-level var
-var listSpecsSchema = json.RawMessage(`{
+var discoverSchema = json.RawMessage(`{
   "type": "object",
   "required": ["connection"],
   "additionalProperties": false,
@@ -58,30 +24,29 @@ var listSpecsSchema = json.RawMessage(`{
     "connection": {
       "type": "string",
       "description": "Name of the registered API connection (kind=api). Required. Use list_connections to discover available connections."
-    }
-  }
-}`)
-
-// getEndpointSchemaInputSchema is the JSON Schema for the
-// api_get_endpoint_schema tool input.
-//
-//nolint:gochecknoglobals // MCP tool schema must be a package-level var
-var getEndpointSchemaInputSchema = json.RawMessage(`{
-  "type": "object",
-  "required": ["connection", "operation_id"],
-  "additionalProperties": false,
-  "properties": {
-    "connection": {
-      "type": "string",
-      "description": "Name of the registered API connection (kind=api). Required."
-    },
-    "operation_id": {
-      "type": "string",
-      "description": "The operation_id returned by api_list_endpoints. Required."
     },
     "spec": {
       "type": "string",
-      "description": "Optional component spec name within the connection's catalog. Only needed when an operation_id is defined by more than one component spec. api_list_endpoints surfaces the spec field for each operation so the disambiguation is local — pass the same value back."
+      "description": "Optional component spec within the connection's catalog. Without operation_id, restricts the operations returned to this spec; with operation_id, disambiguates an id that more than one component spec defines. Values come from the specs level (the name field) or from the spec field on a returned operation. Pair with query to narrow to a section of a large catalog (e.g. spec=\"orders\" + query=\"refund\")."
+    },
+    "operation_id": {
+      "type": "string",
+      "description": "Optional. Return this one operation's parameters, request body, and per-status responses, ready for api_invoke_endpoint. Values come from the operation_id field on a returned operation."
+    },
+    "query": {
+      "type": "string",
+      "description": "Optional case-insensitive search across operation_id, path, summary, spec name, and tags. Multiple whitespace-separated tokens combine with AND, so \"gift list\" matches operations containing both \"gift\" and \"list\" in any of those fields. On a multi-spec catalog a query with no spec ranks operations across every spec. Empty returns the full list (capped by limit). Ignored with operation_id."
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 500,
+      "description": "Optional cap on the number of operations returned. Defaults to 50. Pass a higher value when exploring large APIs."
+    },
+    "ranking": {
+      "type": "string",
+      "enum": ["lexical", "semantic", "hybrid"],
+      "description": "Optional ranking algorithm for query. Defaults to \"hybrid\" whenever this connection has an embedding index available (the platform default), otherwise \"lexical\". \"hybrid\" blends embedding cosine similarity with per-token substring match: best for free-form intent queries that may also share path/tag vocabulary, and the recommended choice. \"semantic\" ranks by embedding cosine similarity only, which finds endpoints by intent (\"create order\" finds POST /v1/orders) even when no words overlap. \"lexical\" is a fast, deterministic per-token substring match with no embedding dependency; pass it explicitly to opt out of semantic ranking. semantic and hybrid require an embedding provider; if unavailable they fall back to lexical and a note explains the reason."
     }
   }
 }`)
@@ -140,7 +105,7 @@ var apiExportInputSchema = json.RawMessage(`{
     },
     "operation_id": {
       "type": "string",
-      "description": "The operation_id returned by api_list_endpoints / api_get_endpoint_schema. Address the operation by this stable identifier instead of method+path; the platform resolves it to method and path from the connection's catalog. Supply either operation_id or method+path, not both. For a templated path, pass the placeholder values in path_params."
+      "description": "The operation_id returned by api_discover. Address the operation by this stable identifier instead of method+path; the platform resolves it to method and path from the connection's catalog. Supply either operation_id or method+path, not both. For a templated path, pass the placeholder values in path_params."
     },
     "path_params": {
       "type": "object",
@@ -162,7 +127,7 @@ var apiExportInputSchema = json.RawMessage(`{
     },
     "query_params": {
       "type": "object",
-      "description": "Optional HTTP query-string parameters sent to the upstream. Distinct from api_list_endpoints's \"query\" field (which is search text).",
+      "description": "Optional HTTP query-string parameters sent to the upstream. Distinct from api_discover's \"query\" field (which is search text).",
       "additionalProperties": true
     },
     "headers": {
@@ -217,7 +182,7 @@ var invokeEndpointSchema = json.RawMessage(`{
     },
     "operation_id": {
       "type": "string",
-      "description": "The operation_id returned by api_list_endpoints / api_get_endpoint_schema. Address the operation by this stable identifier instead of method+path; the platform resolves it to the method and path template from the connection's catalog. Supply either operation_id or method+path, not both. For a templated path (e.g. /v1/users/{id}), pass the placeholder values in path_params rather than substituting them by hand."
+      "description": "The operation_id returned by api_discover. Address the operation by this stable identifier instead of method+path; the platform resolves it to the method and path template from the connection's catalog. Supply either operation_id or method+path, not both. For a templated path (e.g. /v1/users/{id}), pass the placeholder values in path_params rather than substituting them by hand."
     },
     "path_params": {
       "type": "object",
@@ -239,7 +204,7 @@ var invokeEndpointSchema = json.RawMessage(`{
     },
     "query_params": {
       "type": "object",
-      "description": "Optional HTTP query-string parameters sent to the upstream. Values may be strings, numbers, or booleans; arrays send the parameter once per value. Distinct from api_list_endpoints's \"query\" field (which is search text).",
+      "description": "Optional HTTP query-string parameters sent to the upstream. Values may be strings, numbers, or booleans; arrays send the parameter once per value. Distinct from api_discover's \"query\" field (which is search text).",
       "additionalProperties": true
     },
     "headers": {

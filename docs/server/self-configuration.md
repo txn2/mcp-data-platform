@@ -57,9 +57,8 @@ anonymously.
 
 The connection behaves like any other API gateway connection:
 
-- `api_list_specs` / `api_list_endpoints` — discover admin operations.
-- `api_get_endpoint_schema` — inspect an operation's parameters and request
-  body.
+- `api_discover` — discover admin operations and, with `operation_id`, inspect
+  an operation's parameters and request body.
 - `api_invoke_endpoint` — call an operation (e.g. `POST /api/v1/admin/personas`).
 
 ## Access control

@@ -50,7 +50,7 @@ func twoSpecConn(t *testing.T) *Toolkit {
 
 func TestHandleListSpecs_RejectsMissingConnection(t *testing.T) {
 	tk := New("test")
-	res, _, err := tk.handleListSpecs(context.Background(), nil, ListSpecsInput{})
+	res, _, err := tk.handleDiscover(context.Background(), nil, DiscoverInput{})
 	if err != nil {
 		t.Fatalf("handleListSpecs: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestHandleListSpecs_RejectsMissingConnection(t *testing.T) {
 
 func TestHandleListSpecs_UnknownConnection(t *testing.T) {
 	tk := New("test")
-	res, _, err := tk.handleListSpecs(context.Background(), nil, ListSpecsInput{Connection: "nope"})
+	res, _, err := tk.handleDiscover(context.Background(), nil, DiscoverInput{Connection: "nope"})
 	if err != nil {
 		t.Fatalf("handleListSpecs: %v", err)
 	}
@@ -75,14 +75,14 @@ func TestHandleListSpecs_NoCatalog(t *testing.T) {
 	if err := tk.AddConnection("c1", map[string]any{"base_url": "https://x"}); err != nil {
 		t.Fatalf("AddConnection: %v", err)
 	}
-	res, out, err := tk.handleListSpecs(context.Background(), nil, ListSpecsInput{Connection: "c1"})
+	res, out, err := tk.handleDiscover(context.Background(), nil, DiscoverInput{Connection: "c1"})
 	if err != nil {
 		t.Fatalf("handleListSpecs: %v", err)
 	}
 	if res.IsError {
 		t.Errorf("connection without catalog should not be an error: %s", textContent(res))
 	}
-	o, ok := out.(ListSpecsOutput)
+	o, ok := out.(DiscoverOutput)
 	if !ok {
 		t.Fatalf("out type %T", out)
 	}
@@ -96,14 +96,14 @@ func TestHandleListSpecs_NoCatalog(t *testing.T) {
 
 func TestHandleListSpecs_HappyPath(t *testing.T) {
 	tk := twoSpecConn(t)
-	res, out, err := tk.handleListSpecs(context.Background(), nil, ListSpecsInput{Connection: "c"})
+	res, out, err := tk.handleDiscover(context.Background(), nil, DiscoverInput{Connection: "c"})
 	if err != nil {
 		t.Fatalf("handleListSpecs: %v", err)
 	}
 	if res.IsError {
 		t.Fatalf("expected success, got error: %s", textContent(res))
 	}
-	o, ok := out.(ListSpecsOutput)
+	o, ok := out.(DiscoverOutput)
 	if !ok {
 		t.Fatalf("out type %T", out)
 	}
@@ -136,14 +136,14 @@ func TestHandleListSpecs_HappyPath(t *testing.T) {
 
 func TestHandleListEndpoints_MultiSpecGatesOnEmptySpec(t *testing.T) {
 	tk := twoSpecConn(t)
-	res, out, err := tk.handleListEndpoints(context.Background(), nil, ListEndpointsInput{Connection: "c"})
+	res, out, err := tk.handleDiscover(context.Background(), nil, DiscoverInput{Connection: "c"})
 	if err != nil {
 		t.Fatalf("handleListEndpoints: %v", err)
 	}
 	if res.IsError {
 		t.Fatalf("gate response should not be an error: %s", textContent(res))
 	}
-	o, ok := out.(ListEndpointsOutput)
+	o, ok := out.(DiscoverOutput)
 	if !ok {
 		t.Fatalf("out type %T", out)
 	}
@@ -160,14 +160,14 @@ func TestHandleListEndpoints_MultiSpecGatesOnEmptySpec(t *testing.T) {
 
 func TestHandleListEndpoints_MultiSpecExplicitSpecFallsThrough(t *testing.T) {
 	tk := twoSpecConn(t)
-	_, out, err := tk.handleListEndpoints(context.Background(), nil, ListEndpointsInput{
+	_, out, err := tk.handleDiscover(context.Background(), nil, DiscoverInput{
 		Connection: "c",
 		Spec:       "orders",
 	})
 	if err != nil {
 		t.Fatalf("handleListEndpoints: %v", err)
 	}
-	o, _ := out.(ListEndpointsOutput)
+	o, _ := out.(DiscoverOutput)
 	if len(o.Specs) != 0 {
 		t.Errorf("explicit spec must not trigger the gate, got %d summaries", len(o.Specs))
 	}
@@ -185,11 +185,11 @@ func TestHandleListEndpoints_SingleSpecPassthrough(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("AddConnection: %v", err)
 	}
-	_, out, err := tk.handleListEndpoints(context.Background(), nil, ListEndpointsInput{Connection: "c1"})
+	_, out, err := tk.handleDiscover(context.Background(), nil, DiscoverInput{Connection: "c1"})
 	if err != nil {
 		t.Fatalf("handleListEndpoints: %v", err)
 	}
-	o, _ := out.(ListEndpointsOutput)
+	o, _ := out.(DiscoverOutput)
 	if len(o.Specs) != 0 {
 		t.Errorf("single-spec catalog must not trigger the gate, got %d summaries", len(o.Specs))
 	}

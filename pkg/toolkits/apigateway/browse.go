@@ -11,8 +11,8 @@ import (
 // The browse surface is the read path a person uses instead of an
 // agent: it answers "what does this upstream expose" without handing
 // back the spec document. It resolves operations through the same
-// helpers api_list_endpoints and api_get_endpoint_schema use, so a
-// page and a tool call describe one operation identically (#1478).
+// helpers api_discover uses, so a page and a tool call describe one
+// operation identically (#1478).
 
 // BrowseConnection is one api-kind connection as a browse surface
 // presents it: what it points at, how it authenticates, and how many
@@ -76,7 +76,7 @@ func browseSpecSummaries(c *conn, visible []OperationSummary) []SpecSummary {
 
 // BrowseOperations lists the operations of one connection that the
 // caller reaches, in stable (spec, path, method) order. Unlike
-// api_list_endpoints it neither ranks nor caps: a browser renders the
+// api_discover it neither ranks nor caps: a browser renders the
 // whole index and filters it in the page.
 func (t *Toolkit) BrowseOperations(ctx context.Context, connection string) ([]OperationSummary, error) {
 	t.mu.RLock()
@@ -166,10 +166,10 @@ func sortOperations(ops []OperationSummary) {
 }
 
 // BrowseOperation returns the full detail for one operation of one
-// connection: the same EndpointSchemaOutput api_get_endpoint_schema
-// serves, including the requests promoted on this endpoint. spec is
-// optional and disambiguates an id defined by more than one component
-// spec.
+// connection: the same EndpointSchemaOutput api_discover serves at its
+// operation level, including the requests promoted on this endpoint.
+// spec is optional and disambiguates an id defined by more than one
+// component spec.
 //
 // An operation the route policy denies answers ErrOperationNotFound,
 // matching its absence from BrowseOperations.
@@ -226,7 +226,7 @@ func SpecOperations(content, specName, basePathOverride string) (ops []Operation
 
 // SpecOperation returns the full detail for one operation of one
 // stored catalog spec, resolved through the same helpers
-// api_get_endpoint_schema uses. Saved examples are not included: those
+// api_discover uses. Saved examples are not included: those
 // are promoted against a connection, and this path has none.
 func SpecOperation(content, specName, basePathOverride, operationID string) (*EndpointSchemaOutput, error) {
 	doc, basePath, err := parseSpecForBrowse(content, basePathOverride)

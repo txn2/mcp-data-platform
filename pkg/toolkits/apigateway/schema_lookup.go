@@ -2,30 +2,13 @@ package apigateway
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"log/slog"
 	"sort"
 
 	"github.com/getkin/kin-openapi/openapi3"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 )
-
-// ToolGetEndpointSchema is the MCP tool name for the per-endpoint
-// detail lookup. Exported so audit code and tests reference the
-// same literal as the registration site.
-const ToolGetEndpointSchema = "api_get_endpoint_schema"
-
-// GetEndpointSchemaInput is the parsed argument shape for the
-// api_get_endpoint_schema tool.
-type GetEndpointSchemaInput struct {
-	Connection  string `json:"connection"`
-	OperationID string `json:"operation_id"`
-	Spec        string `json:"spec,omitempty"`
-}
 
 // EndpointSchemaOutput is the structured response. Fields are
 // omitted from JSON when empty so the typical "GET /things"
@@ -96,56 +79,12 @@ type schemaCandidate struct {
 	Path   string `json:"path"`
 }
 
-// ambiguousSchemaError is the error-result payload for ambiguous
-// operation_id. JSON-serialized into the tool's IsError response so
-// the model can react programmatically.
-type ambiguousSchemaError struct {
-	Error      string            `json:"error"`
-	Candidates []schemaCandidate `json:"candidates"`
-}
-
 // maxSchemaDepth caps how deep $ref-resolved schemas are walked
 // before flattening. Without this, a recursive schema (a tree node
 // referencing itself) would expand forever; kin-openapi resolves
 // refs in-place, so following the pointer chain naively can blow
 // the stack and the response size.
 const maxSchemaDepth = 8
-
-// maxResponseChars caps the marshaled response payload. Spec-heavy
-// APIs (Salesforce, Microsoft Graph) routinely have multi-megabyte
-// schemas; surfacing one would devour the model's context. The
-// truncation note tells the model that a partial result was
-// returned so it can fall back to api_invoke_endpoint to probe
-// shape.
-const maxResponseChars = 50000
-
-func (t *Toolkit) handleGetEndpointSchema(ctx context.Context, _ *mcp.CallToolRequest, in GetEndpointSchemaInput) (*mcp.CallToolResult, any, error) {
-	if in.Connection == "" {
-		return toolkit.ErrorResult("connection is required"), nil, nil
-	}
-	if in.OperationID == "" {
-		return toolkit.ErrorResult("operation_id is required"), nil, nil
-	}
-	t.mu.RLock()
-	c, ok := t.connections[in.Connection]
-	t.mu.RUnlock()
-	if !ok {
-		return toolkit.ErrorResult(fmt.Sprintf("connection %q not found", in.Connection)), nil, nil
-	}
-	if len(c.specs) == 0 {
-		return toolkit.ErrorResult("connection has no catalog specs configured"), nil, nil
-	}
-	match, candidates := resolveOperation(c.specs, in.OperationID, in.Spec)
-	if match == nil {
-		if len(candidates) > 1 {
-			return ambiguousResult(in.OperationID, candidates), nil, nil
-		}
-		return toolkit.ErrorResult(fmt.Sprintf("operation_id %q not found", in.OperationID)), nil, nil
-	}
-	out := buildEndpointSchemaOutput(match)
-	out.SavedExamples = t.savedExamples(ctx, in.Connection, out.OperationID)
-	return cappedJSONResult(out), out, nil
-}
 
 // savedExamples reads the requests promoted on this endpoint. It is
 // best-effort: an unreadable example store costs the reader the examples, never
@@ -159,7 +98,7 @@ func (t *Toolkit) savedExamples(ctx context.Context, connection, operationID str
 	}
 	examples, err := store.ListExamples(ctx, connection, operationID)
 	if err != nil {
-		slog.Warn("api_get_endpoint_schema: saved examples unavailable",
+		slog.Warn("api_discover: saved examples unavailable",
 			"connection", connection, "operation_id", operationID, "error", err)
 		return nil
 	}
@@ -219,14 +158,14 @@ func collectOperationMatches(specs map[string]*specState, operationID, specFilte
 			id := op.OperationID
 			if id == "" {
 				// Synthesize from the spec-relative path, NOT the
-				// basePath-prefixed fullPath. api_list_endpoints
+				// basePath-prefixed fullPath. api_discover
 				// (appendItemOperations) advertises the id built from
 				// the spec-relative rawPath so the id stays a property
 				// of the spec content alone. Matching here on fullPath
 				// instead severed every synthesized-id lookup on any
 				// connection with a non-empty effectiveBasePath — the
 				// built-in platform-admin spec (base path /api/v1) hit
-				// this squarely: api_list_endpoints advertised
+				// this squarely: the operations level advertised
 				// "GET /admin/personas" while this resolver looked up
 				// "GET /api/v1/admin/personas" and returned not-found.
 				// Use the one shared helper so the two sites cannot drift.
@@ -285,10 +224,10 @@ func walkOperations(doc *openapi3.T, fn func(method, path string, op *openapi3.O
 //
 // m.path is already the full upstream path (the spec's base path
 // prepended at collectOperationMatches time) so the output's Path
-// field agrees with the path reported by api_list_endpoints for
+// field agrees with the path reported at the operations level for
 // the same operation. The synthesized OperationID, by contrast, is
 // built from the spec-relative rawPath via the shared helper so it
-// agrees with the id api_list_endpoints advertises (which is
+// agrees with the id the operations level advertises (which is
 // base-path-independent), not with m.path.
 func buildEndpointSchemaOutput(m *operationMatch) EndpointSchemaOutput {
 	out := EndpointSchemaOutput{
@@ -560,51 +499,5 @@ func flattenSchemaRefs(refs openapi3.SchemaRefs, depth int) []any {
 func addStringIfPresent(m map[string]any, key, value string) {
 	if value != "" {
 		m[key] = value
-	}
-}
-
-// cappedJSONResult marshals out and returns a tool result with the
-// JSON body truncated to maxResponseChars when needed. The note
-// field is patched onto the output before marshal so the model can
-// see truncation happened.
-func cappedJSONResult(out EndpointSchemaOutput) *mcp.CallToolResult {
-	encoded, err := json.MarshalIndent(out, "", "  ")
-	if err != nil {
-		return toolkit.ErrorResult("internal: marshal endpoint schema: " + err.Error())
-	}
-	if len(encoded) <= maxResponseChars {
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: string(encoded)}},
-		}
-	}
-	// Re-marshal with a truncation note. Drop the bulky parameters /
-	// response schemas and keep the surface fields; the model can
-	// fall back to api_invoke_endpoint to probe.
-	out.Parameters = nil
-	out.RequestBody = nil
-	out.Responses = nil
-	out.Note = fmt.Sprintf("schema details elided (full size %d chars exceeds %d-char cap)",
-		len(encoded), maxResponseChars)
-	encoded, _ = json.MarshalIndent(out, "", "  ")
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: string(encoded)}},
-	}
-}
-
-// ambiguousResult builds the structured error for the
-// "operation_id appears in N specs" case. The candidate list is
-// alphabetized to keep the response stable across runs.
-func ambiguousResult(operationID string, candidates []schemaCandidate) *mcp.CallToolResult {
-	payload := ambiguousSchemaError{
-		Error:      fmt.Sprintf("operation_id %q is ambiguous; pass spec to disambiguate", operationID),
-		Candidates: candidates,
-	}
-	encoded, err := json.MarshalIndent(payload, "", "  ")
-	if err != nil {
-		return toolkit.ErrorResult("operation_id is ambiguous")
-	}
-	return &mcp.CallToolResult{
-		IsError: true,
-		Content: []mcp.Content{&mcp.TextContent{Text: string(encoded)}},
 	}
 }

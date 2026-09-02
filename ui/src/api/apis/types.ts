@@ -3,7 +3,7 @@
 // Two surfaces feed one page. The caller-scoped routes under /api/v1/apis
 // answer what a persona reaches; the admin catalog routes answer what has been
 // loaded. Both describe an operation with the same types the platform's own
-// tools return, so a pane and `api_get_endpoint_schema` cannot disagree.
+// tools return, so a pane and `api_discover` cannot disagree.
 
 /** One component spec of a catalog, as a browse surface counts it. */
 export interface APISpecSummary {
@@ -106,7 +106,7 @@ export interface APISavedExample {
 }
 
 /**
- * One operation in full. This is `api_get_endpoint_schema`'s own output shape:
+ * One operation in full. This is the operation `api_discover` returns at its operation level:
  * the pane renders the resolution the tool returns rather than a second parse
  * of the same document.
  */

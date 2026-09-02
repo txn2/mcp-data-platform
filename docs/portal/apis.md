@@ -4,7 +4,7 @@ description: Browsing the operations an API connection exposes - the operator's 
 
 # API Operation Browser
 
-The platform indexes the operations of every OpenAPI spec in an [API catalog](../server/api-catalogs.md), and an agent reaches them three ways: `api_list_endpoints` for a connection's operations, `api_get_endpoint_schema` for one operation's parameters and shapes, and relevance hits from `search`. The operation browser is the same index for a person.
+The platform indexes the operations of every OpenAPI spec in an [API catalog](../server/api-catalogs.md), and an agent reaches them two ways: `api_discover` for a connection's operations and, with `operation_id`, one operation's parameters and shapes, and relevance hits from `search`. The operation browser is the same index for a person.
 
 There are two of them, and the difference is what they are drawn from.
 
@@ -18,7 +18,7 @@ A spec whose stored content no longer parses as OpenAPI is named above the index
 
 ## The caller's view
 
-`/apis` lists what this reader may **call**: the api-kind connections their persona allows, and on each of those, the operations the persona's `APIRoutes` rules permit. An operation a deny rule refuses is absent from the list and from the connection's count, which is the same subtraction `api_list_endpoints` applies, through the same route policy. The page and the tool cannot disagree about what a caller reaches.
+`/apis` lists what this reader may **call**: the api-kind connections their persona allows, and on each of those, the operations the persona's `APIRoutes` rules permit. An operation a deny rule refuses is absent from the list and from the connection's count, which is the same subtraction `api_discover` applies, through the same route policy. The page and the tool cannot disagree about what a caller reaches.
 
 The connection boundary is in force today. The per-route one is the same code path both surfaces already run through, but a persona's `APIRoutes` rules have no authoring surface yet — neither `platform.yaml` nor the admin API accepts them — so every persona currently carries an empty rule set and the route policy permits every operation on a connection the persona reaches. Authoring those rules is [#1479](https://github.com/txn2/mcp-data-platform/issues/1479).
 
@@ -36,7 +36,7 @@ The index is grouped by component spec and then by the tag the spec's author gav
 - one entry per declared response status, with its media types, headers and body shape;
 - on a connection, the requests [promoted from calls that worked](../portal/activity.md#my-calls) against that endpoint.
 
-Every schema is shown as the shape a caller produces or receives, with the raw document one click away. It is the platform's own resolution — the same flattening `api_get_endpoint_schema` returns — not a second parse of the same document.
+Every schema is shown as the shape a caller produces or receives, with the raw document one click away. It is the platform's own resolution — the same flattening `api_discover` returns — not a second parse of the same document.
 
 The selection is in the address bar, so one operation can be linked to:
 

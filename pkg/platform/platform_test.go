@@ -4894,7 +4894,7 @@ func TestWireAPIGatewayTokenStore(t *testing.T) {
 // for #371 semantic ranking: when the platform has a non-nil
 // embedding provider, calling WireAPIGatewayEmbeddingProvider
 // must reach every registered api gateway toolkit's
-// SetEmbeddingProvider so api_list_endpoints can rank with
+// SetEmbeddingProvider so api_discover can rank with
 // semantic / hybrid modes. Without this, requesting non-lexical
 // ranking would silently fall back to lexical even on a fully
 // configured platform.

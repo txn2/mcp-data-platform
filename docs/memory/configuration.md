@@ -73,7 +73,7 @@ In this state:
 - `GET /api/v1/admin/embedding/status` returns `{ "kind": "noop", "status": "unconfigured", ... }`.
 - The portal renders an amber banner on the API Catalogs and Memory pages.
 - Memory writes persist `Embedding: nil` (symmetric with the recall-side guard that refuses to vector-search zero vectors).
-- The apigateway embed-job queue does not start, so spec saves do not produce zero-vector rows in `api_catalog_operation_embeddings`. Per-spec badges render "not indexed" honestly; `api_list_endpoints` falls back to lexical scoring.
+- The apigateway embed-job queue does not start, so spec saves do not produce zero-vector rows in `api_catalog_operation_embeddings`. Per-spec badges render "not indexed" honestly; `api_discover` falls back to lexical scoring.
 
 To set up Ollama:
 

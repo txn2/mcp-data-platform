@@ -2,7 +2,17 @@
 
 The API gateway toolkit (`kind: api`) proxies arbitrary REST/HTTP APIs through the platform's auth, persona, and audit pipeline. It is the HTTP/JSON sibling of the MCP [Gateway Toolkit](gateway.md), which proxies upstream MCP servers.
 
-The toolkit exposes four MCP tools — `api_invoke_endpoint`, `api_list_endpoints`, `api_list_specs`, `api_get_endpoint_schema` — that handle every operation on every configured API. Operators register the upstream as a `connection` of kind `api`; the model uses `api_list_specs` to browse the sections of a multi-spec catalog, `api_list_endpoints` to discover the operations in one section, `api_get_endpoint_schema` to learn the precise parameter shape of one operation, and `api_invoke_endpoint` to make the call. No tools are generated per endpoint, so adding ten APIs does not inflate the tool catalog by a thousand entries.
+The toolkit exposes three MCP tools — `api_discover`, `api_invoke_endpoint`, `api_export` — that handle every operation on every configured API. Operators register the upstream as a `connection` of kind `api`; the model uses `api_discover` to walk the connection's catalog at the depth it needs (the sections of a multi-spec catalog, the operations of one section or of a query, one operation's precise parameter shape), `api_invoke_endpoint` to make the call, and `api_export` to stream a response into a portal asset. No tools are generated per endpoint, so adding ten APIs does not inflate the tool catalog by a thousand entries.
+
+## Discovering an operation
+
+`api_discover` takes a `connection` and answers at the depth its other arguments select. Every response carries `level` naming the shape it returned and `next` naming the argument that goes one level deeper, so the path from a bare call to `api_invoke_endpoint` reads out of the responses themselves.
+
+- **Specs** (`level: specs`): a bare call on a connection whose catalog bundles more than one component spec returns one summary per spec (`name`, `title`, `description`, `operation_count`, `base_path`). `next` says to pass `spec=<name>` for one spec's operations or `query=<text>` to rank operations across every spec.
+- **Operations** (`level: operations`): a call with `spec`, `query`, or both returns the matching operations (`operation_id`, `method`, `path`, `summary`, `tags`, `spec`), ranked by `query` under the `ranking` mode (`hybrid` by default when the connection has an embedding index, `lexical` otherwise, with a `note` when a semantic mode fell back to lexical). A bare call on a single-spec catalog is this level too: a connection with one section needs no section-selection step. `limit` caps the list (default 50). `next` says to pass `operation_id=<id>`.
+- **Operation** (`level: operation`): a call with `operation_id` returns that operation's parameters, request body, and per-status responses under `operation`, with any requests promoted on it in `saved_examples`. When more than one component spec defines the id, the refusal names the candidate specs and the call is repeated with `spec`. `next` is the `api_invoke_endpoint` call, with the connection, the id, the spec if one was needed, and a reminder that placeholder values go in `path_params`.
+
+A connection with no catalog answers with a `note` at every depth: there is nothing to discover, and it is called with `api_invoke_endpoint` by `method` and `path`. A `spec` the catalog does not have is refused with the names it does have. Operations the persona's route rules deny are absent from the operations level and reported as not found at the operation level, and persona policy still applies at invoke time.
 
 OpenAPI specs that describe each upstream are stored separately in **API catalogs** — versioned, globally-owned bundles that many connections can reference. See [API Catalogs](api-catalogs.md) for the full surface.
 
@@ -10,7 +20,7 @@ OpenAPI specs that describe each upstream are stored separately in **API catalog
 
 `api_invoke_endpoint` (and `api_export`, which mirrors its input) address an operation in one of two ways:
 
-- **By `operation_id`**: the stable identifier `api_list_endpoints` and `api_get_endpoint_schema` return (for example `getUser`). This is the natural continuation of the discovery flow: read a schema by `operation_id`, then invoke the same `operation_id`. The platform resolves it to the method and path template from the connection's catalog. For a templated path, pass the placeholder values in `path_params` and the platform substitutes and URL-escapes them, so you never hand-build `/v1/users/123` from `/v1/users/{id}`:
+- **By `operation_id`**: the stable identifier `api_discover` returns (for example `getUser`). This is the natural continuation of the discovery flow: read a schema by `operation_id`, then invoke the same `operation_id`. The platform resolves it to the method and path template from the connection's catalog. For a templated path, pass the placeholder values in `path_params` and the platform substitutes and URL-escapes them, so you never hand-build `/v1/users/123` from `/v1/users/{id}`:
 
   ```json
   {
@@ -397,7 +407,7 @@ The admin portal's **Connections** page surfaces `static_headers` as a key/value
 
 ## Built-in utility connection
 
-The platform ships a built-in connection named **`util`** whose operations are handled **in-process** rather than proxied to an upstream `base_url`. It registers automatically when the API-gateway toolkit and a database-backed catalog store are present, and it is discovered and invoked exactly like any other `kind: api` connection: `api_list_endpoints connection=util` lists its operations, `api_get_endpoint_schema` returns their parameter shapes, `api_invoke_endpoint` runs one inline, and `api_export` streams one to a portal asset. No new MCP tool is introduced; the utility surface grows by adding catalog operations, not tools.
+The platform ships a built-in connection named **`util`** whose operations are handled **in-process** rather than proxied to an upstream `base_url`. It registers automatically when the API-gateway toolkit and a database-backed catalog store are present, and it is discovered and invoked exactly like any other `kind: api` connection: `api_discover connection=util` lists its operations and, with `operation_id`, returns their parameter shapes, `api_invoke_endpoint` runs one inline, and `api_export` streams one to a portal asset. No new MCP tool is introduced; the utility surface grows by adding catalog operations, not tools.
 
 Like every connection, `util` is **deny-by-default**: a persona reaches it only when its connection rules allow it (the built-in admin persona's `*`, or an explicit operator grant). Not granting it is the restriction.
 

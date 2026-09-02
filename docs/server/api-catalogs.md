@@ -2,7 +2,7 @@
 
 OpenAPI specs describe **the API**, not the credential pointed at it. An organization with a Salesforce sandbox and a Salesforce production org has two connections, one set of credentials each, but both talk to the same sObjects, query, and bulk-job endpoints. Pasting the same documentation into both connection records is duplication that drifts.
 
-An **API catalog** is a versioned, globally-owned bundle of component OpenAPI 3.x specs. Each `(name, version)` pair is its own catalog row. Connections of kind `api` reference one catalog by id via `config.catalog_id`; the toolkit resolves connection, catalog, and specs at runtime and exposes the merged operation index through `api_list_endpoints` and `api_get_endpoint_schema`.
+An **API catalog** is a versioned, globally-owned bundle of component OpenAPI 3.x specs. Each `(name, version)` pair is its own catalog row. Connections of kind `api` reference one catalog by id via `config.catalog_id`; the toolkit resolves connection, catalog, and specs at runtime and exposes the merged operation index through `api_discover`.
 
 To read what a catalog exposes without opening the spec text, use the [operation browser](../portal/apis.md).
 
@@ -21,9 +21,9 @@ A catalog has:
   - **source_kind**: `inline`, `upload`, `url`, or `embedded`. `embedded` is reserved for the built-in `platform-admin` catalog, whose content comes from the OpenAPI document embedded in the binary (see [Self-Configuration](self-configuration.md)); operators cannot create `embedded` specs through the admin API.
   - **source_url / etag / last_fetched_at**: populated when `source_kind` is `url`.
   - **base_path**: optional operator override for the URL path segment prepended to every operation in the spec. Empty derives the prefix from the spec's `servers[0].url`. See [Base paths and shared specs](#base-paths-and-shared-specs) for how the prefix interacts with each connection's `base_url`.
-  - **title / description**: optional operator overrides for the per-spec summary shown by `api_list_specs` and the multi-spec gate. Empty derives them from the spec's `info.title` / `info.description`. Validated on write: trimmed, no embedded CR/LF/NUL, capped at 200 / 2000 characters.
+  - **title / description**: optional operator overrides for the per-spec summary shown at `api_discover`'s specs level. Empty derives them from the spec's `info.title` / `info.description`. Validated on write: trimmed, no embedded CR/LF/NUL, capped at 200 / 2000 characters.
 
-Multiple connections can reference the same catalog. Editing a spec inside a catalog fans out to every referencing connection: the toolkit rebuilds each connection's parsed-doc state in place so `api_list_endpoints` and `api_get_endpoint_schema` reflect the new content without a process restart.
+Multiple connections can reference the same catalog. Editing a spec inside a catalog fans out to every referencing connection: the toolkit rebuilds each connection's parsed-doc state in place so `api_discover` reflects the new content without a process restart.
 
 ## Base paths and shared specs
 
@@ -44,7 +44,7 @@ servers:
 
 Every entry is a candidate for the drop rule, so each connection resolves against the server that is its own. Declaring only the first deployment leaves the others with that first deployment's path prefixed onto their own `base_url`, which produces a path concatenating two deployments and an upstream 400 that says nothing about the cause. Two other shapes avoid the prefix entirely: omit `servers` from the shared spec, or set `base_path` per spec. `base_path` is authoritative and singular — when it is set, the spec's `servers` entries are not consulted.
 
-`api_list_specs` reports the resolved prefix for each spec as `base_path`, and `api_invoke_endpoint` reports the path an `operation_id` call resolved to as `resolved_path`. Between them the effective routing for a connection is readable without inspecting the spec.
+`api_discover`'s specs level reports the resolved prefix for each spec as `base_path`, and `api_invoke_endpoint` reports the path an `operation_id` call resolved to as `resolved_path`. Between them the effective routing for a connection is readable without inspecting the spec.
 
 ## Use cases
 
@@ -84,9 +84,9 @@ External `$ref` resolution stays disabled at the parser regardless of source (pa
 
 ## Wiring a connection to a catalog
 
-Open a `kind: api` connection in the Connections page. The OpenAPI Catalog dropdown lists every catalog known to the platform; pick one and save. The model immediately sees the catalog's operations the next time it calls `api_list_endpoints` against that connection.
+Open a `kind: api` connection in the Connections page. The OpenAPI Catalog dropdown lists every catalog known to the platform; pick one and save. The model immediately sees the catalog's operations the next time it calls `api_discover` against that connection.
 
-A connection with no catalog selected (or an empty `catalog_id`) still works — the model can call `api_invoke_endpoint` with an explicit method and path. It just won't have discovery via `api_list_endpoints` or schema retrieval via `api_get_endpoint_schema`.
+A connection with no catalog selected (or an empty `catalog_id`) still works — the model can call `api_invoke_endpoint` with an explicit method and path. It just won't have discovery or schema retrieval via `api_discover`.
 
 The legacy `openapi_spec` JSONB key (inline-only, per-connection) is no longer read by the toolkit. Connections that still carry it surface a banner in the editor prompting the operator to move the content into a catalog.
 
@@ -112,7 +112,7 @@ The admin REST API matches the portal one-to-one. All routes require admin auth.
 
 ## Persisted operation embeddings
 
-Semantic and hybrid ranking on `api_list_endpoints` need a vector per operation. The toolkit stores these in PostgreSQL (`api_catalog_operation_embeddings`, migration 000044) keyed on `(catalog_id, spec_name, operation_id)` with a 768-dimensional `pgvector` column. Embeddings persist across pod restarts and are shared by every connection that mounts the same catalog.
+Semantic and hybrid ranking on `api_discover` need a vector per operation. The toolkit stores these in PostgreSQL (`api_catalog_operation_embeddings`, migration 000044) keyed on `(catalog_id, spec_name, operation_id)` with a 768-dimensional `pgvector` column. Embeddings persist across pod restarts and are shared by every connection that mounts the same catalog.
 
 ### Embedding job queue
 
@@ -181,11 +181,9 @@ Two things resolve WebDAV requests against these operations: the inbound-metrics
 
 ## Model-facing surface
 
-From the model's perspective, catalogs are invisible. Four tools see them through the connection:
+From the model's perspective, catalogs are invisible. Two tools see them through the connection:
 
-- `api_list_specs` returns one summary per component spec in the connection's catalog: `name`, `title`, `description`, `operation_count`, and `base_path`. It is the "list before drill" step for a multi-spec catalog — the model browses the sections (e.g. `drive`, `calendar`, `gmail`) before asking for one section's operations. A connection with no catalog returns an empty list and a note pointing at direct `api_invoke_endpoint`.
-- `api_list_endpoints` returns one `OperationSummary` per operation across all component specs in the connection's catalog. Each summary carries a `spec` field set to the component spec name (e.g. `constituent`, `gift`) so the model can tell which spec defined the operation when names collide. When the catalog bundles more than one component spec and the model omits `spec`, the response returns no operations and instead carries the same spec summaries as `api_list_specs` plus a note — a multi-spec gate that keeps the model from pulling every operation across every section in one oversized response. A single-spec catalog, or an explicit `spec=<name>`, lists operations directly.
-- `api_get_endpoint_schema` returns parameters, request body, and per-status response schemas for one operation. It strips `security`, `securitySchemes`, `servers`, and auth-vendor extensions (`x-amazon-*`, `x-google-*`, `x-azure-*`, `x-apigateway-*`) — the connection is pre-authenticated and the model has no business choosing auth. When an `operation_id` is defined by more than one component spec, the tool returns a structured error listing the candidates; the model retries with `spec` set.
-- `api_invoke_endpoint` takes explicit `method` + `path`, so it doesn't need the spec qualifier — the catalog only feeds the discovery and schema-detail tools.
+- `api_discover` walks the catalog at the depth its arguments select. A bare call on a catalog that bundles more than one component spec returns one summary per spec: `name`, `title`, `description`, `operation_count`, and `base_path`, so the model browses the sections (e.g. `drive`, `calendar`, `gmail`) before asking for one section's operations, and never pulls every operation across every section in one oversized response. A call with `spec`, `query`, or both returns one `OperationSummary` per matching operation; each carries a `spec` field set to the component spec name (e.g. `constituent`, `gift`) so the model can tell which spec defined the operation when names collide. A bare call on a single-spec catalog lists operations directly. A call with `operation_id` returns parameters, request body, and per-status response schemas for that operation, stripping `security`, `securitySchemes`, `servers`, and auth-vendor extensions (`x-amazon-*`, `x-google-*`, `x-azure-*`, `x-apigateway-*`) — the connection is pre-authenticated and the model has no business choosing auth. When an `operation_id` is defined by more than one component spec, the refusal names the candidate specs; the model retries with `spec` set. A connection with no catalog returns a note pointing at direct `api_invoke_endpoint`.
+- `api_invoke_endpoint` takes an `operation_id` (with `spec` for a collision) or explicit `method` + `path` — the catalog only feeds discovery and id resolution.
 
 Per-call response size is capped at ~50 KB after marshal; deeper schemas truncate with a `note` field explaining the cap. The model can always fall back to `api_invoke_endpoint` to probe shape directly.

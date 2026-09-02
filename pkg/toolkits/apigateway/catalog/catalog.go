@@ -104,8 +104,8 @@ type Catalog struct {
 // trailing slash is stripped at validation time.
 //
 // Title and Description are operator-supplied overrides for the
-// per-spec summary emitted by api_list_specs and the multi-spec gate
-// on api_list_endpoints. Empty means "no override"; the toolkit
+// per-spec summary emitted at api_discover's specs level. Empty means
+// "no override"; the toolkit
 // derives the value from the spec content's info.title /
 // info.description at registration time. Set these when the spec
 // ships without a useful info.description, or when the operator wants
@@ -221,7 +221,7 @@ func NormalizeBasePath(s string) (string, error) {
 // Length caps for the operator-supplied per-spec summary overrides.
 // The title lands in single-line list output; the description is a
 // short blurb, not the full spec docs. Both caps are generous for
-// their purpose while keeping the api_list_specs response bounded.
+// their purpose while keeping the api_discover specs response bounded.
 const (
 	maxSpecTitleLen       = 200
 	maxSpecDescriptionLen = 2000

@@ -8,7 +8,7 @@
 // Catalogs are global — one set of specs may back many connections — so every
 // mutation fans out to the live api-gateway toolkits via
 // ReloadConnectionsByCatalog, and to peer replicas via the reloader, so that
-// model-facing surfaces (api_list_endpoints, api_get_endpoint_schema) reflect
+// model-facing surface (api_discover) reflects
 // new content without a restart.
 package catalogapi
 
@@ -53,7 +53,7 @@ const (
 // OpenAPI specs may back many connections); the api-kind connection
 // editor references one catalog by id. Mutations fan out to every
 // live api-gateway toolkit via ReloadConnectionsByCatalog so model-
-// facing surfaces (api_list_endpoints, api_get_endpoint_schema)
+// facing surface (api_discover)
 // reflect the new content without a restart.
 
 const (
@@ -582,7 +582,7 @@ func (h *handler) copyCatalogSpecs(w http.ResponseWriter, r *http.Request, srcID
 // on the explicit GET /specs/{spec} detail endpoint.
 //
 // BasePath is the operator-set override prefix applied to every
-// operation in this spec at api_list_endpoints and
+// operation in this spec at api_discover and
 // api_invoke_endpoint time. Empty means "no override"; the toolkit
 // falls back to deriving the prefix from the spec's servers[0].url.
 // See catalog.NormalizeBasePath for the leading-slash / trailing-
@@ -703,7 +703,7 @@ func (h *handler) getCatalogSpec(w http.ResponseWriter, r *http.Request) {
 // catalog.NormalizeBasePath at write time: must start with "/",
 // must not contain CR/LF/NUL/?/#, trailing slash is stripped.
 // Title and Description set the operator-supplied per-spec summary
-// overrides surfaced by api_list_specs and the multi-spec gate.
+// overrides surfaced at api_discover's specs level.
 // Optional; empty leaves them unset (the toolkit derives the values
 // from the spec content's info.title / info.description). Normalized
 // via catalog.NormalizeSpecTitle / NormalizeSpecDescription at write

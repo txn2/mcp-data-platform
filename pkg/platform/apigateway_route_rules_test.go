@@ -169,9 +169,9 @@ func TestAPIRouteRules_StoredRuleDeniesTheCallItNames(t *testing.T) {
 		assert.True(t, res.IsError, "operation_id addressing bypassed the rule: %s", textOf(t, res))
 	})
 
-	t.Run("the denied operation is absent from api_list_endpoints", func(t *testing.T) {
+	t.Run("the denied operation is absent from api_discover", func(t *testing.T) {
 		res, err := session.CallTool(ctx, &mcp.CallToolParams{
-			Name:      "api_list_endpoints",
+			Name:      "api_discover",
 			Arguments: map[string]any{"connection": "crm-prod"},
 		})
 		require.NoError(t, err)

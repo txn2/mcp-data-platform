@@ -191,7 +191,7 @@ mcp-data-platform/
 │   ├── connid/                     # Connection identity: the instance a connection is stored under, the name a call binds it by, the toolkit serving it, and which half of the config owns it — one Resolver, distinct types
 │   ├── connview/                   # Builds the list_connections view (configured + discovered)
 │   ├── contenttype/                # Media-type detection and normalization for every content write path
-│   ├── database/                   # Database utilities (migrate/ = golang-migrate runner + 138 embedded SQL migrations)
+│   ├── database/                   # Database utilities (migrate/ = golang-migrate runner + 139 embedded SQL migrations)
 │   ├── embedding/                  # Text embedding generation for memory vector search
 │   ├── indexjobs/                  # Postgres-backed, source-kind-agnostic background indexer
 │   ├── knowledge/                  # Unified read path for platform knowledge (federation/ = live toolkit registry adapter)

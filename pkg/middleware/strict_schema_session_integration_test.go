@@ -22,9 +22,7 @@ import (
 // unknown top-level arguments (issue #1057).
 var strictSchemaTools = []string{
 	apigateway.ToolInvokeEndpoint,
-	apigateway.ToolListEndpoints,
-	apigateway.ToolListSpecs,
-	apigateway.ToolGetEndpointSchema,
+	apigateway.ToolDiscover,
 	"api_export",
 }
 
@@ -35,7 +33,7 @@ func strictSchemaArgs(tool string) map[string]any {
 	switch tool {
 	case apigateway.ToolInvokeEndpoint:
 		return map[string]any{"connection": "crm", "method": "GET", "path": "/v1/things"}
-	case apigateway.ToolGetEndpointSchema:
+	case apigateway.ToolDiscover:
 		return map[string]any{"connection": "crm", "operation_id": "getThings"}
 	case "api_export":
 		return map[string]any{"connection": "crm", "name": "things", "method": "GET", "path": "/v1/things"}

@@ -9,7 +9,7 @@ import (
 // deterministic: the document is built as nested maps and encoding/json
 // sorts map keys, so regeneration is byte-identical. Schemas are inlined
 // per operation (no components/schemas indirection) so every operation's
-// schema is self-contained for api_get_endpoint_schema and per-endpoint
+// schema is self-contained for api_discover's operation level and per-endpoint
 // tool generation alike.
 func (c *Catalog) SpecJSON(tier int) ([]byte, error) {
 	paths := map[string]any{}

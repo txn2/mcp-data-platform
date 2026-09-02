@@ -159,7 +159,7 @@ func TestResolveOperationID_WebDAV_MostSpecificWins(t *testing.T) {
 
 // TestResolveOperationID_WebDAV_BasePath verifies the WebDAV fallback
 // honors effectiveBasePath: the runtime path the resolver receives is the
-// basePath-prefixed full path, matching what api_list_endpoints reports.
+// basePath-prefixed full path, matching what api_discover reports.
 func TestResolveOperationID_WebDAV_BasePath(t *testing.T) {
 	tk := newWebDAVTestToolkit(t, "nc", "/nc")
 	ctx := context.Background()

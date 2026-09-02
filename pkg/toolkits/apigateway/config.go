@@ -5,9 +5,9 @@
 //
 // The toolkit exposes a small fixed set of MCP tools regardless of how
 // many connections are registered or how many endpoints each upstream
-// API has. v1 ships api_invoke_endpoint; api_list_endpoints and
-// api_get_endpoint_schema follow once OpenAPI ingestion lands (see
-// the RFC at issue #364).
+// API has: api_discover walks a connection's catalog at the depth the
+// caller sets, api_invoke_endpoint calls one operation, and api_export
+// streams one into an asset.
 package apigateway
 
 import (
@@ -167,8 +167,8 @@ const (
 	cfgKeyStaticHeaders = "static_headers"
 	// cfgKeyCatalogID names the api_catalogs row that supplies this
 	// connection's OpenAPI specs. Empty = connection has no spec
-	// surface (api_list_endpoints returns empty + note;
-	// api_get_endpoint_schema is unusable). Specs live in the
+	// surface (api_discover answers with a note and no operations,
+	// and cannot resolve an operation_id). Specs live in the
 	// globally-owned catalog, not in the connection — multiple
 	// connections to the same vendor API share one catalog instead
 	// of duplicating the documentation.
@@ -210,8 +210,7 @@ const (
 
 // HandlerInternal marks a connection whose operations are resolved by
 // an in-process handler instead of an outbound proxy. The connection
-// still carries a catalog (so api_list_endpoints / api_get_endpoint_schema
-// work unchanged), but invoke/export requests are served by the
+// still carries a catalog (so api_discover works unchanged), but invoke/export requests are served by the
 // http.Handler wired via Toolkit.SetInternalHandler rather than dialed
 // to an upstream. Used by the built-in "util" connection (issue #1005).
 const HandlerInternal = "internal"

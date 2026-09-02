@@ -1535,7 +1535,7 @@ type APIGatewayConfig struct {
 
 // APIGatewaySelfConnectionConfig configures the built-in "platform-admin"
 // API-gateway connection (issue #543), which lets an admin drive the
-// platform's own /api/v1/admin/* surface through api_list_endpoints /
+// platform's own /api/v1/admin/* surface through api_discover /
 // api_invoke_endpoint. Its catalog is sourced from the OpenAPI document
 // embedded in the binary, so it stays in sync with the running version
 // with no manual catalog maintenance.

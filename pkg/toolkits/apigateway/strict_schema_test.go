@@ -26,9 +26,7 @@ type strictSchemaCase struct {
 func strictSchemaCases() []strictSchemaCase {
 	return []strictSchemaCase{
 		{ToolInvokeEndpoint, invokeEndpointSchema, InvokeInput{}},
-		{ToolListEndpoints, listEndpointsSchema, ListEndpointsInput{}},
-		{ToolListSpecs, listSpecsSchema, ListSpecsInput{}},
-		{ToolGetEndpointSchema, getEndpointSchemaInputSchema, GetEndpointSchemaInput{}},
+		{ToolDiscover, discoverSchema, DiscoverInput{}},
 		{exportToolName, apiExportInputSchema, exportInput{}},
 	}
 }
@@ -183,9 +181,8 @@ func TestAPITools_RejectUnknownArgumentByName(t *testing.T) {
 			"connection": "crm", "method": "GET", "path": "/v1/things",
 			"parameters": map[string]any{"limit": 1},
 		}},
-		{ToolListEndpoints, map[string]any{"connection": "crm", "parameters": "x"}},
-		{ToolListSpecs, map[string]any{"connection": "crm", "parameters": "x"}},
-		{ToolGetEndpointSchema, map[string]any{
+		{ToolDiscover, map[string]any{"connection": "crm", "parameters": "x"}},
+		{ToolDiscover, map[string]any{
 			"connection": "crm", "operation_id": "getThings", "parameters": "x",
 		}},
 		{exportToolName, map[string]any{

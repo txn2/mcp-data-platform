@@ -28,3 +28,11 @@ s3_presign_url
 s3_put_object
 s3_copy_object
 s3_delete_object
+
+# The three API discovery tools were folded into api_discover (#1592): the
+# specs of a multi-spec catalog, the operations of a spec or a query, and one
+# operation's schema are three depths of one question, chosen by the arguments.
+# The old names are not aliases and grant nothing.
+api_list_specs
+api_list_endpoints
+api_get_endpoint_schema

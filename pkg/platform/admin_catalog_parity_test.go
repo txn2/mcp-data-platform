@@ -17,14 +17,14 @@ import (
 // TestAdminCatalogRouteParity guards issue #697: every authenticated admin /
 // portal REST route registered on the running server must be discoverable
 // through the OpenAPI catalog that the platform-admin self-connection seeds and
-// that api_list_endpoints serves. A served-but-undocumented endpoint makes an
+// that api_discover serves. A served-but-undocumented endpoint makes an
 // agent conclude a capability does not exist when it is present and authorized.
 //
 // The test enumerates the real route table by parsing every
 // `*.Handle`/`*.HandleFunc("METHOD /api/v1/...")` registration in the source
 // tree, then asserts each appears in the catalog content produced by
 // adminSelfSpecContent (the exact OpenAPI document the self-connection upserts),
-// enumerated through the same production parser api_list_endpoints uses. The two
+// enumerated through the same production parser api_discover uses. The two
 // directions of drift it cannot tolerate:
 //
 //   - A new authenticated route added without swaggo annotations: it is
@@ -49,7 +49,7 @@ func TestAdminCatalogRouteParity(t *testing.T) {
 	if len(undocumented) > 0 {
 		sort.Strings(undocumented)
 		t.Errorf("served-but-undocumented admin routes (#697): %d endpoint(s) are registered "+
-			"but absent from the OpenAPI catalog api_list_endpoints serves. Add swaggo "+
+			"but absent from the OpenAPI catalog api_discover serves. Add swaggo "+
 			"annotations and run `make swagger`, or, if the route is genuinely not part of "+
 			"the operable admin surface, add it to catalogParityExclusions with a rationale:\n  %s",
 			len(undocumented), strings.Join(undocumented, "\n  "))
@@ -76,7 +76,7 @@ type routeKey struct {
 
 // catalogParityExclusions lists routes that are registered on an HTTP mux but
 // deliberately absent from the admin OpenAPI catalog, each with the reason it is
-// not part of the operable, authenticated admin surface api_list_endpoints
+// not part of the operable, authenticated admin surface api_discover
 // exposes. Keep this set as small as the truth allows.
 var catalogParityExclusions = map[routeKey]string{
 	{method: "GET", path: "/admin/public/branding"}: "served on the unauthenticated publicMux to brand " +
@@ -87,7 +87,7 @@ var catalogParityExclusions = map[routeKey]string{
 		"contract defined by upstream Prometheus, backs the observability dashboards, not a first-class admin REST operation.",
 	{method: "POST", path: "/gateway/{connection}/invoke"}: "generic API-gateway data-plane proxy: forwards an " +
 		"arbitrary request to a configured upstream connection. Its contract is the upstream's OpenAPI spec (surfaced " +
-		"per connection via api_list_endpoints), not the platform's own admin control-plane catalog.",
+		"per connection via api_discover), not the platform's own admin control-plane catalog.",
 	{method: "POST", path: "/gateway/{connection}/invoke-raw"}: "generic API-gateway data-plane proxy that streams " +
 		"the upstream body unbuffered (#535); same rationale as /gateway/{connection}/invoke.",
 }
@@ -96,7 +96,7 @@ var catalogParityExclusions = map[routeKey]string{
 // returns the set of (METHOD, path) operations with path parameters normalized.
 // It enumerates through the production parser (apigatewaycatalog.ParseSpec +
 // PathItem.Operations) so the test measures exactly the operation surface
-// api_list_endpoints walks, not a parallel hand-rolled reading of the JSON.
+// api_discover walks, not a parallel hand-rolled reading of the JSON.
 func catalogOperationSet(t *testing.T) map[routeKey]bool {
 	t.Helper()
 	content, err := adminSelfSpecContent()

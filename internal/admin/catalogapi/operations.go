@@ -16,8 +16,8 @@ import (
 // persona reaches (#1478).
 //
 // Neither route returns the spec document. The operations list carries
-// the same OperationSummary api_list_endpoints returns, and the detail
-// route the same EndpointSchemaOutput api_get_endpoint_schema returns,
+// the same OperationSummary api_discover returns, and the detail
+// route the same EndpointSchemaOutput api_discover returns at its operation level,
 // so a page and a tool call describe one operation identically.
 
 // operationSummaryResponse is one row in the operations listing.

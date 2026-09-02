@@ -5,9 +5,9 @@ import { ToolForm } from "./ToolForm";
 
 function apiToolSchema(): ToolSchema {
   return {
-    name: "api_list_endpoints",
-    title: "List API Endpoints",
-    description: "List operations of a registered api connection",
+    name: "api_discover",
+    title: "Discover API Operations",
+    description: "Discover what a registered api connection exposes",
     kind: "api",
     connection: "",
     parameters: {

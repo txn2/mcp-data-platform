@@ -63,7 +63,7 @@ services:
 
   # api-test: deterministic HTTP fixture for the platform's apigateway
   # toolkit. dev/start.sh registers this as the `api-test-fixture` api
-  # connection so `api_invoke_endpoint` / `api_list_endpoints` /
+  # connection so `api_invoke_endpoint` / `api_discover` /
   # `api_export` have a working upstream out of the box.
   #
   # Anonymous mode (no OIDC); the platform sends APITEST_DEV_KEY as

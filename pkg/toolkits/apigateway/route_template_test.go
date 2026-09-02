@@ -14,7 +14,7 @@ import (
 // ("/v1/users/{id}"); an invoke holds the path the call reaches
 // ("/v1/users/42"), because the parameters are substituted before any gating
 // runs. A rule naming the declared path hid the operation from
-// api_list_endpoints and let the call it hides through, so the toolkit now
+// api_discover and let the call it hides through, so the toolkit now
 // resolves the concrete path back to its template and reports both (#1479).
 
 // templatePolicy records what the toolkit passed and refuses one declared path.

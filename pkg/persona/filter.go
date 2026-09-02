@@ -126,7 +126,7 @@ func (*ToolFilter) IsConnectionAllowed(persona *Persona, connectionName string) 
 //
 // Path and Template are two forms of the same request and both are
 // matched, because the surfaces that consult a rule reach it in
-// different forms. api_list_endpoints and endpoint search hold the
+// different forms. api_discover and endpoint search hold the
 // operation the catalog declares, whose path is a template
 // ("/v1/orders/{id}"); api_invoke_endpoint holds the path the call
 // actually reaches, with the parameters substituted

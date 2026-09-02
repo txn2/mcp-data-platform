@@ -8,7 +8,7 @@ import (
 	"github.com/txn2/mcp-data-platform/bench/internal/task"
 )
 
-// listExchange builds one api_list_endpoints call + result pair.
+// listExchange builds one api_discover call + result pair.
 func listExchange(id, resultJSON string) []llm.Message {
 	return []llm.Message{
 		{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: id, Name: listToolName, Args: map[string]any{"query": "q"}}}},

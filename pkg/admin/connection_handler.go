@@ -823,7 +823,7 @@ func (h *Handler) findConnectionManager(kind string) toolkit.ConnectionManager {
 // config so changes (notably config.catalog_id) take effect without
 // a process restart. Without the remove-then-add, the in-memory
 // connection retains its registration-time config while the DB row
-// has the new one, and list_connections and api_list_endpoints
+// has the new one, and list_connections and api_discover
 // disagree with the admin UI until restart.
 //
 // The toolkit-reconcile mechanics are shared with the cross-replica reload bus

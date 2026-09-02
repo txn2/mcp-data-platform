@@ -27,7 +27,7 @@ interface ToolFormProps {
    * Connections available to fill an unbound `connection` parameter
    * dropdown. Only consulted when selectedConnection is empty (i.e.
    * the tool is platform-level and the operator must pick a target
-   * at call time, e.g. api_list_endpoints). Already filtered by the
+   * at call time, e.g. api_discover). Already filtered by the
    * caller to the tool's kind so the dropdown lists only valid
    * targets.
    */
@@ -167,7 +167,7 @@ function FormField({
 // ConnectionField picks which connection a call is routed to. Two cases: the
 // tool is bound to one already (the toolkit registered it under that
 // connection's name), in which case the field is locked and only shows what is
-// targeted; or the tool is platform-level (e.g. api_list_endpoints) and takes
+// targeted; or the tool is platform-level (e.g. api_discover) and takes
 // the connection at call time, so the operator picks from the connections the
 // caller filtered to the tool's kind.
 function ConnectionField({

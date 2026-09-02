@@ -17,7 +17,7 @@ import (
 
 // TestAPIGatewayCatalog_EndToEnd wires the api-gateway toolkit
 // against a memory catalog store and exercises the three MCP tools
-// (api_list_endpoints, api_get_endpoint_schema, api_invoke_endpoint)
+// (api_discover, api_invoke_endpoint)
 // through a real MCP server + client over HTTP. Proves the catalog
 // → connection → tool path works end-to-end, not just in handler
 // unit tests.
@@ -95,9 +95,9 @@ paths:
 	require.NoError(t, err)
 	defer func() { _ = session.Close() }()
 
-	// 6. api_list_endpoints — should surface listUsers with spec=users.
+	// 6. api_discover — should surface listUsers with spec=users.
 	listRes, err := session.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "api_list_endpoints",
+		Name:      "api_discover",
 		Arguments: map[string]any{"connection": "primary"},
 	})
 	require.NoError(t, err)
@@ -106,10 +106,10 @@ paths:
 	assert.Contains(t, listBody, "listUsers")
 	assert.Contains(t, listBody, `"spec": "users"`)
 
-	// 7. api_get_endpoint_schema — should return parameters + response
-	// schema, with security/servers stripped.
+	// 7. api_discover with operation_id — should return parameters +
+	// response schema, with security/servers stripped.
 	schemaRes, err := session.CallTool(ctx, &mcp.CallToolParams{
-		Name: "api_get_endpoint_schema",
+		Name: "api_discover",
 		Arguments: map[string]any{
 			"connection":   "primary",
 			"operation_id": "listUsers",
@@ -218,7 +218,7 @@ paths:
 
 	for _, conn := range []string{"prod", "staging"} {
 		res, err := session.CallTool(ctx, &mcp.CallToolParams{
-			Name:      "api_list_endpoints",
+			Name:      "api_discover",
 			Arguments: map[string]any{"connection": conn},
 		})
 		require.NoError(t, err)
@@ -273,7 +273,7 @@ paths:
 
 	// No spec argument → ambiguity error.
 	res, err := session.CallTool(ctx, &mcp.CallToolParams{
-		Name: "api_get_endpoint_schema",
+		Name: "api_discover",
 		Arguments: map[string]any{
 			"connection":   "c",
 			"operation_id": "list",
@@ -283,12 +283,11 @@ paths:
 	require.True(t, res.IsError, "expected ambiguity error, got: %s", textOf(t, res))
 	body := textOf(t, res)
 	assert.Contains(t, body, "ambiguous")
-	assert.Contains(t, body, `"spec": "users"`)
-	assert.Contains(t, body, `"spec": "orders"`)
+	assert.Contains(t, body, "orders, users", "the refusal names the candidate specs")
 
 	// Same call with spec set → success.
 	res, err = session.CallTool(ctx, &mcp.CallToolParams{
-		Name: "api_get_endpoint_schema",
+		Name: "api_discover",
 		Arguments: map[string]any{
 			"connection":   "c",
 			"operation_id": "list",

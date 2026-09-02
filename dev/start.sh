@@ -535,9 +535,9 @@ fi
 # pull it and store it as the default component of an api-catalog
 # named `api-test-fixture`, then point the connection at that catalog
 # via config.catalog_id. The toolkit reads the spec from the catalog
-# at request time so api_list_endpoints returns the 14 operations the
+# at request time so api_discover returns the 17 operations the
 # fixture serves (whoami, headers, fixed/{key}, sized, lorem,
-# status/{code}, slow, flaky, echo). Operations in the spec are
+# status/{code}, slow, flaky, echo, pagination/*). Operations in the spec are
 # pathed under /v1/..., so base_url omits the /v1 suffix; the gateway
 # joins base_url + the operation path verbatim.
 #
@@ -551,7 +551,7 @@ if [ -n "$APITEST_OPENAPI" ]; then
   APITEST_OPENAPI_BYTES=${#APITEST_OPENAPI}
   ok "api-test OpenAPI spec fetched (${APITEST_OPENAPI_BYTES} bytes)"
 else
-  echo -e "  ${YELLOW}⚠${NC} api-test /openapi.yaml unavailable — registering without catalog (api_list_endpoints will be empty)"
+  echo -e "  ${YELLOW}⚠${NC} api-test /openapi.yaml unavailable — registering without catalog (api_discover will list no operations)"
 fi
 
 # Seed the api-test-fixture catalog. Idempotent: catalog create
@@ -559,7 +559,7 @@ fi
 # the spec upsert is PUT so it replaces existing content. We wire
 # the connection's config.catalog_id only when the upsert succeeds,
 # so a transient catalog API failure falls back to the spec-less
-# connection state (no api_list_endpoints, direct api_invoke_endpoint
+# connection state (api_discover lists nothing, direct api_invoke_endpoint
 # still works).
 APITEST_CATALOG_ID="api-test-fixture"
 APITEST_CATALOG_READY=0
@@ -644,7 +644,7 @@ APITEST_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
   http://localhost:$DEV_API_PORT/api/v1/admin/connection-instances/api/api-test-fixture || echo "000")
 if [ "$APITEST_HTTP" = "200" ] || [ "$APITEST_HTTP" = "201" ]; then
   if [ "$APITEST_CATALOG_READY" = "1" ]; then
-    ok "api-test fixture connection registered with catalog ${APITEST_CATALOG_ID} (api_list_endpoints will resolve)"
+    ok "api-test fixture connection registered with catalog ${APITEST_CATALOG_ID} (api_discover will resolve)"
   else
     ok "api-test fixture connection registered (no catalog)"
   fi

@@ -77,7 +77,7 @@ paths:
 // TestUpdateConnectionAttachesCatalogToLiveToolkit covers the bug
 // where attaching a catalog to an existing api-kind connection via
 // the admin UI updated the DB but never reached the in-memory
-// toolkit, so api_list_endpoints returned "no catalog_id configured"
+// toolkit, so api_discover answered with no operations
 // and list_connections showed no catalog binding until process
 // restart. The unit test layer asserted only HTTP 200 from the
 // admin PUT and missed this entirely.

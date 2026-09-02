@@ -29,14 +29,14 @@ export interface APICatalogSpec {
   source_kind: "inline" | "upload" | "url" | "embedded";
   source_url?: string;
   etag?: string;
-  // Operator-set per-spec URL prefix applied at api_list_endpoints
+  // Operator-set per-spec URL prefix applied at api_discover
   // and api_invoke_endpoint time. Empty means "use whatever the
   // spec's servers[0].url declares"; explicit non-empty overrides
   // the derivation. See pkg/toolkits/apigateway/catalog
   // NormalizeBasePath for the validation rules.
   base_path?: string;
-  // Operator-set per-spec summary overrides surfaced by api_list_specs
-  // and the multi-spec gate on api_list_endpoints. Empty means "derive
+  // Operator-set per-spec summary overrides surfaced at api_discover's
+  // specs level. Empty means "derive
   // from the spec's info.title / info.description". See catalog
   // NormalizeSpecTitle / NormalizeSpecDescription for the rules
   // (trimmed, no CR/LF/NUL, capped at 200 / 2000 chars).

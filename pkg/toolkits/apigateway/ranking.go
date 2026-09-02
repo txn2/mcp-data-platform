@@ -51,7 +51,7 @@ var (
 	errEmbeddingsZeroVector = errors.New("query embedding is the zero vector (misconfigured embedding model)")
 )
 
-// RankingMode selects the algorithm api_list_endpoints uses to score
+// RankingMode selects the algorithm api_discover uses to score
 // candidate operations against the model's query.
 //
 // Lexical is the substring-match filter that v1 shipped: fast,
@@ -75,7 +75,7 @@ var (
 // deferred to a config knob if a real-world deployment needs it.
 type RankingMode string
 
-// RankingMode values exposed on the api_list_endpoints schema.
+// RankingMode values exposed on the api_discover schema.
 const (
 	// RankingLexical is the v1 substring-match filter. It is the
 	// floor when no embedding index is available; with embeddings
@@ -115,7 +115,7 @@ const hybridSemanticWeight = 0.6
 //
 // Returns (ranked, fallback) where fallback is true iff the call
 // was forced into lexical mode despite a non-lexical request.
-// Callers should set ListEndpointsOutput.Note when fallback is
+// Callers should set DiscoverOutput.Note when fallback is
 // true so the model knows why semantic-style ranking did not run.
 // rankRequest bundles the parameters rankWithMode needs. Splitting
 // into a struct keeps the function under the project's
@@ -179,21 +179,21 @@ type RankedOperation struct {
 // against a free-form query and returns up to perConnLimit per connection, each
 // tagged with its connection name and relevance score. It is the federation
 // seam behind the universal search tool's endpoints group: the same hybrid
-// ranking api_list_endpoints exposes, aggregated across connections instead of
+// ranking api_discover exposes, aggregated across connections instead of
 // scoped to one.
 //
 // Per-connection route policy is applied first (ctx-scoped), so the result
 // never includes an operation the caller's persona could not invoke. That is
 // the per-source access scope for the endpoints corpus, enforced fail-closed by
-// the same filter api_list_endpoints uses; a search that federates endpoints
-// cannot leak a route a scoped api_list_endpoints call would have hidden.
+// the same filter api_discover uses; a search that federates endpoints
+// cannot leak a route a scoped api_discover call would have hidden.
 func (t *Toolkit) SearchOperations(ctx context.Context, query string, perConnLimit int) []RankedOperation {
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return nil
 	}
 	if perConnLimit <= 0 {
-		perConnLimit = defaultListEndpointsLimit
+		perConnLimit = defaultDiscoverLimit
 	}
 	t.mu.RLock()
 	policy := t.routePolicy
@@ -296,7 +296,7 @@ func (t *Toolkit) queryVectorFor(ctx context.Context, c *conn, query string) ([]
 // semantically right now: an embedding provider is wired on the
 // toolkit AND the connection has persisted operation vectors loaded.
 // It is the gate for the default-ON hybrid upgrade in
-// handleListEndpoints — when true, an omitted ranking resolves to
+// discoverOperations — when true, an omitted ranking resolves to
 // hybrid rather than lexical, so the semantic path is the default
 // whenever its requirement is met (#858). Snapshots t.embedder under
 // the read lock, mirroring queryVectorFor, so a concurrent

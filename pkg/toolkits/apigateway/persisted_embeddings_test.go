@@ -189,7 +189,7 @@ func TestTwoConnectionsShareCatalogEmbeddings(t *testing.T) {
 }
 
 // TestRestartPreservesEmbeddings: AC "after process restart,
-// api_list_endpoints(ranking=semantic) returns semantic results
+// api_discover(ranking=semantic) returns semantic results
 // on the first call. No warm-up Note. No fallback to lexical."
 // Simulated by constructing a fresh Toolkit against the same
 // store, registering a new connection, and asserting semantic
@@ -229,13 +229,13 @@ func TestRestartPreservesEmbeddings(t *testing.T) {
 	}
 	// Semantic ranking on the first call should return results
 	// (vectors are present) without a fallback Note.
-	res, payload, _ := tk.handleListEndpoints(ctx, nil, ListEndpointsInput{
+	res, payload, _ := tk.handleDiscover(ctx, nil, DiscoverInput{
 		Connection: "c", Query: "alpha", Ranking: "semantic",
 	})
 	if res == nil || res.IsError {
 		t.Fatalf("post-restart semantic should not error: %v", res)
 	}
-	out, _ := payload.(ListEndpointsOutput)
+	out, _ := payload.(DiscoverOutput)
 	if out.Note != "" {
 		t.Errorf("post-restart should have no fallback Note; got %q", out.Note)
 	}
@@ -267,13 +267,13 @@ func TestRanking_LexicalFallbackOnNoVectors(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("AddConnection: %v", err)
 	}
-	res, payload, _ := tk.handleListEndpoints(ctx, nil, ListEndpointsInput{
+	res, payload, _ := tk.handleDiscover(ctx, nil, DiscoverInput{
 		Connection: "api", Query: "alpha", Ranking: "semantic",
 	})
 	if res == nil || res.IsError {
 		t.Fatalf("semantic without vectors should not error: %v", res)
 	}
-	out, _ := payload.(ListEndpointsOutput)
+	out, _ := payload.(DiscoverOutput)
 	if out.Note == "" {
 		t.Fatal("semantic without vectors should produce a fallback Note")
 	}
@@ -309,13 +309,13 @@ func TestListEndpoints_DefaultOnHybridWhenEmbeddingsAvailable(t *testing.T) {
 	// "alpha bravo" has no single operation containing BOTH tokens, so
 	// the lexical AND filter matches nothing. With embeddings present
 	// the omitted ranking must resolve to hybrid and return both ops.
-	res, payload, _ := tk.handleListEndpoints(ctx, nil, ListEndpointsInput{
+	res, payload, _ := tk.handleDiscover(ctx, nil, DiscoverInput{
 		Connection: "api", Query: "alpha bravo",
 	})
 	if res == nil || res.IsError {
 		t.Fatalf("default ranking should not error: %v", res)
 	}
-	out, _ := payload.(ListEndpointsOutput)
+	out, _ := payload.(DiscoverOutput)
 	if len(out.Operations) == 0 {
 		t.Fatal("omitted ranking with embeddings must default to hybrid and return ranked ops, not an empty lexical-AND result")
 	}
@@ -325,10 +325,10 @@ func TestListEndpoints_DefaultOnHybridWhenEmbeddingsAvailable(t *testing.T) {
 
 	// Explicit lexical is the opt-out: the same multi-token query
 	// still AND-narrows to empty.
-	_, lexPayload, _ := tk.handleListEndpoints(ctx, nil, ListEndpointsInput{
+	_, lexPayload, _ := tk.handleDiscover(ctx, nil, DiscoverInput{
 		Connection: "api", Query: "alpha bravo", Ranking: "lexical",
 	})
-	lexOut, _ := lexPayload.(ListEndpointsOutput)
+	lexOut, _ := lexPayload.(DiscoverOutput)
 	if len(lexOut.Operations) != 0 {
 		t.Errorf("explicit lexical must preserve AND semantics; got %d ops", len(lexOut.Operations))
 	}
@@ -355,13 +355,13 @@ func TestListEndpoints_DefaultStaysLexicalWithoutEmbeddings(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("AddConnection: %v", err)
 	}
-	res, payload, _ := tk.handleListEndpoints(ctx, nil, ListEndpointsInput{
+	res, payload, _ := tk.handleDiscover(ctx, nil, DiscoverInput{
 		Connection: "api", Query: "alpha bravo",
 	})
 	if res == nil || res.IsError {
 		t.Fatalf("lexical default should not error: %v", res)
 	}
-	out, _ := payload.(ListEndpointsOutput)
+	out, _ := payload.(DiscoverOutput)
 	if len(out.Operations) != 0 {
 		t.Errorf("without embeddings the omitted ranking stays lexical AND -> empty; got %d ops", len(out.Operations))
 	}
@@ -394,18 +394,21 @@ func TestListEndpoints_DefaultStaysLexicalWhenWiredButUnindexed(t *testing.T) {
 	// omitted ranking stays lexical and the multi-token AND query
 	// returns empty rather than a hybrid-ranked catalog, with no
 	// fallback Note (the lexical floor never attempted a semantic path).
-	res, payload, _ := tk.handleListEndpoints(ctx, nil, ListEndpointsInput{
+	res, payload, _ := tk.handleDiscover(ctx, nil, DiscoverInput{
 		Connection: "api", Query: "alpha bravo",
 	})
 	if res == nil || res.IsError {
 		t.Fatalf("unindexed default should not error: %v", res)
 	}
-	out, _ := payload.(ListEndpointsOutput)
+	out, _ := payload.(DiscoverOutput)
 	if len(out.Operations) != 0 {
 		t.Errorf("wired-but-unindexed connection must stay lexical (AND -> empty); got %d ops", len(out.Operations))
 	}
-	if out.Note != "" {
+	if strings.Contains(out.Note, "fell back") {
 		t.Errorf("lexical floor should emit no fallback Note; got %q", out.Note)
+	}
+	if !strings.Contains(out.Note, `no operations match query "alpha bravo"`) {
+		t.Errorf("an empty operations level should say what it was narrowed by; got %q", out.Note)
 	}
 }
 
@@ -446,13 +449,13 @@ func TestListEndpoints_DefaultedFallbackNoteDoesNotClaimHybrid(t *testing.T) {
 	}
 	// Force the query-time embed to fail so hybrid falls back to lexical.
 	emb.failEmbed.Store(true)
-	res, payload, _ := tk.handleListEndpoints(ctx, nil, ListEndpointsInput{
+	res, payload, _ := tk.handleDiscover(ctx, nil, DiscoverInput{
 		Connection: "api", Query: "alpha",
 	})
 	if res == nil || res.IsError {
 		t.Fatalf("defaulted fallback should not error: %v", res)
 	}
-	out, _ := payload.(ListEndpointsOutput)
+	out, _ := payload.(DiscoverOutput)
 	if out.Note == "" {
 		t.Fatal("a fallback at rank time should surface a Note")
 	}

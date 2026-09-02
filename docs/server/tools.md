@@ -481,7 +481,7 @@ fans across every searchable source the caller can access and returns results
 **grouped by source** with a **coverage summary**, so the agent sees the shape of
 the answer space instead of tunneling into the first tool that comes to mind.
 Structured catalog navigation (platform/domain/tag/entity-type filters) stays in
-`datahub_browse`; the scoped API drill-down stays in `api_list_endpoints`.
+`datahub_browse`; the scoped API drill-down stays in `api_discover`.
 
 !!! note "`knowledge_search` was renamed to `search`"
     The `#632` read-path tool `knowledge_search` was renamed to `search` in
@@ -501,7 +501,7 @@ calls inside it),
 managed resources (human-uploaded reference material, searched over their metadata
 **and their extracted file content**), prompts, managed scripts, API endpoints (aggregated across
 every API gateway connection, reusing
-the per-connection semantic ranking of `api_list_endpoints`), and connections. Memory, insights,
+the per-connection semantic ranking of `api_discover`), and connections. Memory, insights,
 assets, recorded calls, sessions, and managed scripts are per-user, scoped
 server-side to the caller, so a search never surfaces another user's private
 records; the catalog, the governance vocabulary, knowledge
@@ -1287,10 +1287,10 @@ See [Admin API](admin-api.md) for full request/response shapes.
 
 ### platform_find_tools
 
-`platform_find_tools(query, limit)` ranks the platform's own registered tools by semantic similarity to a natural-language task description, so an agent can discover the right tools by intent instead of scanning every tool name. It is the tool-catalog analogue of `api_list_endpoints`' semantic ranking.
+`platform_find_tools(query, limit)` ranks the platform's own registered tools by semantic similarity to a natural-language task description, so an agent can discover the right tools by intent instead of scanning every tool name. It is the tool-catalog analogue of `api_discover`'s semantic ranking.
 
 - **Indexing** — every globally-visible tool's descriptor (name, description, and a parameter-schema summary) is embedded through the shared index-jobs framework (`source_kind = "tools"`) and persisted to the `tool_embeddings` table. On each reconcile sweep the tools gap check diffs the live registry against the persisted vectors by descriptor text hash, so a tool addition, removal, description-override edit, or visibility flip is picked up within one interval, while a steady-state corpus produces no job and the index settles rather than re-running every sweep. When a job does run, the worker's text-hash dedup re-embeds only the descriptors that actually changed. Embeddings are persona-neutral (indexed once for the whole catalog).
-- **Ranking** — the query is embedded and ranked against the stored vectors with pgvector cosine distance. When no embedding provider is configured or the index is empty, it falls back to a lexical name/description match and sets a `note` explaining why (the same UX as `api_list_endpoints`).
+- **Ranking** — the query is embedded and ranked against the stored vectors with pgvector cosine distance. When no embedding provider is configured or the index is empty, it falls back to a lexical name/description match and sets a `note` explaining why (the same UX as `api_discover`).
 - **Persona scoping** — results are filtered at read time to the tools the caller's persona is permitted to call, exactly like `tools/list`. The model never sees a tool it cannot call. (Row-level filtering, not per-persona embeddings.)
 - **Response** — `{ "tools": [ { "name", "description", "score" } ], "note"? }`, ranked most-relevant first and capped at `limit` (default 10, max 50).
 
