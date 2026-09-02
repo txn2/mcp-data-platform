@@ -47,7 +47,7 @@ type Report struct {
 	// platform.export writes to, plus the portal for an export that names none
 	// and for every platform.publish_data. It is a statement about the output
 	// surface, not about every byte the script can move — a script that writes
-	// through a tool, say platform.call("s3_put_object", ...), produces no
+	// through a tool, say platform.call("s3_object", {"action": "put", ...}), produces no
 	// output in this sense and is read in Tools instead.
 	Destinations []string `json:"destinations"`
 	// Tools is the tool names the source passes to platform.call literally,

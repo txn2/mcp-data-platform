@@ -3,7 +3,11 @@ package s3
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"maps"
+	"slices"
+	"sync"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -32,58 +36,128 @@ type Config struct {
 	MaxGetSize      int64                       `yaml:"max_get_size"`
 	MaxPutSize      int64                       `yaml:"max_put_size"`
 	ConnectionName  string                      `yaml:"connection_name"`
+	Description     string                      `yaml:"description"`
 	BucketPrefix    string                      `yaml:"bucket_prefix"`
 	Titles          map[string]string           `yaml:"titles"`
 	Descriptions    map[string]string           `yaml:"descriptions"`
 	Annotations     map[string]AnnotationConfig `yaml:"annotations"`
 }
 
-// Default region and S3 tool-name constants. The full set is named
-// here even though only a subset crosses goconst's literal-repetition
-// threshold — keeping the Tools() list uniformly constant-driven
-// avoids a visually mixed list of constants and bare strings.
-const (
-	defaultS3Region = "us-east-1"
+// defaultS3Region is the region a connection that names none is signed for.
+const defaultS3Region = "us-east-1"
 
-	toolListBuckets       = "s3_list_buckets"
-	toolListObjects       = "s3_list_objects"
-	toolGetObject         = "s3_get_object"
-	toolGetObjectMetadata = "s3_get_object_metadata"
-	toolPresignURL        = "s3_presign_url"
-	toolPutObject         = "s3_put_object"
-	toolDeleteObject      = "s3_delete_object"
-	toolCopyObject        = "s3_copy_object"
-)
+// MultiConfig is every S3 instance a deployment declares, and which of them a
+// call that names no connection means.
+type MultiConfig struct {
+	DefaultConnection string
+	Instances         map[string]Config
+}
 
-// Toolkit wraps mcp-s3 toolkit for the platform.
+// Toolkit is the one S3 toolkit of a deployment: every instance is a
+// connection of it, routed by the `connection` argument, so two instances never
+// register the same tool name twice (the SDK keeps the last registration, which
+// left every earlier instance unreachable).
 type Toolkit struct {
+	// name is the default connection's bound name, what a call that names no
+	// connection is served by and what Connection() reports.
 	name      string
 	config    Config
 	client    *s3client.Client
 	s3Toolkit *s3tools.Toolkit
 	metrics   *observability.Metrics
 
+	// descriptions is what list_connections shows for each bound name.
+	descriptions map[string]string
+
+	// connections holds, per bound name, the settings a call is bound by:
+	// whether the connection is read-only, the bucket prefix it lists, and its
+	// size ceilings. NewMulti enters every declared instance and AddConnection
+	// enters its own, so a read_only connection added at run time refuses a
+	// write exactly as a configured one does.
+	connMu      sync.RWMutex
+	connections map[string]connSettings
+
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
 }
 
-// New creates a new S3 toolkit.
-func New(name string, cfg Config) (*Toolkit, error) {
-	cfg = applyDefaults(name, cfg)
+// connSettings is the per-connection half of Config: what a call against one
+// named connection is allowed to do and how much it may move.
+type connSettings struct {
+	readOnly     bool
+	bucketPrefix string
+	maxGetSize   int64
+	maxPutSize   int64
+}
 
+func settingsOf(cfg Config) connSettings {
+	return connSettings{
+		readOnly:     cfg.ReadOnly,
+		bucketPrefix: cfg.BucketPrefix,
+		maxGetSize:   cfg.MaxGetSize,
+		maxPutSize:   cfg.MaxPutSize,
+	}
+}
+
+// New creates an S3 toolkit over one instance.
+func New(name string, cfg Config) (*Toolkit, error) {
+	return NewMulti(MultiConfig{DefaultConnection: name, Instances: map[string]Config{name: cfg}})
+}
+
+// NewMulti creates the toolkit over every instance. Each instance is bound by
+// its connection_name (its instance name when it sets none), which is the name
+// a call's `connection` argument carries, an audit row records, and a persona's
+// connection rules match. The default instance serves a call naming none; with
+// no default declared the alphabetically first instance is it.
+func NewMulti(cfg MultiConfig) (*Toolkit, error) {
+	if len(cfg.Instances) == 0 {
+		return nil, errors.New("at least one s3 instance is required")
+	}
+	defaultName := cfg.DefaultConnection
+	if defaultName == "" {
+		defaultName = slices.Min(slices.Collect(maps.Keys(cfg.Instances)))
+	}
+	defaultCfg, ok := cfg.Instances[defaultName]
+	if !ok {
+		return nil, fmt.Errorf("default connection %q not found in instances", defaultName)
+	}
+	defaultCfg = applyDefaults(defaultName, defaultCfg)
+	client, err := createClient(defaultCfg)
+	if err != nil {
+		return nil, fmt.Errorf("instance %s: %w", defaultName, err)
+	}
+	t := &Toolkit{
+		name:         defaultCfg.ConnectionName,
+		config:       defaultCfg,
+		client:       client,
+		s3Toolkit:    s3tools.NewToolkit(client),
+		descriptions: map[string]string{defaultCfg.ConnectionName: defaultCfg.Description},
+		connections:  map[string]connSettings{defaultCfg.ConnectionName: settingsOf(defaultCfg)},
+	}
+	for _, name := range slices.Sorted(maps.Keys(cfg.Instances)) {
+		if name == defaultName {
+			continue
+		}
+		instCfg := applyDefaults(name, cfg.Instances[name])
+		if err := t.bind(instCfg); err != nil {
+			return nil, fmt.Errorf("instance %s: %w", name, err)
+		}
+	}
+	return t, nil
+}
+
+// bind opens a client for one instance and enters it under its bound name.
+func (t *Toolkit) bind(cfg Config) error {
 	client, err := createClient(cfg)
 	if err != nil {
-		return nil, err
+		return err
 	}
-
-	s3Toolkit := createToolkit(client, cfg, nil, false)
-
-	return &Toolkit{
-		name:      name,
-		config:    cfg,
-		client:    client,
-		s3Toolkit: s3Toolkit,
-	}, nil
+	t.connMu.Lock()
+	t.connections[cfg.ConnectionName] = settingsOf(cfg)
+	t.descriptions[cfg.ConnectionName] = cfg.Description
+	t.connMu.Unlock()
+	t.s3Toolkit.AddClient(cfg.ConnectionName, client)
+	return nil
 }
 
 // applyDefaults applies default values to the configuration.
@@ -130,62 +204,6 @@ func createClient(cfg Config) (*s3client.Client, error) {
 	return client, nil
 }
 
-// createToolkit creates the mcp-s3 toolkit with appropriate options. When
-// withObservability is set, the observability middleware is installed so
-// every S3 tool execution records an s3_operations metric (nil-safe when
-// metrics is disabled) AND emits a span (a no-op outside an active trace);
-// it must be present before the toolkit registers its handlers (see
-// Toolkit.SetMetrics). The caller gates installation on metrics-OR-tracing,
-// so a tracing-only deployment (metrics nil) still gets S3 spans — gating
-// here on metrics.Enabled() would silently drop them.
-func createToolkit(client *s3client.Client, cfg Config, metrics *observability.Metrics, withObservability bool) *s3tools.Toolkit {
-	var opts []s3tools.Option
-	if withObservability {
-		opts = append(opts, s3tools.WithMiddleware(newMetricsMiddleware(metrics)))
-	}
-	opts = append(opts, s3tools.WithReadOnly(cfg.ReadOnly))
-	if cfg.MaxGetSize > 0 {
-		opts = append(opts, s3tools.WithMaxGetSize(cfg.MaxGetSize))
-	}
-	if cfg.MaxPutSize > 0 {
-		opts = append(opts, s3tools.WithMaxPutSize(cfg.MaxPutSize))
-	}
-	if len(cfg.Titles) > 0 {
-		opts = append(opts, s3tools.WithTitles(toS3ToolNames(cfg.Titles)))
-	}
-	if len(cfg.Descriptions) > 0 {
-		opts = append(opts, s3tools.WithDescriptions(toS3ToolNames(cfg.Descriptions)))
-	}
-	if len(cfg.Annotations) > 0 {
-		opts = append(opts, s3tools.WithAnnotations(toS3Annotations(cfg.Annotations)))
-	}
-	return s3tools.NewToolkit(client, opts...)
-}
-
-// toS3ToolNames converts a generic string map to typed ToolName keys.
-func toS3ToolNames(m map[string]string) map[s3tools.ToolName]string {
-	if m == nil {
-		return nil
-	}
-	result := make(map[s3tools.ToolName]string, len(m))
-	for k, v := range m {
-		result[s3tools.ToolName(k)] = v
-	}
-	return result
-}
-
-// toS3Annotations converts config annotation overrides to mcp-s3 ToolAnnotations.
-func toS3Annotations(m map[string]AnnotationConfig) map[s3tools.ToolName]*mcp.ToolAnnotations {
-	if m == nil {
-		return nil
-	}
-	result := make(map[s3tools.ToolName]*mcp.ToolAnnotations, len(m))
-	for k, v := range m {
-		result[s3tools.ToolName(k)] = toolkit.AnnotationsToMCP(v)
-	}
-	return result
-}
-
 // Kind returns the toolkit kind.
 func (*Toolkit) Kind() string {
 	return "s3"
@@ -196,53 +214,57 @@ func (t *Toolkit) Name() string {
 	return t.name
 }
 
-// Connection returns the connection name for audit logging.
+// Connection returns the name a call that names no connection binds: the
+// default connection's bound name.
 func (t *Toolkit) Connection() string {
-	return t.config.ConnectionName
+	return t.name
 }
 
-// s3ReadTools lists the read-only S3 tools registered by the platform.
-// This excludes s3_list_connections (replaced by the unified list_connections).
-var s3ReadTools = []s3tools.ToolName{
-	s3tools.ToolListBuckets,
-	s3tools.ToolListObjects,
-	s3tools.ToolGetObject,
-	s3tools.ToolGetObjectMetadata,
-	s3tools.ToolPresignURL,
+// ListConnections reports every connection this toolkit serves, by bound
+// name, for list_connections and the connection resolver.
+func (t *Toolkit) ListConnections() []toolkit.ConnectionDetail {
+	t.connMu.RLock()
+	defer t.connMu.RUnlock()
+	names := slices.Sorted(maps.Keys(t.connections))
+	out := make([]toolkit.ConnectionDetail, 0, len(names))
+	for _, name := range names {
+		out = append(out, toolkit.ConnectionDetail{Name: name, Description: t.descriptions[name], IsDefault: name == t.name})
+	}
+	return out
 }
 
-// RegisterTools registers S3 tools with the MCP server.
-// The platform provides a unified list_connections tool, so the per-toolkit
-// s3_list_connections is excluded.
+// RegisterTools registers s3_list and s3_object with the MCP server. The
+// platform's unified list_connections stands in for upstream's
+// s3_list_connections, so nothing else from mcp-s3 is registered.
 func (t *Toolkit) RegisterTools(s *mcp.Server) {
 	if t.s3Toolkit == nil {
 		return
 	}
-	t.s3Toolkit.Register(s, s3ReadTools...)
-	if !t.config.ReadOnly {
-		t.s3Toolkit.Register(s, s3tools.WriteTools()...)
-	}
+	mcp.AddTool(s, t.tool(toolList, listTitle, listDescription, listAnnotations, listOutputSchema), t.handleList)
+	mcp.AddTool(s, t.tool(toolObject, objectTitle, objectDescription, objectAnnotations, objectOutputSchema), t.handleObject)
 }
 
-// Tools returns the list of tool names that would be provided by this toolkit.
-func (t *Toolkit) Tools() []string {
-	tools := []string{
-		toolListBuckets,
-		toolListObjects,
-		toolGetObject,
-		toolGetObjectMetadata,
-		toolPresignURL,
+// tool builds one registration, applying the instance's title, description and
+// annotation overrides for that tool name when the configuration carries them.
+func (t *Toolkit) tool(name, title, description string, annotations *mcp.ToolAnnotations, outputSchema any) *mcp.Tool {
+	if v, ok := t.config.Titles[name]; ok {
+		title = v
 	}
-
-	if !t.config.ReadOnly {
-		tools = append(tools,
-			toolPutObject,
-			toolDeleteObject,
-			toolCopyObject,
-		)
+	if v, ok := t.config.Descriptions[name]; ok {
+		description = v
 	}
+	if v, ok := t.config.Annotations[name]; ok {
+		annotations = toolkit.AnnotationsToMCP(v)
+	}
+	return &mcp.Tool{Name: name, Title: title, Description: description, Annotations: annotations, OutputSchema: outputSchema}
+}
 
-	return tools
+// Tools returns the tool names this toolkit registers. Both are registered
+// whatever read_only says: s3_object carries the read actions too, and a
+// writing action on a read-only connection is refused by the handler, naming
+// the connection.
+func (*Toolkit) Tools() []string {
+	return []string{toolList, toolObject}
 }
 
 // SetSemanticProvider sets the semantic metadata provider for enrichment.
@@ -261,15 +283,14 @@ func (t *Toolkit) AddConnection(name string, config map[string]any) error {
 	if err != nil {
 		return fmt.Errorf("parsing S3 config for %s: %w", name, err)
 	}
-	if cfg.ConnectionName == "" {
-		cfg.ConnectionName = name
-	}
-
-	client, err := createClient(cfg)
-	if err != nil {
+	// A connection added at run time is bound by the name it is stored under:
+	// that is the name the admin API, the reconciler and every persona rule
+	// already use for it.
+	cfg = applyDefaults(name, cfg)
+	cfg.ConnectionName = name
+	if err := t.bind(cfg); err != nil {
 		return fmt.Errorf("creating S3 client for %s: %w", name, err)
 	}
-	t.s3Toolkit.AddClient(name, client)
 	return nil
 }
 
@@ -278,7 +299,27 @@ func (t *Toolkit) RemoveConnection(name string) error {
 	if err := t.s3Toolkit.RemoveClient(name); err != nil {
 		return fmt.Errorf("removing S3 client %s: %w", name, err)
 	}
+	t.connMu.Lock()
+	delete(t.connections, name)
+	delete(t.descriptions, name)
+	t.connMu.Unlock()
 	return nil
+}
+
+// settings returns the settings a call that names connection is bound by. An
+// empty name is the default connection. A name the toolkit resolves through
+// the upstream client registry but never entered here (a client added on the
+// upstream toolkit directly) is bound by the default's settings.
+func (t *Toolkit) settings(connection string) connSettings {
+	if connection == "" {
+		connection = t.name
+	}
+	t.connMu.RLock()
+	defer t.connMu.RUnlock()
+	if s, ok := t.connections[connection]; ok {
+		return s
+	}
+	return settingsOf(t.config)
 }
 
 // HasConnection returns true if a connection with the given name exists.
@@ -287,12 +328,13 @@ func (t *Toolkit) HasConnection(name string) bool {
 	return err == nil
 }
 
-// Close releases resources.
+// Close releases every connection's client.
 func (t *Toolkit) Close() error {
-	if t.client != nil {
-		if err := t.client.Close(); err != nil {
-			return fmt.Errorf("closing s3 client: %w", err)
-		}
+	if t.s3Toolkit == nil {
+		return nil
+	}
+	if err := t.s3Toolkit.Close(); err != nil {
+		return fmt.Errorf("closing s3 clients: %w", err)
 	}
 	return nil
 }
@@ -320,4 +362,5 @@ var (
 		Close() error
 	} = (*Toolkit)(nil)
 	_ toolkit.ConnectionManager = (*Toolkit)(nil)
+	_ toolkit.ConnectionLister  = (*Toolkit)(nil)
 )

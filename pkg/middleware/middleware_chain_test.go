@@ -1934,7 +1934,7 @@ func TestMiddlewareChain_ToolVisibility(t *testing.T) {
 	}, nil)
 
 	// Register 4 tools across 3 toolkits
-	for _, name := range []string{chainTestTrinoQuery, chainTestDescribeTable, "search", "s3_list_objects"} {
+	for _, name := range []string{chainTestTrinoQuery, chainTestDescribeTable, "search", "s3_list"} {
 		server.AddTool(&mcp.Tool{
 			Name:        name,
 			Description: "Test tool " + name,
@@ -1985,7 +1985,7 @@ func TestMiddlewareChain_ToolVisibility_DenyOnly(t *testing.T) {
 		Version: "v0.0.1",
 	}, nil)
 
-	for _, name := range []string{chainTestTrinoQuery, "search", "s3_delete_object", "s3_list_objects"} {
+	for _, name := range []string{chainTestTrinoQuery, "search", "datahub_delete", "s3_list"} {
 		server.AddTool(&mcp.Tool{
 			Name:        name,
 			Description: "Test tool " + name,
@@ -1997,9 +1997,9 @@ func TestMiddlewareChain_ToolVisibility_DenyOnly(t *testing.T) {
 		})
 	}
 
-	// Deny s3_delete_* only
+	// Deny datahub_delete* only
 	server.AddReceivingMiddleware(middleware.MCPToolVisibilityMiddleware(middleware.ToolVisibilityConfig{
-		ResolveGlobalDeny: func(context.Context) []string { return []string{"s3_delete_*"} },
+		ResolveGlobalDeny: func(context.Context) []string { return []string{"datahub_delete*"} },
 	}))
 
 	ctx := context.Background()
@@ -2023,8 +2023,8 @@ func TestMiddlewareChain_ToolVisibility_DenyOnly(t *testing.T) {
 	}
 
 	for _, tool := range listResult.Tools {
-		if tool.Name == "s3_delete_object" {
-			t.Error("s3_delete_object should have been filtered out")
+		if tool.Name == "datahub_delete" {
+			t.Error("datahub_delete should have been filtered out")
 		}
 	}
 }
@@ -2037,7 +2037,7 @@ func TestMiddlewareChain_ToolVisibility_NoPatterns(t *testing.T) {
 		Version: "v0.0.1",
 	}, nil)
 
-	toolNames := []string{chainTestTrinoQuery, "search", "s3_list_objects"}
+	toolNames := []string{chainTestTrinoQuery, "search", "s3_list"}
 	for _, name := range toolNames {
 		server.AddTool(&mcp.Tool{
 			Name:        name,

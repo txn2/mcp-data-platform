@@ -65,7 +65,7 @@ func TestBuildPurposeResolver(t *testing.T) {
 		r := toolargs.BuildPurposeResolver(
 			PurposeConfig{Tools: []string{"s3_*"}}, registry.NewRegistry())
 		require.NotNil(t, r)
-		assert.True(t, r.Gates("s3_get_object"))
+		assert.True(t, r.Gates("s3_object"))
 		assert.False(t, r.Gates("trino_query"))
 	})
 
@@ -134,8 +134,8 @@ func TestDefaultPurposeToolsCoversTheDocumentedSet(t *testing.T) {
 		"api_invoke_endpoint",
 		"api_export",
 		"datahub_get_*",
-		"s3_get_object",
-		"s3_list_objects",
+		"s3_object",
+		"s3_list",
 		"kind:mcp",
 	}, middleware.DefaultPurposeTools())
 }

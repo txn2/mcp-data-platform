@@ -41,9 +41,9 @@ graph TD
 |---------|---------|
 | `*` | Everything |
 | `trino_*` | trino_query, trino_execute, trino_explain, trino_browse, trino_export, etc. |
-| `*_list_*` | s3_list_buckets, s3_list_objects, trino_list_connections, etc. (does **not** match `trino_browse` or `datahub_browse`) |
+| `*_list_*` | trino_list_connections, datahub_list_connections (does **not** match `s3_list`, which has nothing after `list`, nor `trino_browse` or `datahub_browse`) |
 | `datahub_get_*` | datahub_get_lineage (the one remaining `datahub_get_` tool) |
-| `s3_*` | All S3 tools |
+| `s3_*` | Both S3 tools, `s3_list` and `s3_object` |
 | `trino_query` | Exact match only |
 
 Wildcards match zero or more characters.
@@ -69,14 +69,16 @@ tools:
     - "trino_describe_*"
     - "trino_list_connections"
     - "datahub_*"
-    - "s3_list_*"
-    - "s3_get_*"
+    - "s3_list"
+    - "s3_object"
   deny:
     - "trino_execute"
-    - "s3_put_*"
-    - "s3_delete_*"
-    - "s3_copy_*"
 ```
+
+Whether this persona may write objects is not a tool rule: reading and writing
+an object are actions of the one `s3_object` tool, so denying it withholds the
+reads too. Point the persona at connections configured `read_only: true`
+(under `toolkits.s3`) to make its object access read-only.
 
 ### Metadata Only (No Queries)
 
@@ -110,15 +112,16 @@ tools:
 ```yaml
 tools:
   allow:
-    - "s3_list_*"
-    - "s3_get_object"
-    - "s3_get_object_metadata"
-    - "s3_presign_url"
-  deny:
-    - "s3_put_*"
-    - "s3_delete_*"
-    - "s3_copy_*"
+    - "s3_list"
+    - "s3_object"
+connections:
+  allow:
+    - "archive"   # an S3 connection configured read_only: true
 ```
+
+`s3_object` refuses `put`, `copy` and `delete` on a read-only connection and
+names the connection in the refusal; `get`, `metadata` and `presign` still
+work. The read-only decision lives on the connection, not in the tool list.
 
 ## Tool Names Reference
 
@@ -142,15 +145,19 @@ Use these exact names in your patterns:
 - `datahub_list_connections`
 
 **S3 Tools:**
-- `s3_list_buckets`
-- `s3_list_objects`
-- `s3_get_object`
-- `s3_get_object_metadata`
-- `s3_presign_url`
-- `s3_list_connections`
-- `s3_put_object` (if not read-only)
-- `s3_delete_object` (if not read-only)
-- `s3_copy_object` (if not read-only)
+- `s3_list` (buckets, or one bucket's objects)
+- `s3_object` (`get`, `metadata`, `put`, `copy`, `delete`, `presign`; the writing actions are refused on a `read_only` connection)
+
+Before #1591 these were eight tools, one per noun-verb pair (list buckets, list
+objects, get, get metadata, presign, put, copy, delete). The old names are not
+aliases: an entry naming one grants or denies nothing. Persona definitions
+stored in the database are rewritten by migration `000138`: the two listing
+names and the `s3_list_*` glob become `s3_list`; the six object names and the
+verb globs `s3_get_*`, `s3_put_*`, `s3_copy_*`, `s3_delete_*`, `s3_presign_*`
+become `s3_object`; duplicates collapse to the first position. A deny of a former write tool
+becomes a deny of `s3_object`, which withholds the read actions too (the
+migration fails closed); move that decision to the connection's `read_only`
+flag. Personas defined in YAML are edited by hand along the same mapping.
 
 ## Examples
 
@@ -163,9 +170,9 @@ analyst:
   tools:
     allow: ["*"]
     deny:
-      - "s3_put_*"
-      - "s3_delete_*"
-      - "s3_copy_*"
+      - "trino_execute"
+      - "datahub_update"
+      - "datahub_delete"
 ```
 
 Prefer `allow: ["*"]` with a targeted `deny` over an enumerated allow-list: an
@@ -251,7 +258,7 @@ personas:
       allow: ["*"]
 ```
 
-The double-underscore separator (`__`) is a deliberate marker — it makes "gateway tool" visually obvious in audit logs, persona configs, and tool-list responses, and it never collides with the single-underscore separators used by native toolkits (`trino_query`, `datahub_search`, `s3_get_object`).
+The double-underscore separator (`__`) is a deliberate marker — it makes "gateway tool" visually obvious in audit logs, persona configs, and tool-list responses, and it never collides with the single-underscore separators used by native toolkits (`trino_query`, `datahub_search`, `s3_object`).
 
 ### Composite personas
 
@@ -264,12 +271,12 @@ Deny rules always win over allow rules:
 ```yaml
 tools:
   allow:
-    - "s3_*"           # Allow all S3 tools
+    - "datahub_*"        # Allow all DataHub tools
   deny:
-    - "s3_delete_*"    # But deny delete operations
+    - "datahub_delete"   # But deny deletion
 ```
 
-Result: `s3_list_buckets` ✓, `s3_delete_object` ✗
+Result: `datahub_browse` ✓, `datahub_delete` ✗
 
 ## Testing Rules
 

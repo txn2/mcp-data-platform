@@ -245,7 +245,7 @@ func TestSmoke_ToolkitLiveness(t *testing.T) {
 	}{
 		{"trino", "trino_browse", map[string]any{}},
 		{"datahub", "datahub_search", map[string]any{"query": "*"}},
-		{"s3", "s3_list_buckets", map[string]any{}},
+		{"s3", "s3_list", map[string]any{}},
 		{"memory", "memory_recall", map[string]any{"query": "liveness"}},
 		{"knowledge", "recall_insight", map[string]any{"query": "liveness"}},
 		{"portal", "manage_asset", map[string]any{"action": "list"}},

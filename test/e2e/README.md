@@ -10,7 +10,7 @@ The E2E tests validate four cross-enrichment paths:
 |------|-------------|-----------------|----------------|
 | 1 | `trino_describe_table` | DataHub Semantic | `semantic_context` |
 | 2 | `datahub_search` | Trino Query | `query_context` |
-| 3 | `s3_list_objects` | DataHub Semantic | `semantic_context.matching_datasets` |
+| 3 | `s3_list` | DataHub Semantic | `semantic_context.matching_datasets` |
 | 4 | `datahub_search` (S3) | S3 Storage | `storage_context` |
 
 ## Prerequisites

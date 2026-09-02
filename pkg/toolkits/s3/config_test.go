@@ -176,8 +176,8 @@ func TestParseConfig_InvalidTimeoutDefault(t *testing.T) {
 func TestParseConfig_WithDescriptions(t *testing.T) {
 	cfg := map[string]any{
 		"descriptions": map[string]any{
-			"s3_list_buckets": "List all buckets",
-			"s3_get_object":   "Get an object",
+			"s3_list":   "List all buckets",
+			"s3_object": "Get an object",
 		},
 	}
 
@@ -188,8 +188,8 @@ func TestParseConfig_WithDescriptions(t *testing.T) {
 	if len(result.Descriptions) != 2 {
 		t.Fatalf("expected 2 descriptions, got %d", len(result.Descriptions))
 	}
-	if result.Descriptions["s3_list_buckets"] != "List all buckets" {
-		t.Errorf("s3_list_buckets = %q", result.Descriptions["s3_list_buckets"])
+	if result.Descriptions["s3_list"] != "List all buckets" {
+		t.Errorf("s3_list = %q", result.Descriptions["s3_list"])
 	}
 }
 
@@ -206,11 +206,11 @@ func TestParseConfig_NoDescriptions(t *testing.T) {
 func TestParseConfig_WithAnnotations(t *testing.T) {
 	cfg := map[string]any{
 		"annotations": map[string]any{
-			"s3_list_buckets": map[string]any{
+			"s3_list": map[string]any{
 				"read_only_hint":  true,
 				"idempotent_hint": true,
 			},
-			"s3_delete_object": map[string]any{
+			"s3_object": map[string]any{
 				"destructive_hint": true,
 			},
 		},
@@ -223,16 +223,16 @@ func TestParseConfig_WithAnnotations(t *testing.T) {
 	if len(result.Annotations) != 2 {
 		t.Fatalf("expected 2 annotations, got %d", len(result.Annotations))
 	}
-	lb := result.Annotations["s3_list_buckets"]
+	lb := result.Annotations["s3_list"]
 	if lb.ReadOnlyHint == nil || !*lb.ReadOnlyHint {
-		t.Error("expected s3_list_buckets ReadOnlyHint=true")
+		t.Error("expected s3_list ReadOnlyHint=true")
 	}
 	if lb.IdempotentHint == nil || !*lb.IdempotentHint {
-		t.Error("expected s3_list_buckets IdempotentHint=true")
+		t.Error("expected s3_list IdempotentHint=true")
 	}
-	del := result.Annotations["s3_delete_object"]
+	del := result.Annotations["s3_object"]
 	if del.DestructiveHint == nil || !*del.DestructiveHint {
-		t.Error("expected s3_delete_object DestructiveHint=true")
+		t.Error("expected s3_object DestructiveHint=true")
 	}
 }
 
@@ -250,7 +250,7 @@ func TestS3GetAnnotationsMap(t *testing.T) {
 	t.Run("valid map", func(t *testing.T) {
 		cfg := map[string]any{
 			"annotations": map[string]any{
-				"s3_list_buckets": map[string]any{
+				"s3_list": map[string]any{
 					"read_only_hint":   true,
 					"destructive_hint": false,
 					"idempotent_hint":  true,
@@ -262,7 +262,7 @@ func TestS3GetAnnotationsMap(t *testing.T) {
 		if len(result) != 1 {
 			t.Fatalf("expected 1 entry, got %d", len(result))
 		}
-		ann := result["s3_list_buckets"]
+		ann := result["s3_list"]
 		if ann.ReadOnlyHint == nil || !*ann.ReadOnlyHint {
 			t.Error("expected ReadOnlyHint=true")
 		}
@@ -303,16 +303,16 @@ func TestS3GetStringMap(t *testing.T) {
 	t.Run("valid map", func(t *testing.T) {
 		cfg := map[string]any{
 			"descriptions": map[string]any{
-				"s3_list_buckets": "List buckets",
-				"s3_get_object":   "Get object",
+				"s3_list":   "List buckets",
+				"s3_object": "Get object",
 			},
 		}
 		result := getStringMap(cfg, "descriptions")
 		if len(result) != 2 {
 			t.Fatalf("expected 2 entries, got %d", len(result))
 		}
-		if result["s3_list_buckets"] != "List buckets" {
-			t.Errorf("s3_list_buckets = %q", result["s3_list_buckets"])
+		if result["s3_list"] != "List buckets" {
+			t.Errorf("s3_list = %q", result["s3_list"])
 		}
 	})
 

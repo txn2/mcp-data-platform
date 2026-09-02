@@ -173,7 +173,7 @@ Two things a generic call does not get, which is why the helpers are still the
 way to do the three things they do. A query issued by tool call is not counted in the run's query
 total, and a write made by tool call is not one of the run's OUTPUTS: the run row's output list and the per-run output cap cover
 `platform.export` and `platform.publish_data`, so an object written by
-`platform.call("s3_put_object", ...)` appears in the audit log rather than on
+`platform.call("s3_object", {"action": "put", ...})` appears in the audit log rather than on
 the run detail page. And a query issued by tool call is handed the tool's own
 result, truncation flag included, without the row cap `platform.query` pushes
 down into the statement.

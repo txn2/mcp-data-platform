@@ -15,7 +15,7 @@ import (
 // TestFailedListingReachesTheClientAsTheToolsOwnError pins txn2/mcp-s3#141,
 // fixed in mcp-s3 v1.4.0: the toolkit this adapter builds, driven through an
 // MCP server and an in-memory client against an endpoint that refuses every
-// request, answers s3_list_buckets and s3_list_objects with the tool's error
+// request, answers s3_list (buckets and objects) with the tool's error
 // result rather than the SDK's output-validation error in its place. Before
 // the fix the SDK validated the zero output struct, whose nil slices marshal
 // as null, against a schema that said array, and discarded the tool's reason.
@@ -47,10 +47,10 @@ func TestFailedListingReachesTheClientAsTheToolsOwnError(t *testing.T) {
 	t.Cleanup(func() { _ = cs.Close() })
 
 	for name, args := range map[string]map[string]any{
-		"s3_list_buckets": {},
-		"s3_list_objects": {"bucket": "b"},
+		"buckets": {},
+		"objects": {"bucket": "b"},
 	} {
-		res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})
+		res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "s3_list", Arguments: args})
 		require.NoError(t, err, "%s: the failure is a tool result, not a protocol error", name)
 		require.True(t, res.IsError, "%s: the listing failed", name)
 		require.NotEmpty(t, res.Content)

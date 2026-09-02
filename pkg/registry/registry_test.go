@@ -495,10 +495,19 @@ func TestGatewayAggregateFactory_UnreachableInstanceAbsorbed(t *testing.T) {
 	_ = tk.Close()
 }
 
-func TestS3Factory(_ *testing.T) {
-	// S3Factory may succeed with AWS SDK defaults (env vars, IAM role, etc.)
-	// Just verify it can be called
-	_, _ = S3Factory(regTestTest, map[string]any{})
+func TestS3AggregateFactory(t *testing.T) {
+	static := map[string]any{"region": "us-east-1", "access_key_id": "a", "secret_access_key": "b", "endpoint": "http://localhost:1"}
+	tk, err := S3AggregateFactory("lake", map[string]map[string]any{"lake": static, "archive": static})
+	if err != nil {
+		t.Fatalf("S3AggregateFactory: %v", err)
+	}
+	defer func() { _ = tk.Close() }()
+	if tk.Kind() != "s3" || tk.Connection() != "lake" {
+		t.Errorf("kind=%s connection=%s; want s3/lake", tk.Kind(), tk.Connection())
+	}
+	if _, err := S3AggregateFactory("", nil); err == nil {
+		t.Error("no instances must be an error")
+	}
 }
 
 func TestGetToolkitForTool_Found(t *testing.T) {
@@ -539,7 +548,7 @@ func TestGetToolkitForTool_MultipleToolkits(t *testing.T) {
 	})
 	_ = reg.Register(&mockToolkit{
 		kind: "s3", name: "storage", connection: "s3-storage",
-		tools: []string{"s3_list_buckets", "s3_get_object"},
+		tools: []string{"s3_list", "s3_object"},
 	})
 
 	tests := []struct {
@@ -548,7 +557,7 @@ func TestGetToolkitForTool_MultipleToolkits(t *testing.T) {
 	}{
 		{"trino_query", ToolkitMatch{Kind: regTestTrino, Name: "production", Connection: "prod-trino", Found: true}},
 		{"datahub_search", ToolkitMatch{Kind: "datahub", Name: "main", Connection: "main-datahub", Found: true}},
-		{"s3_list_buckets", ToolkitMatch{Kind: "s3", Name: "storage", Connection: "s3-storage", Found: true}},
+		{"s3_list", ToolkitMatch{Kind: "s3", Name: "storage", Connection: "s3-storage", Found: true}},
 		{"unknown", ToolkitMatch{}},
 	}
 

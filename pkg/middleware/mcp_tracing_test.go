@@ -97,7 +97,7 @@ func TestMCPTracingMiddleware_DisabledIsNoop(t *testing.T) {
 
 	server := mcp.NewServer(&mcp.Implementation{Name: "tracing-off", Version: "v0.0.0"}, nil)
 	server.AddTool(&mcp.Tool{
-		Name:        "s3_list_buckets",
+		Name:        "s3_list",
 		Description: "test",
 		InputSchema: json.RawMessage(`{"type":"object"}`),
 	}, func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -115,7 +115,7 @@ func TestMCPTracingMiddleware_DisabledIsNoop(t *testing.T) {
 	sess := mustConnect(ctx, t, server)
 	defer func() { _ = sess.Close() }()
 
-	_, err := sess.CallTool(ctx, &mcp.CallToolParams{Name: "s3_list_buckets"})
+	_, err := sess.CallTool(ctx, &mcp.CallToolParams{Name: "s3_list"})
 	require.NoError(t, err)
 
 	assert.Empty(t, sr.Ended(), "disabled tracer must produce no spans")

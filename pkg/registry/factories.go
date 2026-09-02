@@ -14,7 +14,7 @@ import (
 func RegisterBuiltinFactories(r *Registry) {
 	r.RegisterAggregateFactory("trino", TrinoAggregateFactory)
 	r.RegisterFactory("datahub", DataHubFactory)
-	r.RegisterFactory("s3", S3Factory)
+	r.RegisterAggregateFactory("s3", S3AggregateFactory)
 	r.RegisterAggregateFactory(gatewaykit.Kind, GatewayAggregateFactory)
 	r.RegisterAggregateFactory(apigatewaykit.Kind, APIGatewayAggregateFactory)
 }
@@ -61,13 +61,17 @@ func DataHubFactory(name string, cfg map[string]any) (Toolkit, error) {
 	return tk, nil
 }
 
-// S3Factory creates an S3 toolkit from configuration.
-func S3Factory(name string, cfg map[string]any) (Toolkit, error) {
-	config, err := s3kit.ParseConfig(cfg)
+// S3AggregateFactory creates the one S3 toolkit from all configured
+// instances, each a connection routed by the "connection" argument. Separate
+// per-instance toolkits registered the same tool names onto one server, and
+// the SDK keeps the last registration, so every instance but one was
+// unreachable (#1591).
+func S3AggregateFactory(defaultName string, instances map[string]map[string]any) (Toolkit, error) {
+	multiCfg, err := s3kit.ParseMultiConfig(defaultName, instances)
 	if err != nil {
-		return nil, fmt.Errorf("parsing s3 config: %w", err)
+		return nil, fmt.Errorf("parsing s3 multi config: %w", err)
 	}
-	tk, err := s3kit.New(name, config)
+	tk, err := s3kit.NewMulti(multiCfg)
 	if err != nil {
 		return nil, fmt.Errorf("creating s3 toolkit: %w", err)
 	}

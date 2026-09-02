@@ -317,7 +317,7 @@ func TestRun_CallResultIsCapped(t *testing.T) {
 		rows = append(rows, map[string]any{"id": i, "blob": strings.Repeat("x", 512)})
 	}
 	_, err := Run(context.Background(), Options{
-		Source: `platform.call("s3_list_objects", {"connection": "acme"})`, Name: "test", RunID: "run_1",
+		Source: `platform.call("s3_list", {"connection": "acme"})`, Name: "test", RunID: "run_1",
 		FireTime: fireTime, Caller: &recordingCaller{rows: rows}, MaxResultBytes: 1 << 16,
 	})
 	require.Error(t, err)

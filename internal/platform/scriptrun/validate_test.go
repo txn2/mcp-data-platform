@@ -315,7 +315,7 @@ platform.query(**cfg)
 
 	t.Run("a generic call", func(t *testing.T) {
 		report := Validate(`
-cfg = {"tool": "s3_put_object", "args": {"connection": "acme-s3"}}
+cfg = {"tool": "s3_object", "args": {"connection": "acme-s3"}}
 platform.call(**cfg)
 `)
 		assert.True(t, report.DynamicTools)

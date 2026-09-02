@@ -88,13 +88,13 @@ func listTools(t *testing.T, p *Platform) map[string]string {
 func TestToolsListReflectsOverridesAcrossReplicas(t *testing.T) {
 	shared := newMutableOverrideStore()
 
-	replicaA := newOverrideReplica(t, shared, "trino_query", "s3_delete_object")
-	replicaB := newOverrideReplica(t, shared, "trino_query", "s3_delete_object")
+	replicaA := newOverrideReplica(t, shared, "trino_query", "s3_object")
+	replicaB := newOverrideReplica(t, shared, "trino_query", "s3_object")
 
 	const authored = "operator authored description"
 
 	before := listTools(t, replicaB)
-	require.Contains(t, before, "s3_delete_object")
+	require.Contains(t, before, "s3_object")
 	// trino_query carries a built-in description override, so the baseline is
 	// that default rather than the registered text. What matters is that it is
 	// not yet the operator's.
@@ -102,12 +102,12 @@ func TestToolsListReflectsOverridesAcrossReplicas(t *testing.T) {
 	require.NotEqual(t, authored, before["trino_query"])
 
 	// Admin hides a tool and rewrites a description, served by replica A.
-	shared.set(ConfigKeyToolsDeny, `["s3_delete_object"]`)
+	shared.set(ConfigKeyToolsDeny, `["s3_object"]`)
 	shared.set("tool.trino_query.description", authored)
 
 	for name, p := range map[string]*Platform{"A": replicaA, "B": replicaB} {
 		got := listTools(t, p)
-		assert.NotContains(t, got, "s3_delete_object",
+		assert.NotContains(t, got, "s3_object",
 			"replica %s still lists a tool the operator hid", name)
 		assert.Equal(t, authored, got["trino_query"],
 			"replica %s serves a stale tool description", name)
@@ -115,7 +115,7 @@ func TestToolsListReflectsOverridesAcrossReplicas(t *testing.T) {
 
 	// Un-hiding is equally live: no restart, no notification between replicas.
 	shared.set(ConfigKeyToolsDeny, `[]`)
-	assert.Contains(t, listTools(t, replicaB), "s3_delete_object")
+	assert.Contains(t, listTools(t, replicaB), "s3_object")
 }
 
 // TestPlatformInfoReflectsOverridesAcrossReplicas covers the description and

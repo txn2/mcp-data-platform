@@ -47,7 +47,8 @@ func TestOutputWriter_DeliversThroughThePlatformSession(t *testing.T) {
 
 	require.Len(t, h.caller.calls, 1)
 	call := h.caller.calls[0]
-	assert.Equal(t, "s3_put_object", call.tool)
+	assert.Equal(t, "s3_object", call.tool)
+	assert.Equal(t, "put", call.args["action"])
 	assert.Equal(t, "acme-s3", call.args["connection"], "the connection comes from the destination, never from the script")
 	assert.Equal(t, "acme-exports", call.args["bucket"])
 	assert.Equal(t, "weekly/2026/sales.csv", call.args["key"])

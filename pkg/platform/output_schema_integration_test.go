@@ -176,7 +176,7 @@ func TestPlatformOutputSchemasAreOpen(t *testing.T) {
 // TestThirdPartyToolResultsValidateAgainstTheirAdvertisedSchemas is the gate
 // #1381 asked for: it assembles the real Trino and S3 toolkits (against
 // endpoints that refuse every request, so nearly every call fails the way a
-// deployment's does when its backend is down; s3_presign_url signs locally and
+// deployment's does when its backend is down; s3_object presign signs locally and
 // succeeds), lists their tools through the assembled server, calls each tool
 // through the full receiving chain, and validates the returned
 // structuredContent against the output schema the same server advertised for
@@ -234,7 +234,7 @@ func TestThirdPartyToolResultsValidateAgainstTheirAdvertisedSchemas(t *testing.T
 	defer func() { _ = cs.Close() }()
 
 	schemas := listedPlatformSchemas(ctx, t, cs)
-	for _, name := range []string{"trino_query", "trino_describe_table", "trino_explain", "trino_browse", "s3_list_objects", "s3_list_buckets"} {
+	for _, name := range []string{"trino_query", "trino_describe_table", "trino_explain", "trino_browse", "s3_list", "s3_object"} {
 		require.Contains(t, schemas, name, "%s advertises an output schema", name)
 	}
 	// A real client states a purpose exactly where the server advertised the
@@ -262,17 +262,12 @@ func TestThirdPartyToolResultsValidateAgainstTheirAdvertisedSchemas(t *testing.T
 	// these is still answered with a result whose structuredContent must
 	// validate, so an unexpected refusal is covered as well.
 	args := map[string]map[string]any{
-		"trino_query":            {"sql": "SELECT 1"},
-		"trino_execute":          {"sql": "SELECT 1"},
-		"trino_explain":          {"sql": "SELECT 1"},
-		"trino_describe_table":   {"table": "memory.default.t"},
-		"s3_list_objects":        {"bucket": "b"},
-		"s3_get_object":          {"bucket": "b", "key": "k"},
-		"s3_get_object_metadata": {"bucket": "b", "key": "k"},
-		"s3_presign_url":         {"bucket": "b", "key": "k"},
-		"s3_put_object":          {"bucket": "b", "key": "k", "content": "x"},
-		"s3_copy_object":         {"source_bucket": "b", "source_key": "k", "dest_bucket": "b", "dest_key": "k2"},
-		"s3_delete_object":       {"bucket": "b", "key": "k"},
+		"trino_query":          {"sql": "SELECT 1"},
+		"trino_execute":        {"sql": "SELECT 1"},
+		"trino_explain":        {"sql": "SELECT 1"},
+		"trino_describe_table": {"table": "memory.default.t"},
+		"s3_list":              {"bucket": "b"},
+		"s3_object":            {"action": "presign", "bucket": "b", "key": "k"},
 	}
 	checked := 0
 	for name, resolved := range schemas {
@@ -292,5 +287,5 @@ func TestThirdPartyToolResultsValidateAgainstTheirAdvertisedSchemas(t *testing.T
 			validatePlatformSC(t, resolved, res.StructuredContent)
 		})
 	}
-	require.GreaterOrEqual(t, checked, 10, "the real Trino and S3 toolkits were assembled and their tools called")
+	require.GreaterOrEqual(t, checked, 7, "the real Trino and S3 toolkits were assembled and their tools called")
 }

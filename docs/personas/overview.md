@@ -85,12 +85,11 @@ personas:
         - "search"
         - "fetch"
         - "datahub_get_*"
-        - "s3_list_*"
-        - "s3_get_object_metadata"
+        - "s3_list"
       deny:
         - "trino_query"
         - "trino_execute"
-        - "s3_get_object"
+        - "s3_object"       # content, metadata and links are one tool
     connections:
       allow: ["*"]
 ```

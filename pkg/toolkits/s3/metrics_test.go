@@ -2,7 +2,6 @@ package s3
 
 import (
 	"context"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,7 +10,6 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	s3tools "github.com/txn2/mcp-s3/pkg/tools"
 
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 )
@@ -30,29 +28,27 @@ func scrapeForTest(t *testing.T, h http.Handler) string {
 	return string(body)
 }
 
-// TestMetricsMiddleware_RecordsOperation drives the real mcp-s3 metrics
-// middleware's After hook for a success and a failure and asserts both
-// s3_operations series increment with the right operation and status labels.
-func TestMetricsMiddleware_RecordsOperation(t *testing.T) {
+// TestObserve_RecordsOperation drives the recorder for a success and a failure
+// and asserts both s3_operations series increment with the operation the call
+// performed and its status.
+func TestObserve_RecordsOperation(t *testing.T) {
 	m, err := observability.New(observability.Config{Enabled: true})
 	if err != nil {
 		t.Fatalf("observability.New: %v", err)
 	}
 	t.Cleanup(func() { _ = m.Shutdown(context.Background()) })
 
-	mw := newMetricsMiddleware(m)
+	tk := &Toolkit{metrics: m}
 	ctx := context.Background()
-
-	_, _ = mw.After(ctx, &s3tools.ToolContext{ToolName: "get_object", StartTime: time.Now()}, &mcp.CallToolResult{}, nil)
-	_, _ = mw.After(ctx, &s3tools.ToolContext{ToolName: "list_objects", StartTime: time.Now()}, nil, errors.New("access denied"))
-	_, _ = mw.After(ctx, &s3tools.ToolContext{ToolName: "get_object_metadata", StartTime: time.Now()}, &mcp.CallToolResult{IsError: true}, nil)
+	tk.observe(ctx, "s3_object.get", time.Now(), nil)
+	tk.observe(ctx, "s3_list.objects", time.Now(), &mcp.CallToolResult{IsError: true})
 
 	body := scrapeForTest(t, m.Handler())
 	for _, want := range []string{
 		"s3_operations_total",
-		`operation="get_object"`,
+		`operation="s3_object.get"`,
 		`status="ok"`,
-		`operation="list_objects"`,
+		`operation="s3_list.objects"`,
 		`status="upstream_err"`,
 		"s3_operation_duration_seconds",
 	} {
@@ -62,57 +58,30 @@ func TestMetricsMiddleware_RecordsOperation(t *testing.T) {
 	}
 }
 
-// newTestToolkit builds a real S3 toolkit with static credentials (no network
-// at construction). createToolkit derefs the client, so a real one is required.
-func newTestToolkit(t *testing.T) *Toolkit {
-	t.Helper()
-	tk, err := New("test", Config{
-		Region:          "us-east-1",
-		Endpoint:        "http://localhost:9000",
-		AccessKeyID:     "test",
-		SecretAccessKey: "test",
-		ConnectionName:  "test",
-	})
-	if err != nil {
-		t.Fatalf("New: %v", err)
+// TestObserve_NilRecorder covers the tracing-only contract: the platform calls
+// SetMetrics when metrics OR tracing is enabled, so a nil (disabled-metrics)
+// recorder must be recorded to without panicking, leaving the span emission
+// as the observation.
+func TestObserve_NilRecorder(t *testing.T) {
+	tk := &Toolkit{}
+	tk.SetMetrics(nil)
+	if tk.metrics != nil {
+		t.Error("SetMetrics(nil) must not store a (non-nil) recorder")
 	}
-	return tk
+	tk.observe(context.Background(), "s3_object.put", time.Now(), nil)
 }
 
-// TestSetMetrics_InstallsMiddleware confirms SetMetrics stores the recorder and
-// rebuilds the underlying toolkit (so the middleware is present at registration).
-func TestSetMetrics_InstallsMiddleware(t *testing.T) {
+// TestSetMetrics_StoresRecorder confirms the recorder the handlers report to
+// is the one the platform wired.
+func TestSetMetrics_StoresRecorder(t *testing.T) {
 	m, err := observability.New(observability.Config{Enabled: true})
 	if err != nil {
 		t.Fatalf("observability.New: %v", err)
 	}
 	t.Cleanup(func() { _ = m.Shutdown(context.Background()) })
-
-	tk := newTestToolkit(t)
-	before := tk.s3Toolkit
+	tk := &Toolkit{}
 	tk.SetMetrics(m)
 	if tk.metrics != m {
 		t.Error("SetMetrics did not store the recorder")
-	}
-	if tk.s3Toolkit == before {
-		t.Error("SetMetrics did not rebuild the underlying toolkit with the middleware")
-	}
-}
-
-// TestSetMetrics_NilRecorderStillInstallsMiddleware covers the tracing-only
-// contract: the platform calls SetMetrics only when metrics OR tracing is
-// enabled, so even with a nil (disabled-metrics) recorder the middleware
-// must still be installed — otherwise a tracing-only deployment would emit
-// no S3 spans. The recorder itself stays nil (metric records are no-ops),
-// but the toolkit is rebuilt with the observability middleware present.
-func TestSetMetrics_NilRecorderStillInstallsMiddleware(t *testing.T) {
-	tk := newTestToolkit(t)
-	before := tk.s3Toolkit
-	tk.SetMetrics(nil)
-	if tk.metrics != nil {
-		t.Error("SetMetrics(nil) must not store a (non-nil) recorder")
-	}
-	if tk.s3Toolkit == before {
-		t.Error("SetMetrics(nil) must rebuild the toolkit with the observability middleware so tracing-only deployments emit S3 spans")
 	}
 }

@@ -481,7 +481,7 @@ said otherwise:
 
 - **`scripts.destinations` bounds `platform.export`, not the script.** A script
   whose persona holds an S3 connection can call
-  `platform.call("s3_put_object", {"connection": ..., "bucket": ..., "key": ...})`
+  `platform.call("s3_object", {"action": "put", "connection": ..., "bucket": ..., "key": ...})`
   and write an object the destinations configuration never declared. The
   configuration is what makes a NAMED destination safe to repoint; it is not a
   perimeter around the run.
@@ -504,7 +504,7 @@ said otherwise:
 - **A write made through a tool is not one of the run's OUTPUTS.** The run row's
   output list and the `maxExports` per-run cap cover `platform.export` and
   `platform.publish_data` (`internal/platform/scriptrun/host.go`,
-  `admitOutput`). An object written by `platform.call("s3_put_object", ...)` is
+  `admitOutput`). An object written by `platform.call("s3_object", {"action": "put", ...})` is
   not counted there and does not appear on the run detail page as an output.
   Where it appears is the audit log, as an ordinary tool call under the script
   principal, alongside every other call the run made. A reader looking for
@@ -527,7 +527,7 @@ The consequences:
 - An EXPORT supplies no endpoint, no credential, no bucket, and no host name.
   It names a destination; everything below the name comes from configuration.
   This is a property of `platform.export`, not of the script: since #1419 a
-  script may also call `s3_put_object` (or any other tool its persona allows)
+  script may also call `s3_object` (or any other tool its persona allows)
   through `platform.call`, naming a bucket and key directly. See
   [What a script can move, and what bounds
   it](#what-a-script-can-move-and-what-bounds-it).
@@ -539,7 +539,7 @@ The consequences:
   the configured set named, before anything is issued. A draft resolves through
   the same set, so a destination a real run would refuse fails while the author
   is iterating.
-- The write is still authorized by the middleware: delivery is `s3_put_object`
+- The write is still authorized by the middleware: delivery is `s3_object` with action `put`
   over the run's session, so a destination whose connection the run's persona
   cannot reach is refused by the authority of record whatever the
   configuration names.
@@ -738,7 +738,7 @@ section describes `platform.export`'s delivery arm; what a script can move by
 OTHER means is [stated separately](#what-a-script-can-move-and-what-bounds-it),
 because since #1419 it may call the object-store and API tools directly.
 
-The write itself is **one ordinary platform tool call** — `s3_put_object` over
+The write itself is **one ordinary platform tool call** — `s3_object` (action `put`) over
 the run's own in-memory MCP session (`internal/platform/scriptexec/deliver.go`)
 — rather than a private route to object storage. The middleware authorizes that
 call against the persona the run's roles resolve to, exactly as it would for a
@@ -965,7 +965,7 @@ definition of what a write is, sitting in front of a tool that already has one,
 is a definition that can come to disagree.
 
 **A script writes.** A persona that may call `trino_execute`, `datahub_update`
-or `s3_put_object` reaches them from a script, under the roles its author held
+or `s3_object` reaches them from a script, under the roles its author held
 at the save. A deployment that does not want scheduled writes withholds those
 tools from the persona, which is where that decision already lives for
 interactive callers.
@@ -1098,7 +1098,7 @@ what makes a run explainable after the fact from its own record, and what makes
 | A reclaimed run writes its output twice | The run records each output as it lands, keyed by output AND destination; a reclaimed run skips what it wrote | `scriptexec/export.go` |
 | A script sends data to a bucket nobody declared | The destination set is configuration; an undeclared name is refused inside the interpreter, and the middleware refuses a connection the persona does not hold | `host.go`, `resolveDestination`; `pkg/persona/filter.go` |
 | An EXPORT addresses a bucket, endpoint, or credential of its own | There is no argument for one: an export names a configured destination, and the address comes from configuration | `pkg/script/destination.go` |
-| A script writes an object no destination declared | Not prevented, and not claimed to be: a persona holding an S3 connection reaches `s3_put_object` from a script exactly as its author does at a prompt. The control is which tools and connections that persona holds | `pkg/persona/filter.go`, [what bounds it](#what-a-script-can-move-and-what-bounds-it) |
+| A script writes an object no destination declared | Not prevented, and not claimed to be: a persona holding an S3 connection reaches `s3_object` from a script exactly as its author does at a prompt. The control is which tools and connections that persona holds | `pkg/persona/filter.go`, [what bounds it](#what-a-script-can-move-and-what-bounds-it) |
 | A key climbs out of a destination's prefix | An absolute key, a `..` segment, or an empty segment is refused rather than normalized away | `pkg/script.ValidateObjectKey` |
 | A delivery leaves no trace | Each delivery is one audited tool call under the script principal, and is recorded on the run with its destination, bucket, key, and size | `scriptexec/deliver.go` |
 | A transient fault silently replays a script that already wrote | Retry is classified by where the failure happened; nothing the interpreter reports is retried | `scriptexec/worker.go` |

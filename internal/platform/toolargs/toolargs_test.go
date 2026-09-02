@@ -77,7 +77,7 @@ func TestBuildPurposeResolver(t *testing.T) {
 	t.Run("configured set replaces the default", func(t *testing.T) {
 		r := BuildPurposeResolver(Purpose{Tools: []string{"s3_*"}}, lookup)
 		require.NotNil(t, r)
-		assert.True(t, r.Gates("s3_get_object"))
+		assert.True(t, r.Gates("s3_object"))
 		assert.False(t, r.Gates("trino_query"))
 		assert.False(t, r.Gates("vendor__list_contacts"), "an override drops kind:mcp too")
 	})

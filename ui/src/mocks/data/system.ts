@@ -47,12 +47,11 @@ export const mockTools: ToolInfo[] = [
   { name: "datahub_search", toolkit: "acme-catalog-staging", kind: "datahub", connection: "acme-catalog-staging", hidden: false },
   { name: "datahub_browse", toolkit: "acme-catalog-staging", kind: "datahub", connection: "acme-catalog-staging", hidden: false },
   // acme-data-lake (s3) — raw data lake
-  { name: "s3_list_objects", toolkit: "acme-data-lake", kind: "s3", connection: "acme-data-lake", hidden: false },
-  { name: "s3_get_object", toolkit: "acme-data-lake", kind: "s3", connection: "acme-data-lake", hidden: false },
-  { name: "s3_list_buckets", toolkit: "acme-data-lake", kind: "s3", connection: "acme-data-lake", hidden: false },
+  { name: "s3_list", toolkit: "acme-data-lake", kind: "s3", connection: "acme-data-lake", hidden: false },
+  { name: "s3_object", toolkit: "acme-data-lake", kind: "s3", connection: "acme-data-lake", hidden: false },
   // acme-reports (s3) — generated reports
-  { name: "s3_list_objects", toolkit: "acme-reports", kind: "s3", connection: "acme-reports", hidden: false },
-  { name: "s3_get_object", toolkit: "acme-reports", kind: "s3", connection: "acme-reports", hidden: false },
+  { name: "s3_list", toolkit: "acme-reports", kind: "s3", connection: "acme-reports", hidden: false },
+  { name: "s3_object", toolkit: "acme-reports", kind: "s3", connection: "acme-reports", hidden: false },
   // acme-platform (platform) — platform utilities
   { name: "save_asset", toolkit: "acme-platform", kind: "platform", connection: "acme-platform", hidden: false },
   { name: "memory_capture", toolkit: "acme-platform", kind: "platform", connection: "acme-platform", hidden: false },
@@ -96,14 +95,14 @@ export const mockConnections: ConnectionInfo[] = [
     kind: "s3",
     name: "acme-data-lake",
     connection: "acme-data-lake",
-    tools: ["s3_list_objects", "s3_get_object", "s3_list_buckets"],
+    tools: ["s3_list", "s3_object"],
     hidden_tools: [],
   },
   {
     kind: "s3",
     name: "acme-reports",
     connection: "acme-reports",
-    tools: ["s3_list_objects", "s3_get_object"],
+    tools: ["s3_list", "s3_object"],
     hidden_tools: [],
   },
   {

@@ -12,7 +12,7 @@ import (
 
 // knownToolPrefixes lists the prefixes that identify tool-name-like tokens
 // in agent_instructions text. These match the naming conventions of registered
-// toolkits (e.g., "trino_query", "datahub_search", "s3_list_buckets").
+// toolkits (e.g., "trino_query", "datahub_search", "s3_list").
 var knownToolPrefixes = []string{
 	"trino_",
 	"datahub_",

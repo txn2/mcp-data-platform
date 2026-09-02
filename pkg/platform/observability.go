@@ -186,8 +186,7 @@ type metricsAware interface {
 
 // WireToolkitMetrics pushes the recorder into every registered toolkit that
 // implements SetMetrics. It MUST run before the registry registers tool
-// handlers: the S3 toolkit installs an mcp-s3 middleware in SetMetrics that is
-// only effective if present at registration time. apigateway also implements
+// handlers, so the recorder is in place for the first call. apigateway also implements
 // SetMetrics; wiring it here as well is idempotent (see WireAPIGatewayMetrics).
 // Runs when metrics OR tracing is enabled so toolkits that emit spans (S3)
 // are instrumented for tracing-only deployments; each toolkit's SetMetrics

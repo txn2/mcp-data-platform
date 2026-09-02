@@ -133,7 +133,7 @@ func TestStore_ListVectors(t *testing.T) {
 	mock.ExpectQuery("FROM tool_embeddings").WithArgs(SourceID).
 		WillReturnRows(sqlmock.NewRows([]string{"tool_name", "text_hash", "embedding", "model", "dim"}).
 			AddRow("trino_query", []byte("h1"), pgVecLiteral(vec()), "m", 3).
-			AddRow("s3_list_objects", []byte("h2"), pgVecLiteral(vec()), "m", 3))
+			AddRow("s3_list", []byte("h2"), pgVecLiteral(vec()), "m", 3))
 
 	got, err := st.ListVectors(context.Background(), SourceID)
 	if err != nil {
@@ -307,7 +307,7 @@ func TestStore_RankBySimilarity(t *testing.T) {
 	mock.ExpectQuery("ORDER BY embedding").
 		WillReturnRows(sqlmock.NewRows([]string{"tool_name", "score"}).
 			AddRow("trino_query", 0.91).
-			AddRow("s3_list_objects", 0.42))
+			AddRow("s3_list", 0.42))
 	got, err := st.RankBySimilarity(context.Background(), SourceID, vec())
 	if err != nil {
 		t.Fatalf("RankBySimilarity: %v", err)

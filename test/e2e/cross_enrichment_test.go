@@ -312,7 +312,7 @@ func callDataHubSearch(t *testing.T, ctx context.Context, tp *helpers.TestPlatfo
 	return executeWithMiddleware(t, ctx, tp, request, "datahub")
 }
 
-// callS3ListObjects simulates an s3_list_objects tool call.
+// callS3ListObjects simulates an s3_list tool call naming a bucket.
 func callS3ListObjects(t *testing.T, ctx context.Context, tp *helpers.TestPlatform, bucket, prefix string) *mcp.CallToolResult {
 	t.Helper()
 
@@ -323,7 +323,7 @@ func callS3ListObjects(t *testing.T, ctx context.Context, tp *helpers.TestPlatfo
 
 	request := mcp.CallToolRequest{
 		Params: &mcp.CallToolParamsRaw{
-			Name:      "s3_list_objects",
+			Name:      "s3_list",
 			Arguments: args,
 		},
 	}

@@ -122,9 +122,10 @@ personas:
       allow:
         - "*"
       deny:
-        - "s3_delete_*"
-        - "s3_put_object"
         - "apply_knowledge"      # analysts capture insights; curators apply them
+      # S3 reads and writes are one tool, s3_object. Whether this persona may
+      # write objects is decided per connection (read_only under toolkits.s3),
+      # not here: denying s3_object withholds the reads too.
     connections:
       allow:
         - "production"
@@ -267,7 +268,7 @@ toolkits:
         bucket_prefix: "data-lake-"
         # endpoint: "http://seaweedfs-s3:8333"      # internal/cluster S3 endpoint for data operations
         # public_endpoint: "https://s3.example.com" # externally resolvable endpoint used only to sign
-        #                                           # presigned URLs (s3_presign_url); presigned URLs are
+        #                                           # presigned URLs (s3_object presign); presigned URLs are
         #                                           # signed against it instead of endpoint. Data traffic
         #                                           # keeps using endpoint. Empty falls back to endpoint.
         # use_path_style: true                      # required for SeaweedFS / MinIO style addressing

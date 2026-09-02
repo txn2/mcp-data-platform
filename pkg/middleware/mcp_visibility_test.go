@@ -37,14 +37,14 @@ func TestIsToolVisible(t *testing.T) {
 		},
 		{
 			name:    "deny only - matching",
-			tool:    "s3_delete_object",
-			deny:    []string{"s3_delete_*"},
+			tool:    "datahub_delete",
+			deny:    []string{"datahub_delete*"},
 			visible: false,
 		},
 		{
 			name:    "deny only - not matching",
-			tool:    "s3_list_objects",
-			deny:    []string{"s3_delete_*"},
+			tool:    "s3_list",
+			deny:    []string{"datahub_delete*"},
 			visible: true,
 		},
 		{
@@ -88,8 +88,8 @@ func TestIsToolVisible(t *testing.T) {
 		},
 		{
 			name:    "multiple deny patterns",
-			tool:    "s3_delete_object",
-			deny:    []string{"trino_delete_*", "s3_delete_*"},
+			tool:    "datahub_delete",
+			deny:    []string{"trino_delete_*", "datahub_delete*"},
 			visible: false,
 		},
 		{
@@ -204,7 +204,7 @@ func TestFilterToolVisibility(t *testing.T) {
 
 	t.Run("allow filters correctly", func(t *testing.T) {
 		result := &mcp.ListToolsResult{
-			Tools: makeTools(testAuditToolName, "trino_describe_table", "datahub_search", "s3_list_objects"),
+			Tools: makeTools(testAuditToolName, "trino_describe_table", "datahub_search", "s3_list"),
 		}
 		got, err := filterToolVisibility(context.Background(), ToolVisibilityConfig{GlobalAllow: []string{"trino_*"}}, "tools/list", result)
 		if err != nil {
@@ -222,9 +222,9 @@ func TestFilterToolVisibility(t *testing.T) {
 
 	t.Run("deny filters correctly", func(t *testing.T) {
 		result := &mcp.ListToolsResult{
-			Tools: makeTools(testAuditToolName, "s3_delete_object", "datahub_search"),
+			Tools: makeTools(testAuditToolName, "datahub_delete", "datahub_search"),
 		}
-		got, err := filterToolVisibility(context.Background(), ToolVisibilityConfig{ResolveGlobalDeny: staticDeny("s3_delete_*")}, "tools/list", result)
+		got, err := filterToolVisibility(context.Background(), ToolVisibilityConfig{ResolveGlobalDeny: staticDeny("datahub_delete*")}, "tools/list", result)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -240,7 +240,7 @@ func TestFilterToolVisibility(t *testing.T) {
 
 	t.Run("allow and deny combined", func(t *testing.T) {
 		result := &mcp.ListToolsResult{
-			Tools: makeTools(testAuditToolName, "trino_delete_table", "datahub_search", "s3_list_objects"),
+			Tools: makeTools(testAuditToolName, "trino_delete_table", "datahub_search", "s3_list"),
 		}
 		got, err := filterToolVisibility(context.Background(), ToolVisibilityConfig{GlobalAllow: []string{"trino_*"}, ResolveGlobalDeny: staticDeny("*_delete_*")}, "tools/list", result)
 		if err != nil {
@@ -262,7 +262,7 @@ func TestMCPToolVisibilityMiddleware(t *testing.T) {
 		{Name: testAuditToolName},
 		{Name: "trino_describe_table"},
 		{Name: "datahub_search"},
-		{Name: "s3_list_objects"},
+		{Name: "s3_list"},
 	}
 
 	baseHandler := func(_ context.Context, method string, _ mcp.Request) (mcp.Result, error) {
@@ -315,7 +315,7 @@ func TestFilterToolVisibility_PersonaFiltering(t *testing.T) {
 			Tools: []*mcp.Tool{
 				{Name: "trino_query"},
 				{Name: "datahub_search"},
-				{Name: "s3_list_objects"},
+				{Name: "s3_list"},
 			},
 		}
 
@@ -343,7 +343,7 @@ func TestFilterToolVisibility_PersonaFiltering(t *testing.T) {
 		result := &mcp.ListToolsResult{
 			Tools: []*mcp.Tool{
 				{Name: "trino_query"},
-				{Name: "s3_list_objects"},
+				{Name: "s3_list"},
 			},
 		}
 
@@ -361,7 +361,7 @@ func TestFilterToolVisibility_PersonaFiltering(t *testing.T) {
 			Tools: []*mcp.Tool{
 				{Name: "trino_query"},
 				{Name: "trino_delete"},
-				{Name: "s3_list_objects"},
+				{Name: "s3_list"},
 			},
 		}
 
@@ -369,7 +369,7 @@ func TestFilterToolVisibility_PersonaFiltering(t *testing.T) {
 			ResolveGlobalDeny: staticDeny("*_delete*"),
 			Authenticator:     &NoopAuthenticator{},
 			IsToolAllowedForPersona: func(_ context.Context, _ []string, toolName string) bool {
-				return toolName != "s3_list_objects"
+				return toolName != "s3_list"
 			},
 		}
 
@@ -389,7 +389,7 @@ func TestFilterToolVisibility_PersonaFiltering(t *testing.T) {
 		result := &mcp.ListToolsResult{
 			Tools: []*mcp.Tool{
 				{Name: "trino_query"},
-				{Name: "s3_list_objects"},
+				{Name: "s3_list"},
 			},
 		}
 

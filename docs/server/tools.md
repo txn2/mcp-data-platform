@@ -26,15 +26,8 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | DataHub | `datahub_update` | Update metadata — descriptions, tags, owners, domains, etc. (if not read-only) |
 | DataHub | `datahub_delete` | Delete entities — tags, domains, queries, etc. (if not read-only) |
 | DataHub | `datahub_list_connections` | List configured DataHub connections |
-| S3 | `s3_list_buckets` | List S3 buckets |
-| S3 | `s3_list_objects` | List objects in a bucket |
-| S3 | `s3_get_object` | Get object contents |
-| S3 | `s3_get_object_metadata` | Get object metadata |
-| S3 | `s3_presign_url` | Generate pre-signed URL |
-| S3 | `s3_list_connections` | List configured S3 connections |
-| S3 | `s3_put_object` | Upload object (if not read-only) |
-| S3 | `s3_delete_object` | Delete object (if not read-only) |
-| S3 | `s3_copy_object` | Copy object (if not read-only) |
+| S3 | `s3_list` | List buckets, or the objects in one bucket |
+| S3 | `s3_object` | Get, describe, upload, copy, delete, or presign one object |
 | Knowledge | `search` | The one way to discover: balanced, grouped-by-source results across the catalog, context documents, knowledge pages, memory, insights, feedback, assets, prompts, managed scripts, API endpoints, and connections |
 | Knowledge | `fetch` | Read a search result in full: dereferences any reference search emits (knowledge page, context document, dataset, asset, prompt, managed script, connection) to its complete content, under the same per-user scope |
 | Memory | `memory_capture` | The one way to record knowledge: sink-class routed, recall-first |
@@ -66,7 +59,7 @@ Data-access tools carry one argument the platform adds rather than the toolkit: 
 
 Write the question behind the call, not a restatement of the arguments: "Running a SQL query" is worthless to the person who later reads the row. Do not repeat argument values in it, and never put personal data, credentials, or secrets in it.
 
-By default the argument appears on `search`, `fetch`, `trino_query`, `trino_execute`, `trino_export`, `trino_describe_table`, `api_invoke_endpoint`, `api_export`, the `datahub_get_*` tools, `s3_get_object`, `s3_list_objects`, and every tool proxied from an upstream MCP server through the [gateway toolkit](gateway.md). Orientation and platform-management tools (`platform_info`, `list_connections`, `platform_find_tools`, `memory_*`, `manage_*`, `save_asset`) do not carry it.
+By default the argument appears on `search`, `fetch`, `trino_query`, `trino_execute`, `trino_export`, `trino_describe_table`, `api_invoke_endpoint`, `api_export`, the `datahub_get_*` tools, `s3_object`, `s3_list`, and every tool proxied from an upstream MCP server through the [gateway toolkit](gateway.md). Orientation and platform-management tools (`platform_info`, `list_connections`, `platform_find_tools`, `memory_*`, `manage_*`, `save_asset`) do not carry it.
 
 A call on one of these tools that states no purpose is refused with `PURPOSE_REQUIRED` (error category `purpose_required`); retry the same call with a purpose rather than looking for another tool. The refusal reaches only callers that thread a `session_id` handle, so an MCP App, a managed script, and the gateway REST shim are never refused for it. Both the gated set and the refusal are configurable — see [Purpose Configuration](configuration.md#purpose-configuration).
 
@@ -387,133 +380,62 @@ List all configured DataHub connections.
 
 ## S3 Tools
 
-### s3_list_buckets
+Two tools cover object storage (#1591): `s3_list` is a listing, of buckets or of one bucket's objects, and `s3_object` is one action over a `(bucket, key)`. Both are registered on every S3 connection. Whether a connection accepts writes is its `read_only` setting: `put`, `copy` and `delete` on a read-only connection are refused with an error that names the connection, while `get`, `metadata` and `presign` still work.
 
-List available S3 buckets.
+### s3_list
 
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `connection` | string | No | default | Connection name to use |
-
----
-
-### s3_list_objects
-
-List objects in a bucket.
+List the buckets of a connection, or the objects in one bucket.
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `bucket` | string | Yes | - | Bucket name |
-| `prefix` | string | No | - | Key prefix filter |
-| `delimiter` | string | No | - | Delimiter for hierarchy |
-| `max_keys` | integer | No | 1000 | Maximum objects to return |
+| `bucket` | string | No | - | Bucket to list objects in. Omit it to list the connection's buckets (filtered by the connection's `bucket_prefix` when it sets one). |
+| `prefix` | string | No | - | Only objects whose key starts with this prefix |
+| `delimiter` | string | No | - | Groups keys at this character; `/` lists one folder level, and the groups come back as `common_prefixes` |
+| `max_keys` | integer | No | 1000 | Objects per page (1-1000) |
+| `continuation_token` | string | No | - | The `next_continuation_token` of the previous page |
 | `connection` | string | No | default | Connection name to use |
 
 **Response includes:**
 
-- Object keys, sizes, last modified
-- **Semantic context** (if enabled): matching DataHub datasets with metadata
+- Without a bucket: `buckets` (name, creation date) and `count`
+- With a bucket: `objects` (key, size, last modified, ETag, storage class), `common_prefixes`, `count`, `is_truncated`, `next_continuation_token`
+- **Semantic context** (if enabled): matching DataHub datasets for the bucket and prefix
 
 ---
 
-### s3_get_object
+### s3_object
 
-Get the contents of an object.
+Act on one object.
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `bucket` | string | Yes | - | Bucket name |
+| `action` | string | Yes | - | `get`, `metadata`, `put`, `copy`, `delete` or `presign` |
+| `bucket` | string | Yes | - | Bucket holding the object |
 | `key` | string | Yes | - | Object key |
+| `content` | string | put | - | Content to upload, as text or as base64 when `is_base64` is true |
+| `content_type` | string | No | `application/octet-stream` | MIME type of an uploaded object |
+| `is_base64` | boolean | No | false | The `content` is base64-encoded binary |
+| `metadata` | object | No | - | Custom metadata to attach on `put`; on `copy`, replaces the source's metadata |
+| `dest_bucket` | string | No | the same bucket | Destination bucket of a `copy` |
+| `dest_key` | string | copy | - | Destination key of a `copy` |
+| `method` | string | No | `GET` | `GET` for a download link, `PUT` for an upload link (`presign`) |
+| `expires_in` | integer | No | 3600 | Seconds until a presigned URL expires (maximum 604800) |
 | `connection` | string | No | default | Connection name to use |
 
----
+| Action | What it does | Response |
+|--------|--------------|----------|
+| `get` | Downloads the object, bounded by the connection's `max_get_size` | `content` (text as-is, binary as base64 with `is_base64` true), `size`, `content_type`, `last_modified`, `etag`, `metadata` |
+| `metadata` | Reads the record without the content | `size`, `content_length`, `content_type`, `last_modified`, `etag`, `metadata` |
+| `put` | Uploads `content`, bounded by `max_put_size` | `size`, `etag`, `version_id` |
+| `copy` | Copies the object to `dest_key` in `dest_bucket` | `source_bucket`, `source_key`, `dest_bucket`, `dest_key`, `etag` |
+| `delete` | Removes the object | `deleted: true` |
+| `presign` | Signs a URL for `method` that expires after `expires_in` seconds, against `public_endpoint` when the connection sets one | `url`, `method`, `expires_in_seconds`, `expires_at` |
 
-### s3_get_object_metadata
-
-Get metadata for an object without downloading it.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `bucket` | string | Yes | - | Bucket name |
-| `key` | string | Yes | - | Object key |
-| `connection` | string | No | default | Connection name to use |
-
----
-
-### s3_presign_url
-
-Generate a pre-signed URL for temporary access.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `bucket` | string | Yes | - | Bucket name |
-| `key` | string | Yes | - | Object key |
-| `expires` | duration | No | 15m | URL expiration time |
-| `connection` | string | No | default | Connection name to use |
-
----
-
-### s3_list_connections
-
-List all configured S3 connections.
-
-**Parameters:** None
-
----
-
-### s3_put_object
-
-Upload an object to S3. Only available when `read_only: false`.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `bucket` | string | Yes | - | Bucket name |
-| `key` | string | Yes | - | Object key |
-| `content` | string | Yes | - | Object content |
-| `content_type` | string | No | - | MIME type |
-| `connection` | string | No | default | Connection name to use |
-
----
-
-### s3_delete_object
-
-Delete an object. Only available when `read_only: false`.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `bucket` | string | Yes | - | Bucket name |
-| `key` | string | Yes | - | Object key |
-| `connection` | string | No | default | Connection name to use |
-
----
-
-### s3_copy_object
-
-Copy an object. Only available when `read_only: false`.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `source_bucket` | string | Yes | - | Source bucket name |
-| `source_key` | string | Yes | - | Source object key |
-| `dest_bucket` | string | Yes | - | Destination bucket name |
-| `dest_key` | string | Yes | - | Destination object key |
-| `connection` | string | No | default | Connection name to use |
+`get` and `metadata` carry **semantic context** (if enabled) when the object is cataloged.
 
 ---
 
@@ -761,7 +683,7 @@ routing each well-formed reference by its form to the owning source:
 | `urn:li:glossaryTerm:<id>` | governance | the term's name and definition, plus the datasets that carry it |
 | `urn:li:tag:<id>` | governance | the tag's name and description, plus the datasets that carry it |
 | `urn:li:domain:<id>` | governance | the domain's name and description, plus the datasets in it |
-| `mcp:asset:<id>` | assets | the asset's metadata record (blob bytes stay in S3, reached with `s3_get_object`/`s3_presign_url`) |
+| `mcp:asset:<id>` | assets | the asset's metadata record (blob bytes stay in S3, reached with `s3_object` `get` or `presign`) |
 | `mcp:resource:<id>` | resources | the resource's metadata record, plus its contents inline for a text resource at or under 1 MB; a binary or oversized one returns metadata with its canonical `mcp://` URI, MIME type, and size |
 | `mcp:prompt:<id>` | prompts | the full prompt |
 | `mcp:script:<id>` | scripts | the managed script's contract: name, description, owner, typed parameters, whether a run would be admitted, schedule, and the last successful run with what it produced. Never the source code (fetch-only, not citable on a page) |

@@ -20,7 +20,7 @@ type auditEventResponse struct {
 // auditFiltersResponse holds unique values for dropdown filters.
 type auditFiltersResponse struct {
 	Users        []string          `json:"users" example:"marcus.johnson@example.com,lisa.chang@example.com"`
-	Tools        []string          `json:"tools" example:"trino_query,datahub_search,s3_list_objects"`
+	Tools        []string          `json:"tools" example:"trino_query,datahub_search,s3_list"`
 	ToolkitKinds []string          `json:"toolkit_kinds" example:"api,datahub,trino,s3,memory"`
 	Sources      []string          `json:"sources" example:"mcp,rest,admin"`
 	EventKinds   []string          `json:"event_kinds" example:"admin,mcp_tool_call,apigateway_invoke,prompt_serve,resource_read,resource_move,script_run"`
