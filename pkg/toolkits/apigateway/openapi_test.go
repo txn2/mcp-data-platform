@@ -444,7 +444,7 @@ func TestSpecBasePaths(t *testing.T) {
 
 // TestBuildOperationIndex_AppliesBasePath proves the base path is
 // prepended to every operation's path so the model using
-// api_list_endpoints output as input to api_invoke_endpoint
+// api_discover output as input to api_invoke_endpoint
 // receives the full upstream path, not the spec-relative path that
 // 404s when the segment is missing from the connection's base_url.
 func TestBuildOperationIndex_AppliesBasePath(t *testing.T) {

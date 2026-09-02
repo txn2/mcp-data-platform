@@ -14,7 +14,7 @@ function catalogsHref(): string {
 // connection at one of the globally-owned API catalogs. The model
 // resolves connection → catalog → specs at runtime, so changing
 // the dropdown immediately changes the set of operations that
-// api_list_endpoints exposes for this connection on the next
+// api_discover exposes for this connection on the next
 // reload.
 export function APICatalogPicker({
   config,
@@ -114,7 +114,7 @@ export function LegacyOpenAPISpecBanner({
         <a className="underline" href={catalogsHref()}>
           API Catalogs
         </a>{" "}
-        and select it above. Until you do, <code>api_list_endpoints</code> returns no operations.
+        and select it above. Until you do, <code>api_discover</code> returns no operations.
       </AlertDescription>
     </Alert>
   );

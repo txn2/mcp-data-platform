@@ -116,19 +116,24 @@ func setupSchemaLookupTk(t *testing.T) *Toolkit {
 	return tk
 }
 
+// parseSchemaResult reads the operation out of an api_discover result
+// at the operation level, failing on any other level.
 func parseSchemaResult(t *testing.T, r *mcp.CallToolResult) EndpointSchemaOutput {
 	t.Helper()
 	text := textContent(r)
-	var out EndpointSchemaOutput
+	var out DiscoverOutput
 	if err := json.Unmarshal([]byte(text), &out); err != nil {
 		t.Fatalf("unmarshal: %v\npayload: %s", err, text)
 	}
-	return out
+	if out.Level != DiscoverLevelOperation || out.Operation == nil {
+		t.Fatalf("expected the operation level, got level=%q\npayload: %s", out.Level, text)
+	}
+	return *out.Operation
 }
 
 func TestGetEndpointSchema_ListPets(t *testing.T) {
 	tk := setupSchemaLookupTk(t)
-	r, _, err := tk.handleGetEndpointSchema(context.Background(), nil, GetEndpointSchemaInput{
+	r, _, err := tk.handleDiscover(context.Background(), nil, DiscoverInput{
 		Connection: "c", OperationID: "listPets",
 	})
 	if err != nil || r.IsError {
@@ -154,7 +159,7 @@ func TestGetEndpointSchema_ListPets(t *testing.T) {
 
 func TestGetEndpointSchema_StripsSecurityAndServers(t *testing.T) {
 	tk := setupSchemaLookupTk(t)
-	r, _, _ := tk.handleGetEndpointSchema(context.Background(), nil, GetEndpointSchemaInput{
+	r, _, _ := tk.handleDiscover(context.Background(), nil, DiscoverInput{
 		Connection: "c", OperationID: "listPets",
 	})
 	body := textContent(r)
@@ -171,7 +176,7 @@ func TestGetEndpointSchema_StripsSecurityAndServers(t *testing.T) {
 
 func TestGetEndpointSchema_CreatePetHasRequestBody(t *testing.T) {
 	tk := setupSchemaLookupTk(t)
-	r, _, _ := tk.handleGetEndpointSchema(context.Background(), nil, GetEndpointSchemaInput{
+	r, _, _ := tk.handleDiscover(context.Background(), nil, DiscoverInput{
 		Connection: "c", OperationID: "createPet",
 	})
 	out := parseSchemaResult(t, r)
@@ -185,7 +190,7 @@ func TestGetEndpointSchema_CreatePetHasRequestBody(t *testing.T) {
 
 func TestGetEndpointSchema_PathParameter(t *testing.T) {
 	tk := setupSchemaLookupTk(t)
-	r, _, _ := tk.handleGetEndpointSchema(context.Background(), nil, GetEndpointSchemaInput{
+	r, _, _ := tk.handleDiscover(context.Background(), nil, DiscoverInput{
 		Connection: "c", OperationID: "getPet",
 	})
 	out := parseSchemaResult(t, r)
@@ -199,7 +204,7 @@ func TestGetEndpointSchema_PathParameter(t *testing.T) {
 
 func TestGetEndpointSchema_OperationNotFound(t *testing.T) {
 	tk := setupSchemaLookupTk(t)
-	r, _, _ := tk.handleGetEndpointSchema(context.Background(), nil, GetEndpointSchemaInput{
+	r, _, _ := tk.handleDiscover(context.Background(), nil, DiscoverInput{
 		Connection: "c", OperationID: "ghost",
 	})
 	if !r.IsError {
@@ -212,7 +217,7 @@ func TestGetEndpointSchema_OperationNotFound(t *testing.T) {
 
 func TestGetEndpointSchema_RequiresConnection(t *testing.T) {
 	tk := setupSchemaLookupTk(t)
-	r, _, _ := tk.handleGetEndpointSchema(context.Background(), nil, GetEndpointSchemaInput{
+	r, _, _ := tk.handleDiscover(context.Background(), nil, DiscoverInput{
 		OperationID: "listPets",
 	})
 	if !r.IsError {
@@ -220,19 +225,29 @@ func TestGetEndpointSchema_RequiresConnection(t *testing.T) {
 	}
 }
 
-func TestGetEndpointSchema_RequiresOperationID(t *testing.T) {
+// A bare call on a single-spec catalog is the operations level: no
+// spec-selection step stands between the caller and the operations
+// (#1592 acceptance 2).
+func TestDiscover_BareCallOnSingleSpecListsOperations(t *testing.T) {
 	tk := setupSchemaLookupTk(t)
-	r, _, _ := tk.handleGetEndpointSchema(context.Background(), nil, GetEndpointSchemaInput{
+	r, payload, _ := tk.handleDiscover(context.Background(), nil, DiscoverInput{
 		Connection: "c",
 	})
-	if !r.IsError {
-		t.Fatal("expected error for missing operation_id")
+	if r.IsError {
+		t.Fatalf("bare call on a single-spec catalog should list operations: %s", textContent(r))
+	}
+	out, _ := payload.(DiscoverOutput)
+	if out.Level != DiscoverLevelOperations || len(out.Specs) != 0 || len(out.Operations) == 0 {
+		t.Fatalf("expected the operations level with no spec summaries: %+v", out)
+	}
+	if !strings.Contains(out.Next, "operation_id") {
+		t.Errorf("the operations level should name operation_id as the next argument: %q", out.Next)
 	}
 }
 
 func TestGetEndpointSchema_ConnectionMissing(t *testing.T) {
 	tk := setupSchemaLookupTk(t)
-	r, _, _ := tk.handleGetEndpointSchema(context.Background(), nil, GetEndpointSchemaInput{
+	r, _, _ := tk.handleDiscover(context.Background(), nil, DiscoverInput{
 		Connection: "ghost", OperationID: "listPets",
 	})
 	if !r.IsError {
@@ -247,7 +262,7 @@ func TestGetEndpointSchema_NoSpecConfigured(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("AddConnection: %v", err)
 	}
-	r, _, _ := tk.handleGetEndpointSchema(context.Background(), nil, GetEndpointSchemaInput{
+	r, _, _ := tk.handleDiscover(context.Background(), nil, DiscoverInput{
 		Connection: "c", OperationID: "anything",
 	})
 	if !r.IsError {
@@ -271,18 +286,19 @@ func TestGetEndpointSchema_AmbiguousAcrossSpecs(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("AddConnection: %v", err)
 	}
-	r, _, _ := tk.handleGetEndpointSchema(context.Background(), nil, GetEndpointSchemaInput{
+	r, _, _ := tk.handleDiscover(context.Background(), nil, DiscoverInput{
 		Connection: "c", OperationID: "list",
 	})
 	if !r.IsError {
 		t.Fatal("expected ambiguity error")
 	}
-	var amb ambiguousSchemaError
-	if err := json.Unmarshal([]byte(textContent(r)), &amb); err != nil {
-		t.Fatalf("unmarshal ambiguity: %v\nbody=%s", err, textContent(r))
-	}
-	if len(amb.Candidates) != 2 {
-		t.Errorf("expected 2 candidates, got %d (%+v)", len(amb.Candidates), amb.Candidates)
+	// The candidates are named in the message: the platform's error contract
+	// carries a message, so a JSON payload would never reach the caller.
+	body := textContent(r)
+	for _, want := range []string{"ambiguous", "orders, users", "pass spec"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("ambiguity refusal should carry %q: %s", want, body)
+		}
 	}
 }
 
@@ -302,7 +318,7 @@ func TestGetEndpointSchema_SpecDisambiguates(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("AddConnection: %v", err)
 	}
-	r, _, _ := tk.handleGetEndpointSchema(context.Background(), nil, GetEndpointSchemaInput{
+	r, _, _ := tk.handleDiscover(context.Background(), nil, DiscoverInput{
 		Connection: "c", OperationID: "list", Spec: "orders",
 	})
 	if r.IsError {
@@ -357,11 +373,15 @@ func TestCappedJSONResult_LargeSchemaTruncates(t *testing.T) {
 			Schema:      map[string]any{"type": "string"},
 		})
 	}
-	out := EndpointSchemaOutput{
-		OperationID: "huge",
-		Method:      "GET",
-		Path:        "/huge",
-		Parameters:  big,
+	out := DiscoverOutput{
+		Level: DiscoverLevelOperation,
+		Operation: &EndpointSchemaOutput{
+			OperationID: "huge",
+			Method:      "GET",
+			Path:        "/huge",
+			Parameters:  big,
+		},
+		Next: invokeNext("c", "huge", ""),
 	}
 	r := cappedJSONResult(out)
 	body := textContent(r)
@@ -370,6 +390,16 @@ func TestCappedJSONResult_LargeSchemaTruncates(t *testing.T) {
 	}
 	if !strings.Contains(body, "schema details elided") {
 		t.Errorf("expected truncation note in body: %s", body[:300])
+	}
+	var capped DiscoverOutput
+	if err := json.Unmarshal([]byte(body), &capped); err != nil {
+		t.Fatalf("capped body is not a DiscoverOutput: %v", err)
+	}
+	if capped.Operation == nil || capped.Operation.OperationID != "huge" || capped.Operation.Parameters != nil {
+		t.Errorf("capped result should keep the operation's surface fields and drop its parameters: %+v", capped.Operation)
+	}
+	if !strings.Contains(capped.Note, "elided") || capped.Next == "" {
+		t.Errorf("the envelope's note and next should survive the cap: note=%q next=%q", capped.Note, capped.Next)
 	}
 }
 
@@ -604,7 +634,7 @@ func liteFromBranch(t *testing.T, branch any) map[string]any {
 // null-type branch so agents can see both shapes.
 func TestGetEndpointSchema_OneOfWithRefAndNullPreserved(t *testing.T) {
 	tk := setupOAS31FixtureTk(t)
-	r, _, err := tk.handleGetEndpointSchema(context.Background(), nil, GetEndpointSchemaInput{
+	r, _, err := tk.handleDiscover(context.Background(), nil, DiscoverInput{
 		Connection: "c", OperationID: "getThing",
 	})
 	if err != nil || r.IsError {
@@ -655,7 +685,7 @@ func TestGetEndpointSchema_OneOfWithRefAndNullPreserved(t *testing.T) {
 // nested-recursion path.
 func TestGetEndpointSchema_AnyOfWithRefAndNullInsideArrayItems(t *testing.T) {
 	tk := setupOAS31FixtureTk(t)
-	r, _, _ := tk.handleGetEndpointSchema(context.Background(), nil, GetEndpointSchemaInput{
+	r, _, _ := tk.handleDiscover(context.Background(), nil, DiscoverInput{
 		Connection: "c", OperationID: "getThing",
 	})
 	out := parseSchemaResult(t, r)
@@ -682,7 +712,7 @@ func TestGetEndpointSchema_AnyOfWithRefAndNullInsideArrayItems(t *testing.T) {
 // extend a base schema).
 func TestGetEndpointSchema_AllOfWithRefInlined(t *testing.T) {
 	tk := setupOAS31FixtureTk(t)
-	r, _, _ := tk.handleGetEndpointSchema(context.Background(), nil, GetEndpointSchemaInput{
+	r, _, _ := tk.handleDiscover(context.Background(), nil, DiscoverInput{
 		Connection: "c", OperationID: "getThing",
 	})
 	out := parseSchemaResult(t, r)
@@ -716,7 +746,7 @@ func TestGetEndpointSchema_AllOfWithRefInlined(t *testing.T) {
 // redirects, rate-limited responses, etc.
 func TestGetEndpointSchema_ResponseHeadersPreserved(t *testing.T) {
 	tk := setupOAS31FixtureTk(t)
-	r, _, _ := tk.handleGetEndpointSchema(context.Background(), nil, GetEndpointSchemaInput{
+	r, _, _ := tk.handleDiscover(context.Background(), nil, DiscoverInput{
 		Connection: "c", OperationID: "getThing",
 	})
 	out := parseSchemaResult(t, r)
@@ -755,7 +785,7 @@ func TestGetEndpointSchema_ResponseHeadersPreserved(t *testing.T) {
 // adjacent; both should pass through unchanged.
 func TestGetEndpointSchema_ConstAndEnumPreserved(t *testing.T) {
 	tk := setupOAS31FixtureTk(t)
-	r, _, _ := tk.handleGetEndpointSchema(context.Background(), nil, GetEndpointSchemaInput{
+	r, _, _ := tk.handleDiscover(context.Background(), nil, DiscoverInput{
 		Connection: "c", OperationID: "getThing",
 	})
 	out := parseSchemaResult(t, r)
@@ -790,7 +820,7 @@ func TestGetEndpointSchema_ConstAndEnumPreserved(t *testing.T) {
 // basePathNoOpIDSpec mirrors the built-in platform-admin spec: a
 // non-empty server base path (/api/v1) and operations that declare no
 // operationId. This is the exact shape that exposed the synthesized-id
-// divergence between api_list_endpoints and api_get_endpoint_schema:
+// divergence between the operations and operation levels of api_discover:
 // the list side synthesizes "<METHOD> <spec-relative path>" while the
 // schema lookup formerly synthesized "<METHOD> <basePath+path>", so
 // every listed id returned not-found at the schema lookup. Includes a
@@ -849,13 +879,13 @@ func setupBasePathNoOpIDTk(t *testing.T) *Toolkit {
 // result by its full runtime path, failing the test if absent.
 func listOperation(t *testing.T, tk *Toolkit, connection, path string) OperationSummary {
 	t.Helper()
-	_, raw, err := tk.handleListEndpoints(context.Background(), nil, ListEndpointsInput{
+	_, raw, err := tk.handleDiscover(context.Background(), nil, DiscoverInput{
 		Connection: connection,
 	})
 	if err != nil {
 		t.Fatalf("handleListEndpoints: %v", err)
 	}
-	out, ok := raw.(ListEndpointsOutput)
+	out, ok := raw.(DiscoverOutput)
 	if !ok {
 		t.Fatalf("list output type %T", raw)
 	}
@@ -870,8 +900,8 @@ func listOperation(t *testing.T, tk *Toolkit, connection, path string) Operation
 
 // TestGetEndpointSchema_SynthesizedIDRoundTripsWithBasePath is the
 // regression guard for the platform-admin bug: an operation_id taken
-// verbatim from api_list_endpoints must resolve through
-// api_get_endpoint_schema even when the connection has a non-empty
+// verbatim from the operations level must resolve through
+// the operation level even when the connection has a non-empty
 // effectiveBasePath and the operation declares no operationId.
 func TestGetEndpointSchema_SynthesizedIDRoundTripsWithBasePath(t *testing.T) {
 	tk := setupBasePathNoOpIDTk(t)
@@ -886,7 +916,7 @@ func TestGetEndpointSchema_SynthesizedIDRoundTripsWithBasePath(t *testing.T) {
 
 	// Feed the listed id straight into the schema lookup — the broken
 	// discover->schema flow.
-	r, _, err := tk.handleGetEndpointSchema(context.Background(), nil, GetEndpointSchemaInput{
+	r, _, err := tk.handleDiscover(context.Background(), nil, DiscoverInput{
 		Connection: "c", OperationID: listed.OperationID,
 	})
 	if err != nil || r.IsError {
@@ -913,7 +943,7 @@ func TestGetEndpointSchema_SynthesizedIDTemplatedPathWithBasePath(t *testing.T) 
 		t.Fatalf("list operation_id = %q, want %q", listed.OperationID, "GET /admin/personas/{name}")
 	}
 
-	r, _, err := tk.handleGetEndpointSchema(context.Background(), nil, GetEndpointSchemaInput{
+	r, _, err := tk.handleDiscover(context.Background(), nil, DiscoverInput{
 		Connection: "c", OperationID: listed.OperationID,
 	})
 	if err != nil || r.IsError {

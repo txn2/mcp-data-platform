@@ -732,7 +732,7 @@ func (p *Platform) WireAPIGatewayTokenStore() {
 
 // WireAPIGatewayEmbeddingProvider attaches the platform's embedding
 // provider to every live api gateway toolkit. Enables the
-// "semantic" and "hybrid" ranking modes of api_list_endpoints; when
+// "semantic" and "hybrid" ranking modes of api_discover; when
 // the platform was built without an embedding provider (memory
 // disabled or explicitly noop) the call is a no-op and the toolkit
 // silently falls back to lexical for any non-lexical request.

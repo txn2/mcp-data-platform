@@ -43,7 +43,7 @@ const (
 // WireAdminSelfConnection registers a lifecycle hook that seeds the
 // built-in platform-admin API-gateway connection, which points the
 // gateway at the platform's own /api/v1/admin/* surface so an admin can
-// operate the platform through api_list_endpoints / api_invoke_endpoint.
+// operate the platform through api_discover / api_invoke_endpoint.
 //
 // listenAddr is the server's bind address (e.g. ":8080"); the loopback
 // base URL is derived from its port unless overridden in config. The

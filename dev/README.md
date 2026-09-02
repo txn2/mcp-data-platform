@@ -29,7 +29,7 @@ This starts:
 | Vite UI | `http://localhost:5173/portal/` | Hot module replacement |
 | dev-mcp-mock | `:9180` (OAuth) / `:9181` (MCP) | In-process mock — exercises the MCP gateway + OAuth grants |
 | mcp-test fixture | `http://localhost:9281/` | `ghcr.io/plexara/mcp-test` — 12-tool deterministic MCP upstream + portal at `/portal/` |
-| api-test fixture | `http://localhost:9282` | `ghcr.io/plexara/api-test` — 9 deterministic `/v1/*` paths (14 operations — `/echo` accepts all 6 HTTP methods) + OpenAPI at `/openapi.yaml` + portal at `/portal/` |
+| api-test fixture | `http://localhost:9282` | `ghcr.io/plexara/api-test` — 12 deterministic `/v1/*` paths (17 operations — `/echo` accepts all 6 HTTP methods) + OpenAPI at `/openapi.yaml` + portal at `/portal/` |
 
 On first run, seed data (~5K audit events, 8 knowledge insights) is automatically loaded.
 
@@ -102,13 +102,13 @@ prebuilt fixture containers and registers them as platform connections:
 - **`api-test-fixture`** (kind `api`) — `ghcr.io/plexara/api-test` on
   `http://localhost:9282`. Nine deterministic HTTP paths under `/v1`
   (`/whoami`, `/headers`, `/fixed/{key}`, `/sized?bytes=N`, `/lorem`,
-  `/status/{code}`, `/slow?ms=N`, `/flaky`, `/echo`) — 14 operations
+  `/status/{code}`, `/slow?ms=N`, `/flaky`, `/echo`, `/pagination/*`) — 17 operations
   total because `/v1/echo` accepts all six HTTP methods (GET, POST,
   PUT, PATCH, DELETE, HEAD). Exercises the apigateway tools
-  (`api_invoke_endpoint`, `api_list_endpoints`, `api_export`). The
+  (`api_invoke_endpoint`, `api_discover`, `api_export`). The
   fixture publishes an OpenAPI 3.1 spec at `/openapi.yaml`;
   `dev/start.sh` fetches it at registration time and inlines it into
-  the connection config, so `api_list_endpoints` returns the full
+  the connection config, so `api_discover` returns the full
   catalog. Portal at `http://localhost:9282/portal/`.
 
 Both fixtures use the shared `acme-dev-postgres` instance (databases

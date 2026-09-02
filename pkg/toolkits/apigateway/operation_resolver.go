@@ -21,7 +21,7 @@ import (
 // The runtime path is the full path the caller passes to
 // api_invoke_endpoint (already includes the connection's effective base
 // path), so matching is done against effectiveBasePath + spec rawPath,
-// the same full path api_list_endpoints reports. Resolution is
+// the same full path api_discover reports. Resolution is
 // path-template aware: /v1/users/123 matches a /v1/users/{id} operation.
 //
 // The per-connection router is built lazily on first call and reused;
@@ -78,7 +78,7 @@ func (c *conn) resolveViaRouter(upper, normPath string) string {
 		return id
 	}
 	// The matched operation declares no operationId. Synthesize the same
-	// id api_list_endpoints advertises for it (appendItemOperations) so
+	// id api_discover advertises for it (appendItemOperations) so
 	// the metric label agrees with the listed, invokable id instead of
 	// falling through to "unknown". Only methods the catalog lists qualify:
 	// the router also matches OPTIONS/TRACE/CONNECT, which pathItemMethods
@@ -134,7 +134,7 @@ func (c *conn) webdavRoutes() []webdavRoute {
 // rawPathForRoute maps a matched route's effectiveBasePath-prefixed
 // Path back to the spec-relative raw path it was registered under, or
 // "" when unknown. Used to synthesize the operationId for operations
-// with no declared id, matching what api_list_endpoints advertises.
+// with no declared id, matching what api_discover advertises.
 func (c *conn) rawPathForRoute(routePath string) string {
 	return c.operationRawPaths[routePath]
 }
@@ -148,7 +148,7 @@ func (c *conn) rawPathForRoute(routePath string) string {
 // The second return value maps each router path key
 // (effectiveBasePath+rawPath) back to its spec-relative rawPath so the
 // resolver can synthesize "<METHOD> <rawPath>" ids for operations that
-// declare no operationId, mirroring api_list_endpoints.
+// declare no operationId, mirroring api_discover.
 func buildOperationRouter(specs map[string]*specState) (router routers.Router, rawByKey map[string]string) {
 	paths := openapi3.NewPaths()
 	rawByKey = make(map[string]string)

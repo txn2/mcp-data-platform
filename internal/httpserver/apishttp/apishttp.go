@@ -7,7 +7,7 @@
 // one describes what a persona may CALL, which is a different set: a connection
 // outside the persona's rules is absent, and so is an operation an APIRoutes deny
 // rule refuses. Both come from the toolkit's own browse methods, which apply the
-// same route policy api_list_endpoints applies, so this surface and that tool
+// same route policy api_discover applies, so this surface and that tool
 // cannot disagree about what a caller reaches.
 //
 // Its path is /api/v1/apis rather than something under /api/v1/portal because
@@ -259,7 +259,7 @@ func (h *Handler) listOperations(w http.ResponseWriter, r *http.Request, c *Call
 // the mux before it reaches here.
 //
 // @Summary      Get one operation
-// @Description  Returns one operation's parameters, request body and per-status responses, resolved exactly as api_get_endpoint_schema resolves them. An operation the route policy denies is reported as not found.
+// @Description  Returns one operation's parameters, request body and per-status responses, resolved exactly as api_discover resolves them. An operation the route policy denies is reported as not found.
 // @Tags         APIs
 // @Produce      json
 // @Param        connection   path   string  true   "Connection name"

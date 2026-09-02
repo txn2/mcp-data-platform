@@ -473,7 +473,7 @@ func TestListConnections(t *testing.T) {
 		mt := mockMultiConnectionToolkit{
 			mockToolkit: mockToolkit{
 				kind: "api", name: "apigateway", connection: "apigateway",
-				tools: []string{"api_invoke_endpoint", "api_list_endpoints"},
+				tools: []string{"api_invoke_endpoint", "api_discover"},
 			},
 			connections: []toolkit.ConnectionDetail{
 				{Name: "vendor-a", Description: "Vendor A REST API"},
@@ -509,7 +509,7 @@ func TestListConnections(t *testing.T) {
 			require.True(t, ok, "expected expanded connection %q in response", name)
 			assert.Equal(t, "api", c.Kind, "%s should inherit kind from parent toolkit", name)
 			assert.Equal(t, name, c.Connection, "%s authorization identifier must equal connection name", name)
-			assert.ElementsMatch(t, []string{"api_invoke_endpoint", "api_list_endpoints"}, c.Tools)
+			assert.ElementsMatch(t, []string{"api_invoke_endpoint", "api_discover"}, c.Tools)
 		}
 		// Single-connection toolkit unchanged.
 		kn, ok := byName["knowledge"]

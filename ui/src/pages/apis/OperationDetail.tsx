@@ -16,7 +16,7 @@ import { SchemaView } from "./SchemaView";
 // connection to call it on -- the request that calls it.
 //
 // Everything rendered here comes from the platform's own operation resolution,
-// so this pane and api_get_endpoint_schema describe an operation identically.
+// so this pane and api_discover describe an operation identically.
 
 /** SECTION_HEADING is the one styling of a section label in this pane. */
 const SECTION_HEADING =

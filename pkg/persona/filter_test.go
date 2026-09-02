@@ -532,7 +532,7 @@ func TestToolFilter_IsAPIRouteAllowed(t *testing.T) {
 		{
 			// The defect the portal's operation selection would otherwise
 			// write: a rule naming the operation as its catalog declares it
-			// hid the operation from api_list_endpoints and let the call it
+			// hid the operation from api_discover and let the call it
 			// hides through, because an invoke reaches the policy with its
 			// path parameters already substituted.
 			name: "deny on the templated path refuses the concrete call it serves",

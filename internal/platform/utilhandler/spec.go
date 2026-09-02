@@ -4,7 +4,7 @@ import _ "embed"
 
 // specJSON is the OpenAPI 3.0 document describing this package's
 // operations. It is seeded into the "util" catalog at boot so
-// api_list_endpoints and api_get_endpoint_schema discover the util
+// api_discover discovers the util
 // connection's operations through the same catalog path as any other
 // api connection. Handler routes and this document are maintained
 // together in this package: adding an operation means adding both the

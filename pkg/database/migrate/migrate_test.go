@@ -468,3 +468,77 @@ func TestMigration138_ConsolidatesS3ToolsInPersonas_RealDB(t *testing.T) {
 	require.JSONEq(t, `["trino_query"]`, allow)
 	require.JSONEq(t, `[]`, deny)
 }
+
+// TestMigration139_ConsolidatesAPIDiscoveryToolsInPersonas_RealDB pins
+// acceptance 5 of #1592 for stored personas: a DB-backed persona that named
+// api_list_specs, api_list_endpoints or api_get_endpoint_schema, or the verb
+// globs that only ever matched them, is rewritten to api_discover in both its
+// allow and deny lists, duplicates collapse to the first position, every other
+// entry keeps its place, and the down migration expands the name back to the
+// three tools it stood for.
+func TestMigration139_ConsolidatesAPIDiscoveryToolsInPersonas_RealDB(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+	db, cleanup := startPostgres(t)
+	defer cleanup()
+
+	// Only the table the migration rewrites. The full chain needs the
+	// pgvector extension, which this image does not ship.
+	_, err := db.Exec(`
+		CREATE TABLE persona_definitions (
+			name        TEXT  PRIMARY KEY,
+			tools_allow JSONB NOT NULL DEFAULT '[]',
+			tools_deny  JSONB NOT NULL DEFAULT '[]'
+		)`)
+	require.NoError(t, err)
+
+	_, err = db.Exec(`
+		INSERT INTO persona_definitions (name, tools_allow, tools_deny) VALUES
+			('operator', '["search", "api_list_specs", "fetch", "api_list_endpoints", "api_get_endpoint_schema", "api_invoke_endpoint"]', '["api_get_endpoint_schema", "trino_execute"]'),
+			('globs',    '["api_list_*", "api_get_*"]', '["api_list_*"]'),
+			('wildcard', '["*"]', '["api_*", "apply_knowledge"]'),
+			('unrelated','["trino_query", "api_export"]', '[]')`)
+	require.NoError(t, err)
+
+	lists := func(name string) (allow, deny string) {
+		require.NoError(t, db.QueryRow(
+			`SELECT tools_allow::text, tools_deny::text FROM persona_definitions WHERE name = $1`, name).Scan(&allow, &deny))
+		return allow, deny
+	}
+
+	execMigrationFile(t, db, "000139_consolidate_api_discovery_tools_in_personas.up.sql")
+
+	allow, deny := lists("operator")
+	require.JSONEq(t, `["search", "api_discover", "fetch", "api_invoke_endpoint"]`, allow,
+		"the three names collapse to api_discover at the first position, everything else keeps its place")
+	require.JSONEq(t, `["api_discover", "trino_execute"]`, deny,
+		"a deny of one depth is a deny of api_discover: the migration fails closed")
+
+	allow, deny = lists("globs")
+	require.JSONEq(t, `["api_discover"]`, allow, "the verb globs that only matched the old tools are rewritten")
+	require.JSONEq(t, `["api_discover"]`, deny)
+
+	allow, deny = lists("wildcard")
+	require.JSONEq(t, `["*"]`, allow)
+	require.JSONEq(t, `["api_*", "apply_knowledge"]`, deny, "a broader glob still matches the new name and is untouched")
+
+	allow, deny = lists("unrelated")
+	require.JSONEq(t, `["trino_query", "api_export"]`, allow)
+	require.JSONEq(t, `[]`, deny)
+
+	// Idempotent: a second run finds nothing to rewrite.
+	execMigrationFile(t, db, "000139_consolidate_api_discovery_tools_in_personas.up.sql")
+	allow, deny = lists("operator")
+	require.JSONEq(t, `["search", "api_discover", "fetch", "api_invoke_endpoint"]`, allow)
+	require.JSONEq(t, `["api_discover", "trino_execute"]`, deny)
+
+	execMigrationFile(t, db, "000139_consolidate_api_discovery_tools_in_personas.down.sql")
+	allow, deny = lists("operator")
+	require.JSONEq(t, `["search", "api_list_specs", "api_list_endpoints", "api_get_endpoint_schema", "fetch", "api_invoke_endpoint"]`, allow,
+		"down expands api_discover to the three tools it stood for, in place")
+	require.JSONEq(t, `["api_list_specs", "api_list_endpoints", "api_get_endpoint_schema", "trino_execute"]`, deny)
+	allow, deny = lists("unrelated")
+	require.JSONEq(t, `["trino_query", "api_export"]`, allow)
+	require.JSONEq(t, `[]`, deny)
+}

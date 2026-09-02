@@ -36,7 +36,7 @@ type findToolsOutput struct {
 	Tools []findToolDescriptor `json:"tools"`
 	// Note is set when semantic ranking was unavailable and the
 	// results are a lexical substring fallback, mirroring the
-	// api_list_endpoints fallback UX.
+	// api_discover fallback UX.
 	Note string `json:"note,omitempty"`
 }
 

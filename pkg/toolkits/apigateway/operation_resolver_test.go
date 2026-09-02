@@ -85,12 +85,12 @@ func TestResolveOperationID(t *testing.T) {
 		{"collection with fragment", "GET", "/v1/users#frag", "listUsers"},
 		// #519: an operation with no declared operationId must resolve
 		// to the same synthesized "<METHOD> <rawPath>" id that
-		// api_list_endpoints advertises, not "unknown".
+		// api_discover advertises, not "unknown".
 		{"synthesized id for missing operationId", "GET", "/v1/widgets", "GET /widgets"},
 		{"synthesized id with query string", "GET", "/v1/widgets?page=2", "GET /widgets"},
 		{"synthesized id lowercase method normalized", "get", "/v1/widgets", "GET /widgets"},
 		// #519: the router matches OPTIONS (openapi3 PathItem.Operations
-		// includes it) but api_list_endpoints does not list it, so the
+		// includes it) but api_discover does not list it, so the
 		// resolver must NOT synthesize a metric label for it.
 		{"unlisted method not synthesized", "OPTIONS", "/v1/widgets", ""},
 	}

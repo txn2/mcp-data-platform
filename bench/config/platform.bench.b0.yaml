@@ -199,7 +199,7 @@ rate_limit:
   enabled: false
 
 # The search-first gate is off in every arm: b0 has no search tool at
-# all, and within b1 the discovery step under test is api_list_endpoints
+# all, and within b1 the discovery step under test is api_discover
 # itself, so the gate would either block b0 or inject an extra required
 # call into b1.
 workflow:

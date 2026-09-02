@@ -244,7 +244,7 @@ func TestSearchOperations_LexicalFallbackScoresAndTags(t *testing.T) {
 
 // TestSearchOperations_RoutePolicyScopesResults is the per-source scope test for
 // the endpoints corpus: a route policy that denies an operation must keep it out
-// of SearchOperations, fail-closed, exactly as it would for api_list_endpoints.
+// of SearchOperations, fail-closed, exactly as it would for api_discover.
 func TestSearchOperations_RoutePolicyScopesResults(t *testing.T) {
 	tk := New("primary")
 	tk.connections = map[string]*conn{"shop": {
@@ -621,19 +621,19 @@ func TestHandleListEndpoints_RankingValidation(t *testing.T) {
 	}
 
 	// Invalid mode → error.
-	r, _, _ := tk.handleListEndpoints(context.Background(), &mcp.CallToolRequest{},
-		ListEndpointsInput{Connection: "api", Ranking: "weird"})
+	r, _, _ := tk.handleDiscover(context.Background(), &mcp.CallToolRequest{},
+		DiscoverInput{Connection: "api", Ranking: "weird"})
 	if r == nil || !r.IsError {
 		t.Error("invalid ranking should produce IsError result")
 	}
 
 	// Valid semantic without embedder → success but with fallback note.
-	r, payload, _ := tk.handleListEndpoints(context.Background(), &mcp.CallToolRequest{},
-		ListEndpointsInput{Connection: "api", Query: "x", Ranking: "semantic"})
+	r, payload, _ := tk.handleDiscover(context.Background(), &mcp.CallToolRequest{},
+		DiscoverInput{Connection: "api", Query: "x", Ranking: "semantic"})
 	if r == nil || r.IsError {
 		t.Errorf("semantic without embedder should not error: %v", r)
 	}
-	out, _ := payload.(ListEndpointsOutput)
+	out, _ := payload.(DiscoverOutput)
 	if !strings.Contains(out.Note, "fell back to lexical") {
 		t.Errorf("missing fallback note: %+v", out)
 	}

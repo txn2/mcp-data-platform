@@ -215,10 +215,10 @@ func TestClose_TolerantOfClosedConnections(t *testing.T) {
 	}
 }
 
-func TestTools_NamesInvokeAndListEndpoints(t *testing.T) {
+func TestTools_NamesInvokeAndDiscover(t *testing.T) {
 	tk := New("test")
 	tools := tk.Tools()
-	want := []string{ToolInvokeEndpoint, ToolListEndpoints, ToolListSpecs, ToolGetEndpointSchema}
+	want := []string{ToolInvokeEndpoint, ToolDiscover}
 	if len(tools) != len(want) {
 		t.Fatalf("Tools() = %v; want %v", tools, want)
 	}
@@ -486,7 +486,7 @@ func TestHandleInvoke_RoutePolicyNotConsultedOnInvalidPath(t *testing.T) {
 
 func TestHandleListEndpoints_RejectsMissingConnection(t *testing.T) {
 	tk := New("test")
-	res, _, err := tk.handleListEndpoints(context.Background(), nil, ListEndpointsInput{})
+	res, _, err := tk.handleDiscover(context.Background(), nil, DiscoverInput{})
 	if err != nil {
 		t.Fatalf("handleListEndpoints: %v", err)
 	}
@@ -497,7 +497,7 @@ func TestHandleListEndpoints_RejectsMissingConnection(t *testing.T) {
 
 func TestHandleListEndpoints_UnknownConnection(t *testing.T) {
 	tk := New("test")
-	res, _, err := tk.handleListEndpoints(context.Background(), nil, ListEndpointsInput{
+	res, _, err := tk.handleDiscover(context.Background(), nil, DiscoverInput{
 		Connection: "ghost",
 	})
 	if err != nil {
@@ -513,7 +513,7 @@ func TestHandleListEndpoints_NoSpec_ReturnsEmptyWithNote(t *testing.T) {
 	if err := tk.AddConnection("c1", map[string]any{"base_url": "https://x"}); err != nil {
 		t.Fatalf("AddConnection: %v", err)
 	}
-	res, out, err := tk.handleListEndpoints(context.Background(), nil, ListEndpointsInput{
+	res, out, err := tk.handleDiscover(context.Background(), nil, DiscoverInput{
 		Connection: "c1",
 	})
 	if err != nil {
@@ -522,7 +522,7 @@ func TestHandleListEndpoints_NoSpec_ReturnsEmptyWithNote(t *testing.T) {
 	if res.IsError {
 		t.Errorf("connection without spec should NOT be an error: %s", textContent(res))
 	}
-	o, ok := out.(ListEndpointsOutput)
+	o, ok := out.(DiscoverOutput)
 	if !ok {
 		t.Fatalf("out type %T", out)
 	}
@@ -543,7 +543,7 @@ func TestHandleListEndpoints_ReturnsOperations(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("AddConnection: %v", err)
 	}
-	res, out, err := tk.handleListEndpoints(context.Background(), nil, ListEndpointsInput{
+	res, out, err := tk.handleDiscover(context.Background(), nil, DiscoverInput{
 		Connection: "c1",
 	})
 	if err != nil {
@@ -552,7 +552,7 @@ func TestHandleListEndpoints_ReturnsOperations(t *testing.T) {
 	if res.IsError {
 		t.Errorf("expected success, got error: %s", textContent(res))
 	}
-	o, _ := out.(ListEndpointsOutput)
+	o, _ := out.(DiscoverOutput)
 	if len(o.Operations) != 5 {
 		t.Errorf("expected 5 operations, got %d", len(o.Operations))
 	}
@@ -567,11 +567,11 @@ func TestHandleListEndpoints_FiltersByQuery(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("AddConnection: %v", err)
 	}
-	_, out, _ := tk.handleListEndpoints(context.Background(), nil, ListEndpointsInput{
+	_, out, _ := tk.handleDiscover(context.Background(), nil, DiscoverInput{
 		Connection: "c1",
 		Query:      "orders",
 	})
-	o, _ := out.(ListEndpointsOutput)
+	o, _ := out.(DiscoverOutput)
 	if len(o.Operations) != 1 {
 		t.Errorf("expected 1 match for 'orders', got %d", len(o.Operations))
 	}
@@ -597,13 +597,13 @@ func TestHandleListEndpoints_FiltersByRoutePolicy(t *testing.T) {
 		}
 		return false, "method not allowed"
 	}))
-	_, out, err := tk.handleListEndpoints(context.Background(), nil, ListEndpointsInput{
+	_, out, err := tk.handleDiscover(context.Background(), nil, DiscoverInput{
 		Connection: "c1",
 	})
 	if err != nil {
 		t.Fatalf("handleListEndpoints: %v", err)
 	}
-	o, _ := out.(ListEndpointsOutput)
+	o, _ := out.(DiscoverOutput)
 	for _, op := range o.Operations {
 		if op.Method != "GET" {
 			t.Errorf("policy-filtered list returned %s %s; only GET should appear", op.Method, op.Path)
@@ -633,11 +633,11 @@ func TestHandleListEndpoints_HonorsLimit(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("AddConnection: %v", err)
 	}
-	_, out, _ := tk.handleListEndpoints(context.Background(), nil, ListEndpointsInput{
+	_, out, _ := tk.handleDiscover(context.Background(), nil, DiscoverInput{
 		Connection: "c1",
 		Limit:      2,
 	})
-	o, _ := out.(ListEndpointsOutput)
+	o, _ := out.(DiscoverOutput)
 	if len(o.Operations) != 2 {
 		t.Errorf("limit=2: got %d", len(o.Operations))
 	}
@@ -835,7 +835,7 @@ func TestHandleListEndpoints_SpecFilter(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("AddConnection: %v", err)
 	}
-	res, out, err := tk.handleListEndpoints(context.Background(), nil, ListEndpointsInput{
+	res, out, err := tk.handleDiscover(context.Background(), nil, DiscoverInput{
 		Connection: "c",
 		Spec:       "users",
 	})
@@ -845,7 +845,7 @@ func TestHandleListEndpoints_SpecFilter(t *testing.T) {
 	if res.IsError {
 		t.Fatalf("expected success, got error: %s", textContent(res))
 	}
-	o, _ := out.(ListEndpointsOutput)
+	o, _ := out.(DiscoverOutput)
 	if len(o.Operations) != 1 {
 		t.Fatalf("expected 1 op from users spec, got %d (%+v)", len(o.Operations), o.Operations)
 	}
@@ -869,7 +869,7 @@ func TestHandleListEndpoints_FallbackNoteIncludesReason(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("AddConnection: %v", err)
 	}
-	res, out, err := tk.handleListEndpoints(context.Background(), nil, ListEndpointsInput{
+	res, out, err := tk.handleDiscover(context.Background(), nil, DiscoverInput{
 		Connection: "c",
 		Query:      "users",
 		Ranking:    "semantic",
@@ -880,7 +880,7 @@ func TestHandleListEndpoints_FallbackNoteIncludesReason(t *testing.T) {
 	if res.IsError {
 		t.Fatalf("expected success with fallback, got error: %s", textContent(res))
 	}
-	o, _ := out.(ListEndpointsOutput)
+	o, _ := out.(DiscoverOutput)
 	if o.Note == "" {
 		t.Fatal("expected non-empty Note describing the fallback reason")
 	}

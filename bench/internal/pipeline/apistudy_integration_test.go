@@ -41,7 +41,7 @@ import (
 var studyTaskIDs = []string{"p1-order-amount", "p3-cancel-order", "p5-refund"}
 
 // newStudyPlatform assembles the b1-shaped fake platform: platform_info,
-// api_list_endpoints over the real tier-0 catalog, and
+// api_discover over the real tier-0 catalog, and
 // api_invoke_endpoint proxying to the real fixture service.
 func newStudyPlatform(t *testing.T, fp *fakePlatform, fixtureURL string) {
 	t.Helper()
@@ -72,13 +72,13 @@ func addListEndpoints(fp *fakePlatform, server *mcp.Server, c *apigen.Catalog) {
 		"query":      {Type: "string"},
 		"limit":      {Type: "integer"},
 	})
-	mcp.AddTool(server, &mcp.Tool{Name: "api_list_endpoints", Description: "search endpoints", InputSchema: schema},
+	mcp.AddTool(server, &mcp.Tool{Name: "api_discover", Description: "search endpoints", InputSchema: schema},
 		func(_ context.Context, _ *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
 			sessionID, _ := args["session_id"].(string)
 			query, _ := args["query"].(string)
 			fp.record(auditapi.Event{
 				Timestamp: time.Now().UTC(), SessionID: sessionID,
-				ToolName: "api_list_endpoints", Success: true, EventKind: "mcp_tool_call",
+				ToolName: "api_discover", Success: true, EventKind: "mcp_tool_call",
 			})
 			var ops []map[string]any
 			for _, op := range c.TierOperations(apigen.Tier0) {

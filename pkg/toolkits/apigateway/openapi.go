@@ -17,11 +17,11 @@ import (
 const pathSep = "/"
 
 // OperationSummary is the slim per-operation view returned by
-// api_list_endpoints. Designed to be cheap on context: the model gets
+// api_discover's operations level. Designed to be cheap on context: the model gets
 // enough to decide whether an operation is relevant (operation_id,
 // method, path, summary, tags) without paying for the full request /
 // response schema. Per-endpoint detail is fetched on demand via
-// api_get_endpoint_schema.
+// api_discover's operation level.
 //
 // Spec names the component spec inside the connection's catalog
 // (e.g. "users", "orders"). Omitted from JSON when empty so
@@ -49,7 +49,7 @@ func parseOpenAPISpec(raw string) (*openapi3.T, error) {
 }
 
 // buildOperationIndex flattens an OpenAPI document into the slim
-// summary slice api_list_endpoints returns. Operations without an
+// summary slice api_discover returns. Operations without an
 // explicit operationId synthesize one as "<METHOD> <path>" so
 // downstream tools can address them; this matches what most
 // codegen pipelines do.
@@ -118,7 +118,7 @@ var pathItemMethods = []struct {
 // synthesizedOperationID builds the operationId used for an operation
 // that declares none. method must already be upper-cased; rawPath is
 // spec-relative. Shared by appendItemOperations (which advertises the id
-// via api_list_endpoints) and the metric operation resolver so the
+// via api_discover) and the metric operation resolver so the
 // listed id and the metric label can never diverge.
 func synthesizedOperationID(method, rawPath string) string {
 	return method + " " + rawPath
@@ -127,7 +127,7 @@ func synthesizedOperationID(method, rawPath string) string {
 // operationIDOrSynthesized returns op's declared operationId, or the
 // synthesized "<METHOD> <rawPath>" id when it declares none. method must
 // already be upper-cased; rawPath is spec-relative. Shared by
-// appendItemOperations (the id api_list_endpoints advertises) and the
+// appendItemOperations (the id api_discover advertises) and the
 // WebDAV resolver (the metric label) so both are produced by one rule and
 // cannot diverge.
 func operationIDOrSynthesized(op *openapi3.Operation, method, rawPath string) string {
@@ -138,7 +138,7 @@ func operationIDOrSynthesized(op *openapi3.Operation, method, rawPath string) st
 }
 
 // listableMethod reports whether m (upper-cased) is an HTTP method
-// api_list_endpoints advertises, i.e. one of pathItemMethods. The
+// api_discover advertises, i.e. one of pathItemMethods. The
 // resolver only synthesizes ids for these: the router also matches
 // OPTIONS/TRACE/CONNECT, which pathItemMethods omits, so synthesizing
 // for them would invent a metric label no catalog entry carries.
@@ -169,7 +169,7 @@ type itemOpsCtx struct {
 // spec-write time matches the lookup key built at connection
 // registration regardless of which basePath the registering
 // connection resolves. The Path field still carries the
-// basePath-prefixed runtime path so api_list_endpoints reports the
+// basePath-prefixed runtime path so api_discover reports the
 // full URL the model passes to api_invoke_endpoint. The parallel
 // embedTexts slice carries the per-operation text used by semantic
 // ranking — kept off OperationSummary so descriptions (often
@@ -229,7 +229,7 @@ func buildEmbedText(op OperationSummary, description string) string {
 // stripped. Vendors that ship each component spec under a distinct
 // version segment (for example a connection whose connection.base_url
 // is the host and whose specs each declare "https://host/foo/v1",
-// "https://host/bar/v2") rely on the first entry so api_list_endpoints
+// "https://host/bar/v2") rely on the first entry so api_discover
 // reports the full path the model should pass to api_invoke_endpoint,
 // not the spec-relative path that 404s when the segment is missing
 // from the connection's base_url.

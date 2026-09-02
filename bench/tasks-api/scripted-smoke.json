@@ -4,7 +4,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -38,7 +38,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -72,7 +72,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -106,7 +106,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -137,7 +137,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -168,7 +168,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -202,7 +202,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -236,7 +236,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -267,7 +267,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -298,7 +298,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -329,7 +329,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -363,7 +363,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -397,7 +397,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -431,7 +431,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -465,7 +465,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -499,7 +499,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -533,7 +533,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -567,7 +567,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -601,7 +601,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -635,7 +635,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -669,7 +669,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -703,7 +703,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -737,7 +737,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -771,7 +771,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -805,7 +805,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -836,7 +836,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -867,7 +867,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -911,7 +911,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -946,7 +946,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -981,7 +981,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -1016,7 +1016,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -1050,7 +1050,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -1085,7 +1085,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -1119,7 +1119,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -1153,7 +1153,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -1187,7 +1187,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -1221,7 +1221,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -1255,7 +1255,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -1289,7 +1289,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -1323,7 +1323,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -1354,7 +1354,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,
@@ -1385,7 +1385,7 @@
       "tool_calls": [
         {
           "id": "",
-          "name": "api_list_endpoints",
+          "name": "api_discover",
           "args": {
             "connection": "acme",
             "limit": 10,

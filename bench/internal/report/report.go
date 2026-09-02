@@ -73,7 +73,7 @@ type Attempt struct {
 	TranscriptPath      string           `json:"transcript_path,omitempty"`
 	// API-connection study fields (#1027), set only on b* runs.
 	// Retrieval is the discovery outcome extracted from the transcript's
-	// api_list_endpoints calls (nil when the attempt made none).
+	// api_discover calls (nil when the attempt made none).
 	Retrieval *apistudy.Retrieval `json:"retrieval,omitempty"`
 	// FailureClass is the RQ4 taxonomy label for a failed, graded attempt.
 	FailureClass string `json:"failure_class,omitempty"`

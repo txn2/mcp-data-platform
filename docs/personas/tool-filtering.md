@@ -159,6 +159,20 @@ becomes a deny of `s3_object`, which withholds the read actions too (the
 migration fails closed); move that decision to the connection's `read_only`
 flag. Personas defined in YAML are edited by hand along the same mapping.
 
+**API Gateway Tools:**
+- `api_discover` (the specs of a multi-spec catalog, the operations of a spec or a query, or one operation's schema, chosen by the arguments)
+- `api_invoke_endpoint`
+- `api_export` (requires portal; streams a response into an asset)
+
+Before #1592 discovery was three tools, one per depth (the specs of a
+catalog, the operations of a spec, one operation's schema). The old names are
+not aliases: an entry naming one grants or denies nothing. Persona definitions
+stored in the database are rewritten by migration `000139`: the three names and
+the verb globs `api_list_*`, `api_get_*` become `api_discover`; duplicates
+collapse to the first position. A deny of any one depth becomes a deny of
+`api_discover`, which withholds the other depths too (the migration fails
+closed). Personas defined in YAML are edited by hand along the same mapping.
+
 ## Examples
 
 ### Analyst Persona

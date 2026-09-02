@@ -16,14 +16,24 @@ import (
 )
 
 // listToolName is the b1 discovery tool whose results carry ranked
-// operations.
-const listToolName = "api_list_endpoints"
+// operations (api_discover since #1592; the transcripts under
+// bench/results predate it and name api_list_endpoints).
+const listToolName = "api_discover"
+
+// legacyListToolName is the discovery tool the pre-#1592 transcripts
+// name, so a stored run is still analyzable.
+const legacyListToolName = "api_list_endpoints"
 
 // isListCall matches the discovery tool under both transcript namings:
 // the in-process loop records the bare platform tool name, while Claude
 // Code namespaces MCP tools as mcp__<server>__<tool>.
 func isListCall(name string) bool {
-	return name == listToolName || strings.HasSuffix(name, "__"+listToolName)
+	for _, tool := range []string{listToolName, legacyListToolName} {
+		if name == tool || strings.HasSuffix(name, "__"+tool) {
+			return true
+		}
+	}
+	return false
 }
 
 // Failure taxonomy classes (RQ4). Classified deterministically from the
@@ -41,10 +51,10 @@ const (
 )
 
 // Retrieval is one episode's discovery outcome, computed from the
-// transcript's api_list_endpoints calls (the platform's audit events
+// transcript's api_discover calls (the platform's audit events
 // carry no payloads, so the transcript is the payload source).
 type Retrieval struct {
-	// ListCalls counts api_list_endpoints invocations in the episode.
+	// ListCalls counts api_discover invocations in the episode.
 	ListCalls int `json:"list_calls"`
 	// Hit reports whether every gold operation surfaced in at least one
 	// result set.
@@ -57,7 +67,7 @@ type Retrieval struct {
 }
 
 // AnalyzeRetrieval extracts the retrieval outcome. Returns nil when the
-// episode made no api_list_endpoints calls or the task names no gold
+// episode made no api_discover calls or the task names no gold
 // operations (b0 and b2 arms, irrelevance tasks): retrieval is then not a
 // measured dimension of the attempt.
 func AnalyzeRetrieval(msgs []llm.Message, goldOps []string) *Retrieval {

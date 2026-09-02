@@ -104,7 +104,7 @@ func buildWebDAVRoutes(specs map[string]*specState) []webdavRoute {
 // operationId (metric label) and the declared requestBody media types
 // (Content-Type negotiation) so both invoke and metrics read one source.
 // Operations without a declared operationId synthesize the same id
-// api_list_endpoints advertises so the metric label cannot diverge from
+// api_discover advertises so the metric label cannot diverge from
 // the listed id.
 func webdavMethodOps(item *openapi3.PathItem, rawPath string) map[string]webdavOp {
 	if item == nil {

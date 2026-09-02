@@ -12,11 +12,9 @@
 #
 # When a tool is added, removed, or renamed, update this list (and add the old
 # name to retired-tools.txt on removal/rename). Bare tool names, one per line.
+api_discover
 api_export
-api_get_endpoint_schema
 api_invoke_endpoint
-api_list_endpoints
-api_list_specs
 apply_knowledge
 datahub_browse
 datahub_create

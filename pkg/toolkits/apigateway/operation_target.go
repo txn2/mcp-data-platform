@@ -12,7 +12,7 @@ import (
 // can name the operation an invoke/export call targets:
 //
 //   - operation_id (+ optional spec, + optional path_params): the stable
-//     identifier api_get_endpoint_schema and api_list_endpoints already
+//     identifier api_discover already
 //     speak. path_params are substituted into the operation's path
 //     template so the caller never hand-substitutes /users/{id}.
 //   - method + path: the raw addressing for uncataloged calls, where
@@ -55,7 +55,7 @@ func (a operationAddressing) resolve(c *conn) (method, path string, err error) {
 
 // resolveOperationTarget maps an operation_id (with optional spec filter
 // and path_params) to the concrete (method, path) a call needs. It reuses
-// the same resolveOperation walk api_get_endpoint_schema uses so the id
+// the same resolveOperation walk api_discover uses so the id
 // that reads a schema is exactly the id that invokes it. Errors are
 // caller-actionable: no catalog, id-not-found, ambiguity across specs, or
 // a path-parameter mismatch.
@@ -178,7 +178,7 @@ func unusedParams(params map[string]string, used map[string]bool) []string {
 // ambiguousOperationError formats the "operation_id defined in more than
 // one spec" case into a caller-actionable error naming the candidate
 // specs, so the model can retry with spec=<name>. Mirrors the
-// disambiguation contract api_get_endpoint_schema exposes.
+// disambiguation contract api_discover exposes.
 func ambiguousOperationError(operationID string, candidates []schemaCandidate) error {
 	specs := make([]string, 0, len(candidates))
 	seen := make(map[string]bool, len(candidates))
@@ -199,7 +199,7 @@ func ambiguousOperationError(operationID string, candidates []schemaCandidate) e
 // or declares no operation serving that path.
 //
 // The route policy needs it because the two surfaces that consult a
-// persona's rules hold the path in different forms: api_list_endpoints
+// persona's rules hold the path in different forms: api_discover
 // filters the operations the catalog declares, whose paths are
 // templates, while an invoke has already substituted its parameters. A
 // rule naming "/v1/orders/{id}" hides the operation from the listing,

@@ -10,7 +10,7 @@ import (
 )
 
 // ScriptedSmoke emits the deterministic playback script for the study
-// (the report-1 pattern): every task discovers via api_list_endpoints,
+// (the report-1 pattern): every task discovers via api_discover,
 // invokes a gold operation through the b1 invoke shape, and answers with
 // the generated ground truth — so one no-API-key run proves harness,
 // platform, fixture behavior, and grading agree end to end. Mutation
@@ -42,7 +42,7 @@ func smokeSteps(tr *truths, t task.Task) []llm.Step {
 // retrieval hit.
 func listStep(t task.Task) llm.Step {
 	return llm.Step{ToolCalls: []llm.ToolCall{{
-		Name: "api_list_endpoints",
+		Name: "api_discover",
 		Args: map[string]any{"connection": "acme", "query": t.GoldOperations[0], "limit": 10},
 	}}}
 }

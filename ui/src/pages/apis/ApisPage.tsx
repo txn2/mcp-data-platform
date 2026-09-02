@@ -23,7 +23,7 @@ import {
 //
 // At /apis it reads the connections the caller's persona reaches, and the
 // operations on them the route policy permits, so the page and
-// api_list_endpoints agree on what that caller may call. At /admin/apis it
+// api_discover agree on what that caller may call. At /admin/apis it
 // reads catalogs instead, including ones no connection references yet, which is
 // the operator's view of what has been loaded.
 //

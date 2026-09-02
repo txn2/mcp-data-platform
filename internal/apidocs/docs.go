@@ -8499,7 +8499,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns one operation's parameters, request body and per-status responses, resolved exactly as api_get_endpoint_schema resolves them. An operation the route policy denies is reported as not found.",
+                "description": "Returns one operation's parameters, request body and per-status responses, resolved exactly as api_discover resolves them. An operation the route policy denies is reported as not found.",
                 "produces": [
                     "application/json"
                 ],

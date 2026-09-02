@@ -21,7 +21,7 @@ func (p denyPolicy) Allow(_ context.Context, _, method, path, _ string) (allowed
 }
 
 // TestBrowseOperations_ListsEveryOperationOfTheConnection is the plain case:
-// the whole index, not the ranked page api_list_endpoints returns.
+// the whole index, not the ranked page api_discover returns.
 func TestBrowseOperations_ListsEveryOperationOfTheConnection(t *testing.T) {
 	tk := setupSchemaLookupTk(t)
 
@@ -123,7 +123,7 @@ func TestBrowseConnection_UnknownConnection(t *testing.T) {
 }
 
 // TestBrowseOperation_MatchesTheToolsResolution is the reason the browse
-// surface calls into the toolkit at all: a page and api_get_endpoint_schema
+// surface calls into the toolkit at all: a page and api_discover
 // have to describe one operation identically.
 func TestBrowseOperation_MatchesTheToolsResolution(t *testing.T) {
 	tk := setupSchemaLookupTk(t)
@@ -132,11 +132,11 @@ func TestBrowseOperation_MatchesTheToolsResolution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BrowseOperation: %v", err)
 	}
-	r, _, toolErr := tk.handleGetEndpointSchema(context.Background(), nil, GetEndpointSchemaInput{
+	r, _, toolErr := tk.handleDiscover(context.Background(), nil, DiscoverInput{
 		Connection: "c", OperationID: "createPet",
 	})
 	if toolErr != nil || r.IsError {
-		t.Fatalf("api_get_endpoint_schema: err=%v isError=%v", toolErr, r.IsError)
+		t.Fatalf("api_discover: err=%v isError=%v", toolErr, r.IsError)
 	}
 	want := parseSchemaResult(t, r)
 	if got.Method != want.Method || got.Path != want.Path || got.OperationID != want.OperationID {
