@@ -235,7 +235,10 @@ func TestGovernanceProvider_FetchGlossaryTermReturnsDefinitionAndCarriers(t *tes
 	f := populatedReader()
 	f.term = &semantic.GlossaryTerm{
 		URN: "urn:li:glossaryTerm:8f3c", Name: "Net Revenue",
-		Description: "Recognized revenue less refunds and credits.",
+		Description:      "Recognized revenue less refunds and credits.",
+		ParentNode:       "urn:li:glossaryNode:finance",
+		Owners:           []semantic.Owner{{URN: "urn:li:corpuser:cfo", Type: semantic.OwnerTypeUser, Name: "cfo"}},
+		CustomProperties: map[string]string{"steward_team": "finance-ops"},
 	}
 	p := NewGovernanceProvider(f)
 
@@ -252,6 +255,12 @@ func TestGovernanceProvider_FetchGlossaryTermReturnsDefinitionAndCarriers(t *tes
 	entity, ok := doc.Content.(GovernanceEntity)
 	require.True(t, ok)
 	assert.Equal(t, "glossary_term", entity.Kind)
+	// The detail only the term's by-URN read carries (#1590): what the retired
+	// datahub_get_glossary_term returned rides on the fetched entity.
+	assert.Equal(t, "urn:li:glossaryNode:finance", entity.ParentNode)
+	require.Len(t, entity.Owners, 1)
+	assert.Equal(t, "urn:li:corpuser:cfo", entity.Owners[0].URN)
+	assert.Equal(t, "finance-ops", entity.CustomProperties["steward_team"])
 	require.Len(t, entity.Datasets, 2)
 	assert.Equal(t, "warehouse.sales.invoices", entity.Datasets[0].Name)
 	assert.False(t, entity.MoreDatasets)

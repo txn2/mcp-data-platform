@@ -240,6 +240,23 @@ func storeProviders(cfg Config) []knowledge.Provider {
 		// The platform's own index of dataset text, when one is wired, leads the
 		// catalog text path; DataHub's keyword search stays behind it.
 		catalog.SetIndexSearcher(cfg.CatalogIndex)
+		// A fetched dataset is the catalog's full record of it, and a data
+		// product is fetchable by reference (#1590); both reads are the real
+		// catalog's, so a noop or decorated provider that lacks them leaves the
+		// arm on the enrichment-shaped read or closed.
+		if dr, ok := semantic.DatasetReaderFrom(cfg.SemanticProvider); ok {
+			catalog.SetDatasetReader(dr)
+		}
+		if pr, ok := semantic.DataProductReaderFrom(cfg.SemanticProvider); ok {
+			catalog.SetDataProductReader(pr)
+		}
+		// A fetched dataset also says whether and where it is queryable, through
+		// the query provider's own read rather than the insight marker's cache
+		// above: the record keeps the row estimate a query is sized by, and it
+		// keeps a negative answer with its reason, which the cache drops.
+		if cfg.QueryProvider != nil {
+			catalog.SetAvailabilityResolver(cfg.QueryProvider)
+		}
 		providers = append(providers, catalog)
 		// Context documents: a distinct search source (#692), present only when the
 		// real catalog exposes document search.

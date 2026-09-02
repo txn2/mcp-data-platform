@@ -37,7 +37,7 @@ func TestPurposeResolver_Gates(t *testing.T) {
 		why  string
 	}{
 		{"trino_query", true, "named in the default set"},
-		{"datahub_get_schema", true, "matched by the datahub_get_* glob"},
+		{"datahub_get_lineage", true, "matched by the datahub_get_* glob"},
 		{"datahub_browse", false, "browse is discovery, not in the glob"},
 		{"search", true, "named in the default set"},
 		{"platform_info", false, "orientation tools are deliberately excluded"},

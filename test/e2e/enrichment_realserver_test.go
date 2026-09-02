@@ -92,21 +92,28 @@ func TestEnrichment_RealAssembledServer(t *testing.T) {
 		helpers.AssertTagPresent(t, sc, "ecommerce")
 	})
 
-	// DataHub -> Trino: a DataHub result must carry query availability
-	// (query_context) for the seeded dataset when DataHub is up. datahub_search
-	// was retired - its relevance role folded into the unified search and
-	// structured navigation into datahub_browse (pkg/toolkits/datahub/toolkit.go,
-	// datahubReadTools) - and datahub_browse lists tags, domains and data
-	// products rather than datasets, so it carries no dataset URN to enrich.
-	// datahub_get_entity is the DataHub read that names one.
-	t.Run("datahub_get_entity is enriched with query context", func(t *testing.T) {
+	// DataHub -> Trino: the catalog's read of a dataset must say whether and
+	// where it is queryable when DataHub is up. datahub_search was retired (its
+	// relevance role folded into the unified search, structured navigation into
+	// datahub_browse) and the by-URN reads were folded into fetch (#1590), so
+	// the read that names a dataset is fetch of its urn:li:dataset: reference,
+	// and the query side rides on the record as query_availability.
+	t.Run("a fetched dataset carries query availability", func(t *testing.T) {
 		if helpers.SkipIfDataHubUnavailable(cfg) {
 			t.Skip("DataHub not reachable; run `datahub docker quickstart` + `make e2e-seed` for enrichment assertions")
 		}
-		res := callTool(t, ctx, session, sessionID, "datahub_get_entity", map[string]any{
-			"urn": enrichDatasetURN,
+		res := callTool(t, ctx, session, sessionID, "fetch", map[string]any{
+			"reference": enrichDatasetURN,
 		})
-		helpers.AssertHasQueryContext(t, res)
+		out, ok := res.StructuredContent.(map[string]any)
+		require.True(t, ok, "fetch returns a structured object, got %T", res.StructuredContent)
+		require.Equal(t, true, out["found"], "the seeded dataset resolves: %v", out)
+		doc, _ := out["document"].(map[string]any)
+		content, _ := doc["content"].(map[string]any)
+		avail, _ := content["query_availability"].(map[string]any)
+		require.NotNil(t, avail, "the record carries query_availability: %v", content)
+		assert.Equal(t, true, avail["available"], "the seeded dataset is queryable: %v", avail)
+		assert.NotEmpty(t, avail["query_table"])
 	})
 }
 

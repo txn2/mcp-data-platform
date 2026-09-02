@@ -390,3 +390,58 @@ func TestNew_SessionsProvider(t *testing.T) {
 	})
 	assert.NotContains(t, providerNames(t, h), knowledge.SourceSessions)
 }
+
+// recordSemantic embeds the noop provider and adds the two by-URN reads a real
+// catalog offers (#1590), so the assembled fetch can be shown to reach them.
+type recordSemantic struct {
+	semantic.Provider
+}
+
+func (recordSemantic) GetDataset(_ context.Context, table semantic.TableIdentifier) (*semantic.Dataset, error) {
+	return &semantic.Dataset{
+		TableContext: semantic.TableContext{URN: "urn:li:dataset:(urn:li:dataPlatform:trino,db.s.t,PROD)", Description: "the record"},
+		Name:         table.Table,
+		Schema:       &semantic.DatasetSchema{Fields: []semantic.SchemaField{{FieldPath: "id", Type: "NUMBER"}}},
+	}, nil
+}
+
+func (recordSemantic) GetDataProduct(_ context.Context, urn string) (*semantic.DataProduct, error) {
+	return &semantic.DataProduct{URN: urn, Name: "Orders 360", Assets: []semantic.EntityRef{{URN: "urn:li:dataset:(urn:li:dataPlatform:trino,db.s.t,PROD)", Name: "t"}}}, nil
+}
+
+func TestNew_FetchReachesTheCatalogRecordReads(t *testing.T) {
+	h := New(Config{
+		ToolkitName:      "default",
+		CatalogEnabled:   true,
+		SemanticProvider: recordSemantic{Provider: semantic.NewNoopProvider()},
+		Registry:         registry.NewRegistry(),
+	})
+	require.NotNil(t, h)
+
+	doc, err := h.Router().Fetch(context.Background(), "urn:li:dataset:(urn:li:dataPlatform:trino,db.s.t,PROD)", knowledge.Caller{})
+	require.NoError(t, err)
+	ds, ok := doc.Content.(knowledge.CatalogDataset)
+	require.True(t, ok, "content = %T", doc.Content)
+	assert.Equal(t, "t", ds.Name)
+	require.NotNil(t, ds.Schema, "the dataset reader's schema reaches the fetched record")
+	assert.Nil(t, ds.QueryAvailability, "no query provider is wired")
+
+	doc, err = h.Router().Fetch(context.Background(), "urn:li:dataProduct:orders-360", knowledge.Caller{})
+	require.NoError(t, err)
+	product, ok := doc.Content.(knowledge.DataProductEntity)
+	require.True(t, ok, "content = %T", doc.Content)
+	assert.Equal(t, "Orders 360", product.Name)
+	assert.Len(t, product.Datasets, 1)
+}
+
+func TestNew_NoopCatalogClosesTheDataProductArm(t *testing.T) {
+	h := New(Config{
+		ToolkitName:      "default",
+		CatalogEnabled:   true,
+		SemanticProvider: semantic.NewNoopProvider(),
+		Registry:         registry.NewRegistry(),
+	})
+	require.NotNil(t, h)
+	_, err := h.Router().Fetch(context.Background(), "urn:li:dataProduct:orders-360", knowledge.Caller{})
+	assert.ErrorIs(t, err, knowledge.ErrNotFound)
+}

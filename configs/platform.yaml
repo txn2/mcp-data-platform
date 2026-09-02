@@ -167,7 +167,6 @@ personas:
         - "platform_info"
         - "search"
         - "fetch"
-        - "datahub_get_entity"
         - "datahub_browse"
       deny: []
     connections:
@@ -257,8 +256,8 @@ toolkits:
       default_limit: 50
       max_lineage_depth: 5
       # descriptions:
-      #   datahub_search: "Search the data catalog for datasets and dashboards"
-      #   datahub_get_entity: "Get full metadata for a catalog entity by URN"
+      #   datahub_browse: "Walk the catalog by platform, domain, tag, or entity type"
+      #   datahub_get_lineage: "Trace a dataset's upstream or downstream lineage"
 
   s3:
     enabled: false
@@ -350,9 +349,9 @@ enrichment:
   # datahub_storage_enrichment: true    # Default: true
 
   # Search schema preview
-  # Adds a bounded column-name+type preview to datahub_search query_context
+  # Adds a bounded column-name+type preview to a DataHub result's query_context
   # for available tables, so agents can write SQL without an intermediate
-  # datahub_get_schema or trino_describe_table call.
+  # fetch or trino_describe_table call.
   # search_schema_preview: true            # Default: true
   # schema_preview_max_columns: 15         # Default: 15
 

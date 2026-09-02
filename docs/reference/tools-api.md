@@ -328,77 +328,101 @@ Search for entities in the catalog.
 
 ---
 
-### datahub_get_entity
+### Reading a catalog entity by URN
 
-Get detailed entity information.
+The DataHub toolkit registers no by-URN read tool. A dataset, glossary term,
+tag, domain, or data product is read in full with [`fetch`](#fetch) on its
+`urn:li:...` reference; the retired `datahub_get_entity`, `datahub_get_schema`,
+`datahub_get_queries`, `datahub_get_glossary_term`, and
+`datahub_get_data_product` tools are not registered under any name.
 
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `urn` | string | Yes | - | Entity URN |
-| `connection` | string | No | first configured | DataHub connection name |
-
-**Response Schema:**
+**A fetched dataset** (`fetch urn:li:dataset:...`) returns the catalog's full
+record as the document `content`:
 
 ```json
 {
-  "urn": "urn:li:dataset:...",
-  "type": "dataset",
+  "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,warehouse.sales.orders,PROD)",
   "name": "orders",
-  "description": "Customer orders from e-commerce platform",
+  "type": "DATASET",
   "platform": "trino",
-  "created": "2024-01-01T00:00:00Z",
-  "modified": "2024-01-15T12:00:00Z",
-  "owners": [
-    {"name": "Data Team", "type": "group", "email": "data@example.com"}
-  ],
+  "sub_types": ["table"],
+  "description": "Customer orders from e-commerce platform",
+  "owners": [{"urn": "urn:li:corpuser:ana", "type": "user", "name": "ana"}],
   "tags": ["pii", "financial"],
-  "glossary_terms": ["Order", "Transaction"],
-  "domain": {
-    "urn": "urn:li:domain:sales",
-    "name": "Sales"
+  "glossary_terms": [{"urn": "urn:li:glossaryTerm:Order", "name": "Order"}],
+  "domain": {"urn": "urn:li:domain:sales", "name": "Sales"},
+  "custom_properties": {"refresh_schedule": "daily"},
+  "created": "2024-01-01T00:00:00Z",
+  "schema": {
+    "version": 3,
+    "fields": [
+      {"field_path": "order_id", "type": "NUMBER", "native_type": "bigint", "nullable": false,
+       "description": "Unique order identifier", "tags": ["pii"]}
+    ],
+    "primary_keys": ["order_id"],
+    "foreign_keys": []
   },
-  "deprecation": null,
-  "custom_properties": {
-    "refresh_schedule": "daily"
+  "queries": [
+    {"urn": "urn:li:query:q1", "name": "completed orders",
+     "statement": "SELECT * FROM orders WHERE status = 'completed'", "source": "MANUAL",
+     "created_by": "urn:li:corpuser:ana", "created": "2024-01-15T10:00:00Z"}
+  ],
+  "total_queries": 1,
+  "related_documents": [{"urn": "urn:li:document:d1", "title": "Orders runbook"}],
+  "query_availability": {
+    "available": true,
+    "query_table": "warehouse.sales.orders",
+    "connection": "primary",
+    "estimated_rows": 1250000
   }
 }
 ```
 
----
+`unavailable` names any part of the record (`schema`, `queries`,
+`related_documents`) the catalog could not serve on that read, so an absent
+part is distinguishable from an empty one. `query_availability` is present when
+a query provider is configured; the document's `verifiable` field names the
+same table when the dataset is queryable.
 
-### datahub_get_schema
-
-Get dataset schema.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `urn` | string | Yes | - | Dataset URN |
-| `connection` | string | No | first configured | DataHub connection name |
-
-**Response Schema:**
+**A fetched glossary term** (`fetch urn:li:glossaryTerm:...`) returns:
 
 ```json
 {
-  "urn": "urn:li:dataset:...",
-  "fields": [
-    {
-      "name": "order_id",
-      "type": "NUMBER",
-      "native_type": "bigint",
-      "nullable": false,
-      "description": "Unique order identifier",
-      "tags": ["pii"],
-      "glossary_terms": ["Order ID"]
-    }
-  ],
-  "primary_keys": ["order_id"],
-  "foreign_keys": []
+  "urn": "urn:li:glossaryTerm:Revenue",
+  "kind": "glossary_term",
+  "name": "Revenue",
+  "description": "Total monetary value from sales transactions",
+  "parent_node": "urn:li:glossaryNode:FinancialMetrics",
+  "owners": [{"urn": "urn:li:corpuser:cfo", "type": "user", "name": "cfo"}],
+  "custom_properties": {"calculation": "SUM(line_item_amount)"},
+  "datasets": [{"urn": "urn:li:dataset:...", "name": "warehouse.sales.invoices"}],
+  "more_datasets": false
 }
 ```
+
+A tag or domain returns the same shape without `parent_node`, `owners`, and
+`custom_properties`.
+
+**A fetched data product** (`fetch urn:li:dataProduct:...`) returns:
+
+```json
+{
+  "urn": "urn:li:dataProduct:customer360",
+  "kind": "data_product",
+  "name": "Customer 360",
+  "description": "Unified customer view combining all customer data sources",
+  "domain": {"urn": "urn:li:domain:marketing", "name": "Marketing"},
+  "owners": [{"urn": "urn:li:corpgroup:marketing-data", "type": "group", "name": "Marketing Data Team"}],
+  "custom_properties": {"sla": "99.9%", "refresh": "hourly"},
+  "datasets": [
+    {"urn": "urn:li:dataset:customers", "name": "customers"},
+    {"urn": "urn:li:dataset:customer_events", "name": "customer_events"}
+  ]
+}
+```
+
+Member datasets outside the caller's connection boundary are withheld and
+counted in `datasets_withheld`, with `notice` explaining it.
 
 ---
 
@@ -464,64 +488,6 @@ Get upstream or downstream lineage for an entity. Set `level=column` for column-
 
 ---
 
-### datahub_get_queries
-
-Get popular queries for a dataset.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `urn` | string | Yes | - | Dataset URN |
-| `limit` | integer | No | 10 | Maximum queries to return |
-| `connection` | string | No | first configured | DataHub connection name |
-
-**Response Schema:**
-
-```json
-{
-  "urn": "urn:li:dataset:...",
-  "queries": [
-    {
-      "query": "SELECT * FROM orders WHERE status = 'completed'",
-      "user": "analyst@example.com",
-      "executed_at": "2024-01-15T10:00:00Z",
-      "execution_count": 150
-    }
-  ]
-}
-```
-
----
-
-### datahub_get_glossary_term
-
-Get glossary term details.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `urn` | string | Yes | - | Glossary term URN |
-| `connection` | string | No | first configured | DataHub connection name |
-
-**Response Schema:**
-
-```json
-{
-  "urn": "urn:li:glossaryTerm:Revenue",
-  "name": "Revenue",
-  "description": "Total monetary value from sales transactions",
-  "parent": "urn:li:glossaryTerm:FinancialMetrics",
-  "related_terms": ["Gross Revenue", "Net Revenue"],
-  "custom_properties": {
-    "calculation": "SUM(line_item_amount)"
-  }
-}
-```
-
----
-
 ### datahub_browse
 
 Browse the DataHub catalog by category. Set `what=tags` to list tags, `what=domains` to list data domains, or `what=data_products` to list data products.
@@ -576,41 +542,6 @@ Browse the DataHub catalog by category. Set `what=tags` to list tags, `what=doma
 }
 ```
 
----
-
-### datahub_get_data_product
-
-Get data product details.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `urn` | string | Yes | - | Data product URN |
-| `connection` | string | No | first configured | DataHub connection name |
-
-**Response Schema:**
-
-```json
-{
-  "urn": "urn:li:dataProduct:customer360",
-  "name": "Customer 360",
-  "description": "Unified customer view combining all customer data sources",
-  "domain": {
-    "urn": "urn:li:domain:marketing",
-    "name": "Marketing"
-  },
-  "owners": ["Marketing Data Team"],
-  "assets": [
-    {"urn": "urn:li:dataset:customers", "name": "customers", "type": "dataset"},
-    {"urn": "urn:li:dataset:customer_events", "name": "customer_events", "type": "dataset"}
-  ],
-  "custom_properties": {
-    "sla": "99.9%",
-    "refresh": "hourly"
-  }
-}
-```
 
 ---
 

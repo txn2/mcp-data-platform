@@ -60,7 +60,7 @@ const captured: Provenance = {
         {
           event_id: "evt-3",
           kind: "tool",
-          tool: "datahub_get_entity",
+          tool: "datahub_get_lineage",
           summary: "urn:li:dataset:(sales.quarterly)",
           outcome: "success",
           duration_ms: 210,

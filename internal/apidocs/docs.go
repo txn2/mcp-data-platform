@@ -21148,7 +21148,7 @@ const docTemplate = `{
                 },
                 "tool_name": {
                     "type": "string",
-                    "example": "datahub_get_schema"
+                    "example": "trino_query"
                 },
                 "toolkit_kind": {
                     "type": "string",

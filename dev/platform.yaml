@@ -39,8 +39,8 @@ server:
     ## Discovery First
 
     Always start by searching the data catalog (DataHub) before writing queries.
-    Use `datahub_search` to find relevant datasets, then `datahub_get_entity` to
-    understand schema, ownership, and quality scores before querying.
+    Use `search` to find relevant datasets, then `fetch` a result's reference to
+    read its schema, ownership, and quality scores before querying.
 
     ## Query Best Practices
 
@@ -190,9 +190,10 @@ personas:
         - "trino_query"
         - "trino_describe_table"
         - "trino_browse"
-        - "datahub_search"
-        - "datahub_get_entity"
-        - "datahub_get_schema"
+        - "search"
+        - "fetch"
+        - "datahub_browse"
+        - "datahub_get_lineage"
         - "s3_list_*"
       deny: []
     connections:
@@ -214,8 +215,9 @@ personas:
       allow:
         - "trino_query"
         - "trino_describe_table"
-        - "datahub_search"
-        - "datahub_get_entity"
+        - "search"
+        - "fetch"
+        - "datahub_browse"
         - "s3_list_objects"
         - "s3_get_object"
       deny: []
@@ -233,9 +235,9 @@ personas:
       - finance_executive
     tools:
       allow:
-        - "datahub_search"
-        - "datahub_get_entity"
-        - "datahub_get_schema"
+        - "search"
+        - "fetch"
+        - "datahub_browse"
         - "s3_list_objects"
         - "s3_get_object"
       deny: []

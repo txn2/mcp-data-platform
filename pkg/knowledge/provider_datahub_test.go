@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
 
@@ -249,9 +250,12 @@ func TestCatalogProvider_Fetch(t *testing.T) {
 		if doc.Source != SourceCatalog || doc.Reference != testDatasetURN {
 			t.Errorf("doc = %+v", doc)
 		}
-		tc, ok := doc.Content.(*semantic.TableContext)
-		if !ok || tc.Description != "ACME transactions" {
-			t.Errorf("Content = %+v, want the TableContext", doc.Content)
+		ds, ok := doc.Content.(CatalogDataset)
+		if !ok || ds.Description != "ACME transactions" {
+			t.Errorf("Content = %+v, want the CatalogDataset built from the TableContext", doc.Content)
+		}
+		if ds.Schema != nil || ds.QueryAvailability != nil || doc.Verifiable != nil {
+			t.Errorf("without a dataset reader or availability resolver the record is the context alone: %+v", ds)
 		}
 		if len(doc.EntityURNs) != 1 || doc.EntityURNs[0] != testDatasetURN {
 			t.Errorf("EntityURNs = %+v", doc.EntityURNs)
@@ -424,4 +428,262 @@ func TestDatahubProvider_CraftedURNCannotEvadeTheBoundary(t *testing.T) {
 	if !owned || !errors.Is(err, ErrNotFound) || doc != nil {
 		t.Fatalf("crafted fetch: doc=%+v owned=%v err=%v, want owned + ErrNotFound", doc, owned, err)
 	}
+}
+
+// fakeDatasetReader is the full-record read a real catalog offers (#1590).
+type fakeDatasetReader struct {
+	ds  *semantic.Dataset
+	err error
+	got []semantic.TableIdentifier
+}
+
+func (f *fakeDatasetReader) GetDataset(_ context.Context, table semantic.TableIdentifier) (*semantic.Dataset, error) {
+	f.got = append(f.got, table)
+	return f.ds, f.err
+}
+
+type fakeProductReader struct {
+	product *semantic.DataProduct
+	err     error
+	got     []string
+}
+
+func (f *fakeProductReader) GetDataProduct(_ context.Context, urn string) (*semantic.DataProduct, error) {
+	f.got = append(f.got, urn)
+	return f.product, f.err
+}
+
+type fakeAvailability struct {
+	answers map[string]*query.TableAvailability
+	err     error
+	got     []string
+}
+
+func (f *fakeAvailability) GetTableAvailability(_ context.Context, urn string) (*query.TableAvailability, error) {
+	f.got = append(f.got, urn)
+	return f.answers[urn], f.err
+}
+
+func TestCatalogProvider_FetchDatasetRecord(t *testing.T) {
+	record := &semantic.Dataset{
+		TableContext: semantic.TableContext{URN: testDatasetURN, Description: "ACME transactions"},
+		Name:         "transactions",
+		Schema: &semantic.DatasetSchema{Fields: []semantic.SchemaField{
+			{FieldPath: "id", Type: "NUMBER"}, {FieldPath: "amount", Type: "NUMBER", Nullable: true},
+		}},
+		Queries: []semantic.SavedQuery{{Statement: "SELECT count(*) FROM transactions"}},
+	}
+
+	t.Run("a wired dataset reader supplies the full record, the searcher is not consulted", func(t *testing.T) {
+		searcher := &fakeTableSearcher{}
+		reader := &fakeDatasetReader{ds: record}
+		p := NewCatalogProvider(searcher)
+		p.SetDatasetReader(reader)
+		doc, owned, err := p.Fetch(context.Background(), testDatasetURN, Caller{})
+		if !owned || err != nil {
+			t.Fatalf("owned=%v err=%v", owned, err)
+		}
+		ds, ok := doc.Content.(CatalogDataset)
+		if !ok {
+			t.Fatalf("Content = %T, want CatalogDataset", doc.Content)
+		}
+		if ds.Name != "transactions" || ds.Description != "ACME transactions" {
+			t.Errorf("record = %+v", ds.Dataset)
+		}
+		if ds.Schema == nil || len(ds.Schema.Fields) != 2 || len(ds.Queries) != 1 {
+			t.Errorf("schema and queries must ride on the record: %+v", ds.Dataset)
+		}
+		if len(searcher.gotTables) != 0 {
+			t.Errorf("GetTableContext must not be called when the reader is wired")
+		}
+		if len(reader.got) != 1 || reader.got[0].String() != testDatasetTable {
+			t.Errorf("reader asked for %v, want %s", reader.got, testDatasetTable)
+		}
+	})
+
+	t.Run("a reader failure is a clean not-found, as the context read's is", func(t *testing.T) {
+		p := NewCatalogProvider(&fakeTableSearcher{})
+		p.SetDatasetReader(&fakeDatasetReader{err: errors.New("GetEntity: not found")})
+		_, owned, err := p.Fetch(context.Background(), testDatasetURN, Caller{})
+		if !owned || !errors.Is(err, ErrNotFound) {
+			t.Errorf("owned=%v err=%v, want owned + ErrNotFound", owned, err)
+		}
+	})
+
+	t.Run("a record with no URN is not-found", func(t *testing.T) {
+		p := NewCatalogProvider(&fakeTableSearcher{})
+		p.SetDatasetReader(&fakeDatasetReader{ds: &semantic.Dataset{}})
+		_, owned, err := p.Fetch(context.Background(), testDatasetURN, Caller{})
+		if !owned || !errors.Is(err, ErrNotFound) {
+			t.Errorf("owned=%v err=%v, want owned + ErrNotFound", owned, err)
+		}
+	})
+
+	t.Run("query availability rides on the record and marks the document verifiable", func(t *testing.T) {
+		rows := int64(4200)
+		avail := &fakeAvailability{answers: map[string]*query.TableAvailability{
+			testDatasetURN: {Available: true, QueryTable: "iceberg.acme.transactions", Connection: "primary", EstimatedRows: &rows},
+		}}
+		p := NewCatalogProvider(&fakeTableSearcher{})
+		p.SetDatasetReader(&fakeDatasetReader{ds: record})
+		p.SetAvailabilityResolver(avail)
+		doc, _, err := p.Fetch(context.Background(), testDatasetURN, Caller{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ds, ok := doc.Content.(CatalogDataset)
+		if !ok {
+			t.Fatalf("Content = %T", doc.Content)
+		}
+		if ds.QueryAvailability == nil || ds.QueryAvailability.QueryTable != "iceberg.acme.transactions" || *ds.QueryAvailability.EstimatedRows != 4200 {
+			t.Errorf("query_availability = %+v", ds.QueryAvailability)
+		}
+		if doc.Verifiable == nil || doc.Verifiable.QueryTable != "iceberg.acme.transactions" || doc.Verifiable.Connection != "primary" || doc.Verifiable.URN != testDatasetURN {
+			t.Errorf("Verifiable = %+v", doc.Verifiable)
+		}
+		if len(avail.got) != 1 || avail.got[0] != testDatasetURN {
+			t.Errorf("resolver asked for %v", avail.got)
+		}
+	})
+
+	t.Run("an unavailable dataset carries the answer but is not verifiable", func(t *testing.T) {
+		avail := &fakeAvailability{answers: map[string]*query.TableAvailability{
+			testDatasetURN: {Available: false, Error: "no connection serves platform trino"},
+		}}
+		p := NewCatalogProvider(&fakeTableSearcher{})
+		p.SetDatasetReader(&fakeDatasetReader{ds: record})
+		p.SetAvailabilityResolver(avail)
+		doc, _, err := p.Fetch(context.Background(), testDatasetURN, Caller{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ds, ok := doc.Content.(CatalogDataset)
+		if !ok {
+			t.Fatalf("Content = %T", doc.Content)
+		}
+		if ds.QueryAvailability == nil || ds.QueryAvailability.Available {
+			t.Errorf("query_availability = %+v", ds.QueryAvailability)
+		}
+		if doc.Verifiable != nil {
+			t.Errorf("an unavailable dataset must not be marked verifiable: %+v", doc.Verifiable)
+		}
+	})
+
+	t.Run("a resolver that fails leaves the record without availability, not the fetch", func(t *testing.T) {
+		p := NewCatalogProvider(&fakeTableSearcher{})
+		p.SetDatasetReader(&fakeDatasetReader{ds: record})
+		p.SetAvailabilityResolver(&fakeAvailability{err: errors.New("warehouse unreachable")})
+		doc, _, err := p.Fetch(context.Background(), testDatasetURN, Caller{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ds, ok := doc.Content.(CatalogDataset); !ok || ds.QueryAvailability != nil || doc.Verifiable != nil {
+			t.Errorf("unexpected availability: %+v %+v", doc.Content, doc.Verifiable)
+		}
+		p.SetAvailabilityResolver(&fakeAvailability{})
+		doc, _, err = p.Fetch(context.Background(), testDatasetURN, Caller{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ds, ok := doc.Content.(CatalogDataset); !ok || ds.QueryAvailability != nil || doc.Verifiable != nil {
+			t.Errorf("a resolver with no answer: unexpected availability: %+v %+v", doc.Content, doc.Verifiable)
+		}
+	})
+
+	t.Run("the boundary judges the URN the reader resolved", func(t *testing.T) {
+		p := NewCatalogProvider(&fakeTableSearcher{})
+		p.SetDatasetReader(&fakeDatasetReader{ds: &semantic.Dataset{TableContext: semantic.TableContext{URN: theirsURN}}})
+		caller, _ := scopedCaller(catalogScope())
+		_, owned, err := p.Fetch(context.Background(), craftedURN, caller)
+		if !owned || !errors.Is(err, ErrNotFound) {
+			t.Errorf("owned=%v err=%v, want owned + ErrNotFound", owned, err)
+		}
+	})
+}
+
+func TestCatalogProvider_FetchDataProduct(t *testing.T) {
+	const productURN = "urn:li:dataProduct:orders-360"
+	product := &semantic.DataProduct{
+		URN: productURN, Name: "Orders 360", Description: "Everything about an order.",
+		Domain: &semantic.Domain{URN: "urn:li:domain:sales", Name: "Sales"},
+		Owners: []semantic.Owner{{URN: "urn:li:corpuser:ana", Type: semantic.OwnerTypeUser, Name: "ana"}},
+		Assets: []semantic.EntityRef{
+			{URN: mineURN, Name: "db.public.orders"},
+			{URN: theirsURN, Name: "db.public.payroll"},
+			{URN: unmappedURN, Name: "db.public.notes"},
+		},
+		CustomProperties: map[string]string{"tier": "gold"},
+	}
+
+	t.Run("without a product reader the reference is owned and not-found", func(t *testing.T) {
+		_, owned, err := NewCatalogProvider(&fakeTableSearcher{}).Fetch(context.Background(), productURN, Caller{})
+		if !owned || !errors.Is(err, ErrNotFound) {
+			t.Errorf("owned=%v err=%v, want owned + ErrNotFound", owned, err)
+		}
+	})
+
+	t.Run("returns the product with its member datasets", func(t *testing.T) {
+		reader := &fakeProductReader{product: product}
+		p := NewCatalogProvider(&fakeTableSearcher{})
+		p.SetDataProductReader(reader)
+		doc, owned, err := p.Fetch(context.Background(), productURN, Caller{})
+		if !owned || err != nil {
+			t.Fatalf("owned=%v err=%v", owned, err)
+		}
+		if doc.Source != SourceCatalog || doc.Title != "Orders 360" || doc.Body != "Everything about an order." {
+			t.Errorf("doc = %+v", doc)
+		}
+		entity, ok := doc.Content.(DataProductEntity)
+		if !ok {
+			t.Fatalf("Content = %T", doc.Content)
+		}
+		if entity.Kind != "data_product" || entity.Domain.Name != "Sales" || len(entity.Owners) != 1 || entity.CustomProperties["tier"] != "gold" {
+			t.Errorf("entity = %+v", entity)
+		}
+		if len(entity.Datasets) != 3 || entity.DatasetsWithheld != 0 || entity.Notice != "" {
+			t.Errorf("unscoped caller sees every member: %+v", entity)
+		}
+		if len(doc.EntityURNs) != 3 {
+			t.Errorf("EntityURNs = %v", doc.EntityURNs)
+		}
+		if reader.got[0] != productURN {
+			t.Errorf("reader asked for %v", reader.got)
+		}
+	})
+
+	t.Run("member datasets outside the caller's boundary are withheld and counted", func(t *testing.T) {
+		p := NewCatalogProvider(&fakeTableSearcher{})
+		p.SetDataProductReader(&fakeProductReader{product: product})
+		caller, _ := scopedCaller(catalogScope())
+		doc, _, err := p.Fetch(context.Background(), productURN, caller)
+		if err != nil {
+			t.Fatal(err)
+		}
+		entity, ok := doc.Content.(DataProductEntity)
+		if !ok {
+			t.Fatalf("Content = %T", doc.Content)
+		}
+		if len(entity.Datasets) != 2 || entity.DatasetsWithheld != 1 || entity.Notice == "" {
+			t.Errorf("entity = %+v", entity)
+		}
+		for _, d := range entity.Datasets {
+			if d.URN == theirsURN {
+				t.Errorf("the denied member leaked: %+v", entity.Datasets)
+			}
+		}
+	})
+
+	t.Run("a product the catalog cannot read is a clean not-found", func(t *testing.T) {
+		p := NewCatalogProvider(&fakeTableSearcher{})
+		p.SetDataProductReader(&fakeProductReader{err: errors.New("GetDataProduct: not found")})
+		_, owned, err := p.Fetch(context.Background(), productURN, Caller{})
+		if !owned || !errors.Is(err, ErrNotFound) {
+			t.Errorf("owned=%v err=%v, want owned + ErrNotFound", owned, err)
+		}
+		p.SetDataProductReader(&fakeProductReader{product: &semantic.DataProduct{}})
+		_, owned, err = p.Fetch(context.Background(), productURN, Caller{})
+		if !owned || !errors.Is(err, ErrNotFound) {
+			t.Errorf("empty product: owned=%v err=%v, want owned + ErrNotFound", owned, err)
+		}
+	})
 }

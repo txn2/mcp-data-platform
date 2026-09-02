@@ -112,9 +112,9 @@ func TestCatalogIndexReachableThroughAssembledSearch(t *testing.T) {
 	require.NotNil(t, doc)
 	assert.Equal(t, knowledge.SourceCatalog, doc.Source)
 	assert.Equal(t, refundURN, doc.Reference)
-	tc, ok := doc.Content.(*semantic.TableContext)
-	require.True(t, ok, "a catalog fetch returns the dataset's context")
-	assert.Equal(t, refundDoc, tc.Description)
+	ds, ok := doc.Content.(knowledge.CatalogDataset)
+	require.True(t, ok, "a catalog fetch returns the dataset's record")
+	assert.Equal(t, refundDoc, ds.Description)
 }
 
 // TestCatalogIndexAbsentLeavesCatalogUnchanged proves the index is additive: a

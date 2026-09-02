@@ -926,7 +926,7 @@ func TestDiscovery_Success(t *testing.T) {
 	// Top tools query result
 	toolRows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms"}).
 		AddRow("datahub_search", 120, 0.98, 15.5).
-		AddRow("datahub_get_entity", 80, 1.0, 25.0)
+		AddRow("datahub_get_lineage", 80, 1.0, 25.0)
 
 	mock.ExpectQuery("SELECT tool_name").
 		WithArgs(start, now, "").

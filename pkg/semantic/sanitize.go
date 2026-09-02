@@ -306,14 +306,111 @@ func (s *Sanitizer) sanitizeGlossaryTerms(terms []GlossaryTerm) []GlossaryTerm {
 	}
 
 	result := make([]GlossaryTerm, 0, len(terms))
-	for _, term := range terms {
-		result = append(result, GlossaryTerm{
-			URN:         term.URN,
-			Name:        s.SanitizeString(term.Name),
-			Description: s.SanitizeDescription(term.Description),
-		})
+	for i := range terms {
+		result = append(result, *s.SanitizeGlossaryTerm(&terms[i]))
 	}
 	return result
+}
+
+// SanitizeGlossaryTerm sanitizes every string field of a glossary term. The
+// URNs (the term's own and its parent node's) are system identifiers and pass
+// through unchanged.
+func (s *Sanitizer) SanitizeGlossaryTerm(term *GlossaryTerm) *GlossaryTerm {
+	if term == nil {
+		return nil
+	}
+	return &GlossaryTerm{
+		URN:              term.URN,
+		Name:             s.SanitizeString(term.Name),
+		Description:      s.SanitizeDescription(term.Description),
+		ParentNode:       term.ParentNode,
+		Owners:           s.sanitizeOwners(term.Owners),
+		CustomProperties: s.sanitizeProperties(term.CustomProperties),
+	}
+}
+
+// SanitizeDataset sanitizes every string field of a full dataset record: the
+// embedded table context through SanitizeTableContext, then the identity,
+// schema, saved-query, and document fields the record adds.
+func (s *Sanitizer) SanitizeDataset(d *Dataset) *Dataset {
+	if d == nil {
+		return nil
+	}
+	out := &Dataset{
+		TableContext:     *s.SanitizeTableContext(&d.TableContext),
+		Name:             s.SanitizeString(d.Name),
+		Type:             d.Type,
+		Platform:         d.Platform,
+		SubTypes:         s.sanitizeStrings(d.SubTypes),
+		Created:          d.Created,
+		Schema:           s.sanitizeDatasetSchema(d.Schema),
+		TotalQueries:     d.TotalQueries,
+		RelatedDocuments: d.RelatedDocuments,
+		Unavailable:      d.Unavailable,
+	}
+	for i := range d.Queries {
+		q := d.Queries[i]
+		q.Name = s.SanitizeString(q.Name)
+		q.Description = s.SanitizeDescription(q.Description)
+		out.Queries = append(out.Queries, q)
+	}
+	return out
+}
+
+// sanitizeStrings sanitizes each string of a list, keeping the list's shape.
+func (s *Sanitizer) sanitizeStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		out = append(out, s.SanitizeString(v))
+	}
+	return out
+}
+
+// sanitizeDatasetSchema sanitizes the documented strings of a declared schema;
+// field paths and types are identifiers and pass through.
+func (s *Sanitizer) sanitizeDatasetSchema(schema *DatasetSchema) *DatasetSchema {
+	if schema == nil {
+		return nil
+	}
+	out := &DatasetSchema{
+		Version:     schema.Version,
+		Fields:      make([]SchemaField, 0, len(schema.Fields)),
+		PrimaryKeys: schema.PrimaryKeys,
+		ForeignKeys: schema.ForeignKeys,
+	}
+	for _, f := range schema.Fields {
+		f.Description = s.SanitizeDescription(f.Description)
+		f.Tags = s.SanitizeTags(f.Tags)
+		f.GlossaryTerms = s.sanitizeGlossaryTerms(f.GlossaryTerms)
+		out.Fields = append(out.Fields, f)
+	}
+	return out
+}
+
+// SanitizeDataProduct sanitizes every string field of a data product.
+func (s *Sanitizer) SanitizeDataProduct(p *DataProduct) *DataProduct {
+	if p == nil {
+		return nil
+	}
+	out := &DataProduct{
+		URN:              p.URN,
+		Name:             s.SanitizeString(p.Name),
+		Description:      s.SanitizeDescription(p.Description),
+		Domain:           s.sanitizeDomain(p.Domain),
+		Owners:           s.sanitizeOwners(p.Owners),
+		CustomProperties: s.sanitizeProperties(p.CustomProperties),
+	}
+	for _, a := range p.Assets {
+		out.Assets = append(out.Assets, EntityRef{
+			URN:         a.URN,
+			Name:        s.SanitizeString(a.Name),
+			Description: s.SanitizeDescription(a.Description),
+		})
+	}
+	return out
 }
 
 func (s *Sanitizer) sanitizeDomain(domain *Domain) *Domain {

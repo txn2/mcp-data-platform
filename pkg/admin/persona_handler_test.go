@@ -132,7 +132,7 @@ func TestGetPersona(t *testing.T) {
 		tkReg := &mockToolkitRegistry{
 			allResult: []mockToolkit{
 				{kind: "trino", name: "prod", tools: []string{"trino_query", "trino_explain"}},
-				{kind: "datahub", name: "primary", tools: []string{"datahub_search", "datahub_get_entity"}},
+				{kind: "datahub", name: "primary", tools: []string{"datahub_search", "datahub_get_lineage"}},
 			},
 		}
 		h := NewHandler(Deps{PersonaRegistry: pReg, ToolkitRegistry: tkReg}, nil)
@@ -152,7 +152,7 @@ func TestGetPersona(t *testing.T) {
 		assert.Contains(t, body.Tools, "trino_query")
 		assert.Contains(t, body.Tools, "datahub_search")
 		assert.NotContains(t, body.Tools, "trino_explain")
-		assert.NotContains(t, body.Tools, "datahub_get_entity")
+		assert.NotContains(t, body.Tools, "datahub_get_lineage")
 	})
 
 	t.Run("returns 404 for unknown persona", func(t *testing.T) {

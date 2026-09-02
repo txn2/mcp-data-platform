@@ -573,7 +573,7 @@ func TestSetToolVisibility_ConcurrentAddsAreSerialized(t *testing.T) {
 	// Register a synthetic toolkit exposing 8 tool names so concurrent
 	// PUTs against different paths are all valid against toolExists.
 	toolNames := []string{
-		"trino_query", "trino_execute", "datahub_search", "datahub_get_entity",
+		"trino_query", "trino_execute", "datahub_search", "datahub_get_lineage",
 		"s3_list", "s3_get", "memory_recall", "memory_save",
 	}
 	reg := &mockToolkitRegistry{

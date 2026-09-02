@@ -165,6 +165,43 @@ func GovernanceReaderFrom(p Provider) (GovernanceReader, bool) {
 	return innermostCapability[GovernanceReader](p)
 }
 
+// DatasetReader is the optional full-record read of one catalog dataset (#1590):
+// business context, identity, declared schema, saved queries, and linked
+// context documents in one call. It is the read behind fetch's urn:li:dataset:
+// arm, where the former datahub_get_entity, datahub_get_schema, and
+// datahub_get_queries tools were folded. Only a real catalog backend (the
+// DataHub adapter) implements it; the noop provider does not, so a noop catalog
+// leaves fetch on the enrichment-shaped TableContext read alone.
+type DatasetReader interface {
+	// GetDataset reads the dataset the table identifier names. A table the
+	// catalog has no entry for is an error, as GetTableContext reports one.
+	GetDataset(ctx context.Context, table TableIdentifier) (*Dataset, error)
+}
+
+// DatasetReaderFrom reports the full-dataset read capability of p, returning the
+// innermost provider that implements it. It resolves like CatalogPickerFrom
+// because the caching decorator does not forward it: a fetch is one read of one
+// record, not the per-query enrichment read the cache exists for.
+func DatasetReaderFrom(p Provider) (DatasetReader, bool) {
+	return innermostCapability[DatasetReader](p)
+}
+
+// DataProductReader is the optional by-URN read of a catalog data product
+// (#1590), the read behind fetch's urn:li:dataProduct: arm. Only a real
+// catalog backend implements it.
+type DataProductReader interface {
+	// GetDataProduct reads one data product by URN. A URN the catalog has no
+	// product for is an error, as the other by-URN reads report one.
+	GetDataProduct(ctx context.Context, urn string) (*DataProduct, error)
+}
+
+// DataProductReaderFrom reports the data-product read capability of p, returning
+// the innermost provider that implements it, under the same rule as
+// DatasetReaderFrom.
+func DataProductReaderFrom(p Provider) (DataProductReader, bool) {
+	return innermostCapability[DataProductReader](p)
+}
+
 // TotalUnknown is the match count reported when no provider in the chain can
 // count. It is deliberately negative rather than zero so it can never be read as
 // "no matches" or compared against a page length as if it were a total: a caller

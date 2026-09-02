@@ -142,11 +142,21 @@ const (
 	OwnerTypeGroup OwnerType = "group"
 )
 
-// GlossaryTerm represents a business glossary term.
+// GlossaryTerm represents a business glossary term. As an attribute of a
+// dataset (TableContext.GlossaryTerms) only the first three fields are filled;
+// a by-URN read (GetGlossaryTerm) also carries where the term sits in the
+// glossary, who owns it, and its custom properties (#1590).
 type GlossaryTerm struct {
 	URN         string `json:"urn"`
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
+	// ParentNode is the URN of the glossary node the term is filed under, empty
+	// for a term at the glossary root.
+	ParentNode string `json:"parent_node,omitempty"`
+	// Owners are the term's stewards.
+	Owners []Owner `json:"owners,omitempty"`
+	// CustomProperties are the term's free-form key/value properties.
+	CustomProperties map[string]string `json:"custom_properties,omitempty"`
 }
 
 // GlossaryNode is a directory in the business glossary: it holds glossary terms
@@ -339,4 +349,112 @@ type DataContractStatus struct {
 type AssertionResult struct {
 	AssertionURN string `json:"assertion_urn,omitempty"` // URN identifying the assertion
 	Type         string `json:"type"`                    // FRESHNESS, SCHEMA, DATA_QUALITY
+}
+
+// Dataset is the full record of one catalog dataset: the business context a
+// TableContext carries, the identity fields the catalog holds beside it, the
+// declared schema, and the saved queries and context documents attached to it
+// (#1590). It is what a fetch of a urn:li:dataset: reference returns, folding
+// the former datahub_get_entity, datahub_get_schema, and datahub_get_queries
+// reads into one answer to "tell me about this dataset". TableContext is
+// embedded so its fields serialize at the top level, where enrichment readers
+// already look for them.
+type Dataset struct {
+	TableContext
+
+	// Name is the catalog's display name for the dataset.
+	Name string `json:"name,omitempty"`
+	// Type is the catalog entity type ("DATASET").
+	Type string `json:"type,omitempty"`
+	// Platform is the data platform the dataset belongs to (the URN's
+	// dataPlatform segment, e.g. "trino").
+	Platform string `json:"platform,omitempty"`
+	// SubTypes are the catalog's sub-type classifications ("table", "view").
+	SubTypes []string `json:"sub_types,omitempty"`
+	// Created is when the catalog first recorded the dataset.
+	Created *time.Time `json:"created,omitempty"`
+	// Schema is the declared schema, nil when the catalog holds none.
+	Schema *DatasetSchema `json:"schema,omitempty"`
+	// Queries are the saved queries the catalog holds against the dataset, and
+	// TotalQueries is the catalog's own count of them (the list may be a page).
+	Queries      []SavedQuery `json:"queries,omitempty"`
+	TotalQueries int          `json:"total_queries,omitempty"`
+	// RelatedDocuments are the context documents linked to the dataset.
+	RelatedDocuments []DocumentResult `json:"related_documents,omitempty"`
+	// Unavailable names the parts of the record the catalog could not serve on
+	// this read ("schema", "queries", "related_documents"), so an absent part is
+	// distinguishable from an empty one. The entity itself always resolved.
+	Unavailable []string `json:"unavailable,omitempty"`
+}
+
+// DatasetSchema is a dataset's declared schema as the catalog holds it.
+type DatasetSchema struct {
+	// Version is the catalog's schema version.
+	Version int64 `json:"version,omitempty"`
+	// Fields are the declared fields in declaration order.
+	Fields []SchemaField `json:"fields"`
+	// PrimaryKeys lists the primary key field paths.
+	PrimaryKeys []string `json:"primary_keys,omitempty"`
+	// ForeignKeys lists the declared foreign key relationships.
+	ForeignKeys []ForeignKey `json:"foreign_keys,omitempty"`
+}
+
+// SchemaField is one declared field of a dataset schema.
+type SchemaField struct {
+	// FieldPath is the full path of the field ("user.address.city" for a nested one).
+	FieldPath string `json:"field_path"`
+	// Type is the catalog's normalized type; NativeType is the platform's own.
+	Type       string `json:"type"`
+	NativeType string `json:"native_type,omitempty"`
+	// Description is the field's documented meaning.
+	Description string `json:"description,omitempty"`
+	// Nullable reports whether the field admits NULL.
+	Nullable bool `json:"nullable"`
+	// IsPartitionKey marks a partition column.
+	IsPartitionKey bool `json:"is_partition_key,omitempty"`
+	// Tags and GlossaryTerms are the field-level classifications.
+	Tags          []string       `json:"tags,omitempty"`
+	GlossaryTerms []GlossaryTerm `json:"glossary_terms,omitempty"`
+}
+
+// ForeignKey is a declared foreign key relationship between two datasets.
+type ForeignKey struct {
+	// Name is the constraint name, when the catalog holds one.
+	Name string `json:"name,omitempty"`
+	// SourceFields are the field paths on this dataset.
+	SourceFields []string `json:"source_fields"`
+	// ForeignDataset is the URN of the referenced dataset, and ForeignFields the
+	// field paths on it.
+	ForeignDataset string   `json:"foreign_dataset"`
+	ForeignFields  []string `json:"foreign_fields"`
+}
+
+// SavedQuery is one query the catalog holds against a dataset.
+type SavedQuery struct {
+	URN         string `json:"urn,omitempty"`
+	Name        string `json:"name,omitempty"`
+	Statement   string `json:"statement"`
+	Description string `json:"description,omitempty"`
+	// Source says how the query was recorded ("MANUAL", "SYSTEM").
+	Source string `json:"source,omitempty"`
+	// CreatedBy is the actor that recorded it; Created is when.
+	CreatedBy string     `json:"created_by,omitempty"`
+	Created   *time.Time `json:"created,omitempty"`
+}
+
+// DataProduct is a catalog data product: a named, owned grouping of datasets
+// under a domain (#1590). It is what a fetch of a urn:li:dataProduct: reference
+// returns.
+type DataProduct struct {
+	URN         string `json:"urn"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	// Domain is the domain the product is filed under, nil when it has none.
+	Domain *Domain `json:"domain,omitempty"`
+	// Owners are the product's owners.
+	Owners []Owner `json:"owners,omitempty"`
+	// Assets are the datasets that make up the product.
+	Assets []EntityRef `json:"assets,omitempty"`
+	// CustomProperties are the product's free-form key/value properties.
+	CustomProperties map[string]string `json:"custom_properties,omitempty"`
 }

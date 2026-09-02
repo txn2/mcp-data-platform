@@ -20,13 +20,8 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | Trino | `trino_describe_table` | Get table schema and metadata |
 | Trino | `trino_export` | Export query results directly to a portal asset (CSV, JSON, Markdown, text) |
 | Trino | `trino_list_connections` | List configured Trino connections |
-| DataHub | `datahub_get_entity` | Get detailed entity information |
-| DataHub | `datahub_get_schema` | Get dataset schema |
 | DataHub | `datahub_get_lineage` | Get dataset or column-level lineage |
-| DataHub | `datahub_get_queries` | Get popular queries for a dataset |
-| DataHub | `datahub_get_glossary_term` | Get glossary term details |
 | DataHub | `datahub_browse` | Browse tags, domains, or data products |
-| DataHub | `datahub_get_data_product` | Get data product details |
 | DataHub | `datahub_create` | Create entities — tags, domains, glossary terms, etc. (if not read-only) |
 | DataHub | `datahub_update` | Update metadata — descriptions, tags, owners, domains, etc. (if not read-only) |
 | DataHub | `datahub_delete` | Delete entities — tags, domains, queries, etc. (if not read-only) |
@@ -227,45 +222,36 @@ List all configured Trino connections.
 
 ## DataHub Tools
 
-!!! note "Catalog search moved to `search`"
-    Relevance search over the catalog is now part of the universal
-    [`search`](#search) tool. The DataHub toolkit retains
-    `datahub_browse` for structured navigation (platform/domain/tag/entity-type)
-    and the entity-detail tools below.
+!!! note "Catalog search and catalog reads live in `search` and `fetch`"
+    Relevance search over the catalog is part of the universal
+    [`search`](#search) tool, and reading one catalog entity by URN is
+    [`fetch`](#fetch). The DataHub toolkit registers the two reads a reference
+    read cannot do, `datahub_browse` (a hierarchy walk) and `datahub_get_lineage`
+    (a graph query with direction and depth), plus the write tools.
 
-### datahub_get_entity
+    The five by-URN reads the toolkit used to register are gone, not aliased.
+    Each is one `fetch` call on the same URN:
 
-Get detailed information about a specific entity.
+    | Retired tool | Replacement |
+    |--------------|-------------|
+    | `datahub_get_entity` | `fetch urn:li:dataset:<id>` |
+    | `datahub_get_schema` | `fetch urn:li:dataset:<id>` (the record's `schema`) |
+    | `datahub_get_queries` | `fetch urn:li:dataset:<id>` (the record's `queries`) |
+    | `datahub_get_glossary_term` | `fetch urn:li:glossaryTerm:<id>` |
+    | `datahub_get_data_product` | `fetch urn:li:dataProduct:<id>` |
 
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `urn` | string | Yes | - | Entity URN |
-| `connection` | string | No | default | Connection name to use |
-
-**Response includes:**
-
-- Full entity metadata
-- Owners, tags, glossary terms
-- Domain, data product associations
-- Deprecation status
-- **Query context** (if enabled): Trino table availability
-
----
-
-### datahub_get_schema
-
-Get the schema for a dataset.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `urn` | string | Yes | - | Dataset URN |
-| `connection` | string | No | default | Connection name to use |
-
----
+    A fetched dataset carries at least what the three dataset reads returned
+    together: business context (owners, tags, glossary terms, domain,
+    deprecation, custom and structured properties, incidents, data contract),
+    identity (name, type, platform, sub-types, created), the declared `schema`
+    (fields with types, nullability, field-level tags and terms, primary and
+    foreign keys), the catalog's saved `queries`, `related_documents`, and
+    `query_availability` (whether it is queryable, the table to query, the
+    connection, the estimated row count) when a query provider is configured.
+    A part the catalog could not serve is named in `unavailable` rather than
+    dropped. A fetched glossary term carries its definition, `parent_node`,
+    `owners`, `custom_properties`, and the datasets that carry it; a fetched
+    data product carries its domain, owners, properties, and member datasets.
 
 ### datahub_get_lineage
 
@@ -283,33 +269,6 @@ Get upstream or downstream lineage for an entity. Set `level=column` for column-
 
 ---
 
-### datahub_get_queries
-
-Get popular queries associated with a dataset.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `urn` | string | Yes | - | Dataset URN |
-| `limit` | integer | No | 10 | Maximum queries to return |
-| `connection` | string | No | default | Connection name to use |
-
----
-
-### datahub_get_glossary_term
-
-Get details about a glossary term.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `urn` | string | Yes | - | Glossary term URN |
-| `connection` | string | No | default | Connection name to use |
-
----
-
 ### datahub_browse
 
 Browse the DataHub catalog by category. Set `what=tags` to list tags, `what=domains` to list data domains, or `what=data_products` to list data products.
@@ -320,19 +279,6 @@ Browse the DataHub catalog by category. Set `what=tags` to list tags, `what=doma
 |-----------|------|----------|---------|-------------|
 | `what` | string | Yes | - | What to browse: `tags`, `domains`, or `data_products` |
 | `filter` | string | No | - | Optional filter string (tags only) |
-| `connection` | string | No | default | Connection name to use |
-
----
-
-### datahub_get_data_product
-
-Get details about a data product.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `urn` | string | Yes | - | Data product URN |
 | `connection` | string | No | default | Connection name to use |
 
 ---
@@ -799,9 +745,9 @@ The companion read verb to [`search`](#search). `search` returns navigational
 pointers with truncated snippets; `fetch` dereferences one pointer's `reference`
 back to its **complete content**, so the agent reads in full what it found. It is
 the single consumer of the `reference` every search hit already carries, and it
-collapses the previously fragmented scoped readers (`datahub_get_entity`,
-`manage_asset` get, `manage_prompt` get) into one verb. Registered alongside
-`search`.
+collapses the previously fragmented scoped readers (the five `datahub_get_*`
+by-URN reads, `manage_asset` get, `manage_prompt` get) into one verb.
+Registered alongside `search`.
 
 A reference comes in one of two namespaces: `urn:li:...` is the external DataHub
 catalog scheme, `mcp:...` is the internal-platform scheme. `fetch` accepts both,

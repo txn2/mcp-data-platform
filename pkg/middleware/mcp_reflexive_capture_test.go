@@ -276,7 +276,7 @@ func TestIsReflexiveQueryTool(t *testing.T) {
 	if !isReflexiveQueryTool("trino_query") || !isReflexiveQueryTool("trino_execute") {
 		t.Error("trino query tools should be observed")
 	}
-	if isReflexiveQueryTool("datahub_get_entity") || isReflexiveQueryTool("search") {
+	if isReflexiveQueryTool("datahub_get_lineage") || isReflexiveQueryTool("search") {
 		t.Error("non-query tools should not be observed")
 	}
 }

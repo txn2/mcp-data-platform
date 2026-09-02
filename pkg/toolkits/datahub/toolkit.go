@@ -4,6 +4,7 @@ package datahub
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -29,16 +30,11 @@ const (
 	// a subset crosses goconst's literal-repetition threshold — keeping
 	// the Tools() list uniformly constant-driven avoids a visually mixed
 	// list of constants and bare strings.
-	toolGetEntity       = "datahub_get_entity"
-	toolGetSchema       = "datahub_get_schema"
-	toolGetLineage      = "datahub_get_lineage"
-	toolGetQueries      = "datahub_get_queries"
-	toolBrowse          = "datahub_browse"
-	toolGetGlossaryTerm = "datahub_get_glossary_term"
-	toolGetDataProduct  = "datahub_get_data_product"
-	toolCreate          = "datahub_create"
-	toolUpdate          = "datahub_update"
-	toolDelete          = "datahub_delete"
+	toolGetLineage = "datahub_get_lineage"
+	toolBrowse     = "datahub_browse"
+	toolCreate     = "datahub_create"
+	toolUpdate     = "datahub_update"
+	toolDelete     = "datahub_delete"
 
 	// defaultMaxLineageDepth is the maximum lineage traversal depth.
 	defaultMaxLineageDepth = 5
@@ -152,15 +148,28 @@ func toDataHubToolNames(m map[string]string) map[dhtools.ToolName]string {
 	return result
 }
 
+// platformDescriptions are the descriptions the platform gives the DataHub
+// tools it registers, in place of mcp-datahub's own, where upstream's text
+// steers toward a tool the platform does not register: the by-URN reads
+// (datahub_get_entity, datahub_get_schema, datahub_get_queries,
+// datahub_get_glossary_term, datahub_get_data_product) are folded into fetch
+// (#1590). A configured description override still wins.
+var platformDescriptions = map[dhtools.ToolName]string{
+	dhtools.ToolBrowse: "Navigate the DataHub catalog by platform, domain, tag, or entity type " +
+		"instead of by relevance: a structured walk of what the catalog holds, paged, for when you " +
+		"want the shape of a platform or a domain rather than a ranked answer. Use search for a " +
+		"question. Each result carries a urn:li:... reference; read one in full with fetch, which " +
+		"returns a dataset's business context, declared schema, saved queries, and query availability " +
+		"in one call.",
+}
+
 // createToolkit creates the mcp-datahub toolkit.
 func createToolkit(client *dhclient.Client, cfg Config) *dhtools.Toolkit {
 	var opts []dhtools.ToolkitOption
 	if len(cfg.Titles) > 0 {
 		opts = append(opts, dhtools.WithTitles(toDataHubToolNames(cfg.Titles)))
 	}
-	if len(cfg.Descriptions) > 0 {
-		opts = append(opts, dhtools.WithDescriptions(toDataHubToolNames(cfg.Descriptions)))
-	}
+	opts = append(opts, dhtools.WithDescriptions(toolDescriptions(cfg.Descriptions)))
 	if len(cfg.Annotations) > 0 {
 		opts = append(opts, dhtools.WithAnnotations(toDataHubAnnotations(cfg.Annotations)))
 	}
@@ -171,6 +180,17 @@ func createToolkit(client *dhclient.Client, cfg Config) *dhtools.Toolkit {
 		Debug:           cfg.Debug,
 		WriteEnabled:    !cfg.ReadOnly,
 	}, opts...)
+}
+
+// toolDescriptions merges the platform's own descriptions with the configured
+// overrides, the configured text winning.
+func toolDescriptions(configured map[string]string) map[dhtools.ToolName]string {
+	out := make(map[dhtools.ToolName]string, len(platformDescriptions)+len(configured))
+	maps.Copy(out, platformDescriptions)
+	for k, v := range configured {
+		out[dhtools.ToolName(k)] = v
+	}
+	return out
 }
 
 // toDataHubAnnotations converts config annotation overrides to mcp-datahub ToolAnnotations.
@@ -200,18 +220,20 @@ func (t *Toolkit) Connection() string {
 	return t.config.ConnectionName
 }
 
-// datahubReadTools lists the read-only DataHub tools registered by the platform.
-// This excludes datahub_list_connections (replaced by the unified list_connections)
-// and datahub_search (its relevance role is folded into the unified
-// search; structured catalog navigation stays in datahub_browse).
+// datahubReadTools lists the read-only DataHub tools registered by the platform:
+// the two that do something a reference read cannot. datahub_browse walks the
+// catalog's hierarchy and datahub_get_lineage is a graph query with a direction
+// and a depth. Every other upstream read is served elsewhere: datahub_list_connections
+// by the unified list_connections, datahub_search by the unified search, and the
+// five by-URN reads (datahub_get_entity, datahub_get_schema, datahub_get_queries,
+// datahub_get_glossary_term, datahub_get_data_product) by fetch, which returns
+// at least what each did for the same reference (#1590). The retirement is a
+// hard cut: none of the five is registered under any alias, and a persona or
+// config that still lists one grants nothing. TestRetiredReadToolsAreReplacedByFetch
+// names each with the call that replaced it.
 var datahubReadTools = []dhtools.ToolName{
-	dhtools.ToolGetEntity,
-	dhtools.ToolGetSchema,
 	dhtools.ToolGetLineage,
-	dhtools.ToolGetQueries,
 	dhtools.ToolBrowse,
-	dhtools.ToolGetGlossaryTerm,
-	dhtools.ToolGetDataProduct,
 }
 
 // RegisterTools registers DataHub tools with the MCP server.
@@ -229,13 +251,8 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 // Tools returns the list of tool names that would be provided by this toolkit.
 func (t *Toolkit) Tools() []string {
 	tools := []string{
-		toolGetEntity,
-		toolGetSchema,
 		toolGetLineage,
-		toolGetQueries,
 		toolBrowse,
-		toolGetGlossaryTerm,
-		toolGetDataProduct,
 	}
 
 	if !t.config.ReadOnly {

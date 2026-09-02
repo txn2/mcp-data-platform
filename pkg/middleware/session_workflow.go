@@ -11,22 +11,16 @@ import (
 
 // DefaultDiscoveryTools lists the tool names that satisfy the search-first gate.
 // search is the universal discovery front door and the tool every description
-// override and discovery note steers agents toward; the datahub_* tools are
-// structured catalog navigation that also genuinely discovers an entity's
-// business context, so they satisfy the gate too. Keeping the datahub_* tools in
-// the default set is important now that the gate is a hard block: the shipped
-// personas (and the documented examples) grant datahub_* without search, so a
-// narrower set would deadlock any such persona out of query tools. Teams can
-// override with workflow.discovery_tools.
+// override and discovery note steers agents toward; the two datahub_* reads the
+// platform registers are structured catalog navigation that also genuinely
+// discovers an entity's business context, so they satisfy the gate too. Keeping
+// them in the default set is important now that the gate is a hard block: a
+// persona that grants datahub_* without search would otherwise be deadlocked
+// out of query tools. Teams can override with workflow.discovery_tools.
 var DefaultDiscoveryTools = []string{
 	toolNameSearch,
-	toolNameDatahubGetEntity,
-	"datahub_get_schema",
 	"datahub_get_lineage",
-	"datahub_get_queries",
 	"datahub_browse",
-	"datahub_get_glossary_term",
-	"datahub_get_data_product",
 }
 
 // DefaultQueryTools lists the tool names that are gated by discovery.

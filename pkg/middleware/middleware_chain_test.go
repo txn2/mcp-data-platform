@@ -690,7 +690,7 @@ func TestMiddlewareChain_EnrichmentAddsQueryContext(t *testing.T) {
 	authorizer := &testAuthorizer{persona: chainTestAnalyst}
 	toolkitLookup := &testToolkitLookup{
 		tools: map[string]struct{ kind, name, conn string }{
-			"datahub_get_entity": {kind: "datahub", name: "primary", conn: "datahub-gms"},
+			"datahub_get_lineage": {kind: "datahub", name: "primary", conn: "datahub-gms"},
 		},
 	}
 
@@ -701,7 +701,7 @@ func TestMiddlewareChain_EnrichmentAddsQueryContext(t *testing.T) {
 
 	// The tool returns a JSON body with a URN — enrichment should pick it up
 	server.AddTool(&mcp.Tool{
-		Name:        "datahub_get_entity",
+		Name:        "datahub_get_lineage",
 		Description: "Get entity details",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"urn":{"type":"string"}}}`),
 	}, func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -731,7 +731,7 @@ func TestMiddlewareChain_EnrichmentAddsQueryContext(t *testing.T) {
 	defer func() { _ = session.Close() }()
 
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "datahub_get_entity",
+		Name:      "datahub_get_lineage",
 		Arguments: map[string]any{"urn": chainTestOrdersURN},
 	})
 	if err != nil {
@@ -2198,7 +2198,7 @@ func TestWorkflowGating_DataHubDiscoveryOpensGate(t *testing.T) {
 
 	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "v0.0.1"}, nil)
 	server.AddTool(&mcp.Tool{
-		Name:        "datahub_get_entity",
+		Name:        "datahub_get_lineage",
 		Description: "Get entity",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"urn":{"type":"string"}}}`),
 	}, func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -2224,10 +2224,10 @@ func TestWorkflowGating_DataHubDiscoveryOpensGate(t *testing.T) {
 
 	// Discover via a datahub_* tool (no search call at all).
 	if _, err = session.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "datahub_get_entity",
+		Name:      "datahub_get_lineage",
 		Arguments: map[string]any{"urn": "urn:li:dataset:x"},
 	}); err != nil {
-		t.Fatalf("calling datahub_get_entity: %v", err)
+		t.Fatalf("calling datahub_get_lineage: %v", err)
 	}
 
 	// The query must now be allowed — the datahub tool opened the gate.

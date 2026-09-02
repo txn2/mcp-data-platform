@@ -483,7 +483,7 @@ func (s *stubCatalogLabeler) Labels(_ context.Context, urns []string) map[string
 // catalogPersona resolves every role to a persona that grants a DataHub tool,
 // which is what catalog access is gated on.
 func catalogPersona(_ []string) *PersonaInfo {
-	return &PersonaInfo{Name: "analyst", Tools: []string{"search", "datahub_get_entity"}}
+	return &PersonaInfo{Name: "analyst", Tools: []string{"search", "datahub_get_lineage"}}
 }
 
 // noCatalogPersona resolves to a persona with no DataHub tool at all.

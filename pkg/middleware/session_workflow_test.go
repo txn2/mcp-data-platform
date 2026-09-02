@@ -22,7 +22,7 @@ func TestSessionWorkflowTracker_RecordDiscovery(t *testing.T) {
 	assert.True(t, tracker.HasPerformedDiscovery(ctx, "s1"))
 
 	// A datahub_* tool also counts as discovery (broad default set).
-	tracker.RecordToolCall(ctx, "s2", "datahub_get_entity")
+	tracker.RecordToolCall(ctx, "s2", "datahub_browse")
 	assert.True(t, tracker.HasPerformedDiscovery(ctx, "s2"))
 }
 
@@ -320,14 +320,17 @@ func TestDefaultDiscoveryTools(t *testing.T) {
 	// search is the front door; the datahub_* tools also satisfy the gate so
 	// personas granted datahub_* (but not search) are not deadlocked.
 	assert.Contains(t, DefaultDiscoveryTools, "search")
-	assert.Contains(t, DefaultDiscoveryTools, "datahub_get_entity")
-	assert.Contains(t, DefaultDiscoveryTools, "datahub_get_schema")
 	assert.Contains(t, DefaultDiscoveryTools, "datahub_get_lineage")
-	assert.Contains(t, DefaultDiscoveryTools, "datahub_get_queries")
 	assert.Contains(t, DefaultDiscoveryTools, "datahub_browse")
-	assert.Contains(t, DefaultDiscoveryTools, "datahub_get_glossary_term")
-	assert.Contains(t, DefaultDiscoveryTools, "datahub_get_data_product")
-	assert.Len(t, DefaultDiscoveryTools, 8)
+	assert.Len(t, DefaultDiscoveryTools, 3)
+	// The by-URN reads folded into fetch (#1590) are gone from the set: a name
+	// the platform no longer registers must not count as discovery either.
+	for _, retired := range []string{
+		"datahub_get_entity", "datahub_get_schema", "datahub_get_queries",
+		"datahub_get_glossary_term", "datahub_get_data_product",
+	} {
+		assert.NotContains(t, DefaultDiscoveryTools, retired)
+	}
 }
 
 func TestDefaultQueryTools(t *testing.T) {
@@ -338,14 +341,14 @@ func TestDefaultQueryTools(t *testing.T) {
 
 func TestSessionWorkflowTracker_DiscoveryToolNames(t *testing.T) {
 	tracker := NewSessionWorkflowTracker(
-		[]string{"datahub_search", "datahub_get_entity"},
+		[]string{"datahub_search", "datahub_get_lineage"},
 		nil,
 		nil,
 		30*time.Minute,
 	)
 	names := tracker.DiscoveryToolNames()
 	assert.Len(t, names, 2)
-	assert.ElementsMatch(t, []string{"datahub_search", "datahub_get_entity"}, names)
+	assert.ElementsMatch(t, []string{"datahub_search", "datahub_get_lineage"}, names)
 }
 
 func TestSessionWorkflowTracker_QueryToolNames(t *testing.T) {

@@ -12,10 +12,9 @@ import (
 // Upstream tool names referenced across multiple middleware files. These are
 // fully-qualified MCP tool names exposed by the Trino and DataHub toolkits.
 const (
-	toolNameTrinoQuery       = "trino_query"
-	toolNameTrinoExecute     = "trino_execute"
-	toolNameSearch           = "search"
-	toolNameDatahubGetEntity = "datahub_get_entity"
+	toolNameTrinoQuery   = "trino_query"
+	toolNameTrinoExecute = "trino_execute"
+	toolNameSearch       = "search"
 )
 
 // defaultDescriptionOverrides contains built-in description overrides that
