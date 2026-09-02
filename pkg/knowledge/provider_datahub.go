@@ -172,8 +172,13 @@ func (p *CatalogProvider) Search(ctx context.Context, q Query) ([]Hit, error) {
 // that the catalog cannot resolve, is skipped rather than failing the search:
 // the entity set is probed across many (lineage-expanded) URNs, most of which
 // legitimately have no catalog entry, so a miss must not blank the provider.
-// Only entities the catalog actually returned (non-empty URN) yield a hit, so a
-// non-existent URN produces nothing.
+// Only entities the catalog actually holds yield a hit, so a URN that names
+// nothing produces nothing. A non-empty URN in the response is not that test:
+// DataHub answers a URN it has never ingested with a stub built from that URN
+// rather than an error, so the entity has to be recognized by carrying something
+// the reference did not supply (tableContextExists, #1605). Without it a search
+// by a made-up URN reported one match, and fetching the reference it handed back
+// then reported the entity missing.
 //
 // The connection boundary is applied after resolution, against the URN the
 // CATALOG returned rather than the one the caller passed. Those differ, and only
@@ -197,10 +202,16 @@ func (p *CatalogProvider) searchByEntity(ctx context.Context, q Query, seen map[
 		}
 		tc, err := p.searcher.GetTableContext(ctx, table)
 		if err != nil {
-			slog.Debug("catalog entity lookup skipped", "urn", urn, logKeyError, err)
+			slog.Debug("catalog entity lookup skipped", logKeyURN, urn, logKeyError, err)
 			continue
 		}
 		if tc == nil || tc.URN == "" {
+			continue
+		}
+		if !tableContextExists(tc) {
+			// A stub built from the URN, not an entry. Left unseen so the text arm
+			// may still match the same URN on its own evidence.
+			slog.Debug("catalog entity lookup resolved to a urn-only record", logKeyURN, urn)
 			continue
 		}
 		// Mark the URN handled before the boundary check so the text arm does not
@@ -411,8 +422,12 @@ func (p *CatalogProvider) catalogCandidates(ctx context.Context, q Query) ([]cat
 	return out, nil
 }
 
-// logKeyError is the structured-log key an error is recorded under.
-const logKeyError = "error"
+// logKeyError and logKeyURN are the structured-log keys an error and the
+// reference it concerns are recorded under.
+const (
+	logKeyError = "error"
+	logKeyURN   = "urn"
+)
 
 // datasetPrefix is the URN form of a catalog dataset reference. The catalog owns
 // exactly this prefix for fetch; the context-documents source owns
@@ -427,10 +442,12 @@ const datasetPrefix = "urn:li:dataset:"
 // datahub_get_queries reads were folded. It also owns the urn:li:dataProduct:
 // form (fetchDataProduct); any other reference is declined (owned=false).
 // A URN that does not parse as a dataset, that the catalog has no entry for, or that
-// the catalog errors on is ErrNotFound: DataHub reports a missing/deleted entity as
-// an error rather than an empty result (mcp-datahub GetEntity), and the search
-// entity path treats that same lookup error as a skip (searchByEntity), so a stale
-// dataset citation must be a clean not-found here too, not a hard tool failure.
+// the catalog errors on is ErrNotFound. A lookup error is a miss because the search
+// entity path treats that same error as a skip (searchByEntity), so a stale dataset
+// citation is a clean not-found here too rather than a hard tool failure. An entry
+// the catalog does not hold is a miss on the strength of what the record carries
+// rather than of an error, because DataHub answers such a URN with a stub built
+// from it (datasetExists, #1605).
 //
 // A dataset belonging only to connections the caller's persona is not granted is
 // ErrNotFound as well (#1108): fetch must not hand back by citation what search
@@ -449,18 +466,8 @@ func (p *CatalogProvider) Fetch(ctx context.Context, ref string, caller Caller) 
 	if err != nil {
 		return nil, true, ErrNotFound
 	}
-	ds, err := p.readDataset(ctx, table)
-	if err != nil {
-		// DataHub conflates "no such entity" with an error, the same condition
-		// searchByEntity skips; surface it as not-found so a stale citation is a clean
-		// answer rather than a failure.
-		slog.Debug("catalog entity fetch miss", "urn", ref, logKeyError, err)
-		return nil, true, ErrNotFound
-	}
-	if ds == nil || ds.URN == "" {
-		return nil, true, ErrNotFound
-	}
-	if !caller.allowsURN(ds.URN) {
+	ds := p.resolveDataset(ctx, ref, table)
+	if ds == nil || !caller.allowsURN(ds.URN) {
 		return nil, true, ErrNotFound
 	}
 	avail := p.resolveAvailability(ctx, ds.URN)
@@ -475,6 +482,29 @@ func (p *CatalogProvider) Fetch(ctx context.Context, ref string, caller Caller) 
 		doc.Verifiable = &query.Verifiable{URN: ds.URN, QueryTable: avail.QueryTable, Connection: avail.Connection}
 	}
 	return doc, true, nil
+}
+
+// resolveDataset reads the dataset the reference names, or nil when the catalog
+// does not hold it. Each of the three ways it can fail to hold it is a miss
+// rather than a failure: a read error, because DataHub conflates "no such
+// entity" with an error and the search entity path skips that same error
+// (searchByEntity), so a stale citation stays a clean answer; a record with no
+// URN; and a record carrying nothing the reference did not supply, which is what
+// the catalog returns for a URN it has never ingested (#1605).
+func (p *CatalogProvider) resolveDataset(ctx context.Context, ref string, table semantic.TableIdentifier) *semantic.Dataset {
+	ds, err := p.readDataset(ctx, table)
+	if err != nil {
+		slog.Debug("catalog entity fetch miss", logKeyURN, ref, logKeyError, err)
+		return nil
+	}
+	if ds == nil || ds.URN == "" {
+		return nil
+	}
+	if !datasetExists(ds) {
+		slog.Debug("catalog entity fetch resolved to a urn-only record", logKeyURN, ref)
+		return nil
+	}
+	return ds
 }
 
 // readDataset reads the full dataset record when a DatasetReader is wired and
@@ -503,7 +533,7 @@ func (p *CatalogProvider) resolveAvailability(ctx context.Context, urn string) *
 	defer cancel()
 	avail, err := p.availability.GetTableAvailability(ctx, urn)
 	if err != nil || ctx.Err() != nil {
-		slog.Debug("dataset availability lookup skipped", "urn", urn, logKeyError, err)
+		slog.Debug("dataset availability lookup skipped", logKeyURN, urn, logKeyError, err)
 		return nil
 	}
 	return avail

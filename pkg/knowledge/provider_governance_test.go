@@ -25,8 +25,10 @@ type fakeGovernanceReader struct {
 	tagsErr    error
 	domainsErr error
 
-	// term is what GetGlossaryTerm returns; termErr makes the by-URN read fail
-	// (which DataHub also does for a term that does not exist).
+	// term is what GetGlossaryTerm returns; termErr makes the by-URN read fail.
+	// A term that does not exist is NOT that case: DataHub answers such a URN
+	// with a stub carrying the URN and a name derived from it and no error at
+	// all, which is what a term with no description of its own models (#1605).
 	term    *semantic.GlossaryTerm
 	termErr error
 
@@ -650,4 +652,19 @@ func TestGovernanceProvider_FallbackEnumeratesTheVocabularyNotTheDisplayPage(t *
 	require.NoError(t, err)
 	assert.Equal(t, vocabularyPageLimit, f.gotTermLimits[len(f.gotTermLimits)-1],
 		"the enumeration behind the fallback reads the vocabulary page")
+}
+
+// TestGovernanceProvider_FetchRejectsTheURNOnlyStub is #1605 on the glossary
+// arm. DataHub answers a term URN it does not hold with the URN echoed back and
+// a name read out of it, so the by-URN read's own not-found conditions never
+// fire and the arm has to recognize the stub by what it does not carry.
+func TestGovernanceProvider_FetchRejectsTheURNOnlyStub(t *testing.T) {
+	f := populatedReader()
+	f.term = &semantic.GlossaryTerm{URN: "urn:li:glossaryTerm:NeverIngested", Name: "NeverIngested"}
+	p := NewGovernanceProvider(f)
+
+	doc, owned, err := p.Fetch(context.Background(), "urn:li:glossaryTerm:NeverIngested", Caller{})
+	require.True(t, owned)
+	require.ErrorIs(t, err, ErrNotFound)
+	require.Nil(t, doc)
 }
