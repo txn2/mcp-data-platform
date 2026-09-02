@@ -8,8 +8,17 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/membudget"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
+
+// MemBudget is the shared in-flight memory budget (internal/membudget),
+// the type the platform wires through SetMemBudget.
+type MemBudget = membudget.Budget
+
+// NewMemBudget returns a budget capping concurrently-committed body
+// bytes at maxBytes; maxBytes <= 0 is unlimited.
+func NewMemBudget(maxBytes int64) *MemBudget { return membudget.New(maxBytes) }
 
 // Structured error codes the gateway emits for memory-protection
 // rejections. They are carried in the "error" field of the tool-error

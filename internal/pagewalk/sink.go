@@ -26,6 +26,9 @@ func (m *InlineMerge) Add(items []json.RawMessage) error {
 	return nil
 }
 
+// Size is the bytes the merged array holds: what the call returns.
+func (m *InlineMerge) Size() int64 { return m.size }
+
 // Merged returns the array to report. An empty walk is an empty array,
 // not null: the caller asked for a collection.
 func (m *InlineMerge) Merged() []json.RawMessage {

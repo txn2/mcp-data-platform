@@ -127,6 +127,14 @@ type InvokeOutput struct {
 	Headers       map[string][]string `json:"headers,omitempty"`
 	Body          any                 `json:"body,omitempty"`
 	BodyTruncated bool                `json:"body_truncated,omitempty"`
+	// BodyBytes is the size of Body as read from the upstream, before
+	// decoding: what the call cost the model's context. Reported on
+	// every response; zero when no body was returned.
+	BodyBytes int64 `json:"body_bytes"`
+	// ExportArguments is set when Body was cut by the inline budget
+	// (issue #1587): the api_export arguments that stream this same
+	// call into a portal asset. The caller adds a name.
+	ExportArguments *InvokeInput `json:"export_arguments,omitempty"`
 	// Pagination is populated when the upstream response carries a
 	// recognizable cursor (RFC 5988 Link rel="next", @odata.nextLink,
 	// next_cursor, etc). The model uses this to decide whether to
@@ -136,7 +144,7 @@ type InvokeOutput struct {
 	// Hint surfaces operator-actionable advice to the model when the
 	// response itself can't carry it — most importantly the "use
 	// api_export instead" suggestion when the body exceeded
-	// max_response_bytes. Distinct from Error: Hint is informational,
+	// max_inline_bytes. Distinct from Error: Hint is informational,
 	// the call still succeeded.
 	Hint       string `json:"hint,omitempty"`
 	DurationMs int64  `json:"duration_ms"`
@@ -199,15 +207,62 @@ func invoke(ctx context.Context, inv invocation, in InvokeInput) (InvokeOutput, 
 	return executeRequest(execParams{
 		client:     inv.client,
 		req:        req,
-		maxBytes:   inv.cfg.MaxResponseBytes,
+		maxBytes:   inlineBudget(inv.cfg),
 		budget:     inv.budget,
 		connection: inv.cfg.ConnectionName,
 		path:       in.Path,
 	})
 }
 
+// inlineBudget is the connection's effective inline budget: the most
+// of a response returned through a tool result. Unset values take the
+// defaults, and the read cap bounds it.
+func inlineBudget(cfg Config) int64 {
+	budget := cfg.MaxInlineBytes
+	if budget <= 0 {
+		budget = DefaultMaxInlineBytes
+	}
+	readCap := cfg.MaxResponseBytes
+	if readCap <= 0 {
+		readCap = DefaultMaxResponseBytes
+	}
+	return min(budget, readCap)
+}
+
+// steerToExport finishes an output's steer to api_export. With no
+// api_export registered the hint is cleared: the model must not be told
+// to use a tool this deployment lacks. With it, a body cut by the inline
+// budget carries the arguments that stream the same call into an asset,
+// in the form the caller used (operation_id or method+path); the inline
+// timeout is dropped because api_export has its own.
+func steerToExport(out *InvokeOutput, in InvokeInput, hasExport bool) {
+	if !hasExport {
+		out.Hint = ""
+		return
+	}
+	if !out.BodyTruncated {
+		return
+	}
+	if in.OperationID != "" {
+		in.Method, in.Path = "", ""
+	}
+	in.TimeoutSeconds = 0
+	out.ExportArguments = &in
+}
+
+// inlineBudgetHint is the steer on a body cut by the inline budget.
+// declared is the upstream's Content-Length, or -1 when it sent none.
+func inlineBudgetHint(budget, declared int64) string {
+	size := "of undeclared length"
+	if declared > 0 {
+		size = fmt.Sprintf("of %d bytes", declared)
+	}
+	return fmt.Sprintf("response %s exceeded the connection's max_inline_bytes (%d); the first %d bytes are returned. "+
+		"Use api_export with export_arguments plus a name to stream the whole response into a portal asset (no model-context cost)", size, budget, budget)
+}
+
 // invokeWalk runs api_invoke_endpoint as a page walk: the pages are
-// merged inline under the connection's max_response_bytes and returned
+// merged inline under the connection's max_inline_bytes and returned
 // as one array. A page that fails, fails the call, and the error names
 // the page; the caller renders it as a tool error. A walk that stops at
 // the byte cap or max_pages returns the pages that fit and, in
@@ -217,10 +272,7 @@ func invokeWalk(ctx context.Context, inv invocation, authorize func(InvokeInput)
 	callCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	limit := inv.cfg.MaxResponseBytes
-	if limit <= 0 {
-		limit = DefaultMaxResponseBytes
-	}
+	limit := inlineBudget(inv.cfg)
 	merge := &pagewalk.InlineMerge{Limit: limit}
 	walk, err := newPageWalk(inv, in, authorize, merge.Add)
 	if err != nil {
@@ -234,13 +286,14 @@ func invokeWalk(ctx context.Context, inv invocation, authorize func(InvokeInput)
 		Status:     walk.Last.Status,
 		Headers:    selectResponseHeaders(walk.Last.Header),
 		Body:       merge.Merged(),
+		BodyBytes:  merge.Size(),
 		Pagination: walk.Resume,
 		DurationMs: time.Since(start).Milliseconds(),
 		WalkStats:  &walk.Stats,
 	}
 	if walk.Stats.StoppedBy == pagewalk.StoppedByMaxBytes {
 		out.BodyTruncated = true
-		out.Hint = "merged pages reached max_response_bytes; use api_export with the same paginate block to stream the whole walk into a portal asset (no model-context cost), or resume from pagination"
+		out.Hint = fmt.Sprintf("merged pages reached the connection's max_inline_bytes (%d); use api_export with export_arguments plus a name to stream the whole walk into a portal asset (no model-context cost), or resume from pagination", limit)
 	}
 	return out, nil
 }
@@ -1147,16 +1200,12 @@ func executeRequest(p execParams) (InvokeOutput, error) {
 		Headers:       selectResponseHeaders(resp.Header),
 		Body:          parsed,
 		BodyTruncated: truncated,
+		BodyBytes:     int64(len(body)),
 		Pagination:    detectPagination(resp.Header, parsed),
 		DurationMs:    time.Since(start).Milliseconds(),
 	}
 	if truncated {
-		// The body exceeded the connection's max_response_bytes
-		// cap. Steer the model toward api_export, which streams
-		// the response directly into a portal asset without
-		// returning the bytes through the MCP turn — same path
-		// trino_export uses for query results that don't fit.
-		out.Hint = "response exceeded max_response_bytes; use api_export to stream the full response into a portal asset (no model-context cost)"
+		out.Hint = inlineBudgetHint(readCap, resp.ContentLength)
 	}
 	return out, nil
 }

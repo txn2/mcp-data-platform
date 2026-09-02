@@ -537,8 +537,10 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"passed in path_params) or by method+path directly; supply one form, not both. " +
 			"Method is restricted to GET, POST, PUT, DELETE, PATCH, HEAD, " +
 			"PROPFIND, MKCOL, MOVE, COPY; " +
-			"path is joined to the connection's base_url; response bodies above the connection's " +
-			"max_response_bytes are truncated and flagged. A response's pagination signal is " +
+			"path is joined to the connection's base_url. Every response reports body_bytes, the size " +
+			"of the body returned; a body past the connection's max_inline_bytes (default 128 KiB) is cut " +
+			"at that budget, flagged with body_truncated, and export_arguments carries the api_export call " +
+			"that streams the whole response into an asset. A response's pagination signal is " +
 			"reported in `pagination` and not followed; pass `paginate` to walk every page in " +
 			"this one call and receive the merged array (api_export takes the same block and " +
 			"streams the walk into an asset). Use list_connections to discover " +
@@ -1301,14 +1303,7 @@ func (t *Toolkit) handleInvoke(ctx context.Context, _ *mcp.CallToolRequest, in I
 		}
 		return budgetOrErrorResult(err), nil, nil
 	}
-	// Clear the api_export hint when the toolkit was built without
-	// export deps — the model would otherwise be told to use a tool
-	// that isn't registered on this deployment. The hint itself
-	// originates in executeRequest which has no toolkit handle, so
-	// the gating happens here at the call site.
-	if !hasExport {
-		out.Hint = ""
-	}
+	steerToExport(&out, in, hasExport)
 	// Report the path an operation_id resolved to. The caller supplied an
 	// id, not a path, so this is the only place the catalog's base-path
 	// prefix and the path_params substitution become visible — without it
@@ -1330,9 +1325,7 @@ func handleInvokeWalk(ctx context.Context, inv invocation, authorize func(Invoke
 	if err != nil {
 		return budgetOrErrorResult(err), nil, nil
 	}
-	if !hasExport {
-		out.Hint = ""
-	}
+	steerToExport(&out, in, hasExport)
 	if in.OperationID != "" {
 		out.ResolvedPath = in.Path
 	}
