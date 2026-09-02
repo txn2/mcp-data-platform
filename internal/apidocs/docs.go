@@ -15107,7 +15107,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Moves a managed script to another person. Restricted to administrators. The move is recorded as a new version authored by the administrator, and a run of the script from now on presents the roles that administrator held, so transferring a script to an administrator is how it comes to run with administrative reach. Refused with 409 when the new owner already keeps a script of the same name.",
+                "description": "Moves a managed script to another person. Restricted to administrators. The move is recorded as a new version authored by the administrator, and a run of the script from now on presents the roles that administrator held, so transferring a script to an administrator is how it comes to run with administrative reach. Refused with 409 when the new owner already keeps a script of the same name. The assets and collections the script's runs have created do not move on their own: when there are any, the request must say whether they move with the script (outputs: move) or stay with their current owner (outputs: keep), and the response states which files stayed that the new owner cannot reach.",
                 "consumes": [
                     "application/json"
                 ],
@@ -15127,7 +15127,7 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "New owner",
+                        "description": "New owner, and what happens to the script's outputs",
                         "name": "owner",
                         "in": "body",
                         "required": true,
@@ -25190,11 +25190,15 @@ const docTemplate = `{
                     "description": "Name is what the file is called now, empty when it no longer exists.",
                     "type": "string"
                 },
+                "owner_email": {
+                    "description": "OwnerEmail is the address the file's row records as its owner, for an\nasset or a collection. It is what says whether the script's owner can\nreach the file: a transfer moves the script and, unless it was asked to,\nleaves the address on every file the script wrote as it was (#1588).\nEmpty for a resource, which is filed by library rather than by address,\nand for a file that no longer exists.",
+                    "type": "string"
+                },
                 "target_id": {
                     "type": "string"
                 },
                 "target_kind": {
-                    "description": "TargetKind is \"asset\" or \"resource\"; TargetID is the id within that kind.",
+                    "description": "TargetKind is TargetAsset, TargetCollection or TargetResource; TargetID\nis the id within that kind.",
                     "type": "string"
                 },
                 "write_count": {
@@ -26776,9 +26780,73 @@ const docTemplate = `{
                 }
             }
         },
+        "scripthttp.ownerOutput": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "example": "Daily sales"
+                },
+                "owner_email": {
+                    "type": "string",
+                    "example": "carol@example.com"
+                },
+                "target_id": {
+                    "type": "string",
+                    "example": "asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"
+                },
+                "target_kind": {
+                    "type": "string",
+                    "enum": [
+                        "asset",
+                        "collection"
+                    ],
+                    "example": "asset"
+                }
+            }
+        },
+        "scripthttp.ownerOutputs": {
+            "type": "object",
+            "properties": {
+                "assets": {
+                    "description": "Assets and Collections count the files the script's runs created that\nthe disposition applied to: the rows moved, or the rows left behind.",
+                    "type": "integer",
+                    "example": 2
+                },
+                "collections": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "disposition": {
+                    "description": "Disposition is what was done with them: \"move\" or \"keep\".",
+                    "type": "string",
+                    "enum": [
+                        "move",
+                        "keep"
+                    ],
+                    "example": "keep"
+                },
+                "kept": {
+                    "description": "Kept lists, when the outputs were kept, the ones the new owner cannot\nopen, share or delete: every output whose row names somebody else. An\noutput that already belonged to the new owner is not listed.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/scripthttp.ownerOutput"
+                    }
+                }
+            }
+        },
         "scripthttp.ownerRequest": {
             "type": "object",
             "properties": {
+                "outputs": {
+                    "description": "Outputs says what happens to the assets and collections the script's\nruns have created (#1588): \"move\" hands them to the new owner with the\nscript, \"keep\" leaves them with whoever owns them now. It must be stated\nwhen the script has created any; a script that has created none accepts\neither value or neither.",
+                    "type": "string",
+                    "enum": [
+                        "move",
+                        "keep"
+                    ],
+                    "example": "move"
+                },
                 "owner_email": {
                     "type": "string",
                     "example": "admin@example.com"
@@ -26792,6 +26860,14 @@ const docTemplate = `{
                     "description": "Message states the consequence in the administrator's terms.",
                     "type": "string",
                     "example": "daily-sales-report now belongs to admin@example.com and runs with your access."
+                },
+                "outputs": {
+                    "description": "Outputs states what happened to the assets and collections the script's\nruns had created before the move. Absent when there were none, which is\nalso the shape of a deployment that records no producers.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/scripthttp.ownerOutputs"
+                        }
+                    ]
                 },
                 "owner_email": {
                     "description": "OwnerEmail is the address the script now belongs to, normalized.",

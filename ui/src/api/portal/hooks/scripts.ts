@@ -338,30 +338,6 @@ export function useSaveScriptMetadata(scriptID: string) {
   });
 }
 
-// ScriptOwnerOutcome is a completed transfer: where the script landed, the
-// version the move recorded, and what it means for the next run.
-export interface ScriptOwnerOutcome {
-  owner_email: string;
-  version: number;
-  message: string;
-}
-
-// useTransferScriptOwner moves a script to another person. It is an
-// administrator's action: ownership is the whole of what a script is, so
-// handing it over hands over everything at once, and the run identity is
-// re-captured from the administrator making the move.
-export function useTransferScriptOwner(scriptID: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (ownerEmail: string) =>
-      apiFetch<ScriptOwnerOutcome>(`/scripts/${scriptID}/owner`, {
-        method: "PUT",
-        body: JSON.stringify({ owner_email: ownerEmail }),
-      }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: scriptsKey }),
-  });
-}
-
 // usePortalScriptVersions reads a script's version history. It is owner and
 // admin reading, so it is requested only when the listing said the caller owns
 // the script; a caller who does not is answered as though it did not exist.

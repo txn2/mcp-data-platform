@@ -189,25 +189,25 @@ func (m *memStore) List(_ context.Context, filter script.ListFilter) ([]script.S
 // Transfer models the real store: the owner moves and the move is snapshotted
 // unconditionally, because the roles captured on that version are what the
 // script now runs with.
-func (m *memStore) Transfer(_ context.Context, id, newOwner string, author script.Author) error {
-	stored, ok := m.scripts[id]
+func (m *memStore) Transfer(_ context.Context, req script.TransferRequest, author script.Author) (script.Transferred, error) {
+	stored, ok := m.scripts[req.ID]
 	if !ok {
-		return fmt.Errorf("script %s not found", id)
+		return script.Transferred{}, fmt.Errorf("script %s not found", req.ID)
 	}
 	moved := *stored
-	if err := moved.Transfer(newOwner); err != nil {
-		return err //nolint:wrapcheck // the fake mirrors the store: the domain refusal is the caller's message
+	if err := moved.Transfer(req.NewOwnerEmail); err != nil {
+		return script.Transferred{}, err //nolint:wrapcheck // the fake mirrors the store: the domain refusal is the caller's message
 	}
 	for _, other := range m.scripts {
-		if other.ID != id && other.Name == moved.Name && other.OwnerEmail == moved.OwnerEmail {
-			return fmt.Errorf("a script named %q already belongs to %s: %w",
+		if other.ID != req.ID && other.Name == moved.Name && other.OwnerEmail == moved.OwnerEmail {
+			return script.Transferred{}, fmt.Errorf("a script named %q already belongs to %s: %w",
 				moved.Name, moved.OwnerEmail, script.ErrNameTaken)
 		}
 	}
 	moved.Version++
-	m.scripts[id] = &moved
+	m.scripts[req.ID] = &moved
 	m.snapshot(&moved, author, script.VersionStatusApplied)
-	return nil
+	return script.Transferred{}, nil
 }
 
 func (m *memStore) UpdateWithVersion(ctx context.Context, sc *script.Script, author script.Author) error {

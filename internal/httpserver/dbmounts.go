@@ -273,7 +273,7 @@ func scriptDeps(p *platform.Platform) (scripthttp.Deps, bool) {
 		// Everything the script has written, across every run (#1569), read
 		// from the producer relation rather than walked out of run history.
 		Produced: producedview.New(
-			producedby.NewPostgres(p.DB()), p.PortalAssetStore(), p.ResourceStore(), store),
+			producedby.NewPostgres(p.DB()), p.PortalAssetStore(), p.ResourceStore(), p.PortalCollectionStore(), store),
 	}
 	if auditStore := p.Audit().Store(); auditStore != nil {
 		deps.Audit = auditStore

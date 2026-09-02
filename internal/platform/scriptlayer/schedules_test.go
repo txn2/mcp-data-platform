@@ -323,8 +323,8 @@ func (s *scheduleless) GetByName(ctx context.Context, owner, name string) (*scri
 	return s.inner.GetByName(ctx, owner, name)
 }
 
-func (s *scheduleless) Transfer(ctx context.Context, id, newOwner string, a script.Author) error {
-	return s.inner.Transfer(ctx, id, newOwner, a)
+func (s *scheduleless) Transfer(ctx context.Context, req script.TransferRequest, a script.Author) (script.Transferred, error) {
+	return s.inner.Transfer(ctx, req, a)
 }
 
 func (s *scheduleless) GetByID(ctx context.Context, id string) (*script.Script, error) {

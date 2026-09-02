@@ -880,5 +880,5 @@ func portalScriptNames(db *sql.DB) producerapi.ScriptNames {
 	if db == nil {
 		return nil
 	}
-	return producedview.New(producedby.NewPostgres(db), nil, nil, scriptstore.New(db))
+	return producedview.New(producedby.NewPostgres(db), nil, nil, nil, scriptstore.New(db))
 }

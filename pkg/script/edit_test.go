@@ -27,7 +27,9 @@ func (*plainStore) GetByName(context.Context, string, string) (*script.Script, e
 	return nil, nil //nolint:nilnil // Store contract: nil, nil means not found
 }
 
-func (*plainStore) Transfer(context.Context, string, string, script.Author) error { return nil }
+func (*plainStore) Transfer(context.Context, script.TransferRequest, script.Author) (script.Transferred, error) {
+	return script.Transferred{}, nil
+}
 
 func (*plainStore) GetByID(context.Context, string) (*script.Script, error) {
 	return nil, nil //nolint:nilnil // Store contract: nil, nil means not found

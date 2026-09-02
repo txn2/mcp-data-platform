@@ -1,5 +1,7 @@
+import type { ProducedTargetKind } from "@/api/portal/hooks/producers";
 import { AdminScriptsPage } from "./AdminScriptsPage";
 import { ScriptDetailPage } from "./ScriptDetailPage";
+import { sectionOf } from "./producedPaths";
 
 // AdminScriptRoutes is the administrator's script section: every script, what
 // has been running, one script in full, and one run of one script.
@@ -54,7 +56,6 @@ export function AdminScriptRoutes({
 // adminFilePath is where a file this script produced opens for an operator: the
 // console's own libraries, which hold every asset and every resource rather
 // than the ones scoped to them.
-function adminFilePath(kind: "asset" | "resource", id: string): string {
-  const section = kind === "asset" ? "assets" : "resources";
-  return `/admin/${section}/${encodeURIComponent(id)}`;
+function adminFilePath(kind: ProducedTargetKind, id: string): string {
+  return `/admin/${sectionOf(kind)}/${encodeURIComponent(id)}`;
 }

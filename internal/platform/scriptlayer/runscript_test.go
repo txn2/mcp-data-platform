@@ -395,8 +395,8 @@ func (s *unversionedStore) List(ctx context.Context, filter script.ListFilter) (
 	return s.inner.List(ctx, filter)
 }
 
-func (s *unversionedStore) Transfer(ctx context.Context, id, newOwner string, author script.Author) error {
-	return s.inner.Transfer(ctx, id, newOwner, author)
+func (s *unversionedStore) Transfer(ctx context.Context, req script.TransferRequest, author script.Author) (script.Transferred, error) {
+	return s.inner.Transfer(ctx, req, author)
 }
 
 // TestRunScriptSchema_ClosedAndInSyncWithTheInputStruct holds run_script to the

@@ -123,7 +123,12 @@ What platform execution DOES add, and what this document does not minimize:
   hand their work along. Transfers are
   recorded in the audit log as `script_transfer_owner` events of kind `admin`,
   naming the script and both ends of the move, whether they succeeded or were
-  refused.
+  refused. The event also records what the transfer did with the files the
+  script's runs had created (#1588): the `outputs` disposition the
+  administrator stated, and, for a move, `assets_moved` and
+  `collections_moved`. Moving the outputs is itself a change of who may open,
+  share and delete those files, made by the administrator and attributed to
+  them here.
 
   Removing a script is the owner's and an administrator's, from the script's
   page in the portal or with `manage_script command=delete`. A delete made from
@@ -290,7 +295,12 @@ rather than carrying two interchangeable keys.
 ![Transferring a script to another owner](../images/screenshots/light/admin-admin-script-owner-light.webp#only-light)![Transferring a script to another owner](../images/screenshots/dark/admin-admin-script-owner-dark.webp#only-dark)
 
 The transfer is an administrator's action, and it re-captures the run identity
-from the administrator making it.
+from the administrator making it. The confirmation counts the assets and
+collections the script's runs have created and offers to move them with the
+script (#1588); left behind, they stay with their current owner, the new owner
+cannot open, share or delete them, and every run goes on writing a new version
+into them. The script's page marks such files under Files written, with whose
+they are.
 
 The managed resource library reads the same address, for the same reason and on
 the same terms (`resource.Claims.OnBehalfOf`, built by `BuildClaimsFor`). A
@@ -352,9 +362,10 @@ Five limits, stated rather than implied:
   It is the producer rather than either identifier on the row because neither
   names one script. The owner id is `script:<name>`, which every same-named
   script on the platform shares; the owner_email is the script owner's address
-  as of the row's insert, and nothing rewrites it when a script is transferred.
-  A producer id is the script's own uuid, so an inventory is right after a
-  rename and after a transfer. `fetch` reads the same relation, so a run can
+  as of the row's insert, and a transfer rewrites it only when asked to move
+  the outputs (#1588), on the rows the script created. A producer id is the
+  script's own uuid, so an inventory is right after a rename and after a
+  transfer, whichever the transfer did with the address. `fetch` reads the same relation, so a run can
   dereference everything its own search returned even when its author is no
   longer its script's owner. It matches what a producer CREATED, so a script
   that wrote one version over somebody else's asset does not thereby acquire it.

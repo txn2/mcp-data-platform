@@ -18,6 +18,29 @@ import (
 // of the script presents afterwards.
 var adminAuthor = script.Author{Email: "admin@example.com", Roles: []string{"admin"}}
 
+// transferOf is a request that leaves the outputs where they are, which is
+// every transfer before #1588 and every one that says nothing about them.
+func transferOf(id, to string) script.TransferRequest {
+	return script.TransferRequest{ID: id, NewOwnerEmail: to}
+}
+
+// moveOf is a request that hands the script's outputs to the new owner too.
+func moveOf(id, to string) script.TransferRequest {
+	return script.TransferRequest{ID: id, NewOwnerEmail: to, Outputs: script.OutputsMove}
+}
+
+// expectTransferWrites queues the writes every transfer makes before the
+// outputs are considered: the version row and the live row.
+func expectTransferWrites(t *testing.T, mock sqlmock.Sqlmock) {
+	t.Helper()
+	mock.ExpectBegin()
+	expectLockedScript(t, mock)
+	expectNextVersion(mock, 4)
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO script_versions")).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	expectLiveRowUpdate(mock, false)
+}
+
 // TestTransfer_WritesTheVersionThatCarriesTheNewAuthority proves the transfer
 // snapshots unconditionally, unlike an edit: the code is unchanged, and the
 // version exists precisely because the roles a run presents come from it.
@@ -34,7 +57,8 @@ func TestTransfer_WritesTheVersionThatCarriesTheNewAuthority(t *testing.T) {
 	expectLiveRowUpdate(mock, false)
 	mock.ExpectCommit()
 
-	require.NoError(t, s.Transfer(context.Background(), "script_1", "Admin@Example.com", adminAuthor))
+	_, err := s.Transfer(context.Background(), transferOf("script_1", "Admin@Example.com"), adminAuthor)
+	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -52,7 +76,7 @@ func TestTransfer_RefusesANameTheNewOwnerAlreadyUses(t *testing.T) {
 		WillReturnError(&pq.Error{Code: pgUniqueViolation})
 	mock.ExpectRollback()
 
-	err := s.Transfer(context.Background(), "script_1", "admin@example.com", adminAuthor)
+	_, err := s.Transfer(context.Background(), transferOf("script_1", "admin@example.com"), adminAuthor)
 
 	require.ErrorIs(t, err, script.ErrNameTaken)
 	assert.Contains(t, err.Error(), "admin@example.com")
@@ -68,7 +92,7 @@ func TestTransfer_SurfacesTheDomainRefusal(t *testing.T) {
 	expectLockedScript(t, mock)
 	mock.ExpectRollback()
 
-	err := s.Transfer(context.Background(), "script_1", "jane@example.com", adminAuthor)
+	_, err := s.Transfer(context.Background(), transferOf("script_1", "jane@example.com"), adminAuthor)
 
 	assert.ErrorContains(t, err, "already belongs to")
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -80,7 +104,7 @@ func TestTransfer_MissingScript(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta("FOR UPDATE")).WillReturnRows(sqlmock.NewRows(scriptSelectColumns))
 	mock.ExpectRollback()
 
-	err := s.Transfer(context.Background(), "gone", "admin@example.com", adminAuthor)
+	_, err := s.Transfer(context.Background(), transferOf("gone", "admin@example.com"), adminAuthor)
 
 	assert.ErrorContains(t, err, "not found")
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -98,7 +122,7 @@ func TestTransfer_WriteFailureIsNotAConflict(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta("UPDATE scripts")).WillReturnError(errors.New("down"))
 	mock.ExpectRollback()
 
-	err := s.Transfer(context.Background(), "script_1", "admin@example.com", adminAuthor)
+	_, err := s.Transfer(context.Background(), transferOf("script_1", "admin@example.com"), adminAuthor)
 
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, script.ErrNameTaken)
@@ -114,7 +138,92 @@ func TestTransfer_VersionNumberFailure(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT GREATEST")).WillReturnError(errors.New("down"))
 	mock.ExpectRollback()
 
-	assert.ErrorContains(t, s.Transfer(context.Background(), "script_1", "admin@example.com", adminAuthor),
-		"next version number")
+	_, err := s.Transfer(context.Background(), transferOf("script_1", "admin@example.com"), adminAuthor)
+	assert.ErrorContains(t, err, "next version number")
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestTransfer_MovesTheOutputsInTheSameTransaction is #1588's store criterion:
+// asked to move the outputs, the transfer rewrites the address on the assets
+// and collections this script CREATED, bound to the NORMALIZED new address and
+// the script's id, and reports how many rows each statement touched. The two
+// updates sit inside the transfer's transaction, after the script's own row.
+func TestTransfer_MovesTheOutputsInTheSameTransaction(t *testing.T) {
+	s, mock := newMock(t)
+	expectTransferWrites(t, mock)
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE portal_assets")).
+		WithArgs("admin@example.com", "script_1").
+		WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE portal_collections")).
+		WithArgs("admin@example.com", "script_1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	moved, err := s.Transfer(context.Background(), moveOf("script_1", "Admin@Example.com"), adminAuthor)
+
+	require.NoError(t, err)
+	assert.Equal(t, script.Transferred{AssetsMoved: 2, CollectionsMoved: 1}, moved)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestTransfer_KeepsTheOutputsUnlessAsked pins the other disposition and the
+// unstated one: neither touches a file row.
+func TestTransfer_KeepsTheOutputsUnlessAsked(t *testing.T) {
+	for _, outputs := range []script.OutputDisposition{"", script.OutputsKeep} {
+		t.Run(string(outputs), func(t *testing.T) {
+			s, mock := newMock(t)
+			expectTransferWrites(t, mock)
+			mock.ExpectCommit()
+
+			req := transferOf("script_1", "admin@example.com")
+			req.Outputs = outputs
+			moved, err := s.Transfer(context.Background(), req, adminAuthor)
+
+			require.NoError(t, err)
+			assert.Equal(t, script.Transferred{}, moved)
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}
+
+// TestTransfer_AFailedOutputMoveMovesNoScript is the reason the two writes
+// share a transaction: a transfer that could not hand over the files does not
+// hand over the script either, so the surfaces never report a half-move.
+func TestTransfer_AFailedOutputMoveMovesNoScript(t *testing.T) {
+	cases := []struct {
+		name   string
+		expect func(mock sqlmock.Sqlmock)
+		want   string
+	}{
+		{"assets", func(mock sqlmock.Sqlmock) {
+			mock.ExpectExec(regexp.QuoteMeta("UPDATE portal_assets")).WillReturnError(errors.New("down"))
+		}, "moving the script's assets"},
+		{"collections", func(mock sqlmock.Sqlmock) {
+			mock.ExpectExec(regexp.QuoteMeta("UPDATE portal_assets")).WillReturnResult(sqlmock.NewResult(0, 1))
+			mock.ExpectExec(regexp.QuoteMeta("UPDATE portal_collections")).WillReturnError(errors.New("down"))
+		}, "moving the script's collections"},
+		{"asset count", func(mock sqlmock.Sqlmock) {
+			mock.ExpectExec(regexp.QuoteMeta("UPDATE portal_assets")).
+				WillReturnResult(sqlmock.NewErrorResult(errors.New("no count")))
+			mock.ExpectExec(regexp.QuoteMeta("UPDATE portal_collections")).WillReturnResult(sqlmock.NewResult(0, 0))
+		}, "counting moved assets"},
+		{"collection count", func(mock sqlmock.Sqlmock) {
+			mock.ExpectExec(regexp.QuoteMeta("UPDATE portal_assets")).WillReturnResult(sqlmock.NewResult(0, 0))
+			mock.ExpectExec(regexp.QuoteMeta("UPDATE portal_collections")).
+				WillReturnResult(sqlmock.NewErrorResult(errors.New("no count")))
+		}, "counting moved collections"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s, mock := newMock(t)
+			expectTransferWrites(t, mock)
+			tc.expect(mock)
+			mock.ExpectRollback()
+
+			_, err := s.Transfer(context.Background(), moveOf("script_1", "admin@example.com"), adminAuthor)
+
+			assert.ErrorContains(t, err, tc.want)
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
 }

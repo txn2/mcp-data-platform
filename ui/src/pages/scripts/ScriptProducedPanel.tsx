@@ -1,6 +1,7 @@
-import { FileText, Paperclip } from "lucide-react";
+import { FileText, FolderOpen, Paperclip } from "lucide-react";
 import { useScriptProduced, type ProducedItem } from "@/api/portal/hooks/producers";
 import { SectionCard } from "@/components/patterns/SectionCard";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -22,12 +23,21 @@ import { formatWhen } from "./runFormat";
 // output lists, a file the script modified without declaring it as an output
 // appears in none of them, and "what does this script touch" and "what goes
 // stale if I retire it" are the questions somebody actually has.
+//
+// A file whose row names somebody other than the script's owner is marked as
+// theirs (#1588). That is the state a transfer leaves when the files are kept:
+// the runs go on writing new versions into a file the script's owner cannot
+// open, share or delete, and this is where that is visible.
 export function ScriptProducedPanel({
   scriptId,
+  owner,
   filePath,
   onNavigate,
 }: {
   scriptId: string;
+  /** The script's owner, which a file's own owner is compared to. Absent, no
+   * file is marked as out of reach. */
+  owner?: string;
   /** Where one produced file opens for this reader. The portal and the admin
    * console hold the same file at different addresses, so the surface supplies
    * this; absent, a row names the file without linking to it. */
@@ -43,44 +53,87 @@ export function ScriptProducedPanel({
     // headings reading the same word on one page, meaning one run and every
     // run, is a reader's problem the label can solve.
     <SectionCard data-testid="script-produced" title={`Files written (${items.length})`}>
-      {isLoading && <p className="text-sm text-muted-foreground">Loading...</p>}
-      {!isLoading && error && (
+      {isLoading ? (
+        <p className="text-sm text-muted-foreground">Loading...</p>
+      ) : error ? (
         <p className="text-sm text-muted-foreground">
           What this script has written could not be read.
         </p>
-      )}
-      {!isLoading && !error && items.length === 0 && (
-        <p className="text-sm text-muted-foreground">
-          This script has not written an asset or a managed resource yet.
-        </p>
-      )}
-      {items.length > 0 && (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              {/* The file's name is the column that has to give: the three
-                  beside it are a word, a number and a date, and letting the
-                  table share width evenly squeezed every name down to one
-                  letter. */}
-              <TableHead className="w-1/2">File</TableHead>
-              <TableHead className="whitespace-nowrap">Kind</TableHead>
-              <TableHead className="whitespace-nowrap">Writes</TableHead>
-              <TableHead className="whitespace-nowrap">Last written</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {items.map((item) => (
-              <ProducedRow
-                key={`${item.target_kind}:${item.target_id}`}
-                item={item}
-                href={hrefFor(item, filePath)}
-                onNavigate={onNavigate}
-              />
-            ))}
-          </TableBody>
-        </Table>
+      ) : (
+        <ProducedList items={items} owner={owner} filePath={filePath} onNavigate={onNavigate} />
       )}
     </SectionCard>
+  );
+}
+
+// ProducedList is the panel once the list is in hand: the note about files the
+// owner cannot reach, then the table, or the statement that there is nothing.
+function ProducedList({
+  items,
+  owner,
+  filePath,
+  onNavigate,
+}: {
+  items: ProducedItem[];
+  owner?: string;
+  filePath?: (kind: ProducedItem["target_kind"], id: string) => string;
+  onNavigate?: (path: string) => void;
+}) {
+  if (items.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        This script has not written an asset, a collection or a managed resource yet.
+      </p>
+    );
+  }
+  const elsewhere = items.filter((item) => ownedByAnother(item, owner)).length;
+  return (
+    <>
+      {elsewhere > 0 && owner && <ElsewhereNote count={elsewhere} owner={owner} />}
+      <Table>
+        <TableHeader>
+          <TableRow>
+            {/* The file's name is the column that has to give: the three
+                beside it are a word, a number and a date, and letting the
+                table share width evenly squeezed every name down to one
+                letter. */}
+            <TableHead className="w-1/2">File</TableHead>
+            <TableHead className="whitespace-nowrap">Kind</TableHead>
+            <TableHead className="whitespace-nowrap">Writes</TableHead>
+            <TableHead className="whitespace-nowrap">Last written</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {items.map((item) => (
+            <ProducedRow
+              key={`${item.target_kind}:${item.target_id}`}
+              item={item}
+              elsewhere={ownedByAnother(item, owner)}
+              href={hrefFor(item, filePath)}
+              onNavigate={onNavigate}
+            />
+          ))}
+        </TableBody>
+      </Table>
+    </>
+  );
+}
+
+// ElsewhereNote states what it means that some of these files belong to
+// somebody other than the script's owner: the runs keep refreshing files the
+// owner cannot open.
+function ElsewhereNote({ count, owner }: { count: number; owner: string }) {
+  const them = count === 1 ? "it" : "them";
+  return (
+    <Alert className="mb-3" data-testid="script-produced-elsewhere">
+      <AlertDescription>
+        {count === 1
+          ? "One of these files belongs to somebody else. "
+          : `${count} of these files belong to somebody else. `}
+        {owner} cannot open, share or delete {them}, and each run goes on writing a new
+        version into {them}.
+      </AlertDescription>
+    </Alert>
   );
 }
 
@@ -94,17 +147,51 @@ function hrefFor(
   return filePath(item.target_kind, item.target_id);
 }
 
+// ownedByAnother reports a live file whose row names somebody other than the
+// script's owner. A resource records no address and is never marked; a file
+// with no owner to compare against is not either.
+export function ownedByAnother(item: ProducedItem, owner?: string): boolean {
+  if (!owner || !item.owner_email || item.deleted) return false;
+  return item.owner_email.toLowerCase() !== owner.toLowerCase();
+}
+
+// kindLabel is the column's word for what was written.
+function kindLabel(kind: ProducedItem["target_kind"]): string {
+  switch (kind) {
+    case "asset":
+      return "Asset";
+    case "collection":
+      return "Collection";
+    default:
+      return "Resource";
+  }
+}
+
+function kindIcon(kind: ProducedItem["target_kind"]) {
+  switch (kind) {
+    case "asset":
+      return FileText;
+    case "collection":
+      return FolderOpen;
+    default:
+      return Paperclip;
+  }
+}
+
 function ProducedRow({
   item,
+  elsewhere,
   href,
   onNavigate,
 }: {
   item: ProducedItem;
+  /** Whether the file's owner is somebody other than the script's owner. */
+  elsewhere: boolean;
   href?: string;
   onNavigate?: (path: string) => void;
 }) {
   const open = href && onNavigate ? () => onNavigate(href) : undefined;
-  const Icon = item.target_kind === "asset" ? FileText : Paperclip;
+  const Icon = kindIcon(item.target_kind);
   return (
     <TableRow className={open ? "cursor-pointer" : undefined} onClick={open}>
       <TableCell>
@@ -122,10 +209,15 @@ function ProducedRow({
               deleted
             </Badge>
           )}
+          {elsewhere && (
+            <Badge variant="outline" className="shrink-0 text-[10px]">
+              owned by {item.owner_email}
+            </Badge>
+          )}
         </div>
       </TableCell>
       <TableCell className="whitespace-nowrap text-muted-foreground">
-        {item.target_kind === "asset" ? "Asset" : "Resource"}
+        {kindLabel(item.target_kind)}
       </TableCell>
       <TableCell className="text-muted-foreground">{item.write_count}</TableCell>
       <TableCell className="whitespace-nowrap text-muted-foreground">

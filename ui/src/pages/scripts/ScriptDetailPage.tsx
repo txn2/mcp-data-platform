@@ -19,6 +19,7 @@ import { executionState, formatWhen } from "./runFormat";
 import { ScriptDelete } from "./ScriptDelete";
 import { ScriptDocumentation } from "./ScriptDocumentation";
 import { ScriptOwnerTransfer } from "./ScriptOwnerTransfer";
+import type { ProducedTargetKind } from "@/api/portal/hooks/producers";
 import { ScriptProducedPanel } from "./ScriptProducedPanel";
 import { ScriptRunHistory } from "./ScriptRunHistory";
 import { ScriptScheduleEditor } from "./ScriptScheduleEditor";
@@ -56,7 +57,7 @@ interface Props {
   /** Where a file this script produced opens for this reader (#1569). The
    * portal and the admin console hold the same file at different addresses;
    * absent, a produced file is named without being linked. */
-  filePath?: (kind: "asset" | "resource", id: string) => string;
+  filePath?: (kind: ProducedTargetKind, id: string) => string;
 }
 
 export function ScriptDetailPage({
@@ -106,7 +107,7 @@ function ScriptDetail({
   onNavigate: (path: string) => void;
   backLabel: string;
   openRunId?: string;
-  filePath?: (kind: "asset" | "resource", id: string) => string;
+  filePath?: (kind: ProducedTargetKind, id: string) => string;
 }) {
   const { contract, owned, source } = data;
   const state = executionState(contract);
@@ -164,6 +165,7 @@ function ScriptDetail({
               aggregate the individual accounts add up to. */}
           <ScriptProducedPanel
             scriptId={scriptId}
+            owner={contract.owner_email}
             filePath={filePath}
             onNavigate={onNavigate}
           />

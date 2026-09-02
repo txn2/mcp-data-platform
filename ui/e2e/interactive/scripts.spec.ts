@@ -77,7 +77,7 @@ test.describe("Portal script pages", () => {
       "About",
       "Source",
       "Run history",
-      "Files written (3)",
+      "Files written (4)",
       "State",
       "Owner",
       // Removing the script is last, because it is the last thing anybody does

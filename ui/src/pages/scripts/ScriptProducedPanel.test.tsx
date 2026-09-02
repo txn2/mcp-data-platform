@@ -121,8 +121,75 @@ describe("everything a script has produced", () => {
     stubApi(body());
     renderPanel();
     expect(
-      await screen.findByText(/has not written an asset or a managed resource yet/),
+      await screen.findByText(/has not written an asset, a collection or a managed resource yet/),
     ).toBeInTheDocument();
+  });
+
+  it("lists a collection as a collection and opens it in the collections library", async () => {
+    const onNavigate = vi.fn();
+    stubApi(
+      body(
+        item({ target_kind: "collection", target_id: "col-001", name: "Q4 Performance Review" }),
+      ),
+    );
+    renderPanel({ filePath: (kind, id) => `/${kind}s/${id}`, onNavigate });
+
+    expect(await screen.findByText("Q4 Performance Review")).toBeInTheDocument();
+    expect(screen.getByText("Collection")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Q4 Performance Review"));
+    expect(onNavigate).toHaveBeenCalledWith("/collections/col-001");
+  });
+
+  // A transfer that kept the files leaves the script's runs writing into files
+  // the script's owner cannot open (#1588, criterion 3). The panel marks each
+  // such file with whose it is and says what that means, above the table.
+  it("marks a file whose owner is not the script's owner", async () => {
+    stubApi(
+      body(
+        item({ owner_email: "sarah.chen@example.com" }),
+        item({
+          target_id: "ast-002",
+          name: "Weekly Sales",
+          owner_email: "Marcus.Webb@example.com",
+        }),
+        item({ target_kind: "resource", target_id: "res-001", name: "Region map" }),
+      ),
+    );
+    renderPanel({ owner: "marcus.webb@example.com" });
+
+    expect(await screen.findByText("Q4 Revenue Dashboard")).toBeInTheDocument();
+    expect(screen.getByText("owned by sarah.chen@example.com")).toBeInTheDocument();
+    // The file already the owner's, compared case-insensitively, is not marked;
+    // nor is a resource, which records no address.
+    expect(screen.queryByText(/owned by marcus/i)).not.toBeInTheDocument();
+    expect(screen.getByTestId("script-produced-elsewhere")).toHaveTextContent(
+      "One of these files belongs to somebody else. marcus.webb@example.com cannot open, share or delete it, and each run goes on writing a new version into it.",
+    );
+  });
+
+  it("counts the files that belong to somebody else", async () => {
+    stubApi(
+      body(
+        item({ owner_email: "sarah.chen@example.com" }),
+        item({ target_id: "ast-002", name: "Weekly Sales", owner_email: "sarah.chen@example.com" }),
+      ),
+    );
+    renderPanel({ owner: "marcus.webb@example.com" });
+
+    expect(await screen.findByTestId("script-produced-elsewhere")).toHaveTextContent(
+      "2 of these files belong to somebody else. marcus.webb@example.com cannot open, share or delete them",
+    );
+  });
+
+  // Without an owner to compare against nothing is marked: the page passes
+  // the script's owner, and a caller that has none has no claim to make.
+  it("marks nothing without an owner to compare against", async () => {
+    stubApi(body(item({ owner_email: "sarah.chen@example.com" })));
+    renderPanel();
+
+    expect(await screen.findByText("Q4 Revenue Dashboard")).toBeInTheDocument();
+    expect(screen.queryByText(/owned by/)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("script-produced-elsewhere")).not.toBeInTheDocument();
   });
 
   it("says so when the record cannot be read", async () => {

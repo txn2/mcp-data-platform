@@ -27,9 +27,6 @@ vi.mock("@/api/portal/hooks/scripts", () => ({
   useDryRunScript: vi.fn(),
   useScriptConnections: vi.fn(),
   useRunScript: vi.fn(),
-  // The owner transfer's hook (#1404). The control has its own tests; here it
-  // only has to answer, so the page composes with the administrator's section.
-  useTransferScriptOwner: vi.fn(),
   // The state card's hooks (#1537). The card has its own tests; here they only
   // have to answer, so the page composes with the section that carries state.
   useScriptState: vi.fn(),
@@ -38,6 +35,12 @@ vi.mock("@/api/portal/hooks/scripts", () => ({
   // The page size is the module's own constant, not a hook: the run history
   // states it when a result fills it.
   RUN_PAGE_SIZE: 25,
+}));
+
+// The owner transfer's hook (#1404). The control has its own tests; here it
+// only has to answer, so the page composes with the administrator's section.
+vi.mock("@/api/portal/hooks/scriptOwner", () => ({
+  useTransferScriptOwner: vi.fn(),
 }));
 
 // Removing the script (#1575) has its own tests; here the hook only has to
@@ -102,9 +105,9 @@ import {
   useSetScriptSchedulePaused,
   useSetScriptState,
   useClearScriptState,
-  useTransferScriptOwner,
   useValidateScriptSource,
 } from "@/api/portal/hooks/scripts";
+import { useTransferScriptOwner } from "@/api/portal/hooks/scriptOwner";
 
 const mockContract = vi.mocked(useScriptContract);
 const mockTransfer = vi.mocked(useTransferScriptOwner);
