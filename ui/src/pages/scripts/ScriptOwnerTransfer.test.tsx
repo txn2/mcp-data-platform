@@ -3,7 +3,7 @@ import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import type { ScriptContract } from "@/api/portal/hooks/scripts";
 import { ScriptOwnerTransfer } from "./ScriptOwnerTransfer";
 
-vi.mock("@/api/portal/hooks/scripts", () => ({
+vi.mock("@/api/portal/hooks/scriptOwner", () => ({
   useTransferScriptOwner: vi.fn(),
 }));
 
@@ -14,11 +14,51 @@ vi.mock("@/api/portal/hooks", () => ({
   useDirectoryUsers: vi.fn(),
 }));
 
+// What the script's runs have written (#1588) is read from the produced
+// listing, which has its own tests; here it only has to answer, so the
+// control renders without a query client.
+vi.mock("@/api/portal/hooks/producers", () => ({
+  useScriptProduced: vi.fn(),
+}));
+
 import { useDirectoryUsers } from "@/api/portal/hooks";
-import { useTransferScriptOwner } from "@/api/portal/hooks/scripts";
+import { useScriptProduced, type ProducedItem } from "@/api/portal/hooks/producers";
+import { useTransferScriptOwner } from "@/api/portal/hooks/scriptOwner";
 
 const mockTransfer = vi.mocked(useTransferScriptOwner);
 const mockDirectory = vi.mocked(useDirectoryUsers);
+const mockProduced = vi.mocked(useScriptProduced);
+
+// produced is what script-001's runs have written: two assets and a
+// collection it created, an asset it only modified, a created asset since
+// deleted, and a resource. Only the first three are a transfer's concern.
+function produced(items: ProducedItem[]) {
+  mockProduced.mockReturnValue({ data: { data: items, total: items.length } } as never);
+}
+
+function written(overrides: Partial<ProducedItem>): ProducedItem {
+  return {
+    target_kind: "asset",
+    target_id: "ast-001",
+    name: "Q4 Revenue Dashboard",
+    owner_email: "sarah.chen@example.com",
+    created: true,
+    first_write_at: "2026-07-01T09:00:00Z",
+    last_write_at: "2026-08-20T09:00:00Z",
+    write_count: 41,
+    last_version: 8,
+    ...overrides,
+  };
+}
+
+const outputs: ProducedItem[] = [
+  written({}),
+  written({ target_id: "ast-002", name: "Weekly Sales" }),
+  written({ target_kind: "collection", target_id: "col-001", name: "Q4 Pack" }),
+  written({ target_id: "ast-003", name: "Somebody else's", created: false }),
+  written({ target_id: "ast-gone", name: undefined, deleted: true }),
+  written({ target_kind: "resource", target_id: "res-001", name: "Region map", owner_email: undefined }),
+];
 
 const contract: ScriptContract = {
   id: "script-001",
@@ -48,6 +88,7 @@ beforeEach(() => {
   mutate = vi.fn();
   mockTransfer.mockReturnValue({ mutate, isPending: false } as never);
   mockDirectory.mockReturnValue({ data: directory } as never);
+  produced([]);
 });
 
 afterEach(cleanup);
@@ -121,7 +162,124 @@ describe("ScriptOwnerTransfer", () => {
     expect(mutate).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Transfer" }));
-    expect(mutate).toHaveBeenCalledWith("marcus.webb@example.com", expect.anything());
+    expect(mutate).toHaveBeenCalledWith(
+      { ownerEmail: "marcus.webb@example.com", outputs: undefined },
+      expect.anything(),
+    );
+  });
+
+  // A script that has written nothing that still exists -- a file it only
+  // modified, a created one since deleted, a resource -- asks no question
+  // about outputs and sends no disposition (#1588, criterion 5).
+  it("asks nothing about outputs when the script has created none", () => {
+    produced(outputs.slice(3));
+    renderControl();
+
+    ask("Marcus Webb — marcus.webb@example.com");
+
+    expect(screen.queryByTestId("script-owner-outputs")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Transfer" }));
+    expect(mutate).toHaveBeenCalledWith(
+      { ownerEmail: "marcus.webb@example.com", outputs: undefined },
+      expect.anything(),
+    );
+  });
+
+  // The files the script's runs created do not move on their own. The
+  // confirmation counts them, offers to move them, on by default, and states
+  // what each choice leaves the new owner able to do (#1588, criterion 1).
+  it("counts the files the script wrote and moves them by default", () => {
+    produced(outputs);
+    renderControl();
+
+    ask("Marcus Webb — marcus.webb@example.com");
+
+    expect(screen.getByTestId("script-owner-outputs")).toHaveTextContent(
+      "Its runs have written 2 assets and 1 collection.",
+    );
+    const box = screen.getByRole("checkbox", { name: "Move the files it wrote as well" });
+    expect(box).toBeChecked();
+    expect(
+      screen.getByText(/marcus.webb@example.com will own them/),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Transfer" }));
+    expect(mutate).toHaveBeenCalledWith(
+      { ownerEmail: "marcus.webb@example.com", outputs: "move" },
+      expect.anything(),
+    );
+  });
+
+  it("says what leaving the files behind means, and sends keep", () => {
+    produced(outputs);
+    renderControl();
+
+    ask("Marcus Webb — marcus.webb@example.com");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Move the files it wrote as well" }));
+
+    expect(
+      screen.getByText(/marcus.webb@example.com cannot open, share or delete them/),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Transfer" }));
+    expect(mutate).toHaveBeenCalledWith(
+      { ownerEmail: "marcus.webb@example.com", outputs: "keep" },
+      expect.anything(),
+    );
+  });
+
+  // The box is reset each time the confirmation opens: an unchecked box from
+  // an abandoned move must not carry into the next one unnoticed.
+  it("offers to move the files again after a cancelled move", () => {
+    produced(outputs);
+    renderControl();
+
+    ask("Marcus Webb — marcus.webb@example.com");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Move the files it wrote as well" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Transfer ownership" }));
+
+    expect(screen.getByRole("checkbox", { name: "Move the files it wrote as well" })).toBeChecked();
+  });
+
+  // Criterion 3 at this surface: when the files were kept, the outcome lists
+  // the ones the new owner cannot reach, by name and by whose they are.
+  it("lists the files the new owner cannot reach when they were kept", () => {
+    produced(outputs);
+    mockTransfer.mockReturnValue({
+      mutate: (
+        _input: unknown,
+        opts: { onSuccess: (o: { message: string; outputs: unknown }) => void },
+      ) =>
+        opts.onSuccess({
+          message:
+            "daily-sales-report now belongs to marcus.webb@example.com and runs with the access you hold, captured now. The 2 assets and 1 collection its runs wrote stay with sarah.chen@example.com. marcus.webb@example.com cannot open, share or delete them, and each run goes on writing a new version into them.",
+          outputs: {
+            assets: 2,
+            collections: 1,
+            disposition: "keep",
+            kept: [
+              {
+                target_kind: "asset",
+                target_id: "ast-001",
+                name: "Q4 Revenue Dashboard",
+                owner_email: "sarah.chen@example.com",
+              },
+              { target_kind: "collection", target_id: "col-001", owner_email: "sarah.chen@example.com" },
+            ],
+          },
+        }),
+      isPending: false,
+    } as never);
+    renderControl();
+
+    ask("Marcus Webb — marcus.webb@example.com");
+    fireEvent.click(screen.getByRole("button", { name: "Transfer" }));
+
+    expect(screen.getByText(/stay with sarah.chen@example.com/)).toBeInTheDocument();
+    const kept = screen.getByTestId("script-owner-kept");
+    expect(kept).toHaveTextContent("Q4 Revenue Dashboard (asset, sarah.chen@example.com)");
+    // A file with no name left is named by its id.
+    expect(kept).toHaveTextContent("col-001 (collection, sarah.chen@example.com)");
   });
 
   it("abandons the move on cancel", () => {

@@ -157,11 +157,24 @@ export async function openScriptState(page: Page): Promise<void> {
 export async function openScriptOwner(page: Page): Promise<void> {
   await page.getByText("Transfer ownership").scrollIntoViewIfNeeded({ timeout: 3_000 });
   // The new owner is CHOSEN, from the people who have actually signed in
-  // (#1407), so the capture is of the choice rather than of a closed control:
-  // an address nobody has authenticated with cannot open the portal, and a
-  // script handed to one would be visible to administrators alone.
+  // (#1407): an address nobody has authenticated with cannot open the portal,
+  // and a script handed to one would be visible to administrators alone. The
+  // capture is of the confirmation that follows the choice, because that is
+  // where the transfer states what it does with the files the script's runs
+  // have written (#1588): how many there are, and the box that moves them.
+  // Nothing is confirmed; the mock server keeps the script for the captures
+  // that follow.
   await page
     .getByLabel("New owner")
+    .click({ timeout: 3_000 })
+    .catch(() => {});
+  await page
+    .getByRole("option")
+    .first()
+    .click({ timeout: 3_000 })
+    .catch(() => {});
+  await page
+    .getByRole("button", { name: "Transfer ownership" })
     .click({ timeout: 3_000 })
     .catch(() => {});
   await page.waitForTimeout(600);

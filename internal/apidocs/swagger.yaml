@@ -5061,11 +5061,21 @@ definitions:
         description: Name is what the file is called now, empty when it no longer
           exists.
         type: string
+      owner_email:
+        description: |-
+          OwnerEmail is the address the file's row records as its owner, for an
+          asset or a collection. It is what says whether the script's owner can
+          reach the file: a transfer moves the script and, unless it was asked to,
+          leaves the address on every file the script wrote as it was (#1588).
+          Empty for a resource, which is filed by library rather than by address,
+          and for a file that no longer exists.
+        type: string
       target_id:
         type: string
       target_kind:
-        description: TargetKind is "asset" or "resource"; TargetID is the id within
-          that kind.
+        description: |-
+          TargetKind is TargetAsset, TargetCollection or TargetResource; TargetID
+          is the id within that kind.
         type: string
       write_count:
         type: integer
@@ -6378,8 +6388,65 @@ definitions:
         example: 4
         type: integer
     type: object
+  scripthttp.ownerOutput:
+    properties:
+      name:
+        example: Daily sales
+        type: string
+      owner_email:
+        example: carol@example.com
+        type: string
+      target_id:
+        example: asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK
+        type: string
+      target_kind:
+        enum:
+        - asset
+        - collection
+        example: asset
+        type: string
+    type: object
+  scripthttp.ownerOutputs:
+    properties:
+      assets:
+        description: |-
+          Assets and Collections count the files the script's runs created that
+          the disposition applied to: the rows moved, or the rows left behind.
+        example: 2
+        type: integer
+      collections:
+        example: 1
+        type: integer
+      disposition:
+        description: 'Disposition is what was done with them: "move" or "keep".'
+        enum:
+        - move
+        - keep
+        example: keep
+        type: string
+      kept:
+        description: |-
+          Kept lists, when the outputs were kept, the ones the new owner cannot
+          open, share or delete: every output whose row names somebody else. An
+          output that already belonged to the new owner is not listed.
+        items:
+          $ref: '#/definitions/scripthttp.ownerOutput'
+        type: array
+    type: object
   scripthttp.ownerRequest:
     properties:
+      outputs:
+        description: |-
+          Outputs says what happens to the assets and collections the script's
+          runs have created (#1588): "move" hands them to the new owner with the
+          script, "keep" leaves them with whoever owns them now. It must be stated
+          when the script has created any; a script that has created none accepts
+          either value or neither.
+        enum:
+        - move
+        - keep
+        example: move
+        type: string
       owner_email:
         example: admin@example.com
         type: string
@@ -6391,6 +6458,13 @@ definitions:
         example: daily-sales-report now belongs to admin@example.com and runs with
           your access.
         type: string
+      outputs:
+        allOf:
+        - $ref: '#/definitions/scripthttp.ownerOutputs'
+        description: |-
+          Outputs states what happened to the assets and collections the script's
+          runs had created before the move. Absent when there were none, which is
+          also the shape of a deployment that records no producers.
       owner_email:
         description: OwnerEmail is the address the script now belongs to, normalized.
         example: admin@example.com
@@ -17091,19 +17165,22 @@ paths:
     put:
       consumes:
       - application/json
-      description: Moves a managed script to another person. Restricted to administrators.
+      description: 'Moves a managed script to another person. Restricted to administrators.
         The move is recorded as a new version authored by the administrator, and a
         run of the script from now on presents the roles that administrator held,
         so transferring a script to an administrator is how it comes to run with administrative
         reach. Refused with 409 when the new owner already keeps a script of the same
-        name.
+        name. The assets and collections the script''s runs have created do not move
+        on their own: when there are any, the request must say whether they move with
+        the script (outputs: move) or stay with their current owner (outputs: keep),
+        and the response states which files stayed that the new owner cannot reach.'
       parameters:
       - description: Script ID
         in: path
         name: id
         required: true
         type: string
-      - description: New owner
+      - description: New owner, and what happens to the script's outputs
         in: body
         name: owner
         required: true

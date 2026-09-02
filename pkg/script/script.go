@@ -306,5 +306,9 @@ type Store interface {
 	// carries: a run presents the authority captured on the version it
 	// executes, so a transfer that left the old authority in place would keep
 	// running the script as the person who no longer owns it.
-	Transfer(ctx context.Context, id, newOwnerEmail string, author Author) error
+	//
+	// When the request asks for it, the assets and collections the script's
+	// runs created move with it, in the same transaction, and the receipt
+	// counts them (#1588).
+	Transfer(ctx context.Context, req TransferRequest, author Author) (Transferred, error)
 }

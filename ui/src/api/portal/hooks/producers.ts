@@ -15,7 +15,7 @@ import { apiFetch } from "../client";
 export type ProducerKind = "script" | "session" | "person";
 
 // ProducedTargetKind is what was written.
-export type ProducedTargetKind = "asset" | "resource";
+export type ProducedTargetKind = "asset" | "resource" | "collection";
 
 // Producer is one writer of one file, as the viewer lists it.
 export interface Producer {
@@ -47,6 +47,12 @@ export interface ProducedItem {
   target_id: string;
   /** Absent when the file no longer exists, which `deleted` reports. */
   name?: string;
+  /** The address the file's row records as its owner, for an asset or a
+   * collection. A transfer moves the script and, unless asked to, leaves this
+   * as it was (#1588), so a file whose owner is not the script's owner is one
+   * the script's owner cannot open. Absent for a resource, which is filed by
+   * library, and for a deleted file. */
+  owner_email?: string;
   created: boolean;
   first_write_at: string;
   last_write_at: string;
@@ -61,7 +67,10 @@ export interface ProducedResponse {
 }
 
 const producersKey = (kind: ProducedTargetKind, id: string) => ["portal", "producers", kind, id];
-const producedKey = (scriptId: string) => ["portal", "script-produced", scriptId];
+// scriptProducedKey is the query a script's "Files written" list reads. It is
+// exported so the transfer, which can change whose those files are, can
+// invalidate it.
+export const scriptProducedKey = (scriptId: string) => ["portal", "script-produced", scriptId];
 
 // producersPath is the route that answers "what wrote this?" for either kind.
 // One path shape for both keeps the two panels asking the same question.
@@ -84,7 +93,7 @@ export function useProducers(kind: ProducedTargetKind, id: string | undefined) {
 // output appears too.
 export function useScriptProduced(scriptId: string | undefined) {
   return useQuery({
-    queryKey: producedKey(scriptId ?? ""),
+    queryKey: scriptProducedKey(scriptId ?? ""),
     enabled: Boolean(scriptId),
     queryFn: () => apiFetch<ProducedResponse>(`/scripts/${scriptId ?? ""}/produced`),
   });

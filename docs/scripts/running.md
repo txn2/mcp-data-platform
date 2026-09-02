@@ -63,6 +63,34 @@ an administrator is how it comes to run with an administrator's reach. It is
 refused when the receiving owner already keeps a script of the same name, and
 it is recorded in the audit log like any other administrative write.
 
+The files the script's runs have already written do not move on their own
+(#1588). An output records the owner's address when it is first written, and
+the move rewrites nothing about it by itself, so a transfer that said nothing
+about them would leave the new owner with a script whose every run refreshes
+files they cannot open. When the script has created live assets or
+collections, the request states what happens to them:
+
+```json
+{"owner_email": "jane@example.com", "outputs": "move"}
+```
+
+`outputs: move` hands every asset and collection the script created to the
+new owner, in the same transaction as the script, so a refused transfer moves
+no file and a failed file update moves no script. `outputs: keep` leaves them
+with whoever owns them now. A request that says neither is refused with a 400
+naming how many files there are to decide about; a script that has created
+none accepts either value or neither and moves exactly as it always has. The
+portal's confirmation counts the files and offers to move them, on by default.
+Only files the script CREATED are its to move: a file it wrote a version over
+is somebody else's, a managed resource is filed by library rather than by
+address, and a deleted file is gone either way.
+
+The response states what became of them. Moved, it counts what moved; kept,
+it lists each file the new owner cannot open, share or delete, by name and by
+whose it is, and the script's page marks the same files under Files written.
+The audit event records the disposition and, for a move, how many rows it
+touched.
+
 ### What a run may call
 
 A script calls the tools its author can call. `platform.query`,
@@ -633,12 +661,13 @@ What a run ENUMERATES is neither identifier. `manage_asset action=list`,
 `search` over assets and the collection listing scope a run by the PRODUCER the
 platform recorded for its writes (`content_producers`), which names the script
 by id: unique, unaffected by a rename, and unaffected by a transfer. The owner
-columns are none of those. Nothing rewrites an asset row when a script changes
-hands, so transferring a script does NOT hand over the assets its runs have
-already produced: those rows keep the previous owner's address and stay that
-person's. What the new owner receives is the script, its schedule and everything
-its runs produce from then on -- which are new versions of the same assets, since
-an output keeps its identity across a transfer.
+columns are none of those. A transfer rewrites the address on the assets and
+collections the script created only when it is asked to (`outputs: move`,
+above); asked to keep them, it leaves those rows with the previous owner's
+address, and they stay that person's while the new owner's runs go on writing
+new versions into them, since an output keeps its identity across a transfer.
+Either way the inventory is unchanged: what the script produced is recorded by
+the producer relation, not by the owner columns.
 
 A table registered over an output, or over a managed resource the script
 refreshes with `manage_resource replace_content`, follows the file unless it

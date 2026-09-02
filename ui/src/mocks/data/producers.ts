@@ -105,9 +105,11 @@ export const producersByTarget: Record<string, MockProducer[]> = {
 };
 
 export interface MockProducedItem {
-  target_kind: "asset" | "resource";
+  target_kind: "asset" | "resource" | "collection";
   target_id: string;
   name?: string;
+  /** The address the file's row records, for an asset or a collection. */
+  owner_email?: string;
   created: boolean;
   first_write_at: string;
   last_write_at: string;
@@ -128,11 +130,26 @@ export const producedByScript: Record<string, MockProducedItem[]> = {
       target_kind: "asset",
       target_id: "ast-001",
       name: "Q4 Revenue Dashboard",
+      owner_email: "sarah.chen@example.com",
       created: true,
       first_write_at: daysAgo(41),
       last_write_at: hoursAgo(19),
       write_count: 41,
       last_version: 8,
+    },
+    {
+      // The collection the script files its outputs under, created by its
+      // first run (#1579). It carries an owner address the way an asset does,
+      // and a transfer that keeps the outputs leaves it behind the same way.
+      target_kind: "collection",
+      target_id: "col-001",
+      name: "Q4 Performance Review",
+      owner_email: "sarah.chen@example.com",
+      created: true,
+      first_write_at: daysAgo(41),
+      last_write_at: daysAgo(41),
+      write_count: 1,
+      last_version: 0,
     },
     {
       target_kind: "resource",

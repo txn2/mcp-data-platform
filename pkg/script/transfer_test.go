@@ -81,3 +81,33 @@ func TestTransfer_Refusals(t *testing.T) {
 		})
 	}
 }
+
+// TestParseOutputDisposition pins the wire vocabulary for what a transfer does
+// with a script's outputs (#1588): the two words, case-insensitively and
+// trimmed, the empty string as "unstated", and nothing else.
+func TestParseOutputDisposition(t *testing.T) {
+	cases := []struct {
+		in   string
+		want script.OutputDisposition
+		ok   bool
+	}{
+		{"", "", true},
+		{"move", script.OutputsMove, true},
+		{" Keep ", script.OutputsKeep, true},
+		{"MOVE", script.OutputsMove, true},
+		{"burn", "", false},
+		{"moved", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.in, func(t *testing.T) {
+			got, err := script.ParseOutputDisposition(tc.in)
+			if !tc.ok {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.in)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}

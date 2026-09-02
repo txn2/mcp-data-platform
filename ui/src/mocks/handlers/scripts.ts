@@ -1,4 +1,5 @@
 import { http, HttpResponse } from "msw";
+import { producedByScript, type MockProducedItem } from "../data/producers";
 import type { ScriptVersion } from "@/api/admin/types";
 import type { ScriptSchedule } from "@/api/portal/hooks/scripts";
 import {
@@ -309,7 +310,7 @@ export const scriptHandlers = [
   // presents from then on.
   http.put(`${PORTAL_BASE}/scripts/:id/owner`, async ({ params, request }) => {
     const id = String(params.id);
-    const body = (await request.json()) as { owner_email?: string };
+    const body = (await request.json()) as { owner_email?: string; outputs?: string };
     const script = scripts.find((s) => s.id === id);
     const contract = contracts[id];
     if (!script || !contract) {
@@ -334,14 +335,68 @@ export const scriptHandlers = [
         { status: 409 },
       );
     }
+    // The files the script's runs created do not move on their own (#1588):
+    // when there are any, the request says whether they go with the script or
+    // stay, and the answer states which files the new owner cannot reach.
+    const outputs = (producedByScript[id] ?? []).filter(
+      (item) =>
+        (item.target_kind === "asset" || item.target_kind === "collection") &&
+        item.created &&
+        !item.deleted,
+    );
+    const disposition = (body.outputs ?? "").trim().toLowerCase();
+    if (disposition !== "" && disposition !== "move" && disposition !== "keep") {
+      return HttpResponse.json(
+        { detail: `outputs must be "move" or "keep", not "${body.outputs}"` },
+        { status: 400 },
+      );
+    }
+    if (outputs.length > 0 && disposition === "") {
+      return HttpResponse.json(
+        {
+          detail: `${script.name}'s runs have written ${countFiles(outputs)}. Say whether they move with it ("outputs": "move") or stay with ${script.owner_email} ("outputs": "keep").`,
+        },
+        { status: 400 },
+      );
+    }
+    const from = script.owner_email;
     script.owner_email = to;
     contract.owner_email = to;
     script.version += 1;
     contract.version = script.version;
+    let message = `${script.name} now belongs to ${to} and runs with the access you hold, captured now.`;
+    let account: Record<string, unknown> | undefined;
+    if (outputs.length > 0 && disposition === "move") {
+      for (const item of outputs) item.owner_email = to;
+      account = {
+        assets: outputs.filter((i) => i.target_kind === "asset").length,
+        collections: outputs.filter((i) => i.target_kind === "collection").length,
+        disposition: "move",
+      };
+      message += ` The ${countFiles(outputs)} its runs wrote now belong to ${to} too.`;
+    } else if (outputs.length > 0) {
+      const kept = outputs.filter((i) => (i.owner_email ?? "").toLowerCase() !== to);
+      account = {
+        assets: outputs.filter((i) => i.target_kind === "asset").length,
+        collections: outputs.filter((i) => i.target_kind === "collection").length,
+        disposition: "keep",
+        kept: kept.map((i) => ({
+          target_kind: i.target_kind,
+          target_id: i.target_id,
+          name: i.name,
+          owner_email: i.owner_email,
+        })),
+      };
+      message +=
+        kept.length === 0
+          ? ` The ${countFiles(outputs)} its runs wrote already belong to ${to}.`
+          : ` The ${countFiles(outputs)} its runs wrote stay with ${from}. ${to} cannot open, share or delete them, and each run goes on writing a new version into them.`;
+    }
     return HttpResponse.json({
       owner_email: to,
       version: script.version,
-      message: `${script.name} now belongs to ${to} and runs with the access you hold, captured now.`,
+      message,
+      ...(account ? { outputs: account } : {}),
     });
   }),
 
@@ -644,3 +699,15 @@ export const scriptHandlers = [
     return HttpResponse.json(run);
   }),
 ];
+
+// countFiles renders "2 assets and 1 collection", the way the route does.
+function countFiles(items: MockProducedItem[]): string {
+  const assets = items.filter((i) => i.target_kind === "asset").length;
+  const collections = items.length - assets;
+  const parts: string[] = [];
+  if (assets > 0) parts.push(assets === 1 ? "1 asset" : `${assets} assets`);
+  if (collections > 0) {
+    parts.push(collections === 1 ? "1 collection" : `${collections} collections`);
+  }
+  return parts.join(" and ");
+}

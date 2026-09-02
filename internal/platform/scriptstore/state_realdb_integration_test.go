@@ -179,7 +179,8 @@ func TestRealDB_StateFollowsTheScript(t *testing.T) {
 	_, err := s.SetState(ctx, sc.ID, map[string]any{"synced_through": "2026-08-01"}, "jane@example.com")
 	require.NoError(t, err)
 
-	require.NoError(t, s.Transfer(ctx, sc.ID, "admin@example.com", script.Author{Email: "admin@example.com", Roles: []string{"admin"}}))
+	_, err = s.Transfer(ctx, script.TransferRequest{ID: sc.ID, NewOwnerEmail: "admin@example.com"}, script.Author{Email: "admin@example.com", Roles: []string{"admin"}})
+	require.NoError(t, err)
 	st, err := s.GetState(ctx, sc.ID)
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), st.Revision, "a transfer keeps the state")

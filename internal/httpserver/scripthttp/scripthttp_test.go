@@ -37,6 +37,11 @@ type stubStore struct {
 	// should answer with.
 	transferErr   error
 	transferredBy script.Author
+	// transferAsked is the request the store was handed, which is where the
+	// handler's disposition is asserted; transferMoved is the receipt it
+	// answers a move with.
+	transferAsked script.TransferRequest
+	transferMoved script.Transferred
 	// The delete half (#1575): what the store should answer with, and the ids
 	// it was actually asked to remove.
 	deleteErr  error
@@ -69,22 +74,25 @@ func (*stubStore) Update(context.Context, *script.Script) error { return nil }
 // Transfer records the move the way the real store does — the owner on the live
 // row and a new version number — so a handler test can assert what the caller
 // is told about the script afterwards.
-func (s *stubStore) Transfer(_ context.Context, id, newOwner string, author script.Author) error {
+func (s *stubStore) Transfer(_ context.Context, req script.TransferRequest, author script.Author) (script.Transferred, error) {
 	if s.transferErr != nil {
-		return s.transferErr
+		return script.Transferred{}, s.transferErr
 	}
-	s.transferredBy = author
+	s.transferredBy, s.transferAsked = author, req
 	for i := range s.scripts {
-		if s.scripts[i].ID != id {
+		if s.scripts[i].ID != req.ID {
 			continue
 		}
-		if err := s.scripts[i].Transfer(newOwner); err != nil {
-			return err //nolint:wrapcheck // the fake mirrors the store: the domain refusal is the caller's message
+		if err := s.scripts[i].Transfer(req.NewOwnerEmail); err != nil {
+			return script.Transferred{}, err //nolint:wrapcheck // the fake mirrors the store: the domain refusal is the caller's message
 		}
 		s.scripts[i].Version++
-		return nil
+		if req.Outputs == script.OutputsMove {
+			return s.transferMoved, nil
+		}
+		return script.Transferred{}, nil
 	}
-	return errors.New("script not found")
+	return script.Transferred{}, errors.New("script not found")
 }
 
 // Delete removes the script the way the real store does, and answers a request

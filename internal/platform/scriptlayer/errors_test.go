@@ -50,11 +50,11 @@ func (f *failingStore) List(ctx context.Context, filter script.ListFilter) ([]sc
 	return f.memStore.List(ctx, filter)
 }
 
-func (f *failingStore) Transfer(ctx context.Context, id, newOwner string, author script.Author) error {
+func (f *failingStore) Transfer(ctx context.Context, req script.TransferRequest, author script.Author) (script.Transferred, error) {
 	if f.transferErr != nil {
-		return f.transferErr
+		return script.Transferred{}, f.transferErr
 	}
-	return f.memStore.Transfer(ctx, id, newOwner, author)
+	return f.memStore.Transfer(ctx, req, author)
 }
 
 func (f *failingStore) UpdateWithVersion(ctx context.Context, sc *script.Script, author script.Author) error {

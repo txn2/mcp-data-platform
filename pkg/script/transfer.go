@@ -42,3 +42,54 @@ func (s *Script) Transfer(newOwnerEmail string) error {
 	s.OwnerEmail = normalized
 	return nil
 }
+
+// OutputDisposition is what a transfer does with the assets and collections the
+// script's runs have already produced. A transfer moves the automation; the
+// files its runs wrote record the previous owner's address, and nothing about
+// the move rewrites them on its own (#1588). The caller states which of the two
+// they mean, and the store reports what it did.
+type OutputDisposition string
+
+const (
+	// OutputsMove moves the outputs with the script: every live asset and
+	// collection the script CREATED comes to record the new owner's address,
+	// so the person who now owns the script also owns what it refreshes.
+	OutputsMove OutputDisposition = "move"
+	// OutputsKeep leaves the outputs where they are. The script's runs go on
+	// writing new versions into them, and the new owner cannot open, share or
+	// delete them.
+	OutputsKeep OutputDisposition = "keep"
+)
+
+// ParseOutputDisposition reads a disposition off the wire. The empty string is
+// "unstated", which a surface accepts for a script that has produced nothing
+// and refuses for one that has: a move of somebody's files must be asked for,
+// and so must leaving them behind.
+func ParseOutputDisposition(s string) (OutputDisposition, error) {
+	switch d := OutputDisposition(strings.ToLower(strings.TrimSpace(s))); d {
+	case "", OutputsMove, OutputsKeep:
+		return d, nil
+	default:
+		return "", fmt.Errorf("outputs must be %q or %q, not %q", OutputsMove, OutputsKeep, s)
+	}
+}
+
+// TransferRequest is one move of a script to a new owner.
+type TransferRequest struct {
+	// ID is the script being moved.
+	ID string
+	// NewOwnerEmail is the address the script goes to, normalized by the
+	// transfer itself.
+	NewOwnerEmail string
+	// Outputs is what happens to the files the script's runs have written.
+	// Anything but OutputsMove leaves them alone.
+	Outputs OutputDisposition
+}
+
+// Transferred is what a transfer did beyond moving the script: how many of its
+// outputs came to record the new owner. Both counts are zero when the outputs
+// were kept.
+type Transferred struct {
+	AssetsMoved      int
+	CollectionsMoved int
+}

@@ -48,8 +48,9 @@ test.describe("What produced a file", () => {
 
     const written = page.getByTestId("script-produced");
     await written.scrollIntoViewIfNeeded();
-    await expect(written.getByText("Files written (3)")).toBeVisible();
+    await expect(written.getByText("Files written (4)")).toBeVisible();
     await expect(written.getByText("Q4 Revenue Dashboard")).toBeVisible();
+    await expect(written.getByText("Q4 Performance Review")).toBeVisible();
     await expect(written.getByText("Regional Sales Extract")).toBeVisible();
 
     // Back to the report, from the row: the relation is a round trip.

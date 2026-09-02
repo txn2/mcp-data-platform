@@ -1,5 +1,7 @@
+import type { ProducedTargetKind } from "@/api/portal/hooks/producers";
 import { MyScriptsPage } from "./MyScriptsPage";
 import { ScriptDetailPage } from "./ScriptDetailPage";
+import { sectionOf } from "./producedPaths";
 
 // PortalScriptRoutes is the portal's script section: the listing, one script,
 // and one run of one script. It owns its own route matching so the shell
@@ -48,7 +50,6 @@ export function PortalScriptRoutes({
 
 // portalFilePath is where a file this script produced opens for its owner: the
 // reader's own asset and resource libraries, which is where they can open it.
-function portalFilePath(kind: "asset" | "resource", id: string): string {
-  const section = kind === "asset" ? "assets" : "resources";
-  return `/${section}/${encodeURIComponent(id)}`;
+function portalFilePath(kind: ProducedTargetKind, id: string): string {
+  return `/${sectionOf(kind)}/${encodeURIComponent(id)}`;
 }
