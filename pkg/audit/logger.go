@@ -28,7 +28,7 @@ type Event struct {
 	UserID      string    `json:"user_id" example:"550e8400-e29b-41d4-a716-446655440000"`
 	UserEmail   string    `json:"user_email,omitempty" example:"marcus.johnson@example.com"`
 	Persona     string    `json:"persona,omitempty" example:"data-engineer"`
-	ToolName    string    `json:"tool_name" example:"datahub_get_schema"`
+	ToolName    string    `json:"tool_name" example:"trino_query"`
 	ToolkitKind string    `json:"toolkit_kind,omitempty" example:"datahub"`
 	ToolkitName string    `json:"toolkit_name,omitempty" example:"acme-catalog"`
 	Connection  string    `json:"connection,omitempty" example:"acme-catalog"`

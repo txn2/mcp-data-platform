@@ -542,7 +542,7 @@ func TestCaptureSummarizesToolCalls(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			reader := &fakeReader{events: []audit.Event{
-				event("e1", "datahub_get_entity", "datahub", 0, withParams(tt.params)),
+				event("e1", "datahub_get_lineage", "datahub", 0, withParams(tt.params)),
 			}}
 			capture := newTestCapturer(reader, nil).Capture(context.Background(), saveRequest())
 			require.Len(t, capture.Calls, 1)

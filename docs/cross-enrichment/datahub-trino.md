@@ -1,14 +1,13 @@
 # DataHub to Trino Enrichment
 
-When `datahub_query_enrichment` is enabled, DataHub search results and entity details include information about whether each dataset can be queried via Trino.
+When `datahub_query_enrichment` is enabled, DataHub tool results include information about whether each dataset they name can be queried via Trino. A dataset read in full with `fetch` carries the same answer as `query_availability` on its record, so the one catalog read an agent makes before writing SQL already says where to run it.
 
 ## What Gets Enriched
 
 | Tool | Enrichment |
 |------|------------|
-| `datahub_search` | Each result shows query availability |
-| `datahub_get_entity` | Entity includes Trino table mapping |
-| `datahub_get_schema` | Schema includes queryable status |
+| `datahub_get_lineage` | Each dataset in the graph shows query availability |
+| `fetch urn:li:dataset:...` | The record carries `query_availability` (table, connection, estimated rows) |
 
 ## Enriched Data
 
@@ -137,7 +136,7 @@ query:
 
 ## Schema Preview
 
-When `search_schema_preview` is enabled (default), available tables in `datahub_search` results include a bounded column-name+type preview. This eliminates the intermediate `datahub_get_schema` or `trino_describe_table` call that agents typically need before writing SQL.
+When `search_schema_preview` is enabled (default), available tables in enriched DataHub results include a bounded column-name+type preview. This eliminates the intermediate `fetch` or `trino_describe_table` call that agents typically need before writing SQL.
 
 ```json
 {

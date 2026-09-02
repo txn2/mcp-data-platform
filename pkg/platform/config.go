@@ -755,8 +755,8 @@ type EnrichmentConfig struct {
 	ColumnContextFiltering *bool `yaml:"column_context_filtering"`
 
 	// SearchSchemaPreview adds a bounded column-name+type preview to
-	// datahub_search query_context, eliminating the intermediate
-	// datahub_get_schema or trino_describe_table call before writing SQL.
+	// a DataHub result's query_context, eliminating the intermediate
+	// fetch or trino_describe_table call before writing SQL.
 	// Defaults to true (nil = enabled).
 	SearchSchemaPreview *bool `yaml:"search_schema_preview"`
 

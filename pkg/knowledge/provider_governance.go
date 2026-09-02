@@ -115,6 +115,13 @@ type GovernanceEntity struct {
 	Name string `json:"name"`
 	// Description is a term's definition or a tag's/domain's description.
 	Description string `json:"description,omitempty"`
+	// ParentNode is the glossary node a term is filed under (terms only; empty
+	// for a term at the glossary root and for a tag or domain).
+	ParentNode string `json:"parent_node,omitempty"`
+	// Owners are a term's stewards (terms only).
+	Owners []semantic.Owner `json:"owners,omitempty"`
+	// CustomProperties are a term's free-form key/value properties (terms only).
+	CustomProperties map[string]string `json:"custom_properties,omitempty"`
 	// Datasets are the catalog datasets carrying this entity, bounded by
 	// carrierLimit and filtered to the caller's connection boundary.
 	Datasets []GovernanceDataset `json:"datasets,omitempty"`
@@ -163,7 +170,7 @@ type governanceKind struct {
 	// resolve returns the entry named by urn, or nil when the vocabulary has no
 	// such entry. Nil when upstream has no by-URN read, which sends the resolve
 	// through enumerate instead.
-	resolve func(ctx context.Context, r governanceReader, urn string) (*semantic.EntityRef, error)
+	resolve func(ctx context.Context, r governanceReader, urn string) (*governanceEntry, error)
 	// carriers is the catalog filter listing the datasets that carry urn.
 	carriers func(urn string, limit int) semantic.SearchFilter
 }
@@ -268,7 +275,7 @@ func vocabularyEntries(
 // matching, which is the only route a tag or a domain has. A URN the vocabulary
 // holds no entry for is ErrNotFound, the same sentinel the fetch contract uses,
 // so the miss travels as a value rather than as an ambiguous nil pair.
-func resolveEntry(ctx context.Context, r governanceReader, kind governanceKind, urn string) (*semantic.EntityRef, error) {
+func resolveEntry(ctx context.Context, r governanceReader, kind governanceKind, urn string) (*governanceEntry, error) {
 	if kind.resolve != nil {
 		return kind.resolve(ctx, r, urn)
 	}
@@ -281,7 +288,7 @@ func resolveEntry(ctx context.Context, r governanceReader, kind governanceKind, 
 	}
 	for i := range listed {
 		if listed[i].URN == urn {
-			return &listed[i], nil
+			return &governanceEntry{EntityRef: listed[i]}, nil
 		}
 	}
 	return nil, ErrNotFound
@@ -292,7 +299,7 @@ func resolveEntry(ctx context.Context, r governanceReader, kind governanceKind, 
 // failure: as with a dataset, DataHub reports a missing or deleted glossary term
 // as an error instead of an empty result, so a stale term citation must be a
 // clean not-found rather than a hard tool failure.
-func resolveGlossaryTerm(ctx context.Context, r governanceReader, urn string) (*semantic.EntityRef, error) {
+func resolveGlossaryTerm(ctx context.Context, r governanceReader, urn string) (*governanceEntry, error) {
 	term, err := r.GetGlossaryTerm(ctx, urn)
 	if err != nil {
 		slog.Debug("glossary term lookup miss", "urn", urn, "error", err)
@@ -301,7 +308,22 @@ func resolveGlossaryTerm(ctx context.Context, r governanceReader, urn string) (*
 	if term == nil || term.URN == "" {
 		return nil, ErrNotFound
 	}
-	return &semantic.EntityRef{URN: term.URN, Name: term.Name, Description: term.Description}, nil
+	return &governanceEntry{
+		EntityRef:  semantic.EntityRef{URN: term.URN, Name: term.Name, Description: term.Description},
+		parentNode: term.ParentNode,
+		owners:     term.Owners,
+		properties: term.CustomProperties,
+	}, nil
+}
+
+// governanceEntry is one resolved vocabulary entry: the reference every kind
+// has, plus the detail only a glossary term's by-URN read carries (#1590). An
+// entry resolved by enumeration carries the reference alone.
+type governanceEntry struct {
+	semantic.EntityRef
+	parentNode string
+	owners     []semantic.Owner
+	properties map[string]string
 }
 
 // governanceKindFor returns the vocabulary owning a URN form, ok=false for every
@@ -508,10 +530,13 @@ func (p *GovernanceProvider) Fetch(ctx context.Context, ref string, caller Calle
 	}
 
 	entity := GovernanceEntity{
-		URN:         ref,
-		Kind:        kind.kind,
-		Name:        governanceName(*entry),
-		Description: entry.Description,
+		URN:              ref,
+		Kind:             kind.kind,
+		Name:             governanceName(entry.EntityRef),
+		Description:      entry.Description,
+		ParentNode:       entry.parentNode,
+		Owners:           entry.owners,
+		CustomProperties: entry.properties,
 	}
 	urns := p.attachCarriers(ctx, kind, ref, caller, &entity)
 	return &Document{

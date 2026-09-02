@@ -1942,7 +1942,7 @@ definitions:
         example: "2026-04-15T10:41:18Z"
         type: string
       tool_name:
-        example: datahub_get_schema
+        example: trino_query
         type: string
       toolkit_kind:
         example: datahub

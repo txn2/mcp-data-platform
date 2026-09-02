@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/txn2/mcp-data-platform/pkg/memory"
+	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
 
@@ -78,6 +80,43 @@ type CatalogIndexSearcher interface {
 type CatalogProvider struct {
 	searcher tableSearcher
 	index    CatalogIndexSearcher
+	// datasets is the full-record read behind the dataset fetch arm (#1590);
+	// nil leaves fetch on the enrichment-shaped TableContext read.
+	datasets semantic.DatasetReader
+	// products is the read behind the data product fetch arm (#1590); nil
+	// makes every urn:li:dataProduct: reference a clean not-found.
+	products semantic.DataProductReader
+	// availability answers whether a fetched dataset is queryable and where;
+	// nil leaves the record without a query_availability.
+	availability AvailabilityResolver
+}
+
+// AvailabilityResolver answers whether and where one catalog dataset is
+// queryable. It is the query provider's own read, declared here so the
+// provider depends on the capability alone. It is deliberately not the
+// search-time availability cache: that cache exists to mark positive answers
+// on a page of hits and drops a negative one, whereas a fetched dataset must
+// say "not queryable, and why" as plainly as "queryable, here".
+type AvailabilityResolver interface {
+	GetTableAvailability(ctx context.Context, urn string) (*query.TableAvailability, error)
+}
+
+// availabilityTimeout bounds the query-side lookup a dataset fetch makes. Row
+// estimation can run a COUNT(*) against the warehouse; the record must not
+// wait on it indefinitely, and a lookup that runs out of time leaves the
+// record without an availability rather than failing the fetch.
+const availabilityTimeout = 5 * time.Second
+
+// CatalogDataset is the content of a fetched dataset reference: the catalog's
+// full record of the dataset and, when a query provider is wired, whether and
+// where it can be queried right now. The record is embedded so its fields
+// serialize at the top level.
+type CatalogDataset struct {
+	*semantic.Dataset
+	// QueryAvailability is the query engine's answer for this dataset: the table
+	// to query, the connection it is reachable on, and the estimated row count.
+	// Nil when no query provider is wired or the lookup did not resolve.
+	QueryAvailability *query.TableAvailability `json:"query_availability,omitempty"`
 }
 
 // NewCatalogProvider builds the catalog provider over a catalog searcher.
@@ -91,6 +130,28 @@ func NewCatalogProvider(searcher tableSearcher) *CatalogProvider {
 // once at wiring time.
 func (p *CatalogProvider) SetIndexSearcher(index CatalogIndexSearcher) {
 	p.index = index
+}
+
+// SetDatasetReader attaches the full-record dataset read (#1590), so a fetched
+// dataset carries its schema, saved queries, and linked documents beside its
+// business context. Nil (the default) leaves fetch on the TableContext read.
+// Call once at wiring time.
+func (p *CatalogProvider) SetDatasetReader(r semantic.DatasetReader) {
+	p.datasets = r
+}
+
+// SetDataProductReader attaches the data product read (#1590), which opens the
+// urn:li:dataProduct: fetch arm. Call once at wiring time.
+func (p *CatalogProvider) SetDataProductReader(r semantic.DataProductReader) {
+	p.products = r
+}
+
+// SetAvailabilityResolver attaches the query-side answer to "can this dataset
+// be queried, and where" (#1590), so a fetched dataset says so without a
+// second call. Nil (the default) leaves the record without one. Call once at
+// wiring time.
+func (p *CatalogProvider) SetAvailabilityResolver(r AvailabilityResolver) {
+	p.availability = r
 }
 
 // Name returns the provenance label.
@@ -136,7 +197,7 @@ func (p *CatalogProvider) searchByEntity(ctx context.Context, q Query, seen map[
 		}
 		tc, err := p.searcher.GetTableContext(ctx, table)
 		if err != nil {
-			slog.Debug("catalog entity lookup skipped", "urn", urn, "error", err)
+			slog.Debug("catalog entity lookup skipped", "urn", urn, logKeyError, err)
 			continue
 		}
 		if tc == nil || tc.URN == "" {
@@ -315,7 +376,7 @@ func (p *CatalogProvider) indexCandidates(ctx context.Context, q Query) []catalo
 		Limit:     q.Limit,
 	})
 	if err != nil {
-		slog.Debug("catalog index search skipped", "error", err)
+		slog.Debug("catalog index search skipped", logKeyError, err)
 		return nil
 	}
 	out := make([]catalogCandidate, 0, len(hits))
@@ -350,14 +411,21 @@ func (p *CatalogProvider) catalogCandidates(ctx context.Context, q Query) ([]cat
 	return out, nil
 }
 
+// logKeyError is the structured-log key an error is recorded under.
+const logKeyError = "error"
+
 // datasetPrefix is the URN form of a catalog dataset reference. The catalog owns
 // exactly this prefix for fetch; the context-documents source owns
 // urn:li:document:, so the two urn:li: sources never contend for a reference.
 const datasetPrefix = "urn:li:dataset:"
 
 // Fetch dereferences a urn:li:dataset:<id> reference to the dataset's full catalog
-// context (#694), folding what datahub_get_entity returns into the one fetch verb.
-// It owns only the dataset URN form; any other reference is declined (owned=false).
+// record (#694, #1590): the business context, identity, declared schema, saved
+// queries, and linked documents the catalog holds, plus whether and where the
+// dataset is queryable. It is the one answer to "tell me about this dataset",
+// where the former datahub_get_entity, datahub_get_schema, and
+// datahub_get_queries reads were folded. It also owns the urn:li:dataProduct:
+// form (fetchDataProduct); any other reference is declined (owned=false).
 // A URN that does not parse as a dataset, that the catalog has no entry for, or that
 // the catalog errors on is ErrNotFound: DataHub reports a missing/deleted entity as
 // an error rather than an empty result (mcp-datahub GetEntity), and the search
@@ -371,6 +439,9 @@ const datasetPrefix = "urn:li:dataset:"
 // identifier and re-derives the platform, so trusting the caller's platform
 // segment would let a crafted reference read around the boundary.
 func (p *CatalogProvider) Fetch(ctx context.Context, ref string, caller Caller) (*Document, bool, error) {
+	if strings.HasPrefix(ref, dataProductPrefix) {
+		return p.fetchDataProduct(ctx, ref, caller)
+	}
 	if !strings.HasPrefix(ref, datasetPrefix) {
 		return nil, false, nil
 	}
@@ -378,27 +449,64 @@ func (p *CatalogProvider) Fetch(ctx context.Context, ref string, caller Caller) 
 	if err != nil {
 		return nil, true, ErrNotFound
 	}
-	tc, err := p.searcher.GetTableContext(ctx, table)
+	ds, err := p.readDataset(ctx, table)
 	if err != nil {
 		// DataHub conflates "no such entity" with an error, the same condition
 		// searchByEntity skips; surface it as not-found so a stale citation is a clean
 		// answer rather than a failure.
-		slog.Debug("catalog entity fetch miss", "urn", ref, "error", err)
+		slog.Debug("catalog entity fetch miss", "urn", ref, logKeyError, err)
 		return nil, true, ErrNotFound
 	}
-	if tc == nil || tc.URN == "" {
+	if ds == nil || ds.URN == "" {
 		return nil, true, ErrNotFound
 	}
-	if !caller.allowsURN(tc.URN) {
+	if !caller.allowsURN(ds.URN) {
 		return nil, true, ErrNotFound
 	}
-	return &Document{
+	avail := p.resolveAvailability(ctx, ds.URN)
+	doc := &Document{
 		Reference:  ref,
 		Source:     SourceCatalog,
 		Title:      table.String(),
-		Content:    tc,
+		Content:    CatalogDataset{Dataset: ds, QueryAvailability: avail},
 		EntityURNs: []string{ref},
-	}, true, nil
+	}
+	if avail != nil && avail.Available {
+		doc.Verifiable = &query.Verifiable{URN: ds.URN, QueryTable: avail.QueryTable, Connection: avail.Connection}
+	}
+	return doc, true, nil
+}
+
+// readDataset reads the full dataset record when a DatasetReader is wired and
+// the enrichment-shaped context otherwise, so a deployment with a plain
+// catalog searcher still answers a dataset fetch.
+func (p *CatalogProvider) readDataset(ctx context.Context, table semantic.TableIdentifier) (*semantic.Dataset, error) {
+	if p.datasets != nil {
+		return p.datasets.GetDataset(ctx, table) //nolint:wrapcheck // the caller maps every error to not-found
+	}
+	tc, err := p.searcher.GetTableContext(ctx, table)
+	if err != nil || tc == nil {
+		return nil, err //nolint:wrapcheck // the caller maps every error to not-found
+	}
+	return &semantic.Dataset{TableContext: *tc}, nil
+}
+
+// resolveAvailability asks the query side whether and where the dataset is
+// queryable; nil when no resolver is wired or the lookup failed or ran out of
+// time. A negative answer (Available false, with the provider's reason) is
+// kept: it is what the reader needs to know before writing a query.
+func (p *CatalogProvider) resolveAvailability(ctx context.Context, urn string) *query.TableAvailability {
+	if p.availability == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, availabilityTimeout)
+	defer cancel()
+	avail, err := p.availability.GetTableAvailability(ctx, urn)
+	if err != nil || ctx.Err() != nil {
+		slog.Debug("dataset availability lookup skipped", "urn", urn, logKeyError, err)
+		return nil
+	}
+	return avail
 }
 
 // positionalScore turns a 0-based rank into a descending score in (0,1],

@@ -535,7 +535,7 @@ func TestGetToolkitForTool_MultipleToolkits(t *testing.T) {
 	})
 	_ = reg.Register(&mockToolkit{
 		kind: "datahub", name: "main", connection: "main-datahub",
-		tools: []string{"datahub_search", "datahub_get_entity"},
+		tools: []string{"datahub_search", "datahub_get_lineage"},
 	})
 	_ = reg.Register(&mockToolkit{
 		kind: "s3", name: "storage", connection: "s3-storage",

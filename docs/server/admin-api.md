@@ -703,7 +703,7 @@ persona, the missing tool, and the fix. See
   "priority": 0,
   "allow_tools": ["platform_info", "search", "fetch", "datahub_*"],
   "deny_tools": [],
-  "tools": ["datahub_browse", "datahub_get_entity", "datahub_get_lineage", "datahub_get_schema", "fetch", "search"],
+  "tools": ["datahub_browse", "datahub_get_lineage", "fetch", "search"],
   "source": "database"
 }
 ```

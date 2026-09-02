@@ -34,7 +34,7 @@ func TestInferToolkitKind(t *testing.T) {
 		{"trino tool", "trino_query", "trino"},
 		{"trino describe", "trino_describe_table", "trino"},
 		{"datahub tool", "datahub_search", "datahub"},
-		{"datahub entity", "datahub_get_entity", "datahub"},
+		{"datahub entity", "datahub_get_lineage", "datahub"},
 		{"s3 tool", "s3_list_buckets", "s3"},
 		{"s3 get", "s3_get_object", "s3"},
 		{"unknown tool", "unknown_tool", ""},
@@ -240,7 +240,7 @@ func TestMCPSemanticEnrichmentMiddleware_AppendsKnowledgePages(t *testing.T) {
 		}}}, nil
 	}
 
-	req := createServerRequest(t, "datahub_get_entity", map[string]any{"urn": "x"})
+	req := createServerRequest(t, "datahub_get_lineage", map[string]any{"urn": "x"})
 	result, err := mw(handler)(context.Background(), enrichTestMethodToolsCall, req)
 	require.NoError(t, err)
 	callResult, ok := result.(*mcp.CallToolResult)

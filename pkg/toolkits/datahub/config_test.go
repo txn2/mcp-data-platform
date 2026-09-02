@@ -235,8 +235,8 @@ func TestGetStringMap(t *testing.T) {
 	t.Run("valid map", func(t *testing.T) {
 		cfg := map[string]any{
 			"descriptions": map[string]any{
-				"datahub_search":     "Search the catalog",
-				"datahub_get_entity": "Get entity details",
+				"datahub_search":      "Search the catalog",
+				"datahub_get_lineage": "Get entity details",
 			},
 		}
 		result := getStringMap(cfg, "descriptions")
@@ -246,8 +246,8 @@ func TestGetStringMap(t *testing.T) {
 		if result["datahub_search"] != "Search the catalog" {
 			t.Errorf("datahub_search = %q", result["datahub_search"])
 		}
-		if result["datahub_get_entity"] != "Get entity details" {
-			t.Errorf("datahub_get_entity = %q", result["datahub_get_entity"])
+		if result["datahub_get_lineage"] != "Get entity details" {
+			t.Errorf("datahub_get_lineage = %q", result["datahub_get_lineage"])
 		}
 	})
 

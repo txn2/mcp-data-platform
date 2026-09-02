@@ -1,7 +1,9 @@
 package datahub
 
 import (
+	"context"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -290,13 +292,8 @@ func TestToolkit_Tools(t *testing.T) {
 	}
 
 	expectedTools := []string{
-		"datahub_get_entity",
-		"datahub_get_schema",
 		"datahub_get_lineage",
-		"datahub_get_queries",
 		"datahub_browse",
-		"datahub_get_glossary_term",
-		"datahub_get_data_product",
 		"datahub_create",
 		"datahub_update",
 		"datahub_delete",
@@ -321,13 +318,8 @@ func TestToolkit_Tools_ReadOnly(t *testing.T) {
 	tools := tk.Tools()
 
 	expectedReadTools := []string{
-		"datahub_get_entity",
-		"datahub_get_schema",
 		"datahub_get_lineage",
-		"datahub_get_queries",
 		"datahub_browse",
-		"datahub_get_glossary_term",
-		"datahub_get_data_product",
 	}
 
 	if len(tools) != len(expectedReadTools) {
@@ -382,8 +374,8 @@ func TestToDataHubToolNames(t *testing.T) {
 
 	t.Run("valid conversion", func(t *testing.T) {
 		input := map[string]string{
-			"datahub_search":     "Custom search",
-			"datahub_get_entity": "Custom entity",
+			"datahub_search": "Custom search",
+			"datahub_browse": "Custom browse",
 		}
 		result := toDataHubToolNames(input)
 		if len(result) != 2 {
@@ -602,5 +594,105 @@ func TestToolkit_RegisterTools_ReadOnly(t *testing.T) {
 		if slices.Contains(tk.Tools(), wt) {
 			t.Errorf("found write tool %s in read-only mode", wt)
 		}
+	}
+}
+
+// retiredReadTools names each DataHub read the platform no longer registers and
+// the fetch call that replaces it (#1590, acceptance 1). The three dataset
+// reads collapse onto one reference: a fetched dataset carries its business
+// context, declared schema, and saved queries together.
+var retiredReadTools = map[string]string{
+	"datahub_get_entity":        "fetch urn:li:dataset:<id>",
+	"datahub_get_schema":        "fetch urn:li:dataset:<id> (the record's schema)",
+	"datahub_get_queries":       "fetch urn:li:dataset:<id> (the record's queries)",
+	"datahub_get_glossary_term": "fetch urn:li:glossaryTerm:<id>",
+	"datahub_get_data_product":  "fetch urn:li:dataProduct:<id>",
+}
+
+// listRegistered registers the toolkit on an in-memory server and returns the
+// tools a connected client is offered, keyed by name.
+func listRegistered(t *testing.T, tk *Toolkit) map[string]*mcp.Tool {
+	t.Helper()
+	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1.0.0"}, nil)
+	tk.RegisterTools(server)
+	ct, st := mcp.NewInMemoryTransports()
+	ss, err := server.Connect(context.Background(), st, nil)
+	if err != nil {
+		t.Fatalf("server connect: %v", err)
+	}
+	defer func() { _ = ss.Close() }()
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "c", Version: "1"}, nil).Connect(context.Background(), ct, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+	defer func() { _ = cs.Close() }()
+	res, err := cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("list tools: %v", err)
+	}
+	out := make(map[string]*mcp.Tool, len(res.Tools))
+	for _, tool := range res.Tools {
+		out[tool.Name] = tool
+	}
+	return out
+}
+
+func realToolkit(readOnly bool) *Toolkit {
+	return &Toolkit{
+		name:           "reg-test",
+		config:         Config{URL: dhTestLocalhostURL, ConnectionName: "reg-test", ReadOnly: readOnly},
+		datahubToolkit: createToolkit(nil, Config{ReadOnly: readOnly}),
+	}
+}
+
+func TestRetiredReadToolsAreReplacedByFetch(t *testing.T) {
+	tk := realToolkit(false)
+	registered := listRegistered(t, tk)
+	for retired, replacement := range retiredReadTools {
+		if replacement == "" {
+			t.Errorf("%s: no replacement named", retired)
+		}
+		if slices.Contains(tk.Tools(), retired) {
+			t.Errorf("%s is still declared by Tools(); replaced by %s", retired, replacement)
+		}
+		if _, ok := registered[retired]; ok {
+			t.Errorf("%s is still registered on the server; replaced by %s", retired, replacement)
+		}
+	}
+	for _, kept := range []string{"datahub_browse", "datahub_get_lineage", "datahub_create", "datahub_update", "datahub_delete"} {
+		if _, ok := registered[kept]; !ok {
+			t.Errorf("%s must stay registered", kept)
+		}
+	}
+	if len(registered) != len(tk.Tools()) {
+		t.Errorf("registered %d tools, Tools() declares %d", len(registered), len(tk.Tools()))
+	}
+}
+
+func TestToolDescriptionsNameNoRetiredTool(t *testing.T) {
+	registered := listRegistered(t, realToolkit(false))
+	for name, tool := range registered {
+		for retired := range retiredReadTools {
+			if strings.Contains(tool.Description, retired) {
+				t.Errorf("%s description still steers to %s: %q", name, retired, tool.Description)
+			}
+		}
+	}
+	browse := registered["datahub_browse"].Description
+	if !strings.Contains(browse, "fetch") {
+		t.Errorf("datahub_browse description must point at fetch for the full read: %q", browse)
+	}
+}
+
+func TestToolDescriptions_ConfiguredOverrideWins(t *testing.T) {
+	merged := toolDescriptions(map[string]string{"datahub_browse": "mine", "datahub_get_lineage": "lineage"})
+	if merged[dhtools.ToolBrowse] != "mine" {
+		t.Errorf("configured browse description lost: %q", merged[dhtools.ToolBrowse])
+	}
+	if merged[dhtools.ToolGetLineage] != "lineage" {
+		t.Errorf("configured lineage description lost: %q", merged[dhtools.ToolGetLineage])
+	}
+	if got := toolDescriptions(nil)[dhtools.ToolBrowse]; got != platformDescriptions[dhtools.ToolBrowse] {
+		t.Errorf("platform browse description missing without config: %q", got)
 	}
 }

@@ -1411,7 +1411,7 @@ Five calls to understand one table. With cross-enrichment, step 1 gives you ever
 
 ## Query Context (added to DataHub results)
 
-When `search_schema_preview` is enabled (default), available tables also include a bounded column preview so agents can write SQL without an intermediate `datahub_get_schema` call:
+When `search_schema_preview` is enabled (default), available tables also include a bounded column preview so agents can write SQL without an intermediate `fetch` or `trino_describe_table` call:
 
 ```json
 {
@@ -1721,40 +1721,25 @@ List configured Trino connections. No parameters.
 
 ## DataHub Tools
 
-Catalog relevance search moved to the universal `search` tool (see Knowledge Tools); the DataHub toolkit retains `datahub_browse` for structured navigation (platform/domain/tag/entity-type) and the entity-detail tools below.
+Catalog relevance search lives in the universal `search` tool and reading one catalog entity by URN is `fetch` (see Knowledge Tools). The DataHub toolkit registers the two reads a reference read cannot do, `datahub_browse` (a hierarchy walk) and `datahub_get_lineage` (a graph query with direction and depth), plus the write tools. The five by-URN reads it used to register are gone, not aliased; each is one `fetch` call on the same URN:
 
-### datahub_get_entity
+| Retired tool | Replacement |
+|--------------|-------------|
+| `datahub_get_entity` | `fetch urn:li:dataset:<id>` |
+| `datahub_get_schema` | `fetch urn:li:dataset:<id>` (the record's `schema`) |
+| `datahub_get_queries` | `fetch urn:li:dataset:<id>` (the record's `queries`) |
+| `datahub_get_glossary_term` | `fetch urn:li:glossaryTerm:<id>` |
+| `datahub_get_data_product` | `fetch urn:li:dataProduct:<id>` |
 
-Get detailed entity information.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `urn` | string | Yes | - | Entity URN |
-| `connection` | string | No | first configured | DataHub connection name |
-
-### datahub_get_schema
-
-Get dataset schema. Parameters: `urn` (required), `connection` (optional).
+A fetched dataset carries at least what the three dataset reads returned together: business context (owners, tags, glossary terms, domain, deprecation, custom and structured properties, incidents, data contract), identity (name, type, platform, sub-types, created), the declared `schema` (fields with types, nullability, field-level tags and terms, primary and foreign keys), the catalog's saved `queries`, `related_documents`, and `query_availability` (whether it is queryable, the table to query, the connection, the estimated row count) when a query provider is configured. A part the catalog could not serve is named in `unavailable` rather than dropped. A fetched glossary term carries its definition, `parent_node`, `owners`, `custom_properties`, and the datasets that carry it; a fetched data product carries its domain, owners, properties, and member datasets.
 
 ### datahub_get_lineage
 
 Get dataset or column-level lineage. Set `level=column` for column-level lineage showing which upstream columns feed each downstream column. Parameters: `urn` (required), `level` (dataset/column), `direction` (UPSTREAM/DOWNSTREAM, dataset only), `depth` (max 5, dataset only), `connection`.
 
-### datahub_get_queries
-
-Get popular queries for a dataset. Parameters: `urn` (required), `limit`, `connection`.
-
-### datahub_get_glossary_term
-
-Get glossary term details. Parameters: `urn` (required), `connection`.
-
 ### datahub_browse
 
 Browse the DataHub catalog by category. Set `what=tags` to list tags, `what=domains` to list data domains, or `what=data_products` to list data products. Parameters: `what` (required: tags/domains/data_products), `filter` (optional, tags only), `connection`.
-
-### datahub_get_data_product
-
-Get data product details. Parameters: `urn` (required), `connection`.
 
 ### datahub_create
 
@@ -1863,7 +1848,7 @@ Browse mode (#695) is `search`'s exhaustive counterpart: relevance ranking with 
 
 ### fetch
 
-The companion read verb to `search` (#694). `search` returns navigational pointers with truncated snippets; `fetch` dereferences one pointer's `reference` back to its complete content, so an agent can read in full what it found. It is the single consumer of the `reference` every search hit already carries, and it collapses the previously fragmented scoped readers (`datahub_get_entity`, `manage_asset` get, `manage_prompt` get) into one verb. Registered alongside `search` (same toolkit) whenever search exists.
+The companion read verb to `search` (#694). `search` returns navigational pointers with truncated snippets; `fetch` dereferences one pointer's `reference` back to its complete content, so an agent can read in full what it found. It is the single consumer of the `reference` every search hit already carries, and it collapses the previously fragmented scoped readers (the five `datahub_get_*` by-URN reads, `manage_asset` get, `manage_prompt` get) into one verb. Registered alongside `search` (same toolkit) whenever search exists.
 
 A reference comes in one of two namespaces: `urn:li:...` is the external DataHub catalog scheme, `mcp:...` is the internal-platform scheme. `fetch` accepts both, routing each well-formed reference by its form to the owning source: knowledge pages (`mcp:knowledge_page:<id>` -> the full markdown body; the page's slug is accepted in place of the id, with the id resolved first so a slug can never shadow a page asked for by id), context documents (`urn:li:document:<id>` -> the full document body, the only MCP path to it), catalog datasets (`urn:li:dataset:<id>` -> the dataset's catalog context), governance entities (`urn:li:glossaryTerm:<id>`, `urn:li:tag:<id>`, `urn:li:domain:<id>` -> the entry's name and definition plus the datasets that carry it, #1160), saved assets (`mcp:asset:<id>` -> the asset's metadata record; the blob bytes stay in S3, reached with `s3_get_object`/`s3_presign_url`), prompts (`mcp:prompt:<id>` -> the full prompt), connections (`mcp:connection:(kind,name)` -> the connection descriptor), the caller's captured insights (`mcp:insight:<id>` -> the full insight, scoped to the caller), the caller's personal memory (`mcp:memory:<id>` -> the full memory record, scoped to the caller; fetch-only, not citable on a page) (#699), and managed resources (`mcp:resource:<id>` -> the metadata record plus the file contents inline for a text resource at or under the 1 MB inline threshold the MCP read path uses, or metadata with the canonical `mcp://` URI, MIME type, and size for a binary or oversized one; fetch-only, not citable on a page since a scoped resource would be a broken citation outside its scope) (#1012), and managed scripts (`mcp:script:<id>` -> the script's CONTRACT: name, description, owner, typed parameter contract, whether a run requested now would be admitted (and the run gate's own refusal when it would not), schedule cadence, and the last successful run with what it produced, each output naming its shape — a portal asset the platform still serves, or an object delivered to a configured bucket destination that it wrote and does not hold; never the source code, which stays behind `manage_script get` and the poview surface; fetch-only, not citable on a page for the same reason a resource is not, and resolved by ID so renaming a script never breaks a stored reference) (#1302), recorded calls (`mcp:call:<id>` -> the cataloged call: the statement or request that ran, the purpose stated for it, what came of it, and how many later sessions re-ran it; reading one is what makes the caller's own re-run of it creditable as reuse) (#1321), and sessions (`mcp:session:<id>` -> the caller's own session: its summary, the assets and insights it produced as references to follow, and its call timeline in order, each call carrying the purpose stated for it and, where the catalog recorded one, its kind, its outcome, and the `mcp:call:` reference that reads the record in full; a call with no record stays on the timeline and simply carries nothing to fetch) (#1322). The usual source of a reference is a `search` result's `reference` field, but `fetch` is not limited to references `search` produced: a well-formed reference held from another tool works too (for example a `urn:li:dataset:...` from `datahub_get_lineage` or an `entity_urns` lookup). Feedback threads and API endpoints emit no reference and are not fetch targets. The per-user sources (assets, memory, insights, recorded calls, sessions) are read only for the identity that owns the record, so a non-owner gets a structured not-found, exactly as search would never have surfaced the record. A session id is guessable, being the handle the agent threads, so the scoping is a predicate on the audit rows themselves: another caller's session groups to no rows and is indistinguishable from one that never ran.
 

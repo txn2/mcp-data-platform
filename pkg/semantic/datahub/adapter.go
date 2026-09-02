@@ -88,6 +88,7 @@ type Client interface {
 	GetQueries(ctx context.Context, urn string) (*types.QueryList, error)
 	ListTags(ctx context.Context, filter string) ([]types.Tag, error)
 	ListDomains(ctx context.Context) ([]types.Domain, error)
+	GetDataProduct(ctx context.Context, urn string) (*types.DataProduct, error)
 	Ping(ctx context.Context) error
 	Close() error
 }
@@ -251,11 +252,14 @@ func (a *Adapter) GetGlossaryTerm(ctx context.Context, urn string) (*semantic.Gl
 		return nil, fmt.Errorf("glossary term not found: %s", urn)
 	}
 
-	return &semantic.GlossaryTerm{
-		URN:         term.URN,
-		Name:        a.sanitizer.SanitizeString(term.Name),
-		Description: a.sanitizer.SanitizeDescription(term.Description),
-	}, nil
+	return a.sanitizer.SanitizeGlossaryTerm(&semantic.GlossaryTerm{
+		URN:              term.URN,
+		Name:             term.Name,
+		Description:      term.Description,
+		ParentNode:       term.ParentNode,
+		Owners:           convertOwners(term.Owners),
+		CustomProperties: term.Properties,
+	}), nil
 }
 
 // SearchTables searches for tables in DataHub using searchAcrossEntities.

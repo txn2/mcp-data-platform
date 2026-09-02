@@ -264,7 +264,7 @@ func TestHandleInfo_NoBaselineWithoutBaselineTools(t *testing.T) {
 		personaRegistry: persona.NewRegistry(),
 		// A tool the baseline names nothing for. trino_query is no longer one:
 		// it carries the inline-VALUES bullet (#1326).
-		toolkitRegistry: regWithTools(t, "datahub_get_entity"),
+		toolkitRegistry: regWithTools(t, "datahub_get_lineage"),
 	}
 	result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
 	require.NoError(t, err)

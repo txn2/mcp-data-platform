@@ -392,7 +392,7 @@ func TestListConnections(t *testing.T) {
 		reg := &mockToolkitRegistry{
 			allResult: []mockToolkit{
 				{kind: "trino", name: "prod", connection: "prod-trino", tools: []string{"trino_query", "trino_describe_table"}},
-				{kind: "datahub", name: "primary", connection: "primary-datahub", tools: []string{"datahub_search", "datahub_get_entity"}},
+				{kind: "datahub", name: "primary", connection: "primary-datahub", tools: []string{"datahub_search", "datahub_get_lineage"}},
 			},
 		}
 		h := NewHandler(Deps{Config: cfg, ToolkitRegistry: reg}, nil)
@@ -420,7 +420,7 @@ func TestListConnections(t *testing.T) {
 		// Trino tools match allow pattern — nothing hidden.
 		assert.Empty(t, trinoConn.HiddenTools)
 		// DataHub tools do NOT match "trino_*" — all hidden.
-		assert.ElementsMatch(t, []string{"datahub_search", "datahub_get_entity"}, datahubConn.HiddenTools)
+		assert.ElementsMatch(t, []string{"datahub_search", "datahub_get_lineage"}, datahubConn.HiddenTools)
 	})
 
 	t.Run("returns empty list when no registry", func(t *testing.T) {

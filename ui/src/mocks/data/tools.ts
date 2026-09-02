@@ -164,40 +164,6 @@ export const mockToolSchemas: Record<string, ToolSchema> = {
       },
     },
   },
-  datahub_get_entity: {
-    name: "datahub_get_entity",
-    kind: "datahub",
-    description:
-      "Get detailed metadata for a DataHub entity by its URN. When a QueryProvider (e.g., Trino) is configured, also returns: query_table (resolved table path), query_examples (generated sample SQL), query_availability (row count, availability status).",
-    parameters: {
-      type: "object",
-      required: ["urn"],
-      properties: {
-        urn: {
-          type: "string",
-          description: "The DataHub URN of the entity",
-          format: "urn",
-        },
-      },
-    },
-  },
-  datahub_get_schema: {
-    name: "datahub_get_schema",
-    kind: "datahub",
-    description:
-      "Get the schema (fields, types, descriptions) for a dataset. Returns query_table (resolved table path) when QueryProvider is configured. For row counts and query examples, use datahub_get_entity instead.",
-    parameters: {
-      type: "object",
-      required: ["urn"],
-      properties: {
-        urn: {
-          type: "string",
-          description: "The DataHub URN of the dataset",
-          format: "urn",
-        },
-      },
-    },
-  },
   datahub_get_lineage: {
     name: "datahub_get_lineage",
     kind: "datahub",
@@ -395,10 +361,6 @@ export function generateMockResult(
       return trinoDescribeResult(params, duration);
     case "datahub_search":
       return datahubSearchResult(params, duration);
-    case "datahub_get_entity":
-      return datahubEntityResult(params, duration);
-    case "datahub_get_schema":
-      return datahubSchemaResult(duration);
     case "datahub_get_lineage":
       return datahubLineageResult(params, duration);
     case "datahub_browse":
@@ -745,53 +707,6 @@ function datahubSearchResult(
   const resultSet = filtered.length > 0 ? filtered : results;
   const urns = resultSet.map((r) => r.urn);
   return textResult(JSON.stringify(resultSet, null, 2), duration, [datahubQueryEnrichment(urns)]);
-}
-
-function datahubEntityResult(
-  params: Record<string, unknown>,
-  duration: number,
-): ToolCallResponse {
-  const urn = String(params.urn ?? "");
-  const entity = {
-    urn,
-    name: urn.match(/\.([^,]+),/)?.[1] ?? "daily_sales",
-    platform: "trino",
-    description: "Daily aggregated sales figures by store, region, and product category for ACME Corporation retail locations",
-    owners: [
-      { owner: "marcus.johnson@example.com", type: "DATAOWNER" },
-      { owner: "data-engineering", type: "DATAOWNER", group: true },
-    ],
-    tags: ["certified", "pii-free", "tier-1"],
-    glossary_terms: [
-      { urn: "urn:li:glossaryTerm:Revenue", name: "Revenue" },
-      { urn: "urn:li:glossaryTerm:RetailMetrics", name: "Retail Metrics" },
-    ],
-    deprecation: null,
-    quality_score: 0.94,
-    last_modified: "2026-02-10T14:23:00Z",
-    custom_properties: {
-      refresh_schedule: "daily @ 02:00 UTC",
-      sla: "99.5% availability",
-      retention_days: "730",
-    },
-  };
-  return textResult(JSON.stringify(entity, null, 2), duration, [datahubQueryEnrichment([urn || "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.sales.daily_sales,PROD)"])]);
-}
-
-function datahubSchemaResult(duration: number): ToolCallResponse {
-  const fields = [
-    { name: "sale_date", type: "DATE", description: "Date of the sale transaction", nullable: false, tags: [] },
-    { name: "store_id", type: "STRING", description: "Unique identifier for the ACME retail store", nullable: false, tags: ["primary-key"] },
-    { name: "region", type: "STRING", description: "Geographic sales region (South, Northeast, Midwest, West)", nullable: false, tags: [] },
-    { name: "revenue", type: "DECIMAL", description: "Total revenue in USD", nullable: false, tags: ["metric", "Revenue"] },
-    { name: "units_sold", type: "INT", description: "Total number of units sold", nullable: false, tags: ["metric"] },
-    { name: "avg_ticket", type: "DECIMAL", description: "Average transaction amount", nullable: true, tags: ["metric"] },
-    { name: "customer_count", type: "INT", description: "Distinct customer count", nullable: true, tags: ["metric"] },
-    { name: "product_category", type: "STRING", description: "Top-level product category", nullable: true, tags: [] },
-  ];
-  return textResult(JSON.stringify(fields, null, 2), duration, [
-    datahubQueryEnrichment(["urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.sales.daily_sales,PROD)"]),
-  ]);
 }
 
 function datahubLineageResult(

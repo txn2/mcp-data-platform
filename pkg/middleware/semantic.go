@@ -107,8 +107,8 @@ type EnrichmentConfig struct {
 	ColumnContextFiltering bool
 
 	// SearchSchemaPreview adds a bounded column-name+type preview to
-	// datahub_search query_context for available tables, so agents can
-	// write SQL without an intermediate datahub_get_schema call.
+	// a DataHub result's query_context for available tables, so agents can
+	// write SQL without an intermediate schema read.
 	SearchSchemaPreview bool
 
 	// SchemaPreviewMaxColumns caps how many columns appear per entity
@@ -953,7 +953,7 @@ func (e *semanticEnricher) enrichDataHubResult(
 	// resolved to queryable tables and would produce spurious errors.
 	urns := filterDatasetURNs(extractURNsFromResult(result))
 
-	// Also extract URN from request (for tools like datahub_get_schema that take urn param)
+	// Also extract URN from request (for tools like datahub_get_lineage that take a urn param)
 	if reqURN := extractURNFromRequest(request); reqURN != "" {
 		if isDatasetURN(reqURN) && !slices.Contains(urns, reqURN) {
 			urns = append(urns, reqURN)

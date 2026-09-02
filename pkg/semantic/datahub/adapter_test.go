@@ -43,6 +43,7 @@ type mockDataHubClient struct {
 	getColumnLineageFunc     func(ctx context.Context, urn string) (*types.ColumnLineage, error)
 	getGlossaryTermFunc      func(ctx context.Context, urn string) (*types.GlossaryTerm, error)
 	getQueriesFunc           func(ctx context.Context, urn string) (*types.QueryList, error)
+	getDataProductFunc       func(ctx context.Context, urn string) (*types.DataProduct, error)
 	listTagsFunc             func(ctx context.Context, filter string) ([]types.Tag, error)
 	listDomainsFunc          func(ctx context.Context) ([]types.Domain, error)
 	pingFunc                 func(ctx context.Context) error
@@ -164,6 +165,13 @@ func (m *mockDataHubClient) GetQueries(ctx context.Context, urn string) (*types.
 		return m.getQueriesFunc(ctx, urn)
 	}
 	return &types.QueryList{}, nil
+}
+
+func (m *mockDataHubClient) GetDataProduct(ctx context.Context, urn string) (*types.DataProduct, error) {
+	if m.getDataProductFunc != nil {
+		return m.getDataProductFunc(ctx, urn)
+	}
+	return &types.DataProduct{}, nil
 }
 
 func (m *mockDataHubClient) ListTags(ctx context.Context, filter string) ([]types.Tag, error) {
@@ -862,6 +870,9 @@ func TestGetGlossaryTerm(t *testing.T) {
 				URN:         urn,
 				Name:        "Revenue",
 				Description: "Total revenue from sales",
+				ParentNode:  "urn:li:glossaryNode:finance",
+				Owners:      []types.Owner{{URN: "urn:li:corpuser:cfo", Name: "cfo", Type: types.OwnershipTypeDataSteward}},
+				Properties:  map[string]string{"steward_team": "finance-ops"},
 			}, nil
 		},
 	}
@@ -870,6 +881,15 @@ func TestGetGlossaryTerm(t *testing.T) {
 	result, err := adapter.GetGlossaryTerm(ctx, "urn:li:glossaryTerm:revenue")
 	if err != nil {
 		t.Fatalf(dhAdapterTestUnexpectedErr, err)
+	}
+	if result.ParentNode != "urn:li:glossaryNode:finance" {
+		t.Errorf("ParentNode = %q, want the parent node the by-URN read carries", result.ParentNode)
+	}
+	if len(result.Owners) != 1 || result.Owners[0].URN != "urn:li:corpuser:cfo" {
+		t.Errorf("Owners = %+v", result.Owners)
+	}
+	if result.CustomProperties["steward_team"] != "finance-ops" {
+		t.Errorf("CustomProperties = %+v", result.CustomProperties)
 	}
 
 	if result.Name != "Revenue" {

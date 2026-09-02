@@ -21,12 +21,7 @@ apply_knowledge
 datahub_browse
 datahub_create
 datahub_delete
-datahub_get_data_product
-datahub_get_entity
-datahub_get_glossary_term
 datahub_get_lineage
-datahub_get_queries
-datahub_get_schema
 datahub_update
 fetch
 list_connections

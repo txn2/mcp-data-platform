@@ -42,7 +42,7 @@ graph TD
 | `*` | Everything |
 | `trino_*` | trino_query, trino_execute, trino_explain, trino_browse, trino_export, etc. |
 | `*_list_*` | s3_list_buckets, s3_list_objects, trino_list_connections, etc. (does **not** match `trino_browse` or `datahub_browse`) |
-| `datahub_get_*` | datahub_get_entity, datahub_get_schema, etc. |
+| `datahub_get_*` | datahub_get_lineage (the one remaining `datahub_get_` tool) |
 | `s3_*` | All S3 tools |
 | `trino_query` | Exact match only |
 
@@ -134,14 +134,8 @@ Use these exact names in your patterns:
 - `trino_list_connections`
 
 **DataHub Tools:**
-- `datahub_search`
-- `datahub_get_entity`
-- `datahub_get_schema`
 - `datahub_get_lineage`
-- `datahub_get_queries`
-- `datahub_get_glossary_term`
 - `datahub_browse`
-- `datahub_get_data_product`
 - `datahub_create` (if not read-only)
 - `datahub_update` (if not read-only)
 - `datahub_delete` (if not read-only)
@@ -224,7 +218,6 @@ viewer:
       - "platform_info"
       - "search"
       - "fetch"
-      - "datahub_get_entity"
       - "datahub_browse"
       - "trino_browse"
     deny:

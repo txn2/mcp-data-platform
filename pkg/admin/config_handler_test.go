@@ -37,7 +37,7 @@ func TestGetAgentInstructionsBaseline(t *testing.T) {
 	t.Run("empty baseline when no baseline tools registered", func(t *testing.T) {
 		// A tool the baseline has nothing to say about. trino_query is no
 		// longer one: it carries the inline-VALUES bullet (#1326).
-		reg := &mockToolkitRegistry{allResult: []mockToolkit{{tools: []string{"datahub_get_entity"}}}}
+		reg := &mockToolkitRegistry{allResult: []mockToolkit{{tools: []string{"datahub_get_lineage"}}}}
 		h := NewHandler(Deps{ToolkitRegistry: reg}, nil)
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/config/agent-instructions-baseline", http.NoBody)
