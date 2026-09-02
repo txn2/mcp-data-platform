@@ -107,6 +107,14 @@ func New(cfg Config) *Handle {
 	return h
 }
 
+// HasStore reports whether the layer has a script store, which is the condition
+// under which it registers manage_script, run_script and show_scripts. Callers
+// enumerating the platform's own tools ask this rather than assuming the tools
+// exist, so a no-database deployment is not credited with them.
+func (h *Handle) HasStore() bool {
+	return h != nil && h.store != nil
+}
+
 // IndexProducer returns the write-path index-job producer behind the managed-
 // script store, or nil on a deployment with no database. The composition root
 // hands it to the index queue, which binds it once the scripts consumer is

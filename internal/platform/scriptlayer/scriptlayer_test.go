@@ -919,3 +919,18 @@ func TestList_NarrowsByCategoryAndTag(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "finance", row["category"])
 }
+
+// TestHasStore covers the condition PlatformTools reads to decide whether this
+// deployment registers manage_script, run_script and show_scripts: the same
+// condition RegisterTool applies, so the two cannot disagree about whether the
+// tools exist.
+func TestHasStore(t *testing.T) {
+	assert.True(t, New(Config{Store: newMemStore()}).HasStore(),
+		"an injected store is a store")
+
+	assert.False(t, New(Config{}).HasStore(),
+		"a deployment with no database has no script store, and no script tools")
+
+	var nilHandle *Handle
+	assert.False(t, nilHandle.HasStore(), "a nil layer registers nothing")
+}

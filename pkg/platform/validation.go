@@ -38,9 +38,7 @@ func (p *Platform) validateAgentInstructions() {
 		return
 	}
 
-	registeredTools := p.toolkitRegistry.AllTools()
-	// Add platform-level tools that are registered outside the toolkit registry.
-	registeredTools = append(registeredTools, "platform_info")
+	registeredTools := RegisteredToolNames(p.toolkitRegistry.AllTools(), p.PlatformTools())
 
 	toolSet := make(map[string]struct{}, len(registeredTools))
 	for _, t := range registeredTools {

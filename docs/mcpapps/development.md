@@ -118,7 +118,7 @@ Do not make the handshake fatal. A deployment may have handles off, and a person
 
 `apps/prompt-browser/index.html` implements this. Its `handshake`, `withSession`, and `callTool` functions are the smallest complete version.
 
-One correlation hazard: hosts that deliver results as `ui/notifications/tool-result` notifications send no request id, so an app that matches responses by payload shape must be able to tell the `platform_info` result from its own tool's result. `config_version` and `features` are unconditional on the `platform_info` payload and identify it. Do not key on `prompts`: `platform_info` also carries a `prompts` array listing the server's registered MCP prompts.
+One correlation hazard: hosts that deliver results as `ui/notifications/tool-result` notifications send no request id, so an app that matches responses by payload shape must be able to tell the `platform_info` result from its own tool's result. `config_version` and `features` are unconditional on the `platform_info` payload and identify it.
 
 The test harness enforces this gate. It answers a `platform_info` call from any app other than `platform-info` with a handshake payload carrying a freshly minted `session_id`, and refuses any other tool call whose `session_id` is missing or stale with the same `SESSION_REQUIRED` / `SESSION_EXPIRED` text the platform returns. An app that skips the handshake therefore fails in development rather than only in a gated deployment. The **Expire Session** button revokes the live handle so the next call is refused, which is how you exercise the recovery path without waiting for a real expiry.
 

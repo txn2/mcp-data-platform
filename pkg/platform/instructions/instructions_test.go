@@ -342,70 +342,108 @@ func TestBuild_NamesTheInlineJoin(t *testing.T) {
 	}
 }
 
-// The scripts bullet routes an author to the platform's own authoring guidance,
-// which is the whole point of naming scripts in the baseline: the pages exist
-// and nothing reaches them at the moment the choice is made (#1476).
-func TestBuild_ScriptsBulletNamesTheAuthoringPages(t *testing.T) {
-	got := Build([]string{"manage_script", "fetch"})
+// The page index is what makes the platform's shipped guidance reachable on the
+// first attempt: a search surfaces a page only once an agent already suspects it
+// needs one, and the decision the page informs is made before any tool call.
+func TestBuild_PageIndexNamesTheShippedGuidance(t *testing.T) {
+	got := Build([]string{"manage_script", toolSaveAsset, toolMemoryCapture, toolFetch})
 	for _, want := range []string{
-		"command `help`",
-		"mcp:knowledge_page:platform-writing-managed-scripts",
-		"mcp:knowledge_page:platform-script-outputs-and-export-identity",
-		"mcp:knowledge_page:platform-semi-dynamic-dashboards",
+		PageWritingManagedScripts,
+		PageScriptOutputs,
+		PageSemiDynamicDashboards,
+		PageAssetReferences,
+		PageProvenanceCapture,
+		PageContentTypes,
 	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("scripts bullet does not name %q: %q", want, got)
+		if !strings.Contains(got, "mcp:knowledge_page:"+want) {
+			t.Errorf("page index does not name %q: %q", want, got)
 		}
-	}
-	// It also says when a script is the right shape of work at all, so an agent
-	// does not save one while it is still exploring.
-	if !strings.Contains(got, "still exploring") {
-		t.Errorf("scripts bullet states no when-to-write discriminator: %q", got)
 	}
 }
 
-// The references bullet is the only thing that reaches an agent composing a
-// document: the decision to name a file rather than embed it is made while the
-// markup is being written, before any tool call the schema could inform.
-func TestBuild_ReferencesBulletNamesThePage(t *testing.T) {
+// Each page is gated on the capability it documents, so a persona that cannot
+// write scripts is not handed three pages about writing them.
+func TestBuild_PageIndexGatesOnTheCapability(t *testing.T) {
+	scriptsOnly := Build([]string{"manage_script", toolFetch})
+	if strings.Contains(scriptsOnly, PageAssetReferences) {
+		t.Errorf("a caller without save_asset was given the asset-references page: %q", scriptsOnly)
+	}
+	if !strings.Contains(scriptsOnly, PageWritingManagedScripts) {
+		t.Errorf("a script author was not given the authoring page: %q", scriptsOnly)
+	}
+
+	assetsOnly := Build([]string{toolSaveAsset, toolFetch})
+	if strings.Contains(assetsOnly, PageWritingManagedScripts) {
+		t.Errorf("a caller without manage_script was given a scripts page: %q", assetsOnly)
+	}
+	for _, want := range []string{PageAssetReferences, PageContentTypes} {
+		if !strings.Contains(assetsOnly, want) {
+			t.Errorf("an asset author was not given %q: %q", want, assetsOnly)
+		}
+	}
+}
+
+// A knowledge page is returned by `fetch` and by `search` and by nothing else,
+// so the index names the one the caller has -- and a caller with neither gets no
+// index at all rather than references it cannot follow. This is the same rule
+// the baseline applies to tools, extended to the pages it points at.
+func TestBuild_PageIndexNamesOnlyAReachableRoute(t *testing.T) {
+	withFetch := Build([]string{"manage_script", toolFetch})
+	if !strings.Contains(withFetch, "`fetch` one by the reference") {
+		t.Errorf("index did not name fetch for a caller that has it: %q", withFetch)
+	}
+
+	withSearch := Build([]string{"manage_script", toolSearch})
+	if strings.Contains(withSearch, "`fetch`") {
+		t.Errorf("index named fetch for a caller without it: %q", withSearch)
+	}
+	if !strings.Contains(withSearch, "`search` finds one by the slug") {
+		t.Errorf("index did not fall back to search: %q", withSearch)
+	}
+
+	neither := Build([]string{"manage_script"})
+	if strings.Contains(neither, "mcp:knowledge_page:") {
+		t.Errorf("index named a page no tool the caller has can return: %q", neither)
+	}
+	if !strings.Contains(neither, "manage_script") {
+		t.Errorf("the capability line itself must still appear: %q", neither)
+	}
+}
+
+// The capability lines are an index, not a manual: each names its entry-point
+// tool and the judgment made before reaching for it, and the depth is left to
+// the pages. A line that grows into a manual is what put the baseline at 5.5 KB
+// in the mandatory first call of every session (#1586).
+func TestBuild_LinesStayAnIndex(t *testing.T) {
+	all := []string{
+		toolSearch, toolFetch, toolMemoryCapture, toolApplyKnowledge,
+		toolManagePrompt, toolTrinoQuery, "manage_script", toolSaveAsset,
+	}
+	got := Build(all)
+	if len(got) > 4000 {
+		t.Errorf("the baseline is %d characters; it is an index and belongs well under 4000", len(got))
+	}
+	for line := range strings.SplitSeq(got, "\n") {
+		if !strings.HasPrefix(line, "- ") || strings.Contains(line, "mcp:knowledge_page:") {
+			continue
+		}
+		if len(line) > 560 {
+			t.Errorf("capability line is %d characters, which is a manual rather than an index: %q", len(line), line)
+		}
+	}
+}
+
+// The asset bullet is the only thing that reaches an agent composing a document:
+// the decision to name a file rather than embed it is made while the markup is
+// being written, before any tool call the schema could inform.
+func TestBuild_NamesTheReferenceRule(t *testing.T) {
 	got := Build([]string{toolSaveAsset, toolFetch})
-	for _, want := range []string{
-		"`references`",
-		"`save_asset`",
-		"mcp:knowledge_page:platform-asset-references-and-the-refresh-loop",
-	} {
+	for _, want := range []string{"`references`", "`save_asset`", "do not carry it"} {
 		if !strings.Contains(got, want) {
-			t.Errorf("references bullet does not name %q: %q", want, got)
+			t.Errorf("baseline does not name %q: %q", want, got)
 		}
 	}
-
-	// Named only for a caller that can save an asset at all.
 	if other := Build([]string{toolSearch, toolFetch}); strings.Contains(other, "do not carry it") {
-		t.Errorf("references bullet reached a caller without save_asset: %q", other)
-	}
-
-	// Like the reuse and scripts bullets, it names fetch only when reachable
-	// and names the page either way.
-	noFetch := Build([]string{toolSaveAsset})
-	if strings.Contains(noFetch, "`fetch`") {
-		t.Errorf("references bullet named fetch for a caller without it: %q", noFetch)
-	}
-	if !strings.Contains(noFetch, "mcp:knowledge_page:platform-asset-references-and-the-refresh-loop") {
-		t.Errorf("references bullet dropped the page when fetch is denied: %q", noFetch)
-	}
-}
-
-// Like the reuse bullet, the scripts bullet names `fetch` as the way to read a
-// page only when the caller can reach it, and names the pages either way.
-func TestBuild_ScriptsBulletNamesFetchOnlyWhenAccessible(t *testing.T) {
-	noFetch := Build([]string{"manage_script"})
-	if strings.Contains(noFetch, "`fetch`") {
-		t.Errorf("scripts bullet named fetch for a caller without it: %q", noFetch)
-	}
-	if !strings.Contains(noFetch, "mcp:knowledge_page:platform-writing-managed-scripts") {
-		t.Errorf("scripts bullet dropped the pages when fetch is denied: %q", noFetch)
-	}
-	if withFetch := Build([]string{"manage_script", "fetch"}); !strings.Contains(withFetch, "`fetch`") {
-		t.Errorf("scripts bullet should name fetch when accessible: %q", withFetch)
+		t.Errorf("the reference rule reached a caller without save_asset: %q", other)
 	}
 }

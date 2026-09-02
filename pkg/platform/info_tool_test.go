@@ -3,17 +3,14 @@ package platform
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/txn2/mcp-data-platform/internal/platform/knowledgelayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcelayer"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
@@ -22,70 +19,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	"github.com/txn2/mcp-data-platform/pkg/storage"
-	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
-
-// stubInsightStore overrides Stats on the noop insight store so reviewQueueInfo
-// can be tested without a database. Other InsightStore methods are inherited
-// from the noop and are unused here.
-type stubInsightStore struct {
-	knowledgekit.InsightStore
-	stats *knowledgekit.InsightStats
-	err   error
-}
-
-func (s stubInsightStore) Stats(context.Context, knowledgekit.InsightFilter) (*knowledgekit.InsightStats, error) {
-	return s.stats, s.err
-}
-
-func TestReviewQueueInfo(t *testing.T) {
-	oldest := time.Now().Add(-94 * 24 * time.Hour)
-	tests := []struct {
-		name  string
-		store knowledgekit.InsightStore
-		want  *ReviewQueueInfo
-	}{
-		{name: "nil store returns nil", store: nil, want: nil},
-		{
-			name:  "stats error returns nil (orientation must not fail)",
-			store: stubInsightStore{InsightStore: knowledgekit.NewNoopStore(), err: errors.New("db down")},
-			want:  nil,
-		},
-		{
-			name:  "empty queue returns nil",
-			store: stubInsightStore{InsightStore: knowledgekit.NewNoopStore(), stats: &knowledgekit.InsightStats{TotalPending: 0}},
-			want:  nil,
-		},
-		{
-			name: "pending queue with staleness is summarized",
-			store: stubInsightStore{InsightStore: knowledgekit.NewNoopStore(), stats: &knowledgekit.InsightStats{
-				TotalPending:    6,
-				OldestPendingAt: &oldest,
-				PendingOver30d:  2,
-			}},
-			want: &ReviewQueueInfo{Pending: 6, OldestPendingAgeDays: 94, PendingOver30d: 2},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Build the layer handle over the injected insight store; the
-			// db/embedding inputs are unused with apply disabled.
-			handle, err := knowledgelayer.NewFromInsightStore(nil, tt.store, nil, knowledgelayer.Config{ToolkitName: instanceDefault})
-			require.NoError(t, err)
-			p := &Platform{knowledge: handle}
-			got := p.reviewQueueInfo(context.Background())
-			if tt.want == nil {
-				assert.Nil(t, got)
-				return
-			}
-			require.NotNil(t, got)
-			assert.Equal(t, tt.want.Pending, got.Pending)
-			assert.Equal(t, tt.want.PendingOver30d, got.PendingOver30d)
-			assert.InDelta(t, tt.want.OldestPendingAgeDays, got.OldestPendingAgeDays, 1)
-		})
-	}
-}
 
 const (
 	testInfoVersion      = "1.0.0"

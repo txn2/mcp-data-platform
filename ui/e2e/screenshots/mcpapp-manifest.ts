@@ -63,7 +63,6 @@ export const mcpApps: McpAppRoute[] = [
     size: { width: 900, height: 500 },
     waitFor: "#content",
     views: [
-      { suffix: "platform", click: '.tab-btn[data-tab="platform"]' },
       {
         suffix: "agent-instructions",
         click: '.tab-btn[data-tab="agent-instructions"]',
@@ -102,10 +101,12 @@ export const mcpApps: McpAppRoute[] = [
         audit_logging: true,
         knowledge_capture: true,
       },
-      personas: {
-        analyst: { display_name: "Data Analyst" },
-        engineer: { display_name: "Data Engineer" },
-        admin: { display_name: "Administrator" },
+      // The one persona the caller's roles mapped to, which is what the
+      // response carries; there is no roster of every persona in it.
+      persona: {
+        name: "analyst",
+        display_name: "Data Analyst",
+        description: "Reads the warehouse and publishes findings to the portal.",
       },
     },
   },

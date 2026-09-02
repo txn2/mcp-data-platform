@@ -17,10 +17,14 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/apikeystore"
 	"github.com/txn2/mcp-data-platform/internal/platform/cfgmap"
 	"github.com/txn2/mcp-data-platform/internal/platform/connauth"
+	"github.com/txn2/mcp-data-platform/internal/platform/promptlayer"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/sessionsync"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolkitcfg"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
@@ -3088,29 +3092,58 @@ func TestNew_WithToolVisibilityFilter(t *testing.T) {
 }
 
 func TestPlatformTools(t *testing.T) {
-	p := newTestPlatform(t)
-	defer func() { _ = p.Close() }()
-
-	tools := p.PlatformTools()
-	if len(tools) != 2 {
-		t.Fatalf("expected 2 platform tools, got %d", len(tools))
+	names := func(tools []ToolInfo) []string {
+		out := make([]string, 0, len(tools))
+		for _, tool := range tools {
+			if tool.Kind != kindPlatform {
+				t.Errorf("tool %q has kind %q, want %q", tool.Name, tool.Kind, kindPlatform)
+			}
+			out = append(out, tool.Name)
+		}
+		return out
 	}
 
-	// Verify platform_info
-	if tools[0].Name != "platform_info" {
-		t.Errorf("expected tool[0] name platform_info, got %s", tools[0].Name)
-	}
-	if tools[0].Kind != "platform" {
-		t.Errorf("expected tool[0] kind platform, got %s", tools[0].Kind)
-	}
+	t.Run("a deployment with no database registers only the unconditional three", func(t *testing.T) {
+		p := newTestPlatform(t)
+		defer func() { _ = p.Close() }()
 
-	// Verify list_connections
-	if tools[1].Name != "list_connections" {
-		t.Errorf("expected tool[1] name list_connections, got %s", tools[1].Name)
-	}
-	if tools[1].Kind != "platform" {
-		t.Errorf("expected tool[1] kind platform, got %s", tools[1].Kind)
-	}
+		assert.Equal(t, []string{"platform_info", "list_connections", "platform_find_tools"}, names(p.PlatformTools()))
+	})
+
+	// The prompt and script tools are registered only where their store is, so
+	// PlatformTools must report them only then. A caller reads this list to
+	// decide whether a tool can be reached at all (RegisteredToolNames), so a
+	// tool claimed here that was never registered would put guidance in front of
+	// an agent for a tool that does not answer.
+	t.Run("a deployment with the stores registers the prompt and script tools", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		require.NoError(t, err)
+		defer func() { _ = db.Close() }()
+		mock.ExpectClose()
+
+		p := &Platform{
+			prompts: promptlayer.New(promptlayer.Config{DB: db}),
+			scripts: scriptlayer.New(scriptlayer.Config{DB: db}),
+		}
+		assert.Equal(t, []string{
+			"platform_info", "list_connections", "platform_find_tools",
+			"manage_prompt", "show_prompts",
+			"manage_script", "run_script", "show_scripts",
+		}, names(p.PlatformTools()))
+	})
+}
+
+// TestRegisteredToolNames_IncludesThePlatformsOwn is the #1586 fix: a caller
+// gating on "can this caller reach tool X" must see the platform's own tools,
+// not only the toolkits'. Gating on the toolkit registry alone withheld the
+// instruction baseline's prompt and script guidance from every deployment and
+// made agent_instructions warn that manage_prompt did not exist.
+func TestRegisteredToolNames_IncludesThePlatformsOwn(t *testing.T) {
+	got := RegisteredToolNames(
+		[]string{"search", "fetch"},
+		[]ToolInfo{{Name: "platform_info", Kind: kindPlatform}, {Name: "manage_prompt", Kind: kindPlatform}},
+	)
+	assert.Equal(t, []string{"search", "fetch", "platform_info", "manage_prompt"}, got)
 }
 
 func TestInjectToolkitPlatformConfig(t *testing.T) {

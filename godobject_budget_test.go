@@ -119,7 +119,9 @@ const (
 	// driving down.
 	// The same extraction (#1321) moved the audit layer's shutdown ordering
 	// onto the layer, removing closeAuditLayer and ratcheting 213 → 212.
-	maxPlatformMethods = 212
+	// #1586 moved the pending-review summary onto knowledgelayer.Handle, whose
+	// insight store it reads, removing reviewQueueInfo and ratcheting 212 → 211.
+	maxPlatformMethods = 211
 )
 
 // TestPlatformGodObjectBudget fails when the Platform struct grows more fields

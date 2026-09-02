@@ -46,24 +46,25 @@ An app can call tools itself, not just render the result that opened it. Those c
 
 The platform ships with `platform-info` embedded in the binary. It registers automatically with zero configuration — no volume mounts, no `assets_path`, no `enabled: true` required.
 
-`platform-info` renders an interactive panel for the `platform_info` tool showing:
+`platform-info` renders an interactive panel for the `platform_info` tool. It is
+deliberately small: the panel shows who the deployment is and what its agent was
+told, in two tabs.
 
-- Platform name, version, and description
-- Connected toolkits with icons
-- Feature flags (enabled / disabled)
-- Active personas
+**Overview** carries the platform's name, version, description and the personas
+the deployment defines, with a link into the portal:
 
 ![The platform-info app's Overview tab](../images/screenshots/light/app-platform-info-light.webp#only-light)![The platform-info app's Overview tab](../images/screenshots/dark/app-platform-info-dark.webp#only-dark)
-
-The panel is tabbed. **Platform** carries the connected toolkits with their
-descriptions, and sub-tabs for the capability flags and the deployment's tags:
-
-![The platform-info app's Platform tab](../images/screenshots/light/app-platform-info-platform-light.webp#only-light)![The platform-info app's Platform tab](../images/screenshots/dark/app-platform-info-platform-dark.webp#only-dark)
 
 **Agent Instructions** renders the standing guidance the deployment sets, so a
 person can read what their agent was told:
 
 ![The platform-info app's Agent Instructions tab](../images/screenshots/light/app-platform-info-agent-instructions-light.webp#only-light)![The platform-info app's Agent Instructions tab](../images/screenshots/dark/app-platform-info-agent-instructions-dark.webp#only-dark)
+
+The panel renders from the `platform_info` result, and that result is the
+mandatory first call of every session, delivered to the model like any other
+tool result. What an app displays therefore costs context, which is why the
+panel shows what a person opening it wants (who this is, what the agent was
+told) rather than everything the response happens to carry.
 
 ### Branding
 
