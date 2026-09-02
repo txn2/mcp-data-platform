@@ -285,8 +285,7 @@ func (h *Handler) portalSetState(w http.ResponseWriter, r *http.Request, user *P
 		return
 	}
 	h.writeState(w, r, user, stateReset{
-		script: sc, value: req.State,
-		message: "State replaced. The next run reads this object; a run already in flight that read the previous revision fails at its write.",
+		script: sc, value: req.State, message: script.StateResetMessage(false),
 	})
 }
 
@@ -310,8 +309,7 @@ func (h *Handler) portalClearState(w http.ResponseWriter, r *http.Request, user 
 		return
 	}
 	h.writeState(w, r, user, stateReset{
-		script: sc, value: map[string]any{},
-		message: "State cleared. The next run starts from {}; a run already in flight that read the previous revision fails at its write.",
+		script: sc, value: map[string]any{}, message: script.StateResetMessage(true),
 	})
 }
 

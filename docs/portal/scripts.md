@@ -305,7 +305,8 @@ it produced.
 Once the delete lands you are back at the script listing, with the script gone
 from it. It cannot be undone. An administrator can delete any script, on the
 same page and with the same confirmation; the alternative for anybody is
-`manage_script command=delete`, which removes exactly the same things.
+`manage_script command=delete`, which removes exactly the same things and
+answers with the same account of what went and what stayed.
 
 ## Asking for the pages
 

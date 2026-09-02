@@ -385,7 +385,7 @@ test.describe("Portal script pages", () => {
     await page.keyboard.type("\n# checked by the owner\n");
     await page.getByRole("button", { name: "Save" }).click();
 
-    await expect(page.getByText(/This is the version that runs/)).toBeVisible();
+    await expect(page.getByText(/this version is what runs now/)).toBeVisible();
   });
 
   test("says a run history's success rate over the runs it actually loaded", async ({ page }) => {

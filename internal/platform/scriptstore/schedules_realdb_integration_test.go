@@ -288,7 +288,10 @@ func TestRealDB_DeletingAScriptRemovesItsScheduleAndRuns(t *testing.T) {
 	_, err := s.MaterializeRun(ctx, fireRun(sc, v, sched, "dpx_1", fire))
 	require.NoError(t, err)
 
-	require.NoError(t, s.Delete(ctx, sc.ID), "a script with a schedule and run history is still deletable")
+	removed, delErr := s.Delete(ctx, sc.ID)
+	require.NoError(t, delErr, "a script with a schedule and run history is still deletable")
+	assert.True(t, removed.Schedule, "the delete reports the schedule it took (#1593)")
+	assert.True(t, removed.Runs, "the delete reports the run history it took (#1593)")
 
 	_, err = s.GetSchedule(ctx, sc.ID)
 	assert.ErrorIs(t, err, script.ErrScheduleNotFound)

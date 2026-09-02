@@ -26668,9 +26668,9 @@
             "type": "object",
             "properties": {
                 "message": {
-                    "description": "Message states what went and what did not, in the terms the confirmation\nstated them before the delete ran.",
+                    "description": "Message states what went and what did not. It names only what the\nremoval actually took, which is a narrower statement than the\nconfirmation makes before the fact: the dialog warns from the script's\ncontract, this reports what the delete's own transaction found.",
                     "type": "string",
-                    "example": "daily-sales-report is gone, with its saved versions, its schedule, its run history and the state it carried."
+                    "example": "daily-sales-report is gone, with its saved versions, its schedule, its run history and the state it carried. The assets and resources it wrote remain, and they still record that it wrote them."
                 },
                 "name": {
                     "type": "string",

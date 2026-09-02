@@ -42,7 +42,11 @@ func (s *plainStore) Update(_ context.Context, sc *script.Script) error {
 	s.updated = sc
 	return nil
 }
-func (*plainStore) Delete(context.Context, string) error { return nil }
+
+func (*plainStore) Delete(context.Context, string) (script.Removed, error) {
+	return script.Removed{}, nil
+}
+
 func (*plainStore) List(context.Context, script.ListFilter) ([]script.Script, error) {
 	return nil, nil
 }

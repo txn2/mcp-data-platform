@@ -41,6 +41,10 @@ type memStore struct {
 	// fails both reads and writes on demand.
 	states   map[string]*script.State
 	stateErr error
+	// hasRuns marks the scripts the paired run store holds history for, which
+	// only a delete needs to know: the run queue is a separate fake, and the
+	// real store reads all three halves in the delete's own transaction.
+	hasRuns map[string]bool
 }
 
 func newMemStore() *memStore {
@@ -49,6 +53,7 @@ func newMemStore() *memStore {
 		versions:  map[string][]script.Version{},
 		schedules: map[string]*script.Schedule{},
 		states:    map[string]*script.State{},
+		hasRuns:   map[string]bool{},
 	}
 }
 
@@ -154,12 +159,20 @@ func (m *memStore) Update(_ context.Context, sc *script.Script) error {
 	return nil
 }
 
-func (m *memStore) Delete(_ context.Context, id string) error {
+// Delete models the real store's cascade and its report of it: everything
+// keyed by the script goes, and what was there is what the answer names.
+func (m *memStore) Delete(_ context.Context, id string) (script.Removed, error) {
 	if _, ok := m.scripts[id]; !ok {
-		return fmt.Errorf("script %s not found", id)
+		return script.Removed{}, fmt.Errorf("delete script %s: %w", id, script.ErrNotFound)
 	}
+	_, hadSchedule := m.schedules[id]
+	_, hadState := m.states[id]
+	rm := script.Removed{Schedule: hadSchedule, Runs: m.hasRuns[id], State: hadState}
 	delete(m.scripts, id)
-	return nil
+	delete(m.versions, id)
+	delete(m.schedules, id)
+	delete(m.states, id)
+	return rm, nil
 }
 
 func (m *memStore) List(_ context.Context, filter script.ListFilter) ([]script.Script, error) {
@@ -464,8 +477,8 @@ func TestUpdate_DoesNotClaimADisabledScriptRuns(t *testing.T) {
 	require.False(t, res.IsError, resultText(res))
 
 	message, _ := resultFields(t, res)["message"].(string)
-	assert.Contains(t, message, "until it is enabled again")
-	assert.NotContains(t, message, "executes now")
+	assert.Contains(t, message, "Nothing executes this script: the script is disabled")
+	assert.NotContains(t, message, "runs now")
 }
 
 // TestUpdate_DoesNotClaimADeprecatedScriptRuns is the other state the run gate
@@ -580,6 +593,57 @@ func TestDelete_TakesTheScriptAndItsHistory(t *testing.T) {
 
 	require.False(t, res.IsError, resultText(res))
 	assert.Empty(t, store.scripts)
+}
+
+// TestDelete_ReportsWhatWentAndWhatStayed is the tool half of #1593. The
+// portal route explained the cascade while this surface answered a bare
+// status, so an agent deleting a script for somebody had nothing to tell them
+// about the schedule and history it destroyed. Both surfaces now answer the
+// sentence script.DeleteMessage composes, over what the store reports the
+// removal actually took.
+func TestDelete_ReportsWhatWentAndWhatStayed(t *testing.T) {
+	h, store := newHandle()
+	createDaily(t, h)
+	id := onlyScriptID(t, store)
+	store.schedules[id] = &script.Schedule{ScriptID: id, CronSpec: "0 * * * *", Enabled: true}
+	store.states[id] = &script.State{ScriptID: id, Value: map[string]any{"cursor": 1}, Revision: 1}
+	store.hasRuns[id] = true
+
+	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdDelete, Name: "daily"})
+
+	require.False(t, res.IsError, resultText(res))
+	message, _ := resultFields(t, res)["message"].(string)
+	assert.Equal(t, script.DeleteMessage("daily", script.Removed{
+		Schedule: true, Runs: true, State: true,
+	}), message)
+	assert.Contains(t, message, "remain",
+		"an agent relaying the delete has to be able to say what survived it")
+}
+
+// TestDelete_DoesNotNameASchedulelessScriptsSchedule holds criterion 3 on this
+// surface: what the script never had is not reported as destroyed.
+func TestDelete_DoesNotNameASchedulelessScriptsSchedule(t *testing.T) {
+	h, _ := newHandle()
+	createDaily(t, h)
+
+	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdDelete, Name: "daily"})
+
+	require.False(t, res.IsError, resultText(res))
+	message, _ := resultFields(t, res)["message"].(string)
+	assert.Equal(t, script.DeleteMessage("daily", script.Removed{}), message)
+	assert.NotContains(t, message, "schedule")
+	assert.NotContains(t, message, "state it carried")
+}
+
+// onlyScriptID names the single script the fake holds, for a test that has to
+// address it by the id the store assigned.
+func onlyScriptID(t *testing.T, store *memStore) string {
+	t.Helper()
+	require.Len(t, store.scripts, 1)
+	for id := range store.scripts {
+		return id
+	}
+	return ""
 }
 
 // TestDelete_RefusedForAnotherPersonsScript: somebody who does not own a script

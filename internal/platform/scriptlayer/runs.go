@@ -181,11 +181,7 @@ func (h *Handle) stateWrite(ctx context.Context, sc *script.Script, action strin
 		slog.Error("failed to write script state", fieldName, sc.Name, logKeyError, err)
 		return errorResult("failed to write the script's state"), nil, nil
 	}
-	message := "State replaced. The next run reads this object; a run already in flight that read the previous revision fails at its write."
-	if action == stateActionClear {
-		message = "State cleared. The next run starts from {}; a run already in flight that read the previous revision fails at its write."
-	}
-	return jsonResult(stateFields(sc, st, message))
+	return jsonResult(stateFields(sc, st, script.StateResetMessage(action == stateActionClear)))
 }
 
 // stateFields renders one script's state for a response.

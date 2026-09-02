@@ -6300,10 +6300,13 @@ definitions:
     properties:
       message:
         description: |-
-          Message states what went and what did not, in the terms the confirmation
-          stated them before the delete ran.
+          Message states what went and what did not. It names only what the
+          removal actually took, which is a narrower statement than the
+          confirmation makes before the fact: the dialog warns from the script's
+          contract, this reports what the delete's own transaction found.
         example: daily-sales-report is gone, with its saved versions, its schedule,
-          its run history and the state it carried.
+          its run history and the state it carried. The assets and resources it wrote
+          remain, and they still record that it wrote them.
         type: string
       name:
         example: daily-sales-report

@@ -150,19 +150,8 @@ func (h *Handler) landEdit(
 	}
 	httpjson.WriteJSON(w, http.StatusOK, sourceResponse{
 		Applied: true,
-		Message: savedMessage(after),
+		Message: script.SavedMessage(after),
 	})
-}
-
-// savedMessage states what an applied edit means for whether anything will run
-// it, which is the question an owner presses save with. A save that said "it
-// runs now" over a disabled or deprecated script would be a false statement
-// the owner acts on.
-func savedMessage(sc *script.Script) string {
-	if err := script.RefuseRun(sc); err != nil {
-		return "Saved. Nothing executes this script: " + err.Error() + "."
-	}
-	return "Saved, and this version is what runs now: it presents the roles you hold, and any schedule fires it."
 }
 
 // editAuthor is who wrote the version and the authority they held while
