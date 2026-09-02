@@ -719,6 +719,12 @@ func TestInvokeWalk_OverCapStopsAndSteersToExport(t *testing.T) {
 	if !strings.Contains(out.Hint, "api_export") {
 		t.Errorf("hint = %q; want a steer to api_export", out.Hint)
 	}
+	if out.BodyBytes <= 0 || out.BodyBytes > 4096 {
+		t.Errorf("body_bytes = %d; want the merged size under the 4096 budget", out.BodyBytes)
+	}
+	if out.ExportArguments == nil || out.ExportArguments.Paginate == nil || out.ExportArguments.Paginate.CursorParam != "cursor" {
+		t.Errorf("export_arguments = %+v; want the paginate block carried into the api_export call", out.ExportArguments)
+	}
 	wantCursor := fmt.Sprintf("c%d", out.PagesFetched+1)
 	if out.Pagination == nil || out.Pagination.NextCursor != wantCursor {
 		t.Errorf("pagination = %+v; want next_cursor %s to resume from", out.Pagination, wantCursor)
@@ -732,8 +738,8 @@ func TestInvokeWalk_OverCapStopsAndSteersToExport(t *testing.T) {
 		Connection: "crm", Method: "GET", Path: "/v1/x",
 		Paginate: &PaginateInput{Items: "data", CursorParam: "cursor"},
 	})
-	if out2.Hint != "" {
-		t.Errorf("hint = %q with no api_export registered; want empty", out2.Hint)
+	if out2.Hint != "" || out2.ExportArguments != nil {
+		t.Errorf("hint = %q export_arguments = %+v with no api_export registered; want neither", out2.Hint, out2.ExportArguments)
 	}
 }
 

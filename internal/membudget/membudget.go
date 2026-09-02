@@ -1,15 +1,19 @@
-package apigateway
+// Package membudget is the process-wide admission controller for the
+// bytes the api gateway commits to response-body buffering (issue #535).
+// It is shared by every api connection and both buffering tools; the
+// gateway aliases Budget as apigateway.MemBudget.
+package membudget
 
 import "sync/atomic"
 
-// MemBudget is a process-wide admission controller for the bytes the
+// Budget is a process-wide admission controller for the bytes the
 // api gateway commits to response-body buffering. It is the structural
 // fix for issue #535: per-request size caps bound a single call, but
 // nothing bounded the SUM of concurrent calls, so a burst of large
 // responses (each individually under its cap) could collectively
 // exhaust the heap and get the container OOMKilled (exit 137).
 //
-// A single MemBudget is shared across every api connection and both
+// A single Budget is shared across every api connection and both
 // buffering tools (api_invoke_endpoint and api_export). Before a tool
 // allocates a body buffer it Reserves the worst-case byte count; the
 // reservation is refused (Acquire returns false) when granting it
@@ -23,10 +27,10 @@ import "sync/atomic"
 // a small fixed buffer and never holds the whole body, so it is the
 // memory-bounded escape hatch for legitimately large bodies.
 //
-// A nil *MemBudget means "unlimited" — Acquire always succeeds and
+// A nil *Budget means "unlimited" — Acquire always succeeds and
 // Release is a no-op. This keeps the budget optional: tests and
 // deployments that do not configure a limit pass nil and pay nothing.
-type MemBudget struct {
+type Budget struct {
 	// max is the ceiling on concurrently-committed bytes. Zero means
 	// unlimited (the budget is disabled but still safe to call).
 	max int64
@@ -36,14 +40,14 @@ type MemBudget struct {
 	inUse atomic.Int64
 }
 
-// NewMemBudget returns a budget capping concurrently-committed body
+// New returns a budget capping concurrently-committed body
 // bytes at maxBytes. maxBytes <= 0 yields an unlimited (disabled)
 // budget that is still safe to call — Acquire always succeeds.
-func NewMemBudget(maxBytes int64) *MemBudget {
+func New(maxBytes int64) *Budget {
 	if maxBytes < 0 {
 		maxBytes = 0
 	}
-	return &MemBudget{max: maxBytes}
+	return &Budget{max: maxBytes}
 }
 
 // Acquire attempts to reserve n bytes. It returns true and commits the
@@ -56,7 +60,7 @@ func NewMemBudget(maxBytes int64) *MemBudget {
 // The check-and-commit is a lock-free compare-and-swap loop so that
 // under a concurrent burst at most one caller can win the last slice
 // of the budget; the rest observe the updated total and are refused.
-func (b *MemBudget) Acquire(n int64) bool {
+func (b *Budget) Acquire(n int64) bool {
 	if b == nil || b.max == 0 || n <= 0 {
 		return true
 	}
@@ -81,7 +85,7 @@ func (b *MemBudget) Acquire(n int64) bool {
 // returned true; releasing more than was acquired is clamped at zero
 // so an accounting bug cannot drive inUse negative and silently widen
 // the effective budget.
-func (b *MemBudget) Release(n int64) {
+func (b *Budget) Release(n int64) {
 	if b == nil || b.max == 0 || n <= 0 {
 		return
 	}
@@ -96,7 +100,7 @@ func (b *MemBudget) Release(n int64) {
 
 // InUse reports the bytes currently reserved. Zero on a nil or
 // disabled budget. Intended for observability and tests.
-func (b *MemBudget) InUse() int64 {
+func (b *Budget) InUse() int64 {
 	if b == nil {
 		return 0
 	}
@@ -105,7 +109,7 @@ func (b *MemBudget) InUse() int64 {
 
 // Max reports the configured ceiling, or 0 when the budget is nil or
 // disabled (unlimited).
-func (b *MemBudget) Max() int64 {
+func (b *Budget) Max() int64 {
 	if b == nil {
 		return 0
 	}
@@ -114,6 +118,6 @@ func (b *MemBudget) Max() int64 {
 
 // Enabled reports whether the budget enforces a ceiling. A nil or
 // zero-max budget is disabled and admits every reservation.
-func (b *MemBudget) Enabled() bool {
+func (b *Budget) Enabled() bool {
 	return b != nil && b.max > 0
 }

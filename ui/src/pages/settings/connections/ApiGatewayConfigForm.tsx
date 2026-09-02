@@ -23,7 +23,7 @@ const TRUST_LEVELS = [
 // the HTTP API gateway. Field shape matches the apigateway toolkit
 // config (see pkg/toolkits/apigateway/config.go): base_url, the auth
 // block (ApiGatewayAuthFields), TLS material, static headers, the
-// catalog reference, timeouts, and max_response_bytes.
+// catalog reference, timeouts, max_response_bytes and max_inline_bytes.
 export function ApiGatewayConfigForm({
   config,
   onChange,
@@ -108,11 +108,20 @@ export function ApiGatewayConfigForm({
 
       <ConfigField
         label="Max response bytes"
-        help="Cap on response body size returned through api_invoke_endpoint. Above this, the call sets body_truncated=true and hints the model toward api_export. Default 10485760 (10 MiB)."
+        help="Upstream read cap: the most the gateway reads of any one response (a page of a walk, an inline call). A transfer limit, not what reaches the model; see Max inline bytes. Default 10485760 (10 MiB)."
         type="number"
         value={String(config.max_response_bytes ?? "")}
         onChange={(v) => onChange(update(config, "max_response_bytes", v ? Number(v) : undefined))}
         placeholder="10485760"
+      />
+
+      <ConfigField
+        label="Max inline bytes"
+        help="Model-context budget: the most of a response api_invoke_endpoint returns in a tool result. Past it the body is cut, body_truncated is set, and export_arguments names the api_export call that streams the whole response into an asset. Default 131072 (128 KiB); the read cap bounds it."
+        type="number"
+        value={String(config.max_inline_bytes ?? "")}
+        onChange={(v) => onChange(update(config, "max_inline_bytes", v ? Number(v) : undefined))}
+        placeholder="131072"
       />
 
       <ConfigSelect

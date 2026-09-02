@@ -1,4 +1,4 @@
-package apigateway
+package membudget
 
 import (
 	"sync"
@@ -6,7 +6,7 @@ import (
 )
 
 func TestMemBudgetAcquireRelease(t *testing.T) {
-	b := NewMemBudget(100)
+	b := New(100)
 	if !b.Acquire(60) {
 		t.Fatal("first 60-byte acquire should succeed")
 	}
@@ -42,7 +42,7 @@ func TestMemBudgetAcquireRelease(t *testing.T) {
 }
 
 func TestMemBudgetNilIsUnlimited(t *testing.T) {
-	var b *MemBudget
+	var b *Budget
 	if !b.Acquire(1 << 40) {
 		t.Fatal("nil budget must admit any reservation")
 	}
@@ -59,7 +59,7 @@ func TestMemBudgetNilIsUnlimited(t *testing.T) {
 }
 
 func TestMemBudgetDisabledZeroMax(t *testing.T) {
-	b := NewMemBudget(0)
+	b := New(0)
 	if b.Enabled() {
 		t.Fatal("zero-max budget must report disabled")
 	}
@@ -72,7 +72,7 @@ func TestMemBudgetDisabledZeroMax(t *testing.T) {
 }
 
 func TestMemBudgetNegativeMaxClampsToDisabled(t *testing.T) {
-	b := NewMemBudget(-5)
+	b := New(-5)
 	if b.Enabled() {
 		t.Fatal("negative max must clamp to a disabled budget")
 	}
@@ -82,7 +82,7 @@ func TestMemBudgetNegativeMaxClampsToDisabled(t *testing.T) {
 }
 
 func TestMemBudgetNonPositiveAcquireIsNoop(t *testing.T) {
-	b := NewMemBudget(100)
+	b := New(100)
 	if !b.Acquire(0) {
 		t.Fatal("acquire(0) should succeed")
 	}
@@ -95,7 +95,7 @@ func TestMemBudgetNonPositiveAcquireIsNoop(t *testing.T) {
 }
 
 func TestMemBudgetOverflowRefused(t *testing.T) {
-	b := NewMemBudget(1<<62 + 100)
+	b := New(1<<62 + 100)
 	// Reserve near the max, then ask for an amount whose sum would
 	// overflow int64. Acquire must refuse rather than wrap negative.
 	if !b.Acquire(1 << 62) {
@@ -107,7 +107,7 @@ func TestMemBudgetOverflowRefused(t *testing.T) {
 }
 
 func TestMemBudgetReleaseClampsAtZero(t *testing.T) {
-	b := NewMemBudget(100)
+	b := New(100)
 	if !b.Acquire(30) {
 		t.Fatal("acquire should succeed")
 	}
@@ -134,7 +134,7 @@ func TestMemBudgetConcurrentNeverOvercommits(t *testing.T) {
 		goroutines = 64
 		iterations = 200
 	)
-	b := NewMemBudget(budgetMax)
+	b := New(budgetMax)
 	var wg sync.WaitGroup
 	for range goroutines {
 		wg.Go(func() {

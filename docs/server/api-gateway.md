@@ -89,10 +89,10 @@ The walk stops at the first page with no next signal or no items, at `max_pages`
 
 Pacing is the gateway's. An upstream that answers a page with `429` or `503` carrying `Retry-After` pauses the walk for that interval, bounded by the call's timeout (`api_export` defaults to 5 minutes and caps at 30; `api_invoke_endpoint` uses the connection's `call_timeout`), and requests the same page again; an interval the remaining timeout cannot contain fails the call naming it, and a page refused more than ten times in a row fails rather than being polled until the timeout. A page that fails for any other reason (a `500`, a `429` with no `Retry-After`, a transport error, a body that is not JSON, a body whose `items` is not an array) fails the call with the page number in the error, and no asset is written.
 
-Each page is read under the connection's `max_response_bytes`, the same cap a single call has; a page past it fails the walk with a steer to ask the upstream for a smaller page. Beyond that the two tools differ:
+Each page is read under the connection's `max_response_bytes`, the upstream read cap; a page past it fails the walk with a steer to ask the upstream for a smaller page. Beyond that the two tools differ:
 
 - `api_export` streams: the merged array is opened, each page's items are written to storage as they arrive, copied byte for byte from the page, and the array is closed, so memory holds one page whatever the page count. The asset is one `application/json` document whose content is the merged array. Its provenance records the `paginate` block, `pages_fetched`, `items_merged`, `stopped_by`, and the cursor or link that addressed the last page. A walk whose merged output would pass `portal.export.max_bytes` fails all-or-nothing, as a single oversize response does. The idempotency key covers the whole walk.
-- `api_invoke_endpoint` merges inline under `max_response_bytes`. A page that would take the merged array past the cap is not merged: the call returns the pages that fit with `stopped_by: "max_bytes"`, `body_truncated: true`, a hint steering to `api_export`, and `pagination` holding the signal for the unmerged page. `status` and `headers` are the last page's.
+- `api_invoke_endpoint` merges inline under `max_inline_bytes`, the inline budget. A page that would take the merged array past the budget is not merged: the call returns the pages that fit with `stopped_by: "max_bytes"`, `body_truncated: true`, `body_bytes` holding the merged size, a hint steering to `api_export`, `export_arguments` carrying the same call and `paginate` block for it, and `pagination` holding the signal for the unmerged page. `status` and `headers` are the last page's.
 
 One tool call is one rate-limit token, one audit row, and, from a managed script, one `platform.call`. The audit row for the call records the walk under `parameters.result` (`pages_fetched`, `items_merged`, `stopped_by`) beside the `paginate` block it was called with, which is the observability the per-call loop was keeping.
 
@@ -213,6 +213,21 @@ This connection option supports the built-in self-configuration connection (see 
 | `identity_passthrough` | bool | Forward the acting caller's inbound bearer token as the outbound `Authorization` header instead of applying this connection's shared credential. Requires `auth_mode: none`. A call with no caller token fails rather than calling anonymously. Intended for loopback calls to the platform's own API where the change must be attributed to the real user, not a shared identity. |
 
 There is no per-connection "admin only" flag. Connections are deny-by-default ([Personas](../personas/overview.md)): a connection is reachable only by personas whose `connections.allow` lists it, so restricting a connection to admins is just a matter of not granting it to other personas.
+
+## Response size: the read cap and the inline budget
+
+Two settings on a connection bound what a response becomes, and they measure different things.
+
+- `max_response_bytes` (default 10 MiB) is the upstream read cap: the most the gateway reads of any one response, a page of a walk or an inline call. It is a transfer and buffering limit, the ceiling an operator sets on what is read at all.
+- `max_inline_bytes` (default 128 KiB) is the inline budget: the most of a response `api_invoke_endpoint` returns through a tool result. It is a model-context budget. A body past it is cut at the budget, `body_truncated` is set, `hint` names the budget and the upstream's declared length, and `export_arguments` carries the `api_export` arguments that stream the same call into a portal asset; the caller adds a `name`. The read cap bounds it, so a connection whose `max_response_bytes` is lower returns at most that.
+
+Every `api_invoke_endpoint` response reports `body_bytes`, the size of the body it returned, so an agent sees what a call cost rather than inferring it. `api_export` is not subject to the inline budget: it streams the whole response into an asset under `portal.export.max_bytes`. The raw passthrough route streams to its caller and is likewise unaffected. The built-in `util` connection's `fetch_url` returns through the same path as every other connection and is held to the same budget. The MCP gateway (`kind: mcp`) is not covered: it forwards a proxied tool's result as the upstream returned it, a proxied tool result has no export path to name, and cutting it would change the upstream tool's contract.
+
+Raise the budget on a connection whose responses an agent needs whole, through the admin portal (Max inline bytes) or the admin API:
+
+```json
+{"config": {"base_url": "https://api.vendor.example.com", "auth_mode": "bearer", "credential": "...", "max_inline_bytes": 1048576}}
+```
 
 ## Private CAs and mTLS
 
@@ -407,7 +422,7 @@ Behavior:
 - **Uses the URL exactly as given.** No `base_url` join, and the query string is never re-encoded, so a presigned signature (`X-Amz-Signature`, `sig`, `se`) survives byte-for-byte.
 - **Injects no credentials.** A presigned URL carries its own credential in the query string; adding an `Authorization` header would break or leak it. Headers are opt-in only, and transport-owned headers (`Host`, `Content-Length`, `Transfer-Encoding`, `Connection`) cannot be set.
 - **Read-only.** Only `GET` and `HEAD` are accepted. Side-effectful outbound calls are out of scope for this operation.
-- Reachable inline via `api_invoke_endpoint` (subject to the normal inline truncation cap) or streamed to a portal asset via `api_export` with `path=/util/fetch` (subject to `portal.export.max_bytes`). The export returns the same asset metadata shape as any other `api_export`.
+- Reachable inline via `api_invoke_endpoint` (held to the connection's inline budget, `max_inline_bytes`) or streamed to a portal asset via `api_export` with `path=/util/fetch` (subject to `portal.export.max_bytes`). The export returns the same asset metadata shape as any other `api_export`.
 
 Typical flow for an async "generate export, download from a signed link" API:
 
@@ -442,7 +457,7 @@ With no `util_connection` block, the connection is enabled and the default postu
 
 ## Memory safety and the in-flight budget
 
-The gateway is a single shared process serving every connection and toolkit. `api_invoke_endpoint` buffers the upstream response into memory (capped per connection at `max_response_bytes`, default 10 MiB) so it can parse and envelope it. Per-request caps bound one call, but they do **not** bound the **sum** of concurrent calls: a burst of large responses, each under its own cap, can collectively exhaust the heap and get the container OOMKilled (exit 137), taking down every in-flight request on the pod.
+The gateway is a single shared process serving every connection and toolkit. `api_invoke_endpoint` buffers the upstream response into memory (an inline call reads up to the connection's `max_inline_bytes`, default 128 KiB; a page of a walk up to `max_response_bytes`, default 10 MiB) so it can parse and envelope it. Per-request caps bound one call, but they do **not** bound the **sum** of concurrent calls: a burst of large responses, each under its own cap, can collectively exhaust the heap and get the container OOMKilled (exit 137), taking down every in-flight request on the pod.
 
 The global **in-flight memory budget** closes that gap. It tracks the bytes committed to response buffering across all connections, and refuses a new buffered read — before allocating the buffer — when granting it would push the total past the ceiling. A refused request returns the structured `gateway_memory_budget_exhausted` error, which the REST shim maps to a retryable `429`.
 

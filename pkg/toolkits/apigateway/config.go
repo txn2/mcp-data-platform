@@ -124,13 +124,19 @@ const (
 	// upstream processing and response read.
 	DefaultCallTimeout = 60 * time.Second
 
-	// DefaultMaxResponseBytes caps how much of the upstream response
-	// body the toolkit will return to the model. Larger payloads are
-	// truncated; the response envelope flags truncation so the model
-	// can react. Operators with a need for large bodies can raise this
-	// per-connection or, when #372 lands, use the streaming-to-S3
-	// variant to bypass the model entirely.
+	// DefaultMaxResponseBytes is the upstream read cap: the most the
+	// gateway reads of any one response (a page of a walk, an inline
+	// call). It bounds transfer and buffering, not what reaches the
+	// model; that is MaxInlineBytes.
 	DefaultMaxResponseBytes = int64(10 * 1024 * 1024)
+
+	// DefaultMaxInlineBytes is the inline budget: the most of a
+	// response api_invoke_endpoint returns through a tool result. It is
+	// a model-context budget, sized so a response that fits is one an
+	// agent can read (issue #1587). A body past it is cut, flagged with
+	// body_truncated, and steered to api_export, which streams the
+	// whole response into an asset without a context cost.
+	DefaultMaxInlineBytes = int64(128 * 1024)
 )
 
 // cfgKey* constants name the keys used to read a Config from a
@@ -149,6 +155,7 @@ const (
 	cfgKeyCallTimeout      = "call_timeout"
 	cfgKeyTrustLevel       = "trust_level"
 	cfgKeyMaxResponseBytes = "max_response_bytes"
+	cfgKeyMaxInlineBytes   = "max_inline_bytes"
 	// cfgKeyStaticHeaders holds operator-configured headers that the
 	// toolkit appends to every outbound request. Required for upstreams
 	// that demand BOTH an Authorization bearer AND a separate
@@ -266,9 +273,14 @@ type Config struct {
 	CallTimeout time.Duration
 	// TrustLevel is "untrusted" (default) or "trusted".
 	TrustLevel string
-	// MaxResponseBytes caps how much of an upstream response body is
-	// returned to the model. Defaults to DefaultMaxResponseBytes.
+	// MaxResponseBytes is the upstream read cap: the most the gateway
+	// reads of any one response. Defaults to DefaultMaxResponseBytes.
 	MaxResponseBytes int64
+	// MaxInlineBytes is the inline budget: the most of a response
+	// returned through a tool result. Defaults to DefaultMaxInlineBytes;
+	// the read cap bounds it, so a connection whose MaxResponseBytes is
+	// lower returns at most that.
+	MaxInlineBytes int64
 	// CatalogID names the api_catalogs row whose component specs
 	// describe this connection's upstream API. Empty = no spec
 	// surface. The catalog is global and may back many connections;
@@ -423,6 +435,7 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 		CallTimeout:         DefaultCallTimeout,
 		TrustLevel:          TrustLevelUntrusted,
 		MaxResponseBytes:    DefaultMaxResponseBytes,
+		MaxInlineBytes:      DefaultMaxInlineBytes,
 	}
 
 	c.BaseURL = trimTrailingSlash(getString(cfg, cfgKeyBaseURL))
@@ -437,6 +450,7 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 	c.CallTimeout = getDuration(cfg, cfgKeyCallTimeout, c.CallTimeout)
 	c.TrustLevel = getStringDefault(cfg, cfgKeyTrustLevel, c.TrustLevel)
 	c.MaxResponseBytes = getInt64(cfg, cfgKeyMaxResponseBytes, c.MaxResponseBytes)
+	c.MaxInlineBytes = getInt64(cfg, cfgKeyMaxInlineBytes, c.MaxInlineBytes)
 	c.CatalogID = getString(cfg, cfgKeyCatalogID)
 	if isOAuthAuthMode(c.AuthMode) {
 		// Delegate OAuth parsing to the shared connoauth.ParseConfig
@@ -490,6 +504,9 @@ func (c Config) Validate() error {
 	}
 	if c.MaxResponseBytes <= 0 {
 		return errors.New("apigateway: max_response_bytes must be positive")
+	}
+	if c.MaxInlineBytes <= 0 {
+		return errors.New("apigateway: max_inline_bytes must be positive")
 	}
 	return firstConfigError(
 		c.validateStaticHeaders,

@@ -82,6 +82,7 @@ export const CONFIG_LABELS: Record<string, Record<string, string>> = {
     call_timeout: "Call Timeout",
     trust_level: "Trust Level",
     max_response_bytes: "Max Response Bytes",
+    max_inline_bytes: "Max Inline Bytes",
     catalog_id: "OpenAPI Catalog",
     connection_name: "Connection Name",
     oauth2_token_url: "OAuth2 Token URL",
