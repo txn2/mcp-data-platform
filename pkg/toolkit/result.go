@@ -25,11 +25,20 @@ func ErrorResult(msg string) *mcp.CallToolResult {
 	}
 }
 
+// MarshalResultJSON renders v exactly as JSONResult puts it in a tool result's
+// text block. A handler that must size a result before returning it — one
+// holding itself to a budget on what the client receives rather than on what it
+// read (issue #1606) — measures through this, so the budget cannot drift from
+// the encoder the result is actually built with.
+func MarshalResultJSON(v any) ([]byte, error) {
+	return json.MarshalIndent(v, "", "  ") //nolint:wrapcheck // the caller reports the marshal failure in its own terms
+}
+
 // JSONResult marshals v to indented JSON and returns it as an MCP tool result.
 // A marshal failure is surfaced as an in-band ErrorResult rather than a Go
 // error, matching how tool handlers report failures.
 func JSONResult(v any) *mcp.CallToolResult {
-	b, err := json.MarshalIndent(v, "", "  ")
+	b, err := MarshalResultJSON(v)
 	if err != nil {
 		return ErrorResult("internal error marshaling response: " + err.Error())
 	}

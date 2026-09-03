@@ -523,8 +523,10 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"Method is restricted to GET, POST, PUT, DELETE, PATCH, HEAD, " +
 			"PROPFIND, MKCOL, MOVE, COPY; " +
 			"path is joined to the connection's base_url. Every response reports body_bytes, the size " +
-			"of the body returned; a body past the connection's max_inline_bytes (default 128 KiB) is cut " +
-			"at that budget, flagged with body_truncated, and export_arguments carries the api_export call " +
+			"of the body read; a result past the connection's max_inline_bytes (default 32 KiB, a budget on " +
+			"the rendered tool result) is re-encoded compactly, and one still past it has its body " +
+			"cut to fit, is flagged with body_truncated, and " +
+			"export_arguments carries the api_export call " +
 			"that streams the whole response into an asset. A response's pagination signal is " +
 			"reported in `pagination` and not followed; pass `paginate` to walk every page in " +
 			"this one call and receive the merged array (api_export takes the same block and " +
@@ -1089,7 +1091,7 @@ func (t *Toolkit) handleInvoke(ctx context.Context, _ *mcp.CallToolRequest, in I
 	hasExport := t.exportDeps != nil
 	t.mu.RUnlock()
 
-	inv := invocation{cfg: c.cfg, auth: c.auth, client: c.client, specs: c.specs, webdavRoutes: c.webdavRoutes(), budget: budget}
+	inv := invocation{cfg: c.cfg, auth: c.auth, client: c.client, specs: c.specs, webdavRoutes: c.webdavRoutes(), budget: budget, inlineBudget: inlineBudgetFor(ctx, c.cfg)}
 	if in.Paginate != nil {
 		return handleInvokeWalk(ctx, inv, pageAuthorizer(ctx, policy, c), in, hasExport)
 	}
@@ -1106,16 +1108,20 @@ func (t *Toolkit) handleInvoke(ctx context.Context, _ *mcp.CallToolRequest, in I
 		}
 		return budgetOrErrorResult(err), nil, nil
 	}
-	steerToExport(&out, in, hasExport)
 	// Report the path an operation_id resolved to. The caller supplied an
 	// id, not a path, so this is the only place the catalog's base-path
 	// prefix and the path_params substitution become visible — without it
 	// a prefix that routes to the wrong upstream reads as an unexplained
-	// upstream 4xx (issue #1298).
+	// upstream 4xx (issue #1298). Set before the budget is applied so the
+	// result measured is the one returned.
 	if in.OperationID != "" {
 		out.ResolvedPath = in.Path
 	}
-	return buildInvokeResult(out), out, nil
+	// The rendering is taken before the result is built: applyInlineBudget
+	// mutates out, and out is also the structured output returned below, so
+	// the two must not be evaluated as operands of one call.
+	text := applyInlineBudget(&out, in, inv.inlineBudget, hasExport)
+	return buildInvokeResult(out, text), out, nil
 }
 
 // handleInvokeWalk is the `paginate` branch of handleInvoke (issue
@@ -1128,11 +1134,11 @@ func handleInvokeWalk(ctx context.Context, inv invocation, authorize func(Invoke
 	if err != nil {
 		return budgetOrErrorResult(err), nil, nil
 	}
-	steerToExport(&out, in, hasExport)
 	if in.OperationID != "" {
 		out.ResolvedPath = in.Path
 	}
-	return buildInvokeResult(out), out, nil
+	text := applyInlineBudget(&out, in, inv.inlineBudget, hasExport)
+	return buildInvokeResult(out, text), out, nil
 }
 
 // pageAuthorizer is the route policy check a walk runs on every page.
@@ -1167,8 +1173,13 @@ func pageAuthorizer(ctx context.Context, policy RoutePolicy, c *conn) func(Invok
 //     to map gateway-level failures to 502 / 504 while letting
 //     successful proxies of upstream errors flow through as wire
 //     HTTP 200 with the upstream code embedded in the body.
-func buildInvokeResult(out InvokeOutput) *mcp.CallToolResult {
-	result := toolkit.JSONResult(out)
+func buildInvokeResult(out InvokeOutput, text []byte) *mcp.CallToolResult {
+	if len(text) == 0 {
+		// The output could not be rendered at all. JSONResult reported that
+		// in band rather than as a Go error; this keeps that contract.
+		return toolkit.ErrorResult("apigateway: internal error marshaling response")
+	}
+	result := &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(text)}}}
 	outcome := ClassifyInvokeOutcome(out)
 	result.Meta = mcp.Meta{observability.MetaAuditOutcome: outcome}
 	if msg := auditOutcomeMessage(out); msg != "" {

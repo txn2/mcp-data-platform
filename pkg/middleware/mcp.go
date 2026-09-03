@@ -16,6 +16,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
+	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
 	pkgsession "github.com/txn2/mcp-data-platform/pkg/session"
 )
 
@@ -67,7 +68,7 @@ const (
 	SourceMCP    = sourceMCP
 	SourceAdmin  = "admin"
 	SourceREST   = "rest"
-	SourceScript = "script"
+	SourceScript = mcpcontext.SourceScript
 )
 
 // Error categories for structured error handling and audit queries.
@@ -203,6 +204,10 @@ func MCPToolCallMiddleware(authenticator Authenticator, authorizer Authorizer, t
 // metadata, connection override, and auth token bridging for a tool call.
 func buildToolCallContext(ctx context.Context, req mcp.Request, pc *PlatformContext, toolkitLookup ToolkitLookup, toolName string) context.Context {
 	ctx = WithPlatformContext(ctx, pc)
+	// Mirror the resolved source where a toolkit can read it without
+	// importing this package (which would form a cycle): the api-gateway
+	// holds a model's call to an inline budget and a script's call not.
+	ctx = mcpcontext.WithSource(ctx, pc.Source)
 
 	// Store ServerSession and progress token in context for
 	// progress notifications and client logging.

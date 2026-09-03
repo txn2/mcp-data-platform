@@ -11,13 +11,14 @@ import (
 
 // Issue #1587: the gateway returned up to max_response_bytes (10 MiB) inline,
 // so a 3 MB response reached the agent whole and unflagged. The inline budget
-// (max_inline_bytes, default 128 KiB) is the model-context limit: past it the
-// response is cut, body_truncated is set, and export_arguments names the
-// api_export call that streams the same response into an asset. Every
-// response reports body_bytes. max_response_bytes stays the upstream read cap.
+// (max_inline_bytes, default 32 KiB and applied to the rendered tool result
+// since issue #1606) is the model-context limit: past it the body is cut,
+// body_truncated is set, and export_arguments names the api_export call that
+// streams the same response into an asset. Every response reports body_bytes,
+// the size read from the upstream. max_response_bytes stays the read cap.
 const (
 	issue1587SizedBytes     = 3_000_000
-	issue1587DefaultInline  = 128 * 1024
+	issue1587DefaultInline  = 32 * 1024
 	issue1587FixtureConn    = "api-test-fixture"
 	issue1587FixtureDevKey  = "apitest-dev-key-2024"
 	issue1587FixtureBaseURL = "http://localhost:9282"
@@ -36,20 +37,20 @@ func issue1587SizedArgs(connection string, bytes any) map[string]any {
 	}
 }
 
-// assertCutAtInlineBudget asserts criteria 1 and 3: the body is the budget's
-// worth of bytes and no more, the response says so, and the steer carries the
-// api_export arguments for the same call.
+// assertCutAtInlineBudget asserts criteria 1 and 3: the response is cut, it
+// says so, the body it returns is inside the budget the whole result is held
+// to, and the steer carries the api_export arguments for the same call.
 func assertCutAtInlineBudget(t *testing.T, out map[string]any, budget float64) {
 	t.Helper()
 	if truncated, _ := out["body_truncated"].(bool); !truncated {
 		t.Fatalf("body_truncated = %v; want true", out["body_truncated"])
 	}
 	if got := number(t, out, "body_bytes"); got != budget {
-		t.Errorf("body_bytes = %v; want %v", got, budget)
+		t.Errorf("body_bytes = %v; want the %v bytes the read cap allowed", got, budget)
 	}
 	body, _ := out["body"].(string)
-	if len(body) != int(budget) {
-		t.Errorf("body holds %d bytes; want %v", len(body), budget)
+	if len(body) == 0 || len(body) >= int(budget) {
+		t.Errorf("body holds %d bytes; want a cut body inside the %v the whole result is held to", len(body), budget)
 	}
 	hint, _ := out["hint"].(string)
 	if !strings.Contains(hint, "api_export") || !strings.Contains(hint, "max_inline_bytes") {

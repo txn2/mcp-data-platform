@@ -5,8 +5,20 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/inlinefit"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 )
+
+// renderedFor is the rendering the handler hands buildInvokeResult, so a
+// test that builds a result directly carries the same text a call would.
+func renderedFor(t *testing.T, out InvokeOutput) []byte {
+	t.Helper()
+	b, err := inlinefit.Render(out)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	return b
+}
 
 func TestClassifyInvokeOutcome(t *testing.T) {
 	cases := []struct {
@@ -94,7 +106,7 @@ func TestBuildInvokeResult(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			r := buildInvokeResult(tc.in)
+			r := buildInvokeResult(tc.in, renderedFor(t, tc.in))
 			if r.IsError != tc.wantIsError {
 				t.Errorf("IsError = %v, want %v", r.IsError, tc.wantIsError)
 			}
@@ -124,7 +136,7 @@ func TestBuildInvokeResult(t *testing.T) {
 // for "what fraction of calls have error_category != 'ok'" without
 // needing to special-case NULLs.
 func TestBuildInvokeResult_MetaPresentOnSuccess(t *testing.T) {
-	r := buildInvokeResult(InvokeOutput{Status: 200, Body: map[string]any{"id": 1}})
+	r := buildInvokeResult(InvokeOutput{Status: 200, Body: map[string]any{"id": 1}}, renderedFor(t, InvokeOutput{Status: 200, Body: map[string]any{"id": 1}}))
 	if r.Meta == nil {
 		t.Fatal("Meta is nil on success path")
 	}
@@ -145,7 +157,7 @@ func TestBuildInvokeResult_MetaPresentOnSuccess(t *testing.T) {
 // inspect the failure shape. Regression test for the temptation to
 // replace the content with a plain error string.
 func TestBuildInvokeResult_PreservesJSONBody(t *testing.T) {
-	r := buildInvokeResult(InvokeOutput{Status: 0, Error: `dial tcp: connection refused`})
+	r := buildInvokeResult(InvokeOutput{Status: 0, Error: `dial tcp: connection refused`}, renderedFor(t, InvokeOutput{Status: 0, Error: `dial tcp: connection refused`}))
 	if !r.IsError {
 		t.Fatal("expected IsError = true for transport error")
 	}

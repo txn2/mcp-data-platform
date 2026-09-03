@@ -152,6 +152,7 @@ internal/httpserver/tablesource -> pkg/portal
 internal/httpserver/tablesource -> pkg/resource
 internal/httpserver/unsubhttp -> pkg/notification
 internal/httpserver/versionhttp -> pkg/prompt
+internal/inlinefit -> pkg/toolkit
 internal/notification/notifyprefs -> pkg/notification
 internal/notification/notifyqueue -> internal/pglisten
 internal/notification/notifyqueue -> pkg/notification
@@ -773,6 +774,7 @@ pkg/storage/s3 -> pkg/urnbuild
 pkg/textpatch -> pkg/contenttype
 pkg/textpatch/patchmcp -> pkg/middleware
 pkg/textpatch/patchmcp -> pkg/textpatch
+pkg/toolkits/apigateway -> internal/inlinefit
 pkg/toolkits/apigateway -> internal/logsan
 pkg/toolkits/apigateway -> internal/membudget
 pkg/toolkits/apigateway -> internal/pagewalk
