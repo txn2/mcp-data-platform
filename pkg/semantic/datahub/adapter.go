@@ -156,13 +156,30 @@ func (a *Adapter) LineageConfig() LineageConfig {
 	return a.cfg.Lineage
 }
 
+// notFoundOr maps a by-URN read failure onto the abstraction's own not-found
+// sentinel when the catalog reported that it holds no such entity, and wraps
+// anything else as the read failure it is. mcp-datahub v1.15.1 is the release
+// that tells the two apart: before it, a read of a URN DataHub had never
+// ingested answered with a stub built from that URN and no error at all, so a
+// caller could not distinguish it from an entity that exists and is
+// undocumented (#1605, #1610).
+func notFoundOr(kind, urn string, err error) error {
+	if errors.Is(err, dhclient.ErrNotFound) {
+		// Both sentinels stay in the chain: the platform's own, which survives a
+		// replay from CachedProvider, and the upstream's, which the DataHub REST
+		// surface already maps to a 404.
+		return fmt.Errorf("datahub holds no %s for %s: %w: %w", kind, urn, semantic.ErrNotFound, err)
+	}
+	return fmt.Errorf("getting %s from datahub: %w", kind, err)
+}
+
 // GetTableContext retrieves table context from DataHub.
 func (a *Adapter) GetTableContext(ctx context.Context, table semantic.TableIdentifier) (*semantic.TableContext, error) {
 	urn := a.buildDatasetURN(table)
 
 	entity, err := a.client.GetEntity(ctx, urn)
 	if err != nil {
-		return nil, fmt.Errorf("getting entity from datahub: %w", err)
+		return nil, notFoundOr("entity", urn, err)
 	}
 
 	tc := a.entityToTableContext(entity)
@@ -245,7 +262,7 @@ func (a *Adapter) GetLineage(ctx context.Context, table semantic.TableIdentifier
 func (a *Adapter) GetGlossaryTerm(ctx context.Context, urn string) (*semantic.GlossaryTerm, error) {
 	term, err := a.client.GetGlossaryTerm(ctx, urn)
 	if err != nil {
-		return nil, fmt.Errorf("getting glossary term from datahub: %w", err)
+		return nil, notFoundOr("glossary term", urn, err)
 	}
 
 	if term == nil {

@@ -173,12 +173,10 @@ func (p *CatalogProvider) Search(ctx context.Context, q Query) ([]Hit, error) {
 // the entity set is probed across many (lineage-expanded) URNs, most of which
 // legitimately have no catalog entry, so a miss must not blank the provider.
 // Only entities the catalog actually holds yield a hit, so a URN that names
-// nothing produces nothing. A non-empty URN in the response is not that test:
-// DataHub answers a URN it has never ingested with a stub built from that URN
-// rather than an error, so the entity has to be recognized by carrying something
-// the reference did not supply (tableContextExists, #1605). Without it a search
-// by a made-up URN reported one match, and fetching the reference it handed back
-// then reported the entity missing.
+// nothing produces nothing. The catalog settles that itself: a URN it has never
+// ingested is a read error (mcp-datahub v1.15.1, #1610), which this arm skips
+// like any other miss, leaving the URN unseen so the text arm may still match it
+// on its own evidence.
 //
 // The connection boundary is applied after resolution, against the URN the
 // CATALOG returned rather than the one the caller passed. Those differ, and only
@@ -206,12 +204,6 @@ func (p *CatalogProvider) searchByEntity(ctx context.Context, q Query, seen map[
 			continue
 		}
 		if tc == nil || tc.URN == "" {
-			continue
-		}
-		if !tableContextExists(tc) {
-			// A stub built from the URN, not an entry. Left unseen so the text arm
-			// may still match the same URN on its own evidence.
-			slog.Debug("catalog entity lookup resolved to a urn-only record", logKeyURN, urn)
 			continue
 		}
 		// Mark the URN handled before the boundary check so the text arm does not
@@ -444,10 +436,9 @@ const datasetPrefix = "urn:li:dataset:"
 // A URN that does not parse as a dataset, that the catalog has no entry for, or that
 // the catalog errors on is ErrNotFound. A lookup error is a miss because the search
 // entity path treats that same error as a skip (searchByEntity), so a stale dataset
-// citation is a clean not-found here too rather than a hard tool failure. An entry
-// the catalog does not hold is a miss on the strength of what the record carries
-// rather than of an error, because DataHub answers such a URN with a stub built
-// from it (datasetExists, #1605).
+// citation is a clean not-found here too rather than a hard tool failure. That
+// covers a URN the catalog has never ingested: it is reported as ErrNotFound by
+// the catalog read itself (mcp-datahub v1.15.1, #1610).
 //
 // A dataset belonging only to connections the caller's persona is not granted is
 // ErrNotFound as well (#1108): fetch must not hand back by citation what search
@@ -485,12 +476,10 @@ func (p *CatalogProvider) Fetch(ctx context.Context, ref string, caller Caller) 
 }
 
 // resolveDataset reads the dataset the reference names, or nil when the catalog
-// does not hold it. Each of the three ways it can fail to hold it is a miss
-// rather than a failure: a read error, because DataHub conflates "no such
-// entity" with an error and the search entity path skips that same error
-// (searchByEntity), so a stale citation stays a clean answer; a record with no
-// URN; and a record carrying nothing the reference did not supply, which is what
-// the catalog returns for a URN it has never ingested (#1605).
+// does not hold it. Both ways it can fail to hold it are a miss rather than a
+// failure: a read error, which is what a URN the catalog has never ingested
+// returns and what the search entity path skips on (searchByEntity), so a stale
+// citation stays a clean answer; and a record with no URN.
 func (p *CatalogProvider) resolveDataset(ctx context.Context, ref string, table semantic.TableIdentifier) *semantic.Dataset {
 	ds, err := p.readDataset(ctx, table)
 	if err != nil {
@@ -498,10 +487,6 @@ func (p *CatalogProvider) resolveDataset(ctx context.Context, ref string, table 
 		return nil
 	}
 	if ds == nil || ds.URN == "" {
-		return nil
-	}
-	if !datasetExists(ds) {
-		slog.Debug("catalog entity fetch resolved to a urn-only record", logKeyURN, ref)
 		return nil
 	}
 	return ds

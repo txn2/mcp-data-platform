@@ -327,7 +327,10 @@ func (h *Handler) getCatalogEntity(w http.ResponseWriter, r *http.Request) {
 	}
 	tableCtx, err := reader.GetTableContext(r.Context(), *id)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "entity read failed: "+err.Error())
+		// A URN the catalog has never ingested is a 404, not a 502 (#1610): the
+		// portal states plainly that a cited dataset is not in this catalog, and
+		// that reading is only available to it if the two are distinguishable.
+		writeCatalogReadError(w, "entity read failed", err)
 		return
 	}
 	columns, err := reader.GetColumnsContext(r.Context(), *id)

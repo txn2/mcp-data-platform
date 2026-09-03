@@ -308,8 +308,8 @@ github.com/tmc/langchaingo v0.1.5 h1:PNPFu54wn5uVPRt9GS/quRwdFZW4omSab9/dcFAsGmU
 github.com/tmc/langchaingo v0.1.5/go.mod h1:RLtnUED/hH2v765vdjS9Z6gonErZAXURuJHph0BttqM=
 github.com/trinodb/trino-go-client v0.333.0 h1:+bsW8/uLFNF00MEL9JZJym94LlUnle25VgDlWGPEZos=
 github.com/trinodb/trino-go-client v0.333.0/go.mod h1:91okdYtRUZoj3XJu/tqdzu11sNliQuN4A+vMFEB8GVE=
-github.com/txn2/mcp-datahub v1.15.0 h1:SiFHIWIhL4lqnoEd4JilYqHJqgCT4npBqhbb549HgAw=
-github.com/txn2/mcp-datahub v1.15.0/go.mod h1:zNhJ1JJoVrwIC8DU9fTywVSdCjG7gnnrzbNWL746JYM=
+github.com/txn2/mcp-datahub v1.15.1 h1:VJkRH30stwqPqeRTHnznDxAaB+A50mRfwrkKgnUcn54=
+github.com/txn2/mcp-datahub v1.15.1/go.mod h1:nwnlwyYQ8Cjef76/iYA3+arSSK4dkRp8vKl7zBZQMBs=
 github.com/txn2/mcp-s3 v1.4.0 h1:PW1e7x4zXTNo7ItGG3YBHyAFDSMt8jCHMYJXJN4RgQM=
 github.com/txn2/mcp-s3 v1.4.0/go.mod h1:AOTDEuLfJYGwhivRScK7vTh9+qIh3JaFThmngeQG8kw=
 github.com/txn2/mcp-trino v1.4.0 h1:AVebcqiMJr1fq5zh+JgwXpqYYZt7FdlXZnD8zIYJVEU=

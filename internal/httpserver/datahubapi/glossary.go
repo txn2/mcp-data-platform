@@ -183,7 +183,7 @@ func (h *Handler) browseGlossaryChildren(w http.ResponseWriter, r *http.Request)
 	children, err := reader.ListGlossaryNodeChildren(r.Context(), urn,
 		parseOffset(r.URL.Query().Get(qpOffset)), clampLimit(r.URL.Query().Get(qpLimit)))
 	if err != nil {
-		writeGlossaryReadError(w, "glossary children read failed", err)
+		writeCatalogReadError(w, "glossary children read failed", err)
 		return
 	}
 	if children == nil {
@@ -215,7 +215,7 @@ func (h *Handler) getGlossaryParents(w http.ResponseWriter, r *http.Request) {
 	}
 	chain, err := reader.GetGlossaryParentChain(r.Context(), urn)
 	if err != nil {
-		writeGlossaryReadError(w, "glossary parent chain read failed", err)
+		writeCatalogReadError(w, "glossary parent chain read failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"parents": orEmpty(chain)})
@@ -239,7 +239,7 @@ func (h *Handler) getGlossaryTerm(w http.ResponseWriter, r *http.Request) {
 	}
 	term, err := reader.GetGlossaryTerm(r.Context(), urn)
 	if err != nil {
-		writeGlossaryReadError(w, "glossary term read failed", err)
+		writeCatalogReadError(w, "glossary term read failed", err)
 		return
 	}
 	if term == nil {
@@ -259,11 +259,20 @@ func orEmpty[T any](s []T) []T {
 	return s
 }
 
-// writeGlossaryReadError maps an upstream glossary read failure to a status. A
+// writeCatalogReadError maps an upstream catalog read failure to a status. A
 // URN that DataHub does not know is a 404 rather than a 502: the request was
 // well-formed and the backend answered, the entity simply is not there.
-func writeGlossaryReadError(w http.ResponseWriter, label string, err error) {
-	if errors.Is(err, dhclient.ErrNotFound) {
+//
+// Two sentinels answer for that, because the reads behind this surface report
+// it in two forms: the upstream client's, which the node-children and
+// parent-chain reads return unchanged, and the provider abstraction's, which
+// the by-URN term and entity reads are mapped onto (#1610). The adapter puts
+// both in the chain, so either test alone would pass today; both are here
+// because a reader that answers only one of them is one wiring change (a
+// caching decorator, another provider) away from a 502 for an entity that
+// simply is not there.
+func writeCatalogReadError(w http.ResponseWriter, label string, err error) {
+	if errors.Is(err, dhclient.ErrNotFound) || errors.Is(err, semantic.ErrNotFound) {
 		writeError(w, http.StatusNotFound, label+": "+err.Error())
 		return
 	}

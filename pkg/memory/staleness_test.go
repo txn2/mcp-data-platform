@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -189,6 +190,28 @@ func TestCheckEntityStaleness(t *testing.T) {
 		}
 		reason := w.checkEntityStaleness(context.Background(), record)
 		assert.Contains(t, reason, "lookup failed")
+	})
+
+	// #1610: mcp-datahub v1.15.1 made a URN the catalog holds no entity for
+	// visible here for the first time. It is not evidence the record went
+	// stale -- a URN that was never ingested is indistinguishable from one that
+	// was removed, and flagging on it would mark every memory citing an
+	// uncataloged table at once.
+	t.Run("catalog holds no entity for the cited urn", func(t *testing.T) {
+		sp := &mockSemanticProvider{
+			tableCtxFn: func(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
+				return nil, fmt.Errorf("datahub holds no entity: %w", semantic.ErrNotFound)
+			},
+		}
+		w := NewStalenessWatcher(NewNoopStore(), sp, StalenessConfig{})
+
+		record := Record{
+			EntityURNs: []string{
+				"urn:li:dataset:(urn:li:dataPlatform:trino,catalog.schema.table,PROD)",
+			},
+		}
+		reason := w.checkEntityStaleness(context.Background(), record)
+		assert.Empty(t, reason, "a URN the catalog does not hold must not flag the record stale")
 	})
 
 	t.Run("invalid URN skipped", func(t *testing.T) {

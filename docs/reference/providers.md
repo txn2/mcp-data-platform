@@ -135,6 +135,14 @@ cached := semantic.NewCachedProvider(baseProvider, semantic.CacheConfig{
 })
 ```
 
+A by-URN read that reports `semantic.ErrNotFound` is cached for the same TTL as
+one that returns an entity, and replayed as that error: a catalog that holds no
+entity for a reference has answered, and the answer costs the catalog the same
+to produce. Most tables a deployment queries are not in its catalog, so without
+this every enriched tool call re-reads every one of them. A read that fails for
+any other reason (a catalog that could not be reached, a rejected credential) is
+not cached, since it says nothing about what the catalog holds.
+
 ---
 
 ## Query Provider

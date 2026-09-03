@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -487,5 +489,143 @@ func TestDocumentSearcherFrom_UnwrapsCacheDecorator(t *testing.T) {
 	}
 	if _, ok := DocumentSearcherFrom(NewNoopProvider()); ok {
 		t.Error("a raw non-DocumentSearcher must not report the capability")
+	}
+}
+
+// countingAbsentProvider answers every by-URN read with the error it was given,
+// counting the reads that reached it.
+type countingAbsentProvider struct {
+	NoopProvider
+	err error
+	// The counters are atomic because the cache is exercised from several
+	// goroutines at once (TestCachedProvider_InvalidateDuringReads).
+	tables atomic.Int64
+	terms  atomic.Int64
+}
+
+func (c *countingAbsentProvider) GetTableContext(_ context.Context, _ TableIdentifier) (*TableContext, error) {
+	c.tables.Add(1)
+	return nil, c.err
+}
+
+func (c *countingAbsentProvider) GetGlossaryTerm(_ context.Context, _ string) (*GlossaryTerm, error) {
+	c.terms.Add(1)
+	return nil, c.err
+}
+
+// TestCachedProvider_RemembersANotFound is #1610. A catalog that reports a
+// reference it does not hold answers as durably as one that reports an entity,
+// and costs the same to ask, so the miss is cached for the same TTL. Without
+// it, semantic enrichment reads the catalog again for every tool call naming a
+// table the catalog does not hold, which is most tables in most deployments.
+func TestCachedProvider_RemembersANotFound(t *testing.T) {
+	table := TableIdentifier{Schema: cacheTestSchema, Table: "never_ingested"}
+	const termURN = "urn:li:glossaryTerm:NeverIngested"
+
+	t.Run("a not-found is read once and replayed", func(t *testing.T) {
+		underlying := &countingAbsentProvider{err: fmt.Errorf("absent: %w", ErrNotFound)}
+		provider := NewCachedProvider(underlying, CacheConfig{TTL: cacheTestTTLMs * time.Millisecond})
+		ctx := context.Background()
+
+		for i := range 3 {
+			if _, err := provider.GetTableContext(ctx, table); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("GetTableContext call %d error = %v, want ErrNotFound", i+1, err)
+			}
+			if _, err := provider.GetGlossaryTerm(ctx, termURN); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("GetGlossaryTerm call %d error = %v, want ErrNotFound", i+1, err)
+			}
+		}
+		if underlying.tables.Load() != 1 || underlying.terms.Load() != 1 {
+			t.Errorf("provider reads = %d table, %d term, want 1 each", underlying.tables.Load(), underlying.terms.Load())
+		}
+	})
+
+	t.Run("a remembered not-found expires with the TTL", func(t *testing.T) {
+		underlying := &countingAbsentProvider{err: fmt.Errorf("absent: %w", ErrNotFound)}
+		provider := NewCachedProvider(underlying, CacheConfig{TTL: cacheTestTTLMs * time.Millisecond})
+		ctx := context.Background()
+
+		if _, err := provider.GetTableContext(ctx, table); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("first GetTableContext error = %v, want ErrNotFound", err)
+		}
+		time.Sleep((cacheTestTTLMs + 50) * time.Millisecond)
+		if _, err := provider.GetTableContext(ctx, table); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("second GetTableContext error = %v, want ErrNotFound", err)
+		}
+		if underlying.tables.Load() != 2 {
+			t.Errorf("provider reads = %d, want the entry to expire and be read again", underlying.tables.Load())
+		}
+	})
+
+	// A transport or authorization failure says nothing about what the catalog
+	// holds, so it must not be remembered as an absence.
+	t.Run("a read failure is not remembered", func(t *testing.T) {
+		underlying := &countingAbsentProvider{err: errors.New("catalog unreachable")}
+		provider := NewCachedProvider(underlying, CacheConfig{TTL: cacheTestTTLMs * time.Millisecond})
+		ctx := context.Background()
+
+		for range 3 {
+			if _, err := provider.GetTableContext(ctx, table); err == nil {
+				t.Fatal("GetTableContext error = nil, want the transport failure")
+			}
+			if _, err := provider.GetGlossaryTerm(ctx, termURN); err == nil {
+				t.Fatal("GetGlossaryTerm error = nil, want the transport failure")
+			}
+		}
+		if underlying.tables.Load() != 3 || underlying.terms.Load() != 3 {
+			t.Errorf("provider reads = %d table, %d term, want 3 each", underlying.tables.Load(), underlying.terms.Load())
+		}
+	})
+
+	t.Run("Invalidate drops a remembered not-found", func(t *testing.T) {
+		underlying := &countingAbsentProvider{err: fmt.Errorf("absent: %w", ErrNotFound)}
+		provider := NewCachedProvider(underlying, CacheConfig{TTL: time.Hour})
+		ctx := context.Background()
+
+		if _, err := provider.GetTableContext(ctx, table); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("first GetTableContext error = %v, want ErrNotFound", err)
+		}
+		provider.Invalidate()
+		if _, err := provider.GetTableContext(ctx, table); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("GetTableContext after Invalidate error = %v, want ErrNotFound", err)
+		}
+		if underlying.tables.Load() != 2 {
+			t.Errorf("provider reads = %d, want the invalidated entry to be read again", underlying.tables.Load())
+		}
+	})
+}
+
+// TestCachedProvider_InvalidateDuringReads runs the cache's own maps through a
+// clear while reads are in flight. cachedRead and cacheWrite take the map as an
+// argument, read out of the field by the caller before the lock is taken, so an
+// Invalidate that replaced a field rather than emptying it would be an
+// unsynchronized write against that read. Meaningful under -race.
+func TestCachedProvider_InvalidateDuringReads(t *testing.T) {
+	underlying := &countingAbsentProvider{err: fmt.Errorf("absent: %w", ErrNotFound)}
+	provider := NewCachedProvider(underlying, CacheConfig{TTL: time.Hour})
+	ctx := context.Background()
+	table := TableIdentifier{Schema: cacheTestSchema, Table: "raced"}
+
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			for range 50 {
+				_, _ = provider.GetTableContext(ctx, table)
+				_, _ = provider.GetGlossaryTerm(ctx, "urn:li:glossaryTerm:Raced")
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			for range 50 {
+				provider.Invalidate()
+			}
+		}()
+	}
+	wg.Wait()
+
+	if _, err := provider.GetTableContext(ctx, table); !errors.Is(err, ErrNotFound) {
+		t.Errorf("GetTableContext after the clears = %v, want ErrNotFound", err)
 	}
 }

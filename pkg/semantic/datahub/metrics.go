@@ -2,6 +2,7 @@ package datahub
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -65,14 +66,36 @@ func (*instrumentedClient) startSpan(ctx context.Context, op string) (context.Co
 		trace.WithAttributes(attribute.String("datahub.operation", op)))
 }
 
+// upstreamStatus is observability.UpstreamStatus with the one exception the
+// catalog's own answers force: a URN DataHub holds no entity for is reported as
+// ErrNotFound (mcp-datahub v1.15.1, #1610), and that is an answer rather than a
+// failed request. Counting it as an upstream error would put every enrichment
+// read of a table the catalog does not hold into the DataHub error rate and
+// mark its span failed, and most tables a deployment queries are not in its
+// catalog.
+func upstreamStatus(err error) string {
+	if errors.Is(err, dhclient.ErrNotFound) {
+		return observability.StatusOK
+	}
+	return observability.UpstreamStatus(err)
+}
+
 // finish records one observation for op, ends the span, and returns the
 // (wrapped) error so the caller can `return value, c.finish(...)` in a
 // single line. Wrapping matches the codebase's decorator convention (see
 // semantic.CachedProvider) and keeps the error chain intact for errors.Is/As.
 func (c *instrumentedClient) finish(ctx context.Context, span trace.Span, op string, start time.Time, err error) error {
-	status := observability.UpstreamStatus(err)
+	status := upstreamStatus(err)
 	c.metrics.RecordDataHubRequest(ctx, op, status, time.Since(start))
-	observability.SetSpanStatus(span, status, err)
+	// The span carries the error only when the call actually failed:
+	// SetSpanStatus records an exception for any non-nil error, and a URN the
+	// catalog holds no entity for is an answer (#1610), not a failure to attach
+	// one to.
+	spanErr := err
+	if status == observability.StatusOK {
+		spanErr = nil
+	}
+	observability.SetSpanStatus(span, status, spanErr)
 	span.End()
 	if err != nil {
 		return fmt.Errorf("datahub %s: %w", op, err)

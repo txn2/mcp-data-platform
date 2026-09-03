@@ -57,7 +57,7 @@ func (a *Adapter) GetDataset(ctx context.Context, table semantic.TableIdentifier
 	entity, err := a.client.GetEntity(ctx, urn)
 	wg.Wait()
 	if err != nil {
-		return nil, fmt.Errorf("getting entity from datahub: %w", err)
+		return nil, notFoundOr("entity", urn, err)
 	}
 
 	ds := &semantic.Dataset{
@@ -88,7 +88,7 @@ func (a *Adapter) GetDataset(ctx context.Context, table semantic.TableIdentifier
 func (a *Adapter) GetDataProduct(ctx context.Context, urn string) (*semantic.DataProduct, error) {
 	product, err := a.client.GetDataProduct(ctx, urn)
 	if err != nil {
-		return nil, fmt.Errorf("getting data product from datahub: %w", err)
+		return nil, notFoundOr("data product", urn, err)
 	}
 	if product == nil {
 		return nil, fmt.Errorf("data product not found: %s", urn)

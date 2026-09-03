@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -156,6 +157,18 @@ func (w *StalenessWatcher) checkEntityStaleness(ctx context.Context, record Reco
 
 		tc, err := w.semanticProvider.GetTableContext(ctx, table)
 		if err != nil {
+			// A catalog that holds no entity for the URN is not evidence the
+			// record went stale: most deployments catalog only some of the
+			// tables their memories cite, and a URN that was never ingested
+			// looks exactly like one that was removed. Marking on it would flag
+			// every such memory at once, so it is left verified, as it was
+			// before mcp-datahub v1.15.1 made the miss visible here at all
+			// (#1610). A read that failed for any other reason is still
+			// reported, which is the behavior this watcher has always had.
+			if errors.Is(err, semantic.ErrNotFound) {
+				slog.Debug("staleness: catalog holds no entity for a cited urn", "urn", urn)
+				continue
+			}
 			reasons = append(reasons, fmt.Sprintf("entity %s: lookup failed", urn))
 			continue
 		}

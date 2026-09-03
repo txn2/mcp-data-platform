@@ -3,6 +3,7 @@ package knowledge
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/txn2/mcp-data-platform/pkg/query"
@@ -42,7 +43,14 @@ func (f *fakeTableSearcher) GetTableContext(_ context.Context, table semantic.Ta
 	if f.ctxErr != nil {
 		return nil, f.ctxErr
 	}
-	return f.byTable[table.String()], nil
+	tc, held := f.byTable[table.String()]
+	if !held {
+		// A table the catalog has never ingested is semantic.ErrNotFound, the
+		// contract the DataHub adapter maps the upstream client's own not-found
+		// onto (#1610).
+		return nil, fmt.Errorf("catalog holds no entity for %s: %w", table, semantic.ErrNotFound)
+	}
+	return tc, nil
 }
 
 func TestDatahubProvider_Metadata(t *testing.T) {
@@ -136,8 +144,8 @@ func TestDatahubProvider_EntityLookupReturnsCatalogEntity(t *testing.T) {
 }
 
 func TestDatahubProvider_EntityLookupNoDescriptionUsesName(t *testing.T) {
-	// The entity is documented by a tag rather than a description, so it is a
-	// real entry (#1605) whose hit text falls back to the dotted table name.
+	// An entity with no description of its own falls back to the dotted table
+	// name as its hit text.
 	s := &fakeTableSearcher{
 		byTable: map[string]*semantic.TableContext{
 			testDatasetTable: {URN: testDatasetURN, Tags: []string{"pii"}},
@@ -153,16 +161,14 @@ func TestDatahubProvider_EntityLookupNoDescriptionUsesName(t *testing.T) {
 	}
 }
 
-// TestDatahubProvider_EntityLookupRejectsTheURNOnlyStub is #1605 on the search
-// side. A catalog answers a URN it has never ingested with a context carrying
-// that URN and nothing else, so an entity search on a made-up URN reported one
-// match and the reference it handed back then failed to fetch.
-func TestDatahubProvider_EntityLookupRejectsTheURNOnlyStub(t *testing.T) {
-	s := &fakeTableSearcher{
-		byTable: map[string]*semantic.TableContext{
-			testDatasetTable: {URN: testDatasetURN},
-		},
-	}
+// TestDatahubProvider_EntityLookupSkipsACatalogMiss is #1605 on the search
+// side. An entity search on a URN the catalog has never ingested reported one
+// match, and the reference it handed back then failed to fetch. The catalog
+// reports that URN as not-found now (#1610), and this arm must skip it rather
+// than fail the whole search: the entity set is probed across many URNs, most
+// of which legitimately have no catalog entry.
+func TestDatahubProvider_EntityLookupSkipsACatalogMiss(t *testing.T) {
+	s := &fakeTableSearcher{byTable: map[string]*semantic.TableContext{}}
 	p := NewCatalogProvider(s)
 	hits, err := p.Search(context.Background(), Query{EntityURNs: []string{testDatasetURN}})
 	if err != nil {
@@ -173,10 +179,31 @@ func TestDatahubProvider_EntityLookupRejectsTheURNOnlyStub(t *testing.T) {
 	}
 }
 
+// TestDatahubProvider_EntityLookupResolvesAnUndocumentedEntity is the other half
+// of #1610: an entity the catalog holds but nobody has documented carries
+// nothing beyond what its own URN supplies, and is a hit all the same. Until
+// the catalog could report a miss itself, this arm had to reject that record to
+// keep a made-up URN from matching.
+func TestDatahubProvider_EntityLookupResolvesAnUndocumentedEntity(t *testing.T) {
+	s := &fakeTableSearcher{
+		byTable: map[string]*semantic.TableContext{
+			testDatasetTable: {URN: testDatasetURN},
+		},
+	}
+	p := NewCatalogProvider(s)
+	hits, err := p.Search(context.Background(), Query{EntityURNs: []string{testDatasetURN}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(hits) != 1 || hits[0].Ref != testDatasetURN {
+		t.Fatalf("an undocumented entity the catalog holds must resolve, got %+v", hits)
+	}
+}
+
 func TestDatahubProvider_EntityLookupMissReturnsNothing(t *testing.T) {
-	// A valid URN the catalog cannot resolve (nil context) yields no hit, so a
-	// non-existent URN never produces a false match.
-	s := &fakeTableSearcher{byTable: map[string]*semantic.TableContext{}}
+	// A valid URN the catalog answers with a read failure yields no hit, so a
+	// URN it cannot resolve never produces a false match.
+	s := &fakeTableSearcher{ctxErr: errors.New("catalog unreachable")}
 	p := NewCatalogProvider(s)
 	hits, err := p.Search(context.Background(), Query{EntityURNs: []string{testDatasetURN}})
 	if err != nil {
@@ -710,21 +737,17 @@ func TestCatalogProvider_FetchDataProduct(t *testing.T) {
 	})
 }
 
-// TestCatalogProvider_FetchRejectsTheURNOnlyStub is #1605 at the arm rather
-// than at the rule: a catalog that answers a reference it has never ingested
-// with a record built out of that reference must produce a not-found, because
-// the arm's only other not-found conditions (an error, an empty URN) are ones a
-// real DataHub does not produce for a missing entity.
-func TestCatalogProvider_FetchRejectsTheURNOnlyStub(t *testing.T) {
+// TestCatalogProvider_FetchOnAReferenceTheCatalogDoesNotHold is #1605 at the
+// arm: a reference the catalog has never ingested is a structured not-found
+// rather than a document. The catalog reports that miss as a read error now
+// (#1610), which this arm answers with ErrNotFound the same way it answers a
+// transport failure, so a stale citation stays a clean answer either way.
+func TestCatalogProvider_FetchOnAReferenceTheCatalogDoesNotHold(t *testing.T) {
+	absent := fmt.Errorf("never ingested: %w", semantic.ErrNotFound)
+
 	t.Run("dataset", func(t *testing.T) {
 		p := NewCatalogProvider(&fakeTableSearcher{})
-		p.SetDatasetReader(&fakeDatasetReader{ds: &semantic.Dataset{
-			TableContext: semantic.TableContext{URN: testDatasetURN},
-			Name:         testDatasetTable,
-			Type:         "DATASET",
-			Platform:     "trino",
-			Schema:       &semantic.DatasetSchema{},
-		}})
+		p.SetDatasetReader(&fakeDatasetReader{err: absent})
 		doc, owned, err := p.Fetch(context.Background(), testDatasetURN, Caller{})
 		if !owned || !errors.Is(err, ErrNotFound) || doc != nil {
 			t.Errorf("doc=%+v owned=%v err=%v, want owned + ErrNotFound + no document", doc, owned, err)
@@ -734,15 +757,43 @@ func TestCatalogProvider_FetchRejectsTheURNOnlyStub(t *testing.T) {
 	t.Run("data product", func(t *testing.T) {
 		const productURN = "urn:li:dataProduct:never-ingested"
 		p := NewCatalogProvider(&fakeTableSearcher{})
-		p.SetDataProductReader(&fakeProductReader{product: &semantic.DataProduct{URN: productURN}})
+		p.SetDataProductReader(&fakeProductReader{err: absent})
 		doc, owned, err := p.Fetch(context.Background(), productURN, Caller{})
 		if !owned || !errors.Is(err, ErrNotFound) || doc != nil {
 			t.Errorf("doc=%+v owned=%v err=%v, want owned + ErrNotFound + no document", doc, owned, err)
 		}
 	})
 
-	// A dataset whose record is partial is not a stub: the arm cannot tell an
-	// absent aspect from one this read could not serve, so it resolves.
+	// The other half of #1610: a record the catalog holds and nobody has
+	// documented carries nothing beyond what its own reference supplies, and
+	// resolves all the same.
+	t.Run("an undocumented dataset resolves", func(t *testing.T) {
+		p := NewCatalogProvider(&fakeTableSearcher{})
+		p.SetDatasetReader(&fakeDatasetReader{ds: &semantic.Dataset{
+			TableContext: semantic.TableContext{URN: testDatasetURN},
+			Name:         testDatasetTable,
+			Type:         "DATASET",
+			Platform:     "trino",
+			Schema:       &semantic.DatasetSchema{},
+		}})
+		doc, owned, err := p.Fetch(context.Background(), testDatasetURN, Caller{})
+		if !owned || err != nil || doc == nil {
+			t.Errorf("doc=%+v owned=%v err=%v, want the record to resolve", doc, owned, err)
+		}
+	})
+
+	t.Run("an undocumented data product resolves", func(t *testing.T) {
+		const productURN = "urn:li:dataProduct:bare"
+		p := NewCatalogProvider(&fakeTableSearcher{})
+		p.SetDataProductReader(&fakeProductReader{product: &semantic.DataProduct{URN: productURN}})
+		doc, owned, err := p.Fetch(context.Background(), productURN, Caller{})
+		if !owned || err != nil || doc == nil {
+			t.Errorf("doc=%+v owned=%v err=%v, want the record to resolve", doc, owned, err)
+		}
+	})
+
+	// A dataset whose record is partial resolves: the parts the catalog could
+	// not serve say nothing about whether the dataset exists.
 	t.Run("a partial read still resolves", func(t *testing.T) {
 		p := NewCatalogProvider(&fakeTableSearcher{})
 		p.SetDatasetReader(&fakeDatasetReader{ds: &semantic.Dataset{
