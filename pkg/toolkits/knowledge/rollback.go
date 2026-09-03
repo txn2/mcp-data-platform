@@ -91,6 +91,13 @@ type RollbackDeps struct {
 	// PageReverter and PageEditedError live in page_sink.go with the rest of the
 	// page-sink machinery.
 	Pages PageReverter
+	// Instructions reverts promotions into the deployment's customized agent
+	// instructions (target "ai:<section>"). Optional; a nil Instructions makes an
+	// instructions-changeset rollback return a clear "not configured" error rather
+	// than mis-routing through the DataHub inverse-op path. InstructionsStore and
+	// InstructionsEditedError live in instructions_sink.go with the rest of that
+	// sink's machinery.
+	Instructions InstructionsStore
 }
 
 // RevertChangeset reverts the DataHub aspects mutated by a changeset back to
@@ -111,6 +118,12 @@ func RevertChangeset(ctx context.Context, deps RollbackDeps, cs *Changeset, roll
 	// tool and the admin REST endpoint route page changesets correctly.
 	if strings.HasPrefix(cs.TargetURN, pageTargetPrefix) {
 		return revertPageChangeset(ctx, deps, cs, rolledBackBy)
+	}
+	// Agent-instruction promotions (target "ai:<section>") revert through the
+	// instructions sink, restoring the customized layer's prior text and, for a
+	// diverted rule, the page the section indexed.
+	if strings.HasPrefix(cs.TargetURN, instructionsTargetPrefix) {
+		return revertInstructionsChangeset(ctx, deps, cs, rolledBackBy)
 	}
 
 	changes := parseRecordedChanges(cs.NewValue)
@@ -251,6 +264,11 @@ func changesetRevertibility(targetURN string, changes []recordedChange) (reverti
 	// reverter is configured (promotion fails closed otherwise, page_sink.go), so it is
 	// structurally revertible here.
 	if strings.HasPrefix(targetURN, pageTargetPrefix) {
+		return true, nil
+	}
+	// An agent-instruction promotion (target "ai:<section>") records the layer's
+	// whole prior text, so restoring it needs nothing the changeset does not hold.
+	if strings.HasPrefix(targetURN, instructionsTargetPrefix) {
 		return true, nil
 	}
 	// entityTypeFromURN failure leaves entityType "", which the readability predicates
@@ -541,7 +559,9 @@ func revertPageChangeset(ctx context.Context, deps RollbackDeps, cs *Changeset, 
 		return nil, &PageEditedError{Slug: slug, CurrentVersion: page.CurrentVersion, ChangesetVersion: produced}
 	}
 
-	reverted, err := applyPageRevert(ctx, deps.Pages, cs, page, rolledBackBy)
+	reverted, err := applyPageRevert(ctx, pageRevert{
+		pages: deps.Pages, cs: cs, op: cs.ChangeType, page: page, by: rolledBackBy,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -559,11 +579,25 @@ func revertPageChangeset(ctx context.Context, deps RollbackDeps, cs *Changeset, 
 	}, nil
 }
 
+// pageRevert carries the inputs of one inverse page operation. op is the page
+// change type to invert, held separately from cs.ChangeType because an
+// agent-instructions promotion that diverted its body onto a page carries the
+// page's operation under its own key, the changeset's own change type describing
+// the instruction write (#1607).
+type pageRevert struct {
+	pages PageReverter
+	cs    *Changeset
+	op    string
+	page  *knowledgepage.Page
+	by    string
+}
+
 // applyPageRevert performs the inverse page operation for a promotion changeset:
 // soft-delete a created page or restore an updated page's before-image. Returns a
 // human-readable summary of what it reverted.
-func applyPageRevert(ctx context.Context, pages PageReverter, cs *Changeset, page *knowledgepage.Page, rolledBackBy string) (string, error) {
-	switch cs.ChangeType {
+func applyPageRevert(ctx context.Context, r pageRevert) (string, error) {
+	pages, cs, page, rolledBackBy := r.pages, r.cs, r.page, r.by
+	switch r.op {
 	case changeCreatePage:
 		if err := pages.SoftDelete(ctx, page.ID); err != nil {
 			return "", fmt.Errorf("deleting knowledge page: %w", err)
@@ -595,6 +629,6 @@ func applyPageRevert(ctx context.Context, pages PageReverter, cs *Changeset, pag
 		}
 		return "restored page " + page.Slug, nil
 	default:
-		return "", fmt.Errorf("unknown page change type: %s", cs.ChangeType)
+		return "", fmt.Errorf("unknown page change type: %s", r.op)
 	}
 }

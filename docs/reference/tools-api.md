@@ -904,13 +904,30 @@ Review, synthesize, and apply captured insights to the data catalog. Admin-only.
 | `entity_urn` | string | Conditional | Required for `review`, `synthesize`, `apply`, `list_changesets`; optional for `rollback` (validates the changeset belongs to this entity) |
 | `tag_urn` | string | Conditional | Required for `bulk_untag`; the tag (name or `urn:li:tag:...`) to remove from every entity that carries it |
 | `insight_ids` | array | Conditional | Required for `approve`, `reject`; optional for `synthesize`, `apply` |
-| `changes` | array | Conditional | Required for `apply` |
+| `changes` | array | Conditional | Required for `apply` with `sink: "datahub"` |
+| `sink` | string | No | Where an `apply` writes: `datahub` (default, applies `changes` to `entity_urn`), `knowledge_page` (promotes to a canonical page via `page`), or `agent_instructions` (promotes an operating rule into the deployment's own instructions via `instructions`). The capture-time `sink_class` is a hint, not a binding |
+| `page` | object | Conditional | Required for `sink: "knowledge_page"`: `{slug, title, summary, body, tags, references, force_new}`. Found-or-created by `slug`, so a repeat promotion consolidates |
+| `instructions` | object | Conditional | Required for `sink: "agent_instructions"` (see below) |
 | `changeset_id` | string | Conditional | Required for `rollback` |
 | `confirm` | bool | No | Required when `require_confirmation` is enabled (for `apply` and `rollback`) |
 | `review_notes` | string | No | Notes for `approve`/`reject` actions |
 | `itemize` | bool | No | With `bulk_review`, also return the pending insights themselves (full `insight_text` body, `captured_by`, `sink_class`, `created_at`, `suggested_actions_count`, ...; full `suggested_actions` omitted, `fetch` for it), paginated by `offset`/`limit`. The insights window is byte-budgeted (`page_size_capped: true` flags a short page, continue with `next_offset`) and `by_entity` is capped (`by_entity_truncated: true`) so the response stays under the output limit |
 | `limit` | int | No | Page size for itemized `bulk_review` (default 20, max 100) |
 | `offset` | int | No | Page start for itemized `bulk_review`; pass the previous `next_offset` to continue |
+
+**Instructions Schema (for `sink: "agent_instructions"`):**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `section` | string | Yes | Heading the rule lives under, and the find-or-create key. One line, no `#`, at most 120 characters |
+| `body` | string | Yes | The rule text. Over 1,500 bytes it is written to a knowledge page and the section keeps a one-line `mcp:knowledge_page:<slug>` index entry pointing at it |
+| `slug` | string | No | Slug for the page a diverted body lands on (default: a slug derived from `section`) |
+| `title` | string | No | Title for the page a diverted body lands on (default: `section`) |
+| `summary` | string | No | One line saying what reading the page answers; it becomes the index entry the instructions keep |
+| `tags` | array | No | Tags for the page a diverted body lands on; the origin sink-class is added automatically |
+| `references` | array | No | Entity references to attach to that page, in the forms `page.references` accepts |
+
+The promotion writes only its own section, leaving every other section byte-identical; records a changeset under target `ai:<section>` that `list_changesets` lists and `rollback` reverts; is refused when it names a tool the deployment does not register; and is refused when it would push the layer past its byte limit. It needs a database-backed config store. See [Knowledge](../knowledge/overview.md#the-third-sink-the-deployments-own-operating-rules).
 
 **Change Schema (for `apply` action):**
 
@@ -954,8 +971,8 @@ Review, synthesize, and apply captured insights to the data catalog. Admin-only.
 | `approve` | Transition insights to approved status | `insight_ids` |
 | `reject` | Transition insights to rejected status | `insight_ids` |
 | `synthesize` | Structured change proposals from approved insights | `entity_urn` |
-| `apply` | Write changes to DataHub with changeset tracking | `entity_urn`, `changes` |
-| `list_changesets` | List an entity's changesets (id, timestamp, actor, change type, rollback status) | `entity_urn` |
+| `apply` | Write to the sink `sink` selects, with changeset tracking | `entity_urn` + `changes` (datahub), `page` (knowledge_page), or `instructions` (agent_instructions) |
+| `list_changesets` | List a target's changesets (id, timestamp, actor, change type, rollback status). The target is a catalog URN, `kp:<slug>` for a page, or `ai:<section>` for an instruction section | `entity_urn` |
 | `rollback` | Revert a changeset's changes to their before-image | `changeset_id`, `confirm` |
 | `bulk_untag` | Remove a tag from every entity a catalog search finds carrying it, recording one changeset (not auto-revertible) | `tag_urn`, `confirm` |
 

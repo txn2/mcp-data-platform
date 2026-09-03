@@ -22,6 +22,7 @@ import (
 	s3client "github.com/txn2/mcp-s3/pkg/client"
 
 	"github.com/txn2/mcp-data-platform/apps"
+	"github.com/txn2/mcp-data-platform/internal/agentinstructions"
 	"github.com/txn2/mcp-data-platform/internal/platform/auditwiring"
 	"github.com/txn2/mcp-data-platform/internal/platform/branding"
 	"github.com/txn2/mcp-data-platform/internal/platform/browserauth"
@@ -1603,6 +1604,16 @@ func (p *Platform) initKnowledge() error {
 	if pc := p.prompts.PromptCreator(); pc != nil {
 		handle.Toolkit().SetPromptCreator(pc)
 	}
+
+	// The third apply sink (#1607): promote a durable operating rule into this
+	// deployment's customized agent instructions. Both collaborators are
+	// Platform's -- the config store the layer lives in, and the tool inventory a
+	// promotion's tool references are checked against. The inventory is a function
+	// because the last toolkit has not registered yet.
+	handle.Toolkit().SetInstructionsSink(
+		agentinstructions.New(p.configStore, p.fileDefaults, ConfigKeyServerAgentInstructions),
+		func() []string { return RegisteredToolNames(p.toolkitRegistry.AllTools(), p.PlatformTools()) },
+	)
 
 	// Toolkit registration stays a Platform/registry concern.
 	if err := p.toolkitRegistry.Register(handle.Toolkit()); err != nil {

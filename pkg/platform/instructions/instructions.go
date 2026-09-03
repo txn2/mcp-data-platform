@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/agentinstructions"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 )
 
@@ -153,9 +154,6 @@ const (
 	PageContentTypes          = "platform-content-types-for-stored-files"
 )
 
-// knowledgePageRef is the reference form `fetch` resolves a built-in page by.
-func knowledgePageRef(slug string) string { return "`mcp:knowledge_page:" + slug + "`" }
-
 // baselinePage is one entry of the page index: the tool whose capability the
 // page documents, the page's slug, and what reading it answers.
 type baselinePage struct {
@@ -209,7 +207,7 @@ func pageIndex(has map[string]bool) string {
 		if !has[p.tool] {
 			continue
 		}
-		entries = append(entries, "- "+knowledgePageRef(p.slug)+" -- "+p.about+".")
+		entries = append(entries, agentinstructions.IndexEntry(p.slug, p.about))
 	}
 	if len(entries) == 0 {
 		return ""

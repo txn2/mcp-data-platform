@@ -54,7 +54,10 @@ func (t *Toolkit) handleRollback(ctx context.Context, input applyKnowledgeInput)
 		return toolkit.ErrorResult("changeset " + input.ChangesetID + " does not belong to entity " + input.EntityURN), nil, nil
 	}
 
-	deps := RollbackDeps{Writer: t.datahubWriter, Changesets: t.changesetStore, Insights: t.store, Pages: t.pageWriter}
+	deps := RollbackDeps{
+		Writer: t.datahubWriter, Changesets: t.changesetStore, Insights: t.store,
+		Pages: t.pageWriter, Instructions: t.instructions,
+	}
 	result, err := RevertChangeset(ctx, deps, cs, authorFromContext(ctx))
 	if err != nil {
 		return rollbackErrorResult(err), nil, nil
@@ -68,6 +71,7 @@ func rollbackErrorResult(err error) *mcp.CallToolResult {
 	var unrevertible *UnrevertibleError
 	var conflict *RollbackConflictError
 	var pageEdited *PageEditedError
+	var instructionsEdited *InstructionsEditedError
 	switch {
 	case errors.Is(err, ErrChangesetAlreadyRolledBack):
 		return toolkit.ErrorResult("changeset has already been rolled back")
@@ -77,6 +81,8 @@ func rollbackErrorResult(err error) *mcp.CallToolResult {
 		return toolkit.ErrorResult(conflict.Error())
 	case errors.As(err, &pageEdited):
 		return toolkit.ErrorResult(pageEdited.Error())
+	case errors.As(err, &instructionsEdited):
+		return toolkit.ErrorResult(instructionsEdited.Error())
 	default:
 		return toolkit.ErrorResult("rollback failed: " + err.Error())
 	}
