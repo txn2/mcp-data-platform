@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
 )
 
 // The inline budget (issue #1587) is the model-context limit on what
@@ -66,7 +68,7 @@ func TestInlineBudget(t *testing.T) {
 
 func TestInlineBudgetHint(t *testing.T) {
 	declared := inlineBudgetHint(1024, 3000243)
-	for _, want := range []string{"of 3000243 bytes", "max_inline_bytes (1024)", "first 1024 bytes", "api_export", "export_arguments"} {
+	for _, want := range []string{"of 3000243 bytes", "max_inline_bytes (1024)", "budget on the tool result", "api_export", "export_arguments"} {
 		if !strings.Contains(declared, want) {
 			t.Errorf("hint %q lacks %q", declared, want)
 		}
@@ -119,9 +121,9 @@ func TestSteerToExport(t *testing.T) {
 }
 
 // TestHandleInvoke_CutAtInlineBudget: through the handler, a JSON body past
-// max_inline_bytes comes back cut to the budget with its size, the hint, and
-// the api_export arguments; the same call without api_export registered is
-// cut and flagged but not steered.
+// max_inline_bytes comes back cut, with its read size, the hint, and the
+// api_export arguments, and the rendered result is inside the budget; the
+// same call without api_export registered is cut and flagged but not steered.
 func TestHandleInvoke_CutAtInlineBudget(t *testing.T) {
 	payload := `{"rows":"` + strings.Repeat("x", 5000) + `"}`
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -146,8 +148,8 @@ func TestHandleInvoke_CutAtInlineBudget(t *testing.T) {
 	if !out.BodyTruncated || out.BodyBytes != 1024 {
 		t.Fatalf("truncated=%v body_bytes=%d; want cut at 1024", out.BodyTruncated, out.BodyBytes)
 	}
-	if body, _ := out.Body.(string); len(body) != 1024 {
-		t.Errorf("body holds %d bytes; want 1024", len(body))
+	if body, _ := out.Body.(string); body == "" || len(body) >= 1024 {
+		t.Errorf("body holds %d bytes; want a cut body inside the 1024 budget the whole result is held to", len(body))
 	}
 	if !strings.Contains(out.Hint, "max_inline_bytes (1024)") {
 		t.Errorf("hint = %q; want the budget named", out.Hint)
@@ -162,6 +164,9 @@ func TestHandleInvoke_CutAtInlineBudget(t *testing.T) {
 	}
 	if wire["body_bytes"] != float64(1024) || wire["export_arguments"] == nil {
 		t.Errorf("wire = %v; want body_bytes and export_arguments on the envelope", wire)
+	}
+	if len(text.Text) > 1024 {
+		t.Errorf("rendered result is %d characters; want it inside the 1024 budget", len(text.Text))
 	}
 
 	_, plain := invokeWalkCall(t, newToolkit(false), in)
@@ -199,5 +204,123 @@ func TestInvoke_ReportsBodyBytes(t *testing.T) {
 	}
 	if empty.BodyBytes != 0 {
 		t.Errorf("body_bytes = %d on an empty body; want 0", empty.BodyBytes)
+	}
+}
+
+// TestDefaultMaxInlineBytesFitsAClientToolResult guards the one property the
+// number itself carries (issue #1606): the default bounds a rendered tool
+// result, so it has to sit under the size a client was measured refusing.
+// That a result is actually held to it is the subject of the test below. A
+// deployment whose client accepts more raises max_inline_bytes on the
+// connection.
+func TestDefaultMaxInlineBytesFitsAClientToolResult(t *testing.T) {
+	const measuredRefusal = int64(64_213)
+	if DefaultMaxInlineBytes <= 0 || DefaultMaxInlineBytes >= measuredRefusal {
+		t.Errorf("DefaultMaxInlineBytes = %d; want a positive budget under the %d-character tool result issue #1606 measured refused", DefaultMaxInlineBytes, measuredRefusal)
+	}
+}
+
+// TestHandleInvoke_JSONUnderTheReadBudgetIsStillHeldToIt is the defect issue
+// #1606 reported: a compact JSON body inside the budget is re-rendered
+// indented into the tool result, so the result the client receives is several
+// times the bytes that were read. A budget applied to the read let that
+// through, and the client refused a result nothing had flagged. The budget is
+// on the rendered result, and re-encoding is the first lever spent, so this
+// response comes back whole and inside the budget rather than cut.
+func TestHandleInvoke_JSONUnderTheReadBudgetIsStillHeldToIt(t *testing.T) {
+	rows := make([]map[string]any, 0, 60)
+	for i := range 60 {
+		rows = append(rows, map[string]any{"id": i, "name": "row", "value": "5feceb66ffc86f38"})
+	}
+	payload, err := json.Marshal(map[string]any{"rows": rows})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const budget = 4096
+	if len(payload) >= budget {
+		t.Fatalf("payload is %d bytes; the case needs a body inside the %d budget", len(payload), budget)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(payload)
+	}))
+	defer srv.Close()
+
+	tk := New("primary")
+	if err := tk.AddConnection("crm", map[string]any{"base_url": srv.URL, "max_inline_bytes": budget}); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	tk.SetExportDeps(defaultExportDeps(&fakeExportAssetStore{}, &fakeExportVersionStore{}, &fakeExportS3Client{}))
+
+	res, out := invokeWalkCall(t, tk, InvokeInput{Connection: "crm", Method: "GET", Path: "/v1/x"})
+	if res.IsError {
+		t.Fatalf("invoke failed: %s", resultText(t, res))
+	}
+	text, _ := res.Content[0].(*mcp.TextContent)
+	if text == nil {
+		t.Fatal("result carries no text content")
+	}
+	// The defect: this rendering was past the budget and nothing said so.
+	if indented, err := json.MarshalIndent(out, "", "  "); err != nil {
+		t.Fatal(err)
+	} else if len(indented) <= budget {
+		t.Fatalf("the indented rendering is %d bytes; the case needs one past the %d budget", len(indented), budget)
+	}
+	if len(text.Text) > budget {
+		t.Errorf("rendered result is %d characters; want it inside the %d budget", len(text.Text), budget)
+	}
+	if out.BodyTruncated || out.ExportArguments != nil {
+		t.Errorf("truncated=%v export=%v; want the whole body returned, re-encoding alone having made it fit", out.BodyTruncated, out.ExportArguments)
+	}
+	body, _ := out.Body.(map[string]any)
+	if got, _ := body["rows"].([]any); len(got) != 60 {
+		t.Errorf("body holds %d rows; want all 60 returned", len(got))
+	}
+}
+
+// TestHandleInvoke_AScriptRunIsNotHeldToTheModelContextBudget: the inline
+// budget exists to keep a result readable by a model. A managed script has no
+// model in it: it parses the response in code, a cut body is not parseable,
+// and the steer to api_export is not something a run can act on mid-script. So
+// a run reads to the connection's cap and gets its response whole, the same
+// exemption enrichment makes for a script caller (issue #1606).
+func TestHandleInvoke_AScriptRunIsNotHeldToTheModelContextBudget(t *testing.T) {
+	payload := `{"rows":"` + strings.Repeat("x", 5000) + `"}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, payload)
+	}))
+	defer srv.Close()
+
+	tk := New("primary")
+	if err := tk.AddConnection("crm", map[string]any{"base_url": srv.URL, "max_inline_bytes": 1024}); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	tk.SetExportDeps(defaultExportDeps(&fakeExportAssetStore{}, &fakeExportVersionStore{}, &fakeExportS3Client{}))
+	in := InvokeInput{Connection: "crm", Method: "GET", Path: "/v1/x"}
+
+	// The control: the same call from a model is cut at the budget.
+	if _, model := invokeWalkCall(t, tk, in); !model.BodyTruncated {
+		t.Fatalf("a model's call was not cut; the case needs a response past the budget")
+	}
+
+	ctx := mcpcontext.WithSource(context.Background(), mcpcontext.SourceScript)
+	res, payloadOut, err := tk.handleInvoke(ctx, nil, in)
+	if err != nil {
+		t.Fatalf("handleInvoke: %v", err)
+	}
+	out, _ := payloadOut.(InvokeOutput)
+	if res.IsError {
+		t.Fatalf("invoke failed: %s", resultText(t, res))
+	}
+	if out.BodyTruncated || out.ExportArguments != nil || out.Hint != "" {
+		t.Errorf("truncated=%v export=%v hint=%q; want a run's response returned whole", out.BodyTruncated, out.ExportArguments, out.Hint)
+	}
+	if out.BodyBytes != int64(len(payload)) {
+		t.Errorf("body_bytes = %d; want the whole %d-byte response read", out.BodyBytes, len(payload))
+	}
+	body, _ := out.Body.(map[string]any)
+	if rows, _ := body["rows"].(string); len(rows) != 5000 {
+		t.Errorf("body rows hold %d characters; want the whole 5000 parsed", len(rows))
 	}
 }

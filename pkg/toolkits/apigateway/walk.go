@@ -54,10 +54,7 @@ func (r *pageRequester) ReadPage(resp *http.Response) (pagewalk.Page, error) {
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return pagewalk.Page{}, fmt.Errorf("upstream returned %d %s", resp.StatusCode, http.StatusText(resp.StatusCode))
 	}
-	readCap := r.inv.cfg.MaxResponseBytes
-	if readCap <= 0 {
-		readCap = DefaultMaxResponseBytes
-	}
+	readCap := readLimit(r.inv.cfg.MaxResponseBytes)
 	reserved, ok := reserveBodyBudget(r.inv.budget, resp.ContentLength, readCap)
 	if !ok {
 		return pagewalk.Page{}, &budgetError{

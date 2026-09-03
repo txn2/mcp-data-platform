@@ -12,6 +12,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	pkgsession "github.com/txn2/mcp-data-platform/pkg/session"
 )
@@ -1322,5 +1323,52 @@ func TestMCPToolCallMiddleware_PreAuthenticatedUser_AuthzDenied(t *testing.T) {
 	}
 	if !toolResult.IsError {
 		t.Error("expected IsError to be true for denied pre-auth user")
+	}
+}
+
+// TestMCPToolCallMiddleware_MirrorsSourceForToolkits proves the source a
+// toolkit reads is the source this middleware resolved. A toolkit cannot
+// import this package (it would form a cycle), so the resolved source is
+// mirrored onto the context through mcpcontext; the api-gateway reads it to
+// tell a managed script's call from a model's and hold only the model's to an
+// inline budget (issue #1606). Without the mirror the exemption never fires
+// and nothing in the toolkit's own tests would notice.
+func TestMCPToolCallMiddleware_MirrorsSourceForToolkits(t *testing.T) {
+	cases := []struct {
+		name string
+		seed string
+		want string
+	}{
+		{"a script run", SourceScript, SourceScript},
+		{"a model over mcp", "", SourceMCP},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			authenticator := &mcpTestAuthenticator{userInfo: &UserInfo{UserID: mcpTestUserID, Email: mcpTestEmail, Roles: []string{mcpTestPersona}}}
+			authorizer := &mcpTestAuthorizer{authorized: true, personaName: mcpTestPersona}
+			mw := MCPToolCallMiddleware(authenticator, authorizer, nil, ToolCallConfig{Transport: mcpTestStdio, AdminPersona: "admin"})
+
+			var mirrored, resolved string
+			next := func(ctx context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+				mirrored = mcpcontext.GetSource(ctx)
+				if pc := GetPlatformContext(ctx); pc != nil {
+					resolved = pc.Source
+				}
+				return &mcp.CallToolResult{}, nil
+			}
+			ctx := context.Background()
+			if tc.seed != "" {
+				ctx = WithSource(ctx, tc.seed)
+			}
+			if _, err := mw(next)(ctx, mcpTestMethod, newMCPTestRequest(mcpTestToolName)); err != nil {
+				t.Fatalf(mcpTestErrFmt, err)
+			}
+			if resolved != tc.want {
+				t.Errorf("PlatformContext.Source = %q; want %q", resolved, tc.want)
+			}
+			if mirrored != resolved {
+				t.Errorf("mcpcontext source = %q; want the resolved %q a toolkit reads", mirrored, resolved)
+			}
+		})
 	}
 }
