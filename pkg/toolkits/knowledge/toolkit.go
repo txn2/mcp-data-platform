@@ -62,6 +62,10 @@ type applyKnowledgeInput struct {
 	Sink string `json:"sink,omitempty"`
 	// Page is the curated page payload for sink=knowledge_page (#633 Goal 3).
 	Page *pagePromotionInput `json:"page,omitempty"`
+	// Instructions is the curated payload for sink=agent_instructions: the rule
+	// and the section of the deployment's customized instruction layer it lives
+	// under (#1607).
+	Instructions *instructionsPromotionInput `json:"instructions,omitempty"`
 	// For approve/reject actions
 	ReviewNotes string `json:"review_notes,omitempty"`
 	// ChangesetID is the target changeset for the rollback action.
@@ -101,6 +105,13 @@ type Toolkit struct {
 	changesetStore      ChangesetStore
 	datahubWriter       DataHubWriter
 	pageWriter          pageWriter
+
+	// instructions is the deployment's customized agent-instruction layer, the
+	// third apply sink (#1607). Nil leaves sink=agent_instructions unavailable.
+	// toolInventory is read at promotion time to refuse a rule naming a tool the
+	// deployment does not register.
+	instructions  InstructionsStore
+	toolInventory ToolInventory
 
 	// pageGuards holds the resolved knowledge-page write guards (#705): the
 	// create-time duplicate gate and the oversized-page split suggestion. embeddingProv
@@ -186,8 +197,9 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 				"The loop: users and agents capture memories with memory_capture; durable ones become insights pending review " +
 				"(business_knowledge, schema_entity, operational_rule); holding this tool you review those insights and turn the good ones into " +
 				"durable, shared, canonical KNOWLEDGE that every future session recalls via search, so no one re-teaches the same fact. " +
-				"Knowledge has two homes: a DataHub entity when the fact is tied to a catalog dataset or column, or a canonical knowledge page " +
-				"(sink=knowledge_page) when it is business or domain knowledge not tied to one entity (for example seasonal date ranges or company vocabulary). " +
+				"Knowledge has three homes: a DataHub entity when the fact is tied to a catalog dataset or column; a canonical knowledge page " +
+				"(sink=knowledge_page) when it is business or domain knowledge not tied to one entity (for example seasonal date ranges or company vocabulary); " +
+				"or this deployment's customized agent instructions (sink=agent_instructions) when it is an operating rule every future session here must know before it acts. " +
 				"Be an expert reviewer, not a mechanical one: " +
 				"(1) discover existing knowledge first by searching DataHub and knowledge pages for the topic, so every decision is update-vs-create, never blind-create; " +
 				"(2) compare each insight against what exists (new, a refinement, a correction, or already covered); " +
@@ -200,7 +212,11 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 				"(7) mark insights applied, rejected, or superseded. " +
 				"Access is granted per persona by tool visibility, not by an admin role. " +
 				"Sinks for the apply action: sink='datahub' (default) applies 'changes' to entity_urn; sink='knowledge_page' promotes a business_knowledge or operational_rule " +
-				"insight to a page using the 'page' object {slug,title,summary,body,tags} and 'insight_ids'. " +
+				"insight to a page using the 'page' object {slug,title,summary,body,tags} and 'insight_ids'; sink='agent_instructions' promotes an operating rule into the " +
+				"deployment's customized agent instructions using the 'instructions' object {section,body}, found-or-created by section so a repeat promotion rewrites its own " +
+				"section and leaves the rest byte-identical. That layer is read by every session in its first response, so it is byte-bounded and holds hard rules only: a body " +
+				"longer than the inline limit is written to a knowledge page and the section keeps one index entry pointing at it, and a promotion naming a tool this deployment " +
+				"does not register is refused. Route domain knowledge to sink='knowledge_page' instead; the instruction layer should carry at most a pointer to it. " +
 				"Actions: bulk_review, review, synthesize, apply, approve, reject, rollback, list_changesets, bulk_untag. " +
 				"bulk_untag (tag_urn required, confirm required) removes a tag from every entity a catalog search finds carrying it, recording one changeset; it is not auto-revertible. " +
 				"rollback (changeset_id required, confirm required) reverts the aspects a prior apply changed, back to their before-image: " +
@@ -772,15 +788,20 @@ func (t *Toolkit) datahubUnavailableFor(changes []ApplyChange) string {
 
 // handleApply writes changes to DataHub and records a changeset.
 func (t *Toolkit) handleApply(ctx context.Context, input applyKnowledgeInput) (*mcp.CallToolResult, any, error) {
-	// Sink router (#633 Goal 3): non-DataHub canonical knowledge promotes to a
-	// portal knowledge page; schema_entity continues to DataHub (default).
+	// Sink router: knowledge has three homes. A dataset-anchored fact updates a
+	// DataHub entity (the default); domain knowledge promotes to a portal
+	// knowledge page (#633 Goal 3); a durable operating rule for this deployment
+	// promotes into its customized agent instructions (#1607).
 	switch input.Sink {
 	case "", sinkDataHub:
 		// fall through to the DataHub path below
 	case sinkKnowledgePage:
 		return t.promoteToPage(ctx, input)
+	case sinkAgentInstructions:
+		return t.promoteToInstructions(ctx, input)
 	default:
-		return toolkit.ErrorResult("unknown sink: " + input.Sink + " (valid: datahub, knowledge_page)"), nil, nil
+		return toolkit.ErrorResult("unknown sink: " + input.Sink +
+			" (valid: datahub, knowledge_page, agent_instructions)"), nil, nil
 	}
 
 	if input.EntityURN == "" {

@@ -63,7 +63,7 @@ func pendingInsight(text string) knowledge.Insight {
 // serveInsights drives one request through the assembled admin handler.
 func serveInsights(t *testing.T, store *mockInsightStore, provider query.Provider, path string) *httptest.ResponseRecorder {
 	t.Helper()
-	h := NewHandler(Deps{Knowledge: NewKnowledgeHandler(store, nil, nil, nil, provider)}, nil)
+	h := NewHandler(Deps{Knowledge: NewKnowledgeHandler(store, nil, nil, nil, nil, provider)}, nil)
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, path, http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)

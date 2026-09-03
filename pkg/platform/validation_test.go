@@ -123,32 +123,6 @@ func TestValidateAgentInstructions(t *testing.T) {
 	}
 }
 
-func TestHasKnownPrefix(t *testing.T) {
-	tests := []struct {
-		token string
-		want  bool
-	}{
-		{"trino_query", true},
-		{"datahub_search", true},
-		{"s3_list", true},
-		{"platform_info", true},
-		{"capture_insight", true},
-		{"apply_knowledge", true},
-		{"unknown_tool", false},
-		{"first_name", false},
-		{"", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.token, func(t *testing.T) {
-			got := hasKnownPrefix(tt.token)
-			if got != tt.want {
-				t.Errorf("hasKnownPrefix(%q) = %v, want %v", tt.token, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestValidatePersonaCoherence(t *testing.T) {
 	tests := []struct {
 		name         string

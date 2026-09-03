@@ -254,8 +254,17 @@ definitions:
     type: object
   admin.agentInstructionsBaselineResponse:
     properties:
+      advisory_bytes:
+        type: integer
       baseline:
         type: string
+      limit_bytes:
+        description: |-
+          LimitBytes and AdvisoryBytes are the customized layer's byte bounds
+          (#1607), so the editor shows the operator the size they are shipping to
+          every session against the size the write path will accept, rather than
+          leaving them to discover the limit by being refused.
+        type: integer
     type: object
   admin.authKeyCreateRequest:
     properties:
@@ -339,6 +348,28 @@ definitions:
       total:
         example: 8
         type: integer
+    type: object
+  admin.configEntryResponse:
+    properties:
+      key:
+        example: server.description
+        type: string
+      notice:
+        description: |-
+          Notice is the size advisory for server.agent_instructions: the write
+          succeeded, and the layer has grown past the point where it should be a
+          short set of rules. Absent for every other key and for a layer under the
+          advisory.
+        type: string
+      updated_at:
+        example: "2026-01-15T14:30:00Z"
+        type: string
+      updated_by:
+        example: admin@example.com
+        type: string
+      value:
+        example: ACME Corp analytics platform
+        type: string
     type: object
   admin.configModeResponse:
     properties:
@@ -9547,7 +9578,8 @@ paths:
         deployment — the "how to operate" guidance composed beneath the admin's agent_instructions.
         It names only tools registered on this platform, so admins can see what the
         platform already covers and write business context rather than restating the
-        operating model.
+        operating model. It also returns the customized layer's byte limit and advisory
+        threshold (#1607).
       produces:
       - application/json
       responses:
@@ -9701,9 +9733,12 @@ paths:
     put:
       consumes:
       - application/json
-      description: Creates or updates a database-backed config override entry. The
+      description: 'Creates or updates a database-backed config override entry. The
         stored value is authoritative and is in force on every replica from the next
-        read.
+        read. A write to server.agent_instructions is byte-bounded (the value is composed
+        into every session''s first response): an over-limit value is refused with
+        400, and one past the advisory succeeds and carries a "notice" naming what
+        belongs on a knowledge page instead.'
       parameters:
       - description: Config entry key
         in: path
@@ -9722,7 +9757,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/configstore.Entry'
+            $ref: '#/definitions/admin.configEntryResponse'
         "400":
           description: Bad Request
           schema:

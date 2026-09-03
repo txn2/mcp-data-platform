@@ -84,7 +84,20 @@ var applyKnowledgeSchema = json.RawMessage(`{
     },
     "sink": {
       "type": "string",
-      "description": "Apply target for the apply action: 'datahub' (default) applies the 'changes' to the catalog entity; 'knowledge_page' promotes the insight(s) to a canonical portal knowledge page using the 'page' object. The destination is your choice here, not frozen at capture: prefer datahub when the insight is anchored to a specific dataset/column (it carries entity_urns) and a knowledge page when it is broader business or domain knowledge. The capture-time sink-class is a non-binding hint."
+      "description": "Apply target for the apply action: 'datahub' (default) applies the 'changes' to the catalog entity; 'knowledge_page' promotes the insight(s) to a canonical portal knowledge page using the 'page' object; 'agent_instructions' promotes a durable operating rule for THIS deployment into its customized agent instructions using the 'instructions' object. The destination is your choice here, not frozen at capture: prefer datahub when the insight is anchored to a specific dataset/column (it carries entity_urns), a knowledge page when it is broader business or domain knowledge, and agent_instructions only when every future session on this deployment must know it before it does anything (which query engine holds what, an engine-specific gotcha, a hard prohibition). The capture-time sink-class is a non-binding hint."
+    },
+    "instructions": {
+      "type": "object",
+      "description": "Payload for sink=agent_instructions: a rule promoted into the deployment's CUSTOMIZED agent-instruction layer, the text composed beneath the platform's own baseline and read by every session on this deployment in its first response. The section is the find-or-create key, so a second promotion of the same section rewrites that section and leaves every other one byte-identical. The promotion is recorded as a changeset (target_urn 'ai:<section>') and rolls back through action=rollback. This layer is a short set of hard rules, not a knowledge base: it is byte-bounded, a body longer than the inline rule limit is written to a knowledge page automatically and the section keeps one index entry pointing at it, and a promotion naming a tool this deployment does not register is refused.",
+      "properties": {
+        "section": {"type": "string", "description": "Heading the rule lives under, and the find-or-create key (required). One line, no '#'."},
+        "body": {"type": "string", "description": "The rule text (required). Keep it to what a session must know before it acts; a longer body is diverted to a knowledge page and indexed from the section."},
+        "slug": {"type": "string", "description": "Slug for the knowledge page a diverted body lands on. Defaults to a slug derived from the section."},
+        "title": {"type": "string", "description": "Title for the knowledge page a diverted body lands on. Defaults to the section."},
+        "summary": {"type": "string", "description": "One line saying what reading the page answers. It becomes the index entry the instructions keep, so write it as guidance rather than a label."},
+        "tags": {"type": "array", "items": {"type": "string"}, "description": "Tags for the knowledge page a diverted body lands on; the origin sink-class is added automatically."},
+        "references": {"type": "array", "maxItems": 50, "items": {"type": "string"}, "description": "Entity references to attach to the knowledge page a diverted body lands on, in the same forms page.references accepts."}
+      }
     },
     "page": {
       "type": "object",

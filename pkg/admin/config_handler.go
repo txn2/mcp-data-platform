@@ -10,6 +10,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/txn2/mcp-data-platform/internal/agentinstructions"
 	"github.com/txn2/mcp-data-platform/pkg/configstore"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/platform/instructions"
@@ -341,13 +342,19 @@ func (h *Handler) listEffectiveConfig(w http.ResponseWriter, r *http.Request) {
 // GET /api/v1/admin/config/agent-instructions-baseline.
 type agentInstructionsBaselineResponse struct {
 	Baseline string `json:"baseline"`
+	// LimitBytes and AdvisoryBytes are the customized layer's byte bounds
+	// (#1607), so the editor shows the operator the size they are shipping to
+	// every session against the size the write path will accept, rather than
+	// leaving them to discover the limit by being refused.
+	LimitBytes    int `json:"limit_bytes"`
+	AdvisoryBytes int `json:"advisory_bytes"`
 }
 
 // getAgentInstructionsBaseline handles
 // GET /api/v1/admin/config/agent-instructions-baseline.
 //
 // @Summary      Get agent-instruction baseline
-// @Description  Returns the platform-owned instruction baseline (#646) for this deployment — the "how to operate" guidance composed beneath the admin's agent_instructions. It names only tools registered on this platform, so admins can see what the platform already covers and write business context rather than restating the operating model.
+// @Description  Returns the platform-owned instruction baseline (#646) for this deployment — the "how to operate" guidance composed beneath the admin's agent_instructions. It names only tools registered on this platform, so admins can see what the platform already covers and write business context rather than restating the operating model. It also returns the customized layer's byte limit and advisory threshold (#1607).
 // @Tags         Config
 // @Produce      json
 // @Success      200  {object}  agentInstructionsBaselineResponse
@@ -360,7 +367,9 @@ func (h *Handler) getAgentInstructionsBaseline(w http.ResponseWriter, _ *http.Re
 		tools = h.deps.ToolkitRegistry.AllTools()
 	}
 	writeJSON(w, http.StatusOK, agentInstructionsBaselineResponse{
-		Baseline: instructions.Build(tools),
+		Baseline:      instructions.Build(tools),
+		LimitBytes:    agentinstructions.MaxCustomizedBytes,
+		AdvisoryBytes: agentinstructions.AdviseCustomizedBytes,
 	})
 }
 
@@ -421,16 +430,29 @@ type setConfigEntryRequest struct {
 	Value string `json:"value" example:"ACME Corp analytics platform"`
 }
 
+// configEntryResponse is the stored entry plus, for the customized
+// agent-instruction layer, the advisory that says the layer is getting long
+// (#1607). The entry's own fields are embedded, so every key answers with the
+// shape it always did and only an oversized instruction layer adds a field.
+type configEntryResponse struct {
+	configstore.Entry
+	// Notice is the size advisory for server.agent_instructions: the write
+	// succeeded, and the layer has grown past the point where it should be a
+	// short set of rules. Absent for every other key and for a layer under the
+	// advisory.
+	Notice string `json:"notice,omitempty"`
+}
+
 // setConfigEntry handles PUT /api/v1/admin/config/entries/{key}.
 //
 // @Summary      Set config entry
-// @Description  Creates or updates a database-backed config override entry. The stored value is authoritative and is in force on every replica from the next read.
+// @Description  Creates or updates a database-backed config override entry. The stored value is authoritative and is in force on every replica from the next read. A write to server.agent_instructions is byte-bounded (the value is composed into every session's first response): an over-limit value is refused with 400, and one past the advisory succeeds and carries a "notice" naming what belongs on a knowledge page instead.
 // @Tags         Config
 // @Accept       json
 // @Produce      json
 // @Param        key   path  string                 true  "Config entry key"
 // @Param        body  body  setConfigEntryRequest  true  "Config entry value"
-// @Success      200  {object}  configstore.Entry
+// @Success      200  {object}  configEntryResponse
 // @Failure      400  {object}  problemDetail
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
@@ -449,6 +471,18 @@ func (h *Handler) setConfigEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The customized agent-instruction layer is byte-bounded, and the bound
+	// belongs to the layer rather than to whichever writer produced it: the
+	// apply_knowledge agent_instructions sink enforces the same limit (#1607).
+	// The value is composed into the first response of every session, so an
+	// over-limit write is refused here rather than paid for by every later caller.
+	if key == cfgKeyServerAgentInstructions {
+		if err := agentinstructions.CheckCustomizedSize(req.Value); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+
 	author := requestAuthor(r)
 
 	if err := h.deps.ConfigStore.Set(r.Context(), key, req.Value, author); err != nil {
@@ -460,13 +494,20 @@ func (h *Handler) setConfigEntry(w http.ResponseWriter, r *http.Request) {
 	// here: the platform resolves this key from the store on every read, so
 	// the write is live for every replica the moment it commits.
 
-	// Return the stored entry.
+	// Return the stored entry, carrying the size advisory when the instruction
+	// layer has grown past the point where it should still be a set of rules.
+	notice := ""
+	if key == cfgKeyServerAgentInstructions {
+		notice = agentinstructions.CustomizedNotice(req.Value)
+	}
 	entry, err := h.deps.ConfigStore.Get(r.Context(), key)
 	if err != nil {
-		writeJSON(w, http.StatusOK, configstore.Entry{Key: key, Value: req.Value})
+		writeJSON(w, http.StatusOK, configEntryResponse{
+			Entry: configstore.Entry{Key: key, Value: req.Value}, Notice: notice,
+		})
 		return
 	}
-	writeJSON(w, http.StatusOK, entry)
+	writeJSON(w, http.StatusOK, configEntryResponse{Entry: *entry, Notice: notice})
 }
 
 // deleteConfigEntry handles DELETE /api/v1/admin/config/entries/{key}.

@@ -3,59 +3,35 @@ package platform
 import (
 	"context"
 	"log/slog"
-	"regexp"
-	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/toolnames"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 )
 
-// knownToolPrefixes lists the prefixes that identify tool-name-like tokens
-// in agent_instructions text. These match the naming conventions of registered
-// toolkits (e.g., "trino_query", "datahub_search", "s3_list").
-var knownToolPrefixes = []string{
-	"trino_",
-	"datahub_",
-	"s3_",
-	"platform_",
-	"capture_",
-	"apply_",
-}
-
-// toolTokenPattern matches word-boundary tokens that look like tool names:
-// a known prefix followed by one or more lowercase letters/digits/underscores.
-var toolTokenPattern = regexp.MustCompile(`\b([a-z][a-z0-9]*(?:_[a-z0-9]+)+)\b`)
-
-// validateAgentInstructions scans the agent_instructions text for tokens that
-// look like tool names and logs warnings for any that don't match registered tools.
-// This helps catch stale references after tool renames or removals.
+// validateAgentInstructions scans the deployment's customized agent-instruction
+// layer for tool-name-like tokens this deployment does not register and logs a
+// warning for each, so a stale reference left by a tool rename or removal is
+// visible rather than silently instructing an agent to call nothing.
+//
+// The token set is derived from the deployment's own registered names
+// (toolnames.Unknown), so it covers every tool the platform
+// actually exposes.
 //
 // Startup-only, so it lints the value in force at boot. An override authored
-// later is not re-linted; the warning is a developer aid, not a gate.
+// later is not re-linted here; the apply_knowledge agent_instructions sink runs
+// the same check as a write-time refusal on its own promotions (#1607).
 func (p *Platform) validateAgentInstructions() {
-	instructions := p.config.ServerAgentInstructions(context.Background())
-	if instructions == "" {
+	text := p.config.ServerAgentInstructions(context.Background())
+	if text == "" {
 		return
 	}
-
-	registeredTools := RegisteredToolNames(p.toolkitRegistry.AllTools(), p.PlatformTools())
-
-	toolSet := make(map[string]struct{}, len(registeredTools))
-	for _, t := range registeredTools {
-		toolSet[t] = struct{}{}
-	}
-
-	tokens := toolTokenPattern.FindAllString(instructions, -1)
-	for _, token := range tokens {
-		if !hasKnownPrefix(token) {
-			continue
-		}
-		if _, ok := toolSet[token]; !ok {
-			slog.Warn("agent_instructions references unrecognized tool",
-				"token", token,
-				"hint", "verify the tool name exists or remove the stale reference",
-			)
-		}
+	registered := RegisteredToolNames(p.toolkitRegistry.AllTools(), p.PlatformTools())
+	for _, token := range toolnames.Unknown(text, registered) {
+		slog.Warn("agent_instructions references unrecognized tool",
+			"token", token,
+			"hint", "verify the tool name exists or remove the stale reference",
+		)
 	}
 }
 
@@ -85,14 +61,4 @@ func (p *Platform) validatePersonaCoherence() {
 			"remedy", logsan.SanitizeForLog(f.Remedy),
 		)
 	}
-}
-
-// hasKnownPrefix reports whether the token starts with a known tool prefix.
-func hasKnownPrefix(token string) bool {
-	for _, prefix := range knownToolPrefixes {
-		if strings.HasPrefix(token, prefix) {
-			return true
-		}
-	}
-	return false
 }

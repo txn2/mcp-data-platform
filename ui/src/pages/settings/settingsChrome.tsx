@@ -70,18 +70,22 @@ export function SaveButton({
   saving,
   saveSuccess,
   onSave,
+  disabled,
 }: {
   dirty: boolean;
   saving: boolean;
   saveSuccess: boolean;
   onSave: () => void;
+  // disabled blocks a save the server would refuse anyway, so the refusal is
+  // visible on the button rather than arriving as an error after the click.
+  disabled?: boolean;
 }) {
   return (
     <Button
       type="button"
       size="sm"
       onClick={onSave}
-      disabled={!dirty || saving}
+      disabled={!dirty || saving || disabled}
       className={cn(saveSuccess && "bg-emerald-600 text-white hover:bg-emerald-600")}
     >
       {saveSuccess ? (

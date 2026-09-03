@@ -21,11 +21,13 @@ type KnowledgeHandler struct {
 	changesetStore knowledge.ChangesetStore
 	datahubWriter  knowledge.DataHubWriter
 	pageReverter   knowledge.PageReverter
+	instructions   knowledge.InstructionsStore
 	observer       *insightobs.Observer
 }
 
 // NewKnowledgeHandler creates a new knowledge admin handler. pageReverter may be
-// nil when knowledge pages are unavailable; rolling back a page promotion then
+// nil when knowledge pages are unavailable and instructions may be nil when the
+// config store cannot hold a write; rolling back a promotion of either kind then
 // returns a clear "not configured" error rather than mis-reverting. queryProvider
 // may be nil or noop; the read path then serves the insight alone, exactly as it
 // did before it could observe anything.
@@ -34,6 +36,7 @@ func NewKnowledgeHandler(
 	changesetStore knowledge.ChangesetStore,
 	writer knowledge.DataHubWriter,
 	pageReverter knowledge.PageReverter,
+	instructions knowledge.InstructionsStore,
 	queryProvider query.Provider,
 ) *KnowledgeHandler {
 	return &KnowledgeHandler{
@@ -41,6 +44,7 @@ func NewKnowledgeHandler(
 		changesetStore: changesetStore,
 		datahubWriter:  writer,
 		pageReverter:   pageReverter,
+		instructions:   instructions,
 		observer:       insightobs.New(queryProvider),
 	}
 }
@@ -381,7 +385,10 @@ func (h *KnowledgeHandler) RollbackChangeset(w http.ResponseWriter, r *http.Requ
 		rolledBackBy = user.UserID
 	}
 
-	deps := knowledge.RollbackDeps{Writer: h.datahubWriter, Changesets: h.changesetStore, Insights: h.insightStore, Pages: h.pageReverter}
+	deps := knowledge.RollbackDeps{
+		Writer: h.datahubWriter, Changesets: h.changesetStore, Insights: h.insightStore,
+		Pages: h.pageReverter, Instructions: h.instructions,
+	}
 	result, err := knowledge.RevertChangeset(r.Context(), deps, cs, rolledBackBy)
 	if err != nil {
 		writeRollbackError(w, err)
@@ -396,6 +403,7 @@ func writeRollbackError(w http.ResponseWriter, err error) {
 	var unrevertible *knowledge.UnrevertibleError
 	var conflict *knowledge.RollbackConflictError
 	var pageEdited *knowledge.PageEditedError
+	var instructionsEdited *knowledge.InstructionsEditedError
 	switch {
 	case errors.Is(err, knowledge.ErrChangesetAlreadyRolledBack):
 		writeError(w, http.StatusConflict, "changeset already rolled back")
@@ -407,6 +415,8 @@ func writeRollbackError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, conflict.Error())
 	case errors.As(err, &pageEdited):
 		writeError(w, http.StatusConflict, pageEdited.Error())
+	case errors.As(err, &instructionsEdited):
+		writeError(w, http.StatusConflict, instructionsEdited.Error())
 	case errors.As(err, &unrevertible):
 		writeError(w, http.StatusUnprocessableEntity, unrevertible.Error())
 	default:

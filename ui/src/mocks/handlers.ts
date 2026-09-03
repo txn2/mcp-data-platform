@@ -3690,6 +3690,10 @@ export const handlers = [
         "This baseline is composed beneath the administrator's own instructions",
         "and names only the tools this deployment exposes.",
       ].join("\n"),
+      // The customized layer's byte bounds (#1607), which the editor renders as
+      // a size meter against the value being edited.
+      limit_bytes: 32768,
+      advisory_bytes: 12288,
     });
   }),
 
