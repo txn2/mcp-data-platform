@@ -36,6 +36,8 @@ internal/admin/sessionapi -> internal/platform/sessionview
 internal/admin/settingsapi -> internal/platform/reviewalert
 internal/admin/settingsapi -> pkg/notification
 internal/admin/settingsapi -> pkg/notification/smtp
+internal/agentinstructions -> pkg/configstore
+internal/httpserver -> internal/agentinstructions
 internal/httpserver -> internal/apidocs
 internal/httpserver -> internal/httpserver/accessgate
 internal/httpserver -> internal/httpserver/apiwire
@@ -152,6 +154,7 @@ internal/httpserver/tablesource -> pkg/portal
 internal/httpserver/tablesource -> pkg/resource
 internal/httpserver/unsubhttp -> pkg/notification
 internal/httpserver/versionhttp -> pkg/prompt
+internal/inlinefit -> pkg/toolkit
 internal/notification/notifyprefs -> pkg/notification
 internal/notification/notifyqueue -> internal/pglisten
 internal/notification/notifyqueue -> pkg/notification
@@ -482,6 +485,7 @@ pkg/admin -> internal/admin/insightobs
 pkg/admin -> internal/admin/notifyapi
 pkg/admin -> internal/admin/sessionapi
 pkg/admin -> internal/admin/settingsapi
+pkg/admin -> internal/agentinstructions
 pkg/admin -> internal/httpjson
 pkg/admin -> internal/logsan
 pkg/admin -> internal/platform/callrecord
@@ -598,6 +602,7 @@ pkg/oauth/postgres -> pkg/oauth
 pkg/persona -> pkg/middleware
 pkg/pkcestore -> pkg/connoauth
 pkg/platform -> apps
+pkg/platform -> internal/agentinstructions
 pkg/platform -> internal/apidocs
 pkg/platform -> internal/logsan
 pkg/platform -> internal/platform/apikeystore
@@ -646,6 +651,7 @@ pkg/platform -> internal/platform/toolratelimit
 pkg/platform -> internal/platform/userdir
 pkg/platform -> internal/platform/utilconn
 pkg/platform -> internal/portal/assetrefs
+pkg/platform -> internal/toolnames
 pkg/platform -> pkg/auth
 pkg/platform -> pkg/authevents
 pkg/platform -> pkg/browsersession
@@ -696,6 +702,7 @@ pkg/platform -> pkg/toolkits/trino
 pkg/platform -> pkg/tuning
 pkg/platform -> pkg/urnbuild
 pkg/platform -> pkg/user
+pkg/platform/instructions -> internal/agentinstructions
 pkg/platform/instructions -> pkg/persona
 pkg/platform/personastore -> pkg/persona
 pkg/portal -> internal/contentviewer
@@ -773,6 +780,7 @@ pkg/storage/s3 -> pkg/urnbuild
 pkg/textpatch -> pkg/contenttype
 pkg/textpatch/patchmcp -> pkg/middleware
 pkg/textpatch/patchmcp -> pkg/textpatch
+pkg/toolkits/apigateway -> internal/inlinefit
 pkg/toolkits/apigateway -> internal/logsan
 pkg/toolkits/apigateway -> internal/membudget
 pkg/toolkits/apigateway -> internal/pagewalk
@@ -801,6 +809,8 @@ pkg/toolkits/gateway -> pkg/semantic
 pkg/toolkits/gateway -> pkg/toolkit
 pkg/toolkits/gateway -> pkg/toolkits/gateway/enrichment
 pkg/toolkits/gateway/enrichment -> internal/logsan
+pkg/toolkits/knowledge -> internal/agentinstructions
+pkg/toolkits/knowledge -> internal/toolnames
 pkg/toolkits/knowledge -> pkg/embedding
 pkg/toolkits/knowledge -> pkg/memory
 pkg/toolkits/knowledge -> pkg/middleware
@@ -809,6 +819,7 @@ pkg/toolkits/knowledge -> pkg/prompt
 pkg/toolkits/knowledge -> pkg/query
 pkg/toolkits/knowledge -> pkg/registry
 pkg/toolkits/knowledge -> pkg/semantic
+pkg/toolkits/knowledge -> pkg/textpatch
 pkg/toolkits/knowledge -> pkg/toolkit
 pkg/toolkits/memory -> pkg/embedding
 pkg/toolkits/memory -> pkg/memory

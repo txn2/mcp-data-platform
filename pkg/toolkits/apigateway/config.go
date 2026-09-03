@@ -130,13 +130,27 @@ const (
 	// model; that is MaxInlineBytes.
 	DefaultMaxResponseBytes = int64(10 * 1024 * 1024)
 
-	// DefaultMaxInlineBytes is the inline budget: the most of a
-	// response api_invoke_endpoint returns through a tool result. It is
-	// a model-context budget, sized so a response that fits is one an
-	// agent can read (issue #1587). A body past it is cut, flagged with
-	// body_truncated, and steered to api_export, which streams the
+	// DefaultMaxInlineBytes is the inline budget: the most a rendered
+	// api_invoke_endpoint tool result may hold. It is a model-context
+	// budget, sized so a response that fits is one an agent can read
+	// (issue #1587). A result past it has its body cut, is flagged with
+	// body_truncated, and is steered to api_export, which streams the
 	// whole response into an asset without a context cost.
-	DefaultMaxInlineBytes = int64(128 * 1024)
+	//
+	// The value is set from what a client accepts. Issue #1606 measured
+	// a 64,213-character tool result refused and spilled to a file, so
+	// the ceiling is under 64 KiB; 32 KiB leaves room under it for a
+	// client stricter than the one measured. An operator whose client
+	// takes more raises max_inline_bytes on the connection.
+	//
+	// The budget is applied to the rendered result rather than to the
+	// bytes read, because the two differ by more than a constant: a
+	// 26,809-byte JSON response measured on that same issue rendered as
+	// a 64,238-character result, so a read-side budget of any size lets
+	// results past the ceiling through unflagged. Fitting drops the
+	// indentation before it drops any content, so a response that fits
+	// compactly is still returned whole.
+	DefaultMaxInlineBytes = int64(32 * 1024)
 )
 
 // cfgKey* constants name the keys used to read a Config from a

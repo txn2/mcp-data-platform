@@ -18,6 +18,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 
+	"github.com/txn2/mcp-data-platform/internal/agentinstructions"
 	"github.com/txn2/mcp-data-platform/pkg/admin"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	auditpostgres "github.com/txn2/mcp-data-platform/pkg/audit/postgres"
@@ -794,6 +795,7 @@ func BuildAdminHandler(p *platform.Platform) http.Handler {
 			p.KnowledgeChangesetStore(),
 			p.KnowledgeDataHubWriter(),
 			p.PortalKnowledgePageStore(),
+			agentinstructions.New(p.ConfigStore(), p.FileDefaults(), platform.ConfigKeyServerAgentInstructions),
 			p.QueryProvider(),
 		)
 	}

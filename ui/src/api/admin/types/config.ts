@@ -95,6 +95,11 @@ export interface EffectiveConfigEntry {
 // tools this deployment exposes, so admins see what is already covered.
 export interface AgentInstructionsBaseline {
   baseline: string;
+  // The customized layer's byte bounds (#1607). limit_bytes is what the write
+  // path refuses past; advisory_bytes is where it starts saying the layer has
+  // grown from a set of rules into a document.
+  limit_bytes: number;
+  advisory_bytes: number;
 }
 
 // ---------------------------------------------------------------------------

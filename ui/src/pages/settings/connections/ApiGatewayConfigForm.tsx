@@ -117,11 +117,11 @@ export function ApiGatewayConfigForm({
 
       <ConfigField
         label="Max inline bytes"
-        help="Model-context budget: the most of a response api_invoke_endpoint returns in a tool result. Past it the body is cut, body_truncated is set, and export_arguments names the api_export call that streams the whole response into an asset. Default 131072 (128 KiB); the read cap bounds it."
+        help="Model-context budget: the most a rendered api_invoke_endpoint tool result may hold. Measured on the result the client receives, not on the bytes read, since indentation and the envelope expand a JSON body several times over. A result past it is re-encoded compactly first, since indentation is whitespace; only one that still does not fit has its body cut, sets body_truncated, and carries export_arguments naming the api_export call that streams the whole response into an asset. Default 32768 (32 KiB), sized under what an MCP client accepts in one tool result."
         type="number"
         value={String(config.max_inline_bytes ?? "")}
         onChange={(v) => onChange(update(config, "max_inline_bytes", v ? Number(v) : undefined))}
-        placeholder="131072"
+        placeholder="32768"
       />
 
       <ConfigSelect

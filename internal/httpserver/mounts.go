@@ -11,6 +11,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/agentinstructions"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/accessgate"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/datahubapi"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/gatewayhttp"
@@ -739,6 +740,7 @@ func buildAdminHandler(p *platform.Platform, notify *notifydelivery.Handle) http
 			p.KnowledgeChangesetStore(),
 			p.KnowledgeDataHubWriter(),
 			p.PortalKnowledgePageStore(),
+			agentinstructions.New(p.ConfigStore(), p.FileDefaults(), platform.ConfigKeyServerAgentInstructions),
 			p.QueryProvider(),
 		)
 	}

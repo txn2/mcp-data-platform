@@ -16,7 +16,15 @@ const (
 	serverSessionKey contextKey = iota
 	progressTokenKey
 	authTokenKey
+	sourceKey
 )
+
+// SourceScript labels a call arriving from a managed script's host
+// bindings. It is defined here, rather than in pkg/middleware alongside
+// the other source labels, so a toolkit can recognize it without
+// importing middleware (which would form an import cycle); middleware's
+// SourceScript is this constant.
+const SourceScript = "script"
 
 // WithServerSession adds a ServerSession to the context.
 func WithServerSession(ctx context.Context, ss *mcp.ServerSession) context.Context {
@@ -54,4 +62,19 @@ func WithAuthToken(ctx context.Context, token string) context.Context {
 func GetAuthToken(ctx context.Context) string {
 	token, _ := ctx.Value(authTokenKey).(string)
 	return token
+}
+
+// WithSource records how a call arrived, using the labels pkg/middleware
+// defines. It lives here so a toolkit can vary on the caller without
+// importing middleware. The tool-call middleware writes it from the
+// PlatformContext it has just resolved; the api-gateway toolkit reads it
+// to tell a managed script's call from a model's.
+func WithSource(ctx context.Context, source string) context.Context {
+	return context.WithValue(ctx, sourceKey, source)
+}
+
+// GetSource returns how the call arrived, or "" when nothing recorded it.
+func GetSource(ctx context.Context) string {
+	source, _ := ctx.Value(sourceKey).(string)
+	return source
 }

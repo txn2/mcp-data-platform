@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
 )
 
 // pagedUpstream is a test upstream serving pages of items in one of the
@@ -1015,5 +1017,74 @@ func TestJSONArrayWriter(t *testing.T) {
 	}
 	if err := consumerError(errors.New("disk full")); err == nil || errors.Is(err, errWalkConsumerStopped) {
 		t.Errorf("a storage error classified as the consumer stopping: %v", err)
+	}
+}
+
+// TestInvokeWalk_OverBudgetKeepsTheMergedArray: a walk expresses the inline
+// budget by refusing the page that would cross it, never by cutting what it
+// already merged. Cutting would replace the array with a prefix string, or
+// drop the body entirely, while pagination still pointed past items the caller
+// never received. Here the echoed export_arguments push the envelope past the
+// budget after the merge is settled, which is the case that reaches the fit
+// (issue #1606).
+func TestInvokeWalk_OverBudgetKeepsTheMergedArray(t *testing.T) {
+	up := (&pagedUpstream{t: t, pages: 3, perPage: 2, mode: "cursor"}).start()
+	tk := walkInvokeToolkit(t, up, true)
+	res, out := invokeWalkCall(t, tk, InvokeInput{
+		Connection: "crm", Method: "POST", Path: "/v1/x",
+		// A request the steer has to echo back, larger than the budget itself.
+		Body:     map[string]any{"filter": strings.Repeat("y", 6000)},
+		Paginate: &PaginateInput{Items: "data", CursorParam: "cursor"},
+	})
+	if res.IsError {
+		t.Fatalf("invoke failed: %s", resultText(t, res))
+	}
+	if _, cut := out.Body.(string); cut {
+		t.Errorf("body came back as a string; want the merged array kept whole")
+	}
+	if out.Body == nil {
+		t.Fatalf("body was dropped; want the merged array kept whole")
+	}
+	data, err := json.Marshal(out.Body)
+	if err != nil {
+		t.Fatalf("merged body does not marshal: %v", err)
+	}
+	assertSequence(t, decodeMergedIDs(t, data), out.ItemsMerged)
+	text, _ := res.Content[0].(*mcp.TextContent)
+	if text == nil || !strings.Contains(text.Text, `"body"`) {
+		t.Errorf("rendered result carries no body field: %s", resultText(t, res))
+	}
+}
+
+// TestInvokeWalk_AScriptRunStillHasACeiling: a run is exempt from the
+// model-context budget, not from every bound. Without a ceiling the merge is
+// limited only by max_pages times a page of max_response_bytes, which is
+// gigabytes accumulated in one process; the connection's read cap is the
+// ceiling a run's walk merges under (issue #1606).
+func TestInvokeWalk_AScriptRunStillHasACeiling(t *testing.T) {
+	up := (&pagedUpstream{t: t, pages: 50, perPage: 20, mode: "cursor"}).start()
+	tk := walkInvokeToolkit(t, up, true)
+	ctx := mcpcontext.WithSource(context.Background(), mcpcontext.SourceScript)
+	res, payload, err := tk.handleInvoke(ctx, nil, InvokeInput{
+		Connection: "crm", Method: "GET", Path: "/v1/x",
+		Paginate: &PaginateInput{Items: "data", CursorParam: "cursor"},
+	})
+	if err != nil {
+		t.Fatalf("handleInvoke: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("invoke failed: %s", resultText(t, res))
+	}
+	out, _ := payload.(InvokeOutput)
+	if out.StoppedBy != "max_bytes" {
+		t.Errorf("stopped_by = %q; want a run's walk bounded by the connection's read cap", out.StoppedBy)
+	}
+	if out.PagesFetched == 0 || out.PagesFetched >= 50 {
+		t.Errorf("pages_fetched = %d; want the pages that fit under the read cap, not every page", out.PagesFetched)
+	}
+	// The steer is a model's, not a run's: a run cannot act on api_export
+	// mid-script, so the ceiling is reported without one.
+	if out.Hint != "" {
+		t.Errorf("hint = %q; want no steer a run cannot act on", out.Hint)
 	}
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/agentinstructions"
 	"github.com/txn2/mcp-data-platform/pkg/configstore"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/platform/fieldcrypt"
@@ -32,6 +33,10 @@ func TestGetAgentInstructionsBaseline(t *testing.T) {
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 		assert.Contains(t, resp.Baseline, "`search`")
 		assert.Contains(t, resp.Baseline, "`memory_capture`")
+		// The editor draws its size meter from these, so the operator sees the
+		// same limit the write path enforces (#1607).
+		assert.Equal(t, agentinstructions.MaxCustomizedBytes, resp.LimitBytes)
+		assert.Equal(t, agentinstructions.AdviseCustomizedBytes, resp.AdvisoryBytes)
 	})
 
 	t.Run("empty baseline when no baseline tools registered", func(t *testing.T) {
@@ -331,6 +336,105 @@ func TestSetConfigEntry(t *testing.T) {
 		h.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+}
+
+// The customized agent-instruction layer is byte-bounded, and the bound belongs
+// to the layer rather than to the writer: the same limit the apply_knowledge
+// agent_instructions sink enforces is enforced here (#1607).
+func TestSetConfigEntry_AgentInstructionsSizeBound(t *testing.T) {
+	t.Run("an over-limit value is refused and not stored", func(t *testing.T) {
+		cs := &mockConfigStore{mode: "database"}
+		h := NewHandler(Deps{ConfigStore: cs, Config: testConfig()}, nil)
+
+		body, err := json.Marshal(setConfigEntryRequest{
+			Value: strings.Repeat("x", agentinstructions.MaxCustomizedBytes+1),
+		})
+		require.NoError(t, err)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut,
+			"/api/v1/admin/config/entries/server.agent_instructions", strings.NewReader(string(body)))
+		req.SetPathValue("key", cfgKeyServerAgentInstructions)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Equal(t, 0, cs.setCalls, "the refused value must not be stored")
+		assert.Contains(t, w.Body.String(), "knowledge page",
+			"the refusal must name where the content belongs instead")
+	})
+
+	t.Run("a value at the limit is accepted", func(t *testing.T) {
+		cs := &mockConfigStore{mode: "database"}
+		h := NewHandler(Deps{ConfigStore: cs, Config: testConfig()}, nil)
+
+		body, err := json.Marshal(setConfigEntryRequest{
+			Value: strings.Repeat("x", agentinstructions.MaxCustomizedBytes),
+		})
+		require.NoError(t, err)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut,
+			"/api/v1/admin/config/entries/server.agent_instructions", strings.NewReader(string(body)))
+		req.SetPathValue("key", cfgKeyServerAgentInstructions)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, 1, cs.setCalls)
+	})
+
+	t.Run("a value past the advisory succeeds and carries the notice", func(t *testing.T) {
+		cs := &mockConfigStore{mode: "database"}
+		h := NewHandler(Deps{ConfigStore: cs, Config: testConfig()}, nil)
+
+		body, err := json.Marshal(setConfigEntryRequest{
+			Value: strings.Repeat("x", agentinstructions.AdviseCustomizedBytes+1),
+		})
+		require.NoError(t, err)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut,
+			"/api/v1/admin/config/entries/server.agent_instructions", strings.NewReader(string(body)))
+		req.SetPathValue("key", cfgKeyServerAgentInstructions)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		var resp configEntryResponse
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+		assert.Equal(t, cfgKeyServerAgentInstructions, resp.Key,
+			"the entry's own fields stay at the top level of the response")
+		assert.Contains(t, resp.Notice, "knowledge page")
+	})
+
+	t.Run("a short value carries no notice", func(t *testing.T) {
+		cs := &mockConfigStore{mode: "database"}
+		h := NewHandler(Deps{ConfigStore: cs, Config: testConfig()}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut,
+			"/api/v1/admin/config/entries/server.agent_instructions", strings.NewReader(`{"value":"one rule"}`))
+		req.SetPathValue("key", cfgKeyServerAgentInstructions)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		var resp configEntryResponse
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+		assert.Empty(t, resp.Notice)
+	})
+
+	t.Run("another key is not bounded", func(t *testing.T) {
+		cs := &mockConfigStore{mode: "database"}
+		h := NewHandler(Deps{ConfigStore: cs, Config: testConfig()}, nil)
+
+		body, err := json.Marshal(setConfigEntryRequest{
+			Value: strings.Repeat("x", agentinstructions.MaxCustomizedBytes+1),
+		})
+		require.NoError(t, err)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut,
+			"/api/v1/admin/config/entries/server.description", strings.NewReader(string(body)))
+		req.SetPathValue("key", cfgKeyServerDescription)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, 1, cs.setCalls)
 	})
 }
 

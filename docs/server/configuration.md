@@ -476,6 +476,21 @@ The instructions an agent receives via `platform_info` are composed in layers:
 
 The platform baseline is an index, not a manual (#1586): each line names one capability, the tool that enters it, and the judgment made before reaching for it, and a second section indexes the built-in knowledge pages that carry the depth. Guidance an agent needs only sometimes is fetched when it is needed rather than carried in every session's first response. The baseline is non-overridable and updates automatically when the platform is upgraded, so the operating model never has to be re-authored per deployment. A persona's `agent_instructions_override` replaces the admin layer only; the baseline is always present. Because the baseline names a tool (`search`, `memory_capture`, `manage_script`) only when that tool is registered and the persona is allowed to call it, it never points an agent at a tool it cannot use. "Registered" covers the tools the platform registers itself (`platform_info`, `list_connections`, `platform_find_tools`, and the prompt and script tools where their store exists) as well as the toolkits'; before #1586 the gate read the toolkit registry alone, so the baseline's prompt and script guidance never rendered on any deployment. The page index names each page by slug (`mcp:knowledge_page:platform-writing-managed-scripts`), which `fetch` resolves: a built-in page's row id is generated per deployment at reconcile time, so the slug is the only handle the shipped text can name. Each entry is gated on the capability it documents, so a persona that cannot write scripts is not handed the scripts pages, and the index is omitted entirely for a caller with neither `fetch` nor `search`, since nothing else returns a knowledge page. The agent receives the baseline as part of the composed `agent_instructions` in the `platform_info` response; admins can see the baseline on its own read-only in the portal's Agent Instructions screen and via `GET /api/v1/admin/config/agent-instructions-baseline`.
 
+### The customized layer is byte-bounded
+
+`server.agent_instructions` is composed into the first response of every session on the deployment, so its size is paid for by every caller before any work happens. Nothing bounded it before #1607: `config_entries.value_text` is unbounded `TEXT`, and neither the config store nor its REST writer measured a value. A deployment measured in that ticket carried 9,923 characters of it, most of them a data dictionary and a set of query examples -- material that belongs on a knowledge page rather than in a field every session reads.
+
+The bound belongs to the layer rather than to whichever writer produced it:
+
+| Bound | Bytes | Behavior |
+|-------|-------|----------|
+| Advisory | 12,288 | The write succeeds and the response carries a `notice` saying the layer has grown from a set of rules into a document, and what belongs on a knowledge page instead. |
+| Limit | 32,768 | The write is refused, naming the size, the limit, the overage, and the knowledge-page alternative. |
+
+Both writers enforce it: `PUT /api/v1/admin/config/entries/server.agent_instructions` (400 on refusal) and the `apply_knowledge` `agent_instructions` sink (see [Knowledge](../knowledge/overview.md#the-third-sink-the-deployments-own-operating-rules)). `GET /api/v1/admin/config/agent-instructions-baseline` reports both numbers as `limit_bytes` and `advisory_bytes`, and the portal's Agent Instructions screen draws its size meter from them, so the size an operator is shipping is visible while editing rather than at the moment of a refusal.
+
+The limit is a ceiling on runaway growth, not a target. Keep this layer to the rules a session must know before it does anything, and index longer guidance from it: a one-line `mcp:knowledge_page:<slug>` entry, in the same form the platform baseline's own page index uses.
+
 The config store is selected automatically: setting `database.dsn` makes config
 database-backed (mutations to personas, auth keys, and config entries persist to
 PostgreSQL and survive restarts); without a database the config is read-only from

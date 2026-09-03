@@ -14,6 +14,8 @@ The Agent Instructions page edits the operating guidance every agent session rec
 
 Above the editor sits the read-only **Platform baseline**: the platform-owned "how to operate" guidance composed beneath your instructions. It names only the tools this deployment exposes (search, query, save, capture), so you can see what is already covered and add only your business and deployment context on top.
 
+Beside the Save button a **size meter** reports what this value costs, in bytes, against the limit the write path enforces. Every session on the deployment reads this layer in its first response, so it is bounded: past the advisory the page says the layer has grown from a set of rules into a document and names knowledge pages as the home for the overflow, and past the limit the save is refused. Both numbers come from the server, so the meter and the write path cannot disagree. See [Configuration](../server/configuration.md#the-customized-layer-is-byte-bounded) for the values, and [Knowledge](../knowledge/overview.md#the-third-sink-the-deployments-own-operating-rules) for the `apply_knowledge` sink that writes this same layer from a reviewed capture.
+
 ## Description
 
 The Description page sets the platform's identity string, surfaced to MCP clients (for example in `platform_info`). Same split markdown editor and database-override semantics as Agent Instructions.

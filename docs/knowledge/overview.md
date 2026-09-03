@@ -44,7 +44,7 @@ flowchart LR
 
 - **`search`** is the universal, topology-free discovery entry point: one query fans across the technical catalog, the caller's memory, captured insights, the caller's feedback, saved assets, uploaded reference material (managed resources, indexed over their file contents), prompts, managed scripts, the caller's own recorded calls, the caller's own sessions, API endpoints, and connections, returning a balanced, grouped-by-source, per-user-scoped result set with a coverage summary. See [search](../server/tools.md#search).
 - **`memory_capture`** (memory toolkit) records domain knowledge during sessions. Available to all personas when enabled. Reviewed sink-classes (`business_knowledge`, `schema_entity`, `operational_rule`) create insights with status `pending`. (To read knowledge back, use `search`.)
-- **`apply_knowledge`** is an admin-only tool for reviewing, approving, synthesizing, and applying insights to DataHub.
+- **`apply_knowledge`** is an admin-only tool for reviewing, approving, synthesizing, and applying insights to one of the three homes knowledge has: a catalog entity, a knowledge page, or the deployment's own agent instructions. See [Where an approved insight goes](#where-an-approved-insight-goes).
 - **[Admin REST API](admin-api.md)** provides HTTP endpoints for managing insights and changesets outside the MCP protocol.
 
 ## Reflexive Capture (automatic corrections)
@@ -197,6 +197,47 @@ sequenceDiagram
 ```
 
 This is a human-in-the-loop metadata curation workflow. Insights captured by any user go through admin review before modifying the catalog. Every change is tracked with a changeset that records previous values for rollback.
+
+## Where an approved insight goes
+
+`apply_knowledge action=apply` routes to one of three homes, chosen by the `sink` argument at apply time rather than frozen at capture. The capture-time sink-class is a hint, not a binding.
+
+| `sink` | Home | Choose it when |
+|--------|------|----------------|
+| `datahub` (default) | A catalog entity's description, tags, glossary terms, curated queries | The fact is anchored to one dataset or column (the insight carries `entity_urns`) |
+| `knowledge_page` | A canonical portal knowledge page, found-or-created by `slug` | The fact is business or domain knowledge not tied to one entity: vocabulary, seasonal date ranges, a procedure |
+| `agent_instructions` | The deployment's own customized agent instructions, found-or-created by section heading | Every future session on this deployment must know it before it does anything |
+
+All three record a changeset, are listed by `action=list_changesets`, and revert through `action=rollback`. The target URN says which home a changeset belongs to: a catalog `urn:li:...`, `kp:<slug>` for a page, `ai:<section>` for an instruction section.
+
+### The third sink: the deployment's own operating rules
+
+Some knowledge is neither a fact about a dataset nor a document to read on demand. It is a rule about how to work here -- which engine holds what, an engine-specific gotcha, a hard prohibition -- and it has to be in front of an agent before the agent picks a tool. That is the customized half of `agent_instructions` (`server.agent_instructions`), which `platform_info` composes beneath the platform's own baseline in every session's first response.
+
+```json
+{
+  "action": "apply",
+  "sink": "agent_instructions",
+  "insight_ids": ["a1b2c3..."],
+  "confirm": true,
+  "instructions": {
+    "section": "OpenSearch aggregations",
+    "body": "Aggregations go through raw_query; the SQL surface cannot express them."
+  }
+}
+```
+
+What the promotion does:
+
+- **Writes one section.** `section` is the find-or-create key. A second promotion of the same section rewrites that section and leaves every other section of the document byte-identical, so correcting one rule never means resending the document around it. The edit runs through the same anchored-edit engine behind `manage_asset patch` and `manage_script patch`.
+- **Records a changeset** under target `ai:<section>`, so the promotion is listed by `list_changesets` and reverts with `rollback`, restoring the previous text byte for byte. A rollback is refused when the layer was written again after the promotion, so it never clobbers a later edit.
+- **Refuses a rule naming a tool this deployment does not register**, naming the tool. The check derives its recognizable prefixes from the deployment's own registered inventory rather than from a fixed list, so it catches a retired `api_`, `manage_`, `memory_` or `save_` name as readily as a `trino_` one.
+- **Diverts a long body to a knowledge page.** Over 1,500 bytes the body is written as a knowledge page (slug and title defaulted from the section) and the section keeps a single `mcp:knowledge_page:<slug>` index entry pointing at it, in the same form the platform baseline's own page index uses. Both halves are one changeset, so one rollback undoes both. This is what keeps the layer a short table of contents over a small number of hard rules rather than a document that only grows.
+- **Respects the layer's byte bound.** A promotion that would push the layer past its limit is refused before anything is written, naming the size, the limit, and knowledge pages as the home for the content; a promotion that clears the limit but passes the advisory succeeds and carries a `size_notice`. See [Configuration](../server/configuration.md#the-customized-layer-is-byte-bounded).
+
+The sink needs a database-backed config store, which is where the layer lives. Without one, a promotion is refused with `sink=knowledge_page` named as the alternative rather than reporting a success that recorded nothing.
+
+Route domain knowledge to `knowledge_page`. The instruction layer should carry at most a pointer to it.
 
 ## Configuration
 

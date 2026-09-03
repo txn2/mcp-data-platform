@@ -21,6 +21,10 @@ import (
 const (
 	sinkDataHub       = "datahub"
 	sinkKnowledgePage = "knowledge_page"
+	// sinkAgentInstructions promotes an operating rule into the deployment's
+	// customized agent instructions, the third knowledge home (#1607). Its
+	// machinery lives in instructions_sink.go.
+	sinkAgentInstructions = "agent_instructions"
 )
 
 // Page changeset markers. The changeset target_urn is free-form text (migration

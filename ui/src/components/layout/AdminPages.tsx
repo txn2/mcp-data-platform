@@ -119,6 +119,7 @@ const EXACT_PAGES: ReadonlyMap<string, (p: PageContext) => ReactNode> = new Map(
       label="Agent Instructions"
       description="Guidance for AI agents using this platform"
       showPlatformBaseline
+      sizeBounded
     />
   )],
   ["/admin/api-catalogs", () => <CatalogsPanel />],
