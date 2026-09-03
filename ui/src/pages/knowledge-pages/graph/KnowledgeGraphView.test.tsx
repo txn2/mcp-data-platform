@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { KnowledgeGraphResponse } from "@/api/portal/hooks";
 import { KnowledgeGraphView } from "./KnowledgeGraphView";
+import { ApiError } from "@/api/portal/client";
 
 // The graph's own states are driven by the endpoint's envelope, so the query is
 // stubbed here. The states this file covers (an empty corpus, truncation, and
@@ -20,7 +21,13 @@ vi.mock("@/api/portal/hooks", () => ({
 // subject of its own assertions below; everywhere else it just has to not
 // require a live QueryClient.
 const catalogResult = vi.hoisted(() => ({
-  current: { data: undefined as unknown, isLoading: false, isError: false },
+  // error is optional: only the lookup's own assertions set one.
+  current: { data: undefined, isLoading: false, isError: false } as {
+    data: unknown;
+    isLoading: boolean;
+    isError: boolean;
+    error?: unknown;
+  },
 }));
 
 vi.mock("@/api/portal/datahub", () => ({
@@ -383,15 +390,30 @@ describe("KnowledgeGraphView catalog nodes", () => {
   });
 
   it("says so when a page cites a dataset the catalog does not have", () => {
-    // DataHub answers an unknown URN with the URN echoed back and no metadata.
+    // The catalog reports a URN it has never ingested, and the read answers 404
+    // (#1610); a record carrying only its own URN is a dataset the catalog
+    // holds and nobody has documented, not a missing one.
     catalogResult.current = {
-      data: { urn: CATALOG_URN, context: { urn: CATALOG_URN } },
+      data: undefined,
       isLoading: false,
-      isError: false,
+      isError: true,
+      error: new ApiError(404, "datahub holds no entity"),
     };
     const pane = selectCatalogNode();
     expect(within(pane).getByText(/Not found in/)).toBeInTheDocument();
     expect(within(pane).getByText(/the catalog does not have it/)).toBeInTheDocument();
+  });
+
+  it("reports a catalog it could not reach as a failure rather than an absence", () => {
+    catalogResult.current = {
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      error: new ApiError(502, "entity read failed"),
+    };
+    const pane = selectCatalogNode();
+    expect(within(pane).getByText(/Could not reach the acme catalog/)).toBeInTheDocument();
+    expect(within(pane).queryByText(/Not found in/)).not.toBeInTheDocument();
   });
 
   it("shows what the catalog holds when the entity resolves", () => {
@@ -413,10 +435,24 @@ describe("KnowledgeGraphView catalog nodes", () => {
     // On a deployment with several catalogs, "not in the catalog" would be a
     // guess about the ones it did not query.
     catalogResult.current = {
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      error: new ApiError(404, "datahub holds no entity"),
+    };
+    expect(within(selectCatalogNode()).getByText("acme")).toBeInTheDocument();
+  });
+
+  it("shows a dataset the catalog holds and nobody has documented as held", () => {
+    catalogResult.current = {
       data: { urn: CATALOG_URN, context: { urn: CATALOG_URN } },
       isLoading: false,
       isError: false,
     };
-    expect(within(selectCatalogNode()).getByText("acme")).toBeInTheDocument();
+    const pane = selectCatalogNode();
+    expect(
+      within(pane).getByText(/holds this dataset with no description, owners or tags recorded/),
+    ).toBeInTheDocument();
+    expect(within(pane).queryByText(/Not found in/)).not.toBeInTheDocument();
   });
 });

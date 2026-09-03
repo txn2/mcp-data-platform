@@ -3,6 +3,7 @@ package datahubapi
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"reflect"
 	"testing"
@@ -73,6 +74,21 @@ func TestGlossaryTerm(t *testing.T) {
 func TestGlossaryTerm_Unknown(t *testing.T) {
 	h := newTestHandler(glossaryBackend(), false, readerResolver(), &fakeAuditLogger{})
 	rec := serve(h, viewer, "GET", glossaryBase+"/term?urn=urn:li:glossaryTerm:missing", "")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf(glossaryStatusTmpl, rec.Code, http.StatusNotFound, rec.Body.String())
+	}
+}
+
+// TestGlossaryTerm_UnknownThroughTheCache proves the same 404 when the miss
+// arrives as the provider abstraction's sentinel alone, which is what
+// CachedProvider replays for a URN the catalog has already reported it does not
+// hold (#1610). Keying the status on the upstream client's sentinel only would
+// answer 502 for every repeat of the same lookup.
+func TestGlossaryTerm_UnknownThroughTheCache(t *testing.T) {
+	backend := glossaryBackend()
+	backend.readErr = fmt.Errorf("glossary term: %w", semantic.ErrNotFound)
+	h := newTestHandler(backend, false, readerResolver(), &fakeAuditLogger{})
+	rec := serve(h, viewer, "GET", glossaryBase+"/term?urn="+testRevenueTermURN, "")
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf(glossaryStatusTmpl, rec.Code, http.StatusNotFound, rec.Body.String())
 	}

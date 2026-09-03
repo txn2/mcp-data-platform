@@ -2059,3 +2059,60 @@ func TestSearchTablesCountedSemanticMode(t *testing.T) {
 		t.Fatalf("got %d rows / total %d, want 2 / 77", len(results), total)
 	}
 }
+
+// TestByURNReadsMapTheCatalogNotFound is #1610. mcp-datahub v1.15.1 reports a
+// URN it has never ingested as ErrNotFound; each by-URN read carries that onto
+// semantic.ErrNotFound so a caller, and CachedProvider, can tell a reference
+// the catalog does not hold from a catalog it could not reach.
+func TestByURNReadsMapTheCatalogNotFound(t *testing.T) {
+	ctx := context.Background()
+	absent := fmt.Errorf("get entity: %w", dhclient.ErrNotFound)
+	unreachable := errors.New("dial tcp: connection refused")
+
+	reads := map[string]func(a *Adapter) error{
+		"GetTableContext": func(a *Adapter) error {
+			_, err := a.GetTableContext(ctx, semantic.TableIdentifier{Catalog: "c", Schema: "s", Table: "t"})
+			return err
+		},
+		"GetDataset": func(a *Adapter) error {
+			_, err := a.GetDataset(ctx, semantic.TableIdentifier{Catalog: "c", Schema: "s", Table: "t"})
+			return err
+		},
+		"GetGlossaryTerm": func(a *Adapter) error {
+			_, err := a.GetGlossaryTerm(ctx, "urn:li:glossaryTerm:Absent")
+			return err
+		},
+		"GetDataProduct": func(a *Adapter) error {
+			_, err := a.GetDataProduct(ctx, "urn:li:dataProduct:absent")
+			return err
+		},
+	}
+
+	clientReturning := func(err error) *mockDataHubClient {
+		return &mockDataHubClient{
+			getEntityFunc:       func(_ context.Context, _ string) (*types.Entity, error) { return nil, err },
+			getGlossaryTermFunc: func(_ context.Context, _ string) (*types.GlossaryTerm, error) { return nil, err },
+			getDataProductFunc:  func(_ context.Context, _ string) (*types.DataProduct, error) { return nil, err },
+		}
+	}
+
+	for name, read := range reads {
+		t.Run(name+" maps a catalog miss", func(t *testing.T) {
+			adapter, _ := NewWithClient(Config{}, clientReturning(absent))
+			if err := read(adapter); !errors.Is(err, semantic.ErrNotFound) {
+				t.Errorf("error = %v, want semantic.ErrNotFound", err)
+			}
+		})
+
+		t.Run(name+" leaves a read failure alone", func(t *testing.T) {
+			adapter, _ := NewWithClient(Config{}, clientReturning(unreachable))
+			err := read(adapter)
+			if err == nil {
+				t.Fatal("error = nil, want the read failure")
+			}
+			if errors.Is(err, semantic.ErrNotFound) {
+				t.Errorf("error = %v, want a catalog that could not be reached to stay a failure", err)
+			}
+		})
+	}
+}

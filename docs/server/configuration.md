@@ -1133,12 +1133,14 @@ storage:
 |-------|------|---------|-------------|
 | `semantic.provider` | string | - | Provider type: `datahub` or `noop` |
 | `semantic.instance` | string | - | Toolkit instance name |
-| `semantic.cache.enabled` | bool | `false` | Enable semantic metadata caching |
+| `semantic.cache.enabled` | bool | `false` | Enable semantic metadata caching. A read that reports the catalog holds no entity for a URN is cached for the same TTL as one that returns an entity, so a table absent from the catalog is looked up once per TTL rather than once per tool call. |
 | `semantic.cache.ttl` | duration | `5m` | Cache TTL |
 | `query.provider` | string | - | Provider type: `trino` or `noop` |
 | `query.instance` | string | - | Toolkit instance name |
 | `storage.provider` | string | - | Provider type: `s3` or `noop` |
 | `storage.instance` | string | - | Toolkit instance name |
+
+**Which DataHub the `datahub` provider needs.** Whether the catalog holds an entity is the catalog's answer, read from DataHub's `exists` field on a dataset and a glossary term and from the properties aspect on a data product. A DataHub that reports `exists` is therefore what makes a stale citation resolve as not-found: on an older server the field is absent, the entity is taken to stand, and a `fetch` of a URN the catalog has never ingested answers with a record built from that URN. This platform's checks run against DataHub v1.6.0; mcp-datahub v1.15.1 states v1.3.x as its own minimum for the rest of the catalog surface.
 
 **URN mapping** (`semantic.urn_mapping`, `query.urn_mapping`) translates catalog and platform names when Trino and DataHub name the same data differently - see [Trino to DataHub](../cross-enrichment/trino-datahub.md#urn-mapping-for-mismatched-names) for the full config reference. **Lineage-aware enrichment** (`semantic.lineage`) inherits column metadata from upstream datasets when a table's own columns lack it - see [Lineage Inheritance](../cross-enrichment/lineage.md) for the full config reference and worked examples.
 

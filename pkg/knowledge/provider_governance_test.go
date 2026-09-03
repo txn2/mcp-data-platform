@@ -26,9 +26,8 @@ type fakeGovernanceReader struct {
 	domainsErr error
 
 	// term is what GetGlossaryTerm returns; termErr makes the by-URN read fail.
-	// A term that does not exist is NOT that case: DataHub answers such a URN
-	// with a stub carrying the URN and a name derived from it and no error at
-	// all, which is what a term with no description of its own models (#1605).
+	// A term the vocabulary does not hold is that case: the catalog reports it
+	// through the term's exists field (#1610).
 	term    *semantic.GlossaryTerm
 	termErr error
 
@@ -654,17 +653,36 @@ func TestGovernanceProvider_FallbackEnumeratesTheVocabularyNotTheDisplayPage(t *
 		"the enumeration behind the fallback reads the vocabulary page")
 }
 
-// TestGovernanceProvider_FetchRejectsTheURNOnlyStub is #1605 on the glossary
-// arm. DataHub answers a term URN it does not hold with the URN echoed back and
-// a name read out of it, so the by-URN read's own not-found conditions never
-// fire and the arm has to recognize the stub by what it does not carry.
-func TestGovernanceProvider_FetchRejectsTheURNOnlyStub(t *testing.T) {
+// TestGovernanceProvider_FetchOnATermTheVocabularyDoesNotHold is #1605 on the
+// glossary arm. A term URN that names nothing came back as a stub carrying the
+// URN and a name read out of it; the catalog reports it as a read failure now
+// (#1610), which the arm answers with a structured not-found rather than a tool
+// error, so a stale term citation stays a clean answer.
+func TestGovernanceProvider_FetchOnATermTheVocabularyDoesNotHold(t *testing.T) {
 	f := populatedReader()
-	f.term = &semantic.GlossaryTerm{URN: "urn:li:glossaryTerm:NeverIngested", Name: "NeverIngested"}
+	f.termErr = fmt.Errorf("never ingested: %w", semantic.ErrNotFound)
 	p := NewGovernanceProvider(f)
 
 	doc, owned, err := p.Fetch(context.Background(), "urn:li:glossaryTerm:NeverIngested", Caller{})
 	require.True(t, owned)
 	require.ErrorIs(t, err, ErrNotFound)
 	require.Nil(t, doc)
+}
+
+// TestGovernanceProvider_FetchResolvesABareTerm is the residual #1609 left and
+// #1610 closes: a term that exists, sits at the glossary root, and has no
+// definition, no steward and no properties carries nothing beyond what its own
+// URN supplies, and was reported absent for it. The vocabulary settles
+// existence now, so the term resolves.
+func TestGovernanceProvider_FetchResolvesABareTerm(t *testing.T) {
+	const urn = "urn:li:glossaryTerm:Bare"
+	f := populatedReader()
+	f.term = &semantic.GlossaryTerm{URN: urn, Name: "Bare"}
+	p := NewGovernanceProvider(f)
+
+	doc, owned, err := p.Fetch(context.Background(), urn, Caller{})
+	require.True(t, owned)
+	require.NoError(t, err)
+	require.NotNil(t, doc)
+	assert.Equal(t, urn, doc.Reference)
 }

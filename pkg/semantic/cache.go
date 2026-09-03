@@ -2,6 +2,7 @@ package semantic
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"sync"
@@ -26,7 +27,14 @@ type CachedProvider struct {
 }
 
 type cacheEntry[T any] struct {
-	value     T
+	value T
+	// absent records that the provider reported the key as one it holds no
+	// entity for; value is the zero value and the read replays ErrNotFound. A
+	// by-URN read that misses is as durable an answer as one that hits, and
+	// costs the catalog the same to produce, so it is remembered for the same
+	// TTL (#1610). Only ErrNotFound is remembered: a transport or authorization
+	// failure says nothing about what the catalog holds.
+	absent    bool
 	expiresAt time.Time
 }
 
@@ -63,28 +71,52 @@ func (c *CachedProvider) Name() string {
 	return c.provider.Name() + " (cached)"
 }
 
+// cachedRead reads one entry, reporting a remembered miss as ErrNotFound. hit
+// is false when nothing valid is held for the key, in which case the caller
+// reads through to the provider. The cache map is passed in, which is safe
+// because no field holding one is ever reassigned after construction (see
+// Invalidate).
+func cachedRead[T any](c *CachedProvider, cache map[string]*cacheEntry[T], key string) (value T, hit bool, err error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	entry, ok := cache[key]
+	if !ok || entry.isExpired() {
+		return value, false, nil
+	}
+	if entry.absent {
+		return value, true, fmt.Errorf("no entity for %s: %w", key, ErrNotFound)
+	}
+	return entry.value, true, nil
+}
+
+// cacheWrite records a provider answer, whether it was an entity or a miss.
+func cacheWrite[T any](c *CachedProvider, cache map[string]*cacheEntry[T], key string, value T, absent bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	cache[key] = &cacheEntry[T]{
+		value:     value,
+		absent:    absent,
+		expiresAt: time.Now().Add(c.ttl),
+	}
+}
+
 // GetTableContext retrieves table context with caching.
 func (c *CachedProvider) GetTableContext(ctx context.Context, table TableIdentifier) (*TableContext, error) {
 	key := table.String()
 
-	c.mu.RLock()
-	if entry, ok := c.tableCache[key]; ok && !entry.isExpired() {
-		c.mu.RUnlock()
-		return entry.value, nil
+	if value, hit, err := cachedRead(c, c.tableCache, key); hit {
+		return value, err
 	}
-	c.mu.RUnlock()
 
 	result, err := c.provider.GetTableContext(ctx, table)
 	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			cacheWrite(c, c.tableCache, key, (*TableContext)(nil), true)
+		}
 		return nil, fmt.Errorf("getting table context from provider: %w", err)
 	}
 
-	c.mu.Lock()
-	c.tableCache[key] = &cacheEntry[*TableContext]{
-		value:     result,
-		expiresAt: time.Now().Add(c.ttl),
-	}
-	c.mu.Unlock()
+	cacheWrite(c, c.tableCache, key, result, false)
 
 	return result, nil
 }
@@ -169,24 +201,19 @@ func (c *CachedProvider) GetLineage(ctx context.Context, table TableIdentifier, 
 
 // GetGlossaryTerm retrieves a glossary term with caching.
 func (c *CachedProvider) GetGlossaryTerm(ctx context.Context, urn string) (*GlossaryTerm, error) {
-	c.mu.RLock()
-	if entry, ok := c.termCache[urn]; ok && !entry.isExpired() {
-		c.mu.RUnlock()
-		return entry.value, nil
+	if value, hit, err := cachedRead(c, c.termCache, urn); hit {
+		return value, err
 	}
-	c.mu.RUnlock()
 
 	result, err := c.provider.GetGlossaryTerm(ctx, urn)
 	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			cacheWrite(c, c.termCache, urn, (*GlossaryTerm)(nil), true)
+		}
 		return nil, fmt.Errorf("getting glossary term from provider: %w", err)
 	}
 
-	c.mu.Lock()
-	c.termCache[urn] = &cacheEntry[*GlossaryTerm]{
-		value:     result,
-		expiresAt: time.Now().Add(c.ttl),
-	}
-	c.mu.Unlock()
+	cacheWrite(c, c.termCache, urn, result, false)
 
 	return result, nil
 }
@@ -321,17 +348,20 @@ func (c *CachedProvider) Close() error {
 	return nil
 }
 
-// Invalidate clears the cache.
+// Invalidate clears the cache. It empties each map rather than replacing it, so
+// the map values themselves are fixed at construction: cachedRead and
+// cacheWrite take one as an argument, which the caller reads outside the lock,
+// and a reassignment here would race with that read.
 func (c *CachedProvider) Invalidate() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.tableCache = make(map[string]*cacheEntry[*TableContext])
-	c.columnCache = make(map[string]*cacheEntry[*ColumnContext])
-	c.columnsCache = make(map[string]*cacheEntry[map[string]*ColumnContext])
-	c.lineageCache = make(map[string]*cacheEntry[*LineageInfo])
-	c.termCache = make(map[string]*cacheEntry[*GlossaryTerm])
-	c.curatedQueryCache = make(map[string]*cacheEntry[int])
-	c.relatedDocsCache = make(map[string]*cacheEntry[[]DocumentResult])
+	clear(c.tableCache)
+	clear(c.columnCache)
+	clear(c.columnsCache)
+	clear(c.lineageCache)
+	clear(c.termCache)
+	clear(c.curatedQueryCache)
+	clear(c.relatedDocsCache)
 }
 
 // Verify interface compliance.

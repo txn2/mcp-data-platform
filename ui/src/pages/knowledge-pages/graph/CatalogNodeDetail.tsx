@@ -3,6 +3,7 @@ import {
   useDataHubConnections,
   type TableContext,
 } from "@/api/portal/datahub";
+import { ApiError } from "@/api/portal/client";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
@@ -23,13 +24,22 @@ export function CatalogNodeDetail({ urn }: { urn: string }) {
   // keeps the claim true on a deployment with several catalogs: "not in acme" is
   // a fact, "not in the catalog" would be a guess about the others.
   const conn = connections?.[0]?.name ?? "";
-  const { data, isLoading, isError } = useCatalogEntity(conn, urn);
+  const { data, isLoading, isError, error } = useCatalogEntity(conn, urn);
 
   if (!conn) return <CatalogRow>No DataHub connection is configured.</CatalogRow>;
   if (isLoading) return <CatalogRow>Looking this up in {conn}...</CatalogRow>;
-  if (isError) return <CatalogRow>Could not reach the {conn} catalog.</CatalogRow>;
+  if (isError || !data?.context) return <LookupFailure conn={conn} error={error} />;
+  return <CatalogFacts conn={conn} context={data.context} />;
+}
 
-  if (!hasCatalogMetadata(data?.context)) {
+/**
+ * LookupFailure separates a catalog that does not hold the entity from one that
+ * could not be reached. The catalog reports the first as a 404 (#1610); reading
+ * the answer off the record's own fields, as this component did, called an
+ * entity nobody had documented missing.
+ */
+function LookupFailure({ conn, error }: { conn: string; error: unknown }) {
+  if (error instanceof ApiError && error.status === 404) {
     return (
       <CatalogRow tone="warn">
         Not found in <span className="font-medium text-foreground">{conn}</span>. A page cites this
@@ -37,17 +47,11 @@ export function CatalogNodeDetail({ urn }: { urn: string }) {
       </CatalogRow>
     );
   }
-  return <CatalogFacts conn={conn} context={data!.context!} />;
+  return <CatalogRow>Could not reach the {conn} catalog.</CatalogRow>;
 }
 
-/**
- * hasCatalogMetadata reports whether the catalog actually holds this entity.
- * DataHub answers for an unknown URN with the URN echoed back and nothing else,
- * so carrying any metadata at all is what separates a real entity from a
- * citation pointing at a dataset this catalog does not have.
- */
-function hasCatalogMetadata(context: TableContext | null | undefined): boolean {
-  if (!context) return false;
+/** isDocumented reports whether anyone has described the entity the catalog holds. */
+function isDocumented(context: TableContext): boolean {
   return Boolean(
     context.description ||
       context.owners?.length ||
@@ -61,9 +65,15 @@ function hasCatalogMetadata(context: TableContext | null | undefined): boolean {
 /** CatalogFacts renders what the catalog holds for a resolved entity. */
 function CatalogFacts({ conn, context }: { conn: string; context: TableContext }) {
   const owners = context.owners?.length ?? 0;
+  const documented = isDocumented(context);
   return (
     <div className="rounded-md border border-border bg-muted/40 px-2.5 py-2 text-xs">
       <p className="mb-1 text-muted-foreground">In {conn}</p>
+      {!documented && (
+        <p className="text-foreground">
+          The catalog holds this dataset with no description, owners or tags recorded.
+        </p>
+      )}
       {context.description && <p className="line-clamp-4 text-foreground">{context.description}</p>}
       {context.domain?.name && (
         <p className="mt-1 text-muted-foreground">Domain: {context.domain.name}</p>
@@ -73,16 +83,22 @@ function CatalogFacts({ conn, context }: { conn: string; context: TableContext }
           {owners} owner{owners === 1 ? "" : "s"}
         </p>
       )}
-      {!!context.tags?.length && (
-        <p className="mt-1 flex flex-wrap gap-1">
-          {context.tags.map((t) => (
-            <Badge key={t} variant="outline" className="rounded-sm px-1 text-muted-foreground">
-              {t}
-            </Badge>
-          ))}
-        </p>
-      )}
+      <CatalogTags tags={context.tags} />
     </div>
+  );
+}
+
+/** CatalogTags renders the tags the catalog carries for an entity, if any. */
+function CatalogTags({ tags }: { tags?: string[] }) {
+  if (!tags?.length) return null;
+  return (
+    <p className="mt-1 flex flex-wrap gap-1">
+      {tags.map((t) => (
+        <Badge key={t} variant="outline" className="rounded-sm px-1 text-muted-foreground">
+          {t}
+        </Badge>
+      ))}
+    </p>
   );
 }
 

@@ -297,10 +297,8 @@ func resolveEntry(ctx context.Context, r governanceReader, kind governanceKind, 
 // resolveGlossaryTerm reads one term by URN, the only by-URN read any governance
 // vocabulary has. A read error is reported as a miss (ErrNotFound) rather than a
 // failure, so a stale term citation is a clean not-found rather than a hard tool
-// failure. A term the vocabulary does not hold does not produce an error at all:
-// DataHub answers with the URN echoed back and a name read out of it, so that
-// miss is recognized by the record carrying nothing of its own
-// (glossaryTermExists, #1605).
+// failure. A term the vocabulary does not hold is one such error: DataHub
+// reports it through the term's exists field (mcp-datahub v1.15.1, #1610).
 func resolveGlossaryTerm(ctx context.Context, r governanceReader, urn string) (*governanceEntry, error) {
 	term, err := r.GetGlossaryTerm(ctx, urn)
 	if err != nil {
@@ -308,12 +306,6 @@ func resolveGlossaryTerm(ctx context.Context, r governanceReader, urn string) (*
 		return nil, ErrNotFound
 	}
 	if term == nil || term.URN == "" {
-		return nil, ErrNotFound
-	}
-	if !glossaryTermExists(term) {
-		// The vocabulary answered with a stub named after the URN, which is how it
-		// reports a term it does not hold (#1605).
-		slog.Debug("glossary term lookup resolved to a urn-only record", "urn", urn)
 		return nil, ErrNotFound
 	}
 	return &governanceEntry{

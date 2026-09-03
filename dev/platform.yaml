@@ -420,6 +420,13 @@ toolkits:
 semantic:
   provider: "${SEMANTIC_PROVIDER:-noop}"
   instance: acme
+  # Off by default so a catalog edit made in the portal is visible on the next
+  # enrichment rather than after the TTL. Turn it on to exercise the cache the
+  # way a deployment runs it, which the #1610 acceptance criterion needs:
+  # SEMANTIC_CACHE_ENABLED=true make dev
+  cache:
+    enabled: ${SEMANTIC_CACHE_ENABLED:-false}
+    ttl: ${SEMANTIC_CACHE_TTL:-5m}
 
 query:
   provider: "${QUERY_PROVIDER:-noop}"

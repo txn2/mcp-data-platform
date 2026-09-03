@@ -3,12 +3,14 @@ package datahub
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	dhclient "github.com/txn2/mcp-datahub/pkg/client"
 	"github.com/txn2/mcp-datahub/pkg/types"
 
 	"github.com/txn2/mcp-data-platform/pkg/observability"
@@ -149,5 +151,58 @@ func TestSetMetrics_NilRecorderTransparent(t *testing.T) {
 	// The wrapped client must still delegate without panicking on a nil recorder.
 	if _, err := adapter.client.GetEntity(context.Background(), "urn:li:dataset:(x)"); err != nil {
 		t.Errorf("wrapped client delegate failed: %v", err)
+	}
+}
+
+// TestUpstreamStatusOnACatalogMiss is #1610. A URN the catalog holds no entity
+// for is an answer, so it records as a served request rather than as an
+// upstream failure; anything else the client reports is still a failure.
+func TestUpstreamStatusOnACatalogMiss(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"a served read", nil, observability.StatusOK},
+		{"a URN the catalog holds nothing for", fmt.Errorf("get entity: %w", dhclient.ErrNotFound), observability.StatusOK},
+		{"a catalog that could not be reached", errors.New("dial tcp: connection refused"), observability.StatusUpstreamErr},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := upstreamStatus(tt.err); got != tt.want {
+				t.Errorf("upstreamStatus(%v) = %q, want %q", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestInstrumentedClient_RecordsACatalogMissAsServed is #1610 through the
+// decorator rather than through upstreamStatus alone: a URN the catalog holds
+// no entity for is counted as a served request, and the error still reaches the
+// caller with its sentinel intact.
+func TestInstrumentedClient_RecordsACatalogMissAsServed(t *testing.T) {
+	m, err := observability.New(observability.Config{Enabled: true})
+	if err != nil {
+		t.Fatalf("observability.New: %v", err)
+	}
+	t.Cleanup(func() { _ = m.Shutdown(context.Background()) })
+
+	mock := &mockDataHubClient{
+		getEntityFunc: func(_ context.Context, _ string) (*types.Entity, error) {
+			return nil, fmt.Errorf("get entity: %w", dhclient.ErrNotFound)
+		},
+	}
+	ic := &instrumentedClient{Client: mock, metrics: m}
+	_, err = ic.GetEntity(context.Background(), "urn")
+	if !errors.Is(err, dhclient.ErrNotFound) {
+		t.Fatalf("GetEntity error = %v, want the not-found sentinel to survive the decorator", err)
+	}
+
+	body := scrapeForTest(t, m.Handler())
+	if !strings.Contains(body, `datahub_requests_total{operation="get_entity",status="ok"}`) {
+		t.Errorf("a catalog miss was not recorded as a served request\n%s", body)
+	}
+	if strings.Contains(body, `status="upstream_err"`) {
+		t.Errorf("a catalog miss was recorded as an upstream failure\n%s", body)
 	}
 }

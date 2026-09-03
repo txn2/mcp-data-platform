@@ -1283,12 +1283,16 @@ export const handlers = [
   http.get(`${PORTAL_BASE}/datahub/:conn/catalog/entity`, ({ request }) => {
     const u = new URL(request.url).searchParams.get("urn") ?? "";
     const entity = catalogEntity(u);
-    // DataHub has no not-found for an entity read: it answers an unknown URN
-    // with the URN echoed back and no metadata, which is what the real backend
-    // relays (verified against a live stack). Mirroring that here is what lets
-    // the "cited but not in the catalog" path be exercised at all; returning a
-    // 502 instead would mock an error the platform never actually produces.
-    return HttpResponse.json(entity ?? { urn: u, context: { urn: u } });
+    // A URN the catalog has never ingested is a 404 (#1610): DataHub reports it
+    // through the entity's `exists` field, and the route separates that from
+    // the 502 it answers for a catalog it could not reach. Answering 200 with
+    // the URN echoed back, as this did while the platform read existence off
+    // the record's own fields, would mock a response the backend no longer
+    // produces and would hide the "cited but not in the catalog" path.
+    if (!entity) {
+      return HttpResponse.json({ detail: `datahub holds no entity for ${u}` }, { status: 404 });
+    }
+    return HttpResponse.json(entity);
   }),
   http.get(`${PORTAL_BASE}/datahub/:conn/catalog/lookup/tags`, ({ request }) => {
     const q = new URL(request.url).searchParams.get("q") ?? "";

@@ -39,10 +39,9 @@ const kindDataProduct = "data_product"
 
 // fetchDataProduct dereferences a urn:li:dataProduct:<id> reference (#1590). A
 // deployment whose catalog cannot read products, and a URN the catalog has no
-// product for, are both a clean not-found. A missing product is not reported as
-// an error: DataHub answers with the URN it was handed and no properties, so the
-// miss is recognized by the record carrying nothing of its own
-// (dataProductExists, #1605). The product itself carries no connection
+// product for, are both a clean not-found; the catalog reports a product it has
+// never ingested as an error, recognizing it by a null properties aspect
+// (mcp-datahub v1.15.1, #1610). The product itself carries no connection
 // attribution, so the boundary leaves it visible; its member datasets are
 // catalog entities and are filtered like any other, with the removed count and
 // the reason reported rather than the list silently shortening.
@@ -56,12 +55,6 @@ func (p *CatalogProvider) fetchDataProduct(ctx context.Context, ref string, call
 		return nil, true, ErrNotFound
 	}
 	if product == nil || product.URN == "" {
-		return nil, true, ErrNotFound
-	}
-	if !dataProductExists(product) {
-		// A product the catalog has no entry for comes back as its own URN and
-		// nothing else, not as an error (#1605).
-		slog.Debug("catalog data product fetch resolved to a urn-only record", "urn", ref)
 		return nil, true, ErrNotFound
 	}
 	entity := DataProductEntity{

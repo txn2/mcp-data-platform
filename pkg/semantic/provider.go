@@ -73,6 +73,15 @@ type DocumentSearcher interface {
 	BrowseDocuments(ctx context.Context, offset, limit int) (docs []DocumentResult, total int, err error)
 }
 
+// ErrNotFound reports that the catalog holds no entity for the reference a
+// by-URN read was given. The read returns it (wrapped) so a caller can tell a
+// reference the catalog has never ingested from a transport or authorization
+// failure, and so CachedProvider can remember the miss for its TTL the way it
+// remembers a hit. It is defined here, on the abstraction, rather than
+// per-implementation so every provider agrees on the sentinel; the DataHub
+// adapter maps the upstream client's own not-found onto it (#1610).
+var ErrNotFound = errors.New("entity not found")
+
 // ErrDocumentNotFound reports that a document URN did not resolve to a document.
 // GetDocument returns it (wrapped) so a caller can distinguish a stale reference
 // from a transport failure. It is defined here, on the capability interface,

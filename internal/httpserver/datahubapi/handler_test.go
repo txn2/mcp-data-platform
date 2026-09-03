@@ -3,6 +3,7 @@ package datahubapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -167,10 +168,11 @@ func (f *fakeDataHub) ListDomains(_ context.Context) ([]semantic.EntityRef, erro
 
 // --- glossary hierarchy (#1155) ---
 //
-// The fake mirrors the upstream client's contract: an unknown glossary node is
-// ErrNotFound (DataHub answers the lookup with an empty stub, which the client
-// converts), not an empty child set, so the handler's 404 path is exercised
-// against the behavior the real backend has.
+// The fake mirrors the contract the real reads have: an unknown glossary node
+// is the upstream client's ErrNotFound, not an empty child set, and an unknown
+// term is the by-URN read's pair of sentinels (the provider abstraction's, which
+// a cached miss replays on its own, wrapping the upstream client's), so the
+// handler's 404 path is exercised against the behavior the real backend has.
 
 func (f *fakeDataHub) ListRootGlossaryNodes(_ context.Context, _, _ int) ([]semantic.GlossaryNode, int, error) {
 	if f.rootNodesErr != nil {
@@ -215,7 +217,7 @@ func (f *fakeDataHub) GetGlossaryTerm(_ context.Context, urn string) (*semantic.
 	}
 	term, ok := f.terms[urn]
 	if !ok {
-		return nil, fmt.Errorf("glossary term %s: %w", urn, dhclient.ErrNotFound)
+		return nil, fmt.Errorf("glossary term %s: %w: %w", urn, semantic.ErrNotFound, dhclient.ErrNotFound)
 	}
 	return term, nil
 }
@@ -1035,4 +1037,30 @@ func TestListConnections_EmptyBridge(t *testing.T) {
 
 func hasCall(calls []string, want string) bool {
 	return slices.Contains(calls, want)
+}
+
+// TestCatalogEntity_NotHeldIsNotFound is #1610. A URN the catalog has never
+// ingested is a 404, and a catalog that could not be reached stays a 502: the
+// portal says plainly that a cited dataset is not in this catalog, and it can
+// only say so if the two are told apart here.
+func TestCatalogEntity_NotHeldIsNotFound(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"a URN the catalog does not hold", fmt.Errorf("datahub holds no entity: %w", semantic.ErrNotFound), http.StatusNotFound},
+		{"a catalog that could not be reached", errors.New("dial tcp: connection refused"), http.StatusBadGateway},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := newFakeDataHub()
+			backend.readErr = tc.err
+			h := newTestHandler(backend, true, writerResolver(), &fakeAuditLogger{})
+
+			rec := serve(h, viewer, "GET", "/api/v1/portal/datahub/primary/catalog/entity?urn="+dhTestURN, "")
+			if rec.Code != tc.want {
+				t.Fatalf("status = %d, want %d (%s)", rec.Code, tc.want, rec.Body.String())
+			}
+		})
+	}
 }
