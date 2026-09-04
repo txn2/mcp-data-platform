@@ -204,7 +204,12 @@ export async function openScriptDelete(page: Page): Promise<void> {
  * because the previous run was still going.
  */
 export async function openScriptRunHistory(page: Page): Promise<void> {
-  await page.getByText("Run history").scrollIntoViewIfNeeded({ timeout: 3_000 });
+  // By role, not by text: the delete confirmation on this page also contains
+  // the words "Run history", so getByText resolves to two nodes and fails
+  // Playwright's strict mode.
+  await page
+    .getByRole("heading", { name: "Run history" })
+    .scrollIntoViewIfNeeded({ timeout: 3_000 });
   await page.waitForTimeout(500);
 }
 

@@ -42,6 +42,13 @@ async function navigateClientSide(page: Page, appPath: string): Promise<void> {
  * a SQL file read "binary contents of query-templates.sql" and a CSV rendered
  * as a one-column, one-row table.
  *
+ * The app shell's own error boundary is here for the same reason. A lazy route
+ * whose chunk fails to resolve renders "This page could not be loaded." in an
+ * otherwise empty shell, and because that is a rendered page rather than a
+ * thrown error, every wait in waitForPageReady succeeds and the capture is
+ * committed. One went out that way and was served as documentation until a
+ * reader reported it.
+ *
  * Every entry has to be a string no correct page can contain. Legitimate
  * failure states the docs DO document -- the not-found page, a failed script
  * run, a stale table registration -- are deliberately absent from this list.
@@ -49,6 +56,7 @@ async function navigateClientSide(page: Page, appPath: string): Promise<void> {
 const FAILURE_MARKERS = [
   "binary contents of",
   "This browser cannot display PDFs inline",
+  "This page could not be loaded.",
   "Something went wrong",
   "Unexpected Application Error",
   "Failed to fetch",
