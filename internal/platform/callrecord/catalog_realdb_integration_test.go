@@ -583,12 +583,18 @@ func TestCallCatalogRealDBSatisfiesOnlyTheCallsAnAssetNamed(t *testing.T) {
 	assert.Empty(t, queue, "a windowed save offers nothing for review")
 
 	// The provenance panel is unaffected: the asset still records the session's
-	// work, which is what makes the write checkable.
-	assets, _, err := portal.NewPostgresAssetStore(db, nil).List(ctx, portal.AssetFilter{Owner: portaldomain.NewAssetOwner(analystID, "")})
+	// work, which is what makes the write checkable. Read one asset rather than
+	// the listing, which since #1623 carries a summary of the provenance in the
+	// captures' place.
+	store := portal.NewPostgresAssetStore(db, nil)
+	assets, _, err := store.List(ctx, portal.AssetFilter{Owner: portaldomain.NewAssetOwner(analystID, "")})
 	require.NoError(t, err)
 	require.Len(t, assets, 1)
-	require.Len(t, assets[0].Provenance.Captures, 1)
-	assert.Len(t, assets[0].Provenance.Captures[0].EventIDs, 2,
+	require.Equal(t, 1, assets[0].ProvenanceSummary.Captures)
+	windowed, err := store.Get(ctx, assets[0].ID)
+	require.NoError(t, err)
+	require.Len(t, windowed.Provenance.Captures, 1)
+	assert.Len(t, windowed.Provenance.Captures[0].EventIDs, 2,
 		"narrowing what counts as evidence must not narrow what is recorded")
 
 	// Naming a source is what makes the record read satisfied.

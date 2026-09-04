@@ -44,6 +44,10 @@ type mockAssetStore struct {
 	// getByIDsErr fails the whole-set read alone, which is a different query
 	// from Get and fails on its own.
 	getByIDsErr error
+	// provenancePage is the asset's captures newest first, as the store
+	// returns them, and provenanceErr fails that read on its own.
+	provenancePage []ProvenanceCapture
+	provenanceErr  error
 }
 
 func (m *mockAssetStore) Insert(_ context.Context, _ Asset) error { return m.insertErr }
@@ -86,6 +90,18 @@ func (m *mockAssetStore) Update(_ context.Context, _ string, u AssetUpdate) erro
 }
 func (*mockAssetStore) AppendProvenanceCapture(context.Context, string, portaldomain.ProvenanceCapture) error {
 	return nil
+}
+
+func (m *mockAssetStore) ListProvenanceCaptures(_ context.Context, _ string, offset, limit int) (captures []portaldomain.ProvenanceCapture, total int, err error) {
+	if m.provenanceErr != nil {
+		return nil, 0, m.provenanceErr
+	}
+	offset, limit = portaldomain.ClampProvenancePage(offset, limit)
+	total = len(m.provenancePage)
+	if offset >= total {
+		return []portaldomain.ProvenanceCapture{}, total, nil
+	}
+	return m.provenancePage[offset:min(offset+limit, total)], total, nil
 }
 
 func (m *mockAssetStore) SoftDelete(_ context.Context, _ string) error { return m.deleteErr }

@@ -226,7 +226,83 @@ func prune(ctx context.Context, tx *sql.Tx, assetID string, latestVersion, keep 
 	if err := rows.Err(); err != nil {
 		return pruneResult{}, fmt.Errorf("iterating pruned version rows: %w", err)
 	}
+	if err := TrimProvenanceCaptures(ctx, tx, assetID, latestVersion-keep); err != nil {
+		return pruneResult{}, err
+	}
 	return pruneResult{removed: removed}, nil
+}
+
+// trimProvenanceCapturesSQL removes an asset's captures for versions at or
+// below a watermark, keeping the capture of version 1 and any capture that
+// names no version.
+//
+// A capture is appended per content write and nothing removed one, so an asset
+// whose history is capped at twelve versions carried captures describing three
+// hundred versions that no longer existed (#1623). A capture belongs to the
+// version it produced: when the version goes, so does it. The origin capture
+// stays whatever the cap, because it is what says where the asset came from,
+// and so does a capture taken before the platform recorded which version it
+// produced -- there is nothing in it to match against a pruned version.
+//
+// The EXISTS guard is what keeps the common write off this statement: most
+// writes prune nothing, and rewriting the provenance of an asset with nothing
+// to trim would rewrite the row for no reason.
+//
+// The version is read through a CASE on its JSON type rather than cast
+// straight from the text. This statement runs inside the transaction that
+// records a content write, so a capture holding anything but a number where a
+// version belongs would fail that write rather than merely being misread; a
+// value that is not a number reads as 0 and is kept, which is what the origin
+// capture and a capture that names no version already do. internal/platform/
+// provenancesweep asks the same question of the same field for the same
+// reason.
+const trimProvenanceCapturesSQL = `
+	UPDATE portal_assets
+	SET provenance = jsonb_set(
+			provenance,
+			'{captures}',
+			COALESCE((
+				SELECT jsonb_agg(t.capture ORDER BY t.ord)
+				FROM jsonb_array_elements(provenance -> 'captures') WITH ORDINALITY AS t(capture, ord)
+				WHERE COALESCE(CASE WHEN jsonb_typeof(t.capture -> 'version') = 'number'
+						THEN (t.capture ->> 'version')::int END, 0) < 2
+				   OR COALESCE(CASE WHEN jsonb_typeof(t.capture -> 'version') = 'number'
+						THEN (t.capture ->> 'version')::int END, 0) > $2
+			), '[]'::jsonb)
+		)
+	WHERE id = $1
+	  AND jsonb_typeof(provenance -> 'captures') = 'array'
+	  AND EXISTS (
+			SELECT 1
+			FROM jsonb_array_elements(provenance -> 'captures') AS c
+			WHERE COALESCE(CASE WHEN jsonb_typeof(c -> 'version') = 'number'
+					THEN (c ->> 'version')::int END, 0) BETWEEN 2 AND $2
+		)
+`
+
+// CapturesExecer is what TrimProvenanceCaptures runs against: the transaction
+// a prune holds, or the database itself for the pass that trims the assets
+// written before captures followed their versions.
+type CapturesExecer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+// TrimProvenanceCaptures drops the captures belonging to the versions at or
+// below watermark, keeping the origin capture. A prune calls it inside its own
+// transaction, so what an asset says about a version and the version itself are
+// kept or dropped together; the startup pass calls it against the database for
+// the assets whose captures were written before that was true.
+//
+// A watermark below 2 leaves everything: there is no version to have pruned
+// below it, and the origin capture is kept whatever the cap.
+func TrimProvenanceCaptures(ctx context.Context, exec CapturesExecer, assetID string, watermark int) error {
+	if watermark < 2 {
+		return nil
+	}
+	if _, err := exec.ExecContext(ctx, trimProvenanceCapturesSQL, assetID, watermark); err != nil {
+		return fmt.Errorf("trimming provenance captures: %w", err)
+	}
+	return nil
 }
 
 // survivingObjectKeys returns every object key the asset still owns: the

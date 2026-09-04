@@ -148,5 +148,8 @@ func SQLSamples() map[string]string {
 		"buildActiveShareForTarget/coll":           buildActiveShareForTarget(colCollectionID),
 		"buildShareSummaries/asset":                buildShareSummaries(colAssetID),
 		"buildShareSummaries/collection":           buildShareSummaries(colCollectionID),
+		// The shared-with-me page carries the provenance summary, which is
+		// assembled rather than written down (#1623).
+		"buildSharedWithUserSelect": buildSharedWithUserSelect(),
 	}
 }

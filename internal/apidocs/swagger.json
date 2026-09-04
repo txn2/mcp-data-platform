@@ -1567,6 +1567,67 @@
                 }
             }
         },
+        "/admin/assets/{id}/provenance": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns one page of the asset's provenance captures, newest first, without owner restriction.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Portal Assets"
+                ],
+                "summary": "Page an asset's provenance",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Captures to skip, counting back from the newest (default: 0)",
+                        "name": "offset",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Captures per page (default: 20, max: 100)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/admin.adminProvenancePageResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/assets/{id}/thumbnail": {
             "get": {
                 "security": [
@@ -9495,6 +9556,85 @@
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/assets/{id}/provenance": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns one page of the asset's provenance captures, newest first. A single asset read carries only the newest captures inline; this is how the rest are reached.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Assets"
+                ],
+                "summary": "Page an asset's provenance",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Captures to skip, counting back from the newest (default: 0)",
+                        "name": "offset",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Captures per page (default: 20, max: 100)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.provenancePageResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "410": {
+                        "description": "Gone",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
                         }
                     }
                 }
@@ -18906,6 +19046,29 @@
                 }
             }
         },
+        "admin.adminProvenancePageResponse": {
+            "type": "object",
+            "properties": {
+                "captures": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portal.ProvenanceCapture"
+                    }
+                },
+                "limit": {
+                    "type": "integer",
+                    "example": 20
+                },
+                "offset": {
+                    "type": "integer",
+                    "example": 20
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 329
+                }
+            }
+        },
         "admin.adminUpdateAssetRequest": {
             "type": "object",
             "properties": {
@@ -23562,7 +23725,20 @@
                     "example": "550e8400-e29b-41d4-a716-446655440000"
                 },
                 "provenance": {
-                    "$ref": "#/definitions/portaldomain.Provenance"
+                    "description": "Provenance is the asset's record of what produced it. A listing never\ncarries it -- it grows by one capture per write and is unbounded, and\ncarrying it made a library of 52 assets a megabyte of JSON (#1623). A\nlisting row carries ProvenanceSummary instead, and a single asset read\ncarries the newest ProvenanceCapturesInline captures with CapturesTotal\nset; the rest are read a page at a time.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/portaldomain.Provenance"
+                        }
+                    ]
+                },
+                "provenance_summary": {
+                    "description": "ProvenanceSummary describes the provenance of a listing row without\ncarrying it. Nil on a single asset read, where Provenance is what the\nreader gets.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/portaldomain.ProvenanceSummary"
+                        }
+                    ]
                 },
                 "s3_bucket": {
                     "type": "string",
@@ -23702,6 +23878,52 @@
                 },
                 "updated_at": {
                     "type": "string"
+                }
+            }
+        },
+        "portal.ProvenanceCapture": {
+            "type": "object",
+            "properties": {
+                "calls": {
+                    "description": "Calls is the snapshot of the captured calls, taken at write time.\nAudit rows are retained for a fixed window and assets are not, so an\nasset that outlives its audit rows still says what produced it.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portaldomain.ProvenanceCall"
+                    }
+                },
+                "captured_at": {
+                    "description": "CapturedAt is when the capture was taken.",
+                    "type": "string"
+                },
+                "event_ids": {
+                    "description": "EventIDs are the audit event ids of the captured calls, in call order.\nThey are the durable reference: the audit log holds the full record of\neach call for as long as it is retained.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "explicit": {
+                    "description": "Explicit records that the caller named these sources rather than the\nplatform taking the session's calls since the previous capture.",
+                    "type": "boolean"
+                },
+                "session_id": {
+                    "description": "SessionID is the session whose calls were captured.",
+                    "type": "string",
+                    "example": "dps_abc123"
+                },
+                "tool": {
+                    "description": "Tool is the tool that performed this capture (save_asset, manage_asset,\ntrino_export, api_export).",
+                    "type": "string",
+                    "example": "save_asset"
+                },
+                "truncated": {
+                    "description": "Truncated records that more calls were eligible than the capture holds.",
+                    "type": "boolean"
+                },
+                "version": {
+                    "description": "Version is the asset version this capture produced, when known.",
+                    "type": "integer",
+                    "example": 2
                 }
             }
         },
@@ -23968,7 +24190,20 @@
                     "example": "550e8400-e29b-41d4-a716-446655440000"
                 },
                 "provenance": {
-                    "$ref": "#/definitions/portaldomain.Provenance"
+                    "description": "Provenance is the asset's record of what produced it. A listing never\ncarries it -- it grows by one capture per write and is unbounded, and\ncarrying it made a library of 52 assets a megabyte of JSON (#1623). A\nlisting row carries ProvenanceSummary instead, and a single asset read\ncarries the newest ProvenanceCapturesInline captures with CapturesTotal\nset; the rest are read a page at a time.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/portaldomain.Provenance"
+                        }
+                    ]
+                },
+                "provenance_summary": {
+                    "description": "ProvenanceSummary describes the provenance of a listing row without\ncarrying it. Nil on a single asset read, where Provenance is what the\nreader gets.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/portaldomain.ProvenanceSummary"
+                        }
+                    ]
                 },
                 "s3_bucket": {
                     "type": "string",
@@ -24642,6 +24877,29 @@
                 }
             }
         },
+        "portal.provenancePageResponse": {
+            "type": "object",
+            "properties": {
+                "captures": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portal.ProvenanceCapture"
+                    }
+                },
+                "limit": {
+                    "type": "integer",
+                    "example": 20
+                },
+                "offset": {
+                    "type": "integer",
+                    "example": 20
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 329
+                }
+            }
+        },
         "portal.resolveRefsRequest": {
             "type": "object",
             "properties": {
@@ -24995,6 +25253,11 @@
                         "$ref": "#/definitions/portaldomain.ProvenanceCapture"
                     }
                 },
+                "captures_total": {
+                    "description": "CapturesTotal is how many captures the asset holds when Captures carries\nonly the newest of them (#1623). It is served, never stored: a read that\nbounds the captures sets it, and the storage layer clears it before the\nprovenance is written back so a bound taken for one reader cannot be\npersisted as the asset's own record.",
+                    "type": "integer",
+                    "example": 333
+                },
                 "declared_content_type": {
                     "description": "DeclaredContentType is the media type the writer declared, recorded only\nwhen detection replaced it. It is the audit trail for a reclassified\nasset: it answers \"what did the upstream actually say\" without which a\nstored type that disagrees with the source is unexplainable.",
                     "type": "string",
@@ -25136,6 +25399,37 @@
                     "description": "Version is the asset version this capture produced, when known.",
                     "type": "integer",
                     "example": 2
+                }
+            }
+        },
+        "portaldomain.ProvenanceSummary": {
+            "type": "object",
+            "properties": {
+                "calls": {
+                    "description": "Calls is how many calls those captures record between them.",
+                    "type": "integer",
+                    "example": 658
+                },
+                "captures": {
+                    "description": "Captures is how many captures the asset holds.",
+                    "type": "integer",
+                    "example": 329
+                },
+                "first_captured_at": {
+                    "description": "FirstCapturedAt and LastCapturedAt bound the recorded history. Nil on an\nasset whose captures carry no timestamp.",
+                    "type": "string"
+                },
+                "last_captured_at": {
+                    "type": "string"
+                },
+                "last_session_id": {
+                    "type": "string",
+                    "example": "dps_abc123"
+                },
+                "last_tool": {
+                    "description": "LastTool and LastSessionID name the newest capture's writer, which is\nwhat a listing row would otherwise be read for.",
+                    "type": "string",
+                    "example": "manage_asset"
                 }
             }
         },

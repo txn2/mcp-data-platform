@@ -136,8 +136,9 @@ apart from the session's work around it.
 The newest capture is shown expanded. Every earlier one sits behind a
 disclosure that says how many there are, and each opens on its own. An asset a
 scheduled script refreshes gets a capture per run, so the panel would otherwise
-be as long as the asset's whole history. The call count in the panel header
-covers every capture, opened or not.
+be as long as the asset's whole history. The disclosure counts every capture
+the asset holds, including the ones the page has not read yet: opening it shows
+the ones it has and offers a control that loads the next twenty.
 
 ![The earlier captures, with one of them opened](../images/screenshots/light/user-asset-provenance-earlier-light.webp#only-light)![The earlier captures, with one of them opened](../images/screenshots/dark/user-asset-provenance-earlier-dark.webp#only-dark)
 
@@ -148,6 +149,57 @@ Opening a call shows the full statement or request, its outcome, and its
 
 The panel also links to the [session](../portal/index.md) the calls belong to,
 which holds everything that session did — before and after the write.
+
+## What each read carries
+
+A capture is appended on every write and nothing removes one while the version
+it describes is kept, so an asset refreshed on a schedule accumulates them
+without bound. Reads are shaped around that.
+
+**A listing carries a summary, never the captures.** `manage_asset action=list`
+and `action=search`, `GET /api/v1/portal/assets`, `GET /api/v1/admin/assets`,
+`GET /api/v1/portal/assets/search` and `GET /api/v1/portal/shared-with-me`
+return `provenance_summary` on each row and no `provenance`:
+
+| Field | What it says |
+|---|---|
+| `captures` | How many captures the asset holds |
+| `calls` | How many calls those captures record between them |
+| `first_captured_at`, `last_captured_at` | When the first and last were taken |
+| `last_tool` | The tool that took the newest capture |
+| `last_session_id` | The session it was taken in |
+
+**A single asset read carries the newest 20 captures.** `manage_asset
+action=get`, `GET /api/v1/portal/assets/{id}` and `GET
+/api/v1/admin/assets/{id}` return `provenance.captures` holding the newest
+twenty in the order they were written, alongside `provenance.captures_total`
+saying how many the asset holds. An asset with twenty or fewer reads exactly as
+it always has, with no `captures_total`.
+
+**The rest are read a page at a time, newest first.** `manage_asset
+action=provenance` with `asset_id`, `offset` and `limit` (default 20, maximum
+100), and the routes `GET /api/v1/portal/assets/{id}/provenance` and `GET
+/api/v1/admin/assets/{id}/provenance` with the same two query parameters. A
+page carries `captures`, `total`, `offset` and `limit`; `offset` counts back
+from the newest capture, so `offset=20` is the page after the one a `get`
+carries. The page is authorized exactly as the asset is.
+
+## What is kept
+
+A capture belongs to the version it produced. When [version
+retention](../portal/assets.md) removes a version, the same transaction removes
+its capture, so `list_versions` and `captures_total` agree on what the asset
+still says about itself. Two captures are kept whatever the cap: the one that
+produced version 1, which is where the asset came from, and any capture taken
+before the platform recorded which version it produced.
+
+An asset keeping every version (`max_versions: 0`) keeps every capture. Nothing
+prunes there, and the bounded reads above are what keep such an asset readable.
+
+On startup a deployment trims the captures that outlived their versions on
+assets written before this rule existed, logging what it removed per asset. It
+is a pass rather than a migration because the cap it applies depends on the
+deployment's `portal.max_versions`.
 
 ## Limits
 

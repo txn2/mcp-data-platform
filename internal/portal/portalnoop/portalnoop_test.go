@@ -26,6 +26,15 @@ func TestNoopAssetStore(t *testing.T) {
 	assert.Equal(t, 0, total)
 
 	assert.NoError(t, store.Update(ctx, "any", portaldomain.AssetUpdate{}))
+	assert.NoError(t, store.AppendProvenanceCapture(ctx, "any", portaldomain.ProvenanceCapture{}))
+
+	// The captures page reports a lookup that cannot be answered rather than an
+	// empty history, which would read as "this asset was built from nothing".
+	captures, total, err := store.ListProvenanceCaptures(ctx, "any", 0, 20)
+	assert.Error(t, err)
+	assert.Nil(t, captures)
+	assert.Equal(t, 0, total)
+
 	assert.NoError(t, store.SoftDelete(ctx, "any"))
 }
 

@@ -71,6 +71,7 @@ func (h *Handler) registerAssetRoutes() {
 	}
 	h.mux.HandleFunc("GET /api/v1/admin/assets", h.listAllAssets)
 	h.mux.HandleFunc("GET /api/v1/admin/assets/{id}", h.getAdminAsset)
+	h.mux.HandleFunc("GET /api/v1/admin/assets/{id}/provenance", h.listAdminAssetProvenance)
 	h.mux.HandleFunc("GET /api/v1/admin/assets/{id}/content", h.getAdminAssetContent)
 	h.mux.HandleFunc("PUT /api/v1/admin/assets/{id}", h.updateAdminAsset)
 	h.mux.HandleFunc("PUT /api/v1/admin/assets/{id}/content", h.updateAdminAssetContent)
@@ -162,7 +163,61 @@ func (h *Handler) getAdminAsset(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errAdminAssetNotFound)
 		return
 	}
+	// Bounded on the way out for the reason the portal's own read is: nothing
+	// caps how many captures an asset accumulates, and this response was
+	// 881 KB on a dashboard a script refreshes hourly (#1623). The rest are
+	// read through the provenance page below.
+	asset.Provenance = portaldomain.BoundedProvenance(asset.Provenance, portaldomain.ProvenanceCapturesInline)
 	writeJSON(w, http.StatusOK, asset)
+}
+
+// adminProvenancePageResponse is one page of an asset's captures, newest first.
+type adminProvenancePageResponse struct {
+	Captures []portal.ProvenanceCapture `json:"captures"`
+	Total    int                        `json:"total" example:"329"`
+	Offset   int                        `json:"offset" example:"20"`
+	Limit    int                        `json:"limit" example:"20"`
+}
+
+// listAdminAssetProvenance pages any asset's provenance without owner restriction.
+//
+// @Summary      Page an asset's provenance
+// @Description  Returns one page of the asset's provenance captures, newest first, without owner restriction.
+// @Tags         Portal Assets
+// @Produce      json
+// @Param        id      path   string   true   "Asset ID"
+// @Param        offset  query  integer  false  "Captures to skip, counting back from the newest (default: 0)"
+// @Param        limit   query  integer  false  "Captures per page (default: 20, max: 100)"
+// @Success      200  {object}  adminProvenancePageResponse
+// @Failure      404  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/assets/{id}/provenance [get]
+func (h *Handler) listAdminAssetProvenance(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue(pathValueID)
+	q := r.URL.Query()
+	reqOffset, _ := strconv.Atoi(q.Get("offset"))
+	reqLimit, _ := strconv.Atoi(q.Get("limit"))
+	offset, limit := portaldomain.ClampProvenancePage(reqOffset, reqLimit)
+
+	// Asked first so a missing asset is a 404 and a failure to read its
+	// captures is not reported as one.
+	if _, err := h.deps.AssetStore.Get(r.Context(), id); err != nil {
+		writeError(w, http.StatusNotFound, errAdminAssetNotFound)
+		return
+	}
+	captures, total, err := h.deps.AssetStore.ListProvenanceCaptures(r.Context(), id, offset, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to read provenance")
+		return
+	}
+	if captures == nil {
+		captures = []portal.ProvenanceCapture{}
+	}
+	writeJSON(w, http.StatusOK, adminProvenancePageResponse{
+		Captures: captures, Total: total, Offset: offset, Limit: limit,
+	})
 }
 
 // getAdminAssetContent returns an asset's S3 content without owner restriction.

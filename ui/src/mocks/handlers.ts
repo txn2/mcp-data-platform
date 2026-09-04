@@ -11,7 +11,7 @@ import type {
   ToolDetail,
   ToolPersonaAccess,
 } from "@/api/admin/types";
-import type { Share } from "@/api/portal/types";
+import type { Asset, Share } from "@/api/portal/types";
 import { http, HttpResponse } from "msw";
 import { agentSessions, mockAuditEvents } from "./data/audit";
 import { mockInsights, mockChangesets } from "./data/knowledge";
@@ -428,6 +428,65 @@ const portalAssets = [
   ...mockAssets,
   ...mockSharedWithMe.map((s) => s.asset),
 ];
+
+/**
+ * The two shapes an asset is served in (#1623). A capture is appended on every
+ * write and nothing bounds them, so a listing carries a summary of an asset's
+ * provenance and a single read carries only its newest captures; the rest are
+ * read a page at a time.
+ */
+const PROVENANCE_INLINE = 20;
+
+/** A listing row: the summary in the captures' place. */
+function assetListRow(asset: Asset) {
+  const { provenance, ...rest } = asset;
+  const captures = provenance?.captures ?? [];
+  const newest = captures[captures.length - 1];
+  return {
+    ...rest,
+    provenance_summary: {
+      captures: captures.length,
+      calls: captures.reduce((n: number, c) => n + (c.calls?.length ?? 0), 0),
+      first_captured_at: captures[0]?.captured_at,
+      last_captured_at: newest?.captured_at,
+      last_tool: newest?.tool,
+      last_session_id: newest?.session_id,
+    },
+  };
+}
+
+/** A single read: the newest captures, and how many the asset holds. */
+function assetReadRow(asset: Asset) {
+  const captures = asset.provenance?.captures ?? [];
+  if (captures.length <= PROVENANCE_INLINE) {
+    return asset;
+  }
+  return {
+    ...asset,
+    provenance: {
+      ...asset.provenance,
+      captures: captures.slice(captures.length - PROVENANCE_INLINE),
+      captures_total: captures.length,
+    },
+  };
+}
+
+/** One page of an asset's captures, newest first, as the page route serves it. */
+function assetProvenancePage(asset: Asset, request: Request) {
+  const url = new URL(request.url);
+  const offset = Math.max(parseInt(url.searchParams.get("offset") ?? "0", 10), 0);
+  const limit = Math.min(
+    Math.max(parseInt(url.searchParams.get("limit") ?? "20", 10), 1),
+    100,
+  );
+  const captures = [...(asset.provenance?.captures ?? [])].reverse();
+  return {
+    captures: captures.slice(offset, offset + limit),
+    total: captures.length,
+    offset,
+    limit,
+  };
+}
 
 const thumbnailStore = new Map<string, ArrayBuffer>();
 
@@ -2018,7 +2077,7 @@ export const handlers = [
 
     const page = filtered.slice(offset, offset + limit);
     return HttpResponse.json({
-      data: page,
+      data: page.map(assetListRow),
       total: filtered.length,
       limit,
       offset,
@@ -2032,7 +2091,17 @@ export const handlers = [
     if (!asset) {
       return HttpResponse.json({ detail: "Not found" }, { status: 404 });
     }
-    return HttpResponse.json(asset);
+    return HttpResponse.json(assetReadRow(asset));
+  }),
+
+  http.get(`${ADMIN_BASE}/assets/:id/provenance`, ({ params, request }) => {
+    const asset = portalAssets.find(
+      (a) => a.id === params.id && !a.deleted_at,
+    );
+    if (!asset) {
+      return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    }
+    return HttpResponse.json(assetProvenancePage(asset, request));
   }),
 
   http.get(`${ADMIN_BASE}/assets/:id/content`, ({ params }) => {
@@ -2241,7 +2310,7 @@ export const handlers = [
     }
 
     return HttpResponse.json({
-      data: page,
+      data: page.map(assetListRow),
       total: filtered.length,
       limit,
       offset,
@@ -2298,7 +2367,17 @@ export const handlers = [
     if (!asset) {
       return HttpResponse.json({ detail: "Not found" }, { status: 404 });
     }
-    return HttpResponse.json(asset);
+    return HttpResponse.json(assetReadRow(asset));
+  }),
+
+  http.get(`${PORTAL_BASE}/assets/:id/provenance`, ({ params, request }) => {
+    const asset = portalAssets.find(
+      (a) => a.id === params.id && !a.deleted_at,
+    );
+    if (!asset) {
+      return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    }
+    return HttpResponse.json(assetProvenancePage(asset, request));
   }),
 
   // Content is served with its declared references rewritten to the URLs they

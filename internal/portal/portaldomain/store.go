@@ -29,6 +29,12 @@ type AssetStore interface {
 	// asset's content is new work with its own sources, so each write appends
 	// rather than replacing what the previous write recorded (#1320).
 	AppendProvenanceCapture(ctx context.Context, id string, capture ProvenanceCapture) error
+	// ListProvenanceCaptures returns one page of an asset's captures, newest
+	// first, alongside how many it holds. It is how a reader reaches the
+	// captures a single asset read leaves out: that read carries only the
+	// newest ProvenanceCapturesInline of them, because nothing bounds how many
+	// a refreshed asset accumulates (#1623).
+	ListProvenanceCaptures(ctx context.Context, id string, offset, limit int) ([]ProvenanceCapture, int, error)
 	SoftDelete(ctx context.Context, id string) error
 }
 

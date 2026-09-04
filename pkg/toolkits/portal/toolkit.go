@@ -80,6 +80,8 @@ const (
 	actionDeleteCollection = "delete_collection"
 	actionSetSections      = "set_sections"
 	actionSearch           = "search"
+	// actionProvenance pages the captures a get leaves out (#1623).
+	actionProvenance = "provenance"
 
 	// Sharing actions (#1280). Sharing is owner authority, so all three are
 	// refused for anyone but the asset's owner (and an admin).
@@ -408,7 +410,7 @@ const saveToolDescription = "Saves AI-generated content (JSX dashboard, HTML rep
 // manageToolDescription is the advertised description of the canonical
 // manage_asset tool.
 const manageToolDescription = "Manages saved assets and collections. " +
-	"Asset actions: list, get, update, delete, list_versions, revert, search. " +
+	"Asset actions: list, get, update, delete, list_versions, revert, search, provenance. " +
 	"Content actions: patch, locate, get_content, outline, stats, diff. " +
 	"Sharing actions: share, list_shares, revoke_share. " +
 	"Collection actions: create_collection, list_collections, get_collection, " +
@@ -419,8 +421,12 @@ const manageToolDescription = "Manages saved assets and collections. " +
 	"which any signed-in user can open (access_mode public makes it open to " +
 	"anyone holding it and requires expires_in). " +
 	"To make a CSV asset queryable, use the separate manage_table tool. " +
-	"Note: 'list' returns full metadata including provenance for each asset. " +
-	"Use 'get' with a specific asset_id for the metadata row and 'get_content' for the body. " +
+	"Note: 'list' and 'search' carry a 'provenance_summary' per asset (how many captures and calls it " +
+	"records, when the first and last were taken, and who took the last) rather than the captures " +
+	"themselves, which grow by one per write and are unbounded. " +
+	"Use 'get' with a specific asset_id for the metadata row and 'get_content' for the body; 'get' carries " +
+	"the newest 20 captures with 'captures_total' saying how many the asset holds, and 'provenance' " +
+	"(with 'offset' and 'limit', default 20, max 100) pages the rest, newest first. " +
 	"Use 'search' with a 'query' to rank your assets by relevance (semantic + " +
 	"keyword) instead of paging the whole list. " +
 	textpatch.VerbsDescription + " " +
@@ -766,6 +772,7 @@ func (t *Toolkit) buildActions() map[string]manageActionHandler {
 		actionDeleteCollection: t.handleDeleteCollection,
 		actionSetSections:      t.handleSetSections,
 		actionSearch:           t.handleSearch,
+		actionProvenance:       t.handleProvenance,
 		actionPatch:            t.handlePatch,
 		actionLocate:           t.handleLocate,
 		actionGetContent:       t.handleGetContent,
@@ -795,7 +802,7 @@ func (t *Toolkit) handleManageAsset(ctx context.Context, _ *mcp.CallToolRequest,
 	handler, ok := t.actions[input.Action]
 	if !ok {
 		return toolkit.ErrorResult(fmt.Sprintf(
-			"invalid action %q: must be one of: list, get, update, delete, list_versions, revert, search, "+
+			"invalid action %q: must be one of: list, get, update, delete, list_versions, revert, search, provenance, "+
 				"patch, locate, get_content, outline, stats, diff, "+
 				"share, list_shares, revoke_share, "+
 				"create_collection, list_collections, get_collection, update_collection, delete_collection, set_sections",
@@ -851,7 +858,46 @@ func (t *Toolkit) handleGet(ctx context.Context, input manageAssetInput) (*mcp.C
 		return toolkit.ErrorResult("asset has been deleted"), nil, nil
 	}
 
+	// A capture is appended per content write and nothing caps them, so an
+	// asset a scheduled script refreshes is mostly its own history: the get
+	// carries the newest of them and says how many there are, and
+	// action=provenance pages the rest (#1623).
+	asset.Provenance = portaldomain.BoundedProvenance(asset.Provenance, portaldomain.ProvenanceCapturesInline)
+
 	return toolkit.JSONResultTyped(asset)
+}
+
+// handleProvenance returns one page of an asset's provenance captures, newest
+// first. It is the read for the captures handleGet leaves out.
+func (t *Toolkit) handleProvenance(ctx context.Context, input manageAssetInput) (*mcp.CallToolResult, any, error) {
+	if input.AssetID == "" {
+		return toolkit.ErrorResult("asset_id is required for provenance action"), nil, nil
+	}
+
+	asset, err := t.assetStore.Get(ctx, input.AssetID)
+	if err != nil {
+		return middleware.NotFoundResult("asset not found: "+err.Error(), assetNotFoundHint), nil, nil
+	}
+	if asset.DeletedAt != nil {
+		return toolkit.ErrorResult("asset has been deleted"), nil, nil
+	}
+
+	offset, limit := portaldomain.ClampProvenancePage(input.Offset, input.Limit)
+	captures, total, err := t.assetStore.ListProvenanceCaptures(ctx, input.AssetID, offset, limit)
+	if err != nil {
+		return toolkit.ErrorResult("failed to read provenance: " + err.Error()), nil, nil
+	}
+	if captures == nil {
+		captures = []portal.ProvenanceCapture{}
+	}
+
+	return toolkit.JSONResultTyped(map[string]any{
+		fieldAssetID: input.AssetID,
+		"captures":   captures,
+		fieldTotal:   total,
+		"offset":     offset,
+		"limit":      limit,
+	})
 }
 
 func (t *Toolkit) handleUpdate(ctx context.Context, input manageAssetInput) (*mcp.CallToolResult, any, error) {

@@ -350,6 +350,14 @@ func (d *failingDeleter) DeleteObject(_ context.Context, _, _ string) error {
 
 // expectVersionWrite sets up the lock/insert/update the create path always runs,
 // with maxVersions as the asset's stored override.
+// expectCaptureTrim expects the statement that drops the captures belonging to
+// the versions a prune just removed, in that prune's transaction (#1623).
+func expectCaptureTrim(mock sqlmock.Sqlmock, assetID string, watermark int) {
+	mock.ExpectExec("UPDATE portal_assets").
+		WithArgs(assetID, watermark).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+}
+
 func expectVersionWrite(mock sqlmock.Sqlmock, v portaldomain.AssetVersion, currentVersion int, maxVersions any) {
 	mock.ExpectBegin()
 	mock.ExpectQuery("SELECT current_version, max_versions FROM portal_assets").
@@ -409,6 +417,7 @@ func TestCreateVersion_PruneCutoffAndObjects(t *testing.T) {
 			[]driver.Value{6, "portal-assets", "artifacts/o/abc123/v6/content.html"},
 			[]driver.Value{7, "portal-assets", "artifacts/o/abc123/v7/content.html"},
 		))
+	expectCaptureTrim(mock, v.AssetID, 7)
 	expectSurvivingKeys(mock, v.AssetID,
 		"artifacts/o/abc123/v8/content.html",
 		"artifacts/o/abc123/v9/content.html",
@@ -471,6 +480,7 @@ func TestCreateVersion_ObjectDeleteFailureDoesNotFailTheWrite(t *testing.T) {
 	expectVersionWrite(mock, v, 100, 1)
 	mock.ExpectQuery("DELETE FROM portal_asset_versions").
 		WillReturnRows(prunedRows([]driver.Value{1, "portal-assets", "artifacts/o/abc123/v1/content.html"}))
+	expectCaptureTrim(mock, v.AssetID, 100)
 	expectSurvivingKeys(mock, v.AssetID, v.S3Key)
 	mock.ExpectCommit()
 
@@ -493,6 +503,7 @@ func TestCreateVersion_NoObjectClientStillPrunes(t *testing.T) {
 	expectVersionWrite(mock, v, 100, 1)
 	mock.ExpectQuery("DELETE FROM portal_asset_versions").
 		WillReturnRows(prunedRows([]driver.Value{1, "portal-assets", "k"}))
+	expectCaptureTrim(mock, v.AssetID, 100)
 	expectSurvivingKeys(mock, v.AssetID, v.S3Key)
 	mock.ExpectCommit()
 
@@ -538,6 +549,7 @@ func TestCreateVersion_KeepsAnObjectASurvivingVersionStillOwns(t *testing.T) {
 	expectVersionWrite(mock, v, 9, 2)
 	mock.ExpectQuery("DELETE FROM portal_asset_versions").
 		WillReturnRows(prunedRows([]driver.Value{7, "portal-assets", sharedKey}))
+	expectCaptureTrim(mock, v.AssetID, 8)
 	// Version 8 survives and names the same object version 7 did.
 	expectSurvivingKeys(mock, v.AssetID, sharedKey, v.S3Key)
 	mock.ExpectCommit()
@@ -567,6 +579,7 @@ func TestCreateVersion_KeepsTheCurrentThumbnailOfASharedDirectory(t *testing.T) 
 	expectVersionWrite(mock, v, 9, 1)
 	mock.ExpectQuery("DELETE FROM portal_asset_versions").
 		WillReturnRows(prunedRows([]driver.Value{9, "portal-assets", dir + "run-8.html"}))
+	expectCaptureTrim(mock, v.AssetID, 9)
 	expectSurvivingKeys(mock, v.AssetID, v.S3Key)
 	mock.ExpectCommit()
 
@@ -596,6 +609,7 @@ func TestCreateVersion_KeepsTheThumbnailTheAssetRowPointsAt(t *testing.T) {
 	expectVersionWrite(mock, v, 9, 1)
 	mock.ExpectQuery("DELETE FROM portal_asset_versions").
 		WillReturnRows(prunedRows([]driver.Value{8, "portal-assets", prunedKey}))
+	expectCaptureTrim(mock, v.AssetID, 9)
 	mock.ExpectQuery("SELECT DISTINCT s3_key FROM portal_asset_versions").
 		WithArgs(v.AssetID).
 		WillReturnRows(sqlmock.NewRows([]string{"s3_key"}).AddRow(v.S3Key))
@@ -625,6 +639,7 @@ func TestCreateVersion_StoredThumbnailReadFailureFailsTheWrite(t *testing.T) {
 	expectVersionWrite(mock, v, 9, 1)
 	mock.ExpectQuery("DELETE FROM portal_asset_versions").
 		WillReturnRows(prunedRows([]driver.Value{8, "portal-assets", "artifacts/o/abc123/v8/content.html"}))
+	expectCaptureTrim(mock, v.AssetID, 9)
 	mock.ExpectQuery("SELECT DISTINCT s3_key FROM portal_asset_versions").
 		WithArgs(v.AssetID).
 		WillReturnRows(sqlmock.NewRows([]string{"s3_key"}).AddRow(v.S3Key))
@@ -674,6 +689,7 @@ func TestCreateVersion_SurvivingKeyReadFailureRollsBackTheWrite(t *testing.T) {
 	expectVersionWrite(mock, v, 100, 1)
 	mock.ExpectQuery("DELETE FROM portal_asset_versions").
 		WillReturnRows(prunedRows([]driver.Value{1, "portal-assets", "k"}))
+	expectCaptureTrim(mock, v.AssetID, 100)
 	mock.ExpectQuery("SELECT DISTINCT s3_key FROM portal_asset_versions").
 		WillReturnError(errors.New("connection reset"))
 	mock.ExpectRollback()
@@ -681,6 +697,34 @@ func TestCreateVersion_SurvivingKeyReadFailureRollsBackTheWrite(t *testing.T) {
 	_, err = store.CreateVersion(context.Background(), v)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "reading surviving version keys")
+}
+
+// A watermark below 2 leaves every capture: there is no version below it to
+// have been pruned, and the origin capture is kept whatever the cap. The
+// statement is never issued, which is what the absence of an expectation pins.
+func TestTrimProvenanceCaptures_BelowTheOriginIssuesNothing(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	for _, watermark := range []int{-1, 0, 1} {
+		require.NoError(t, TrimProvenanceCaptures(context.Background(), db, "abc123", watermark))
+	}
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestTrimProvenanceCaptures_ReportsAFailure(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	mock.ExpectExec("UPDATE portal_assets").
+		WithArgs("abc123", 7).
+		WillReturnError(errors.New("connection reset"))
+
+	err = TrimProvenanceCaptures(context.Background(), db, "abc123", 7)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "trimming provenance captures")
 }
 
 // TestEffectiveCap resolves the asset override against the deployment default.

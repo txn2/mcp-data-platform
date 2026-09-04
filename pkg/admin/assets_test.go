@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 )
 
@@ -29,6 +30,10 @@ type mockAdminAssetStore struct {
 	updateErr  error
 	deleteErr  error
 	lastUpdate *portal.AssetUpdate // captures the most recent Update call
+	// provenancePage is the asset's captures newest first, as the store
+	// returns them, and provenanceErr fails that read on its own.
+	provenancePage []portal.ProvenanceCapture
+	provenanceErr  error
 }
 
 func (m *mockAdminAssetStore) Insert(_ context.Context, _ portal.Asset) error { return m.insertErr }
@@ -46,6 +51,18 @@ func (m *mockAdminAssetStore) Update(_ context.Context, _ string, u portal.Asset
 }
 func (*mockAdminAssetStore) AppendProvenanceCapture(context.Context, string, portal.ProvenanceCapture) error {
 	return nil
+}
+
+func (m *mockAdminAssetStore) ListProvenanceCaptures(_ context.Context, _ string, offset, limit int) (captures []portal.ProvenanceCapture, total int, err error) {
+	if m.provenanceErr != nil {
+		return nil, 0, m.provenanceErr
+	}
+	offset, limit = portaldomain.ClampProvenancePage(offset, limit)
+	total = len(m.provenancePage)
+	if offset >= total {
+		return []portal.ProvenanceCapture{}, total, nil
+	}
+	return m.provenancePage[offset:min(offset+limit, total)], total, nil
 }
 
 func (m *mockAdminAssetStore) SoftDelete(_ context.Context, _ string) error { return m.deleteErr }

@@ -89,11 +89,11 @@ var manageAssetSchemaBase = json.RawMessage(`{
   "properties": {
     "action": {
       "type": "string",
-      "description": "Action to perform. Asset actions: list, get, update, delete, list_versions, revert, search. Content actions: patch, locate, get_content, outline, stats, diff. Sharing actions: share, list_shares, revoke_share. Collection actions: create_collection, list_collections, get_collection, update_collection, delete_collection, set_sections. (Human feedback on assets is handled by the separate manage_feedback tool.)"
+      "description": "Action to perform. Asset actions: list, get, update, delete, list_versions, revert, search, provenance. Content actions: patch, locate, get_content, outline, stats, diff. Sharing actions: share, list_shares, revoke_share. Collection actions: create_collection, list_collections, get_collection, update_collection, delete_collection, set_sections. (Human feedback on assets is handled by the separate manage_feedback tool.)"
     },
     "asset_id": {
       "type": "string",
-      "description": "Asset ID (required for get, update, delete, list_versions, revert, share, list_shares)"
+      "description": "Asset ID (required for get, update, delete, list_versions, revert, provenance, share, list_shares)"
     },
     "recipient": {
       "type": "string",
@@ -162,7 +162,7 @@ var manageAssetSchemaBase = json.RawMessage(`{
     },
     "limit": {
       "type": "integer",
-      "description": "Max results for list/list_versions/list_collections (default 50, max 200)"
+      "description": "Max results for list/list_versions/list_collections (default 50, max 200), or captures per page for provenance (default 20, max 100)"
     },
     "version": {
       "type": "integer",
@@ -182,7 +182,7 @@ var manageAssetSchemaBase = json.RawMessage(`{
     },
     "offset": {
       "type": "integer",
-      "description": "Offset for paginated results (list_collections)"
+      "description": "Offset for paginated results (list_collections), or captures to skip counting back from the newest (provenance)"
     },
     "sections": {
       "type": "array",

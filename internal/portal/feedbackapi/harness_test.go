@@ -60,6 +60,10 @@ func (*mockAssetStore) AppendProvenanceCapture(context.Context, string, portaldo
 	return nil
 }
 
+func (*mockAssetStore) ListProvenanceCaptures(_ context.Context, _ string, _, _ int) (captures []portaldomain.ProvenanceCapture, total int, err error) {
+	return nil, 0, nil
+}
+
 func (*mockAssetStore) SoftDelete(_ context.Context, _ string) error { return nil }
 
 type mockShareStore struct {

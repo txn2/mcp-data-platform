@@ -25,7 +25,10 @@ export interface Asset {
   thumbnail_dark_version: number;
   size_bytes: number;
   tags: string[];
-  provenance: Provenance;
+  /** Carried by a single asset read, bounded to its newest captures (#1623). */
+  provenance?: Provenance;
+  /** Carried by a listing row in the captures' place (#1623). */
+  provenance_summary?: ProvenanceSummary;
   session_id: string;
   current_version: number;
   // How many versions this asset keeps. Absent means the asset has no opinion
@@ -58,9 +61,10 @@ export type {
   ProvenanceCall,
   ProvenanceCallKind,
   ProvenanceOutcome,
+  ProvenanceSummary,
   ProvenanceToolCall,
 } from "./provenance";
-import type { Provenance } from "./provenance";
+import type { Provenance, ProvenanceSummary } from "./provenance";
 
 export type SharePermission = "viewer" | "editor";
 

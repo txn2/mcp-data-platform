@@ -313,6 +313,9 @@ internal/platform/provenance -> pkg/audit
 internal/platform/provenance -> pkg/middleware
 internal/platform/provenance -> pkg/portal
 internal/platform/provenance -> pkg/registry
+internal/platform/provenancesweep -> internal/logsan
+internal/platform/provenancesweep -> internal/portal/portaldomain
+internal/platform/provenancesweep -> internal/portal/portalversions
 internal/platform/reflexivecapture -> pkg/memory
 internal/platform/reflexivecapture -> pkg/middleware
 internal/platform/reflexivecapture -> pkg/toolkits/memory
@@ -637,6 +640,7 @@ pkg/platform -> internal/platform/portalcfg
 pkg/platform -> internal/platform/portalstore
 pkg/platform -> internal/platform/promptlayer
 pkg/platform -> internal/platform/provenance
+pkg/platform -> internal/platform/provenancesweep
 pkg/platform -> internal/platform/reflexivecapture
 pkg/platform -> internal/platform/resourceaudit
 pkg/platform -> internal/platform/resourcelayer

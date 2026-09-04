@@ -211,6 +211,22 @@ definitions:
           type: string
         type: array
     type: object
+  admin.adminProvenancePageResponse:
+    properties:
+      captures:
+        items:
+          $ref: '#/definitions/portal.ProvenanceCapture'
+        type: array
+      limit:
+        example: 20
+        type: integer
+      offset:
+        example: 20
+        type: integer
+      total:
+        example: 329
+        type: integer
+    type: object
   admin.adminUpdateAssetRequest:
     properties:
       description:
@@ -3818,7 +3834,22 @@ definitions:
         example: 550e8400-e29b-41d4-a716-446655440000
         type: string
       provenance:
-        $ref: '#/definitions/portaldomain.Provenance'
+        allOf:
+        - $ref: '#/definitions/portaldomain.Provenance'
+        description: |-
+          Provenance is the asset's record of what produced it. A listing never
+          carries it -- it grows by one capture per write and is unbounded, and
+          carrying it made a library of 52 assets a megabyte of JSON (#1623). A
+          listing row carries ProvenanceSummary instead, and a single asset read
+          carries the newest ProvenanceCapturesInline captures with CapturesTotal
+          set; the rest are read a page at a time.
+      provenance_summary:
+        allOf:
+        - $ref: '#/definitions/portaldomain.ProvenanceSummary'
+        description: |-
+          ProvenanceSummary describes the provenance of a listing row without
+          carrying it. Nil on a single asset read, where Provenance is what the
+          reader gets.
       s3_bucket:
         example: portal-assets
         type: string
@@ -3934,6 +3965,51 @@ definitions:
         type: string
       updated_at:
         type: string
+    type: object
+  portal.ProvenanceCapture:
+    properties:
+      calls:
+        description: |-
+          Calls is the snapshot of the captured calls, taken at write time.
+          Audit rows are retained for a fixed window and assets are not, so an
+          asset that outlives its audit rows still says what produced it.
+        items:
+          $ref: '#/definitions/portaldomain.ProvenanceCall'
+        type: array
+      captured_at:
+        description: CapturedAt is when the capture was taken.
+        type: string
+      event_ids:
+        description: |-
+          EventIDs are the audit event ids of the captured calls, in call order.
+          They are the durable reference: the audit log holds the full record of
+          each call for as long as it is retained.
+        items:
+          type: string
+        type: array
+      explicit:
+        description: |-
+          Explicit records that the caller named these sources rather than the
+          platform taking the session's calls since the previous capture.
+        type: boolean
+      session_id:
+        description: SessionID is the session whose calls were captured.
+        example: dps_abc123
+        type: string
+      tool:
+        description: |-
+          Tool is the tool that performed this capture (save_asset, manage_asset,
+          trino_export, api_export).
+        example: save_asset
+        type: string
+      truncated:
+        description: Truncated records that more calls were eligible than the capture
+          holds.
+        type: boolean
+      version:
+        description: Version is the asset version this capture produced, when known.
+        example: 2
+        type: integer
     type: object
   portal.SearchCoverage:
     properties:
@@ -4115,7 +4191,22 @@ definitions:
         example: 550e8400-e29b-41d4-a716-446655440000
         type: string
       provenance:
-        $ref: '#/definitions/portaldomain.Provenance'
+        allOf:
+        - $ref: '#/definitions/portaldomain.Provenance'
+        description: |-
+          Provenance is the asset's record of what produced it. A listing never
+          carries it -- it grows by one capture per write and is unbounded, and
+          carrying it made a library of 52 assets a megabyte of JSON (#1623). A
+          listing row carries ProvenanceSummary instead, and a single asset read
+          carries the newest ProvenanceCapturesInline captures with CapturesTotal
+          set; the rest are read a page at a time.
+      provenance_summary:
+        allOf:
+        - $ref: '#/definitions/portaldomain.ProvenanceSummary'
+        description: |-
+          ProvenanceSummary describes the provenance of a listing row without
+          carrying it. Nil on a single asset read, where Provenance is what the
+          reader gets.
       s3_bucket:
         example: portal-assets
         type: string
@@ -4633,6 +4724,22 @@ definitions:
       type:
         type: string
     type: object
+  portal.provenancePageResponse:
+    properties:
+      captures:
+        items:
+          $ref: '#/definitions/portal.ProvenanceCapture'
+        type: array
+      limit:
+        example: 20
+        type: integer
+      offset:
+        example: 20
+        type: integer
+      total:
+        example: 329
+        type: integer
+    type: object
   portal.resolveRefsRequest:
     properties:
       urns:
@@ -4888,6 +4995,15 @@ definitions:
         items:
           $ref: '#/definitions/portaldomain.ProvenanceCapture'
         type: array
+      captures_total:
+        description: |-
+          CapturesTotal is how many captures the asset holds when Captures carries
+          only the newest of them (#1623). It is served, never stored: a read that
+          bounds the captures sets it, and the storage layer clears it before the
+          provenance is written back so a bound taken for one reader cannot be
+          persisted as the asset's own record.
+        example: 333
+        type: integer
       declared_content_type:
         description: |-
           DeclaredContentType is the media type the writer declared, recorded only
@@ -5027,6 +5143,33 @@ definitions:
         description: Version is the asset version this capture produced, when known.
         example: 2
         type: integer
+    type: object
+  portaldomain.ProvenanceSummary:
+    properties:
+      calls:
+        description: Calls is how many calls those captures record between them.
+        example: 658
+        type: integer
+      captures:
+        description: Captures is how many captures the asset holds.
+        example: 329
+        type: integer
+      first_captured_at:
+        description: |-
+          FirstCapturedAt and LastCapturedAt bound the recorded history. Nil on an
+          asset whose captures carry no timestamp.
+        type: string
+      last_captured_at:
+        type: string
+      last_session_id:
+        example: dps_abc123
+        type: string
+      last_tool:
+        description: |-
+          LastTool and LastSessionID name the newest capture's writer, which is
+          what a listing row would otherwise be read for.
+        example: manage_asset
+        type: string
     type: object
   portaldomain.ProvenanceToolCall:
     properties:
@@ -8483,6 +8626,45 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Update asset content
+      tags:
+      - Portal Assets
+  /admin/assets/{id}/provenance:
+    get:
+      description: Returns one page of the asset's provenance captures, newest first,
+        without owner restriction.
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 'Captures to skip, counting back from the newest (default: 0)'
+        in: query
+        name: offset
+        type: integer
+      - description: 'Captures per page (default: 20, max: 100)'
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.adminProvenancePageResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Page an asset's provenance
       tags:
       - Portal Assets
   /admin/assets/{id}/thumbnail:
@@ -13541,6 +13723,58 @@ paths:
       summary: List what produced an asset
       tags:
       - Portal
+  /portal/assets/{id}/provenance:
+    get:
+      description: Returns one page of the asset's provenance captures, newest first.
+        A single asset read carries only the newest captures inline; this is how the
+        rest are reached.
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 'Captures to skip, counting back from the newest (default: 0)'
+        in: query
+        name: offset
+        type: integer
+      - description: 'Captures per page (default: 20, max: 100)'
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.provenancePageResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "410":
+          description: Gone
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Page an asset's provenance
+      tags:
+      - Assets
   /portal/assets/{id}/references:
     get:
       description: Returns what an asset's content references -- managed resources

@@ -61,6 +61,11 @@ func (*assetStore) AppendProvenanceCapture(_ context.Context, _ string, _ portal
 	return nil
 }
 
+//nolint:revive // interface implementation method on an unexported type
+func (*assetStore) ListProvenanceCaptures(_ context.Context, _ string, _, _ int) ([]portaldomain.ProvenanceCapture, int, error) {
+	return nil, 0, errNotFound
+}
+
 func (*assetStore) SoftDelete(_ context.Context, _ string) error { return nil } //nolint:revive // interface impl
 
 // --- ShareStore ---
