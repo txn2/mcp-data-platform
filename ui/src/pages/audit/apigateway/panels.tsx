@@ -87,19 +87,20 @@ export function ClickableBreakdown({
 }
 
 // Breakdown is the read-only counterpart: a bar chart of one label's
-// distribution at the endpoint level, where there is nothing deeper to
-// drill into.
+// distribution, used where there is nothing deeper to drill into.
 export function Breakdown({
   title,
+  hint,
   query,
   labelKey,
 }: {
   title: string;
+  hint?: React.ReactNode;
   query: ReturnType<typeof useObservabilityQuery>;
   labelKey: string;
 }) {
   return (
-    <ChartPanel title={title}>
+    <ChartPanel title={title} hint={hint}>
       <BreakdownBarChart
         data={promVectorToBreakdown(query.data, labelKey)}
         isLoading={query.isLoading}

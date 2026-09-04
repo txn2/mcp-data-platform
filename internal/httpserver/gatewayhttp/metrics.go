@@ -31,7 +31,10 @@ type IdentityResolver interface {
 	ResolveIdentity(ctx context.Context) string
 }
 
-const metricLabelUnknown = "unknown"
+// metricLabelUnknown is the one fixed value an unresolvable metric label
+// records, shared with the outbound counter's persona label so an
+// unattributable caller reads the same on both sides of the gateway.
+const metricLabelUnknown = observability.MetricLabelUnknown
 
 // invokeMeta carries the method and path parsed inside the invoke
 // handler back up to the metrics middleware. A handler mutation of

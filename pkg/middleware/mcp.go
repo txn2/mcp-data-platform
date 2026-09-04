@@ -412,7 +412,15 @@ func authenticateAndAuthorize(
 
 	// After the session resolver, whose validated handle is the session a write
 	// made by this call is recorded against.
-	return next(stampProducer(ctx, params.pc), method, req)
+	ctx = stampProducer(ctx, params.pc)
+	// Mirror the resolved persona where a toolkit can read it without importing
+	// this package (which would form a cycle). It is stamped here rather than in
+	// buildToolCallContext because the authorizer resolves the name a few lines
+	// above; before that it is empty. The api-gateway's outbound metric labels
+	// every upstream call with it, which is what separates an automated
+	// principal's traffic from an analyst's on a shared connection (#1615).
+	ctx = mcpcontext.WithPersona(ctx, params.pc.PersonaName)
+	return next(ctx, method, req)
 }
 
 // stampProducer names, for every write this call goes on to make, what produced

@@ -84,7 +84,12 @@ test.describe("Admin Dashboard", () => {
   test("API Gateway tab renders inbound/outbound, status mix, and flow", async ({ page }) => {
     await clickTab(page, "API Gateway");
     await expect(page.getByText("Inbound requests")).toBeVisible();
-    await expect(page.getByText("Outbound calls")).toBeVisible();
+    // Exact: the outbound stat card's label is a prefix of the
+    // "Outbound calls by principal" panel heading beside it (#1615).
+    await expect(page.getByText("Outbound calls", { exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Outbound calls by principal" }),
+    ).toBeVisible();
     await expect(page.getByText("Status Mix")).toBeVisible();
     await expect(page.getByText("Traffic Flow")).toBeVisible();
     const sankey = page.locator('svg[aria-label="Connection to operation traffic flow"]');
@@ -112,6 +117,12 @@ test.describe("Admin Dashboard", () => {
     await expect(page.getByText("Total requests")).toBeVisible();
     await expect(page.getByText("Error rate")).toBeVisible();
     await expect(page.getByText("Top endpoints by request volume")).toBeVisible();
+    // This connection's own traffic, split by the persona that caused it, so an
+    // operator reads "this is one ingestion account" here rather than inferring
+    // it from the connection total (#1615).
+    await expect(
+      page.getByRole("heading", { name: "Outbound calls by principal" }),
+    ).toBeVisible();
     // Drill into an endpoint.
     await page.getByRole("button").filter({ hasText: "listContacts" }).first().click();
     await expect(page.getByText("Status class")).toBeVisible();

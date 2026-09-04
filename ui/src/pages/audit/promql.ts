@@ -2,15 +2,17 @@
 // activity view. Kept as a pure module (no React, no fetch) so the
 // query strings are versioned and unit-tested independently of the UI.
 //
-// Queries run over the inbound metrics emitted by the apigateway
-// toolkit (#460):
+// Queries run over the metrics emitted by the apigateway toolkit
+// (#460, #1615):
 //   apigateway_inbound_requests_total{connection, operation_id, method, status_class, identity}
 //   apigateway_inbound_duration_seconds_bucket{connection, operation_id, method, status_class, le}
+//   apigateway_outbound_total{connection, http_status_class, status_category, persona}
 import type { BreakdownEntry, TimeseriesBucket } from "@/api/admin/types";
 import type { PromVectorResponse, PromMatrixResponse } from "@/api/observability/types";
 
 const reqTotal = "apigateway_inbound_requests_total";
 const durBucket = "apigateway_inbound_duration_seconds_bucket";
+const outTotal = "apigateway_outbound_total";
 
 // topN bounds breakdown queries so a high-cardinality dimension cannot
 // return an unbounded series set to the chart.
@@ -76,6 +78,20 @@ export function endpointByLabel(
   window: string,
 ): string {
   return `topk(${topN}, sum by (${label}) (increase(${reqTotal}${matcher({ connection, operation_id: operationID })}[${window}])))`;
+}
+
+// outboundByPersona ranks the upstream calls the gateway made over the
+// window by the persona that caused them, optionally scoped to one
+// connection. It is what tells an automated principal's volume apart
+// from an analyst's on a connection they share (#1615).
+//
+// Samples scraped before the persona label existed carry no persona and
+// group under the empty label value, which promVectorToBreakdown renders
+// as "(none)" -- so an existing deployment's history still charts rather
+// than dropping out.
+export function outboundByPersona(window: string, connection?: string): string {
+  const m = matcher({ connection: connection ?? "" });
+  return `topk(${topN}, sum by (persona) (increase(${outTotal}${m}[${window}])))`;
 }
 
 // requestRateRange builds a range query (for the timeseries chart) of

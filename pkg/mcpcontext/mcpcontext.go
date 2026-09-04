@@ -17,6 +17,7 @@ const (
 	progressTokenKey
 	authTokenKey
 	sourceKey
+	personaKey
 )
 
 // SourceScript labels a call arriving from a managed script's host
@@ -77,4 +78,23 @@ func WithSource(ctx context.Context, source string) context.Context {
 func GetSource(ctx context.Context) string {
 	source, _ := ctx.Value(sourceKey).(string)
 	return source
+}
+
+// WithPersona records the persona the call was authorized under. It lives
+// here for the reason WithSource does: pkg/middleware imports the toolkit
+// packages, so a toolkit cannot read the PlatformContext that already holds
+// the name. The tool-call middleware writes it once the authorizer has
+// resolved the persona; the api-gateway toolkit's instrumented transport
+// reads it to label every outbound call with the principal that caused it
+// (#1615).
+func WithPersona(ctx context.Context, persona string) context.Context {
+	return context.WithValue(ctx, personaKey, persona)
+}
+
+// GetPersona returns the persona the call was authorized under, or "" when
+// nothing recorded it -- an outbound call made outside a tool call, such as
+// a catalog refresh, or one assembled without the tool-call middleware.
+func GetPersona(ctx context.Context) string {
+	persona, _ := ctx.Value(personaKey).(string)
+	return persona
 }

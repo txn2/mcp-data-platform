@@ -8,6 +8,7 @@ import {
   endpointByLabel,
   requestRateRange,
   connectionOperationFlow,
+  outboundByPersona,
   statusClassRateRange,
   promVectorToBreakdown,
   promVectorToFlow,
@@ -69,6 +70,18 @@ describe("PromQL builders", () => {
     );
   });
 
+  it("ranks outbound calls by the persona that caused them", () => {
+    expect(outboundByPersona("24h")).toBe(
+      "topk(10, sum by (persona) (increase(apigateway_outbound_total[24h])))",
+    );
+  });
+
+  it("scopes the outbound principal split to one connection", () => {
+    expect(outboundByPersona("1h", "salesforce")).toBe(
+      'topk(10, sum by (persona) (increase(apigateway_outbound_total{connection="salesforce"}[1h])))',
+    );
+  });
+
   it("escapes quotes and backslashes in label values", () => {
     expect(connectionRequestTotal('a"b\\c', "1h")).toBe(
       'sum(increase(apigateway_inbound_requests_total{connection="a\\"b\\\\c"}[1h]))',
@@ -93,6 +106,26 @@ describe("PromQL result adapters", () => {
       { dimension: "salesforce", count: 1234, success_rate: 0, avg_duration_ms: 0 },
       { dimension: "stripe", count: 57, success_rate: 0, avg_duration_ms: 0 },
       { dimension: "(none)", count: 3, success_rate: 0, avg_duration_ms: 0 },
+    ]);
+  });
+
+  // Samples scraped before the persona label existed carry no persona; the
+  // breakdown must still chart them rather than dropping an existing
+  // deployment's history out of the panel (#1615).
+  it("renders a persona-less outbound series as (none) rather than dropping it", () => {
+    const resp: PromVectorResponse = {
+      status: "success",
+      data: {
+        resultType: "vector",
+        result: [
+          { metric: { persona: "ingest-service" }, value: [1, "24180"] },
+          { metric: {}, value: [1, "5100"] },
+        ],
+      },
+    };
+    expect(promVectorToBreakdown(resp, "persona")).toEqual([
+      { dimension: "ingest-service", count: 24180, success_rate: 0, avg_duration_ms: 0 },
+      { dimension: "(none)", count: 5100, success_rate: 0, avg_duration_ms: 0 },
     ]);
   });
 

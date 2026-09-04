@@ -64,6 +64,8 @@ The API Gateway tab visualizes outbound REST gateway traffic proxied through the
 
 Includes the connection-to-operation traffic flow (Sankey), an inbound-vs-outbound health split by status category, and breakdowns by status class, method, and calling identity.
 
+**Outbound calls by principal** splits the upstream calls the gateway made by the persona that caused them, at the root level over every connection and again inside one connection's drilldown. It answers the question the connection totals cannot: whether a connection's volume is one automated ingestion account or the analysts sharing it, which is what decides whether a spike is a runaway job or genuine use. A call the platform could not attribute reads as `unknown`; traffic recorded before the persona label existed groups under `(none)`. The label is bounded by the deployment's persona definitions, so it does not grow with the number of people using the platform — see [Observability](../server/observability.md#exposed-metrics).
+
 ### Health
 
 The Health tab reports per-node platform health scraped from Prometheus.

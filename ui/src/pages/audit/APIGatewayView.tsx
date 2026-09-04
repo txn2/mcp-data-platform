@@ -12,6 +12,7 @@ import { UsageHeatmap } from "@/components/charts/UsageHeatmap";
 import {
   topConnectionsByVolume,
   connectionOperationFlow,
+  outboundByPersona,
   statusClassRateRange,
   promVectorToFlow,
   promMatrixToStatusStack,
@@ -19,7 +20,7 @@ import {
   firstScalar,
 } from "./promql";
 import { TimeRangePicker } from "./TimeRangePicker";
-import { Breadcrumb, ChartPanel } from "./apigateway/panels";
+import { Breadcrumb, Breakdown, ChartPanel } from "./apigateway/panels";
 import {
   ConnectionDetail,
   EndpointDetail,
@@ -82,6 +83,9 @@ export function APIGatewayView() {
     `sum by (status_category) (increase(apigateway_outbound_total[${window}]))`,
     { enabled: connection === null },
   );
+  const outboundByPrincipal = useObservabilityQuery(outboundByPersona(window), {
+    enabled: connection === null,
+  });
   const statusStack = useObservabilityQueryRange(statusClassRateRange(rate), start, end, step, {
     enabled: connection === null,
   });
@@ -126,6 +130,12 @@ export function APIGatewayView() {
             inbound={firstScalar(inboundTotal.data)}
             outbound={firstScalar(outboundTotal.data)}
             outboundByCat={outboundByCat.data}
+          />
+          <Breakdown
+            title="Outbound calls by principal"
+            hint="upstream calls by the persona that caused them"
+            query={outboundByPrincipal}
+            labelKey="persona"
           />
           <ChartPanel title="Status Mix" hint="requests/sec by class">
             <StatusStackChart

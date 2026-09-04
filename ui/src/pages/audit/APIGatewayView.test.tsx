@@ -109,6 +109,40 @@ describe("APIGatewayView", () => {
     expect(screen.getByText("listContacts")).toBeInTheDocument();
   });
 
+  // #1615: the operator's question is whether a connection's volume is one
+  // automated principal or genuine use, so the root level must both ask the
+  // by-persona question and show its answer in a panel.
+  it("charts outbound volume by principal at the root level", () => {
+    render(<APIGatewayView />);
+    expect(screen.getByText("Outbound calls by principal")).toBeInTheDocument();
+    const personaQueries = mockQuery.mock.calls
+      .map((c) => c[0])
+      .filter((q) => q.includes("apigateway_outbound_total") && q.includes("by (persona)"));
+    expect(personaQueries.length).toBeGreaterThan(0);
+    // Unscoped at the root: the split is over every connection.
+    expect(personaQueries.some((q) => !q.includes('connection="'))).toBe(true);
+  });
+
+  it("separates principals within one connection on the drilldown", () => {
+    render(<APIGatewayView />);
+    fireEvent.click(rowButton("salesforce"));
+
+    expect(screen.getByText("Outbound calls by principal")).toBeInTheDocument();
+    const scoped = mockQuery.mock.calls
+      .map((c) => c[0])
+      .filter(
+        (q) =>
+          q.includes("apigateway_outbound_total") &&
+          q.includes("by (persona)") &&
+          q.includes('connection="salesforce"'),
+      );
+    expect(scoped.length).toBeGreaterThan(0);
+    // The fixture answers that query with more than one principal, which is
+    // the split the panel exists to show.
+    const personas = (promInstantFor(scoped[0]!).data?.result ?? []).map((r) => r.metric["persona"]);
+    expect(new Set(personas).size).toBeGreaterThan(1);
+  });
+
   it("renders the empty state when the proxy returns 503", () => {
     mockQuery.mockImplementation((query: string) => {
       // Top-connections query errors with 503; the view should short-circuit
