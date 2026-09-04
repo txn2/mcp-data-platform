@@ -2627,3 +2627,39 @@ server:
 		t.Error("elicitation.pii_consent should default to enabled")
 	}
 }
+
+func TestLoadConfig_CallsExcludePersonas(t *testing.T) {
+	cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+calls:
+  retention_days: 30
+  exclude_personas:
+    - ingest-service
+    - etl
+`)
+	if cfg.Calls.RetentionDays != 30 {
+		t.Errorf("Calls.RetentionDays = %d, want 30", cfg.Calls.RetentionDays)
+	}
+	want := []string{"ingest-service", "etl"}
+	if len(cfg.Calls.ExcludePersonas) != len(want) {
+		t.Fatalf("Calls.ExcludePersonas = %v, want %v", cfg.Calls.ExcludePersonas, want)
+	}
+	for i, name := range want {
+		if cfg.Calls.ExcludePersonas[i] != name {
+			t.Errorf("Calls.ExcludePersonas[%d] = %q, want %q", i, cfg.Calls.ExcludePersonas[i], name)
+		}
+	}
+}
+
+func TestLoadConfig_CallsExcludesNothingByDefault(t *testing.T) {
+	// A deployment that declares no calls block catalogs every call, which is
+	// what it cataloged before the exclusion existed (#1614).
+	cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+`)
+	if len(cfg.Calls.ExcludePersonas) != 0 {
+		t.Errorf("Calls.ExcludePersonas = %v, want empty", cfg.Calls.ExcludePersonas)
+	}
+}

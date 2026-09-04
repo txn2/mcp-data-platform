@@ -1119,6 +1119,14 @@ func (p *Platform) initRegistries(opts *Options) error {
 		}
 		p.loadDBPersonas()
 	}
+	if p.personaRegistry != nil {
+		// A calls.exclude_personas entry naming no persona this deployment
+		// knows excludes nothing and says so nowhere. It is a warning rather
+		// than a refusal because personas come from the config file and from
+		// the database, so a name the database supplies later would make a
+		// boot-time refusal wrong (#1614).
+		callrecord.WarnUnknownExcluded(p.config.Calls.ExcludePersonas, p.personaRegistry.Names())
+	}
 
 	if opts.ToolkitRegistry != nil {
 		p.toolkitRegistry = opts.ToolkitRegistry
@@ -1310,13 +1318,14 @@ func (p *Platform) initAudit(opts *Options) error {
 
 	delivery := p.config.Audit.DeliveryMode()
 	p.audit = auditwiring.Assemble(auditwiring.Config{
-		DB:                p.db,
-		RetentionDays:     p.config.Audit.RetentionDays,
-		SyncDelivery:      delivery == AuditDeliverySync,
-		Metrics:           p.obs.Metrics(),
-		BuildURN:          p.datasetURNFor,
-		Toolkits:          p.toolkitRegistry,
-		CallRetentionDays: p.config.Calls.RetentionDays,
+		DB:                  p.db,
+		RetentionDays:       p.config.Audit.RetentionDays,
+		SyncDelivery:        delivery == AuditDeliverySync,
+		Metrics:             p.obs.Metrics(),
+		BuildURN:            p.datasetURNFor,
+		Toolkits:            p.toolkitRegistry,
+		CallRetentionDays:   p.config.Calls.RetentionDays,
+		CallExcludePersonas: p.config.Calls.ExcludePersonas,
 	})
 
 	slog.Info("audit logging enabled",
@@ -1326,6 +1335,7 @@ func (p *Platform) initAudit(opts *Options) error {
 		"redact_keys", len(p.config.Audit.RedactKeys),
 		"delivery", delivery,
 		"call_retention_days", callrecord.RetentionDays(p.config.Calls.RetentionDays),
+		"call_excluded_personas", len(p.config.Calls.ExcludePersonas),
 	)
 	return nil
 }

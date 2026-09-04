@@ -55,6 +55,13 @@ type Config struct {
 	// from, promoted, declined, or re-run is never swept.
 	CallRetentionDays int
 
+	// CallExcludePersonas names the personas whose calls are machinery rather
+	// than material a later session would re-run: their calls are audited and
+	// not cataloged, and the rows they wrote before the deployment declared
+	// them are swept whatever their age (#1614). Empty catalogs everything,
+	// which is what a deployment that configures nothing gets.
+	CallExcludePersonas []string
+
 	// Toolkits is the live toolkit registry, which a capture asks what request
 	// an api call addressed by an operation id made: the id and the values the
 	// caller passed are in the audit row, the path template they went into is
@@ -164,9 +171,16 @@ func Assemble(cfg Config) *Layer {
 	store := auditpostgres.New(cfg.DB, auditpostgres.Config{RetentionDays: cfg.RetentionDays})
 	store.StartCleanupRoutine(cleanupInterval)
 
-	calls := callrecord.NewPostgresStore(cfg.DB, callrecord.Config{RetentionDays: cfg.CallRetentionDays})
+	calls := callrecord.NewPostgresStore(cfg.DB, callrecord.Config{
+		RetentionDays:   cfg.CallRetentionDays,
+		ExcludePersonas: cfg.CallExcludePersonas,
+	})
 	calls.StartCleanupRoutine(cleanupInterval)
-	logger := NewLogger(callrecord.NewRecorder(store, calls, cfg.BuildURN), cfg.SyncDelivery, cfg.Metrics)
+	// One rule, read in two places: the recorder never writes an excluded
+	// persona's record, and the store's sweep removes the ones written before
+	// the deployment declared it.
+	excluded := callrecord.NewPersonaExclusion(cfg.CallExcludePersonas)
+	logger := NewLogger(callrecord.NewRecorder(store, calls, cfg.BuildURN, excluded), cfg.SyncDelivery, cfg.Metrics)
 
 	return &Layer{
 		store:    store,

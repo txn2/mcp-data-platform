@@ -177,7 +177,7 @@ func newReplica(t *testing.T, db *sql.DB, sessions pkgsession.Store, s3 *memS3) 
 
 	// Innermost added first: the call reference and audit both read the
 	// PlatformContext the tool-call middleware writes.
-	server.AddReceivingMiddleware(middleware.MCPCallReferenceMiddleware(provenance.SourceToolkitKinds()))
+	server.AddReceivingMiddleware(middleware.MCPCallReferenceMiddleware(provenance.SourceToolkitKinds(), nil))
 	server.AddReceivingMiddleware(middleware.MCPAuditMiddleware(logger))
 	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(
 		&fixedAuthn{user: &middleware.UserInfo{

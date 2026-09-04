@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/callrecord"
 	"github.com/txn2/mcp-data-platform/internal/platform/mwchain"
 	"github.com/txn2/mcp-data-platform/internal/platform/provenance"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolargs"
@@ -151,7 +152,11 @@ func (p *Platform) receivingMiddlewareChain() []mwSpec {
 		// Only when audit records: without a stored call there is nothing to refer to (#1320).
 		{Name: mwCallReference, Requires: []mwName{mwToolCall}, Register: func() {
 			if p.audit.Recording() {
-				p.mcpServer.AddReceivingMiddleware(middleware.MCPCallReferenceMiddleware(provenance.SourceToolkitKinds()))
+				// A call the catalog declines gets no reference to cite: the
+				// id would resolve to nothing (#1614).
+				excluded := callrecord.NewPersonaExclusion(p.config.Calls.ExcludePersonas)
+				p.mcpServer.AddReceivingMiddleware(
+					middleware.MCPCallReferenceMiddleware(provenance.SourceToolkitKinds(), excluded.Excludes))
 			}
 		}},
 

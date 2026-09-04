@@ -19,11 +19,18 @@ import (
 var psq = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 
 // Config is what a deployment chooses about the catalog: how long a call that
-// came to nothing is kept. Everything else about a record is derived.
+// came to nothing is kept, and whose calls are machinery rather than material
+// for a later session. Everything else about a record is derived.
 type Config struct {
 	// RetentionDays bounds how long an unused record is kept. Zero or
 	// negative takes the default.
 	RetentionDays int
+
+	// ExcludePersonas names the personas whose calls are not cataloged. The
+	// store reads it for the sweep, which removes the rows written before the
+	// deployment declared the persona; the recorder reads the same rule to
+	// never write one (see exclusion.go).
+	ExcludePersonas []string
 }
 
 // PostgresStore is the call catalog over PostgreSQL. It also owns the sweep
@@ -31,6 +38,7 @@ type Config struct {
 type PostgresStore struct {
 	db            *sql.DB
 	retentionDays int
+	excluded      PersonaExclusion
 
 	// cancel and done are the sweeper's lifecycle, nil until it is started.
 	cancel context.CancelFunc
@@ -39,7 +47,11 @@ type PostgresStore struct {
 
 // NewPostgresStore returns a call catalog over db.
 func NewPostgresStore(db *sql.DB, cfg Config) *PostgresStore {
-	return &PostgresStore{db: db, retentionDays: RetentionDays(cfg.RetentionDays)}
+	return &PostgresStore{
+		db:            db,
+		retentionDays: RetentionDays(cfg.RetentionDays),
+		excluded:      NewPersonaExclusion(cfg.ExcludePersonas),
+	}
 }
 
 // callReferencePrefix is the mcp:call: prefix the satisfaction rule matches a

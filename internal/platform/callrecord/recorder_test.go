@@ -63,7 +63,7 @@ func TestRecorderCatalogsAQuery(t *testing.T) {
 	t.Parallel()
 
 	inner, store := &fakeAudit{}, &fakeStore{}
-	rec := NewRecorder(inner, store, testURN)
+	rec := NewRecorder(inner, store, testURN, PersonaExclusion{})
 
 	err := rec.Log(context.Background(), audit.Event{
 		ID:         "evt-1",
@@ -107,7 +107,7 @@ func TestRecorderCatalogsAnAPICall(t *testing.T) {
 	t.Parallel()
 
 	store := &fakeStore{}
-	rec := NewRecorder(&fakeAudit{}, store, testURN)
+	rec := NewRecorder(&fakeAudit{}, store, testURN, PersonaExclusion{})
 
 	if err := rec.Log(context.Background(), audit.Event{
 		ID:         "evt-2",
@@ -169,7 +169,7 @@ func TestRecorderResolvesPathParamsIntoTheTarget(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			store := &fakeStore{}
-			rec := NewRecorder(&fakeAudit{}, store, testURN)
+			rec := NewRecorder(&fakeAudit{}, store, testURN, PersonaExclusion{})
 			if err := rec.Log(context.Background(), audit.Event{
 				ID: "evt-" + c.name, ToolName: "api_invoke_endpoint",
 				Connection: "platform-admin", Success: true, Parameters: c.params,
@@ -199,7 +199,7 @@ func TestRecorderTargetsCarryTheConnectionKind(t *testing.T) {
 	t.Parallel()
 
 	store := &fakeStore{}
-	rec := NewRecorder(&fakeAudit{}, store, testURN)
+	rec := NewRecorder(&fakeAudit{}, store, testURN, PersonaExclusion{})
 
 	if err := rec.Log(context.Background(), audit.Event{
 		ID: "evt-kind", ToolName: "trino_export", ToolkitKind: "trino",
@@ -220,7 +220,7 @@ func TestRecorderIgnoresEverythingElse(t *testing.T) {
 	t.Parallel()
 
 	store := &fakeStore{}
-	rec := NewRecorder(&fakeAudit{}, store, testURN)
+	rec := NewRecorder(&fakeAudit{}, store, testURN, PersonaExclusion{})
 
 	// Discovery, bookkeeping, and a call the platform minted no id for are all
 	// outside the catalog: a record of them would be a record of nothing worth
@@ -243,7 +243,7 @@ func TestRecorderKeepsAFailedCall(t *testing.T) {
 	t.Parallel()
 
 	store := &fakeStore{}
-	rec := NewRecorder(&fakeAudit{}, store, testURN)
+	rec := NewRecorder(&fakeAudit{}, store, testURN, PersonaExclusion{})
 
 	if err := rec.Log(context.Background(), audit.Event{
 		ID: "evt-5", ToolName: "trino_query", Success: false,
@@ -269,7 +269,7 @@ func TestRecorderNeverFailsTheAuditWrite(t *testing.T) {
 	// its place in the catalog; it must never cost the audit row.
 	inner := &fakeAudit{err: errors.New("store down")}
 	store := &fakeStore{insertErr: errors.New("catalog down")}
-	rec := NewRecorder(inner, store, testURN)
+	rec := NewRecorder(inner, store, testURN, PersonaExclusion{})
 
 	err := rec.Log(context.Background(), audit.Event{
 		ID: "evt-6", ToolName: "trino_query", Success: true,
@@ -289,7 +289,7 @@ func TestRecorderWithoutACatalogIsTheAuditStore(t *testing.T) {
 	inner := &fakeAudit{}
 	// A deployment with no database gets the audit store back unchanged rather
 	// than a decorator that swallows every write into nothing.
-	if got := NewRecorder(inner, nil, testURN); got != audit.Logger(inner) {
+	if got := NewRecorder(inner, nil, testURN, PersonaExclusion{}); got != audit.Logger(inner) {
 		t.Errorf("NewRecorder with no catalog = %T, want the audit store itself", got)
 	}
 }
@@ -298,7 +298,7 @@ func TestRecorderPassesThroughQueryAndClose(t *testing.T) {
 	t.Parallel()
 
 	inner := &fakeAudit{}
-	rec := NewRecorder(inner, &fakeStore{}, testURN)
+	rec := NewRecorder(inner, &fakeStore{}, testURN, PersonaExclusion{})
 
 	if _, err := rec.Query(context.Background(), audit.QueryFilter{}); err != nil {
 		t.Errorf("Query: %v", err)
@@ -315,7 +315,7 @@ func TestRecorderWithoutAURNBuilderStillRecords(t *testing.T) {
 	t.Parallel()
 
 	store := &fakeStore{}
-	rec := NewRecorder(&fakeAudit{}, store, nil)
+	rec := NewRecorder(&fakeAudit{}, store, nil, PersonaExclusion{})
 
 	if err := rec.Log(context.Background(), audit.Event{
 		ID: "evt-7", ToolName: "trino_query", Success: true,
@@ -340,5 +340,90 @@ func TestKindForTool(t *testing.T) {
 	}
 	if KindForTool("search") != "" {
 		t.Error("discovery is not data access")
+	}
+}
+
+func TestRecorderDoesNotCatalogAnExcludedPersona(t *testing.T) {
+	t.Parallel()
+
+	// The audit row is written and returned; only the catalog entry is
+	// withheld. This is the whole of the exclusion: audit is the system of
+	// record, and an automated system's traffic stays fully visible there.
+	inner, store := &fakeAudit{}, &fakeStore{}
+	rec := NewRecorder(inner, store, testURN, NewPersonaExclusion([]string{"ingest-service"}))
+
+	if err := rec.Log(context.Background(), audit.Event{
+		ID:         "evt-excluded",
+		ToolName:   "api_invoke_endpoint",
+		Connection: "acme-crm",
+		Persona:    "ingest-service",
+		UserID:     "apikey:ingest",
+		Success:    true,
+		Parameters: map[string]any{"method": "get", "path": "/v1/orders/4821"},
+	}); err != nil {
+		t.Fatalf("Log: %v", err)
+	}
+
+	if len(inner.logged) != 1 {
+		t.Fatalf("the audit row must still be written, got %d", len(inner.logged))
+	}
+	if got := inner.logged[0]; got.ID != "evt-excluded" || got.Persona != "ingest-service" {
+		t.Errorf("the audit event reached the store altered: %+v", got)
+	}
+	if len(store.inserted) != 0 {
+		t.Errorf("an excluded persona's call must not be cataloged, got %+v", store.inserted)
+	}
+	if len(store.credited) != 0 {
+		t.Errorf("a call that was never cataloged credits nothing, got %+v", store.credited)
+	}
+}
+
+func TestRecorderCatalogsEveryOtherPersona(t *testing.T) {
+	t.Parallel()
+
+	// The exclusion is about who called, not about which tool: the same tool
+	// the excluded persona called is cataloged for an ordinary caller.
+	store := &fakeStore{}
+	rec := NewRecorder(&fakeAudit{}, store, testURN, NewPersonaExclusion([]string{"ingest-service"}))
+
+	if err := rec.Log(context.Background(), audit.Event{
+		ID:         "evt-ordinary",
+		ToolName:   "api_invoke_endpoint",
+		Connection: "acme-crm",
+		Persona:    "data-engineer",
+		Success:    true,
+		Parameters: map[string]any{"method": "get", "path": "/v1/orders/4821"},
+	}); err != nil {
+		t.Fatalf("Log: %v", err)
+	}
+
+	if len(store.inserted) != 1 {
+		t.Fatalf("expected one record, got %d", len(store.inserted))
+	}
+	if got := store.inserted[0].Persona; got != "data-engineer" {
+		t.Errorf("persona = %q, want data-engineer", got)
+	}
+}
+
+func TestRecorderExcludesNothingWhenNothingIsDeclared(t *testing.T) {
+	t.Parallel()
+
+	// A deployment that configures nothing catalogs exactly what it catalogs
+	// today, including a call carrying no persona at all.
+	store := &fakeStore{}
+	rec := NewRecorder(&fakeAudit{}, store, testURN, NewPersonaExclusion(nil))
+
+	if err := rec.Log(context.Background(), audit.Event{
+		ID:         "evt-nopersona",
+		ToolName:   "trino_query",
+		Connection: "acme",
+		Success:    true,
+		Parameters: map[string]any{"sql": "SELECT 1"},
+	}); err != nil {
+		t.Fatalf("Log: %v", err)
+	}
+
+	if len(store.inserted) != 1 {
+		t.Fatalf("expected one record, got %d", len(store.inserted))
 	}
 }

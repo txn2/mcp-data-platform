@@ -676,20 +676,45 @@ See [Audit Logging](audit.md) for query examples and retention details.
 
 ## Call Catalog Configuration
 
-The `calls` block controls how long the [call catalog](../portal/activity.md#my-calls) keeps a recorded query or API invocation. Nothing here turns the catalog on: it is written from the audit pipeline, so it exists wherever audit does and nowhere else.
+The `calls` block controls how long the [call catalog](../portal/activity.md#my-calls) keeps a recorded query or API invocation, and whose calls it keeps at all. Nothing here turns the catalog on: it is written from the audit pipeline, so it exists wherever audit does and nowhere else.
 
 ```yaml
 calls:
   retention_days: 90
+  exclude_personas:
+    - ingest-service
 ```
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `retention_days` | int | `90` | How long a recorded call is kept **when nothing came of it**. Zero or negative takes the default. |
+| `exclude_personas` | list | `[]` | Personas whose calls are machinery: audited, not cataloged. Empty catalogs every call. |
 
 **What retention does not touch.** The sweep is by what a record came to, not by its age alone. A record an asset, an export, or a capture cites; a record someone promoted; a record someone declined; and a record another session found and re-ran are all evidence, and none of them is ever swept, whatever their age. What ages out is the draft nobody used: a query that ran, answered nothing anybody kept, and was never run again.
 
-The sweep runs once a day per deployment, under a PostgreSQL advisory lock so that several replicas sharing one database delete once rather than each.
+The sweep runs once when the platform starts and then once a day per deployment, under a PostgreSQL advisory lock so that several replicas sharing one database delete once rather than each.
+
+### Excluding an automated caller
+
+The catalog exists to answer one question about a recorded call: is this worth running again. An automated system driving ingestion through the same tools people use never produces that answer. Each of its calls fetches a distinct upstream resource once, and each is recorded, embedded, and ranked in search against the handful of records that did answer something. On one deployment a single service principal wrote 472,156 of 476,749 records in ten days, against 43 records that had been used for anything.
+
+Name the personas that are machinery:
+
+```yaml
+calls:
+  exclude_personas:
+    - ingest-service
+```
+
+A call made under one of those personas is audited exactly as before and no call record is written. Persona is the discriminator because it is the layer you already assign per API key to say what a caller is for: give the service account its own persona and every key that holds it is covered, with no list to maintain.
+
+**What this does not change.** The audit row, its retention, and the [API gateway metrics](observability.md) are untouched, so what an automated system did stays fully visible in the Activity view and in the gateway charts. The one dimension the gateway charts lack is the principal, and the audit log carries it.
+
+**What else it withholds.** A data call normally comes back with its own `mcp:call:<id>` reference, which an agent is told to cite when it saves an asset or captures an insight. A call the catalog declines is handed none: that id would resolve to nothing, so citing it would store a citation that can never be satisfied.
+
+**Records already written.** Naming a persona here also removes the records it wrote before you named it. They are swept on the next sweep — the one at startup, so the restart that applies the setting is the restart that clears the backlog — with the same evidence clauses standing: a record something was built from, or that was promoted, declined, or re-run, is kept whoever produced it.
+
+**A name that matches nothing.** An entry naming no persona the deployment knows excludes nothing, and the platform logs a warning at startup naming it. Personas come from both this file and the database, so a name added to the database later is matched at the next start.
 
 ## Notifications Configuration
 
