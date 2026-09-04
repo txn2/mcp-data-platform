@@ -1,9 +1,66 @@
 import type {
   ScratchTable,
+  TableColumn,
   TableConnection,
   TableRegistration,
 } from "@/api/tables/types";
-import { isCorrected, recordCorrection } from "./resources";
+import { mockAssets } from "./assets";
+import { mockContent } from "./content";
+import {
+  defectReason,
+  fixtureColumns,
+  inspectFixture,
+  normalizeFixture,
+  repairSummary,
+} from "./csvfixture";
+import { isCorrected, mockResourceContent, mockResources, recordCorrection } from "./resources";
+
+// sourceColumns is the columns a table registered over a stored file declares:
+// the header of the bytes that file serves. Every registration below reads its
+// columns from here rather than listing them, because a list beside the file
+// it describes is a list that can disagree with it -- which is what #1617 was
+// filed over, with the same three names reported for every file registered
+// through the form.
+function sourceColumns(kind: "resource" | "asset", sourceID: string): TableColumn[] {
+  const body = kind === "asset" ? mockContent[sourceID] : mockResourceContent[sourceID];
+  return fixtureColumns(body ?? "");
+}
+
+// sourceFilename is what the file is called, which is what a table registered
+// over it is named after when the person leaves the name field alone.
+function sourceFilename(kind: "resource" | "asset", sourceID: string): string {
+  if (kind === "asset") {
+    const asset = mockAssets.find((a) => a.id === sourceID);
+    return asset ? (asset.s3_key.split("/").pop() ?? asset.name) : "";
+  }
+  return mockResources.resources.find((r) => r.id === sourceID)?.filename ?? "";
+}
+
+// sourceLocation is the external location a table registered over a file
+// addresses: the directory the file already sits in, in the bucket that file's
+// own URI names. The register helper addressed every source in the asset
+// bucket, so a resource's table claimed to read bytes from a bucket the
+// resource is not in (#1617).
+function sourceLocation(kind: "resource" | "asset", sourceID: string): string {
+  const key =
+    kind === "asset"
+      ? mockAssets.find((a) => a.id === sourceID)?.s3_key
+      : mockResources.resources.find((r) => r.id === sourceID)?.s3_key;
+  const bucket = kind === "asset" ? "portal-assets" : "acme-platform";
+  const dir = (key ?? "").split("/").slice(0, -1).join("/");
+  return `s3://${bucket}/${dir}/`;
+}
+
+// slugify renders a filename or a typed suggestion as a table name, as
+// tableregister.SlugifyTableName does: the extension dropped, then lowercase
+// letters and digits with every other run collapsed to one underscore.
+function slugify(raw: string): string {
+  const stem = raw.replace(/\.[^.]+$/, "");
+  return stem
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
 
 // Table registrations (#1327). The fixtures cover the states the panel renders
 // differently: a current registration, one whose file has moved on since, a
@@ -33,12 +90,7 @@ export const mockTableRegistrations: Record<string, TableRegistration[]> = {
       schema: "uploads",
       table: "analyst_regional_sales_summary",
       location: "s3://portal-assets/assets/",
-      columns: [
-        { name: "region", type: "VARCHAR" },
-        { name: "quarter", type: "VARCHAR" },
-        { name: "revenue", type: "VARCHAR" },
-        { name: "units", type: "VARCHAR" },
-      ],
+      columns: sourceColumns("asset", "ast-008"),
       registered_by: "alice@example.com",
       registered_at: "2026-08-20T14:12:00Z",
       query_table: "scratch.uploads.analyst_regional_sales_summary",
@@ -63,12 +115,8 @@ export const mockTableRegistrations: Record<string, TableRegistration[]> = {
       catalog: "scratch",
       schema: "uploads",
       table: "analyst_glossary",
-      location: "s3://managed-resources/resources/global/reference/v/rev-1/",
-      columns: [
-        { name: "term", type: "VARCHAR" },
-        { name: "definition", type: "VARCHAR" },
-        { name: "owner", type: "VARCHAR" },
-      ],
+      location: "s3://acme-platform/resources/global/reference/v/rev-1/",
+      columns: sourceColumns("resource", "res-015"),
       registered_by: "marcus.johnson@example.com",
       registered_at: "2026-08-18T09:30:00Z",
       query_table: "scratch.uploads.analyst_glossary",
@@ -81,30 +129,31 @@ export const mockTableRegistrations: Record<string, TableRegistration[]> = {
   // A following registration whose last follow did not move it (#1536): the
   // coordinator refused the statement, so the table is behind the file with
   // the reason on it until it is registered again.
-  "res-004": [
+  //
+  // It sits on a CSV resource, which is the only kind of file a table can be
+  // registered over. It was on the HTML onboarding guide until #1617: the
+  // listing showed a registered table whose source, followed to its page, was
+  // a document that carries no such panel and never could.
+  "res-008": [
     {
       id: "reg_e19c42",
       source_kind: "resource",
-      source_id: "res-004",
+      source_id: "res-008",
       connection: "acme-scratch",
       catalog: "scratch",
       schema: "uploads",
-      table: "finance_vendor_rebates",
-      location: "s3://managed-resources/resources/persona/finance/v/rev-3/",
-      columns: [
-        { name: "vendor_code", type: "VARCHAR" },
-        { name: "rebate_pct", type: "VARCHAR" },
-        { name: "effective_from", type: "VARCHAR" },
-      ],
+      table: "analyst_seasonal_factors",
+      location: "s3://acme-platform/resources/persona/inventory-analyst/reference/v/rev-1/",
+      columns: sourceColumns("resource", "res-008"),
       registered_by: "marcus.johnson@example.com",
       registered_at: "2026-08-19T16:40:00Z",
-      query_table: "scratch.uploads.finance_vendor_rebates",
-      sample_sql: "SELECT * FROM scratch.uploads.finance_vendor_rebates",
+      query_table: "scratch.uploads.analyst_seasonal_factors",
+      sample_sql: "SELECT * FROM scratch.uploads.analyst_seasonal_factors",
       stale: true,
       follow: true,
       repair: false,
       follow_error:
-        "registering the table: the coordinator refused the statement (Access Denied: Cannot create table scratch.uploads.finance_vendor_rebates)",
+        "registering the table: the coordinator refused the statement (Access Denied: Cannot create table scratch.uploads.analyst_seasonal_factors)",
     },
   ],
 };
@@ -117,6 +166,14 @@ export const mockTableRegistrations: Record<string, TableRegistration[]> = {
 // until a corrected version of the file is saved (#1441).
 export const tornCSVSourceID = "res-011";
 
+// The uploaded bytes of that file, read once at load: the refusal and the
+// summary of the correction are both about the file as its owner uploaded it,
+// which is what a correction replaces. Reading them here rather than writing
+// them out is what keeps the panel and the preview beside it describing one
+// file (#1617) -- the refusal named 94 rows in an `address` column of a
+// ten-row file that had no such column.
+const tornCSVUploaded = mockResourceContent[tornCSVSourceID] ?? "";
+
 // tornCSVProblem is the refusal that file meets. The detail is the sentence a
 // person reads; the type is what the form keys its offer of the correction on.
 export const tornCSVProblem = {
@@ -124,8 +181,7 @@ export const tornCSVProblem = {
   title: "Conflict",
   status: 409,
   detail:
-    "94 rows in this file have a line break inside a cell (in address), and a table reads a line " +
-    "break as the end of the row, so each of those rows would be torn into fragments. Register it " +
+    `${defectReason(inspectFixture(tornCSVUploaded))} Register it ` +
     "again asking for the file to be corrected, and a corrected version is saved and registered; " +
     "the file as it was uploaded stays as the version before it.",
 };
@@ -133,7 +189,7 @@ export const tornCSVProblem = {
 // tornCSVRepairSummary is what the correction did, in the terms the backend's
 // repairSummary renders. One constant because the registration's answer and the
 // version the correction wrote say the same thing (#1450).
-export const tornCSVRepairSummary = "put 94 rows back onto one line";
+export const tornCSVRepairSummary = repairSummary(normalizeFixture(tornCSVUploaded).rowsRepaired);
 
 // mockRegisterTable adds a registration the way the backend would: the
 // persona-prefixed name, the columns of the file's header, and the location of
@@ -160,11 +216,27 @@ export async function mockRegisterTable(
     return tornCSVProblem;
   }
   const conn = mockTableConnections.find((c) => c.name === body.connection) ?? scratchConnection;
-  const slug = (body.table_name || "uploaded_file")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "");
+  // An untouched name field takes the file's own name, which is what the form
+  // shows as the placeholder and what the backend derives. It used to fall
+  // back to a fixed "uploaded_file", so a capture of the form suggesting
+  // `store_list` was followed by a capture of a table called
+  // `analyst_uploaded_file` (#1617).
+  const slug = slugify(body.table_name || sourceFilename(kind, sourceID));
   const table = slug.startsWith("analyst_") ? slug : `analyst_${slug}`;
+
+  const registeredBy = "alice@example.com";
+  const repaired = needsRepair
+    ? `Saved version 2 of this file, which ${tornCSVRepairSummary}. The file as it was ` +
+      "uploaded is still there as the version before it."
+    : undefined;
+  // The correction is a version of the file, not a property of the
+  // registration: it outlives this answer and is what the version panel shows.
+  // It happens BEFORE the registration is built, because the registration is
+  // built over the corrected version's directory -- reading the location first
+  // would address the version the correction replaced.
+  if (repaired) {
+    recordCorrection(sourceID, tornCSVRepairSummary, registeredBy);
+  }
 
   const reg: TableRegistration = {
     id: `reg_${Math.random().toString(16).slice(2, 8)}`,
@@ -174,13 +246,9 @@ export async function mockRegisterTable(
     catalog: conn.catalog,
     schema: conn.schema,
     table,
-    location: `s3://portal-assets/${kind}s/${sourceID}/`,
-    columns: [
-      { name: "region", type: "VARCHAR" },
-      { name: "quarter", type: "VARCHAR" },
-      { name: "revenue", type: "VARCHAR" },
-    ],
-    registered_by: "alice@example.com",
+    location: sourceLocation(kind, sourceID),
+    columns: sourceColumns(kind, sourceID),
+    registered_by: registeredBy,
     registered_at: new Date("2026-08-22T10:00:00Z").toISOString(),
     query_table: `${conn.catalog}.${conn.schema}.${table}`,
     stale: false,
@@ -189,16 +257,8 @@ export async function mockRegisterTable(
     // The correction is a standing choice, kept on the registration: the
     // second submission of the form is what asks for it (#1577).
     repair: body.repair === true,
-    repaired: needsRepair
-      ? `Saved version 2 of this file, which ${tornCSVRepairSummary}. The file as it was ` +
-        "uploaded is still there as the version before it."
-      : undefined,
+    repaired,
   };
-  // The correction is a version of the file, not a property of the
-  // registration: it outlives this answer and is what the version panel shows.
-  if (reg.repaired) {
-    recordCorrection(sourceID, tornCSVRepairSummary, reg.registered_by);
-  }
   mockTableRegistrations[sourceID] = [reg, ...(mockTableRegistrations[sourceID] ?? [])];
   return reg;
 }
@@ -219,13 +279,16 @@ export function mockDropTable(sourceID: string, registrationID: string): void {
 // listing route does by reading the two source stores. A source id with no
 // entry here stands for a record that is gone, which the listing marks so the
 // reader is not sent to a page that answers "no such file".
+//
+// Each name is the one its own page carries. A listing that renames the file it
+// links to sends the reader looking for something that is not there (#1617).
 const scratchTableSources: Record<string, { name: string; canModify: boolean }> = {
-  "ast-008": { name: "Regional sales summary", canModify: true },
-  "res-015": { name: "Analytics glossary", canModify: true },
+  "ast-008": { name: "Regional Sales Summary", canModify: true },
+  "res-015": { name: "Business Glossary Export", canModify: true },
   // Somebody else's upload: visible because the reader reaches the connection,
   // and not theirs to drop. Its table follows the file and its last follow
   // failed, which is the listing's fourth state.
-  "res-004": { name: "Vendor rebate schedule", canModify: false },
+  "res-008": { name: "Seasonal Factors", canModify: false },
 };
 
 // orphanedRegistration is a table whose file is no longer on the platform.
@@ -240,7 +303,7 @@ const orphanedRegistration: TableRegistration = {
   catalog: "scratch",
   schema: "uploads",
   table: "analyst_q1_promo_codes",
-  location: "s3://managed-resources/resources/global/reference/v/rev-1/",
+  location: "s3://acme-platform/resources/global/reference/v/rev-1/",
   columns: [
     { name: "code", type: "VARCHAR" },
     { name: "discount_pct", type: "VARCHAR" },

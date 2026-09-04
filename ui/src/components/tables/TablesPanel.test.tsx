@@ -282,6 +282,30 @@ describe("a CSV a query engine cannot read", () => {
     fireEvent.click(await screen.findByRole("button", { name: /^register$/i }));
   }
 
+  it("lets the refusal wrap to the column instead of running past it", async () => {
+    stubRegister(
+      () =>
+        new Response(JSON.stringify(NEEDS_REPAIR), {
+          status: 409,
+          headers: { "Content-Type": "application/problem+json" },
+        }),
+    );
+    await openFormAndRegister();
+
+    // A button is nowrap and will not shrink, so in a grid whose track takes
+    // its minimum from its content one long label sets a floor wider than the
+    // sidebar and every sentence beside it is laid out at that width and
+    // clipped mid-word. The label wraps, and the track is capped (#1617).
+    const repair = await screen.findByTestId("table-repair-button");
+    expect(repair.className).toContain("whitespace-normal");
+    expect(repair.className).toContain("h-auto");
+
+    const alert = screen.getByTestId("table-register-error");
+    expect(alert.className).toContain("minmax(0,1fr)");
+    const description = alert.querySelector('[data-slot="alert-description"]');
+    expect(description?.className).toContain("min-w-0");
+  });
+
   it("offers to correct the file rather than handing the problem back", async () => {
     stubRegister(
       () =>

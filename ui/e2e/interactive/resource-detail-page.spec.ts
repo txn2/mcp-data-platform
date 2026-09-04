@@ -161,6 +161,38 @@ test.describe("What the resource page offers", () => {
 
     await expect(page.getByText("Query as a table")).toBeVisible();
   });
+
+  // A registration refusal is the one thing this panel exists to say, and it
+  // was being clipped mid-word at the sidebar's edge on every line (#1617): the
+  // correction it offers is a Button, which is nowrap and will not shrink, so
+  // its label set a minimum width on the alert wider than the column and every
+  // sentence beside it was laid out at that width. Nothing in jsdom measures a
+  // box, so this is asserted in a real browser.
+  test("keeps a registration refusal inside the column it is shown in", async ({ page }) => {
+    await authenticate(page);
+    await page.goto(ADMIN_RESOURCES);
+    // The fixture whose cells carry line breaks, which is refused (#1441).
+    await openNamed(page, "Store List");
+
+    await page.getByTestId("tables-panel").scrollIntoViewIfNeeded();
+    await page.getByRole("button", { name: "Register", exact: true }).first().click();
+    await page.getByRole("button", { name: "Register", exact: true }).last().click();
+
+    const alert = page.getByTestId("table-register-error");
+    await expect(alert).toBeVisible();
+    // Nothing inside the refusal is wider than the refusal, so no line of it
+    // is cut off or pushed onto a scrollbar.
+    expect(
+      await alert.evaluate((el) => el.scrollWidth - el.clientWidth),
+      "the refusal overflows its own box",
+    ).toBeLessThanOrEqual(1);
+
+    // And the panel it sits in is no wider than the sidebar column that clips
+    // it, which is what the nowrap button was widening.
+    const panelBox = (await page.getByTestId("tables-panel").boundingBox())!;
+    const buttonBox = (await page.getByTestId("table-repair-button").boundingBox())!;
+    expect(buttonBox.x + buttonBox.width).toBeLessThanOrEqual(panelBox.x + panelBox.width + 1);
+  });
 });
 
 test.describe("Resource form modal geometry", () => {

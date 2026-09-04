@@ -76,6 +76,7 @@ export function TablesPanel({
   return (
     <SectionCard
       title="Query as a table"
+      data-testid="tables-panel"
       action={<RegisterAction shown={canOffer && !adding} onClick={() => setAdding(true)} />}
     >
       <p className="text-xs text-muted-foreground">
@@ -454,7 +455,7 @@ function RegisterForm({
       </div>
 
       {register.isError && (
-        <Alert variant="destructive" className="py-2">
+        <Alert variant="destructive" className="py-2" data-testid="table-register-error">
           <AlertTriangle />
           <AlertDescription className="space-y-2">
             <span className="block">{errorText(register.error)}</span>
@@ -505,10 +506,17 @@ function RepairOffer({
   }
   return (
     <span className="block space-y-1.5">
+      {/*
+        The label wraps and the height follows it. A button is nowrap and
+        fixed-height by default, which in a sidebar this narrow renders the
+        last word of this one outside the column (#1617); the icon keeps its
+        own line by sitting at the top of the two.
+      */}
       <Button
         type="button"
         variant="outline"
         size="xs"
+        className="h-auto max-w-full items-start py-1 text-left whitespace-normal"
         disabled={pending}
         onClick={onClick}
         data-testid="table-repair-button"

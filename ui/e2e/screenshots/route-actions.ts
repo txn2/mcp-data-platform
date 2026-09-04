@@ -1,4 +1,4 @@
-import { type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import { openResourceNamed } from "./route-actions-library";
 
 /**
@@ -305,23 +305,51 @@ export async function openCollectionDetailsDialog(page: Page): Promise<void> {
 }
 
 /**
- * showTablesPanel scrolls the "Query as a table" section into view. It sits
- * below the preview in the resource dialog and below the provenance panel in
- * the asset viewer's sidebar, so a capture of either as it opens cannot reach
- * it (#1327).
+ * frameSidebarSection scrolls a sidebar section so a capture of it begins at
+ * the section's own top edge rather than partway through whatever sentence the
+ * minimum scroll happened to leave there.
+ *
+ * `scrollIntoViewIfNeeded` moves the column by the least it can, which put all
+ * four registered-table captures in the docs on a sliced line of prose at the
+ * top and another at the bottom, and left the register form's own submit
+ * control below the frame (#1617). When the section is taller than the column
+ * the top boundary cannot be kept, so `mustShow` names the element the capture
+ * exists to show and that is brought into frame instead -- and asserted, since
+ * a capture whose subject is off-screen is a broken picture that no test would
+ * otherwise fail on.
  */
-export async function showTablesPanel(page: Page): Promise<void> {
-  await page
-    .getByText("Query as a table", { exact: true })
-    .first()
-    .scrollIntoViewIfNeeded({ timeout: 5_000 });
-  // Scrolling the heading into view leaves the registration itself below the
-  // fold, and the registration is the substance of the capture.
-  const registration = page.locator('[data-testid^="table-registration-"]').first();
-  if (await registration.isVisible().catch(() => false)) {
-    await registration.scrollIntoViewIfNeeded({ timeout: 3_000 }).catch(() => {});
+async function frameSidebarSection(page: Page, section: Locator, mustShow?: Locator): Promise<void> {
+  await section.waitFor({ state: "visible", timeout: 5_000 });
+  await section.evaluate((el) => el.scrollIntoView({ block: "start" }));
+  if (!mustShow) {
+    await page.waitForTimeout(500);
+    return;
+  }
+  const inFrame = async () =>
+    mustShow.evaluate((el) => {
+      const box = el.getBoundingClientRect();
+      return box.top >= 0 && box.bottom <= window.innerHeight;
+    });
+  if (!(await inFrame())) {
+    await mustShow.evaluate((el) => el.scrollIntoView({ block: "end" }));
   }
   await page.waitForTimeout(500);
+  expect(await inFrame(), "the element this capture is of is outside the frame").toBe(true);
+}
+
+/**
+ * showTablesPanel frames the "Query as a table" section. It sits below the
+ * preview in the resource dialog and below the provenance panel in the asset
+ * viewer's sidebar, so a capture of either as it opens cannot reach it
+ * (#1327). The registration is the substance of the capture, so it is what has
+ * to be in frame when the section does not fit the column.
+ */
+export async function showTablesPanel(page: Page): Promise<void> {
+  const panel = page.getByTestId("tables-panel");
+  await panel.waitFor({ state: "visible", timeout: 5_000 });
+  const registration = page.locator('[data-testid^="table-registration-"]').last();
+  const shown = await registration.isVisible().catch(() => false);
+  await frameSidebarSection(page, panel, shown ? registration : undefined);
 }
 
 /**
@@ -352,7 +380,13 @@ export async function openTableRegisterForm(page: Page): Promise<void> {
   await openGlossaryResourceTables(page);
   await page.getByRole("button", { name: "Register", exact: true }).first().click({ timeout: 3_000 });
   await page.getByLabel("Connection").waitFor({ state: "visible", timeout: 5_000 });
-  await page.waitForTimeout(400);
+  // The control that submits the form is what a capture of a form has to
+  // contain, and it is the last thing in it (#1617).
+  await frameSidebarSection(
+    page,
+    page.getByTestId("tables-panel"),
+    page.getByRole("button", { name: "Register", exact: true }).last(),
+  );
 }
 
 /**
@@ -377,7 +411,13 @@ export async function openTableRepairOffer(page: Page): Promise<void> {
   await page.getByLabel("Connection").waitFor({ state: "visible", timeout: 5_000 });
   await page.getByRole("button", { name: "Register", exact: true }).last().click({ timeout: 3_000 });
   await page.getByTestId("table-repair-button").waitFor({ state: "visible", timeout: 5_000 });
-  await page.waitForTimeout(400);
+  // The refusal and the offer of the correction, whole: this capture is read
+  // for the sentence saying what is wrong with the file.
+  await frameSidebarSection(
+    page,
+    page.getByTestId("tables-panel"),
+    page.getByTestId("table-register-error"),
+  );
 }
 
 /**
@@ -388,7 +428,11 @@ export async function openTableRepaired(page: Page): Promise<void> {
   await openTableRepairOffer(page);
   await page.getByTestId("table-repair-button").click({ timeout: 3_000 });
   await page.getByTestId("table-repair-notice").waitFor({ state: "visible", timeout: 5_000 });
-  await page.waitForTimeout(400);
+  await frameSidebarSection(
+    page,
+    page.getByTestId("tables-panel"),
+    page.locator('[data-testid^="table-registration-"]').last(),
+  );
 }
 
 /**
@@ -399,7 +443,7 @@ export async function openTableRepaired(page: Page): Promise<void> {
  */
 export async function openCorrectedVersion(page: Page): Promise<void> {
   await openTableRepaired(page);
-  await page.getByTestId("resource-versions").scrollIntoViewIfNeeded({ timeout: 3_000 });
+  await frameSidebarSection(page, page.getByTestId("resource-versions"));
   // Waited on rather than timed out: a swallowed scroll would ship an
   // un-scrolled page captioned as the version history, and a panel that
   // rendered without the summary is the defect this capture documents.
