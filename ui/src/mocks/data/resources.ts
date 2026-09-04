@@ -4,6 +4,7 @@
 // and the dev server fails to start.
 import { isThemeable, isThumbnailSupported } from "../../lib/thumbnailSupport";
 import { byteLength, normalizeFixture } from "./csvfixture";
+import { fixtureTile } from "./resourceTile";
 
 interface Resource {
   id: string;
@@ -807,6 +808,36 @@ export const mockResourceContent: Record<string, string> = {
     "ORDER BY cover ASC;",
     "",
   ].join("\n"),
+  // The diagram is real markup: the content endpoint falls back to a
+  // placeholder string for a type it cannot stub, so without this the viewer
+  // renders "binary contents of platform-architecture.svg" where a diagram
+  // belongs, and the file has no tile either (#1619).
+  "res-016": `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400" viewBox="0 0 640 400">
+  <rect width="640" height="400" fill="#f8fafc"/>
+  <text x="24" y="36" font-family="system-ui" font-size="17" font-weight="700" fill="#0f172a">Platform architecture</text>
+  <text x="24" y="56" font-family="system-ui" font-size="11" fill="#64748b">How a request reaches the data</text>
+  <rect x="24" y="80" width="140" height="52" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="94" y="111" font-family="system-ui" font-size="12" fill="#0f172a" text-anchor="middle">MCP client</text>
+  <rect x="250" y="80" width="140" height="52" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="320" y="104" font-family="system-ui" font-size="12" fill="#0f172a" text-anchor="middle">Middleware</text>
+  <text x="320" y="120" font-family="system-ui" font-size="9" fill="#64748b" text-anchor="middle">auth, authz, audit</text>
+  <rect x="476" y="80" width="140" height="52" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="546" y="111" font-family="system-ui" font-size="12" fill="#0f172a" text-anchor="middle">Toolkits</text>
+  <line x1="164" y1="106" x2="250" y2="106" stroke="#94a3b8" stroke-width="1.5"/>
+  <line x1="390" y1="106" x2="476" y2="106" stroke="#94a3b8" stroke-width="1.5"/>
+  <rect x="250" y="196" width="140" height="52" rx="6" fill="#eff6ff" stroke="#93c5fd"/>
+  <text x="320" y="220" font-family="system-ui" font-size="12" fill="#1e3a8a" text-anchor="middle">Semantic layer</text>
+  <text x="320" y="236" font-family="system-ui" font-size="9" fill="#3b82f6" text-anchor="middle">DataHub</text>
+  <line x1="320" y1="132" x2="320" y2="196" stroke="#94a3b8" stroke-width="1.5"/>
+  <rect x="476" y="196" width="140" height="52" rx="6" fill="#f0fdf4" stroke="#86efac"/>
+  <text x="546" y="220" font-family="system-ui" font-size="12" fill="#14532d" text-anchor="middle">Query engine</text>
+  <text x="546" y="236" font-family="system-ui" font-size="9" fill="#16a34a" text-anchor="middle">Trino</text>
+  <line x1="546" y1="132" x2="546" y2="196" stroke="#94a3b8" stroke-width="1.5"/>
+  <rect x="476" y="300" width="140" height="52" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="546" y="331" font-family="system-ui" font-size="12" fill="#0f172a" text-anchor="middle">Warehouse</text>
+  <line x1="546" y1="248" x2="546" y2="300" stroke="#94a3b8" stroke-width="1.5"/>
+</svg>
+`,
   // The file behind the registration in the cross-source listing whose last
   // follow failed. It carries a body because the columns that registration
   // declares are read off this header (#1617).
@@ -1096,6 +1127,13 @@ for (const r of resources) {
 // behind it, which is what the library and the thumbnail-panel captures show.
 for (const r of resources) {
   if (!isThumbnailSupported(r.mime_type)) continue;
+  // A capture is recorded only where the mock can serve one. Recording one it
+  // cannot left every tile in the library falling back to a file-type icon,
+  // which is what the committed documentation captures showed (#1619). A
+  // resource with no entry here keeps no capture and is drawn as the icon a
+  // file waiting for its first capture is drawn as, which is a state the
+  // library has rather than a broken picture.
+  if (!fixtureTile(r.id, r.mime_type, mockResourceContent[r.id] ?? "")) continue;
   r.thumbnail_s3_key ??= `thumbnails/${r.id}.png`;
   r.thumbnail_captured_at ??= r.updated_at;
   if (isThemeable(r.mime_type)) {

@@ -28,6 +28,7 @@ import {
   thumbnailBehind,
   THUMBNAIL_SOURCE_LIMIT,
 } from "@/lib/thumbnailSupport";
+import { fixtureTile, resourceTileSVG } from "./data/resourceTile";
 import { catalogHandlers } from "./handlers/catalogs";
 import { apiBrowseHandlers } from "./handlers/apis";
 import { userHandlers } from "./handlers/users";
@@ -1078,6 +1079,38 @@ function resourceBody(resource: { id: string; mime_type: string; filename: strin
     return `# ${resource.display_name}\n\n${resource.description}\n`;
   }
   return `binary contents of ${resource.filename}`;
+}
+
+/**
+ * The tile a fixture resource serves when nothing was captured in this session.
+ *
+ * An image is its own tile, which is what a capture of one is. A document is
+ * drawn from its own content, in the scheme the request asks for. Which of
+ * those a resource gets -- and whether it gets one at all -- is decided in
+ * ./data/resourceTile, the same answer the fixtures record their captures from,
+ * so the route can always answer a capture the library says exists (#1619).
+ */
+function serveResourceTile(
+  resource: Parameters<typeof resourceBody>[0],
+  variant: string | null,
+): HttpResponse<BodyInit> | null {
+  // The bytes the content route serves for this resource, whole: a fixture
+  // with no body of its own falls back to a stub built from its name and
+  // description, and passing blanks in place of those drew a tile holding a
+  // lone "#".
+  const content = resourceBody(resource);
+  const tile = fixtureTile(resource.id, resource.mime_type, content);
+  if (!tile) return null;
+  if (tile.kind === "image") {
+    return new HttpResponse(tile.bytes.slice().buffer as ArrayBuffer, {
+      headers: { "Content-Type": tile.contentType },
+    });
+  }
+  if (tile.kind === "svg") {
+    return new HttpResponse(tile.svg, { headers: { "Content-Type": "image/svg+xml" } });
+  }
+  const svg = resourceTileSVG(resource.mime_type, content, variant === "dark");
+  return svg ? new HttpResponse(svg, { headers: { "Content-Type": "image/svg+xml" } }) : null;
 }
 
 export const handlers = [
@@ -3137,6 +3170,12 @@ export const handlers = [
     const pending = mockResources.resources.filter(
       (r) =>
         isThumbnailSupported(r.mime_type) &&
+        // And one the fixtures can answer for. A family the mock cannot draw
+        // -- an HTML page, which the real capturer renders in an iframe and
+        // rasterizes -- is left off the queue rather than offered forever, so
+        // no page under test rasterizes on the main thread and a capture of the
+        // library is the same picture every run (#1619).
+        fixtureTile(r.id, r.mime_type, mockResources.content[r.id] ?? "") !== null &&
         r.size_bytes <= THUMBNAIL_SOURCE_LIMIT &&
         (behind(r.thumbnail_s3_key, r.thumbnail_captured_at, r.updated_at) ||
           (isThemeable(r.mime_type) &&
@@ -3180,7 +3219,11 @@ export const handlers = [
       return HttpResponse.json({ error: "no thumbnail" }, { status: 404 });
     }
     const variant = new URL(request.url).searchParams.get("variant");
-    return serveThumbnail(id, variant) ?? HttpResponse.json({ error: "no thumbnail" }, { status: 404 });
+    return (
+      serveThumbnail(id, variant) ??
+      serveResourceTile(resource, variant) ??
+      HttpResponse.json({ error: "no thumbnail" }, { status: 404 })
+    );
   }),
 
   // Both variants, which is what the route does: two views of one file, and a
