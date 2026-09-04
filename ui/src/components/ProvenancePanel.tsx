@@ -18,6 +18,10 @@ import type {
 } from "@/api/portal/types";
 import { formatToolName } from "@/lib/formatToolName";
 import { formatDuration } from "@/lib/formatDuration";
+import {
+  PROVENANCE_PAGE_SIZE,
+  useAssetProvenance,
+} from "@/api/portal/hooks/provenance";
 import { LegacyProvenance } from "./provenance/LegacyProvenance";
 import {
   CopyButton,
@@ -28,7 +32,14 @@ import {
 } from "./provenance/parts";
 
 interface Props {
-  provenance: Provenance;
+  /** What the asset read carried. Absent on an asset that recorded nothing. */
+  provenance?: Provenance;
+  /**
+   * The asset these captures belong to. Present, the panel can page the
+   * captures the asset read left out (#1623); absent, it shows what it was
+   * handed and offers no control to load more.
+   */
+  assetId?: string;
   /**
    * Opens the session these calls belong to. The panel shows the calls the
    * asset captured at the moment it was written; the session holds every call
@@ -334,15 +345,23 @@ function CollapsedCapture({
  */
 function EarlierCaptures({
   captures,
+  unloaded,
+  loading,
+  onLoadMore,
   onSelect,
 }: {
   captures: { capture: ProvenanceCapture; index: number }[];
+  /** How many older captures the asset holds that this panel has not read. */
+  unloaded: number;
+  loading: boolean;
+  onLoadMore?: () => void;
   onSelect: (call: ProvenanceCall) => void;
 }) {
   const [open, setOpen] = useState(false);
-  if (captures.length === 0) return null;
+  if (captures.length === 0 && unloaded === 0) return null;
 
-  const label = `${captures.length} earlier ${captures.length === 1 ? "capture" : "captures"}`;
+  const shown = captures.length + unloaded;
+  const label = `${shown} earlier ${shown === 1 ? "capture" : "captures"}`;
   const Chevron = open ? ChevronDown : ChevronRight;
 
   return (
@@ -367,6 +386,24 @@ function EarlierCaptures({
               onSelect={onSelect}
             />
           ))}
+          {unloaded > 0 && onLoadMore && (
+            <Button
+              type="button"
+              variant="link"
+              size="xs"
+              className="px-0"
+              disabled={loading}
+              onClick={onLoadMore}
+            >
+              {loading
+                ? "Loading older captures…"
+                : `Load ${Math.min(unloaded, PROVENANCE_PAGE_SIZE)} older ${
+                    Math.min(unloaded, PROVENANCE_PAGE_SIZE) === 1
+                      ? "capture"
+                      : "captures"
+                  }`}
+            </Button>
+          )}
         </div>
       )}
     </div>
@@ -378,12 +415,88 @@ function countCalls(captures: ProvenanceCapture[]): number {
   return captures.reduce((n, c) => n + (c.calls?.length ?? 0), 0);
 }
 
-export function ProvenancePanel({ provenance, onOpenSession }: Props) {
-  const captures = provenance.captures ?? [];
-  const legacyCalls = provenance.tool_calls ?? [];
-  const [selected, setSelected] = useState<ProvenanceCall | null>(null);
+/**
+ * The captures the panel has in hand and the ones it can still fetch.
+ *
+ * An asset read carries only the newest of an asset's captures, because a
+ * capture is appended on every write and nothing bounds them (#1623). This puts
+ * the ones it carried and the pages a reader has asked for into one
+ * newest-first list, and says how many are still unread.
+ *
+ * The index paired with each capture is its position counting from the oldest
+ * the asset holds. That position does not move when a capture is appended,
+ * whereas a position in the newest-first list shifts by one and would hand a
+ * reader's open disclosure to the capture that took its place.
+ */
+function useCaptureWindow(provenance: Provenance, assetId?: string) {
+  // The older captures are read only when a reader asks for them. Most never
+  // do: the newest capture is what the panel leads with, and the asset read
+  // already carries it.
+  const [wantOlder, setWantOlder] = useState(false);
+  const inline = provenance.captures ?? [];
+  const heldTotal = provenance.captures_total ?? inline.length;
+  const pages = useAssetProvenance(
+    assetId,
+    inline.length,
+    wantOlder && heldTotal > inline.length,
+  );
 
-  if (captures.length === 0) {
+  const inlineBase = heldTotal - inline.length;
+  const fetched = (pages.data?.pages ?? []).flatMap((page) =>
+    page.captures.map((capture, i) => ({
+      capture,
+      index: heldTotal - 1 - (page.offset + i),
+    })),
+  );
+
+  return {
+    inline,
+    heldTotal,
+    // A capture is appended per write, so the last one the asset read carries
+    // is the newest. Everything before it is reversed, which puts the whole
+    // list in newest-first order rather than making a reader scroll to the
+    // current state.
+    earlier: [
+      ...inline
+        .slice(0, -1)
+        .map((capture, index) => ({ capture, index: inlineBase + index }))
+        .reverse(),
+      ...fetched,
+    ],
+    unloaded: Math.max(inlineBase - fetched.length, 0),
+    loadedCalls: countCalls([
+      ...inline,
+      ...fetched.map(({ capture }) => capture),
+    ]),
+    loading: pages.isFetching,
+    loadMore: () => {
+      if (wantOlder) {
+        void pages.fetchNextPage();
+        return;
+      }
+      setWantOlder(true);
+    },
+  };
+}
+
+/** What the panel writes beside its heading: what is loaded, or what it says. */
+function windowLabel(unloaded: number, heldTotal: number, calls: number) {
+  if (unloaded > 0) {
+    return `${heldTotal - unloaded} of ${heldTotal} captures`;
+  }
+  return `${calls} ${calls === 1 ? "call" : "calls"}`;
+}
+
+export function ProvenancePanel({
+  provenance = {},
+  assetId,
+  onOpenSession,
+}: Props) {
+  const [selected, setSelected] = useState<ProvenanceCall | null>(null);
+  const shown = useCaptureWindow(provenance, assetId);
+  const legacyCalls = provenance.tool_calls ?? [];
+
+  if (shown.inline.length === 0) {
     if (legacyCalls.length > 0) {
       return (
         <LegacyProvenance calls={legacyCalls} onOpenSession={onOpenSession} />
@@ -392,22 +505,14 @@ export function ProvenancePanel({ provenance, onOpenSession }: Props) {
     return <NoProvenance onOpenSession={onOpenSession} />;
   }
 
-  const total = countCalls(captures);
-  // A capture is appended per write, so the last one is the newest. The panel
-  // leads with it and reverses the rest, which puts the whole list in
-  // newest-first order rather than making a reader scroll to the current state.
-  const newest = captures[captures.length - 1]!;
-  const earlier = captures
-    .slice(0, -1)
-    .map((capture, index) => ({ capture, index }))
-    .reverse();
+  const newest = shown.inline[shown.inline.length - 1]!;
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-medium">Provenance</h3>
         <span className="text-xs text-muted-foreground">
-          {total} {total === 1 ? "call" : "calls"}
+          {windowLabel(shown.unloaded, shown.heldTotal, shown.loadedCalls)}
         </span>
       </div>
 
@@ -416,7 +521,13 @@ export function ProvenancePanel({ provenance, onOpenSession }: Props) {
         <CaptureCalls capture={newest} onSelect={setSelected} />
       </div>
 
-      <EarlierCaptures captures={earlier} onSelect={setSelected} />
+      <EarlierCaptures
+        captures={shown.earlier}
+        unloaded={shown.unloaded}
+        loading={shown.loading}
+        onLoadMore={assetId ? shown.loadMore : undefined}
+        onSelect={setSelected}
+      />
 
       {onOpenSession && <OpenSessionButton onClick={onOpenSession} />}
 

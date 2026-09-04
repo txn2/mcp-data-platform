@@ -71,6 +71,10 @@ func (*fakeAssets) AppendProvenanceCapture(context.Context, string, portal.Prove
 	return nil
 }
 
+func (*fakeAssets) ListProvenanceCaptures(context.Context, string, int, int) (captures []portal.ProvenanceCapture, total int, err error) {
+	return nil, 0, nil
+}
+
 func (*fakeAssets) SoftDelete(context.Context, string) error { return nil }
 
 // fakeVersionStore models the portal version store: each CreateVersion returns

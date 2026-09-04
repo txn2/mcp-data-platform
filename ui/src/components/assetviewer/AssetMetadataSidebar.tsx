@@ -175,6 +175,7 @@ export function AssetMetadataSidebar({
             */}
             <ProvenancePanel
               key={asset.id}
+              assetId={asset.id}
               provenance={asset.provenance}
               onOpenSession={openSession}
             />

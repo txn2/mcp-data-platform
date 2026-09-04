@@ -243,6 +243,10 @@ func (*memAssets) AppendProvenanceCapture(context.Context, string, portal.Proven
 	return nil
 }
 
+func (*memAssets) ListProvenanceCaptures(context.Context, string, int, int) (captures []portal.ProvenanceCapture, total int, err error) {
+	return nil, 0, nil
+}
+
 func (*memAssets) SoftDelete(context.Context, string) error { return nil }
 
 type memVersions struct {

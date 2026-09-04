@@ -742,6 +742,26 @@ func (s *inMemoryAssetStore) AppendProvenanceCapture(_ context.Context, id strin
 	return nil
 }
 
+// ListProvenanceCaptures models the store contract: a page of the asset's
+// captures newest first, and how many it holds in all.
+func (s *inMemoryAssetStore) ListProvenanceCaptures(_ context.Context, id string, offset, limit int) (captures []portal.ProvenanceCapture, total int, err error) {
+	a, ok := s.assets[id]
+	if !ok || a.DeletedAt != nil {
+		return nil, 0, notFoundError{}
+	}
+	offset, limit = portaldomain.ClampProvenancePage(offset, limit)
+	total = len(a.Provenance.Captures)
+	newestFirst := make([]portal.ProvenanceCapture, 0, total)
+	for i := total - 1; i >= 0; i-- {
+		newestFirst = append(newestFirst, a.Provenance.Captures[i])
+	}
+	if offset >= total {
+		return []portal.ProvenanceCapture{}, total, nil
+	}
+	end := min(offset+limit, total)
+	return newestFirst[offset:end], total, nil
+}
+
 func (s *inMemoryAssetStore) SoftDelete(_ context.Context, id string) error {
 	a, ok := s.assets[id]
 	if !ok || a.DeletedAt != nil {

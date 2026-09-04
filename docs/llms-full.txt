@@ -2937,7 +2937,21 @@ The other thing that names a call is a capturing call's own record of itself. `t
 
 The portal's asset page groups provenance by capture: which version each capture produced, whether the agent named the sources itself, and one card per call showing kind, tool, connection, stated purpose, duration, and whether it failed. A call named as a source inside a capture the caller did not name wholesale is badged `Source`, which is how an export's own statement is told apart from the session's work around it. Opening a call shows the full statement or request, its outcome, and its `mcp:call:` reference, both copyable. The panel also links to the session the calls belong to, which holds everything that session did before and after the write.
 
-The panel leads with the newest capture expanded and puts every earlier one behind a single disclosure that names how many there are, each opening on its own. One capture is written per content write, so an asset a scheduled script refreshes hourly accumulates one an hour and rendering them all expanded made the sidebar as long as the asset's history. The call count in the panel header covers every capture, opened or not.
+The panel leads with the newest capture expanded and puts every earlier one behind a single disclosure that names how many there are, each opening on its own. One capture is written per content write, so an asset a scheduled script refreshes hourly accumulates one an hour and rendering them all expanded made the sidebar as long as the asset's history. Opening the page reads the newest twenty captures; the disclosure counts every capture the asset holds and carries a control that loads the next twenty at a time.
+
+## What each read carries
+
+A capture is appended on every write and nothing removes one while the version it describes is kept, so an asset refreshed on a schedule accumulates them without bound. Reads are shaped around that.
+
+A listing carries a summary, never the captures. `manage_asset action=list` and `action=search`, `GET /api/v1/portal/assets`, `GET /api/v1/admin/assets`, `GET /api/v1/portal/assets/search` and `GET /api/v1/portal/shared-with-me` return `provenance_summary` on each row and no `provenance`: `captures` (how many the asset holds), `calls` (how many calls they record between them), `first_captured_at` and `last_captured_at`, `last_tool`, and `last_session_id`.
+
+A single asset read carries the newest 20 captures. `manage_asset action=get`, `GET /api/v1/portal/assets/{id}` and `GET /api/v1/admin/assets/{id}` return `provenance.captures` holding the newest twenty in the order they were written, alongside `provenance.captures_total` saying how many the asset holds. An asset with twenty or fewer reads exactly as it always has, with no `captures_total`.
+
+The rest are read a page at a time, newest first: `manage_asset action=provenance` with `asset_id`, `offset` and `limit` (default 20, maximum 100), and the routes `GET /api/v1/portal/assets/{id}/provenance` and `GET /api/v1/admin/assets/{id}/provenance` with the same two query parameters. A page carries `captures`, `total`, `offset` and `limit`; `offset` counts back from the newest capture, so `offset=20` is the page after the one a `get` carries. The page is authorized exactly as the asset is.
+
+## What is kept
+
+A capture belongs to the version it produced. When version retention removes a version, the same transaction removes its capture, so `list_versions` and `captures_total` agree on what the asset still says about itself. Two captures are kept whatever the cap: the one that produced version 1, which is where the asset came from, and any capture taken before the platform recorded which version it produced. An asset keeping every version (`max_versions: 0`) keeps every capture, and the bounded reads above are what keep it readable. On startup a deployment trims the captures that outlived their versions on assets written before this rule existed, logging what it removed per asset; it is a pass rather than a migration because the cap it applies depends on the deployment's `portal.max_versions`.
 
 ## Limits
 

@@ -17,10 +17,12 @@ var _ portaldomain.AssetSearcher = (*postgresAssetStore)(nil)
 
 // assetSearchColumns is the column list every ranked-search SELECT reads, in
 // assetScanDest order so the scan cannot drift from the query. It matches the
-// list-path projection (queryAssets) plus the COALESCE on idempotency_key.
-const assetSearchColumns = `id, owner_id, owner_email, name, description, content_type, ` +
+// list-path projection (queryAssets) plus the COALESCE on idempotency_key,
+// which includes reading the provenance summary rather than the provenance
+// itself: a ranked search is a listing and is bounded like one (#1623).
+var assetSearchColumns = `id, owner_id, owner_email, name, description, content_type, ` +
 	`s3_bucket, s3_key, thumbnail_s3_key, thumbnail_dark_s3_key, thumbnail_version, thumbnail_dark_version, ` +
-	`size_bytes, tags, provenance, session_id, ` +
+	`size_bytes, tags, ` + provenanceSummaryExpr("provenance") + `, session_id, ` +
 	`current_version, created_at, updated_at, deleted_at, COALESCE(idempotency_key, ''), max_versions`
 
 // assetFTSExpr is the full-text expression the lexical arm matches and ranks
@@ -140,18 +142,18 @@ func collectHybridAssets(rows *sql.Rows, limit int) ([]portaldomain.ScoredAsset,
 	byID := make(map[string]portaldomain.ScoredAsset)
 	for rows.Next() {
 		var (
-			asset       portaldomain.Asset
-			tags, prov  []byte
-			deletedAt   sql.NullTime
-			maxVersions sql.NullInt64
-			vecScore    float64
-			lexMatch    bool
+			asset         portaldomain.Asset
+			tags, summary []byte
+			deletedAt     sql.NullTime
+			maxVersions   sql.NullInt64
+			vecScore      float64
+			lexMatch      bool
 		)
-		dest := append(assetScanDest(&asset, &tags, &prov, &deletedAt, &maxVersions), &vecScore, &lexMatch)
+		dest := append(assetScanDest(&asset, &tags, &summary, &deletedAt, &maxVersions), &vecScore, &lexMatch)
 		if err := rows.Scan(dest...); err != nil {
 			return nil, fmt.Errorf("scanning hybrid asset row: %w", err)
 		}
-		if err := finishScannedAsset(&asset, tags, prov, deletedAt, maxVersions); err != nil {
+		if err := finishScannedListAsset(&asset, tags, summary, deletedAt, maxVersions); err != nil {
 			return nil, err
 		}
 		score := fuseHybridScore(vecScore, lexMatch)
@@ -278,17 +280,17 @@ func (s *postgresAssetStore) searchAssetsLexical(ctx context.Context, q portaldo
 	var scored []portaldomain.ScoredAsset
 	for rows.Next() {
 		var (
-			asset       portaldomain.Asset
-			tags, prov  []byte
-			deletedAt   sql.NullTime
-			maxVersions sql.NullInt64
-			lexRank     float64
+			asset         portaldomain.Asset
+			tags, summary []byte
+			deletedAt     sql.NullTime
+			maxVersions   sql.NullInt64
+			lexRank       float64
 		)
-		dest := append(assetScanDest(&asset, &tags, &prov, &deletedAt, &maxVersions), &lexRank)
+		dest := append(assetScanDest(&asset, &tags, &summary, &deletedAt, &maxVersions), &lexRank)
 		if err := rows.Scan(dest...); err != nil {
 			return nil, fmt.Errorf("scanning lexical asset row: %w", err)
 		}
-		if err := finishScannedAsset(&asset, tags, prov, deletedAt, maxVersions); err != nil {
+		if err := finishScannedListAsset(&asset, tags, summary, deletedAt, maxVersions); err != nil {
 			return nil, err
 		}
 		scored = append(scored, portaldomain.ScoredAsset{Asset: asset, Score: lexRank})

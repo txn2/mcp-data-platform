@@ -12,8 +12,18 @@ export interface Provenance {
   /**
    * One entry per time the asset was written, each naming the calls that fed
    * that write. This is the live shape (#1320).
+   *
+   * A single asset read carries only the newest of them, oldest of those
+   * first, because nothing bounds how many an asset refreshed on a schedule
+   * accumulates (#1623). `captures_total` says how many the asset holds, and
+   * the rest are read a page at a time.
    */
   captures?: ProvenanceCapture[];
+  /**
+   * How many captures the asset holds, present only when `captures` carries
+   * fewer than that.
+   */
+  captures_total?: number;
   /** What assets saved before #1320 carry. Nothing writes it any more. */
   tool_calls?: ProvenanceToolCall[];
   session_id?: string;
@@ -80,4 +90,18 @@ export interface ProvenanceToolCall {
   tool_name: string;
   timestamp: string;
   parameters?: Record<string, unknown>;
+}
+
+/**
+ * What a listing row says about an asset's provenance (#1623). A listing never
+ * carries the captures themselves: they grow by one per write, and a library of
+ * fifty assets carrying them was a megabyte of JSON.
+ */
+export interface ProvenanceSummary {
+  captures: number;
+  calls: number;
+  first_captured_at?: string;
+  last_captured_at?: string;
+  last_tool?: string;
+  last_session_id?: string;
 }

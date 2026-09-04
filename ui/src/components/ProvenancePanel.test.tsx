@@ -1,7 +1,21 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent, within } from "@testing-library/react";
-import type { Provenance } from "@/api/portal/types";
+import {
+  render as rtlRender,
+  screen,
+  cleanup,
+  fireEvent,
+  within,
+} from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { Provenance, ProvenanceCapture } from "@/api/portal/types";
 import { ProvenancePanel } from "./ProvenancePanel";
+
+// The panel can page the captures an asset read leaves out (#1623), so it
+// reads through a query client even where the fixture carries every capture.
+function render(ui: React.ReactElement) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return rtlRender(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>);
+}
 
 // The panel answers "what produced this, and what was it for". Since #1320
 // that answer is grouped by capture — one per write — and each call carries
@@ -126,6 +140,25 @@ afterEach(cleanup);
 /** Open the disclosure the earlier captures sit behind. */
 function openEarlier(label: string) {
   fireEvent.click(screen.getByRole("button", { name: label }));
+}
+
+/** One capture of one version, as the API sends it. */
+function capture(version: number): ProvenanceCapture {
+  return {
+    tool: "manage_asset",
+    captured_at: "2026-08-16T10:00:00Z",
+    version,
+    calls: [
+      {
+        event_id: `evt-${version}`,
+        kind: "sql" as const,
+        tool: "trino_query",
+        statement: `SELECT ${version}`,
+        outcome: "success" as const,
+        timestamp: "2026-08-16T10:00:00Z",
+      },
+    ],
+  };
 }
 
 /** Open one earlier capture, by the version it produced. */
@@ -389,5 +422,72 @@ describe("ProvenancePanel", () => {
     expect(
       screen.getByText("No provenance data available."),
     ).toBeInTheDocument();
+  });
+
+  // A capture is appended on every write and nothing bounded them, so the asset
+  // read that carried all of them was a megabyte on a dashboard a script
+  // refreshes hourly (#1623). The read now carries the newest twenty and says
+  // how many the asset holds; the panel loads the rest a page at a time.
+  describe("older captures", () => {
+    const bounded: Provenance = {
+      captures_total: 45,
+      captures: Array.from({ length: 20 }, (_, i) => capture(26 + i)),
+    };
+
+    it("counts what the asset holds, not what it was handed", () => {
+      render(<ProvenancePanel provenance={bounded} assetId="a1" />);
+      expect(screen.getByText("20 of 45 captures")).toBeInTheDocument();
+    });
+
+    it("loads a page of older captures when a reader asks", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            captures: Array.from({ length: 20 }, (_, i) => capture(25 - i)),
+            total: 45,
+            offset: 20,
+            limit: 20,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      render(<ProvenancePanel provenance={bounded} assetId="a1" />);
+      openEarlier("44 earlier captures");
+
+      // Nothing was fetched to render the panel: the captures the asset read
+      // carried are what most readers ever look at.
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByRole("button", { name: /Load 20 older/ }));
+      await screen.findByRole("button", { name: /Version 25/ });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+        "/assets/a1/provenance?offset=20&limit=20",
+      );
+
+      // The page picks up exactly where the asset read stopped: no overlap with
+      // version 26 and no gap before it.
+      const headings = screen.getAllByRole("button", { name: /Version \d+/ });
+      expect(headings[0]).toHaveAccessibleName(/Version 44/);
+      expect(headings[18]).toHaveAccessibleName(/Version 26/);
+      expect(headings[19]).toHaveAccessibleName(/Version 25/);
+      expect(screen.getByText("40 of 45 captures")).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /Load 5 older/ }),
+      ).toBeInTheDocument();
+    });
+
+    // Without an asset to ask about there is nowhere to load from, so the panel
+    // offers no control it cannot honour.
+    it("offers no control when it has no asset to page", () => {
+      render(<ProvenancePanel provenance={bounded} />);
+      openEarlier("44 earlier captures");
+      expect(
+        screen.queryByRole("button", { name: /Load .* older/ }),
+      ).not.toBeInTheDocument();
+    });
   });
 });

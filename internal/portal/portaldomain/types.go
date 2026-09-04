@@ -63,14 +63,24 @@ type Asset struct {
 	// The two variants are stamped independently because they are captured and
 	// uploaded independently, and a pass that lands one and throws on the other
 	// leaves exactly that state.
-	ThumbnailVersion     int        `json:"thumbnail_version" example:"3"`
-	ThumbnailDarkVersion int        `json:"thumbnail_dark_version" example:"3"`
-	SizeBytes            int64      `json:"size_bytes" example:"4200"`
-	Tags                 []string   `json:"tags"`
-	Provenance           Provenance `json:"provenance"`
-	SessionID            string     `json:"session_id,omitempty" example:"sess_abc123"`
-	IdempotencyKey       string     `json:"idempotency_key,omitempty" example:"export-2026-04-18-abc123"`
-	CurrentVersion       int        `json:"current_version" example:"1"`
+	ThumbnailVersion     int      `json:"thumbnail_version" example:"3"`
+	ThumbnailDarkVersion int      `json:"thumbnail_dark_version" example:"3"`
+	SizeBytes            int64    `json:"size_bytes" example:"4200"`
+	Tags                 []string `json:"tags"`
+	// Provenance is the asset's record of what produced it. A listing never
+	// carries it -- it grows by one capture per write and is unbounded, and
+	// carrying it made a library of 52 assets a megabyte of JSON (#1623). A
+	// listing row carries ProvenanceSummary instead, and a single asset read
+	// carries the newest ProvenanceCapturesInline captures with CapturesTotal
+	// set; the rest are read a page at a time.
+	Provenance Provenance `json:"provenance,omitzero"`
+	// ProvenanceSummary describes the provenance of a listing row without
+	// carrying it. Nil on a single asset read, where Provenance is what the
+	// reader gets.
+	ProvenanceSummary *ProvenanceSummary `json:"provenance_summary,omitempty"`
+	SessionID         string             `json:"session_id,omitempty" example:"sess_abc123"`
+	IdempotencyKey    string             `json:"idempotency_key,omitempty" example:"export-2026-04-18-abc123"`
+	CurrentVersion    int                `json:"current_version" example:"1"`
 	// MaxVersions is the asset's own version-retention cap. Nil means the
 	// asset has no opinion and inherits the deployment's portal.max_versions;
 	// 0 means it keeps every version; N means it keeps the newest N. See
@@ -128,13 +138,88 @@ func ResolveContentType(declared string, content []byte) string {
 type Provenance struct {
 	Captures  []ProvenanceCapture  `json:"captures,omitempty"`
 	ToolCalls []ProvenanceToolCall `json:"tool_calls,omitempty"`
-	SessionID string               `json:"session_id,omitempty" example:"sess_abc123"`
-	UserID    string               `json:"user_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000"`
+	// CapturesTotal is how many captures the asset holds when Captures carries
+	// only the newest of them (#1623). It is served, never stored: a read that
+	// bounds the captures sets it, and the storage layer clears it before the
+	// provenance is written back so a bound taken for one reader cannot be
+	// persisted as the asset's own record.
+	CapturesTotal int    `json:"captures_total,omitempty" example:"333"`
+	SessionID     string `json:"session_id,omitempty" example:"sess_abc123"`
+	UserID        string `json:"user_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000"`
 	// DeclaredContentType is the media type the writer declared, recorded only
 	// when detection replaced it. It is the audit trail for a reclassified
 	// asset: it answers "what did the upstream actually say" without which a
 	// stored type that disagrees with the source is unexplainable.
 	DeclaredContentType string `json:"declared_content_type,omitempty" example:"text/plain"`
+}
+
+// ProvenanceSummary describes an asset's provenance without carrying any of
+// it. It is what every listing returns in place of the captures (#1623): a
+// capture is appended on each write and nothing bounded them, so a dashboard a
+// scheduled script refreshes hourly carried hundreds, and the listing that
+// named it was larger than the asset itself.
+type ProvenanceSummary struct {
+	// Captures is how many captures the asset holds.
+	Captures int `json:"captures" example:"329"`
+	// Calls is how many calls those captures record between them.
+	Calls int `json:"calls" example:"658"`
+	// FirstCapturedAt and LastCapturedAt bound the recorded history. Nil on an
+	// asset whose captures carry no timestamp.
+	FirstCapturedAt *time.Time `json:"first_captured_at,omitempty"`
+	LastCapturedAt  *time.Time `json:"last_captured_at,omitempty"`
+	// LastTool and LastSessionID name the newest capture's writer, which is
+	// what a listing row would otherwise be read for.
+	LastTool      string `json:"last_tool,omitempty" example:"manage_asset"`
+	LastSessionID string `json:"last_session_id,omitempty" example:"dps_abc123"`
+}
+
+// Provenance paging bounds (#1623).
+const (
+	// ProvenanceCapturesInline is how many of the newest captures a single
+	// asset read carries. The rest are read through the asset's provenance
+	// page, newest first.
+	ProvenanceCapturesInline = 20
+	// DefaultProvenancePageSize and MaxProvenancePageSize bound one page of
+	// that read.
+	DefaultProvenancePageSize = 20
+	MaxProvenancePageSize     = 100
+)
+
+// BoundedProvenance returns p carrying at most n of its newest captures, with
+// CapturesTotal set to how many it holds in full. The captures kept stay in
+// the order they were written, so a reader that takes the last one as the
+// newest is unaffected by the bound; an asset holding n or fewer reads exactly
+// as it did before the bound existed.
+//
+// n <= 0 keeps no captures and still reports the total, which is what a reader
+// that only wants the count asks for.
+func BoundedProvenance(p Provenance, n int) Provenance {
+	total := len(p.Captures)
+	if n < 0 {
+		n = 0
+	}
+	if total <= n {
+		return p
+	}
+	p.CapturesTotal = total
+	p.Captures = p.Captures[total-n:]
+	return p
+}
+
+// ClampProvenancePage normalizes an offset/limit pair from a request into the
+// page the store will serve.
+func ClampProvenancePage(reqOffset, reqLimit int) (offset, limit int) {
+	offset, limit = reqOffset, reqLimit
+	if offset < 0 {
+		offset = 0
+	}
+	switch {
+	case limit <= 0:
+		limit = DefaultProvenancePageSize
+	case limit > MaxProvenancePageSize:
+		limit = MaxProvenancePageSize
+	}
+	return offset, limit
 }
 
 // ProvenanceToolCall records a single tool invocation in the provenance chain.

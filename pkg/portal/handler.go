@@ -452,6 +452,7 @@ func (h *Handler) registerRoutes() {
 	}
 	h.mux.HandleFunc("POST /api/v1/portal/assets", h.createAsset)
 	h.mux.HandleFunc("GET /api/v1/portal/assets/{id}", h.getAsset)
+	h.mux.HandleFunc("GET /api/v1/portal/assets/{id}/provenance", h.listAssetProvenance)
 	h.mux.HandleFunc("GET /api/v1/portal/assets/{id}/content", h.getAssetContent)
 	h.mux.HandleFunc("PUT /api/v1/portal/assets/{id}/content", h.updateAssetContent)
 	h.mux.HandleFunc("PUT /api/v1/portal/assets/{id}/thumbnail", h.uploadThumbnail)
@@ -769,6 +770,11 @@ func (h *Handler) getAsset(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusGone, errAssetDeleted)
 		return
 	}
+
+	// The captures are bounded here rather than in the store, which every
+	// internal reader shares: a copy and an export adapter carry the asset's
+	// whole provenance forward, and only what goes over the wire is cut (#1623).
+	asset.Provenance = portaldomain.BoundedProvenance(asset.Provenance, portaldomain.ProvenanceCapturesInline)
 
 	resp := assetResponse{Asset: *asset, IsOwner: access.OwnsAsset(asset, user)}
 
@@ -2782,6 +2788,11 @@ func (h *Handler) copyAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.copyRefs(r.Context(), asset.ID, newAsset.ID, user)
+
+	// The copy carries the source's whole provenance into its own row, which is
+	// the point -- what the content was built from did not change. What goes
+	// back over the wire is bounded like every other single asset read (#1623).
+	newAsset.Provenance = portaldomain.BoundedProvenance(newAsset.Provenance, portaldomain.ProvenanceCapturesInline)
 
 	writeJSON(w, http.StatusCreated, newAsset)
 }

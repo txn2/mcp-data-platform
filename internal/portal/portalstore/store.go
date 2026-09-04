@@ -90,7 +90,13 @@ func (s *postgresAssetStore) Insert(ctx context.Context, asset portaldomain.Asse
 	if err != nil {
 		return fmt.Errorf("marshaling tags: %w", err)
 	}
-	prov, err := json.Marshal(asset.Provenance)
+	// CapturesTotal is set by a read that bounded the captures it returned, and
+	// an asset built from such a read (a copy, an export adapter) carries it.
+	// It describes a response, not the row, and is cleared before the write so
+	// it cannot be stored as part of the asset's own provenance (#1623).
+	stored := asset.Provenance
+	stored.CapturesTotal = 0
+	prov, err := json.Marshal(stored)
 	if err != nil {
 		return fmt.Errorf("marshaling provenance: %w", err)
 	}
@@ -266,7 +272,7 @@ func buildAssetSelect(filter portaldomain.AssetFilter) (query string, args []any
 	qb := applyAssetFilter(psq.Select(
 		"id", "owner_id", "owner_email", "name", "description", "content_type", "s3_bucket", "s3_key",
 		"thumbnail_s3_key", "thumbnail_dark_s3_key", "thumbnail_version", "thumbnail_dark_version",
-		"size_bytes", "tags", "provenance", "session_id", "current_version",
+		"size_bytes", "tags", provenanceSummaryExpr("provenance"), "session_id", "current_version",
 		"created_at", "updated_at", "deleted_at", "COALESCE(idempotency_key, '')", "max_versions",
 	).From("portal_assets"), filter).
 		Where("deleted_at IS NULL").
@@ -373,6 +379,44 @@ func (s *postgresAssetStore) populateCollections(ctx context.Context, assets []p
 	return nil
 }
 
+// capturesArrayExpr renders the asset's captures as an array whatever the
+// column holds. A row whose provenance is JSON null, or whose captures key is
+// absent (every asset saved before #1320 carries tool_calls and no captures),
+// reads as the empty array rather than as SQL NULL, so the expressions built
+// on it answer with zeros instead of nothing.
+func capturesArrayExpr(col string) string {
+	return `CASE WHEN jsonb_typeof(` + col + ` -> 'captures') = 'array'
+			THEN ` + col + ` -> 'captures' ELSE '[]'::jsonb END`
+}
+
+// provenanceSummaryExpr renders a listing row's provenance summary: how many
+// captures the asset holds, how many calls they record between them, when the
+// first and last were taken, and who took the last one.
+//
+// It replaces the provenance column in every listing projection (#1623).
+// Nothing bounds how many captures an asset accumulates -- one is appended per
+// content write, so an asset a scheduled script refreshes hourly gains one an
+// hour -- and a listing that carried them was larger than the assets it named.
+// The summary is computed rather than materialized so it cannot drift from the
+// column it describes: there is no second copy to maintain across the append,
+// the prune, and the sweep that trims history.
+func provenanceSummaryExpr(col string) string {
+	captures := capturesArrayExpr(col)
+	return `jsonb_build_object(
+			'captures', jsonb_array_length(` + captures + `),
+			'calls', (
+				SELECT COALESCE(SUM(jsonb_array_length(
+					CASE WHEN jsonb_typeof(c -> 'calls') = 'array' THEN c -> 'calls' ELSE '[]'::jsonb END
+				)), 0)
+				FROM jsonb_array_elements(` + captures + `) AS c
+			),
+			'first_captured_at', (` + captures + `) -> 0 ->> 'captured_at',
+			'last_captured_at', (` + captures + `) -> -1 ->> 'captured_at',
+			'last_tool', (` + captures + `) -> -1 ->> 'tool',
+			'last_session_id', (` + captures + `) -> -1 ->> 'session_id'
+		)`
+}
+
 // appendProvenanceCaptureSQL appends one capture to portal_assets.provenance.
 //
 // The append is done in the statement rather than read-modify-write in Go so
@@ -413,6 +457,56 @@ func (s *postgresAssetStore) AppendProvenanceCapture(ctx context.Context, id str
 		return fmt.Errorf("asset not found or deleted: %s", id)
 	}
 	return nil
+}
+
+// listProvenanceCapturesSQL reads one page of an asset's captures, newest
+// first, alongside how many the asset holds.
+//
+// The page is cut in the statement rather than by loading the array into Go:
+// the read exists because an asset's captures grow without bound (#1623), so
+// the one thing it must not do is materialize all of them to return twenty.
+// WITH ORDINALITY carries each capture's position in the stored array, which
+// is the write order, so ordering by it descending is newest first.
+const listProvenanceCapturesSQL = `
+	WITH src AS (
+		SELECT CASE WHEN jsonb_typeof(provenance -> 'captures') = 'array'
+			THEN provenance -> 'captures' ELSE '[]'::jsonb END AS captures
+		FROM portal_assets
+		WHERE id = $1 AND deleted_at IS NULL
+	)
+	SELECT jsonb_array_length(src.captures),
+	       COALESCE((
+	           SELECT jsonb_agg(page.capture ORDER BY page.ord DESC)
+	           FROM (
+	               SELECT c.capture, c.ord
+	               FROM jsonb_array_elements(src.captures) WITH ORDINALITY AS c(capture, ord)
+	               ORDER BY c.ord DESC
+	               OFFSET $2 LIMIT $3
+	           ) AS page
+	       ), '[]'::jsonb)
+	FROM src
+`
+
+// ListProvenanceCaptures returns one page of an asset's captures, newest
+// first, and how many the asset holds in total.
+func (s *postgresAssetStore) ListProvenanceCaptures(ctx context.Context, id string, offset, limit int) ([]portaldomain.ProvenanceCapture, int, error) { //nolint:revive // interface impl
+	offset, limit = portaldomain.ClampProvenancePage(offset, limit)
+
+	var total int
+	var page []byte
+	err := s.db.QueryRowContext(ctx, listProvenanceCapturesSQL, id, offset, limit).Scan(&total, &page)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, 0, fmt.Errorf("asset not found or deleted: %s", id)
+	}
+	if err != nil {
+		return nil, 0, fmt.Errorf("reading provenance captures: %w", err)
+	}
+
+	captures := []portaldomain.ProvenanceCapture{}
+	if err := json.Unmarshal(page, &captures); err != nil {
+		return nil, 0, fmt.Errorf("unmarshaling provenance captures: %w", err)
+	}
+	return captures, total, nil
 }
 
 func (s *postgresAssetStore) Update(ctx context.Context, id string, updates portaldomain.AssetUpdate) error { //nolint:revive // interface impl
@@ -861,6 +955,30 @@ func (s *postgresShareStore) listShares(ctx context.Context, query, id string) (
 	return shares, nil
 }
 
+// buildSharedWithUserSelect renders the page statement behind the
+// shared-with-me listing. It is a function because the projection carries the
+// provenance summary, which is assembled rather than written down (#1623), so
+// nothing in the source reaches the statement otherwise -- SQLSamples renders
+// it for the gate that hands store SQL to a real PostgreSQL (#1512).
+func buildSharedWithUserSelect() string {
+	return `
+		SELECT pa.id, pa.owner_id, pa.owner_email, pa.name, pa.description, pa.content_type,
+		       pa.s3_bucket, pa.s3_key, pa.thumbnail_s3_key, pa.thumbnail_dark_s3_key,
+		       pa.thumbnail_version, pa.thumbnail_dark_version, pa.size_bytes, pa.tags, ` +
+		provenanceSummaryExpr("pa.provenance") + `,
+		       pa.session_id, pa.current_version, pa.created_at, pa.updated_at, pa.deleted_at,
+		       COALESCE(pa.idempotency_key, ''),
+		       ps.id, COALESCE(NULLIF(pa.owner_email, ''), ps.created_by), ps.created_at, ps.permission
+		FROM portal_shares ps
+		JOIN portal_assets pa ON ps.asset_id = pa.id
+		WHERE (ps.shared_with_user_id = $1 OR ($2 != '' AND LOWER(ps.shared_with_email) = LOWER($2)))
+		  AND ps.revoked = FALSE AND pa.deleted_at IS NULL
+		  AND (ps.expires_at IS NULL OR ps.expires_at > NOW())
+		ORDER BY ps.created_at DESC
+		LIMIT $3 OFFSET $4
+	`
+}
+
 func (s *postgresShareStore) ListSharedWithUser(ctx context.Context, userID, email string, limit, offset int) ([]portaldomain.SharedAsset, int, error) { //nolint:revive // interface impl
 	countQuery := `
 		SELECT COUNT(*)
@@ -882,23 +1000,7 @@ func (s *postgresShareStore) ListSharedWithUser(ctx context.Context, userID, ema
 		limit = portaldomain.MaxLimit
 	}
 
-	selectQuery := `
-		SELECT pa.id, pa.owner_id, pa.owner_email, pa.name, pa.description, pa.content_type,
-		       pa.s3_bucket, pa.s3_key, pa.thumbnail_s3_key, pa.thumbnail_dark_s3_key,
-		       pa.thumbnail_version, pa.thumbnail_dark_version, pa.size_bytes, pa.tags, pa.provenance,
-		       pa.session_id, pa.current_version, pa.created_at, pa.updated_at, pa.deleted_at,
-		       COALESCE(pa.idempotency_key, ''),
-		       ps.id, COALESCE(NULLIF(pa.owner_email, ''), ps.created_by), ps.created_at, ps.permission
-		FROM portal_shares ps
-		JOIN portal_assets pa ON ps.asset_id = pa.id
-		WHERE (ps.shared_with_user_id = $1 OR ($2 != '' AND LOWER(ps.shared_with_email) = LOWER($2)))
-		  AND ps.revoked = FALSE AND pa.deleted_at IS NULL
-		  AND (ps.expires_at IS NULL OR ps.expires_at > NOW())
-		ORDER BY ps.created_at DESC
-		LIMIT $3 OFFSET $4
-	`
-
-	rows, err := s.db.QueryContext(ctx, selectQuery, userID, email, limit, offset) //nolint:gosec // query is a constant with parameterized placeholders
+	rows, err := s.db.QueryContext(ctx, buildSharedWithUserSelect(), userID, email, limit, offset) //nolint:gosec // assembled from constants with parameterized placeholders
 	if err != nil {
 		return nil, 0, fmt.Errorf("querying shared assets: %w", err)
 	}
@@ -907,14 +1009,14 @@ func (s *postgresShareStore) ListSharedWithUser(ctx context.Context, userID, ema
 	var results []portaldomain.SharedAsset
 	for rows.Next() {
 		var sa portaldomain.SharedAsset
-		var tags, prov []byte
+		var tags, summary []byte
 		var deletedAt sql.NullTime
 
 		if err := rows.Scan(
 			&sa.Asset.ID, &sa.Asset.OwnerID, &sa.Asset.OwnerEmail, &sa.Asset.Name, &sa.Asset.Description,
 			&sa.Asset.ContentType, &sa.Asset.S3Bucket, &sa.Asset.S3Key, &sa.Asset.ThumbnailS3Key, &sa.Asset.ThumbnailDarkS3Key,
 			&sa.Asset.ThumbnailVersion, &sa.Asset.ThumbnailDarkVersion, &sa.Asset.SizeBytes,
-			&tags, &prov, &sa.Asset.SessionID, &sa.Asset.CurrentVersion,
+			&tags, &summary, &sa.Asset.SessionID, &sa.Asset.CurrentVersion,
 			&sa.Asset.CreatedAt, &sa.Asset.UpdatedAt, &deletedAt, &sa.Asset.IdempotencyKey,
 			&sa.ShareID, &sa.SharedBy, &sa.SharedAt, &sa.Permission,
 		); err != nil {
@@ -924,7 +1026,7 @@ func (s *postgresShareStore) ListSharedWithUser(ctx context.Context, userID, ema
 		if deletedAt.Valid {
 			sa.Asset.DeletedAt = &deletedAt.Time
 		}
-		if err := unmarshalAssetJSON(&sa.Asset, tags, prov); err != nil {
+		if err := unmarshalAssetSummaryJSON(&sa.Asset, tags, summary); err != nil {
 			return nil, 0, err
 		}
 		results = append(results, sa)
@@ -1151,6 +1253,30 @@ func (s *postgresShareStore) scanShare(ctx context.Context, query string, args .
 // --- Helpers ---
 
 func unmarshalAssetJSON(asset *portaldomain.Asset, tags, prov []byte) error {
+	if err := unmarshalAssetTags(asset, tags); err != nil {
+		return err
+	}
+	if err := json.Unmarshal(prov, &asset.Provenance); err != nil {
+		return fmt.Errorf("unmarshaling provenance: %w", err)
+	}
+	return nil
+}
+
+// unmarshalAssetSummaryJSON fills a listing row, whose projection carries the
+// provenance summary in place of the provenance itself (#1623).
+func unmarshalAssetSummaryJSON(asset *portaldomain.Asset, tags, summary []byte) error {
+	if err := unmarshalAssetTags(asset, tags); err != nil {
+		return err
+	}
+	var s portaldomain.ProvenanceSummary
+	if err := json.Unmarshal(summary, &s); err != nil {
+		return fmt.Errorf("unmarshaling provenance summary: %w", err)
+	}
+	asset.ProvenanceSummary = &s
+	return nil
+}
+
+func unmarshalAssetTags(asset *portaldomain.Asset, tags []byte) error {
 	if err := json.Unmarshal(tags, &asset.Tags); err != nil {
 		return fmt.Errorf("unmarshaling tags: %w", err)
 	}
@@ -1159,9 +1285,6 @@ func unmarshalAssetJSON(asset *portaldomain.Asset, tags, prov []byte) error {
 	// portal API so the JSON response is `[]`, never `null`.
 	if asset.Tags == nil {
 		asset.Tags = []string{}
-	}
-	if err := json.Unmarshal(prov, &asset.Provenance); err != nil {
-		return fmt.Errorf("unmarshaling provenance: %w", err)
 	}
 	return nil
 }
@@ -1349,9 +1472,14 @@ func variantPendingPredicate(variant string) sq.Sqlizer {
 }
 
 // assetScanDest returns the scan destinations for one asset row in the column
-// order shared by the list query (queryAssets) and the ranked-search queries
-// (which append their score columns). It is the single definition of that order,
-// so the scan cannot drift from the projection across call sites.
+// order shared by the point reads, the list query (queryAssets) and the
+// ranked-search queries (which append their score columns). It is the single
+// definition of that order, so the scan cannot drift from the projection across
+// call sites.
+//
+// The provenance destination takes whichever JSON that projection put there:
+// the provenance column for a point read, the summary built over it for a
+// listing (#1623). Which one a caller scanned is what picks the finisher.
 func assetScanDest(a *portaldomain.Asset, tags, prov *[]byte, deletedAt *sql.NullTime, maxVersions *sql.NullInt64) []any {
 	return []any{
 		&a.ID, &a.OwnerID, &a.OwnerEmail, &a.Name, &a.Description,
@@ -1363,9 +1491,22 @@ func assetScanDest(a *portaldomain.Asset, tags, prov *[]byte, deletedAt *sql.Nul
 }
 
 // finishScannedAsset applies the nullable deleted_at and unmarshals the tags +
-// provenance JSON for a freshly scanned asset. Shared by scanAssetRow and the
-// ranked-search scanners.
+// provenance JSON for a freshly scanned asset. Used by the point reads, whose
+// projection carries the provenance column itself.
 func finishScannedAsset(asset *portaldomain.Asset, tags, prov []byte, deletedAt sql.NullTime, maxVersions sql.NullInt64) error {
+	applyScannedNullables(asset, deletedAt, maxVersions)
+	return unmarshalAssetJSON(asset, tags, prov)
+}
+
+// finishScannedListAsset does the same for a listing row, whose projection
+// carries the provenance summary in that column's place (#1623). Shared by
+// scanAssetRow and the ranked-search scanners.
+func finishScannedListAsset(asset *portaldomain.Asset, tags, summary []byte, deletedAt sql.NullTime, maxVersions sql.NullInt64) error {
+	applyScannedNullables(asset, deletedAt, maxVersions)
+	return unmarshalAssetSummaryJSON(asset, tags, summary)
+}
+
+func applyScannedNullables(asset *portaldomain.Asset, deletedAt sql.NullTime, maxVersions sql.NullInt64) {
 	if deletedAt.Valid {
 		asset.DeletedAt = &deletedAt.Time
 	}
@@ -1373,19 +1514,18 @@ func finishScannedAsset(asset *portaldomain.Asset, tags, prov []byte, deletedAt 
 		n := int(maxVersions.Int64)
 		asset.MaxVersions = &n
 	}
-	return unmarshalAssetJSON(asset, tags, prov)
 }
 
 func scanAssetRow(rows *sql.Rows) (portaldomain.Asset, error) {
 	var asset portaldomain.Asset
-	var tags, prov []byte
+	var tags, summary []byte
 	var deletedAt sql.NullTime
 	var maxVersions sql.NullInt64
 
-	if err := rows.Scan(assetScanDest(&asset, &tags, &prov, &deletedAt, &maxVersions)...); err != nil {
+	if err := rows.Scan(assetScanDest(&asset, &tags, &summary, &deletedAt, &maxVersions)...); err != nil {
 		return asset, fmt.Errorf("scanning asset row: %w", err)
 	}
-	if err := finishScannedAsset(&asset, tags, prov, deletedAt, maxVersions); err != nil {
+	if err := finishScannedListAsset(&asset, tags, summary, deletedAt, maxVersions); err != nil {
 		return asset, err
 	}
 	return asset, nil

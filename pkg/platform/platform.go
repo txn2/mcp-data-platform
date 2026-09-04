@@ -45,6 +45,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/obs"
 	"github.com/txn2/mcp-data-platform/internal/platform/portalstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/promptlayer"
+	"github.com/txn2/mcp-data-platform/internal/platform/provenancesweep"
 	"github.com/txn2/mcp-data-platform/internal/platform/reflexivecapture"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourceaudit"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcelayer"
@@ -1749,6 +1750,13 @@ func (p *Platform) initPortal() error {
 		"s3_connection", p.config.Portal.S3Connection,
 		"s3_bucket", p.config.Portal.S3Bucket,
 	)
+
+	// The captures written before a prune took them with their versions still
+	// describe versions the platform deleted (#1623). Trimming them is a pass
+	// rather than a migration because the rule depends on this deployment's
+	// portal.max_versions, and it is off the boot path because a library that
+	// has waited this long can wait a moment longer.
+	go provenancesweep.Run(context.Background(), p.db, p.config.Portal.MaxVersions)
 
 	// Wire trino_export if portal + trino are both configured
 	p.wireTrinoExport()

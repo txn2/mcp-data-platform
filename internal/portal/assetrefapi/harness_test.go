@@ -282,6 +282,9 @@ func (*fakeAssets) Update(context.Context, string, portaldomain.AssetUpdate) err
 func (*fakeAssets) AppendProvenanceCapture(context.Context, string, portaldomain.ProvenanceCapture) error {
 	return nil
 }
+func (*fakeAssets) ListProvenanceCaptures(context.Context, string, int, int) (captures []portaldomain.ProvenanceCapture, total int, err error) {
+	return nil, 0, nil
+}
 func (*fakeAssets) SoftDelete(context.Context, string) error { return nil }
 
 // fakeShares carries the two share facts this surface reads: who an asset is
