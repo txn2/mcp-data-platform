@@ -3,6 +3,8 @@
 // not configured, so a "@/" specifier there is resolved as a bare package name
 // and the dev server fails to start.
 import { isThemeable, isThumbnailSupported } from "../../lib/thumbnailSupport";
+import { byteLength, normalizeFixture } from "./csvfixture";
+import { fixtureTile } from "./resourceTile";
 
 interface Resource {
   id: string;
@@ -218,7 +220,8 @@ const resources: Resource[] = [
     description:
       "Monthly seasonal adjustment multipliers by product category. Used for demand forecasting normalization.",
     mime_type: "text/csv",
-    size_bytes: 12_288,
+    // Filled in below from the bytes this fixture serves.
+    size_bytes: 0,
     s3_key: "resources/persona/inventory-analyst/reference/seasonal-factors.csv",
     uri: "s3://acme-platform/resources/persona/inventory-analyst/reference/seasonal-factors.csv",
     tags: ["inventory", "forecasting"],
@@ -273,9 +276,10 @@ const resources: Resource[] = [
     filename: "store-list.csv",
     display_name: "Store List",
     description:
-      "Western region stores with location codes, square footage, and district manager assignments.",
+      "Western region stores with location codes, street addresses, opening dates, and square footage.",
     mime_type: "text/csv",
-    size_bytes: 15_360,
+    // Filled in below from the bytes this fixture serves.
+    size_bytes: 0,
     s3_key: "resources/user/david-director/reference/store-list.csv",
     uri: "s3://acme-platform/resources/user/david-director/reference/store-list.csv",
     tags: ["stores", "reference"],
@@ -351,7 +355,8 @@ const resources: Resource[] = [
     description:
       "Flat export of the DataHub business glossary: term, definition, owner, and related datasets.",
     mime_type: "text/csv",
-    size_bytes: 142_336,
+    // Filled in below from the bytes this fixture serves.
+    size_bytes: 0,
     s3_key: "resources/global/reference/glossary.csv",
     uri: "s3://acme-platform/resources/global/reference/glossary.csv",
     tags: ["glossary", "reference"],
@@ -803,20 +808,77 @@ export const mockResourceContent: Record<string, string> = {
     "ORDER BY cover ASC;",
     "",
   ].join("\n"),
-  "res-011": [
-    "store_code,region,city,state,opened_on,square_feet",
-    "STR-0142,West,Portland,OR,2019-03-04,24500",
-    "STR-0148,West,Eugene,OR,2020-08-17,18200",
-    "STR-0203,West,Sacramento,CA,2017-11-02,31000",
-    "STR-0211,West,Fresno,CA,2021-01-25,22750",
-    "STR-0219,West,Bakersfield,CA,2018-06-11,20100",
-    "STR-0305,West,Reno,NV,2022-04-30,19850",
-    "STR-0312,West,Boise,ID,2016-09-19,26400",
-    "STR-0341,West,Spokane,WA,2020-02-14,21300",
-    "STR-0350,West,Tacoma,WA,2015-05-08,28900",
-    "STR-0377,West,Bellingham,WA,2023-07-21,17600",
+  // The diagram is real markup: the content endpoint falls back to a
+  // placeholder string for a type it cannot stub, so without this the viewer
+  // renders "binary contents of platform-architecture.svg" where a diagram
+  // belongs, and the file has no tile either (#1619).
+  "res-016": `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400" viewBox="0 0 640 400">
+  <rect width="640" height="400" fill="#f8fafc"/>
+  <text x="24" y="36" font-family="system-ui" font-size="17" font-weight="700" fill="#0f172a">Platform architecture</text>
+  <text x="24" y="56" font-family="system-ui" font-size="11" fill="#64748b">How a request reaches the data</text>
+  <rect x="24" y="80" width="140" height="52" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="94" y="111" font-family="system-ui" font-size="12" fill="#0f172a" text-anchor="middle">MCP client</text>
+  <rect x="250" y="80" width="140" height="52" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="320" y="104" font-family="system-ui" font-size="12" fill="#0f172a" text-anchor="middle">Middleware</text>
+  <text x="320" y="120" font-family="system-ui" font-size="9" fill="#64748b" text-anchor="middle">auth, authz, audit</text>
+  <rect x="476" y="80" width="140" height="52" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="546" y="111" font-family="system-ui" font-size="12" fill="#0f172a" text-anchor="middle">Toolkits</text>
+  <line x1="164" y1="106" x2="250" y2="106" stroke="#94a3b8" stroke-width="1.5"/>
+  <line x1="390" y1="106" x2="476" y2="106" stroke="#94a3b8" stroke-width="1.5"/>
+  <rect x="250" y="196" width="140" height="52" rx="6" fill="#eff6ff" stroke="#93c5fd"/>
+  <text x="320" y="220" font-family="system-ui" font-size="12" fill="#1e3a8a" text-anchor="middle">Semantic layer</text>
+  <text x="320" y="236" font-family="system-ui" font-size="9" fill="#3b82f6" text-anchor="middle">DataHub</text>
+  <line x1="320" y1="132" x2="320" y2="196" stroke="#94a3b8" stroke-width="1.5"/>
+  <rect x="476" y="196" width="140" height="52" rx="6" fill="#f0fdf4" stroke="#86efac"/>
+  <text x="546" y="220" font-family="system-ui" font-size="12" fill="#14532d" text-anchor="middle">Query engine</text>
+  <text x="546" y="236" font-family="system-ui" font-size="9" fill="#16a34a" text-anchor="middle">Trino</text>
+  <line x1="546" y1="132" x2="546" y2="196" stroke="#94a3b8" stroke-width="1.5"/>
+  <rect x="476" y="300" width="140" height="52" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="546" y="331" font-family="system-ui" font-size="12" fill="#0f172a" text-anchor="middle">Warehouse</text>
+  <line x1="546" y1="248" x2="546" y2="300" stroke="#94a3b8" stroke-width="1.5"/>
+</svg>
+`,
+  // The file behind the registration in the cross-source listing whose last
+  // follow failed. It carries a body because the columns that registration
+  // declares are read off this header (#1617).
+  "res-008": [
+    "category,month,seasonal_factor",
+    "Outerwear,2026-01,1.42",
+    "Outerwear,2026-02,1.18",
+    "Outerwear,2026-03,0.91",
+    "Footwear,2026-01,0.86",
+    "Footwear,2026-02,0.94",
+    "Footwear,2026-03,1.07",
+    "Home,2026-01,0.78",
+    "Home,2026-02,0.83",
+    "Home,2026-03,1.12",
+    "Grocery,2026-01,1.03",
+    "Grocery,2026-02,0.99",
+    "Grocery,2026-03,1.01",
     "",
   ].join("\n"),
+  // The file a registration has to correct before it can read it. It is a
+  // spreadsheet export whose address column was typed across two lines in the
+  // cell: valid CSV, and exactly what a line-based reader tears apart. The
+  // refusal, its row count and the column it names are all read off these
+  // bytes (see ./csvfixture), so the panel and the preview beside it describe
+  // one file (#1617).
+  "res-011": `store_code,region,city,state,address,opened_on,square_feet
+STR-0142,West,Portland,OR,"1200 SW Morrison St
+Suite 300",2019-03-04,24500
+STR-0148,West,Eugene,OR,4455 W 11th Ave,2020-08-17,18200
+STR-0203,West,Sacramento,CA,"2870 Arden Way
+Building B",2017-11-02,31000
+STR-0211,West,Fresno,CA,7825 N Blackstone Ave,2021-01-25,22750
+STR-0219,West,Bakersfield,CA,3401 Ming Ave,2018-06-11,20100
+STR-0305,West,Reno,NV,"5150 Mae Anne Ave
+Unit 12",2022-04-30,19850
+STR-0312,West,Boise,ID,8300 W Overland Rd,2016-09-19,26400
+STR-0341,West,Spokane,WA,"9420 N Newport Hwy
+Suite 140",2020-02-14,21300
+STR-0350,West,Tacoma,WA,2505 S 38th St,2015-05-08,28900
+STR-0377,West,Bellingham,WA,4379 Meridian St,2023-07-21,17600
+`,
   "res-015": [
     "term,definition,owner,related_dataset",
     "Net Revenue,Gross revenue less returns and discounts,finance@example.com,warehouse.public.transactions",
@@ -896,11 +958,69 @@ export const mockResourceVersions: Record<string, ResourceVersion[]> = {
       resource_id: "res-011",
       version: 1,
       mime_type: "text/csv",
-      size_bytes: 15_360,
+      // Filled in below from the bytes this version serves, like every other
+      // size a CSV fixture reports.
+      size_bytes: 0,
       s3_key: "resources/user/david-director/reference/store-list.csv",
       uploader_sub: "david-director",
       uploader_email: "david.park@example.com",
       created_at: daysAgo(10),
+    },
+  ],
+  // The CSV whose table is pinned to the revision it was registered over (see
+  // mockTableRegistrations in ./tables). The trail is what makes that state
+  // true: a registration reported as behind the file, beside a version panel
+  // saying the file had never been revised, was two halves of one page
+  // contradicting each other (#1617). rev-1 is the directory the registration
+  // records, so the table is serving these bytes and the head is the ones the
+  // preview shows.
+  "res-015": [
+    {
+      resource_id: "res-015",
+      version: 2,
+      mime_type: "text/csv",
+      // Filled in below from the bytes this version serves.
+      size_bytes: 0,
+      s3_key: "resources/global/reference/glossary.csv",
+      uploader_sub: "sarah-admin",
+      uploader_email: "sarah.chen@example.com",
+      created_at: daysAgo(1),
+    },
+    {
+      resource_id: "res-015",
+      version: 1,
+      mime_type: "text/csv",
+      size_bytes: 604,
+      s3_key: "resources/global/reference/v/rev-1/glossary.csv",
+      uploader_sub: "marcus-engineer",
+      uploader_email: "marcus.johnson@example.com",
+      created_at: daysAgo(50),
+    },
+  ],
+  // The CSV whose table follows it but could not be moved onto the current
+  // version, for the same reason res-015 has a trail: a table reported as
+  // behind its file has to have a version to be behind.
+  "res-008": [
+    {
+      resource_id: "res-008",
+      version: 2,
+      mime_type: "text/csv",
+      // Filled in below from the bytes this version serves.
+      size_bytes: 0,
+      s3_key: "resources/persona/inventory-analyst/reference/seasonal-factors.csv",
+      uploader_sub: "rachel-analyst",
+      uploader_email: "rachel.thompson@example.com",
+      created_at: daysAgo(4),
+    },
+    {
+      resource_id: "res-008",
+      version: 1,
+      mime_type: "text/csv",
+      size_bytes: 254,
+      s3_key: "resources/persona/inventory-analyst/reference/v/rev-1/seasonal-factors.csv",
+      uploader_sub: "rachel-analyst",
+      uploader_email: "rachel.thompson@example.com",
+      created_at: daysAgo(20),
     },
   ],
   "res-027": [
@@ -944,25 +1064,44 @@ export function recordCorrection(resourceID: string, summary: string, by: string
   }
   const version = head.version + 1;
   const s3Key = `resources/${resource.scope}/${resource.scope_id || "global"}/${resourceID}/v/rev${version}/${resource.filename}`;
+  // The correction is bytes, not a note about bytes: the file the viewer reads
+  // after it is the corrected one, and the size on the new version is that
+  // file's own size rather than a guess at what the line breaks cost (#1617).
+  const before = mockResourceContent[resourceID] ?? "";
+  const corrected = normalizeFixture(before).csv;
+  mockResourceContent[resourceID] = corrected;
   // The revision is recorded against whoever asked for the correction, not the
   // person who uploaded the version before it: the real path builds its claims
-  // from the caller. Its size is the corrected bytes, which are smaller than
-  // the torn ones by the line breaks the correction took out.
-  const corrected: ResourceVersion = {
+  // from the caller.
+  const revision: ResourceVersion = {
     resource_id: resourceID,
     version,
     mime_type: head.mime_type,
-    size_bytes: head.size_bytes - 94,
+    size_bytes: byteLength(corrected),
     s3_key: s3Key,
     uploader_sub: by.split("@")[0] ?? by,
     uploader_email: by,
     change_summary: summary,
     created_at: new Date().toISOString(),
   };
-  trail.unshift(corrected);
+  trail.unshift(revision);
   resource.s3_key = s3Key;
-  resource.size_bytes = corrected.size_bytes;
-  resource.updated_at = corrected.created_at;
+  resource.size_bytes = revision.size_bytes;
+  resource.updated_at = revision.created_at;
+}
+
+// A CSV fixture reports the size of the bytes it serves, here and on the
+// version that serves them. A declared size that disagrees with the file the
+// viewer renders beside it is the same defect as a column list that disagrees
+// with its own header (#1617).
+for (const r of resources) {
+  const body = mockResourceContent[r.id];
+  if (body === undefined || r.mime_type !== "text/csv") continue;
+  r.size_bytes = byteLength(body);
+  const head = mockResourceVersions[r.id]?.[0];
+  if (head) {
+    head.size_bytes = r.size_bytes;
+  }
 }
 
 // The list carries last_read_at (what the admin table sorts and flags on); the
@@ -988,6 +1127,13 @@ for (const r of resources) {
 // behind it, which is what the library and the thumbnail-panel captures show.
 for (const r of resources) {
   if (!isThumbnailSupported(r.mime_type)) continue;
+  // A capture is recorded only where the mock can serve one. Recording one it
+  // cannot left every tile in the library falling back to a file-type icon,
+  // which is what the committed documentation captures showed (#1619). A
+  // resource with no entry here keeps no capture and is drawn as the icon a
+  // file waiting for its first capture is drawn as, which is a state the
+  // library has rather than a broken picture.
+  if (!fixtureTile(r.id, r.mime_type, mockResourceContent[r.id] ?? "")) continue;
   r.thumbnail_s3_key ??= `thumbnails/${r.id}.png`;
   r.thumbnail_captured_at ??= r.updated_at;
   if (isThemeable(r.mime_type)) {
