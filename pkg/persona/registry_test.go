@@ -1,6 +1,10 @@
 package persona
 
-import "testing"
+import (
+	"reflect"
+	"sort"
+	"testing"
+)
 
 func TestRegistry_RegisterAndGet(t *testing.T) {
 	reg := NewRegistry()
@@ -173,7 +177,6 @@ func TestRegistry_Unregister(t *testing.T) {
 			t.Error("Unregister() expected error for non-existent persona")
 		}
 	})
-
 }
 
 func TestRegistry_LoadFromConfig(t *testing.T) {
@@ -265,5 +268,23 @@ func TestRegistry_LoadFromConfigEmptyName(t *testing.T) {
 
 	if err := reg.LoadFromConfig(config); err == nil {
 		t.Error("LoadFromConfig() expected error for empty persona name")
+	}
+}
+
+func TestRegistryNamesListsEveryRegisteredPersona(t *testing.T) {
+	r := NewRegistry()
+	if got := r.Names(); len(got) != 0 {
+		t.Errorf("Names() on an empty registry = %v, want none", got)
+	}
+	for _, name := range []string{"analyst", "ingest-service"} {
+		if err := r.Register(&Persona{Name: name, DisplayName: name, Roles: []string{name}}); err != nil {
+			t.Fatalf("Register(%s): %v", name, err)
+		}
+	}
+	names := r.Names()
+	sort.Strings(names)
+	want := []string{"analyst", "ingest-service"}
+	if !reflect.DeepEqual(names, want) {
+		t.Errorf("Names() = %v, want %v", names, want)
 	}
 }

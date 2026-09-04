@@ -413,14 +413,26 @@ notifications:
 
 Nothing here turns the catalog on: it is written from the audit pipeline and
 exists wherever audit does. What a deployment chooses is how long a call that
-came to nothing is kept. A record an asset or a capture cites, one that was
-promoted or declined, and one another session re-ran are evidence and are never
-swept, whatever their age.
+came to nothing is kept, and whose calls are worth keeping at all. A record an
+asset or a capture cites, one that was promoted or declined, and one another
+session re-ran are evidence and are never swept, whatever their age.
 
 ```yaml
 calls:
   retention_days: 90   # how long an UNUSED call record is kept (default 90)
+  exclude_personas:    # personas whose calls are machinery: audited, not cataloged
+    - ingest-service
 ```
+
+An automated system driving ingestion through the same tools people use writes
+a record per fetch that nobody will re-run, and every one of them is embedded
+(#1614). Naming its persona stops the record being written, and sweeps the ones
+written before it was named, evidence clauses intact, and withholds the
+`mcp:call:<id>` reference such a call would otherwise be told to cite. The audit
+row, its retention and the API gateway's metrics are untouched, so what an
+automated system did stays fully visible. Persona is the discriminator because
+it is the layer an operator already assigns per API key. Empty catalogs every
+call.
 
 ### Managed Scripts
 

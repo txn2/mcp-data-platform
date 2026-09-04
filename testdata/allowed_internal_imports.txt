@@ -179,6 +179,7 @@ internal/platform/browserauth -> pkg/browsersession
 internal/platform/callindex -> internal/platform/callrecord
 internal/platform/callindex -> pkg/indexjobs
 internal/platform/callrecord -> internal/httpjson
+internal/platform/callrecord -> internal/logsan
 internal/platform/callrecord -> internal/sqltables
 internal/platform/callrecord -> pkg/audit
 internal/platform/callrecord -> pkg/portal/knowledgepage

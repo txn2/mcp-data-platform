@@ -31,6 +31,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/callrecord"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/internal/testdb"
+	"github.com/txn2/mcp-data-platform/pkg/audit"
 	memstore "github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
@@ -100,10 +101,13 @@ func (f *fixedAuthn) Authenticate(context.Context) (*middleware.UserInfo, error)
 	return f.user, nil
 }
 
-type allowAuthz struct{}
+// allowAuthz authorizes every call and reports the persona it was authorized
+// under, which is what the audit event carries and what the catalog's exclusion
+// is keyed on.
+type allowAuthz struct{ persona string }
 
-func (allowAuthz) IsAuthorized(context.Context, string, []string, string, string) (bool, string, string) {
-	return true, "analyst", ""
+func (a allowAuthz) IsAuthorized(context.Context, string, []string, string, string) (bool, string, string) {
+	return true, a.persona, ""
 }
 
 // toolkitLookup maps the test's tools onto the toolkit kinds the platform
@@ -148,13 +152,25 @@ type replica struct {
 	calls  *callrecord.PostgresStore
 }
 
-// newReplica assembles a server for one caller over db.
+// newReplica assembles a server for one caller over db, under the persona every
+// other test in this file runs as and with nothing excluded from the catalog.
 func newReplica(t *testing.T, db *sql.DB, sessions pkgsession.Store, s3 *memS3, user *middleware.UserInfo) *replica {
+	t.Helper()
+	return newReplicaAs(t, db, sessions, s3, user, "analyst", nil)
+}
+
+// newReplicaAs assembles a server whose calls are authorized under the named
+// persona, with the catalog excluding the personas given. Both are what #1614
+// turns on: who made the call, and whether that persona is machinery.
+func newReplicaAs(t *testing.T, db *sql.DB, sessions pkgsession.Store, s3 *memS3,
+	user *middleware.UserInfo, persona string, excluded []string,
+) *replica {
 	t.Helper()
 
 	layer := auditwiring.Assemble(auditwiring.Config{
-		DB:            db,
-		RetentionDays: 30,
+		DB:                  db,
+		RetentionDays:       30,
+		CallExcludePersonas: excluded,
 		// The platform segment is the connection KIND the audit event carried,
 		// so a target names the platform the statement ran against rather than
 		// one of several a shared connection name could mean (#1384).
@@ -183,11 +199,12 @@ func newReplica(t *testing.T, db *sql.DB, sessions pkgsession.Store, s3 *memS3, 
 
 	// Innermost added first: the call reference and audit both read the
 	// PlatformContext the tool-call middleware writes.
-	server.AddReceivingMiddleware(middleware.MCPCallReferenceMiddleware([]string{"trino", "api"}))
+	server.AddReceivingMiddleware(middleware.MCPCallReferenceMiddleware(
+		[]string{"trino", "api"}, callrecord.NewPersonaExclusion(excluded).Excludes))
 	server.AddReceivingMiddleware(middleware.MCPAuditMiddleware(layer.Logger()))
 	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(
 		&fixedAuthn{user: user},
-		allowAuthz{},
+		allowAuthz{persona: persona},
 		toolkitLookup{},
 		middleware.ToolCallConfig{
 			Transport:    "http",
@@ -956,4 +973,140 @@ func eventIDOf(t *testing.T, ref string) string {
 	id, ok := portal.ParseCallReference(ref)
 	require.True(t, ok, "reference %q", ref)
 	return id
+}
+
+// --- an automated principal's traffic (#1614) ------------------------------
+
+const (
+	ingestID      = "550e8400-e29b-41d4-a716-446655440333"
+	ingestMail    = "ingest@example.com"
+	ingestPersona = "ingest-service"
+)
+
+// A deployment declares that a persona is machinery. Its calls are audited in
+// full and cataloged not at all, and the same call by an ordinary caller is
+// cataloged as before: the exclusion is about who called, not which tool.
+func TestCallCatalogRealDBDoesNotCatalogAnExcludedPersona(t *testing.T) {
+	ctx := context.Background()
+	db := testdb.New(t)
+	sessions := pkgsession.NewMemoryStore(time.Hour)
+	excluded := []string{ingestPersona}
+
+	machine := newReplicaAs(t, db, sessions, newMemS3(), &middleware.UserInfo{
+		UserID: ingestID, Email: ingestMail, Roles: []string{"ingest"}, AuthType: middleware.AuthTypeAPIKey,
+	}, ingestPersona, excluded)
+	machineSess := connect(ctx, t, machine)
+	machineHandle := mintHandle(ctx, t, sessions, ingestID)
+	res := call(ctx, t, machineSess, "api_invoke_endpoint", map[string]any{
+		"connection": "crm", "method": "GET", "path": "/v1/accounts/4821",
+		"session_id": machineHandle, "purpose": invokePurpos,
+	})
+	require.False(t, res.IsError, "the call itself must still answer: %s", resultText(res))
+	flush(ctx, t, machine)
+
+	// No citation token either. A reference the catalog will not record is one
+	// that resolves to nothing, and the agent instructions tell an agent to
+	// cite it, so stamping one would hand out a dead citation.
+	assert.Empty(t, reference(t, res),
+		"an excluded persona's call must not be handed a call reference")
+
+	// The audit row is written, and written whole: an operator can still see
+	// exactly what the automated system did, which is what makes declining to
+	// catalog it safe.
+	events, err := machine.layer.Store().Query(ctx, audit.QueryFilter{
+		SessionID: machineHandle, ToolName: "api_invoke_endpoint",
+	})
+	require.NoError(t, err)
+	require.Len(t, events, 1, "the audit row for an excluded call must exist")
+	ev := events[0]
+	eventID := ev.ID
+	assert.Equal(t, "api_invoke_endpoint", ev.ToolName)
+	assert.Equal(t, ingestPersona, ev.Persona)
+	assert.Equal(t, ingestID, ev.UserID)
+	assert.Equal(t, invokePurpos, ev.Purpose)
+	assert.True(t, ev.Success)
+	assert.Equal(t, "crm", ev.Connection)
+	assert.Equal(t, machineHandle, ev.SessionID)
+
+	// And no record was written, so there is nothing for any surface to
+	// return and nothing for the indexer to embed.
+	_, err = machine.calls.GetByEventID(ctx, eventID, ingestID)
+	assert.ErrorIs(t, err, callrecord.ErrNotFound)
+	assert.Zero(t, countCallRecords(ctx, t, db, ingestPersona))
+
+	// The same tool, the same deployment, an ordinary caller: cataloged.
+	person := newReplicaAs(t, db, sessions, newMemS3(), &middleware.UserInfo{
+		UserID: analystID, Email: analystMail, Roles: []string{"analyst"}, AuthType: middleware.AuthTypeAPIKey,
+	}, "analyst", excluded)
+	personSess := connect(ctx, t, person)
+	personHandle := mintHandle(ctx, t, sessions, analystID)
+	ref := invoke(ctx, t, person, personSess, personHandle, "GET", "/v1/accounts/4821", "", nil)
+	rec := recordFor(ctx, t, person, ref, analystID)
+	assert.Equal(t, "analyst", rec.Persona)
+}
+
+// The records an excluded persona wrote before it was excluded are swept
+// whatever their age, and the evidence clauses stand: a record something was
+// built from survives whoever produced it.
+func TestCallCatalogRealDBSweepsAnExcludedPersonasExistingRecords(t *testing.T) {
+	ctx := context.Background()
+	db := testdb.New(t)
+	sessions := pkgsession.NewMemoryStore(time.Hour)
+
+	// Before: nothing is excluded, so the automated principal's calls are
+	// cataloged exactly as an analyst's are.
+	machine := newReplicaAs(t, db, sessions, newMemS3(), &middleware.UserInfo{
+		UserID: ingestID, Email: ingestMail, Roles: []string{"ingest"}, AuthType: middleware.AuthTypeAPIKey,
+	}, ingestPersona, nil)
+	machineSess := connect(ctx, t, machine)
+	machineHandle := mintHandle(ctx, t, sessions, ingestID)
+	unused := invoke(ctx, t, machine, machineSess, machineHandle, "GET", "/v1/accounts/1", "", nil)
+	cited := runQuery(ctx, t, machine, machineSess, machineHandle, revenueSQL)
+
+	saved := call(ctx, t, machineSess, portalkit.SaveToolName, map[string]any{
+		"name": "Revenue", "content": "x", "content_type": "text/csv",
+		"sources": []any{cited}, "session_id": machineHandle,
+	})
+	require.False(t, saved.IsError, "save must succeed: %s", resultText(saved))
+	flush(ctx, t, machine)
+
+	person := newReplicaAs(t, db, sessions, newMemS3(), &middleware.UserInfo{
+		UserID: analystID, Email: analystMail, Roles: []string{"analyst"}, AuthType: middleware.AuthTypeAPIKey,
+	}, "analyst", nil)
+	personSess := connect(ctx, t, person)
+	analystDraft := runQuery(ctx, t, person, personSess,
+		mintHandle(ctx, t, sessions, analystID), inventorySQL)
+
+	require.Equal(t, 2, countCallRecords(ctx, t, db, ingestPersona), "both machine calls were cataloged")
+
+	// After: the deployment names the persona. Every record is well inside the
+	// retention window, so what the sweep removes it removes for the persona
+	// and not for the age.
+	catalog := callrecord.NewPostgresStore(db, callrecord.Config{
+		RetentionDays: 90, ExcludePersonas: []string{"Ingest-Service"},
+	})
+	removed, err := catalog.Cleanup(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), removed, "only the excluded persona's unused record is swept")
+
+	_, err = catalog.GetByEventID(ctx, eventIDOf(t, unused), ingestID)
+	assert.ErrorIs(t, err, callrecord.ErrNotFound, "the excluded persona's draft is gone")
+
+	if _, err := catalog.GetByEventID(ctx, eventIDOf(t, cited), ingestID); err != nil {
+		t.Errorf("a record an asset cites survives whoever produced it, got %v", err)
+	}
+	if _, err := catalog.GetByEventID(ctx, eventIDOf(t, analystDraft), analystID); err != nil {
+		t.Errorf("another persona's draft is untouched by the exclusion, got %v", err)
+	}
+}
+
+// countCallRecords counts the catalog rows one persona wrote, read from the
+// table rather than through a scoped surface: the claim is that the row does
+// not exist, not that a reader hides it.
+func countCallRecords(ctx context.Context, t *testing.T, db *sql.DB, persona string) int {
+	t.Helper()
+	var n int
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM call_records WHERE persona = $1`, persona).Scan(&n))
+	return n
 }

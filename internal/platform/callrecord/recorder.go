@@ -62,19 +62,23 @@ type URNBuilder func(connectionKind, connection, catalog, schema, table string) 
 // audit log; losing an entry costs a query its place in the catalog, and must
 // never cost the audit row it was derived from.
 type Recorder struct {
-	inner audit.Logger
-	store Store
-	urn   URNBuilder
+	inner    audit.Logger
+	store    Store
+	urn      URNBuilder
+	excluded PersonaExclusion
 }
 
 // NewRecorder wraps an audit store so every data-access call it records is also
 // cataloged. A nil store returns the audit logger unchanged, which is what a
 // deployment without the catalog gets.
-func NewRecorder(inner audit.Logger, store Store, urn URNBuilder) audit.Logger {
+//
+// excluded names the personas whose calls are machinery and are not cataloged;
+// its zero value excludes nothing (see exclusion.go).
+func NewRecorder(inner audit.Logger, store Store, urn URNBuilder, excluded PersonaExclusion) audit.Logger {
 	if store == nil {
 		return inner
 	}
-	return &Recorder{inner: inner, store: store, urn: urn}
+	return &Recorder{inner: inner, store: store, urn: urn, excluded: excluded}
 }
 
 // Log writes the audit event, then catalogs it when it is a data-access call.
@@ -124,10 +128,12 @@ func (r *Recorder) catalog(ctx context.Context, rec Record) {
 // recordFrom builds the record one audit event describes, and reports whether
 // the event is a call the catalog keeps. An event with no id is not kept: the
 // id is what an agent cites and what an asset records, so a record without one
-// could never be referenced.
+// could never be referenced. Neither is a call made by a persona the deployment
+// declared to be machinery, whichever tool it called: the question the catalog
+// answers is not asked of an automated system's traffic (#1614).
 func (r *Recorder) recordFrom(ev audit.Event) (Record, bool) {
 	kind := KindForTool(ev.ToolName)
-	if kind == "" || ev.ID == "" {
+	if kind == "" || ev.ID == "" || r.excluded.Excludes(ev.Persona) {
 		return Record{}, false
 	}
 	rec := Record{

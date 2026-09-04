@@ -108,6 +108,13 @@ auth:
         name: "peer"
         email: "asset.peer@example.com"
         roles: ["collaborator"]
+      # An automated principal: a service account that drives ingestion through
+      # the API gateway. It is what calls.exclude_personas names, so its calls
+      # are audited and never cataloged.
+      - key: "acme-ingest-key"
+        name: "ingest"
+        email: "ingest.service@example.com"
+        roles: ["ingest_service"]
 
 oauth:
   enabled: false
@@ -116,7 +123,7 @@ database:
   dsn: "postgres://platform:platform_secret@localhost:${DEV_PG_PORT:-5432}/mcp_platform?sslmode=disable"
   max_open_conns: 10
 
-# Six ACME personas
+# Eight ACME personas
 personas:
   admin:
     display_name: "Administrator"
@@ -157,6 +164,25 @@ personas:
     context:
       description_prefix: |
         You are helping an ACME collaborator with their own assets, scripts and reference material.
+
+  # The automated principal's own persona. It is named in calls.exclude_personas,
+  # which is the whole of what makes it machinery: the tools it may call are the
+  # same ones a person may.
+  ingest-service:
+    display_name: "Ingestion Service"
+    roles:
+      - ingest_service
+      - dp_ingest_service
+    tools:
+      allow:
+        - "*"
+      deny: []
+    connections:
+      allow:
+        - "*"
+    context:
+      description_prefix: |
+        You are an automated ingestion job pulling records from upstream APIs.
 
   data-engineer:
     display_name: "Data Engineer"
@@ -270,7 +296,6 @@ personas:
         You are helping an ACME store manager access store-level data.
         Focus on daily sales, inventory, and employee scheduling.
 
-
   role_mapping:
     oidc_to_persona:
       "dp_admin": "admin"
@@ -279,19 +304,6 @@ personas:
       "dp_regional_director": "regional-director"
       "dp_finance_executive": "finance-executive"
       "dp_store_manager": "store-manager"
-    user_personas:
-      "sarah.chen@example.com": "admin"
-      "marcus.johnson@example.com": "data-engineer"
-      "amanda.lee@example.com": "data-engineer"
-      "lisa.chang@example.com": "data-engineer"
-      "rachel.thompson@example.com": "inventory-analyst"
-      "emily.watson@example.com": "inventory-analyst"
-      "david.park@example.com": "regional-director"
-      "carlos.rodriguez@example.com": "regional-director"
-      "jennifer.martinez@example.com": "finance-executive"
-      "brian.taylor@example.com": "finance-executive"
-      "kevin.wilson@example.com": "store-manager"
-      "mike.davis@example.com": "store-manager"
 
 # Toolkits: connect to remote ACME demo backends when env vars are set,
 # otherwise fall back to local-only (S3 via SeaweedFS, no Trino/DataHub).
@@ -481,6 +493,15 @@ audit:
   enabled: true
   log_tool_calls: true
   retention_days: 90
+
+# The call catalog. `ingest-service` is the dev stack's automated principal: it
+# calls the same api_* tools people do, and nothing it fetches is worth another
+# session re-running, so its calls are audited and not cataloged (#1614). The
+# acceptance suite drives the acme-ingest-key against this.
+calls:
+  retention_days: 90
+  exclude_personas:
+    - ingest-service
 
 # Observability: the PromQL query proxy that powers the admin Dashboard's
 # "API Gateway" activity tab. Points at the dev Prometheus (docker-compose

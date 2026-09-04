@@ -51,7 +51,7 @@ func TestCallReferenceMiddlewareStampsDataCalls(t *testing.T) {
 		Content:           []mcp.Content{&mcp.TextContent{Text: `{"rows":[]}`}},
 		StructuredContent: map[string]any{"rows": []any{}},
 	}
-	mw := MCPCallReferenceMiddleware([]string{"trino", "api"})
+	mw := MCPCallReferenceMiddleware([]string{"trino", "api"}, nil)
 	handler := mw(callReferenceHandler(result, nil))
 
 	pc := NewPlatformContext("req-1")
@@ -77,7 +77,7 @@ func TestCallReferenceMiddlewareStampsDataCalls(t *testing.T) {
 // so their results are not spent on an identifier nothing can cite.
 func TestCallReferenceMiddlewareSkipsNonSourceKinds(t *testing.T) {
 	result := &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}}
-	handler := MCPCallReferenceMiddleware([]string{"trino"})(callReferenceHandler(result, nil))
+	handler := MCPCallReferenceMiddleware([]string{"trino"}, nil)(callReferenceHandler(result, nil))
 
 	pc := NewPlatformContext("req-1")
 	pc.EventID = "evt-123"
@@ -94,7 +94,7 @@ func TestCallReferenceMiddlewareSkipsErrorResults(t *testing.T) {
 		IsError: true,
 		Content: []mcp.Content{&mcp.TextContent{Text: "SYNTAX_ERROR"}},
 	}
-	handler := MCPCallReferenceMiddleware([]string{"trino"})(callReferenceHandler(result, nil))
+	handler := MCPCallReferenceMiddleware([]string{"trino"}, nil)(callReferenceHandler(result, nil))
 
 	pc := NewPlatformContext("req-1")
 	pc.EventID = "evt-123"
@@ -110,7 +110,7 @@ func TestCallReferenceMiddlewarePassThrough(t *testing.T) {
 	sourceKinds := []string{"trino"}
 	stamped := func(t *testing.T, ctx context.Context, result mcp.Result, method string) bool {
 		t.Helper()
-		handler := MCPCallReferenceMiddleware(sourceKinds)(callReferenceHandler(result, nil))
+		handler := MCPCallReferenceMiddleware(sourceKinds, nil)(callReferenceHandler(result, nil))
 		got, err := handler(ctx, method, callReferenceRequest())
 		require.NoError(t, err)
 		if got == nil {
@@ -143,7 +143,7 @@ func TestCallReferenceMiddlewarePassThrough(t *testing.T) {
 	})
 	t.Run("result is not a tool call result", func(t *testing.T) {
 		listResult := &mcp.ListToolsResult{}
-		handler := MCPCallReferenceMiddleware(sourceKinds)(callReferenceHandler(listResult, nil))
+		handler := MCPCallReferenceMiddleware(sourceKinds, nil)(callReferenceHandler(listResult, nil))
 		got, err := handler(dataCall(), methodToolsCall, callReferenceRequest())
 		require.NoError(t, err)
 		assert.Same(t, listResult, got, "a result that is not a tool call is returned untouched")
@@ -153,7 +153,7 @@ func TestCallReferenceMiddlewarePassThrough(t *testing.T) {
 // A handler that failed outright is returned untouched.
 func TestCallReferenceMiddlewareHandlerError(t *testing.T) {
 	wantErr := errors.New("boom")
-	handler := MCPCallReferenceMiddleware([]string{"trino"})(callReferenceHandler(nil, wantErr))
+	handler := MCPCallReferenceMiddleware([]string{"trino"}, nil)(callReferenceHandler(nil, wantErr))
 
 	pc := NewPlatformContext("req-1")
 	pc.EventID = "evt-1"
@@ -169,7 +169,7 @@ func TestCallReferenceMiddlewareHandlerError(t *testing.T) {
 // that client called the tool for what the tool returned (#1416).
 func TestCallReferenceMiddlewareWithoutStructuredContent(t *testing.T) {
 	result := &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "plain text rows"}}}
-	handler := MCPCallReferenceMiddleware([]string{"trino"})(callReferenceHandler(result, nil))
+	handler := MCPCallReferenceMiddleware([]string{"trino"}, nil)(callReferenceHandler(result, nil))
 
 	pc := NewPlatformContext("req-1")
 	pc.EventID = "evt-9"
@@ -183,4 +183,37 @@ func TestCallReferenceMiddlewareWithoutStructuredContent(t *testing.T) {
 	assert.Equal(t, "evt-9", ref.CallID)
 	assert.Nil(t, result.StructuredContent,
 		"no structured result is synthesized from the reference alone")
+}
+
+// A call the catalog declines is handed no reference to cite: the id would
+// resolve to nothing, and the agent instructions tell an agent to cite it
+// (#1614).
+func TestCallReferenceWithheldFromAnExcludedPersona(t *testing.T) {
+	excluded := func(persona string) bool { return persona == "ingest-service" }
+
+	for name, tc := range map[string]struct {
+		persona string
+		want    bool
+	}{
+		"an excluded persona": {persona: "ingest-service", want: false},
+		"an ordinary persona": {persona: "analyst", want: true},
+		"no persona at all":   {persona: "", want: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			result := &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "{}"}}}
+			handler := MCPCallReferenceMiddleware([]string{"trino"}, excluded)(
+				callReferenceHandler(result, nil))
+
+			pc := NewPlatformContext("req-1")
+			pc.EventID = "evt-123"
+			pc.ToolkitKind = "trino"
+			pc.PersonaName = tc.persona
+
+			got, err := handler(WithPlatformContext(context.Background(), pc),
+				methodToolsCall, callReferenceRequest())
+			require.NoError(t, err)
+			_, ok := readCallReference(t, got)
+			assert.Equal(t, tc.want, ok)
+		})
+	}
 }

@@ -118,6 +118,20 @@ func (r *Registry) All() []*Persona {
 	return result
 }
 
+// Names returns the names of every registered persona. It is the question a
+// caller asks when it holds a name from somewhere else and needs to know
+// whether this deployment defines it, without caring about the persona itself.
+func (r *Registry) Names() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	names := make([]string, 0, len(r.personas))
+	for name := range r.personas {
+		names = append(names, name)
+	}
+	return names
+}
+
 // GetForRoles returns the highest-priority persona whose roles intersect the
 // given roles, or (nil, false) when none does.
 //

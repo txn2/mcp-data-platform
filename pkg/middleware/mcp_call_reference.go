@@ -46,7 +46,13 @@ type CallReference struct {
 // context it adds: clients that render only structured output see it too. A
 // result whose handler set no structured output keeps the reference in content
 // alone — see mirrorEnrichmentToStructured for why one is not synthesized.
-func MCPCallReferenceMiddleware(sourceKinds []string) mcp.Middleware {
+//
+// excludedPersona reports whether a persona's calls are the ones the catalog
+// declines to record (#1614). Those get no reference: the id would resolve to
+// nothing, and the agent instructions tell an agent to cite it, so stamping one
+// spends context on a citation that can never be satisfied. Nil stamps every
+// data call, which is what a deployment excluding nothing gets.
+func MCPCallReferenceMiddleware(sourceKinds []string, excludedPersona func(string) bool) mcp.Middleware {
 	kinds := make(map[string]struct{}, len(sourceKinds))
 	for _, k := range sourceKinds {
 		kinds[k] = struct{}{}
@@ -60,7 +66,7 @@ func MCPCallReferenceMiddleware(sourceKinds []string) mcp.Middleware {
 			if err != nil {
 				return result, err
 			}
-			if callResult, eventID := referenceableCall(ctx, result, kinds); callResult != nil {
+			if callResult, eventID := referenceableCall(ctx, result, kinds, excludedPersona); callResult != nil {
 				appendCallReference(callResult, eventID)
 			}
 			return result, nil
@@ -70,13 +76,19 @@ func MCPCallReferenceMiddleware(sourceKinds []string) mcp.Middleware {
 
 // referenceableCall returns the result to stamp and the id to stamp it with,
 // or a nil result when this call gets no reference: it is not a data call, the
-// platform recorded no id for it, or it failed.
-func referenceableCall(ctx context.Context, result mcp.Result, kinds map[string]struct{}) (call *mcp.CallToolResult, eventID string) {
+// platform recorded no id for it, it failed, or its persona is one whose calls
+// the catalog declines to record.
+func referenceableCall(ctx context.Context, result mcp.Result, kinds map[string]struct{},
+	excludedPersona func(string) bool,
+) (call *mcp.CallToolResult, eventID string) {
 	pc := GetPlatformContext(ctx)
 	if pc == nil || pc.EventID == "" {
 		return nil, ""
 	}
 	if _, ok := kinds[pc.ToolkitKind]; !ok {
+		return nil, ""
+	}
+	if excludedPersona != nil && excludedPersona(pc.PersonaName) {
 		return nil, ""
 	}
 	callResult, ok := result.(*mcp.CallToolResult)

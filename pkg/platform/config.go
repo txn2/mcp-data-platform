@@ -1374,13 +1374,20 @@ func (c *ScriptsConfig) RunRetention() time.Duration {
 // CallsConfig configures the catalog of recorded data-access calls (#1321).
 // Nothing here turns the catalog on: it is written from the audit pipeline and
 // so exists wherever audit does. What a deployment chooses is how long a call
-// that came to nothing is kept.
+// that came to nothing is kept, and whose calls are worth keeping at all.
 type CallsConfig struct {
 	// RetentionDays is how long a recorded call is kept when nothing came of
 	// it. A record an asset or a capture cites, one that was promoted or
 	// declined, and one another session re-ran are evidence and are never
 	// swept, whatever their age. Zero or negative takes the default (90 days).
 	RetentionDays int `yaml:"retention_days"`
+
+	// ExcludePersonas names the personas whose calls are machinery: audited
+	// and not cataloged, with the records they wrote before being named here
+	// swept whatever their age. Empty catalogs every call. The rule and the
+	// reasoning behind keying on persona live with the catalog itself
+	// (internal/platform/callrecord/exclusion.go, #1614).
+	ExcludePersonas []string `yaml:"exclude_personas"`
 }
 
 // NotificationsConfig configures the email notification substrate: the

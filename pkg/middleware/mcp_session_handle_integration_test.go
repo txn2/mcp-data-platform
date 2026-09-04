@@ -78,7 +78,7 @@ func sessionHandleServer(t *testing.T) shHarness {
 	mcp.AddTool(server, &mcp.Tool{Name: "trino_query", Description: "query"}, okHandler)
 
 	// Chain, innermost added first (last-added runs first).
-	server.AddReceivingMiddleware(middleware.MCPCallReferenceMiddleware([]string{"trino"}))
+	server.AddReceivingMiddleware(middleware.MCPCallReferenceMiddleware([]string{"trino"}, nil))
 	server.AddReceivingMiddleware(middleware.MCPAuditMiddleware(auditLog))
 	server.AddReceivingMiddleware(middleware.MCPWorkflowGateMiddleware(tracker))
 	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(

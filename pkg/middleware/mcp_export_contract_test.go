@@ -215,7 +215,7 @@ func TestExportContractViaAssembledChain(t *testing.T) {
 			// then enrichment (pkg/platform/middleware_chain.go).
 			server.AddReceivingMiddleware(MCPSemanticEnrichmentMiddleware(
 				exportEnrichmentProvider(), nil, nil, EnrichmentConfig{EnrichTrinoResults: true}, nil))
-			server.AddReceivingMiddleware(MCPCallReferenceMiddleware([]string{"trino", "api", "mcp"}))
+			server.AddReceivingMiddleware(MCPCallReferenceMiddleware([]string{"trino", "api", "mcp"}, nil))
 			server.AddReceivingMiddleware(exportPlatformContextMiddleware(tc.toolkitKind))
 
 			ctx := context.Background()
