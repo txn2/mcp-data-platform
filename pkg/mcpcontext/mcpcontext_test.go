@@ -67,3 +67,14 @@ func TestAuthToken_RoundTrip(t *testing.T) {
 		t.Errorf("GetAuthToken = %q; want tok-123", got)
 	}
 }
+
+func TestPersona_RoundTrip(t *testing.T) {
+	ctx := context.Background()
+	if got := GetPersona(ctx); got != "" {
+		t.Errorf("GetPersona(empty) = %q; want \"\"", got)
+	}
+	ctx = WithPersona(ctx, "ingest-service")
+	if got := GetPersona(ctx); got != "ingest-service" {
+		t.Errorf("GetPersona = %q; want ingest-service", got)
+	}
+}

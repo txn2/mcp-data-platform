@@ -11,7 +11,7 @@ Two chokepoints cover every tool call through the platform:
 2. **apigateway transport** records outbound HTTP rate and latency for
    every call made by the `api` toolkit — `api_invoke_endpoint`,
    `api_export`, and the REST gateway shim. One series per (connection,
-   http_status_class, status_category).
+   http_status_class, status_category, persona).
 
 Beyond those chokepoints, toolkit and provider call paths are also
 instrumented (Trino, DataHub, S3, OAuth token issuance/refresh, and
@@ -91,7 +91,7 @@ query them; the tab is the at-a-glance read.
 | `mcp_tool_call_duration_seconds` | histogram | `tool`, `toolkit_kind`, `persona`, `status_category` |
 | `mcp_inflight_tool_calls` | gauge | (none) |
 | `mcp_enrichment_bytes_total` | counter | `tool`, `toolkit_kind`, `persona` |
-| `apigateway_outbound_total` | counter | `connection`, `http_status_class`, `status_category` |
+| `apigateway_outbound_total` | counter | `connection`, `http_status_class`, `status_category`, `persona` |
 | `apigateway_outbound_duration_seconds` | histogram | `connection`, `http_status_class`, `status_category` |
 | `apigateway_inbound_requests_total` | counter | `connection`, `operation_id`, `method`, `status_class`, `identity` |
 | `apigateway_inbound_duration_seconds` | histogram | `connection`, `operation_id`, `method`, `status_class` |
@@ -196,6 +196,38 @@ labels are clamped to the registered-connection set and the supported
 HTTP-method set respectively, so an arbitrary URL segment or request
 body cannot mint unbounded label values (both fall back to `unknown`).
 
+`apigateway_outbound_total` carries `persona`: the persona the call was
+authorized under, which is what separates an automated principal's
+traffic from an analyst's on a connection they share. Both the MCP tool
+path (`api_invoke_endpoint`, `api_export`) and the REST shim record it,
+since the shim re-enters through the same tool call. It is bounded by the
+deployment's persona definitions rather than by its user count -- an OIDC
+subject is deliberately not a label here -- and a call the platform could
+not attribute records `unknown`, the same value `mcp_tool_calls_total`
+records for a call that never reached persona resolution, so the two
+metrics name a principal identically. `persona` is on the call counter
+only and not on `apigateway_outbound_duration_seconds` -- not the
+cardinality reason that keeps `identity` off the inbound histogram
+(persona is bounded, and `mcp_tool_call_duration_seconds` carries it),
+but because splitting upstream latency by caller is a separate question
+that costs a bucket set per persona on every connection and status pair.
+
+**Upgrading:** a call that never reached persona resolution previously
+recorded an empty `persona`, which Prometheus drops, so those samples
+carried no `persona` label at all. They now record `persona="unknown"` --
+on `mcp_tool_calls_total`, `mcp_tool_call_duration_seconds` and
+`mcp_enrichment_bytes_total` as well as on the outbound counter, so the
+two metrics agree on how an unattributable caller is named. That forks
+those series at the upgrade boundary: a recording rule or alert written
+to match the label's absence (`persona=""`) stops matching. The case is
+rare -- it is a call rejected before authorization -- but a rule written
+against it needs `persona="unknown"` instead.
+
+A deployment that names an automated persona under `calls.exclude_personas`
+(see `docs/server/audit.md`) stops cataloging that principal's calls; its
+volume stays visible here, which is the surface it is charted and alerted
+on.
+
 Resolving `identity` re-authenticates the request token at the metrics
 layer (the REST shim does not surface the in-session identity back up to
 the HTTP handler). For API-key callers this is a cheap lookup; for OIDC
@@ -262,6 +294,14 @@ sum by (connection) (
 )
 ```
 
+Which principal a connection's outbound volume belongs to:
+
+```promql
+topk(10, sum by (persona) (
+  increase(apigateway_outbound_total{connection="salesforce"}[24h])
+))
+```
+
 In-flight tool calls right now:
 
 ```promql
@@ -278,8 +318,12 @@ only a fraction of combinations occur (most tools belong to one
 toolkit_kind, and `status_category` is heavily skewed toward `ok`).
 
 For outbound: `connection` ≈ 10, `http_status_class` = 5,
-`status_category` = 6 → 300 series upper bound for
-`apigateway_outbound_total`.
+`status_category` = 6, `persona` ≈ 5 → 1,500 series upper bound for
+`apigateway_outbound_total`. The persona dimension is on the counter
+only, so `apigateway_outbound_duration_seconds` keeps its 300-series
+bound times its bucket count; adding persona there would multiply that
+by the persona count, which is what a deployment weighs if it wants
+upstream latency split by principal.
 
 Both are well under typical Prometheus limits and well within any
 managed observability backend's per-metric series budget. If you add

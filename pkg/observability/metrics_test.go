@@ -442,3 +442,100 @@ func netListen() (net.Listener, error) {
 	}
 	return ln, nil
 }
+
+// TestOutboundPersonaLabelSeparatesPrincipals is the metric half of #1615:
+// two personas driving the same connection must be two series on the call
+// counter, and neither may reach the duration histogram (whose bucket series
+// would otherwise multiply by the principal dimension).
+func TestOutboundPersonaLabelSeparatesPrincipals(t *testing.T) {
+	m, err := New(Config{Enabled: true, ListenAddr: ":0"})
+	if err != nil {
+		t.Fatalf("New(enabled) err = %v", err)
+	}
+	defer func() { _ = m.Shutdown(context.Background()) }()
+
+	ctx := context.Background()
+	for range 3 {
+		m.RecordAPIGatewayOutbound(ctx, APIGatewayAttrs{
+			Connection: "shared", HTTPStatusClass: StatusClass2xx,
+			StatusCategory: StatusOK, Persona: "ingest-service",
+		}, 20*time.Millisecond)
+	}
+	m.RecordAPIGatewayOutbound(ctx, APIGatewayAttrs{
+		Connection: "shared", HTTPStatusClass: StatusClass2xx,
+		StatusCategory: StatusOK, Persona: "analyst",
+	}, 20*time.Millisecond)
+
+	body := scrapeMetrics(t, m.Handler())
+
+	wantCounters := map[string]string{
+		`ingest-service`: `apigateway_outbound_total{connection="shared",http_status_class="2xx",persona="ingest-service",status_category="ok"} 3`,
+		`analyst`:        `apigateway_outbound_total{connection="shared",http_status_class="2xx",persona="analyst",status_category="ok"} 1`,
+	}
+	for persona, want := range wantCounters {
+		if !strings.Contains(body, want) {
+			t.Errorf("persona %q: scrape body missing %q\n--- body ---\n%s", persona, want, body)
+		}
+	}
+
+	// The histogram must stay free of the persona dimension.
+	for line := range strings.SplitSeq(body, "\n") {
+		if strings.HasPrefix(line, "apigateway_outbound_duration_seconds") && strings.Contains(line, "persona=") {
+			t.Errorf("duration histogram carries a persona label, which multiplies its bucket series: %s", line)
+		}
+	}
+}
+
+// TestUnresolvedPersonaRecordsOneFixedValue holds the bound the label was
+// added under: a caller the platform could not name records "unknown" on
+// both the outbound counter and the tool-call counter, rather than an empty
+// label value or a series per unresolved caller.
+func TestUnresolvedPersonaRecordsOneFixedValue(t *testing.T) {
+	m, err := New(Config{Enabled: true, ListenAddr: ":0"})
+	if err != nil {
+		t.Fatalf("New(enabled) err = %v", err)
+	}
+	defer func() { _ = m.Shutdown(context.Background()) }()
+
+	ctx := context.Background()
+	m.RecordAPIGatewayOutbound(ctx, APIGatewayAttrs{
+		Connection: "shared", HTTPStatusClass: StatusClass2xx, StatusCategory: StatusOK,
+	}, time.Millisecond)
+	m.RecordToolCall(ctx, ToolCallAttrs{
+		Tool: "api_invoke_endpoint", ToolkitKind: "apigateway", StatusCategory: StatusOK,
+	}, time.Millisecond)
+	m.RecordEnrichmentBytes(ctx, ToolCallAttrs{
+		Tool: "api_invoke_endpoint", ToolkitKind: "apigateway",
+	}, 12)
+
+	body := scrapeMetrics(t, m.Handler())
+	if strings.Contains(body, `persona=""`) {
+		t.Errorf("an unresolved persona recorded an empty label value:\n%s", body)
+	}
+	for _, metricName := range []string{
+		"apigateway_outbound_total",
+		"mcp_tool_calls_total",
+		"mcp_enrichment_bytes_total",
+	} {
+		found := false
+		for line := range strings.SplitSeq(body, "\n") {
+			if strings.HasPrefix(line, metricName) && strings.Contains(line, `persona="unknown"`) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("%s did not record persona=%q for an unresolved caller\n--- body ---\n%s",
+				metricName, MetricLabelUnknown, body)
+		}
+	}
+}
+
+func TestPersonaLabel(t *testing.T) {
+	if got := PersonaLabel(""); got != MetricLabelUnknown {
+		t.Errorf("PersonaLabel(%q) = %q, want %q", "", got, MetricLabelUnknown)
+	}
+	if got := PersonaLabel("analyst"); got != "analyst" {
+		t.Errorf("PersonaLabel(%q) = %q, want %q", "analyst", got, "analyst")
+	}
+}

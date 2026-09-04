@@ -37,6 +37,8 @@ internal/admin/settingsapi -> internal/platform/reviewalert
 internal/admin/settingsapi -> pkg/notification
 internal/admin/settingsapi -> pkg/notification/smtp
 internal/agentinstructions -> pkg/configstore
+internal/apigwmetrics -> pkg/mcpcontext
+internal/apigwmetrics -> pkg/observability
 internal/httpserver -> internal/agentinstructions
 internal/httpserver -> internal/apidocs
 internal/httpserver -> internal/httpserver/accessgate
@@ -781,6 +783,7 @@ pkg/storage/s3 -> pkg/urnbuild
 pkg/textpatch -> pkg/contenttype
 pkg/textpatch/patchmcp -> pkg/middleware
 pkg/textpatch/patchmcp -> pkg/textpatch
+pkg/toolkits/apigateway -> internal/apigwmetrics
 pkg/toolkits/apigateway -> internal/inlinefit
 pkg/toolkits/apigateway -> internal/logsan
 pkg/toolkits/apigateway -> internal/membudget

@@ -30,10 +30,19 @@ import (
 //   - mcp_tool_call_duration_seconds
 //   - mcp_inflight_tool_calls
 //   - mcp_enrichment_bytes_total{tool, toolkit_kind, persona}
-//   - apigateway_outbound_total
-//   - apigateway_outbound_duration_seconds
+//   - apigateway_outbound_total{connection, http_status_class, status_category, persona}
+//   - apigateway_outbound_duration_seconds{connection, http_status_class, status_category}
 //   - apigateway_inbound_requests_total{connection, operation_id, method, status_class, identity}
 //   - apigateway_inbound_duration_seconds{connection, operation_id, method, status_class}
+//
+// Outbound cardinality: connection is operator-configured (small);
+// http_status_class and status_category are closed sets; persona is the
+// operator-defined persona the call was authorized under, which is what
+// separates an automated principal's traffic from an analyst's on a
+// connection they share (#1615). Persona is recorded ONLY on the call
+// counter, never on the duration histogram, for the reason identity is
+// kept off the inbound histogram: bucket series would multiply by the
+// principal dimension.
 //
 // Inbound cardinality: the inbound series count is bounded by
 // connections × operation_ids × methods × status_classes × identities.
@@ -191,10 +200,32 @@ const (
 	attrPool      = "pool"
 )
 
+// MetricLabelUnknown is the single value every principal label falls back
+// to when no principal could be resolved. Recording one fixed value keeps
+// an unauthenticated or pre-authorization call countable without minting a
+// series per unresolved caller.
+const MetricLabelUnknown = "unknown"
+
+// PersonaLabel bounds a resolved persona name into a label value. An empty
+// name -- a call that failed authentication, or one assembled outside the
+// tool-call middleware -- becomes MetricLabelUnknown, so mcp_tool_calls_total
+// and apigateway_outbound_total name an unresolved principal identically
+// (#1615). Applied inside the Record methods rather than at each call site,
+// so the bound holds for every recorder.
+func PersonaLabel(persona string) string {
+	if persona == "" {
+		return MetricLabelUnknown
+	}
+	return persona
+}
+
 // ToolCallAttrs is the bounded label set for tool-call metrics. The
 // metrics layer never reads request bodies, user identifiers, or
 // session IDs — those are span attributes (phase 2) and audit log
-// fields, not Prometheus labels.
+// fields, not Prometheus labels. Persona is bounded by the deployment's
+// persona definitions and records MetricLabelUnknown when the call never
+// reached persona resolution, which is the same value the api-gateway's
+// outbound counter records for the same case (#1615).
 type ToolCallAttrs struct {
 	Tool           string
 	ToolkitKind    string
@@ -207,10 +238,21 @@ type ToolCallAttrs struct {
 // the URL, path, query string, and raw status code are NOT recorded
 // as labels — they would be cardinality bombs and live on trace
 // spans instead.
+//
+// Persona is the persona the call was authorized under, the dimension
+// that separates an automated principal's traffic from an analyst's on
+// a connection they share (#1615). It is bounded by the deployment's
+// persona definitions, which an operator authors; the caller's identity
+// -- an OIDC subject, one per person -- is deliberately NOT a label
+// here, since it grows with the organization. An unresolved persona
+// records MetricLabelUnknown, one fixed value rather than a new series.
+// Persona is applied to the call counter only; RecordAPIGatewayOutbound
+// states why.
 type APIGatewayAttrs struct {
 	Connection      string
 	HTTPStatusClass string
 	StatusCategory  string
+	Persona         string
 }
 
 // APIGatewayInboundAttrs is the bounded label set for inbound HTTP
@@ -422,7 +464,7 @@ func (m *Metrics) registerInstruments(meter metric.Meter) error {
 	}
 	m.apigwOutboundTotal, err = meter.Int64Counter(
 		instAPIGwOutbound,
-		metric.WithDescription("Total number of outbound HTTP calls made by the apigateway toolkit, labeled by connection, http_status_class, and status_category."),
+		metric.WithDescription("Total number of outbound HTTP calls made by the apigateway toolkit, labeled by connection, http_status_class, status_category, and the persona the call was authorized under (#1615)."),
 	)
 	if err != nil {
 		return fmt.Errorf(instErrFmt, instAPIGwOutbound, err)
@@ -610,7 +652,7 @@ func (m *Metrics) RecordToolCall(ctx context.Context, attrs ToolCallAttrs, durat
 	set := metric.WithAttributes(
 		attribute.String(attrTool, attrs.Tool),
 		attribute.String(attrToolkitKind, attrs.ToolkitKind),
-		attribute.String(attrPersona, attrs.Persona),
+		attribute.String(attrPersona, PersonaLabel(attrs.Persona)),
 		attribute.String(attrStatusCategory, attrs.StatusCategory),
 	)
 	m.toolCallsTotal.Add(ctx, 1, set)
@@ -629,7 +671,7 @@ func (m *Metrics) RecordEnrichmentBytes(ctx context.Context, attrs ToolCallAttrs
 	m.enrichmentBytesTotal.Add(ctx, int64(bytes), metric.WithAttributes(
 		attribute.String(attrTool, attrs.Tool),
 		attribute.String(attrToolkitKind, attrs.ToolkitKind),
-		attribute.String(attrPersona, attrs.Persona),
+		attribute.String(attrPersona, PersonaLabel(attrs.Persona)),
 	))
 }
 
@@ -660,19 +702,28 @@ func (m *Metrics) DecInflightToolCalls(ctx context.Context) {
 	m.inflightToolCalls.Add(ctx, -1)
 }
 
-// RecordAPIGatewayOutbound records one outbound HTTP observation.
-// Nil-safe.
+// RecordAPIGatewayOutbound records one outbound HTTP observation. The
+// call counter carries the persona label; the duration histogram
+// deliberately omits it so the bucket series do not multiply by the
+// principal dimension, mirroring RecordAPIGatewayInbound's treatment of
+// identity. Nil-safe.
 func (m *Metrics) RecordAPIGatewayOutbound(ctx context.Context, attrs APIGatewayAttrs, duration time.Duration) {
 	if m == nil {
 		return
 	}
-	set := metric.WithAttributes(
+	histSet := metric.WithAttributes(
 		attribute.String(attrConnection, attrs.Connection),
 		attribute.String(attrHTTPStatus, attrs.HTTPStatusClass),
 		attribute.String(attrStatusCategory, attrs.StatusCategory),
 	)
-	m.apigwOutboundTotal.Add(ctx, 1, set)
-	m.apigwOutboundDuration.Record(ctx, duration.Seconds(), set)
+	counterSet := metric.WithAttributes(
+		attribute.String(attrConnection, attrs.Connection),
+		attribute.String(attrHTTPStatus, attrs.HTTPStatusClass),
+		attribute.String(attrStatusCategory, attrs.StatusCategory),
+		attribute.String(attrPersona, PersonaLabel(attrs.Persona)),
+	)
+	m.apigwOutboundTotal.Add(ctx, 1, counterSet)
+	m.apigwOutboundDuration.Record(ctx, duration.Seconds(), histSet)
 }
 
 // RecordAPIGatewayInbound records one inbound REST-shim request

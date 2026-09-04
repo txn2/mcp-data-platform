@@ -6,6 +6,7 @@ import {
   connectionRequestTotal,
   endpointByLabel,
   latencyQuantile,
+  outboundByPersona,
   promVectorToBreakdown,
   requestRateRange,
   topEndpoints,
@@ -133,6 +134,7 @@ export function ConnectionDetail({
   const p95 = useObservabilityQuery(latencyQuantile(0.95, connection, window));
   const p99 = useObservabilityQuery(latencyQuantile(0.99, connection, window));
   const endpoints = useObservabilityQuery(topEndpoints(connection, window));
+  const principals = useObservabilityQuery(outboundByPersona(window, connection));
 
   const endpointRows = promVectorToBreakdown(endpoints.data, "operation_id").map((e) => ({
     label: e.dimension,
@@ -159,6 +161,12 @@ export function ConnectionDetail({
         rows={endpointRows}
         isLoading={endpoints.isLoading}
         onSelect={onSelectEndpoint}
+      />
+      <Breakdown
+        title="Outbound calls by principal"
+        hint="this connection's upstream calls, by the persona that caused them"
+        query={principals}
+        labelKey="persona"
       />
     </>
   );

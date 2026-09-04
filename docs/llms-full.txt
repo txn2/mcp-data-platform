@@ -1282,21 +1282,21 @@ Metrics are enabled by default. Configuration is environment-only for Phase 1 to
 | `mcp_tool_call_duration_seconds` | histogram | `tool`, `toolkit_kind`, `persona`, `status_category` |
 | `mcp_inflight_tool_calls` | gauge | (none) |
 | `mcp_enrichment_bytes_total` | counter | `tool`, `toolkit_kind`, `persona` |
-| `apigateway_outbound_total` | counter | `connection`, `http_status_class`, `status_category` |
+| `apigateway_outbound_total` | counter | `connection`, `http_status_class`, `status_category`, `persona` |
 | `apigateway_outbound_duration_seconds` | histogram | `connection`, `http_status_class`, `status_category` |
 | `apigateway_inbound_requests_total` | counter | `connection`, `operation_id`, `method`, `status_class`, `identity` |
 | `apigateway_inbound_duration_seconds` | histogram | `connection`, `operation_id`, `method`, `status_class` |
 
 Plus the free Go runtime + process metrics (`go_*`, `process_*`).
 
-The `apigateway_inbound_*` pair measures inbound requests to the REST shim (`POST /api/v1/gateway/{connection}/invoke`, the NiFi-class ETL path), as opposed to `apigateway_outbound_*` which measures the platform's calls to the upstream API. `operation_id` is the OpenAPI operationId resolved from the connection's catalog via path-template matching (`unknown` for no-catalog or no-match). `identity` is the API key name or OIDC subject (`unknown` when unauthenticated), recorded on the counter only (never the histogram) to bound bucket cardinality.
+The `apigateway_inbound_*` pair measures inbound requests to the REST shim (`POST /api/v1/gateway/{connection}/invoke`, the NiFi-class ETL path), as opposed to `apigateway_outbound_*` which measures the platform's calls to the upstream API. `operation_id` is the OpenAPI operationId resolved from the connection's catalog via path-template matching (`unknown` for no-catalog or no-match). `identity` is the API key name or OIDC subject (`unknown` when unauthenticated), recorded on the counter only (never the histogram) to bound bucket cardinality. `apigateway_outbound_total` carries `persona`, the persona the call was authorized under, which separates an automated principal's traffic from an analyst's on a shared connection; it is bounded by the deployment's persona definitions, records `unknown` for a call the platform could not attribute (the same value `mcp_tool_calls_total` uses for that case), and is on the counter and not the duration histogram -- a scope decision, not the cardinality one that keeps `identity` off the inbound histogram, since persona is bounded and `mcp_tool_call_duration_seconds` carries it. Upgrading: a call that never reached persona resolution used to record an empty `persona`, which Prometheus drops; it now records `persona="unknown"` on `mcp_tool_calls_total`, `mcp_tool_call_duration_seconds` and `mcp_enrichment_bytes_total` too, so a rule matching the label's absence must match `persona="unknown"` instead.
 
 ## Chokepoints
 
 Phase 1 instruments two points that cover every tool call through the platform:
 
 1. **`MCPToolCallMiddleware`** — every tool call (MCP transport, SSE, Streamable HTTP, REST gateway shim, admin tools/call) passes through here. One histogram + one counter + one gauge here covers every toolkit at once.
-2. **apigateway transport** — every outbound HTTP call from `api_invoke_endpoint`, `api_export`, and the REST gateway shim is recorded at the `http.RoundTripper` level, so adding a new apigateway code path picks up metrics automatically.
+2. **apigateway transport** — every outbound HTTP call from `api_invoke_endpoint`, `api_export`, and the REST gateway shim is recorded at the `http.RoundTripper` level, so adding a new apigateway code path picks up metrics automatically. The calling persona reaches it on the request context, stamped by `MCPToolCallMiddleware` once the authorizer resolves it.
 
 Phase 2 adds OTLP tracing on the same chokepoints. Phase 3 extends to toolkit adapters (Trino, DataHub, S3, OAuth refresh, audit, enrichment).
 
@@ -1304,7 +1304,7 @@ Phase 2 adds OTLP tracing on the same chokepoints. Phase 3 extends to toolkit ad
 
 `status_category` is a closed set: `ok`, `auth_err`, `authz_err`, `validation_err`, `upstream_err`, `internal_err`. `http_status_class` is `2xx` / `3xx` / `4xx` / `5xx` / `other`. High-cardinality fields (user id, email, request id, session id, raw upstream URLs, raw error messages, free-text tool arguments) are NOT recorded as Prometheus labels — they belong on trace spans (Phase 2) and on audit log rows.
 
-Worst-case counter cardinality for `mcp_tool_calls_total` with ~40 tools × 8 toolkit_kinds × 5 personas × 6 status_categories = 9,600 series; for `apigateway_outbound_total` with ~10 connections × 5 status_classes × 6 status_categories = 300 series. Both well within typical Prometheus and managed-observability backend per-metric series budgets.
+Worst-case counter cardinality for `mcp_tool_calls_total` with ~40 tools × 8 toolkit_kinds × 5 personas × 6 status_categories = 9,600 series; for `apigateway_outbound_total` with ~10 connections × 5 status_classes × 6 status_categories × ~5 personas = 1,500 series (the persona dimension is on the counter only, so the duration histogram keeps its 300-series bound). Both well within typical Prometheus and managed-observability backend per-metric series budgets.
 
 ## Toolkit, provider, and DB-pool metrics
 

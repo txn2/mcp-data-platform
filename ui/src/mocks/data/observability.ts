@@ -134,6 +134,26 @@ export function promInstantFor(query: string): PromVectorResponse {
       { metric: { connection: "api-test-fixture", operation_id: "lorem" }, value: 980 },
     ]);
   }
+  // outbound calls grouped by the persona that caused them (#1615). The
+  // fixture models the split the label exists for: an ingestion service
+  // account carrying the bulk of the upstream traffic, with the interactive
+  // personas and the unattributed remainder beside it. A query scoped to one
+  // connection answers with that connection's smaller share.
+  if (query.includes("apigateway_outbound") && query.includes("by (persona)")) {
+    if (query.includes('connection="')) {
+      return vector([
+        { metric: { persona: "ingest-service" }, value: 3910 },
+        { metric: { persona: "analyst" }, value: 152 },
+        { metric: { persona: "unknown" }, value: 34 },
+      ]);
+    }
+    return vector([
+      { metric: { persona: "ingest-service" }, value: 24180 },
+      { metric: { persona: "analyst" }, value: 2410 },
+      { metric: { persona: "admin" }, value: 640 },
+      { metric: { persona: "unknown" }, value: 190 },
+    ]);
+  }
   // outbound calls grouped by status_category (success / client_error /
   // server_error) for the inbound-vs-outbound health split.
   if (query.includes("apigateway_outbound") && query.includes("by (status_category)")) {
