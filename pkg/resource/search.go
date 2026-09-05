@@ -34,7 +34,9 @@ const MaxContentIndexBytes = 32 << 10
 // MaxContentReadBytes bounds the object size the index consumer will pull from
 // blob storage to extract that prefix. The blob API has no range read, so
 // extracting 32 KiB means holding the whole object in memory; an upload may be
-// up to MaxUploadBytes (100 MB) and several index workers run concurrently.
+// up to the deployment's upload ceiling -- 100 MB by default and higher where
+// resources.managed.max_upload_bytes says so -- and several index workers run
+// concurrently.
 // A resource larger than this is indexed on its metadata alone rather than
 // risking the sweep's memory on a file whose first 32 KiB is all that would have
 // been kept anyway.

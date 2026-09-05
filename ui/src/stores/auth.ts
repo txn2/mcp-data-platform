@@ -15,6 +15,15 @@ export interface UserProfile {
    * X-CSRF-Token header on state-changing requests.
    */
   csrf_token?: string;
+  /**
+   * The largest file this deployment's managed-resource write routes accept,
+   * from resources.managed.max_upload_bytes (#1628). A deployment fact rather
+   * than a property of the caller, carried on the payload the app already
+   * bootstraps from so the upload dialog states the server's own number
+   * instead of holding a second copy of it. Absent from a server that predates
+   * the field, where the dialog falls back to the shipped default.
+   */
+  max_upload_bytes?: number;
 }
 
 type AuthMethod = "cookie" | "apikey" | null;

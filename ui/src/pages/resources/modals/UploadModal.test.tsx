@@ -135,3 +135,61 @@ describe("how the upload dialog names the library it failed to write to", () => 
     expect(text).not.toContain(SUBJECT);
   });
 });
+
+// Issue #1628: the dialog held its own copy of the 100 MB constant, in the
+// label, in the refusal, and in the check behind it. A deployment that raised
+// resources.managed.max_upload_bytes had a file chooser still announcing the
+// old number and refusing files the server would have taken.
+describe("the size ceiling the upload dialog states and enforces", () => {
+  // pickFile puts a file of the given size in the chooser without allocating
+  // it: only the reported size is read.
+  function pickFile(container: HTMLElement, size: number) {
+    const file = new File(["x"], "big.csv", { type: "text/csv" });
+    Object.defineProperty(file, "size", { value: size });
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [file] } });
+  }
+
+  it("states the deployment's own ceiling in the file chooser", () => {
+    signIn({ max_upload_bytes: 262144000 });
+    renderModal(false, { scope: "user", scope_id: SUBJECT });
+
+    expect(screen.getByText("Choose file (max 250 MB)")).toBeTruthy();
+  });
+
+  it("falls back to the shipped default when the server reports no ceiling", () => {
+    signIn();
+    renderModal(false, { scope: "user", scope_id: SUBJECT });
+
+    expect(screen.getByText("Choose file (max 100 MB)")).toBeTruthy();
+  });
+
+  it("accepts a file the raised ceiling admits, which the old constant refused", async () => {
+    signIn({ max_upload_bytes: 262144000 });
+    const { container } = renderModal(false, { scope: "user", scope_id: SUBJECT });
+
+    fireEvent.change(screen.getByLabelText("Display Name"), { target: { value: "Q4 export" } });
+    fireEvent.change(screen.getByLabelText("Description"), { target: { value: "the export" } });
+    pickFile(container, 200 * 1024 * 1024);
+    fireEvent.click(screen.getByRole("button", { name: "Upload" }));
+
+    // It reaches the server, which is what the stubbed API refuses. A local
+    // size rejection would never get that far.
+    const alert = await screen.findByRole("alert");
+    await waitFor(() => expect(alert.textContent).toContain(REFUSED));
+  });
+
+  it("refuses past the raised ceiling by naming that deployment's number", async () => {
+    signIn({ max_upload_bytes: 262144000 });
+    const { container } = renderModal(false, { scope: "user", scope_id: SUBJECT });
+
+    fireEvent.change(screen.getByLabelText("Display Name"), { target: { value: "Q4 export" } });
+    fireEvent.change(screen.getByLabelText("Description"), { target: { value: "the export" } });
+    pickFile(container, 262144000 + 1);
+    fireEvent.click(screen.getByRole("button", { name: "Upload" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("File exceeds 250 MB limit");
+    expect(alert.textContent).not.toContain("100 MB");
+  });
+});

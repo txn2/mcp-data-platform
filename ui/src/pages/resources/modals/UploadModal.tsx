@@ -30,7 +30,13 @@ import {
   type ScopeTarget,
 } from "../scopes";
 
-const MAX_BYTES = 100 * 1024 * 1024;
+// DEFAULT_MAX_BYTES is what the dialog assumes when the server has not told it
+// otherwise -- an older server, or a session bootstrapped before the field
+// existed. It matches resource.MaxUploadBytes, the same default the write
+// routes apply when a deployment configures none (#1628). The deployment's own
+// ceiling arrives on /api/v1/portal/me and is what the dialog states and
+// enforces whenever it is there.
+const DEFAULT_MAX_BYTES = 100 * 1024 * 1024;
 
 interface UploadDraft {
   file: File | null;
@@ -43,11 +49,13 @@ interface UploadDraft {
 
 // rejectDraft states why a draft cannot be sent, or null when it can. The
 // server validates all of this again; this only spares a round trip per target.
-function rejectDraft(draft: UploadDraft): string | null {
+// The size limit is the deployment's, so a refusal here names the number the
+// server would refuse by rather than a second copy compiled into the page.
+function rejectDraft(draft: UploadDraft, maxBytes: number): string | null {
   if (!draft.file) return "File is required";
   if (!draft.displayName.trim()) return "Display name is required";
   if (!draft.description.trim()) return "Description is required";
-  if (draft.file.size > MAX_BYTES) return "File exceeds 100 MB limit";
+  if (draft.file.size > maxBytes) return `File exceeds ${formatBytes(maxBytes)} limit`;
   return pathProblem(draft.path);
 }
 
@@ -111,6 +119,9 @@ export function UploadModal({
 }) {
   const upload = useUploadResource();
   const user = useAuthStore((s) => s.user);
+  // What this deployment accepts, reported on the session bootstrap. A server
+  // that does not report it is one running the shipped default.
+  const maxBytes = user?.max_upload_bytes || DEFAULT_MAX_BYTES;
   const fileRef = useRef<HTMLInputElement>(null);
   // The admin page's fan-out scope: one upload into every persona chosen, or
   // into every address named. The state below drives that block alone; the
@@ -172,7 +183,7 @@ export function UploadModal({
       tagsInput,
     };
     const targets = resolveTargets();
-    const rejection = rejectDraft(draft) ?? rejectTargets(targets.length, scope);
+    const rejection = rejectDraft(draft, maxBytes) ?? rejectTargets(targets.length, scope);
     if (rejection) {
       setError(rejection);
       submitting.current = false;
@@ -204,7 +215,7 @@ export function UploadModal({
       return;
     }
     onClose();
-  }, [file, displayName, description, scope, path, tagsInput, upload, onClose, resolveTargets, user]);
+  }, [file, displayName, description, scope, path, tagsInput, upload, onClose, resolveTargets, user, maxBytes]);
 
   return (
     <ModalShell
@@ -328,7 +339,9 @@ export function UploadModal({
             className="w-full font-normal"
           >
             <span className="truncate text-xs">
-              {file ? `${file.name} (${formatBytes(file.size)})` : "Choose file (max 100 MB)"}
+              {file
+                ? `${file.name} (${formatBytes(file.size)})`
+                : `Choose file (max ${formatBytes(maxBytes)})`}
             </span>
           </Button>
           <input ref={fileRef} type="file" className="hidden" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -14,12 +15,60 @@ import (
 
 // Validation limits.
 const (
+	// MaxUploadBytes is the upload ceiling a deployment that configures none
+	// gets. It is a default rather than the limit: a deployment sets its own
+	// with resources.managed.max_upload_bytes, which reaches the write routes
+	// as Deps.MaxUploadBytes (#1628). Raising it raises resident heap per
+	// concurrent upload, since the whole object is read into one []byte and
+	// handed to the blob client as one -- see NormalizeMaxUploadBytes.
 	MaxUploadBytes     = 100 << 20 // 100 MB
 	MaxDescriptionLen  = 2000
 	MaxDisplayNameLen  = 200
 	MaxTagsPerResource = 20
 	MaxTagLen          = 50
 )
+
+// NormalizeMaxUploadBytes resolves the upload ceiling that applies: the
+// configured value when it is positive, and MaxUploadBytes when it is absent,
+// zero, or negative. Zero has to select the default rather than mean "nothing
+// may be uploaded", because an unset field and a field set to zero are the
+// same value in Go and a deployment that sets neither must keep uploading.
+func NormalizeMaxUploadBytes(configured int64) int64 {
+	if configured <= 0 {
+		return MaxUploadBytes
+	}
+	return configured
+}
+
+// uploadLimitUnits are the units DescribeUploadLimit scales through, matching
+// the browser's formatBytes unit for unit so a refusal from the server and the
+// file chooser beside it name the same ceiling the same way.
+var uploadLimitUnits = []string{"B", "KB", "MB", "GB", "TB"}
+
+const (
+	// uploadLimitStep is the factor between two of those units.
+	uploadLimitStep = 1024
+	// uploadLimitBits is the float width DescribeUploadLimit formats at. The
+	// value is a byte count divided down, so float64 is exact well past any
+	// ceiling a deployment would set.
+	uploadLimitBits = 64
+)
+
+// DescribeUploadLimit renders an upload ceiling the way the person who set it
+// reads it, and the way the browser renders the same number (formatBytes in
+// ui/src/lib/format.ts): the largest unit the value reaches, to one decimal
+// place, with a whole number left whole. A ceiling below a megabyte is
+// reported in bytes or kilobytes rather than as "0 MB".
+func DescribeUploadLimit(n int64) string {
+	value, unit := float64(n), 0
+	for value >= uploadLimitStep && unit < len(uploadLimitUnits)-1 {
+		value /= uploadLimitStep
+		unit++
+	}
+	return strings.TrimSuffix(
+		strconv.FormatFloat(value, 'f', 1, uploadLimitBits), ".0",
+	) + " " + uploadLimitUnits[unit]
+}
 
 var (
 	// pathSegmentRe is the rule one folder name in a resource's path must meet.

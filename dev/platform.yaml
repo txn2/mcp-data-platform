@@ -470,6 +470,12 @@ resources:
     enabled: true
     s3_connection: dev-s3
     s3_bucket: portal-assets
+    # Raised off the 100 MB default so the dev stack is a deployment that
+    # configures its own ceiling (#1628), which is the case the acceptance
+    # suite for that ticket executes: the number the write routes refuse by,
+    # the number /api/v1/portal/me reports to the upload dialog, and the
+    # number a refusal names all have to be this one rather than the default.
+    max_upload_bytes: 262144000   # 250 MB
 
 memory:
   embedding:

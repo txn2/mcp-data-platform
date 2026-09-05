@@ -1164,6 +1164,15 @@ type ManagedResourcesCfg struct {
 	// Non-positive selects resource.DefaultMaxVersions (10), and a value below
 	// 2 is raised to 2 (a cap of 1 would keep no history at all).
 	MaxVersions int `yaml:"max_versions"`
+	// MaxUploadBytes is the largest file the resource write routes accept
+	// (#1628). Non-positive selects resource.MaxUploadBytes (100 MB), so a
+	// deployment that sets nothing behaves as it always has.
+	//
+	// The number is resident heap per concurrent upload: the object is read
+	// into one []byte and handed to the blob client as one, so a deployment
+	// raising this sizes its container for it. See
+	// docs/server/configuration.md.
+	MaxUploadBytes int64 `yaml:"max_upload_bytes"`
 }
 
 // CustomResourceDef defines a user-configured static MCP resource.

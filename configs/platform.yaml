@@ -561,6 +561,12 @@ tuning:
 #     # revision past the cap deletes the oldest version's stored file; the
 #     # live content is never pruned. Below 2 is raised to 2.
 #     max_versions: 10          # default: 10
+#     # Largest file the upload and replace-content routes accept. Absent, zero
+#     # or negative keeps the 100 MB default. The number is resident heap for
+#     # the life of the request, per concurrent upload: the object is read into
+#     # one buffer and handed to blob storage as one, so size the container for
+#     # the ceiling times the uploads you expect at once before raising it.
+#     max_upload_bytes: 104857600   # default: 104857600 (100 MB)
 
 # Progress notifications
 # Sends granular progress updates to MCP clients during long-running

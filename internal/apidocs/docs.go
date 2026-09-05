@@ -17754,7 +17754,7 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "file",
-                        "description": "File to upload (max 100 MB)",
+                        "description": "File to upload; the ceiling is resources.managed.max_upload_bytes (default 100 MB)",
                         "name": "file",
                         "in": "formData",
                         "required": true
@@ -18314,7 +18314,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "file",
-                        "description": "Replacement file (max 100 MB)",
+                        "description": "Replacement file; the ceiling is resources.managed.max_upload_bytes (default 100 MB)",
                         "name": "file",
                         "in": "formData",
                         "required": true
@@ -24712,6 +24712,11 @@ const docTemplate = `{
                 "is_admin": {
                     "type": "boolean",
                     "example": false
+                },
+                "max_upload_bytes": {
+                    "description": "MaxUploadBytes is the largest file the managed-resource write routes\naccept on this deployment (#1628). The same fact for every caller, sent\non the payload the SPA already bootstraps from so the upload dialog can\nstate it without a second copy of the number in the page.",
+                    "type": "integer",
+                    "example": 104857600
                 },
                 "persona": {
                     "type": "string",
