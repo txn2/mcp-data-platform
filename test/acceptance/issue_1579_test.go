@@ -28,12 +28,13 @@ import (
 // admits exactly one JSON form. manage_asset's action, asset_id, name,
 // description and query are strings and limit is a number; manage_script's
 // command, name, description and source are strings and params an array of
-// objects; run_script's name is a string and wait_seconds a number. The one
-// parameter whose schema admits more than one form is run_script's args, an
-// object of free-form values: it is sent below with string-valued members and,
-// in TestIssue1579_TheCollisionIsIndependentOfTheArgumentForm, with a
-// number-valued one, and both must produce the same ownership. Each is sent as
-// a literal tools/call parameter of that form.
+// objects; run_script's name is a string and wait_seconds a number; and the
+// transfer body's owner_email and outputs are strings in the route's schema.
+// The one parameter whose schema admits more than one form is run_script's
+// args, an object of free-form values: it is sent below with string-valued
+// members and, in TestIssue1579_TheCollisionIsIndependentOfTheArgumentForm,
+// with a number-valued one, and both must produce the same ownership. Each is
+// sent as a literal tools/call parameter of that form.
 
 // scriptExport1579 writes one CSV output. Its rows come from the run itself, so
 // proving who an output belongs to needs no query engine.
@@ -376,10 +377,14 @@ func TestIssue1579_ATransferredScriptStillEnumeratesItsOwnOutputs(t *testing.T) 
 	mustSucceed1579(t, owner, scriptName, map[string]any{"output": outputName})
 
 	// The move: to the second ordinary person, made by an administrator, which
-	// is the only way a script changes hands.
+	// is the only way a script changes hands. The run above wrote an asset, and
+	// a transfer of a script whose runs have written one states what happens to
+	// it (#1588); "keep" is the choice this test is about, because leaving the
+	// asset with the person it was written for is what makes the row's
+	// owner_email name nobody the script's identity now runs as.
 	status, body := admin.rest(http.MethodPut,
 		"/api/v1/portal/scripts/"+scriptIDOf1579(t, owner, scriptName)+"/owner",
-		strings.NewReader(`{"owner_email":"`+devPeerEmailAddr+`"}`))
+		strings.NewReader(`{"owner_email":"`+devPeerEmailAddr+`","outputs":"keep"}`))
 	if status != http.StatusOK {
 		t.Fatalf("transferring %s: status %d: %v", scriptName, status, body)
 	}

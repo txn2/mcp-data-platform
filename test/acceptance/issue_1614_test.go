@@ -30,27 +30,16 @@ const (
 // criterion reads afterwards is the session's audit rows and call records.
 func fetchOnce(c *client, purpose string) (citable bool) {
 	c.t.Helper()
-	var (
-		res  *mcp.CallToolResult
-		text string
-		err  error
-	)
-	// The same rate-limit wait the shared call helper performs, kept here
-	// because this criterion needs the whole result and not its first block.
-	for attempt := 0; attempt <= rateLimitRetries; attempt++ {
-		res, text, err = c.callRaw("api_invoke_endpoint", map[string]any{
-			"connection": apiTestConnection,
-			"method":     "GET",
-			"path":       ingestPath,
-			"purpose":    purpose,
-		})
-		if err != nil {
-			c.t.Fatalf("api_invoke_endpoint: transport error: %v", err)
-		}
-		if !res.IsError || !strings.Contains(text, "RATE_LIMITED") {
-			break
-		}
-		time.Sleep(retryAfter(text))
+	// callRaw rather than call: this criterion needs the whole result and not
+	// its first block. The rate-limit wait is callRaw's own.
+	res, text, err := c.callRaw("api_invoke_endpoint", map[string]any{
+		"connection": apiTestConnection,
+		"method":     "GET",
+		"path":       ingestPath,
+		"purpose":    purpose,
+	})
+	if err != nil {
+		c.t.Fatalf("api_invoke_endpoint: transport error: %v", err)
 	}
 	if res.IsError {
 		c.t.Fatalf("api_invoke_endpoint: tool error: %s", text)

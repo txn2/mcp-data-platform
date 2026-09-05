@@ -5,7 +5,6 @@ package acceptance
 import (
 	"fmt"
 	"net/http"
-	"strings"
 	"testing"
 	"time"
 )
@@ -29,8 +28,16 @@ import (
 // names what goes before it runs. Those are proved in
 // ui/src/pages/scripts/ScriptDelete.test.tsx and ScriptDetailPage.test.tsx.
 // What is executed here is the half those tests cannot reach: that the route
-// behind the control removes what the confirmation says it removes, leaves
-// what it says it leaves, and answers the same sentence back.
+// behind the control removes what the confirmation says it removes and leaves
+// what it says it leaves.
+//
+// Criterion 3's executable half -- that the answer names the cascade -- was
+// written here as an unconditional four-part account on a fixture that had no
+// schedule, no runs and no state, and #1604 replaced that contract with one
+// that names only what the script actually had. The assertion is retired
+// rather than corrected in place (#1632): the account belongs to #1593, which
+// composed it for the two surfaces, and issue_1593_test.go asserts it on both
+// shapes of script and on both of them.
 //
 // Wire forms: this route takes no request body and no query parameters. Its
 // one parameter is the {id} path segment, a string, and a path segment admits
@@ -194,30 +201,6 @@ func TestIssue1575_OwnerDeletesTheirOwnScriptFromThePortal(t *testing.T) {
 	}
 	if listedInPortal1575(t, owner, id) {
 		t.Fatalf("the script is still in the listing the page returns to")
-	}
-}
-
-// TestIssue1575_TheDeleteSaysWhatWentAndWhatStayed is criterion 3's executable
-// half: the sentence the page shows after the delete names what the
-// confirmation named before it. The confirmation itself is a browser fact and
-// is proved in ScriptDelete.test.tsx.
-func TestIssue1575_TheDeleteSaysWhatWentAndWhatStayed(t *testing.T) {
-	owner := connectAs(t, devOwnerAPIKey)
-	name := "acceptance-1575-says-" + unique1575()
-	id := createScript1575(t, owner, name)
-
-	status, body := deleteFromPortal1575(t, owner, id)
-	if status != http.StatusOK {
-		t.Fatalf("DELETE as the owner: status %d: %v", status, body)
-	}
-	message, _ := body["message"].(string)
-	for _, named := range []string{
-		"saved versions", "schedule", "run history", "state",
-		"assets and resources it wrote remain",
-	} {
-		if !strings.Contains(message, named) {
-			t.Fatalf("the delete's answer does not name %q: %q", named, message)
-		}
 	}
 }
 

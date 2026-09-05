@@ -451,12 +451,19 @@ acceptance-check:
 ## criteria through the tool surface a user calls. It fails, rather than
 ## skips, when no server answers. Override the target with MCP_BASE_URL and
 ## MCP_API_KEY (defaults: the dev server on DEV_API_PORT, the dev API key).
+## ACCEPTANCE_TIMEOUT bounds the whole binary, not one test. Go's default is
+## 10 minutes and the suite runs for most of that against a healthy stack --
+## several criteria wait past a cadence that fires every minute, and every
+## DataHub criterion waits on an upstream index -- so the default kills the run
+## partway through and reports the tests that were still on the clock as
+## failures. A run that was cut short is not a suite that failed (#1632).
+ACCEPTANCE_TIMEOUT ?= 40m
 acceptance:
 	@# dev/start.sh relocates the stack when the default ports are busy and
 	@# records where it went; the suite follows it unless MCP_BASE_URL is set.
 	@set -a; [ -f dev/.dev-ports.env ] && . ./dev/.dev-ports.env; set +a; \
 	echo "Running acceptance suite against $${MCP_BASE_URL:-http://localhost:$${DEV_API_PORT:-8080}}..."; \
-	$(GOTEST) -count=1 -tags=integration ./test/acceptance/ -v
+	$(GOTEST) -count=1 -timeout $(ACCEPTANCE_TIMEOUT) -tags=integration ./test/acceptance/ -v
 
 ## posture-check: Fail when README/llms.txt engineering-posture claims go stale
 posture-check:
