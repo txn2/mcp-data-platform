@@ -61,6 +61,10 @@ function rejectDraft(draft: UploadDraft, maxBytes: number): string | null {
 
 // draftForm builds the multipart body for one target. Every target gets the
 // same file and metadata; only the scope differs.
+//
+// The file goes on last. The server streams that part to blob storage where it
+// finds it (#1631), so it reads no part behind the file and refuses a form that
+// carries one -- every field has to be appended before it.
 function draftForm(draft: UploadDraft, target: { scope: string; scope_id: string }): FormData {
   const fd = new FormData();
   fd.set("scope", target.scope);
@@ -68,8 +72,8 @@ function draftForm(draft: UploadDraft, target: { scope: string; scope_id: string
   fd.set("path", draft.path);
   fd.set("display_name", draft.displayName.trim());
   fd.set("description", draft.description.trim());
-  fd.set("file", draft.file!);
   for (const t of parseTags(draft.tagsInput)) fd.append("tags", t);
+  fd.set("file", draft.file!);
   return fd;
 }
 

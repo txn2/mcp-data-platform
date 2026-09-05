@@ -9,9 +9,21 @@ import (
 	"time"
 )
 
-// scratchConnection is the dev stack's Trino connection that carries a scratch
-// target (dev/platform.yaml, acme-scratch) over the dev Trino's Hive catalog.
-const scratchConnection = "acme-scratch"
+// The dev stack's two Trino connections that carry a scratch target
+// (dev/platform.yaml), one per object store.
+//
+// There are two because a Hive catalog reads its metastore and its tables
+// through one S3 client, and the dev stack runs two object stores: portal
+// assets on SeaweedFS, managed resources on MinIO, which is the backend that
+// bounds a single PUT and so the one the upload path is exercised against
+// (#1631). A registration over a file has to name the connection whose catalog
+// can reach that file's store. A deployment has one store and one of these.
+const (
+	// scratchConnection reaches portal assets.
+	scratchConnection = "acme-scratch"
+	// scratchResourceConnection reaches managed resources.
+	scratchResourceConnection = "acme-scratch-resources"
+)
 
 // Issue #1546: a write that runs DROP TABLE (a follow here) asks afterwards
 // whether every other registration on the connection still resolves, records
@@ -40,11 +52,11 @@ func TestIssue1546_AFollowReportsARegistrationWhoseTableIsGone(t *testing.T) {
 	}
 
 	following := c.call("manage_table", map[string]any{
-		"action": "register", "reference": reference, "connection": scratchConnection,
+		"action": "register", "reference": reference, "connection": scratchResourceConnection,
 		"table_name": "acc_" + stamp,
 	})
 	sibling := c.call("manage_table", map[string]any{
-		"action": "register", "reference": reference, "connection": scratchConnection,
+		"action": "register", "reference": reference, "connection": scratchResourceConnection,
 		"table_name": "acc_" + stamp + "_pinned", "follow": false,
 	})
 	siblingTable, _ := sibling["query_table"].(string)
@@ -58,7 +70,7 @@ func TestIssue1546_AFollowReportsARegistrationWhoseTableIsGone(t *testing.T) {
 
 	// The sibling's table disappears behind the platform's back.
 	c.call("trino_execute", map[string]any{
-		"connection": scratchConnection,
+		"connection": scratchResourceConnection,
 		"sql":        "DROP TABLE " + siblingTable,
 		"purpose":    "Acceptance: remove a registered table by hand, as a store fault would.",
 	})
@@ -114,11 +126,11 @@ func registerPair(c *client, stamp string) (reference string, following, sibling
 		c.t.Fatalf("manage_resource create returned no reference: %v", created)
 	}
 	following = c.call("manage_table", map[string]any{
-		"action": "register", "reference": reference, "connection": scratchConnection,
+		"action": "register", "reference": reference, "connection": scratchResourceConnection,
 		"table_name": "acc_" + stamp,
 	})
 	sibling = c.call("manage_table", map[string]any{
-		"action": "register", "reference": reference, "connection": scratchConnection,
+		"action": "register", "reference": reference, "connection": scratchResourceConnection,
 		"table_name": "acc_" + stamp + "_pinned", "follow": false,
 	})
 	c.t.Cleanup(func() {
@@ -136,7 +148,7 @@ func registerPair(c *client, stamp string) (reference string, following, sibling
 func dropByHand(c *client, table string) {
 	c.t.Helper()
 	c.call("trino_execute", map[string]any{
-		"connection": scratchConnection,
+		"connection": scratchResourceConnection,
 		"sql":        "DROP TABLE " + table,
 		"purpose":    "Acceptance: remove a registered table by hand, as a store fault would.",
 	})
@@ -168,7 +180,7 @@ func TestIssue1546_AReplacingRegistrationReportsARegistrationWhoseTableIsGone(t 
 	dropByHand(c, siblingTable)
 
 	replaced := c.call("manage_table", map[string]any{
-		"action": "register", "reference": reference, "connection": scratchConnection,
+		"action": "register", "reference": reference, "connection": scratchResourceConnection,
 		"table_name": "acc_" + stamp,
 	})
 	tables, _ := replaced["tables"].([]any)

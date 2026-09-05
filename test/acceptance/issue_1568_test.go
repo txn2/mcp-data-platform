@@ -79,6 +79,18 @@ func uploadResource1568(t *testing.T, c *client, filename, declared string, cont
 	body := new(bytes.Buffer)
 	w := multipart.NewWriter(body)
 
+	// The fields go first: the route streams the file part to blob storage
+	// where it finds it and reads no part behind it (#1631).
+	for field, value := range map[string]string{
+		"scope":        "global",
+		"path":         "acceptance-1568",
+		"display_name": "acceptance-1568-upload-" + unique1568(),
+		"description":  "Acceptance #1568: what the portal upload dialog stores a .md as.",
+	} {
+		if err := w.WriteField(field, value); err != nil {
+			t.Fatalf("writing %s: %v", field, err)
+		}
+	}
 	head := make(textproto.MIMEHeader)
 	head.Set("Content-Disposition",
 		fmt.Sprintf(`form-data; name="file"; filename=%q`, filename))
@@ -91,16 +103,6 @@ func uploadResource1568(t *testing.T, c *client, filename, declared string, cont
 	}
 	if _, err := part.Write(content); err != nil {
 		t.Fatalf("writing the upload part: %v", err)
-	}
-	for field, value := range map[string]string{
-		"scope":        "global",
-		"path":         "acceptance-1568",
-		"display_name": "acceptance-1568-upload-" + unique1568(),
-		"description":  "Acceptance #1568: what the portal upload dialog stores a .md as.",
-	} {
-		if err := w.WriteField(field, value); err != nil {
-			t.Fatalf("writing %s: %v", field, err)
-		}
 	}
 	if err := w.Close(); err != nil {
 		t.Fatalf("closing the upload body: %v", err)

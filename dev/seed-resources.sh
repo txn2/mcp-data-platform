@@ -41,11 +41,14 @@ seed() {
     return 0
   fi
   local status
+  # The file part goes last. The route streams it to blob storage where it
+  # finds it and reads no part behind it (#1631), so every field has to be
+  # named before -F file=@.
   status=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$API/api/v1/resources" \
     -H "X-API-Key: $ADMIN_KEY" \
-    -F "file=@$CONTENT_DIR/$file" \
     -F "scope=$scope" -F "scope_id=$scope_id" \
-    -F "path=$category" -F "display_name=$name" -F "description=$desc")
+    -F "path=$category" -F "display_name=$name" -F "description=$desc" \
+    -F "file=@$CONTENT_DIR/$file")
   # 409 is the file already being in that scope under that name, which the
   # already_seeded probe misses whenever the listing it reads is paged past the
   # row. It is the same no-op as the probe hitting, and treating it as a

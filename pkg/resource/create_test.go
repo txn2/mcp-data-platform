@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -15,7 +16,7 @@ func newResourceInput() NewResource {
 	return NewResource{
 		Scope: ScopeGlobal, Path: "samples", Filename: "weather.csv",
 		DisplayName: "Daily Weather", Description: "Highs and lows",
-		Tags: []string{}, Data: []byte("day,high\nmon,71\n"), MIMEType: "text/csv",
+		Tags: []string{}, Content: bytes.NewReader([]byte("day,high\nmon,71\n")), MIMEType: "text/csv",
 	}
 }
 

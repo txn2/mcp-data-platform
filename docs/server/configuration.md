@@ -1416,31 +1416,48 @@ resources:
 | `s3_connection` | string | the S3 kind's `default:` | Name of the S3 toolkit instance used for blob storage |
 | `s3_bucket` | string | `managed-resources` | Bucket the uploaded bytes are written to |
 | `max_versions` | int | `10` | Content revisions a resource keeps, counting the current one. A revision past the cap prunes the oldest stored file; live content is never pruned. A non-positive value selects the default, and anything below `2` is raised to `2`, since a cap of `1` would keep no history at all |
-| `max_upload_bytes` | int | `104857600` (100 MB) | Largest file `POST /api/v1/resources` and `POST /api/v1/resources/{id}/content` accept. Absent, zero, or negative selects the default, so a deployment that sets nothing keeps today's 100 MB. The refusal message and the portal's file chooser both state this deployment's number — the browser reads it from `GET /api/v1/portal/me` rather than holding a copy. **Raising it raises memory**: see below |
+| `max_upload_bytes` | int | `104857600` (100 MB) | Largest file `POST /api/v1/resources` and `POST /api/v1/resources/{id}/content` accept. Absent, zero, or negative selects the default, so a deployment that sets nothing keeps today's 100 MB. The refusal message and the portal's file chooser both state this deployment's number — the browser reads it from `GET /api/v1/portal/me` rather than holding a copy. It bounds bytes streamed, not bytes held: see below |
 
 Managed resources require a database. With none configured the block has no
 effect, and the platform runs the read-only templates alone.
 
 ### What raising `max_upload_bytes` costs
 
-The upload path is not streaming. A request reads the whole object into one
-buffer (`io.ReadAll` in `pkg/resource/handler.go`) and hands it to blob storage
-as one `[]byte` (`S3Client.PutObject`), so the configured ceiling is resident
-heap for the life of the request, **per concurrent upload**. Size the container
-for the ceiling times the uploads you expect at once, plus normal working set,
-before raising this — an undersized container answers a large upload with an
-OOM kill rather than a refusal. The read path has the same shape: `GetObject`
-returns a `[]byte`.
+The upload path streams. A request walks the multipart form part by part and
+hands the file part to the multipart uploader as a reader, so the object is
+never assembled — not in memory, and not in a temporary file. What a request
+holds is the uploader's part buffers and a few kilobytes for content
+detection, whatever the ceiling is, so raising it raises what the deployment
+will store rather than what it has to fit in memory.
 
-Multipart parsing does not double the cost. A part above 10 MB
-(`MaxMultipartMemory`) spools to disk, so a large upload is one in-memory slice
-plus a temporary file of the same size on ephemeral disk.
+Two consequences worth stating, because both were true the other way before.
+The upload path needs no writable temporary directory, which is what the
+published image (built `FROM scratch`) has: nothing is spooled. And the
+storage backend is written through multipart, so a backend that bounds a
+single `PutObject` — MinIO refuses one above 16 MiB under the `aws-chunked`
+encoding the AWS SDK uses over HTTPS — takes a file of any size the ceiling
+allows.
+
+The **read** path has not changed shape: `GetObject` returns a `[]byte`, so
+serving a large managed resource still holds it. Size for reads, not for
+uploads.
 
 Two things a raised ceiling does not change. Content indexing still stops at
 `MaxContentReadBytes` (8 MiB), so a file above that is indexed on its metadata
 alone whatever the ceiling is. And an ingress or proxy in front of the platform
 enforces its own body limit: raise that too, or a request the platform would
 accept never reaches it.
+
+### The file part goes last
+
+Both write routes read the multipart form in order and stop at the `file`
+part, because that part is handed to the uploader where it is found. Every
+other field — `scope`, `scope_id`, `path`, `display_name`, `description`,
+`tags` — has to arrive before it. A form that puts a part behind the file is
+refused with `the file part must be the last part of the form`, and nothing is
+stored: the refusal happens while the file is being read, so the uploader
+aborts the object it had begun. The portal sends this order; a script posting
+to these routes has to append its file last.
 
 ## Argument Autocompletion
 

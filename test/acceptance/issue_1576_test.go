@@ -295,7 +295,7 @@ func TestIssue1576_ATableOverAMovedFileFollowsTheVersionsTheScriptWrites(t *test
 	script := refreshScript1576(t, owner, "acc-1576-table-"+name)
 
 	registered := owner.call("manage_table", map[string]any{
-		"action": "register", "reference": reference, "connection": scratchConnection,
+		"action": "register", "reference": reference, "connection": scratchResourceConnection,
 		"table_name": "acc_1576_" + name,
 	})
 	registrationID, _ := registered["registration_id"].(string)
@@ -335,7 +335,7 @@ func TestIssue1576_ATableOverAMovedFileFollowsTheVersionsTheScriptWrites(t *test
 	}
 
 	queried := owner.call("trino_query", map[string]any{
-		"connection": scratchConnection,
+		"connection": scratchResourceConnection,
 		"sql":        "SELECT count(*) AS n FROM " + queryTable,
 		"purpose":    "Acceptance #1576: the table registered before the move serves what the script wrote after it.",
 	})

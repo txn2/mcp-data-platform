@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 
@@ -25,8 +26,14 @@ import (
 type fakeResourceWriter struct {
 	created  resource.NewResource
 	replaced resource.RevisionUpload
-	claims   resource.Claims
-	gotID    string
+	// createdContent and replacedContent are the bytes the tool handed over.
+	// The writer takes them as a reader (#1631), and the real one draws it, so
+	// the fake draws it too: a fake that left it unread would record a reader
+	// nobody can look at twice and would hide a caller that passed a spent one.
+	createdContent  []byte
+	replacedContent []byte
+	claims          resource.Claims
+	gotID           string
 
 	createErr  error
 	replaceErr error
@@ -39,13 +46,14 @@ func (f *fakeResourceWriter) Create(
 	_ context.Context, in resource.NewResource, claims resource.Claims,
 ) (*resource.Resource, error) {
 	f.created, f.claims = in, claims
+	f.createdContent = drainContent(in.Content)
 	if f.createErr != nil {
 		return nil, f.createErr
 	}
 	return &resource.Resource{
 		ID: "res1", Scope: in.Scope, ScopeID: in.ScopeID, Path: in.Path,
 		Filename: in.Filename, DisplayName: in.DisplayName, MIMEType: in.MIMEType,
-		SizeBytes: int64(len(in.Data)),
+		SizeBytes: int64(len(f.createdContent)),
 		URI:       resource.BuildURI("mcp", in.Scope, in.ScopeID, in.Path, in.Filename),
 		S3Key:     "resources/res1/" + in.Filename,
 	}, nil
@@ -55,12 +63,27 @@ func (f *fakeResourceWriter) Replace(
 	_ context.Context, id string, up resource.RevisionUpload, claims resource.Claims,
 ) (*resource.Resource, int, error) {
 	f.gotID, f.replaced, f.claims = id, up, claims
+	f.replacedContent = drainContent(up.Content)
 	if f.replaceErr != nil {
 		return nil, 0, f.replaceErr
 	}
 	res := *f.existingOrDefault()
-	res.MIMEType, res.SizeBytes = up.MIMEType, int64(len(up.Data))
+	res.MIMEType, res.SizeBytes = up.MIMEType, int64(len(f.replacedContent))
 	return &res, f.version, nil
+}
+
+// drainContent reads a write's content the way the real writer does. Nil
+// content is an empty object rather than an error, which is the contract
+// CreateResource and ReviseContent hold.
+func drainContent(r io.Reader) []byte {
+	if r == nil {
+		return nil
+	}
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return nil
+	}
+	return data
 }
 
 func (f *fakeResourceWriter) Get(_ context.Context, id string, _ resource.Claims) (*resource.Resource, error) {
@@ -159,7 +182,7 @@ func TestCreateBuildsTheResourceFromTheCall(t *testing.T) {
 	assert.Equal(t, "weather-daily.csv", w.created.Filename, "the filename is normalized before it reaches the URI")
 	assert.Equal(t, resource.ScopeUser, w.created.Scope)
 	assert.Equal(t, "user1", w.created.ScopeID, "an unnamed scope is the caller's own")
-	assert.Equal(t, "day,high\nmon,71\ntue,68\n", string(w.created.Data))
+	assert.Equal(t, "day,high\nmon,71\ntue,68\n", string(w.createdContent))
 	assert.Equal(t, "text/csv", w.created.MIMEType)
 	assert.Equal(t, []string{}, w.created.Tags)
 	assert.Equal(t, "user1", w.claims.Sub, "the write acts as the caller, not as the platform")
@@ -296,7 +319,7 @@ func TestContentArrivesAsTextOrAsBytes(t *testing.T) {
 
 			require.False(t, callResource(t, tk, in).IsError)
 
-			assert.Equal(t, tc.expect, string(w.created.Data))
+			assert.Equal(t, tc.expect, string(w.createdContent))
 		})
 	}
 }
@@ -313,7 +336,7 @@ func TestUnpaddedBase64IsAccepted(t *testing.T) {
 
 	require.False(t, callResource(t, tk, in).IsError)
 
-	assert.Equal(t, png, string(w.created.Data),
+	assert.Equal(t, png, string(w.createdContent),
 		"a model that emits unpadded base64 must not have its file refused for the spelling")
 }
 
@@ -355,7 +378,7 @@ func TestContentRefusals(t *testing.T) {
 
 			require.True(t, result.IsError)
 			assert.Contains(t, errText(t, result), tc.says)
-			assert.Empty(t, w.created.Data)
+			assert.Empty(t, w.createdContent)
 		})
 	}
 }
@@ -437,7 +460,7 @@ func TestReplaceReferenceRefusals(t *testing.T) {
 
 			require.True(t, result.IsError)
 			assert.Contains(t, errText(t, result), tc.says)
-			assert.Empty(t, w.replaced.Data)
+			assert.Empty(t, w.replacedContent)
 		})
 	}
 }
@@ -452,7 +475,7 @@ func TestReplaceResolvesTheFileBeforeReadingThePayload(t *testing.T) {
 
 	require.True(t, result.IsError)
 	assert.Contains(t, errText(t, result), "no managed resource")
-	assert.Empty(t, w.replaced.Data)
+	assert.Empty(t, w.replacedContent)
 }
 
 func TestReplaceRefusesUnusableContent(t *testing.T) {
@@ -464,7 +487,7 @@ func TestReplaceRefusesUnusableContent(t *testing.T) {
 
 	require.True(t, result.IsError)
 	assert.Contains(t, errText(t, result), "not valid base64")
-	assert.Empty(t, w.replaced.Data, "a replacement whose bytes cannot be read reaches no writer")
+	assert.Empty(t, w.replacedContent, "a replacement whose bytes cannot be read reaches no writer")
 }
 
 func TestReplaceReportsTheWritersRefusal(t *testing.T) {

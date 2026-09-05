@@ -358,9 +358,30 @@ toolkits:
         schema: "${TRINO_SCRATCH_SCHEMA:-uploads}"
         ssl: ${TRINO_SSL:-false}
         read_only: false
-        description: "ACME scratch — registered tables over uploaded files"
+        description: "ACME scratch — registered tables over portal assets"
         scratch:
           catalog: "${TRINO_SCRATCH_CATALOG:-scratch}"
+          schema: "${TRINO_SCRATCH_SCHEMA:-uploads}"
+      # The same thing for managed resources, which live on the other object
+      # store. A Hive catalog reads its metastore and its tables through one S3
+      # client, so a catalog over SeaweedFS cannot read a file on MinIO -- and
+      # managed resources are on MinIO because it is the backend in this stack
+      # that bounds a single PUT (#1631). Two stores therefore means two
+      # catalogs, and a connection per catalog.
+      #
+      # A deployment has one object store and one of these.
+      acme-scratch-resources:
+        host: "${TRINO_HOST:-localhost}"
+        port: ${TRINO_PORT:-8080}
+        user: "${TRINO_USER:-}"
+        password: "${TRINO_PASSWORD:-}"
+        catalog: "${TRINO_SCRATCH_RESOURCES_CATALOG:-scratch_resources}"
+        schema: "${TRINO_SCRATCH_SCHEMA:-uploads}"
+        ssl: ${TRINO_SSL:-false}
+        read_only: false
+        description: "ACME scratch — registered tables over managed resources"
+        scratch:
+          catalog: "${TRINO_SCRATCH_RESOURCES_CATALOG:-scratch_resources}"
           schema: "${TRINO_SCRATCH_SCHEMA:-uploads}"
     default: acme
     config:
@@ -421,6 +442,20 @@ toolkits:
         use_path_style: true
         read_only: true
         description: "Local SeaweedFS, read-only"
+      # MinIO over TLS, where managed resources are stored. It is a separate
+      # connection because it is a separate backend: MinIO refuses a single
+      # PUT above 16 MiB under the aws-chunked encoding the AWS SDK uses over
+      # HTTPS, which is the bound the streaming upload path exists to clear
+      # (#1631). SeaweedFS accepts an unbounded single PUT and so cannot stand
+      # in for it.
+      dev-resources:
+        enabled: true
+        endpoint: "https://localhost:${DEV_S3_TLS_PORT:-9443}"
+        region: "us-east-1"
+        access_key_id: "dev-access-key"
+        secret_access_key: "dev-secret-key"
+        use_path_style: true
+        description: "Local MinIO (TLS) for managed resources"
     default: dev-s3
 
   # mcp gateway: connections live in the database (added/edited via the
@@ -468,8 +503,11 @@ portal:
 resources:
   managed:
     enabled: true
-    s3_connection: dev-s3
-    s3_bucket: portal-assets
+    # MinIO rather than SeaweedFS, in its own bucket: the upload path has to
+    # run against a backend that bounds a single PUT, or the streaming write
+    # is never the thing being exercised (#1631).
+    s3_connection: dev-resources
+    s3_bucket: managed-resources
     # Raised off the 100 MB default so the dev stack is a deployment that
     # configures its own ceiling (#1628), which is the case the acceptance
     # suite for that ticket executes: the number the write routes refuse by,
