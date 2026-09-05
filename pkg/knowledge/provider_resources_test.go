@@ -450,8 +450,8 @@ func TestResourcesProvider_FetchWithoutARecorder(t *testing.T) {
 // a revision that moved the head can be reported as stale (#1327).
 func TestResourcesProvider_CarriesTheTableReference(t *testing.T) {
 	p := resourcesProvider()
-	lookup := &stubLookup{tables: map[string]*HitTable{
-		"res_g": {Connection: "scratch", Table: "scratch.uploads.analyst_dict", Stale: true},
+	lookup := &stubLookup{tables: map[string][]HitTable{
+		"res_g": {{Connection: "scratch", Table: "scratch.uploads.analyst_dict", Stale: true}},
 	}}
 	p.SetTableLookup(lookup)
 
@@ -482,8 +482,8 @@ func TestResourcesProvider_CarriesTheTableReference(t *testing.T) {
 	if err != nil || !owned {
 		t.Fatalf("Fetch: owned=%v err=%v", owned, err)
 	}
-	if doc.Table == nil || doc.Table.Table != "scratch.uploads.analyst_dict" {
-		t.Errorf("document carries no table reference: %+v", doc.Table)
+	if len(doc.Tables) != 1 || doc.Tables[0].Table != "scratch.uploads.analyst_dict" {
+		t.Errorf("document carries no table reference: %+v", doc.Tables)
 	}
 }
 

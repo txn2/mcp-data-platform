@@ -326,7 +326,9 @@ func TestRankWithMode_LexicalEmptyQueryReturnsAll(t *testing.T) {
 		{OperationID: "a", Method: "GET", Path: "/a"},
 		{OperationID: "b", Method: "GET", Path: "/b"},
 	}}
-	got, fb := rankWithMode(context.Background(), rankRequest{tk: tk, conn: c, ops: c.operations, query: "", limit: 10, mode: RankingLexical})
+	res := rankWithMode(context.Background(), rankRequest{tk: tk, conn: c, ops: c.operations, query: "", limit: 10, mode: RankingLexical})
+	got := res.operations
+	fb := res.fallbackReason
 	if fb != "" {
 		t.Error("lexical with empty query should not report fallback")
 	}
@@ -349,7 +351,9 @@ func TestRankWithMode_SemanticFallsBackWithoutEmbedder(t *testing.T) {
 	// fallback must still match it. Without the fallback path
 	// returning the lexical results, the model would see an empty
 	// list and assume the API has nothing relevant.
-	got, fb := rankWithMode(context.Background(), rankRequest{tk: tk, conn: c, ops: c.operations, query: "users", limit: 10, mode: RankingSemantic})
+	res := rankWithMode(context.Background(), rankRequest{tk: tk, conn: c, ops: c.operations, query: "users", limit: 10, mode: RankingSemantic})
+	got := res.operations
+	fb := res.fallbackReason
 	if fb == "" {
 		t.Error("semantic without embedder should fallback to lexical")
 	}
@@ -381,7 +385,9 @@ func TestRankWithMode_SemanticRanksByEmbedding(t *testing.T) {
 	// to exercise the deterministic fakeEmbedder path. Real models
 	// would handle "place new order" or "submit order" too; that's
 	// captured in the corpus benchmark below.
-	got, fb := rankWithMode(context.Background(), rankRequest{tk: tk, conn: c, ops: c.operations, query: "place a new order", limit: 5, mode: RankingSemantic})
+	res := rankWithMode(context.Background(), rankRequest{tk: tk, conn: c, ops: c.operations, query: "place a new order", limit: 5, mode: RankingSemantic})
+	got := res.operations
+	fb := res.fallbackReason
 	if fb != "" {
 		t.Fatalf("semantic with embedder should not fallback; got reason %q", fb)
 	}
@@ -402,7 +408,9 @@ func TestRankWithMode_HybridBlendsSignals(t *testing.T) {
 	populateTestEmbeddings(t, c, emb)
 	// Query has direct lexical match on /orders path. Hybrid should
 	// still surface order-related ops first.
-	got, fb := rankWithMode(context.Background(), rankRequest{tk: tk, conn: c, ops: c.operations, query: "orders", limit: 5, mode: RankingHybrid})
+	res := rankWithMode(context.Background(), rankRequest{tk: tk, conn: c, ops: c.operations, query: "orders", limit: 5, mode: RankingHybrid})
+	got := res.operations
+	fb := res.fallbackReason
 	if fb != "" {
 		t.Fatalf("hybrid with embedder should not fallback; got reason %q", fb)
 	}
@@ -432,7 +440,8 @@ func TestRankWithMode_SemanticEmbedFailureFallsBack(t *testing.T) {
 	})
 	populateTestEmbeddings(t, c, emb)
 	emb.failEmbed.Store(true)
-	_, fb := rankWithMode(context.Background(), rankRequest{tk: tk, conn: c, ops: c.operations, query: "alpha", limit: 5, mode: RankingSemantic})
+	res := rankWithMode(context.Background(), rankRequest{tk: tk, conn: c, ops: c.operations, query: "alpha", limit: 5, mode: RankingSemantic})
+	fb := res.fallbackReason
 	if fb == "" {
 		t.Error("query-embed failure should report fallback")
 	}
@@ -448,7 +457,8 @@ func TestRankWithMode_QueryEmbedFailureFallsBack(t *testing.T) {
 	c := buildTestConn(t, []testOp{{id: "a", method: "GET", path: "/a", summary: "alpha"}})
 	populateTestEmbeddings(t, c, emb) // populate before flipping failEmbed
 	emb.failEmbed.Store(true)         // single Embed errors; EmbedBatch already ran
-	_, fb := rankWithMode(context.Background(), rankRequest{tk: tk, conn: c, ops: c.operations, query: "alpha", limit: 5, mode: RankingSemantic})
+	res := rankWithMode(context.Background(), rankRequest{tk: tk, conn: c, ops: c.operations, query: "alpha", limit: 5, mode: RankingSemantic})
+	fb := res.fallbackReason
 	if fb == "" {
 		t.Error("query-embed failure should report fallback")
 	}
@@ -465,7 +475,8 @@ func TestRankWithMode_ZeroQueryVectorFallsBack(t *testing.T) {
 	tk.SetEmbeddingProvider(emb)
 	c := buildTestConn(t, []testOp{{id: "a", method: "GET", path: "/a", summary: "alpha"}})
 	populateTestEmbeddings(t, c, emb)
-	_, fb := rankWithMode(context.Background(), rankRequest{tk: tk, conn: c, ops: c.operations, query: "alpha", limit: 5, mode: RankingSemantic})
+	res := rankWithMode(context.Background(), rankRequest{tk: tk, conn: c, ops: c.operations, query: "alpha", limit: 5, mode: RankingSemantic})
+	fb := res.fallbackReason
 	if fb == "" {
 		t.Error("zero-vector embedder should force fallback")
 	}
@@ -519,7 +530,8 @@ func TestRankWithMode_RehashOnSpecChange(t *testing.T) {
 	connV1 := tk.connections["api"]
 	tk.mu.RUnlock()
 
-	got1, _ := rankWithMode(context.Background(), rankRequest{tk: tk, conn: connV1, ops: connV1.operations, query: "users", limit: 5, mode: RankingSemantic})
+	res := rankWithMode(context.Background(), rankRequest{tk: tk, conn: connV1, ops: connV1.operations, query: "users", limit: 5, mode: RankingSemantic})
+	got1 := res.operations
 	if len(got1) != 1 || got1[0].OperationID != "list-users" {
 		t.Fatalf("v1 ranking returned %v; want list-users", topIDs(got1))
 	}
@@ -557,7 +569,7 @@ func TestRankWithMode_RehashOnSpecChange(t *testing.T) {
 		t.Error("v2 vectors should load from store at reload")
 	}
 
-	got2, _ := rankWithMode(context.Background(), rankRequest{tk: tk, conn: connV2, ops: connV2.operations, query: "orders", limit: 5, mode: RankingSemantic})
+	got2 := rankWithMode(context.Background(), rankRequest{tk: tk, conn: connV2, ops: connV2.operations, query: "orders", limit: 5, mode: RankingSemantic}).operations
 	if len(got2) != 1 || got2[0].OperationID != "list-orders" {
 		t.Errorf("v2 ranking returned %v; want list-orders", topIDs(got2))
 	}
@@ -697,7 +709,7 @@ func populateTestEmbeddings(t *testing.T, c *conn, emb embedding.Provider) {
 	}
 }
 
-func topIDs(ops []OperationSummary) []string {
+func topIDs(ops []RankedOperationSummary) []string {
 	out := make([]string, len(ops))
 	for i, op := range ops {
 		out[i] = op.OperationID
@@ -786,7 +798,8 @@ func TestSemanticRanking_BenchmarkCorpus(t *testing.T) {
 	score := func(mode RankingMode) recall {
 		var r recall
 		for _, q := range queries {
-			ranked, _ := rankWithMode(context.Background(), rankRequest{tk: tk, conn: c, ops: c.operations, query: q.query, limit: len(corpus), mode: mode})
+			res := rankWithMode(context.Background(), rankRequest{tk: tk, conn: c, ops: c.operations, query: q.query, limit: len(corpus), mode: mode})
+			ranked := res.operations
 			ids := topIDs(ranked)
 			if len(ids) > 0 && ids[0] == q.target {
 				r.at1++
@@ -813,87 +826,6 @@ func TestSemanticRanking_BenchmarkCorpus(t *testing.T) {
 		t.Errorf("hybrid recall@3 (%d) < lexical recall@3 (%d) — blend regressed substring precision",
 			hyb.at3, lex.at3)
 	}
-}
-
-// TestEmbedInBatches_ChunksAtBatchSize proves the chunking
-// boundary: a 100-text input must produce 4 calls (chunks of 32,
-// 32, 32, 4) rather than one giant batch. Drives finding from the
-// adversarial review that the chunking claim was previously
-// unverified by tests using only small fixtures.
-func TestEmbedInBatches_ChunksAtBatchSize(t *testing.T) {
-	emb := &batchCounter{vectorDim: 4}
-	texts := make([]string, 100)
-	for i := range texts {
-		texts[i] = fmt.Sprintf("text-%d", i)
-	}
-
-	vectors, err := embedInBatches(context.Background(), emb, texts, 32, nil)
-	if err != nil {
-		t.Fatalf("embedInBatches: %v", err)
-	}
-	if len(vectors) != 100 {
-		t.Fatalf("got %d vectors, want 100", len(vectors))
-	}
-	if emb.batchCalls != 4 {
-		t.Errorf("expected 4 EmbedBatch calls (32+32+32+4), got %d", emb.batchCalls)
-	}
-	wantSizes := []int{32, 32, 32, 4}
-	if len(emb.batchSizes) != len(wantSizes) {
-		t.Fatalf("got %d batches, want %d", len(emb.batchSizes), len(wantSizes))
-	}
-	for i, n := range wantSizes {
-		if emb.batchSizes[i] != n {
-			t.Errorf("batch %d: got %d, want %d", i, emb.batchSizes[i], n)
-		}
-	}
-}
-
-// TestEmbedInBatches_PropagatesError proves a batch error short-
-// circuits the remaining chunks. Caller must not see partial
-// results disguised as success.
-func TestEmbedInBatches_PropagatesError(t *testing.T) {
-	emb := &batchCounter{vectorDim: 4, failOnBatch: 2}
-	texts := make([]string, 100)
-	for i := range texts {
-		texts[i] = fmt.Sprintf("text-%d", i)
-	}
-	_, err := embedInBatches(context.Background(), emb, texts, 32, nil)
-	if err == nil {
-		t.Fatal("expected error from failing batch")
-	}
-	if emb.batchCalls != 2 {
-		t.Errorf("expected 2 calls (first ok, second fail), got %d", emb.batchCalls)
-	}
-}
-
-type batchCounter struct {
-	vectorDim   int
-	batchCalls  int
-	batchSizes  []int
-	failOnBatch int // 1-indexed; 0 = never fail
-}
-
-func (b *batchCounter) Dimension() int { return b.vectorDim }
-func (*batchCounter) Kind() string     { return "fake" }
-
-func (b *batchCounter) Embed(_ context.Context, _ string) ([]float32, error) {
-	out := make([]float32, b.vectorDim)
-	out[0] = 1
-	return out, nil
-}
-
-func (b *batchCounter) EmbedBatch(_ context.Context, texts []string) ([][]float32, error) {
-	b.batchCalls++
-	b.batchSizes = append(b.batchSizes, len(texts))
-	if b.failOnBatch != 0 && b.batchCalls == b.failOnBatch {
-		return nil, fmt.Errorf("simulated batch %d failure", b.batchCalls)
-	}
-	out := make([][]float32, len(texts))
-	for i := range out {
-		out[i] = make([]float32, b.vectorDim)
-		out[i][0] = float32(i + 1)
-	}
-	return out, nil
 }
 
 // TestLexicalScore_MultiTokenAndForHybridSignal proves the hybrid
@@ -961,5 +893,165 @@ func TestSetEmbeddingProvider_NilDoesNotPanic(t *testing.T) {
 	tk.SetEmbeddingProvider(nil) // idempotent
 	if tk.EmbeddingProvider() != nil {
 		t.Error("EmbeddingProvider() should remain nil after SetEmbeddingProvider(nil)")
+	}
+}
+
+// --- the relevance boundary (#1626) ---
+//
+// Hybrid and semantic score every operation the caller may invoke, so what
+// comes back is decided here rather than by limit: the matches lead, the
+// neighbors are few, and what is below the floor is not shown.
+
+// scoredFixture builds a scored slice in the order the sorter leaves it
+// (descending score), so a test states the input as the ranker produces it.
+func scoredFixture(rows ...scoredOp) []scoredOp { return rows }
+
+func opNamed(id string) OperationSummary {
+	return OperationSummary{OperationID: id, Method: "GET", Path: "/" + id}
+}
+
+func TestBoundByRelevance_MatchesLeadThenBoundedneighbors(t *testing.T) {
+	// A perfect neighbor outscores a poor match: the match still leads,
+	// because the caller asked for it by name.
+	got := boundByRelevance(scoredFixture(
+		scoredOp{op: opNamed("neighbor-1"), score: 0.95},
+		scoredOp{op: opNamed("match"), score: 0.50, lexical: true},
+		scoredOp{op: opNamed("neighbor-2"), score: 0.48},
+	), 50)
+
+	if len(got.operations) != 3 {
+		t.Fatalf("kept %d rows; want all three: %+v", len(got.operations), got.operations)
+	}
+	if got.operations[0].OperationID != "match" {
+		t.Errorf("first row = %q; a token match leads whatever a neighbor scores", got.operations[0].OperationID)
+	}
+	if got.matchedLexical != 1 || got.shownSemantic != 2 {
+		t.Errorf("matched=%d shown=%d; want 1 and 2", got.matchedLexical, got.shownSemantic)
+	}
+	if got.operations[0].Score == nil || *got.operations[0].Score != 0.50 {
+		t.Errorf("score = %v; every ranked row carries its own", got.operations[0].Score)
+	}
+	if got.operations[0].LexicalMatch == nil || !*got.operations[0].LexicalMatch {
+		t.Errorf("lexical_match = %v; want true on a token match", got.operations[0].LexicalMatch)
+	}
+	if got.operations[1].LexicalMatch == nil || *got.operations[1].LexicalMatch {
+		t.Errorf("lexical_match = %v; want false on a neighbor", got.operations[1].LexicalMatch)
+	}
+}
+
+// TestBoundByRelevance_DropsWhatIsBelowTheFloor is #1626: an unrelated
+// operation scores near 0.3 under the blend and came back anyway, because only
+// limit cut the list.
+func TestBoundByRelevance_DropsWhatIsBelowTheFloor(t *testing.T) {
+	got := boundByRelevance(scoredFixture(
+		scoredOp{op: opNamed("close"), score: hybridScoreFloor},
+		scoredOp{op: opNamed("unrelated"), score: hybridScoreFloor - 0.01},
+		scoredOp{op: opNamed("very-unrelated"), score: 0.3},
+	), 50)
+
+	if len(got.operations) != 1 || got.operations[0].OperationID != "close" {
+		t.Fatalf("kept %v; want only the operation at the floor", topIDs(got.operations))
+	}
+	if got.matchedLexical != 0 || got.shownSemantic != 1 {
+		t.Errorf("matched=%d shown=%d; want 0 and 1", got.matchedLexical, got.shownSemantic)
+	}
+}
+
+func TestBoundByRelevance_neighborsAreBounded(t *testing.T) {
+	const filler = 12
+	rows := make([]scoredOp, 0, filler+1)
+	rows = append(rows, scoredOp{op: opNamed("match"), score: 0.9, lexical: true})
+	for i := range filler {
+		rows = append(rows, scoredOp{op: opNamed(fmt.Sprintf("n%d", i)), score: 0.8})
+	}
+
+	got := boundByRelevance(rows, 50)
+
+	if got.shownSemantic != semanticNeighborLimit {
+		t.Errorf("shown_semantic = %d; want the neighbor bound %d", got.shownSemantic, semanticNeighborLimit)
+	}
+	if len(got.operations) != 1+semanticNeighborLimit {
+		t.Errorf("kept %d rows; want the match plus %d neighbors", len(got.operations), semanticNeighborLimit)
+	}
+	// The neighbors kept are the highest scoring, which is the order the
+	// sorter handed in.
+	if got.operations[1].OperationID != "n0" {
+		t.Errorf("first neighbor = %q; want the highest scoring", got.operations[1].OperationID)
+	}
+}
+
+// TestBoundByRelevance_LimitStillCaps: the caller's own bound is not widened by
+// the relevance cut, and it applies to the matches first.
+func TestBoundByRelevance_LimitStillCaps(t *testing.T) {
+	got := boundByRelevance(scoredFixture(
+		scoredOp{op: opNamed("m1"), score: 0.9, lexical: true},
+		scoredOp{op: opNamed("m2"), score: 0.8, lexical: true},
+		scoredOp{op: opNamed("m3"), score: 0.7, lexical: true},
+		scoredOp{op: opNamed("neighbor"), score: 0.6},
+	), 2)
+
+	if ids := topIDs(got.operations); len(ids) != 2 || ids[0] != "m1" || ids[1] != "m2" {
+		t.Errorf("kept %v; want the two highest-scoring matches", ids)
+	}
+	if got.matchedLexical != 2 || got.shownSemantic != 0 {
+		t.Errorf("matched=%d shown=%d; the counts describe what was returned", got.matchedLexical, got.shownSemantic)
+	}
+}
+
+// TestRankWithMode_LexicalRowsCarryScoreAndMatch: the AND filter's membership
+// and order are unchanged; every row now says it matched and where it placed.
+func TestRankWithMode_LexicalRowsCarryScoreAndMatch(t *testing.T) {
+	tk := New("primary")
+	c := &conn{operations: []OperationSummary{
+		{OperationID: "list-orders", Method: "GET", Path: "/orders", Summary: "List orders"},
+		{OperationID: "get-order", Method: "GET", Path: "/orders/{id}", Summary: "Fetch one order"},
+		{OperationID: "get-user", Method: "GET", Path: "/users/{id}", Summary: "Fetch user"},
+	}}
+
+	got := rankWithMode(context.Background(), rankRequest{
+		tk: tk, conn: c, ops: c.operations, query: "orders", limit: 10, mode: RankingLexical,
+	})
+
+	if ids := topIDs(got.operations); len(ids) != 2 || ids[0] != "list-orders" || ids[1] != "get-order" {
+		t.Fatalf("lexical membership/order changed: %v", ids)
+	}
+	if got.matchedLexical != 2 || got.shownSemantic != 0 {
+		t.Errorf("matched=%d shown=%d; the filter returns matches only", got.matchedLexical, got.shownSemantic)
+	}
+	for i, op := range got.operations {
+		if op.LexicalMatch == nil || !*op.LexicalMatch {
+			t.Errorf("row %d: lexical_match = %v; every row of an AND filter matched", i, op.LexicalMatch)
+		}
+		if op.Score == nil {
+			t.Fatalf("row %d carries no score", i)
+		}
+	}
+	if *got.operations[0].Score <= *got.operations[1].Score {
+		t.Errorf("positional scores should descend: %v then %v",
+			*got.operations[0].Score, *got.operations[1].Score)
+	}
+}
+
+// TestRankWithMode_EmptyQueryIsUnscored: nothing was matched against, so a row
+// carries neither a score nor a match flag rather than a zero for both.
+func TestRankWithMode_EmptyQueryIsUnscored(t *testing.T) {
+	tk := New("primary")
+	c := &conn{operations: []OperationSummary{
+		{OperationID: "a", Method: "GET", Path: "/a"},
+		{OperationID: "b", Method: "GET", Path: "/b"},
+	}}
+
+	got := rankWithMode(context.Background(), rankRequest{
+		tk: tk, conn: c, ops: c.operations, query: "", limit: 10, mode: RankingHybrid,
+	})
+
+	if len(got.operations) != 2 {
+		t.Fatalf("an empty query returns the list: %v", topIDs(got.operations))
+	}
+	for i, op := range got.operations {
+		if op.Score != nil || op.LexicalMatch != nil {
+			t.Errorf("row %d carries score=%v lexical_match=%v; an unranked list has neither",
+				i, op.Score, op.LexicalMatch)
+		}
 	}
 }

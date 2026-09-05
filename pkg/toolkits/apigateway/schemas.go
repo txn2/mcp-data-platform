@@ -35,7 +35,7 @@ var discoverSchema = json.RawMessage(`{
     },
     "query": {
       "type": "string",
-      "description": "Optional case-insensitive search across operation_id, path, summary, spec name, and tags. Multiple whitespace-separated tokens combine with AND, so \"gift list\" matches operations containing both \"gift\" and \"list\" in any of those fields. On a multi-spec catalog a query with no spec ranks operations across every spec. Empty returns the full list (capped by limit). Ignored with operation_id."
+      "description": "Optional case-insensitive search across operation_id, path, summary, spec name, and tags. Under \"lexical\" ranking it is an AND filter: whitespace-separated tokens all have to appear, so \"gift list\" returns exactly the operations containing both \"gift\" and \"list\" in any of those fields. Under \"hybrid\" and \"semantic\" ranking those matches come first and up to five near neighbors by intent follow them, each row carrying a score and lexical_match, with matched_lexical and shown_semantic on the result saying where the matches ended. On a multi-spec catalog a query with no spec ranks operations across every spec. Empty returns the full list (capped by limit), unscored. Ignored with operation_id."
     },
     "limit": {
       "type": "integer",
@@ -46,7 +46,7 @@ var discoverSchema = json.RawMessage(`{
     "ranking": {
       "type": "string",
       "enum": ["lexical", "semantic", "hybrid"],
-      "description": "Optional ranking algorithm for query. Defaults to \"hybrid\" whenever this connection has an embedding index available (the platform default), otherwise \"lexical\". \"hybrid\" blends embedding cosine similarity with per-token substring match: best for free-form intent queries that may also share path/tag vocabulary, and the recommended choice. \"semantic\" ranks by embedding cosine similarity only, which finds endpoints by intent (\"create order\" finds POST /v1/orders) even when no words overlap. \"lexical\" is a fast, deterministic per-token substring match with no embedding dependency; pass it explicitly to opt out of semantic ranking. semantic and hybrid require an embedding provider; if unavailable they fall back to lexical and a note explains the reason."
+      "description": "Optional ranking algorithm for query. Defaults to \"hybrid\" whenever this connection has an embedding index available (the platform default), otherwise \"lexical\". \"hybrid\" blends embedding cosine similarity with per-token substring match: best for free-form intent queries that may also share path/tag vocabulary, and the recommended choice. \"semantic\" ranks by embedding cosine similarity only, which finds endpoints by intent (\"create order\" finds POST /v1/orders) even when no words overlap. \"lexical\" is a fast, deterministic per-token substring match with no embedding dependency; pass it explicitly to opt out of semantic ranking. semantic and hybrid require an embedding provider; if unavailable they fall back to lexical and a note explains the reason. Neither ranks the whole catalog into the answer: a non-lexical result is the operations that matched every token plus at most five scored neighbors, so a query that matches nothing returns those few or none at all rather than a page of unrelated operations."
     }
   }
 }`)

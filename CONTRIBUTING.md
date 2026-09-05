@@ -217,6 +217,12 @@ mcp-data-platform/
 │   ├── audit/               # Audit logging
 │   ├── database/migrate/    # Migration runner + embedded SQL migrations
 │   └── tuning/              # Prompts, hints, rules
+├── test/                    # Named test suites
+│   ├── structure/           # The structural gates below: budgets, ratchet, policy
+│   ├── acceptance/          # Per-ticket criteria through the real MCP surface
+│   ├── e2e/                 # End-to-end against the docker stack
+│   ├── smoke/               # Startup smoke checks
+│   └── load/                # Load harness (its own module)
 └── configs/                 # Example configurations
 ```
 
@@ -268,6 +274,11 @@ police structure rather than per-function complexity, so the codebase stays
 maintainable as features accrete. Each was landed green against the tree at the
 time and is meant to be **ratcheted tighter in follow-up PRs**, never relaxed to
 make a violation pass.
+
+They live in `test/structure/`, one suite among the named suites under `test/`,
+and run as part of `go test ./...`. Each walks the tree from the module root
+rather than from its own directory, so no gate depends on where it is invoked
+from.
 
 Two gates bound a package's *volume*: the LOC/file size budget (gate 3) and the
 exported-surface budget (gate 6, its harder-to-game public-API counterpart). The
@@ -330,7 +341,7 @@ leaf and belongs in `leaf-utilities-import-nothing-first-party`. Confirm before
 adding an entry:
 
 ```bash
-grep -E '^pkg/<name>(/[^ ]*)? -> ' testdata/allowed_internal_imports.txt
+grep -E '^pkg/<name>(/[^ ]*)? -> ' test/structure/testdata/allowed_internal_imports.txt
 ```
 
 Nothing returned means the package is a leaf.
@@ -357,7 +368,7 @@ follow-up once existing clones are consolidated. Test files are exempt
 
 Every per-function gate is satisfied by a god-package built from a hundred
 small, low-complexity functions. `TestPackageSizeBudget` (in
-`package_budget_test.go`) caps the size of a package as a whole. Generated files
+`test/structure/package_budget_test.go`) caps the size of a package as a whole. Generated files
 (those carrying a `Code generated ... DO NOT EDIT.` marker, plus swaggo's
 non-conforming `// Package x Code generated ...` variant) are excluded so
 embedded specs do not masquerade as hand-written code.
@@ -383,14 +394,14 @@ the budget, decompose it into cohesive sub-packages rather than bumping the
 constant. The `pkg/` budget started at 13,000 and was ratcheted to 11,800 after
 `pkg/pkcestore` was extracted from `pkg/admin` (#636); further ratchets drive the
 decomposition of `portal` and `admin`. Run it with
-`go test -run TestPackageSizeBudget .`.
+`go test -run TestPackageSizeBudget ./test/structure/`.
 
 ### 4. Import ratchet (`TestPackageImportRatchet`)
 
 The depguard rules above lock down specific *directions*. The ratchet (in
-`pkg_relationship_test.go`) is the complementary backstop: it freezes the
+`test/structure/pkg_relationship_test.go`) is the complementary backstop: it freezes the
 **entire** first-party import graph. The allowed edges are stored in
-`testdata/allowed_internal_imports.txt`, seeded from the current graph, and the
+`test/structure/testdata/allowed_internal_imports.txt`, seeded from the current graph, and the
 gate asserts that the golden and the graph are **equal in both directions**. New
 coupling between two internal packages is therefore never accidental; it is a
 reviewable diff to the golden file.
@@ -408,7 +419,7 @@ When you genuinely need a new internal dependency — or you removed one — reg
 the golden and justify the change in your PR:
 
 ```bash
-go test -run TestPackageImportRatchet . -args -update-imports
+go test -run TestPackageImportRatchet ./test/structure/ -args -update-imports
 ```
 
 Regeneration rewrites the file wholesale from the current graph, so it handles
@@ -423,7 +434,7 @@ fragments — smaller by LOC, worse by design. Cohesion catches the opposite sme
 a package whose declarations split into two or more independent islands is two
 packages sharing one import path, which the size budget cannot see.
 
-`TestPackageCohesion` (in `pkg_relationship_test.go`) builds each package's
+`TestPackageCohesion` (in `test/structure/pkg_relationship_test.go`) builds each package's
 declaration reference graph — nodes are package-level funcs, methods, types,
 vars and consts; edges connect a declaration to every package-level identifier it
 references, so two declarations that share a common type or helper are connected
@@ -489,7 +500,7 @@ unlike an LOC cap it cannot be satisfied by reshuffling whitespace or splitting
 files. The only way under the budget is to unexport helpers or move detail into
 `internal/`, which is the behaviour we want to pressure toward.
 
-`TestPackageExportedSurfaceBudget` (in `pkg_surface_budget_test.go`) counts
+`TestPackageExportedSurfaceBudget` (in `test/structure/pkg_surface_budget_test.go`) counts
 **top-level exported identifiers** per `pkg/` package — exported package-scope
 funcs, types, vars and consts, one unit per exported name (each name in a grouped
 var/const block counts), regardless of a type's fields or methods — and fails any
@@ -522,7 +533,7 @@ promise to a named supported surface, and until #1076 nothing enforced the
 narrowing — twenty-two packages had accumulated under `pkg/` that were
 implementation detail with a single composition-root importer.
 
-`TestPublicSurfacePolicy` (in `pkg_stability_policy_test.go`) fails when a
+`TestPublicSurfacePolicy` (in `test/structure/pkg_stability_policy_test.go`) fails when a
 package under `pkg/` is outside the supported surface **and** has at most one
 distinct first-party importer. One importer means the package exists to serve
 exactly one caller, which is the signature of an implementation seam. Two is the

@@ -699,6 +699,16 @@ held from another tool works too (for example a `urn:li:dataset:...` from
 `datahub_get_lineage` or an `entity_urns` lookup). Feedback threads and API
 endpoints emit no reference and are not fetch targets.
 
+A fetched asset or resource that has been registered as a query-engine table
+also carries `tables`: one entry per registration over the file, newest first,
+each with `registration_id`, `connection`, `query_table`, `sample_sql`, `stale`,
+`follow`, `repair` and `follow_error` -- the same facts, in the same order,
+[`manage_table`](#manage_table) `action=list` reports. A file registered twice
+is two entries and the document names both. A `search` hit carries one `table`
+instead, the newest registration whose `follow_error` is empty, so a hit points
+at a table a follow has not disowned; when every registration carries one, the
+hit has no `table` and the document is where the reasons are.
+
 A fetched governance entity fills `content` with `{urn, kind, name, description,
 datasets[], more_datasets?, datasets_withheld?, notice?}`. The carrier list is
 bounded (25); `more_datasets` reports that the list is not known to hold every

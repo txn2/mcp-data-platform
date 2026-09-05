@@ -189,3 +189,149 @@ func TestJoinNotes(t *testing.T) {
 		t.Errorf("both: %q", got)
 	}
 }
+
+// --- where relevance ends (#1626) ---
+
+// paginationCatalog is the shape the QA report measured: a few operations
+// about one subject and a majority about anything else. Ranked hybrid, all of
+// them came back.
+var paginationCatalog = []testOp{
+	{id: "list-pagination-cursor", method: "get", path: "/v1/pagination/cursor", summary: "Page a collection by cursor"},
+	{id: "list-pagination-offset", method: "get", path: "/v1/pagination/offset", summary: "Page a collection by offset"},
+	{id: "list-pagination-link", method: "get", path: "/v1/pagination/link", summary: "Page a collection by Link header"},
+	{id: "export-csv", method: "get", path: "/v1/export", summary: "Download a spreadsheet"},
+	{id: "lorem", method: "get", path: "/v1/lorem", summary: "Lorem ipsum filler text"},
+	{id: "whoami", method: "get", path: "/v1/whoami", summary: "Identify the caller"},
+	{id: "upload-avatar", method: "post", path: "/v1/avatar", summary: "Store a profile picture"},
+	{id: "delete-widget", method: "delete", path: "/v1/widgets", summary: "Remove a widget"},
+}
+
+// rankedConn registers a connection whose catalog is paginationCatalog with
+// embeddings present, so an omitted ranking resolves to hybrid exactly as it
+// does on a deployment with an embedding provider.
+func rankedConn(t *testing.T) *Toolkit {
+	t.Helper()
+	tk := New("primary")
+	emb := newFakeEmbedder(64)
+	tk.SetEmbeddingProvider(emb)
+
+	blocks := make([]string, 0, len(paginationCatalog))
+	for _, op := range paginationCatalog {
+		blocks = append(blocks, op.path+":\n    "+pathOpYAML(op.method, op.id, op.summary))
+	}
+	store := setupCatalogWithSpec(t, tk, "fixture", "default",
+		minimalSpecWith(strings.Join(blocks, "\n  ")))
+	seedTestEmbeddings(t, seedSpec{
+		store: store, emb: emb, catalogID: "fixture", specName: "default", ops: paginationCatalog,
+	})
+	if err := tk.AddConnection("api", map[string]any{
+		"base_url": "https://api.example.com", "catalog_id": "fixture",
+	}); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	return tk
+}
+
+func discoverOps(t *testing.T, tk *Toolkit, in DiscoverInput) DiscoverOutput {
+	t.Helper()
+	res, payload, err := tk.handleDiscover(context.Background(), nil, in)
+	if err != nil || res.IsError {
+		t.Fatalf("api_discover %+v: err=%v body=%s", in, err, textContent(res))
+	}
+	out, ok := payload.(DiscoverOutput)
+	if !ok {
+		t.Fatalf("payload type %T", payload)
+	}
+	return out
+}
+
+// TestDiscover_HybridStopsWhereRelevanceDoes is the failure #1626 reported: a
+// query with three matches in an eight-operation catalog returned all eight,
+// with nothing on the result saying where the matches ended.
+func TestDiscover_HybridStopsWhereRelevanceDoes(t *testing.T) {
+	out := discoverOps(t, rankedConn(t), DiscoverInput{Connection: "api", Query: "pagination"})
+
+	if out.MatchedLexical == nil || *out.MatchedLexical != 3 {
+		t.Fatalf("matched_lexical = %v; the three pagination operations contain the token", out.MatchedLexical)
+	}
+	for i := range 3 {
+		op := out.Operations[i]
+		if op.LexicalMatch == nil || !*op.LexicalMatch {
+			t.Errorf("row %d (%s) should lead as a token match", i, op.OperationID)
+		}
+		if !strings.Contains(op.Path, "/pagination/") {
+			t.Errorf("row %d = %s; the matches lead", i, op.Path)
+		}
+	}
+	if out.ShownSemantic == nil || *out.ShownSemantic > semanticNeighborLimit {
+		t.Errorf("shown_semantic = %v; at most %d neighbors follow the matches",
+			out.ShownSemantic, semanticNeighborLimit)
+	}
+	if len(out.Operations) == len(paginationCatalog) {
+		t.Errorf("the whole catalog came back for a three-operation query: %d rows", len(out.Operations))
+	}
+	for i, op := range out.Operations {
+		if op.Score == nil {
+			t.Errorf("row %d (%s) carries no score", i, op.OperationID)
+		}
+	}
+}
+
+// TestDiscover_HybridQueryThatMatchesNothing: the lexical path answers such a
+// query with a note naming it, and hybrid now answers the same way rather than
+// with the head of the catalog.
+func TestDiscover_HybridQueryThatMatchesNothing(t *testing.T) {
+	out := discoverOps(t, rankedConn(t), DiscoverInput{Connection: "api", Query: "zzqx"})
+
+	if len(out.Operations) != 0 {
+		t.Fatalf("a query matching nothing returned %d operations: %v",
+			len(out.Operations), topIDs(out.Operations))
+	}
+	if !strings.Contains(out.Note, `no operations match query "zzqx"`) {
+		t.Errorf("note = %q; want the query named", out.Note)
+	}
+	if out.MatchedLexical == nil || *out.MatchedLexical != 0 {
+		t.Errorf("matched_lexical = %v; want 0 rather than absent", out.MatchedLexical)
+	}
+}
+
+// TestDiscover_UnrankedLevelCarriesNoBoundary: a call with no query matched
+// nothing against anything, so it reports no boundary and its rows carry no
+// score.
+func TestDiscover_UnrankedLevelCarriesNoBoundary(t *testing.T) {
+	out := discoverOps(t, rankedConn(t), DiscoverInput{Connection: "api"})
+
+	if len(out.Operations) != len(paginationCatalog) {
+		t.Fatalf("a bare call lists the catalog: %d of %d", len(out.Operations), len(paginationCatalog))
+	}
+	if out.MatchedLexical != nil || out.ShownSemantic != nil {
+		t.Errorf("counts = %v/%v; an unranked level has no boundary to report",
+			out.MatchedLexical, out.ShownSemantic)
+	}
+	for i, op := range out.Operations {
+		if op.Score != nil || op.LexicalMatch != nil {
+			t.Errorf("row %d carries score=%v lexical_match=%v", i, op.Score, op.LexicalMatch)
+		}
+	}
+}
+
+// TestDiscover_LexicalRankingIsUnchanged: the explicit opt-out returns exactly
+// the operations containing the token, and each row says it matched.
+func TestDiscover_LexicalRankingIsUnchanged(t *testing.T) {
+	out := discoverOps(t, rankedConn(t),
+		DiscoverInput{Connection: "api", Query: "pagination", Ranking: "lexical"})
+
+	if len(out.Operations) != 3 {
+		t.Fatalf("lexical returned %v; want the three pagination operations", topIDs(out.Operations))
+	}
+	if out.MatchedLexical == nil || *out.MatchedLexical != 3 ||
+		out.ShownSemantic == nil || *out.ShownSemantic != 0 {
+		t.Errorf("matched=%v shown=%v; the AND filter adds no neighbors",
+			out.MatchedLexical, out.ShownSemantic)
+	}
+	for i, op := range out.Operations {
+		if op.LexicalMatch == nil || !*op.LexicalMatch || op.Score == nil {
+			t.Errorf("row %d: lexical_match=%v score=%v", i, op.LexicalMatch, op.Score)
+		}
+	}
+}

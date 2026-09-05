@@ -274,7 +274,7 @@ in content only, as does a tool whose structured result is an array.
 
 Every first-party tool registers through the generic `mcp.AddTool`, which
 validates arguments against the input schema and writes the handler's output as
-the structured result. `TestUntypedToolRegistrationInventory` (`verify_test.go`)
+the structured result. `TestUntypedToolRegistrationInventory` (`test/structure/verify_test.go`)
 scans `pkg/`, `internal/` and `cmd/` for a registration through the untyped
 `Server.AddTool` and fails on any that is not listed with a reason. The list:
 

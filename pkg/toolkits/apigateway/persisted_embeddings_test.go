@@ -319,8 +319,20 @@ func TestListEndpoints_DefaultOnHybridWhenEmbeddingsAvailable(t *testing.T) {
 	if len(out.Operations) == 0 {
 		t.Fatal("omitted ranking with embeddings must default to hybrid and return ranked ops, not an empty lexical-AND result")
 	}
-	if out.Note != "" {
-		t.Errorf("hybrid default with vectors present should have no fallback Note; got %q", out.Note)
+	if strings.Contains(out.Note, "fell back") || strings.Contains(out.Note, "unavailable") {
+		t.Errorf("hybrid default with vectors present should report no fallback; got %q", out.Note)
+	}
+	// Neither operation contains both tokens, so every row returned is a
+	// neighbor by intent and the note says so rather than letting the caller
+	// read them as matches (#1626).
+	if !strings.Contains(out.Note, "closest by intent") {
+		t.Errorf("note = %q; want the neighbors-only sentence", out.Note)
+	}
+	if out.MatchedLexical == nil || *out.MatchedLexical != 0 {
+		t.Errorf("matched_lexical = %v; want 0", out.MatchedLexical)
+	}
+	if out.ShownSemantic == nil || *out.ShownSemantic != len(out.Operations) {
+		t.Errorf("shown_semantic = %v; want %d", out.ShownSemantic, len(out.Operations))
 	}
 
 	// Explicit lexical is the opt-out: the same multi-token query

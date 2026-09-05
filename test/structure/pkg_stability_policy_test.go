@@ -23,7 +23,7 @@
 // justification each, and a stale entry fails just as a violation does.
 //
 // Run: go test -count=1 -run TestPublicSurfacePolicy .
-package mcp_data_platform_test
+package structure_test
 
 import (
 	"fmt"

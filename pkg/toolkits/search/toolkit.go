@@ -324,7 +324,10 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"datahub_get_lineage or an entity_urns lookup). A reference that is stale, unknown, or outside what " +
 			"you can access returns found=false rather than an error, so a dangling citation is a clean answer. " +
 			"fetch never reads content you could not have found with search: your own personal records, plus " +
-			"the insights the organization has applied.",
+			"the insights the organization has applied. A stored file (an uploaded resource, a saved asset) " +
+			"carries \"tables\": every query-engine table registered over it, newest first, each with the " +
+			"sample SQL a join needs and, on any a follow could not move, the follow_error saying why that one " +
+			"may no longer be queryable.",
 		InputSchema:  fetchSchema,
 		OutputSchema: fetchResultSchema,
 	}, t.handleFetch)

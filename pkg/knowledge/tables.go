@@ -30,8 +30,13 @@ type TableSubject struct {
 // It is a batch call because the caller is a page of search hits or a list
 // view: one query for the page, not one per hit. The result is keyed by
 // subject id, and a subject with no registration is simply absent.
+//
+// A subject maps to EVERY registration over it, newest first, because the two
+// consumers want different things from a file registered more than once
+// (#1627): fetch reports the inventory, a hit picks one from it. Returning
+// only the newest is how a hit came to name a table a follow had disowned.
 type TableLookup interface {
-	TablesFor(ctx context.Context, subjects []TableSubject) (map[string]*HitTable, error)
+	TablesFor(ctx context.Context, subjects []TableSubject) (map[string][]HitTable, error)
 }
 
 // tableLookupSink is the optional capability of a Provider to carry a table
@@ -66,10 +71,10 @@ func subjectsOf(hits []Hit, subjectFor func(Hit) (TableSubject, bool)) []TableSu
 	return subjects
 }
 
-// lookupOneTable is the fetch-side single-subject read. Like attachTables it
-// swallows failure: a fetched record must not disappear because the
-// registration lookup did.
-func lookupOneTable(ctx context.Context, lookup TableLookup, subject TableSubject) *HitTable {
+// lookupTables is the fetch-side single-subject read: every registration over
+// the fetched record, newest first. Like attachTables it swallows failure: a
+// fetched record must not disappear because the registration lookup did.
+func lookupTables(ctx context.Context, lookup TableLookup, subject TableSubject) []HitTable {
 	if lookup == nil || subject.ID == "" {
 		return nil
 	}
@@ -78,6 +83,20 @@ func lookupOneTable(ctx context.Context, lookup TableLookup, subject TableSubjec
 		return nil
 	}
 	return tables[subject.ID]
+}
+
+// preferredTable picks the registration a search hit points at: the newest
+// whose follow has not failed, or none. A hit whose sample_sql names a table
+// that may no longer exist is the failure #1627 was filed for; a caller who
+// needs the broken ones fetches the record, which reports them all.
+func preferredTable(tables []HitTable) *HitTable {
+	for i := range tables {
+		if tables[i].FollowError == "" {
+			chosen := tables[i]
+			return &chosen
+		}
+	}
+	return nil
 }
 
 // attachTables fills in the Table field of every hit whose record carries a
@@ -108,7 +127,7 @@ func attachTables(
 		if !ok {
 			continue
 		}
-		if t, found := tables[s.ID]; found {
+		if t := preferredTable(tables[s.ID]); t != nil {
 			hits[i].Table = t
 		}
 	}

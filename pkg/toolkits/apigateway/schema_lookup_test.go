@@ -891,7 +891,7 @@ func listOperation(t *testing.T, tk *Toolkit, connection, path string) Operation
 	}
 	for _, op := range out.Operations {
 		if op.Path == path {
-			return op
+			return op.OperationSummary
 		}
 	}
 	t.Fatalf("operation with path %q not in list: %+v", path, out.Operations)

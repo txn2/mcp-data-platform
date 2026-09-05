@@ -347,8 +347,11 @@ func TestAssetsProvider_CarriesTheTableReference(t *testing.T) {
 		scored: []portal.ScoredAsset{{Asset: asset, Score: 0.9}},
 		asset:  &asset,
 	}
-	lookup := &stubLookup{tables: map[string]*HitTable{
-		"a1": {Connection: "scratch", Table: "scratch.uploads.analyst_vendor_keys"},
+	lookup := &stubLookup{tables: map[string][]HitTable{
+		"a1": {
+			{Connection: "scratch", Table: "scratch.uploads.analyst_vendor_keys"},
+			{Connection: "warehouse", Table: "warehouse.uploads.analyst_vendor_keys"},
+		},
 	}}
 
 	p := NewAssetsProvider(searcher)
@@ -376,14 +379,18 @@ func TestAssetsProvider_CarriesTheTableReference(t *testing.T) {
 		t.Errorf("kind = %q; want %q", lookup.seen[0].Kind, TableKindAsset)
 	}
 
-	// Fetch carries the same marker, so a record read in full says it can be
-	// joined as plainly as its snippet did.
+	// Fetch carries every registration, so a record read in full names each
+	// table it can be joined as rather than only the newest (#1627).
 	doc, owned, err := p.Fetch(context.Background(), "mcp:asset:a1", Caller{UserID: "u1"})
 	if err != nil || !owned {
 		t.Fatalf("Fetch: owned=%v err=%v", owned, err)
 	}
-	if doc.Table == nil || doc.Table.Table != "scratch.uploads.analyst_vendor_keys" {
-		t.Errorf("document carries no table reference: %+v", doc.Table)
+	if len(doc.Tables) != 2 {
+		t.Fatalf("document carries %d tables; want both registrations: %+v", len(doc.Tables), doc.Tables)
+	}
+	if doc.Tables[0].Table != "scratch.uploads.analyst_vendor_keys" ||
+		doc.Tables[1].Table != "warehouse.uploads.analyst_vendor_keys" {
+		t.Errorf("tables = %+v", doc.Tables)
 	}
 }
 

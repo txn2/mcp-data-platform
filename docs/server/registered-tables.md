@@ -596,8 +596,19 @@ JOIN scratch.uploads.analyst_vendor_keys u
   ON s.store_id = CAST(u.store_id AS integer)
 ```
 
-`search` carries the table reference on a hit for a registered file, and
-`fetch` carries it on the record, each with a sample statement showing the cast.
+`search` carries a table reference on a hit for a registered file, and `fetch`
+carries a `tables` list on the record: one entry per registration over the
+file, newest first, each with a sample statement showing the cast and with the
+same `registration_id`, `follow`, `repair` and `follow_error` the listing
+reports. A file registered twice - on two connections, or registered again
+after a header change - is two entries, and the document names both.
+
+The hit carries one, because a hit is a pointer to somewhere the data can be
+queried rather than an inventory: it is the newest registration whose
+`follow_error` is empty, so a hit never points at a table a follow has already
+reported gone. A file whose every registration carries a follow error gets no
+`table` on its hit, and its `fetch` document is where the reasons are.
+
 Those are the same references `manage_table` takes, so finding a file and
 registering it are one turn apart.
 

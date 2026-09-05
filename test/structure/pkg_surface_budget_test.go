@@ -30,7 +30,7 @@
 // would flag first.
 //
 // Run: go test -run TestPackageExportedSurfaceBudget .
-package mcp_data_platform_test
+package structure_test
 
 import (
 	"fmt"

@@ -15,6 +15,7 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/clientcredentials"
 
+	"github.com/txn2/mcp-data-platform/internal/apigwtls"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 )
@@ -249,7 +250,7 @@ func newTokenExchangeClient(cfg Config) *http.Client {
 	if cfg.TLSCABundlePEM == "" {
 		return client
 	}
-	pool, err := rootPoolWithBundle(cfg.TLSCABundlePEM)
+	pool, err := apigwtls.RootPool(cfg.TLSCABundlePEM)
 	if err != nil {
 		return client
 	}

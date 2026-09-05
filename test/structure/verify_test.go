@@ -8,7 +8,7 @@
 // pkg/database/migrate/ because they depend on the embedded migration FS.
 //
 // Run: go test -run 'TestNoDeadPackages|TestNoopOnlyInterfaces' .
-package mcp_data_platform_test
+package structure_test
 
 import (
 	"bytes"
@@ -124,8 +124,7 @@ func isNoopType(name string) bool {
 // A package that exists but is never imported is dead code — it compiles,
 // passes its own unit tests, but is never executed in the running application.
 func TestNoDeadPackages(t *testing.T) {
-	projectRoot, err := filepath.Abs(".")
-	require.NoError(t, err)
+	projectRoot := moduleRoot(t)
 
 	// modulePath is the package-level const declared in pkg_relationship_test.go.
 	pkgDir := filepath.Join(projectRoot, "pkg")
@@ -176,8 +175,7 @@ type interfaceImpl struct {
 //  2. The interface is intentionally noop-only — add it to the allowlist
 //     with a justification comment.
 func TestNoopOnlyInterfaces(t *testing.T) {
-	projectRoot, err := filepath.Abs(".")
-	require.NoError(t, err)
+	projectRoot := moduleRoot(t)
 
 	pkgDir := filepath.Join(projectRoot, "pkg")
 
@@ -251,8 +249,7 @@ func TestNoopOnlyInterfaces(t *testing.T) {
 // or a concatenation build ("...dataPlatform:<platform>," +). Complete
 // example URNs in doc comments and struct tags are left alone.
 func TestDatasetURNGrammarCentralized(t *testing.T) {
-	projectRoot, err := filepath.Abs(".")
-	require.NoError(t, err)
+	projectRoot := moduleRoot(t)
 
 	grammarRe := regexp.MustCompile(`urn:li:dataset:\(urn:li:dataPlatform:([a-zA-Z0-9_-]*,)?("|%s)`)
 
@@ -287,8 +284,7 @@ func TestDatasetURNGrammarCentralized(t *testing.T) {
 // that silently drops packages as the tree grows sends every newcomer's
 // first exploration to the wrong places (see issue #773).
 func TestClaudeMdCoversPkgDirectories(t *testing.T) {
-	projectRoot, err := filepath.Abs(".")
-	require.NoError(t, err)
+	projectRoot := moduleRoot(t)
 
 	entries, err := os.ReadDir(filepath.Join(projectRoot, "pkg"))
 	require.NoError(t, err)
@@ -488,8 +484,7 @@ var mkdocsBuiltinExcludes = []string{".*", "/templates/"}
 // unreachable by browsing: invisible to humans evaluating the docs site
 // while remaining live content that silently goes stale (see issue #772).
 func TestDocsPagesInNavOrExcluded(t *testing.T) {
-	projectRoot, err := filepath.Abs(".")
-	require.NoError(t, err)
+	projectRoot := moduleRoot(t)
 
 	raw, err := os.ReadFile(filepath.Join(projectRoot, "mkdocs.yml")) //nolint:gosec // test reads project config
 	require.NoError(t, err)
@@ -558,8 +553,7 @@ var markdownHeadingRe = regexp.MustCompile(`(?m)^#{1,6}\s+(.+?)\s*$`)
 // which is what this test does, so the next drift fails the build instead of
 // reaching a reader.
 func TestHarnessCitationsResolve(t *testing.T) {
-	projectRoot, err := filepath.Abs(".")
-	require.NoError(t, err)
+	projectRoot := moduleRoot(t)
 
 	refDir := filepath.Join(projectRoot, "docs", "reference")
 	headings := map[string]map[string]bool{} // citation path -> heading text -> present
@@ -629,8 +623,7 @@ var workingPaperBannerRe = regexp.MustCompile(
 // page from the nav hides it from browsing but not from search, which is how an
 // outside reader actually arrives.
 func TestResearchPagesCarryWorkingPaperBanner(t *testing.T) {
-	projectRoot, err := filepath.Abs(".")
-	require.NoError(t, err)
+	projectRoot := moduleRoot(t)
 
 	researchDir := filepath.Join(projectRoot, "docs", "research")
 	if _, statErr := os.Stat(researchDir); os.IsNotExist(statErr) {
@@ -677,11 +670,11 @@ func TestResearchPagesCarryWorkingPaperBanner(t *testing.T) {
 // nodes and the catalog search found nothing. Adding a citation without a
 // fixture is the same bug, so it fails here instead.
 func TestDevSeedCatalogCitationsAreSeeded(t *testing.T) {
-	seed, err := os.ReadFile(filepath.Join("dev", "seed.sql"))
+	seed, err := os.ReadFile(rootPath(t, "dev", "seed.sql"))
 	if err != nil {
 		t.Fatalf("read dev/seed.sql: %v", err)
 	}
-	fixture, err := os.ReadFile(filepath.Join("dev", "datahub-datasets.json"))
+	fixture, err := os.ReadFile(rootPath(t, "dev", "datahub-datasets.json"))
 	if err != nil {
 		t.Fatalf("read dev/datahub-datasets.json: %v", err)
 	}
@@ -800,7 +793,7 @@ func shippedConfigSources(t *testing.T) []shippedConfig {
 		"bench/config/platform.bench.*.yaml",
 		"test/load/config/platform.load*.yaml",
 	} {
-		matched, err := filepath.Glob(pattern)
+		matched, err := filepath.Glob(rootPath(t, pattern))
 		require.NoError(t, err, "glob %s", pattern)
 		require.NotEmpty(t, matched, "no configs matched %s; the pattern has drifted", pattern)
 		for _, path := range matched {
@@ -810,7 +803,7 @@ func shippedConfigSources(t *testing.T) []shippedConfig {
 		}
 	}
 
-	manifests, err := filepath.Glob("configs/examples/kubernetes/*.yaml")
+	manifests, err := filepath.Glob(rootPath(t, "configs", "examples", "kubernetes", "*.yaml"))
 	require.NoError(t, err)
 	require.NotEmpty(t, manifests, "no Kubernetes examples found; the path has drifted")
 	embedded := 0
@@ -887,8 +880,9 @@ func TestUntypedToolRegistrationInventory(t *testing.T) {
 	untyped := regexp.MustCompile(`(^|[^.\w])([\w.]+)\.AddTool\(`)
 
 	found := map[string][]int{}
+	repoRoot := moduleRoot(t)
 	for _, root := range []string{"pkg", "internal", "cmd"} {
-		err := filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
+		err := filepath.WalkDir(filepath.Join(repoRoot, root), func(path string, d os.DirEntry, walkErr error) error {
 			if walkErr != nil {
 				return walkErr
 			}
@@ -908,7 +902,11 @@ func TestUntypedToolRegistrationInventory(t *testing.T) {
 				if len(m) < 3 || m[2] == "mcp" {
 					continue
 				}
-				found[filepath.ToSlash(path)] = append(found[filepath.ToSlash(path)], i+1)
+				rel, relErr := filepath.Rel(repoRoot, path)
+				if relErr != nil {
+					return fmt.Errorf("relativizing %s: %w", path, relErr)
+				}
+				found[filepath.ToSlash(rel)] = append(found[filepath.ToSlash(rel)], i+1)
 			}
 			return nil
 		})

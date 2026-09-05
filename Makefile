@@ -28,7 +28,7 @@ GOVULNCHECK_VERSION := v1.1.4
 # Total-coverage floor. This is the single source of truth for the project
 # coverage gate: .github/workflows/ci.yml, codecov.yml (project target) and
 # CONTRIBUTING.md must all state this same figure, and TestGateFiguresAgree
-# (pins_test.go) fails when they drift apart. Patch coverage (changed lines)
+# (test/structure/pins_test.go) fails when they drift apart. Patch coverage (changed lines)
 # is a separate gate at PATCH_COVERAGE_MIN.
 COVERAGE_MIN := 82
 PATCH_COVERAGE_MIN := 80

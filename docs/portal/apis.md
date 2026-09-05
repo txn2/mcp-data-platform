@@ -6,6 +6,8 @@ description: Browsing the operations an API connection exposes - the operator's 
 
 The platform indexes the operations of every OpenAPI spec in an [API catalog](../server/api-catalogs.md), and an agent reaches them two ways: `api_discover` for a connection's operations and, with `operation_id`, one operation's parameters and shapes, and relevance hits from `search`. The operation browser is the same index for a person.
 
+The two reach it differently, which is worth knowing before comparing a page with a tool result: the browser lists a connection's operations in full, while `api_discover` with a `query` returns what matched it -- the operations containing every token, then at most five neighbors by intent, each with a `score` and a `lexical_match`, and `matched_lexical` / `shown_semantic` saying where the matches ended. A ranked answer is a boundary, not a page of the same list; see [Discovering an operation](../server/api-gateway.md#discovering-an-operation).
+
 There are two of them, and the difference is what they are drawn from.
 
 ## The operator's view

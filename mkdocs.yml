@@ -11,7 +11,7 @@ edit_uri: edit/main/docs/
 # of the nav hides it from browsing and not from search, every page there must
 # carry a dated working-paper banner instead — the policy is recorded in
 # CONTRIBUTING.md and enforced by TestResearchPagesCarryWorkingPaperBanner.
-# TestDocsPagesInNavOrExcluded (verify_test.go) fails on any docs/**/*.md
+# TestDocsPagesInNavOrExcluded (test/structure/verify_test.go) fails on any docs/**/*.md
 # that is in neither nav nor this list nor exclude_docs, and only accepts
 # the pattern subset it models exactly (see validateExcludePattern).
 not_in_nav: |

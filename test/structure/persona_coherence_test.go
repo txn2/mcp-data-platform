@@ -17,7 +17,7 @@
 // so neither can regress into the shape the check exists to catch.
 //
 // Run: go test -run TestShippedPersonaCoherence .
-package mcp_data_platform_test
+package structure_test
 
 import (
 	"os"
@@ -291,7 +291,7 @@ func shippedConfigPaths(t *testing.T) []string {
 
 	var paths []string
 	for _, glob := range coherenceConfigGlobs {
-		matches, err := filepath.Glob(glob)
+		matches, err := filepath.Glob(rootPath(t, glob))
 		require.NoError(t, err, "bad glob %q", glob)
 		require.NotEmpty(t, matches, "no config matched %q — the gate would pass vacuously", glob)
 		paths = append(paths, matches...)
@@ -306,13 +306,14 @@ func markdownFiles(t *testing.T) []string {
 
 	var files []string
 	for _, root := range coherenceDocRoots {
-		info, err := os.Stat(root)
+		full := rootPath(t, root)
+		info, err := os.Stat(full)
 		require.NoError(t, err, "doc root %q missing", root)
 		if !info.IsDir() {
-			files = append(files, root)
+			files = append(files, full)
 			continue
 		}
-		require.NoError(t, filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		require.NoError(t, filepath.WalkDir(full, func(path string, d os.DirEntry, err error) error {
 			if err != nil {
 				return err
 			}

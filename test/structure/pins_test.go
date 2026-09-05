@@ -4,7 +4,7 @@
 // different version than the Makefile, or when the coverage floor is stated as
 // two different numbers across the Makefile, codecov.yml, the CI workflow and
 // CONTRIBUTING.md (issue #1083; the same drift class as #888/#889).
-package mcp_data_platform_test
+package structure_test
 
 import (
 	"os"
@@ -48,7 +48,7 @@ func allSubmatches(text, pattern string) []string {
 
 func readRepoFile(t *testing.T, parts ...string) string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(parts...)) //nolint:gosec // test reads project files
+	data, err := os.ReadFile(rootPath(t, parts...)) //nolint:gosec // test reads project files
 	if err != nil {
 		t.Fatalf("reading %s: %v", filepath.Join(parts...), err)
 	}
