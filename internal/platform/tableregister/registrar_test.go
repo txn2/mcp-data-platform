@@ -1990,3 +1990,55 @@ func TestResult_CarriesTheChoiceAndTheCorrectionSeparately(t *testing.T) {
 	require.True(t, ok, "what the correction changed, under its own name: %s", raw)
 	assert.Equal(t, float64(4), correction["version"])
 }
+
+// Issue #1634: the bound a registration reads by is the deployment's, not a
+// constant. It was DefaultMaxBytes on every deployment because the one caller
+// set no MaxBytes, so a deployment that raised its upload ceiling stored files
+// no registration would read.
+func TestRegister_ReadsByTheBoundItWasGiven(t *testing.T) {
+	// Above the shipped default: a file this size is refused by a registrar
+	// carrying the default and accepted by one carrying the deployment's own
+	// larger ceiling. Same file, same registrar, different number.
+	const beyondTheDefault = DefaultMaxBytes + (1 << 20)
+
+	t.Run("a bound above the default admits a file the default refuses", func(t *testing.T) {
+		h := newHarness(t, func(h *harness) {
+			h.objects.body = []byte("store_id,units\n1,10\n")
+		})
+		h.reg = New(Deps{
+			Store: h.store, Trino: h.trino,
+			Objects:  map[string]ObjectReader{KindAsset: h.objects},
+			MaxBytes: beyondTheDefault,
+			NewID:    func() (string, error) { return "reg_big", nil },
+		})
+		_, err := h.reg.Register(context.Background(), testCaller(), testSource(), Request{Connection: "scratch"})
+		require.NoError(t, err, "a registrar given the deployment's ceiling must read by it")
+	})
+
+	t.Run("the refusal names the bound in force, not the shipped default", func(t *testing.T) {
+		h := newHarness(t, func(h *harness) { h.objects.body = make([]byte, 300<<20) })
+		h.reg = New(Deps{
+			Store: h.store, Trino: h.trino,
+			Objects:  map[string]ObjectReader{KindAsset: h.objects},
+			MaxBytes: 250 << 20,
+			NewID:    func() (string, error) { return "reg_over", nil },
+		})
+		_, err := h.reg.Register(context.Background(), testCaller(), testSource(), Request{Connection: "scratch"})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrRefused)
+		assert.Contains(t, err.Error(), "250 MB",
+			"the refusal has to name the number this deployment set")
+		assert.NotContains(t, err.Error(), "100 MB",
+			"naming the shipped default on a deployment that raised it is the defect, one direction over")
+	})
+
+	t.Run("an unset bound still falls back to the shipped default", func(t *testing.T) {
+		h := newHarness(t)
+		reg := New(Deps{
+			Store: h.store, Trino: h.trino,
+			Objects: map[string]ObjectReader{KindAsset: h.objects},
+			NewID:   func() (string, error) { return "reg_default", nil },
+		})
+		assert.EqualValues(t, DefaultMaxBytes, reg.deps.MaxBytes)
+	})
+}

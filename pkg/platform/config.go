@@ -1168,10 +1168,11 @@ type ManagedResourcesCfg struct {
 	// (#1628). Non-positive selects resource.MaxUploadBytes (100 MB), so a
 	// deployment that sets nothing behaves as it always has.
 	//
-	// The number is resident heap per concurrent upload: the object is read
-	// into one []byte and handed to the blob client as one, so a deployment
-	// raising this sizes its container for it. See
-	// docs/server/configuration.md.
+	// It bounds bytes streamed rather than bytes held: the write carries the
+	// file from the request into the multipart uploader without assembling it
+	// (#1631). It is also the bound a table registration reads an object by,
+	// so a file this deployment accepts is a file it can register over.
+	// See docs/server/configuration.md.
 	MaxUploadBytes int64 `yaml:"max_upload_bytes"`
 }
 

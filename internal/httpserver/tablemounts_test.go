@@ -12,7 +12,9 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/connreach"
 	"github.com/txn2/mcp-data-platform/internal/platform/tableregister"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
+	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal/s3adapter"
+	"github.com/txn2/mcp-data-platform/pkg/resource"
 	trinotoolkit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 )
 
@@ -282,4 +284,55 @@ func TestConnectionVisibility_WithNothingToEnumerateShowsNothing(t *testing.T) {
 
 	assert.False(t, all)
 	assert.Empty(t, names)
+}
+
+// Issue #1634: a registration read by a compiled-in 100 MB while the write
+// routes read by the deployment's own ceiling, so a deployment that raised
+// resources.managed.max_upload_bytes stored files it could not register over.
+// The registrar is handed the same number the write routes use.
+func TestRegistrationMaxBytes_IsTheDeploymentsUploadCeiling(t *testing.T) {
+	tests := []struct {
+		name       string
+		configured int64
+		want       int64
+	}{
+		{
+			name:       "a configured ceiling is what a registration reads by",
+			configured: 262144000,
+			want:       262144000,
+		},
+		{
+			name: "a deployment that configures nothing keeps the shipped default",
+			want: resource.MaxUploadBytes,
+		},
+		{
+			name:       "a negative value selects the default rather than refusing every registration",
+			configured: -1,
+			want:       resource.MaxUploadBytes,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &platform.Config{}
+			cfg.Resources.Managed.MaxUploadBytes = tt.configured
+			assert.Equal(t, tt.want, registrationMaxBytes(cfg))
+		})
+	}
+
+	// The two bounds are one number, which is the property that stops a file
+	// being taken by one surface and refused by the other.
+	cfg := &platform.Config{}
+	cfg.Resources.Managed.MaxUploadBytes = 262144000
+	assert.Equal(t,
+		resource.NormalizeMaxUploadBytes(cfg.Resources.Managed.MaxUploadBytes),
+		registrationMaxBytes(cfg),
+		"the registration bound and the upload bound must be the same number")
+
+	// The shipped fallback the registrar carries is the same one an unset
+	// ceiling resolves to, so this change moves no deployment that set nothing.
+	assert.EqualValues(t, tableregister.DefaultMaxBytes, registrationMaxBytes(&platform.Config{}))
+
+	// A nil config cannot make a registration read by zero, which would refuse
+	// every file rather than the oversize ones.
+	assert.EqualValues(t, resource.MaxUploadBytes, registrationMaxBytes(nil))
 }
