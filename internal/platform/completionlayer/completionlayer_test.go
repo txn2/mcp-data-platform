@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/resourcetemplates"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/query"
@@ -259,17 +260,17 @@ func TestResourceSchemaCompletions(t *testing.T) {
 	h := New(testDeps(t))
 	ctx := context.Background()
 
-	cats, _ := h.resourceTemplate(ctx, analystPC(), schemaTemplateURI, mcp.CompleteParamsArgument{Name: "catalog", Value: "h"}, nil)
+	cats, _ := h.resourceTemplate(ctx, analystPC(), resourcetemplates.SchemaURI, mcp.CompleteParamsArgument{Name: "catalog", Value: "h"}, nil)
 	assert.Equal(t, []string{"hive"}, cats)
 
-	schemas, _ := h.resourceTemplate(ctx, analystPC(), schemaTemplateURI, mcp.CompleteParamsArgument{Name: "schema_name"}, map[string]string{"catalog": "hive"})
+	schemas, _ := h.resourceTemplate(ctx, analystPC(), resourcetemplates.SchemaURI, mcp.CompleteParamsArgument{Name: "schema_name"}, map[string]string{"catalog": "hive"})
 	assert.ElementsMatch(t, []string{"sales", "ops"}, schemas)
 
-	tables, _ := h.resourceTemplate(ctx, analystPC(), schemaTemplateURI, mcp.CompleteParamsArgument{Name: "table"}, map[string]string{"catalog": "hive", "schema_name": "sales"})
+	tables, _ := h.resourceTemplate(ctx, analystPC(), resourcetemplates.SchemaURI, mcp.CompleteParamsArgument{Name: "table"}, map[string]string{"catalog": "hive", "schema_name": "sales"})
 	assert.ElementsMatch(t, []string{"orders", "customers"}, tables)
 
 	// schema_name without a resolved catalog cannot enumerate.
-	none, _ := h.resourceTemplate(ctx, analystPC(), schemaTemplateURI, mcp.CompleteParamsArgument{Name: "schema_name"}, nil)
+	none, _ := h.resourceTemplate(ctx, analystPC(), resourcetemplates.SchemaURI, mcp.CompleteParamsArgument{Name: "schema_name"}, nil)
 	assert.Empty(t, none)
 }
 
@@ -277,11 +278,11 @@ func TestResourceGlossaryCompletions(t *testing.T) {
 	h := New(testDeps(t))
 	ctx := context.Background()
 
-	got, _ := h.resourceTemplate(ctx, analystPC(), glossaryTemplateURI, mcp.CompleteParamsArgument{Name: "term", Value: "rev"}, nil)
+	got, _ := h.resourceTemplate(ctx, analystPC(), resourcetemplates.GlossaryURI, mcp.CompleteParamsArgument{Name: "term", Value: "rev"}, nil)
 	assert.Equal(t, []string{"Gross Revenue"}, got)
 
 	// Non-term variable on the glossary template completes nothing.
-	other, _ := h.resourceTemplate(ctx, analystPC(), glossaryTemplateURI, mcp.CompleteParamsArgument{Name: "not_term"}, nil)
+	other, _ := h.resourceTemplate(ctx, analystPC(), resourcetemplates.GlossaryURI, mcp.CompleteParamsArgument{Name: "not_term"}, nil)
 	assert.Empty(t, other)
 }
 
@@ -295,7 +296,7 @@ func TestPersonaFilteredNegative(t *testing.T) {
 	tp, _ := h.promptArgument(ctx, viewerPC(), "topic", "")
 	assert.Empty(t, tp)
 	// viewer is denied trino_browse → no schema completions.
-	sc, _ := h.resourceTemplate(ctx, viewerPC(), schemaTemplateURI, mcp.CompleteParamsArgument{Name: "catalog"}, nil)
+	sc, _ := h.resourceTemplate(ctx, viewerPC(), resourcetemplates.SchemaURI, mcp.CompleteParamsArgument{Name: "catalog"}, nil)
 	assert.Empty(t, sc)
 }
 
@@ -416,7 +417,7 @@ func TestHandlerResolvedArgumentsThreaded(t *testing.T) {
 	// A schema_name completion carries a resolved catalog on the request context,
 	// which the handler must thread through to the provider.
 	req := &mcp.CompleteRequest{Params: &mcp.CompleteParams{
-		Ref:      &mcp.CompleteReference{Type: "ref/resource", URI: schemaTemplateURI},
+		Ref:      &mcp.CompleteReference{Type: "ref/resource", URI: resourcetemplates.SchemaURI},
 		Argument: mcp.CompleteParamsArgument{Name: "schema_name"},
 		Context:  &mcp.CompleteContext{Arguments: map[string]string{"catalog": "hive"}},
 	}}
@@ -464,7 +465,7 @@ func clampedHandler(clampAt, tableMatches, termMatches int) *Handle {
 
 func glossaryReq(value string) *mcp.CompleteRequest {
 	return &mcp.CompleteRequest{Params: &mcp.CompleteParams{
-		Ref:      &mcp.CompleteReference{Type: "ref/resource", URI: glossaryTemplateURI},
+		Ref:      &mcp.CompleteReference{Type: "ref/resource", URI: resourcetemplates.GlossaryURI},
 		Argument: mcp.CompleteParamsArgument{Name: "term", Value: value},
 	}}
 }

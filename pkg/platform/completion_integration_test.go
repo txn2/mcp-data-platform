@@ -9,8 +9,10 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/txn2/mcp-data-platform/internal/platform/resourcetemplates"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/completionlayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/iam"
@@ -162,7 +164,7 @@ func TestCompletionRoundTripThroughServer(t *testing.T) {
 
 	// Resource schema-template variable.
 	cats, err := session.Complete(context.Background(), &mcp.CompleteParams{
-		Ref:      &mcp.CompleteReference{Type: "ref/resource", URI: schemaTemplateURI},
+		Ref:      &mcp.CompleteReference{Type: "ref/resource", URI: resourcetemplates.SchemaURI},
 		Argument: mcp.CompleteParamsArgument{Name: "schema_name"},
 		Context:  &mcp.CompleteContext{Arguments: map[string]string{"catalog": "hive"}},
 	})
