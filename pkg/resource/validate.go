@@ -18,9 +18,10 @@ const (
 	// MaxUploadBytes is the upload ceiling a deployment that configures none
 	// gets. It is a default rather than the limit: a deployment sets its own
 	// with resources.managed.max_upload_bytes, which reaches the write routes
-	// as Deps.MaxUploadBytes (#1628). Raising it raises resident heap per
-	// concurrent upload, since the whole object is read into one []byte and
-	// handed to the blob client as one -- see NormalizeMaxUploadBytes.
+	// as Deps.MaxUploadBytes (#1628). It bounds bytes streamed rather than
+	// bytes held: the upload path carries the file from the request into the
+	// multipart uploader without assembling it (#1631), so raising it raises
+	// what a deployment will store, not what it has to fit in memory.
 	MaxUploadBytes     = 100 << 20 // 100 MB
 	MaxDescriptionLen  = 2000
 	MaxDisplayNameLen  = 200

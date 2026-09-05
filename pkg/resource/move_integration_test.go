@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -174,6 +175,17 @@ func (b *memBlobs) PutObject(_ context.Context, _, key string, data []byte, _ st
 	return nil
 }
 
+func (b *memBlobs) PutObjectStream(
+	_ context.Context, _, key string, body io.Reader, _ string,
+) (int64, error) {
+	data, err := io.ReadAll(body)
+	if err != nil {
+		return 0, fmt.Errorf("reading the streamed body: %w", err)
+	}
+	b.objects[key] = data
+	return int64(len(data)), nil
+}
+
 func (b *memBlobs) GetObject(_ context.Context, _, key string) (body []byte, contentType string, err error) {
 	data, ok := b.objects[key]
 	if !ok {
@@ -321,7 +333,7 @@ func newMovePlatformOn(t *testing.T, store resource.Store) *movePlatform {
 	res, err := resource.CreateResource(t.Context(), deps, owner(), resource.NewResource{
 		Scope: resource.ScopeUser, ScopeID: "sub-1", Path: "templates",
 		Filename: "report.docx", DisplayName: "Report", Description: "the template",
-		Data: []byte(fileBytes), MIMEType: "text/plain",
+		Content: bytes.NewReader([]byte(fileBytes)), MIMEType: "text/plain",
 	})
 	if err != nil {
 		t.Fatalf("CreateResource: %v", err)
@@ -480,7 +492,7 @@ func TestALiveAddressWinsOverAVacatedOne(t *testing.T) {
 	}, owner(), resource.NewResource{
 		Scope: resource.ScopeUser, ScopeID: "sub-1", Path: "templates",
 		Filename: "report.docx", DisplayName: "Report v2", Description: "the new one",
-		Data: []byte("newer"), MIMEType: "text/plain",
+		Content: bytes.NewReader([]byte("newer")), MIMEType: "text/plain",
 	})
 	if err != nil {
 		t.Fatalf("CreateResource: %v", err)
@@ -623,7 +635,7 @@ func TestAFolderEditOntoAnOccupiedAddressIsRefused(t *testing.T) {
 	}, owner(), resource.NewResource{
 		Scope: resource.ScopeUser, ScopeID: "sub-1", Path: "data",
 		Filename: "report.docx", DisplayName: "The Other Report", Description: "already there",
-		Data: []byte("other"), MIMEType: "text/plain",
+		Content: bytes.NewReader([]byte("other")), MIMEType: "text/plain",
 	}); err != nil {
 		t.Fatalf("CreateResource: %v", err)
 	}

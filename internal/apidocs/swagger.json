@@ -17734,7 +17734,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Upload a new managed resource with metadata and file content.",
+                "description": "Upload a new managed resource with metadata and file content. The file part must be the last part of the multipart form: it is streamed to blob storage where the walk finds it, so every metadata field has to arrive before it.",
                 "consumes": [
                     "multipart/form-data"
                 ],
@@ -18308,7 +18308,7 @@
                     },
                     {
                         "type": "file",
-                        "description": "Replacement file; the ceiling is resources.managed.max_upload_bytes (default 100 MB)",
+                        "description": "Replacement file; the ceiling is resources.managed.max_upload_bytes (default 100 MB). It must be the last part of the multipart form: it is streamed to blob storage where the walk finds it",
                         "name": "file",
                         "in": "formData",
                         "required": true

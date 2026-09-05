@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"bytes"
 	"context"
 	"testing"
 
@@ -136,7 +137,7 @@ func TestReviseContentRecordsAModification(t *testing.T) {
 	})
 	_, version, err := ReviseContent(ctx, deps, created,
 		&Claims{Sub: "script:daily-sales", OnBehalfOf: "owner@example.com"},
-		RevisionUpload{Data: []byte("day,high\ntue,72\n"), MIMEType: "text/csv"})
+		RevisionUpload{Content: bytes.NewReader([]byte("day,high\ntue,72\n")), MIMEType: "text/csv"})
 	require.NoError(t, err)
 
 	require.Len(t, rec.writes, 2)

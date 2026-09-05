@@ -1,6 +1,7 @@
 package resourcewrite_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"strings"
@@ -53,7 +54,7 @@ func newResource() resource.NewResource {
 		Scope: resource.ScopeUser, ScopeID: authorSub,
 		Path: "datasets", Filename: "weather.csv",
 		DisplayName: "Daily Weather", Description: "Highs and lows",
-		Tags: []string{}, Data: []byte("day,high\nmon,71\n"), MIMEType: "text/csv",
+		Tags: []string{}, Content: bytes.NewReader([]byte("day,high\nmon,71\n")), MIMEType: "text/csv",
 	}
 }
 
@@ -187,7 +188,7 @@ func TestReplaceKeepsTheFilesIdentity(t *testing.T) {
 	f.registered = nil
 
 	updated, version, err := f.writer.Replace(t.Context(), original.ID, resource.RevisionUpload{
-		Data: []byte("day,high\nmon,88\ntue,90\n"), MIMEType: "text/csv",
+		Content: bytes.NewReader([]byte("day,high\nmon,88\ntue,90\n")), MIMEType: "text/csv",
 		ChangeSummary: "refreshed from the hourly run",
 	}, analyst())
 
@@ -223,7 +224,7 @@ func TestReplaceRefusesWhatTheCallerMayNotSeeAsAbsent(t *testing.T) {
 	require.NoError(t, err)
 
 	_, _, err = f.writer.Replace(t.Context(), res.ID, resource.RevisionUpload{
-		Data: []byte("x"), MIMEType: "text/plain",
+		Content: bytes.NewReader([]byte("x")), MIMEType: "text/plain",
 	}, analyst())
 
 	require.ErrorIs(t, err, resourcewrite.ErrNoSuchResource,
@@ -234,7 +235,7 @@ func TestReplaceRefusesAMissingResource(t *testing.T) {
 	f := newFixture(t)
 
 	_, _, err := f.writer.Replace(t.Context(), "nope", resource.RevisionUpload{
-		Data: []byte("x"), MIMEType: "text/plain",
+		Content: bytes.NewReader([]byte("x")), MIMEType: "text/plain",
 	}, analyst())
 
 	require.ErrorIs(t, err, resourcewrite.ErrNoSuchResource)
@@ -250,7 +251,7 @@ func TestReplaceRefusesAFileTheCallerMaySeeButNotChange(t *testing.T) {
 	// The analyst is a member of the persona, so the file is readable, and is
 	// not its administrator, so it is not theirs to change.
 	_, _, err = f.writer.Replace(t.Context(), res.ID, resource.RevisionUpload{
-		Data: []byte("x"), MIMEType: "text/plain",
+		Content: bytes.NewReader([]byte("x")), MIMEType: "text/plain",
 	}, analyst())
 
 	require.ErrorIs(t, err, resourcewrite.ErrRefused)
@@ -267,7 +268,7 @@ func TestReplaceReportsADeploymentWithNoVersionTrail(t *testing.T) {
 	require.NoError(t, err)
 
 	_, _, err = w.Replace(t.Context(), res.ID, resource.RevisionUpload{
-		Data: []byte("x"), MIMEType: "text/plain",
+		Content: bytes.NewReader([]byte("x")), MIMEType: "text/plain",
 	}, analyst())
 
 	require.ErrorIs(t, err, resourcewrite.ErrUnavailable)
@@ -281,7 +282,7 @@ func TestReplaceReportsARevisionThatDidNotLand(t *testing.T) {
 	f.registered = nil
 
 	_, _, err := f.writer.Replace(t.Context(), res.ID, resource.RevisionUpload{
-		Data: []byte("x"), MIMEType: "text/plain",
+		Content: bytes.NewReader([]byte("x")), MIMEType: "text/plain",
 	}, analyst())
 
 	require.Error(t, err)
@@ -317,7 +318,7 @@ func TestAFailedReadIsNotAnAbsentResource(t *testing.T) {
 	assert.Contains(t, err.Error(), "connection refused")
 
 	_, _, replaceErr := f.writer.Replace(t.Context(), "anything", resource.RevisionUpload{
-		Data: []byte("x"), MIMEType: "text/plain",
+		Content: bytes.NewReader([]byte("x")), MIMEType: "text/plain",
 	}, analyst())
 	assert.NotErrorIs(t, replaceErr, resourcewrite.ErrNoSuchResource,
 		"a replacement blocked by an unreachable store must not read as a deleted file either")
@@ -340,7 +341,7 @@ func TestWriteWithoutARegistrationCallback(t *testing.T) {
 	res, err := w.Create(context.Background(), newResource(), analyst())
 	require.NoError(t, err)
 	_, version, err := w.Replace(context.Background(), res.ID, resource.RevisionUpload{
-		Data: []byte("x"), MIMEType: "text/plain",
+		Content: bytes.NewReader([]byte("x")), MIMEType: "text/plain",
 	}, analyst())
 	require.NoError(t, err)
 	assert.Equal(t, 2, version)
@@ -373,7 +374,7 @@ func TestARunRefreshesTheFileItsAuthorUploaded(t *testing.T) {
 
 	// The scheduled run replaces its content.
 	updated, version, err := f.writer.Replace(t.Context(), original.ID, resource.RevisionUpload{
-		Data: []byte("day,high\nmon,88\n"), MIMEType: "text/csv", ChangeSummary: "hourly refresh",
+		Content: bytes.NewReader([]byte("day,high\nmon,88\n")), MIMEType: "text/csv", ChangeSummary: "hourly refresh",
 	}, runFor(author))
 
 	require.NoError(t, err, "a run refused its author's own file cannot be said to act for them")
@@ -395,7 +396,7 @@ func TestAnotherPersonsRunReachesNothingOfTheirs(t *testing.T) {
 	require.NoError(t, err)
 
 	_, _, err = f.writer.Replace(t.Context(), original.ID, resource.RevisionUpload{
-		Data: []byte("x"), MIMEType: "text/plain",
+		Content: bytes.NewReader([]byte("x")), MIMEType: "text/plain",
 	}, runFor("someone-else@example.com"))
 
 	require.ErrorIs(t, err, resourcewrite.ErrNoSuchResource)
@@ -420,7 +421,7 @@ func TestARunRecordsThePersonItActedFor(t *testing.T) {
 	assert.Equal(t, "script:weekly-refresh", res.UploaderSub, "the principal is still what made the call")
 
 	_, _, err = f.writer.Replace(t.Context(), res.ID, resource.RevisionUpload{
-		Data: []byte("x"), MIMEType: "text/plain",
+		Content: bytes.NewReader([]byte("x")), MIMEType: "text/plain",
 	}, transferred)
 	require.NoError(t, err)
 
@@ -483,7 +484,7 @@ func TestARunRefreshesAFileMovedIntoAPersonaTheAuthorBelongsTo(t *testing.T) {
 		resource.Destination{Scope: resource.ScopePersona, ScopeID: "analyst", Path: "datasets"})
 
 	_, version, err := f.writer.Replace(t.Context(), moved.ID, resource.RevisionUpload{
-		Data: []byte("day,high\nmon,88\n"), MIMEType: "text/csv", ChangeSummary: "hourly refresh",
+		Content: bytes.NewReader([]byte("day,high\nmon,88\n")), MIMEType: "text/csv", ChangeSummary: "hourly refresh",
 	}, runFor(authorMail))
 
 	require.NoError(t, err, "the move left the person able to replace the content; their script must be too")
@@ -499,7 +500,7 @@ func TestARunRefreshesAFileAnAdministratorPublishedForItsAuthor(t *testing.T) {
 		resource.Destination{Scope: resource.ScopeGlobal, Path: "datasets"})
 
 	_, version, err := f.writer.Replace(t.Context(), moved.ID, resource.RevisionUpload{
-		Data: []byte("day,high\nmon,91\n"), MIMEType: "text/csv",
+		Content: bytes.NewReader([]byte("day,high\nmon,91\n")), MIMEType: "text/csv",
 	}, runFor(authorMail))
 
 	require.NoError(t, err, "who made the move must not decide whether the author's automation survives it")
@@ -515,7 +516,7 @@ func TestAMovedFileIsRefusedToAScriptWithNoClaimOnIt(t *testing.T) {
 		resource.Destination{Scope: resource.ScopeGlobal, Path: "datasets"})
 
 	_, _, err := f.writer.Replace(t.Context(), moved.ID, resource.RevisionUpload{
-		Data: []byte("x"), MIMEType: "text/csv",
+		Content: bytes.NewReader([]byte("x")), MIMEType: "text/csv",
 	}, runFor("stranger@example.com"))
 
 	require.ErrorIs(t, err, resourcewrite.ErrRefused)
@@ -538,13 +539,13 @@ func TestAMoveWidensNothingARunCanSee(t *testing.T) {
 		resource.Destination{Scope: resource.ScopePersona, ScopeID: "finance", Path: "datasets"})
 
 	_, _, err := f.writer.Replace(t.Context(), moved.ID, resource.RevisionUpload{
-		Data: []byte("x"), MIMEType: "text/csv",
+		Content: bytes.NewReader([]byte("x")), MIMEType: "text/csv",
 	}, runFor(authorMail))
 
 	require.ErrorIs(t, err, resourcewrite.ErrNoSuchResource)
 
 	_, _, err = f.writer.Replace(t.Context(), moved.ID, resource.RevisionUpload{
-		Data: []byte("x"), MIMEType: "text/csv",
+		Content: bytes.NewReader([]byte("x")), MIMEType: "text/csv",
 	}, analyst())
 	require.ErrorIs(t, err, resourcewrite.ErrNoSuchResource,
 		"the person is answered the same way, which is what makes the pair one grant")
@@ -571,7 +572,7 @@ func TestARunRefreshesAFileItsAuthorsOtherScriptFiled(t *testing.T) {
 	require.NoError(t, err)
 
 	_, version, err := f.writer.Replace(t.Context(), filed.ID, resource.RevisionUpload{
-		Data: []byte("day,high\nmon,70\n"), MIMEType: "text/csv",
+		Content: bytes.NewReader([]byte("day,high\nmon,70\n")), MIMEType: "text/csv",
 	}, analyst())
 	require.NoError(t, err, "the person whose authority filed it may still replace it")
 	assert.Equal(t, 2, version)
@@ -579,7 +580,7 @@ func TestARunRefreshesAFileItsAuthorsOtherScriptFiled(t *testing.T) {
 	sibling := resource.BuildClaims("script:monthly-rollup", authorMail, "analyst",
 		[]string{"analyst"}, false).ActingFor(authorMail)
 	_, version, err = f.writer.Replace(t.Context(), filed.ID, resource.RevisionUpload{
-		Data: []byte("day,high\nmon,71\n"), MIMEType: "text/csv",
+		Content: bytes.NewReader([]byte("day,high\nmon,71\n")), MIMEType: "text/csv",
 	}, sibling)
 	require.NoError(t, err, "and their other scripts reach exactly what they reach")
 	assert.Equal(t, 3, version)
@@ -587,7 +588,7 @@ func TestARunRefreshesAFileItsAuthorsOtherScriptFiled(t *testing.T) {
 	stranger := resource.BuildClaims("script:weekly-refresh", "stranger@example.com", "analyst",
 		[]string{"analyst"}, false).ActingFor("stranger@example.com")
 	_, _, err = f.writer.Replace(t.Context(), filed.ID, resource.RevisionUpload{
-		Data: []byte("x"), MIMEType: "text/csv",
+		Content: bytes.NewReader([]byte("x")), MIMEType: "text/csv",
 	}, stranger)
 	require.ErrorIs(t, err, resourcewrite.ErrRefused,
 		"another person's script of the same name is another person's script")

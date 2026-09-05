@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -506,6 +507,39 @@ func TestRestoreVersion_RoundTripsBytesAsANewHead(t *testing.T) {
 	}
 }
 
+// TestRestoreVersion_AStorageRefusalIsRetryable pins the answer a restore
+// gives when the blob store will not take the re-promoted bytes: 503, the same
+// as the two write routes, because nothing was written and retrying is the
+// response rather than checking for a half-made revision.
+func TestRestoreVersion_AStorageRefusalIsRetryable(t *testing.T) {
+	store, s3 := newMockStore(), newMockS3()
+	versions := newFakeVersions(store)
+	failing := &failingS3{mockS3: s3}
+	h := NewHandler(Deps{
+		Store: store, S3Client: failing, S3Bucket: "test-bucket", URIScheme: "mcp", Versions: versions,
+	}, okExtractor, nil)
+	seedVersionedResource(t, store, s3, versions)
+
+	// A second version to restore version 1 from, written before the store
+	// starts refusing.
+	req := buildMultipartRequest(t, nil, []byte("revised"), "f.csv")
+	req.URL.Path = "/api/v1/resources/" + seedResourceID + "/content"
+	h.ServeHTTP(httptest.NewRecorder(), req)
+
+	failing.putErr = errors.New("bucket unavailable")
+	restore := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
+		"/api/v1/resources/"+seedResourceID+"/versions/1/restore", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, restore)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "Nothing was saved") {
+		t.Errorf("body = %s, want it to say nothing was saved", w.Body.String())
+	}
+}
+
 func TestRestoreVersion_Rejections(t *testing.T) {
 	t.Run("reader cannot restore", func(t *testing.T) {
 		fx := newVersionedHandler(t, memberExtractor)
@@ -788,6 +822,20 @@ func (f *failingS3) PutObject(ctx context.Context, bucket, key string, data []by
 	return f.mockS3.PutObject(ctx, bucket, key, data, ct)
 }
 
+// PutObjectStream draws the body before reporting the configured failure, the
+// way a real client does: the transfer manager reads what it is given and then
+// fails, so a fake that failed without reading would leave the request body
+// unconsumed and hide a handler that depends on it being drained.
+func (f *failingS3) PutObjectStream(
+	ctx context.Context, bucket, key string, body io.Reader, ct string,
+) (int64, error) {
+	if f.putErr != nil {
+		_, _ = io.Copy(io.Discard, body)
+		return 0, f.putErr
+	}
+	return f.mockS3.PutObjectStream(ctx, bucket, key, body, ct)
+}
+
 func (f *failingS3) GetObject(ctx context.Context, bucket, key string) (body []byte, contentType string, err error) {
 	if f.getErr != nil {
 		return nil, "", f.getErr
@@ -816,8 +864,17 @@ func TestReplaceContent_BlobWriteFailureIsAServerError(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500", w.Code)
+	// 503, not 500, and the same answer the create route gives: the cause is
+	// outside the platform and nothing was written, so retrying is the right
+	// response rather than first checking for a half-made revision. Both
+	// routes reach it through the same classification now (#1631); before
+	// that, this one answered 500 with a message writeError truncated at its
+	// first colon to the bare fragment "storing revision".
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "Nothing was saved") {
+		t.Errorf("body = %s, want it to say nothing was saved", w.Body.String())
 	}
 	if len(versions.byResource["res-1"]) != 0 {
 		t.Error("a revision was recorded for bytes that were never stored")

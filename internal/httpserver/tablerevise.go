@@ -1,8 +1,10 @@
 package httpserver
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"path"
 
 	"github.com/google/uuid"
@@ -112,7 +114,7 @@ func (r *resourceReviser) Revise(
 		ActingFor(caller.OnBehalfOf)
 
 	updated, version, err := resource.ReviseContent(ctx, r.deps, res, &claims,
-		resource.RevisionUpload{Data: content, MIMEType: contenttype.CSV, ChangeSummary: summary})
+		resource.RevisionUpload{Content: bytes.NewReader(content), MIMEType: contenttype.CSV, ChangeSummary: summary})
 	if err != nil {
 		return tableregister.Revised{}, fmt.Errorf("recording the corrected revision: %w", err)
 	}
@@ -146,8 +148,16 @@ type (
 	}
 	// assetBlobs stores the corrected object, and removes it again when no
 	// version row ends up pointing at it.
+	//
+	// The write is the streaming one for the reason the managed-resource
+	// correction beside it streams (#1631): a corrected CSV is as large as the
+	// file it corrects, and an S3-compatible backend is free to bound a single
+	// PUT well under that. It reports the size it wrote, which is what the
+	// version row records.
 	assetBlobs interface {
-		PutObject(ctx context.Context, bucket, key string, data []byte, contentType string) error
+		PutObjectStream(
+			ctx context.Context, bucket, key string, body io.Reader, contentType string,
+		) (size int64, err error)
 		DeleteObject(ctx context.Context, bucket, key string) error
 	}
 )
@@ -190,7 +200,8 @@ func (a *assetReviser) Revise(
 
 	versionID := uuid.New().String()
 	key := path.Join(a.prefix, asset.OwnerID, asset.ID, versionID, "content"+portal.ExtensionForContentType(contenttype.CSV))
-	if err := a.objects.PutObject(ctx, a.bucket, key, content, contenttype.CSV); err != nil {
+	size, err := a.objects.PutObjectStream(ctx, a.bucket, key, bytes.NewReader(content), contenttype.CSV)
+	if err != nil {
 		return tableregister.Revised{}, fmt.Errorf("storing the corrected content: %w", err)
 	}
 
@@ -200,7 +211,7 @@ func (a *assetReviser) Revise(
 		S3Key:         key,
 		S3Bucket:      a.bucket,
 		ContentType:   contenttype.CSV,
-		SizeBytes:     int64(len(content)),
+		SizeBytes:     size,
 		CreatedBy:     caller.Email,
 		ChangeSummary: summary,
 	})

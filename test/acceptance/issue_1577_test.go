@@ -84,7 +84,7 @@ func csvResource1577(t *testing.T, c *client, stamp, content string) (reference,
 func register1577(t *testing.T, c *client, reference, table string, repair *bool) map[string]any {
 	t.Helper()
 	args := map[string]any{
-		"action": "register", "reference": reference, "connection": scratchConnection,
+		"action": "register", "reference": reference, "connection": scratchResourceConnection,
 		"table_name": table, "follow": true,
 	}
 	if repair != nil {
@@ -153,7 +153,7 @@ func replace1577(t *testing.T, c *client, reference string, args map[string]any)
 func count1577(t *testing.T, c *client, queryTable, why string) string {
 	t.Helper()
 	queried := c.call("trino_query", map[string]any{
-		"connection": scratchConnection,
+		"connection": scratchResourceConnection,
 		"sql":        "SELECT count(*) AS n FROM " + queryTable,
 		"purpose":    why,
 	})
@@ -187,7 +187,7 @@ func TestIssue1577_AFollowReAppliesTheCorrection(t *testing.T) {
 	if replaced["resource_id"] != id {
 		t.Fatalf("the replace did not answer about this file: %v", replaced)
 	}
-	if !strings.Contains(said, queryTable+" on "+scratchConnection+" now reads version 4.") {
+	if !strings.Contains(said, queryTable+" on "+scratchResourceConnection+" now reads version 4.") {
 		t.Fatalf("the write did not report the table as followed: %s", said)
 	}
 	if !strings.Contains(said, "Saved version 4 of this file, which put 2 rows back onto one line.") {
@@ -354,7 +354,7 @@ func TestIssue1577_OneCorrectionServesEveryTableOverTheFile(t *testing.T) {
 
 	for _, reg := range []map[string]any{first, second} {
 		queryTable, _ := reg["query_table"].(string)
-		if !strings.Contains(said, queryTable+" on "+scratchConnection+" now reads version 3.") {
+		if !strings.Contains(said, queryTable+" on "+scratchResourceConnection+" now reads version 3.") {
 			t.Fatalf("%s did not follow onto the corrected version: %s", queryTable, said)
 		}
 		rows := count1577(t, c, queryTable, "Acceptance #1577: both tables read the one corrected version.")

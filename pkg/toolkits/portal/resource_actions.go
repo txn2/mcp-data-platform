@@ -1,6 +1,7 @@
 package portal
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"encoding/base64"
@@ -156,8 +157,8 @@ func (t *Toolkit) handleCreateResource(
 		Scope: scope, ScopeID: scopeID,
 		Path: input.Path, Filename: filename,
 		DisplayName: input.DisplayName, Description: input.Description,
-		Tags: normalizeTags(input.Tags),
-		Data: data, MIMEType: mimeType, DeclaredMIMEType: input.ContentType,
+		Tags:    normalizeTags(input.Tags),
+		Content: bytes.NewReader(data), MIMEType: mimeType, DeclaredMIMEType: input.ContentType,
 	}, claims)
 	if err != nil {
 		return toolkit.ErrorResult(err.Error()), nil, nil
@@ -219,7 +220,7 @@ func (t *Toolkit) handleReplaceResourceContent(
 	}
 
 	res, version, err := t.resourceWriter.Replace(ctx, id, resource.RevisionUpload{
-		Data: data, MIMEType: mimeType, ChangeSummary: summary,
+		Content: bytes.NewReader(data), MIMEType: mimeType, ChangeSummary: summary,
 	}, claims)
 	if err != nil {
 		return toolkit.ErrorResult(err.Error()), nil, nil

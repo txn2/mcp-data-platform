@@ -546,13 +546,8 @@ func uploadResource1569(t *testing.T, c *client, displayName string) string {
 	t.Helper()
 	body := new(bytes.Buffer)
 	w := multipart.NewWriter(body)
-	part, err := w.CreateFormFile("file", displayName+".txt")
-	if err != nil {
-		t.Fatalf("building the upload: %v", err)
-	}
-	if _, err := part.Write([]byte("uploaded through the resources API\n")); err != nil {
-		t.Fatalf("writing the upload: %v", err)
-	}
+	// The fields go first: the route streams the file part to blob storage
+	// where it finds it and reads no part behind it (#1631).
 	for field, value := range map[string]string{
 		// The person's own library: an ordinary person may write there, and
 		// what this proves is who the write is recorded against rather than
@@ -566,6 +561,13 @@ func uploadResource1569(t *testing.T, c *client, displayName string) string {
 		if err := w.WriteField(field, value); err != nil {
 			t.Fatalf("writing %s: %v", field, err)
 		}
+	}
+	part, err := w.CreateFormFile("file", displayName+".txt")
+	if err != nil {
+		t.Fatalf("building the upload: %v", err)
+	}
+	if _, err := part.Write([]byte("uploaded through the resources API\n")); err != nil {
+		t.Fatalf("writing the upload: %v", err)
 	}
 	if err := w.Close(); err != nil {
 		t.Fatalf("closing the upload: %v", err)

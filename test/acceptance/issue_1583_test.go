@@ -44,7 +44,7 @@ const clean1583 = "store_id,address,units\n101,12 Mill Rd,10\n102,9 Bay St,20\n"
 func register1583(t *testing.T, c *client, reference, table string, repair *bool) string {
 	t.Helper()
 	args := map[string]any{
-		"action": "register", "reference": reference, "connection": scratchConnection,
+		"action": "register", "reference": reference, "connection": scratchResourceConnection,
 		"table_name": table, "follow": true,
 	}
 	if repair != nil {
@@ -199,7 +199,7 @@ func TestIssue1583_TheCorrectionIsReportedOnTheRegistrationThatAskedForIt(t *tes
 
 			// Criterion 2: the other one reports only that it moved.
 			other := sentenceFor(t, said, plain)
-			if other != plain+" on "+scratchConnection+" now reads version 4." {
+			if other != plain+" on "+scratchResourceConnection+" now reads version 4." {
 				t.Fatalf("the registration made without the choice was told it rewrote the file: %q", other)
 			}
 

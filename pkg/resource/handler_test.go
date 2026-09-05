@@ -329,6 +329,21 @@ func (m *mockS3) PutObject(_ context.Context, _, key string, data []byte, _ stri
 	return nil
 }
 
+// PutObjectStream models the real client's streaming write: it draws the
+// reader to its end, keeps what it read, and reports that count. A fake that
+// ignored the reader would let a handler that never streams the body pass,
+// which is the whole property the streaming path has to hold (#1631).
+func (m *mockS3) PutObjectStream(
+	_ context.Context, _, key string, body io.Reader, _ string,
+) (int64, error) {
+	data, err := io.ReadAll(body)
+	if err != nil {
+		return 0, fmt.Errorf("reading the streamed body: %w", err)
+	}
+	m.objects[key] = data
+	return int64(len(data)), nil
+}
+
 func (m *mockS3) GetObject(_ context.Context, _, key string) (body []byte, contentType string, err error) {
 	data, ok := m.objects[key]
 	if !ok {
@@ -1638,6 +1653,16 @@ type errPutS3 struct {
 
 func (*errPutS3) PutObject(_ context.Context, _, _ string, _ []byte, _ string) error {
 	return fmt.Errorf("s3 put error")
+}
+
+// PutObjectStream draws the body first, the way the transfer manager does,
+// then refuses: a fake that failed without reading would leave the request
+// body unconsumed and would not be the failure the route sees.
+func (*errPutS3) PutObjectStream(
+	_ context.Context, _, _ string, body io.Reader, _ string,
+) (int64, error) {
+	_, _ = io.Copy(io.Discard, body)
+	return 0, errors.New("s3 put error")
 }
 
 func TestHandleCreate_S3PutError(t *testing.T) {

@@ -1,8 +1,11 @@
 package resource
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"strings"
 	"time"
@@ -26,8 +29,12 @@ type NewResource struct {
 	DisplayName string
 	Description string
 	Tags        []string
-	// Data is the content, and MIMEType the type it is stored under.
-	Data     []byte
+	// Content is the bytes to store, and MIMEType the type they are stored
+	// under. It is a reader rather than a slice because the upload route hands
+	// over the multipart part itself, so a file crosses the platform without
+	// ever existing in it whole (#1631); a caller that is already holding the
+	// object passes a bytes.Reader over it. Nil stores an empty object.
+	Content  io.Reader
 	MIMEType string
 	// DeclaredMIMEType is what the caller said the bytes were, kept so a
 	// detection that replaced it is recorded. Empty when nothing was declared.
@@ -69,6 +76,14 @@ func CreateResource(ctx context.Context, deps Deps, claims *Claims, in NewResour
 		)
 	}
 
+	// The size is what the write reported, not what the caller declared: a
+	// streamed body carries no length, so the bytes that reached storage are
+	// the only account of how big the file is.
+	size, err := storeContent(ctx, deps, s3Key, in.Content, in.MIMEType)
+	if err != nil {
+		return nil, contentWriteError("resource upload", err)
+	}
+
 	// The subject is the principal that made the call and the address is the
 	// person whose authority it ran under. They are the same for a person, and
 	// for a managed-script run they are script:<name> and its version author --
@@ -79,16 +94,9 @@ func CreateResource(ctx context.Context, deps Deps, claims *Claims, in NewResour
 		ID: id, Scope: in.Scope, ScopeID: in.ScopeID,
 		Path: in.Path, Filename: in.Filename,
 		DisplayName: in.DisplayName, Description: in.Description,
-		MIMEType: in.MIMEType, SizeBytes: int64(len(in.Data)),
+		MIMEType: in.MIMEType, SizeBytes: size,
 		S3Key: s3Key, URI: uri, Tags: in.Tags,
 		UploaderSub: claims.Sub, UploaderEmail: PersonAddress(*claims),
-	}
-
-	if deps.S3Client != nil {
-		if err := deps.S3Client.PutObject(ctx, deps.S3Bucket, s3Key, in.Data, in.MIMEType); err != nil {
-			slog.Error("resource upload: s3 put failed", msgError, err)
-			return nil, &storageError{msg: msgStorageRefused}
-		}
 	}
 
 	if err := deps.Store.Insert(ctx, res); err != nil {
@@ -144,4 +152,46 @@ func recordInitialVersion(ctx context.Context, deps Deps, res *Resource, claims 
 		slog.Warn("resource upload: recording initial version failed", msgError, err,
 			logKeyResourceID, res.ID) // #nosec G706 -- server-generated ID
 	}
+}
+
+// storeContent streams content to blob storage under key and reports the
+// number of bytes it wrote.
+//
+// A deployment with no blob client stores nothing, and still draws the body to
+// its end and counts it: the caller's reader is a request body either way, and
+// a record whose size disagreed with the content it was created from would be
+// wrong in the one place nothing can recompute.
+func storeContent(ctx context.Context, deps Deps, key string, body io.Reader, mimeType string) (int64, error) {
+	if body == nil {
+		body = bytes.NewReader(nil)
+	}
+	if deps.S3Client == nil {
+		n, err := io.Copy(io.Discard, body)
+		if err != nil {
+			return 0, fmt.Errorf("reading the content: %w", err)
+		}
+		return n, nil
+	}
+	written, err := deps.S3Client.PutObjectStream(ctx, deps.S3Bucket, key, body, mimeType)
+	if err != nil {
+		return 0, err //nolint:wrapcheck // classified by contentWriteError, which needs the cause intact
+	}
+	return written, nil
+}
+
+// contentWriteError separates the two ways a streamed write ends badly, which
+// are opposite answers to whoever is uploading.
+//
+// A request the caller can fix -- the file passed the ceiling, or the form put
+// a part behind the file -- travels intact, so the route can render it as the
+// 400 it is. Anything else is the platform's: storage refused the object, or
+// the body stopped arriving. Those read the same to the uploader (nothing was
+// saved, try again) and the mechanism belongs in the log beside it rather than
+// in the response.
+func contentWriteError(what string, err error) error {
+	if errors.Is(err, errUploadTooLarge) || errors.Is(err, errFilePartLast) {
+		return err
+	}
+	slog.Error(what+": storing the content failed", msgError, err)
+	return &storageError{msg: msgStorageRefused, cause: err}
 }

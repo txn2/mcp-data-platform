@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"encoding/json"
@@ -8,7 +9,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -17,8 +20,24 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 )
 
-// MaxMultipartMemory is the max memory for multipart form parsing (10 MB).
-const MaxMultipartMemory = 10 << 20
+// maxFormFieldBytes bounds one metadata field of an upload form.
+//
+// Every field the create route reads is validated far under this -- the
+// longest is a 2000-rune description -- so the bound is not the validator. It
+// is what keeps a part labeled "description" from being a file in disguise,
+// now that the form is walked part by part and no longer has a parser holding
+// a total in front of it.
+const maxFormFieldBytes = 64 << 10
+
+// filePartName is the form field the uploaded file arrives under, on both
+// write routes.
+const filePartName = "file"
+
+// msgFilePartLast is what a caller is told when the form put a part behind the
+// file. It names the order to send rather than the mechanism, which is that
+// the file part is handed to the uploader where it is found.
+const msgFilePartLast = "the file part must be the last part of the form; " +
+	"send every other field before it"
 
 // multipartFramingBytes is the headroom the request body is allowed over the
 // upload ceiling, for what multipart encoding adds around the file: the
@@ -71,9 +90,9 @@ type Deps struct {
 	MaxVersions int
 	// MaxUploadBytes is the largest file the write routes accept, from
 	// resources.managed.max_upload_bytes; non-positive selects MaxUploadBytes
-	// (#1628). It is resident heap per concurrent upload -- readUploadedFile
-	// reads the whole object into one []byte and S3Client.PutObject takes it
-	// as one -- so a deployment raising it sizes its container for it.
+	// (#1628). It bounds the bytes a write will stream, not the bytes it
+	// holds: the file goes from the request into the multipart uploader
+	// without being assembled anywhere (#1631).
 	MaxUploadBytes int64
 	// ReadRecorder audits served content reads. Absent when audit is disabled,
 	// which silences read events without affecting the reads themselves.
@@ -199,13 +218,13 @@ type createInput struct {
 }
 
 // validateCreateInput parses and validates the form fields for resource creation.
-func validateCreateInput(r *http.Request) (*createInput, error) {
-	scope := Scope(r.FormValue("scope"))
-	scopeID := r.FormValue("scope_id")
-	path := r.FormValue("path")
-	displayName := r.FormValue("display_name")
-	description := r.FormValue("description")
-	tags := r.Form["tags"]
+func validateCreateInput(fields url.Values) (*createInput, error) {
+	scope := Scope(fields.Get("scope"))
+	scopeID := fields.Get("scope_id")
+	path := fields.Get("path")
+	displayName := fields.Get("display_name")
+	description := fields.Get("description")
+	tags := fields["tags"]
 
 	if err := ValidateScope(scope, scopeID); err != nil {
 		return nil, err
@@ -236,9 +255,10 @@ func validateCreateInput(r *http.Request) (*createInput, error) {
 	}, nil
 }
 
-// uploadedFile holds the contents and metadata of an uploaded file.
-type uploadedFile struct {
-	data     []byte
+// uploadStream is the file part of an upload form: what it is called, the type
+// it will be stored under, and the bytes themselves, positioned at the first
+// one and never assembled anywhere (#1631).
+type uploadStream struct {
 	filename string
 	// mimeType is the type the resource is stored under: the multipart part's
 	// declaration when it was specific, otherwise the type detected from the
@@ -247,70 +267,131 @@ type uploadedFile struct {
 	// declaredMIMEType is the multipart part's own declaration, kept so the
 	// caller can tell whether detection replaced it.
 	declaredMIMEType string
+	// body is the file, bounded at the deployment's ceiling. Reading it is
+	// what uploads it, so it is read exactly once, by the write.
+	body io.Reader
 }
 
-// parseUpload bounds the request body and parses the multipart form, returning
-// the deployment's upload ceiling for the checks below it. It writes the
-// refusal itself and reports ok=false when there is nothing to read.
+// errUploadTooLarge reports that a body passed the deployment's upload
+// ceiling.
 //
-// A body past the bound is refused by the ceiling it passed rather than as a
-// malformed form. The bound cuts the request off before the file's own size is
-// known, so the size check below never sees it, and without this the only
-// refusal a plainly oversize upload could produce named neither the size nor
-// the limit -- which on a deployment that raised the ceiling is exactly the
-// caller who most needs to be told what the ceiling is (#1628).
-func (h *Handler) parseUpload(w http.ResponseWriter, r *http.Request, what string) (int64, bool) {
+// It is a sentinel rather than a message because the ceiling is reached deep
+// inside a streamed write -- past the route, past the record, in the reader
+// the uploader is being drawn through -- and the route above has to tell it
+// apart from storage refusing the object before it can answer with the number
+// instead of with "try again".
+var errUploadTooLarge = errors.New("upload exceeds the ceiling")
+
+// errFilePartLast reports a form that carried a part behind the file.
+var errFilePartLast = errors.New("the file part is not the last part of the form")
+
+// openUpload bounds the request body and opens the multipart form for a walk
+// over its parts, returning the deployment's upload ceiling beside it. It
+// writes the refusal itself and reports ok=false when there is nothing to
+// read.
+//
+// The form is walked rather than parsed. ParseMultipartForm reads every part
+// up front and spools anything past its memory budget to a temporary file,
+// which makes an upload depend on the process having somewhere to write -- and
+// the published image is built FROM scratch, so it has no /tmp and every
+// upload above that budget failed on it before blob storage was reached at all
+// (#1631). A walk spools nothing and needs no such directory.
+//
+// The body bound stays what it was: a backstop against a request with no end,
+// set a little above the ceiling so the multipart framing around a file of
+// exactly the ceiling still fits (#1628). The ceiling itself is enforced on
+// the file's own bytes, below.
+func (h *Handler) openUpload(w http.ResponseWriter, r *http.Request, what string) (*multipart.Reader, int64, bool) {
 	limit := h.maxUploadBytes()
 	r.Body = http.MaxBytesReader(w, r.Body, limit+multipartFramingBytes)
-	if err := r.ParseMultipartForm(MaxMultipartMemory); err != nil { // #nosec G120 -- body bounded by MaxBytesReader above
-		var tooLarge *http.MaxBytesError
-		if errors.As(err, &tooLarge) {
-			writeError(w, http.StatusBadRequest,
-				fmt.Sprintf("file exceeds %s limit", DescribeUploadLimit(limit)))
-			return 0, false
-		}
-		slog.Warn(what+": multipart parse failed", msgError, err) //nolint:gosec // structured slog, no injection
+	mr, err := r.MultipartReader()
+	if err != nil {
+		slog.Warn(what+": multipart form not readable", msgError, err) //nolint:gosec // structured slog, no injection
 		writeError(w, http.StatusBadRequest, "invalid multipart form")
-		return 0, false
+		return nil, 0, false
 	}
-	return limit, true
+	return mr, limit, true
 }
 
-// readUploadedFile reads and validates the uploaded file from the request.
-// The limit is the deployment's own upload ceiling, already normalized, so the
-// refusal names the number that deployment is configured for rather than the
-// package default (#1628).
-func readUploadedFile(r *http.Request, limit int64) (*uploadedFile, error) {
-	file, header, err := r.FormFile("file")
+// walkUpload walks the form's parts, reading each metadata field into fields,
+// and stops at the file part, which it returns unread.
+//
+// It stops there because that part is the content: handing it to the uploader
+// is what keeps the file out of the platform's memory, and reading past it to
+// see what else the form carries would mean holding it. So every field that
+// decides where the file goes has to arrive before the file does. That is the
+// order the portal sends, and the order the routes document; a form that puts
+// a part behind the file is refused by the read of the file itself, so no
+// object and no record survive it.
+func walkUpload(mr *multipart.Reader, limit int64, fields url.Values) (*uploadStream, error) {
+	for {
+		part, err := mr.NextPart()
+		if errors.Is(err, io.EOF) {
+			return nil, errors.New("file is required")
+		}
+		if err != nil {
+			return nil, fmt.Errorf("reading the form: %w", err)
+		}
+		if part.FormName() == filePartName {
+			return openUploadStream(part, mr, limit)
+		}
+		if err := readFormField(part, fields); err != nil {
+			return nil, err
+		}
+	}
+}
+
+// readFormField reads one metadata part into fields, bounded so a part
+// labeled as a field cannot be a file.
+func readFormField(part *multipart.Part, fields url.Values) error {
+	defer func() { _ = part.Close() }()
+	name := part.FormName()
+	if name == "" {
+		// Every part these routes read is addressed by name, so a part
+		// carrying none is one the route has nowhere to put. It is refused
+		// rather than read, because reading it would mean drawing a part of
+		// unknown size to find out it was never wanted.
+		return errors.New("every part of the form must carry a name")
+	}
+	value, err := io.ReadAll(io.LimitReader(part, maxFormFieldBytes+1))
 	if err != nil {
-		return nil, errors.New("file is required")
+		return fmt.Errorf("reading the form: %w", err)
 	}
-	defer func() { _ = file.Close() }()
-
-	if header.Size > limit {
-		return nil, fmt.Errorf("file exceeds %s limit", DescribeUploadLimit(limit))
+	if len(value) > maxFormFieldBytes {
+		return fmt.Errorf("the %s field is too long", name)
 	}
+	fields[name] = append(fields[name], string(value))
+	return nil
+}
 
-	declared := header.Header.Get(headerContentType)
+// openUploadStream reads only as much of the file part as content detection
+// needs, then puts it back in front of the rest.
+//
+// Detection reads at most contenttype.StructuredSniffLen bytes, so that is the
+// length of the prefix rather than the length of the file: a part is not
+// seekable, and buffering a whole object to look at its first page is the
+// shape this path exists to end. io.MultiReader re-prepends what was read, so
+// the uploader still receives the file from its first byte and a type detected
+// off a stream is the type detected off the bytes.
+func openUploadStream(part *multipart.Part, rest *multipart.Reader, limit int64) (*uploadStream, error) {
+	declared := part.Header.Get(headerContentType)
 	// The declaration is checked against the deny list before the body is read
 	// so a rejected type costs nothing, and the detected type is checked again
 	// below: detection must not be able to route around the deny list.
 	if err := ValidateMIMEType(declared); err != nil {
 		return nil, err
 	}
-
-	filename, err := SanitizeFilename(header.Filename)
+	filename, err := SanitizeFilename(part.FileName())
 	if err != nil {
 		return nil, fmt.Errorf("invalid filename: %w", err)
 	}
 
-	data, err := io.ReadAll(io.LimitReader(file, limit+1))
-	if err != nil {
+	prefix := make([]byte, contenttype.StructuredSniffLen)
+	read, err := io.ReadFull(part, prefix)
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
 		return nil, fmt.Errorf("reading file: %w", err)
 	}
-	if int64(len(data)) > limit {
-		return nil, fmt.Errorf("file exceeds %s limit", DescribeUploadLimit(limit))
-	}
+	prefix = prefix[:read]
 
 	// Browsers send application/octet-stream for any extension they do not
 	// recognize, and non-browser clients often send nothing at all, so the
@@ -322,17 +403,111 @@ func readUploadedFile(r *http.Request, limit int64) (*uploadedFile, error) {
 	// type is not a CSV to the portal's table panel, to a thumbnail, or to
 	// manage_table. Detection prefers the name only where the content agrees
 	// with it (#1438).
-	mimeType := contenttype.DetectFileBytes(declared, filename, data)
+	mimeType := contenttype.DetectFileBytes(declared, filename, prefix)
 	if err := ValidateMIMEType(mimeType); err != nil {
 		return nil, err
 	}
 
-	return &uploadedFile{
-		data:             data,
+	body := io.MultiReader(bytes.NewReader(prefix), &lastPart{part: part, rest: rest})
+	return &uploadStream{
 		filename:         filename,
 		mimeType:         mimeType,
 		declaredMIMEType: declared,
+		body:             boundUpload(body, limit),
 	}, nil
+}
+
+// lastPart reads the file part and refuses a form that carries another part
+// behind it.
+//
+// A part behind the file is metadata the route will never read, because the
+// walk stopped at the file. Rather than store the file and drop the field
+// silently, the read fails where the extra part appears: the uploader aborts
+// the object it had begun, no record is written, and the caller is told the
+// order to send.
+type lastPart struct {
+	part io.Reader
+	rest *multipart.Reader
+	done bool
+}
+
+func (l *lastPart) Read(p []byte) (int, error) {
+	if l.done {
+		return 0, io.EOF
+	}
+	n, err := l.part.Read(p)
+	if !errors.Is(err, io.EOF) {
+		return n, err //nolint:wrapcheck // transparent pass-through of the part's error
+	}
+	l.done = true
+	next, nextErr := l.rest.NextPart()
+	switch {
+	case nextErr == nil:
+		_ = next.Close()
+		return n, errFilePartLast
+	case errors.Is(nextErr, io.EOF):
+		return n, io.EOF
+	default:
+		return n, fmt.Errorf("reading the rest of the form: %w", nextErr)
+	}
+}
+
+// boundUpload bounds a body at the deployment's ceiling, reporting
+// errUploadTooLarge on the read that passes it.
+//
+// A streamed part declares no length, so there is nothing to check before the
+// bytes arrive: the ceiling is enforced on what has been read, which is the
+// only measure of a body that has not finished arriving.
+func boundUpload(r io.Reader, limit int64) io.Reader {
+	return &boundedUpload{r: r, limit: limit}
+}
+
+// boundedUpload is the reader boundUpload returns.
+type boundedUpload struct {
+	r     io.Reader
+	limit int64
+	read  int64
+}
+
+func (b *boundedUpload) Read(p []byte) (int, error) {
+	n, err := b.r.Read(p)
+	b.read += int64(n)
+	if b.read > b.limit {
+		return n, fmt.Errorf("file exceeds %s limit: %w", DescribeUploadLimit(b.limit), errUploadTooLarge)
+	}
+	return n, err //nolint:wrapcheck // transparent pass-through of the wrapped reader's error
+}
+
+// uploadRefusal renders the 400 a failed write earns when the request is what
+// failed, and reports false when the failure was the platform's.
+//
+// Three request failures reach here from inside a streamed write, and all
+// three are the caller's to act on: the file passed the deployment's ceiling,
+// the whole body passed the backstop above it, or the form put a part behind
+// the file. The first two are one answer, because to the person uploading they
+// are the same fact -- the file is bigger than this deployment accepts -- and
+// the number is the deployment's own.
+// refusalFor is uploadRefusal for a failure that is already known to be the
+// caller's, which is every way the walk itself ends: the message the walk
+// wrote, unless the body ran past its bound before the file part was even
+// reached, which reads as the size it is rather than as a form that would not
+// parse.
+func refusalFor(err error, limit int64) string {
+	if refusal, ok := uploadRefusal(err, limit); ok {
+		return refusal
+	}
+	return err.Error()
+}
+
+func uploadRefusal(err error, limit int64) (string, bool) {
+	var tooLarge *http.MaxBytesError
+	if errors.Is(err, errUploadTooLarge) || errors.As(err, &tooLarge) {
+		return fmt.Sprintf("file exceeds %s limit", DescribeUploadLimit(limit)), true
+	}
+	if errors.Is(err, errFilePartLast) {
+		return msgFilePartLast, true
+	}
+	return "", false
 }
 
 // errorResponse is the JSON error envelope returned by all error responses.
@@ -361,7 +536,7 @@ type facetsResponse struct { //nolint:unused // swagger model
 // handleCreate handles POST /api/v1/resources.
 //
 // @Summary      Create resource
-// @Description  Upload a new managed resource with metadata and file content.
+// @Description  Upload a new managed resource with metadata and file content. The file part must be the last part of the multipart form: it is streamed to blob storage where the walk finds it, so every metadata field has to arrive before it.
 // @Tags         Resources
 // @Accept       multipart/form-data
 // @Produce      json
@@ -387,36 +562,44 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	limit, ok := h.parseUpload(w, r, "resource upload")
+	mr, limit, ok := h.openUpload(w, r, "resource upload")
 	if !ok {
 		return
 	}
 
-	input, err := validateCreateInput(r)
+	fields := url.Values{}
+	file, err := walkUpload(mr, limit, fields)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, refusalFor(err, limit))
+		return
+	}
+
+	// Both checks run before a byte is stored, which is why the fields have to
+	// precede the file part: the walk stopped at the file, so everything the
+	// route validates is already in hand, and a create that was never going to
+	// be allowed is refused without carrying the file anywhere.
+	input, err := validateCreateInput(fields)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-
 	if !CanWriteScope(*claims, input.scope, input.scopeID) {
 		writeError(w, http.StatusForbidden, "insufficient permissions for scope")
 		return
 	}
 
-	uf, err := readUploadedFile(r, limit)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
 	res, err := CreateResource(r.Context(), h.deps, claims, NewResource{
 		Scope: input.scope, ScopeID: input.scopeID,
-		Path: input.path, Filename: uf.filename,
+		Path: input.path, Filename: file.filename,
 		DisplayName: input.displayName, Description: input.description,
-		Tags: input.tags,
-		Data: uf.data, MIMEType: uf.mimeType, DeclaredMIMEType: uf.declaredMIMEType,
+		Tags:    input.tags,
+		Content: file.body, MIMEType: file.mimeType, DeclaredMIMEType: file.declaredMIMEType,
 	})
 	if err != nil {
+		if refusal, caller := uploadRefusal(err, limit); caller {
+			writeError(w, http.StatusBadRequest, refusal)
+			return
+		}
 		var ce *conflictError
 		if errors.As(err, &ce) {
 			writeError(w, http.StatusConflict, ce.Error())
@@ -876,9 +1059,17 @@ func (e *conflictError) Error() string { return e.msg }
 // the first one so an internal chain cannot leak, which is what reduced this
 // failure to the bare fragment "storing file" — a storage outage that read, to
 // the person who hit it, as having been refused permission.
-type storageError struct{ msg string }
+// The cause is kept off the message and reachable through Unwrap, so a caller
+// can still tell a refused object from a body that stopped arriving without
+// any of it reaching the response.
+type storageError struct {
+	msg   string
+	cause error
+}
 
 func (e *storageError) Error() string { return e.msg }
+
+func (e *storageError) Unwrap() error { return e.cause }
 
 // msgStorageRefused is what a caller is told when blob storage rejects a write.
 // It states the outcome (nothing saved) rather than the mechanism, which is in

@@ -189,6 +189,18 @@ func TestUpload_OversizeBodyIsRefusedByTheCeiling(t *testing.T) {
 		var buf bytes.Buffer
 		// bytes.Buffer never fails a write, so the errors are discarded
 		// explicitly rather than left unchecked.
+		//
+		// The metadata parts come first because that is the order the create
+		// route reads (#1631): it validates the fields where the file part
+		// begins, so a form carrying only the file is refused for the missing
+		// scope long before the ceiling is reached, and would not exercise
+		// the bound this case is about.
+		for _, field := range []string{
+			"scope\"\r\n\r\nglobal", "path\"\r\n\r\nsamples",
+			"display_name\"\r\n\r\nA file", "description\"\r\n\r\nUploaded by the ceiling test.",
+		} {
+			_, _ = buf.WriteString("--X\r\nContent-Disposition: form-data; name=\"" + field + "\r\n")
+		}
 		_, _ = buf.WriteString("--X\r\nContent-Disposition: form-data; name=\"file\"; filename=\"f.txt\"\r\n\r\n")
 		_, _ = buf.Write(bytes.Repeat([]byte("a"), ceiling+multipartFramingBytes+1))
 		req := httptest.NewRequestWithContext(context.Background(),

@@ -144,7 +144,15 @@ fi
 export DEV_PG_PORT=$((5432 + DEV_OFFSET))
 export DEV_API_PORT=$((8080 + DEV_OFFSET))
 export DEV_S3_PORT=$((9000 + DEV_OFFSET))
+# MinIO's TLS port moves with the S3 window rather than being relocated on its
+# own, so the two object stores stay in one addressable block.
+export DEV_S3_TLS_PORT=$((9443 + DEV_OFFSET))
 export DEV_OLLAMA_PORT=$((11434 + DEV_OFFSET))
+# Where the platform's TMPDIR points, which is nowhere: dev/.air.toml starts
+# the binary with this value so the dev stack runs under the published image's
+# condition (FROM scratch, no /tmp). Recorded here so the acceptance suite can
+# state the condition rather than assume it.
+export DEV_PLATFORM_TMPDIR="/nonexistent/mcp-data-platform-has-no-temp-directory"
 # Persist the resolved ports so `make dev-info` (a separate process that does
 # not inherit these exports) reprints the correct, possibly-relocated URLs.
 # Gitignored; overwritten each run.
@@ -153,7 +161,9 @@ DEV_OFFSET=$DEV_OFFSET
 DEV_PG_PORT=$DEV_PG_PORT
 DEV_API_PORT=$DEV_API_PORT
 DEV_S3_PORT=$DEV_S3_PORT
+DEV_S3_TLS_PORT=$DEV_S3_TLS_PORT
 DEV_OLLAMA_PORT=$DEV_OLLAMA_PORT
+DEV_PLATFORM_TMPDIR=$DEV_PLATFORM_TMPDIR
 EOF
 if [ "$DEV_OFFSET" != 0 ]; then
   info "Default ports busy — relocated the dev stack by +$DEV_OFFSET (pg:$DEV_PG_PORT api:$DEV_API_PORT s3:$DEV_S3_PORT ollama:$DEV_OLLAMA_PORT)"
@@ -162,7 +172,7 @@ fi
 # Port checks. The four relocatable ports use their resolved values; the
 # fixed ports (5173 vite, 9090 keycloak, 9091 prometheus, 9180/9181 mock,
 # 9281/9282 fixtures, 9464 metrics) still fail loudly if contended.
-for port in "$DEV_PG_PORT" "$DEV_API_PORT" 5173 "$DEV_S3_PORT" 9090 9091 9180 9181 9281 9282 9283 9284 9464 "$DEV_OLLAMA_PORT"; do
+for port in "$DEV_PG_PORT" "$DEV_API_PORT" 5173 "$DEV_S3_PORT" "$DEV_S3_TLS_PORT" 9090 9091 9180 9181 9281 9282 9283 9284 9464 "$DEV_OLLAMA_PORT"; do
   if lsof -i ":$port" -sTCP:LISTEN > /dev/null 2>&1; then
     fail "$(port_conflict_msg "$port")"
   fi
@@ -230,6 +240,38 @@ for db in mcp_test apitest keycloak; do
 done
 ok "Auxiliary databases present (mcp_test, apitest, keycloak)"
 
+# MinIO's TLS certificate. It is generated rather than committed, because a
+# private key does not belong in the repository, and it is regenerated only
+# when it is missing so a running stack keeps the certificate the platform
+# already trusts.
+#
+# 397 days: macOS refuses a server certificate valid for longer, reporting it
+# as "not standards compliant" rather than as untrusted, which is a confusing
+# way to learn that a dev certificate was minted for ten years.
+if [ ! -f dev/.tls/minio/public.crt ] || [ ! -f dev/.tls/minio/private.key ]; then
+  info "Generating the MinIO dev certificate..."
+  mkdir -p dev/.tls/minio
+  openssl req -x509 -newkey rsa:2048 -sha256 -days 397 -nodes \
+    -keyout dev/.tls/minio/private.key -out dev/.tls/minio/public.crt \
+    -subj "/CN=localhost" \
+    -addext "subjectAltName=IP:127.0.0.1,DNS:localhost,DNS:minio" \
+    -addext "basicConstraints=critical,CA:FALSE" \
+    -addext "keyUsage=critical,digitalSignature,keyEncipherment" \
+    -addext "extendedKeyUsage=serverAuth" > /dev/null 2>&1 \
+    || fail "Could not generate the MinIO TLS certificate (is openssl installed?)"
+  ok "MinIO dev certificate generated (dev/.tls/minio, 397 days)"
+fi
+# The AWS SDK reads this, and it is the only way the platform trusts the
+# certificate above: Go on macOS ignores SSL_CERT_FILE, so a self-signed
+# certificate is otherwise unusable without installing it in the keychain.
+#
+# Trino trusts the same certificate through a Java truststore its container
+# builds at start (dev/docker-compose.yml), because it reads the resource
+# objects a registration points it at, and those are on MinIO. The
+# certificate therefore names `minio` as well as localhost: the platform
+# reaches it from the host, Trino from inside the compose network.
+export AWS_CA_BUNDLE="$PWD/dev/.tls/minio/public.crt"
+
 # Now bring up the remaining services. Keycloak depends_on postgres
 # (already healthy), so this is a no-op for postgres and pulls/starts
 # everything else in parallel.
@@ -249,6 +291,23 @@ for i in $(seq 1 30); do
 done
 ok "SeaweedFS ready on :$DEV_S3_PORT"
 
+# Wait for MinIO, which serves managed resources over TLS. The health endpoint
+# needs no credentials; --cacert is the dev certificate rather than -k, so a
+# certificate the platform will not trust fails here rather than at the first
+# upload.
+info "Waiting for MinIO..."
+for i in $(seq 1 30); do
+  if curl -sf --cacert dev/.tls/minio/public.crt \
+      "https://localhost:$DEV_S3_TLS_PORT/minio/health/live" > /dev/null 2>&1; then
+    break
+  fi
+  if [ "$i" -eq 30 ]; then
+    fail "MinIO did not become ready within 30s (check 'docker logs acme-dev-minio')"
+  fi
+  sleep 1
+done
+ok "MinIO ready on :$DEV_S3_TLS_PORT (TLS)"
+
 # Wait for Trino. It is the slowest service here (a JVM warming up a
 # coordinator), and the platform's trino toolkit is enabled only once it
 # answers, so a slow start does not become a platform that starts without it.
@@ -262,7 +321,7 @@ for i in $(seq 1 120); do
   fi
   sleep 1
 done
-ok "Trino ready on :9283 (catalogs: scratch, memory)"
+ok "Trino ready on :9283 (catalogs: scratch, scratch_resources, memory)"
 # Point the trino toolkit at this Trino: every TRINO_* the platform config
 # reads is set here, SSL and password included, because a value left to the
 # shell or .env (a TRINO_SSL=true or TRINO_PASSWORD from a profile that
@@ -393,6 +452,25 @@ if which aws > /dev/null 2>&1; then
     aws --endpoint-url http://localhost:$DEV_S3_PORT s3 mb s3://dev-scratch > /dev/null 2>&1 || \
     fail "Could not create the dev-scratch S3 bucket"
   ok "S3 bucket dev-scratch ready (Trino scratch metastore)"
+  # Managed resources live on MinIO, not SeaweedFS: it is the backend in this
+  # stack that bounds a single PUT, so the upload path is exercised here
+  # against the shape that broke it (#1631).
+  AWS_ACCESS_KEY_ID=dev-access-key AWS_SECRET_ACCESS_KEY=dev-secret-key \
+    aws --endpoint-url "https://localhost:$DEV_S3_TLS_PORT" s3 ls s3://managed-resources > /dev/null 2>&1 || \
+  AWS_ACCESS_KEY_ID=dev-access-key AWS_SECRET_ACCESS_KEY=dev-secret-key \
+    aws --endpoint-url "https://localhost:$DEV_S3_TLS_PORT" s3 mb s3://managed-resources > /dev/null 2>&1 || \
+    fail "Could not create the managed-resources S3 bucket on MinIO"
+  ok "S3 bucket managed-resources ready (MinIO, TLS)"
+  # The scratch_resources catalog keeps its own file metastore, on the same
+  # endpoint as the data it describes: a Hive catalog reads its metastore and
+  # its tables through one S3 client, so a metastore on SeaweedFS and tables
+  # on MinIO is not a catalog that can exist.
+  AWS_ACCESS_KEY_ID=dev-access-key AWS_SECRET_ACCESS_KEY=dev-secret-key \
+    aws --endpoint-url "https://localhost:$DEV_S3_TLS_PORT" s3 ls s3://dev-scratch-resources > /dev/null 2>&1 || \
+  AWS_ACCESS_KEY_ID=dev-access-key AWS_SECRET_ACCESS_KEY=dev-secret-key \
+    aws --endpoint-url "https://localhost:$DEV_S3_TLS_PORT" s3 mb s3://dev-scratch-resources > /dev/null 2>&1 || \
+    fail "Could not create the dev-scratch-resources S3 bucket on MinIO"
+  ok "S3 bucket dev-scratch-resources ready (MinIO, scratch_resources metastore)"
 else
   echo -e "  ${YELLOW}⚠${NC} aws CLI not found — S3 bucket not created. Install: brew install awscli"
 fi
@@ -907,6 +985,7 @@ echo -e "  Portal UI:        ${CYAN}http://localhost:5173/portal/${NC}"
 echo -e "  Go API:           ${CYAN}http://localhost:$DEV_API_PORT${NC}"
 echo -e "  Postgres:         ${CYAN}localhost:$DEV_PG_PORT${NC} (platform / platform_secret, db mcp_platform)"
 echo -e "  S3 (SeaweedFS):   ${CYAN}http://localhost:$DEV_S3_PORT${NC}"
+echo -e "  S3 (MinIO, TLS):  ${CYAN}https://localhost:$DEV_S3_TLS_PORT${NC}  (managed resources)"
 echo -e "  API Key:          ${CYAN}acme-dev-key-2024${NC}"
 if [ "$DEV_OFFSET" != 0 ]; then
   echo -e "  ${YELLOW}Ports relocated +$DEV_OFFSET${NC} (5432/8080/9000/11434 were busy) — coexisting with your other stacks."

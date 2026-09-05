@@ -4,6 +4,19 @@ tmp_dir = "build/air"
 [build]
   bin = "./build/air/mcp-data-platform"
   args_bin = ["--config", "dev/platform.yaml"]
+  # The platform runs with no temporary directory, which is the condition the
+  # published image runs under: it is built FROM scratch and contains only the
+  # binary and the CA bundle, so there is no /tmp in it. Nothing in the
+  # platform writes a temporary file -- the upload path streams rather than
+  # spooling (#1631) -- so pointing TMPDIR at a path that does not exist makes
+  # the dev stack fail the same way the image would if that ever stopped being
+  # true, instead of passing locally and breaking once deployed.
+  #
+  # The prefix is scoped to the binary rather than exported for air itself:
+  # air's own bookkeeping is not what this is about. dev/start.sh records the
+  # same path in dev/.dev-ports.env as DEV_PLATFORM_TMPDIR so the acceptance
+  # suite can state the condition it is running under.
+  full_bin = "TMPDIR=/nonexistent/mcp-data-platform-has-no-temp-directory ./build/air/mcp-data-platform"
   cmd = "go build -o ./build/air/mcp-data-platform ./cmd/mcp-data-platform"
   delay = 500
   exclude_dir = ["ui", "build", "dist", "node_modules", "dev", "test", "apps", "docs", ".git", "internal/apidocs", "internal/ui/dist", "internal/contentviewer/dist"]

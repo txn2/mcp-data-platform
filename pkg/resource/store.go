@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -99,8 +100,19 @@ func IsNotFound(err error) bool {
 }
 
 // S3Client abstracts blob storage operations for resources.
+//
+// There are two writes because there are two kinds of object. PutObjectStream
+// carries a file somebody uploaded: it hands the bytes to the multipart
+// uploader as they arrive, so neither the platform nor the storage backend
+// ever sees the object whole, and it reports the size it wrote, which for a
+// streamed body is the only place that number exists (#1631). PutObject
+// carries an object the platform generated and is already holding -- a
+// thumbnail -- where a reader around a slice would buy nothing.
 type S3Client interface {
 	PutObject(ctx context.Context, bucket, key string, data []byte, contentType string) error
+	PutObjectStream(
+		ctx context.Context, bucket, key string, body io.Reader, contentType string,
+	) (written int64, err error)
 	GetObject(ctx context.Context, bucket, key string) (body []byte, contentType string, err error)
 	DeleteObject(ctx context.Context, bucket, key string) error
 }

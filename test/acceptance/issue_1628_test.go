@@ -213,22 +213,26 @@ func sendUpload1628(
 	return res.StatusCode, out
 }
 
-// writeUpload1628 composes the multipart body: the file part of exactly size
-// bytes, then the metadata fields.
+// writeUpload1628 composes the multipart body: the metadata fields, then the
+// file part of exactly size bytes.
+//
+// The file goes last because the routes stream that part to blob storage where
+// they find it and read no part behind it (#1631). This helper sent it first
+// while the form was parsed whole, which is the client that has to reorder.
 func writeUpload1628(
 	w *multipart.Writer, filename, declared string, size int64, fields map[string]string,
 ) error {
+	for field, value := range fields {
+		if err := w.WriteField(field, value); err != nil {
+			return err
+		}
+	}
 	part, err := createPart1628(w, filename, declared)
 	if err != nil {
 		return err
 	}
 	if err := writeFiller1628(part, size); err != nil {
 		return err
-	}
-	for field, value := range fields {
-		if err := w.WriteField(field, value); err != nil {
-			return err
-		}
 	}
 	return w.Close()
 }

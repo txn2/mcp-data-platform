@@ -3,6 +3,8 @@ package httpserver
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"strings"
 	"testing"
 
@@ -39,6 +41,23 @@ func (o *reviseObjects) PutObject(_ context.Context, bucket, key string, data []
 	}
 	o.put[bucket+"/"+key] = data
 	return nil
+}
+
+// PutObjectStream models the real client's streaming write, which is what both
+// revisers now correct through (#1631): the reader is drawn to its end, what
+// it carried is kept, and the count is reported back as the version's size.
+func (o *reviseObjects) PutObjectStream(
+	_ context.Context, bucket, key string, body io.Reader, _ string,
+) (int64, error) {
+	data, err := io.ReadAll(body)
+	if err != nil {
+		return 0, fmt.Errorf("reading the streamed body: %w", err)
+	}
+	if o.putErr != nil {
+		return 0, o.putErr
+	}
+	o.put[bucket+"/"+key] = data
+	return int64(len(data)), nil
 }
 
 func (o *reviseObjects) GetObject(

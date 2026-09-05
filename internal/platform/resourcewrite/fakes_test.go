@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"sync"
 	"time"
@@ -271,7 +272,7 @@ func (s metadataOnlyStore) Delete(ctx context.Context, id string) error {
 type memBlobs struct {
 	mu      sync.Mutex
 	objects map[string][]byte
-	// putErr, if set, is what the next PutObject returns.
+	// putErr, if set, is what the next write returns, streaming or not.
 	putErr error
 	// deleted records the keys DeleteObject was asked to remove, so a test can
 	// assert that a failed write cleaned up after itself.
@@ -308,6 +309,25 @@ func (b *memBlobs) DeleteObject(_ context.Context, bucket, key string) error {
 	b.deleted = append(b.deleted, bucket+"/"+key)
 	delete(b.objects, bucket+"/"+key)
 	return nil
+}
+
+// PutObjectStream models the real client's streaming write: it draws the
+// reader to its end, keeps what it read, and reports that count, so a caller
+// that never streams the body cannot pass (#1631).
+func (b *memBlobs) PutObjectStream(
+	_ context.Context, bucket, key string, body io.Reader, _ string,
+) (int64, error) {
+	data, err := io.ReadAll(body)
+	if err != nil {
+		return 0, fmt.Errorf("reading the streamed body: %w", err)
+	}
+	if b.putErr != nil {
+		return 0, b.putErr
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.objects[bucket+"/"+key] = data
+	return int64(len(data)), nil
 }
 
 var (

@@ -1,11 +1,15 @@
 package resource
 
 import (
+	"bytes"
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 
 	"github.com/txn2/mcp-data-platform/internal/producedby"
@@ -94,7 +98,7 @@ func (h *Handler) resolveRevisable(w http.ResponseWriter, r *http.Request) (*Res
 // @Accept       multipart/form-data
 // @Produce      json
 // @Param        id    path      string  true  "Resource ID"
-// @Param        file  formData  file    true  "Replacement file; the ceiling is resources.managed.max_upload_bytes (default 100 MB)"
+// @Param        file  formData  file    true  "Replacement file; the ceiling is resources.managed.max_upload_bytes (default 100 MB). It must be the last part of the multipart form: it is streamed to blob storage where the walk finds it"
 // @Success      200  {object}  resource.revisedResource
 // @Failure      400  {object}  resource.errorResponse
 // @Failure      401  {object}  resource.errorResponse
@@ -111,14 +115,14 @@ func (h *Handler) handleReplaceContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	limit, canRead := h.parseUpload(w, r, "resource revision")
+	mr, limit, canRead := h.openUpload(w, r, "resource revision")
 	if !canRead {
 		return
 	}
 
-	uf, err := readUploadedFile(r, limit)
+	file, err := walkUpload(mr, limit, url.Values{})
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, refusalFor(err, limit))
 		return
 	}
 
@@ -126,8 +130,18 @@ func (h *Handler) handleReplaceContent(w http.ResponseWriter, r *http.Request) {
 	// embeds the resource's filename, and a revision that changed the URI would
 	// break every mcp:resource:<id> citation and prompt attachment pointing at
 	// it — the exact breakage this route exists to end.
-	revised, err := h.storeRevision(r.Context(), res, claims, RevisionUpload{Data: uf.data, MIMEType: uf.mimeType})
+	revised, err := h.storeRevision(r.Context(), res, claims,
+		RevisionUpload{Content: file.body, MIMEType: file.mimeType})
 	if err != nil {
+		if refusal, caller := uploadRefusal(err, limit); caller {
+			writeError(w, http.StatusBadRequest, refusal)
+			return
+		}
+		var se *storageError
+		if errors.As(err, &se) {
+			writeError(w, http.StatusServiceUnavailable, se.Error())
+			return
+		}
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -153,7 +167,11 @@ type revisedResource struct {
 // RevisionUpload is the content a revision writes: the bytes, the type they are
 // stored under, and the version a restore re-promoted (nil for fresh content).
 type RevisionUpload struct {
-	Data     []byte
+	// Content is read as it is written, so a replacement crosses the platform
+	// without existing in it whole (#1631) -- the same path a create takes. A
+	// caller already holding the bytes passes a bytes.Reader over them. Nil
+	// records an empty revision.
+	Content  io.Reader
 	MIMEType string
 	// RestoredFrom names the version a restore re-promoted, nil otherwise.
 	RestoredFrom *int
@@ -182,15 +200,18 @@ func ReviseContent(
 	}
 	key := BuildRevisionS3Key(res.Scope, res.ScopeID, res.ID, revisionID, res.Filename)
 
-	if err := deps.S3Client.PutObject(ctx, deps.S3Bucket, key, up.Data, up.MIMEType); err != nil {
-		slog.Error("resource revision: s3 put failed", msgError, err)
-		return nil, nil, fmt.Errorf("storing revision: %w", err)
+	// The size is the write's own count, for the reason a create's is: a
+	// streamed body has no declared length, so what reached storage is the
+	// only account of it.
+	size, err := storeContent(ctx, deps, key, up.Content, up.MIMEType)
+	if err != nil {
+		return nil, nil, contentWriteError("resource revision", err)
 	}
 
 	version, err := deps.Versions.AddRevision(ctx, Revision{
 		ResourceID:    res.ID,
 		MIMEType:      up.MIMEType,
-		SizeBytes:     int64(len(up.Data)),
+		SizeBytes:     size,
 		S3Key:         key,
 		UploaderSub:   claims.Sub,
 		UploaderEmail: PersonAddress(*claims),
@@ -433,8 +454,18 @@ func (h *Handler) handleRestoreVersion(w http.ResponseWriter, r *http.Request) {
 	// rewinding the head, so the trail stays append-only and the restored
 	// content is itself restorable.
 	revised, err := h.storeRevision(r.Context(), res, claims,
-		RevisionUpload{Data: body, MIMEType: v.MIMEType, RestoredFrom: &version})
+		RevisionUpload{Content: bytes.NewReader(body), MIMEType: v.MIMEType, RestoredFrom: &version})
 	if err != nil {
+		// A storage refusal answers 503 here for the reason it does on the two
+		// write routes: the cause is outside the platform and nothing was
+		// written, so retrying is the response, not checking for a half-made
+		// revision. There is no ceiling to reach -- the bytes came from a
+		// version this deployment already accepted.
+		var se *storageError
+		if errors.As(err, &se) {
+			writeError(w, http.StatusServiceUnavailable, se.Error())
+			return
+		}
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
