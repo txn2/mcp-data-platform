@@ -166,24 +166,12 @@ func (c *client) rest(method, path string, body io.Reader) (int, map[string]any)
 const rateLimitRetries = 8
 
 // call invokes a tool with the session handle attached and returns its JSON
-// result, failing the test on a transport error or a tool error. A
-// rate-limit refusal is waited out and retried, as the refusal instructs.
+// result, failing the test on a transport error or a tool error.
 func (c *client) call(name string, args map[string]any) map[string]any {
 	c.t.Helper()
-	var (
-		res  *mcp.CallToolResult
-		text string
-		err  error
-	)
-	for attempt := 0; attempt <= rateLimitRetries; attempt++ {
-		res, text, err = c.callRaw(name, args)
-		if err != nil {
-			c.t.Fatalf("%s: transport error: %v", name, err)
-		}
-		if !res.IsError || !strings.Contains(text, "RATE_LIMITED") {
-			break
-		}
-		time.Sleep(retryAfter(text))
+	res, text, err := c.callRaw(name, args)
+	if err != nil {
+		c.t.Fatalf("%s: transport error: %v", name, err)
 	}
 	if res.IsError {
 		c.t.Fatalf("%s: tool error: %s", name, text)
@@ -198,7 +186,13 @@ func (c *client) call(name string, args map[string]any) map[string]any {
 }
 
 // callRaw invokes a tool and returns the result and its first text block,
-// leaving the verdict to the caller.
+// leaving the verdict on the tool's own answer to the caller.
+//
+// A rate-limit refusal is not one of those answers, and waiting it out belongs
+// here rather than in call (#1632). RATE_LIMITED is itself a refusal, so a
+// criterion about a refusal -- which reads the text off this method rather
+// than off call -- was asserting against the limiter whenever the backstop
+// happened to fire, and failing over a contract it never reached.
 func (c *client) callRaw(name string, args map[string]any) (*mcp.CallToolResult, string, error) {
 	if args == nil {
 		args = map[string]any{}
@@ -206,11 +200,17 @@ func (c *client) callRaw(name string, args map[string]any) (*mcp.CallToolResult,
 	if c.sessionID != "" {
 		args["session_id"] = c.sessionID
 	}
-	res, err := c.session.CallTool(c.ctx, &mcp.CallToolParams{Name: name, Arguments: args})
-	if err != nil {
-		return nil, "", err
+	for attempt := 0; ; attempt++ {
+		res, err := c.session.CallTool(c.ctx, &mcp.CallToolParams{Name: name, Arguments: args})
+		if err != nil {
+			return nil, "", err
+		}
+		text := firstText(res)
+		if attempt >= rateLimitRetries || !res.IsError || !strings.Contains(text, "RATE_LIMITED") {
+			return res, text, nil
+		}
+		time.Sleep(retryAfter(text))
 	}
-	return res, firstText(res), nil
 }
 
 // retryAfter reads the interval a rate-limit refusal names ("Wait about N

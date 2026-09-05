@@ -4,6 +4,7 @@ package acceptance
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -66,20 +67,29 @@ func datahubEndpoint() string {
 func ingestKeyOnly(t *testing.T, entityType, aspect, urn string, value map[string]any) {
 	t.Helper()
 	body := []any{map[string]any{"urn": urn, aspect: map[string]any{"value": value}}}
-	status, payload := datahubOpenAPI(t, http.MethodPost,
+	status, payload := datahubOpenAPI(t.Context(), t, http.MethodPost,
 		fmt.Sprintf("/openapi/v3/entity/%s?async=false", entityType), body)
 	if status != http.StatusOK && status != http.StatusCreated {
 		t.Fatalf("ingesting the key-only %s: status %d: %s", entityType, status, payload)
 	}
+	// The removal is made on a context of its own. t.Context() is canceled
+	// before a cleanup runs, so a request built on it never reaches the
+	// catalog: the fixture would be left behind and the failed request would
+	// fail the test that had already passed.
 	t.Cleanup(func() {
-		_, _ = datahubOpenAPI(t, http.MethodDelete,
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_, _ = datahubOpenAPI(ctx, t, http.MethodDelete,
 			fmt.Sprintf("/openapi/v3/entity/%s/%s", entityType, url.PathEscape(urn)), nil)
 	})
 }
 
 // datahubOpenAPI issues one request to the catalog's OpenAPI and returns the
-// status and body.
-func datahubOpenAPI(t *testing.T, method, path string, body any) (status int, payload string) {
+// status and body. The context is the caller's: a removal registered as a
+// cleanup runs after t.Context() is canceled and supplies its own.
+func datahubOpenAPI(
+	ctx context.Context, t *testing.T, method, path string, body any,
+) (status int, payload string) {
 	t.Helper()
 	var reader io.Reader
 	if body != nil {
@@ -89,7 +99,7 @@ func datahubOpenAPI(t *testing.T, method, path string, body any) (status int, pa
 		}
 		reader = bytes.NewReader(encoded)
 	}
-	req, err := http.NewRequestWithContext(t.Context(), method, datahubEndpoint()+path, reader)
+	req, err := http.NewRequestWithContext(ctx, method, datahubEndpoint()+path, reader)
 	if err != nil {
 		t.Fatalf("building the %s request: %v", path, err)
 	}

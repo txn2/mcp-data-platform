@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -66,27 +65,16 @@ func issue1623Body(n int) string {
 // is what a refreshing script does through its own query.
 func issue1623Cite(c *client) string {
 	c.t.Helper()
-	var (
-		res  *mcp.CallToolResult
-		text string
-		err  error
-	)
-	// The same wait the shared call helper performs, repeated here because this
-	// needs every content block and not only the first.
-	for attempt := 0; attempt <= rateLimitRetries; attempt++ {
-		res, text, err = c.callRaw("api_invoke_endpoint", map[string]any{
-			"connection": apiTestConnection,
-			"method":     "GET",
-			"path":       "/v1/pagination/link",
-			"purpose":    "Reading the fixture the acceptance asset is refreshed from.",
-		})
-		if err != nil {
-			c.t.Fatalf("api_invoke_endpoint: transport error: %v", err)
-		}
-		if !res.IsError || !strings.Contains(text, "RATE_LIMITED") {
-			break
-		}
-		time.Sleep(retryAfter(text))
+	// callRaw rather than call: this needs every content block and not only
+	// the first.
+	res, text, err := c.callRaw("api_invoke_endpoint", map[string]any{
+		"connection": apiTestConnection,
+		"method":     "GET",
+		"path":       "/v1/pagination/link",
+		"purpose":    "Reading the fixture the acceptance asset is refreshed from.",
+	})
+	if err != nil {
+		c.t.Fatalf("api_invoke_endpoint: transport error: %v", err)
 	}
 	if res.IsError {
 		c.t.Fatalf("api_invoke_endpoint: tool error: %s", text)
@@ -175,25 +163,13 @@ func issue1623CaptureVersions(captures []map[string]any) []int {
 	return out
 }
 
-// issue1623Raw calls manage_asset and returns the raw result, waiting out a
-// rate-limit refusal the way the refusal itself instructs. A criterion about
-// which wire forms a parameter admits has to see the platform's own verdict,
-// so it cannot go through the helper that fails the test on a tool error.
+// issue1623Raw calls manage_asset and returns the raw result. A criterion
+// about which wire forms a parameter admits has to see the platform's own
+// verdict, so it cannot go through the helper that fails the test on a tool
+// error.
 func issue1623Raw(c *client, args map[string]any) (*mcp.CallToolResult, string, error) {
 	c.t.Helper()
-	var (
-		res  *mcp.CallToolResult
-		text string
-		err  error
-	)
-	for attempt := 0; attempt <= rateLimitRetries; attempt++ {
-		res, text, err = c.callRaw("manage_asset", args)
-		if err != nil || !res.IsError || !strings.Contains(text, "RATE_LIMITED") {
-			break
-		}
-		time.Sleep(retryAfter(text))
-	}
-	return res, text, err
+	return c.callRaw("manage_asset", args)
 }
 
 // Criterion 1: a listing comes in under the budget and every row carries a

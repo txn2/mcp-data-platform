@@ -4,9 +4,7 @@ package acceptance
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
-	"time"
 )
 
 // Issue #1606: the inline budget defaulted to 128 KiB, roughly twice what an
@@ -59,20 +57,14 @@ func issue1606SizedArgs(bytes any) map[string]any {
 // measure the text the client receives, not the fields inside it.
 func issue1606ResultText(t *testing.T, c *client, args map[string]any) string {
 	t.Helper()
-	for attempt := 0; ; attempt++ {
-		res, text, err := c.callRaw("api_invoke_endpoint", args)
-		if err != nil {
-			t.Fatalf("api_invoke_endpoint: transport error: %v", err)
-		}
-		if res.IsError && strings.Contains(text, "RATE_LIMITED") && attempt < rateLimitRetries {
-			time.Sleep(retryAfter(text))
-			continue
-		}
-		if res.IsError {
-			t.Fatalf("api_invoke_endpoint: tool error: %s", text)
-		}
-		return text
+	res, text, err := c.callRaw("api_invoke_endpoint", args)
+	if err != nil {
+		t.Fatalf("api_invoke_endpoint: transport error: %v", err)
 	}
+	if res.IsError {
+		t.Fatalf("api_invoke_endpoint: tool error: %s", text)
+	}
+	return text
 }
 
 // TestIssue1606_TheResponseTheClientRefusedIsNowCutAndSteered is the ticket's
