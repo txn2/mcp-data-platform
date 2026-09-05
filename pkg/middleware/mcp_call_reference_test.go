@@ -188,16 +188,23 @@ func TestCallReferenceMiddlewareWithoutStructuredContent(t *testing.T) {
 // A call the catalog declines is handed no reference to cite: the id would
 // resolve to nothing, and the agent instructions tell an agent to cite it
 // (#1614).
-func TestCallReferenceWithheldFromAnExcludedPersona(t *testing.T) {
-	excluded := func(persona string) bool { return persona == "ingest-service" }
+func TestCallReferenceWithheldFromAnExcludedCall(t *testing.T) {
+	// The predicate the platform passes: a persona the deployment named
+	// (#1614), or a managed script run whatever persona it presents (#1624).
+	excluded := func(persona, source string) bool {
+		return persona == "ingest-service" || source == SourceScript
+	}
 
 	for name, tc := range map[string]struct {
 		persona string
+		source  string
 		want    bool
 	}{
-		"an excluded persona": {persona: "ingest-service", want: false},
-		"an ordinary persona": {persona: "analyst", want: true},
-		"no persona at all":   {persona: "", want: true},
+		"an excluded persona":            {persona: "ingest-service", source: SourceMCP, want: false},
+		"an ordinary persona":            {persona: "analyst", source: SourceMCP, want: true},
+		"no persona at all":              {persona: "", source: SourceMCP, want: true},
+		"a script run":                   {persona: "admin", source: SourceScript, want: false},
+		"a person in a script's persona": {persona: "admin", source: SourceMCP, want: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			result := &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "{}"}}}
@@ -208,6 +215,7 @@ func TestCallReferenceWithheldFromAnExcludedPersona(t *testing.T) {
 			pc.EventID = "evt-123"
 			pc.ToolkitKind = "trino"
 			pc.PersonaName = tc.persona
+			pc.Source = tc.source
 
 			got, err := handler(WithPlatformContext(context.Background(), pc),
 				methodToolsCall, callReferenceRequest())

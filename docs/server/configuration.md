@@ -716,6 +716,14 @@ A call made under one of those personas is audited exactly as before and no call
 
 **A name that matches nothing.** An entry naming no persona the deployment knows excludes nothing, and the platform logs a warning at startup naming it. Personas come from both this file and the database, so a name added to the database later is matched at the next start.
 
+### The one caller you do not name
+
+A [managed script](../scripts/running.md) run's calls are not cataloged, and there is no setting for it. The platform's own scheduler is the automated system here, and a run is by construction the re-run: its statement is the script's source, its outputs are on the run record and in the provenance of the assets it wrote, and nobody fetches one of its calls to run it again. On one deployment 76% of the catalog was the six calls a single hourly schedule made, every one embedded, every one with a reuse count of zero.
+
+It cannot be named either, because a run presents the persona of the person who wrote the script: the calls a schedule makes every hour are indistinguishable by persona from that author's own. So the rule is keyed on how the call arrived rather than on who made it, and the same persona in an ordinary session is cataloged exactly as before.
+
+Everything above applies to a run's calls too: they are audited in full, they are handed no `mcp:call:<id>` reference, and the rows written before this existed are swept at the next startup sweep with the evidence clauses standing.
+
 ## Notifications Configuration
 
 The `notifications` block controls the email-notification substrate: the

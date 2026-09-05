@@ -436,6 +436,15 @@ automated system did stays fully visible. Persona is the discriminator because
 it is the layer an operator already assigns per API key. Empty catalogs every
 call.
 
+A managed script run's calls are not cataloged either, and that one takes no
+knob (#1624). The scheduler is the automated system, a run is by construction
+the re-run, and a run presents its author's persona, so `exclude_personas`
+cannot name it: the rule is keyed on the audit event's `source` being `script`.
+The calls are audited in full, the run is handed no `mcp:call:<id>` reference,
+and the sweep's third arm (`user_id LIKE 'script:%'`) clears the rows written
+before this existed. A person's call in the same persona is cataloged as
+before.
+
 ### Managed Scripts
 
 Authoring needs no configuration and is available wherever there is a database.

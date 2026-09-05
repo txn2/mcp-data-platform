@@ -176,10 +176,11 @@ func Assemble(cfg Config) *Layer {
 		ExcludePersonas: cfg.CallExcludePersonas,
 	})
 	calls.StartCleanupRoutine(cleanupInterval)
-	// One rule, read in two places: the recorder never writes an excluded
-	// persona's record, and the store's sweep removes the ones written before
-	// the deployment declared it.
-	excluded := callrecord.NewPersonaExclusion(cfg.CallExcludePersonas)
+	// One rule, read in three places: the recorder never writes the record, the
+	// call reference hands back no citation to a record that will not exist,
+	// and the store's sweep removes the ones written before the deployment
+	// declared the persona or before a run's calls were declined.
+	excluded := callrecord.NewExclusion(cfg.CallExcludePersonas)
 	logger := NewLogger(callrecord.NewRecorder(store, calls, cfg.BuildURN, excluded), cfg.SyncDelivery, cfg.Metrics)
 
 	return &Layer{

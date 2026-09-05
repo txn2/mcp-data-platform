@@ -36,6 +36,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
+	"github.com/txn2/mcp-data-platform/pkg/script"
 	pkgsession "github.com/txn2/mcp-data-platform/pkg/session"
 	memorykit "github.com/txn2/mcp-data-platform/pkg/toolkits/memory"
 	portalkit "github.com/txn2/mcp-data-platform/pkg/toolkits/portal"
@@ -200,7 +201,7 @@ func newReplicaAs(t *testing.T, db *sql.DB, sessions pkgsession.Store, s3 *memS3
 	// Innermost added first: the call reference and audit both read the
 	// PlatformContext the tool-call middleware writes.
 	server.AddReceivingMiddleware(middleware.MCPCallReferenceMiddleware(
-		[]string{"trino", "api"}, callrecord.NewPersonaExclusion(excluded).Excludes))
+		[]string{"trino", "api"}, callrecord.NewExclusion(excluded).Excludes))
 	server.AddReceivingMiddleware(middleware.MCPAuditMiddleware(layer.Logger()))
 	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(
 		&fixedAuthn{user: user},
@@ -1114,5 +1115,145 @@ func countCallRecords(ctx context.Context, t *testing.T, db *sql.DB, persona str
 	var n int
 	require.NoError(t, db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM call_records WHERE persona = $1`, persona).Scan(&n))
+	return n
+}
+
+const (
+	scriptName      = "acme-dc-weather-watch"
+	scriptPrincipal = script.PrincipalPrefix + scriptName
+	forecastPath    = "/v1/gridpoints/forecast"
+)
+
+// A managed script run's calls are audited and not cataloged (#1624). The run
+// presents the persona of the person who wrote the script, so the persona
+// exclusion cannot name it; the source can, and the same persona in an ordinary
+// session is cataloged as it always was.
+func TestCallCatalogRealDBDoesNotCatalogAManagedScriptRun(t *testing.T) {
+	ctx := context.Background()
+	db := testdb.New(t)
+	sessions := pkgsession.NewMemoryStore(time.Hour)
+
+	// The run: authenticated as the script principal, authorized under its
+	// author's persona, and connected on a context tagged SourceScript -- which
+	// is how internal/platform/scriptexec drives one.
+	run := newReplicaAs(t, db, sessions, newMemS3(), &middleware.UserInfo{
+		UserID: scriptPrincipal, Email: "", Roles: []string{"admin"}, AuthType: middleware.AuthTypeScript,
+	}, "admin", nil)
+	runSess := connect(middleware.WithSource(ctx, middleware.SourceScript), t, run)
+	runHandle := mintHandle(ctx, t, sessions, scriptPrincipal)
+	res := call(ctx, t, runSess, "api_invoke_endpoint", map[string]any{
+		"connection": "crm", "method": "GET", "path": forecastPath,
+		"session_id": runHandle, "purpose": invokePurpos,
+	})
+	require.False(t, res.IsError, "the run's call must still answer: %s", resultText(res))
+	flush(ctx, t, run)
+
+	// No citation token: a reference the catalog will not record resolves to
+	// nothing, and a run told to cite it would store a dead citation.
+	assert.Empty(t, reference(t, res), "a run's call must not be handed a call reference")
+
+	// The audit row is written whole, so the run history stays fully visible.
+	events, err := run.layer.Store().Query(ctx, audit.QueryFilter{
+		SessionID: runHandle, ToolName: "api_invoke_endpoint",
+	})
+	require.NoError(t, err)
+	require.Len(t, events, 1, "the audit row for a run's call must exist")
+	ev := events[0]
+	assert.Equal(t, scriptPrincipal, ev.UserID)
+	assert.Equal(t, "admin", ev.Persona)
+	assert.Equal(t, middleware.SourceScript, ev.Source)
+	assert.True(t, ev.Success)
+
+	_, err = run.calls.GetByEventID(ctx, ev.ID, scriptPrincipal)
+	assert.ErrorIs(t, err, callrecord.ErrNotFound, "a run's call must not be cataloged")
+	assert.Zero(t, countScriptCallRecords(ctx, t, db))
+
+	// The control: a person calling the same tool in the same persona on the
+	// same deployment is cataloged, which is what proves the rule is by source
+	// and not by persona.
+	person := newReplicaAs(t, db, sessions, newMemS3(), &middleware.UserInfo{
+		UserID: analystID, Email: analystMail, Roles: []string{"admin"}, AuthType: middleware.AuthTypeAPIKey,
+	}, "admin", nil)
+	personSess := connect(ctx, t, person)
+	ref := invoke(ctx, t, person, personSess, mintHandle(ctx, t, sessions, analystID),
+		"GET", forecastPath, "", nil)
+	rec := recordFor(ctx, t, person, ref, analystID)
+	assert.Equal(t, "admin", rec.Persona)
+}
+
+// The records a script run wrote before this platform declined them are swept
+// whatever their age, and the evidence clauses stand: a record an asset cites
+// survives whoever produced it.
+func TestCallCatalogRealDBSweepsAScriptRunsExistingRecords(t *testing.T) {
+	ctx := context.Background()
+	db := testdb.New(t)
+	sessions := pkgsession.NewMemoryStore(time.Hour)
+
+	person := newReplica(t, db, sessions, newMemS3(), &middleware.UserInfo{
+		UserID: analystID, Email: analystMail, Roles: []string{"analyst"}, AuthType: middleware.AuthTypeAPIKey,
+	})
+	personSess := connect(ctx, t, person)
+	personHandle := mintHandle(ctx, t, sessions, analystID)
+
+	// Two calls a run made, and one an analyst made. The run's two are made
+	// through the server and then reassigned to the run's principal, because
+	// the recorder now declines a script-sourced call outright: these are the
+	// rows the release before #1624 left behind, and the only way to have them
+	// is to write them as that release did, with the audit events they cite
+	// real so the asset's provenance resolves.
+	cited := runQuery(ctx, t, person, personSess, personHandle, revenueSQL)
+	unused := invoke(ctx, t, person, personSess, personHandle, "GET", forecastPath, "", nil)
+	analystDraft := runQuery(ctx, t, person, personSess, personHandle, inventorySQL)
+
+	saved := call(ctx, t, personSess, portalkit.SaveToolName, map[string]any{
+		"name": "Forecast", "content": "x", "content_type": "text/csv",
+		"sources": []any{cited}, "session_id": personHandle,
+	})
+	require.False(t, saved.IsError, "save must succeed: %s", resultText(saved))
+	flush(ctx, t, person)
+
+	reassignToScript(ctx, t, db, eventIDOf(t, cited), eventIDOf(t, unused))
+	require.Equal(t, 2, countScriptCallRecords(ctx, t, db), "both of the run's rows are in the catalog")
+
+	// Every record is well inside the retention window, so what the sweep
+	// removes it removes for the run and not for the age.
+	catalog := callrecord.NewPostgresStore(db, callrecord.Config{RetentionDays: 90})
+	removed, err := catalog.Cleanup(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), removed, "only the run's uncited record is swept")
+
+	_, err = catalog.GetByEventID(ctx, eventIDOf(t, unused), scriptPrincipal)
+	assert.ErrorIs(t, err, callrecord.ErrNotFound, "the run's uncited record is gone")
+
+	if _, err := catalog.GetByEventID(ctx, eventIDOf(t, cited), scriptPrincipal); err != nil {
+		t.Errorf("a record an asset cites survives whoever produced it, got %v", err)
+	}
+	if _, err := catalog.GetByEventID(ctx, eventIDOf(t, analystDraft), analystID); err != nil {
+		t.Errorf("a person's own draft is untouched by the script sweep, got %v", err)
+	}
+}
+
+// reassignToScript puts the named records under a managed script run's
+// principal, which is what the catalog held before #1624 declined them.
+func reassignToScript(ctx context.Context, t *testing.T, db *sql.DB, eventIDs ...string) {
+	t.Helper()
+	for _, id := range eventIDs {
+		res, err := db.ExecContext(ctx,
+			`UPDATE call_records SET user_id = $1 WHERE event_id = $2`, scriptPrincipal, id)
+		require.NoError(t, err)
+		affected, err := res.RowsAffected()
+		require.NoError(t, err)
+		require.Equal(t, int64(1), affected, "record for %s must exist to be reassigned", id)
+	}
+}
+
+// countScriptCallRecords counts the catalog rows written under any script
+// principal, read from the table rather than through a scoped surface: the
+// claim is that the row does not exist, not that a reader hides it.
+func countScriptCallRecords(ctx context.Context, t *testing.T, db *sql.DB) int {
+	t.Helper()
+	var n int
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM call_records WHERE user_id LIKE $1`, script.PrincipalPrefix+"%").Scan(&n))
 	return n
 }

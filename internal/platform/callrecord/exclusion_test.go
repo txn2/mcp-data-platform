@@ -7,70 +7,99 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
 
-func TestPersonaExclusionMatchesTheNamesItWasGiven(t *testing.T) {
+func TestExclusionMatchesTheNamesItWasGiven(t *testing.T) {
 	t.Parallel()
 
-	e := NewPersonaExclusion([]string{"ingest-service", "etl"})
-	assert.True(t, e.Excludes("ingest-service"))
-	assert.True(t, e.Excludes("etl"))
-	assert.False(t, e.Excludes("data-engineer"))
+	e := NewExclusion([]string{"ingest-service", "etl"})
+	assert.True(t, e.Excludes("ingest-service", middleware.SourceMCP))
+	assert.True(t, e.Excludes("etl", middleware.SourceMCP))
+	assert.False(t, e.Excludes("data-engineer", middleware.SourceMCP))
 }
 
-func TestPersonaExclusionIsForgivingAboutCaseAndSpace(t *testing.T) {
+func TestExclusionIsForgivingAboutCaseAndSpace(t *testing.T) {
 	t.Parallel()
 
 	// An operator naming a persona here is naming it from memory of the
 	// personas block, so the fold applies to both sides of the comparison.
-	e := NewPersonaExclusion([]string{"  Ingest-Service  "})
-	assert.True(t, e.Excludes("ingest-service"))
-	assert.True(t, e.Excludes("INGEST-SERVICE"))
-	assert.True(t, e.Excludes(" ingest-service "))
+	e := NewExclusion([]string{"  Ingest-Service  "})
+	assert.True(t, e.Excludes("ingest-service", middleware.SourceMCP))
+	assert.True(t, e.Excludes("INGEST-SERVICE", middleware.SourceMCP))
+	assert.True(t, e.Excludes(" ingest-service ", middleware.SourceMCP))
 }
 
-func TestPersonaExclusionDropsAnEmptyName(t *testing.T) {
+func TestExclusionDropsAnEmptyName(t *testing.T) {
 	t.Parallel()
 
 	// Kept, an empty name would exclude every call made without a persona at
 	// all, which is the opposite of naming one.
-	e := NewPersonaExclusion([]string{"", "   ", "ingest-service"})
-	assert.False(t, e.Excludes(""))
-	assert.False(t, e.Excludes("   "))
+	e := NewExclusion([]string{"", "   ", "ingest-service"})
+	assert.False(t, e.Excludes("", middleware.SourceMCP))
+	assert.False(t, e.Excludes("   ", middleware.SourceMCP))
 	assert.Equal(t, []string{"ingest-service"}, e.Personas())
 }
 
-func TestPersonaExclusionExcludesNothingByDefault(t *testing.T) {
+func TestExclusionExcludesNothingByDefault(t *testing.T) {
 	t.Parallel()
 
 	// The zero value and an empty configuration are the same deployment: the
 	// one that catalogs every call, exactly as before this existed.
-	for name, e := range map[string]PersonaExclusion{
+	for name, e := range map[string]Exclusion{
 		"zero value": {},
-		"no names":   NewPersonaExclusion(nil),
-		"empty name": NewPersonaExclusion([]string{" "}),
+		"no names":   NewExclusion(nil),
+		"empty name": NewExclusion([]string{" "}),
 	} {
-		assert.False(t, e.Excludes("data-engineer"), name)
-		assert.False(t, e.Excludes(""), name)
+		assert.False(t, e.Excludes("data-engineer", middleware.SourceMCP), name)
+		assert.False(t, e.Excludes("", middleware.SourceMCP), name)
 		assert.Empty(t, e.Personas(), name)
 	}
 }
 
-func TestPersonaExclusionNormalizesForTheSweep(t *testing.T) {
+// #1624: the platform's own scheduler is the automated system the persona
+// exclusion cannot name, because a run presents the persona of the person who
+// wrote the script. The source is what separates them.
+func TestExclusionExcludesAScriptRunWhateverPersonaItPresents(t *testing.T) {
+	t.Parallel()
+
+	for name, e := range map[string]Exclusion{
+		"zero value":       {},
+		"nothing named":    NewExclusion(nil),
+		"another persona":  NewExclusion([]string{"ingest-service"}),
+		"the same persona": NewExclusion([]string{"admin"}),
+	} {
+		assert.True(t, e.Excludes("admin", middleware.SourceScript), name)
+		assert.True(t, e.Excludes("", middleware.SourceScript), name)
+	}
+}
+
+// The same persona in an ordinary session is still cataloged: the rule is by
+// how the call arrived, not by who the script's author is.
+func TestExclusionKeepsAPersonsCallInTheSamePersonaAsAScript(t *testing.T) {
+	t.Parallel()
+
+	e := NewExclusion(nil)
+	assert.False(t, e.Excludes("admin", middleware.SourceMCP))
+	assert.False(t, e.Excludes("admin", ""))
+}
+
+func TestExclusionNormalizesForTheSweep(t *testing.T) {
 	t.Parallel()
 
 	// Sorted and deduplicated: the sweep binds this array on every replica,
 	// and one name written twice is one name.
-	e := NewPersonaExclusion([]string{"zeta", "Alpha", "alpha", " ZETA "})
+	e := NewExclusion([]string{"zeta", "Alpha", "alpha", " ZETA "})
 	assert.Equal(t, []string{"alpha", "zeta"}, e.Personas())
 }
 
-func TestPersonaExclusionHandsOutACopy(t *testing.T) {
+func TestExclusionHandsOutACopy(t *testing.T) {
 	t.Parallel()
 
 	// The names go to a database driver, and the rule is not the driver's to
 	// alter.
-	e := NewPersonaExclusion([]string{"ingest-service"})
+	e := NewExclusion([]string{"ingest-service"})
 	e.Personas()[0] = "everything"
 	assert.Equal(t, []string{"ingest-service"}, e.Personas())
 }
