@@ -102,6 +102,9 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 		ResourceReader:   p.ResourceStore(),
 		ResourceBlobs:    p.ResourceS3Client(),
 		ResourceS3Bucket: p.Config().Resources.Managed.S3Bucket,
+		// The upload ceiling the resource write routes apply, reported on /me
+		// so the upload dialog states this deployment's number (#1628).
+		ResourceMaxUploadBytes: p.Config().Resources.Managed.MaxUploadBytes,
 		// What produced an asset or a managed resource (#1569), and the lookup
 		// that says whether a script producer still exists.
 		Producers:   producedby.NewPostgres(p.DB()),
@@ -401,10 +404,13 @@ func mountResourcesAPI(mux *http.ServeMux, p *platform.Platform) {
 		S3Bucket:    p.Config().Resources.Managed.S3Bucket,
 		URIScheme:   p.Config().Resources.Managed.URIScheme,
 		MaxVersions: p.Config().Resources.Managed.MaxVersions,
-		OnCreate:    p.RegisterManagedResource,
-		OnDelete:    p.UnregisterManagedResource,
-		OnDeleteID:  hooks.ResourceDeleted,
-		OnRevised:   hooks.ResourceRevised,
+		// The deployment's own upload ceiling (#1628); non-positive here is
+		// resource.MaxUploadBytes, so an unset field is today's 100 MB.
+		MaxUploadBytes: p.Config().Resources.Managed.MaxUploadBytes,
+		OnCreate:       p.RegisterManagedResource,
+		OnDelete:       p.UnregisterManagedResource,
+		OnDeleteID:     hooks.ResourceDeleted,
+		OnRevised:      hooks.ResourceRevised,
 		// What produced each resource (#1569). Built here from the platform's
 		// database, as the script store on this mux is: the store holds no
 		// state of its own, so one built here is the same record the portal's

@@ -1406,6 +1406,7 @@ resources:
     s3_connection: "primary"  # name of the S3 toolkit instance holding the blobs
     s3_bucket: "managed-resources"
     max_versions: 10          # content revisions kept per resource
+    max_upload_bytes: 104857600   # largest file accepted (default 100 MB)
 ```
 
 | Field | Type | Default | Description |
@@ -1415,9 +1416,31 @@ resources:
 | `s3_connection` | string | the S3 kind's `default:` | Name of the S3 toolkit instance used for blob storage |
 | `s3_bucket` | string | `managed-resources` | Bucket the uploaded bytes are written to |
 | `max_versions` | int | `10` | Content revisions a resource keeps, counting the current one. A revision past the cap prunes the oldest stored file; live content is never pruned. A non-positive value selects the default, and anything below `2` is raised to `2`, since a cap of `1` would keep no history at all |
+| `max_upload_bytes` | int | `104857600` (100 MB) | Largest file `POST /api/v1/resources` and `POST /api/v1/resources/{id}/content` accept. Absent, zero, or negative selects the default, so a deployment that sets nothing keeps today's 100 MB. The refusal message and the portal's file chooser both state this deployment's number — the browser reads it from `GET /api/v1/portal/me` rather than holding a copy. **Raising it raises memory**: see below |
 
 Managed resources require a database. With none configured the block has no
 effect, and the platform runs the read-only templates alone.
+
+### What raising `max_upload_bytes` costs
+
+The upload path is not streaming. A request reads the whole object into one
+buffer (`io.ReadAll` in `pkg/resource/handler.go`) and hands it to blob storage
+as one `[]byte` (`S3Client.PutObject`), so the configured ceiling is resident
+heap for the life of the request, **per concurrent upload**. Size the container
+for the ceiling times the uploads you expect at once, plus normal working set,
+before raising this — an undersized container answers a large upload with an
+OOM kill rather than a refusal. The read path has the same shape: `GetObject`
+returns a `[]byte`.
+
+Multipart parsing does not double the cost. A part above 10 MB
+(`MaxMultipartMemory`) spools to disk, so a large upload is one in-memory slice
+plus a temporary file of the same size on ephemeral disk.
+
+Two things a raised ceiling does not change. Content indexing still stops at
+`MaxContentReadBytes` (8 MiB), so a file above that is indexed on its metadata
+alone whatever the ceiling is. And an ingress or proxy in front of the platform
+enforces its own body limit: raise that too, or a request the platform would
+accept never reaches it.
 
 ## Argument Autocompletion
 

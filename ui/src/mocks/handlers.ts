@@ -1221,6 +1221,9 @@ export const handlers = [
         "manage_asset",
       ],
       csrf_token: "mock-csrf-token",
+      // What this deployment accepts for a resource upload (#1628). The stock
+      // default, which is what a deployment that configures no ceiling has.
+      max_upload_bytes: 104857600,
     }),
   ),
 

@@ -38,6 +38,13 @@ func (h *Handler) maxVersions() int {
 	return NormalizeMaxVersions(h.deps.MaxVersions)
 }
 
+// maxUploadBytes returns the deployment's upload ceiling, normalized. Both
+// write routes bound the body and refuse an oversize file by this number, so
+// they cannot drift apart (#1628).
+func (h *Handler) maxUploadBytes() int64 {
+	return NormalizeMaxUploadBytes(h.deps.MaxUploadBytes)
+}
+
 // resolveReadable loads the named resource and confirms the caller may see it.
 // A resource the caller cannot access is reported as not found, never as
 // forbidden: the two are indistinguishable to a caller who should not learn the
@@ -87,7 +94,7 @@ func (h *Handler) resolveRevisable(w http.ResponseWriter, r *http.Request) (*Res
 // @Accept       multipart/form-data
 // @Produce      json
 // @Param        id    path      string  true  "Resource ID"
-// @Param        file  formData  file    true  "Replacement file (max 100 MB)"
+// @Param        file  formData  file    true  "Replacement file; the ceiling is resources.managed.max_upload_bytes (default 100 MB)"
 // @Success      200  {object}  resource.revisedResource
 // @Failure      400  {object}  resource.errorResponse
 // @Failure      401  {object}  resource.errorResponse
@@ -104,14 +111,12 @@ func (h *Handler) handleReplaceContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, MaxUploadBytes)
-	if err := r.ParseMultipartForm(MaxMultipartMemory); err != nil { // #nosec G120 -- body bounded by MaxBytesReader above
-		slog.Warn("resource revision: multipart parse failed", msgError, err) //nolint:gosec // structured slog, no injection
-		writeError(w, http.StatusBadRequest, "invalid multipart form")
+	limit, canRead := h.parseUpload(w, r, "resource revision")
+	if !canRead {
 		return
 	}
 
-	uf, err := readUploadedFile(r)
+	uf, err := readUploadedFile(r, limit)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

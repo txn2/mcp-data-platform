@@ -20,6 +20,16 @@ import (
 // MaxMultipartMemory is the max memory for multipart form parsing (10 MB).
 const MaxMultipartMemory = 10 << 20
 
+// multipartFramingBytes is the headroom the request body is allowed over the
+// upload ceiling, for what multipart encoding adds around the file: the
+// boundary and part headers, and the metadata parts beside it (a display name,
+// a description, a path and tags, each bounded by its own validator well under
+// this). Without it a file of exactly the ceiling overruns the body bound and
+// is refused as a malformed form, which names neither the size nor the limit
+// -- so the file-size check below is what refuses an oversize upload, and this
+// bound is only the backstop against a body with no end.
+const multipartFramingBytes = 64 << 10
+
 // Common response message constants.
 const (
 	msgError          = "error"
@@ -59,6 +69,12 @@ type Deps struct {
 	Versions VersionStore
 	// MaxVersions is the retention cap; non-positive selects DefaultMaxVersions.
 	MaxVersions int
+	// MaxUploadBytes is the largest file the write routes accept, from
+	// resources.managed.max_upload_bytes; non-positive selects MaxUploadBytes
+	// (#1628). It is resident heap per concurrent upload -- readUploadedFile
+	// reads the whole object into one []byte and S3Client.PutObject takes it
+	// as one -- so a deployment raising it sizes its container for it.
+	MaxUploadBytes int64
 	// ReadRecorder audits served content reads. Absent when audit is disabled,
 	// which silences read events without affecting the reads themselves.
 	ReadRecorder ReadRecorder
@@ -233,16 +249,46 @@ type uploadedFile struct {
 	declaredMIMEType string
 }
 
+// parseUpload bounds the request body and parses the multipart form, returning
+// the deployment's upload ceiling for the checks below it. It writes the
+// refusal itself and reports ok=false when there is nothing to read.
+//
+// A body past the bound is refused by the ceiling it passed rather than as a
+// malformed form. The bound cuts the request off before the file's own size is
+// known, so the size check below never sees it, and without this the only
+// refusal a plainly oversize upload could produce named neither the size nor
+// the limit -- which on a deployment that raised the ceiling is exactly the
+// caller who most needs to be told what the ceiling is (#1628).
+func (h *Handler) parseUpload(w http.ResponseWriter, r *http.Request, what string) (int64, bool) {
+	limit := h.maxUploadBytes()
+	r.Body = http.MaxBytesReader(w, r.Body, limit+multipartFramingBytes)
+	if err := r.ParseMultipartForm(MaxMultipartMemory); err != nil { // #nosec G120 -- body bounded by MaxBytesReader above
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			writeError(w, http.StatusBadRequest,
+				fmt.Sprintf("file exceeds %s limit", DescribeUploadLimit(limit)))
+			return 0, false
+		}
+		slog.Warn(what+": multipart parse failed", msgError, err) //nolint:gosec // structured slog, no injection
+		writeError(w, http.StatusBadRequest, "invalid multipart form")
+		return 0, false
+	}
+	return limit, true
+}
+
 // readUploadedFile reads and validates the uploaded file from the request.
-func readUploadedFile(r *http.Request) (*uploadedFile, error) {
+// The limit is the deployment's own upload ceiling, already normalized, so the
+// refusal names the number that deployment is configured for rather than the
+// package default (#1628).
+func readUploadedFile(r *http.Request, limit int64) (*uploadedFile, error) {
 	file, header, err := r.FormFile("file")
 	if err != nil {
 		return nil, errors.New("file is required")
 	}
 	defer func() { _ = file.Close() }()
 
-	if header.Size > MaxUploadBytes {
-		return nil, fmt.Errorf("file exceeds %d MB limit", MaxUploadBytes/(1<<20))
+	if header.Size > limit {
+		return nil, fmt.Errorf("file exceeds %s limit", DescribeUploadLimit(limit))
 	}
 
 	declared := header.Header.Get(headerContentType)
@@ -258,12 +304,12 @@ func readUploadedFile(r *http.Request) (*uploadedFile, error) {
 		return nil, fmt.Errorf("invalid filename: %w", err)
 	}
 
-	data, err := io.ReadAll(io.LimitReader(file, MaxUploadBytes+1))
+	data, err := io.ReadAll(io.LimitReader(file, limit+1))
 	if err != nil {
 		return nil, fmt.Errorf("reading file: %w", err)
 	}
-	if int64(len(data)) > MaxUploadBytes {
-		return nil, fmt.Errorf("file exceeds %d MB limit", MaxUploadBytes/(1<<20))
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("file exceeds %s limit", DescribeUploadLimit(limit))
 	}
 
 	// Browsers send application/octet-stream for any extension they do not
@@ -319,7 +365,7 @@ type facetsResponse struct { //nolint:unused // swagger model
 // @Tags         Resources
 // @Accept       multipart/form-data
 // @Produce      json
-// @Param        file         formData  file    true   "File to upload (max 100 MB)"
+// @Param        file         formData  file    true   "File to upload; the ceiling is resources.managed.max_upload_bytes (default 100 MB)"
 // @Param        display_name formData  string  true   "Human-readable display name"
 // @Param        scope        formData  string  true   "Visibility scope"  Enums(global, persona, user)
 // @Param        scope_id     formData  string  false  "Persona name or user sub (required for persona/user scopes)"
@@ -341,10 +387,8 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, MaxUploadBytes)
-	if err := r.ParseMultipartForm(MaxMultipartMemory); err != nil { // #nosec G120 -- body bounded by MaxBytesReader above
-		slog.Warn("resource upload: multipart parse failed", msgError, err) //nolint:gosec // structured slog, no injection
-		writeError(w, http.StatusBadRequest, "invalid multipart form")
+	limit, ok := h.parseUpload(w, r, "resource upload")
+	if !ok {
 		return
 	}
 
@@ -359,7 +403,7 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	uf, err := readUploadedFile(r)
+	uf, err := readUploadedFile(r, limit)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

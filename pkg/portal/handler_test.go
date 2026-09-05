@@ -19,6 +19,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/memory"
+	"github.com/txn2/mcp-data-platform/pkg/resource"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
@@ -2333,6 +2334,42 @@ func TestGetMeNonAdmin(t *testing.T) {
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	assert.Equal(t, "user-99", resp.UserID)
 	assert.False(t, resp.IsAdmin)
+}
+
+// TestGetMe_CarriesTheUploadCeiling is issue #1628: the browser's upload dialog
+// held its own copy of the 100 MB constant, so a deployment that raised the
+// server's ceiling had a file chooser still announcing 100 MB and refusing at
+// it. The number the write routes apply is reported on the payload the SPA
+// bootstraps from, including the default, so the page never has to supply one.
+func TestGetMe_CarriesTheUploadCeiling(t *testing.T) {
+	tests := []struct {
+		name       string
+		configured int64
+		want       int64
+	}{
+		{"a deployment that configures no ceiling reports the default", 0, resource.MaxUploadBytes},
+		{"a negative value reports the default, matching what the routes apply", -1, resource.MaxUploadBytes},
+		{"a configured ceiling is what the browser is told", 262144000, 262144000},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := NewHandler(Deps{
+				AssetStore:             &mockAssetStore{},
+				ShareStore:             &mockShareStore{},
+				S3Client:               &mockS3Client{},
+				ResourceMaxUploadBytes: tt.configured,
+			}, testAuthMiddleware(&User{UserID: "user-42"}))
+
+			req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/me", http.NoBody)
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+			require.Equal(t, http.StatusOK, w.Code)
+
+			var resp meResponse
+			require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+			assert.Equal(t, tt.want, resp.MaxUploadBytes)
+		})
+	}
 }
 
 func TestGetMeNoUser(t *testing.T) {

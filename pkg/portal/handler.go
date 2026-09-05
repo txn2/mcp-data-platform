@@ -32,6 +32,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/portal/shareguest"
 	"github.com/txn2/mcp-data-platform/pkg/ratelimit"
+	"github.com/txn2/mcp-data-platform/pkg/resource"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
 
@@ -277,6 +278,12 @@ type Deps struct {
 	ResourceBlobs  assetrefs.BlobReader
 	// ResourceS3Bucket is the bucket managed-resource blobs live in.
 	ResourceS3Bucket string
+	// ResourceMaxUploadBytes is the deployment's resource upload ceiling,
+	// reported to the browser on /me so the upload dialog states this
+	// deployment's own number rather than a second copy of the default
+	// compiled into the page (#1628). Non-positive is reported as
+	// resource.MaxUploadBytes, the same value the write routes apply.
+	ResourceMaxUploadBytes int64
 
 	// Producers is the record of what wrote each asset and each managed
 	// resource (#1569), read by the producer routes from the target end. Nil
@@ -604,6 +611,11 @@ type meResponse struct {
 	// CSRFToken is set only for cookie sessions; the SPA echoes it in the
 	// X-CSRF-Token header on mutations. API-key clients are exempt.
 	CSRFToken string `json:"csrf_token,omitempty"`
+	// MaxUploadBytes is the largest file the managed-resource write routes
+	// accept on this deployment (#1628). The same fact for every caller, sent
+	// on the payload the SPA already bootstraps from so the upload dialog can
+	// state it without a second copy of the number in the page.
+	MaxUploadBytes int64 `json:"max_upload_bytes" example:"104857600"`
 }
 
 // getMe handles GET /api/v1/portal/me.
@@ -625,10 +637,11 @@ func (h *Handler) getMe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := meResponse{
-		UserID:  user.UserID,
-		Email:   user.Email,
-		Roles:   user.Roles,
-		IsAdmin: h.access.IsAdmin(user),
+		UserID:         user.UserID,
+		Email:          user.Email,
+		Roles:          user.Roles,
+		IsAdmin:        h.access.IsAdmin(user),
+		MaxUploadBytes: resource.NormalizeMaxUploadBytes(h.deps.ResourceMaxUploadBytes),
 	}
 	// Cookie sessions carry a CSRF token the SPA echoes on mutations; API-key
 	// callers are exempt. Issued here since only /me needs it.

@@ -187,6 +187,7 @@ internal/platform/callrecord -> pkg/audit
 internal/platform/callrecord -> pkg/portal/knowledgepage
 internal/platform/collectionindex -> pkg/indexjobs
 internal/platform/collectionindex -> pkg/portal
+internal/platform/completionlayer -> internal/platform/resourcetemplates
 internal/platform/completionlayer -> pkg/knowledge/federation
 internal/platform/completionlayer -> pkg/middleware
 internal/platform/completionlayer -> pkg/persona
@@ -330,6 +331,9 @@ internal/platform/resourcelayer -> internal/platform/toolkitcfg
 internal/platform/resourcelayer -> pkg/indexjobs
 internal/platform/resourcelayer -> pkg/portal/s3adapter
 internal/platform/resourcelayer -> pkg/resource
+internal/platform/resourcetemplates -> pkg/query
+internal/platform/resourcetemplates -> pkg/semantic
+internal/platform/resourcetemplates -> pkg/urnbuild
 internal/platform/resourcewrite -> internal/producedby
 internal/platform/resourcewrite -> pkg/resource
 internal/platform/reviewalert -> internal/logsan
@@ -644,6 +648,7 @@ pkg/platform -> internal/platform/provenancesweep
 pkg/platform -> internal/platform/reflexivecapture
 pkg/platform -> internal/platform/resourceaudit
 pkg/platform -> internal/platform/resourcelayer
+pkg/platform -> internal/platform/resourcetemplates
 pkg/platform -> internal/platform/resourcewrite
 pkg/platform -> internal/platform/routepolicy
 pkg/platform -> internal/platform/scriptexec

@@ -4605,6 +4605,14 @@ definitions:
       is_admin:
         example: false
         type: boolean
+      max_upload_bytes:
+        description: |-
+          MaxUploadBytes is the largest file the managed-resource write routes
+          accept on this deployment (#1628). The same fact for every caller, sent
+          on the payload the SPA already bootstraps from so the upload dialog can
+          state it without a second copy of the number in the page.
+        example: 104857600
+        type: integer
       persona:
         example: analyst
         type: string
@@ -19119,7 +19127,8 @@ paths:
       - multipart/form-data
       description: Upload a new managed resource with metadata and file content.
       parameters:
-      - description: File to upload (max 100 MB)
+      - description: File to upload; the ceiling is resources.managed.max_upload_bytes
+          (default 100 MB)
         in: formData
         name: file
         required: true
@@ -19365,7 +19374,8 @@ paths:
         name: id
         required: true
         type: string
-      - description: Replacement file (max 100 MB)
+      - description: Replacement file; the ceiling is resources.managed.max_upload_bytes
+          (default 100 MB)
         in: formData
         name: file
         required: true

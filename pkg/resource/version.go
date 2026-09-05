@@ -10,8 +10,9 @@ import (
 // DefaultMaxVersions is the number of content revisions a resource keeps,
 // counting the current head. A revision past the cap prunes the oldest version
 // rows and their blobs. Bounded by default because a resource blob is up to
-// MaxUploadBytes (100 MB) and an unbounded trail turns every edit into
-// permanent storage growth.
+// the deployment's upload ceiling (MaxUploadBytes, 100 MB, unless
+// resources.managed.max_upload_bytes raises it) and an unbounded trail turns
+// every edit into permanent storage growth.
 const DefaultMaxVersions = 10
 
 // MinMaxVersions is the floor a configured retention cap is raised to. One

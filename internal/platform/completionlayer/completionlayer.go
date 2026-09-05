@@ -16,6 +16,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/resourcetemplates"
 	"github.com/txn2/mcp-data-platform/pkg/knowledge/federation"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
@@ -36,14 +37,6 @@ const (
 	argSchemaName = "schema_name"
 	argTable      = "table"
 	argTerm       = "term"
-)
-
-// Resource template URI patterns whose variables this layer completes. They
-// mirror the templates registered by the platform's resource layer.
-const (
-	schemaTemplateURI       = "schema://{catalog}.{schema_name}/{table}"
-	glossaryTemplateURI     = "glossary://{term}"
-	availabilityTemplateURI = "availability://{catalog}.{schema_name}/{table}"
 )
 
 // Tools whose persona access gates a completion. Completions leak names, so a
@@ -310,12 +303,12 @@ func (h *Handle) promptArgument(ctx context.Context, pc *middleware.PlatformCont
 // business terms.
 func (h *Handle) resourceTemplate(ctx context.Context, pc *middleware.PlatformContext, uri string, arg mcp.CompleteParamsArgument, resolved map[string]string) (found []string, cov coverage) {
 	switch uri {
-	case schemaTemplateURI, availabilityTemplateURI:
+	case resourcetemplates.SchemaURI, resourcetemplates.AvailabilityURI:
 		if !h.toolAllowed(ctx, pc, browseTool) {
 			return nil, coverageComplete
 		}
 		return h.schemaVars(ctx, arg.Name, arg.Value, resolved), coverageComplete
-	case glossaryTemplateURI:
+	case resourcetemplates.GlossaryURI:
 		if arg.Name != argTerm {
 			return nil, coverageComplete
 		}
