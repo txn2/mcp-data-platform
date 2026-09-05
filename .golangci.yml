@@ -231,7 +231,7 @@ linters:
         # a lint failure rather than a ratchet diff that can be regenerated
         # away. Criterion for the list: a package with zero first-party imports
         # is a leaf and belongs here. Verify with
-        # `grep -E '^pkg/<name>(/[^ ]*)? -> ' testdata/allowed_internal_imports.txt`
+        # `grep -E '^pkg/<name>(/[^ ]*)? -> ' test/structure/testdata/allowed_internal_imports.txt`
         # returning nothing before adding an entry.
         leaf-utilities-import-nothing-first-party:
           list-mode: lax

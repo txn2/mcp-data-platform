@@ -8,21 +8,7 @@ import (
 	"math"
 	"sort"
 	"strings"
-
-	"github.com/txn2/mcp-data-platform/pkg/embedding"
 )
-
-// embedBatchSize is the maximum number of texts fed to the
-// embedding provider's EmbedBatch in a single call. Bounded so a
-// catalog with hundreds of operations does not POST one giant
-// batch that risks timing out the request context, exceeding an
-// upstream model's context window, or hitting an HTTP body cap.
-// 32 is small enough that a single timed-out batch only loses
-// progress for that chunk and large enough to amortize per-call
-// overhead. Consumed at spec-write time by the admin handler's
-// compute-and-store path; the toolkit no longer batches at
-// request time because vectors are already in the store.
-const embedBatchSize = 32
 
 // errEmbedderNotWired is the sentinel returned by queryVectorFor
 // when no embedding provider has been configured on the toolkit.
@@ -96,6 +82,26 @@ const (
 	lexicalMatchAbsent  = 0.0
 )
 
+// semanticNeighborLimit bounds the operations a ranked result may add beyond
+// the ones that matched. Hybrid scores the whole catalog, so without a bound
+// the answer to any query is the catalog itself, ordered (#1626). Five is
+// enough to recover a query phrased in the caller's words rather than the spec
+// author's, and few enough to read whole.
+const semanticNeighborLimit = 5
+
+// hybridScoreFloor is the score an operation with no lexical match must reach
+// to be offered as an intent neighbor. It marks where the embedding model
+// stops discriminating, so it was set against a real one: on nomic-embed-text
+// unrelated text sits near a 0.72 normalized cosine (0.43 blended), while a
+// query the model separates lifts its answer to 0.82 (0.49 blended). Measured
+// runs are in build/1626/acceptance.md.
+//
+// The floor is on the blended score, so pure-semantic ranking -- whose score
+// is the cosine itself -- clears it almost always and is bounded by
+// semanticNeighborLimit instead. The floor refuses a field the model did not
+// separate; the limit bounds one it did.
+const hybridScoreFloor = 0.45
+
 // hybridSemanticWeight is the alpha in the hybrid score formula:
 //
 //	score = α * cosine_normalized + (1 − α) * lexical
@@ -107,16 +113,6 @@ const (
 // preserving that precision.
 const hybridSemanticWeight = 0.6
 
-// rankWithMode dispatches to the per-mode ranker. Falls back to
-// lexical (and surfaces a note via the bool return) when semantic
-// or hybrid was requested but the embedding pipeline is not
-// available — provider unwired, lazy embed failed, or the
-// connection has no operations.
-//
-// Returns (ranked, fallback) where fallback is true iff the call
-// was forced into lexical mode despite a non-lexical request.
-// Callers should set DiscoverOutput.Note when fallback is
-// true so the model knows why semantic-style ranking did not run.
 // rankRequest bundles the parameters rankWithMode needs. Splitting
 // into a struct keeps the function under the project's
 // argument-limit lint ceiling and makes the call sites self-
@@ -130,31 +126,112 @@ type rankRequest struct {
 	mode  RankingMode
 }
 
-func rankWithMode(ctx context.Context, r rankRequest) (ranked []OperationSummary, fallbackReason string) {
+// rankedResult is one ranked operations level: the rows, and where the
+// boundary between "contains what I asked for" and "close by intent" fell.
+// fallbackReason is empty unless a non-lexical ranking was forced back to
+// lexical (provider unwired, embed failed, catalog not indexed); the caller
+// renders it as the response note.
+type rankedResult struct {
+	operations     []RankedOperationSummary
+	matchedLexical int
+	shownSemantic  int
+	fallbackReason string
+}
+
+// rankWithMode dispatches to the per-mode ranker and bounds what comes back.
+// Lexical is an AND filter and needs no further cut; semantic and hybrid score
+// every visible operation, so boundByRelevance is what stops the sorted
+// catalog being the answer. Falls back to lexical, with the reason on the
+// result, when the embedding pipeline is unavailable.
+func rankWithMode(ctx context.Context, r rankRequest) rankedResult {
 	q := strings.TrimSpace(r.query)
 	// Empty query has no semantic signal: the cosine of the
-	// embedding-of-empty-string is meaningless. Lexical's "return
-	// all up to limit" is the right answer for both empty-query
-	// and explicit-lexical-mode.
-	if r.mode == RankingLexical || q == "" {
-		return rankOperations(r.ops, r.query, r.limit), ""
+	// embedding-of-empty-string is meaningless, and "return all up to limit"
+	// is the answer. Such a result is not ranked, so its rows carry neither a
+	// score nor a match flag.
+	if q == "" {
+		return rankedResult{operations: plainSummaries(rankOperations(r.ops, r.query, r.limit))}
+	}
+	if r.mode == RankingLexical {
+		return lexicalResult(rankOperations(r.ops, r.query, r.limit))
 	}
 	queryVec, err := r.tk.queryVectorFor(ctx, r.conn, q)
 	if err != nil {
 		slog.Warn("apigateway: semantic ranking fell back to lexical",
 			logKeyConnection, r.conn.cfg.ConnectionName,
 			"mode", string(r.mode), logKeyError, err)
-		return rankOperations(r.ops, r.query, r.limit), err.Error()
+		out := lexicalResult(rankOperations(r.ops, r.query, r.limit))
+		out.fallbackReason = err.Error()
+		return out
 	}
 	scored := scoreOperations(r.conn, r.ops, q, queryVec, r.mode)
 	sort.SliceStable(scored, func(i, j int) bool {
 		return scored[i].score > scored[j].score
 	})
-	out := make([]OperationSummary, 0, len(scored))
-	for _, s := range scored {
-		out = append(out, s.op)
+	return boundByRelevance(scored, r.limit)
+}
+
+// plainSummaries renders an unranked list: the operations as they are, with no
+// score and no match flag, because nothing was matched against.
+func plainSummaries(ops []OperationSummary) []RankedOperationSummary {
+	out := make([]RankedOperationSummary, 0, len(ops))
+	for _, op := range ops {
+		out = append(out, RankedOperationSummary{OperationSummary: op})
 	}
-	return capSlice(out, r.limit), ""
+	return out
+}
+
+// lexicalResult renders the AND filter's output. Every row matched by
+// construction, and the score is positional because the filter computes no
+// other, so order still carries into the result.
+func lexicalResult(ops []OperationSummary) rankedResult {
+	out := make([]RankedOperationSummary, 0, len(ops))
+	for i, op := range ops {
+		score, matched := positionalScore(i, len(ops)), true
+		out = append(out, RankedOperationSummary{
+			OperationSummary: op, Score: &score, LexicalMatch: &matched,
+		})
+	}
+	return rankedResult{operations: out, matchedLexical: len(out)}
+}
+
+// boundByRelevance is where a scored result stops: every operation containing
+// every token, in score order, then at most semanticNeighborLimit that contain
+// none but clear hybridScoreFloor.
+//
+// The matches lead whatever their scores, because the caller asked for them by
+// name -- the blend can rank a perfect cosine above a token match, and a
+// result opening with the neighbor reads as though the query was ignored.
+// limit still caps the total but no longer decides where relevance ends, which
+// is what left a 50-row page of unrelated operations behind every query on a
+// large catalog (#1626).
+func boundByRelevance(scored []scoredOp, limit int) rankedResult {
+	matched := make([]scoredOp, 0, len(scored))
+	neighbors := make([]scoredOp, 0, semanticNeighborLimit)
+	for _, s := range scored {
+		switch {
+		case s.lexical:
+			matched = append(matched, s)
+		case len(neighbors) < semanticNeighborLimit && s.score >= hybridScoreFloor:
+			neighbors = append(neighbors, s)
+		}
+	}
+	kept := capScored(append(matched, neighbors...), limit)
+	out := make([]RankedOperationSummary, 0, len(kept))
+	res := rankedResult{}
+	for _, s := range kept {
+		score, lexical := s.score, s.lexical
+		out = append(out, RankedOperationSummary{
+			OperationSummary: s.op, Score: &score, LexicalMatch: &lexical,
+		})
+		if lexical {
+			res.matchedLexical++
+		} else {
+			res.shownSemantic++
+		}
+	}
+	res.operations = out
+	return res
 }
 
 // RankedOperation is one operation matched by SearchOperations, tagged with the
@@ -335,13 +412,14 @@ func checkEmbeddingsReady(c *conn) error {
 func scoreOperations(c *conn, ops []OperationSummary, query string, queryVec []float32, mode RankingMode) []scoredOp {
 	scored := make([]scoredOp, 0, len(ops))
 	for _, op := range ops {
+		lexical := lexicalScore(op, query) == lexicalMatchPresent
 		vec, ok := c.embedVectors[embedKey{Spec: op.Spec, OperationID: op.OperationID}]
 		if !ok {
-			scored = append(scored, scoredOp{op: op, score: scoreWithoutVector(mode, query, op)})
+			scored = append(scored, scoredOp{op: op, score: scoreWithoutVector(mode, query, op), lexical: lexical})
 			continue
 		}
 		score := scoreFor(mode, query, op, queryVec, vec)
-		scored = append(scored, scoredOp{op: op, score: score})
+		scored = append(scored, scoredOp{op: op, score: score, lexical: lexical})
 	}
 	return scored
 }
@@ -359,10 +437,14 @@ func scoreWithoutVector(mode RankingMode, query string, op OperationSummary) flo
 }
 
 // scoredOp pairs an operation with its rank score so we can sort
-// by score then strip back to the slim summary.
+// by score then strip back to the slim summary. lexical records whether the
+// operation contains every token of the query, which is both what the caller
+// is told (lexical_match) and what decides which side of the relevance
+// boundary the operation falls on.
 type scoredOp struct {
-	op    OperationSummary
-	score float64
+	op      OperationSummary
+	score   float64
+	lexical bool
 }
 
 // scoreFor returns the per-operation rank score under the given
@@ -396,83 +478,6 @@ func lexicalScore(op OperationSummary, query string) float64 {
 		return lexicalMatchPresent
 	}
 	return lexicalMatchAbsent
-}
-
-// indexOf returns the position of op in ops by (Method, Path, Spec).
-// Spec is part of the identity because multi-spec catalogs can
-// legitimately host the same (Method, Path) tuple in two specs
-// (e.g. a vendor that ships "GET /search" in every component spec
-// it publishes). Matching on (Method, Path) alone returned the
-// first-seen index and paired the visible op with whichever spec's
-// embedding happened to sort first. Returns -1 when not found.
-func indexOf(ops []OperationSummary, target OperationSummary) int {
-	for i, op := range ops {
-		if op.Method == target.Method && op.Path == target.Path && op.Spec == target.Spec {
-			return i
-		}
-	}
-	return -1
-}
-
-// embedInBatches calls embedder.EmbedBatch in chunks of at most
-// batchSize texts. Returns a single flat vector slice in the same
-// order as the input. Bounded per-call batch size keeps a connection
-// with hundreds of operations from sending one giant request that
-// risks timing out the per-call context, exceeding the upstream
-// model's context window, or hitting an HTTP body cap. The caller's
-// ctx is honored across all batches; the first batch error short-
-// circuits the rest.
-//
-// Implemented on top of embedInBatchesIter so the per-chunk
-// callback site exists in one place. Kept for callers that want
-// the full slice in one go (ranking-side embedQuery tests, etc.).
-func embedInBatches(ctx context.Context, embedder embedding.Provider, texts []string, batchSize int, chunkDone func(completed int)) ([][]float32, error) {
-	out := make([][]float32, 0, len(texts))
-	err := embedInBatchesIter(ctx, embedder, texts, batchSize, func(_, _ int, vectors [][]float32) error {
-		out = append(out, vectors...)
-		if chunkDone != nil {
-			chunkDone(len(out))
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-// embedInBatchesIter is the per-chunk variant of embedInBatches.
-// onChunk receives (start, end, vectors) for each successful batch
-// in arrival order; a non-nil error from onChunk short-circuits
-// the loop and is returned wrapped with the chunk's offsets so
-// the caller can correlate logs against the failure point.
-//
-// The per-chunk shape exists so callers that want to persist
-// per-batch (the embed-jobs worker, for crash-resume) do not have
-// to wait for the full slice to come back before writing the
-// first batch to durable storage. Pre-persist + heartbeat in the
-// worker is what closes the doom loop described in #479: progress
-// from a partial run survives the next attempt's dedup pass.
-func embedInBatchesIter(ctx context.Context, embedder embedding.Provider, texts []string, batchSize int, onChunk func(start, end int, vectors [][]float32) error) error {
-	if batchSize <= 0 {
-		batchSize = len(texts)
-	}
-	for start := 0; start < len(texts); start += batchSize {
-		end := min(start+batchSize, len(texts))
-		chunk := texts[start:end]
-		vectors, err := embedder.EmbedBatch(ctx, chunk)
-		if err != nil {
-			return fmt.Errorf("batch [%d:%d]: %w", start, end, err)
-		}
-		if len(vectors) != len(chunk) {
-			return fmt.Errorf("batch [%d:%d]: provider returned %d vectors for %d texts",
-				start, end, len(vectors), len(chunk))
-		}
-		if err := onChunk(start, end, vectors); err != nil {
-			return fmt.Errorf("batch [%d:%d] callback: %w", start, end, err)
-		}
-	}
-	return nil
 }
 
 // cosineSimilarity returns the cosine of the angle between a and b.

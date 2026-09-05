@@ -29,7 +29,7 @@
 // gates".
 //
 // Run: go test -run 'TestPackageImportRatchet|TestPackageCohesion' .
-package mcp_data_platform_test
+package structure_test
 
 import (
 	"flag"
@@ -57,7 +57,7 @@ const modulePath = "github.com/txn2/mcp-data-platform"
 // updateImports rewrites the import-ratchet golden file to the current graph
 // instead of asserting against it (go test -run TestPackageImportRatchet -args -update-imports).
 var updateImports = flag.Bool("update-imports", false,
-	"rewrite testdata/allowed_internal_imports.txt from the current import graph")
+	"rewrite test/structure/testdata/allowed_internal_imports.txt from the current import graph")
 
 // ---------------------------------------------------------------------------
 // Shared package loader
@@ -75,6 +75,7 @@ var (
 // expensive step here.
 func firstPartyPackages(t *testing.T) []*packages.Package {
 	t.Helper()
+	root := moduleRoot(t)
 	firstPartyOnce.Do(func() {
 		// No NeedDeps: neither gate reads a dependency's syntax or type info
 		// (the ratchet reads only import-path keys; cohesion reads only each
@@ -84,7 +85,7 @@ func firstPartyPackages(t *testing.T) []*packages.Package {
 			Mode: packages.NeedName | packages.NeedFiles | packages.NeedSyntax |
 				packages.NeedTypes | packages.NeedTypesInfo | packages.NeedImports,
 			Tests: false,
-			Dir:   ".",
+			Dir:   root,
 		}
 		pkgs, err := packages.Load(cfg, "./...")
 		if err != nil {
@@ -174,7 +175,11 @@ func firstPartyEdges(pkgs []*packages.Package) []string {
 
 // allowedImportsPath is the golden set of first-party import edges. It is
 // seeded from the current graph and ratcheted DOWN as coupling is removed.
-var allowedImportsPath = filepath.Join("testdata", "allowed_internal_imports.txt")
+// allowedImportsPath is the golden set of first-party import edges. It sits in
+// this suite's own testdata because this suite is what reads and regenerates it.
+func allowedImportsPath(*testing.T) string {
+	return filepath.Join("testdata", "allowed_internal_imports.txt")
+}
 
 // parseEdgeSet parses the golden file's edges (one "from -> to" per line,
 // blanks ignored) into a set.
@@ -246,14 +251,14 @@ func TestPackageImportRatchet(t *testing.T) {
 	require.NotEmpty(t, current, "first-party import graph is empty — the ratchet cannot bite")
 
 	if *updateImports {
-		require.NoError(t, os.MkdirAll(filepath.Dir(allowedImportsPath), 0o750))
-		require.NoError(t, os.WriteFile(allowedImportsPath,
+		require.NoError(t, os.MkdirAll(filepath.Dir(allowedImportsPath(t)), 0o750))
+		require.NoError(t, os.WriteFile(allowedImportsPath(t),
 			[]byte(strings.Join(current, "\n")+"\n"), 0o600))
-		t.Logf("wrote %d edges to %s", len(current), allowedImportsPath)
+		t.Logf("wrote %d edges to %s", len(current), allowedImportsPath(t))
 		return
 	}
 
-	raw, err := os.ReadFile(allowedImportsPath) //nolint:gosec // test reads project testdata
+	raw, err := os.ReadFile(allowedImportsPath(t)) //nolint:gosec // test reads project testdata
 	require.NoError(t, err, "read import allowlist (regenerate with -args -update-imports)")
 
 	allowed := parseEdgeSet(string(raw))

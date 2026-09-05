@@ -1,4 +1,4 @@
-package mcp_data_platform_test
+package structure_test
 
 import (
 	"errors"
@@ -43,8 +43,7 @@ var allowlistedIntegrationFuncs = map[string]string{
 // files and fails unless every test function either matches the "RealDB"
 // pattern that `make test-realdb` runs or carries a justified allowlist entry.
 func TestIntegrationTestsAreExecuted(t *testing.T) {
-	projectRoot, err := filepath.Abs(".")
-	require.NoError(t, err)
+	projectRoot := moduleRoot(t)
 
 	fset := token.NewFileSet()
 	walkErr := filepath.Walk(projectRoot, func(path string, info os.FileInfo, fErr error) error {
@@ -249,8 +248,7 @@ func startsOwnPostgres(file *ast.File) bool {
 }
 
 func TestIntegrationTestsUseTheSharedServer(t *testing.T) {
-	projectRoot, err := filepath.Abs(".")
-	require.NoError(t, err)
+	projectRoot := moduleRoot(t)
 
 	var offenders []string
 	walkErr := filepath.Walk(projectRoot, func(path string, info os.FileInfo, fErr error) error {

@@ -21,7 +21,7 @@
 // moves state or behavior onto a subsystem owner.
 //
 // Run: go test -run TestPlatformGodObjectBudget .
-package mcp_data_platform_test
+package structure_test
 
 import (
 	"go/ast"
@@ -147,8 +147,7 @@ func TestPlatformGodObjectBudget(t *testing.T) {
 // *Platform receiver.
 func countPlatformGodObject(t *testing.T) (fields, methods int) {
 	t.Helper()
-	root, err := filepath.Abs("pkg/platform")
-	require.NoError(t, err)
+	root := rootPath(t, "pkg", "platform")
 
 	fset := token.NewFileSet()
 	entries, err := os.ReadDir(root)

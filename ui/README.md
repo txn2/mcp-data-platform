@@ -264,7 +264,7 @@ side enforces in `make verify`, plus a coupling rule. These are configured in
 | `max-lines-per-function` | 250 | warn | — |
 | `max-params` | 5 | warn | — |
 | `import-x/max-dependencies` | 25 | warn | — |
-| `max-lines` | 600 | **error** | `package_budget_test.go` |
+| `max-lines` | 600 | **error** | `test/structure/package_budget_test.go` |
 | `sonarjs/no-identical-functions`, `sonarjs/no-collapsible-if` | — | warn | — |
 
 Generated API types (`src/api/generated/`), MSW mocks (`src/mocks/`), and test

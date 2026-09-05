@@ -183,7 +183,7 @@ func (p *ResourcesProvider) Fetch(ctx context.Context, ref string, caller Caller
 		Title:     res.DisplayName,
 		Body:      p.inlineContent(ctx, res),
 		Content:   res,
-		Table: lookupOneTable(ctx, p.tables, TableSubject{
+		Tables: lookupTables(ctx, p.tables, TableSubject{
 			Kind: TableKindResource, ID: res.ID, Bucket: p.bucket, HeadKey: res.S3Key,
 		}),
 	}

@@ -4,9 +4,10 @@
 // forever while enforcing nothing. These tests exercise the detection logic
 // against known-bad inputs so a future refactor that neuters a gate (a rule
 // that stops matching, a graph that stops splitting) breaks the build.
-package mcp_data_platform_test
+package structure_test
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -90,7 +91,7 @@ func loadFixturePackage(t *testing.T, dir string) *packages.Package {
 // TestCohesionDetectsFragmentation proves the gate flags a package built from
 // two independent declaration islands.
 func TestCohesionDetectsFragmentation(t *testing.T) {
-	p := loadFixturePackage(t, "testdata/cohesionfixture/fragmented")
+	p := loadFixturePackage(t, filepath.Join("testdata", "cohesionfixture", "fragmented"))
 	clusters := significantClusters(p)
 	require.Len(t, clusters, 2, "fragmented fixture should surface two significant clusters")
 	// Each island has exactly five mutually-referencing declarations.
@@ -102,7 +103,7 @@ func TestCohesionDetectsFragmentation(t *testing.T) {
 // independent handlers over one Store a single cluster — the false-positive
 // case the naive call-graph definition would wrongly flag.
 func TestCohesionAcceptsSharedType(t *testing.T) {
-	p := loadFixturePackage(t, "testdata/cohesionfixture/cohesive")
+	p := loadFixturePackage(t, filepath.Join("testdata", "cohesionfixture", "cohesive"))
 	clusters := significantClusters(p)
 	assert.Len(t, clusters, 1, "handlers sharing one Store should be a single cluster")
 }
@@ -113,7 +114,7 @@ func TestCohesionAcceptsSharedType(t *testing.T) {
 // exported package-scope names (Widget, New, Default, Version, Alpha, Beta), one
 // exported method (Do), and two unexported decls.
 func TestExportedSurfaceCounts(t *testing.T) {
-	p := loadFixturePackage(t, "testdata/surfacefixture")
+	p := loadFixturePackage(t, filepath.Join("testdata", "surfacefixture"))
 	assert.Equal(t, 6, exportedSurface(p),
 		"each exported package-scope name counts (grouped consts included); methods and unexported decls do not")
 }

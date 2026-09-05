@@ -62,12 +62,35 @@ type DiscoverInput struct {
 // catalog-less connection, a ranking that fell back to lexical, an
 // empty match, or a schema too large to return whole.
 type DiscoverOutput struct {
-	Level      string                `json:"level"`
-	Specs      []SpecSummary         `json:"specs,omitempty"`
-	Operations []OperationSummary    `json:"operations,omitempty"`
-	Operation  *EndpointSchemaOutput `json:"operation,omitempty"`
-	Note       string                `json:"note,omitempty"`
-	Next       string                `json:"next,omitempty"`
+	Level      string                   `json:"level"`
+	Specs      []SpecSummary            `json:"specs,omitempty"`
+	Operations []RankedOperationSummary `json:"operations,omitempty"`
+	Operation  *EndpointSchemaOutput    `json:"operation,omitempty"`
+	// MatchedLexical and ShownSemantic report where relevance ended: how
+	// many of the operations returned contain every token, and how many
+	// followed them as neighbors by intent. Absent unless the call carried a
+	// query; a query that matched nothing reports zero rather than nothing,
+	// which is "none contain your words" rather than "this was not ranked"
+	// (#1626).
+	MatchedLexical *int   `json:"matched_lexical,omitempty"`
+	ShownSemantic  *int   `json:"shown_semantic,omitempty"`
+	Note           string `json:"note,omitempty"`
+	Next           string `json:"next,omitempty"`
+}
+
+// RankedOperationSummary is one operation at the operations level: the
+// summary, plus what put it in the result when a query ranked it. Score is the
+// mode's score in [0,1] (blended under hybrid, the normalized cosine under
+// semantic, positional under the lexical filter); LexicalMatch says whether
+// the operation contains every token.
+//
+// Both are pointers because both are absent from an unranked list, and a zero
+// score is a real score, so omitempty on a plain float would drop it. Before
+// #1626 the score was computed and discarded (#1626).
+type RankedOperationSummary struct {
+	OperationSummary
+	Score        *float64 `json:"score,omitempty"`
+	LexicalMatch *bool    `json:"lexical_match,omitempty"`
 }
 
 // The Next sentence at each level. The operation level's is composed
@@ -181,19 +204,43 @@ func (t *Toolkit) discoverOperations(ctx context.Context, policy RoutePolicy, c 
 	if rankingDefaulted {
 		mode = RankingHybrid
 	}
-	ranked, fallbackReason := rankWithMode(ctx, rankRequest{
+	ranked := rankWithMode(ctx, rankRequest{
 		tk: t, conn: c, ops: visible, query: in.Query, limit: limit, mode: mode,
 	})
+	out := operationsOutput(in, ranked, rankingFallbackNote(rankingDefaulted, mode, ranked.fallbackReason))
+	return toolkit.JSONResult(out), out, nil
+}
+
+// operationsOutput renders one operations level with what the caller needs to
+// read it: where relevance ended, and the note for a result that is only
+// neighbors, or empty.
+func operationsOutput(in DiscoverInput, ranked rankedResult, note string) DiscoverOutput {
 	out := DiscoverOutput{
 		Level:      DiscoverLevelOperations,
-		Operations: ranked,
-		Note:       rankingFallbackNote(rankingDefaulted, mode, fallbackReason),
+		Operations: ranked.operations,
+		Note:       note,
 		Next:       discoverNextAfterOperations,
 	}
-	if len(ranked) == 0 {
+	if strings.TrimSpace(in.Query) != "" {
+		matched, shown := ranked.matchedLexical, ranked.shownSemantic
+		out.MatchedLexical, out.ShownSemantic = &matched, &shown
+		out.Note = joinNotes(out.Note, neighborsOnlyNote(ranked))
+	}
+	if len(ranked.operations) == 0 {
 		out.Note = joinNotes(out.Note, noOperationsNote(in))
 	}
-	return toolkit.JSONResult(out), out, nil
+	return out
+}
+
+// neighborsOnlyNote keeps a result of near neighbors from reading as a set of
+// matches. Empty when something matched, and when nothing came back at all --
+// noOperationsNote answers that.
+func neighborsOnlyNote(ranked rankedResult) string {
+	if ranked.matchedLexical > 0 || ranked.shownSemantic == 0 {
+		return ""
+	}
+	return fmt.Sprintf("no operation contains every token of the query; the %d shown are the closest by intent",
+		ranked.shownSemantic)
 }
 
 // noOperationsNote says what an empty operations level was narrowed by,

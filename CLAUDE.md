@@ -236,6 +236,7 @@ mcp-data-platform/
 │   ├── agentinstructions/          # The deployment's customized agent-instruction layer as a policy rather than a config value (#1607): the byte bound and size advisory both its writers enforce, the config-store adapter it is read and written through, and the `mcp:knowledge_page:<slug>` index-entry form BOTH instruction layers point at a page with
 │   ├── admin/                      # Admin-API seams built only by pkg/admin: auditapi/ (events + metrics), callapi/ (the call catalog + its review actions), catalogapi/ (OpenAPI spec bundles + embedding jobs), connoauthapi/ (connection OAuth, unified + legacy per-kind), notifyapi/ (notification delivery history + status counts), settingsapi/ (SMTP + review-queue-alert settings REST) — extracted by #1078
 │   ├── apigwmetrics/               # The api gateway's outbound HTTP instrumentation as an http.RoundTripper: the connection/status labels, and the persona the call was authorized under, read off the request context the tool call carries (#1615). Holds no gateway types, and was extracted when pkg/toolkits/apigateway reached its package-size budget
+│   ├── apigwtls/                   # The api gateway's TLS material: what a connection's mTLS keypair and CA bundle must satisfy, and the *tls.Config its outbound transport is built with. Knows nothing about API connections — it takes the four values one carries — and was extracted when pkg/toolkits/apigateway reached its package-size budget (#1626)
 │   ├── httpjson/                   # RFC 9457 Problem Details responder + admin list-query param parsing, shared by the admin/portal decomposition seams (#1078)
 │   ├── httpserver/                 # HTTP composition root: mux/route assembly (MCP streamable+SSE, OAuth, admin/portal/resources/gateway/observability REST, portal UI), CORS, drain/shutdown sequencing — extracted from main.go (#895). Subpackages are the adapters it mounts: accessgate/, attachhttp/, datahubapi/, gatewayhttp/, health/, httpauth/, mentionhttp/, notifyhttp/ (self-scoped notification prefs), scripthttp/ (managed-script admin + portal routes, including the administrator's owner transfer), sources/, unsubhttp/ (no-login unsubscribe + its tokens), versionhttp/ (#1076, #1080)
 │   ├── sqlgate/                    # Collects the module's SQL and hands each statement to a real PostgreSQL to parse and plan (#1512); integration-tagged, so it is absent from the default build
@@ -617,8 +618,8 @@ When AI (Claude Code or similar) contributes code, the following additional chec
 
 5. **No Vaporware**: Every database migration table must have corresponding DML (INSERT/SELECT/UPDATE/DELETE) in non-test Go source code. Every Go package under `pkg/` must be imported by at least one non-test file. Every interface with a noop implementation must also have a real (non-noop) implementation. These invariants are enforced by three tests:
    - `TestMigrationTablesHaveConsumers` (`pkg/database/migrate/`) — no orphaned migration tables
-   - `TestNoDeadPackages` (`verify_test.go` at repo root) — no unimported packages
-   - `TestNoopOnlyInterfaces` (`verify_test.go` at repo root) — no interfaces where the only implementation is a noop
+   - `TestNoDeadPackages` (`test/structure/verify_test.go`) — no unimported packages
+   - `TestNoopOnlyInterfaces` (`test/structure/verify_test.go`) — no interfaces where the only implementation is a noop
 
    Do not create migrations, packages, or interfaces "for future use" — code that isn't wired into the running application is dead code regardless of whether it has its own unit tests.
 

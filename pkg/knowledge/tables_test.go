@@ -2,6 +2,7 @@ package knowledge
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -13,15 +14,16 @@ import (
 // joined, and to what. What is asserted here is that it reaches the hits it
 // belongs to and that losing it never loses the hit.
 
-// stubLookup answers from a fixed map, keyed by subject id.
+// stubLookup answers from a fixed map, keyed by subject id. The value is the
+// file's whole registration list, newest first, as the real lookup returns.
 type stubLookup struct {
-	tables map[string]*HitTable
+	tables map[string][]HitTable
 	err    error
 	calls  int
 	seen   []TableSubject
 }
 
-func (s *stubLookup) TablesFor(_ context.Context, subjects []TableSubject) (map[string]*HitTable, error) {
+func (s *stubLookup) TablesFor(_ context.Context, subjects []TableSubject) (map[string][]HitTable, error) {
 	s.calls++
 	s.seen = append(s.seen, subjects...)
 	if s.err != nil {
@@ -38,8 +40,8 @@ func subjectByRef(h Hit) (TableSubject, bool) {
 }
 
 func TestAttachTables(t *testing.T) {
-	lookup := &stubLookup{tables: map[string]*HitTable{
-		"a1": {Connection: "scratch", Table: "scratch.uploads.analyst_a1"},
+	lookup := &stubLookup{tables: map[string][]HitTable{
+		"a1": {{Connection: "scratch", Table: "scratch.uploads.analyst_a1"}},
 	}}
 	hits := []Hit{{Ref: "a1"}, {Ref: "a2"}}
 
@@ -81,24 +83,88 @@ func TestAttachTables_NothingToDo(t *testing.T) {
 	assert.Zero(t, lookup.calls)
 }
 
-func TestLookupOneTable(t *testing.T) {
-	lookup := &stubLookup{tables: map[string]*HitTable{
-		"res_1": {Connection: "scratch", Table: "scratch.uploads.analyst_keys", Stale: true},
+func TestLookupTables(t *testing.T) {
+	lookup := &stubLookup{tables: map[string][]HitTable{
+		"res_1": {
+			{Connection: "scratch", Table: "scratch.uploads.analyst_keys_v2", Stale: true},
+			{Connection: "warehouse", Table: "warehouse.uploads.analyst_keys"},
+		},
 	}}
 
-	got := lookupOneTable(context.Background(), lookup,
+	got := lookupTables(context.Background(), lookup,
 		TableSubject{Kind: TableKindResource, ID: "res_1", Bucket: "b", HeadKey: "d/keys.csv"})
-	require.NotNil(t, got)
-	assert.True(t, got.Stale)
+	require.Len(t, got, 2, "a fetched file reports every registration over it, not one")
+	assert.Equal(t, "scratch.uploads.analyst_keys_v2", got[0].Table)
+	assert.True(t, got[0].Stale)
+	assert.Equal(t, "warehouse.uploads.analyst_keys", got[1].Table)
 
-	assert.Nil(t, lookupOneTable(context.Background(), lookup,
+	assert.Empty(t, lookupTables(context.Background(), lookup,
 		TableSubject{Kind: TableKindResource, ID: "unregistered"}))
-	assert.Nil(t, lookupOneTable(context.Background(), nil, TableSubject{ID: "res_1"}),
+	assert.Empty(t, lookupTables(context.Background(), nil, TableSubject{ID: "res_1"}),
 		"no lookup wired")
-	assert.Nil(t, lookupOneTable(context.Background(), lookup, TableSubject{}),
+	assert.Empty(t, lookupTables(context.Background(), lookup, TableSubject{}),
 		"a subject with no id names nothing")
-	assert.Nil(t, lookupOneTable(context.Background(), &stubLookup{err: errors.New("db down")},
+	assert.Empty(t, lookupTables(context.Background(), &stubLookup{err: errors.New("db down")},
 		TableSubject{ID: "res_1"}), "a failed lookup drops the reference, not the document")
+}
+
+// TestAttachTables_PicksTheNewestFollowableRegistration is #1627: a file
+// registered twice put its newest registration on the hit whatever state it
+// was in, so a follow reporting the table gone still handed out sample SQL
+// over it. The hit points at a table a follow has not disowned, or at none.
+func TestAttachTables_PicksTheNewestFollowableRegistration(t *testing.T) {
+	lookup := &stubLookup{tables: map[string][]HitTable{
+		"a1": {
+			{
+				Connection: "scratch", Table: "scratch.uploads.feed_norepair",
+				FollowError: "the table no longer exists",
+			},
+			{Connection: "scratch", Table: "scratch.uploads.feed"},
+		},
+		"a2": {
+			{Connection: "scratch", Table: "scratch.uploads.gone", FollowError: "the table no longer exists"},
+		},
+	}}
+	hits := []Hit{{Ref: "a1"}, {Ref: "a2"}}
+
+	attachTables(context.Background(), lookup, hits, subjectByRef)
+
+	require.NotNil(t, hits[0].Table)
+	assert.Equal(t, "scratch.uploads.feed", hits[0].Table.Table,
+		"the newest registration a follow has not disowned")
+	assert.Nil(t, hits[1].Table,
+		"a file whose every registration is broken points the caller at no table")
+}
+
+// TestPreferredTable covers the rule directly: the list arrives newest first
+// and the first healthy entry wins.
+func TestPreferredTable(t *testing.T) {
+	assert.Nil(t, preferredTable(nil))
+	assert.Nil(t, preferredTable([]HitTable{{Table: "a", FollowError: "gone"}}))
+
+	got := preferredTable([]HitTable{
+		{Table: "newest", FollowError: "gone"},
+		{Table: "middle"},
+		{Table: "oldest"},
+	})
+	require.NotNil(t, got)
+	assert.Equal(t, "middle", got.Table)
+}
+
+// TestDocumentOmitsTablesWhenNothingIsRegistered pins the wire shape: no
+// tables key at all, rather than an empty list to interpret.
+func TestDocumentOmitsTablesWhenNothingIsRegistered(t *testing.T) {
+	body, err := json.Marshal(Document{Reference: "mcp:resource:res_1", Source: SourceResources})
+	require.NoError(t, err)
+	assert.NotContains(t, string(body), "tables")
+
+	body, err = json.Marshal(Document{
+		Reference: "mcp:resource:res_1",
+		Tables:    []HitTable{{Connection: "scratch", Table: "scratch.uploads.analyst_keys"}},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, string(body), `"tables"`)
+	assert.Contains(t, string(body), `"query_table":"scratch.uploads.analyst_keys"`)
 }
 
 // sinkProvider records that the router pushed a lookup into it.

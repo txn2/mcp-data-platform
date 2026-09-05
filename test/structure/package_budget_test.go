@@ -25,7 +25,7 @@
 // about is too large wherever it lives.
 //
 // Run: go test -run TestPackageSizeBudget .
-package mcp_data_platform_test
+package structure_test
 
 import (
 	"bufio"
@@ -119,8 +119,7 @@ type packageSize struct {
 // do not raise the budget (that defeats the gate). See CONTRIBUTING.md,
 // "Structural maintainability gates".
 func TestPackageSizeBudget(t *testing.T) {
-	projectRoot, err := filepath.Abs(".")
-	require.NoError(t, err)
+	projectRoot := moduleRoot(t)
 
 	budgets := []sizeBudget{
 		{tree: "pkg", loc: maxPackageLOC, files: maxPackageFiles},
@@ -267,7 +266,7 @@ func TestCountGoFile_MissingFile(t *testing.T) {
 // of magnitude; if swaggo changes its header wording, this fails here with the
 // cause named rather than as a 19k-line budget violation in internal/apidocs.
 func TestApidocsIsRecognizedAsGenerated(t *testing.T) {
-	generated, loc, err := countGoFile(filepath.Join("internal", "apidocs", "docs.go"))
+	generated, loc, err := countGoFile(rootPath(t, "internal", "apidocs", "docs.go"))
 	require.NoError(t, err)
 	require.True(t, generated, "internal/apidocs/docs.go carries swaggo's generated marker")
 	require.Greater(t, loc, maxInternalPackageLOC,

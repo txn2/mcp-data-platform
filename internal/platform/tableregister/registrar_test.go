@@ -265,6 +265,9 @@ func (m *memStore) ForSources(_ context.Context, kind string, ids []string) (map
 			out[r.SourceID] = append(out[r.SourceID], r)
 		}
 	}
+	for id := range out {
+		out[id] = newestFirst(out[id])
+	}
 	return out, nil
 }
 
@@ -828,7 +831,7 @@ func TestRegistrar_UnavailableWithoutWiring(t *testing.T) {
 func TestLookup_TablesFor(t *testing.T) {
 	h := newHarness(t)
 	reg, err := h.reg.Register(context.Background(), testCaller(), testSource(),
-		Request{Connection: "scratch"})
+		Request{Connection: "scratch", Follow: true})
 	require.NoError(t, err)
 
 	lookup := NewLookup(h.reg)
@@ -838,13 +841,50 @@ func TestLookup_TablesFor(t *testing.T) {
 	}})
 	require.NoError(t, err)
 
-	got := tables["asset_1"]
-	require.NotNil(t, got)
+	require.Len(t, tables["asset_1"], 1)
+	got := tables["asset_1"][0]
+	assert.Equal(t, reg.ID, got.RegistrationID)
 	assert.Equal(t, "scratch", got.Connection)
 	assert.Equal(t, reg.QualifiedName(), got.Table)
 	assert.Contains(t, got.Sample, "CAST(t.\"store_id\" AS BIGINT)",
 		"every column is VARCHAR, so the sample shows the cast a join needs")
 	assert.False(t, got.Stale)
+	assert.True(t, got.Follow, "a registration follows its file unless the caller pins it")
+	assert.False(t, got.Repair)
+	assert.Empty(t, got.FollowError)
+}
+
+// TestLookup_TablesForReportsEveryRegistration is #1627: a file registered
+// twice yields both, newest first, each with the state manage_table
+// action=list reports. The second is the one a follow disowned -- precisely
+// what the old single-value lookup returned.
+func TestLookup_TablesForReportsEveryRegistration(t *testing.T) {
+	h := newHarness(t)
+	first, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch", TableName: "feed"})
+	require.NoError(t, err)
+	second, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch", TableName: "feed_norepair"})
+	require.NoError(t, err)
+
+	// A follow that could not move the newer registration records why on it,
+	// which is the state the QA report reproduced.
+	const gone = "the table no longer exists"
+	require.NoError(t, h.store.RecordFollowFailure(context.Background(), second.ID, gone))
+
+	tables, err := NewLookup(h.reg).TablesFor(context.Background(), []knowledge.TableSubject{{
+		Kind: knowledge.TableKindAsset, ID: "asset_1",
+		Bucket: "portal-assets", HeadKey: "artifacts/u1/asset_1/content.csv",
+	}})
+	require.NoError(t, err)
+	require.Len(t, tables["asset_1"], 2, "both registrations over the file")
+
+	assert.Equal(t, second.ID, tables["asset_1"][0].RegistrationID, "newest first")
+	assert.Equal(t, gone, tables["asset_1"][0].FollowError)
+	assert.Equal(t, first.ID, tables["asset_1"][1].RegistrationID)
+	assert.Empty(t, tables["asset_1"][1].FollowError)
+	assert.NotEqual(t, tables["asset_1"][0].Table, tables["asset_1"][1].Table,
+		"each entry names its own table")
 }
 
 // TestLookup_MovedHeadKeyReadsStale is the revision case: a new version writes
@@ -861,8 +901,8 @@ func TestLookup_MovedHeadKeyReadsStale(t *testing.T) {
 		Bucket: "portal-assets", HeadKey: "artifacts/u1/asset_1/v2/content.csv",
 	}})
 	require.NoError(t, err)
-	require.NotNil(t, tables["asset_1"])
-	assert.True(t, tables["asset_1"].Stale, "the head moved to a directory the table does not point at")
+	require.Len(t, tables["asset_1"], 1)
+	assert.True(t, tables["asset_1"][0].Stale, "the head moved to a directory the table does not point at")
 }
 
 // TestLookup_OverwriteInPlaceIsNotStale: replacing the object at the same key
@@ -879,7 +919,8 @@ func TestLookup_OverwriteInPlaceIsNotStale(t *testing.T) {
 		Bucket: "portal-assets", HeadKey: "artifacts/u1/asset_1/content.csv",
 	}})
 	require.NoError(t, err)
-	assert.False(t, tables["asset_1"].Stale)
+	require.Len(t, tables["asset_1"], 1)
+	assert.False(t, tables["asset_1"][0].Stale)
 }
 
 func TestLookup_UnregisteredSubjectIsAbsent(t *testing.T) {
@@ -888,7 +929,7 @@ func TestLookup_UnregisteredSubjectIsAbsent(t *testing.T) {
 		Kind: knowledge.TableKindAsset, ID: "asset_unknown", Bucket: "b", HeadKey: "d/content.csv",
 	}})
 	require.NoError(t, err)
-	assert.Nil(t, tables["asset_unknown"])
+	assert.Empty(t, tables["asset_unknown"])
 }
 
 func TestLookup_NoRegistrarFindsNothing(t *testing.T) {

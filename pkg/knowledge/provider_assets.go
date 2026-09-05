@@ -169,7 +169,7 @@ func (p *AssetsProvider) Fetch(ctx context.Context, ref string, caller Caller) (
 		Title:      asset.Name,
 		Content:    asset,
 		References: assetOutboundRefs(*asset),
-		Table: lookupOneTable(ctx, p.tables, TableSubject{
+		Tables: lookupTables(ctx, p.tables, TableSubject{
 			Kind: TableKindAsset, ID: asset.ID, Bucket: asset.S3Bucket, HeadKey: asset.S3Key,
 		}),
 	}, true, nil

@@ -112,7 +112,7 @@ jobs:
         run: make test-realdb
 
       # Threshold must equal COVERAGE_MIN in the Makefile and the Codecov
-      # project target; TestGateFiguresAgree (pins_test.go) enforces that.
+      # project target; TestGateFiguresAgree (test/structure/pins_test.go) enforces that.
       - name: Check coverage threshold
         run: |
           COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print substr($3, 1, length($3)-1)}')

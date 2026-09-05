@@ -233,25 +233,40 @@ type Hit struct {
 	Link *HitLink `json:"link,omitempty"`
 	// Table names the query-engine table a registered file is readable as
 	// (#1327). A search hit for an uploaded CSV otherwise says only that the
-	// file exists; this says it can be joined, and to what. Nil for a source
-	// with no file behind it and for a file nobody has registered.
+	// file exists; this says it can be joined, and to what.
+	//
+	// A hit carries one table because it points at somewhere the data can be
+	// queried rather than inventorying every registration -- fetch returns
+	// the inventory (#1627). It is the newest registration whose follow has
+	// not failed. Nil for a source with no file behind it, a file nobody
+	// registered, and one whose every registration carries a follow error.
 	Table *HitTable `json:"table,omitempty"`
 }
 
-// HitTable is the queryable table behind a Hit: the connection to run against
-// and the name to write in the FROM clause.
+// HitTable is one registration over a file: the connection to run against, the
+// name to write in the FROM clause, and the state of the registration itself.
 //
 // Sample carries a statement showing the CAST a join needs, because a table
 // registered over a CSV has VARCHAR for every column and the obvious join
 // fails with a type error that explains nothing. Stale says the file has moved
 // on since the table was registered, so the rows are the revision that was
-// current then; it is reported rather than hidden because correct SQL over
-// stale bytes is the failure nothing else would surface.
+// current then; correct SQL over stale bytes is the failure nothing else
+// surfaces.
+//
+// RegistrationID, Follow, Repair and FollowError are the four facts
+// manage_table action=list reports, so the two surfaces cannot disagree about
+// one registration (#1627). FollowError decides whether the table can be
+// queried at all: a follow that could not move the registration leaves its
+// reason here, and the table it names may be gone.
 type HitTable struct {
-	Connection string `json:"connection"`
-	Table      string `json:"query_table"`
-	Sample     string `json:"sample_sql,omitempty"`
-	Stale      bool   `json:"stale,omitempty"`
+	RegistrationID string `json:"registration_id,omitempty"`
+	Connection     string `json:"connection"`
+	Table          string `json:"query_table"`
+	Sample         string `json:"sample_sql,omitempty"`
+	Stale          bool   `json:"stale,omitempty"`
+	Follow         bool   `json:"follow"`
+	Repair         bool   `json:"repair"`
+	FollowError    string `json:"follow_error,omitempty"`
 }
 
 // HitLink is the client-attachable file behind a Hit: the canonical resource URI
