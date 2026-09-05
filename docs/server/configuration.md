@@ -1416,7 +1416,7 @@ resources:
 | `s3_connection` | string | the S3 kind's `default:` | Name of the S3 toolkit instance used for blob storage |
 | `s3_bucket` | string | `managed-resources` | Bucket the uploaded bytes are written to |
 | `max_versions` | int | `10` | Content revisions a resource keeps, counting the current one. A revision past the cap prunes the oldest stored file; live content is never pruned. A non-positive value selects the default, and anything below `2` is raised to `2`, since a cap of `1` would keep no history at all |
-| `max_upload_bytes` | int | `104857600` (100 MB) | Largest file `POST /api/v1/resources` and `POST /api/v1/resources/{id}/content` accept. Absent, zero, or negative selects the default, so a deployment that sets nothing keeps today's 100 MB. The refusal message and the portal's file chooser both state this deployment's number — the browser reads it from `GET /api/v1/portal/me` rather than holding a copy. It bounds bytes streamed, not bytes held: see below |
+| `max_upload_bytes` | int | `104857600` (100 MB) | Largest file `POST /api/v1/resources` and `POST /api/v1/resources/{id}/content` accept. Absent, zero, or negative selects the default, so a deployment that sets nothing keeps today's 100 MB. The refusal message and the portal's file chooser both state this deployment's number — the browser reads it from `GET /api/v1/portal/me` rather than holding a copy. It bounds bytes streamed, not bytes held: see below. It is also the size a table registration will read an object by, so a file this deployment accepts is a file it can register a table over (#1634) |
 
 Managed resources require a database. With none configured the block has no
 effect, and the platform runs the read-only templates alone.
@@ -1447,6 +1447,12 @@ Two things a raised ceiling does not change. Content indexing still stops at
 alone whatever the ceiling is. And an ingress or proxy in front of the platform
 enforces its own body limit: raise that too, or a request the platform would
 accept never reaches it.
+
+### The registration reads by the same number
+
+A table registration reads the object it is pointed at — the header row, and whether a line-based reader can read the file at all, which only the rest of the bytes settle. It reads by this same ceiling, so the two surfaces cannot disagree: a file the write routes accept is a file a registration will read, and a file over the ceiling is refused by both with the same number.
+
+That read holds the object, unlike the upload. Sizing for registrations of large files is sizing for the read path.
 
 ### The file part goes last
 

@@ -92,11 +92,16 @@ type Deps struct {
 	MaxBytes int64
 }
 
-// DefaultMaxBytes bounds the object the registrar reads to find a header row.
+// DefaultMaxBytes bounds the object the registrar reads to find a header row
+// when the caller supplies no bound of its own.
 //
 // Neither S3 adapter has a range read, so learning the first line costs a full
-// GetObject. The bound matches the managed-resource upload cap, which is the
-// largest object either surface can have put there.
+// GetObject. The bound exists to match the managed-resource upload cap, which
+// is the largest object either surface can have put there -- so the platform
+// passes the DEPLOYMENT's ceiling in Deps.MaxBytes and this constant is only
+// the fallback. It was written when that cap was a compiled-in 100 MB; #1628
+// made it configurable, and a deployment that raised it could then upload a
+// file that no registration would read.
 const DefaultMaxBytes = 100 << 20
 
 // Log field names shared by this package's warnings.

@@ -17,6 +17,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/portal/s3adapter"
+	"github.com/txn2/mcp-data-platform/pkg/resource"
 	portaltoolkit "github.com/txn2/mcp-data-platform/pkg/toolkits/portal"
 	trinotoolkit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 )
@@ -62,7 +63,28 @@ func buildTableRegistrar(p *platform.Platform) *tableregister.Registrar {
 		Scope:    connscope.New(connscope.Deps{Registry: p.PersonaRegistry()}),
 		Audit:    auditLogger,
 		NewID:    newRegistrationID,
+		MaxBytes: registrationMaxBytes(p.Config()),
 	})
+}
+
+// registrationMaxBytes is the object size a registration will read: the
+// deployment's own upload ceiling.
+//
+// A registration reads the object it is pointed at, so the bound has to be the
+// largest object this deployment stores. Anything smaller is a platform
+// refusing to use a file it just accepted -- which is what a compiled-in
+// 100 MB became once #1628 let a deployment raise the write routes' ceiling
+// without raising this one (#1634).
+//
+// It is normalized the way the write routes normalize it, so the two numbers
+// are the same number and no file can be taken by one and refused by the
+// other. A deployment that configures nothing gets resource.MaxUploadBytes,
+// which is what tableregister.DefaultMaxBytes already was.
+func registrationMaxBytes(cfg *platform.Config) int64 {
+	if cfg == nil {
+		return resource.NormalizeMaxUploadBytes(0)
+	}
+	return resource.NormalizeMaxUploadBytes(cfg.Resources.Managed.MaxUploadBytes)
 }
 
 // tableRegistrarOnce caches the registrar per platform so the REST routes, the
