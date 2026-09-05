@@ -9,12 +9,15 @@ package memory
 
 import (
 	"context"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/testdb"
+	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
 
 func TestMemoryStore_Insert_RealDB_RoundTrip(t *testing.T) {
@@ -337,4 +340,133 @@ func TestMemoryStore_SimilarActivePairs_RealDB(t *testing.T) {
 	pairsB, err := finder.SimilarActivePairs(ctx, "b@example.com", 0.9, 10)
 	require.NoError(t, err)
 	assert.Empty(t, pairsB, "another user's records must never appear in a caller's pair listing")
+}
+
+// TestStalenessWatcher_RealDB_VerifiesOnlyEntityLinkedRecords is #1625
+// criterion 1. The watcher's batch query and its marks are SQL, so this is
+// where the rule holds or does not: a record naming an entity is checked and
+// stamped, a record naming none is left alone, and neither record's updated_at
+// moves, because verification reads the catalog and changes nothing.
+func TestStalenessWatcher_RealDB_VerifiesOnlyEntityLinkedRecords(t *testing.T) {
+	store := NewPostgresStore(testdb.New(t))
+	ctx := context.Background()
+
+	linked := Record{
+		ID:        "mem_stale_linked",
+		Content:   "The daily_sales table is partitioned by transaction_date.",
+		Dimension: DimensionKnowledge,
+		SinkClass: SinkSchemaEntity,
+		Category:  CategoryBusinessCtx,
+		Source:    SourceUser,
+		Status:    StatusActive,
+		EntityURNs: []string{
+			"urn:li:dataset:(urn:li:dataPlatform:trino,hive.retail.daily_sales,PROD)",
+		},
+	}
+	unlinked := Record{
+		ID:        "mem_stale_unlinked",
+		Content:   "Revenue is reported net of refunds in every board deck.",
+		Dimension: DimensionKnowledge,
+		SinkClass: SinkBusinessKnowledge,
+		Category:  CategoryBusinessCtx,
+		Source:    SourceUser,
+		Status:    StatusActive,
+	}
+	require.NoError(t, store.Insert(ctx, linked))
+	require.NoError(t, store.Insert(ctx, unlinked))
+
+	before := map[string]time.Time{
+		linked.ID:   mustGet(t, store, linked.ID).UpdatedAt,
+		unlinked.ID: mustGet(t, store, unlinked.ID).UpdatedAt,
+	}
+
+	w := NewStalenessWatcher(store, &mockSemanticProvider{}, StalenessConfig{})
+	require.NoError(t, w.checkBatch(ctx))
+	require.NoError(t, w.checkBatch(ctx))
+
+	got := mustGet(t, store, linked.ID)
+	require.NotNil(t, got.LastVerified, "an entity-linked record the watcher checked must be stamped verified")
+	assert.Equal(t, StatusActive, got.Status)
+	assert.WithinDuration(t, before[linked.ID], got.UpdatedAt, time.Millisecond,
+		"verification must not re-date updated_at: it is the column readers take as the last content change (#1625)")
+
+	got = mustGet(t, store, unlinked.ID)
+	assert.Nil(t, got.LastVerified,
+		"a record naming no entity is not something the watcher can verify; last_verified must stay null")
+	assert.WithinDuration(t, before[unlinked.ID], got.UpdatedAt, time.Millisecond,
+		"a record the watcher skipped must not be re-dated either")
+}
+
+// TestStalenessWatcher_RealDB_BatchIsCheckableRecords is #1625 criterion 3: a
+// batch of N costs N catalog lookups. The entity-less records outnumber the
+// batch and sort first (last_verified null), so a watcher that filtered in the
+// Go loop rather than in the query would spend the whole batch on them and
+// check nothing.
+func TestStalenessWatcher_RealDB_BatchIsCheckableRecords(t *testing.T) {
+	store := NewPostgresStore(testdb.New(t))
+	ctx := context.Background()
+
+	const (
+		unlinkedCount = 8
+		linkedCount   = 5
+		batchSize     = 3
+	)
+	for i := range unlinkedCount {
+		require.NoError(t, store.Insert(ctx, Record{
+			ID:        fmt.Sprintf("mem_batch_unlinked_%d", i),
+			Content:   fmt.Sprintf("Operational rule number %d that names no dataset.", i),
+			Dimension: DimensionKnowledge,
+			SinkClass: SinkOperationalRule,
+			Category:  CategoryUsageGuidance,
+			Source:    SourceUser,
+			Status:    StatusActive,
+		}))
+	}
+	for i := range linkedCount {
+		require.NoError(t, store.Insert(ctx, Record{
+			ID:        fmt.Sprintf("mem_batch_linked_%d", i),
+			Content:   fmt.Sprintf("Table number %d is refreshed nightly at 02:00 UTC.", i),
+			Dimension: DimensionKnowledge,
+			SinkClass: SinkSchemaEntity,
+			Category:  CategoryBusinessCtx,
+			Source:    SourceUser,
+			Status:    StatusActive,
+			EntityURNs: []string{
+				fmt.Sprintf("urn:li:dataset:(urn:li:dataPlatform:trino,hive.retail.t%d,PROD)", i),
+			},
+		}))
+	}
+
+	var lookups int
+	sp := &mockSemanticProvider{
+		tableCtxFn: func(_ context.Context, _ semantic.TableIdentifier) (*semantic.TableContext, error) {
+			lookups++
+			return &semantic.TableContext{}, nil
+		},
+	}
+	w := NewStalenessWatcher(store, sp, StalenessConfig{BatchSize: batchSize})
+	require.NoError(t, w.checkBatch(ctx))
+
+	assert.Equal(t, batchSize, lookups, "a batch of %d must cost %d catalog lookups", batchSize, batchSize)
+
+	verified, _, err := store.List(ctx, Filter{Status: StatusActive, Limit: MaxLimit})
+	require.NoError(t, err)
+	var stamped int
+	for _, rec := range verified {
+		if rec.LastVerified == nil {
+			continue
+		}
+		stamped++
+		assert.NotEmpty(t, rec.EntityURNs, "record %s was stamped verified but names no entity", rec.ID)
+	}
+	assert.Equal(t, batchSize, stamped, "the watcher must stamp exactly the records it checked")
+}
+
+// mustGet reads one record back, failing the test when it is missing.
+func mustGet(t *testing.T, store Store, id string) *Record {
+	t.Helper()
+	rec, err := store.Get(context.Background(), id)
+	require.NoError(t, err)
+	require.NotNil(t, rec, "record %s must exist", id)
+	return rec
 }

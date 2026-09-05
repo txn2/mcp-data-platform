@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/lib/pq"
+
+	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
 // A catalog of every data-access call the platform makes grows for as long as
@@ -20,11 +22,13 @@ import (
 // declined, and one another session re-ran are all evidence, and evidence does
 // not expire on a timer. What ages out is the draft nobody used.
 //
-// A record an excluded persona made ages out at once rather than on the clock.
-// The recorder writes no more of them (see exclusion.go), and the ones written
-// before the deployment declared that persona are noise it has already said it
-// does not want — with the same evidence clauses standing, since a record
-// something was built from is evidence whoever produced it.
+// A record an excluded persona made ages out at once rather than on the clock,
+// and so does one a managed script run made. The recorder writes no more of
+// either (see exclusion.go), and the ones written before the deployment
+// declared that persona, or before this platform declined a run's calls, are
+// noise it has already said it does not want — with the same evidence clauses
+// standing, since a record something was built from is evidence whoever
+// produced it.
 //
 // This is the same shape the audit store's retention takes, including the
 // advisory lock: several replicas share one database and only one of them
@@ -67,28 +71,31 @@ func RetentionDays(configured int) int {
 // evidence is evidence whoever produced it.
 //
 // A record is old enough to sweep, or it was made by a persona the deployment
-// has since declared to be machinery (#1614). The second half is what deals
-// with the rows written before the exclusion was configured: the recorder
-// writes no more of them, and these go on the next sweep rather than sitting in
-// the catalog and the embedding queue for the length of the retention window.
+// has since declared to be machinery (#1614), or a managed script run made it
+// (#1624). The second and third arms are what deal with the rows written before
+// each rule existed: the recorder writes no more of them, and these go on the
+// next sweep rather than sitting in the catalog and the embedding queue for the
+// length of the retention window. A run's rows are matched by their principal
+// (`script:<name>`, the only user id a run's calls are audited under), since
+// the catalog stores no source column of its own.
 //
 // #nosec G202 -- the only thing concatenated is this package's own satisfaction
 // rule; every value the statement compares is bound as a parameter.
 var sweepQuery = `
 	DELETE FROM call_records r
-	WHERE (r.created_at < $2 OR lower(r.persona) = ANY($3))
+	WHERE (r.created_at < $2 OR lower(r.persona) = ANY($3) OR r.user_id LIKE $4)
 	  AND r.promoted_urn = ''
 	  AND r.rejected_at IS NULL
 	  AND NOT EXISTS (SELECT 1 FROM call_record_reuse u WHERE u.call_record_id = r.id)
 	  AND (` + satisfiedByCase("$1") + `) IS NULL`
 
 // Cleanup removes the records nothing came of: those past the retention window,
-// and those an excluded persona made whenever it made them. It reports how many
-// it removed.
+// those an excluded persona made whenever it made them, and those a managed
+// script run made. It reports how many it removed.
 func (s *PostgresStore) Cleanup(ctx context.Context) (int64, error) {
 	cutoff := time.Now().AddDate(0, 0, -s.retentionDays)
 	res, err := s.db.ExecContext(ctx, sweepQuery,
-		callReferencePrefix(), cutoff, pq.Array(s.excluded.Personas()))
+		callReferencePrefix(), cutoff, pq.Array(s.excluded.Personas()), script.PrincipalPrefix+"%")
 	if err != nil {
 		return 0, fmt.Errorf("sweeping expired call records: %w", err)
 	}

@@ -184,7 +184,9 @@ internal/platform/callrecord -> internal/httpjson
 internal/platform/callrecord -> internal/logsan
 internal/platform/callrecord -> internal/sqltables
 internal/platform/callrecord -> pkg/audit
+internal/platform/callrecord -> pkg/mcpcontext
 internal/platform/callrecord -> pkg/portal/knowledgepage
+internal/platform/callrecord -> pkg/script
 internal/platform/collectionindex -> pkg/indexjobs
 internal/platform/collectionindex -> pkg/portal
 internal/platform/completionlayer -> internal/platform/resourcetemplates

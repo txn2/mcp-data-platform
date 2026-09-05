@@ -98,9 +98,18 @@ func (w *StalenessWatcher) run() {
 }
 
 // checkBatch checks one batch of the oldest-verified active memories.
+//
+// The batch is entity-linked records only. What this watcher does is ask the
+// catalog whether the entities a record names still say what the record says,
+// so a record naming none of them is not something it can verify: marking one
+// verified recorded that the cursor passed a row, and review_stale read that as
+// a fresh check (#1625). Filtering in the query rather than skipping in the
+// loop is what makes a batch of N cost N checks; skipping alone would spend the
+// batch on rows that were never candidates.
 func (w *StalenessWatcher) checkBatch(ctx context.Context) error {
 	records, _, err := w.store.List(ctx, Filter{
 		Status:        StatusActive,
+		EntityLinked:  true,
 		Limit:         w.cfg.BatchSize,
 		SortBy:        "last_verified",
 		SortDirection: SortAscNullsFirst,
@@ -114,7 +123,8 @@ func (w *StalenessWatcher) checkBatch(ctx context.Context) error {
 
 	for _, record := range records {
 		if len(record.EntityURNs) == 0 {
-			verifiedIDs = append(verifiedIDs, record.ID)
+			// A store that does not honor EntityLinked still must not have
+			// last_verified stamped on a record this watcher cannot check.
 			continue
 		}
 

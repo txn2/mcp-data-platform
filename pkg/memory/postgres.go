@@ -775,15 +775,20 @@ func (s *postgresStore) MarkStale(ctx context.Context, ids []string, reason stri
 }
 
 // MarkVerified updates the last_verified timestamp for records.
+//
+// It does not touch updated_at. Verification reads the catalog and changes
+// nothing about the record, and updated_at is the column every listing sorts
+// by and every reader takes as "when this memory last changed"; a background
+// pass that re-dated it made every record look edited minutes ago (#1625).
+// The writes that do change a record -- Update, Supersede, Forget, MarkStale --
+// move it.
 func (s *postgresStore) MarkVerified(ctx context.Context, ids []string) error {
 	if len(ids) == 0 {
 		return nil
 	}
 
-	now := time.Now()
 	query, args, err := psq.Update(tableName).
-		Set("last_verified", now).
-		Set("updated_at", now).
+		Set("last_verified", time.Now()).
 		Where(sq.Eq{"id": ids}).
 		ToSql()
 	if err != nil {
@@ -887,6 +892,17 @@ func applyFilter(qb sq.SelectBuilder, filter Filter) sq.SelectBuilder {
 	if filter.EntityURN != "" {
 		urnJSON, _ := json.Marshal([]string{filter.EntityURN})
 		qb = qb.Where(sq.Expr("entity_urns @> ?::jsonb", urnJSON))
+	}
+	if filter.EntityLinked {
+		// Containment rather than jsonb_array_length: the column is NOT NULL
+		// DEFAULT '[]', but a record written with no URNs marshals its nil
+		// slice to the JSON scalar `null`, on which jsonb_array_length errors
+		// (22023) rather than returning zero -- and Postgres is free to
+		// evaluate that call before any guard beside it. `@> '[]'` is true for
+		// every array and false for `null`, so both spellings of "no URNs" are
+		// excluded by one predicate, and it reads through the GIN index the
+		// column already carries.
+		qb = qb.Where(sq.Expr(colEntityURNs + " @> '[]'::jsonb AND " + colEntityURNs + " <> '[]'::jsonb"))
 	}
 	if filter.Since != nil {
 		qb = qb.Where(sq.GtOrEq{colCreatedAt: *filter.Since})

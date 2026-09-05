@@ -486,8 +486,6 @@ enrichment:
 
 tuning:
   rules:
-    require_datahub_check: true
-    warn_on_deprecated: true
     quality_threshold: 0.7
 
 portal:
@@ -521,6 +519,14 @@ memory:
     ollama:
       url: "http://localhost:${DEV_OLLAMA_PORT:-11434}"
       model: "nomic-embed-text"
+  # The watcher runs here so a change to it is exercised locally rather than
+  # first on a deployment. The interval is seconds rather than the 15 minutes a
+  # deployment uses, so an acceptance test observes a tick instead of assuming
+  # one (#1625).
+  staleness:
+    enabled: true
+    interval: 15s
+    batch_size: 50
 
 knowledge:
   enabled: true

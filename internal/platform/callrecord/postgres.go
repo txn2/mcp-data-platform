@@ -38,7 +38,7 @@ type Config struct {
 type PostgresStore struct {
 	db            *sql.DB
 	retentionDays int
-	excluded      PersonaExclusion
+	excluded      Exclusion
 
 	// cancel and done are the sweeper's lifecycle, nil until it is started.
 	cancel context.CancelFunc
@@ -50,7 +50,7 @@ func NewPostgresStore(db *sql.DB, cfg Config) *PostgresStore {
 	return &PostgresStore{
 		db:            db,
 		retentionDays: RetentionDays(cfg.RetentionDays),
-		excluded:      NewPersonaExclusion(cfg.ExcludePersonas),
+		excluded:      NewExclusion(cfg.ExcludePersonas),
 	}
 }
 

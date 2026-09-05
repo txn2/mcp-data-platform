@@ -598,6 +598,51 @@ func TestPostgresStore_MarkStale_EmptyIDs(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+// listSQL runs one List and returns the statements it issued, so a test can
+// assert what reached the database rather than what a builder was asked for.
+func listSQL(t *testing.T, filter Filter) []string {
+	t.Helper()
+	var issued []string
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(
+		sqlmock.QueryMatcherFunc(func(expected, actual string) error {
+			issued = append(issued, actual)
+			return sqlmock.QueryMatcherRegexp.Match(expected, actual)
+		})))
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	mock.ExpectQuery(`SELECT COUNT`).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectQuery(`SELECT`).WillReturnRows(sqlmock.NewRows(recordColumns()))
+
+	_, _, err = NewPostgresStore(db).List(context.Background(), filter)
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+	return issued
+}
+
+// The staleness watcher's batch is entity-linked records, and this is the
+// predicate that makes it so. Containment rather than jsonb_array_length: a
+// record written with no URNs holds the JSON scalar `null`, on which
+// jsonb_array_length errors against a real database (#1625). Both statements
+// carry it, since the count and the page must describe the same set.
+func TestPostgresStore_List_EntityLinkedFiltersInSQL(t *testing.T) {
+	const predicate = "entity_urns @> '[]'::jsonb AND entity_urns <> '[]'::jsonb"
+
+	issued := listSQL(t, Filter{Status: StatusActive, EntityLinked: true})
+	require.Len(t, issued, 2, "List issues a count and a page")
+	for _, stmt := range issued {
+		assert.Contains(t, stmt, predicate)
+		assert.NotContains(t, stmt, "jsonb_array_length",
+			"jsonb_array_length errors on the JSON scalar null this column can hold")
+	}
+
+	// Every other reader of this store is unaffected: the predicate appears
+	// only when the filter asks for it.
+	for _, stmt := range listSQL(t, Filter{Status: StatusActive}) {
+		assert.NotContains(t, stmt, "entity_urns @>")
+	}
+}
+
 // --- MarkVerified tests ---
 
 func TestPostgresStore_MarkVerified_Success(t *testing.T) {
@@ -607,10 +652,13 @@ func TestPostgresStore_MarkVerified_Success(t *testing.T) {
 
 	store := NewPostgresStore(db)
 
-	mock.ExpectExec("UPDATE memory_records SET").
+	// The statement is matched whole, not by prefix: verification must set
+	// last_verified and nothing else. A pass that also re-dated updated_at made
+	// every memory record look edited minutes ago (#1625), and a prefix match
+	// would accept that statement again.
+	mock.ExpectExec(`^UPDATE memory_records SET last_verified = \$1 WHERE id IN \(\$2\)$`).
 		WithArgs(
 			sqlmock.AnyArg(), // last_verified
-			sqlmock.AnyArg(), // updated_at
 			sqlmock.AnyArg(), // id
 		).
 		WillReturnResult(sqlmock.NewResult(0, 1))

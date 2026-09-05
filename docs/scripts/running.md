@@ -1007,6 +1007,39 @@ an agent performs for its own work uses `manage_script`, which renders nothing.
 
 ![One run's log](../images/screenshots/light/user-script-run-log-light.webp#only-light)![One run's log](../images/screenshots/dark/user-script-run-log-dark.webp#only-dark)
 
+## A run's calls are audited, not cataloged
+
+Every data call a run makes is written to the audit log under the run's own
+principal, with `source: script` and the run id as its session, so the run and
+its calls join on one key and an operator can see exactly what a schedule
+reached.
+
+None of them are written to the [call catalog](../architecture/call-catalog.md).
+The catalog answers "is this call worth running again", and a scheduled run is
+by construction the re-run: its statement is the script's source, its outputs
+are on the run and in the provenance of the assets it wrote, and nobody fetches
+one of its calls to run it again. On one deployment 76% of the catalog was the
+six calls a single hourly schedule made, every one embedded, every one with a
+reuse count of zero.
+
+There is no setting for this. `calls.exclude_personas` names personas that are
+machinery, and a run has no persona of its own -- it presents the roles and the
+persona of the person who wrote the script -- so the calls a schedule makes
+every hour are indistinguishable by persona from that person's own. The rule is
+keyed on how the call arrived instead. A deployment that wants a run's calls
+cataloged has no such case: the run record and the produced asset already hold
+them.
+
+What this changes for an author:
+
+- A tool result inside a run carries no `call_reference`. The reference names a
+  catalog record, and there is none to name.
+- An asset a run writes still records the calls that fed it. Provenance capture
+  reads audit rows, not catalog rows, so `save_asset` from inside a run captures
+  the run's own calls through its session window.
+- A person's call in the same persona, made in an ordinary session, is
+  cataloged and searchable exactly as before.
+
 ## Run history retention
 
 Run rows are history as much as queue bookkeeping — a scheduled report's run

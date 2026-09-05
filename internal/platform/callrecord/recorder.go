@@ -65,16 +65,17 @@ type Recorder struct {
 	inner    audit.Logger
 	store    Store
 	urn      URNBuilder
-	excluded PersonaExclusion
+	excluded Exclusion
 }
 
 // NewRecorder wraps an audit store so every data-access call it records is also
 // cataloged. A nil store returns the audit logger unchanged, which is what a
 // deployment without the catalog gets.
 //
-// excluded names the personas whose calls are machinery and are not cataloged;
-// its zero value excludes nothing (see exclusion.go).
-func NewRecorder(inner audit.Logger, store Store, urn URNBuilder, excluded PersonaExclusion) audit.Logger {
+// excluded is the rule for which calls are machinery and are not cataloged: the
+// personas the deployment named, and every managed script run. Its zero value
+// names no persona and still excludes runs (see exclusion.go).
+func NewRecorder(inner audit.Logger, store Store, urn URNBuilder, excluded Exclusion) audit.Logger {
 	if store == nil {
 		return inner
 	}
@@ -128,12 +129,13 @@ func (r *Recorder) catalog(ctx context.Context, rec Record) {
 // recordFrom builds the record one audit event describes, and reports whether
 // the event is a call the catalog keeps. An event with no id is not kept: the
 // id is what an agent cites and what an asset records, so a record without one
-// could never be referenced. Neither is a call made by a persona the deployment
-// declared to be machinery, whichever tool it called: the question the catalog
-// answers is not asked of an automated system's traffic (#1614).
+// could never be referenced. Neither is a call the exclusion rule calls
+// machinery -- a persona the deployment declared (#1614) or a managed script
+// run (#1624) -- whichever tool it called: the question the catalog answers is
+// not asked of an automated system's traffic.
 func (r *Recorder) recordFrom(ev audit.Event) (Record, bool) {
 	kind := KindForTool(ev.ToolName)
-	if kind == "" || ev.ID == "" || r.excluded.Excludes(ev.Persona) {
+	if kind == "" || ev.ID == "" || r.excluded.Excludes(ev.Persona, ev.Source) {
 		return Record{}, false
 	}
 	rec := Record{

@@ -32,10 +32,32 @@ memory:
 | `embedding.ollama.max_input_bytes` | int | `6000` | Cap on the byte length of each text sent to Ollama. The platform truncates input itself (on a UTF-8 boundary) because Ollama's `truncate` flag is unreliable: content exceeding the model's context can return `400 the input length exceeds the context length` even with `truncate:true`. The default sits below `nomic-embed-text`'s ~2048-token boundary with margin. Raise it only for a larger-context model. Only the embedded text is trimmed; stored content is unaffected. Knowledge pages are not trimmed at all: this value sizes the chunks a page's content is embedded as. If the model refuses an input anyway -- token density varies by close to an order of magnitude between prose and dense content, so no fixed byte count is an exact token budget -- the provider halves what it sends and retries, down to a 256-byte floor, so a dense document converges on a bound the model accepts instead of failing identically on every attempt. The refusal is recognized by the wording of the response body, whatever status carries it: the same Ollama answers the condition with a 400 from its batch endpoint and a 500 from its single-input endpoint, body identical. The vector then covers a prefix of the text rather than all of it, and the shrink is logged with the model and the size refused; the lexical arm still matches the whole text, so the content stays findable while the operator lowers the cap. |
 | `staleness.enabled` | bool | `false` | Enable background staleness watcher |
 | `staleness.interval` | duration | `15m` | Interval between staleness check cycles |
-| `staleness.batch_size` | int | `50` | Number of records to check per cycle |
+| `staleness.batch_size` | int | `50` | Entity-linked records checked per cycle |
 
 !!! note
     Memory requires `database.dsn` to be configured. Without a database, memory tools will not be registered.
+
+## The Staleness Watcher
+
+The watcher asks the catalog whether the entities a memory record names still
+say what the record says. Each cycle it takes the `batch_size` records that
+were verified longest ago, looks up every dataset URN they carry, and flags a
+record whose entity is deprecated as stale.
+
+Two columns record what it did, and they mean different things:
+
+- **`last_verified`** applies to **entity-linked records only** -- those
+  carrying at least one `entity_urns` value. A record naming no entity (a
+  business rule, a preference, an episodic event) is not something a catalog
+  can be asked about, so the watcher does not check it and does not stamp it:
+  its `last_verified` stays null, which `review_stale` and the portal read as
+  "not subject to catalog verification" rather than as a fresh check. The
+  batch is drawn from entity-linked records, so a batch of 50 is 50 lookups.
+- **`updated_at`** is the **last content change**: `memory_capture`,
+  `memory_manage update`, a supersession, a forget, and a stale flag move it.
+  Verification does not. It is a sortable column on the memory listing and the
+  one a reader takes as "when this memory last changed", so a background pass
+  that re-dated it made every record in a library look edited minutes ago.
 
 ## Persona Configuration
 

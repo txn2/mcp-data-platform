@@ -11,6 +11,8 @@ import (
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
 func TestRetentionDaysTakesTheDefaultWhenUnset(t *testing.T) {
@@ -42,17 +44,19 @@ func TestSweepKeepsEveryKindOfEvidence(t *testing.T) {
 	assert.Contains(t, sweepQuery, "r.created_at < $2", "and only records past the window")
 	assert.Contains(t, sweepQuery, "lower(r.persona) = ANY($3)",
 		"or a record an excluded persona made, whatever its age")
+	assert.Contains(t, sweepQuery, "r.user_id LIKE $4",
+		"or a record a managed script run made, whatever its age (#1624)")
 }
 
 func TestSweepMatchesAnExcludedPersonaTheWayTheRuleDoes(t *testing.T) {
 	t.Parallel()
 
-	// The SQL folds the persona to lower case because NewPersonaExclusion
+	// The SQL folds the persona to lower case because NewExclusion
 	// folds the configured name the same way. Two spellings of one fold would
 	// be two rules, and the half that never matched would be the sweep.
 	assert.Contains(t, sweepQuery, "lower(r.persona)")
 	assert.Equal(t, []string{"ingest-service"},
-		NewPersonaExclusion([]string{" Ingest-Service "}).Personas())
+		NewExclusion([]string{" Ingest-Service "}).Personas())
 }
 
 func TestCleanupBindsTheExcludedPersonas(t *testing.T) {
@@ -67,7 +71,8 @@ func TestCleanupBindsTheExcludedPersonas(t *testing.T) {
 	// The names reach the statement normalized and sorted, which is what makes
 	// the delete the same on every replica.
 	mock.ExpectExec("DELETE FROM call_records").
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), pq.Array([]string{"etl", "ingest-service"})).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), pq.Array([]string{"etl", "ingest-service"}),
+			script.PrincipalPrefix+"%").
 		WillReturnResult(sqlmock.NewResult(0, 9))
 
 	removed, err := store.Cleanup(context.Background())
@@ -82,7 +87,7 @@ func TestCleanupBindsAnEmptyArrayWhenNothingIsExcluded(t *testing.T) {
 	// NULL: `= ANY('{}')` is false for every row, so the age half of the sweep
 	// is the whole rule and the catalog behaves exactly as it did before.
 	mock.ExpectExec("DELETE FROM call_records").
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), pq.Array([]string{})).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), pq.Array([]string{}), script.PrincipalPrefix+"%").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	_, err := store.Cleanup(context.Background())
@@ -94,7 +99,7 @@ func TestCleanupReportsWhatItRemoved(t *testing.T) {
 	store.retentionDays = 30
 
 	mock.ExpectExec("DELETE FROM call_records").
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 4))
 
 	removed, err := store.Cleanup(context.Background())

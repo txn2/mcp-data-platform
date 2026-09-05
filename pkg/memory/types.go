@@ -278,10 +278,15 @@ type Filter struct {
 	InsightStatus string
 	Source        string
 	EntityURN     string
-	Since         *time.Time
-	Until         *time.Time
-	Limit         int
-	Offset        int
+	// EntityLinked restricts to records carrying at least one entity URN --
+	// the records whose truth a catalog can be asked about. The staleness
+	// watcher filters by it so its batch of N is N checkable records rather
+	// than N rows of which some cannot be checked at all (#1625).
+	EntityLinked bool
+	Since        *time.Time
+	Until        *time.Time
+	Limit        int
+	Offset       int
 	// SortBy overrides the default ordering column (created_at). It must
 	// be a key of ValidSortColumns; unknown columns fall back to the
 	// default. ORDER BY cannot be parameterized, so the column is spliced
