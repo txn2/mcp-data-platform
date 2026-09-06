@@ -7,15 +7,25 @@
 #        delegates to the authoritative Go gate (TestDocsPagesInNavOrExcluded),
 #        which models MkDocs' gitignore-style exclusion semantics exactly, so
 #        this check can never drift from what MkDocs actually excludes.
-#     2. No retired tool references — a decommissioned/renamed tool name from
+#     2. All documentation links resolve — every inline link in docs/**/*.md
+#        must name a file that exists and, when it carries a fragment, a
+#        heading that file has. Delegates to the authoritative Go gate
+#        (TestDocsMarkdownLinksResolve). The path half is what
+#        `mkdocs build --strict` enforces in CI, and it is enforced here
+#        because `make verify` never builds the docs; the anchor half is
+#        enforced nowhere else, because MkDocs reports an unresolved anchor at
+#        info level rather than warning. See issue #1643.
+#     3. No retired tool references — a decommissioned/renamed tool name from
 #        scripts/retired-tools.txt (e.g. `memory_recall`) must not appear in any
 #        docs/**/*.md, bench doc, or README.md. This is what would have caught
 #        the reference the deleted bench/LOCOMO.md carried.
-#     3. Benchmark reference pages cite only registered tools — any
+#     4. Benchmark reference pages cite only registered tools — any
 #        trino_/datahub_/s3_/api_/memory_ token in docs/reference/benchmarks.md
 #        or benchmark-report.md must be a registered tool
 #        (scripts/registered-tools.txt) or an acknowledged non-tool identifier
 #        (scripts/doc-check-nontools.txt).
+#     5. Engineering-posture claims still hold — README.md and docs/llms.txt
+#        state the test posture in prose, checked by scripts/posture-check.sh.
 #
 #   Soft gate (warning only): documentation-worthy code changes lacking doc
 #   updates. Never fails on its own.
@@ -48,7 +58,27 @@ check_orphaned_docs() {
     fi
 }
 
-# ── Hard gate 2: retired tool references anywhere in the docs ────────────────
+# ── Hard gate 2: every documentation link resolves ──────────────────────────
+# Delegated to the authoritative Go gate for the same reason as the orphan
+# check: the rule is the one MkDocs applies, and a bash reimplementation would
+# drift from it. Run locally because `make verify` never builds the docs — a
+# dangling link reaches main and the site simply stops publishing (#1643).
+check_docs_links() {
+    if ! command -v go > /dev/null 2>&1; then
+        echo "SKIP link check: go toolchain not available."
+        return 0
+    fi
+    local out
+    if out=$(go test -run '^TestDocsMarkdownLinksResolve$' -count=1 . 2>&1); then
+        echo "OK: all documentation links resolve (TestDocsMarkdownLinksResolve)."
+    else
+        printf '%s\n' "$out"
+        echo "FAIL: unresolved documentation link(s). Point each at a page and heading that exist."
+        hard_fail=1
+    fi
+}
+
+# ── Hard gate 3: retired tool references anywhere in the docs ────────────────
 # Zero-false-positive denylist: matches only exact retired tool names, so it
 # never trips on config keys or metrics that share a tool prefix.
 check_retired_tools() {
@@ -81,7 +111,7 @@ check_retired_tools() {
     fi
 }
 
-# ── Hard gate 3: benchmark reference pages cite only registered tools ────────
+# ── Hard gate 4: benchmark reference pages cite only registered tools ────────
 check_benchmark_tool_refs() {
     local reg="scripts/registered-tools.txt"
     local nontools="scripts/doc-check-nontools.txt"
@@ -115,7 +145,7 @@ check_benchmark_tool_refs() {
     fi
 }
 
-# ── Hard gate 4: engineering-posture claims still hold ──────────────────────
+# ── Hard gate 5: engineering-posture claims still hold ──────────────────────
 # README.md and docs/llms.txt state the test posture in prose. Delegated to a
 # standalone script so `make posture-check` can run it alone while `make
 # verify` still enforces it through this gate.
@@ -137,6 +167,7 @@ check_posture_claims() {
 
 echo "=== Documentation Gates (hard) ==="
 check_orphaned_docs
+check_docs_links
 check_retired_tools
 check_benchmark_tool_refs
 check_posture_claims

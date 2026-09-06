@@ -438,7 +438,7 @@ patch-coverage: test
 	@echo "Checking patch coverage..."
 	@PATCH_COVERAGE_THRESHOLD=$(PATCH_COVERAGE_MIN) ./scripts/patch-coverage.sh
 
-## doc-check: Fail on orphaned docs or unregistered tool refs; warn on undocumented changes
+## doc-check: Fail on orphaned docs, unresolved doc links, or unregistered tool refs; warn on undocumented changes
 doc-check:
 	@./scripts/doc-check.sh
 

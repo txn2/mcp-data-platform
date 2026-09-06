@@ -1052,7 +1052,7 @@ principal, with `source: script` and the run id as its session, so the run and
 its calls join on one key and an operator can see exactly what a schedule
 reached.
 
-None of them are written to the [call catalog](../architecture/call-catalog.md).
+None of them are written to the [call catalog](../server/configuration.md#call-catalog-configuration).
 The catalog answers "is this call worth running again", and a scheduled run is
 by construction the re-run: its statement is the script's source, its outputs
 are on the run and in the provenance of the assets it wrote, and nobody fetches
