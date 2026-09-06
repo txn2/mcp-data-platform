@@ -611,6 +611,234 @@ func loadMarkdownHeadings(t *testing.T, path string) map[string]bool {
 	return out
 }
 
+// inlineMarkdownLinkRe captures the target of an inline Markdown link,
+// `[text](target)`, allowing the optional quoted title Markdown permits after
+// it. Reference-style links (`[text][id]`) and autolinks (`<url>`) are not
+// matched, because docs/ uses neither form.
+var inlineMarkdownLinkRe = regexp.MustCompile(`\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)`)
+
+// materialImageFragments are the two fragments mkdocs-material reads off an
+// image URL to choose the light or the dark copy. They address no heading.
+var materialImageFragments = map[string]bool{"only-light": true, "only-dark": true}
+
+// TestDocsMarkdownLinksResolve verifies that every inline Markdown link under
+// docs/ names a file that exists and, when it carries a fragment, a heading
+// that file actually has.
+//
+// The path half is what `mkdocs build --strict` enforces, and it is enforced
+// here as well because make verify does not build the docs: issue #1643 shipped
+// `[call catalog](../architecture/call-catalog.md)` to main, pointing at a page
+// that was planned and never written, and the documentation site stopped
+// publishing entirely until someone read the workflow log.
+//
+// The anchor half is enforced nowhere else. MkDocs reports an unresolved
+// anchor at info level rather than warning, so --strict passes it, and the same
+// pass that found the broken path found a second link, in
+// docs/reference/tools-api.md, pointing at `#fetch` — a heading that page does
+// not have — which had been landing readers at the top of it in silence.
+func TestDocsMarkdownLinksResolve(t *testing.T) {
+	projectRoot := moduleRoot(t)
+	docsDir := filepath.Join(projectRoot, "docs")
+	checker := &docsLinkChecker{t: t, projectRoot: projectRoot, slugs: map[string]map[string]bool{}}
+	checked := 0
+
+	walkErr := filepath.Walk(docsDir, func(p string, info os.FileInfo, fErr error) error {
+		if fErr != nil || info.IsDir() || !strings.HasSuffix(info.Name(), ".md") {
+			return fErr
+		}
+		body, readErr := os.ReadFile(p) //nolint:gosec // test reads project docs
+		require.NoError(t, readErr)
+		rel, relErr := filepath.Rel(projectRoot, p)
+		require.NoError(t, relErr)
+		rel = filepath.ToSlash(rel)
+
+		fence := ""
+		for i, line := range strings.Split(string(body), "\n") {
+			marker := markdownFenceMarker(line)
+			fence = nextMarkdownFence(fence, marker)
+			if fence != "" || marker != "" {
+				continue
+			}
+			for _, m := range inlineMarkdownLinkRe.FindAllStringSubmatch(line, -1) {
+				if checker.check(p, rel, i+1, m[1]) {
+					checked++
+				}
+			}
+		}
+		return nil
+	})
+	require.NoError(t, walkErr)
+	assert.NotZero(t, checked,
+		"no relative links found under docs/; either the link form changed (update "+
+			"inlineMarkdownLinkRe) or this gate is checking nothing")
+}
+
+// docsLinkChecker resolves the links of one documentation tree, caching the
+// heading slugs of every page a link has already addressed.
+type docsLinkChecker struct {
+	t           *testing.T
+	projectRoot string
+	slugs       map[string]map[string]bool // absolute .md path -> heading slug -> present
+}
+
+// isExternalLinkTarget reports whether a link target carries a URL scheme,
+// which puts it outside this repository and beyond what this gate resolves.
+func isExternalLinkTarget(target string) bool {
+	for _, scheme := range []string{"http://", "https://", "mailto:"} {
+		if strings.HasPrefix(target, scheme) {
+			return true
+		}
+	}
+	return false
+}
+
+// check resolves one link target found at line in the page absPath (reported
+// as rel), and returns whether it was a link this gate covers.
+func (c *docsLinkChecker) check(absPath, rel string, line int, target string) bool {
+	c.t.Helper()
+	if isExternalLinkTarget(target) {
+		return false
+	}
+	path, fragment, _ := strings.Cut(target, "#")
+
+	resolved := absPath
+	if path != "" {
+		resolved = filepath.Join(filepath.Dir(absPath), path)
+		if !strings.HasPrefix(resolved, c.projectRoot+string(filepath.Separator)) {
+			assert.Fail(c.t, "link target outside the repository",
+				"%s:%d links %q, which resolves outside the repository. A published page can only "+
+					"link what is published with it.", rel, line, target)
+			return true
+		}
+		//nolint:gosec // G703: the check above confines resolved to the repository; a test stats a docs path
+		if _, err := os.Stat(resolved); err != nil {
+			assert.Fail(c.t, "link target missing",
+				"%s:%d links %q, which does not exist. mkdocs build --strict fails on this and a "+
+					"failing docs build stops the whole site publishing: point the link at a page "+
+					"that exists, or write that page in the same commit.", rel, line, target)
+			return true
+		}
+	}
+	if fragment == "" || materialImageFragments[fragment] || !strings.HasSuffix(resolved, ".md") {
+		return true
+	}
+	if _, loaded := c.slugs[resolved]; !loaded {
+		c.slugs[resolved] = loadHeadingSlugs(c.t, resolved)
+	}
+	assert.True(c.t, c.slugs[resolved][fragment],
+		"%s:%d links %q, but that page has no heading with the anchor %q. MkDocs reports this at "+
+			"info level, so --strict does not catch it and the reader silently lands at the top of "+
+			"the page: link the heading that exists, or add the heading.",
+		rel, line, target, fragment)
+	return true
+}
+
+// markdownFenceMarker returns the marker a line opens or closes a fenced code
+// block with, or "" when the line is not a fence.
+func markdownFenceMarker(line string) string {
+	trimmed := strings.TrimLeft(line, " \t")
+	switch {
+	case strings.HasPrefix(trimmed, "```"):
+		return "```"
+	case strings.HasPrefix(trimmed, "~~~"):
+		return "~~~"
+	default:
+		return ""
+	}
+}
+
+// nextMarkdownFence advances the fenced-code-block state across the line that
+// markdownFenceMarker read as marker. A block closes only on the marker that
+// opened it, which is what keeps the walk in step with the indented fences
+// inside pymdownx.tabbed blocks: closing one marker on another desynchronizes
+// the state for the rest of the file and hides every heading after it.
+func nextMarkdownFence(fence, marker string) string {
+	switch {
+	case marker == "":
+		return fence
+	case fence == "":
+		return marker
+	case fence == marker:
+		return ""
+	default:
+		return fence
+	}
+}
+
+// headingTextLinkRe matches a Markdown link inside a heading, capturing the
+// text that survives rendering.
+var headingTextLinkRe = regexp.MustCompile(`\[([^\]]*)\]\([^)]*\)`)
+
+// headingMarkupRe matches the inline markup a heading loses when it renders:
+// code spans and emphasis. Underscore is deliberately absent, because a tool
+// name like manage_table keeps its underscores and so does its anchor.
+var headingMarkupRe = regexp.MustCompile("[`*]+")
+
+// headingNonSlugRe matches everything python-markdown drops from an anchor:
+// any character that is not a word character, whitespace, or a hyphen.
+var headingNonSlugRe = regexp.MustCompile(`[^\w\s-]`)
+
+// headingSpaceRe matches the whitespace runs that collapse into one hyphen.
+var headingSpaceRe = regexp.MustCompile(`\s+`)
+
+// slugifyHeading reproduces the anchor python-markdown's toc extension assigns
+// to a heading. mkdocs.yml configures toc with no custom slugify, so the
+// default applies: take the rendered text (a link keeps its text, code-span and
+// emphasis markers are gone), lowercase it, drop everything that is not a word
+// character, whitespace, or a hyphen, and collapse whitespace to single
+// hyphens. No heading under docs/ carries an attr_list `{#custom-id}`, so
+// slugification is the whole rule.
+func slugifyHeading(text string) string {
+	s := headingTextLinkRe.ReplaceAllString(text, "$1")
+	s = headingMarkupRe.ReplaceAllString(s, "")
+	s = headingNonSlugRe.ReplaceAllString(strings.ToLower(s), "")
+	return headingSpaceRe.ReplaceAllString(strings.TrimSpace(s), "-")
+}
+
+// loadHeadingSlugs returns the set of anchor slugs a Markdown file's headings
+// carry, or nil when the file does not exist. A line inside a fenced code block
+// is not a heading: a shell sample opening with `# build the binary` would
+// otherwise contribute an anchor no link can reach.
+func loadHeadingSlugs(t *testing.T, path string) map[string]bool {
+	t.Helper()
+	body, err := os.ReadFile(path) //nolint:gosec // test reads project docs
+	if os.IsNotExist(err) {
+		return nil
+	}
+	require.NoError(t, err)
+
+	out := map[string]bool{}
+	fence := ""
+	for line := range strings.SplitSeq(string(body), "\n") {
+		marker := markdownFenceMarker(line)
+		fence = nextMarkdownFence(fence, marker)
+		if fence != "" || marker != "" {
+			continue
+		}
+		if m := markdownHeadingRe.FindStringSubmatch(line); m != nil {
+			out[uniqueHeadingSlug(out, slugifyHeading(m[1]))] = true
+		}
+	}
+	return out
+}
+
+// uniqueHeadingSlug returns the anchor python-markdown gives a heading whose
+// slug is already taken on the page: `_1`, then `_2`, and so on. Seven pages
+// under docs/ repeat a heading (`## Configuration` twice is the common one), so
+// modeling this is what keeps a correct link to the second one from reading as
+// a broken anchor.
+func uniqueHeadingSlug(taken map[string]bool, slug string) string {
+	if !taken[slug] {
+		return slug
+	}
+	for n := 1; ; n++ {
+		candidate := fmt.Sprintf("%s_%d", slug, n)
+		if !taken[candidate] {
+			return candidate
+		}
+	}
+}
+
 // workingPaperBannerRe matches the admonition every page under docs/research/
 // must open with, capturing the date the paper reflects.
 var workingPaperBannerRe = regexp.MustCompile(

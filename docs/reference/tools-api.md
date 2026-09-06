@@ -331,7 +331,7 @@ Search for entities in the catalog.
 ### Reading a catalog entity by URN
 
 The DataHub toolkit registers no by-URN read tool. A dataset, glossary term,
-tag, domain, or data product is read in full with [`fetch`](#fetch) on its
+tag, domain, or data product is read in full with [`fetch`](../server/tools.md#fetch) on its
 `urn:li:...` reference; the retired `datahub_get_entity`, `datahub_get_schema`,
 `datahub_get_queries`, `datahub_get_glossary_term`, and
 `datahub_get_data_product` tools are not registered under any name.
