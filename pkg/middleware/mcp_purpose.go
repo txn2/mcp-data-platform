@@ -38,6 +38,16 @@ const maxPurposeChars = 1000
 // upstream adds a tool.
 const purposeKindPrefix = "kind:"
 
+// proxiedToolkitKind is the toolkit kind (pkg/toolkits/gateway.Kind) whose tools
+// are proxied verbatim from an upstream MCP server. It is the one kind whose
+// PARAMETER NAMES the platform does not choose, which is the whole reason the
+// off-gate tolerance in resolve leaves its arguments in place: on every tool the
+// platform itself defines, a purpose argument can only be the platform's own,
+// but on a proxied tool it may be a parameter the upstream server declared. The
+// literal is repeated here rather than imported so pkg/middleware does not
+// depend on a toolkit; defaultPurposeTools already spells the same kind out.
+const proxiedToolkitKind = "mcp"
+
 // defaultPurposeTools is the tool set the purpose argument is advertised and
 // enforced on when purpose.tools is unset: the data-access surface, where "why
 // did this call happen" is a question an operator actually asks of a stored row.
@@ -143,6 +153,26 @@ func NewPurposeResolver(cfg PurposeConfig) *PurposeResolver {
 // is the same on every replica and in both requests, without either path having
 // to remember what the other did.
 func (r *PurposeResolver) Gates(toolName string) bool {
+	if r.GatesByName(toolName) {
+		return true
+	}
+	if r == nil || !r.enabled || len(r.kinds) == 0 || r.lookup == nil {
+		return false
+	}
+	match := r.lookup.GetToolkitForTool(toolName)
+	return match.Found && r.kinds[match.Kind]
+}
+
+// GatesByName reports whether a tool is gated by a NAME entry in the configured
+// set, as distinct from a "kind:" entry that gates every tool a toolkit of that
+// kind serves. Gates is the predicate; this splits its answer along the one line
+// the configured set is written on, so a caller that has to DESCRIBE the gated
+// set can name the tools that were named and say "kind" about the rest.
+//
+// The agent-instruction note is that caller (#1640): an MCP gateway connection
+// can proxy dozens of tools whose names the platform did not choose, and listing
+// them one by one buries the boundary it is trying to draw.
+func (r *PurposeResolver) GatesByName(toolName string) bool {
 	if r == nil || !r.enabled || toolName == "" {
 		return false
 	}
@@ -153,17 +183,27 @@ func (r *PurposeResolver) Gates(toolName string) bool {
 			return true
 		}
 	}
-	if len(r.kinds) == 0 || r.lookup == nil {
-		return false
-	}
-	match := r.lookup.GetToolkitForTool(toolName)
-	return match.Found && r.kinds[match.Kind]
+	return false
 }
 
 // resolve takes the purpose off a tools/call request, records it on the platform
 // context, and decides whether the call may proceed. It returns a non-nil error
 // result only when the call must be refused with PURPOSE_REQUIRED; nil means
 // proceed.
+//
+// It runs on every tool, not only the gated ones (issue #1640). What the gate
+// decides is whether a MISSING purpose refuses the call and whether the argument
+// is advertised — not whether a stated one is understood. A purpose that arrived
+// on an ungated tool is a sentence the caller wrote about its own work, worth the
+// same to the operator reading the audit row as a required one, and leaving it in
+// the arguments would fail the call against the tool's closed input schema (#1057)
+// for stating something the platform's own instructions asked for.
+//
+// The argument is stripped everywhere the platform owns the name, which is every
+// tool it defines. On a tool proxied from an upstream MCP server the name may be
+// the upstream's own parameter, so an UNGATED proxied tool keeps its argument and
+// the value is recorded without being consumed: a deployment drops "kind:mcp"
+// from purpose.tools precisely so such a tool still receives it.
 //
 // It runs inside MCPToolCallMiddleware, after the session resolver, so
 // pc.SessionHandleThreaded is set and the argument is stripped before the
@@ -180,22 +220,34 @@ func (r *PurposeResolver) Gates(toolName string) bool {
 // can state a purpose, so none of them is refused for not stating one — while a
 // real MCP agent, which the platform has already required to thread a handle, is.
 func (r *PurposeResolver) resolve(req mcp.Request, pc *PlatformContext, toolName string) mcp.Result {
-	if r == nil || !r.enabled || !r.Gates(toolName) {
+	if r == nil || !r.enabled {
 		return nil
 	}
+	gated := r.Gates(toolName)
 
-	// Always take (and strip) the purpose before the handler or any
-	// gateway-proxied upstream server can observe the platform-injected arg.
-	purpose, _ := takeStringArg(req, purposeArg, nil)
-	purpose = boundPurpose(purpose)
-	pc.Purpose = purpose
+	// Take the purpose before the handler or any gateway-proxied upstream server
+	// can observe the platform-injected arg, and record it whether or not the
+	// tool is gated.
+	purpose, _ := readStringArg(req, purposeArg, nil, gated || !r.proxied(toolName))
+	pc.Purpose = boundPurpose(purpose)
 
-	if purpose != "" || !r.require || !pc.SessionHandleThreaded {
+	if !gated || pc.Purpose != "" || !r.require || !pc.SessionHandleThreaded {
 		return nil
 	}
 	slog.Warn("purpose: gated call stated none",
 		logKeyTool, toolName, logKeyUserID, pc.UserID)
 	return createPurposeRequiredError(toolName)
+}
+
+// proxied reports whether a tool is served by an MCP gateway connection, and so
+// carries parameter names the upstream server chose rather than ones the
+// platform owns.
+func (r *PurposeResolver) proxied(toolName string) bool {
+	if r.lookup == nil {
+		return false
+	}
+	match := r.lookup.GetToolkitForTool(toolName)
+	return match.Found && match.Kind == proxiedToolkitKind
 }
 
 // boundPurpose normalizes a stated purpose: surrounding whitespace is trimmed

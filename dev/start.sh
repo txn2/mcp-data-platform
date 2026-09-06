@@ -80,7 +80,7 @@ port_conflict_msg() {
     echo "Port $port is held by host process '${comm:-unknown}' (PID $pid). Stop it with: kill $pid"
     return
   fi
-  echo "Port $port is already in use; could not identify the holder. Inspect with: lsof -i :$port"
+  echo "Port $port is already in use and lsof cannot name the holder: it reports only listeners owned by you, so this one is another user's (Docker Desktop binds its lo0 aliases, 127.1.27.x, as root). Find it with: netstat -an | grep -w $port"
 }
 
 # ─── Pre-flight checks ──────────────────────────────────────────────
@@ -125,16 +125,58 @@ ok "UI dependencies ready"
 # Keycloak realm's OIDC redirect URIs and the Prometheus scrape target.
 # Moving the API port stays invisible to OIDC because the browser always
 # reaches the server through Vite's proxy on :5173.
-port_free() { ! lsof -nP -iTCP:"$1" -sTCP:LISTEN > /dev/null 2>&1; }
+
+# probe_bind reports whether ADDR:PORT can be bound right now. It is a real
+# bind rather than an lsof lookup because lsof reports only listeners owned by
+# the CURRENT USER: a root-owned one -- Docker Desktop binds services on the lo0
+# aliases it adds, 127.1.27.x -- read as free, nothing relocated, and the stack
+# discovered the truth sixty seconds later when the platform died with "address
+# already in use". SO_REUSEADDR is deliberately not set, so the probe fails
+# exactly where the real bind does. python3 is a hard prerequisite checked above.
+probe_bind() {
+  python3 - "$1" "$2" > /dev/null 2>&1 <<'PROBE'
+import socket
+import sys
+
+sock = socket.socket()
+try:
+    sock.bind((sys.argv[1], int(sys.argv[2])))
+finally:
+    sock.close()
+PROBE
+}
+
+# port_free asks it for a port the stack takes on the loopback, which is all of
+# them but one: docker-compose publishes every container port as
+# 127.0.0.1:PORT, and Vite and the fixtures are reached there too.
+port_free() { probe_bind 127.0.0.1 "$1"; }
+
+# api_port_free asks it for the API port, which the Go server takes on the
+# WILDCARD (dev/platform.yaml server.address ":${DEV_API_PORT}"). That is a
+# higher bar than the others clear: on BSD a wildcard bind fails when ANY
+# address already holds the port, so a listener on 127.1.27.1:8080 takes :8080
+# away from the platform while leaving 127.0.0.1:8080 bindable. Holding every
+# port to this bar would relocate -- or hard-fail on a fixed port like
+# Keycloak's 9090 -- over an address that port's holder never binds.
+api_port_free() { probe_bind 127.0.0.1 "$1" && probe_bind "" "$1"; }
+
+# reloc_free routes one relocatable port at one offset to the right probe.
+reloc_free() {
+  if [ "$1" = 8080 ]; then
+    api_port_free "$(( $1 + $2 ))"
+  else
+    port_free "$(( $1 + $2 ))"
+  fi
+}
 
 RELOC_BASE=(5432 8080 9000 11434)   # pg, api, s3, ollama
 DEV_OFFSET=0
 NEED_SHIFT=0
-for p in "${RELOC_BASE[@]}"; do port_free "$p" || NEED_SHIFT=1; done
+for p in "${RELOC_BASE[@]}"; do reloc_free "$p" 0 || NEED_SHIFT=1; done
 if [ "$NEED_SHIFT" = 1 ]; then
   for off in 20000 30000 40000 50000; do
     all_free=1
-    for p in "${RELOC_BASE[@]}"; do port_free $((p + off)) || { all_free=0; break; }; done
+    for p in "${RELOC_BASE[@]}"; do reloc_free "$p" "$off" || { all_free=0; break; }; done
     if [ "$all_free" = 1 ]; then DEV_OFFSET=$off; break; fi
   done
   if [ "$DEV_OFFSET" = 0 ]; then
@@ -173,9 +215,12 @@ fi
 # fixed ports (5173 vite, 9090 keycloak, 9091 prometheus, 9180/9181 mock,
 # 9281/9282 fixtures, 9464 metrics) still fail loudly if contended.
 for port in "$DEV_PG_PORT" "$DEV_API_PORT" 5173 "$DEV_S3_PORT" "$DEV_S3_TLS_PORT" 9090 9091 9180 9181 9281 9282 9283 9284 9464 "$DEV_OLLAMA_PORT"; do
-  if lsof -i ":$port" -sTCP:LISTEN > /dev/null 2>&1; then
-    fail "$(port_conflict_msg "$port")"
+  if [ "$port" = "$DEV_API_PORT" ]; then
+    api_port_free "$port" && continue
+  else
+    port_free "$port" && continue
   fi
+  fail "$(port_conflict_msg "$port")"
 done
 ok "Dev ports free (pg:$DEV_PG_PORT api:$DEV_API_PORT vite:5173 s3:$DEV_S3_PORT ollama:$DEV_OLLAMA_PORT + keycloak/prometheus/fixtures)"
 
@@ -481,7 +526,15 @@ echo ""
 
 echo -e "${BOLD}Starting dev-mcp-mock${NC}"
 MOCK_LOG="/tmp/mcp-dev-mock.log"
-go run ./cmd/dev-mcp-mock > "$MOCK_LOG" 2>&1 &
+# Built and started directly rather than through `go run`, so PIDS holds the
+# mock ITSELF. `go run` execs the compiled binary as a child, and a SIGTERM to
+# the go-run wrapper the trap records does not carry down to it: the mock
+# survived every shutdown holding :9180 and :9181, and the next `make dev`
+# failed its own pre-flight on a port the previous run was supposed to have
+# released. The compile is the same one `go run` performs, from the same build
+# cache.
+go build -o build/dev-mcp-mock ./cmd/dev-mcp-mock || fail "could not build cmd/dev-mcp-mock"
+./build/dev-mcp-mock > "$MOCK_LOG" 2>&1 &
 PIDS+=($!)
 info "Compiling and starting mock (first run takes a moment)..."
 for i in $(seq 1 30); do

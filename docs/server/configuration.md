@@ -1105,9 +1105,17 @@ purpose:
 |-------|------|---------|-------------|
 | `enabled` | bool | `true` | Advertise `purpose` on the gated tools, strip it before the handler, and record it on the audit event. Set `false` to remove the argument entirely. |
 | `require` | bool | `true` | Refuse a gated call that states no purpose with `PURPOSE_REQUIRED` (error category `purpose_required`). Set `false` to record a purpose whenever one is stated but never refuse a call for omitting it. |
-| `tools` | array | see below | The gated set. Entries are tool-name globs (`filepath.Match` semantics, e.g. `datahub_get_*`) plus `kind:<toolkit-kind>` entries that gate every tool a toolkit of that kind serves. |
+| `tools` | array | see below | The gated set: where the argument is advertised, and where a missing one is refused. Entries are tool-name globs (`filepath.Match` semantics, e.g. `datahub_get_*`) plus `kind:<toolkit-kind>` entries that gate every tool a toolkit of that kind serves. |
 
 The default set is the data-access surface: `search`, `fetch`, `trino_query`, `trino_execute`, `trino_export`, `trino_describe_table`, `api_invoke_endpoint`, `api_export`, `datahub_get_*`, `s3_object`, `s3_list`, and `kind:mcp` — the last covering every tool an MCP gateway connection proxies, whose names are chosen upstream and change when the upstream does. Orientation and platform-management tools (`platform_info`, `list_connections`, `platform_find_tools`, `memory_*`, `manage_*`, `save_asset`) are deliberately outside it: their purpose is their name, and gating them would tax every call an agent makes to set itself up.
+
+The gated set is also what the agent instructions name, so a model is told which of the tools in front of it take the argument rather than being given a category to guess at. The two halves of the set are named differently, because they are different in kind: an entry that names tools (including a glob) reaches the model as the tool names it resolves to on this deployment, while a `kind:` entry reaches it as the kind — "every tool served by a connection of kind `mcp`". One MCP gateway connection can proxy more tools than the platform's own data-access surface has, under names the platform did not choose and that change when the upstream does, so naming the kind says the same thing in one clause and stays true.
+
+### A purpose stated off the gate
+
+Not being gated means a **missing** purpose never refuses the call and the argument is not advertised there. A purpose that **is** stated on an ungated tool is taken off the request and recorded on the audit row like any other (issue #1640). A tool's input schema is closed to unknown properties, so leaving the argument in place would fail the call with `invalid_arguments` for stating something the platform's own instructions asked the model to state, and a volunteered sentence on `manage_table` is worth no less to the operator reading the row than a required one on `trino_query`.
+
+The one exception is a tool proxied from an upstream MCP server that the deployment has taken **out** of the gated set. There the platform does not own the parameter name, so the value is recorded and still delivered to the upstream server.
 
 ### Who is refused
 
@@ -1119,8 +1127,8 @@ The default set is the data-access surface: `search`, `fetch`, `trino_query`, `t
 
 None of them can state a purpose, so none is refused for not stating one. A real MCP agent, which the platform already requires to thread a handle, is. Because the condition is the handle, setting `sessions.handles.enabled: false` also stops `purpose` from ever being required, though it is still advertised and recorded.
 
-!!! note "The platform owns the argument name on a gated tool"
-    On a gated tool the platform advertises `purpose` and strips it before the handler runs. A deployment whose upstream MCP server defines a `purpose` parameter of its own should drop `kind:mcp` from `purpose.tools` (or list the tools it wants gated by name) so that tool keeps its own argument.
+!!! note "The platform owns the argument name on every tool it defines"
+    On a tool the platform defines, `purpose` is the platform's argument: it is taken off the request before the handler runs, gated or not. A tool proxied from an upstream MCP server is the one place the platform did not choose the parameter names, so a deployment whose upstream server defines a `purpose` parameter of its own drops `kind:mcp` from `purpose.tools` (or lists the tools it wants gated by name); those tools then keep their own argument, and the platform records the value without consuming it.
 
 ## Tool-Call Rate Limiting
 

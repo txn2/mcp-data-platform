@@ -52,6 +52,27 @@ func TestPurposeResolver_Gates(t *testing.T) {
 	}
 }
 
+func TestPurposeResolver_GatesByName(t *testing.T) {
+	// The note has to describe the gated set, and a "kind:" entry covers tools
+	// whose names the platform did not choose and cannot list (#1640). This is
+	// the split it reads the set along; Gates stays the single predicate.
+	r := NewPurposeResolver(PurposeConfig{
+		Enabled: true,
+		Lookup:  purposeLookup{"vendor__list_contacts": "mcp", "trino_query": "trino"},
+	})
+
+	assert.True(t, r.GatesByName("trino_query"), "named in the default set")
+	assert.True(t, r.GatesByName("datahub_get_lineage"), "matched by the datahub_get_* glob")
+	assert.False(t, r.GatesByName("vendor__list_contacts"),
+		"gated by kind:mcp, which names no tool")
+	assert.True(t, r.Gates("vendor__list_contacts"), "and is gated all the same")
+	assert.False(t, r.GatesByName("platform_info"))
+	assert.False(t, r.GatesByName(""))
+	assert.False(t, (*PurposeResolver)(nil).GatesByName("trino_query"), "a nil resolver is a no-op")
+	assert.False(t, NewPurposeResolver(PurposeConfig{Enabled: false}).GatesByName("trino_query"),
+		"a disabled resolver gates nothing")
+}
+
 func TestPurposeResolver_GatesDisabledAndNil(t *testing.T) {
 	assert.False(t, (*PurposeResolver)(nil).Gates("trino_query"), "a nil resolver is a no-op")
 	off := NewPurposeResolver(PurposeConfig{Enabled: false})
@@ -164,6 +185,105 @@ func TestPurposeResolver_ResolveExemptions(t *testing.T) {
 	t.Run("a nil resolver is a no-op", func(t *testing.T) {
 		pc := &PlatformContext{SessionHandleThreaded: true}
 		assert.Nil(t, (*PurposeResolver)(nil).resolve(purposeRequest(t, nil), pc, "trino_query"))
+	})
+}
+
+// purposeRequestFor builds a tools/call request for a named tool.
+func purposeRequestFor(t *testing.T, tool string, args map[string]any) *mcp.CallToolRequest {
+	t.Helper()
+	raw, err := json.Marshal(args)
+	require.NoError(t, err)
+	return &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{Name: tool, Arguments: raw}}
+}
+
+func TestPurposeResolver_ResolveOffGate(t *testing.T) {
+	lookup := purposeLookup{"vendor__list_contacts": "mcp", "manage_table": "platform"}
+
+	t.Run("an ungated platform tool has its purpose taken and recorded", func(t *testing.T) {
+		// Issue #1640: the platform's own instructions ask the model to state a
+		// purpose, and a tool schema closed to unknown properties (#1057) then
+		// refuses the call for stating one. The argument comes off the request
+		// and the sentence reaches the audit row.
+		r := NewPurposeResolver(PurposeConfig{Enabled: true, Require: true, Lookup: lookup})
+		req := purposeRequestFor(t, "manage_table", map[string]any{
+			"action":  "list",
+			"purpose": "  Checking which tables the weekly refresh registered.  ",
+		})
+		pc := &PlatformContext{SessionHandleThreaded: true}
+
+		require.Nil(t, r.resolve(req, pc, "manage_table"))
+		assert.Equal(t, "Checking which tables the weekly refresh registered.", pc.Purpose)
+		assert.NotContains(t, remainingArgs(t, req), "purpose",
+			"the argument must not survive into the tool's input-schema validation")
+		assert.Equal(t, "list", remainingArgs(t, req)["action"], "the tool's own arguments survive")
+	})
+
+	t.Run("an ungated tool that states none is not refused and records nothing", func(t *testing.T) {
+		r := NewPurposeResolver(PurposeConfig{Enabled: true, Require: true, Lookup: lookup})
+		req := purposeRequestFor(t, "manage_table", map[string]any{"action": "list"})
+		pc := &PlatformContext{SessionHandleThreaded: true}
+
+		require.Nil(t, r.resolve(req, pc, "manage_table"))
+		assert.Empty(t, pc.Purpose)
+		assert.Equal(t, map[string]any{"action": "list"}, remainingArgs(t, req),
+			"a call with no purpose is left byte-for-byte alone")
+	})
+
+	t.Run("an ungated proxied tool keeps the upstream's own argument", func(t *testing.T) {
+		// A deployment drops kind:mcp from purpose.tools precisely because its
+		// upstream server declares a purpose parameter of its own. The platform
+		// does not own that name here, so it records the value without consuming
+		// it (docs/server/configuration.md, purpose.tools).
+		r := NewPurposeResolver(PurposeConfig{
+			Enabled: true, Require: true,
+			Tools:  []string{"trino_query"},
+			Lookup: lookup,
+		})
+		req := purposeRequestFor(t, "vendor__list_contacts", map[string]any{
+			"purpose": "renewal outreach",
+		})
+		pc := &PlatformContext{SessionHandleThreaded: true}
+
+		require.Nil(t, r.resolve(req, pc, "vendor__list_contacts"))
+		assert.Equal(t, "renewal outreach", pc.Purpose, "the stated sentence is still recorded")
+		assert.Equal(t, "renewal outreach", remainingArgs(t, req)["purpose"],
+			"the upstream server must still receive its own parameter")
+	})
+
+	t.Run("a gated proxied tool has its purpose taken", func(t *testing.T) {
+		// The default set gates kind:mcp, which is the platform declaring that it
+		// owns the name on those tools.
+		r := NewPurposeResolver(PurposeConfig{Enabled: true, Require: true, Lookup: lookup})
+		req := purposeRequestFor(t, "vendor__list_contacts", map[string]any{
+			"purpose": "Building the renewal list for the QBR.",
+		})
+		pc := &PlatformContext{SessionHandleThreaded: true}
+
+		require.Nil(t, r.resolve(req, pc, "vendor__list_contacts"))
+		assert.Equal(t, "Building the renewal list for the QBR.", pc.Purpose)
+		assert.NotContains(t, remainingArgs(t, req), "purpose",
+			"a gated proxied tool's upstream server never sees the platform argument")
+	})
+
+	t.Run("a disabled resolver leaves the argument alone", func(t *testing.T) {
+		off := NewPurposeResolver(PurposeConfig{Enabled: false, Lookup: lookup})
+		req := purposeRequestFor(t, "manage_table", map[string]any{"purpose": "mine"})
+		pc := &PlatformContext{SessionHandleThreaded: true}
+
+		require.Nil(t, off.resolve(req, pc, "manage_table"))
+		assert.Empty(t, pc.Purpose)
+		assert.Equal(t, "mine", remainingArgs(t, req)["purpose"],
+			"with the feature off the platform claims no argument name")
+	})
+
+	t.Run("with no lookup an ungated tool is still stripped", func(t *testing.T) {
+		r := NewPurposeResolver(PurposeConfig{Enabled: true, Require: true})
+		req := purposeRequestFor(t, "manage_table", map[string]any{"purpose": "Auditing registrations."})
+		pc := &PlatformContext{SessionHandleThreaded: true}
+
+		require.Nil(t, r.resolve(req, pc, "manage_table"))
+		assert.Equal(t, "Auditing registrations.", pc.Purpose)
+		assert.NotContains(t, remainingArgs(t, req), "purpose")
 	})
 }
 

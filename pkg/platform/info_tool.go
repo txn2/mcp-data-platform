@@ -12,6 +12,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/platform/knowledgelayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/notices"
+	"github.com/txn2/mcp-data-platform/internal/platform/toolargs"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	personapkg "github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform/instructions"
@@ -228,8 +229,12 @@ func (p *Platform) handleInfo(ctx context.Context, _ *mcp.CallToolRequest) (*mcp
 	if p.resources.Store() != nil {
 		notes = append(notes, instructions.ResourcesNote(accessibleTools))
 	}
-	if p.config.Purpose.IsEnabled() {
-		notes = append(notes, instructions.PurposeNote(p.config.Purpose.IsRequired()))
+	// Name the boundary this caller can actually reach (#1640): the gated tools
+	// the configured set names, and the connection kinds it gates wholesale. A
+	// caller that reaches neither gets no note, since there is nothing to say
+	// about an argument none of its tools takes.
+	if gated, kinds := toolargs.GatedPurposeTools(p.config.Purpose, p.toolkitRegistry, accessibleTools); len(gated)+len(kinds) > 0 {
+		notes = append(notes, instructions.PurposeNote(p.config.Purpose.IsRequired(), gated, kinds))
 	}
 	digest := p.portalStore.Notices().Build(ctx, middleware.GetPlatformContext(ctx))
 	feedbackCount, shareCount := digest.Counts()
