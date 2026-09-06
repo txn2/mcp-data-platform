@@ -127,3 +127,48 @@ func BuildPurposeResolver(cfg Purpose, lookup middleware.ToolkitLookup) *middlew
 		Lookup:  lookup,
 	})
 }
+
+// GatedPurposeTools describes the purpose gate as a caller can be TOLD it,
+// rather than as a flat list: named holds the gated tools the caller reaches
+// that the configured set names, and kinds holds the toolkit kinds the set gates
+// wholesale and the caller reaches at least one tool of. Both are in the order
+// candidates arrived in, and kinds carries each kind once.
+//
+// It exists so the agent-instruction note can name the boundary instead of a
+// category (#1640), and it answers from the same resolver the tools/list
+// decorator advertises with and the tool-call path enforces with, so what the
+// model is told and what the platform does cannot drift.
+//
+// The split matters because the two halves of the set are different in kind. A
+// name entry resolves to a handful of tools whose names the platform chose and
+// which are worth listing. A "kind:" entry covers every tool a toolkit serves —
+// for kind:mcp, every tool an upstream MCP server proxies, of which there can be
+// dozens with names the platform did not choose — so listing them one at a time
+// buries the boundary the note is drawing in the noise of the deployment's
+// upstreams. Naming the kind says the same thing and stays true when the
+// upstream adds a tool.
+//
+// candidates is the caller's own reachable tool set, so nothing here names a
+// tool or a kind the caller's persona cannot see.
+func GatedPurposeTools(cfg Purpose, lookup middleware.ToolkitLookup, candidates []string) (named, kinds []string) {
+	r := BuildPurposeResolver(cfg, lookup)
+	if r == nil {
+		return nil, nil
+	}
+	seen := map[string]bool{}
+	for _, name := range candidates {
+		switch {
+		case r.GatesByName(name):
+			named = append(named, name)
+		case r.Gates(name):
+			// Gated, but not by name: a "kind:" entry reached it, and the kind is
+			// the one thing that describes the whole group.
+			kind := lookup.GetToolkitForTool(name).Kind
+			if kind != "" && !seen[kind] {
+				seen[kind] = true
+				kinds = append(kinds, kind)
+			}
+		}
+	}
+	return named, kinds
+}

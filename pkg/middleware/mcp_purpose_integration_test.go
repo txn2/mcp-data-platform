@@ -33,6 +33,20 @@ type pQueryInput struct {
 	SQL string `json:"sql,omitempty"`
 }
 
+// pManageInput is the ungated management tool's argument shape, registered with
+// a schema closed to unknown properties exactly as the real manage_* tools are
+// (pkg/toolkits/portal/schemas.go). A purpose left on the request would fail the
+// SDK's argument validation before any handler ran, which is the defect #1640
+// reports.
+type pManageInput struct {
+	Action string `json:"action,omitempty"`
+}
+
+// pManageSchema closes the ungated tool's input schema, so this test reproduces
+// the client-visible refusal rather than assuming it.
+var pManageSchema = json.RawMessage(
+	`{"type":"object","additionalProperties":false,"properties":{"action":{"type":"string"}}}`)
+
 // pKindLookup resolves each tool's toolkit kind, so kind:mcp gating of a
 // gateway-proxied tool is exercised through the real registry contract.
 type pKindLookup map[string]string
@@ -113,12 +127,19 @@ func purposeServer(t *testing.T, opts purposeServerOpts) pHarness {
 	mcp.AddTool(server, &mcp.Tool{Name: "search", Description: "discover"}, okHandler)
 	mcp.AddTool(server, &mcp.Tool{Name: "trino_query", Description: "query"}, okHandler)
 	mcp.AddTool(server, &mcp.Tool{Name: "vendor__list_contacts", Description: "proxied"}, okHandler)
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "manage_table", Description: "manage", InputSchema: pManageSchema,
+	}, func(_ context.Context, req *mcp.CallToolRequest, _ pManageInput) (*mcp.CallToolResult, any, error) {
+		record(req)
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "listed"}}}, nil, nil
+	})
 
 	lookup := pKindLookup{
 		shInitTool:              "platform",
 		"search":                "search",
 		"trino_query":           "trino",
 		"vendor__list_contacts": "mcp",
+		"manage_table":          "portal",
 	}
 	purpose := middleware.NewPurposeResolver(middleware.PurposeConfig{
 		Enabled: true,
@@ -186,6 +207,66 @@ func TestIntegration_Purpose_AdvertisedOnGatedToolsOnly(t *testing.T) {
 		"a gateway-proxied tool is gated by kind:mcp")
 	assert.False(t, toolSchemaHasProperty(t, byName[shInitTool], "purpose"),
 		"platform_info is orientation, not data access")
+	require.Contains(t, byName, "manage_table")
+	assert.False(t, toolSchemaHasProperty(t, byName["manage_table"], "purpose"),
+		"tolerating a stated purpose off the gate (#1640) must not advertise the argument there")
+}
+
+// TestIntegration_Purpose_StatedOnUngatedToolIsAcceptedAndRecorded proves #1640
+// through the real chain: a management tool whose schema is closed to unknown
+// properties accepts a call that states a purpose, the handler never sees the
+// argument, and the sentence still reaches the audit row.
+func TestIntegration_Purpose_StatedOnUngatedToolIsAcceptedAndRecorded(t *testing.T) {
+	ctx := context.Background()
+	h := purposeServer(t, purposeServerOpts{require: true})
+	sess := connectPurpose(ctx, t, h, "")
+	defer func() { _ = sess.Close() }()
+
+	handle := mintViaPlatformInfo(ctx, t, sess)
+	const stated = "Checking which tables the weekly refresh registered before rerunning it."
+
+	res, err := sess.CallTool(ctx, &mcp.CallToolParams{
+		Name: "manage_table",
+		Arguments: map[string]any{
+			"action": "list", "session_id": handle, "purpose": stated,
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError,
+		"an ungated tool must not refuse a stated purpose the platform's own instructions asked for: %v", res)
+
+	args := <-h.sawArgs
+	assert.Equal(t, "list", args["action"], "the tool's own argument survives")
+	assert.NotContains(t, args, "purpose", "the tool must never receive the platform argument")
+	assert.NotContains(t, args, "session_id")
+
+	event, ok := waitForAuditEvent(h.audit, "manage_table", 2*time.Second)
+	require.True(t, ok, "expected an audit row for the management call")
+	assert.Equal(t, stated, event.Purpose,
+		"a volunteered purpose is worth the same to the operator as a required one")
+}
+
+// TestIntegration_Purpose_UngatedToolWithoutOneIsUnchanged proves the other half
+// of the acceptance criterion: not gating still means a missing purpose never
+// refuses the call and records nothing.
+func TestIntegration_Purpose_UngatedToolWithoutOneIsUnchanged(t *testing.T) {
+	ctx := context.Background()
+	h := purposeServer(t, purposeServerOpts{require: true})
+	sess := connectPurpose(ctx, t, h, "")
+	defer func() { _ = sess.Close() }()
+
+	handle := mintViaPlatformInfo(ctx, t, sess)
+
+	res, err := sess.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "manage_table",
+		Arguments: map[string]any{"action": "list", "session_id": handle},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError, "%v", res)
+
+	event, ok := waitForAuditEvent(h.audit, "manage_table", 2*time.Second)
+	require.True(t, ok)
+	assert.Empty(t, event.Purpose, "an ungated call that states none records none")
 }
 
 // TestIntegration_Purpose_RefusesThreadedCallWithout proves the enforcement path

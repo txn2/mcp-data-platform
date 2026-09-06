@@ -95,3 +95,46 @@ func TestBuildPurposeResolver(t *testing.T) {
 		assert.Nil(t, BuildPurposeResolver(Purpose{Enabled: &off}, lookup))
 	})
 }
+
+// TestGatedPurposeTools proves the instruction note's source (#1640): it
+// describes the gate as a caller can be told it -- the tools the configured set
+// names, and separately the kinds it gates wholesale, which is what keeps an
+// upstream's dozens of proxied tools from burying the boundary.
+func TestGatedPurposeTools(t *testing.T) {
+	lookup := fakeLookup{
+		"vendor__list_contacts": "mcp",
+		"vendor__create_note":   "mcp",
+		"trino_query":           "trino",
+	}
+	reachable := []string{
+		"platform_info", "search", "trino_query", "manage_table",
+		"datahub_get_lineage", "vendor__list_contacts", "vendor__create_note",
+	}
+
+	t.Run("names the reachable gated tools and the kinds behind the rest", func(t *testing.T) {
+		named, kinds := GatedPurposeTools(Purpose{}, lookup, reachable)
+		assert.Equal(t, []string{"search", "trino_query", "datahub_get_lineage"}, named,
+			"a glob is rendered as the names it resolves to; a kind entry is not")
+		assert.Equal(t, []string{"mcp"}, kinds,
+			"two proxied tools of one kind are one clause, not two names")
+	})
+
+	t.Run("a persona that reaches no gated tool gets nothing to say", func(t *testing.T) {
+		named, kinds := GatedPurposeTools(Purpose{}, lookup, []string{"platform_info", "manage_table"})
+		assert.Empty(t, named)
+		assert.Empty(t, kinds)
+	})
+
+	t.Run("an override narrows what the note names", func(t *testing.T) {
+		named, kinds := GatedPurposeTools(Purpose{Tools: []string{"trino_query"}}, lookup, reachable)
+		assert.Equal(t, []string{"trino_query"}, named)
+		assert.Empty(t, kinds, "an override that names no kind gates none")
+	})
+
+	t.Run("disabled names nothing", func(t *testing.T) {
+		off := false
+		named, kinds := GatedPurposeTools(Purpose{Enabled: &off}, lookup, reachable)
+		assert.Empty(t, named)
+		assert.Empty(t, kinds)
+	})
+}

@@ -84,12 +84,23 @@ func withSchemaProperty(schema any, name string, prop map[string]any) (any, bool
 // keep lets a caller consume only values it recognizes as its own — the session
 // handle uses it so a tool that legitimately defines its own session_id
 // parameter still receives it. A nil keep consumes any string value.
+func takeStringArg(req mcp.Request, name string, keep func(string) bool) (value string, present bool) {
+	return readStringArg(req, name, keep, true)
+}
+
+// readStringArg returns a platform-owned string argument from a tools/call
+// request's arguments, removing it from the request when remove is true.
+//
+// remove is false only where the platform reads a value it does not own: an
+// argument on a tool whose parameter names were chosen upstream is the upstream
+// tool's own, so the platform may record it but must still deliver it. See
+// PurposeResolver.resolve.
 //
 // The re-encode uses a json.Number decoder so that removing the argument does
 // not silently rewrite the other arguments' numbers (a large int64 ID would
 // otherwise round-trip through float64 and lose precision). When nothing is
 // removed, the arguments are left byte-identical.
-func takeStringArg(req mcp.Request, name string, keep func(string) bool) (value string, present bool) {
+func readStringArg(req mcp.Request, name string, keep func(string) bool, remove bool) (value string, present bool) {
 	callParams := toolCallParams(req)
 	if callParams == nil || len(callParams.Arguments) == 0 {
 		return "", false
@@ -107,6 +118,9 @@ func takeStringArg(req mcp.Request, name string, keep func(string) bool) (value 
 	s, _ := v.(string)
 	if keep != nil && !keep(s) {
 		return "", false
+	}
+	if !remove {
+		return s, true
 	}
 	delete(args, name)
 	if updated, err := json.Marshal(args); err == nil {
