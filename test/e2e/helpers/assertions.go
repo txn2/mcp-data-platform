@@ -5,6 +5,7 @@ package helpers
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -284,5 +285,49 @@ func AssertMatchingDatasetCount(t *testing.T, sc *SemanticContextEnrichment, exp
 
 	if len(sc.MatchingDatasets) != expected {
 		t.Errorf("expected %d matching datasets, got %d", expected, len(sc.MatchingDatasets))
+	}
+}
+
+// DiffToolNames compares a listing of tool names against the exact set expected,
+// returning what the listing lacks and what it carries beyond the set. Both are
+// sorted, so a caller reports the same message on every run.
+//
+// The set is what a tool listing is asserted against rather than a count: a
+// count goes stale the moment the platform starts reporting a tool it always
+// registered, and it names neither the tool that went missing nor the one that
+// leaked (#1644).
+func DiffToolNames(got, want []string) (missing, unexpected []string) {
+	wanted := make(map[string]bool, len(want))
+	for _, name := range want {
+		wanted[name] = true
+	}
+	seen := make(map[string]bool, len(got))
+	for _, name := range got {
+		seen[name] = true
+		if !wanted[name] {
+			unexpected = append(unexpected, name)
+		}
+	}
+	for _, name := range want {
+		if !seen[name] {
+			missing = append(missing, name)
+		}
+	}
+	sort.Strings(missing)
+	sort.Strings(unexpected)
+	return missing, unexpected
+}
+
+// AssertToolSet asserts that a tool listing is exactly the named set, reporting
+// any tool the listing lacks and any it carries beyond the set by name.
+func AssertToolSet(t *testing.T, got []string, want ...string) {
+	t.Helper()
+
+	missing, unexpected := DiffToolNames(got, want)
+	if len(missing) > 0 {
+		t.Errorf("tool listing is missing %v (listed: %v)", missing, got)
+	}
+	if len(unexpected) > 0 {
+		t.Errorf("tool listing carries %v beyond the expected set %v", unexpected, want)
 	}
 }
