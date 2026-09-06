@@ -151,8 +151,15 @@ func TestAdminAPI_Standalone(t *testing.T) {
 	})
 
 	t.Run("list_tools_platform_level", func(t *testing.T) {
-		// Standalone has no toolkits, but the platform-level tools
-		// (platform_info, list_connections) are always registered.
+		// A standalone server has no toolkits, so its tool listing is exactly the
+		// platform's own unconditional tools. The store-conditional ones
+		// (manage_prompt, show_prompts, manage_script, run_script, show_scripts)
+		// need a database this fixture does not have.
+		//
+		// The set is asserted rather than a count so that a toolkit tool leaking
+		// into a connectionless server -- trino_execute, say -- is reported by
+		// name, and so that the platform reporting a tool it always registered
+		// does not read as leakage (#1644).
 		tools, status, err := client.ListTools()
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -160,20 +167,13 @@ func TestAdminAPI_Standalone(t *testing.T) {
 		if status != 200 {
 			t.Fatalf("expected 200, got %d", status)
 		}
-		names := make(map[string]bool, len(tools.Tools))
+		names := make([]string, 0, len(tools.Tools))
 		for _, tool := range tools.Tools {
-			names[tool.Name] = true
+			names = append(names, tool.Name)
 		}
-		for _, want := range []string{"platform_info", "list_connections"} {
-			if !names[want] {
-				t.Errorf("expected platform-level tool %q in %v", want, names)
-			}
-		}
-		// Exactly the platform-level tools and nothing else: a standalone server
-		// with no connections must not register any toolkit tool (e.g. leaking
-		// trino_execute). Asserting the exact count keeps that leakage detectable.
-		if tools.Total != 2 {
-			t.Errorf("expected only the 2 platform-level tools, got %d: %v", tools.Total, names)
+		helpers.AssertToolSet(t, names, "platform_info", "list_connections", "platform_find_tools")
+		if tools.Total != len(tools.Tools) {
+			t.Errorf("total %d disagrees with the %d tools listed: %v", tools.Total, len(tools.Tools), names)
 		}
 	})
 
