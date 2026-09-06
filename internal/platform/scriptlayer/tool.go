@@ -32,6 +32,7 @@ const (
 	cmdOutline    = "outline"
 	cmdStats      = "stats"
 	cmdDiff       = "diff"
+	cmdVersions   = "versions"
 	cmdRuns       = "runs"
 	cmdGetRun     = "get_run"
 	cmdState      = "state"
@@ -167,6 +168,7 @@ func (h *Handle) commands() map[string]commandHandler {
 		cmdOutline:    h.handleOutline,
 		cmdStats:      h.handleStats,
 		cmdDiff:       h.handleDiff,
+		cmdVersions:   h.handleVersions,
 		cmdRuns:       h.handleRuns,
 		cmdGetRun:     h.handleGetRun,
 		cmdState:      h.handleState,
@@ -267,7 +269,7 @@ func manageScriptSchema() any {
 			keyEnum: []string{
 				cmdCreate, cmdUpdate, cmdDelete, cmdGet, cmdList, cmdValidate,
 				cmdRunDraft, cmdHelp, cmdPatch, cmdLocate, cmdGetContent,
-				cmdOutline, cmdStats, cmdDiff, cmdRuns, cmdGetRun, cmdState,
+				cmdOutline, cmdStats, cmdDiff, cmdVersions, cmdRuns, cmdGetRun, cmdState,
 				cmdScheduleSet, cmdScheduleList, cmdScheduleEnable, cmdScheduleDisable,
 			},
 			keyDescription: "The operation to perform. Call 'help' first if you have not written a " +

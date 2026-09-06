@@ -105,6 +105,43 @@ whose it is, and the script's page marks the same files under Files written.
 The audit event records the disposition and, for a move, how many rows it
 touched.
 
+### Who owns it and who wrote it
+
+These are two facts about a script, and after a transfer they name two
+different people. `owner_email` — on `manage_script command=get` and on each
+row of `command=list` — is the person the script is filed under NOW: who sees
+it, edits it, runs it, schedules it. The move above changes it.
+
+The author does not move. Every version records the person who saved it and the
+roles they held at that save, and `manage_script command=versions
+name=<script>` reads that history, newest first:
+
+```json
+{
+  "name": "daily-sales-report",
+  "owner_email": "sam@example.com",
+  "count": 3,
+  "versions": [
+    {"version": 3, "author": "admin@example.com", "author_roles": ["admin"], "status": "applied", "created_at": "2026-08-20T09:12:00Z", "display_name": "Daily Sales", "description": "…", "category": "reporting", "tags": ["sales"]},
+    {"version": 2, "author": "jane@example.com", "author_roles": ["analyst"], "status": "applied", "created_at": "2026-08-14T16:04:00Z", "display_name": "Daily Sales", "description": "…", "category": "reporting", "tags": ["sales"]},
+    {"version": 1, "author": "jane@example.com", "author_roles": ["analyst"], "status": "applied", "created_at": "2026-08-13T14:30:00Z", "display_name": "Daily sales", "description": "…", "category": "reporting", "tags": []}
+  ]
+}
+```
+
+The oldest entry names whoever created the script, so "who wrote this?" survives
+a transfer that made `owner_email` somebody else. The roles on an entry are the
+authority a run of that version presents, which is why the transfer's own
+version carries the administrator's roles. The same history is on the script's
+page in the portal.
+
+It carries no source. A version holds the whole body, and returning every
+version's would turn one call into the complete edit history of the file; read
+an earlier version's code with `command=diff`. Who may read the history is who
+may read the script: its owner, and an administrator on any script. A
+deployment whose store keeps no versions refuses the command rather than
+answering with an empty history.
+
 ### What a run may call
 
 A script calls the tools its author can call. `platform.query`,
@@ -859,6 +896,7 @@ record is readable through the tool:
 | `manage_script command=runs name=daily-sales` | What has this script done lately? |
 | `manage_script command=get_run run_id=…` | What did this run do, and what did it print? |
 | `manage_script command=state name=daily-sales` | What will the next run read as `run.state`, and who wrote it? |
+| `manage_script command=versions name=daily-sales` | Who wrote each version of this script, and with what authority? |
 
 ## State: what a run carries to the next
 

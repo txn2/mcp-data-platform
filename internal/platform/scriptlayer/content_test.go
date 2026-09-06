@@ -1,6 +1,7 @@
 package scriptlayer
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"reflect"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/pkg/script"
 	"github.com/txn2/mcp-data-platform/pkg/textpatch"
 )
 
@@ -229,4 +231,107 @@ func TestDiff_StoreFailureIsNotReportedAsAMissingVersion(t *testing.T) {
 	require.True(t, res.IsError)
 	assert.Contains(t, resultText(res), "version history")
 	assert.NotContains(t, resultText(res), "not found")
+}
+
+// TestVersions_ReportsEveryAuthorNewestFirst is the history read: two applied
+// versions, newest first, each naming its author and the authority that author
+// held at the save.
+func TestVersions_ReportsEveryAuthorNewestFirst(t *testing.T) {
+	h, _ := newHandle()
+	createDaily(t, h)
+	call(t, h, authorCtx(), manageScriptInput{Command: cmdUpdate, Name: "daily", Source: "print(\"changed\")\n"})
+
+	fields := resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdVersions, Name: "daily"}))
+	assert.EqualValues(t, 2, fields["count"])
+	assert.Equal(t, "jane@example.com", fields["owner_email"])
+	versions, ok := fields["versions"].([]any)
+	require.True(t, ok)
+	require.Len(t, versions, 2)
+
+	newest, ok := versions[0].(map[string]any)
+	require.True(t, ok)
+	assert.EqualValues(t, 2, newest[fieldVersion])
+	assert.Equal(t, "jane@example.com", newest["author"])
+	assert.Equal(t, []any{"analyst"}, newest["author_roles"])
+	assert.Equal(t, script.VersionStatusApplied, newest[fieldStatus])
+	assert.NotEmpty(t, newest["created_at"])
+	assert.Equal(t, "Daily", newest["display_name"])
+	assert.NotContains(t, newest, fieldSource, "the history carries no source; diff reads a version's code")
+
+	oldest, ok := versions[1].(map[string]any)
+	require.True(t, ok)
+	assert.EqualValues(t, 1, oldest[fieldVersion])
+	assert.Equal(t, "jane@example.com", oldest["author"])
+}
+
+// TestVersions_SurvivesAnOwnerTransfer is the question the command exists for:
+// after an administrator moves a script (#1404), owner_email names the new
+// owner and the history still names the person who wrote the first version.
+func TestVersions_SurvivesAnOwnerTransfer(t *testing.T) {
+	h, store := newHandle()
+	createDaily(t, h)
+	sc, err := store.GetByName(context.Background(), "jane@example.com", "daily")
+	require.NoError(t, err)
+	require.NotNil(t, sc)
+	_, err = store.Transfer(context.Background(),
+		script.TransferRequest{ID: sc.ID, NewOwnerEmail: "sam@example.com"},
+		script.Author{Email: "admin@example.com", Roles: []string{"admin"}})
+	require.NoError(t, err)
+
+	got := resultFields(t, call(t, h, adminCtx(), manageScriptInput{
+		Command: cmdGet, Name: "daily", OwnerEmail: "sam@example.com",
+	}))
+	assert.Equal(t, "sam@example.com", got["owner_email"])
+
+	fields := resultFields(t, call(t, h, adminCtx(), manageScriptInput{
+		Command: cmdVersions, Name: "daily", OwnerEmail: "sam@example.com",
+	}))
+	assert.Equal(t, "sam@example.com", fields["owner_email"])
+	versions, ok := fields["versions"].([]any)
+	require.True(t, ok)
+	require.Len(t, versions, 2)
+	first, ok := versions[len(versions)-1].(map[string]any)
+	require.True(t, ok)
+	assert.EqualValues(t, 1, first[fieldVersion])
+	assert.Equal(t, "jane@example.com", first["author"], "the author of the first version does not move with the script")
+}
+
+// TestVersions_NotTheOwnerGetsTheGetRefusal holds the history to the visibility
+// get already applies, in the same words: naming the difference would confirm
+// the script exists to somebody who may not see it.
+func TestVersions_NotTheOwnerGetsTheGetRefusal(t *testing.T) {
+	h, _ := newHandle()
+	createDaily(t, h)
+	stranger := callerCtx("sam@example.com", "analyst")
+
+	versionsRes := call(t, h, stranger, manageScriptInput{Command: cmdVersions, Name: "daily"})
+	getRes := call(t, h, stranger, manageScriptInput{Command: cmdGet, Name: "daily"})
+	assert.True(t, versionsRes.IsError)
+	assert.Equal(t, resultText(getRes), resultText(versionsRes))
+}
+
+// TestVersions_WithoutAVersionStoreRefusesLikeDiff covers the degraded
+// deployment: no versioning means no history, refused in the terms diff
+// already refuses in rather than answered with an empty list.
+func TestVersions_WithoutAVersionStoreRefusesLikeDiff(t *testing.T) {
+	h := New(Config{Store: &unversionedStore{inner: newMemStore()}, AdminPersona: "admin"})
+	require.Nil(t, h.versions)
+	createDaily(t, h)
+
+	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdVersions, Name: "daily"})
+	diffRes := call(t, h, authorCtx(), manageScriptInput{Command: cmdDiff, Name: "daily"})
+	assert.True(t, res.IsError)
+	assert.Equal(t, resultText(diffRes), resultText(res))
+}
+
+// TestVersions_StoreFailureIsReportedAsSuch keeps a store that blinked from
+// reading as a script with no history.
+func TestVersions_StoreFailureIsReportedAsSuch(t *testing.T) {
+	h, store := newFailingHandle()
+	createDaily(t, h)
+	store.listVersionsErr = errors.New("pq: connection reset")
+
+	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdVersions, Name: "daily"})
+	require.True(t, res.IsError)
+	assert.Contains(t, resultText(res), "version history")
 }

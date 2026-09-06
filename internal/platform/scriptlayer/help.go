@@ -23,7 +23,9 @@ const manageScriptDescription = "Author, validate, and dry-run managed scripts: 
 	"reports what the script would reach, runs nothing), then run_draft (executes for real under YOUR " +
 	"identity and persona, with tighter limits, persisting nothing). " +
 	"A saved script runs: run_script executes its latest saved version as the script's own principal, " +
-	"presenting the roles you held when you saved it, and a schedule fires it the same way."
+	"presenting the roles you held when you saved it, and a schedule fires it the same way. " +
+	"command=versions reads the history of who wrote each version, which is not the same question as " +
+	"who owns the script now."
 
 // DialectContract is the help command's body: what a script is, what is
 // predeclared, and what a Python instinct will reach for and not find.
@@ -233,7 +235,18 @@ THE LOOP
   A draft reads the script's live state and reports what it would have saved;
   manage_script command=state reads, replaces or clears the state itself, which
   is how a wrong watermark is corrected: clear it and let the next run start
-  over.`
+  over.
+
+WHO OWNS IT AND WHO WROTE IT
+  These are two facts, and two commands answer them. get reports owner_email,
+  the person the script is filed under NOW; an administrator can move a script
+  to somebody else, and the address moves with it. command=versions reports the
+  history newest first — the version number, its author, the roles that author
+  held at that save, the status, when it was written, and what the script
+  called itself then. The roles are the authority a run of that version
+  presents, and the oldest entry names whoever created the script, so a
+  transfer never loses the author. It carries no source; read an earlier
+  version's code with command=diff.`
 
 // example is one built-in worked script, retrievable by name through get.
 type example struct {
