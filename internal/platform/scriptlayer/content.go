@@ -185,3 +185,49 @@ func versionSource(ctx context.Context, versions script.VersionStore, history []
 	}
 	return v.Source, nil
 }
+
+// handleVersions returns the script's version history: who wrote each version
+// and the authority they held, newest first.
+//
+// It answers a different question from get. `owner_email` is where the script
+// is filed now, and an administrator can move a script to somebody else
+// (#1404), so after a transfer that field names a person who may never have
+// written a line of it. The author is recorded per version and does not move,
+// which is why the oldest entry still names whoever created the script.
+//
+// The source stays out. A history entry carries the whole body, and returning
+// every version's would turn one call into the complete edit history of the
+// file; the body of an earlier version is read through command=diff.
+func (h *Handle) handleVersions(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
+	sc, errResult := h.readable(ctx, input)
+	if errResult != nil {
+		return errResult, nil, nil
+	}
+	if h.versions == nil {
+		return errorResult("script versioning is unavailable on this deployment"), nil, nil
+	}
+	history, err := h.versions.ListVersions(ctx, sc.ID)
+	if err != nil {
+		slog.Error("failed to list script versions", fieldName, sc.Name, logKeyError, err)
+		return errorResult("failed to read the version history"), nil, nil
+	}
+	entries := make([]map[string]any, 0, len(history))
+	for i := range history {
+		entries = append(entries, versionFields(&history[i]))
+	}
+	return jsonResult(map[string]any{
+		fieldName: sc.Name, "owner_email": sc.OwnerEmail,
+		"versions": entries, "count": len(entries),
+	})
+}
+
+// versionFields renders one version for a history response: what was saved,
+// who saved it, and the authority they held at that save.
+func versionFields(v *script.Version) map[string]any {
+	return map[string]any{
+		fieldVersion: v.Version, "author": v.Author, "author_roles": orEmpty(v.AuthorRoles),
+		fieldStatus: v.Status, "created_at": v.CreatedAt.UTC(),
+		"display_name": v.DisplayName, "description": v.Description,
+		"category": v.Category, "tags": orEmpty(v.Tags),
+	}
+}

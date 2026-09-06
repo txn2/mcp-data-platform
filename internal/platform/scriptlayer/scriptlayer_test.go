@@ -122,9 +122,10 @@ func (m *memStore) Create(_ context.Context, sc *script.Script, author script.Au
 func (m *memStore) snapshot(sc *script.Script, author script.Author, status string) {
 	m.versions[sc.ID] = append(m.versions[sc.ID], script.Version{
 		ID: fmt.Sprintf("sver_%s_%d", sc.ID, sc.Version), ScriptID: sc.ID, Version: sc.Version,
-		DisplayName: sc.DisplayName, Description: sc.Description, Source: sc.Source,
+		DisplayName: sc.DisplayName, Description: sc.Description, Category: sc.Category,
+		Source: sc.Source,
 		Params: sc.Params, Tags: sc.Tags, Author: author.Email, AuthorRoles: author.Roles,
-		Status: status,
+		Status: status, CreatedAt: time.Now().UTC(),
 	})
 }
 
@@ -235,8 +236,13 @@ func (m *memStore) UpdateWithVersion(ctx context.Context, sc *script.Script, aut
 	return m.Update(ctx, sc)
 }
 
+// ListVersions answers newest first, as the PostgreSQL store's ORDER BY
+// version DESC does. The fake appends in save order, so it reverses on the way
+// out rather than leaving the ordering half of the contract to the caller.
 func (m *memStore) ListVersions(_ context.Context, scriptID string) ([]script.Version, error) {
-	return slices.Clone(m.versions[scriptID]), nil
+	history := slices.Clone(m.versions[scriptID])
+	slices.Reverse(history)
+	return history, nil
 }
 
 func (m *memStore) GetVersionByID(_ context.Context, id string) (*script.Version, error) {
