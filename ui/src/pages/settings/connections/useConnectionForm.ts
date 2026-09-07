@@ -48,6 +48,7 @@ export function useConnectionForm({
       case "trino": return Boolean(configObj.host);
       case "mcp": return Boolean(configObj.endpoint);
       case "api": return Boolean(configObj.base_url);
+      case "graphql": return Boolean(configObj.endpoint_url);
       default: return true;
     }
   }, [kind, configObj]);

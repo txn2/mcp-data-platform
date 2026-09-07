@@ -485,3 +485,96 @@ func TestRecorderExcludesNothingWhenNothingIsDeclared(t *testing.T) {
 		t.Fatalf("expected one record, got %d", len(store.inserted))
 	}
 }
+
+func TestRecorderCatalogsAGraphQLCall(t *testing.T) {
+	t.Parallel()
+
+	store := &fakeStore{}
+	rec := NewRecorder(&fakeAudit{}, store, testURN, Exclusion{})
+
+	const document = `query Read($urn: String!) { dataset(urn: $urn) { urn name } }`
+	if err := rec.Log(context.Background(), audit.Event{
+		ID:         "evt-gql",
+		ToolName:   "graphql_query",
+		Connection: "erp",
+		Success:    true,
+		Parameters: map[string]any{"query": document, "operation_name": "Read"},
+	}); err != nil {
+		t.Fatalf("Log: %v", err)
+	}
+
+	got := store.inserted[0]
+	if got.Kind != KindGraphQL {
+		t.Errorf("kind = %q", got.Kind)
+	}
+	// The document is the statement: it is what a reader re-runs, the way
+	// a SQL record's statement is.
+	if got.Statement != document {
+		t.Errorf("statement = %q", got.Statement)
+	}
+	// The operation kind is the method, because QUERY and MUTATION are
+	// what say whether the call only read.
+	if got.Method != "QUERY" || got.Path != "/dataset" || got.OperationID != "Read" {
+		t.Errorf("record = %+v", got)
+	}
+	if len(got.Targets) != 1 || got.Targets[0] != "graphql:erp:dataset" {
+		t.Errorf("targets = %v", got.Targets)
+	}
+}
+
+func TestRecorderCatalogsAGraphQLMutationAndAMultiFieldDocument(t *testing.T) {
+	t.Parallel()
+
+	store := &fakeStore{}
+	rec := NewRecorder(&fakeAudit{}, store, testURN, Exclusion{})
+
+	if err := rec.Log(context.Background(), audit.Event{
+		ID: "evt-m", ToolName: "graphql_export", Connection: "erp", Success: true,
+		Parameters: map[string]any{"query": `mutation { retire(urn: "u") }`},
+	}); err != nil {
+		t.Fatalf("Log: %v", err)
+	}
+	if got := store.inserted[0]; got.Method != "MUTATION" {
+		t.Errorf("method = %q", got.Method)
+	}
+
+	if err := rec.Log(context.Background(), audit.Event{
+		ID: "evt-two", ToolName: "graphql_query", Connection: "erp", Success: true,
+		Parameters: map[string]any{"query": `{ a { x } b { y } }`},
+	}); err != nil {
+		t.Fatalf("Log: %v", err)
+	}
+	got := store.inserted[1]
+	// A document that reached two fields has no single path, and both are
+	// targets.
+	if got.Path != "" {
+		t.Errorf("path = %q; a multi-field document names no one path", got.Path)
+	}
+	if len(got.Targets) != 2 {
+		t.Errorf("targets = %v", got.Targets)
+	}
+}
+
+func TestRecorderCatalogsAGraphQLCallItCannotParse(t *testing.T) {
+	t.Parallel()
+
+	store := &fakeStore{}
+	rec := NewRecorder(&fakeAudit{}, store, testURN, Exclusion{})
+
+	// A deployment that redacts parameters, or a document the audit row
+	// truncated, still produces a record: the purpose, the connection and
+	// the outcome are worth having on their own.
+	if err := rec.Log(context.Background(), audit.Event{
+		ID: "evt-bad", ToolName: "graphql_query", Connection: "erp", Success: true,
+		Parameters: map[string]any{},
+	}); err != nil {
+		t.Fatalf("Log: %v", err)
+	}
+	got := store.inserted[0]
+	if got.Kind != KindGraphQL || got.Connection != "erp" {
+		t.Errorf("record = %+v", got)
+	}
+	if got.Method != "" || len(got.Targets) != 0 {
+		t.Errorf("record = %+v; nothing was inferred from a document that is not there", got)
+	}
+}

@@ -509,6 +509,7 @@ func TestCaptureToleratesAFailedFlush(t *testing.T) {
 func TestKindFor(t *testing.T) {
 	assert.Equal(t, portal.ProvenanceKindSQL, KindFor("trino"))
 	assert.Equal(t, portal.ProvenanceKindAPI, KindFor("api"))
+	assert.Equal(t, portal.ProvenanceKindGraphQL, KindFor("graphql"))
 	assert.Equal(t, portal.ProvenanceKindTool, KindFor("datahub"))
 	assert.Equal(t, portal.ProvenanceKindTool, KindFor("s3"))
 	assert.Equal(t, portal.ProvenanceKindTool, KindFor("mcp"))
@@ -596,4 +597,19 @@ func TestSourceKindsMatchTheToolkits(t *testing.T) {
 	assert.Equal(t, portal.ProvenanceKindTool, KindFor(gatewaykit.Kind))
 	assert.Empty(t, KindFor(portalkit.New(portalkit.Config{}).Kind()),
 		"the toolkit that saves assets is not a source of them")
+}
+
+// A GraphQL call's address is one URL, so what a reader needs on the panel is
+// the document rather than a request line. That is why it carries its own
+// provenance kind instead of the API one.
+func TestCaptureRecordsAGraphQLCallByItsDocument(t *testing.T) {
+	const document = `query { dataset(urn: "u") { urn } }`
+	reader := &fakeReader{events: []audit.Event{
+		event("e1", "graphql_query", "graphql", 0, withParams(map[string]any{"query": document})),
+	}}
+	capture := newTestCapturer(reader, nil).Capture(context.Background(), saveRequest())
+
+	require.Len(t, capture.Calls, 1)
+	assert.Equal(t, portal.ProvenanceKindGraphQL, capture.Calls[0].Kind)
+	assert.Equal(t, document, capture.Calls[0].Statement)
 }

@@ -21,6 +21,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/callindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/collectionindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/datasetindex"
+	"github.com/txn2/mcp-data-platform/internal/platform/graphqlindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/knowledgepageindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/memoryindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/promptindex"
@@ -57,6 +58,12 @@ type Consumers struct {
 	// data-access calls so a prior query is findable by what it answers and
 	// not only by the words it contains (#1321).
 	Calls bool
+	// GraphQLOperations registers the graphql consumer, which embeds each
+	// GraphQL connection's operations so a schema with hundreds of them is
+	// ranked by intent rather than by whether the caller's words match the
+	// schema author's (#1277). Gated on the lister below rather than on a
+	// sub-store: its corpus is the live toolkits, not a table.
+	GraphQLOperations bool
 	// CatalogDatasets registers the catalog-dataset consumer, which mirrors the
 	// configured semantic catalog's dataset text into the platform's own index
 	// (#1131). Unlike the others it is not gated on a platform sub-store: its
@@ -121,6 +128,10 @@ type Config struct {
 	// set; a nil lister leaves the consumer unregistered.
 	CatalogLister      datasetindex.Lister
 	CatalogIndexConfig datasetindex.Config
+
+	// GraphQLToolkits enumerates the live graphql toolkits the graphql
+	// consumer reads its corpus from. Nil leaves that consumer unregistered.
+	GraphQLToolkits graphqlindex.ToolkitLister
 
 	// ResourceBlobs and ResourceBucket locate managed-resource content for the
 	// resources consumer, which extracts a text prefix from the uploaded file so
@@ -357,6 +368,13 @@ func (h *Handle) registerDataConsumers(cfg Config) {
 			scriptindex.NewSource(scStore),
 			scriptindex.NewSink(scStore, cfg.ModelName),
 		)
+	})
+	// GraphQL consumer: embeds each graphql connection's operations so a
+	// caller asking for what they want done reaches the operation that does
+	// it, rather than needing the schema author's vocabulary (#1277).
+	tryRegister(cfg.Consumers.GraphQLOperations && cfg.GraphQLToolkits != nil, "graphql operations", func() error {
+		source := graphqlindex.NewSource(cfg.GraphQLToolkits)
+		return h.registry.Register(source, graphqlindex.NewSink(graphqlindex.NewStore(cfg.DB), source))
 	})
 }
 

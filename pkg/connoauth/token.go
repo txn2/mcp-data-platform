@@ -12,6 +12,9 @@ const (
 	// KindAPI is the HTTP API gateway toolkit family (treats an OpenAPI
 	// REST service as a tool surface).
 	KindAPI = "api"
+	// KindGraphQL is the GraphQL toolkit family (one endpoint, an
+	// introspected schema, documents posted to it).
+	KindGraphQL = "graphql"
 )
 
 // Key uniquely identifies one (connection_kind, connection_name)

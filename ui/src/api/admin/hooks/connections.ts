@@ -270,3 +270,51 @@ export function useDryRunEnrichmentRule(connection: string) {
       ),
   });
 }
+
+// ---------------------------------------------------------------------------
+// GraphQL connection schemas (kind=graphql)
+// ---------------------------------------------------------------------------
+
+// GraphQLSchemaInfo is what the platform holds for one graphql connection:
+// which schema version, where it came from, when it was read, how many
+// operations it exposes, and — when it holds none — why.
+export interface GraphQLSchemaInfo {
+  connection: string;
+  schema_hash?: string;
+  source?: string;
+  fetched_at?: string;
+  operation_count: number;
+  error?: string;
+}
+
+export function useGraphQLSchema(name: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["graphql-schema", name],
+    queryFn: () =>
+      apiFetch<GraphQLSchemaInfo>(`/connection-instances/graphql/${name}/schema`),
+    enabled: enabled && !!name,
+  });
+}
+
+// useRefreshGraphQLSchema re-reads a connection's schema. With no schema
+// argument the platform reads it from the endpoint by introspection; with one,
+// the text is taken as the schema itself (SDL or a saved introspection
+// result), which is the path for an endpoint that disables introspection.
+export function useRefreshGraphQLSchema(name: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (schema?: string) =>
+      apiFetch<GraphQLSchemaInfo>(
+        `/connection-instances/graphql/${name}/refresh-schema`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "text/plain" },
+          body: schema ?? "",
+        },
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["graphql-schema", name] });
+      void qc.invalidateQueries({ queryKey: ["connections"] });
+    },
+  });
+}

@@ -179,12 +179,13 @@ var supersededExpr = fmt.Sprintf(`EXISTS (
 const readStatementPattern = `^[\s(]*(with|select|show|describe|desc|explain|table|values)\y`
 
 // readShapedExpr reports whether one record only read. An API call is a read
-// when its method is one, and a query when its statement begins with a reading
-// verb; the two kinds carry different evidence and neither is guessed from the
-// other.
+// when its method is one, a GraphQL call when its operation kind is QUERY, and
+// a query when its statement begins with a reading verb; the three kinds carry
+// different evidence and none is guessed from another.
 func readShapedExpr(alias string) string {
 	return fmt.Sprintf(`(CASE WHEN %[1]s.kind = '%[2]s' THEN %[1]s.method IN ('GET', 'HEAD')
-	    ELSE %[1]s.statement ~* '%[3]s' END)`, alias, KindAPI, readStatementPattern)
+	    WHEN %[1]s.kind = '%[4]s' THEN %[1]s.method = 'QUERY'
+	    ELSE %[1]s.statement ~* '%[3]s' END)`, alias, KindAPI, readStatementPattern, KindGraphQL)
 }
 
 // reuseCountExpr counts the sessions that fetched this record and then ran what

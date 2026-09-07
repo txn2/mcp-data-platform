@@ -4168,6 +4168,72 @@ Retryable failures back off exponentially (5s, 10s, 20s, 40s, 80s) up to 5 attem
 
 ---
 
+# GraphQL Toolkit
+
+The GraphQL toolkit (`kind: graphql`) reaches a GraphQL endpoint through the platform's auth, persona, audit and export pipeline. It is the third gateway kind, alongside the MCP gateway (`kind: mcp`) and the HTTP API gateway (`kind: api`).
+
+It is a kind of its own rather than a shape of API connection for four reasons that are properties of GraphQL rather than of the implementation. A GraphQL endpoint is one URL that everything is POSTed to, so there is no route to authorize and no path to rank. The unit of work is a document the caller composes, not an operation the catalog declares. A failure arrives as an `errors` array inside an HTTP 200, so classifying on the status line records every failed call as a success. And paging is a variable fed back into the document, which the API gateway's URL-moving page walk cannot express.
+
+What it reuses rather than forks: outbound authentication and transport policy (`internal/upstreamauth`, shared with the API gateway since #1647), outbound OAuth through `pkg/connoauth`, mTLS material through `internal/apigwtls`, deny-by-default persona scoping by connection name, hot reload through `pkg/connreconcile`, the connection CRUD in `pkg/admin`, the index-jobs queue, `search` federation, the export adapters, and the relevance arithmetic (`internal/opranking`, extracted from the API gateway so both kinds rank by one set of formulas and one relevance boundary).
+
+## Configuration
+
+`endpoint_url` is the full URL documents are POSTed to; unlike an HTTP API's `base_url` it is the whole address. `auth_mode` and its credentials, `static_headers`, `connect_timeout`, `call_timeout`, `max_response_bytes`, the mTLS/CA material and `identity_passthrough` are the shared upstream keys, read by the same code an `api` connection reads them with. The kind's own keys are `schema_validation` (`strict` | `warn`, default strict), `max_query_depth` (default 15), `namespace_depth` (default 3), `read_only`, `max_inline_bytes` (default 32 KiB) and `description`.
+
+## The schema
+
+On register and on reconcile the toolkit runs the canonical introspection query through the connection's own credential, converts the result to SDL, and stores it gzip-compressed with its SHA-256 hash and fetch time (`graphql_connection_schemas`, migration 000140). SDL is the stored form because it is what the parser loads, what an operator can read when diagnosing a refused document, and the one shape both the introspection path and the admin upload path normalize to. The hash is what the operation index and its embeddings are keyed on.
+
+The introspection query is at the compatibility level every GraphQL server implements — no `isRepeatable`, no `specifiedByURL`, no `includeDeprecated` on `args` — because a schema read is the one call that must succeed before a connection is usable at all. The cost is that directive repeatability is not recorded, so a document repeating a custom directive is refused under strict validation and passes under warn.
+
+An endpoint with introspection disabled is a named error on the connection, quoted from the upstream, rather than an operation index that is silently empty. For that case an operator supplies the schema: `POST /api/v1/admin/connection-instances/graphql/{name}/refresh-schema` with an empty body re-reads the endpoint, and with a body takes the body as the schema — SDL, or a saved introspection result in either the full response shape or the `__schema` object alone. `GET .../schema` reports which version the platform holds, where it came from, when, how many operations it exposes, and the cause when it holds none. Admin > Connections shows the same state with a re-read button and a paste box.
+
+## Namespace descent
+
+An operation is a field on the query or mutation root, or a field reached by descending through fields that are namespaces rather than work. The walk descends when a field takes no arguments and returns a singular object type that is not a Relay connection; everything else is terminal. One refinement: a field that takes no arguments and yields only scalar data is a column of its parent's record rather than a unit of work, so the object holding it is emitted instead — without that, a flat schema's `me { identity { urn email } }` becomes one indexed "operation" per column.
+
+A Relay connection is recognized by shape (an `edges` or `pageInfo` field), never by name. A schema that names an entity's namespace `<Entity>_Connection` while giving it verb fields is descended into; one that returns real `edges` is where the walk stops, because that is where results are.
+
+A flat schema indexes its root fields (`query:searchAcrossEntities`); a namespaced one indexes the verbs beneath its packages (`query:masterData.product.query`, `mutation:sales.salesOrder.create`). `namespace_depth` caps the segments.
+
+## graphql_discover
+
+Two levels, both carrying `schema_hash` and `schema_fetched_at` so a caller comparing two answers can see whether the schema moved. The operations level returns ranked operations (`operation_id`, `kind`, `path`, `summary`, `return_type`, `arguments`) with `score`, `lexical_match`, `matched_lexical` and `shown_semantic` — the same relevance boundary the API gateway applies, from the shared ranker. The operation level returns the arguments with their types and defaults, the input-object types they reference expanded, the return type's field tree, and a skeleton document with a variables stub.
+
+The skeleton is the load-bearing piece. It validates against the stored schema and already carries the selection set the operation needs, including the `edges { node { ... } }` shape of a paged connection: the selection budget is counted from the return type rather than from the document root, so a namespaced operation three segments deep still reaches its rows. Every argument is declared as a variable and the stub carries the required ones; a declared variable that is not supplied leaves its argument absent and the schema's own default in force, which is why the stub omits the optional ones.
+
+## graphql_query
+
+`variables` accepts a JSON object or a string holding that object's JSON; both reach the same request, because a client that stringifies structured arguments sends the second and refusing it would make the tool work for some clients and not others.
+
+Refused before any call: a subscription; a `__schema` or `__type` selection, with a pointer to `graphql_discover`; a document deeper than `max_query_depth`; a multi-operation document with no `operation_name`; a document the persona denies; and, under strict validation, one the stored schema does not admit — with the refusal naming the connection and when its schema was read, which is what makes schema drift diagnose itself.
+
+`upstream_error` is true for a non-2xx or a 200 carrying errors, and that is what audit, the call catalog and the outbound metrics classify on. The `errors` array is passed through unchanged, and partial `data` is preserved beside it. A result past `max_inline_bytes` has its data withheld whole — a JSON document cut in half cannot be parsed — sets `data_truncated`, reports `data_bytes`, and carries the `graphql_export` call that writes the same result to an asset.
+
+## Paging
+
+`paginate` names the array to merge (`items`, a dotted path inside `data`) and the document variable each page's cursor is bound to (`cursor_variable`), so the document is unchanged between pages. By default the cursor is read from the Relay `pageInfo` beside the items array. An upstream that pages some other way names `next_cursor_path` (and optionally `has_next_path`): a scroll-style API with a bare `nextScrollId` and no `pageInfo` is walked by naming that path. The walk stops at the upstream's end signal, at a null or absent cursor, at `max_pages` (default 10), or on the first page the upstream refuses, and reports `pages_fetched`, `items_merged`, `stopped_by` and the `next_cursor` a bounded walk would have continued from. The merged array replaces the first page's array in place, so the caller reads one page's shape holding every row.
+
+## Authorization
+
+A GraphQL operation carries the same three coordinates an HTTP endpoint does, which is what lets a persona's existing `api_routes` rules govern it unchanged: the method is the operation kind (`QUERY` or `MUTATION`) and the path is the dotted operation id with dots as slashes. A read-only persona is one ALLOW entry naming `methods: ["QUERY"]` and no paths. An allow rather than a deny because `api_routes` is a narrowing: once any rule names a connection a matching allow is required, so a mutation is refused by matching none, while a deny on its own would close the connection to every method. Naming no paths is what makes it cover every operation, since a glob's `*` does not cross a `/` and `**` is not recursive.
+
+The document is reduced to the operations it invokes rather than to its root fields, so a rule can name an entity's verb rather than only a package. Aliases resolve to the underlying field name and fragments are expanded, so a denied operation cannot be reached by renaming it or hiding it in a fragment. Every invoked operation must pass: a mixed document is refused rather than sent with the denied part stripped. `read_only: true` on the connection refuses mutations for every persona.
+
+## Search, indexing and the call catalog
+
+GraphQL operations join the universal `search` tool's `endpoints` group alongside the API gateway's, because both answer one question — which remote operation serves this intent — and a caller narrowing to `endpoints` should not have to know which kind their connection is. The route policy is applied first, so a federated search never surfaces what a scoped discover would have hidden.
+
+The index-jobs consumer registered under source kind `graphql_operations` embeds each connection's operations off the request path into `graphql_operation_embeddings`, keyed `(connection, schema_hash, operation_id)`. The schema hash in the key is what leaves a previous version's vectors addressable across a schema change; a pass that has not run leaves ranking lexical with a note saying so. What is embedded per operation is its dotted path, the descriptions collected along it, its argument names and types, and the scalar field names of what it returns — the last because they are the vocabulary a caller asks in.
+
+A `graphql_query` or `graphql_export` call is cataloged as a `graphql` record: the document is its statement, `QUERY`/`MUTATION` is its method (which is what the read-shape predicate reads), and the fields the document selected are its targets (`graphql:<connection>:<field>`). Provenance carries its own kind, so an asset's panel renders a GraphQL call as its document rather than as a request line — every GraphQL call being a POST to one URL, the API shape would render every one of them identically.
+
+## Out of scope
+
+Subscriptions are refused with a clear message. There is no auth mode for an upstream expecting a short-lived token the client signs itself. `graphql_export` walks pages exactly as `graphql_query` does, bounded by `max_pages`; there is no unbounded streaming export.
+
+---
+
 # API Operation Browser
 
 The platform indexes the operations of every OpenAPI spec in an API catalog, and an agent reaches them through `api_discover` and relevance hits from `search`. The operation browser is the same index for a person, in two views that differ by what they are drawn from.

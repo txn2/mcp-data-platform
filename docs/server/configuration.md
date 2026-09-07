@@ -973,6 +973,59 @@ auth modes (`none`/`bearer`/`api_key`/`oauth`), OAuth grant types
 (`client_credentials` and `authorization_code` + PKCE), and the
 cross-enrichment rule schema.
 
+### GraphQL
+
+The `graphql` toolkit kind reaches a GraphQL endpoint: one URL every
+document is POSTed to, a schema the platform reads by introspection and
+keeps, and three tools (`graphql_discover`, `graphql_query`,
+`graphql_export`) serving every connection. Connections are normally
+managed through the admin portal, like the other gateway kinds; the YAML
+form below exists for a file-configured deployment.
+
+```yaml
+toolkits:
+  graphql:
+    enabled: true
+    instances:
+      metadata:
+        endpoint_url: "https://datahub.example.com/api/graphql"
+        auth_mode: bearer
+        credential: ${DATAHUB_TOKEN}
+        description: "The metadata service's GraphQL API."
+        static_headers:
+          x-tenant-id: acme
+        connect_timeout: 10s
+        call_timeout: 60s
+        max_response_bytes: 10485760
+        max_inline_bytes: 32768
+        schema_validation: strict
+        max_query_depth: 15
+        namespace_depth: 3
+        read_only: false
+    default: metadata
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `endpoint_url` | string | - | **Required.** The full URL documents are POSTed to. Unlike an HTTP API's `base_url` this is the whole address: a GraphQL endpoint has exactly one |
+| `description` | string | endpoint URL | Human-readable description, surfaced by `list_connections` and the admin UI |
+| `auth_mode` | string | `none` | `none`, `bearer`, `api_key`, `basic`, `oauth`, `mtls`. Same keys, defaults and at-rest encryption as an `api` connection's — both kinds read them through one shared implementation |
+| `static_headers` | map | `{}` | Headers attached to every outbound request, in addition to whatever `auth_mode` contributes. This is where an upstream's tenant or folder routing goes. Operator-owned; a model can neither set nor override them. Encrypted at rest |
+| `connect_timeout` | duration | `10s` | Dial timeout |
+| `call_timeout` | duration | `60s` | Per-call timeout. A caller's `timeout_seconds` may lower it, never raise it |
+| `max_response_bytes` | int64 | `10485760` | Upstream read cap: the most the platform reads of one response |
+| `max_inline_bytes` | int64 | `32768` | Model-context budget: the most a rendered `graphql_query` result may hold. Past it the data is withheld whole (a JSON document cut in half cannot be parsed), flagged `data_truncated`, and the `graphql_export` call that writes it to an asset is handed back |
+| `schema_validation` | string | `strict` | `strict` refuses a document the stored schema does not admit, naming the connection and when its schema was read. `warn` sends it and reports the violations beside the answer |
+| `max_query_depth` | int | `15` | Deepest selection a document may have. A deeply nested document is how one small request makes an endpoint do unbounded work |
+| `namespace_depth` | int | `3` | How many segments a dotted operation id may have when the schema is walked into operations. A flat schema indexes its root fields whatever this is; a namespaced one (package, entity, verb) needs 3 |
+| `read_only` | bool | `false` | Refuse every mutation document on this connection, for every persona |
+| `mtls_client_cert_pem`, `mtls_client_key_pem`, `tls_ca_bundle_pem` | string | - | The connection's TLS material, as on an `api` connection |
+| `identity_passthrough` | bool | `false` | Forward the acting caller's inbound bearer token as the outbound `Authorization` header instead of this connection's credential |
+
+See [GraphQL Toolkit](graphql-gateway.md) for the schema lifecycle,
+namespace descent, the skeleton documents `graphql_discover` renders,
+paging, and how a persona's `api_routes` rules govern an operation.
+
 ## Cross-Enrichment Configuration
 
 ```yaml

@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/gqlschema"
 	"github.com/txn2/mcp-data-platform/internal/sqltables"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 )
@@ -17,20 +18,24 @@ import (
 // browsing a catalog, describing a table, listing endpoints — is discovery, and
 // a record of it would be a record of nothing worth running again.
 const (
-	toolTrinoQuery   = "trino_query"
-	toolTrinoExecute = "trino_execute"
-	toolTrinoExport  = "trino_export"
-	toolAPIInvoke    = "api_invoke_endpoint"
-	toolAPIExport    = "api_export"
+	toolTrinoQuery    = "trino_query"
+	toolTrinoExecute  = "trino_execute"
+	toolTrinoExport   = "trino_export"
+	toolAPIInvoke     = "api_invoke_endpoint"
+	toolAPIExport     = "api_export"
+	toolGraphQLQuery  = "graphql_query"
+	toolGraphQLExport = "graphql_export"
 )
 
 // recordedTools maps a tool name to the kind of record it produces.
 var recordedTools = map[string]string{
-	toolTrinoQuery:   KindSQL,
-	toolTrinoExecute: KindSQL,
-	toolTrinoExport:  KindSQL,
-	toolAPIInvoke:    KindAPI,
-	toolAPIExport:    KindAPI,
+	toolTrinoQuery:    KindSQL,
+	toolTrinoExecute:  KindSQL,
+	toolTrinoExport:   KindSQL,
+	toolAPIInvoke:     KindAPI,
+	toolAPIExport:     KindAPI,
+	toolGraphQLQuery:  KindGraphQL,
+	toolGraphQLExport: KindGraphQL,
 }
 
 // KindForTool returns the record kind a tool produces, or "" when the tool is
@@ -154,13 +159,53 @@ func (r *Recorder) recordFrom(ev audit.Event) (Record, bool) {
 		ResponseChars: ev.ResponseChars,
 		CreatedAt:     ev.Timestamp.UTC(),
 	}
-	if kind == KindSQL {
+	switch kind {
+	case KindSQL:
 		r.describeSQL(&rec, ev.ToolkitKind, ev.Parameters)
-	} else {
+	case KindGraphQL:
+		describeGraphQL(&rec, ev.Parameters)
+	default:
 		describeAPI(&rec, ev.Parameters)
 	}
 	return rec, true
 }
+
+// describeGraphQL fills in the document, the operation kind, and what it
+// addressed. The document is the statement: it is what a reader re-runs, the
+// same way a SQL record's statement is. The operation kind is the method,
+// because QUERY and MUTATION are what say whether the call only read.
+//
+// The fields the document selects are its targets. They are read from the
+// document itself rather than from a schema, so a record is described the same
+// whether or not the connection's schema is still loaded; a namespaced schema's
+// deeper operation id is not resolvable here, and the root field it descends
+// from is the honest answer at this layer.
+func describeGraphQL(rec *Record, params map[string]any) {
+	document := stringParam(params, "query")
+	rec.Statement = document
+	rec.OperationID = stringParam(params, "operation_name")
+	doc, err := gqlschema.Parse(document, rec.OperationID)
+	if err != nil {
+		return
+	}
+	rec.Method = string(doc.Kind())
+	fields := doc.TopLevelFields()
+	if len(fields) == 1 {
+		rec.Path = "/" + fields[0]
+	}
+	targets := make([]string, 0, len(fields))
+	for _, f := range fields {
+		targets = append(targets, graphqlTargetPrefix+rec.Connection+":"+f)
+	}
+	rec.Targets = targets
+}
+
+// graphqlTargetPrefix opens the target of a GraphQL call. Like an API call's,
+// it is not a dataset URN — there is no catalog entity for a schema field — so
+// it is spelled distinctly rather than made to look like one. It is scoped by
+// connection for the same reason: the same field name against two endpoints is
+// two things.
+const graphqlTargetPrefix = "graphql:"
 
 // describeSQL fills in the statement and the datasets it reads. Both come from
 // the arguments the audit row kept, so a deployment that disables parameter

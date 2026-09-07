@@ -133,6 +133,7 @@ nav:
         - Gateway Toolkit: server/gateway.md
         - API Gateway Toolkit: server/api-gateway.md
         - API Catalogs: server/api-catalogs.md
+        - GraphQL Toolkit: server/graphql-gateway.md
       - Operating Modes: server/operating-modes.md
       - Session Externalization: server/session-externalization.md
       - Self-Configuration: server/self-configuration.md

@@ -1,6 +1,8 @@
 package platform
 
 import (
+	"context"
+
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 )
 
@@ -81,6 +83,13 @@ func (p *Platform) WireRuntime(rc RuntimeConfig) {
 			p.WireAdminSelfConnection(rc.Address)
 		}
 	}
+
+	// Both transports: attach the platform's dependencies to the graphql
+	// toolkits and read each connection's schema. It runs after the block
+	// above because a schema read goes through the connection's own
+	// credential, and an authorization_code connection's token store is
+	// wired there.
+	p.WireGraphQL(context.Background())
 
 	// Last on both transports: every store that can back an api-gateway
 	// catalog has now been wired, or was never going to be. Only from here

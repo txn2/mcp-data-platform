@@ -1,0 +1,137 @@
+"""The root of a namespaced schema: packages, then entities, then verbs."""
+schema {
+  query: RootQueryType
+  mutation: RootMutationType
+}
+
+type RootQueryType {
+  "Master data package."
+  masterData: MasterDataPackage
+  "Sales package."
+  sales: SalesPackage
+  "Server health. Takes no arguments and returns a scalar, so it is an operation, not a namespace."
+  health: String
+}
+
+type RootMutationType {
+  "Sales package."
+  sales: SalesMutationPackage
+}
+
+"""Every entity of the master-data package."""
+type MasterDataPackage {
+  "The product entity."
+  product: Product_Connection
+  "The site entity."
+  site: Site_Connection
+}
+
+"""Entity node carrying the verbs available on a product."""
+type Product_Connection {
+  "List products, cursor-paged."
+  query(first: Int, after: String, last: Int, before: String, filter: String, orderBy: String): ProductConnection
+  "Read one product by id."
+  read(_id: ID!): Product
+  "Values a product field may take."
+  lookups(field: String!): [String!]
+}
+
+type Site_Connection {
+  "List sites, cursor-paged."
+  query(first: Int, after: String, filter: String): SiteConnection
+  read(_id: ID!): Site
+}
+
+type SalesPackage {
+  "The sales-order entity."
+  salesOrder: SalesOrder_Connection
+}
+
+type SalesOrder_Connection {
+  query(first: Int, after: String, filter: String): SalesOrderConnection
+  read(_id: ID!): SalesOrder
+}
+
+type SalesMutationPackage {
+  "The sales-order entity."
+  salesOrder: SalesOrderMutation_Connection
+}
+
+type SalesOrderMutation_Connection {
+  "Create a sales order."
+  create(data: SalesOrderInput!): SalesOrder
+  "Delete a sales order."
+  delete(_id: ID!): Boolean
+}
+
+"A Relay connection: this is where results are, not a namespace."
+type ProductConnection {
+  edges: [ProductEdge!]
+  pageInfo: PageInfo!
+  totalCount: Int
+}
+
+type ProductEdge {
+  node: Product
+  cursor: String
+}
+
+type SiteConnection {
+  edges: [SiteEdge!]
+  pageInfo: PageInfo!
+}
+
+type SiteEdge {
+  node: Site
+  cursor: String
+}
+
+type SalesOrderConnection {
+  edges: [SalesOrderEdge!]
+  pageInfo: PageInfo!
+}
+
+type SalesOrderEdge {
+  node: SalesOrder
+  cursor: String
+}
+
+type PageInfo {
+  hasNextPage: Boolean!
+  endCursor: String
+}
+
+type Product {
+  _id: ID!
+  name: String
+  "Superseded by name."
+  legacyName: String @deprecated(reason: "use name")
+  site: Site
+}
+
+type Site {
+  _id: ID!
+  code: String
+}
+
+type SalesOrder {
+  _id: ID!
+  number: String
+  lines: [SalesOrderLine!]
+}
+
+type SalesOrderLine {
+  item: String
+  quantity: Int
+}
+
+input SalesOrderInput {
+  number: String!
+  customer: CustomerInput!
+  note: String = "none"
+}
+
+input CustomerInput {
+  code: String!
+  name: String
+}

@@ -239,6 +239,11 @@ const (
 	ProvenanceKindSQL = "sql"
 	// ProvenanceKindAPI is an HTTP invocation through the API gateway.
 	ProvenanceKindAPI = "api"
+	// ProvenanceKindGraphQL is a document run against a GraphQL connection.
+	// Distinct from ProvenanceKindAPI because what a reader needs to see is
+	// the document, not a request line: every GraphQL call is a POST to one
+	// URL, so the API shape would render every one of them identically.
+	ProvenanceKindGraphQL = "graphql"
 	// ProvenanceKindTool is any other data-access call the platform serves
 	// (catalog lookups, object reads, upstream MCP tools).
 	ProvenanceKindTool = "tool"

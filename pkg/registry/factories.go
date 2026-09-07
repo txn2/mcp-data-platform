@@ -6,6 +6,7 @@ import (
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	datahubkit "github.com/txn2/mcp-data-platform/pkg/toolkits/datahub"
 	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
+	graphqlkit "github.com/txn2/mcp-data-platform/pkg/toolkits/graphql"
 	s3kit "github.com/txn2/mcp-data-platform/pkg/toolkits/s3"
 	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 )
@@ -17,6 +18,7 @@ func RegisterBuiltinFactories(r *Registry) {
 	r.RegisterAggregateFactory("s3", S3AggregateFactory)
 	r.RegisterAggregateFactory(gatewaykit.Kind, GatewayAggregateFactory)
 	r.RegisterAggregateFactory(apigatewaykit.Kind, APIGatewayAggregateFactory)
+	r.RegisterAggregateFactory(graphqlkit.Kind, GraphQLAggregateFactory)
 }
 
 // TrinoAggregateFactory creates a single multi-connection Trino toolkit
@@ -106,6 +108,21 @@ func APIGatewayAggregateFactory(defaultName string, instances map[string]map[str
 	return apigatewaykit.NewMulti(cfg), nil
 }
 
+// GraphQLAggregateFactory creates the one graphql toolkit from all
+// configured instances. Per-instance config parse errors are logged and
+// skipped by ParseMultiConfig; per-connection materialization failures
+// (an authenticator that cannot be built) are also logged and skipped,
+// so a single bad connection cannot block platform startup. A schema is
+// read after wiring completes, not here: registration must not block on
+// an endpoint.
+func GraphQLAggregateFactory(defaultName string, instances map[string]map[string]any) (Toolkit, error) {
+	cfg, err := graphqlkit.ParseMultiConfig(defaultName, instances)
+	if err != nil {
+		return nil, fmt.Errorf("parsing graphql multi config: %w", err)
+	}
+	return graphqlkit.NewMulti(cfg), nil
+}
+
 // ValidateConnectionConfig validates a connection config map against
 // the per-kind parser. Returns nil when the config is valid or the
 // kind has no registered validator.
@@ -122,6 +139,8 @@ func ValidateConnectionConfig(kind string, cfg map[string]any) error {
 		_, err = gatewaykit.ParseConfig(cfg)
 	case apigatewaykit.Kind:
 		_, err = apigatewaykit.ParseConfig(cfg)
+	case graphqlkit.Kind:
+		_, err = graphqlkit.ParseConfig(cfg)
 	default:
 		return nil
 	}

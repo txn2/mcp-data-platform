@@ -66,6 +66,18 @@ func TestValidateConnectionConfig(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name:    "graphql missing endpoint_url",
+			kind:    "graphql",
+			cfg:     map[string]any{},
+			wantErr: true,
+		},
+		{
+			name:    "graphql valid",
+			kind:    "graphql",
+			cfg:     map[string]any{"endpoint_url": "https://api.example.com/graphql"},
+			wantErr: false,
+		},
+		{
 			name:    "unknown kind passes",
 			kind:    "custom",
 			cfg:     map[string]any{},
@@ -81,5 +93,51 @@ func TestValidateConnectionConfig(t *testing.T) {
 					tc.kind, err, tc.wantErr)
 			}
 		})
+	}
+}
+
+// TestGraphQLAggregateFactoryBuildsTheOneToolkit proves the kind is
+// reachable from the registry the platform builds its toolkits through,
+// and that one bad instance does not take the others down with it.
+func TestGraphQLAggregateFactoryBuildsTheOneToolkit(t *testing.T) {
+	tk, err := GraphQLAggregateFactory("erp", map[string]map[string]any{
+		"erp":    {"endpoint_url": "https://erp.example.com/graphql"},
+		"broken": {"schema_validation": "nonsense"},
+	})
+	if err != nil {
+		t.Fatalf("factory: %v", err)
+	}
+	if tk.Kind() != "graphql" || tk.Name() != "erp" {
+		t.Errorf("toolkit = %s/%s", tk.Kind(), tk.Name())
+	}
+	manager, ok := tk.(interface{ HasConnection(string) bool })
+	if !ok {
+		t.Fatal("the toolkit does not manage connections")
+	}
+	if !manager.HasConnection("erp") {
+		t.Error("the valid instance did not register")
+	}
+	if manager.HasConnection("broken") {
+		t.Error("the invalid instance registered")
+	}
+}
+
+// TestRegisterBuiltinFactoriesIncludesGraphQL proves an operator saving a
+// graphql connection through the admin UI lands in a live toolkit.
+func TestRegisterBuiltinFactoriesIncludesGraphQL(t *testing.T) {
+	r := NewRegistry()
+	RegisterBuiltinFactories(r)
+	factory, ok := r.GetAggregateFactory("graphql")
+	if !ok {
+		t.Fatal("the graphql kind has no factory; an admin save would land nowhere")
+	}
+	tk, err := factory("erp", map[string]map[string]any{
+		"erp": {"endpoint_url": "https://erp.example.com/graphql"},
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if tk.Kind() != "graphql" {
+		t.Errorf("kind = %q", tk.Kind())
 	}
 }

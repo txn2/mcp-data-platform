@@ -17,6 +17,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
+	graphqlkit "github.com/txn2/mcp-data-platform/pkg/toolkits/graphql"
 )
 
 // fallbackConnectionKinds are the single-connection toolkit kinds that do not
@@ -29,11 +30,17 @@ var fallbackConnectionKinds = map[string]bool{
 	"s3":      true,
 }
 
-// EndpointSearchers adapts every API gateway toolkit registered in reg to
-// knowledge.EndpointSearcher, so the search router can federate API endpoints
-// into its endpoints group. Each adapter delegates to the toolkit's
-// SearchOperations, which applies that toolkit's per-connection route policy, so
-// the per-source access scope is enforced by the gateway itself.
+// EndpointSearchers adapts every operation-serving gateway toolkit registered
+// in reg to knowledge.EndpointSearcher, so the search router can federate remote
+// operations into its endpoints group. Both kinds that hold operations are here:
+// the HTTP API gateway's OpenAPI endpoints and the graphql kind's schema
+// operations. They share one group because they answer one question — which
+// remote operation serves this intent — and a caller narrowing a search to
+// "endpoints" should not have to know which kind their connection is.
+//
+// Each adapter delegates to its toolkit's SearchOperations, which applies that
+// toolkit's per-connection route policy, so the per-source access scope is
+// enforced by the gateway itself.
 func EndpointSearchers(reg *registry.Registry) []knowledge.EndpointSearcher {
 	var out []knowledge.EndpointSearcher
 	for _, tk := range reg.GetByKind(apigatewaykit.Kind) {
@@ -41,7 +48,41 @@ func EndpointSearchers(reg *registry.Registry) []knowledge.EndpointSearcher {
 			out = append(out, apiEndpointSearcher{tk: api})
 		}
 	}
+	for _, tk := range reg.GetByKind(graphqlkit.Kind) {
+		if gql, ok := tk.(*graphqlkit.Toolkit); ok {
+			out = append(out, graphqlEndpointSearcher{tk: gql})
+		}
+	}
 	return out
+}
+
+// graphqlEndpointSearcher adapts a graphql toolkit to
+// knowledge.EndpointSearcher. A GraphQL operation carries the same three
+// coordinates an OpenAPI one does — an id, a method and a path — because that
+// is the space its persona rules are written in: the method is the operation
+// kind (QUERY or MUTATION) and the path is the dotted id with dots as slashes.
+type graphqlEndpointSearcher struct {
+	tk *graphqlkit.Toolkit
+}
+
+// SearchEndpoints ranks operations across the toolkit's connections and maps
+// them onto knowledge.EndpointCandidate. It never returns an error: the
+// underlying SearchOperations degrades to a lexical fallback rather than
+// failing.
+func (g graphqlEndpointSearcher) SearchEndpoints(ctx context.Context, intent string, limit int) ([]knowledge.EndpointCandidate, error) {
+	ranked := g.tk.SearchOperations(ctx, intent, limit)
+	out := make([]knowledge.EndpointCandidate, 0, len(ranked))
+	for _, r := range ranked {
+		out = append(out, knowledge.EndpointCandidate{
+			Connection:  r.Connection,
+			OperationID: r.Operation.ID,
+			Method:      string(r.Operation.Kind),
+			Path:        r.Operation.PolicyPath(),
+			Summary:     r.Operation.Description,
+			Score:       r.Score,
+		})
+	}
+	return out, nil
 }
 
 // apiEndpointSearcher adapts an API gateway toolkit to knowledge.EndpointSearcher,

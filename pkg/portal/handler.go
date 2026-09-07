@@ -105,8 +105,11 @@ type PersonaInfo struct {
 // PersonaResolver resolves a user's roles to their persona info.
 type PersonaResolver func(roles []string) *PersonaInfo
 
-// DataHubToolPrefix prefixes every DataHub MCP tool name.
-const DataHubToolPrefix = "datahub_"
+// datahubToolPrefix prefixes every DataHub MCP tool name. Unexported:
+// its only consumer is the tool filter a few lines below, and a name
+// with no caller outside this package is surface a library consumer
+// pays for and never uses.
+const datahubToolPrefix = "datahub_"
 
 // HasCatalogAccess reports whether a user may read the DataHub catalog: their
 // persona grants any DataHub tool (read or write), or they are an admin. It is
@@ -121,7 +124,7 @@ func HasCatalogAccess(user *User, resolver PersonaResolver, adminRoles []string)
 	if resolver != nil {
 		if info := resolver(user.Roles); info != nil {
 			for _, t := range info.Tools {
-				if strings.HasPrefix(t, DataHubToolPrefix) {
+				if strings.HasPrefix(t, datahubToolPrefix) {
 					return true
 				}
 			}

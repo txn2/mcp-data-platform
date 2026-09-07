@@ -11,6 +11,7 @@ import { GatewayActionBar, GatewayRulesDrawer } from "../GatewayActions";
 import { ConnectionOAuthStatusCard } from "../ConnectionOAuthStatusCard";
 import { CONFIG_LABELS, kindColor } from "./constants";
 import { GatewayHealthDetail } from "./HealthBadges";
+import { GraphQLSchemaCard } from "./GraphQLSchemaCard";
 
 // ConfigRows renders the raw config key/value pairs of a connection, using the
 // per-kind human labels where one exists and falling back to the raw key.
@@ -166,6 +167,16 @@ export function ConnectionViewer({
         <GatewayRulesDrawer
           connectionName={connection.name}
           onClose={() => setRulesOpen(false)}
+        />
+      )}
+
+      {/* The schema a graphql connection was last read with, and the two ways
+          to make it current. Placed above the raw configuration because it is
+          the state an operator comes here to check. */}
+      {connection.kind === "graphql" && (
+        <GraphQLSchemaCard
+          connectionName={connection.name}
+          isReadOnly={isReadOnly || fileOwned}
         />
       )}
 

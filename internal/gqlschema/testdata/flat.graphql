@@ -1,0 +1,55 @@
+schema {
+  query: Query
+  mutation: Mutation
+}
+
+type Query {
+  "Search across every entity."
+  search(input: SearchInput!, limit: Int = 10): SearchResults
+  "Read one dataset."
+  dataset(urn: String!): Dataset
+  "The signed-in principal. No arguments, returns an object: a namespace by shape, so descent continues into it."
+  me: Principal
+}
+
+type Mutation {
+  "Update a dataset's documentation."
+  updateDataset(urn: String!, description: String!): Dataset
+}
+
+type Principal {
+  "The caller's own identity."
+  identity: Identity
+  "Preferences, which take an argument and are therefore an operation."
+  preference(key: String!): String
+}
+
+type Identity {
+  urn: String!
+  email: String
+}
+
+type SearchResults {
+  total: Int
+  results: [SearchResult!]
+  nextScrollId: String
+}
+
+union SearchResult = Dataset | Chart
+
+type Dataset {
+  urn: String!
+  name: String
+  description: String
+}
+
+type Chart {
+  urn: String!
+  title: String
+}
+
+input SearchInput {
+  query: String!
+  types: [String!]
+  start: Int = 0
+}

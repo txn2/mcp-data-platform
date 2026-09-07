@@ -3100,13 +3100,14 @@ func (p *Platform) mergeDBConnectionsIntoConfig() {
 
 	// (1) The gateway toolkits need no instance config to be useful —
 	// auto-enable so the admin UI's "Add Connection" path produces a
-	// live toolkit on the next request. Both the MCP gateway (#338)
-	// and the HTTP API gateway (#364) follow the same convention:
-	// connections are added dynamically through the admin UI rather
-	// than via YAML 'instances' blocks, so the kind has to be
-	// pre-enabled for saves to land in a live toolkit.
+	// live toolkit on the next request. The MCP gateway (#338), the
+	// HTTP API gateway (#364) and the graphql kind (#1277) follow the
+	// same convention: connections are added dynamically through the
+	// admin UI rather than via YAML 'instances' blocks, so the kind has
+	// to be pre-enabled for saves to land in a live toolkit.
 	toolkitcfg.AutoEnableKind(p.config.Toolkits, kindMCP)
 	toolkitcfg.AutoEnableKind(p.config.Toolkits, kindAPI)
+	toolkitcfg.AutoEnableKind(p.config.Toolkits, kindGraphQL)
 
 	instances, err := p.connectionStore.List(context.Background())
 	if err != nil {
@@ -3120,10 +3121,11 @@ func (p *Platform) mergeDBConnectionsIntoConfig() {
 	// Only merge connections for kinds that support DB management.
 	// Datahub is single-instance and managed via YAML only.
 	manageableKinds := map[string]bool{
-		kindTrino: true,
-		kindS3:    true,
-		kindMCP:   true,
-		kindAPI:   true,
+		kindTrino:   true,
+		kindS3:      true,
+		kindMCP:     true,
+		kindAPI:     true,
+		kindGraphQL: true,
 	}
 
 	for _, inst := range instances {

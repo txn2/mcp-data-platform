@@ -5,9 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math"
 	"sort"
 	"strings"
+
+	"github.com/txn2/mcp-data-platform/internal/opranking"
 )
 
 // errEmbedderNotWired is the sentinel returned by queryVectorFor
@@ -57,7 +58,7 @@ var (
 // semantic cosine score. The blend recovers the precision of
 // substring match for queries that DO share vocabulary while still
 // returning semantically-related results when they don't. The blend
-// weight (alpha) is fixed at hybridSemanticWeight; tuning is
+// weight (alpha) is fixed at opranking.SemanticWeight; tuning is
 // deferred to a config knob if a real-world deployment needs it.
 type RankingMode string
 
@@ -73,45 +74,15 @@ const (
 	RankingHybrid RankingMode = "hybrid"
 )
 
-// lexicalMatchPresent / lexicalMatchAbsent are the two values the
-// hybrid scorer assigns to the lexical component before blending.
-// Named constants keep the gocyclo-adjacent revive add-constant
-// rule satisfied without sprinkling magic 0.0/1.0 in the formula.
+// The relevance arithmetic — how a token match and an embedding
+// cosine combine, and where a ranked result stops — lives in
+// internal/opranking, shared with the platform's other operation-
+// ranking connection kind. These names carry it into this package's
+// vocabulary so the call sites below read as they always have.
 const (
-	lexicalMatchPresent = 1.0
-	lexicalMatchAbsent  = 0.0
+	semanticNeighborLimit = opranking.NeighborLimit
+	hybridScoreFloor      = opranking.ScoreFloor
 )
-
-// semanticNeighborLimit bounds the operations a ranked result may add beyond
-// the ones that matched. Hybrid scores the whole catalog, so without a bound
-// the answer to any query is the catalog itself, ordered (#1626). Five is
-// enough to recover a query phrased in the caller's words rather than the spec
-// author's, and few enough to read whole.
-const semanticNeighborLimit = 5
-
-// hybridScoreFloor is the score an operation with no lexical match must reach
-// to be offered as an intent neighbor. It marks where the embedding model
-// stops discriminating, so it was set against a real one: on nomic-embed-text
-// unrelated text sits near a 0.72 normalized cosine (0.43 blended), while a
-// query the model separates lifts its answer to 0.82 (0.49 blended). Measured
-// runs are in build/1626/acceptance.md.
-//
-// The floor is on the blended score, so pure-semantic ranking -- whose score
-// is the cosine itself -- clears it almost always and is bounded by
-// semanticNeighborLimit instead. The floor refuses a field the model did not
-// separate; the limit bounds one it did.
-const hybridScoreFloor = 0.45
-
-// hybridSemanticWeight is the alpha in the hybrid score formula:
-//
-//	score = α * cosine_normalized + (1 − α) * lexical
-//
-// 0.6 leans semantic — the Speakeasy "100x token reduction" study
-// referenced in #371 found semantic outperforms lexical on free-form
-// queries, but pure semantic loses the precision boost that comes
-// from an exact path/tag match. 0.6 keeps semantic dominant while
-// preserving that precision.
-const hybridSemanticWeight = 0.6
 
 // rankRequest bundles the parameters rankWithMode needs. Splitting
 // into a struct keeps the function under the project's
@@ -195,43 +166,30 @@ func lexicalResult(ops []OperationSummary) rankedResult {
 	return rankedResult{operations: out, matchedLexical: len(out)}
 }
 
-// boundByRelevance is where a scored result stops: every operation containing
-// every token, in score order, then at most semanticNeighborLimit that contain
-// none but clear hybridScoreFloor.
-//
-// The matches lead whatever their scores, because the caller asked for them by
-// name -- the blend can rank a perfect cosine above a token match, and a
-// result opening with the neighbor reads as though the query was ignored.
-// limit still caps the total but no longer decides where relevance ends, which
-// is what left a 50-row page of unrelated operations behind every query on a
-// large catalog (#1626).
+// boundByRelevance is where a scored result stops: the shared ranker
+// decides the boundary, and this maps its verdict back onto the
+// summaries the caller is handed.
 func boundByRelevance(scored []scoredOp, limit int) rankedResult {
-	matched := make([]scoredOp, 0, len(scored))
-	neighbors := make([]scoredOp, 0, semanticNeighborLimit)
+	byID := make(map[string]OperationSummary, len(scored))
+	ranked := make([]opranking.Scored, 0, len(scored))
 	for _, s := range scored {
-		switch {
-		case s.lexical:
-			matched = append(matched, s)
-		case len(neighbors) < semanticNeighborLimit && s.score >= hybridScoreFloor:
-			neighbors = append(neighbors, s)
-		}
+		id := candidateID(s.op)
+		byID[id] = s.op
+		ranked = append(ranked, opranking.Scored{ID: id, Score: s.score, Lexical: s.lexical})
 	}
-	kept := capScored(append(matched, neighbors...), limit)
-	out := make([]RankedOperationSummary, 0, len(kept))
-	res := rankedResult{}
-	for _, s := range kept {
-		score, lexical := s.score, s.lexical
+	bounded := opranking.Bound(ranked, limit)
+	out := make([]RankedOperationSummary, 0, len(bounded.Kept))
+	for _, s := range bounded.Kept {
+		score, lexical := s.Score, s.Lexical
 		out = append(out, RankedOperationSummary{
-			OperationSummary: s.op, Score: &score, LexicalMatch: &lexical,
+			OperationSummary: byID[s.ID], Score: &score, LexicalMatch: &lexical,
 		})
-		if lexical {
-			res.matchedLexical++
-		} else {
-			res.shownSemantic++
-		}
 	}
-	res.operations = out
-	return res
+	return rankedResult{
+		operations:     out,
+		matchedLexical: bounded.MatchedLexical,
+		shownSemantic:  bounded.ShownSemantic,
+	}
 }
 
 // RankedOperation is one operation matched by SearchOperations, tagged with the
@@ -315,15 +273,10 @@ func (t *Toolkit) searchConn(ctx context.Context, policy RoutePolicy, c *conn, q
 	return out
 }
 
-// positionalScore maps a 0-based rank into a descending score in (0,1] so the
-// lexical fallback still carries order into the federated allocator: the
-// top-ranked operation scores highest. n is the number of ranked operations.
-func positionalScore(i, n int) float64 {
-	if n <= 0 {
-		return 0
-	}
-	return float64(n-i) / float64(n)
-}
+// positionalScore maps a 0-based rank into a descending score in (0,1]
+// so the lexical fallback still carries order into the federated
+// allocator.
+func positionalScore(i, n int) float64 { return opranking.Positional(i, n) }
 
 // capScored trims a scored slice to at most limit entries.
 func capScored(scored []scoredOp, limit int) []scoredOp {
@@ -404,116 +357,48 @@ func checkEmbeddingsReady(c *conn) error {
 	return nil
 }
 
-// scoreOperations builds the per-op score slice. An operation whose embedding
-// cannot be located in the connection's index has no semantic signal, so it is
-// scored without a vector: under hybrid ranking it still earns its lexical
-// component, so an exact path/summary match is not buried under unrelated ops
-// that happen to have a tiny positive cosine.
+// scoreOperations builds the per-op score slice through the shared
+// ranker, then re-associates each verdict with its operation.
 func scoreOperations(c *conn, ops []OperationSummary, query string, queryVec []float32, mode RankingMode) []scoredOp {
-	scored := make([]scoredOp, 0, len(ops))
+	byID := make(map[string]OperationSummary, len(ops))
+	cands := make([]opranking.Candidate, 0, len(ops))
 	for _, op := range ops {
-		lexical := lexicalScore(op, query) == lexicalMatchPresent
-		vec, ok := c.embedVectors[embedKey{Spec: op.Spec, OperationID: op.OperationID}]
-		if !ok {
-			scored = append(scored, scoredOp{op: op, score: scoreWithoutVector(mode, query, op), lexical: lexical})
-			continue
-		}
-		score := scoreFor(mode, query, op, queryVec, vec)
-		scored = append(scored, scoredOp{op: op, score: score, lexical: lexical})
+		id := candidateID(op)
+		byID[id] = op
+		cands = append(cands, opranking.Candidate{
+			ID:     id,
+			Fields: operationFields(op),
+			Vector: c.embedVectors[embedKey{Spec: op.Spec, OperationID: op.OperationID}],
+		})
 	}
-	return scored
+	ranked := opranking.Score(cands, query, queryVec, opranking.Mode(mode))
+	out := make([]scoredOp, 0, len(ranked))
+	for _, s := range ranked {
+		out = append(out, scoredOp{op: byID[s.ID], score: s.Score, lexical: s.Lexical})
+	}
+	return out
 }
 
-// scoreWithoutVector scores an operation that has no persisted embedding. There
-// is no semantic signal, so pure-semantic mode scores 0; hybrid still credits
-// the lexical component (the (1-α) term of the blend), so an exact lexical match
-// on an unembedded operation outranks unrelated operations with a small positive
-// cosine rather than being floored below them.
-func scoreWithoutVector(mode RankingMode, query string, op OperationSummary) float64 {
-	if mode == RankingSemantic {
-		return 0
-	}
-	return (1 - hybridSemanticWeight) * lexicalScore(op, query)
+// candidateID identifies an operation to the shared ranker. Spec is
+// part of it for the same reason it is part of embedKey: two component
+// specs in one catalog can legitimately define the same operation id.
+func candidateID(op OperationSummary) string {
+	return op.Spec + "\x00" + op.OperationID
 }
 
-// scoredOp pairs an operation with its rank score so we can sort
-// by score then strip back to the slim summary. lexical records whether the
-// operation contains every token of the query, which is both what the caller
-// is told (lexical_match) and what decides which side of the relevance
-// boundary the operation falls on.
+// scoredOp pairs an operation with its rank score so we can sort by
+// score then strip back to the slim summary. lexical records whether
+// the operation contains every token of the query, which is both what
+// the caller is told (lexical_match) and what decides which side of the
+// relevance boundary the operation falls on.
 type scoredOp struct {
 	op      OperationSummary
 	score   float64
 	lexical bool
 }
 
-// scoreFor returns the per-operation rank score under the given
-// mode. Pure semantic uses the normalized cosine (mapped to [0,1])
-// directly; hybrid blends with the lexical signal computed by
-// lexicalScore.
-func scoreFor(mode RankingMode, query string, op OperationSummary, queryVec, opVec []float32) float64 {
-	cos := cosineSimilarity(queryVec, opVec)
-	semantic := (cos + 1) / 2 // map [-1, 1] to [0, 1]
-	if mode == RankingSemantic {
-		return semantic
-	}
-	return hybridSemanticWeight*semantic + (1-hybridSemanticWeight)*lexicalScore(op, query)
-}
-
-// lexicalScore returns lexicalMatchPresent (1.0) when every
-// whitespace-separated token of query appears as a substring of at
-// least one of the operation's searchable fields, else
-// lexicalMatchAbsent (0.0). Shared between rankOperations (the
-// pure-lexical filter) and scoreFor (the hybrid lexical signal) so
-// a multi-token query that narrows results under "ranking=lexical"
-// also gets credit under "ranking=hybrid". Without this sharing
-// the hybrid lexical component reverts to phrase-match and
-// systematically underweights every multi-token intent query.
-func lexicalScore(op OperationSummary, query string) float64 {
-	tokens := strings.Fields(strings.ToLower(query))
-	if len(tokens) == 0 {
-		return lexicalMatchAbsent
-	}
-	if operationMatchesAllTokens(op, tokens) {
-		return lexicalMatchPresent
-	}
-	return lexicalMatchAbsent
-}
-
-// cosineSimilarity returns the cosine of the angle between a and b.
-// Returns 0 when either vector is zero (no signal — empty text fed
-// to the embedder, or a noop provider in tests). Length mismatch
-// returns 0 too — the embedding provider should never produce
-// dimension drift, but defending against it keeps a misconfigured
-// pipeline from panicking the request handler.
-func cosineSimilarity(a, b []float32) float64 {
-	if len(a) == 0 || len(b) == 0 || len(a) != len(b) {
-		return 0
-	}
-	var dot, na, nb float64
-	for i := range a {
-		x, y := float64(a[i]), float64(b[i])
-		dot += x * y
-		na += x * x
-		nb += y * y
-	}
-	if na == 0 || nb == 0 {
-		return 0
-	}
-	return dot / (math.Sqrt(na) * math.Sqrt(nb))
-}
-
-// zeroVector reports whether every element is zero. Some embedding
-// providers (the noop fallback) return all-zero vectors when the
-// real model is unreachable; treating them as "valid" embeddings
-// would let cosineSimilarity return 0 for everything and the rank
-// would be arbitrary insertion order. Force the lexical fallback
-// instead.
-func zeroVector(v []float32) bool {
-	for _, x := range v {
-		if x != 0 {
-			return false
-		}
-	}
-	return true
-}
+// zeroVector reports whether every element is zero. A provider that
+// cannot reach its model answers this way, and treating that as a valid
+// embedding would make every cosine 0 and the rank arbitrary insertion
+// order; the caller forces the lexical fallback instead.
+func zeroVector(v []float32) bool { return opranking.IsZero(v) }
