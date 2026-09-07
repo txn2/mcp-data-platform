@@ -52,6 +52,7 @@ const (
 	kindS3      = "s3"
 	kindMCP     = "mcp"
 	kindAPI     = "api"
+	kindGraphQL = "graphql"
 	// toolListConns is the unified platform-provided list-connections
 	// tool name.
 	toolListConns = "list_connections"

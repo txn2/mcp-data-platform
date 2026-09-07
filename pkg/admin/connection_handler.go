@@ -45,6 +45,7 @@ const (
 	connectionKindTrino = "trino"
 	connectionKindS3    = "s3"
 	connectionKindAPI   = "api"
+	connectionKindGQL   = "graphql"
 )
 
 // connectionCreatorSystem is the created_by attribution for connections
@@ -98,6 +99,7 @@ var knownConnectionKinds = map[string]bool{
 	connectionKindS3:    true,
 	connectionKindMCP:   true,
 	connectionKindAPI:   true,
+	connectionKindGQL:   true,
 }
 
 // registerConnectionRoutes registers connection instance CRUD endpoints.

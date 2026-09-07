@@ -2,15 +2,18 @@ package federation
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/pkg/knowledge"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
+	graphqlkit "github.com/txn2/mcp-data-platform/pkg/toolkits/graphql"
 )
 
 // stubToolkit is a minimal registry.Toolkit for registry-walk tests. It
@@ -117,5 +120,66 @@ func TestConnectionLister_IncludesListedConnections(t *testing.T) {
 		if c.Name == "stripe" && c.Description != "payments" {
 			t.Errorf("description not carried: %+v", c)
 		}
+	}
+}
+
+// TestEndpointSearchers_AdaptsGraphQLToolkits proves the second kind of
+// remote operation joins the same group. Both answer one question —
+// which remote operation serves this intent — so a caller narrowing a
+// search to "endpoints" must not have to know which kind their
+// connection is.
+func TestEndpointSearchers_AdaptsGraphQLToolkits(t *testing.T) {
+	reg := registry.NewRegistry()
+	cfg, err := graphqlkit.ParseConfig(map[string]any{"endpoint_url": "https://unreached.invalid/graphql"})
+	if err != nil {
+		t.Fatalf("config: %v", err)
+	}
+	cfg.ConnectionName = "erp"
+	gql := graphqlkit.NewMulti(graphqlkit.MultiConfig{
+		DefaultName: "erp", Instances: map[string]graphqlkit.Config{"erp": cfg},
+	})
+	sdl, err := os.ReadFile("../../../internal/gqlschema/testdata/namespaced.graphql")
+	if err != nil {
+		t.Fatalf("fixture: %v", err)
+	}
+	if err := gql.SetSchema(context.Background(), "erp", sdl); err != nil {
+		t.Fatalf("schema: %v", err)
+	}
+	if err := reg.Register(gql); err != nil {
+		t.Fatalf("register graphql toolkit: %v", err)
+	}
+	if err := reg.Register(apigatewaykit.New("api")); err != nil {
+		t.Fatalf("register api toolkit: %v", err)
+	}
+
+	searchers := EndpointSearchers(reg)
+	if len(searchers) != 2 {
+		t.Fatalf("expected one searcher per operation-serving kind, got %d", len(searchers))
+	}
+
+	var candidates []knowledge.EndpointCandidate
+	for _, s := range searchers {
+		got, err := s.SearchEndpoints(context.Background(), "product query", 10)
+		if err != nil {
+			t.Fatalf("SearchEndpoints error: %v", err)
+		}
+		candidates = append(candidates, got...)
+	}
+	var found *knowledge.EndpointCandidate
+	for i, c := range candidates {
+		if c.OperationID == "query:masterData.product.query" {
+			found = &candidates[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("the GraphQL operation was not federated: %+v", candidates)
+	}
+	// A GraphQL operation carries the same three coordinates an OpenAPI
+	// one does, because that is the space its persona rules are in.
+	if found.Connection != "erp" || found.Method != "QUERY" || found.Path != "/masterData/product/query" {
+		t.Errorf("candidate = %+v", found)
+	}
+	if found.Score <= 0 {
+		t.Errorf("candidate carries no relevance signal: %+v", found)
 	}
 }

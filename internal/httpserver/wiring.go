@@ -17,6 +17,7 @@ import (
 	datahubkit "github.com/txn2/mcp-data-platform/pkg/toolkits/datahub"
 	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
+	graphqlkit "github.com/txn2/mcp-data-platform/pkg/toolkits/graphql"
 	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 )
 
@@ -165,6 +166,8 @@ func buildOAuthKindHandlers(p *platform.Platform) admin.OAuthKindHandlers {
 			}
 		case *apigatewaykit.Toolkit:
 			out[connoauth.KindAPI] = apigatewaykit.NewOAuthKindHandler(v)
+		case *graphqlkit.Toolkit:
+			out[connoauth.KindGraphQL] = graphqlkit.NewOAuthKindHandler(v)
 		}
 	}
 	return out

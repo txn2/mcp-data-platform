@@ -22,6 +22,9 @@ datahub_delete
 datahub_get_lineage
 datahub_update
 fetch
+graphql_discover
+graphql_export
+graphql_query
 list_connections
 manage_asset
 manage_feedback

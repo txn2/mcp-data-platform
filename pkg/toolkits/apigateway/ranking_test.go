@@ -70,42 +70,6 @@ func TestParseRankingMode(t *testing.T) {
 	}
 }
 
-func TestCosineSimilarity(t *testing.T) {
-	cases := []struct {
-		name string
-		a, b []float32
-		want float64
-	}{
-		{"identical", []float32{1, 0, 0}, []float32{1, 0, 0}, 1.0},
-		{"orthogonal", []float32{1, 0, 0}, []float32{0, 1, 0}, 0.0},
-		{"opposite", []float32{1, 0, 0}, []float32{-1, 0, 0}, -1.0},
-		{"zero left", []float32{0, 0, 0}, []float32{1, 1, 1}, 0.0},
-		{"zero right", []float32{1, 1, 1}, []float32{0, 0, 0}, 0.0},
-		{"length mismatch", []float32{1, 0}, []float32{1, 0, 0}, 0.0},
-		{"empty", nil, nil, 0.0},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			got := cosineSimilarity(c.a, c.b)
-			if math.Abs(got-c.want) > 1e-6 {
-				t.Errorf("cosineSimilarity = %v; want %v", got, c.want)
-			}
-		})
-	}
-}
-
-func TestZeroVector(t *testing.T) {
-	if !zeroVector(nil) {
-		t.Error("nil should be zero")
-	}
-	if !zeroVector([]float32{0, 0, 0}) {
-		t.Error("all zeros should be zero")
-	}
-	if zeroVector([]float32{0, 0, 0.0001}) {
-		t.Error("non-zero element should not be zero")
-	}
-}
-
 // fakeEmbedder is a deterministic embedder for tests: maps each
 // distinct lowercased word to a fixed unit vector and returns the
 // L2-normalized average of all word vectors. Crude but enough for
@@ -270,26 +234,6 @@ func TestSearchOperations_RoutePolicyScopesResults(t *testing.T) {
 	}
 	if len(got) == 0 {
 		t.Error("the allowed operation should still be returned")
-	}
-}
-
-// TestScoreWithoutVector_HybridCreditsLexical proves an operation with no
-// persisted embedding still earns its lexical component under hybrid ranking
-// (rather than being floored to 0), while pure-semantic mode scores it 0
-// because it has no semantic signal.
-func TestScoreWithoutVector_HybridCreditsLexical(t *testing.T) {
-	op := OperationSummary{OperationID: "list-orders", Method: "GET", Path: "/orders", Summary: "List orders"}
-	// Query matches the op lexically ("orders" is a substring of the path).
-	if got := scoreWithoutVector(RankingHybrid, "orders", op); got <= 0 {
-		t.Errorf("hybrid score for an unembedded but lexically-matching op should be > 0, got %v", got)
-	}
-	// A non-matching query earns nothing even in hybrid.
-	if got := scoreWithoutVector(RankingHybrid, "completely unrelated", op); got != 0 {
-		t.Errorf("hybrid score for an unembedded non-matching op should be 0, got %v", got)
-	}
-	// Pure semantic has no signal without a vector.
-	if got := scoreWithoutVector(RankingSemantic, "orders", op); got != 0 {
-		t.Errorf("semantic score without a vector should be 0, got %v", got)
 	}
 }
 
@@ -825,30 +769,6 @@ func TestSemanticRanking_BenchmarkCorpus(t *testing.T) {
 	if hyb.at3 < lex.at3 {
 		t.Errorf("hybrid recall@3 (%d) < lexical recall@3 (%d) — blend regressed substring precision",
 			hyb.at3, lex.at3)
-	}
-}
-
-// TestLexicalScore_MultiTokenAndForHybridSignal proves the hybrid
-// scorer's lexical signal honors per-token AND, matching the
-// rankOperations behavior. Previously hybrid mode treated the
-// query as a phrase and assigned lexicalMatchAbsent to multi-token
-// intent queries that rankOperations would have matched, defeating
-// the hybrid blend for exactly the queries it should help with.
-func TestLexicalScore_MultiTokenAndForHybridSignal(t *testing.T) {
-	op := OperationSummary{
-		OperationID: "listGifts",
-		Method:      "GET",
-		Path:        "/gifts",
-		Summary:     "List all gifts",
-	}
-	if got := lexicalScore(op, "gift list"); got != lexicalMatchPresent {
-		t.Errorf("multi-token AND match should return present (1.0); got %v", got)
-	}
-	if got := lexicalScore(op, "gift purchase"); got != lexicalMatchAbsent {
-		t.Errorf("token missing from any field should return absent (0.0); got %v", got)
-	}
-	if got := lexicalScore(op, ""); got != lexicalMatchAbsent {
-		t.Errorf("empty query should return absent; got %v", got)
 	}
 }
 

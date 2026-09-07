@@ -45,6 +45,12 @@ const (
 	// KindAPI is an HTTP invocation through the API gateway
 	// (api_invoke_endpoint, api_export).
 	KindAPI = "api"
+	// KindGraphQL is a document run against a GraphQL connection
+	// (graphql_query, graphql_export). It carries a statement like a
+	// query does — the document is what a reader re-runs — and a method
+	// like an API call does, because QUERY and MUTATION are what say
+	// whether the call only read.
+	KindGraphQL = "graphql"
 )
 
 // Outcomes, in the order they are decided. A call that failed is failed
@@ -99,9 +105,13 @@ type Record struct {
 	// records, and reuse never crosses connections.
 	Connection string `json:"connection,omitempty" example:"acme-warehouse"`
 
-	// Statement is the SQL text, on a sql record.
+	// Statement is the SQL text on a sql record, and the document on a
+	// graphql one.
 	Statement string `json:"statement,omitempty"`
 	// Method, Path and OperationID are the request line, on an api record.
+	// A graphql record fills Method with QUERY or MUTATION, Path with the
+	// operation the document invoked when it invoked exactly one, and
+	// OperationID with the document's operation name.
 	Method      string `json:"method,omitempty" example:"GET"`
 	Path        string `json:"path,omitempty" example:"/v1/orders"`
 	OperationID string `json:"operation_id,omitempty" example:"listOrders"`

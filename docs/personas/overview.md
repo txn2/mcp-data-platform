@@ -359,6 +359,8 @@ Connection patterns use the same wildcard syntax as tool patterns:
 
 A persona that reaches an `api` connection can call every operation that connection exposes. `api_routes` narrows that to specific HTTP methods and paths, which is how one API is split into read-only and read-write access without two connections and two credentials.
 
+The same rules govern a `graphql` connection, because a GraphQL operation carries the same three coordinates: the method is the operation kind (`QUERY` or `MUTATION`) and the path is the dotted operation id with dots as slashes (`/masterData/product/query`). See [Governing a GraphQL connection](#governing-a-graphql-connection) below.
+
 ```yaml
 personas:
   analyst:
@@ -410,6 +412,33 @@ A rule written as a glob is shown as the glob it was typed as and is not rewritt
 **Settings > Personas > Test access** answers a `(connection, method, path)` question against the saved persona and returns the rule that decided it.
 
 ![A persona's API endpoint rules](../images/screenshots/light/admin-admin-persona-api-routes-light.webp#only-light)![A persona's API endpoint rules](../images/screenshots/dark/admin-admin-persona-api-routes-dark.webp#only-dark)
+
+### Governing a GraphQL connection
+
+A `graphql` connection is governed by the same entries. Its method is the operation kind and its path is the dotted operation id with dots as slashes, so the coordinates `graphql_discover` reports on an operation (`kind`, `path`) are exactly what a rule names.
+
+A read-only persona on a GraphQL connection is one entry — an allow naming the QUERY method:
+
+```yaml
+    api_routes:
+      - connection: "erp"
+        methods: ["QUERY"]
+```
+
+An allow, not a deny, for the reason step 3 gives: once any entry names a connection a matching allow is required, so a mutation is refused by matching none, while a deny on its own would close the connection to every method rather than to mutations. Adding the deny beside it states the intent and is what the refusal names.
+
+Naming no `paths` is what makes the entry cover every operation. A path glob would not: `*` does not cross a `/` and there is no recursive form, so a glob covers one depth. Name paths to scope further, one rule per depth as everywhere else:
+
+```yaml
+    api_routes:
+      - connection: "erp"
+        methods: ["QUERY"]
+        paths: ["/masterData/product/*"]
+```
+
+A document is reduced to the operations it invokes rather than to its root fields, so `{ masterData { product { read(_id: "1") { _id } } } }` is authorized as `QUERY /masterData/product/read` and a rule can name an entity's verb rather than only a whole package. Aliases are resolved to the underlying field name and fragments are expanded, so a denied operation cannot be reached by renaming it or hiding it in a fragment. Every operation a document invokes must pass: a mixed document is refused when any one of them is denied, rather than being sent with the denied part stripped.
+
+A connection-level `read_only: true` refuses mutations for every persona, which is what an operator sets once when an endpoint is mounted for reporting rather than writing the same deny entry into every persona.
 
 ### What this does not do
 

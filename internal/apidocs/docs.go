@@ -3760,6 +3760,91 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/connection-instances/graphql/{name}/refresh-schema": {
+            "post": {
+                "description": "With an empty body, reads the connection's schema from its endpoint by introspection. With a body, takes the body as the schema: SDL, or a saved introspection result in either the full GraphQL response shape or the __schema object alone. Either way the schema is stored, the operation index is rebuilt, and the response reports the new state.",
+                "consumes": [
+                    "text/plain"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "Re-read or supply a GraphQL connection's schema",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "GraphQL connection name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/graphql.SchemaInfo"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/connection-instances/graphql/{name}/schema": {
+            "get": {
+                "description": "Reports which schema version the platform holds for this connection, where it came from, when it was read, how many operations it exposes, and — when the platform holds none — why.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "Read a GraphQL connection's schema state",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "GraphQL connection name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/graphql.SchemaInfo"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/connection-instances/{kind}/{name}": {
             "get": {
                 "security": [
@@ -21753,7 +21838,7 @@ const docTemplate = `{
                     "example": "sql"
                 },
                 "method": {
-                    "description": "Method, Path and OperationID are the request line, on an api record.",
+                    "description": "Method, Path and OperationID are the request line, on an api record.\nA graphql record fills Method with QUERY or MUTATION, Path with the\noperation the document invoked when it invoked exactly one, and\nOperationID with the document's operation name.",
                     "type": "string",
                     "example": "GET"
                 },
@@ -21824,7 +21909,7 @@ const docTemplate = `{
                     "example": "dps_9f2c1a4b8e7d6c5a"
                 },
                 "statement": {
-                    "description": "Statement is the SQL text, on a sql record.",
+                    "description": "Statement is the SQL text on a sql record, and the document on a\ngraphql one.",
                     "type": "string"
                 },
                 "success": {
@@ -22908,6 +22993,29 @@ const docTemplate = `{
                             "$ref": "#/definitions/resource.Usage"
                         }
                     ]
+                }
+            }
+        },
+        "graphql.SchemaInfo": {
+            "type": "object",
+            "properties": {
+                "connection": {
+                    "type": "string"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "fetched_at": {
+                    "type": "string"
+                },
+                "operation_count": {
+                    "type": "integer"
+                },
+                "schema_hash": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
                 }
             }
         },

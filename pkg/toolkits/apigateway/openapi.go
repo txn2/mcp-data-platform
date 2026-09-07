@@ -8,6 +8,7 @@ import (
 
 	"github.com/getkin/kin-openapi/openapi3"
 
+	"github.com/txn2/mcp-data-platform/internal/opranking"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 )
 
@@ -378,38 +379,22 @@ func rankOperations(ops []OperationSummary, query string, limit int) []Operation
 	return capSlice(matched, limit)
 }
 
-// operationMatchesAllTokens reports whether every token appears as
-// a substring of at least one of the operation's searchable fields.
-// Tokens are pre-lowercased by the caller; fields are lowercased
-// per check (cheap relative to alternatives like caching a struct
-// of lowercased fields per op).
-func operationMatchesAllTokens(op OperationSummary, tokens []string) bool {
-	for _, tok := range tokens {
-		if !operationFieldsContain(op, tok) {
-			return false
-		}
-	}
-	return true
+// operationFields lists the operation's searchable texts, in the order
+// they are tried. Spec name is included so operators can navigate a
+// multi-spec catalog by vendor-supplied section (e.g. "constituent",
+// "gift") that does not otherwise appear in the operation's id, path,
+// or tags.
+func operationFields(op OperationSummary) []string {
+	fields := make([]string, 0, 4+len(op.Tags))
+	fields = append(fields, op.OperationID, op.Path, op.Summary, op.Spec)
+	return append(fields, op.Tags...)
 }
 
-// operationFieldsContain reports whether tok appears as a substring
-// of any one of the operation's searchable fields. Spec name is
-// included so operators can navigate a multi-spec catalog by
-// vendor-supplied section (e.g. "constituent", "gift") that does
-// not otherwise appear in the operation's id, path, or tags.
-func operationFieldsContain(op OperationSummary, tok string) bool {
-	if strings.Contains(strings.ToLower(op.OperationID), tok) ||
-		strings.Contains(strings.ToLower(op.Path), tok) ||
-		strings.Contains(strings.ToLower(op.Summary), tok) ||
-		strings.Contains(strings.ToLower(op.Spec), tok) {
-		return true
-	}
-	for _, tag := range op.Tags {
-		if strings.Contains(strings.ToLower(tag), tok) {
-			return true
-		}
-	}
-	return false
+// operationMatchesAllTokens reports whether every token appears as a
+// substring of at least one of the operation's searchable fields.
+// Tokens are pre-lowercased by the caller.
+func operationMatchesAllTokens(op OperationSummary, tokens []string) bool {
+	return opranking.MatchesAll(operationFields(op), tokens)
 }
 
 // capSlice returns ops truncated to limit, treating limit ≤ 0 as

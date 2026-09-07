@@ -15,6 +15,7 @@ import { TrinoConfigForm } from "./TrinoConfigForm";
 import { S3ConfigForm } from "./S3ConfigForm";
 import { GatewayConfigForm } from "./GatewayConfigForm";
 import { ApiGatewayConfigForm } from "./ApiGatewayConfigForm";
+import { GraphQLConfigForm } from "./GraphQLConfigForm";
 
 interface EditorProps {
   connection: EffectiveConnection | null; // null = create mode
@@ -167,6 +168,14 @@ export function ConnectionEditor({ connection, onSave, onCancel, onDirtyChange }
             )}
             {kind === "api" && (
               <ApiGatewayConfigForm
+                config={configObj}
+                onChange={updateConfig}
+                connectionName={name}
+                isCreate={isCreate}
+              />
+            )}
+            {kind === "graphql" && (
+              <GraphQLConfigForm
                 config={configObj}
                 onChange={updateConfig}
                 connectionName={name}

@@ -25,6 +25,9 @@ internal/admin/connoauthapi -> pkg/pkcestore
 internal/admin/connoauthapi -> pkg/platform
 internal/admin/connoauthapi -> pkg/toolkits/apigateway
 internal/admin/connoauthapi -> pkg/toolkits/gateway
+internal/admin/graphqlapi -> internal/httpjson
+internal/admin/graphqlapi -> pkg/registry
+internal/admin/graphqlapi -> pkg/toolkits/graphql
 internal/admin/insightobs -> internal/tableavail
 internal/admin/insightobs -> pkg/query
 internal/admin/insightobs -> pkg/toolkits/knowledge
@@ -101,6 +104,7 @@ internal/httpserver -> pkg/toolkits/apigateway/catalog
 internal/httpserver -> pkg/toolkits/datahub
 internal/httpserver -> pkg/toolkits/gateway
 internal/httpserver -> pkg/toolkits/gateway/enrichment
+internal/httpserver -> pkg/toolkits/graphql
 internal/httpserver -> pkg/toolkits/knowledge
 internal/httpserver -> pkg/toolkits/portal
 internal/httpserver -> pkg/toolkits/trino
@@ -180,6 +184,7 @@ internal/platform/branding -> pkg/contenttype
 internal/platform/browserauth -> pkg/browsersession
 internal/platform/callindex -> internal/platform/callrecord
 internal/platform/callindex -> pkg/indexjobs
+internal/platform/callrecord -> internal/gqlschema
 internal/platform/callrecord -> internal/httpjson
 internal/platform/callrecord -> internal/logsan
 internal/platform/callrecord -> internal/sqltables
@@ -216,7 +221,20 @@ internal/platform/dedup -> pkg/middleware
 internal/platform/exportadapters -> internal/platform/provenance
 internal/platform/exportadapters -> pkg/portal
 internal/platform/exportadapters -> pkg/toolkits/apigateway
+internal/platform/exportadapters -> pkg/toolkits/graphql
 internal/platform/exportadapters -> pkg/toolkits/trino
+internal/platform/graphqlindex -> pkg/indexjobs
+internal/platform/graphqlindex -> pkg/toolkits/graphql
+internal/platform/graphqlstore -> pkg/toolkits/graphql
+internal/platform/graphqlwiring -> internal/membudget
+internal/platform/graphqlwiring -> internal/platform/graphqlstore
+internal/platform/graphqlwiring -> internal/platform/routepolicy
+internal/platform/graphqlwiring -> pkg/authevents
+internal/platform/graphqlwiring -> pkg/connoauth
+internal/platform/graphqlwiring -> pkg/embedding
+internal/platform/graphqlwiring -> pkg/observability
+internal/platform/graphqlwiring -> pkg/registry
+internal/platform/graphqlwiring -> pkg/toolkits/graphql
 internal/platform/iam -> pkg/auth
 internal/platform/iam -> pkg/middleware
 internal/platform/iam -> pkg/persona
@@ -224,6 +242,7 @@ internal/platform/indexqueue -> internal/platform/assetindex
 internal/platform/indexqueue -> internal/platform/callindex
 internal/platform/indexqueue -> internal/platform/collectionindex
 internal/platform/indexqueue -> internal/platform/datasetindex
+internal/platform/indexqueue -> internal/platform/graphqlindex
 internal/platform/indexqueue -> internal/platform/knowledgepageindex
 internal/platform/indexqueue -> internal/platform/memoryindex
 internal/platform/indexqueue -> internal/platform/promptindex
@@ -498,6 +517,7 @@ pkg/admin -> internal/admin/auditapi
 pkg/admin -> internal/admin/callapi
 pkg/admin -> internal/admin/catalogapi
 pkg/admin -> internal/admin/connoauthapi
+pkg/admin -> internal/admin/graphqlapi
 pkg/admin -> internal/admin/insightobs
 pkg/admin -> internal/admin/notifyapi
 pkg/admin -> internal/admin/sessionapi
@@ -589,6 +609,7 @@ pkg/knowledge/federation -> pkg/knowledge
 pkg/knowledge/federation -> pkg/registry
 pkg/knowledge/federation -> pkg/toolkit
 pkg/knowledge/federation -> pkg/toolkits/apigateway
+pkg/knowledge/federation -> pkg/toolkits/graphql
 pkg/memory -> pkg/semantic
 pkg/memory -> pkg/urnbuild
 pkg/middleware -> internal/producedby
@@ -636,6 +657,7 @@ pkg/platform -> internal/platform/connsource
 pkg/platform -> internal/platform/datasetindex
 pkg/platform -> internal/platform/dedup
 pkg/platform -> internal/platform/exportadapters
+pkg/platform -> internal/platform/graphqlwiring
 pkg/platform -> internal/platform/iam
 pkg/platform -> internal/platform/indexqueue
 pkg/platform -> internal/platform/knowledgelayer
@@ -715,6 +737,7 @@ pkg/platform -> pkg/toolkits/apigateway/catalog
 pkg/platform -> pkg/toolkits/apigateway/catalogindex
 pkg/platform -> pkg/toolkits/gateway
 pkg/platform -> pkg/toolkits/gateway/enrichment
+pkg/platform -> pkg/toolkits/graphql
 pkg/platform -> pkg/toolkits/knowledge
 pkg/platform -> pkg/toolkits/tools/toolsindex
 pkg/platform -> pkg/toolkits/trino
@@ -779,6 +802,7 @@ pkg/registry -> pkg/semantic
 pkg/registry -> pkg/toolkits/apigateway
 pkg/registry -> pkg/toolkits/datahub
 pkg/registry -> pkg/toolkits/gateway
+pkg/registry -> pkg/toolkits/graphql
 pkg/registry -> pkg/toolkits/s3
 pkg/registry -> pkg/toolkits/trino
 pkg/resource -> internal/logsan
@@ -804,6 +828,7 @@ pkg/toolkits/apigateway -> internal/cfgmap
 pkg/toolkits/apigateway -> internal/inlinefit
 pkg/toolkits/apigateway -> internal/logsan
 pkg/toolkits/apigateway -> internal/membudget
+pkg/toolkits/apigateway -> internal/opranking
 pkg/toolkits/apigateway -> internal/pagewalk
 pkg/toolkits/apigateway -> internal/upstreamauth
 pkg/toolkits/apigateway -> pkg/authevents
@@ -831,6 +856,21 @@ pkg/toolkits/gateway -> pkg/semantic
 pkg/toolkits/gateway -> pkg/toolkit
 pkg/toolkits/gateway -> pkg/toolkits/gateway/enrichment
 pkg/toolkits/gateway/enrichment -> internal/logsan
+pkg/toolkits/graphql -> internal/apigwmetrics
+pkg/toolkits/graphql -> internal/cfgmap
+pkg/toolkits/graphql -> internal/gqlschema
+pkg/toolkits/graphql -> internal/logsan
+pkg/toolkits/graphql -> internal/membudget
+pkg/toolkits/graphql -> internal/opranking
+pkg/toolkits/graphql -> internal/upstreamauth
+pkg/toolkits/graphql -> pkg/authevents
+pkg/toolkits/graphql -> pkg/connoauth
+pkg/toolkits/graphql -> pkg/embedding
+pkg/toolkits/graphql -> pkg/mcpcontext
+pkg/toolkits/graphql -> pkg/observability
+pkg/toolkits/graphql -> pkg/query
+pkg/toolkits/graphql -> pkg/semantic
+pkg/toolkits/graphql -> pkg/toolkit
 pkg/toolkits/knowledge -> internal/agentinstructions
 pkg/toolkits/knowledge -> internal/toolnames
 pkg/toolkits/knowledge -> pkg/embedding

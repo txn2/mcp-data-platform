@@ -49,6 +49,7 @@ const (
 var sourceKinds = map[string]string{
 	"trino":   portal.ProvenanceKindSQL,
 	"api":     portal.ProvenanceKindAPI,
+	"graphql": portal.ProvenanceKindGraphQL,
 	"datahub": portal.ProvenanceKindTool,
 	"s3":      portal.ProvenanceKindTool,
 	// "mcp" is the MCP gateway toolkit's kind: every tool it proxies from an
@@ -408,6 +409,8 @@ func (c *Capturer) describe(ctx context.Context, call *portal.ProvenanceCall, pa
 		call.Statement = stringParam(params, "sql")
 	case portal.ProvenanceKindAPI:
 		c.describeAPI(ctx, call, params)
+	case portal.ProvenanceKindGraphQL:
+		call.Statement = stringParam(params, "query")
 	default:
 		call.Summary = toolSummary(params)
 	}

@@ -3,7 +3,7 @@
 // import only what they render.
 
 // Connection kinds the create form offers. Kind is immutable after creation.
-export const AVAILABLE_KINDS = ["trino", "s3", "mcp", "api"];
+export const AVAILABLE_KINDS = ["trino", "s3", "mcp", "api", "graphql"];
 
 // Kind badge colors for the list and viewer header.
 const KIND_COLORS: Record<string, string> = {
@@ -12,6 +12,7 @@ const KIND_COLORS: Record<string, string> = {
   s3: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",
   mcp: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400",
   api: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400",
+  graphql: "bg-pink-100 text-pink-800 dark:bg-pink-900/30 dark:text-pink-400",
 };
 
 export function kindColor(kind: string): string {
@@ -85,6 +86,38 @@ export const CONFIG_LABELS: Record<string, Record<string, string>> = {
     max_inline_bytes: "Max Inline Bytes",
     catalog_id: "OpenAPI Catalog",
     connection_name: "Connection Name",
+    oauth2_token_url: "OAuth2 Token URL",
+    oauth2_authorization_url: "OAuth2 Authorization URL",
+    oauth2_client_id: "OAuth2 Client ID",
+    oauth2_client_secret: "OAuth2 Client Secret",
+    oauth2_scopes: "OAuth2 Scopes",
+    oauth2_endpoint_auth_style: "OAuth2 Auth Style",
+    oauth2_prompt: "OAuth2 Prompt",
+    mtls_client_cert_pem: "mTLS Client Certificate",
+    mtls_client_key_pem: "mTLS Client Key",
+    mtls_cert_not_after: "mTLS Cert Expiry",
+    tls_ca_bundle_pem: "TLS CA Bundle",
+    static_headers: "Static Headers",
+  },
+  graphql: {
+    endpoint_url: "Endpoint URL",
+    auth_mode: "Auth Mode",
+    credential: "Credential",
+    api_key_header: "API Key Header",
+    api_key_param: "API Key Parameter",
+    api_key_placement: "API Key Placement",
+    username: "Username",
+    password: "Password",
+    connect_timeout: "Connect Timeout",
+    call_timeout: "Call Timeout",
+    max_response_bytes: "Max Response Bytes",
+    max_inline_bytes: "Max Inline Bytes",
+    schema_validation: "Schema Validation",
+    max_query_depth: "Max Query Depth",
+    namespace_depth: "Namespace Depth",
+    read_only: "Read Only",
+    connection_name: "Connection Name",
+    description: "Description",
     oauth2_token_url: "OAuth2 Token URL",
     oauth2_authorization_url: "OAuth2 Authorization URL",
     oauth2_client_id: "OAuth2 Client ID",

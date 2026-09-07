@@ -74,6 +74,8 @@ const (
 	ProvenanceKindSQL = portaldomain.ProvenanceKindSQL
 	// ProvenanceKindAPI is an HTTP invocation through the API gateway.
 	ProvenanceKindAPI = portaldomain.ProvenanceKindAPI
+	// ProvenanceKindGraphQL is a document run against a GraphQL connection.
+	ProvenanceKindGraphQL = portaldomain.ProvenanceKindGraphQL
 	// ProvenanceKindTool is any other data-access call the platform serves.
 	ProvenanceKindTool = portaldomain.ProvenanceKindTool
 	// ProvenanceOutcomeSuccess is a call that returned normally.
