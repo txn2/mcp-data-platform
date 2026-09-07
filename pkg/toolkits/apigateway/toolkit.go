@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
 	"sort"
 	"strings"
@@ -18,6 +17,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/apigwmetrics"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/upstreamauth"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
@@ -278,9 +278,7 @@ func (t *Toolkit) SetConnOAuthStore(s connoauth.Store) {
 	defer t.mu.Unlock()
 	t.connOAuthStore = s
 	for _, c := range t.connections {
-		if ac, ok := c.auth.(*oauth2AuthorizationCodeAuth); ok {
-			ac.SetConnOAuthStore(s)
-		}
+		upstreamauth.SetConnOAuthStore(c.auth, s)
 	}
 }
 
@@ -323,9 +321,7 @@ func (t *Toolkit) SetAuthEvents(w *authevents.Writer) {
 	defer t.mu.Unlock()
 	t.authEvents = w
 	for _, c := range t.connections {
-		if ac, ok := c.auth.(*oauth2AuthorizationCodeAuth); ok {
-			ac.SetAuthEvents(w)
-		}
+		upstreamauth.SetAuthEvents(c.auth, w)
 	}
 }
 
@@ -806,13 +802,11 @@ func (t *Toolkit) addParsedConnection(name string, cfg Config) error {
 	// SetConnOAuthStore still becomes functional once that wire step
 	// runs (which re-threads the store across all connections).
 	// Either ordering works.
-	if ac, ok := auth.(*oauth2AuthorizationCodeAuth); ok {
-		if t.connOAuthStore != nil {
-			ac.SetConnOAuthStore(t.connOAuthStore)
-		}
-		if t.authEvents != nil {
-			ac.SetAuthEvents(t.authEvents)
-		}
+	if t.connOAuthStore != nil {
+		upstreamauth.SetConnOAuthStore(auth, t.connOAuthStore)
+	}
+	if t.authEvents != nil {
+		upstreamauth.SetAuthEvents(auth, t.authEvents)
 	}
 	t.connections[name] = c
 	return nil
@@ -1272,76 +1266,6 @@ func routePolicyError(ctx context.Context, policy RoutePolicy, in InvokeInput, t
 		msg = msg + ": " + reason
 	}
 	return errors.New(msg)
-}
-
-// newHTTPClient builds the per-connection HTTP client. Redirects
-// are explicitly disallowed so the toolkit does not blindly
-// re-issue a request (and re-attach the connection's credential)
-// to a host the operator did not authorize. The model can follow
-// redirects manually by reading the upstream Location header from
-// the response and issuing a new api_invoke_endpoint call with the
-// redirected URL.
-//
-// Metrics wrapping is applied by the caller (see
-// apigwmetrics.Instrument) rather than here so test helpers can construct
-// a bare client without threading a metrics handle through every
-// call site.
-//
-// TLS-config build errors are intentionally not surfaced from this
-// constructor. ParseConfig has already validated cert + key + CA
-// bundle, so buildTLSConfig only fails here if a caller has
-// constructed a Config by hand and bypassed Validate. The fallback
-// returns a transport with the system default tls.Config and the
-// first outbound call will fail loudly with the underlying tls
-// error, which is the same surface a misconfigured transport would
-// produce on any other auth mode.
-func newHTTPClient(cfg Config) *http.Client {
-	return &http.Client{
-		Timeout:   cfg.CallTimeout,
-		Transport: newHTTPTransport(cfg),
-		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-}
-
-// idleConnectionTimeout caps how long an idle keep-alive connection
-// can sit in the pool before being closed. Independent of the
-// per-call timeouts; a generous default reduces reconnect churn for
-// chatty connections.
-const idleConnectionTimeout = 90 * time.Second
-
-// maxIdleConnections caps the per-host pool of reusable keep-alive
-// sockets. Modest because each connection's typical workload is
-// occasional fan-out from MCP tool calls, not high-throughput.
-const maxIdleConnections = 10
-
-// newHTTPTransport builds the per-connection http.Transport. The
-// dial step (TCP + TLS handshake) is bound by cfg.ConnectTimeout so
-// an unreachable upstream fails fast instead of consuming the full
-// CallTimeout budget. Exposed as a separate function so unit tests
-// can verify the wiring without standing up a network listener.
-//
-// When the connection carries mTLS material (cfg.MTLSClientCertPEM
-// + cfg.MTLSClientKeyPEM) or a custom CA bundle (cfg.TLSCABundlePEM),
-// the transport's TLSClientConfig is populated accordingly. With
-// neither set, TLSClientConfig stays nil and Go's net/http uses
-// system defaults. buildTLSConfig errors here are degraded to nil
-// (see newHTTPClient for the rationale).
-func newHTTPTransport(cfg Config) *http.Transport {
-	t := &http.Transport{
-		DialContext: (&net.Dialer{
-			Timeout: cfg.ConnectTimeout,
-		}).DialContext,
-		TLSHandshakeTimeout:   cfg.ConnectTimeout,
-		ExpectContinueTimeout: time.Second,
-		IdleConnTimeout:       idleConnectionTimeout,
-		MaxIdleConns:          maxIdleConnections,
-	}
-	if tlsCfg, err := buildTLSConfig(cfg); err == nil && tlsCfg != nil {
-		t.TLSClientConfig = tlsCfg
-	}
-	return t
 }
 
 // Verify interface compliance at compile time. The registry.Toolkit

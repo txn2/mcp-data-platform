@@ -488,6 +488,11 @@ internal/producedview -> pkg/script
 internal/server -> internal/platform/knowledgebuiltin
 internal/server -> pkg/platform
 internal/tableavail -> pkg/query
+internal/upstreamauth -> internal/apigwtls
+internal/upstreamauth -> internal/cfgmap
+internal/upstreamauth -> internal/membudget
+internal/upstreamauth -> pkg/authevents
+internal/upstreamauth -> pkg/connoauth
 pkg/admin -> internal/admin/apiroutesapi
 pkg/admin -> internal/admin/auditapi
 pkg/admin -> internal/admin/callapi
@@ -795,11 +800,12 @@ pkg/textpatch -> pkg/contenttype
 pkg/textpatch/patchmcp -> pkg/middleware
 pkg/textpatch/patchmcp -> pkg/textpatch
 pkg/toolkits/apigateway -> internal/apigwmetrics
-pkg/toolkits/apigateway -> internal/apigwtls
+pkg/toolkits/apigateway -> internal/cfgmap
 pkg/toolkits/apigateway -> internal/inlinefit
 pkg/toolkits/apigateway -> internal/logsan
 pkg/toolkits/apigateway -> internal/membudget
 pkg/toolkits/apigateway -> internal/pagewalk
+pkg/toolkits/apigateway -> internal/upstreamauth
 pkg/toolkits/apigateway -> pkg/authevents
 pkg/toolkits/apigateway -> pkg/blobserve
 pkg/toolkits/apigateway -> pkg/connoauth

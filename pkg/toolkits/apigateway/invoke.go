@@ -21,6 +21,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/inlinefit"
 	"github.com/txn2/mcp-data-platform/internal/pagewalk"
+	"github.com/txn2/mcp-data-platform/internal/upstreamauth"
 	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 )
@@ -237,17 +238,6 @@ func inlineBudgetFor(ctx context.Context, cfg Config) int64 {
 	return inlineBudget(cfg)
 }
 
-// readLimit is the most of a response to read given a configured limit,
-// falling back to the default cap when there is none. The one definition
-// the buffered call, a page of a walk, and the memory reservation share,
-// so the three cannot drift.
-func readLimit(limit int64) int64 {
-	if limit > 0 {
-		return limit
-	}
-	return DefaultMaxResponseBytes
-}
-
 // inlineBudget is the connection's effective inline budget: the most
 // of a response returned through a tool result. Unset values take the
 // defaults, and the read cap bounds it.
@@ -394,8 +384,7 @@ func buildUpstreamRequest(ctx context.Context, cfg Config, auth Authenticator, c
 	if err := validatePath(in.Path); err != nil {
 		return nil, err
 	}
-	authHeader := authHeaderForConfig(cfg)
-	if err := validateCustomHeaders(in.Headers, authHeader, cfg.StaticHeaders); err != nil {
+	if err := cfg.upstream().ValidateCustomHeaders(in.Headers); err != nil {
 		return nil, err
 	}
 	reqURL, err := buildURL(cfg.BaseURL, in.Path, in.Query)
@@ -440,14 +429,14 @@ func buildUpstreamRequest(ctx context.Context, cfg Config, auth Authenticator, c
 // passthrough connection (the built-in platform-admin self-connection)
 // must act as the calling admin, so an anonymous loopback call to the
 // admin API would be wrong, not merely unauthenticated. The Authorization
-// header is reserved from model input by validateCustomHeaders, so the
+// header is reserved from model input by ValidateCustomHeaders, so the
 // value set here cannot be overridden by a tool argument.
 func applyIdentityPassthrough(ctx context.Context, req *http.Request) error {
 	token := mcpcontext.GetAuthToken(ctx)
 	if token == "" {
 		return errors.New("apigateway: identity passthrough requires an authenticated caller token, but none was present on the request")
 	}
-	req.Header.Set(authorizationHeader, "Bearer "+token)
+	req.Header.Set(upstreamauth.AuthorizationHeader, "Bearer "+token)
 	return nil
 }
 
@@ -538,45 +527,6 @@ func checkPathSegments(p string) error {
 		}
 		if decoded == "." || decoded == ".." {
 			return errors.New("apigateway: path must not contain \".\" or \"..\" segments (literal or percent-encoded)")
-		}
-	}
-	return nil
-}
-
-// authorizationHeader is the HTTP header bearer-mode auth populates.
-// Extracted as a named constant so the same literal isn't repeated
-// across the auth dispatch switch and the header-spoof rejection.
-const authorizationHeader = "Authorization"
-
-// authHeaderForConfig returns the canonical header name the
-// connection's auth mode would set, so validateCustomHeaders can
-// reject the model's attempts to spoof or override it. Empty string
-// means no header-based auth (mode=none, mode=api_key with query
-// placement).
-func authHeaderForConfig(c Config) string {
-	switch c.AuthMode {
-	case AuthModeBearer:
-		return authorizationHeader
-	case AuthModeAPIKey:
-		if c.CredentialPlacement == CredentialPlacementHeader {
-			return c.APIKeyHeader
-		}
-	}
-	return ""
-}
-
-func validateCustomHeaders(headers map[string]string, authHeader string, staticHeaders map[string]string) error {
-	for name := range headers {
-		if strings.EqualFold(name, authorizationHeader) {
-			return errors.New("apigateway: Authorization header is reserved; configure auth via connection")
-		}
-		if authHeader != "" && strings.EqualFold(name, authHeader) {
-			return fmt.Errorf("apigateway: %s header is reserved by this connection's auth_mode", authHeader)
-		}
-		for staticName := range staticHeaders {
-			if strings.EqualFold(name, staticName) {
-				return fmt.Errorf("apigateway: %s header is reserved by this connection's static_headers", staticName)
-			}
 		}
 	}
 	return nil
@@ -1077,7 +1027,7 @@ func buildRequest(ctx context.Context, spec requestSpec) (*http.Request, error) 
 	// Static (operator-configured) headers override per-call (model)
 	// headers so a connection's mandatory subscription/quota header
 	// (e.g. Google's x-goog-user-project) is authoritative.
-	// validateCustomHeaders also rejects model attempts at the same
+	// ValidateCustomHeaders also rejects model attempts at the same
 	// header names, so this is belt-and-suspenders.
 	for name, value := range spec.staticHeaders {
 		req.Header.Set(name, value)
@@ -1285,21 +1235,6 @@ func executeRequest(p execParams) (InvokeOutput, error) {
 		out.Hint = inlineBudgetHint(readCap, resp.ContentLength)
 	}
 	return out, nil
-}
-
-func readBody(r io.Reader, maxBytes int64) (body []byte, truncated bool, err error) {
-	if maxBytes <= 0 {
-		maxBytes = DefaultMaxResponseBytes
-	}
-	limited := io.LimitReader(r, maxBytes+1)
-	read, rerr := io.ReadAll(limited)
-	if rerr != nil {
-		return nil, false, fmt.Errorf("apigateway: reading response body: %w", rerr)
-	}
-	if int64(len(read)) > maxBytes {
-		return read[:maxBytes], true, nil
-	}
-	return read, false, nil
 }
 
 // decodeBody parses a JSON response into a Go value when the

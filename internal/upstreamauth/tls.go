@@ -1,4 +1,4 @@
-package apigateway
+package upstreamauth
 
 import (
 	"crypto/tls"
@@ -15,20 +15,21 @@ func (c Config) tlsMaterial() apigwtls.Material {
 		ClientKeyPEM:       c.MTLSClientKeyPEM,
 		CABundlePEM:        c.TLSCABundlePEM,
 		ClientPairRequired: c.AuthMode == AuthModeMTLS,
+		ErrPrefix:          prefixOr(c.ErrPrefix),
 	}
 }
 
-// validateTLSMaterial enforces the per-connection mTLS and CA-trust rules, so
+// ValidateTLSMaterial enforces the per-connection mTLS and CA-trust rules, so
 // a misconfiguration is refused at admin write time rather than on the first
 // outbound call.
-func (c Config) validateTLSMaterial() error {
-	//nolint:wrapcheck // the message names the subsystem an operator sees refuse the write; wrapping would prefix it twice
+func (c Config) ValidateTLSMaterial() error {
+	//nolint:wrapcheck // the message already names the kind an operator sees refuse the write; wrapping would prefix it twice
 	return apigwtls.Validate(c.tlsMaterial())
 }
 
-// buildTLSConfig returns the *tls.Config this connection's transport presents,
+// BuildTLSConfig returns the *tls.Config this connection's transport presents,
 // or nil when it carries neither a client keypair nor a CA bundle.
-func buildTLSConfig(c Config) (*tls.Config, error) {
-	//nolint:wrapcheck // as above: the error is already an operator-facing "apigateway: ..." message
+func (c Config) BuildTLSConfig() (*tls.Config, error) {
+	//nolint:wrapcheck // as above: the error is already an operator-facing, kind-prefixed message
 	return apigwtls.Build(c.tlsMaterial())
 }

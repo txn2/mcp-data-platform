@@ -33,7 +33,7 @@ func NewOAuthKindHandler(_ *Toolkit) *OAuthKindHandler {
 // authorization_code grant: the unified handler maps that to HTTP
 // 409 Conflict, matching the prior per-kind handler's response code.
 //
-// The mapping is delegated to connoauthConfigFromOAuth2 so the initial
+// The mapping is delegated to upstreamauth's ConnOAuthConfig so the initial
 // code-exchange (this path) and the per-call silent-refresh (the
 // authenticator path) read every field through the same translator.
 // A regression here would otherwise drop CABundlePEM, Prompt, or
@@ -46,7 +46,7 @@ func (*OAuthKindHandler) ParseOAuthConfig(connConfig map[string]any) (connoauth.
 	if !cfg.IsOAuthAuthorizationCode() {
 		return connoauth.Config{}, errors.New("connection is not configured for authorization_code OAuth")
 	}
-	return connoauthConfigFromOAuth2(cfg), nil
+	return cfg.upstream().ConnOAuthConfig(), nil
 }
 
 // AfterConnect is a no-op. The API gateway's Authenticator reads the

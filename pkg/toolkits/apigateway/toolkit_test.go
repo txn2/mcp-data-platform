@@ -14,6 +14,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
@@ -673,17 +674,6 @@ func TestNewHTTPClient_BlocksRedirects(t *testing.T) {
 	}
 }
 
-func TestNewHTTPTransport_AppliesConnectTimeout(t *testing.T) {
-	cfg := Config{ConnectTimeout: 1500 * time.Millisecond, CallTimeout: 30 * time.Second}
-	tr := newHTTPTransport(cfg)
-	if tr.TLSHandshakeTimeout != cfg.ConnectTimeout {
-		t.Errorf("TLSHandshakeTimeout = %v; want %v", tr.TLSHandshakeTimeout, cfg.ConnectTimeout)
-	}
-	if tr.DialContext == nil {
-		t.Fatal("DialContext is nil; ConnectTimeout cannot be enforced")
-	}
-}
-
 // TestNewHTTPClient_HasTransport prevents a regression where the
 // transport falls back to http.DefaultTransport (which would silently
 // drop cfg.ConnectTimeout). A nil Transport on the returned Client
@@ -763,6 +753,57 @@ func TestJSONResult_EmbedsPayload(t *testing.T) {
 	}
 }
 
+// TestToolkit_ConnectionAddedAfterWiring_PicksUpStoreAndEvents is the
+// other half of the "either ordering works" contract the wiring carries:
+// a connection registered AFTER SetConnOAuthStore and SetAuthEvents must
+// come up with both already attached, without waiting for a re-thread
+// that will never run again.
+func TestToolkit_ConnectionAddedAfterWiring_PicksUpStoreAndEvents(t *testing.T) {
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+
+	tk.SetConnOAuthStore(connoauth.NewMemoryStore())
+	tk.SetAuthEvents(authevents.NewWriter(nil, slog.Default()))
+
+	err := tk.AddConnection("acme", map[string]any{
+		"base_url":                 "https://api.example.com",
+		"auth_mode":                AuthModeOAuth2AuthorizationCode,
+		"oauth2_token_url":         "https://idp.example/token",
+		"oauth2_authorization_url": "https://idp.example/auth",
+		"oauth2_client_id":         "id",
+		"oauth2_client_secret":     "sec",
+	})
+	if err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+
+	tk.mu.RLock()
+	c := tk.connections["acme"]
+	tk.mu.RUnlock()
+	if c == nil {
+		t.Fatal("connection vanished")
+	}
+	// As in the re-thread test above, the store's arrival is asserted by
+	// behavior: with no store the authenticator refuses with "token
+	// store not wired", and with the (empty) store it gets as far as
+	// reporting that no token is persisted.
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://api.example.com/probe", http.NoBody)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	if applyErr := c.auth.Apply(req); !errors.Is(applyErr, ErrNeedsReauth) {
+		t.Errorf("connection added after wiring did not receive the store: Apply = %v", applyErr)
+	}
+
+	// Re-threading the events writer over an already-registered
+	// connection is the same contract as the store's, and it must not
+	// disturb the wiring the connection already has.
+	tk.SetAuthEvents(authevents.NewWriter(nil, slog.Default()))
+	if applyErr := c.auth.Apply(req); !errors.Is(applyErr, ErrNeedsReauth) {
+		t.Errorf("re-threading the events writer broke the connection: Apply = %v", applyErr)
+	}
+}
+
 // TestToolkit_SetTokenStore_RethreadsAuthorizationCodeAuth proves the
 // wiring contract that platform.WireAPIGatewayTokenStore depends on:
 // when SetTokenStore is called AFTER addParsedConnection has already
@@ -806,12 +847,19 @@ func TestToolkit_SetConnOAuthStore_RethreadsAuthorizationCodeAuth(t *testing.T) 
 	if c == nil {
 		t.Fatal("connection vanished")
 	}
-	ac, ok := c.auth.(*oauth2AuthorizationCodeAuth)
-	if !ok {
-		t.Fatalf("expected *oauth2AuthorizationCodeAuth, got %T", c.auth)
+	// Assert the re-thread by what the Authenticator now does rather
+	// than by reaching into it: an authorization_code authenticator
+	// with no store refuses with "token store not wired", while one
+	// that has the (empty) store gets as far as looking for a token and
+	// reports ErrNeedsReauth. Only the second is reachable if the new
+	// store actually landed on the already-materialized authenticator.
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://api.example.com/probe", http.NoBody)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
 	}
-	if ac.store != want {
-		t.Error("re-thread did not deliver the new store to the existing Authenticator")
+	applyErr := c.auth.Apply(req)
+	if !errors.Is(applyErr, ErrNeedsReauth) {
+		t.Errorf("re-thread did not deliver the new store to the existing Authenticator: Apply = %v", applyErr)
 	}
 }
 
