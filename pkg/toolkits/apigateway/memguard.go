@@ -55,29 +55,6 @@ const (
 	ErrCodeBodyNotInlineable = "upstream_body_not_inlineable"
 )
 
-// reserveBodyBudget computes the worst-case number of bytes a buffered
-// read of this response could hold and tries to reserve them against
-// the shared budget. It returns the amount reserved (to be released by
-// the caller) and whether the reservation was granted.
-//
-// When the upstream declares a Content-Length below the read cap, only
-// that many bytes are reserved so small (and empty) responses do not
-// each tie up the full per-request cap and falsely exhaust the budget.
-// This is safe because Go's HTTP client bounds resp.Body to the declared
-// Content-Length — a server that writes more than it declared cannot
-// make readBody buffer beyond it. Unknown/chunked responses
-// (ContentLength < 0) and over-cap responses reserve the full cap, which
-// is exactly what readBody may buffer. A nil/disabled budget always
-// grants the reservation and Release is a no-op, so the buffered path is
-// unchanged when no budget is configured.
-func reserveBodyBudget(b *MemBudget, contentLength, readCap int64) (reserved int64, ok bool) {
-	reserved = readCap
-	if contentLength >= 0 && contentLength < readCap {
-		reserved = contentLength
-	}
-	return reserved, b.Acquire(reserved)
-}
-
 // budgetError is the typed error the buffered tools return when a body
 // buffer reservation is refused. handleInvoke / handleExport detect it
 // (errors.As) and render the structured 429 envelope; the REST shim

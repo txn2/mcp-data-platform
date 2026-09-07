@@ -607,26 +607,3 @@ func TestParseConfig_StaticHeaders_EmptyMapNotPersisted(t *testing.T) {
 		t.Errorf("empty static_headers stored as %#v; want nil", c.StaticHeaders)
 	}
 }
-
-func TestIsValidHeaderName(t *testing.T) {
-	cases := []struct {
-		in   string
-		want bool
-	}{
-		{"X-API-Key", true},
-		{"X-Subscription-Key", true},
-		{"x-goog-user-project", true},
-		{"Content-Type", true},
-		{"", false},
-		{"Bad Name", false},
-		{"With\rCR", false},
-		{"Colon:Inside", false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.in, func(t *testing.T) {
-			if got := isValidHeaderName(tc.in); got != tc.want {
-				t.Errorf("isValidHeaderName(%q) = %v; want %v", tc.in, got, tc.want)
-			}
-		})
-	}
-}

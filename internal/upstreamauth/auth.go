@@ -1,11 +1,10 @@
-package apigateway
+package upstreamauth
 
 import (
 	"context"
 	"crypto/tls"
 	"encoding/base64"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -25,7 +24,7 @@ import (
 // safe for concurrent use — a single Authenticator is shared across
 // all in-flight invocations of a connection.
 //
-// Implementations MUST NOT log credential material. The toolkit's
+// Implementations MUST NOT log credential material. The platform's
 // audit pipeline expects no Authorization or X-API-Key value to ever
 // appear in slog output, error messages, or audit rows; carelessly
 // formatted error strings are the most common leak path.
@@ -34,7 +33,7 @@ type Authenticator interface {
 }
 
 // NewAuthenticator returns the Authenticator implementation for a
-// validated Config. ParseConfig has already rejected unknown auth
+// validated Config. ValidateAuth has already rejected unknown auth
 // modes, so the default branch only fires if a future mode is added
 // without a matching case here.
 func NewAuthenticator(c Config) (Authenticator, error) {
@@ -42,43 +41,43 @@ func NewAuthenticator(c Config) (Authenticator, error) {
 	case AuthModeNone:
 		return noneAuth{}, nil
 	case AuthModeBearer:
-		return bearerAuth{credential: c.Credential}, nil
+		return bearerAuth{cfg: c, credential: c.Credential}, nil
 	case AuthModeAPIKey:
 		return newAPIKeyAuth(c)
 	case AuthModeBasic:
 		return newBasicAuth(c)
 	case AuthModeOAuth:
 		// The canonical OAuth mode dispatches on the grant. The
-		// authorization_code variant requires a TokenStore;
+		// authorization_code variant requires a token store;
 		// NewAuthenticator alone cannot supply one (it has no DB
-		// handle), so the toolkit's addParsedConnection wires the
-		// TokenStore via SetTokenStore immediately after this returns.
+		// handle), so the kind's connection wiring calls
+		// SetConnOAuthStore immediately after this returns.
 		if c.OAuth2.Grant == connoauth.GrantAuthorizationCode {
 			return newOAuth2AuthorizationCodeAuth(c), nil
 		}
 		return newOAuth2ClientCredentialsAuth(c), nil
 	case AuthModeOAuth2ClientCredentials:
-		// Legacy auth_mode (hand-built Configs that bypass ParseConfig).
+		// Legacy auth_mode (hand-built Configs that bypass Parse).
 		return newOAuth2ClientCredentialsAuth(c), nil
 	case AuthModeOAuth2AuthorizationCode:
-		// Legacy auth_mode (hand-built Configs that bypass ParseConfig).
+		// Legacy auth_mode (hand-built Configs that bypass Parse).
 		return newOAuth2AuthorizationCodeAuth(c), nil
 	case AuthModeMTLS:
 		// The client certificate IS the credential. No header is
 		// added; the TLS handshake at transport setup
-		// (newHTTPTransport) attaches the cert. The no-op Apply
+		// (NewHTTPTransport) attaches the cert. The no-op Apply
 		// keeps the invocation path's "always call Apply" contract
 		// without a nil check.
 		return mtlsAuth{}, nil
 	default:
-		return nil, fmt.Errorf("apigateway: no authenticator for auth_mode %q", c.AuthMode)
+		return nil, c.errf("no authenticator for auth_mode %q", c.AuthMode)
 	}
 }
 
 // mtlsAuth is a no-op Authenticator used when the connection presents
 // a client certificate during the TLS handshake instead of an
 // Authorization header. The cert + key are attached to the
-// http.Transport's TLSClientConfig by newHTTPTransport; this struct
+// http.Transport's TLSClientConfig by NewHTTPTransport; this struct
 // exists only so the invocation path can call Apply unconditionally
 // across every auth mode.
 type mtlsAuth struct{}
@@ -87,7 +86,7 @@ type mtlsAuth struct{}
 func (mtlsAuth) Apply(_ *http.Request) error { return nil }
 
 // noneAuth applies no credential. Distinct from a nil Authenticator so
-// the toolkit's invocation path can call Apply unconditionally.
+// the invocation path can call Apply unconditionally.
 type noneAuth struct{}
 
 // Apply is a no-op; the connection requested no outbound auth.
@@ -95,21 +94,23 @@ func (noneAuth) Apply(_ *http.Request) error { return nil }
 
 // bearerAuth sets the Authorization header to "Bearer <credential>".
 type bearerAuth struct {
+	cfg        Config
 	credential string
 }
 
 // Apply attaches the bearer token as the Authorization header.
 func (b bearerAuth) Apply(req *http.Request) error {
 	if b.credential == "" {
-		return errors.New("apigateway: bearer credential is empty")
+		return b.cfg.err("bearer credential is empty")
 	}
-	req.Header.Set(authorizationHeader, "Bearer "+b.credential)
+	req.Header.Set(AuthorizationHeader, "Bearer "+b.credential)
 	return nil
 }
 
 // apiKeyAuth attaches the credential as either a header or a query
 // parameter, per the connection's CredentialPlacement setting.
 type apiKeyAuth struct {
+	cfg        Config
 	credential string
 	placement  string
 	header     string
@@ -118,25 +119,26 @@ type apiKeyAuth struct {
 
 func newAPIKeyAuth(c Config) (apiKeyAuth, error) {
 	a := apiKeyAuth{
+		cfg:        c,
 		credential: c.Credential,
 		placement:  c.CredentialPlacement,
 		header:     c.APIKeyHeader,
 		param:      c.APIKeyParam,
 	}
 	if a.credential == "" {
-		return apiKeyAuth{}, errors.New("apigateway: api_key credential is empty")
+		return apiKeyAuth{}, c.err("api_key credential is empty")
 	}
 	switch a.placement {
 	case CredentialPlacementHeader:
 		if a.header == "" {
-			return apiKeyAuth{}, errors.New("apigateway: api_key_header is empty")
+			return apiKeyAuth{}, c.err("api_key_header is empty")
 		}
 	case CredentialPlacementQuery:
 		if a.param == "" {
-			return apiKeyAuth{}, errors.New("apigateway: api_key_param is empty")
+			return apiKeyAuth{}, c.err("api_key_param is empty")
 		}
 	default:
-		return apiKeyAuth{}, fmt.Errorf("apigateway: invalid api_key_placement %q", a.placement)
+		return apiKeyAuth{}, c.errf("invalid api_key_placement %q", a.placement)
 	}
 	return a, nil
 }
@@ -152,7 +154,7 @@ func (a apiKeyAuth) Apply(req *http.Request) error {
 		q.Set(a.param, a.credential)
 		req.URL.RawQuery = q.Encode()
 	default:
-		return fmt.Errorf("apigateway: invalid api_key_placement %q", a.placement)
+		return a.cfg.errf("invalid api_key_placement %q", a.placement)
 	}
 	return nil
 }
@@ -168,20 +170,20 @@ type basicAuth struct {
 }
 
 // newBasicAuth constructs the authenticator with all validation
-// re-checked against the parsed Config. Config.Validate() has already
+// re-checked against the parsed Config. ValidateAuth has already
 // rejected ":" in the userid and CR/LF/NUL in either field, but
 // authenticators construct from the (validated) Config without seeing
 // the validator path, so the guards live here too as defense in depth
-// against a future caller that bypasses Validate.
+// against a future caller that bypasses validation.
 func newBasicAuth(c Config) (basicAuth, error) {
 	if c.Username == "" {
-		return basicAuth{}, errors.New("apigateway: basic auth requires a username")
+		return basicAuth{}, c.err("basic auth requires a username")
 	}
 	if strings.Contains(c.Username, ":") {
-		return basicAuth{}, errors.New("apigateway: basic auth username must not contain \":\"")
+		return basicAuth{}, c.err("basic auth username must not contain \":\"")
 	}
 	if strings.ContainsAny(c.Username, "\r\n\x00") || strings.ContainsAny(c.Password, "\r\n\x00") {
-		return basicAuth{}, errors.New("apigateway: basic auth credentials contain CR/LF/NUL")
+		return basicAuth{}, c.err("basic auth credentials contain CR/LF/NUL")
 	}
 	encoded := base64.StdEncoding.EncodeToString([]byte(c.Username + ":" + c.Password))
 	return basicAuth{header: "Basic " + encoded}, nil
@@ -191,7 +193,7 @@ func newBasicAuth(c Config) (basicAuth, error) {
 // header. newBasicAuth has already validated the inputs and computed
 // the encoded value, so this hot path is just a Header.Set.
 func (b basicAuth) Apply(req *http.Request) error {
-	req.Header.Set(authorizationHeader, b.header)
+	req.Header.Set(AuthorizationHeader, b.header)
 	return nil
 }
 
@@ -212,6 +214,7 @@ func (b basicAuth) Apply(req *http.Request) error {
 // any credential the operator embedded in the URL (an unfortunate
 // pattern but one that exists in the wild).
 type oauth2ClientCredentialsAuth struct {
+	cfg Config
 	src oauth2.TokenSource
 }
 
@@ -290,7 +293,7 @@ func newOAuth2ClientCredentialsAuth(c Config) oauth2ClientCredentialsAuth {
 	// already does this internally but the wrap is explicit
 	// defense against future library changes.
 	src := oauth2.ReuseTokenSource(nil, cfg.TokenSource(ctx))
-	return oauth2ClientCredentialsAuth{src: src}
+	return oauth2ClientCredentialsAuth{cfg: c, src: src}
 }
 
 // Apply fetches (or returns the cached) access token and attaches
@@ -302,12 +305,12 @@ func newOAuth2ClientCredentialsAuth(c Config) oauth2ClientCredentialsAuth {
 func (a oauth2ClientCredentialsAuth) Apply(req *http.Request) error {
 	tok, err := a.src.Token()
 	if err != nil {
-		return tokenFetchError(err)
+		return tokenFetchError(a.cfg, err)
 	}
 	if tok == nil || tok.AccessToken == "" {
-		return errors.New("apigateway: oauth2 token source returned no access token")
+		return a.cfg.err("oauth2 token source returned no access token")
 	}
-	req.Header.Set(authorizationHeader, "Bearer "+tok.AccessToken)
+	req.Header.Set(AuthorizationHeader, "Bearer "+tok.AccessToken)
 	return nil
 }
 
@@ -319,42 +322,44 @@ func (a oauth2ClientCredentialsAuth) Apply(req *http.Request) error {
 // (e.g., https://user:secret@idp.example/token), those would
 // leak. We rebuild the message keeping only the non-sensitive
 // pieces.
-func tokenFetchError(err error) error {
+func tokenFetchError(cfg Config, err error) error {
 	var re *oauth2.RetrieveError
 	if errors.As(err, &re) {
-		return fmt.Errorf("apigateway: oauth2 token fetch failed: status=%d", re.Response.StatusCode)
+		return cfg.errf("oauth2 token fetch failed: status=%d", re.Response.StatusCode)
 	}
 	var ue *url.Error
 	if errors.As(err, &ue) {
 		parsed, perr := url.Parse(ue.URL)
 		if perr != nil {
-			return fmt.Errorf("apigateway: oauth2 token fetch %s: %w", ue.Op, ue.Err)
+			return cfg.errf("oauth2 token fetch %s: %w", ue.Op, ue.Err)
 		}
 		parsed.RawQuery = ""
 		parsed.User = nil
-		return fmt.Errorf("apigateway: oauth2 token fetch %s %q: %w", ue.Op, parsed.String(), ue.Err)
+		return cfg.errf("oauth2 token fetch %s %q: %w", ue.Op, parsed.String(), ue.Err)
 	}
 	// Fallback: redact anything that looks URL-shaped just in case
 	// a future library version wraps in a different error type.
 	msg := err.Error()
 	if strings.Contains(msg, "://") {
-		return errors.New("apigateway: oauth2 token fetch failed (details redacted)")
+		return cfg.err("oauth2 token fetch failed (details redacted)")
 	}
-	return fmt.Errorf("apigateway: oauth2 token fetch failed: %s", msg)
+	return cfg.errf("oauth2 token fetch failed: %s", msg)
 }
 
-// ErrNeedsReauth is the structured error api_invoke_endpoint surfaces
+// ErrNeedsReauth is the structured error a kind's invoke tool surfaces
 // when an authorization_code connection's stored refresh token is
 // missing, expired beyond refresh_expires_at, or definitively rejected
 // by the IdP (RFC 6749 §5.2 invalid_grant on the refresh_token grant).
 // Transient failures (network, 5xx, request cancellation) DO NOT
 // produce this error.
 //
-// The error message intentionally points the operator at the
-// platform's reauth path rather than echoing the underlying IdP
-// response (which can include sensitive material from a partial
-// grant exchange).
-var ErrNeedsReauth = errors.New("apigateway: oauth2 connection needs admin reconnect")
+// The message carries no package prefix of its own: Apply wraps it in
+// the calling kind's voice, so an operator sees "apigateway: oauth2
+// connection needs admin reconnect" while errors.Is still matches. The
+// wording intentionally points at the platform's reauth path rather
+// than echoing the underlying IdP response (which can include sensitive
+// material from a partial grant exchange).
+var ErrNeedsReauth = errors.New("oauth2 connection needs admin reconnect")
 
 // oauth2AuthorizationCodeAuth applies an OAuth 2.1 access token
 // acquired via the user-driven authorization_code grant. All token
@@ -364,14 +369,14 @@ var ErrNeedsReauth = errors.New("apigateway: oauth2 connection needs admin recon
 // transparently when the cached access token is near expiry and
 // persists the rotated refresh token (RFC 6749 §6) back to the row.
 //
-// The Source is built per-call from the toolkit's connOAuthStore +
+// The Source is built per-call from the kind's connOAuthStore +
 // authevents.Writer, so the authenticator carries no token state of
 // its own — exactly the property that makes refresh coherent with the
 // background refresher across replicas.
 type oauth2AuthorizationCodeAuth struct {
 	cfg Config
 	// mu guards the store + events pair against concurrent
-	// SetConnOAuthStore / SetAuthEvents (called from the toolkit's
+	// SetConnOAuthStore / SetAuthEvents (called from the kind's
 	// platform-side wiring) while Apply reads them on every outbound
 	// request. RWMutex so concurrent reads don't serialize.
 	mu     sync.RWMutex
@@ -384,7 +389,7 @@ func newOAuth2AuthorizationCodeAuth(c Config) *oauth2AuthorizationCodeAuth {
 }
 
 // SetConnOAuthStore wires the unified token store. Required before
-// Apply can be called; the toolkit's SetConnOAuthStore method threads
+// Apply can be called; the kind's SetConnOAuthStore method threads
 // this through.
 func (a *oauth2AuthorizationCodeAuth) SetConnOAuthStore(s connoauth.Store) {
 	a.mu.Lock()
@@ -417,44 +422,47 @@ func (a *oauth2AuthorizationCodeAuth) snapshot() (connoauth.Store, *authevents.W
 func (a *oauth2AuthorizationCodeAuth) Apply(req *http.Request) error {
 	store, events := a.snapshot()
 	if store == nil {
-		return errors.New("apigateway: oauth2 authorization_code: token store not wired")
+		return a.cfg.err("oauth2 authorization_code: token store not wired")
 	}
 	src := connoauth.NewSource(store, connoauth.Key{
-		Kind: connoauth.KindAPI,
+		Kind: a.cfg.Kind,
 		Name: a.cfg.ConnectionName,
-	}, connoauthConfigFromOAuth2(a.cfg)).
+	}, a.cfg.ConnOAuthConfig()).
 		WithEvents(events).
 		WithActor(authevents.SystemToolCall)
 	token, err := src.Token(req.Context())
 	if err != nil {
 		if errors.Is(err, connoauth.ErrNeedsReauth) {
-			return ErrNeedsReauth
+			return errf(a.cfg.ErrPrefix, "%w", ErrNeedsReauth)
 		}
-		return fmt.Errorf("apigateway: oauth token: %w", err)
+		return a.cfg.errf("oauth token: %w", err)
 	}
-	req.Header.Set(authorizationHeader, "Bearer "+token)
+	req.Header.Set(AuthorizationHeader, "Bearer "+token)
 	return nil
 }
 
-// connoauthConfigFromOAuth2 maps the toolkit's OAuth2 config slice to
-// the unified connoauth.Config the Source consumes. The full Config
-// (including the CA bundle for IdPs behind a private CA) is read so
-// the token-exchange and refresh paths can verify the IdP's TLS cert
-// against the operator's bundle without falling back to system trust.
-func connoauthConfigFromOAuth2(c Config) connoauth.Config {
-	authStyle := oauth2.AuthStyleInHeader
-	if c.OAuth2.EndpointAuthStyle == OAuth2AuthStyleParams {
-		authStyle = oauth2.AuthStyleInParams
+// SetConnOAuthStore wires the persisted OAuth token store onto an
+// authenticator that needs one, and reports whether it did. Only the
+// authorization_code authenticator does; every other mode returns
+// false, so a kind can call this unconditionally after
+// NewAuthenticator instead of type-switching at each call site.
+func SetConnOAuthStore(a Authenticator, s connoauth.Store) bool {
+	setter, ok := a.(interface{ SetConnOAuthStore(connoauth.Store) })
+	if !ok {
+		return false
 	}
-	return connoauth.Config{
-		Grant:             c.OAuth2.Grant,
-		AuthorizationURL:  c.OAuth2.AuthorizationURL,
-		TokenURL:          c.OAuth2.TokenURL,
-		ClientID:          c.OAuth2.ClientID,
-		ClientSecret:      c.OAuth2.ClientSecret,
-		Scopes:            c.OAuth2.Scopes,
-		EndpointAuthStyle: authStyle,
-		Prompt:            c.OAuth2.Prompt,
-		CABundlePEM:       c.TLSCABundlePEM,
+	setter.SetConnOAuthStore(s)
+	return true
+}
+
+// SetAuthEvents wires the audit-event writer onto an authenticator
+// that emits OAuth lifecycle events, and reports whether it did. The
+// companion to SetConnOAuthStore; see its comment.
+func SetAuthEvents(a Authenticator, w *authevents.Writer) bool {
+	setter, ok := a.(interface{ SetAuthEvents(*authevents.Writer) })
+	if !ok {
+		return false
 	}
+	setter.SetAuthEvents(w)
+	return true
 }

@@ -271,3 +271,64 @@ func TestRootPoolWithBundle_RejectsInvalidPEM(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no valid certificates")
 }
+
+// TestMaterialPrefix_NamesTheCallingKind covers the field that decides
+// whose voice a refusal speaks in. Every caller sets it; the fallback
+// exists so a Material built without one still produces a readable
+// message rather than one beginning with ": ".
+func TestMaterialPrefix_NamesTheCallingKind(t *testing.T) {
+	assert.Equal(t, "graphql", Material{ErrPrefix: "graphql"}.prefix())
+	assert.Equal(t, "apigwtls", Material{}.prefix())
+}
+
+// TestValidate_PrefixReachesEveryMessage pins the threading: a kind's
+// name must appear on the refusals from all three arms of Validate, not
+// just the first one.
+func TestValidate_PrefixReachesEveryMessage(t *testing.T) {
+	cert, key, _ := generateCertPair(t, keyECDSAP256)
+	cases := []struct {
+		name string
+		m    Material
+	}{
+		{"required pair missing", Material{ErrPrefix: "graphql", ClientPairRequired: true}},
+		{"ambiguous pair", Material{ErrPrefix: "graphql", ClientCertPEM: cert}},
+		{"unparseable keypair", Material{ErrPrefix: "graphql", ClientCertPEM: "no", ClientKeyPEM: "pem"}},
+		{"empty CA bundle", Material{ErrPrefix: "graphql", ClientCertPEM: cert, ClientKeyPEM: key, CABundlePEM: "-----BEGIN PRIVATE KEY-----\nAA==\n-----END PRIVATE KEY-----\n"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := Validate(tc.m)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "graphql: ")
+		})
+	}
+}
+
+// TestValidate_CABundleWithUnparseableCertificate covers the bundle arm
+// that reaches x509: a PEM block correctly labeled CERTIFICATE whose
+// bytes are not one must be refused at write time, since the pool would
+// otherwise silently drop it and the connection would fail its
+// handshake against a CA the operator believes is trusted.
+func TestValidate_CABundleWithUnparseableCertificate(t *testing.T) {
+	bundle := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: []byte("not a certificate")}))
+	err := Validate(Material{ErrPrefix: "apigateway", CABundlePEM: bundle})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "apigateway: tls_ca_bundle_pem contains an unparseable certificate")
+}
+
+// TestBuild_SurfacesMaterialFaults covers Build's two error arms. They
+// are reachable only when a caller skipped Validate, which is exactly
+// when a clear message matters most: the alternative is a nil config
+// and a handshake failure with no explanation.
+func TestBuild_SurfacesMaterialFaults(t *testing.T) {
+	t.Run("unusable keypair", func(t *testing.T) {
+		_, err := Build(Material{ErrPrefix: "apigateway", ClientCertPEM: "not", ClientKeyPEM: "pem"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "apigateway: building mtls keypair")
+	})
+	t.Run("CA bundle with no usable certificate", func(t *testing.T) {
+		_, err := Build(Material{ErrPrefix: "apigateway", CABundlePEM: "not pem at all"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "apigateway: tls_ca_bundle_pem contained no valid certificates")
+	})
+}

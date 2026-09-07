@@ -3,11 +3,12 @@
 // transport is built with.
 //
 // It is a seam of pkg/toolkits/apigateway, extracted when that package reached
-// its size budget. Nothing here knows what an API connection is -- it takes
-// the four values one carries -- which is why X.509 parsing, key-strength
+// its size budget, and is now reached through internal/upstreamauth by every
+// HTTP-based connection kind. Nothing here knows what an API connection is --
+// it takes the values one carries -- which is why X.509 parsing, key-strength
 // policy and PEM handling sit together rather than beside operation discovery.
-// The messages keep their "apigateway:" prefix: an operator sees them when a
-// connection is refused, and the prefix names that subsystem.
+// Material.ErrPrefix names the kind in every message, because an operator
+// reading a refused connection save should see the surface they configured.
 package apigwtls
 
 import (
@@ -35,11 +36,32 @@ const minRSABits = 2048
 // presents, the extra CA bundle it trusts, and whether that keypair is the
 // connection's credential (auth_mode=mtls) rather than an addition to it. The
 // caller resolves ClientPairRequired from the auth mode.
+//
+// ErrPrefix names the connection kind in the messages Validate and Build
+// produce. Empty falls back to this package's own name, which no caller should
+// let an operator see: pass the kind through.
 type Material struct {
 	ClientCertPEM      string
 	ClientKeyPEM       string
 	CABundlePEM        string
 	ClientPairRequired bool
+	ErrPrefix          string
+}
+
+// prefix returns the caller-supplied error prefix, or this package's name when
+// a caller left it unset.
+func (m Material) prefix() string {
+	if m.ErrPrefix == "" {
+		return "apigwtls"
+	}
+	return m.ErrPrefix
+}
+
+// errf builds an error in the calling kind's voice. The prefix is joined to
+// the format string rather than passed as an argument so the literal a reader
+// (and the string-format linter) sees is the message itself.
+func errf(prefix, format string, a ...any) error {
+	return fmt.Errorf(prefix+": "+format, a...) //nolint:err113,perfsprint // one formatting helper for the whole package
 }
 
 // Validate enforces the mTLS and CA-trust rules. Three independent checks:
@@ -59,21 +81,22 @@ type Material struct {
 //     certificate when set. Empty string means "no extra CAs", which is
 //     the existing default.
 func Validate(m Material) error {
+	prefix := m.prefix()
 	if m.ClientPairRequired {
 		if m.ClientCertPEM == "" || m.ClientKeyPEM == "" {
-			return errors.New("apigateway: mtls_client_cert_pem and mtls_client_key_pem are required when auth_mode is \"mtls\"")
+			return errf(prefix, "mtls_client_cert_pem and mtls_client_key_pem are required when auth_mode is %q", "mtls")
 		}
 	}
 	if (m.ClientCertPEM == "") != (m.ClientKeyPEM == "") {
-		return errors.New("apigateway: mtls_client_cert_pem and mtls_client_key_pem must both be set or both be empty")
+		return errf(prefix, "mtls_client_cert_pem and mtls_client_key_pem must both be set or both be empty")
 	}
 	if m.ClientCertPEM != "" {
-		if err := validateClientKeyPair(m.ClientCertPEM, m.ClientKeyPEM); err != nil {
+		if err := validateClientKeyPair(prefix, m.ClientCertPEM, m.ClientKeyPEM); err != nil {
 			return err
 		}
 	}
 	if m.CABundlePEM != "" {
-		if err := validateCABundle(m.CABundlePEM); err != nil {
+		if err := validateCABundle(prefix, m.CABundlePEM); err != nil {
 			return err
 		}
 	}
@@ -85,19 +108,19 @@ func Validate(m Material) error {
 // x509.ParseCertificate, and the key-matches-cert signature check; the
 // extra leaf-cert parse here gives a clean place to enforce minimum
 // key strength without re-deriving the key from raw bytes.
-func validateClientKeyPair(certPEM, keyPEM string) error {
+func validateClientKeyPair(prefix, certPEM, keyPEM string) error {
 	pair, err := tls.X509KeyPair([]byte(certPEM), []byte(keyPEM))
 	if err != nil {
-		return fmt.Errorf("apigateway: mtls cert/key invalid: %s", sanitizeKeyPairError(err))
+		return errf(prefix, "mtls cert/key invalid: %s", sanitizeKeyPairError(err))
 	}
 	if len(pair.Certificate) == 0 {
-		return errors.New("apigateway: mtls_client_cert_pem contained no certificates")
+		return errf(prefix, "mtls_client_cert_pem contained no certificates")
 	}
 	leaf, err := x509.ParseCertificate(pair.Certificate[0])
 	if err != nil {
-		return fmt.Errorf("apigateway: mtls leaf certificate unreadable: %s", err.Error())
+		return errf(prefix, "mtls leaf certificate unreadable: %s", err.Error())
 	}
-	return checkKeyStrength(leaf.PublicKey)
+	return checkKeyStrength(prefix, leaf.PublicKey)
 }
 
 // sanitizeKeyPairError strips any PEM content from tls.X509KeyPair's
@@ -122,11 +145,11 @@ func sanitizeKeyPairError(err error) string {
 // is not interoperable with most peers and stronger curves are not
 // supported by Go's TLS stack as of this writing); Ed25519 is
 // always accepted. Unknown key algorithms are rejected loudly.
-func checkKeyStrength(pub any) error {
+func checkKeyStrength(prefix string, pub any) error {
 	switch k := pub.(type) {
 	case *rsa.PublicKey:
 		if k.N == nil || k.N.BitLen() < minRSABits {
-			return fmt.Errorf("apigateway: mtls private key RSA-%d is below the minimum %d bits", k.N.BitLen(), minRSABits)
+			return errf(prefix, "mtls private key RSA-%d is below the minimum %d bits", k.N.BitLen(), minRSABits)
 		}
 		return nil
 	case *ecdsa.PublicKey:
@@ -134,11 +157,11 @@ func checkKeyStrength(pub any) error {
 		case elliptic.P256(), elliptic.P384(), elliptic.P521():
 			return nil
 		}
-		return errors.New("apigateway: mtls private key uses an unsupported ECDSA curve (want P-256, P-384, or P-521)")
+		return errf(prefix, "mtls private key uses an unsupported ECDSA curve (want P-256, P-384, or P-521)")
 	case ed25519.PublicKey:
 		return nil
 	default:
-		return fmt.Errorf("apigateway: mtls private key uses an unsupported algorithm %T", pub)
+		return errf(prefix, "mtls private key uses an unsupported algorithm %T", pub)
 	}
 }
 
@@ -147,7 +170,7 @@ func checkKeyStrength(pub any) error {
 // already filtered out the no-bundle case); a bundle with zero
 // CERTIFICATE blocks (e.g., one that contains only PRIVATE KEY blocks)
 // is rejected as misconfigured.
-func validateCABundle(bundle string) error {
+func validateCABundle(prefix, bundle string) error {
 	rest := []byte(bundle)
 	count := 0
 	for len(rest) > 0 {
@@ -160,12 +183,12 @@ func validateCABundle(bundle string) error {
 			continue
 		}
 		if _, err := x509.ParseCertificate(block.Bytes); err != nil {
-			return fmt.Errorf("apigateway: tls_ca_bundle_pem contains an unparseable certificate: %s", err.Error())
+			return errf(prefix, "tls_ca_bundle_pem contains an unparseable certificate: %s", err.Error())
 		}
 		count++
 	}
 	if count == 0 {
-		return errors.New("apigateway: tls_ca_bundle_pem must contain at least one CERTIFICATE block")
+		return errf(prefix, "tls_ca_bundle_pem must contain at least one CERTIFICATE block")
 	}
 	return nil
 }
@@ -189,18 +212,19 @@ func Build(m Material) (*tls.Config, error) {
 	if !hasClient && !hasCABundle {
 		return nil, nil //nolint:nilnil // nil config = use http.Transport defaults
 	}
+	prefix := m.prefix()
 	out := &tls.Config{MinVersion: tls.VersionTLS12}
 	if hasClient {
 		pair, err := tls.X509KeyPair([]byte(m.ClientCertPEM), []byte(m.ClientKeyPEM))
 		if err != nil {
-			return nil, fmt.Errorf("apigateway: building mtls keypair: %s", sanitizeKeyPairError(err))
+			return nil, errf(prefix, "building mtls keypair: %s", sanitizeKeyPairError(err))
 		}
 		out.Certificates = []tls.Certificate{pair}
 	}
 	if hasCABundle {
 		pool, err := RootPool(m.CABundlePEM)
 		if err != nil {
-			return nil, err
+			return nil, errf(prefix, "%w", err)
 		}
 		out.RootCAs = pool
 	}
@@ -221,7 +245,7 @@ func RootPool(bundle string) (*x509.CertPool, error) {
 		pool = x509.NewCertPool()
 	}
 	if ok := pool.AppendCertsFromPEM([]byte(bundle)); !ok {
-		return nil, errors.New("apigateway: tls_ca_bundle_pem contained no valid certificates")
+		return nil, errors.New("tls_ca_bundle_pem contained no valid certificates")
 	}
 	return pool, nil
 }

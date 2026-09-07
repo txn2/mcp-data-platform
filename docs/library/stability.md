@@ -68,6 +68,22 @@ aliased back in `pkg/portal`, so `portal.Asset`, `portal.Collection`,
 were never a supported integration surface; the location now enforces that so
 their evolution cannot break an external build.
 
+What a connection kind does to reach an HTTP upstream is one of these seams:
+`internal/upstreamauth` holds the outbound authenticator and every auth mode
+(`none`, `bearer`, `api_key`, `basic`, `oauth`, `mtls`), the operator-owned
+static headers and the header names a model may not claim, the connect and call
+timeouts, the response read cap, and the TLS material the handshake presents.
+It is shared rather than copied because a second HTTP-based connection kind
+answers the same questions, and one copy is what keeps a fix to, say, the
+token-fetch error scrubber from landing in one kind and not the other. The
+generic readers that pull a typed value out of a stored connection's
+`map[string]any` sit beside it in `internal/cfgmap`. The API gateway's own
+names are aliased back, so `apigateway.Authenticator`,
+`apigateway.NewAuthenticator`, `apigateway.ErrNeedsReauth` and the
+`AuthMode*`, `CredentialPlacement*` and `OAuth2AuthStyle*` constants are
+spelled exactly as before, and every configuration key and error message an
+operator sees is unchanged.
+
 If you were importing one of these while it still lived under `pkg/`, the
 package moved but its API did not: the type and function names are unchanged,
 and the functionality is reachable through the supported surface, which

@@ -145,56 +145,6 @@ func TestBuildURL_RejectsBaseWithoutSchemeOrHost(t *testing.T) {
 	}
 }
 
-func TestAuthHeaderForConfig(t *testing.T) {
-	cases := []struct {
-		name string
-		cfg  Config
-		want string
-	}{
-		{"none", Config{AuthMode: AuthModeNone}, ""},
-		{"bearer", Config{AuthMode: AuthModeBearer}, "Authorization"},
-		{"api_key header default", Config{AuthMode: AuthModeAPIKey, CredentialPlacement: CredentialPlacementHeader, APIKeyHeader: DefaultAPIKeyHeader}, DefaultAPIKeyHeader},
-		{"api_key header custom", Config{AuthMode: AuthModeAPIKey, CredentialPlacement: CredentialPlacementHeader, APIKeyHeader: "X-My-Key"}, "X-My-Key"},
-		{"api_key query", Config{AuthMode: AuthModeAPIKey, CredentialPlacement: CredentialPlacementQuery, APIKeyParam: "key"}, ""},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := authHeaderForConfig(tc.cfg); got != tc.want {
-				t.Errorf("authHeaderForConfig = %q; want %q", got, tc.want)
-			}
-		})
-	}
-}
-
-func TestValidateCustomHeaders_RejectsAuthorization(t *testing.T) {
-	err := validateCustomHeaders(map[string]string{"AUTHORIZATION": "anything"}, "", nil)
-	if err == nil {
-		t.Error("Authorization header allowed")
-	}
-}
-
-func TestValidateCustomHeaders_RejectsConfiguredAPIKeyHeader(t *testing.T) {
-	err := validateCustomHeaders(map[string]string{"x-custom-key": "spoof"}, "X-Custom-Key", nil)
-	if err == nil {
-		t.Error("configured api_key header allowed (case-insensitive check failed)")
-	}
-}
-
-func TestValidateCustomHeaders_AllowsOtherHeaders(t *testing.T) {
-	err := validateCustomHeaders(map[string]string{"Accept-Language": "en"}, "X-API-Key", nil)
-	if err != nil {
-		t.Errorf("unrelated header rejected: %v", err)
-	}
-}
-
-func TestValidateCustomHeaders_RejectsStaticHeaderOverride(t *testing.T) {
-	staticHeaders := map[string]string{"X-Goog-User-Project": "secret"}
-	err := validateCustomHeaders(map[string]string{"x-goog-user-project": "spoof"}, "", staticHeaders)
-	if err == nil {
-		t.Error("model attempt to override static header allowed (case-insensitive check failed)")
-	}
-}
-
 func TestBuildURL_NoQuery(t *testing.T) {
 	got, err := buildURL("https://api.example.com", "/v1/items", nil)
 	if err != nil {

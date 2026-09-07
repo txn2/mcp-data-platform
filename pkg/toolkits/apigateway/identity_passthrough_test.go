@@ -63,34 +63,6 @@ func TestValidate_IdentityPassthroughRequiresAuthModeNone(t *testing.T) {
 	}
 }
 
-func TestGetBool(t *testing.T) {
-	tests := []struct {
-		name string
-		val  any
-		want bool
-	}{
-		{"native true", true, true},
-		{"native false", false, false},
-		{"string true", "true", true},
-		{"string 1", "1", true},
-		{"string false", "false", false},
-		{"string garbage", "nope", false},
-		{"absent", nil, false},
-		{"wrong type", 42, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := map[string]any{}
-			if tt.val != nil {
-				cfg["k"] = tt.val
-			}
-			if got := getBool(cfg, "k"); got != tt.want {
-				t.Errorf("getBool(%v) = %v; want %v", tt.val, got, tt.want)
-			}
-		})
-	}
-}
-
 // TestHandleInvoke_IdentityPassthroughForwardsCallerToken verifies the
 // invoke path replaces the (absent) shared credential with the caller's
 // inbound token read from the context.

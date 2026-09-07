@@ -19,7 +19,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"strings"
 	"testing"
 	"time"
 
@@ -242,53 +241,6 @@ func TestNewHTTPTransport_RejectsHandshakeWithoutClientCert(t *testing.T) {
 	// only on the URL wrap rather than a substring of the inner msg.
 	var urlErr *url.Error
 	assert.True(t, errors.As(err, &urlErr))
-}
-
-// TestNewTokenExchangeClient_BadBundleFallsBackQuietly is the
-// resilience contract: a CA bundle that fails to parse at runtime
-// (impossible if Validate ran but possible if a caller bypassed it)
-// must NOT panic or block token fetches with a nil transport. The
-// fallback is a plain http.Client without the bundle, matching the
-// pre-feature behavior; the request will then fail with a TLS error
-// against the IdP and the operator gets a normal error path.
-func TestNewTokenExchangeClient_BadBundleFallsBackQuietly(t *testing.T) {
-	client := newTokenExchangeClient(Config{TLSCABundlePEM: "not pem"})
-	require.NotNil(t, client)
-	assert.Nil(t, client.Transport, "fallback must not attach a half-built transport")
-}
-
-// TestNewTokenExchangeClient_HonorsCABundle exercises the IdP-side CA
-// trust plumbing for oauth2_client_credentials: when the IdP is
-// signed by a private CA in tls_ca_bundle_pem, the token-fetch must
-// succeed. The negative branch (no bundle) is implicit: without the
-// trust the default RoundTripper would reject the IdP's cert.
-func TestNewTokenExchangeClient_HonorsCABundle(t *testing.T) {
-	ca := newTestCA(t)
-	idpCert, idpKey := ca.issueServerCert(t, "127.0.0.1")
-	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"access_token":"abc","token_type":"bearer","expires_in":3600}`)
-	}))
-	srv.TLS = &tls.Config{
-		MinVersion:   tls.VersionTLS12,
-		Certificates: []tls.Certificate{mustKeyPair(t, idpCert, idpKey)},
-	}
-	srv.StartTLS()
-	defer srv.Close()
-
-	cfg := Config{TLSCABundlePEM: ca.certPEM}
-	client := newTokenExchangeClient(cfg)
-	postReq, err := http.NewRequestWithContext(context.Background(),
-		http.MethodPost, srv.URL+"/token",
-		strings.NewReader(""))
-	require.NoError(t, err)
-	postReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := client.Do(postReq)
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	body, _ := io.ReadAll(resp.Body)
-	assert.Contains(t, string(body), "access_token")
 }
 
 // --- test CA helpers -------------------------------------------------
