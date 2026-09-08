@@ -124,6 +124,7 @@ nav:
         - Tool Filtering: personas/tool-filtering.md
         - Role Mapping: personas/role-mapping.md
       - Connections: server/multi-provider.md
+      - Signed JWT Upstreams: server/signed-jwt-auth.md
       - Admin API: server/admin-api.md
       - Knowledge Admin API: knowledge/admin-api.md
       - Audit Logging: server/audit.md

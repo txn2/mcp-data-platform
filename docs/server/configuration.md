@@ -1009,7 +1009,7 @@ toolkits:
 |-------|------|---------|-------------|
 | `endpoint_url` | string | - | **Required.** The full URL documents are POSTed to. Unlike an HTTP API's `base_url` this is the whole address: a GraphQL endpoint has exactly one |
 | `description` | string | endpoint URL | Human-readable description, surfaced by `list_connections` and the admin UI |
-| `auth_mode` | string | `none` | `none`, `bearer`, `api_key`, `basic`, `oauth`, `mtls`. Same keys, defaults and at-rest encryption as an `api` connection's — both kinds read them through one shared implementation |
+| `auth_mode` | string | `none` | `none`, `bearer`, `api_key`, `basic`, `signed_jwt`, `oauth`, `mtls`. Same keys, defaults and at-rest encryption as an `api` connection's — both kinds read them through one shared implementation. `signed_jwt` mints a short-lived assertion per call from an identifier and a signing key; see [Signed JWT upstreams](signed-jwt-auth.md) |
 | `static_headers` | map | `{}` | Headers attached to every outbound request, in addition to whatever `auth_mode` contributes. This is where an upstream's tenant or folder routing goes. Operator-owned; a model can neither set nor override them. Encrypted at rest |
 | `connect_timeout` | duration | `10s` | Dial timeout |
 | `call_timeout` | duration | `60s` | Per-call timeout. A caller's `timeout_seconds` may lower it, never raise it |
@@ -1019,6 +1019,7 @@ toolkits:
 | `max_query_depth` | int | `15` | Deepest selection a document may have. A deeply nested document is how one small request makes an endpoint do unbounded work |
 | `namespace_depth` | int | `3` | How many segments a dotted operation id may have when the schema is walked into operations. A flat schema indexes its root fields whatever this is; a namespaced one (package, entity, verb) needs 3 |
 | `read_only` | bool | `false` | Refuse every mutation document on this connection, for every persona |
+| `jwt_algorithm`, `jwt_client_secret`, `jwt_private_key_pem`, `jwt_key_id`, `jwt_issuer`, `jwt_subject`, `jwt_audience`, `jwt_token_lifetime`, `jwt_issued_at_skew` | - | see page | The `signed_jwt` assertion, as on an `api` connection. `jwt_audience` defaults to `endpoint_url`, the lifetime to `300s` and the skew to `30s`; the secret and the private key are encrypted at rest. See [Signed JWT upstreams](signed-jwt-auth.md) |
 | `mtls_client_cert_pem`, `mtls_client_key_pem`, `tls_ca_bundle_pem` | string | - | The connection's TLS material, as on an `api` connection |
 | `identity_passthrough` | bool | `false` | Forward the acting caller's inbound bearer token as the outbound `Authorization` header instead of this connection's credential |
 

@@ -3,27 +3,12 @@
 package acceptance
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 )
-
-// issue1647JSONReader encodes a request body for the admin REST routes. The
-// suite's restJSON returns only the status, and these criteria read the
-// refusal text, so the body is built here and handed to rest directly.
-func issue1647JSONReader(t *testing.T, v any) io.Reader {
-	t.Helper()
-	raw, err := json.Marshal(v)
-	if err != nil {
-		t.Fatalf("marshal request body: %v", err)
-	}
-	return bytes.NewReader(raw)
-}
 
 // Issue #1647: the API gateway's upstream authentication and transport policy
 // moved into internal/upstreamauth so a second HTTP-based connection kind
@@ -370,7 +355,7 @@ func TestIssue1647_ConfigRefusalsKeepTheToolkitsVoice(t *testing.T) {
 				cfg[k] = v
 			}
 			status, body := c.rest(http.MethodPut, "/api/v1/admin/connection-instances/api/"+name,
-				issue1647JSONReader(t, map[string]any{"config": cfg, "description": "Acceptance 1647: refused"}))
+				jsonBody(t, map[string]any{"config": cfg, "description": "Acceptance 1647: refused"}))
 			if status == http.StatusCreated || status == http.StatusOK {
 				c.rest(http.MethodDelete, "/api/v1/admin/connection-instances/api/"+name, http.NoBody)
 				t.Fatalf("an invalid connection was accepted: HTTP %d", status)

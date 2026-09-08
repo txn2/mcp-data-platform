@@ -3888,7 +3888,7 @@ Use the API gateway for REST/HTTP upstreams (Salesforce, Google APIs, GitHub, St
 
 ## Connection config
 
-Stored in the database, authored through the admin portal or the admin REST API. Required field: `base_url`. Auth modes: `none`, `bearer`, `api_key` (header or query placement), `basic` (RFC 7617 `Authorization: Basic base64(username:password)` for legacy APIs that never moved to bearer or OAuth, like Jenkins or on-prem Jira / Confluence Server / DC; `password` may be empty for the token-in-userid pattern; `username` is rejected if it contains `:` per RFC 7617 §2 or CR/LF/NUL header-smuggling vectors), `oauth` (OAuth 2.1; grant carried in `oauth_grant` as `client_credentials` or `authorization_code`; canonical `oauth_*` config keys shared with every toolkit kind, legacy api-only `oauth2_*` keys read as a deprecated fallback and rewritten by a database migration on upgrade), `mtls` (X.509 client certificate at the TLS handshake per RFC 5246 / 8446: the cert subject DN IS the credential, used by upstreams that map a certificate identity to a user: service mesh peers, PKI-fronted internal APIs, healthcare integration engines, financial messaging endpoints, FedRAMP services, HashiCorp Vault cert auth, Kubernetes API server, and Apache projects deployed with the standard security profile). The authorization-code grant completes via the platform's shared `/api/v1/admin/oauth/callback` endpoint (same as MCP gateway).
+Stored in the database, authored through the admin portal or the admin REST API. Required field: `base_url`. Auth modes: `none`, `bearer`, `api_key` (header or query placement), `basic` (RFC 7617 `Authorization: Basic base64(username:password)` for legacy APIs that never moved to bearer or OAuth, like Jenkins or on-prem Jira / Confluence Server / DC; `password` may be empty for the token-in-userid pattern; `username` is rejected if it contains `:` per RFC 7617 §2 or CR/LF/NUL header-smuggling vectors), `oauth` (OAuth 2.1; grant carried in `oauth_grant` as `client_credentials` or `authorization_code`; canonical `oauth_*` config keys shared with every toolkit kind, legacy api-only `oauth2_*` keys read as a deprecated fallback and rewritten by a database migration on upgrade), `signed_jwt` (the platform mints a short-lived JWT per call from an identifier and a signing key issued out of band, and sends it as `Authorization: Bearer <jwt>`; see the Signed JWT upstream authentication section below), `mtls` (X.509 client certificate at the TLS handshake per RFC 5246 / 8446: the cert subject DN IS the credential, used by upstreams that map a certificate identity to a user: service mesh peers, PKI-fronted internal APIs, healthcare integration engines, financial messaging endpoints, FedRAMP services, HashiCorp Vault cert auth, Kubernetes API server, and Apache projects deployed with the standard security profile). The authorization-code grant completes via the platform's shared `/api/v1/admin/oauth/callback` endpoint (same as MCP gateway).
 
 ## Response size: the read cap and the inline budget
 
@@ -4040,6 +4040,50 @@ For legitimately large or binary bodies, the streaming passthrough route `POST /
 
 ---
 
+# Signed JWT upstream authentication
+
+Some upstreams do not hand out a token. They hand out an identifier and a signing key, and expect the client to mint its own short-lived JSON Web Token on every call. There is no token endpoint, nothing is exchanged, and the assertion is valid for minutes. `auth_mode: signed_jwt` is that pattern, and it lives on the shared upstream authentication seam (`internal/upstreamauth`), so it is available to every HTTP-based connection kind — `api` and `graphql` — with the same keys and the same at-rest encryption.
+
+No other mode reaches this class of upstream. `bearer` sends a fixed string, and a token whose lifetime is 300 seconds cannot be a fixed string. `oauth` exchanges credentials at a token endpoint, and there is no token endpoint to exchange against. `api_key` and `basic` send a static credential, not a signed, time-bounded claim set.
+
+Real examples: Sage X3 connected applications (HS256 over a client id and secret), Snowflake key-pair authentication (RS256 over a registered private key), Apple App Store Connect and APNs (ES256 over a downloaded key identified by a `kid` header), and the long tail of internal service APIs that issue a client id and a shared secret.
+
+## Configuration
+
+| Key | Meaning |
+| --- | --- |
+| `jwt_algorithm` | `HS256` (default), `RS256` or `ES256`. Selects the signing method and which key field is required |
+| `jwt_client_secret` | HMAC shared secret. Required for `HS256`, refused for the asymmetric algorithms. Encrypted at rest |
+| `jwt_private_key_pem` | PEM private key (PKCS#1 or PKCS#8 for RSA, SEC 1 or PKCS#8 for ECDSA). Required for `RS256` and `ES256`, refused for `HS256`. Encrypted at rest |
+| `jwt_key_id` | Emitted as the token's `kid` header when set. Optional |
+| `jwt_issuer` | The `iss` claim. Omitted from the token when empty |
+| `jwt_subject` | The `sub` claim. Omitted from the token when empty |
+| `jwt_audience` | The `aud` claim. Defaults to the connection's endpoint URL (`base_url` on an `api` connection, `endpoint_url` on a `graphql` one) |
+| `jwt_token_lifetime` | `exp - iat`. Default `300s` |
+| `jwt_issued_at_skew` | How far back `iat` is set to absorb clock drift. Default `30s` |
+
+At least one of `jwt_issuer` and `jwt_subject` must be set, and which one depends on the upstream: a Sage X3 connected application checks both, an App Store Connect team key checks `iss` alone, and an App Store Connect individual key checks `sub` alone (`sub: user`, no `iss`). A token carrying a claim the upstream did not register is rejected as surely as one missing a claim it did, which is why an empty field omits the claim rather than sending it empty.
+
+The platform mints one assertion, reuses it until it comes within `jwt_issued_at_skew` of its own expiry, and mints a fresh one after that. The skew is both the backdating applied to `iat` and the renewal margin, so setting it to zero gives up the margin as well. `exp - iat` is exactly `jwt_token_lifetime` whatever the skew.
+
+## Validation
+
+The connection save is refused, naming the offending key, when: neither `jwt_client_secret` nor `jwt_private_key_pem` is set; the key material does not match `jwt_algorithm`; `jwt_private_key_pem` is not a key the chosen algorithm can use; `jwt_algorithm` is not one of the three; neither `jwt_issuer` nor `jwt_subject` is set; `jwt_token_lifetime` is zero or negative; or `jwt_issued_at_skew` is negative or at or past `jwt_token_lifetime` (backdating `iat` by the whole lifetime mints a token that is already expired). The same checks run again when the authenticator is constructed, so a hand-built config that bypassed parsing fails at construction rather than on every outbound call.
+
+`jwt_audience` is the field that most often turns out to be wrong, because these upstreams compare it byte for byte against what was registered: a trailing slash, `http` where the registration said `https`, or an internal host name where the registration used the public one is a rejected token that looks correct at a glance.
+
+## Diagnosing a refusal
+
+The upstream's own 401 body is the only place that says which claim was wrong, so the platform passes it through unchanged — plain text, JSON, or a numeric code — in the tool result's `body` with `status: 401`. Sage X3, for instance, answers `Error NN: Invalid token` and documents 41 for `iss`, 42 for `sub`, 45 for `aud` and 50 for a bad signature or an expired token; the platform implements none of that table and simply returns what arrived.
+
+Neither the shared secret nor the private key appears in a log line, an audit row, or an admin API response: both keys are in the FieldEncryptor sensitive-key set and the admin redaction lists, so they are encrypted at rest and returned as `[REDACTED]`. Re-submitting `[REDACTED]` on a PUT preserves the stored value; pasting a new value rotates it. Errors this mode produces name the failing step and never the material.
+
+## Where the first real call happens
+
+No upstream of this class is reachable from the project — every one is customer- or account-scoped — and the acceptance suite runs against a claim-validating fixture that verifies the presented assertion and reports the claims it read. That proves what the platform puts on the wire and nothing about any vendor. The first call against a real Sage X3, Snowflake or App Store Connect happens at an install.
+
+---
+
 # API Catalogs
 
 OpenAPI specs describe the API itself, not any one credential pointed at it. An organization with a Salesforce sandbox and a Salesforce production org has two connections (one set of credentials each) but both talk to the same sObjects, query, and bulk-job endpoints. A multi-tenant SaaS deployment can have N customer connections all referencing one vendor catalog. Pasting the same documentation into every connection record is duplication that drifts. The catalog model fixes that.
@@ -4178,7 +4222,7 @@ What it reuses rather than forks: outbound authentication and transport policy (
 
 ## Configuration
 
-`endpoint_url` is the full URL documents are POSTed to; unlike an HTTP API's `base_url` it is the whole address. `auth_mode` and its credentials, `static_headers`, `connect_timeout`, `call_timeout`, `max_response_bytes`, the mTLS/CA material and `identity_passthrough` are the shared upstream keys, read by the same code an `api` connection reads them with. The kind's own keys are `schema_validation` (`strict` | `warn`, default strict), `max_query_depth` (default 15), `namespace_depth` (default 3), `read_only`, `max_inline_bytes` (default 32 KiB) and `description`.
+`endpoint_url` is the full URL documents are POSTed to; unlike an HTTP API's `base_url` it is the whole address. `auth_mode` and its credentials, `static_headers`, `connect_timeout`, `call_timeout`, `max_response_bytes`, the mTLS/CA material and `identity_passthrough` are the shared upstream keys, read by the same code an `api` connection reads them with — including `signed_jwt` and its `jwt_*` keys, which is the mode a Sage X3 connected application needs. The kind's own keys are `schema_validation` (`strict` | `warn`, default strict), `max_query_depth` (default 15), `namespace_depth` (default 3), `read_only`, `max_inline_bytes` (default 32 KiB) and `description`.
 
 ## The schema
 

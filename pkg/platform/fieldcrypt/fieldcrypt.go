@@ -51,6 +51,8 @@ var sensitiveConfigKeys = map[string]bool{
 	"oauth_client_secret":  true,
 	"oauth2_client_secret": true, // api gateway client_credentials grant
 	"mtls_client_key_pem":  true, // api gateway mTLS private key
+	"jwt_client_secret":    true, // signed_jwt HMAC shared secret
+	"jwt_private_key_pem":  true, // signed_jwt RS256/ES256 signing key
 }
 
 // CfgKeyStaticHeaders is the connection-config key whose value is a

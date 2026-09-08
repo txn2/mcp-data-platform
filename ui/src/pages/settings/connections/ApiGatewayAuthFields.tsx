@@ -11,6 +11,7 @@ import {
   update,
   type ConfigFormProps,
 } from "./fields";
+import { SignedJWTAuthFields } from "./SignedJWTAuthFields";
 
 // The auth half of the api-kind connection editor: the mode picker and the
 // credential fields each mode needs. Split from ApiGatewayConfigForm so the
@@ -21,6 +22,7 @@ const AUTH_MODES = [
   { value: "bearer", label: "Bearer token" },
   { value: "api_key", label: "API key" },
   { value: "basic", label: "Basic (RFC 7617)" },
+  { value: "signed_jwt", label: "Signed JWT (the platform mints the token)" },
   { value: "oauth2_client_credentials", label: "OAuth 2.1 client_credentials" },
   {
     value: "oauth2_authorization_code",
@@ -148,13 +150,13 @@ function ConnectPanel({
   return (
     <div className="space-y-2 rounded-md border bg-muted px-3 py-3">
       <p className="text-xs">
-        <strong>Connect</strong> opens the IdP sign-in page in a new tab. After the
-        browser flow completes, the platform persists the refresh token (encrypted)
-        so subsequent tool calls refresh access tokens silently.
+        <strong>Connect</strong> opens the IdP sign-in page in a new tab. After
+        the browser flow completes, the platform persists the refresh token
+        (encrypted) so subsequent tool calls refresh access tokens silently.
       </p>
       <p className="text-xs text-muted-foreground">
-        Save the connection first; Connect needs the connection registered before
-        the IdP redirect can find it.
+        Save the connection first; Connect needs the connection registered
+        before the IdP redirect can find it.
       </p>
       <Button
         type="button"
@@ -199,9 +201,10 @@ function AuthCodeExtras({
         options={PROMPTS}
         help={
           <>
-            Leave default for non-OIDC OAuth providers that reject unknown parameters.
-            Use <code>login</code> for Keycloak / Auth0 / Okta to defeat stale-form bugs
-            by forcing a fresh credential prompt on every Connect.
+            Leave default for non-OIDC OAuth providers that reject unknown
+            parameters. Use <code>login</code> for Keycloak / Auth0 / Okta to
+            defeat stale-form bugs by forcing a fresh credential prompt on every
+            Connect.
           </>
         }
       />
@@ -234,7 +237,9 @@ function OAuthFields({
           label="Authorization URL"
           help="Where the browser is sent to sign in."
           value={String(config.oauth2_authorization_url ?? "")}
-          onChange={(v) => onChange(update(config, "oauth2_authorization_url", v))}
+          onChange={(v) =>
+            onChange(update(config, "oauth2_authorization_url", v))
+          }
           placeholder="https://idp.example.com/oauth/authorize"
           mono
         />
@@ -260,7 +265,9 @@ function OAuthFields({
         help="Space-delimited scope string. Leave empty if the IdP does not require it."
         value={scopesValue(config.oauth2_scopes)}
         onChange={(v) =>
-          onChange(update(config, "oauth2_scopes", v.trim() ? v.split(/\s+/) : []))
+          onChange(
+            update(config, "oauth2_scopes", v.trim() ? v.split(/\s+/) : []),
+          )
         }
         placeholder="read:users write:orders"
         mono
@@ -268,7 +275,9 @@ function OAuthFields({
       <ConfigSelect
         label="Endpoint auth style"
         value={String(config.oauth2_endpoint_auth_style ?? "header")}
-        onChange={(v) => onChange(update(config, "oauth2_endpoint_auth_style", v))}
+        onChange={(v) =>
+          onChange(update(config, "oauth2_endpoint_auth_style", v))
+        }
         options={ENDPOINT_AUTH_STYLES}
       />
       {isAuthCode && (
@@ -322,8 +331,15 @@ export function ApiGatewayAuthFields({
           sensitive
         />
       )}
-      {mode === "api_key" && <ApiKeyFields config={config} onChange={onChange} />}
-      {mode === "basic" && <BasicAuthFields config={config} onChange={onChange} />}
+      {mode === "api_key" && (
+        <ApiKeyFields config={config} onChange={onChange} />
+      )}
+      {mode === "basic" && (
+        <BasicAuthFields config={config} onChange={onChange} />
+      )}
+      {mode === "signed_jwt" && (
+        <SignedJWTAuthFields config={config} onChange={onChange} />
+      )}
       {(mode === "oauth2_client_credentials" ||
         mode === "oauth2_authorization_code") && (
         <OAuthFields

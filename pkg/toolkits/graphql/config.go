@@ -92,6 +92,7 @@ const (
 	AuthModeOAuth                   = upstreamauth.AuthModeOAuth
 	AuthModeOAuth2ClientCredentials = upstreamauth.AuthModeOAuth2ClientCredentials
 	AuthModeOAuth2AuthorizationCode = upstreamauth.AuthModeOAuth2AuthorizationCode
+	AuthModeSignedJWT               = upstreamauth.AuthModeSignedJWT
 	AuthModeMTLS                    = upstreamauth.AuthModeMTLS
 
 	CredentialPlacementHeader = upstreamauth.CredentialPlacementHeader
@@ -148,6 +149,12 @@ type Config struct {
 	Username            string
 	Password            string
 	OAuth2              OAuth2Config
+	// SignedJWT carries the assertion parameters used when AuthMode is
+	// AuthModeSignedJWT: the platform mints a short-lived JWT per call
+	// from an identifier and a signing key issued out of band. Aliased
+	// straight from the shared seam rather than mirrored, because
+	// nothing in it is this kind's to define.
+	SignedJWT SignedJWTConfig
 
 	// ConnectTimeout caps the dial step on each call.
 	ConnectTimeout time.Duration
@@ -196,6 +203,24 @@ type Config struct {
 	// every persona.
 	ReadOnly bool
 }
+
+// SignedJWTConfig describes the assertion the platform mints when
+// AuthMode is AuthModeSignedJWT. Defined by internal/upstreamauth,
+// which owns the mode for every HTTP-based connection kind; aliased
+// here because it is part of this toolkit's public API.
+type SignedJWTConfig = upstreamauth.SignedJWTConfig
+
+// The signing algorithms auth_mode=signed_jwt supports, and the
+// defaults an unset lifetime and skew take. Aliased from the shared
+// seam for the same reason as the mode names above.
+const (
+	SignedJWTAlgHS256 = upstreamauth.SignedJWTAlgHS256
+	SignedJWTAlgRS256 = upstreamauth.SignedJWTAlgRS256
+	SignedJWTAlgES256 = upstreamauth.SignedJWTAlgES256
+
+	DefaultSignedJWTTokenLifetime = upstreamauth.DefaultSignedJWTTokenLifetime
+	DefaultSignedJWTIssuedAtSkew  = upstreamauth.DefaultSignedJWTIssuedAtSkew
+)
 
 // OAuth2Config describes the OAuth parameters used when AuthMode is
 // the canonical oauth mode. Mirrors the API gateway's, because both

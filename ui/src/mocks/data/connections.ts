@@ -148,6 +148,29 @@ export const mockConnectionInstances: ConnectionInstance[] = [
     created_by: "admin@acme.example.com",
     updated_at: "2025-01-18T14:48:00Z",
   },
+  {
+    // An upstream that issues an identifier and a signing key and expects the
+    // client to mint its own short-lived assertion (#1648). The secret comes
+    // back redacted, as it does from the real admin API.
+    kind: "api",
+    name: "acme-erp-api",
+    config: {
+      base_url: "https://erp.internal/api1/service",
+      auth_mode: "signed_jwt",
+      jwt_algorithm: "HS256",
+      jwt_client_secret: "[REDACTED]",
+      jwt_issuer: "CLIENTID-4f21ab",
+      jwt_subject: "svc-integration",
+      jwt_audience: "https://erp.internal/api1/service",
+      jwt_token_lifetime: "300s",
+      jwt_issued_at_skew: "30s",
+      static_headers: { "x-erp-folder": "[REDACTED]" },
+    },
+    description:
+      "ERP connected application. The platform mints a short-lived HS256 assertion per call from the client id and secret the ERP issued.",
+    created_by: "admin@acme.example.com",
+    updated_at: "2025-01-19T09:05:00Z",
+  },
 ];
 
 // Bulk OAuth-health rows powering the connection-list health badge. One row per
@@ -174,47 +197,48 @@ const HOUR = 3600 * 1000;
 const DAY = 24 * HOUR;
 const now = Date.now();
 
-export const mockConnectionOAuthStatus: Record<string, ConnectionOAuthStatus> = {
-  "mcp/acme-crm-gateway": {
-    configured: true,
-    token_acquired: true,
-    expires_at: new Date(now + 6 * HOUR).toISOString(),
-    last_refreshed_at: new Date(now - 42 * 60 * 1000).toISOString(),
-    has_refresh_token: true,
-    refresh_expires_at: new Date(now + 25 * DAY).toISOString(),
-    token_url: "https://auth.acme.example.com/oauth2/token",
-    scope: "crm.read crm.write",
-    authenticated_by: "sarah.chen@acme.example.com",
-    authenticated_at: new Date(now - 3 * DAY).toISOString(),
-    needs_reauth: false,
-  },
-  "mcp/acme-support-gateway": {
-    configured: true,
-    token_acquired: true,
-    expires_at: new Date(now + 4 * HOUR).toISOString(),
-    last_refreshed_at: new Date(now - 15 * 60 * 1000).toISOString(),
-    has_refresh_token: true,
-    refresh_expires_at: new Date(now + 27 * DAY).toISOString(),
-    token_url: "https://auth.acme.example.com/oauth2/token",
-    scope: "support.read",
-    authenticated_by: "admin@acme.example.com",
-    authenticated_at: new Date(now - 5 * DAY).toISOString(),
-    needs_reauth: false,
-  },
-  "api/acme-billing-api": {
-    configured: true,
-    token_acquired: true,
-    expires_at: new Date(now + 8 * HOUR).toISOString(),
-    last_refreshed_at: new Date(now - 8 * 60 * 1000).toISOString(),
-    has_refresh_token: true,
-    refresh_expires_at: new Date(now + 29 * DAY).toISOString(),
-    token_url: "https://auth.acme.example.com/oauth2/token",
-    scope: "billing.read",
-    authenticated_by: "admin@acme.example.com",
-    authenticated_at: new Date(now - 7 * DAY).toISOString(),
-    needs_reauth: false,
-  },
-};
+export const mockConnectionOAuthStatus: Record<string, ConnectionOAuthStatus> =
+  {
+    "mcp/acme-crm-gateway": {
+      configured: true,
+      token_acquired: true,
+      expires_at: new Date(now + 6 * HOUR).toISOString(),
+      last_refreshed_at: new Date(now - 42 * 60 * 1000).toISOString(),
+      has_refresh_token: true,
+      refresh_expires_at: new Date(now + 25 * DAY).toISOString(),
+      token_url: "https://auth.acme.example.com/oauth2/token",
+      scope: "crm.read crm.write",
+      authenticated_by: "sarah.chen@acme.example.com",
+      authenticated_at: new Date(now - 3 * DAY).toISOString(),
+      needs_reauth: false,
+    },
+    "mcp/acme-support-gateway": {
+      configured: true,
+      token_acquired: true,
+      expires_at: new Date(now + 4 * HOUR).toISOString(),
+      last_refreshed_at: new Date(now - 15 * 60 * 1000).toISOString(),
+      has_refresh_token: true,
+      refresh_expires_at: new Date(now + 27 * DAY).toISOString(),
+      token_url: "https://auth.acme.example.com/oauth2/token",
+      scope: "support.read",
+      authenticated_by: "admin@acme.example.com",
+      authenticated_at: new Date(now - 5 * DAY).toISOString(),
+      needs_reauth: false,
+    },
+    "api/acme-billing-api": {
+      configured: true,
+      token_acquired: true,
+      expires_at: new Date(now + 8 * HOUR).toISOString(),
+      last_refreshed_at: new Date(now - 8 * 60 * 1000).toISOString(),
+      has_refresh_token: true,
+      refresh_expires_at: new Date(now + 29 * DAY).toISOString(),
+      token_url: "https://auth.acme.example.com/oauth2/token",
+      scope: "billing.read",
+      authenticated_by: "admin@acme.example.com",
+      authenticated_at: new Date(now - 7 * DAY).toISOString(),
+      needs_reauth: false,
+    },
+  };
 
 // Per-connection OAuth-lifecycle timeline keyed by "kind/name". Newest first,
 // matching the History panel under the status card. Covers the happy path:
@@ -334,7 +358,10 @@ export const mockConnectionAuthEvents: Record<string, ConnectionAuthEvent[]> = {
 
 // Runtime reachability for the mcp gateway upstreams, keyed by connection name.
 // Same shape the list_connections MCP tool reports so the UI and tool agree.
-export const mockGatewayConnectionStatus: Record<string, GatewayConnectionStatus> = {
+export const mockGatewayConnectionStatus: Record<
+  string,
+  GatewayConnectionStatus
+> = {
   "acme-crm-gateway": {
     name: "acme-crm-gateway",
     healthy: true,
@@ -359,7 +386,11 @@ export const mockGatewayConnectionStatus: Record<string, GatewayConnectionStatus
     name: "acme-support-gateway",
     healthy: true,
     auth_mode: "oauth",
-    tools: ["support_search_tickets", "support_get_ticket", "support_sla_status"],
+    tools: [
+      "support_search_tickets",
+      "support_get_ticket",
+      "support_sla_status",
+    ],
     oauth: {
       configured: true,
       token_acquired: true,
