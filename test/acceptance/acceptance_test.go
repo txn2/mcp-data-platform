@@ -18,6 +18,7 @@
 package acceptance
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -129,6 +130,19 @@ const (
 	devPeerAPIKey    = "acme-peer-key"
 	devPeerEmailAddr = "asset.peer@example.com"
 )
+
+// jsonBody encodes a request body for the admin REST routes. The suite's
+// restJSON returns only the status, and a criterion that reads the refusal
+// text needs the decoded body too, so it builds the request body here and
+// hands it to rest directly.
+func jsonBody(t *testing.T, v any) io.Reader {
+	t.Helper()
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshal request body: %v", err)
+	}
+	return bytes.NewReader(raw)
+}
 
 // rest issues an authenticated REST request as this client's identity and
 // returns the status and the decoded body. The portal's own pages read these

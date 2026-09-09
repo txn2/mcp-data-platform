@@ -210,11 +210,14 @@ curl -X PUT \
 | `api_key` | `<api_key_header>: <credential>` (header) or `?<api_key_param>=<credential>` (query) |
 | `basic` | `Authorization: Basic base64(username:password)` per RFC 7617. For legacy APIs (Jenkins, on-prem Jira / Confluence Server / DC, internal apps) that never moved to bearer or OAuth. `password` may be empty for the `token:` pattern some APIs use. |
 | `oauth` | OAuth 2.1. The grant is set separately in `oauth_grant` (`client_credentials` or `authorization_code`). `client_credentials` fetches a token at `oauth_token_url` and applies `Authorization: Bearer ...`; `authorization_code` adds a one-time browser sign-in with a persisted (encrypted) refresh token and silent refresh. |
+| `signed_jwt` | `Authorization: Bearer <jwt the platform minted>`. For upstreams that issue an identifier and a signing key and expect the client to mint its own short-lived assertion — Sage X3 connected applications, Snowflake key-pair authentication, Apple App Store Connect and APNs, and internal services built the same way. There is no token endpoint and nothing is exchanged. See [Signed JWT upstreams](signed-jwt-auth.md). |
 | `mtls` | No header. Authentication happens at the TLS handshake (RFC 5246 / 8446) via the configured client certificate. Used by upstreams that map the cert's subject DN to an internal user identity (service mesh peers, PKI-fronted internal APIs, healthcare integration engines, financial messaging endpoints, FedRAMP services, etc.). |
 
 The OAuth config keys (`oauth_grant`, `oauth_token_url`, `oauth_authorization_url`, `oauth_client_id`, `oauth_client_secret`, `oauth_scope`, `oauth_prompt`, `oauth_endpoint_auth_style`) are shared with every other toolkit kind, so an OAuth connection is configured the same way regardless of kind. `oauth_scope` is a single space-delimited string (the OAuth 2.0 wire form).
 
 The OAuth 2.1 authorization-code grant completes via the platform's shared `/api/v1/admin/oauth/callback` endpoint, the same path the MCP gateway uses. Register that exact callback URL with the upstream IdP.
+
+The `signed_jwt` config keys (`jwt_algorithm`, `jwt_client_secret`, `jwt_private_key_pem`, `jwt_key_id`, `jwt_issuer`, `jwt_subject`, `jwt_audience`, `jwt_token_lifetime`, `jwt_issued_at_skew`) are likewise shared with every HTTP-based kind. The secret and the private key are encrypted at rest and returned as `[REDACTED]`. [Signed JWT upstreams](signed-jwt-auth.md) documents them with worked examples.
 
 > **Deprecated (still accepted).** Earlier api-gateway connections used an `oauth2_*` key prefix and encoded the grant in the `auth_mode` value (`oauth2_client_credentials` / `oauth2_authorization_code`), with `oauth2_scopes` as an array. Those are read as a fallback and rewritten to the canonical keys automatically by a database migration on upgrade; no reconnect is required. The fallback is scheduled for removal in a future release.
 

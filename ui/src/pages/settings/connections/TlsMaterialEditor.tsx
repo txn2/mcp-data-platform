@@ -1,10 +1,11 @@
-import { useId } from "react";
-
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { ConfigGroup, update, type ConfigFormProps } from "./fields";
+import {
+  ConfigGroup,
+  PEMTextarea,
+  update,
+  type ConfigFormProps,
+} from "./fields";
 
 // TLSMaterialEditor renders the per-connection mTLS material section:
 // client cert + private key (both required together) and an optional
@@ -66,54 +67,6 @@ export function TLSMaterialEditor({
   );
 }
 
-// PEMTextarea is a multi-line variant of ConfigField for PEM-encoded
-// material. Kept local to this file because no other connection kind
-// pastes multi-line secrets today; if a second consumer appears, lift
-// to a shared component alongside ConfigField.
-function PEMTextarea({
-  label,
-  help,
-  value,
-  onChange,
-  placeholder,
-  sensitive,
-}: {
-  label: string;
-  help?: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  sensitive?: boolean;
-}) {
-  const id = useId();
-  const helpID = `${id}-help`;
-  return (
-    <div className="space-y-1.5">
-      <Label htmlFor={id} className="text-xs">
-        {label}
-      </Label>
-      <Textarea
-        id={id}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        autoComplete={sensitive ? "off" : undefined}
-        spellCheck={false}
-        rows={5}
-        aria-describedby={help ? helpID : undefined}
-        // A PEM block needs its five rows before anything is pasted, so the
-        // fixed sizing wins over ui/textarea's content sizing.
-        className="field-sizing-fixed font-mono text-xs"
-      />
-      {help && (
-        <p id={helpID} className="text-xs text-muted-foreground">
-          {help}
-        </p>
-      )}
-    </div>
-  );
-}
-
 // CertExpiryBadge renders a one-line summary of the client cert's
 // NotAfter, variant-coded by remaining time. Treats every input as a
 // server-formatted RFC3339 string (the admin handler computes this
@@ -137,5 +90,7 @@ function CertExpiryBadge({ notAfter }: { notAfter: string }) {
       </Badge>
     );
   }
-  return <Badge variant="success">Certificate valid for {days} more days</Badge>;
+  return (
+    <Badge variant="success">Certificate valid for {days} more days</Badge>
+  );
 }

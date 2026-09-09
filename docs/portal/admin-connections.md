@@ -104,6 +104,35 @@ the upstream invalidates the refresh token. Click **Reconnect** to
 re-authorize manually if needed; click **Refresh now** to force an
 immediate refresh.
 
+### HTTP Connections: the Signed JWT block
+
+Connections of kind `api` and `graphql` share one auth-mode picker. Selecting
+**Signed JWT (the platform mints the token)** replaces the credential field
+with the block the mode needs:
+
+- **Algorithm** — `HS256` (shared secret), `RS256` or `ES256` (PEM signing key).
+  It selects which key control appears below it.
+- **Client secret** (`HS256`) — encrypted at rest, shown back as `[REDACTED]`.
+  Re-saving with `[REDACTED]` keeps the stored value; pasting a new one rotates it.
+- **Signing key (PEM)** and **Key ID** (`RS256` / `ES256`) — the key is a paste
+  target, encrypted and redacted like the secret above. The key id is sent as
+  the token's `kid` header and is only needed by upstreams that hold several
+  registered keys.
+- **Issuer (iss)** and **Subject (sub)** — set whichever the upstream
+  registered. An empty field omits the claim, and the save is refused when both
+  are empty.
+- **Audience (aud)** — empty defaults to this connection's endpoint URL. The
+  upstream matches it byte for byte, so set it explicitly whenever the
+  registered value differs from the URL the platform dials.
+- **Token lifetime** and **Issued-at skew** — default `300s` and `30s`.
+
+![Signed JWT credentials](../images/screenshots/light/admin-admin-connection-signed-jwt-light.webp#only-light)![Signed JWT credentials](../images/screenshots/dark/admin-admin-connection-signed-jwt-dark.webp#only-dark)
+
+An invalid combination is refused by the save with a message naming the field.
+A rejected token comes back as the upstream's own `401` body, unchanged: that
+body is the only place the upstream says which claim was wrong. See
+[Signed JWT upstreams](../server/signed-jwt-auth.md) for worked examples.
+
 #### Cross-Enrichment Rules Drawer
 
 Clicking **Enrichment rules** on a saved gateway connection opens a

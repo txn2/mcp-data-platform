@@ -1,6 +1,11 @@
 package graphql
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/pem"
 	"strings"
 	"testing"
 	"time"
@@ -159,4 +164,69 @@ func TestNewAuthenticatorBuildsTheConfiguredMode(t *testing.T) {
 	if auth == nil {
 		t.Fatal("no authenticator")
 	}
+}
+
+// TestParseConfigSignedJWT proves the graphql kind carries the
+// signed_jwt block through ParseConfig on the same terms as the api
+// kind: the block reaches Config and the audience defaults to the
+// connection's endpoint_url.
+func TestParseConfigSignedJWT(t *testing.T) {
+	const endpoint = "https://erp.example.com/api1/syracuse/collaboration/syracuse"
+	cfg, err := ParseConfig(map[string]any{
+		"endpoint_url":        endpoint,
+		"auth_mode":           AuthModeSignedJWT,
+		"jwt_algorithm":       SignedJWTAlgES256,
+		"jwt_private_key_pem": testSignedJWTECKeyPEM(t),
+		"jwt_key_id":          "ABC1234567",
+		"jwt_issuer":          "CLIENTID-2f7c",
+	})
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	if cfg.SignedJWT.Algorithm != SignedJWTAlgES256 || cfg.SignedJWT.KeyID != "ABC1234567" {
+		t.Errorf("signed_jwt block = %+v, want the configured ES256 key id", cfg.SignedJWT)
+	}
+	if cfg.SignedJWT.Audience != endpoint {
+		t.Errorf("audience = %q, want the endpoint_url %q", cfg.SignedJWT.Audience, endpoint)
+	}
+	if cfg.SignedJWT.TokenLifetime != DefaultSignedJWTTokenLifetime ||
+		cfg.SignedJWT.IssuedAtSkew != DefaultSignedJWTIssuedAtSkew {
+		t.Errorf("lifetime/skew = %v/%v, want the shared defaults",
+			cfg.SignedJWT.TokenLifetime, cfg.SignedJWT.IssuedAtSkew)
+	}
+	if _, err := NewAuthenticator(cfg); err != nil {
+		t.Errorf("NewAuthenticator on a valid signed_jwt connection: %v", err)
+	}
+}
+
+func TestParseConfigSignedJWTRefusesMismatchedKeyMaterial(t *testing.T) {
+	_, err := ParseConfig(map[string]any{
+		"endpoint_url":        "https://erp.example.com/graphql",
+		"auth_mode":           AuthModeSignedJWT,
+		"jwt_algorithm":       SignedJWTAlgES256,
+		"jwt_private_key_pem": testSignedJWTECKeyPEM(t),
+		"jwt_client_secret":   "a-shared-secret",
+		"jwt_issuer":          "CLIENTID-2f7c",
+	})
+	if err == nil {
+		t.Fatal("ParseConfig accepted an ES256 connection carrying a shared secret as well as a signing key")
+	}
+	if !strings.Contains(err.Error(), "jwt_client_secret") || !strings.HasPrefix(err.Error(), "graphql: ") {
+		t.Errorf("error %q should name jwt_client_secret in the kind's voice", err)
+	}
+}
+
+// testSignedJWTECKeyPEM generates one P-256 key for the signed_jwt
+// cases, in the PKCS#8 PEM form the vendors in this class hand out.
+func testSignedJWTECKeyPEM(t *testing.T) string {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate EC key: %v", err)
+	}
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatalf("marshal EC key: %v", err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}))
 }

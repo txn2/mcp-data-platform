@@ -62,6 +62,8 @@ func NewAuthenticator(c Config) (Authenticator, error) {
 	case AuthModeOAuth2AuthorizationCode:
 		// Legacy auth_mode (hand-built Configs that bypass Parse).
 		return newOAuth2AuthorizationCodeAuth(c), nil
+	case AuthModeSignedJWT:
+		return newSignedJWTAuth(c)
 	case AuthModeMTLS:
 		// The client certificate IS the credential. No header is
 		// added; the TLS handshake at transport setup

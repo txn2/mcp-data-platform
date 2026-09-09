@@ -1796,6 +1796,32 @@ export const handlers = [
         updated_at: new Date(Date.now() - 10 * 86400000).toISOString(),
       },
       {
+        // The api kind, in the auth mode that mints its own assertion
+        // (#1648). Secrets come back redacted, as they do from the real
+        // admin API.
+        kind: "api",
+        name: "acme-erp-api",
+        connection: "acme-erp-api",
+        description:
+          "ERP connected application. The platform mints a short-lived HS256 assertion per call from the client id and secret the ERP issued.",
+        source: "database",
+        tools: ["api_discover", "api_invoke_endpoint", "api_export"],
+        config: {
+          base_url: "https://erp.internal/api1/service",
+          auth_mode: "signed_jwt",
+          jwt_algorithm: "HS256",
+          jwt_client_secret: "[REDACTED]",
+          jwt_issuer: "CLIENTID-4f21ab",
+          jwt_subject: "svc-integration",
+          jwt_audience: "https://erp.internal/api1/service",
+          jwt_token_lifetime: "300s",
+          jwt_issued_at_skew: "30s",
+          static_headers: { "x-erp-folder": "[REDACTED]" },
+        },
+        created_by: "admin@example.com",
+        updated_at: new Date(Date.now() - 5 * 86400000).toISOString(),
+      },
+      {
         kind: "mcp",
         name: "acme-crm-gateway",
         connection: "acme-crm-gateway",

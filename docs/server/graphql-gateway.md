@@ -30,7 +30,7 @@ toolkits:
 | --- | --- |
 | `endpoint_url` | The full URL documents are POSTed to. Required. Unlike an HTTP API's `base_url` this is the whole address: a GraphQL endpoint has exactly one |
 | `description` | Human-readable description, surfaced by `list_connections` and the admin UI. Empty falls back to the endpoint |
-| `auth_mode` and its credentials | The shared upstream authentication modes: `none`, `bearer`, `api_key`, `basic`, `oauth`, `mtls`. Same keys, same behavior and same at-rest encryption as the API gateway's |
+| `auth_mode` and its credentials | The shared upstream authentication modes: `none`, `bearer`, `api_key`, `basic`, `signed_jwt`, `oauth`, `mtls`. Same keys, same behavior and same at-rest encryption as the API gateway's. `signed_jwt` is what a Sage X3 connected application needs; see [Signed JWT upstreams](signed-jwt-auth.md) |
 | `static_headers` | Headers attached to every outbound request. This is where an upstream's tenant or folder routing goes. Operator-owned; the model never sets or overrides them |
 | `connect_timeout`, `call_timeout` | Dial and per-call bounds. Default 10s and 60s |
 | `max_response_bytes` | Upstream read cap: the most the platform reads of one response. Default 10 MiB |

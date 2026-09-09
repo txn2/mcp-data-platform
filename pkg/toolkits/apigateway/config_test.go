@@ -607,3 +607,54 @@ func TestParseConfig_StaticHeaders_EmptyMapNotPersisted(t *testing.T) {
 		t.Errorf("empty static_headers stored as %#v; want nil", c.StaticHeaders)
 	}
 }
+
+// TestParseConfigSignedJWT proves the api kind carries the signed_jwt
+// block through ParseConfig: the claims block reaches Config, the
+// audience defaults to the connection's base_url, and an unusable
+// config is refused in this toolkit's voice.
+func TestParseConfigSignedJWT(t *testing.T) {
+	const baseURL = "https://erp.example.com/api1/syracuse/collaboration/syracuse"
+	cfg, err := ParseConfig(map[string]any{
+		"base_url":           baseURL,
+		"auth_mode":          AuthModeSignedJWT,
+		"jwt_client_secret":  "a-shared-secret-issued-out-of-band",
+		"jwt_issuer":         "CLIENTID-2f7c",
+		"jwt_subject":        "svc-integration",
+		"jwt_token_lifetime": "120s",
+	})
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	if cfg.AuthMode != AuthModeSignedJWT {
+		t.Errorf("auth_mode = %q, want %q", cfg.AuthMode, AuthModeSignedJWT)
+	}
+	if cfg.SignedJWT.Algorithm != SignedJWTAlgHS256 {
+		t.Errorf("algorithm = %q, want the HS256 default", cfg.SignedJWT.Algorithm)
+	}
+	if cfg.SignedJWT.Audience != baseURL {
+		t.Errorf("audience = %q, want the base_url %q", cfg.SignedJWT.Audience, baseURL)
+	}
+	if cfg.SignedJWT.Issuer != "CLIENTID-2f7c" || cfg.SignedJWT.Subject != "svc-integration" {
+		t.Errorf("claims = %+v, want the configured issuer and subject", cfg.SignedJWT)
+	}
+	if cfg.SignedJWT.TokenLifetime != 120*time.Second {
+		t.Errorf("token_lifetime = %v, want 120s", cfg.SignedJWT.TokenLifetime)
+	}
+	if _, err := NewAuthenticator(cfg); err != nil {
+		t.Errorf("NewAuthenticator on a valid signed_jwt connection: %v", err)
+	}
+}
+
+func TestParseConfigSignedJWTRefusesMissingKeyMaterial(t *testing.T) {
+	_, err := ParseConfig(map[string]any{
+		"base_url":   "https://erp.example.com/api",
+		"auth_mode":  AuthModeSignedJWT,
+		"jwt_issuer": "CLIENTID-2f7c",
+	})
+	if err == nil {
+		t.Fatal("ParseConfig accepted a signed_jwt connection with no key material")
+	}
+	if !strings.Contains(err.Error(), "jwt_client_secret") || !strings.HasPrefix(err.Error(), "apigateway: ") {
+		t.Errorf("error %q should name jwt_client_secret in the toolkit's voice", err)
+	}
+}

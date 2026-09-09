@@ -3,6 +3,7 @@ import { useId } from "react";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -248,4 +249,53 @@ export function asStringMap(raw: unknown): Record<string, string> {
     }
   }
   return out;
+}
+
+// PEMTextarea is a multi-line variant of ConfigField for PEM-encoded
+// material: the connection's TLS client key and CA bundle, and the
+// signing key of an auth_mode=signed_jwt connection. Operators receive
+// all of them as text from their PKI or vendor tooling, so the control
+// is a paste target rather than a file picker.
+export function PEMTextarea({
+  label,
+  help,
+  value,
+  onChange,
+  placeholder,
+  sensitive,
+}: {
+  label: string;
+  help?: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  sensitive?: boolean;
+}) {
+  const id = useId();
+  const helpID = `${id}-help`;
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={id} className="text-xs">
+        {label}
+      </Label>
+      <Textarea
+        id={id}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        autoComplete={sensitive ? "off" : undefined}
+        spellCheck={false}
+        rows={5}
+        aria-describedby={help ? helpID : undefined}
+        // A PEM block needs its five rows before anything is pasted, so the
+        // fixed sizing wins over ui/textarea's content sizing.
+        className="field-sizing-fixed font-mono text-xs"
+      />
+      {help && (
+        <p id={helpID} className="text-xs text-muted-foreground">
+          {help}
+        </p>
+      )}
+    </div>
+  );
 }

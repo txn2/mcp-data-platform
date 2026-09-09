@@ -229,6 +229,9 @@ type Config struct {
 	// OAuth2 carries the OAuth 2.1 parameters used when AuthMode is
 	// AuthModeOAuth. Empty for non-OAuth modes.
 	OAuth2 OAuth2Config
+	// SignedJWT carries the assertion parameters used when AuthMode is
+	// AuthModeSignedJWT. Empty for every other mode.
+	SignedJWT SignedJWTConfig
 
 	// ConnectTimeout caps the dial step (TCP + TLS handshake) on each
 	// invocation.
@@ -364,6 +367,9 @@ func Parse(kind, errPrefix, endpointURL string, cfg map[string]any) (Config, err
 		c.AuthMode = AuthModeOAuth
 		c.OAuth2 = oauth2ConfigFromConnoauth(parsed)
 	}
+	if c.AuthMode == AuthModeSignedJWT {
+		c.SignedJWT = parseSignedJWT(endpointURL, cfg)
+	}
 	c.StaticHeaders = cfgmap.StringMap(cfg, cfgKeyStaticHeaders)
 	c.MTLSClientCertPEM = cfgmap.String(cfg, cfgKeyMTLSClientCertPEM)
 	c.MTLSClientKeyPEM = cfgmap.String(cfg, cfgKeyMTLSClientKeyPEM)
@@ -423,6 +429,8 @@ func (c Config) ValidateAuth() error {
 		return c.validateBasicAuth()
 	case AuthModeOAuth, AuthModeOAuth2ClientCredentials, AuthModeOAuth2AuthorizationCode:
 		return c.validateOAuthAuth()
+	case AuthModeSignedJWT:
+		return c.validateSignedJWTAuth()
 	case AuthModeMTLS:
 		// The mTLS material is validated centrally by
 		// ValidateTLSMaterial so the same rules apply whether mTLS is
@@ -432,7 +440,7 @@ func (c Config) ValidateAuth() error {
 		// Config.AuthMode inspection.
 		return nil
 	default:
-		return c.errf("invalid auth_mode %q (want none, bearer, api_key, basic, oauth2_client_credentials, oauth2_authorization_code, or mtls)", c.AuthMode)
+		return c.errf("invalid auth_mode %q (want none, bearer, api_key, basic, signed_jwt, oauth2_client_credentials, oauth2_authorization_code, or mtls)", c.AuthMode)
 	}
 }
 
