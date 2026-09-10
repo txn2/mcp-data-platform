@@ -77,7 +77,7 @@ func expectLoadRow(mock sqlmock.Sqlmock, id string, f loadFixture) {
 func TestConsumerRegistersAsOnePair(t *testing.T) {
 	store, _ := newDB(t)
 	reg := indexjobs.NewRegistry()
-	if err := reg.Register(NewSource(store, nil, ""), NewSink(store, "m")); err != nil {
+	if err := reg.Register(NewSource(store, nil, "", nil), NewSink(store, "m")); err != nil {
 		t.Fatalf("registering the resources consumer: %v", err)
 	}
 	if kinds := reg.Kinds(); len(kinds) != 1 || kinds[0] != SourceKind {
@@ -98,7 +98,7 @@ func TestLoadItems_ExtractsAndPersistsContent(t *testing.T) {
 	blobs := &fakeBlobs{objects: map[string][]byte{
 		"resources/global/res_1/sales.csv": []byte("column,description\ngross_margin_pct,margin\n"),
 	}}
-	items, err := NewSource(store, blobs, "bucket").LoadItems(context.Background(), "res_1")
+	items, err := NewSource(store, blobs, "bucket", nil).LoadItems(context.Background(), "res_1")
 	if err != nil {
 		t.Fatalf("LoadItems: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestLoadItems_BinarySkipsBlobRead(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	blobs := &fakeBlobs{}
-	items, err := NewSource(store, blobs, "bucket").LoadItems(context.Background(), "res_png")
+	items, err := NewSource(store, blobs, "bucket", nil).LoadItems(context.Background(), "res_png")
 	if err != nil {
 		t.Fatalf("LoadItems: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestLoadItems_TransientBlobFailureKeepsPriorContentAndStaysOwed(t *testing.
 	expectLoad(mock, "res_1", "text/csv", "k", "previously extracted text")
 
 	blobs := &fakeBlobs{err: errors.New("connection reset by peer")}
-	items, err := NewSource(store, blobs, "bucket").LoadItems(context.Background(), "res_1")
+	items, err := NewSource(store, blobs, "bucket", nil).LoadItems(context.Background(), "res_1")
 	if err != nil {
 		t.Fatalf("LoadItems: %v", err)
 	}
@@ -174,7 +174,7 @@ func TestLoadItems_SettledUnchangedContentSkipsWrite(t *testing.T) {
 	})
 
 	blobs := &fakeBlobs{objects: map[string][]byte{"k": []byte("same body")}}
-	if _, err := NewSource(store, blobs, "bucket").LoadItems(context.Background(), "res_1"); err != nil {
+	if _, err := NewSource(store, blobs, "bucket", nil).LoadItems(context.Background(), "res_1"); err != nil {
 		t.Fatalf("LoadItems: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -192,7 +192,7 @@ func TestLoadItems_UnsettledEmptyContentIsStillStamped(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	blobs := &fakeBlobs{objects: map[string][]byte{"k": {}}}
-	if _, err := NewSource(store, blobs, "bucket").LoadItems(context.Background(), "res_1"); err != nil {
+	if _, err := NewSource(store, blobs, "bucket", nil).LoadItems(context.Background(), "res_1"); err != nil {
 		t.Fatalf("LoadItems: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -210,7 +210,7 @@ func TestLoadItems_MissingObjectClearsContent(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	blobs := &fakeBlobs{objects: map[string][]byte{}}
-	items, err := NewSource(store, blobs, "bucket").LoadItems(context.Background(), "res_1")
+	items, err := NewSource(store, blobs, "bucket", nil).LoadItems(context.Background(), "res_1")
 	if err != nil {
 		t.Fatalf("LoadItems: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestLoadItems_DeletedResourceIsSourceGone(t *testing.T) {
 	store, mock := newDB(t)
 	mock.ExpectQuery("SELECT display_name").WithArgs("res_x").WillReturnError(errNoRows())
 
-	_, err := NewSource(store, nil, "").LoadItems(context.Background(), "res_x")
+	_, err := NewSource(store, nil, "", nil).LoadItems(context.Background(), "res_x")
 	if !errors.Is(err, indexjobs.ErrSourceGone) {
 		t.Fatalf("err = %v, want ErrSourceGone", err)
 	}
@@ -240,7 +240,7 @@ func TestLoadItems_StoreErrorIsNotGone(t *testing.T) {
 	store, mock := newDB(t)
 	mock.ExpectQuery("SELECT display_name").WithArgs("res_x").WillReturnError(errors.New("db down"))
 
-	_, err := NewSource(store, nil, "").LoadItems(context.Background(), "res_x")
+	_, err := NewSource(store, nil, "", nil).LoadItems(context.Background(), "res_x")
 	if err == nil || errors.Is(err, indexjobs.ErrSourceGone) {
 		t.Fatalf("err = %v, want a plain error", err)
 	}
@@ -254,7 +254,7 @@ func TestLoadItems_ContentWriteFailureDoesNotFailJob(t *testing.T) {
 	mock.ExpectExec("UPDATE resources SET content_text").WillReturnError(errors.New("db down"))
 
 	blobs := &fakeBlobs{objects: map[string][]byte{"k": []byte("body text")}}
-	items, err := NewSource(store, blobs, "bucket").LoadItems(context.Background(), "res_1")
+	items, err := NewSource(store, blobs, "bucket", nil).LoadItems(context.Background(), "res_1")
 	if err != nil {
 		t.Fatalf("LoadItems: %v", err)
 	}
@@ -275,7 +275,7 @@ func TestLoadItems_OversizedContentSkipsBlobRead(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	blobs := &fakeBlobs{objects: map[string][]byte{"k": []byte("huge body")}}
-	items, err := NewSource(store, blobs, "bucket").LoadItems(context.Background(), "res_big")
+	items, err := NewSource(store, blobs, "bucket", nil).LoadItems(context.Background(), "res_big")
 	if err != nil {
 		t.Fatalf("LoadItems: %v", err)
 	}
@@ -306,8 +306,11 @@ func TestExtractText(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := extractText(tt.body, tt.limit); got != tt.want {
-				t.Errorf("extractText = %q, want %q", got, tt.want)
+			src := NewSource(nil, nil, "", nil)
+			res := resource.Resource{MIMEType: "text/plain", Filename: "f.txt"}
+			read := src.docs.Read(context.Background(), res.MIMEType, res.Filename, tt.body, tt.limit)
+			if got := sanitize(read.Text); got != tt.want {
+				t.Errorf("extracted text = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -393,7 +396,7 @@ func TestLoadItems_NoBlobReaderIndexesMetadataOnly(t *testing.T) {
 		WithArgs("res_1", "").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	items, err := NewSource(store, nil, "").LoadItems(context.Background(), "res_1")
+	items, err := NewSource(store, nil, "", nil).LoadItems(context.Background(), "res_1")
 	if err != nil {
 		t.Fatalf("LoadItems: %v", err)
 	}

@@ -42,6 +42,7 @@ internal/admin/settingsapi -> pkg/notification/smtp
 internal/agentinstructions -> pkg/configstore
 internal/apigwmetrics -> pkg/mcpcontext
 internal/apigwmetrics -> pkg/observability
+internal/docread -> pkg/contenttype
 internal/httpserver -> internal/agentinstructions
 internal/httpserver -> internal/apidocs
 internal/httpserver -> internal/httpserver/accessgate
@@ -238,6 +239,7 @@ internal/platform/graphqlwiring -> pkg/toolkits/graphql
 internal/platform/iam -> pkg/auth
 internal/platform/iam -> pkg/middleware
 internal/platform/iam -> pkg/persona
+internal/platform/indexqueue -> internal/docread
 internal/platform/indexqueue -> internal/platform/assetindex
 internal/platform/indexqueue -> internal/platform/callindex
 internal/platform/indexqueue -> internal/platform/collectionindex
@@ -347,9 +349,11 @@ internal/platform/resourceaudit -> pkg/audit
 internal/platform/resourceaudit -> pkg/middleware
 internal/platform/resourceaudit -> pkg/resource
 internal/platform/resourceholds -> internal/portal/assetrefs
-internal/platform/resourceindex -> pkg/contenttype
+internal/platform/resourceindex -> internal/docread
 internal/platform/resourceindex -> pkg/indexjobs
 internal/platform/resourceindex -> pkg/resource
+internal/platform/resourcelayer -> internal/docread
+internal/platform/resourcelayer -> internal/pdftext
 internal/platform/resourcelayer -> internal/platform/resourceindex
 internal/platform/resourcelayer -> internal/platform/toolkitcfg
 internal/platform/resourcelayer -> pkg/indexjobs
@@ -414,6 +418,7 @@ internal/platform/scriptrun -> pkg/toolkits/trino
 internal/platform/scriptstore -> internal/platform/scriptrun
 internal/platform/scriptstore -> pkg/indexjobs
 internal/platform/scriptstore -> pkg/script
+internal/platform/searchfed -> internal/docread
 internal/platform/searchfed -> internal/producedby
 internal/platform/searchfed -> internal/tableavail
 internal/platform/searchfed -> pkg/embedding
@@ -602,12 +607,12 @@ pkg/connview -> pkg/registry
 pkg/connview -> pkg/toolkit
 pkg/indexjobs -> internal/logsan
 pkg/indexjobs -> pkg/embedding
+pkg/knowledge -> internal/docread
 pkg/knowledge -> internal/platform/callrecord
 pkg/knowledge -> internal/platform/sessionview
 pkg/knowledge -> internal/portal/portaldomain
 pkg/knowledge -> internal/producedby
 pkg/knowledge -> internal/tableavail
-pkg/knowledge -> pkg/contenttype
 pkg/knowledge -> pkg/embedding
 pkg/knowledge -> pkg/memory
 pkg/knowledge -> pkg/portal

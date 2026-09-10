@@ -83,6 +83,25 @@ const (
 	PDF = "application/pdf"
 	// OctetStream is the type for content of unknown or unrecognized shape.
 	OctetStream = "application/octet-stream"
+
+	// The Office document families. Each is a zip of XML parts, which is the
+	// only reason it is binary at all, and internal/docread reads one by
+	// opening the archive rather than by trusting these names. They are
+	// canonical here so a stored .pptx keeps its extension in the bucket
+	// instead of landing as an anonymous .bin (#1657).
+
+	// DOCX is the canonical type for Word documents.
+	DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+	// XLSX is the canonical type for Excel workbooks.
+	XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+	// PPTX is the canonical type for PowerPoint presentations.
+	PPTX = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+	// ODT is the canonical type for OpenDocument text documents.
+	ODT = "application/vnd.oasis.opendocument.text"
+	// ODS is the canonical type for OpenDocument spreadsheets.
+	ODS = "application/vnd.oasis.opendocument.spreadsheet"
+	// ODP is the canonical type for OpenDocument presentations.
+	ODP = "application/vnd.oasis.opendocument.presentation"
 )
 
 // BinarySniffLen is the prefix length http.DetectContentType examines. Reading

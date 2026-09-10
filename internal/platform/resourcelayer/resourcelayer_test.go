@@ -443,3 +443,58 @@ func (*countingStore) ClearThumbnail(_ context.Context, _, _ string) error { ret
 func (*countingStore) PendingThumbnails(_ context.Context, _ resource.Filter, _ int) ([]resource.Resource, error) {
 	return nil, nil
 }
+
+// The layer builds one document reader and hands the same one to both surfaces
+// that read a managed resource -- search `fetch` and the content index -- so a
+// file they both see reads the same way (#1657).
+func TestDocumentReader(t *testing.T) {
+	db, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	h, err := New(db, Config{})
+	if err != nil {
+		t.Fatalf("New = %v, want nil error", err)
+	}
+	reader := h.DocumentReader()
+	if reader == nil {
+		t.Fatal("DocumentReader() is nil; both read surfaces would fall back to metadata")
+	}
+	if h.DocumentReader() != reader {
+		t.Error("DocumentReader() returned a different reader on a second call")
+	}
+
+	var absent *Handle
+	if absent.DocumentReader() != nil {
+		t.Error("a nil handle produced a reader")
+	}
+}
+
+// Close releases the PDF extractor's instance pool. It has to be safe on a
+// handle whose extractor never compiled its module -- which is every handle in
+// a deployment that was never asked to read a PDF -- and on a nil one.
+func TestClose(t *testing.T) {
+	db, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	h, err := New(db, Config{})
+	if err != nil {
+		t.Fatalf("New = %v, want nil error", err)
+	}
+	if err := h.Close(); err != nil {
+		t.Fatalf("Close on an unused extractor = %v, want nil", err)
+	}
+	if err := h.Close(); err != nil {
+		t.Fatalf("Close twice = %v, want nil", err)
+	}
+
+	var absent *Handle
+	if err := absent.Close(); err != nil {
+		t.Errorf("Close on a nil handle = %v, want nil", err)
+	}
+}

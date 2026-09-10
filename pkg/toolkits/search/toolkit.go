@@ -157,7 +157,7 @@ var fetchSchema = json.RawMessage(`{
   "properties": {
     "reference": {
       "type": "string",
-      "description": "A reference to read in full. References come in two namespaces: urn:li:... is the external DataHub catalog scheme, mcp:... is the internal-platform scheme. fetch dereferences any well-formed reference of these forms: knowledge pages (mcp:knowledge_page:<id>, or the page's slug in place of the id), context documents (urn:li:document:<id>), catalog datasets (urn:li:dataset:<id>), data products (urn:li:dataProduct:<id>), glossary terms (urn:li:glossaryTerm:<id>), tags (urn:li:tag:<id>), domains (urn:li:domain:<id>), saved assets (mcp:asset:<id>), uploaded reference material (mcp:resource:<id>), prompts (mcp:prompt:<id>), managed scripts (mcp:script:<id>), recorded calls (mcp:call:<id>), your own sessions (mcp:session:<id>), connections (mcp:connection:(kind,name)), captured insights (mcp:insight:<id>), and your personal memory (mcp:memory:<id>). A dataset comes back as its full catalog record: business context, declared schema, saved queries, linked documents, and whether and where it is queryable. A glossary term, tag, or domain comes back with its definition and the datasets that carry it (a term also with its parent node and owners); a data product with its member datasets. The usual source is a search result's \"reference\" field (pass it verbatim), but a reference you already hold from another tool works too (for example a urn:li:dataset:... from datahub_get_lineage or an entity_urns lookup). A text resource comes back with its contents inline; a binary one comes back as metadata plus its mcp:// URI and size. A recorded call comes back as the statement or request that ran, what it was for, what came of it, and how many later sessions re-ran it; reading one is what makes your own re-run of it count as reuse. A session comes back as the work it was: what its calls were for, the assets and insights it produced as references you can follow, and its timeline in order, each cataloged call carrying its own mcp:call: reference and outcome. A managed script comes back as its contract — what it is, what parameters it takes, whether a run would be admitted, its schedule, and what its last successful run produced — not as its source code; finding one grants nothing, and running it is still run_script. Your memory is scoped to you; so are your insights until one is applied, at which point it is organization knowledge anyone can read. Returns the full content the search snippet was a preview of."
+      "description": "A reference to read in full. References come in two namespaces: urn:li:... is the external DataHub catalog scheme, mcp:... is the internal-platform scheme. fetch dereferences any well-formed reference of these forms: knowledge pages (mcp:knowledge_page:<id>, or the page's slug in place of the id), context documents (urn:li:document:<id>), catalog datasets (urn:li:dataset:<id>), data products (urn:li:dataProduct:<id>), glossary terms (urn:li:glossaryTerm:<id>), tags (urn:li:tag:<id>), domains (urn:li:domain:<id>), saved assets (mcp:asset:<id>), uploaded reference material (mcp:resource:<id>), prompts (mcp:prompt:<id>), managed scripts (mcp:script:<id>), recorded calls (mcp:call:<id>), your own sessions (mcp:session:<id>), connections (mcp:connection:(kind,name)), captured insights (mcp:insight:<id>), and your personal memory (mcp:memory:<id>). A dataset comes back as its full catalog record: business context, declared schema, saved queries, linked documents, and whether and where it is queryable. A glossary term, tag, or domain comes back with its definition and the datasets that carry it (a term also with its parent node and owners); a data product with its member datasets. The usual source is a search result's \"reference\" field (pass it verbatim), but a reference you already hold from another tool works too (for example a urn:li:dataset:... from datahub_get_lineage or an entity_urns lookup). A resource comes back with its contents: text inline, a PDF and an Office document (docx, xlsx, pptx, odt, ods, odp) as their readable text, an image as the picture itself, and any other file as its bytes for your own tools to open. Only a resource above the inline size limit comes back as metadata plus its mcp:// URI, which you read the whole file by. A recorded call comes back as the statement or request that ran, what it was for, what came of it, and how many later sessions re-ran it; reading one is what makes your own re-run of it count as reuse. A session comes back as the work it was: what its calls were for, the assets and insights it produced as references you can follow, and its timeline in order, each cataloged call carrying its own mcp:call: reference and outcome. A managed script comes back as its contract — what it is, what parameters it takes, whether a run would be admitted, its schedule, and what its last successful run produced — not as its source code; finding one grants nothing, and running it is still run_script. Your memory is scoped to you; so are your insights until one is applied, at which point it is organization knowledge anyone can read. Returns the full content the search snippet was a preview of."
     }
   }
 }`)
@@ -423,11 +423,42 @@ func (t *Toolkit) handleFetch(ctx context.Context, _ *mcp.CallToolRequest, input
 		return toolkit.ErrorResult("fetch failed: " + err.Error()), nil, nil
 	}
 
-	return structuredResult(fetchOutput{
+	result, structured, err := structuredResult(fetchOutput{
 		Found:     true,
 		Reference: ref,
 		Document:  doc,
 	})
+	return withAttachment(result, doc), structured, err
+}
+
+// withAttachment appends the fetched file itself as one MCP content block, for
+// a document whose content is not text (#1657).
+//
+// A picture goes in an image block, which a model looks at; anything else goes
+// in an embedded-resource block carrying the bytes, which the client's own
+// tools open. Before this, a file the server could not read as text resolved to
+// its metadata row, and an agent told a PDF is 400 KB of application/pdf
+// reports that it cannot open the file -- which is the whole of #1657.
+//
+// Why the bytes are unrendered is carried by the document's own `note` field
+// rather than by a second text block, so a client reading structured output
+// gets it too. A nil result, an error result, or a document with no attachment
+// is returned untouched.
+func withAttachment(res *mcp.CallToolResult, doc *knowledge.Document) *mcp.CallToolResult {
+	if res == nil || res.IsError || doc == nil || doc.Attachment == nil {
+		return res
+	}
+	att := doc.Attachment
+	if att.Image {
+		res.Content = append(res.Content, &mcp.ImageContent{Data: att.Bytes, MIMEType: att.MIMEType})
+		return res
+	}
+	res.Content = append(res.Content, &mcp.EmbeddedResource{Resource: &mcp.ResourceContents{
+		URI:      att.URI,
+		MIMEType: att.MIMEType,
+		Blob:     att.Bytes,
+	}})
+	return res
 }
 
 // handleBrowse enumerates one source in full (#695). It is reached when a call

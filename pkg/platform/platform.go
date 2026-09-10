@@ -1683,6 +1683,7 @@ func (p *Platform) initSearch() error {
 		ResourceStore:      p.resources.Store(),
 		ResourceBlobs:      p.resources.S3Client(),
 		ResourceBucket:     p.config.Resources.Managed.S3Bucket,
+		ResourceDocs:       p.resources.DocumentReader(),
 		ResourceReads:      p.resources.ReadRecorder(),
 		ScriptStore:        scriptstore.NewDiscoveryStore(p.db),
 		CallCatalog:        callSearcher(p.audit.Calls()),
@@ -1931,6 +1932,11 @@ func (p *Platform) initManagedResources() error {
 		// before it breaks anything (#1665).
 		p.portalStore.BindResourceHolds(prompt.AsAttachmentStore(p.PromptStore()))
 	}
+
+	// The document reader's PDF extractor holds a WebAssembly instance pool
+	// once it has read one (#1657); nothing starts here, because the module
+	// compiles on the first document rather than at startup.
+	p.lifecycle.OnStop(func(context.Context) error { return handle.Close() })
 
 	// Bind the recorder that audits served resource content (#1014) so the MCP
 	// read path and search fetch record through one implementation. Gated on the

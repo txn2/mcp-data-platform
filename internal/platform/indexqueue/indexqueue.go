@@ -17,6 +17,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/docread"
 	"github.com/txn2/mcp-data-platform/internal/platform/assetindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/callindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/collectionindex"
@@ -140,6 +141,11 @@ type Config struct {
 	// reader leaves the consumer indexing metadata only.
 	ResourceBlobs  resourceindex.BlobReader
 	ResourceBucket string
+
+	// ResourceDocs renders a resource's file into the text it is indexed on:
+	// the text of a PDF or an Office document, not only of a plain-text file
+	// (#1657). Nil falls back to a reader with no PDF extractor bound.
+	ResourceDocs *docread.Reader
 }
 
 // Handle owns the assembled queue and its runtime goroutines. All components
@@ -355,7 +361,7 @@ func (h *Handle) registerDataConsumers(cfg Config) {
 	tryRegister(cfg.Consumers.Resources, "resources", func() error {
 		resStore := resourceindex.NewStore(cfg.DB)
 		return h.registry.Register(
-			resourceindex.NewSource(resStore, cfg.ResourceBlobs, cfg.ResourceBucket),
+			resourceindex.NewSource(resStore, cfg.ResourceBlobs, cfg.ResourceBucket, cfg.ResourceDocs),
 			resourceindex.NewSink(resStore, cfg.ModelName),
 		)
 	})

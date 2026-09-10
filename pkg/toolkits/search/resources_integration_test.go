@@ -283,8 +283,8 @@ func TestResources_WeeklyReportTemplateIsReachableByName(t *testing.T) {
 	}
 }
 
-// AC: a binary resource comes back as metadata plus the canonical URI and size,
-// so the agent knows what it is and how to get it.
+// AC: a non-text resource still carries its record -- the canonical URI, size
+// and media type -- alongside the file itself.
 func TestResources_BinaryFetchReturnsURIAndSize(t *testing.T) {
 	tk := assembledToolkit()
 	got := callFetch(ctxFor(userAID, userAEmail), t, tk, "mcp:resource:res_logo")
@@ -292,7 +292,7 @@ func TestResources_BinaryFetchReturnsURIAndSize(t *testing.T) {
 		t.Fatalf("fetch found=false: %+v", got)
 	}
 	if got.Document.Body != "" {
-		t.Errorf("binary content must not be inlined: %q", got.Document.Body)
+		t.Errorf("an image must not be inlined as text: %q", got.Document.Body)
 	}
 	// The document content is the resource record; it round-trips through JSON as
 	// a map, which is what a client actually receives.
@@ -395,6 +395,97 @@ func TestResources_DeleteLeavesNoGhost(t *testing.T) {
 	if got := callFetch(ctx, t, tk, "mcp:resource:res_dict"); got.Found {
 		t.Errorf("deleted resource still fetchable: %+v", got.Document)
 	}
+}
+
+// AC (#1657): a client fetching an image resource receives the picture. The
+// assertion is on the content blocks a real MCP client gets back over a
+// transport, not on the handler's return value, because the whole defect was
+// that the file never reached the client at all.
+func TestResources_FetchDeliversAnImageToTheClient(t *testing.T) {
+	blocks := fetchContentOverTransport(t, assembledToolkit(), "mcp:resource:res_logo")
+
+	var img *mcp.ImageContent
+	for _, block := range blocks {
+		if got, ok := block.(*mcp.ImageContent); ok {
+			img = got
+		}
+	}
+	if img == nil {
+		t.Fatalf("the fetch result carried no image block: %T", blocks)
+	}
+	if img.MIMEType != "image/png" {
+		t.Errorf("image mime type = %q", img.MIMEType)
+	}
+	if !bytes.Equal(img.Data, []byte{0x89, 'P', 'N', 'G'}) {
+		t.Errorf("the image block did not carry the file's bytes: %v", img.Data)
+	}
+}
+
+// AC (#1657): a family the server cannot read as text is delivered as an
+// embedded resource carrying the bytes, so the client's own tools open it.
+func TestResources_FetchDeliversAnUnreadableFileToTheClient(t *testing.T) {
+	store := seedResourceStore()
+	for i := range store.resources {
+		if store.resources[i].ID == "res_logo" {
+			store.resources[i].MIMEType = "application/vnd.acme.thing"
+		}
+	}
+	blocks := fetchContentOverTransport(t, assembledToolkitWithResources(store), "mcp:resource:res_logo")
+
+	var embedded *mcp.EmbeddedResource
+	for _, block := range blocks {
+		if got, ok := block.(*mcp.EmbeddedResource); ok {
+			embedded = got
+		}
+	}
+	if embedded == nil {
+		t.Fatalf("the fetch result carried no embedded resource: %T", blocks)
+	}
+	if embedded.Resource.URI != "mcp://global/references/margin-chart.png" {
+		t.Errorf("the embedded resource was not addressed: %q", embedded.Resource.URI)
+	}
+	if !bytes.Equal(embedded.Resource.Blob, []byte{0x89, 'P', 'N', 'G'}) {
+		t.Errorf("the embedded resource did not carry the file's bytes: %v", embedded.Resource.Blob)
+	}
+}
+
+// fetchContentOverTransport registers the toolkit on a real server, calls fetch
+// from a real client across an in-memory transport, and returns the content
+// blocks the client received.
+//
+// The caller is anonymous, because a client's context does not cross a
+// transport and nothing here installs the auth middleware that would rebuild
+// one server-side. The references these cases fetch are global resources,
+// which is exactly what an anonymous caller may read.
+func fetchContentOverTransport(t *testing.T, tk *Toolkit, ref string) []mcp.Content {
+	t.Helper()
+	srv := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "0"}, nil)
+	tk.RegisterTools(srv)
+
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	ctx := context.Background()
+	go func() {
+		ss, err := srv.Connect(ctx, serverTransport, nil)
+		if err == nil {
+			_ = ss.Wait()
+		}
+	}()
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "c", Version: "0"}, nil).Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+	t.Cleanup(func() { _ = cs.Close() })
+
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name: fetchToolName, Arguments: map[string]any{"reference": ref},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("fetch reported a tool error: %v", res.Content)
+	}
+	return res.Content
 }
 
 // An agent only learns a reference form exists from what the tools advertise, so

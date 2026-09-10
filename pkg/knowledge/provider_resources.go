@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/txn2/mcp-data-platform/pkg/contenttype"
+	"github.com/txn2/mcp-data-platform/internal/docread"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
@@ -47,14 +47,21 @@ type ResourcesProvider struct {
 	bucket   string
 	reads    resource.ReadRecorder
 	tables   TableLookup
+	docs     *docread.Reader
 }
 
 // NewResourcesProvider builds the resources provider over a resource searcher.
-// blobs and bucket locate the file contents fetch returns inline for text
-// resources; a nil reader (no S3 connection configured for resources) leaves
-// fetch returning metadata plus the canonical URI for every resource.
-func NewResourcesProvider(searcher ResourceSearcher, blobs ResourceContentReader, bucket string) *ResourcesProvider {
-	return &ResourcesProvider{searcher: searcher, blobs: blobs, bucket: bucket}
+// blobs and bucket locate the file contents fetch returns for a resource; a nil
+// reader (no S3 connection configured for resources) leaves fetch returning
+// metadata plus the canonical URI for every resource.
+//
+// docs renders a file into what a reader can use; a nil one falls back to a
+// reader with no PDF extractor bound, which serves a PDF as its bytes.
+func NewResourcesProvider(searcher ResourceSearcher, blobs ResourceContentReader, bucket string, docs *docread.Reader) *ResourcesProvider {
+	if docs == nil {
+		docs = docread.New(nil)
+	}
+	return &ResourcesProvider{searcher: searcher, blobs: blobs, bucket: bucket, docs: docs}
 }
 
 // SetReadRecorder binds the recorder that audits resources dereferenced through
@@ -131,11 +138,18 @@ func (p *ResourcesProvider) Search(ctx context.Context, q Query) ([]Hit, error) 
 }
 
 // Fetch dereferences an mcp:resource:<id> reference to the resource's full
-// metadata, plus its content inline when the resource is text at or under the
-// shared inline threshold (resource.MaxInlineContentBytes, the same threshold
-// the resources/read middleware applies). A binary or oversized resource returns
-// metadata alone: the record carries the canonical mcp:// URI, MIME type, and
-// size, which is what the agent needs to decide how to read it.
+// metadata plus its content, in whichever form the file admits
+// (internal/docread): text for a textual file, a PDF and a zip-container
+// document; the picture itself for an image; and the bytes as they are for a
+// family with no reader. Only a file above the shared inline threshold
+// (resource.MaxInlineContentBytes, the same threshold the resources/read
+// middleware applies) comes back as metadata alone, with the canonical mcp://
+// URI to read it by.
+//
+// Until #1657 every non-textual file came back as metadata alone, and an agent
+// handed a PDF's size and MIME type concluded the platform was refusing it the
+// file. Metadata is now what a caller gets when the file is too large to carry,
+// and nothing else.
 //
 // One deliberate difference from resources/read: this path checks the RECORDED
 // size before fetching, so an oversized object is never pulled into memory just
@@ -181,12 +195,12 @@ func (p *ResourcesProvider) Fetch(ctx context.Context, ref string, caller Caller
 		Reference: ref,
 		Source:    SourceResources,
 		Title:     res.DisplayName,
-		Body:      p.inlineContent(ctx, res),
 		Content:   res,
 		Tables: lookupTables(ctx, p.tables, TableSubject{
 			Kind: TableKindResource, ID: res.ID, Bucket: p.bucket, HeadKey: res.S3Key,
 		}),
 	}
+	doc.Body, doc.Attachment, doc.Note = p.content(ctx, res)
 	p.recordRead(ctx, res, caller)
 	return doc, true, nil
 }
@@ -209,29 +223,84 @@ func (p *ResourcesProvider) recordRead(ctx context.Context, res *resource.Resour
 	})
 }
 
-// inlineContent returns the resource's content as text when it is a text-family
-// resource at or under the inline threshold, and "" otherwise. A blob read
-// failure is logged and degrades to metadata-only rather than failing the fetch:
-// the caller still learns what the resource is and where to read it.
-func (p *ResourcesProvider) inlineContent(ctx context.Context, res *resource.Resource) string {
-	if p.blobs == nil || res.S3Key == "" || !contenttype.IsTextual(res.MIMEType) {
-		return ""
+// content returns the resource's content in the form its family admits -- text
+// in the document body, or the bytes themselves as an attachment the fetch
+// surface turns into an MCP content block -- plus one line about the rendering
+// for the reader of the document.
+//
+// A file with no blob storage behind it, one above the inline threshold, or a
+// read that failed yields neither, and the note says which. A blob read failure
+// is logged and degrades to metadata rather than failing the fetch: the caller
+// still learns what the resource is and where to read it.
+func (p *ResourcesProvider) content(ctx context.Context, res *resource.Resource) (text string, attached *Attachment, note string) {
+	if p.blobs == nil || res.S3Key == "" {
+		return "", nil, ""
 	}
 	if res.SizeBytes > resource.MaxInlineContentBytes {
-		return ""
+		return "", nil, tooLargeNote(res)
 	}
 	body, _, err := p.blobs.GetObject(ctx, p.bucket, res.S3Key)
 	if err != nil {
 		slog.Warn("resource fetch: content read failed; returning metadata only",
 			"resource_id", res.ID, "error", err) //nolint:gosec // structured slog of a store error
-		return ""
+		return "", nil, "This file's content could not be read just now. Its record is below; " +
+			readByURI(res)
 	}
 	// The recorded size can disagree with the object (a re-upload outside the
 	// handler), so bound on what was actually read as well.
 	if int64(len(body)) > resource.MaxInlineContentBytes {
-		return ""
+		return "", nil, tooLargeNote(res)
 	}
-	return string(body)
+
+	read := p.docs.Read(ctx, res.MIMEType, res.Filename, body, resource.MaxInlineContentBytes)
+	if read.Form == docread.FormText {
+		return read.Text, nil, textNote(read, res)
+	}
+	return "", &Attachment{
+		URI:      res.URI,
+		MIMEType: res.MIMEType,
+		Bytes:    body,
+		Image:    read.Form == docread.FormImage,
+	}, attachedNote(read)
+}
+
+// tooLargeNote explains the one case that still answers with metadata alone,
+// and names the door that has no size limit.
+func tooLargeNote(res *resource.Resource) string {
+	return fmt.Sprintf("This file is %d bytes, above the %d-byte limit on content carried in a fetch. %s",
+		res.SizeBytes, resource.MaxInlineContentBytes, readByURI(res))
+}
+
+// readByURI names the URI and the method that reads a whole file.
+func readByURI(res *resource.Resource) string {
+	return fmt.Sprintf("Read it with the MCP resources/read method at %s, which has no such limit.", res.URI)
+}
+
+// textNote reports a body that is a prefix rather than the whole file, so a
+// reader never mistakes a bounded answer for a complete one.
+func textNote(read docread.Result, res *resource.Resource) string {
+	if !read.Truncated {
+		return read.Note
+	}
+	note := "Only the first part of this file is shown here. " + readByURI(res)
+	if read.Note != "" {
+		return read.Note + " " + note
+	}
+	return note
+}
+
+// attachedNote says where the file went, since the document's body is empty
+// and a reader given no explanation concludes the content was withheld --
+// which is the report #1657 was filed as.
+func attachedNote(read docread.Result) string {
+	where := "The file is attached to this result as an embedded resource; open it with your own tools."
+	if read.Form == docread.FormImage {
+		where = "The picture is attached to this result as an image; look at it directly."
+	}
+	if read.Note != "" {
+		return read.Note + ". " + where
+	}
+	return where
 }
 
 // callerClaims maps a search caller onto the resource permission claims, so the

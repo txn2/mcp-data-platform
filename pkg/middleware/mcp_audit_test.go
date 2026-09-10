@@ -422,6 +422,24 @@ func TestCalculateResponseSize_MultipleItems(t *testing.T) {
 	assert.Equal(t, 2, blocks)
 }
 
+// A fetched file rides in an embedded resource (#1657), and it is the largest
+// thing a tool result carries. Not counting it recorded the biggest responses
+// the platform produces as costing nothing.
+func TestCalculateResponseSize_EmbeddedResource(t *testing.T) {
+	result := &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: "hi"},
+			&mcp.EmbeddedResource{Resource: &mcp.ResourceContents{
+				URI: "mcp://global/refs/f.bin", Blob: make([]byte, 512),
+			}},
+			&mcp.EmbeddedResource{Resource: nil},
+		},
+	}
+	chars, blocks := calculateResponseSize(result, nil)
+	assert.Equal(t, 514, chars)
+	assert.Equal(t, 3, blocks)
+}
+
 func TestCalculateResponseSize_ErrorResult(t *testing.T) {
 	result := &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: "hello"}},
