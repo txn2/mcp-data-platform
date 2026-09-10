@@ -124,10 +124,12 @@ test-realdb:
 	docker rm -f $(REALDB_PG_CONTAINER) >/dev/null 2>&1 || true; \
 	docker run -d --name $(REALDB_PG_CONTAINER) \
 		-e POSTGRES_USER=test -e POSTGRES_PASSWORD=test -e POSTGRES_DB=postgres \
-		-p 127.0.0.1:$(REALDB_PG_PORT):5432 $(REALDB_PG_IMAGE) \
+		-p 127.0.0.1::5432 $(REALDB_PG_IMAGE) \
 		-c max_connections=400 -c fsync=off -c full_page_writes=off \
 		-c synchronous_commit=off >/dev/null; \
-	echo "  waiting for Postgres on :$(REALDB_PG_PORT)..."; \
+	pg_port=$$(docker port $(REALDB_PG_CONTAINER) 5432/tcp | head -1 | sed 's/.*://'); \
+	if [ -z "$$pg_port" ]; then echo "FAIL: could not read the published Postgres port" >&2; exit 1; fi; \
+	echo "  waiting for Postgres on :$$pg_port..."; \
 	for i in $$(seq 1 60); do \
 		docker exec $(REALDB_PG_CONTAINER) pg_isready -h localhost -p 5432 -U test >/dev/null 2>&1 && break; \
 		if [ "$$i" = "60" ]; then echo "FAIL: Postgres did not become ready" >&2; exit 1; fi; \
@@ -136,9 +138,9 @@ test-realdb:
 	echo "  building the migrated template once..."; \
 	docker exec $(REALDB_PG_CONTAINER) psql -U test -d postgres -q \
 		-c 'CREATE DATABASE $(REALDB_TEMPLATE)'; \
-	MIGRATE_TEST_DSN="postgres://test:test@localhost:$(REALDB_PG_PORT)/$(REALDB_TEMPLATE)?sslmode=disable" \
+	MIGRATE_TEST_DSN="postgres://test:test@localhost:$$pg_port/$(REALDB_TEMPLATE)?sslmode=disable" \
 		$(GOTEST) -count=1 -run TestMigrationsAgainstRealPostgres ./pkg/database/migrate/ >/dev/null; \
-	TESTDB_DSN="postgres://test:test@localhost:$(REALDB_PG_PORT)/postgres?sslmode=disable" \
+	TESTDB_DSN="postgres://test:test@localhost:$$pg_port/postgres?sslmode=disable" \
 	TESTDB_TEMPLATE="$(REALDB_TEMPLATE)" \
 		$(GOTEST) -count=1 -p 4 -tags=integration -run 'RealDB' ./...
 	@echo "Real-DB gate passed."
@@ -157,7 +159,7 @@ smoke:
 # planner only rejects against a live engine (e.g. a non-IMMUTABLE function in an
 # index expression), down-migration dependency-order bugs, and dev-seed rot.
 # sqlmock and the embedded-file presence checks cannot catch these. Provisions
-# its own container on a non-default port so it never touches the dev DB.
+# its own container on its own port so it never touches the dev DB.
 # Run against every PostgreSQL major a deployment may be on, because the engine
 # is what decides whether this SQL is legal and the majors disagree. PostgreSQL
 # 17 restricts search_path to pg_catalog and pg_temp during maintenance
@@ -168,8 +170,16 @@ smoke:
 # are off because this database exists for the duration of one gate run and is
 # thrown away; durability settings only buy crash recovery nobody wants here,
 # and they dominate the cost of 163 schema clones.
+#
+# Neither gate names a host port. This machine runs many projects at once, and a
+# fixed port is a standing appointment to collide with one of them: 55432 was
+# already held by another project's Postgres and migrate-check died on the bind
+# rather than on anything in the diff. `-p 127.0.0.1::5432` hands the choice to
+# the kernel, which picks one that is free at that instant; `docker port` reads
+# back which. Nothing outside the gate needs to reach these containers -- the
+# DSN is built here and handed to the test process -- so the port never has to
+# be predictable, only free.
 REALDB_PG_CONTAINER := mcpdp-realdb-pg
-REALDB_PG_PORT      := 55433
 REALDB_PG_IMAGE     := pgvector/pgvector:pg16
 REALDB_TEMPLATE     := testdb_template
 
@@ -177,7 +187,6 @@ MIGRATE_PG_IMAGES := \
 	pgvector/pgvector:pg16@sha256:00ba258a66dac104fd5171074a0084462a64a1369d8513f3d0a634e2f24d15bc \
 	pgvector/pgvector:pg17@sha256:cf134a767f474095eeba57e0117be8e568e011a63f33fbf252f14c9b760f8e6f
 MIGRATE_PG_CONTAINER := mcp-migrate-check-pg
-MIGRATE_PG_PORT := 55432
 
 ## migrate-check: Apply all migrations + seed to a throwaway real Postgres, per major
 migrate-check:
@@ -189,14 +198,16 @@ migrate-check:
 		docker rm -f $(MIGRATE_PG_CONTAINER) >/dev/null 2>&1 || true; \
 		docker run -d --name $(MIGRATE_PG_CONTAINER) \
 			-e POSTGRES_USER=migrate -e POSTGRES_PASSWORD=migrate -e POSTGRES_DB=migrate_check \
-			-p 127.0.0.1:$(MIGRATE_PG_PORT):5432 $$img >/dev/null; \
-		echo "  waiting for Postgres on :$(MIGRATE_PG_PORT)..."; \
+			-p 127.0.0.1::5432 $$img >/dev/null; \
+		pg_port=$$(docker port $(MIGRATE_PG_CONTAINER) 5432/tcp | head -1 | sed 's/.*://'); \
+		if [ -z "$$pg_port" ]; then echo "FAIL: could not read the published Postgres port" >&2; exit 1; fi; \
+		echo "  waiting for Postgres on :$$pg_port..."; \
 		for i in $$(seq 1 60); do \
 			docker exec $(MIGRATE_PG_CONTAINER) pg_isready -h localhost -p 5432 -U migrate -d migrate_check >/dev/null 2>&1 && break; \
 			if [ "$$i" = "60" ]; then echo "FAIL: Postgres did not become ready" >&2; exit 1; fi; \
 			sleep 1; \
 		done; \
-		MIGRATE_TEST_DSN="postgres://migrate:migrate@localhost:$(MIGRATE_PG_PORT)/migrate_check?sslmode=disable" \
+		MIGRATE_TEST_DSN="postgres://migrate:migrate@localhost:$$pg_port/migrate_check?sslmode=disable" \
 			$(GOTEST) -count=1 -run TestMigrationsAgainstRealPostgres ./pkg/database/migrate/; \
 		docker rm -f $(MIGRATE_PG_CONTAINER) >/dev/null 2>&1 || true; \
 	done
