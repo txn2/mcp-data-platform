@@ -36,7 +36,7 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | Portal | `save_asset` | Save AI-generated content as an asset (JSX, HTML, SVG, etc.) |
 | Portal | `manage_asset` | List, get, update, delete, or relevance-search saved assets and collections, edit asset content in place (patch, locate, get_content, outline, stats, diff), and share an asset with a person or as a link (share, list_shares, revoke_share) |
 | Portal | `manage_table` | Make a stored CSV queryable as a table and manage what is registered over it (register, list, unregister). Takes the `reference` a search hit carries, so it serves an uploaded resource and a saved asset through one action |
-| Portal | `manage_resource` | Write a file into the managed resource library (create, replace_content): the files a saved asset references. A replacement keeps the resource's id, URI and filename, so every asset referencing it serves the new bytes without being re-saved |
+| Portal | `manage_resource` | Manage a file in the managed resource library (create, replace_content, get, list, delete): the files a saved asset references. A replacement keeps the resource's id, URI and filename, so every asset referencing it serves the new bytes without being re-saved; `create` with `if_exists=replace` makes landing one rolling file idempotent, and a delete is refused while anything still points at the file |
 | Portal | `manage_feedback` | Review and respond to human feedback (list pending across everything, get, reply, resolve, request/respond validation) |
 | Platform | `platform_find_tools` | Find the most relevant tools for a natural-language task, ranked by semantic similarity (persona-scoped) |
 | Platform | `manage_prompt` | Resolve and run prompts by any handle (`use`), plus create, update, delete, list, get, the script-reference commands (attach_script, detach_script), and the content verbs (patch, locate, get_content, outline, stats, diff) |
@@ -1023,22 +1023,27 @@ Registering is the authority to change the file, not the authority to read it: a
 
 ### manage_resource
 
-Write a file into the [managed resource library](../portal/resources.md). A managed resource is the only kind of file a saved asset can reference, and until this tool existed the only way to put one there was a person at an upload form. That left the data half of a referencing asset unrefreshable by the platform itself: an agent could rewrite a report on a schedule and could not rewrite the CSV the report reads.
+Manage a file in the [managed resource library](../portal/resources.md). A managed resource is the only kind of file a saved asset can reference, and until this tool existed the only way to put one there was a person at an upload form. That left the data half of a referencing asset unrefreshable by the platform itself: an agent could rewrite a report on a schedule and could not rewrite the CSV the report reads.
 
 The loop it closes is one call each way. `create` files the data and reports the `mcp://` URI to hand to `save_asset`'s `references` argument; `replace_content` writes new bytes over that file later. Because a replacement keeps the resource's id, its canonical URI and its filename, every asset referencing it serves the new content without being re-saved, and every citation and prompt attachment pointing at it keeps resolving.
+
+The other three actions close the lifecycle around those two (#1665). `get` answers what is filed at an address, `list` reports a folder, and `delete` removes a file. Without them a caller had to remember the id of everything it ever wrote: `create` refuses an address that is already taken, `replace_content` needs an `mcp:resource:` reference, and `search` is relevance-ranked, so a file it does not return is not a file that is not there.
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `action` | string | Yes | - | `create` or `replace_content` |
-| `reference` | string | Conditional | - | The resource to write over, `mcp:resource:<id>` (required for `replace_content`) |
+| `action` | string | Yes | - | `create`, `replace_content`, `get`, `list` or `delete` |
+| `reference` | string | Conditional | - | The resource to act on, `mcp:resource:<id>`. Required for `replace_content`; for `get` and `delete` it is the alternative to naming the address |
+| `if_exists` | string | No | `fail` | What a `create` does when the address already holds a file: `fail` refuses it, `replace` records the next version of what is there |
+| `force` | boolean | No | `false` | Delete a file even though something still points at it |
+| `limit`, `offset` | integer | No | `100`, `0` | Page a `list`; 100 is also the largest page |
 | `content` | string | Conditional | - | The file as text: CSV, JSON, Markdown, SVG |
 | `content_base64` | string | Conditional | - | The file as base64-encoded bytes, for a binary file such as a PNG or a PDF. One of the two, never both |
 | `content_type` | string | Conditional | - | Media type the bytes are (required for `create`); `replace_content` keeps the type the resource already carries when it is absent |
-| `filename` | string | Conditional | - | Name of the file (required for `create`); `replace_content` ignores it |
+| `filename` | string | Conditional | - | Name of the file. Required for `create`, and for a `get` or `delete` that names the address; `replace_content` ignores it |
 | `display_name`, `description` | string | Conditional | - | Required for `create`: what the library shows |
-| `path` | string | Conditional | - | Required for `create`: the folder path inside the library, for example `datasets` or `datasets/media-manager/shows`. Each folder name is lowercase letters, digits and hyphens starting with a letter; at most 8 folders deep and 200 characters. Two files with the same filename in the same folder collide; in two folders they do not |
+| `path` | string | Conditional | - | The folder path inside the library, for example `datasets` or `datasets/media-manager/shows`. Required for `create`, and for a `get` or `delete` that names the address; for `list` it is the folder the listing is rooted at, and everything beneath it is included. Each folder name is lowercase letters, digits and hyphens starting with a letter; at most 8 folders deep and 200 characters. Two files with the same filename in the same folder collide; in two folders they do not |
 | `tags` | string[] | No | `[]` | Tags for filtering in the library |
 | `scope`, `scope_id` | string | No | your own user scope | `user`, `persona`, or `global` |
 | `change_summary` | string | No | generated | Why the content changed, shown in the version history beside the revision |
@@ -1047,6 +1052,17 @@ The loop it closes is one call each way. `create` files the data and reports the
 
 - **create**: file new content and report its `resource_id`, its `mcp:resource:` reference, and its `mcp://` URI
 - **replace_content**: write new bytes over an existing resource and report the `version` the content was recorded as, and `tables`: one sentence per table registered over the file, saying it followed onto the new version or is pinned and now behind it ([Following the file](registered-tables.md#following-the-file))
+- **get**: report what is filed at an address (`scope` + `path` + `filename`), or what a reference names, without the bytes. `found: false` and the `uri` it looked up is the answer for an empty address, not an error
+- **list**: report the files under a folder, newest first, with the `total` the page was cut from
+- **delete**: remove a file and its version history
+
+**Landing one rolling file.** A caller that lands the same file on a schedule passes `if_exists: replace` on `create`. The first call creates the file, every call after it records the next version of that same file, and the result's `version` says which happened. The address is the identity, so the caller keeps no id: a [managed script](../scripts/running.md) whose state is cleared or rewritten lands its next run at the same address instead of colliding. It is the same create-or-replace an export's [resource destination](api-gateway.md#landing-a-response-in-a-managed-resource) performs, reached from the write tool rather than from an export.
+
+**What a delete refuses.** Two kinds of record point at a managed resource and neither is a foreign key: an asset's content references it, and a prompt attaches it as reference material. Deleting the file deliberately leaves both rows behind, so the thing that depended on it reports the material as missing rather than losing the evidence it ever had any. Nothing in the database therefore stops the delete, which is why the tool does: a `delete` is refused while either of them, or a query-engine table registered over the file, still points at it, and the refusal says how many of each. Pass `force: true` to delete anyway, which leaves each of those pointing at a file that is not there and drops any table over it.
+
+A knowledge page is not a third: the platform refuses an `mcp:resource:` citation on a shared page, because a resource is visibility-scoped and the citation would be broken for every reader outside that scope, so no page can point at one.
+
+The counts are counts and not names because each of those records carries an audience of its own and the person deleting the file is not necessarily in any of it; the portal's Used-by panel on the file resolves those audiences and names what its reader may open. A table is named, because `manage_table` already names it to the same caller. A deployment that cannot establish what depends on a file refuses the delete and says so rather than reporting that nothing does.
 
 **Declaring the type.** A `create` says what the bytes are and a create that does not is refused. The type is not detected on this path because the families an agent writes cannot be named from content: SVG, HTML, JSX and Markdown are all stored `text/plain` when nothing is declared, and `text/plain` is served under `nosniff`, so an `<img>` naming that file is a broken image on every surface with nothing reporting a problem. A `replace_content` keeps the type the resource already carries, so refreshing a file cannot reclassify it under every reference to it; declare one there only to change what family the file is. The types to choose between are listed on the built-in knowledge page `mcp:knowledge_page:platform-content-types-for-stored-files` and in [Content Types and Viewers](content-viewers.md).
 
@@ -1054,7 +1070,7 @@ Both are capped at `portal.max_content_size` (10 MB by default), the same cap `s
 
 A replacement goes through the same revision path the portal's replace-content button uses, so it lands in the resource's version history with its author and its change summary recorded, the prior version stays restorable, and the resource is re-announced to connected clients so nobody keeps serving the bytes it moved off.
 
-**Who may write.** Creating is scope authority: your own user scope (the default, and the one place every signed-in caller may write), a persona you administer, or the global scope as a platform administrator. A refusal names the scope rather than the file, because where it was filed is what the caller has to change. Replacing is the authority to change that file: its uploader, or an administrator of its scope. A resource you cannot see is answered as absent, whether it is missing, deleted, or somebody else's.
+**Who may write.** Creating is scope authority: your own user scope (the default, and the one place every signed-in caller may write), a persona you administer, or the global scope as a platform administrator. A refusal names the scope rather than the file, because where it was filed is what the caller has to change. Replacing and deleting are the authority to change that file: its uploader, or an administrator of its scope. Deleting is not a stronger authority than overwriting, because a replacement already leaves nothing of the previous content beyond the version trail a delete takes with it. A resource you cannot see is answered as absent, whether it is missing, deleted, or somebody else's. A `list` shows only the libraries you can see, and naming one you cannot narrows the answer to nothing rather than widening it.
 
 A [managed script](../scripts/running.md) reaches this tool through `platform.call` like any other, under its version author's permissions, which is what makes a scheduled refresh of a referenced file possible without a person in the loop. A run authenticates as a principal that owns no file, so the resource rules read the address it acts for: a create with no scope named files into the **author's** own library rather than the principal's, and a replacement reaches a file the author uploaded through the portal. See [Script security](../scripts/security.md#who-a-run-acts-for) and [Asset References](asset-references.md).
 

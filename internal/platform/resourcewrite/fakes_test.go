@@ -32,6 +32,12 @@ type memStore struct {
 	getByURIErr error
 	// addRevisionErr, if set, is what the next AddRevision returns.
 	addRevisionErr error
+	// listErr, if set, is what List returns: a store that could not answer a
+	// listing.
+	listErr error
+	// listVersionsErr, if set, is what ListVersions returns, which is the
+	// version trail a delete reads to reclaim superseded blobs.
+	listVersionsErr error
 	// aliases maps every address a resource has vacated by being moved to the
 	// resource that vacated it, which is what the Postgres store records inside
 	// a move's transaction (resource_uri_aliases). GetByURI consults it after a
@@ -123,15 +129,62 @@ func (m *memStore) GetByURI(_ context.Context, uri string) (*resource.Resource, 
 	return nil, fmt.Errorf("resource %s: %w", uri, errNoRow)
 }
 
-func (m *memStore) List(_ context.Context, _ resource.Filter) ([]resource.Resource, int, error) {
+// List applies the filter the way the Postgres store's WHERE clause does: the
+// visible libraries, the folder prefix, then the page, with the total counted
+// before the page is cut.
+//
+// The filter is honored rather than ignored because it is the whole of what the
+// listing path decides: a fake that answered every row would let a test pass
+// while the caller was being shown another library's files.
+func (m *memStore) List(_ context.Context, f resource.Filter) ([]resource.Resource, int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.listErr != nil {
+		return nil, 0, m.listErr
+	}
 	out := make([]resource.Resource, 0, len(m.resources))
 	for _, r := range m.resources {
+		if !f.AllScopes && !visibleIn(f.Scopes, r) {
+			continue
+		}
+		if !resource.PathUnder(r.Path, f.Path) {
+			continue
+		}
 		out = append(out, *r)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-	return out, len(out), nil
+	// Newest first, the store's default ordering; the id breaks a tie so the
+	// order is stable across runs rather than map-order.
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].UpdatedAt.Equal(out[j].UpdatedAt) {
+			return out[i].UpdatedAt.After(out[j].UpdatedAt)
+		}
+		return out[i].ID < out[j].ID
+	})
+	total := len(out)
+	if f.Offset > 0 {
+		if f.Offset >= len(out) {
+			return []resource.Resource{}, total, nil
+		}
+		out = out[f.Offset:]
+	}
+	if f.Limit > 0 && len(out) > f.Limit {
+		out = out[:f.Limit]
+	}
+	return out, total, nil
+}
+
+// visibleIn reports whether a resource is in one of the libraries a listing was
+// narrowed to.
+func visibleIn(scopes []resource.ScopeFilter, r *resource.Resource) bool {
+	for _, s := range scopes {
+		if s.Scope != r.Scope {
+			continue
+		}
+		if s.Scope == resource.ScopeGlobal || s.ScopeID == r.ScopeID {
+			return true
+		}
+	}
+	return false
 }
 
 func (*memStore) Update(_ context.Context, _ string, _ resource.Update) error { return nil }
@@ -226,6 +279,9 @@ func (m *memStore) AddRevision(_ context.Context, rev resource.Revision) (*resou
 func (m *memStore) ListVersions(_ context.Context, resourceID string) ([]resource.Version, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.listVersionsErr != nil {
+		return nil, m.listVersionsErr
+	}
 	stored := m.versions[resourceID]
 	out := make([]resource.Version, len(stored))
 	copy(out, stored)
@@ -307,6 +363,9 @@ type memBlobs struct {
 	// deleted records the keys DeleteObject was asked to remove, so a test can
 	// assert that a failed write cleaned up after itself.
 	deleted []string
+	// deleteErr, if set, is what DeleteObject returns, which is a storage
+	// backend that will not let go of an object.
+	deleteErr error
 }
 
 func newMemBlobs() *memBlobs { return &memBlobs{objects: map[string][]byte{}} }
@@ -337,6 +396,9 @@ func (b *memBlobs) DeleteObject(_ context.Context, bucket, key string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.deleted = append(b.deleted, bucket+"/"+key)
+	if b.deleteErr != nil {
+		return b.deleteErr
+	}
 	delete(b.objects, bucket+"/"+key)
 	return nil
 }

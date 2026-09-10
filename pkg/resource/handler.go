@@ -1023,17 +1023,12 @@ func (h *Handler) handleDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	id := res.ID
 
-	// Delete the blobs first — the head's failure fails the request, to avoid
-	// leaving a live object no row points at.
-	if err := h.deleteAllBlobs(r.Context(), res); err != nil {
-		slog.Error("resource delete: s3 delete failed", msgError, err) //nolint:gosec // structured slog
-		writeError(w, http.StatusInternalServerError, "deleting resource blob")
-		return
-	}
-
-	// The version rows go with the resource row (ON DELETE CASCADE).
-	if err := h.deps.Store.Delete(r.Context(), id); err != nil {
-		slog.Error("resource delete failed", msgError, err)
+	if err := DeleteResource(r.Context(), h.deps, res); err != nil {
+		slog.Error("resource delete failed", msgError, err) //nolint:gosec // structured slog
+		if errors.Is(err, ErrDeleteContent) {
+			writeError(w, http.StatusInternalServerError, "deleting resource blob")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "deleting resource")
 		return
 	}

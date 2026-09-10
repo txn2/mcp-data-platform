@@ -1909,6 +1909,9 @@ func (p *Platform) initManagedResources() error {
 		URIScheme:   handle.URIScheme(),
 		MaxVersions: p.config.Resources.Managed.MaxVersions,
 		Registered:  p.RegisterManagedResource,
+		// The counterpart for a delete (#1665): a client that has already
+		// listed goes on offering a file that is gone without it.
+		Unregistered: p.UnregisterManagedResource,
 		// The same record the portal's asset write funnels fill, so an agent's
 		// resource write and its asset write name the same producer (#1569).
 		Producers: p.portalStore.Producers(),
@@ -1924,6 +1927,9 @@ func (p *Platform) initManagedResources() error {
 		})
 		lander.SetTableFollower(p.portalStore.FollowResourceTables)
 		p.portalStore.BindResourceLander(lander)
+		// What still points at a file, which a delete puts to its caller
+		// before it breaks anything (#1665).
+		p.portalStore.BindResourceHolds(prompt.AsAttachmentStore(p.PromptStore()))
 	}
 
 	// Bind the recorder that audits served resource content (#1014) so the MCP

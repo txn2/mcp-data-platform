@@ -29,15 +29,16 @@ const (
 // fakeTableRegistrar records what the tool asked for and returns what a real
 // registrar would.
 type fakeTableRegistrar struct {
-	registered []TableRegistration
-	dropped    []string
-	droppedAll []string
-	lastRef    string
-	lastConn   string
-	lastName   string
-	lastRepair bool
-	lastFollow bool
-	repaired   string
+	registered       []TableRegistration
+	dropped          []string
+	droppedAll       []string
+	droppedResources []string
+	lastRef          string
+	lastConn         string
+	lastName         string
+	lastRepair       bool
+	lastFollow       bool
+	repaired         string
 	// followed is what the fake answers a content write with, and followedFor
 	// records which files it was asked about, as kind:id:version.
 	followed      []string
@@ -86,6 +87,10 @@ func (f *fakeTableRegistrar) Tables(_ context.Context, reference string) ([]Tabl
 
 func (f *fakeTableRegistrar) DropAssetTables(_ context.Context, assetID string) {
 	f.droppedAll = append(f.droppedAll, assetID)
+}
+
+func (f *fakeTableRegistrar) DropResourceTables(_ context.Context, resourceID string) {
+	f.droppedResources = append(f.droppedResources, resourceID)
 }
 
 func (f *fakeTableRegistrar) FollowAssetTables(_ context.Context, assetID string, version int) []string {

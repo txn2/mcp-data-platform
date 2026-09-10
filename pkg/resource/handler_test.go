@@ -1489,6 +1489,39 @@ func TestHandleDelete_StoreError(t *testing.T) {
 	}
 }
 
+// deleteErrS3 refuses to remove an object, which is a storage backend that
+// will not let go of the bytes a delete is trying to reclaim.
+type deleteErrS3 struct {
+	mockS3
+}
+
+func (*deleteErrS3) DeleteObject(_ context.Context, _, _ string) error {
+	return errors.New("bucket unreachable")
+}
+
+// TestHandleDelete_BlobError proves the record survives a storage failure. The
+// blobs go first so a failure cannot leave a live object no row points at, and
+// the row is what would otherwise be lost while the object stayed.
+func TestHandleDelete_BlobError(t *testing.T) {
+	store := newMockStore()
+	s3 := &deleteErrS3{mockS3: *newMockS3()}
+	seedResource(store, &s3.mockS3, "res-1", ScopeGlobal, "", "user-123")
+
+	h := NewHandler(Deps{Store: store, S3Client: s3, S3Bucket: "b", URIScheme: "mcp"}, okExtractor, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete,
+		"/api/v1/resources/res-1", http.NoBody)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if got, err := store.Get(context.Background(), "res-1"); err != nil || got == nil {
+		t.Fatalf("the record is gone after a failed content delete: %v, %v", got, err)
+	}
+}
+
 // errS3 returns errors from GetObject.
 type errS3 struct {
 	mockS3

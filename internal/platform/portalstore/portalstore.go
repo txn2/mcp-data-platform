@@ -27,6 +27,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/collectionindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/knowledgepageindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/notices"
+	"github.com/txn2/mcp-data-platform/internal/platform/resourceholds"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcewrite"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefstore"
@@ -267,6 +268,42 @@ func (h *Handle) BindResourceWriter(w portalkit.ResourceWriter) {
 		return
 	}
 	h.toolkit.SetResourceWriter(w)
+}
+
+// BindResourceHolds gives manage_resource's delete the answer to "what still
+// points at this file?" (#1665).
+//
+// The two reverse lookups it is built from live in two layers: the asset
+// references are this Handle's own store, and the prompt attachments are the
+// prompt layer's, which is why that half arrives as an argument. A Handle that
+// is never bound leaves a delete saying it cannot establish what depends on the
+// file, which is the honest answer and not the same as "nothing does".
+func (h *Handle) BindResourceHolds(attachments resourceholds.Attachments) {
+	if h == nil || h.toolkit == nil {
+		return
+	}
+	h.toolkit.SetResourceHolds(holdReader{checker: resourceholds.New(resourceholds.Deps{
+		Refs:        h.contentRefs,
+		Attachments: attachments,
+	})})
+}
+
+// holdReader adapts the checker's counts to the shape the asset toolkit
+// publishes. The two types are the same three fields, kept apart so the checker
+// depends on no toolkit and the toolkit depends on no reverse lookup.
+type holdReader struct {
+	checker *resourceholds.Checker
+}
+
+// ResourceHolds carries the checker's counts across into the toolkit's type.
+func (h holdReader) ResourceHolds(ctx context.Context, resourceID string) (portalkit.ResourceHolds, error) {
+	holds, err := h.checker.ResourceHolds(ctx, resourceID)
+	if err != nil {
+		return portalkit.ResourceHolds{}, err //nolint:wrapcheck // the checker's sentence names the lookup
+	}
+	return portalkit.ResourceHolds{
+		Assets: holds.Assets, Prompts: holds.Prompts, More: holds.More,
+	}, nil
 }
 
 // ResourceLanding is the managed-resource destination to hand an export tool at

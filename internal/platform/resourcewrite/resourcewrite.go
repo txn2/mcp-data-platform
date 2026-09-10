@@ -50,6 +50,9 @@ type Writer struct {
 	// re-reads it. Without it a replacement is invisible to every client that
 	// has already listed.
 	registered func(*resource.Resource)
+	// unregistered takes a deleted resource out of that same list, keyed on
+	// the URI it was registered under.
+	unregistered func(uri string)
 }
 
 // Deps is what a writer is assembled from: the record store, the blob client
@@ -62,6 +65,10 @@ type Deps struct {
 	URIScheme   string
 	MaxVersions int
 	Registered  func(*resource.Resource)
+	// Unregistered takes a deleted resource out of the MCP resource list,
+	// keyed on the URI it was registered under. Nil leaves a deleted file
+	// listed until the next reload.
+	Unregistered func(uri string)
 	// Producers records what wrote each resource (#1569). Nil records nothing.
 	Producers producedby.Store
 }
@@ -90,7 +97,8 @@ func New(d Deps) *Writer {
 			MaxVersions: d.MaxVersions,
 			Producers:   d.Producers,
 		},
-		registered: d.Registered,
+		registered:   d.Registered,
+		unregistered: d.Unregistered,
 	}
 }
 

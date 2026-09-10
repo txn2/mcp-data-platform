@@ -118,6 +118,13 @@ func (a *ToolAdapter) DropAssetTables(ctx context.Context, assetID string) {
 	a.reg.UnregisterAllForSource(ctx, KindAsset, assetID)
 }
 
+// DropResourceTables removes every table registered over a deleted managed
+// resource (#1665). It is DropAssetTables for the other source kind, and the
+// same drop the REST delete route reaches through the store's delete hook.
+func (a *ToolAdapter) DropResourceTables(ctx context.Context, resourceID string) {
+	a.reg.UnregisterAllForSource(ctx, KindResource, resourceID)
+}
+
 // FollowAssetTables moves the following registrations over an asset onto the
 // version a write just produced, and reports every registration over it.
 func (a *ToolAdapter) FollowAssetTables(ctx context.Context, assetID string, version int) []string {

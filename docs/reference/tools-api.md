@@ -1216,7 +1216,9 @@ Who may register is authority to change the file, not to read it: an asset by it
 
 ### manage_resource
 
-Write a file into the managed resource library. A managed resource is the only kind of file a saved asset can reference, so this is what makes the data half of a referencing asset refreshable by the platform rather than only by a person at an upload form: a scheduled script rewrites the CSV a dashboard reads, and the dashboard is not touched.
+Manage a file in the managed resource library. A managed resource is the only kind of file a saved asset can reference, so this is what makes the data half of a referencing asset refreshable by the platform rather than only by a person at an upload form: a scheduled script rewrites the CSV a dashboard reads, and the dashboard is not touched.
+
+Two of the five actions write content, and three round out the lifecycle around them: `get` answers what is filed at an address, `list` reports a folder, and `delete` removes a file. Without them a caller had to remember the id of everything it ever wrote, because `create` refuses an address that is already taken, `replace_content` needs a reference, and `search` is relevance-ranked rather than a lookup.
 
 Content crosses the wire in one of two fields. `content` carries text — CSV, JSON, Markdown, SVG — and `content_base64` carries base64-encoded bytes for a binary file such as a PNG or a PDF. Exactly one is given, and both are capped at the deployment's `portal.max_content_size` (10 MB by default), the same cap `save_asset` applies.
 
@@ -1226,17 +1228,21 @@ A `create` declares what the bytes are in `content_type`; a create that does not
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `action` | string | Yes | - | One of: `create`, `replace_content` |
-| `reference` | string | Conditional | - | The resource to write over: `mcp:resource:<id>`, from a `search` hit, a `fetch` document, or a `create` (required for `replace_content`) |
+| `action` | string | Yes | - | One of: `create`, `replace_content`, `get`, `list`, `delete` |
+| `reference` | string | Conditional | - | The resource to act on: `mcp:resource:<id>`, from a `search` hit, a `fetch` document, or a `create`. Required for `replace_content`; for `get` and `delete` it is the alternative to naming the address |
+| `if_exists` | string | No | `fail` | What a `create` does when the address already holds a file: `fail` refuses it, `replace` records the next version of what is there |
+| `force` | boolean | No | `false` | Delete a file even though something still points at it |
+| `limit` | integer | No | `100` | How many files one page of a `list` holds; 100 is also the largest page |
+| `offset` | integer | No | `0` | How many files to skip before a `list`'s page |
 | `content` | string | Conditional | - | The file as text. This or `content_base64` |
 | `content_base64` | string | Conditional | - | The file as base64-encoded bytes. This or `content` |
 | `content_type` | string | Conditional | - | Media type the bytes are (required for `create`). Not detected: SVG, HTML, JSX and Markdown all read as plain text to a byte sniffer. `replace_content` keeps the type the resource already carries when it is omitted; a file stored under a generic type is re-detected from its bytes |
-| `filename` | string | Conditional | - | Name of the file (required for `create`), normalized to lowercase with spaces replaced. `replace_content` ignores it |
+| `filename` | string | Conditional | - | Name of the file, normalized to lowercase with spaces replaced. Required for `create`, and for a `get` or `delete` that names the address. `replace_content` ignores it |
 | `display_name` | string | Conditional | - | Name shown in the resource library (required for `create`) |
-| `path` | string | Conditional | - | The folder path the file is filed under inside its library (required for `create`), for example `datasets` or `datasets/media-manager/shows`. Slash-separated; each folder name is lowercase letters, digits and hyphens starting with a letter, at most 31 characters; at most 8 folders deep and 200 characters overall |
+| `path` | string | Conditional | - | The folder path the file is filed under inside its library, for example `datasets` or `datasets/media-manager/shows`. Required for `create`, and for a `get` or `delete` that names the address; for `list` it is the folder the listing is rooted at, and everything beneath it is included. Slash-separated; each folder name is lowercase letters, digits and hyphens starting with a letter, at most 31 characters; at most 8 folders deep and 200 characters overall |
 | `description` | string | Conditional | - | What the file is and what reads it (required for `create`) |
 | `tags` | string[] | No | `[]` | Tags for filtering in the library |
-| `scope` | string | No | `user` | `user`, `persona`, or `global` |
+| `scope` | string | No | `user` | `user`, `persona`, or `global`. For `list`, omitting it means every library you can see rather than only your own |
 | `scope_id` | string | No | you | Persona name for `scope=persona`; must be empty for `scope=global` |
 | `change_summary` | string | No | `Content replaced via manage_resource` | Why the content changed, shown in the version history beside the revision |
 
@@ -1244,8 +1250,11 @@ A `create` declares what the bytes are in `content_type`; a create that does not
 
 | Action | Description | Required Params |
 |--------|-------------|-----------------|
-| `create` | File new content as a managed resource and report its `mcp://` URI and its `mcp:resource:` reference | `filename`, `display_name`, `path`, `description`, `content_type`, content |
+| `create` | File new content as a managed resource and report its `mcp://` URI and its `mcp:resource:` reference. With `if_exists=replace` it records the next version of whatever is already at that address instead of refusing | `filename`, `display_name`, `path`, `description`, `content_type`, content |
 | `replace_content` | Write new content over an existing resource, keeping its id, URI and filename, and record the change as its next version | `reference`, content |
+| `get` | Report what is filed at an address, or what a reference names, without the bytes | `path` + `filename`, or `reference` |
+| `list` | Report the files under a folder, newest first, with the `total` the page was cut from | - |
+| `delete` | Remove a file and its version history, refusing while something still points at it | `path` + `filename`, or `reference` |
 
 **Response Schema (create):**
 
@@ -1265,6 +1274,8 @@ A `create` declares what the bytes are in `content_type`; a create that does not
 }
 ```
 
+`get` returns `found`, the `uri` it looked up (reported whether or not anything is filed there), and a `resource` record carrying everything a `fetch` of the reference would except the bytes. `list` returns `path`, `resources` as that same record shape, `total` and `offset`. `delete` returns `deleted`, and on a refusal the `holds` counts and the `tables` that stopped it.
+
 `replace_content` returns the same shape plus `version`, the number the content was recorded as, and `tables` when a table is registered over the file: one sentence per table, saying it followed onto the new version (`scratch.uploads.analyst_stores on scratch now reads version 7.`) or is pinned and now behind it, with the same sentences appended to `message`. A create reports no version: it records version 1 only where the deployment keeps a version trail, and a number the history may not hold is worse than none. See [Following the file](../server/registered-tables.md#following-the-file).
 
 **Error Codes:**
@@ -1283,5 +1294,12 @@ A `create` declares what the bytes are in `content_type`; a create that does not
 | No version trail | `this deployment keeps no version history for managed resources, so content cannot be replaced: managed-resource write unavailable` |
 | No signed-in identity | `Writing a managed resource needs a signed-in identity. ...` |
 | No managed-resource layer | `This deployment has no managed-resource library to write to: ... Nothing was saved.` |
+| Neither a reference nor an address | `name the file to act on: either its mcp:resource:<id> reference, or the address it is filed at as scope, path and filename. Nothing was changed` |
+| An `if_exists` the tool does not take | `if_exists "overwrite" is not one this tool takes: pass "fail" ... or "replace" ...` |
+| Delete refused by what points at the file | `Not deleted: 2 assets reference this file, 1 prompt attaches this file. ... call this again with force=true to delete it and break them.` |
+| Delete whose dependency check failed | `could not establish what depends on this file, so it was not deleted. Try again, or pass force=true ...` |
+| Delete refused by scope | `you cannot delete a file in the "analyst" persona scope, which is that persona's administrators only: managed-resource write refused` |
 
-Creating is scope authority — your own user scope, a persona you administer, or the global scope as a platform administrator — and a refusal names the scope rather than the file, because where it was filed is what the caller has to change. Replacing is the authority to change that file: its uploader, or an administrator of its scope. A resource you cannot see is answered as absent, whether it is missing, deleted, or somebody else's. A managed-script run is judged as the person it acts for: it authenticates as a principal that owns no file, so a create with no scope named files into its version author's library and a replacement reaches what that person uploaded ([Script security](../scripts/security.md#who-a-run-acts-for)). See [Asset References](../server/asset-references.md).
+Creating is scope authority — your own user scope, a persona you administer, or the global scope as a platform administrator — and a refusal names the scope rather than the file, because where it was filed is what the caller has to change. Replacing and deleting are the authority to change that file: its uploader, or an administrator of its scope. Deleting is not a stronger authority than overwriting, because a replacement already leaves nothing of the previous content beyond the version trail a delete takes with it.
+
+A delete is refused while an asset references the file, a prompt attaches it, or a query-engine table is registered over it. Neither of the first two is a foreign key — deleting the file deliberately leaves the row behind so the thing that depended on it reports the material as missing — so nothing in the database stops the delete and the tool does. A knowledge page is not among them: the platform refuses an `mcp:resource:` citation on a shared page, because a resource is visibility-scoped, so no page can point at one. The refusal counts each kind rather than naming them, because each of those records carries an audience the caller is not necessarily in; the portal's Used-by panel on the file resolves those audiences. A table is named, because `manage_table` already names it to the same caller. `force: true` deletes anyway and drops any table over the file. A resource you cannot see is answered as absent, whether it is missing, deleted, or somebody else's. A managed-script run is judged as the person it acts for: it authenticates as a principal that owns no file, so a create with no scope named files into its version author's library and a replacement reaches what that person uploaded ([Script security](../scripts/security.md#who-a-run-acts-for)). See [Asset References](../server/asset-references.md).

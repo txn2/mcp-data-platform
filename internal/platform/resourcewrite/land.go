@@ -258,12 +258,9 @@ func (l *Lander) plan(ctx context.Context, dest toolkit.ResourceDestination, cla
 	if err != nil {
 		return landing{}, err
 	}
-	existing, err := l.w.deps.Store.GetByURI(ctx, p.uri)
-	if err != nil && !resource.IsNotFound(err) {
-		// A store that could not answer is not a store that answered "no".
-		// Creating on a failed read would file a second file at an address that
-		// already has one, and the caller would never learn which it wrote.
-		return landing{}, fmt.Errorf("could not read what is filed at %s: %w", p.uri, err)
+	existing, err := l.w.at(ctx, p.uri)
+	if err != nil {
+		return landing{}, err
 	}
 	if existing == nil {
 		if !resource.CanWriteScope(claims, p.scope, p.scopeID) {
@@ -278,23 +275,15 @@ func (l *Lander) plan(ctx context.Context, dest toolkit.ResourceDestination, cla
 	return p, nil
 }
 
-// address validates the destination's parts and composes the canonical URI they
-// name. Every rule is the managed-resource layer's own, so an address an export
-// may write is one an upload may write.
+// address resolves the destination's address and validates the labels a create
+// would record with it. The address half is the writer's own, so an export and
+// a tool call cannot disagree about what a path names.
 func (l *Lander) address(dest toolkit.ResourceDestination, claims resource.Claims) (landing, error) {
-	scope, scopeID := resource.ResolveScopeFor(resource.Scope(strings.TrimSpace(dest.Scope)),
-		strings.TrimSpace(dest.ScopeID), claims)
-	if err := resource.ValidateScope(scope, scopeID); err != nil {
-		return landing{}, fmt.Errorf("the destination library is not one this platform has: %w", err)
-	}
-	path := strings.TrimSpace(dest.Path)
-	if err := resource.ValidatePath(path); err != nil {
-		return landing{}, fmt.Errorf("%w. A path is the folder chain the file is filed under inside the "+
-			"library, for example \"datasets\" or \"datasets/media-manager/shows\"", err)
-	}
-	filename, err := resource.SanitizeFilename(dest.Filename)
+	p, err := l.w.resolveAddress(toolkit.ResourceAddress{
+		Scope: dest.Scope, ScopeID: dest.ScopeID, Path: dest.Path, Filename: dest.Filename,
+	}, claims)
 	if err != nil {
-		return landing{}, fmt.Errorf("the destination needs a plain file name: %w", err)
+		return landing{}, err
 	}
 	if err := resource.ValidateDisplayName(dest.DisplayName); err != nil {
 		return landing{}, err //nolint:wrapcheck // the validator's sentence names the field and the rule
@@ -305,10 +294,7 @@ func (l *Lander) address(dest toolkit.ResourceDestination, claims resource.Claim
 	if err := resource.ValidateTags(normalizedTags(dest.Tags)); err != nil {
 		return landing{}, err //nolint:wrapcheck // the validator's sentence names the field and the rule
 	}
-	return landing{
-		scope: scope, scopeID: scopeID, path: path, filename: filename,
-		uri: resource.BuildURI(l.w.deps.URIScheme, scope, scopeID, path, filename),
-	}, nil
+	return p, nil
 }
 
 // landingOf renders a written resource as the result every export tool reports.

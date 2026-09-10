@@ -44,6 +44,23 @@ type ResourceWriter interface {
 	// is given the stored filename rather than a name the caller offered --
 	// the filename is what a replacement must not change.
 	Get(ctx context.Context, id string, claims resource.Claims) (*resource.Resource, error)
+	// Locate reads the resource filed at an address, and reports the canonical
+	// mcp:// URI that address names whether or not anything is filed there
+	// (#1665). Nothing being there is an answer rather than an error: it is
+	// what a create-or-replace decides on, and what a lookup of an empty
+	// address reports.
+	Locate(
+		ctx context.Context, addr toolkit.ResourceAddress, claims resource.Claims,
+	) (found *resource.Resource, uri string, err error)
+	// List returns the resources filed under a folder that the caller may see,
+	// newest first, with the total the page was cut from.
+	List(
+		ctx context.Context, q toolkit.ResourceQuery, claims resource.Claims,
+	) (found []resource.Resource, total int, err error)
+	// Delete removes a resource and the objects its content lives in,
+	// returning the record that was removed. The authority is the authority to
+	// change the file, the same rule replacing its content meets.
+	Delete(ctx context.Context, id string, claims resource.Claims) (*resource.Resource, error)
 }
 
 // SetResourceWriter binds the writer behind manage_resource. Called by the
@@ -75,9 +92,20 @@ type manageResourceInput struct {
 	ContentType   string `json:"content_type,omitempty"`
 	// ChangeSummary is what the version history shows beside a replacement.
 	ChangeSummary string `json:"change_summary,omitempty"`
+	// IfExists settles what a create does when the address is already taken:
+	// "fail", the default and what a create has always done, or "replace",
+	// which makes the call idempotent so a caller landing one rolling file per
+	// source needs no memory of the id it wrote last time (#1665).
+	IfExists string `json:"if_exists,omitempty"`
+	// Force deletes past the things still pointing at the file.
+	Force bool `json:"force,omitempty"`
+	// Limit and Offset page a listing.
+	Limit  int `json:"limit,omitempty"`
+	Offset int `json:"offset,omitempty"`
 }
 
-// resourceOutput is what both actions report. It leads with the two names the
+// resourceOutput is what the two content-writing actions report. It leads with
+// the two names the
 // caller needs next -- the reference other tools take, and the mcp:// URI
 // save_asset's `resources` argument takes -- because a write whose result
 // cannot be handed to the next call is a write the caller has to go looking
@@ -121,9 +149,16 @@ func (t *Toolkit) handleManageResource(
 		return t.handleCreateResource(ctx, input)
 	case resourceActionReplace:
 		return t.handleReplaceResourceContent(ctx, input)
+	case resourceActionGet:
+		return t.handleGetResource(ctx, input)
+	case resourceActionList:
+		return t.handleListResources(ctx, input)
+	case resourceActionDelete:
+		return t.handleDeleteResource(ctx, input)
 	default:
 		return toolkit.ErrorResult(fmt.Sprintf(
-			"invalid action %q: must be one of: create, replace_content", input.Action)), nil, nil
+			"invalid action %q: must be one of: create, replace_content, get, list, delete",
+			input.Action)), nil, nil
 	}
 }
 
@@ -145,6 +180,22 @@ func (t *Toolkit) handleCreateResource(
 	// under is refused whatever its size.
 	if strings.TrimSpace(input.ContentType) == "" {
 		return toolkit.ErrorResult(resourceContentTypeRequired), nil, nil
+	}
+
+	// Asked before the payload is decoded, for the reason the content type is:
+	// a create that is going to be a replacement resolves the file first, so
+	// the revision is taken over the stored filename and the stored type
+	// exactly as an explicit replace_content is.
+	if replaceIfExists(input.IfExists) {
+		existing, _, locErr := t.resourceWriter.Locate(ctx, addressOf(input), claims)
+		if locErr != nil {
+			return toolkit.ErrorResult(locErr.Error()), nil, nil
+		}
+		if existing != nil {
+			return t.replaceResourceContent(ctx, input, existing)
+		}
+	} else if err := validateIfExists(input.IfExists); err != nil {
+		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
 
 	data, mimeType, errResult := t.resolveContent(input, filename, input.ContentType)
@@ -183,11 +234,24 @@ func (t *Toolkit) handleReplaceResourceContent(
 	if err != nil {
 		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
-	claims := refClaims(ctx)
-	existing, err := t.resourceWriter.Get(ctx, id, claims)
+	existing, err := t.resourceWriter.Get(ctx, id, refClaims(ctx))
 	if err != nil {
 		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
+	return t.replaceResourceContent(ctx, input, existing)
+}
+
+// replaceResourceContent records new content over a resolved file. It is
+// reached both by a replacement naming the file's reference and by a create
+// that found the address already taken and was told to replace (#1665): one
+// implementation, so a create-or-replace and a replacement cannot disagree
+// about what a revision does to the file's type, its history or the tables
+// registered over it.
+func (t *Toolkit) replaceResourceContent(
+	ctx context.Context, input manageResourceInput, existing *resource.Resource,
+) (*mcp.CallToolResult, any, error) {
+	claims := refClaims(ctx)
+	id := existing.ID
 
 	// Detection is given the stored filename, never one the caller offered: the
 	// filename is embedded in the canonical URI, so a replacement that renamed
@@ -418,3 +482,32 @@ var resourceContentTypeRequired = "content_type is required for create: name the
 // defaultResourceChangeSummary labels a replacement whose caller supplied no
 // change_summary.
 const defaultResourceChangeSummary = "Content replaced via manage_resource"
+
+// ifExists values. A create either refuses an address that is already taken,
+// which is what it has always done, or writes the next version of what is
+// there.
+const (
+	ifExistsFail    = "fail"
+	ifExistsReplace = "replace"
+)
+
+// replaceIfExists reports whether a create was told to write over what is
+// already at the address.
+func replaceIfExists(v string) bool {
+	return strings.TrimSpace(v) == ifExistsReplace
+}
+
+// validateIfExists refuses a value that is neither of the two. It is said
+// rather than defaulted because the two behaviors differ in whether an
+// existing file survives, and a misspelled "replace" that silently meant "fail"
+// would look like a platform that lost the write.
+func validateIfExists(v string) error {
+	switch strings.TrimSpace(v) {
+	case "", ifExistsFail:
+		return nil
+	default:
+		return fmt.Errorf("if_exists %q is not one this tool takes: pass %q to refuse an address that "+
+			"already holds a file, which is the default, or %q to record the next version of the file "+
+			"that is there", v, ifExistsFail, ifExistsReplace)
+	}
+}

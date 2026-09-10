@@ -70,6 +70,11 @@ type TableRegistrar interface {
 	// Best-effort by contract -- a delete must not fail because a scratch table
 	// could not be dropped.
 	DropAssetTables(ctx context.Context, assetID string)
+	// DropResourceTables is DropAssetTables for a deleted managed resource
+	// (#1665). The REST delete route already reaches this through the store's
+	// own delete hook; a tool call does not cross that route, so the toolkit
+	// calls it itself and both doors leave the same state behind.
+	DropResourceTables(ctx context.Context, resourceID string)
 	// FollowAssetTables and FollowResourceTables are what a write of a new
 	// version calls (#1536): every following registration over the file is
 	// moved onto the version written, and every registration over it is
