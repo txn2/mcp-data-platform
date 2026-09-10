@@ -172,6 +172,19 @@ func (c *client) rest(method, path string, body io.Reader) (int, map[string]any)
 	return res.StatusCode, out
 }
 
+// tools returns what tools/list carries for this session, which is the
+// inventory a caller actually has. A tool a toolkit names and the server never
+// registered is absent here while every listing built from the toolkits shows
+// it (#1675).
+func (c *client) tools() []*mcp.Tool {
+	c.t.Helper()
+	res, err := c.session.ListTools(c.ctx, &mcp.ListToolsParams{})
+	if err != nil {
+		c.t.Fatalf("tools/list: %v", err)
+	}
+	return res.Tools
+}
+
 // rateLimitRetries bounds how many times a call refused by the tool-call
 // rate limiter is issued again. The limiter is a per-identity backstop, and
 // the suite shares the dev API key with the start script's gateway trickle,

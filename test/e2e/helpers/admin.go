@@ -89,7 +89,11 @@ type AdminPersonaList struct {
 
 // AdminToolInfo mirrors the admin toolInfo.
 type AdminToolInfo struct {
-	Name       string `json:"name"`
+	Name string `json:"name"`
+	// Title is read from the MCP server's own tool listing rather than from
+	// the toolkit, so an empty one on a tool the toolkit names is the mark of
+	// a tool the server never registered (#1675).
+	Title      string `json:"title"`
 	Toolkit    string `json:"toolkit"`
 	Kind       string `json:"kind"`
 	Connection string `json:"connection"`

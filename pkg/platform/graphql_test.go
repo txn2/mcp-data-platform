@@ -115,8 +115,11 @@ func TestWireGraphQLAttachesWhatThePlatformHas(t *testing.T) {
 	p.WireGraphQL(context.Background())
 
 	tk := p.GraphQLToolkits()[0]
-	if len(tk.Tools()) != 3 {
-		t.Errorf("tools = %v; export was not attached", tk.Tools())
+	// Two, not three: the export dependencies are attached before the
+	// toolkits register their tools, which is a much earlier step than this
+	// one (#1675). See TestWireGraphQLExportAttachesTheExportDependencies.
+	if len(tk.Tools()) != 2 {
+		t.Errorf("tools = %v; want the two unconditional tools", tk.Tools())
 	}
 	info, err := tk.SchemaInfo("erp")
 	if err != nil {
@@ -124,6 +127,41 @@ func TestWireGraphQLAttachesWhatThePlatformHas(t *testing.T) {
 	}
 	if info.Error == "" {
 		t.Error("an unreachable endpoint left no recorded cause")
+	}
+}
+
+// TestWireGraphQLExportAttachesTheExportDependencies covers the step that runs
+// from initPortal, beside the trino and api-gateway export wiring, rather than
+// from WireGraphQL: a toolkit registers graphql_export only when these are
+// already set, and tool registration happens before WireRuntime (#1675).
+func TestWireGraphQLExportAttachesTheExportDependencies(t *testing.T) {
+	reg := graphQLRegistry(t)
+	p := &Platform{
+		config:          &Config{},
+		toolkitRegistry: reg,
+		portalStore: portalstore.NewFromStores(portalstore.Stores{
+			Asset: stubExportAssetStore{}, S3Client: stubExportS3{},
+		}, nil, portalstore.Config{}),
+	}
+
+	wireGraphQLExport(p)
+
+	if tools := p.GraphQLToolkits()[0].Tools(); len(tools) != 3 {
+		t.Errorf("tools = %v; export was not attached", tools)
+	}
+}
+
+// A deployment with no portal has no export dependencies to attach, and its
+// graphql connections still run with the tool absent rather than present and
+// unreachable.
+func TestWireGraphQLExportWithoutAPortalLeavesTheToolUnregistered(t *testing.T) {
+	reg := graphQLRegistry(t)
+	p := &Platform{config: &Config{}, toolkitRegistry: reg}
+
+	wireGraphQLExport(p)
+
+	if tools := p.GraphQLToolkits()[0].Tools(); len(tools) != 2 {
+		t.Errorf("tools = %v; want the two unconditional tools", tools)
 	}
 }
 

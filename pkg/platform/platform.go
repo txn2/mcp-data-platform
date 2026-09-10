@@ -1765,6 +1765,12 @@ func (p *Platform) initPortal() error {
 	// store + S3 client so the model gets a single "exports"
 	// surface in the portal regardless of source toolkit.
 	p.wireAPIGatewayExport()
+	// And graphql_export. Every _export tool is wired here, before Start
+	// registers the toolkits' tools: a toolkit registers its export tool only
+	// when these dependencies are already set, so wiring them afterwards
+	// leaves the name in the toolkit's Tools() list and the tool unknown to
+	// the server (#1675).
+	wireGraphQLExport(p)
 
 	return nil
 }

@@ -452,6 +452,8 @@ internal/platform/tableregister -> pkg/portal/knowledgepage
 internal/platform/tableregister -> pkg/toolkits/portal
 internal/platform/tableregister -> pkg/toolkits/trino
 internal/platform/toolargs -> pkg/middleware
+internal/platform/toolinventory -> internal/logsan
+internal/platform/toolinventory -> pkg/registry
 internal/platform/toolkitcfg -> internal/platform/cfgmap
 internal/platform/toolkitcfg -> pkg/platform/fieldcrypt
 internal/platform/toolratelimit -> internal/logsan
@@ -707,6 +709,7 @@ pkg/platform -> internal/platform/searchfed
 pkg/platform -> internal/platform/sessionsync
 pkg/platform -> internal/platform/sessionview
 pkg/platform -> internal/platform/toolargs
+pkg/platform -> internal/platform/toolinventory
 pkg/platform -> internal/platform/toolkitcfg
 pkg/platform -> internal/platform/toolratelimit
 pkg/platform -> internal/platform/userdir

@@ -3,6 +3,7 @@ package graphql
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -144,18 +145,72 @@ func TestReloadConnectionRebuildsAndRereadsTheSchema(t *testing.T) {
 	}
 }
 
+// listServerTools returns the tool names an MCP client sees on a server,
+// which is the only statement about registration that binds: a toolkit's own
+// Tools() is what it intends to register, not what the server holds (#1675).
+func listServerTools(t *testing.T, server *mcp.Server) []string {
+	t.Helper()
+	ctx := context.Background()
+	t1, t2 := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, t1, nil)
+	if err != nil {
+		t.Fatalf("server connect: %v", err)
+	}
+	defer func() { _ = serverSession.Close() }()
+	session, err := mcp.NewClient(&mcp.Implementation{Name: "tk-test", Version: "v0"}, nil).Connect(ctx, t2, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+	defer func() { _ = session.Close() }()
+	res, err := session.ListTools(ctx, &mcp.ListToolsParams{})
+	if err != nil {
+		t.Fatalf("tools/list: %v", err)
+	}
+	names := make([]string, 0, len(res.Tools))
+	for _, tool := range res.Tools {
+		names = append(names, tool.Name)
+	}
+	slices.Sort(names)
+	return names
+}
+
 func TestRegisterToolsAddsTheKindsSurface(t *testing.T) {
 	u := newUpstream(t)
 	tk := newToolkit(t, u, "flat", nil)
+	// The platform wires the export dependencies before it registers any
+	// toolkit's tools, so this is the startup order.
 	tk.SetExportDeps(ExportDeps{AssetStore: &fakeAssets{}})
 	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "0"}, nil)
 	tk.RegisterTools(server)
-	// Registration is the SDK's; asserting it did not panic and that the
-	// toolkit still reports its three tools is what this level can prove.
-	// The tools are exercised end to end through their handlers below and
-	// through a real MCP client in the acceptance suite.
+
+	want := []string{ToolDiscover, ToolExport, ToolQuery}
+	if got := listServerTools(t, server); !slices.Equal(got, want) {
+		t.Errorf("tools/list = %v; want %v", got, want)
+	}
 	if got := tk.Tools(); len(got) != 3 {
 		t.Errorf("tools = %v", got)
+	}
+}
+
+// TestExportDepsWiredAfterRegistrationLeaveTheToolUnknown is the shape of
+// #1675: the toolkit names three tools and the server holds two, because the
+// export dependencies arrived after RegisterTools ran. The platform wires them
+// before registration (Platform.wireGraphQLExport) and refuses to start on a
+// mismatch, so this order cannot reach a deployment; the test holds the
+// toolkit's half of that contract in place.
+func TestExportDepsWiredAfterRegistrationLeaveTheToolUnknown(t *testing.T) {
+	u := newUpstream(t)
+	tk := newToolkit(t, u, "flat", nil)
+	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "0"}, nil)
+	tk.RegisterTools(server)
+	tk.SetExportDeps(ExportDeps{AssetStore: &fakeAssets{}})
+
+	want := []string{ToolDiscover, ToolQuery}
+	if got := listServerTools(t, server); !slices.Equal(got, want) {
+		t.Errorf("tools/list = %v; want %v", got, want)
+	}
+	if got := tk.Tools(); len(got) != 3 {
+		t.Errorf("tools = %v; the toolkit still names the tool the server lacks", got)
 	}
 }
 
