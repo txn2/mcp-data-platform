@@ -289,6 +289,37 @@ func TestToolAdapter_DropAssetTables(t *testing.T) {
 	assert.Empty(t, regs)
 }
 
+// TestToolAdapter_DropResourceTables is the other kind's sweep (#1665). The
+// REST delete route reaches it through the resource store's delete hook; a tool
+// call does not cross that route, so manage_resource calls it here and both
+// doors leave the same state behind.
+func TestToolAdapter_DropResourceTables(t *testing.T) {
+	h := newHarness(t, func(h *harness) {
+		h.objects = &fakeObjects{
+			body:    []byte(csvBody),
+			bodyCT:  "text/csv",
+			entries: []ObjectEntry{{Key: "resources/res_1/glossary.csv", Size: int64(len(csvBody))}},
+		}
+	})
+	adapter := NewToolAdapter(h.reg, []string{"admin"}, map[string]Subject{
+		KindResource: resourceSubjectFor(Record{
+			ID: "res_1", Name: "Vendor glossary", Bucket: "resources",
+			Key: "resources/res_1/glossary.csv", ContentType: "text/csv",
+		}, "u1"),
+	}, nil)
+	require.NotNil(t, adapter)
+	ctx := callerContext("alice@example.com", "analyst")
+
+	_, err := adapter.Register(ctx, resourceRef, "scratch", "", portaltoolkit.RegisterOptions{})
+	require.NoError(t, err)
+
+	adapter.DropResourceTables(ctx, "res_1")
+
+	regs, err := h.store.BySource(ctx, KindResource, "res_1")
+	require.NoError(t, err)
+	assert.Empty(t, regs, "a table over a file that is gone answers from a location nothing owns")
+}
+
 // TestToolAdapter_ReportsStale: a new version moves the head key, and the
 // table keeps serving the one it was registered against. The resolver reads
 // the record afresh, so the staleness the tool reports is against the file as

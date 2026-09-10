@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -81,8 +83,39 @@ func (s *resourceRows) GetByIDs(_ context.Context, ids []string) (map[string]*re
 	return out, nil
 }
 
-func (*resourceRows) List(context.Context, resource.Filter) ([]resource.Resource, int, error) {
-	return nil, 0, nil
+// List applies the filter the way the Postgres store's WHERE clause does: the
+// visible libraries, then the folder prefix. A fake that answered every row
+// would let the listing test pass while the caller was being shown another
+// library's files.
+func (s *resourceRows) List(_ context.Context, f resource.Filter) ([]resource.Resource, int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]resource.Resource, 0, len(s.rows))
+	for _, r := range s.rows {
+		if !f.AllScopes && !inAnyLibrary(f.Scopes, r) {
+			continue
+		}
+		if !resource.PathUnder(r.Path, f.Path) {
+			continue
+		}
+		out = append(out, *r)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Filename < out[j].Filename })
+	return out, len(out), nil
+}
+
+// inAnyLibrary reports whether a resource is in one of the libraries a listing
+// was narrowed to.
+func inAnyLibrary(scopes []resource.ScopeFilter, r *resource.Resource) bool {
+	for _, lib := range scopes {
+		if lib.Scope != r.Scope {
+			continue
+		}
+		if lib.Scope == resource.ScopeGlobal || lib.ScopeID == r.ScopeID {
+			return true
+		}
+	}
+	return false
 }
 
 func (*resourceRows) Update(context.Context, string, resource.Update) error { return nil }
@@ -90,7 +123,16 @@ func (*resourceRows) Move(context.Context, []resource.Move) error {
 	return errors.New("resourceRows does not move resources")
 }
 
-func (*resourceRows) Delete(context.Context, string) error { return nil }
+// Delete removes the row and the version trail beneath it, which is what the
+// Postgres store does through ON DELETE CASCADE. A fake that kept either would
+// let the delete test pass while the address it emptied still resolved.
+func (s *resourceRows) Delete(_ context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.rows, id)
+	delete(s.versions, id)
+	return nil
+}
 
 func (s *resourceRows) AddRevision(_ context.Context, rev resource.Revision) (*resource.Version, error) {
 	s.mu.Lock()
@@ -139,7 +181,12 @@ type writeSystem struct {
 	handler   *portal.Handler
 	rows      *resourceRows
 	blobs     *sharedS3
+	refs      *refStoreStub
 	announced []*resource.Resource
+	// unregistered records the URIs a delete took out of the MCP resource
+	// list, which is what stops a client that has already listed from going on
+	// offering a file that is gone.
+	unregistered []string
 }
 
 func newWriteSystem(t *testing.T) *writeSystem {
@@ -150,7 +197,7 @@ func newWriteSystem(t *testing.T) *writeSystem {
 	refs := newRefStoreStub()
 	blobs := newSharedS3()
 	rows := newResourceRows()
-	sys := &writeSystem{handler: nil, rows: rows, blobs: blobs}
+	sys := &writeSystem{handler: nil, rows: rows, blobs: blobs, refs: refs}
 
 	tk := New(Config{
 		Name: "test", AssetStore: assets, VersionStore: versions,
@@ -161,8 +208,13 @@ func newWriteSystem(t *testing.T) *writeSystem {
 	tk.SetContentRefs(declarer)
 	tk.SetResourceWriter(resourcewrite.New(resourcewrite.Deps{
 		Store: rows, Blobs: blobs, Bucket: intResBucket, URIScheme: "mcp",
-		Registered: func(r *resource.Resource) { sys.announced = append(sys.announced, r) },
+		Registered:   func(r *resource.Resource) { sys.announced = append(sys.announced, r) },
+		Unregistered: func(uri string) { sys.unregistered = append(sys.unregistered, uri) },
 	}))
+	// The delete's warning path over the real reference store the declarer
+	// writes into (#1665), so an asset reference made through save_asset is the
+	// same row the delete is refused by.
+	tk.SetResourceHolds(referencingAssets{refs: refs})
 
 	server := mcp.NewServer(&mcp.Implementation{Name: "platform", Version: "v0"}, nil)
 	tk.RegisterTools(server)
@@ -184,6 +236,25 @@ func newWriteSystem(t *testing.T) *writeSystem {
 	}, portalUserMiddleware("user1"))
 
 	return sys
+}
+
+// referencingAssets counts the assets whose content references a file, over the
+// same reference store save_asset writes into.
+//
+// It stands in for the composition root's adapter, which spans three reverse
+// lookups in three layers and cannot be imported here without a cycle. The row
+// it counts is the real one: an asset saved through the tool in this test is
+// what makes the count non-zero.
+type referencingAssets struct {
+	refs *refStoreStub
+}
+
+func (r referencingAssets) ResourceHolds(ctx context.Context, resourceID string) (ResourceHolds, error) {
+	rows, err := r.refs.ListByTarget(ctx, assetrefs.TargetResource, resourceID, 50)
+	if err != nil {
+		return ResourceHolds{}, err
+	}
+	return ResourceHolds{Assets: len(rows)}, nil
 }
 
 // agentIdentityMiddleware puts the signed-in identity on the request context,
@@ -368,4 +439,100 @@ func (*resourceRows) ClearThumbnail(_ context.Context, _, _ string) error { retu
 
 func (*resourceRows) PendingThumbnails(_ context.Context, _ resource.Filter, _ int) ([]resource.Resource, error) {
 	return nil, nil
+}
+
+// TestAgentFindsRefreshesAndRemovesAFileByItsPath is the end-to-end test for
+// #1665, over the same real session, real writer and real portal handler.
+//
+// It follows one file through the whole lifecycle an agent that keeps no id
+// has: it looks the address up before anything is there, lands a file with one
+// idempotent call, lands it again at the same address and gets the next version
+// of the same file, finds it in a folder listing, is refused a delete while a
+// saved asset still reads it, and then deletes it with force -- after which the
+// URL the report fetches stops serving.
+//
+// What this adds over the unit tests is that the address is the same address at
+// every layer: the one the create writes, the one the lookup resolves, the one
+// the portal serves through, and the one the delete empties.
+func TestAgentFindsRefreshesAndRemovesAFileByItsPath(t *testing.T) {
+	sys := newWriteSystem(t)
+	address := map[string]any{"path": "datasets", "filename": "weather.csv"}
+
+	// 1. Nothing is filed there yet, and the lookup says so rather than failing.
+	empty := sys.mustCall(t, ManageResourceToolName, withAction("get", address))
+	assert.Equal(t, false, empty["found"])
+	assert.Equal(t, "mcp://user/user1/datasets/weather.csv", empty["uri"],
+		"the address is named even when it holds nothing")
+
+	// 2. One idempotent call lands the file, and the caller keeps no id.
+	created := sys.mustCall(t, ManageResourceToolName, withAction("create", map[string]any{
+		"path": "datasets", "filename": "weather.csv", "display_name": "Daily Weather",
+		"description": "Highs and lows by day", "content": "day,high\nmon,71\n",
+		"content_type": "text/csv", "if_exists": "replace",
+	}))
+	uri, _ := created["uri"].(string)
+	resourceID, _ := created["resource_id"].(string)
+	require.NotEmpty(t, resourceID)
+
+	// 3. The same call again is the NEXT VERSION of that same file, not a second one.
+	again := sys.mustCall(t, ManageResourceToolName, withAction("create", map[string]any{
+		"path": "datasets", "filename": "weather.csv", "display_name": "Daily Weather",
+		"description": "Highs and lows by day", "content": "day,high\nmon,88\n",
+		"content_type": "text/csv", "if_exists": "replace", "change_summary": "second pull",
+	}))
+	assert.Equal(t, resourceID, again["resource_id"], "the address is the identity, not a remembered id")
+	assert.Equal(t, uri, again["uri"])
+	assert.Equal(t, float64(2), again["version"])
+
+	// 4. The lookup now finds it, and the folder listing holds it.
+	found := sys.mustCall(t, ManageResourceToolName, withAction("get", address))
+	assert.Equal(t, true, found["found"])
+	record, _ := found["resource"].(map[string]any)
+	require.NotNil(t, record)
+	assert.Equal(t, resourceID, record["resource_id"])
+	assert.Equal(t, "Daily Weather", record["display_name"])
+
+	listed := sys.mustCall(t, ManageResourceToolName, withAction("list", map[string]any{"path": "datasets"}))
+	assert.Equal(t, float64(1), listed["total"])
+
+	// 5. A report references the file, and the delete is refused while it does.
+	saved := sys.mustCall(t, SaveToolName, map[string]any{
+		"name": "Weather Report", "content_type": "text/html",
+		"content":    fmt.Sprintf(`<h1>Weather</h1><script>fetch(%q)</script>`, uri),
+		"references": []any{uri},
+	})
+	assetID, _ := saved["asset_id"].(string)
+	refURL := extractRefURL(t, sys.mustGetContent(t, assetID))
+	code, body := sys.fetch(t, trimBase(refURL))
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, "day,high\nmon,88\n", body)
+
+	refused := sys.mustCall(t, ManageResourceToolName, withAction("delete", address))
+	assert.Equal(t, false, refused["deleted"])
+	message, _ := refused["message"].(string)
+	assert.Contains(t, message, "1 asset references this file")
+	assert.Contains(t, message, "force=true")
+	stillThere := sys.mustCall(t, ManageResourceToolName, withAction("get", address))
+	assert.Equal(t, true, stillThere["found"], "a refused delete leaves the file where it was")
+
+	// 6. Forced, the file goes, and everything that reached it stops reaching it.
+	deleted := sys.mustCall(t, ManageResourceToolName,
+		withAction("delete", map[string]any{"path": "datasets", "filename": "weather.csv", "force": true}))
+	assert.Equal(t, true, deleted["deleted"])
+	assert.Equal(t, []string{uri}, sys.unregistered,
+		"a client that has already listed must stop being offered a file that is gone")
+
+	gone := sys.mustCall(t, ManageResourceToolName, withAction("get", address))
+	assert.Equal(t, false, gone["found"], "the address the file lived at is empty again")
+
+	code, _ = sys.fetch(t, trimBase(refURL))
+	assert.NotEqual(t, http.StatusOK, code, "the URL the report fetches no longer serves the deleted file")
+}
+
+// withAction is one manage_resource call's arguments: the action plus the
+// address or options it acts on.
+func withAction(action string, args map[string]any) map[string]any {
+	out := map[string]any{"action": action}
+	maps.Copy(out, args)
+	return out
 }

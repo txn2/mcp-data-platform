@@ -132,7 +132,7 @@ A move into a library that already holds a file at that folder and name is refus
 
 Changing the **folder** works the same way and is the other half of the same address. Editing it rewrites the URI's path exactly as a library move rewrites its prefix, records the address vacated, and refuses a collision by name; a library and a folder changed in the same save produce one URI carrying both, one alias for the one address left, and one audit event. Before this, editing the folder changed where the portal filed the file and left the URI alone, so a resource's own page printed two different paths for it — the breadcrumb from one column and the Details panel from the other.
 
-Agents do not move resources. `manage_resource` creates and replaces content; deciding that a file becomes a persona's or the whole platform's is a human act, and nothing an agent does needs it.
+Agents do not move resources. `manage_resource` writes, reads and removes files where they are; deciding that a file becomes a persona's or the whole platform's is a human act, and nothing an agent does needs it.
 
 ## Revising a resource's content
 
@@ -147,6 +147,14 @@ Every revision is recorded in **Version history** with its number, who uploaded 
 History is bounded: a resource keeps its most recent 10 revisions by default ([`resources.managed.max_versions`](../server/configuration.md#managed-resources)), and a revision past the cap deletes the oldest version's stored file. The live content is never pruned.
 
 An agent revises through the same path, without the portal step. `manage_resource action=replace_content` writes new bytes over an existing resource under your own permissions, and the result lands in this Version history like any other revision — same number, same author, same restore — with its `change_summary` shown beneath it. `manage_resource action=create` files a new resource the same way. A [managed script](../scripts/running.md) reaches both, which is what lets a scheduled run refresh the file a dashboard reads without anybody uploading it again. See [manage_resource](../server/tools.md#manage_resource).
+
+An agent that lands the same file every run passes `if_exists: replace` on the create instead of choosing between the two actions. The first call creates the file and every call after it revises that same file, so the run needs no memory of the id it wrote last time — which matters because a script's state is the thing that gets cleared and rewritten, and a create at an address that is already taken is refused.
+
+## Deleting a resource
+
+**Delete** on the resource page removes the file, its stored bytes and its whole version trail. The **Used by** panel beside it is the reason to look first: it lists the assets whose content references the file and flags any carrying a public link, so what a delete would break is visible before it happens.
+
+An agent deletes with `manage_resource action=delete`, naming either the file's reference or the address it is filed at, under the same authority a replacement takes: its uploader, or an administrator of its library. That door is the one that asks first. Two kinds of record point at a resource and neither is a foreign key — an asset's content references it, and a prompt attaches it — because deleting the file must leave the thing that depended on it reporting the material as missing rather than losing the evidence it ever had any. Nothing in the database therefore stops a delete, so the tool refuses one while either of them, or a table registered over the file, still points at it, and says how many of each. `force: true` deletes anyway, leaving each of those pointing at a file that is not there and dropping any table over it. See [manage_resource](../server/tools.md#manage_resource).
 
 ### A file an export keeps current
 

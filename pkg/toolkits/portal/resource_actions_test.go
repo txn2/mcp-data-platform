@@ -18,6 +18,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 // fakeResourceWriter records what the tool asked for and answers with whatever
@@ -40,6 +41,61 @@ type fakeResourceWriter struct {
 	getErr     error
 	existing   *resource.Resource
 	version    int
+
+	// The lookup half (#1665). located is what is filed at the address a
+	// Locate names -- nil is "nothing is there", which is the contract's own
+	// answer and not an error -- and locatedAddr records what was asked for.
+	located     *resource.Resource
+	locatedAddr toolkit.ResourceAddress
+	locateErr   error
+
+	listQuery toolkit.ResourceQuery
+	listed    []resource.Resource
+	listTotal int
+	listErr   error
+
+	deletedID string
+	deleteErr error
+}
+
+func (f *fakeResourceWriter) Locate(
+	_ context.Context, addr toolkit.ResourceAddress, _ resource.Claims,
+) (*resource.Resource, string, error) {
+	f.locatedAddr = addr
+	uri := resource.BuildURI("mcp", resource.Scope(orUserScope(addr.Scope)), addr.ScopeID, addr.Path, addr.Filename)
+	if f.locateErr != nil {
+		return nil, uri, f.locateErr
+	}
+	return f.located, uri, nil
+}
+
+// orUserScope mirrors the writer's own default: an unnamed scope is the
+// caller's own library.
+func orUserScope(scope string) string {
+	if scope == "" {
+		return string(resource.ScopeUser)
+	}
+	return scope
+}
+
+func (f *fakeResourceWriter) List(
+	_ context.Context, q toolkit.ResourceQuery, _ resource.Claims,
+) ([]resource.Resource, int, error) {
+	f.listQuery = q
+	if f.listErr != nil {
+		return nil, 0, f.listErr
+	}
+	return f.listed, f.listTotal, nil
+}
+
+func (f *fakeResourceWriter) Delete(
+	_ context.Context, id string, _ resource.Claims,
+) (*resource.Resource, error) {
+	f.deletedID = id
+	if f.deleteErr != nil {
+		return nil, f.deleteErr
+	}
+	return f.existingOrDefault(), nil
 }
 
 func (f *fakeResourceWriter) Create(
@@ -168,10 +224,10 @@ func TestManageResourceWithoutAnIdentity(t *testing.T) {
 func TestManageResourceUnknownAction(t *testing.T) {
 	tk, _ := resourceToolkit(t)
 
-	result := callResource(t, tk, manageResourceInput{Action: "delete"})
+	result := callResource(t, tk, manageResourceInput{Action: "rename"})
 
 	require.True(t, result.IsError)
-	assert.Contains(t, errText(t, result), "create, replace_content")
+	assert.Contains(t, errText(t, result), "create, replace_content, get, list, delete")
 }
 
 func TestCreateBuildsTheResourceFromTheCall(t *testing.T) {

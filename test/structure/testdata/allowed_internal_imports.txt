@@ -298,6 +298,7 @@ internal/platform/portalstore -> internal/platform/assetindex
 internal/platform/portalstore -> internal/platform/collectionindex
 internal/platform/portalstore -> internal/platform/knowledgepageindex
 internal/platform/portalstore -> internal/platform/notices
+internal/platform/portalstore -> internal/platform/resourceholds
 internal/platform/portalstore -> internal/platform/resourcewrite
 internal/platform/portalstore -> internal/portal/assetrefs
 internal/platform/portalstore -> internal/portal/assetrefstore
@@ -345,6 +346,7 @@ internal/platform/reflexivecapture -> pkg/toolkits/memory
 internal/platform/resourceaudit -> pkg/audit
 internal/platform/resourceaudit -> pkg/middleware
 internal/platform/resourceaudit -> pkg/resource
+internal/platform/resourceholds -> internal/portal/assetrefs
 internal/platform/resourceindex -> pkg/contenttype
 internal/platform/resourceindex -> pkg/indexjobs
 internal/platform/resourceindex -> pkg/resource

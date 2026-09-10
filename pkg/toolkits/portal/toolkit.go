@@ -101,6 +101,12 @@ const (
 	// that file; neither is the authority to read it.
 	resourceActionCreate  = "create"
 	resourceActionReplace = "replace_content"
+	// Reading an address and deleting what is at it round out the lifecycle
+	// (#1665): without them a file can be written and never found by the path
+	// it was written to, and never removed.
+	resourceActionGet    = "get"
+	resourceActionList   = "list"
+	resourceActionDelete = "delete"
 
 	// Content editing and navigation actions (#1033). These make the cost of
 	// an edit proportional to the size of the edit rather than the size of
@@ -344,6 +350,11 @@ type Toolkit struct {
 	// leaves manage_resource reporting that rather than accepting a write
 	// that would go nowhere.
 	resourceWriter ResourceWriter
+	// resourceHolds answers what still points at a managed resource, which is
+	// what a delete puts to its caller before it breaks anything (#1665). Nil
+	// leaves a delete saying it cannot establish that rather than reporting
+	// that nothing depends on the file.
+	resourceHolds ResourceHoldReader
 
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
@@ -456,11 +467,21 @@ const manageTableToolDescription = "Makes a stored CSV file queryable as a table
 
 // manageResourceToolDescription is the advertised description of
 // manage_resource.
-const manageResourceToolDescription = "Writes a file into the managed resource library, so an agent or a " +
-	"scheduled script can put data where an asset can reference it and refresh it later. " +
-	"Actions: create, replace_content. " +
+const manageResourceToolDescription = "Manages files in the managed resource library, so an agent or a " +
+	"scheduled script can put data where an asset can reference it, find it again by the path it wrote it " +
+	"to, refresh it, and remove it. " +
+	"Actions: create, replace_content, get, list, delete. " +
 	"'create' files new content and reports the mcp:// uri to hand to save_asset's 'references' argument, " +
-	"plus the mcp:resource:<id> reference every other tool takes. " +
+	"plus the mcp:resource:<id> reference every other tool takes. Pass if_exists=replace to make the call " +
+	"idempotent: it records the next version of whatever is already at that path instead of refusing, so " +
+	"landing one rolling file per source needs no memory of the id it wrote last time. " +
+	"'get' answers what is filed at a path (scope + path + filename), or what a mcp:resource:<id> reference " +
+	"names, without the bytes. It is a lookup, which 'search' is not: search is relevance-ranked and " +
+	"capped, so a file it does not return is not a file that is not there. " +
+	"'list' reports the files under a folder path, newest first. " +
+	"'delete' removes a file and its version history. It refuses while an asset references it, a prompt " +
+	"attaches it, or a table is registered over it, naming what would break; pass force=true to delete " +
+	"anyway. " +
 	"'replace_content' writes new bytes over an existing file, keeping its id, its uri and its filename, so " +
 	"every asset referencing it serves the new content without being re-saved and every citation and prompt " +
 	"attachment pointing at it keeps resolving. The replacement is recorded in the file's version history " +
@@ -472,8 +493,8 @@ const manageResourceToolDescription = "Writes a file into the managed resource l
 	"application/octet-stream) is re-detected from its bytes. " +
 	"A create defaults to your own user scope; naming a persona scope or the global scope needs " +
 	"administrator authority over it, and a refusal names the scope rather than the file. " +
-	"This is the write half of the resource library -- reading one is 'fetch' on its reference, and making " +
-	"a CSV in it queryable is the separate manage_table tool."
+	"Reading a file's contents is 'fetch' on its reference, and making a CSV in it queryable is the " +
+	"separate manage_table tool."
 
 // RegisterTools registers save_asset, manage_asset, manage_table,
 // manage_resource and manage_feedback with the MCP server.
