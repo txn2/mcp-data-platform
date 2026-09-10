@@ -55,6 +55,10 @@ func wireScripts(p *Platform) *scriptexec.Handle {
 		AdminPersona: p.config.Admin.Persona,
 		PortalURL:    p.config.Portal.PublicBaseURL,
 		Destinations: p.config.Scripts.ScriptDestinations(),
+		// The live toolkits, so a draft's write barrier reads what an
+		// api_invoke_endpoint call sends and what a proxied tool's upstream
+		// declares, rather than refusing both (#1664).
+		Toolkits: p.toolkitRegistry,
 	})
 	p.scripts.RegisterTool(p.mcpServer)
 	return scripts

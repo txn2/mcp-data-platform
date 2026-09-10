@@ -516,3 +516,97 @@ func TestPortalEditSource_AcceptsAnUndeclaredDestination(t *testing.T) {
 		"a save reads the source, not the deployment's destination configuration")
 	assert.NotEmpty(t, refuseDraftSource(bucketExportSource, nil))
 }
+
+// The write barrier (#1664). A dry run refuses a platform.call that persists,
+// and the editor's author lifts it for one run when the pipeline's next step
+// reads what the last one created. These assert what the route carries and what
+// it answers, which is the half the engine's own tests cannot show.
+
+func TestPortalDryRunSource_DoesNotAskForWritesByDefault(t *testing.T) {
+	deps, runner, _ := draftDeps(portalStore(), carol)
+	rec := servePortalRequest(t, deps, http.MethodPost, dryRunPath, draftBody(draftSource))
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.False(t, runner.got.AllowWrites, "a dry run is a rehearsal unless the author says otherwise")
+
+	var body dryRunResponse
+	decodeInto(t, rec, &body)
+	assert.Contains(t, body.Message, "write-class platform.call would have been refused")
+	assert.Equal(t, []scriptrun.WriteRecord{}, body.Writes, "an empty answer is an empty list, not null")
+	assert.Nil(t, body.RefusedWrite)
+}
+
+func TestPortalDryRunSource_CarriesTheAuthorsAllowWrites(t *testing.T) {
+	deps, runner, _ := draftDeps(portalStore(), carol)
+	runner.outcome = &scriptdraft.Outcome{
+		RunID: "run_draft_3",
+		Result: &scriptrun.Result{
+			Log: "done",
+			Writes: []scriptrun.WriteRecord{
+				{Tool: "manage_resource", Call: "manage_resource action=create"},
+			},
+		},
+	}
+
+	rec := servePortalRequest(t, deps, http.MethodPost, dryRunPath,
+		`{"source":`+strconv.Quote(draftSource)+`,"allow_writes":true}`)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.True(t, runner.got.AllowWrites)
+
+	var body dryRunResponse
+	decodeInto(t, rec, &body)
+	require.Len(t, body.Writes, 1)
+	assert.Equal(t, "manage_resource action=create", body.Writes[0].Call)
+	assert.Contains(t, body.Message, "allowed to write")
+	assert.Contains(t, body.Message, "1 call listed under writes persisted for real")
+	assert.NotContains(t, body.Message, "Nothing was persisted")
+}
+
+// TestPortalDryRunSource_NamesTheCallThatEndedTheRun is what the editor renders
+// instead of a traceback: the author sees which call the barrier stopped, and
+// is told how to proceed.
+func TestPortalDryRunSource_NamesTheCallThatEndedTheRun(t *testing.T) {
+	deps, runner, _ := draftDeps(portalStore(), carol)
+	runner.outcome = &scriptdraft.Outcome{
+		RunID: "run_draft_4",
+		Result: &scriptrun.Result{
+			Log:          "starting",
+			RefusedWrite: &scriptrun.WriteRecord{Tool: "manage_table", Call: "manage_table action=register"},
+		},
+		Err: errors.New("in platform.call: manage_table action=register persists outside this run"),
+	}
+
+	rec := servePortalRequest(t, deps, http.MethodPost, dryRunPath, draftBody(draftSource))
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var body dryRunResponse
+	decodeInto(t, rec, &body)
+	assert.Equal(t, script.RunStatusFailed, body.Status)
+	require.NotNil(t, body.RefusedWrite)
+	assert.Equal(t, "manage_table action=register", body.RefusedWrite.Call)
+	assert.Contains(t, body.Message, "allow_writes")
+	assert.NotContains(t, body.Message, "deterministic",
+		"a run stopped by the barrier is not described as a script that is wrong")
+}
+
+// TestPortalDryRunSource_PluralWriteMessage keeps the sentence the author reads
+// grammatical when more than one call landed.
+func TestPortalDryRunSource_PluralWriteMessage(t *testing.T) {
+	deps, runner, _ := draftDeps(portalStore(), carol)
+	runner.outcome = &scriptdraft.Outcome{
+		RunID: "run_draft_5",
+		Result: &scriptrun.Result{Writes: []scriptrun.WriteRecord{
+			{Tool: "manage_resource", Call: "manage_resource action=create"},
+			{Tool: "manage_table", Call: "manage_table action=register"},
+		}},
+	}
+
+	rec := servePortalRequest(t, deps, http.MethodPost, dryRunPath,
+		`{"source":`+strconv.Quote(draftSource)+`,"allow_writes":true}`)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var body dryRunResponse
+	decodeInto(t, rec, &body)
+	assert.Contains(t, body.Message, "2 calls listed under writes persisted for real")
+}

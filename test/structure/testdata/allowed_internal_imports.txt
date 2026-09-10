@@ -368,7 +368,9 @@ internal/platform/reviewalert -> pkg/toolkits/knowledge
 internal/platform/routepolicy -> pkg/middleware
 internal/platform/routepolicy -> pkg/persona
 internal/platform/scriptdraft -> internal/platform/scriptrun
+internal/platform/scriptdraft -> internal/toolwrite
 internal/platform/scriptdraft -> pkg/middleware
+internal/platform/scriptdraft -> pkg/registry
 internal/platform/scriptdraft -> pkg/script
 internal/platform/scriptdraft -> pkg/session
 internal/platform/scriptexec -> internal/logsan
@@ -402,6 +404,8 @@ internal/platform/scriptlayer -> pkg/session
 internal/platform/scriptlayer -> pkg/textpatch
 internal/platform/scriptlayer -> pkg/textpatch/patchmcp
 internal/platform/scriptrun -> internal/platform/toolratelimit
+internal/platform/scriptrun -> internal/scriptdate
+internal/platform/scriptrun -> internal/toolwrite
 internal/platform/scriptrun -> pkg/contenttype
 internal/platform/scriptrun -> pkg/script
 internal/platform/scriptrun -> pkg/toolkits/trino
@@ -511,9 +515,11 @@ internal/producedview -> internal/portal/portaldomain
 internal/producedview -> internal/producedby
 internal/producedview -> pkg/resource
 internal/producedview -> pkg/script
+internal/scriptdate -> pkg/script
 internal/server -> internal/platform/knowledgebuiltin
 internal/server -> pkg/platform
 internal/tableavail -> pkg/query
+internal/toolwrite -> internal/gqlschema
 internal/upstreamauth -> internal/apigwtls
 internal/upstreamauth -> internal/cfgmap
 internal/upstreamauth -> internal/membudget

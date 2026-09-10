@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  cleanup,
+  act,
+} from "@testing-library/react";
 import type { ScriptContract, ScriptParam } from "@/api/portal/hooks/scripts";
 import { ScriptSourceEditor } from "./ScriptSourceEditor";
 
@@ -57,7 +63,8 @@ const validate = vi.fn();
 const dryRun = vi.fn();
 const run = vi.fn();
 
-const source = 'rows = platform.query(connection="acme", sql="SELECT 1")["rows"]\n';
+const source =
+  'rows = platform.query(connection="acme", sql="SELECT 1")["rows"]\n';
 
 const contract: ScriptContract = {
   id: "script-001",
@@ -80,12 +87,19 @@ beforeEach(() => {
     isLoading: false,
     error: null,
   } as never);
-  mockConnections.mockReturnValue({ data: undefined, isLoading: false, error: null } as never);
+  mockConnections.mockReturnValue({
+    data: undefined,
+    isLoading: false,
+    error: null,
+  } as never);
 });
 
 afterEach(cleanup);
 
-function renderEditor(over: Partial<ScriptContract> = {}, draftParams: ScriptParam[] = []) {
+function renderEditor(
+  over: Partial<ScriptContract> = {},
+  draftParams: ScriptParam[] = [],
+) {
   render(
     <ScriptSourceEditor
       scriptId="script-001"
@@ -109,8 +123,12 @@ describe("ScriptSourceEditor: what it opens", () => {
   // author holds at the save.
   it("says the saved version is the version that runs", () => {
     renderEditor();
-    expect(screen.getByText(/Saving makes this the version that runs/)).toBeInTheDocument();
-    expect(screen.getByText(/presenting the roles you hold when you save/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Saving makes this the version that runs/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/presenting the roles you hold when you save/),
+    ).toBeInTheDocument();
   });
 });
 
@@ -120,20 +138,26 @@ describe("ScriptSourceEditor: saving", () => {
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Revert" })).toBeDisabled();
 
-    fireEvent.change(screen.getByLabelText("Source"), { target: { value: source + "print(1)\n" } });
+    fireEvent.change(screen.getByLabelText("Source"), {
+      target: { value: source + "print(1)\n" },
+    });
     expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
   });
 
   it("submits the edited source", () => {
     renderEditor();
-    fireEvent.change(screen.getByLabelText("Source"), { target: { value: "print(2)\n" } });
+    fireEvent.change(screen.getByLabelText("Source"), {
+      target: { value: "print(2)\n" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(save).toHaveBeenCalledWith("print(2)\n", expect.anything());
   });
 
   it("throws the edit away on revert", () => {
     renderEditor();
-    fireEvent.change(screen.getByLabelText("Source"), { target: { value: "print(2)\n" } });
+    fireEvent.change(screen.getByLabelText("Source"), {
+      target: { value: "print(2)\n" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Revert" }));
     expect(screen.getByLabelText("Source")).toHaveValue(source);
     expect(save).not.toHaveBeenCalled();
@@ -151,11 +175,18 @@ describe("ScriptSourceEditor: saving", () => {
         draftParams={[]}
       />,
     );
-    fireEvent.change(screen.getByLabelText("Source"), { target: { value: "print(2)\n" } });
+    fireEvent.change(screen.getByLabelText("Source"), {
+      target: { value: "print(2)\n" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     const onSuccess = save.mock.calls[0]![1].onSuccess as (r: unknown) => void;
-    act(() => onSuccess({ applied: true, message: "Saved. This is the version that runs." }));
+    act(() =>
+      onSuccess({
+        applied: true,
+        message: "Saved. This is the version that runs.",
+      }),
+    );
     // The applied edit is the record now, so the editor shows the live source.
     expect(screen.getByLabelText("Source")).toHaveValue(source);
 
@@ -169,17 +200,23 @@ describe("ScriptSourceEditor: saving", () => {
         draftParams={[]}
       />,
     );
-    expect(screen.getByText(/This is the version that runs/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/This is the version that runs/),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   });
 
   it("reports a refusal in place, in the server's words", () => {
     renderEditor();
-    fireEvent.change(screen.getByLabelText("Source"), { target: { value: "def broken(:\n" } });
+    fireEvent.change(screen.getByLabelText("Source"), {
+      target: { value: "def broken(:\n" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     const onError = save.mock.calls[0]![1].onError as (e: unknown) => void;
-    act(() => onError(new Error("the source does not parse, so it was not saved")));
+    act(() =>
+      onError(new Error("the source does not parse, so it was not saved")),
+    );
     expect(screen.getByText(/does not parse/)).toBeInTheDocument();
     // The edit is kept, so nothing typed is lost to a refusal.
     expect(screen.getByLabelText("Source")).toHaveValue("def broken(:\n");
@@ -188,7 +225,9 @@ describe("ScriptSourceEditor: saving", () => {
   it("disables both controls while a save is in flight", () => {
     mockSave.mockReturnValue({ mutate: save, isPending: true } as never);
     renderEditor();
-    fireEvent.change(screen.getByLabelText("Source"), { target: { value: "print(2)\n" } });
+    fireEvent.change(screen.getByLabelText("Source"), {
+      target: { value: "print(2)\n" },
+    });
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Revert" })).toBeDisabled();
   });
@@ -200,7 +239,9 @@ describe("ScriptSourceEditor: saving", () => {
 describe("ScriptSourceEditor: checking an edit", () => {
   it("validates the text on screen and reports what it would reach", () => {
     renderEditor();
-    fireEvent.change(screen.getByLabelText("Source"), { target: { value: "x = 2\n" } });
+    fireEvent.change(screen.getByLabelText("Source"), {
+      target: { value: "x = 2\n" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Validate" }));
 
     expect(validate).toHaveBeenCalledWith("x = 2\n", expect.anything());
@@ -220,7 +261,9 @@ describe("ScriptSourceEditor: checking an edit", () => {
     expect(screen.getByText("platform.query")).toBeInTheDocument();
     expect(screen.getByText("warehouse")).toBeInTheDocument();
     // The report names the version that keeps running until the edit is saved.
-    expect(screen.getByText(/Version 2 keeps running until the edit is saved/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Version 2 keeps running until the edit is saved/),
+    ).toBeInTheDocument();
   });
 
   it("names the tools a generic call reaches, and says nothing when there are none", () => {
@@ -241,7 +284,9 @@ describe("ScriptSourceEditor: checking an edit", () => {
       }),
     );
     expect(screen.getByText("Tools")).toBeInTheDocument();
-    expect(screen.getByText("api_invoke_endpoint, trino_execute")).toBeInTheDocument();
+    expect(
+      screen.getByText("api_invoke_endpoint, trino_execute"),
+    ).toBeInTheDocument();
 
     // A script that calls no tool by name has no Tools row at all: "none"
     // there would read as a claim about a list this script does not have.
@@ -268,7 +313,14 @@ describe("ScriptSourceEditor: checking an edit", () => {
     act(() =>
       validate.mock.calls[0]![1].onSuccess({
         ok: false,
-        findings: [{ severity: "error", line: 3, message: "while is not available", hint: "Loop over a list." }],
+        findings: [
+          {
+            severity: "error",
+            line: 3,
+            message: "while is not available",
+            hint: "Loop over a list.",
+          },
+        ],
         capabilities: [],
         connections: [],
         destinations: [],
@@ -283,11 +335,13 @@ describe("ScriptSourceEditor: checking an edit", () => {
 
   it("dry-runs the text on screen and reports what it would have written", () => {
     renderEditor();
-    fireEvent.change(screen.getByLabelText("Source"), { target: { value: "x = 3\n" } });
+    fireEvent.change(screen.getByLabelText("Source"), {
+      target: { value: "x = 3\n" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Dry run" }));
 
     expect(dryRun).toHaveBeenCalledWith(
-      { source: "x = 3\n", params: {} },
+      { source: "x = 3\n", params: {}, allow_writes: false },
       expect.anything(),
     );
 
@@ -298,9 +352,23 @@ describe("ScriptSourceEditor: checking an edit", () => {
         log: "computed 12 rows",
         metrics: { steps: 40, duration_ms: 250, queries: 1, exports: 1 },
         outputs: [
-          { name: "daily", destination: "portal", format: "csv", row_count: 12, bytes: 300 },
-          { name: "dash", destination: "portal", format: "html", row_count: 0, document: true, bytes: 512 },
+          {
+            name: "daily",
+            destination: "portal",
+            format: "csv",
+            row_count: 12,
+            bytes: 300,
+          },
+          {
+            name: "dash",
+            destination: "portal",
+            format: "html",
+            row_count: 0,
+            document: true,
+            bytes: 512,
+          },
         ],
+        writes: [],
         message: "Nothing was persisted.",
       }),
     );
@@ -308,7 +376,9 @@ describe("ScriptSourceEditor: checking an edit", () => {
     expect(screen.getByText("Nothing was persisted.")).toBeInTheDocument();
     expect(screen.getByText(/would write 12 rows as csv/)).toBeInTheDocument();
     // A composed document is not a zero-row table and is not described as one.
-    expect(screen.getByText(/would write a html document \(512 bytes\)/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/would write a html document \(512 bytes\)/),
+    ).toBeInTheDocument();
     expect(screen.getByText("computed 12 rows")).toBeInTheDocument();
   });
 
@@ -324,6 +394,7 @@ describe("ScriptSourceEditor: checking an edit", () => {
         log: "half way",
         metrics: { steps: 12, duration_ms: 80, queries: 1, exports: 0 },
         outputs: [],
+        writes: [],
         message: "A script failure is deterministic.",
       }),
     );
@@ -339,10 +410,19 @@ describe("ScriptSourceEditor: checking an edit", () => {
     cleanup();
     vi.clearAllMocks();
     mockSave.mockReturnValue({ mutate: save, isPending: false } as never);
-    mockValidate.mockReturnValue({ mutate: validate, isPending: false } as never);
+    mockValidate.mockReturnValue({
+      mutate: validate,
+      isPending: false,
+    } as never);
     mockDryRun.mockReturnValue({ mutate: dryRun, isPending: false } as never);
-    mockConnections.mockReturnValue({ data: undefined, isLoading: false, error: null } as never);
-    renderEditor(contract, [{ name: "source", type: "connection", required: true }]);
+    mockConnections.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      error: null,
+    } as never);
+    renderEditor(contract, [
+      { name: "source", type: "connection", required: true },
+    ]);
     expect(mockConnections).toHaveBeenCalledWith("script-001", true);
   });
 
@@ -370,7 +450,9 @@ describe("ScriptSourceEditor: checking an edit", () => {
     renderEditor();
     fireEvent.click(screen.getByRole("button", { name: "Validate" }));
 
-    act(() => validate.mock.calls[0]![1].onError(new Error("script not found")));
+    act(() =>
+      validate.mock.calls[0]![1].onError(new Error("script not found")),
+    );
     expect(screen.getByText("script not found")).toBeInTheDocument();
   });
 });
@@ -391,11 +473,13 @@ describe("ScriptSourceEditor: which contract a run binds", () => {
 
   it("sends those values with the source it ran", () => {
     renderEditor({}, [{ name: "region", type: "string", required: true }]);
-    fireEvent.change(screen.getByLabelText("region"), { target: { value: "west" } });
+    fireEvent.change(screen.getByLabelText("region"), {
+      target: { value: "west" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Dry run" }));
 
     expect(dryRun).toHaveBeenCalledWith(
-      { source, params: { region: "west" } },
+      { source, params: { region: "west" }, allow_writes: false },
       expect.anything(),
     );
   });
@@ -405,7 +489,9 @@ describe("ScriptSourceEditor: which contract a run binds", () => {
 
     expect(screen.getByRole("button", { name: "Dry run" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Run" })).toBeDisabled();
-    expect(screen.getByText(/region is required before a run/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/region is required before a run/),
+    ).toBeInTheDocument();
   });
 });
 
@@ -416,7 +502,9 @@ describe("ScriptSourceEditor: which contract a run binds", () => {
 describe("ScriptSourceEditor: running the saved version", () => {
   it("queues a run bound to the values on the one parameter form", () => {
     renderEditor({}, [{ name: "region", type: "string", required: true }]);
-    fireEvent.change(screen.getByLabelText("region"), { target: { value: "west" } });
+    fireEvent.change(screen.getByLabelText("region"), {
+      target: { value: "west" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Run" }));
 
     expect(run).toHaveBeenCalledWith({ region: "west" }, expect.anything());
@@ -428,7 +516,9 @@ describe("ScriptSourceEditor: running the saved version", () => {
   it("reports what the queue said", () => {
     renderEditor();
     fireEvent.click(screen.getByRole("button", { name: "Run" }));
-    act(() => run.mock.calls[0]![1].onSuccess({ message: "Run queued as run-77." }));
+    act(() =>
+      run.mock.calls[0]![1].onSuccess({ message: "Run queued as run-77." }),
+    );
 
     expect(screen.getByText("Run queued as run-77.")).toBeInTheDocument();
   });
@@ -436,7 +526,9 @@ describe("ScriptSourceEditor: running the saved version", () => {
   it("reports a refused run in place, in the server's words", () => {
     renderEditor();
     fireEvent.click(screen.getByRole("button", { name: "Run" }));
-    act(() => run.mock.calls[0]![1].onError(new Error("the script is disabled")));
+    act(() =>
+      run.mock.calls[0]![1].onError(new Error("the script is disabled")),
+    );
 
     expect(screen.getByText("the script is disabled")).toBeInTheDocument();
   });
@@ -447,17 +539,25 @@ describe("ScriptSourceEditor: running the saved version", () => {
   // "the saved version".
   it("names the version Run executes", () => {
     renderEditor();
-    expect(screen.getByText(/Run executes version 2 — the latest saved one/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Run executes version 2 — the latest saved one/),
+    ).toBeInTheDocument();
   });
 
   it("says the edit on screen is not what Run executes", () => {
     renderEditor();
-    expect(screen.queryByText(/The edit below is not saved/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/The edit below is not saved/),
+    ).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("Source"), { target: { value: "print(1)\n" } });
+    fireEvent.change(screen.getByLabelText("Source"), {
+      target: { value: "print(1)\n" },
+    });
 
     expect(
-      screen.getByText(/The edit below is not saved, so Run still executes version 2/),
+      screen.getByText(
+        /The edit below is not saved, so Run still executes version 2/,
+      ),
     ).toBeInTheDocument();
   });
 
@@ -467,8 +567,12 @@ describe("ScriptSourceEditor: running the saved version", () => {
   it("offers no Run at all on a script nothing would execute", () => {
     renderEditor({ refusal: "the script is disabled" });
 
-    expect(screen.queryByRole("button", { name: "Run" })).not.toBeInTheDocument();
-    expect(screen.getByText(/there is no Run here until it is back in service/)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Run" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/there is no Run here until it is back in service/),
+    ).toBeInTheDocument();
     // Editing, checking and saving are untouched: fixing the script is how it
     // comes back into service.
     expect(screen.getByRole("button", { name: "Dry run" })).toBeInTheDocument();
@@ -483,10 +587,9 @@ describe("ScriptSourceEditor: the version history it folds in", () => {
     renderEditor();
 
     expect(mockVersions).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: /Version history/ })).toHaveAttribute(
-      "aria-expanded",
-      "false",
-    );
+    expect(
+      screen.getByRole("button", { name: /Version history/ }),
+    ).toHaveAttribute("aria-expanded", "false");
   });
 
   it("loads the versions once somebody opens it", () => {
@@ -517,5 +620,92 @@ describe("ScriptSourceEditor: the version history it folds in", () => {
     // Nothing opens by default: the version that runs is the text in the
     // editor above, and putting it on the page twice says nothing new.
     expect(screen.queryByText(/print\('one'\)/)).not.toBeInTheDocument();
+  });
+});
+
+// The write barrier (#1664). A dry run refuses a platform.call that persists,
+// so a landing pipeline is rehearsed without landing; the author lifts it for
+// one run when a later step needs what an earlier one creates.
+describe("ScriptSourceEditor: writing for real", () => {
+  it("asks for no writes until the author ticks the control", () => {
+    renderEditor();
+    fireEvent.click(screen.getByLabelText(/Write for real/));
+    fireEvent.click(screen.getByRole("button", { name: "Dry run" }));
+
+    expect(dryRun).toHaveBeenCalledWith(
+      { source, params: {}, allow_writes: true },
+      expect.anything(),
+    );
+  });
+
+  it("clears the control after the run, so the next dry run is a rehearsal again", () => {
+    renderEditor();
+    const control = screen.getByLabelText(/Write for real/) as HTMLInputElement;
+    fireEvent.click(control);
+    fireEvent.click(screen.getByRole("button", { name: "Dry run" }));
+    expect(control.checked).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Dry run" }));
+    expect(dryRun).toHaveBeenLastCalledWith(
+      { source, params: {}, allow_writes: false },
+      expect.anything(),
+    );
+  });
+
+  it("names the call a refused dry run stopped at, and what to do about it", () => {
+    renderEditor();
+    fireEvent.click(screen.getByRole("button", { name: "Dry run" }));
+
+    act(() =>
+      dryRun.mock.calls[0]![1].onSuccess({
+        run_id: "run_2",
+        status: "failed",
+        error:
+          "Error in platform.call: manage_resource action=create persists outside this run",
+        log: "starting",
+        metrics: { steps: 12, duration_ms: 30, queries: 0, exports: 0 },
+        outputs: [],
+        writes: [],
+        refused_write: {
+          tool: "manage_resource",
+          call: "manage_resource action=create",
+        },
+        message: "The dry run stopped at a call that persists.",
+      }),
+    );
+
+    expect(screen.getByText(/This dry run stopped at/)).toBeInTheDocument();
+    expect(
+      screen.getByText("manage_resource action=create"),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Tick "Write for real"/)).toBeInTheDocument();
+  });
+
+  it("lists every call a run that was allowed to write persisted", () => {
+    renderEditor();
+    fireEvent.click(screen.getByRole("button", { name: "Dry run" }));
+
+    act(() =>
+      dryRun.mock.calls[0]![1].onSuccess({
+        run_id: "run_3",
+        status: "succeeded",
+        log: "filed daily.csv",
+        metrics: { steps: 900, duration_ms: 1200, queries: 1, exports: 0 },
+        outputs: [],
+        writes: [
+          { tool: "manage_resource", call: "manage_resource action=create" },
+          { tool: "manage_table", call: "manage_table action=register" },
+        ],
+        message: "This dry run was allowed to write.",
+      }),
+    );
+
+    expect(screen.getByText("Persisted for real (2):")).toBeInTheDocument();
+    expect(
+      screen.getByText("manage_resource action=create"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("manage_table action=register"),
+    ).toBeInTheDocument();
   });
 });

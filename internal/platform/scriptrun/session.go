@@ -95,6 +95,35 @@ func (c *SessionCaller) CallTool(ctx context.Context, name string, args map[stri
 	return map[string]any{TextResultKey: text}, nil
 }
 
+// DeclaresReadOnly reports whether the server this session is connected to
+// advertises the named tool with MCP's read-only annotation, and whether it
+// advertises the tool at all.
+//
+// It is the one thing the platform knows about a tool no classification rule
+// names: an MCP gateway connection proxies whatever its upstream serves, under
+// names the upstream chose, and the upstream's own ReadOnlyHint travels with
+// the tool onto this server's listing. The draft's write barrier takes that
+// statement rather than refusing every proxied tool (#1664).
+//
+// The listing is the SESSION's, so it is already filtered to what this run may
+// see. The annotation is a plain bool in the protocol, so "declared false" and
+// "declared nothing" are one value; only true is a statement, which is why it
+// is the only value that answers read.
+func (c *SessionCaller) DeclaresReadOnly(ctx context.Context, name string) (readOnly, known bool) {
+	for tool, err := range c.session.Tools(ctx, nil) {
+		if err != nil {
+			// A listing this session cannot read leaves every tool
+			// unclassified, which is the same answer as a tool that declares
+			// nothing: the caller's deny-by-default decides.
+			return false, false
+		}
+		if tool.Name == name {
+			return tool.Annotations != nil && tool.Annotations.ReadOnlyHint, true
+		}
+	}
+	return false, false
+}
+
 // firstText returns the first text block of a FAILED tool result, or a
 // placeholder, so a refusal always reaches the author as a sentence.
 func firstText(res *mcp.CallToolResult) string {

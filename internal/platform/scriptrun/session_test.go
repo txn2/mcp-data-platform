@@ -90,3 +90,63 @@ func TestSessionCaller_ResultShapes(t *testing.T) {
 		assert.Contains(t, err.Error(), "missing")
 	})
 }
+
+// TestSessionCaller_DeclaresReadOnly drives the annotation read a draft's write
+// barrier falls back to for a tool no classification rule names, against a real
+// listing over a real session.
+func TestSessionCaller_DeclaresReadOnly(t *testing.T) {
+	ctx := context.Background()
+	server := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "v0"}, nil)
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "vendor__list_contacts", Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+	}, func(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
+		return &mcp.CallToolResult{}, nil, nil
+	})
+	mcp.AddTool(server, &mcp.Tool{Name: "vendor__create_invoice"},
+		func(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
+			return &mcp.CallToolResult{}, nil, nil
+		})
+
+	t1, t2 := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, t1, nil)
+	require.NoError(t, err)
+	defer func() { _ = serverSession.Close() }()
+	client := mcp.NewClient(&mcp.Implementation{Name: "c", Version: "v0"}, nil)
+	session, err := client.Connect(ctx, t2, nil)
+	require.NoError(t, err)
+	defer func() { _ = session.Close() }()
+
+	caller := &SessionCaller{session: session}
+
+	readOnly, known := caller.DeclaresReadOnly(ctx, "vendor__list_contacts")
+	assert.True(t, known, "the server advertises it")
+	assert.True(t, readOnly, "and declares it read-only")
+
+	readOnly, known = caller.DeclaresReadOnly(ctx, "vendor__create_invoice")
+	assert.True(t, known)
+	assert.False(t, readOnly, "declaring nothing is not declaring a read")
+
+	readOnly, known = caller.DeclaresReadOnly(ctx, "not_advertised")
+	assert.False(t, known, "a tool the listing does not carry is unknown")
+	assert.False(t, readOnly)
+}
+
+// TestSessionCaller_DeclaresReadOnlyOnAClosedSession pins the answer when the
+// listing cannot be read at all: unknown, which leaves the barrier's
+// deny-by-default to decide rather than reporting a read.
+func TestSessionCaller_DeclaresReadOnlyOnAClosedSession(t *testing.T) {
+	ctx := context.Background()
+	server := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "v0"}, nil)
+	t1, t2 := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, t1, nil)
+	require.NoError(t, err)
+	client := mcp.NewClient(&mcp.Implementation{Name: "c", Version: "v0"}, nil)
+	session, err := client.Connect(ctx, t2, nil)
+	require.NoError(t, err)
+	require.NoError(t, session.Close())
+	require.NoError(t, serverSession.Close())
+
+	readOnly, known := (&SessionCaller{session: session}).DeclaresReadOnly(ctx, "anything")
+	assert.False(t, known)
+	assert.False(t, readOnly)
+}

@@ -66,10 +66,15 @@ func (h *Handle) handleValidate(ctx context.Context, input manageScriptInput) (*
 // real interpreter errors, real rows, real shapes — so a script is finished
 // before it is saved as the version that runs.
 //
-// It is deliberately NOT a platform run: it persists nothing (platform.export
-// previews), it runs under tighter limits, and it executes the source as sent
-// rather than the saved version. Sending no source runs the saved version,
-// which is how an author dry-runs a script they have not edited.
+// It is deliberately NOT a platform run: it runs under tighter limits, and it
+// executes the source as sent rather than the saved version. Sending no source
+// runs the saved version, which is how an author dry-runs a script they have
+// not edited.
+//
+// By default it persists nothing. platform.export previews, platform.save_state
+// reports, and the engine's write barrier refuses every write-class call the
+// source makes through platform.call (#1664). allow_writes lifts the barrier
+// for one run, and the response then lists what the run wrote.
 func (h *Handle) handleRunDraft(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
 	if errResult := refuseReentrantRun(ctx, ToolNameManageScript+" "+cmdRunDraft); errResult != nil {
 		return errResult, nil, nil
@@ -95,7 +100,7 @@ func (h *Handle) handleRunDraft(ctx context.Context, input manageScriptInput) (*
 	if pc == nil {
 		return errorResult(scriptdraft.ErrNoIdentity.Error()), nil, nil
 	}
-	outcome, err := scriptdraft.New(h.server, h.destinations).Run(ctx, scriptdraft.Request{
+	outcome, err := scriptdraft.New(h.server, h.destinations).WithToolkits(h.toolkits).Run(ctx, scriptdraft.Request{
 		Source: source, Name: sc.Name, Params: params,
 		// The live state, so the draft reads what a platform run created now
 		// would read. Nothing is written back: what the draft would have saved
@@ -105,6 +110,7 @@ func (h *Handle) handleRunDraft(ctx context.Context, input manageScriptInput) (*
 			UserID: pc.UserID, Email: pc.UserEmail, Claims: pc.UserClaims,
 			Roles: pc.Roles, AuthType: pc.AuthType,
 		},
+		AllowWrites: input.AllowWrites,
 	})
 	if err != nil {
 		return errorResult(err.Error()), nil, nil
@@ -161,6 +167,7 @@ func draftResult(sc *script.Script, outcome *scriptdraft.Outcome) map[string]any
 	out := map[string]any{
 		fieldName: sc.Name, "run_id": outcome.RunID, "draft": true,
 		fieldStatus: "succeeded", "queries": 0, "exports": []scriptrun.ExportRecord{},
+		"writes": []scriptrun.WriteRecord{},
 	}
 	if result != nil {
 		out["log"] = result.Log
@@ -169,6 +176,7 @@ func draftResult(sc *script.Script, outcome *scriptdraft.Outcome) map[string]any
 		out["duration_ms"] = result.Duration.Milliseconds()
 		out["queries"] = result.Queries
 		out["exports"] = orEmptyExports(result.Exports)
+		out["writes"] = orEmptyWrites(result.Writes)
 		if result.State != nil {
 			out["state"] = orEmptyParams(result.State.Value)
 		}
@@ -177,22 +185,84 @@ func draftResult(sc *script.Script, outcome *scriptdraft.Outcome) map[string]any
 		out[fieldStatus] = "failed"
 		out["error"] = runErr.Error()
 		out["retryable"] = false
-		out["message"] = "A script failure is deterministic: the same source on the same inputs fails the same way, so retrying it changes nothing. Fix the script and run the draft again."
+		out["message"] = draftFailureMessage(result)
+		if refused := refusedWriteOf(result); refused != nil {
+			out["refused_write"] = refused
+		}
 	} else {
 		out["message"] = draftPersistedNothing(result)
 	}
 	return out
 }
 
-// draftPersistedNothing states what the draft did not persist, naming the
-// state when the source saved some: a reader who sees a state object in the
+// draftPersistedNothing states what the draft did and did not persist, naming
+// the state when the source saved some: a reader who sees a state object in the
 // response has to be told it did not land.
+//
+// A draft that was allowed to write says so first. "Nothing was persisted" on a
+// run that created a resource is the sentence a reader would act on wrongly,
+// and the writes list is the only place the response records that it did.
 func draftPersistedNothing(result *scriptrun.Result) string {
-	msg := "Nothing was persisted. platform.export reported the shape of each output rather than writing it."
+	if n := len(writesOf(result)); n > 0 {
+		return fmt.Sprintf(
+			"This draft was run with allow_writes, and %s listed under writes persisted for real. "+
+				"platform.export still reported the shape of each output rather than writing it, and "+
+				"platform.save_state still reported the state rather than saving it.",
+			pluralCalls(n))
+	}
+	msg := "Nothing was persisted. platform.export reported the shape of each output rather than writing it, " +
+		"and a write-class platform.call would have been refused rather than made."
 	if result != nil && result.State != nil {
 		msg += " platform.save_state reported the state a platform run would have saved (state) and did not save it."
 	}
 	return msg
+}
+
+// draftFailureMessage states why the draft ended, separating the two failures
+// an author acts on differently: a script that is wrong, and a script that is
+// right but wanted to write.
+func draftFailureMessage(result *scriptrun.Result) string {
+	if refused := refusedWriteOf(result); refused != nil {
+		return "The draft stopped at a call that persists (refused_write), because a draft does not write. " +
+			"Run it again with allow_writes to let it write for real, and it will report every write it made."
+	}
+	return "A script failure is deterministic: the same source on the same inputs fails the same way, so retrying it changes nothing. Fix the script and run the draft again."
+}
+
+// refusedWriteOf reads the barred call off a result, tolerating the nil result
+// a run that never started leaves.
+func refusedWriteOf(result *scriptrun.Result) *scriptrun.WriteRecord {
+	if result == nil {
+		return nil
+	}
+	return result.RefusedWrite
+}
+
+// pluralCalls renders a call count with its noun.
+func pluralCalls(n int) string {
+	if n == 1 {
+		return "the 1 call"
+	}
+	return fmt.Sprintf("the %d calls", n)
+}
+
+// writesOf reads the persisting calls off a result, tolerating the nil result a
+// run that never started leaves.
+func writesOf(result *scriptrun.Result) []scriptrun.WriteRecord {
+	if result == nil {
+		return nil
+	}
+	return result.Writes
+}
+
+// orEmptyWrites normalizes a nil write slice so the response carries a list
+// rather than null: a reader checking what a draft persisted must be able to
+// read the empty answer as an empty list.
+func orEmptyWrites(writes []scriptrun.WriteRecord) []scriptrun.WriteRecord {
+	if writes == nil {
+		return []scriptrun.WriteRecord{}
+	}
+	return writes
 }
 
 // orEmptyExports normalizes a nil export slice so the response carries a list

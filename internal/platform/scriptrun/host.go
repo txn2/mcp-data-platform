@@ -11,6 +11,8 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 
+	"github.com/txn2/mcp-data-platform/internal/scriptdate"
+	"github.com/txn2/mcp-data-platform/internal/toolwrite"
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
@@ -143,6 +145,16 @@ type hostState struct {
 	log     *logBuffer
 	queries int
 	exports []ExportRecord
+	// writes records the persisting platform.call calls the run made, in call
+	// order. It stays empty under the write barrier, which refuses them.
+	writes []WriteRecord
+	// refused is the call the write barrier stopped. There is at most one:
+	// the refusal fails the run.
+	refused *WriteRecord
+	// declared caches what the server advertises about a tool no rule names,
+	// keyed by tool name. The answer cannot change inside a run, and the lookup
+	// walks a tool listing.
+	declared map[string]bool
 	// state is what platform.save_state staged, nil until it is called. A
 	// second call replaces the first: the run's write is one write.
 	state *script.StateWrite
@@ -287,7 +299,7 @@ func (h *hostState) runValue() starlark.Value {
 	}
 	rec := starlarkstruct.FromStringDict(starlark.String("run"), starlark.StringDict{
 		"run_id":    starlark.String(h.opts.RunID),
-		"fire_time": starlark.String(h.opts.FireTime.UTC().Format(timeLayout)),
+		"fire_time": starlark.String(h.opts.FireTime.UTC().Format(scriptdate.TimeLayout)),
 		"params":    params,
 		"state":     state,
 	})
@@ -360,9 +372,20 @@ func (h *hostState) call(_ *starlark.Thread, b *starlark.Builtin, args starlark.
 	if err != nil {
 		return nil, argErr(b, err)
 	}
+	decision, err := h.admitCall(b, tool, payload)
+	if err != nil {
+		return nil, err
+	}
 	out, err := h.callTool(tool, payload)
 	if err != nil {
 		return nil, argErr(b, err)
+	}
+	// Recorded AFTER the call, and only for a call that returned. A tool that
+	// refused the arguments persisted nothing, and a response listing it under
+	// "these calls persisted for real" would be a false statement about the
+	// deployment the author is looking at.
+	if decision.Writes && h.opts.Writes == WritesReported {
+		h.writes = append(h.writes, WriteRecord{Tool: tool, Call: decision.Call})
 	}
 	// A tool that wrote a file reports what the write did to the tables
 	// registered over it, and the run log carries that the way it carries an
@@ -381,6 +404,104 @@ func (h *hostState) call(_ *starlark.Thread, b *starlark.Builtin, args starlark.
 		return nil, fmt.Errorf("converting the result of %s(%q): %w", b.Name(), tool, err)
 	}
 	return value, nil
+}
+
+// admitCall applies the run's write barrier and records what the run persists.
+//
+// A draft run is a rehearsal, and the three named helpers make themselves one
+// on their own — a nil Exporter previews, save_state reports. platform.call
+// cannot: it is an ordinary tool call, so a draft of an ingestion script
+// created the resources, registrations and assets a platform run would, with no
+// run record to explain where they came from (#1664).
+//
+// The barrier refuses rather than faking a result. A synthesized answer would
+// be read by the next line of the script — the new resource's uri, the
+// registration's id — and the run would fail somewhere downstream, describing
+// the wrong problem. Failing at the call names the call.
+//
+// Under WritesReported the same classification still runs, and the caller
+// records every write it recognizes once the call has returned: a draft that
+// was allowed to persist owes its author the list of what it persisted.
+func (h *hostState) admitCall(b *starlark.Builtin, tool string, args map[string]any) (toolwrite.Decision, error) {
+	// A platform run makes every call and records none, so it asks no question
+	// here. Classifying anyway would put a tools/list behind every call to an
+	// unclassified tool on the path that runs unattended.
+	if h.opts.Writes == WritesMade {
+		return toolwrite.Decision{}, nil
+	}
+	decision := h.declare(tool, args)
+	if !decision.Writes || h.opts.Writes != WritesRefused {
+		return decision, nil
+	}
+	h.refused = &WriteRecord{Tool: tool, Call: decision.Call}
+	return decision, fmt.Errorf("in %s: %s", b.Name(), refusedWriteMessage(decision))
+}
+
+// declare classifies one call, falling back to what the tool says about itself
+// when no rule names it.
+//
+// The platform does not define every tool it serves: an MCP gateway connection
+// proxies whatever its upstream serves, under names chosen upstream, and the
+// upstream's own read-only annotation travels with the tool onto this server's
+// listing. Taking that statement is what keeps the barrier from refusing an
+// entire class of tools nobody could have listed in advance, and it is still
+// deny-by-default — a tool that declares nothing stays a write.
+func (h *hostState) declare(tool string, args map[string]any) toolwrite.Decision {
+	decision := h.opts.Classifier.Classify(tool, args)
+	if !decision.Writes || decision.Declared {
+		return decision
+	}
+	// Only for a tool NO rule names. A rule that ran and could not read its
+	// argument has already said what it knows, and an annotation is not
+	// permitted to overrule it.
+	declarer, ok := h.opts.Caller.(ReadOnlyDeclarer)
+	if !ok || toolwrite.Classified(tool) {
+		return decision
+	}
+	if h.declaresRead(declarer, tool) {
+		decision.Writes = false
+		decision.Declared = true
+	}
+	return decision
+}
+
+// declaresRead answers whether the server advertises the tool as read-only,
+// once per tool per run.
+//
+// The lookup walks a tool listing, so a script calling one unclassified tool in
+// a loop would walk it once per iteration. The answer cannot change inside a
+// run: the listing is the session's, and the session is the run.
+func (h *hostState) declaresRead(declarer ReadOnlyDeclarer, tool string) bool {
+	if cached, seen := h.declared[tool]; seen {
+		return cached
+	}
+	readOnly, known := declarer.DeclaresReadOnly(h.ctx, tool)
+	answer := known && readOnly
+	if h.declared == nil {
+		h.declared = map[string]bool{}
+	}
+	h.declared[tool] = answer
+	return answer
+}
+
+// refusedWriteMessage states why one call was not made, in the words the author
+// needs to act on it.
+//
+// A tool the platform classifies and a tool it does not get different sentences,
+// because the author's next move differs: the first is a decision about whether
+// this draft should persist, the second is the platform saying it cannot tell,
+// which a reader must not mistake for a judgment about the tool.
+func refusedWriteMessage(decision toolwrite.Decision) string {
+	if decision.Declared {
+		return fmt.Sprintf(
+			"%s persists outside this run, and a draft run does not write. "+
+				"Run the draft with allow_writes to let it write for real, and it will report what it wrote.",
+			decision.Call)
+	}
+	return fmt.Sprintf(
+		"the platform cannot tell whether %s persists, so a draft run does not make it. "+
+			"Run the draft with allow_writes to let it write for real, and it will report what it wrote.",
+		decision.Call)
 }
 
 // tableSentences reads the table report a file-writing tool's result carries:

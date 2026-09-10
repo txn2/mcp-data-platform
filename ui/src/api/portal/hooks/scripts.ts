@@ -1,10 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type {
-  Script,
-  ScriptDryRunOutput,
-  ScriptFinding,
-  ScriptVersion,
-} from "@/api/admin/types";
+import type { Script, ScriptVersion } from "@/api/admin/types";
 import { ApiError, apiFetch } from "../client";
 import { scriptsKey } from "./scriptKeys";
 
@@ -115,7 +110,12 @@ export interface ScriptRunDetail extends ScriptRun {
   params?: Record<string, unknown>;
   log?: string;
   log_truncated?: boolean;
-  metrics: { steps: number; duration_ms: number; queries: number; exports: number };
+  metrics: {
+    steps: number;
+    duration_ms: number;
+    queries: number;
+    exports: number;
+  };
   outputs?: ScriptRunOutput[];
   // The state the run read at creation (an input beside its parameters) and,
   // on a succeeded run that saved, what it wrote and the revision (#1537).
@@ -165,7 +165,12 @@ export interface ScriptContract {
   // empty when one would be. A page never reports a script as runnable that
   // run_script would decline.
   refusal?: string;
-  schedule?: { cron_spec: string; timezone: string; enabled: boolean; next_run_at?: string };
+  schedule?: {
+    cron_spec: string;
+    timezone: string;
+    enabled: boolean;
+    next_run_at?: string;
+  };
   last_successful_run?: ScriptContractRun;
   // state says whether this script carries anything between runs (#1537).
   state?: import("./scriptState").ScriptContractState;
@@ -197,6 +202,17 @@ export {
   type ScriptState,
 } from "./scriptState";
 
+// The two checks an author runs against an edit before saving it (#1364) live
+// in scriptDrafts.ts, and are re-exported here so the editor imports every
+// script hook from one place.
+export {
+  useDryRunScript,
+  useValidateScriptSource,
+  type ScriptDryRun,
+  type ScriptDryRunWrite,
+  type ScriptValidation,
+} from "./scriptDrafts";
+
 // ScriptListFilter narrows the listing to one category, one tag, free text, or
 // any combination (#1369, #1405). Every axis is applied by the server rather
 // than in the table, so the answer is the same one an agent's list gets, and a
@@ -218,7 +234,13 @@ export interface ScriptListFilter {
 export function useScriptListing(filter: ScriptListFilter = {}) {
   const query = scriptListQuery(filter);
   return useQuery({
-    queryKey: [...scriptsKey, "list", filter.category ?? "", filter.tag ?? "", filter.search ?? ""],
+    queryKey: [
+      ...scriptsKey,
+      "list",
+      filter.category ?? "",
+      filter.tag ?? "",
+      filter.search ?? "",
+    ],
     queryFn: () => apiFetch<ListResponse<PortalScriptRow>>(`/scripts${query}`),
   });
 }
@@ -268,7 +290,8 @@ export function useScriptRunListing(scriptID?: string) {
   return useQuery({
     queryKey: [...scriptsKey, "runs", scriptID ?? ""],
     queryFn: () => apiFetch<OwnRunsResponse>(`/scripts/runs${query}`),
-    refetchInterval: (query) => (hasRunInFlight(query.state.data) ? RUN_POLL_MS : false),
+    refetchInterval: (query) =>
+      hasRunInFlight(query.state.data) ? RUN_POLL_MS : false,
   });
 }
 
@@ -347,10 +370,14 @@ export function useSaveScriptMetadata(scriptID: string) {
 // usePortalScriptVersions reads a script's version history. It is owner and
 // admin reading, so it is requested only when the listing said the caller owns
 // the script; a caller who does not is answered as though it did not exist.
-export function usePortalScriptVersions(scriptID: string | null, owned: boolean) {
+export function usePortalScriptVersions(
+  scriptID: string | null,
+  owned: boolean,
+) {
   return useQuery({
     queryKey: [...scriptsKey, scriptID, "versions"],
-    queryFn: () => apiFetch<ListResponse<ScriptVersion>>(`/scripts/${scriptID}/versions`),
+    queryFn: () =>
+      apiFetch<ListResponse<ScriptVersion>>(`/scripts/${scriptID}/versions`),
     enabled: !!scriptID && owned,
   });
 }
@@ -374,17 +401,24 @@ export function useScriptRuns(scriptID: string | null, owned: boolean) {
   return useQuery({
     queryKey: [...scriptsKey, scriptID, "runs", RUN_PAGE_SIZE],
     queryFn: () =>
-      apiFetch<ListResponse<ScriptRun>>(`/scripts/${scriptID}/runs?per_page=${RUN_PAGE_SIZE}`),
+      apiFetch<ListResponse<ScriptRun>>(
+        `/scripts/${scriptID}/runs?per_page=${RUN_PAGE_SIZE}`,
+      ),
     enabled: !!scriptID && owned,
-    refetchInterval: (query) => (hasRunInFlight(query.state.data) ? RUN_POLL_MS : false),
+    refetchInterval: (query) =>
+      hasRunInFlight(query.state.data) ? RUN_POLL_MS : false,
   });
 }
 
 // hasRunInFlight reports whether any run in the history has yet to finish.
 // Those two statuses are the queue's, not the outcome's: everything else is a
 // run that has stopped moving.
-export function hasRunInFlight(data: { data: ScriptRun[] } | undefined): boolean {
-  return (data?.data ?? []).some((r) => r.status === "pending" || r.status === "running");
+export function hasRunInFlight(
+  data: { data: ScriptRun[] } | undefined,
+): boolean {
+  return (data?.data ?? []).some(
+    (r) => r.status === "pending" || r.status === "running",
+  );
 }
 
 // useScriptSchedule reads an owned script's cadence in full, including the
@@ -431,9 +465,12 @@ export function useSetScriptSchedulePaused(scriptID: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (enabled: boolean) =>
-      apiFetch<ScriptSchedule>(`/scripts/${scriptID}/schedule/${enabled ? "enable" : "disable"}`, {
-        method: "POST",
-      }),
+      apiFetch<ScriptSchedule>(
+        `/scripts/${scriptID}/schedule/${enabled ? "enable" : "disable"}`,
+        {
+          method: "POST",
+        },
+      ),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: scriptsKey }),
   });
 }
@@ -441,7 +478,8 @@ export function useSetScriptSchedulePaused(scriptID: string) {
 export function useScriptRun(scriptID: string | null, runID: string | null) {
   return useQuery({
     queryKey: [...scriptsKey, scriptID, "runs", runID],
-    queryFn: () => apiFetch<ScriptRunDetail>(`/scripts/${scriptID}/runs/${runID}`),
+    queryFn: () =>
+      apiFetch<ScriptRunDetail>(`/scripts/${scriptID}/runs/${runID}`),
     enabled: !!scriptID && !!runID,
   });
 }
@@ -468,7 +506,10 @@ export interface ScriptConnectionChoices {
 // name. It is requested only for an owned script that actually declares a
 // connection parameter: every other script has no use for the set, and asking
 // for it would put a request on every script page.
-export function useScriptConnections(scriptID: string | null, enabled: boolean) {
+export function useScriptConnections(
+  scriptID: string | null,
+  enabled: boolean,
+) {
   return useQuery({
     queryKey: [...scriptsKey, scriptID, "connections"],
     queryFn: () =>
@@ -504,78 +545,5 @@ export function useRunScript(scriptID: string) {
         body: JSON.stringify({ params }),
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: scriptsKey }),
-  });
-}
-
-// ScriptValidation is what an edited source would reach, and what is wrong with
-// it (#1364). It executes nothing.
-export interface ScriptValidation {
-  ok: boolean;
-  findings: ScriptFinding[];
-  capabilities: string[];
-  connections: string[];
-  // Where this script's OUTPUTS go: what platform.export writes to, plus the
-  // portal for an export naming none. Not every byte the script can move — a
-  // write made through platform.call is read in tools instead.
-  destinations: string[];
-  // The tool names the source passes to platform.call literally. The persona
-  // filter decides what a run may call; this is what the source does call.
-  tools?: string[];
-  // The output names platform.publish_data refreshes: which asset's data
-  // region this source rewrites.
-  refresh_targets?: string[];
-  dynamic_connections: boolean;
-  dynamic_destinations: boolean;
-  dynamic_refresh_targets?: boolean;
-  // dynamic_tools is true when a call computes the tool it invokes, which
-  // shortens the tool list. A computed argument set shortens connections.
-  dynamic_tools?: boolean;
-  // reads_state and saves_state say what the source does with the state a
-  // script carries between runs (#1537): run.state on the way in,
-  // platform.save_state on the way out.
-  reads_state?: boolean;
-  saves_state?: boolean;
-  note?: string;
-}
-
-// useValidateScriptSource parses an edit and reports what it would reach.
-// Nothing is stored, so nothing is invalidated.
-export function useValidateScriptSource(scriptID: string) {
-  return useMutation({
-    mutationFn: (source: string) =>
-      apiFetch<ScriptValidation>(`/scripts/${scriptID}/validate`, {
-        method: "POST",
-        body: JSON.stringify({ source }),
-      }),
-  });
-}
-
-// ScriptDryRun is one draft execution as the editor reports it. A failed run
-// answers with the same fields a successful one does: the log is the whole
-// reason to have run it.
-export interface ScriptDryRun {
-  run_id: string;
-  status: string;
-  error?: string;
-  log?: string;
-  log_truncated?: boolean;
-  metrics: { steps: number; duration_ms: number; queries: number; exports: number };
-  outputs: ScriptDryRunOutput[];
-  // state is the object the source would have saved with platform.save_state,
-  // absent when it saved none. The draft persists it no more than an output.
-  state?: Record<string, unknown>;
-  message: string;
-}
-
-// useDryRunScript executes an edit as the caller, persisting nothing it
-// produced. It introduces no authority: the run is the caller's own session,
-// their persona and their audit trail, so it reaches exactly what they reach.
-export function useDryRunScript(scriptID: string) {
-  return useMutation({
-    mutationFn: (input: { source: string; params: Record<string, unknown> }) =>
-      apiFetch<ScriptDryRun>(`/scripts/${scriptID}/dry-run`, {
-        method: "POST",
-        body: JSON.stringify(input),
-      }),
   });
 }

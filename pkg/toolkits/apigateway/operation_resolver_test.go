@@ -198,3 +198,63 @@ func TestResolveOperationRequest_NoCatalog(t *testing.T) {
 		t.Error("a connection with no catalog must resolve nothing")
 	}
 }
+
+// MethodForOperation is the method half of the lookup above, for the
+// managed-script draft's write barrier (#1664): it has to know whether an
+// api_invoke_endpoint call reads or writes before the call is made, and a call
+// addressed by operation_id carries only the id.
+func TestMethodForOperation(t *testing.T) {
+	tk := newResolverTestToolkit(t, "acme", "/v1")
+
+	tests := []struct {
+		name        string
+		connection  string
+		operationID string
+		spec        string
+		want        string
+		wantOK      bool
+	}{
+		{name: "a read", connection: "acme", operationID: "listUsers", want: "GET", wantOK: true},
+		{name: "a write", connection: "acme", operationID: "createUser", want: "POST", wantOK: true},
+		{
+			name: "spec filter names the catalog", connection: "acme",
+			operationID: "createUser", spec: "users", want: "POST", wantOK: true,
+		},
+		{name: "a synthesized id", connection: "acme", operationID: "GET /widgets", want: "GET", wantOK: true},
+		{name: "unknown connection", connection: "nope", operationID: "listUsers"},
+		{name: "unknown operation", connection: "acme", operationID: "nope"},
+		{name: "no operation named", connection: "acme", operationID: ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := tk.MethodForOperation(tc.connection, tc.spec, tc.operationID)
+			if ok != tc.wantOK || got != tc.want {
+				t.Errorf("MethodForOperation(%q, %q, %q) = (%q, %v), want (%q, %v)",
+					tc.connection, tc.spec, tc.operationID, got, ok, tc.want, tc.wantOK)
+			}
+		})
+	}
+}
+
+// TestMethodForOperation_NeedsNoPathValues is the difference from
+// ResolveOperationRequest: a classifier has no business refusing to answer
+// because a path template variable was not supplied.
+func TestMethodForOperation_NeedsNoPathValues(t *testing.T) {
+	tk := newResolverTestToolkit(t, "acme", "/v1")
+
+	if _, _, ok := tk.ResolveOperationRequest(context.Background(), "acme", "getUser", "", nil); ok {
+		t.Fatal("rebuilding the request needs the template's values")
+	}
+	got, ok := tk.MethodForOperation("acme", "", "getUser")
+	if !ok || got != "GET" {
+		t.Errorf("MethodForOperation without path values = (%q, %v), want (GET, true)", got, ok)
+	}
+}
+
+func TestMethodForOperation_NoCatalog(t *testing.T) {
+	tk := New("test")
+	tk.connections["bare"] = &conn{}
+	if _, ok := tk.MethodForOperation("bare", "", "listUsers"); ok {
+		t.Error("a connection with no catalog must resolve nothing")
+	}
+}

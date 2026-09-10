@@ -17,6 +17,7 @@ import { SectionCard } from "@/components/patterns/SectionCard";
 import { SourceEditor } from "@/components/SourceEditor";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import { CT } from "@/lib/contentType";
 import { DryRunReport, ValidationReport } from "./ScriptDraftChecks";
 import {
@@ -46,7 +47,8 @@ import { ScriptVersionHistory } from "./ScriptVersionHistory";
 //
 // Neither check introduces authority: validate executes nothing at all, and a
 // dry run is the author's own session, reaching exactly what they reach and
-// persisting nothing. What they change is that a saved version has been parsed,
+// persisting nothing unless its author asks it to. What they change is that a
+// saved version has been parsed,
 // what it reaches is known to its author, and somebody has run it.
 
 interface Props {
@@ -59,7 +61,12 @@ interface Props {
   draftParams: ScriptParam[];
 }
 
-export function ScriptSourceEditor({ scriptId, contract, source, draftParams }: Props) {
+export function ScriptSourceEditor({
+  scriptId,
+  contract,
+  source,
+  draftParams,
+}: Props) {
   const save = useSaveScriptSource(scriptId);
   const validate = useValidateScriptSource(scriptId);
   const dryRun = useDryRunScript(scriptId);
@@ -76,18 +83,30 @@ export function ScriptSourceEditor({ scriptId, contract, source, draftParams }: 
   // the author cannot tell which text any of it describes.
   const [results, setResults] = useState<Results>(NOTHING_YET);
   const [values, setValues] = useState<Values>({});
+  // allowWrites lifts the dry run's write barrier for the next run. It resets
+  // to off after each one: writing for real is a decision about one run, and a
+  // sticky checkbox would make the next dry run write because the last one had
+  // to (#1664).
+  const [allowWrites, setAllowWrites] = useState(false);
 
   const params = draftParams;
   // A dry run executes as the author, so the connections it may name are the
   // ones the author's persona reaches (#1361).
-  const { data: connections } = useScriptConnections(scriptId, declaresConnection(params));
+  const { data: connections } = useScriptConnections(
+    scriptId,
+    declaresConnection(params),
+  );
 
   const current = draft ?? source;
   const changed = current !== (submitted ?? source);
-  const busy = save.isPending || validate.isPending || dryRun.isPending || run.isPending;
+  const busy =
+    save.isPending || validate.isPending || dryRun.isPending || run.isPending;
   const unbound = missingRequired(params, values);
   const fail = (fallback: string) => (e: unknown) =>
-    setResults({ ...NOTHING_YET, failure: e instanceof Error ? e.message : fallback });
+    setResults({
+      ...NOTHING_YET,
+      failure: e instanceof Error ? e.message : fallback,
+    });
 
   const submit = () => {
     setResults(NOTHING_YET);
@@ -115,12 +134,17 @@ export function ScriptSourceEditor({ scriptId, contract, source, draftParams }: 
   const execute = () => {
     setResults(NOTHING_YET);
     dryRun.mutate(
-      { source: current, params: boundParams(params, values) },
+      {
+        source: current,
+        params: boundParams(params, values),
+        allow_writes: allowWrites,
+      },
       {
         onSuccess: (ran) => setResults({ ...NOTHING_YET, ran }),
         onError: fail("The dry run could not be started"),
       },
     );
+    setAllowWrites(false);
   };
 
   const queue = () => {
@@ -162,7 +186,11 @@ export function ScriptSourceEditor({ scriptId, contract, source, draftParams }: 
       }
     >
       <div className="space-y-3">
-        <SaveNotice runnable={!contract.refusal} version={contract.version} changed={changed} />
+        <SaveNotice
+          runnable={!contract.refusal}
+          version={contract.version}
+          changed={changed}
+        />
 
         <SourceEditor
           content={current}
@@ -179,7 +207,17 @@ export function ScriptSourceEditor({ scriptId, contract, source, draftParams }: 
           onChange={(name, value) => setValues({ ...values, [name]: value })}
         />
 
-        <EditorResults results={results} changed={changed} contract={contract} />
+        <AllowWrites
+          checked={allowWrites}
+          disabled={busy}
+          onChange={setAllowWrites}
+        />
+
+        <EditorResults
+          results={results}
+          changed={changed}
+          contract={contract}
+        />
 
         <ScriptVersionHistory scriptId={scriptId} contract={contract} />
       </div>
@@ -245,17 +283,37 @@ function EditorActions({
     // below was fixed for.
     <div className="flex flex-col items-end gap-1">
       <div className="flex flex-wrap items-center justify-end gap-2">
-        <Button size="sm" variant="ghost" disabled={reverting || busy} onClick={onRevert}>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={reverting || busy}
+          onClick={onRevert}
+        >
           Revert
         </Button>
-        <Button size="sm" variant="outline" disabled={busy} onClick={onValidate}>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={busy}
+          onClick={onValidate}
+        >
           {validating ? "Checking..." : "Validate"}
         </Button>
-        <Button size="sm" variant="outline" disabled={busy || unbound.length > 0} onClick={onDryRun}>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={busy || unbound.length > 0}
+          onClick={onDryRun}
+        >
           {running ? "Running..." : "Dry run"}
         </Button>
         {runnable && (
-          <Button size="sm" variant="outline" disabled={busy || unbound.length > 0} onClick={onRun}>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy || unbound.length > 0}
+            onClick={onRun}
+          >
             {queueing ? "Queueing..." : "Run"}
           </Button>
         )}
@@ -275,7 +333,8 @@ function UnboundNotice({ unbound }: { unbound: string[] }) {
   if (unbound.length === 0) return null;
   return (
     <p className="text-xs text-muted-foreground">
-      {unbound.join(", ")} {unbound.length === 1 ? "is" : "are"} required before a run.
+      {unbound.join(", ")} {unbound.length === 1 ? "is" : "are"} required before
+      a run.
     </p>
   );
 }
@@ -300,8 +359,9 @@ function RunParams({
   return (
     <div className="space-y-2">
       <p className="text-xs text-muted-foreground">
-        Run and Dry run both bind these values. A dry run writes nothing wherever it is
-        addressed, so they affect what it computes and not what it leaves behind.
+        Run and Dry run both bind these values. A dry run writes nothing unless
+        you ask it to, so they affect what it computes and not what it leaves
+        behind.
       </p>
       <ScriptParameterForm
         form="run"
@@ -312,6 +372,45 @@ function RunParams({
         onChange={onChange}
       />
     </div>
+  );
+}
+
+// AllowWrites lifts the dry run's write barrier for the next run.
+//
+// A dry run refuses a platform.call that persists, which is what makes it a
+// rehearsal of a landing pipeline rather than a run of it. The exception is a
+// pipeline whose next step reads what the last one created, and that is a
+// decision about one run made by the person who owns what it writes — so it is
+// a control beside the button, not a setting.
+function AllowWrites({
+  checked,
+  disabled,
+  onChange,
+}: {
+  checked: boolean;
+  disabled: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <Label className="items-start gap-2 rounded-md border bg-muted/40 p-2 text-xs font-normal">
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+        className="mt-0.5"
+      />
+      <span className="min-w-0">
+        <span className="font-medium">Write for real</span>
+        <span className="mt-0.5 block text-muted-foreground">
+          A dry run stops at a platform.call that persists — creating a
+          resource, registering a table, executing a statement — so a landing
+          pipeline can be rehearsed without landing. Tick this for one run when
+          a later step needs what an earlier one creates; the run then writes as
+          you, and reports every write it made.
+        </span>
+      </span>
+    </Label>
   );
 }
 
@@ -344,7 +443,9 @@ function EditorResults({
           <AlertDescription>{results.queued}</AlertDescription>
         </Alert>
       )}
-      {results.report && <ValidationReport report={results.report} contract={contract} />}
+      {results.report && (
+        <ValidationReport report={results.report} contract={contract} />
+      )}
       {results.ran && <DryRunReport result={results.ran} />}
     </>
   );
@@ -368,17 +469,18 @@ function SaveNotice({
 }) {
   return (
     <p className="text-xs text-muted-foreground">
-      Saving makes this the version that runs: run_script executes it and any schedule
-      fires it, presenting the roles you hold when you save. Validate and dry run check the
-      edit first — a dry run executes what is on screen, as you, and persists nothing.{" "}
+      Saving makes this the version that runs: run_script executes it and any
+      schedule fires it, presenting the roles you hold when you save. Validate
+      and dry run check the edit first — a dry run executes what is on screen,
+      as you, and persists nothing.{" "}
       {runnable
         ? `Run executes version ${version} — the latest saved one — under the script's own identity, which is the run a schedule produces.`
         : "Nothing will execute this script, for the reason stated above, so there is no Run here until it is back in service."}
       {runnable && changed && (
         <span className="text-foreground">
           {" "}
-          The edit below is not saved, so Run still executes version {version}; Dry run is
-          what executes what you see.
+          The edit below is not saved, so Run still executes version {version};
+          Dry run is what executes what you see.
         </span>
       )}
     </p>

@@ -15181,7 +15181,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Executes Starlark for a script the caller owns, under the caller's own identity and persona and with tighter limits, persisting nothing: platform.export reports the shape of each output instead of writing it. An empty source runs the script's saved code. The account of the run is kept, so a later reader can see that this exact source was executed, and by whom.",
+                "description": "Executes Starlark for a script the caller owns, under the caller's own identity and persona and with tighter limits. It persists nothing by default: platform.export reports the shape of each output instead of writing it, and a platform.call that would persist is refused and named in refused_write. Send allow_writes to let the run write for real, and every write it makes is listed under writes. An empty source runs the script's saved code. The account of the run is kept, so a later reader can see that this exact source was executed, and by whom.",
                 "consumes": [
                     "application/json"
                 ],
@@ -27134,6 +27134,10 @@
         "scripthttp.draftRequest": {
             "type": "object",
             "properties": {
+                "allow_writes": {
+                    "description": "AllowWrites lets a dry run persist through platform.call (#1664). A dry\nrun refuses write-class calls by default, which is what makes it a\nrehearsal; the author asks for the writes when the pipeline's next step\nreads what the last one created. Ignored by validate, which executes\nnothing.",
+                    "type": "boolean"
+                },
                 "params": {
                     "type": "object",
                     "additionalProperties": {}
@@ -27169,6 +27173,14 @@
                         "$ref": "#/definitions/script.DryRunOutput"
                     }
                 },
+                "refused_write": {
+                    "description": "RefusedWrite is the call the write barrier stopped, absent when it\nstopped none. At most one: the refusal ends the run.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/scriptrun.WriteRecord"
+                        }
+                    ]
+                },
                 "run_id": {
                     "type": "string",
                     "example": "run_a1b2c3d4"
@@ -27181,6 +27193,13 @@
                 "status": {
                     "type": "string",
                     "example": "succeeded"
+                },
+                "writes": {
+                    "description": "Writes lists the persisting platform.call calls the run made, empty\nunless it was run with allow_writes (#1664). Those calls landed, and this\nis the only place the response says so.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/scriptrun.WriteRecord"
+                    }
                 }
             }
         },
@@ -27969,6 +27988,19 @@
                 "severity": {
                     "type": "string",
                     "example": "error"
+                }
+            }
+        },
+        "scriptrun.WriteRecord": {
+            "type": "object",
+            "properties": {
+                "call": {
+                    "description": "Call names the call the classifier decided on: the tool, plus the action\nor method that made it a write where the tool has one.",
+                    "type": "string"
+                },
+                "tool": {
+                    "description": "Tool is the tool name the script passed.",
+                    "type": "string"
                 }
             }
         },

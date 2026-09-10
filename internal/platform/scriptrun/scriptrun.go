@@ -47,6 +47,8 @@ import (
 	"go.starlark.net/starlarkstruct"
 	"go.starlark.net/syntax"
 
+	"github.com/txn2/mcp-data-platform/internal/scriptdate"
+	"github.com/txn2/mcp-data-platform/internal/toolwrite"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -137,6 +139,19 @@ type Caller interface {
 	CallTool(ctx context.Context, name string, args map[string]any) (map[string]any, error)
 }
 
+// ReadOnlyDeclarer is the optional half of a Caller that can report what the
+// server it is connected to advertises about a tool.
+//
+// It is optional because it answers a question only a real session can answer,
+// and the engine works without it: a Caller that does not implement it leaves
+// every unclassified tool a write under the draft's barrier, which is the
+// barrier's own default. SessionCaller implements it.
+type ReadOnlyDeclarer interface {
+	// DeclaresReadOnly reports whether the tool is advertised with MCP's
+	// read-only annotation, and whether it is advertised at all.
+	DeclaresReadOnly(ctx context.Context, name string) (readOnly, known bool)
+}
+
 // Options configures one script execution.
 type Options struct {
 	// Source is the Starlark source to execute, and Name labels it in tracebacks.
@@ -171,6 +186,18 @@ type Options struct {
 	// which is what a draft run does.
 	Exporter Exporter
 
+	// Writes says what this run does about a platform.call that persists
+	// (#1664). A platform run leaves the zero value, which is what a run has
+	// always done.
+	Writes WriteBarrier
+
+	// Classifier decides which platform.call calls persist. Its zero value
+	// classifies from the declared table alone; a composition root holding the
+	// live toolkits gives it the lookup that reads an api gateway operation id,
+	// so a draft is not refused for addressing a read the way the platform told
+	// it to.
+	Classifier toolwrite.Classifier
+
 	// Limits. Zero means the draft default.
 	MaxSteps       uint64
 	Timeout        time.Duration
@@ -201,6 +228,34 @@ func (o Options) withDefaults() Options {
 	}
 	return o
 }
+
+// WriteBarrier is what a run does about a platform.call that persists something
+// outside it.
+//
+// The distinction exists because platform.call is the open half of the host
+// surface. platform.export, publish_data and save_state make themselves a
+// rehearsal on their own — a nil Exporter previews, a staged state is reported —
+// but every other write a script makes is an ordinary tool call, so a draft of
+// an ingestion script created the resources, registrations and assets a real run
+// would, with no run record to explain where they came from (#1664).
+//
+// It is three states rather than two booleans because "made" and "recorded" are
+// one decision: a platform run makes every write and nobody reads a list of
+// them, while a draft that was allowed to write owes its author exactly that
+// list. Accumulating it on a platform run would be memory the engine otherwise
+// bounds, spent on a slice nothing reads.
+type WriteBarrier int
+
+const (
+	// WritesMade is a platform run: every call is issued, and none is recorded.
+	WritesMade WriteBarrier = iota
+	// WritesRefused is a draft: a call that persists is refused before it is
+	// issued, and the run fails there.
+	WritesRefused
+	// WritesReported is a draft whose caller asked for the writes: every call
+	// is issued, and the ones that persist are listed on the Result.
+	WritesReported
+)
 
 // Exporter persists one script output. The engine holds it behind this
 // interface so nothing here knows what an asset, a bucket, or a portal is: the
@@ -345,6 +400,24 @@ type Result struct {
 	// and whether it is applied is the caller's decision — a platform run's
 	// store applies it when the run succeeds, a draft reports it.
 	State *script.StateWrite `json:"state,omitempty"`
+	// Writes lists every platform.call the run made that the platform
+	// classifies as persisting something, in call order (#1664). It is the
+	// account a draft run with the write barrier lifted owes its author: those
+	// calls landed, and nothing else in the response says so.
+	Writes []WriteRecord `json:"writes,omitempty"`
+	// RefusedWrite is the call the write barrier stopped, nil when it stopped
+	// none. There is at most one because the refusal fails the run: the author
+	// reads which call ended it without parsing the traceback for it.
+	RefusedWrite *WriteRecord `json:"refused_write,omitempty"`
+}
+
+// WriteRecord is one persisting platform.call a run made.
+type WriteRecord struct {
+	// Tool is the tool name the script passed.
+	Tool string `json:"tool"`
+	// Call names the call the classifier decided on: the tool, plus the action
+	// or method that made it a write where the tool has one.
+	Call string `json:"call"`
 }
 
 // fileOptions is the dialect every managed script is parsed and resolved under.
@@ -422,6 +495,8 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		Queries:      host.queries,
 		Exports:      host.exports,
 		State:        host.state,
+		Writes:       host.writes,
+		RefusedWrite: host.refused,
 	}
 	if execErr != nil {
 		return result, classifyExecError(runCtx, execErr, overStep.Load(), opts.MaxSteps)
@@ -492,7 +567,7 @@ func predeclared(host *hostState) starlark.StringDict {
 			},
 		},
 		"json":         json.Module,
-		"date":         dateModule,
+		"date":         scriptdate.Module,
 		"run":          host.runValue(),
 		sumBuiltinName: sumBuiltin,
 	}

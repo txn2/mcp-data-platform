@@ -504,7 +504,13 @@ func execServerWithWorker(t *testing.T, workerOn bool, allowedConnections ...str
 		})
 
 	seen := &recordingIdentity{}
-	mcp.AddTool(server, &mcp.Tool{Name: "whoami", Description: "identity"},
+	// Annotated read-only: whoami records the identity it was called under and
+	// changes nothing, and a draft's write barrier reads that annotation for a
+	// tool no classification rule names (#1664).
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "whoami", Description: "identity",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+	},
 		func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 			if pc := middleware.GetPlatformContext(ctx); pc != nil {
 				seen.record(*pc)

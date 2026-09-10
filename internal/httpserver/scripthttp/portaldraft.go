@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -28,7 +29,8 @@ import (
 //   - validate parses the source and reports what it would reach. It executes
 //     nothing and touches no record.
 //   - dry-run executes the edit as the caller, under their own identity and
-//     persona, with tighter limits, persisting nothing it produced.
+//     persona, with tighter limits, persisting nothing unless the author asks
+//     for the writes.
 //
 // Neither introduces authority. A dry run reaches exactly what the person
 // asking for it reaches: it is their session, their persona, their audit
@@ -49,6 +51,12 @@ type DraftRunner interface {
 type draftRequest struct {
 	Source string         `json:"source,omitempty"`
 	Params map[string]any `json:"params,omitempty"`
+	// AllowWrites lets a dry run persist through platform.call (#1664). A dry
+	// run refuses write-class calls by default, which is what makes it a
+	// rehearsal; the author asks for the writes when the pipeline's next step
+	// reads what the last one created. Ignored by validate, which executes
+	// nothing.
+	AllowWrites bool `json:"allow_writes,omitempty"`
 }
 
 // validateResponse is what the edited source would reach, and everything the
@@ -142,6 +150,13 @@ type dryRunResponse struct {
 	// platform.save_state, absent when it saved none (#1537). The draft
 	// persists it no more than it persists an output.
 	State map[string]any `json:"state,omitempty"`
+	// Writes lists the persisting platform.call calls the run made, empty
+	// unless it was run with allow_writes (#1664). Those calls landed, and this
+	// is the only place the response says so.
+	Writes []scriptrun.WriteRecord `json:"writes"`
+	// RefusedWrite is the call the write barrier stopped, absent when it
+	// stopped none. At most one: the refusal ends the run.
+	RefusedWrite *scriptrun.WriteRecord `json:"refused_write,omitempty"`
 	// Message states what did and did not happen, because "succeeded" on a run
 	// that deliberately wrote nothing is the sentence most likely to be
 	// misread.
@@ -151,7 +166,7 @@ type dryRunResponse struct {
 // portalDryRunSource executes an edit as the caller and reports what it did.
 //
 // @Summary      Dry-run a script's source
-// @Description  Executes Starlark for a script the caller owns, under the caller's own identity and persona and with tighter limits, persisting nothing: platform.export reports the shape of each output instead of writing it. An empty source runs the script's saved code. The account of the run is kept, so a later reader can see that this exact source was executed, and by whom.
+// @Description  Executes Starlark for a script the caller owns, under the caller's own identity and persona and with tighter limits. It persists nothing by default: platform.export reports the shape of each output instead of writing it, and a platform.call that would persist is refused and named in refused_write. Send allow_writes to let the run write for real, and every write it makes is listed under writes. An empty source runs the script's saved code. The account of the run is kept, so a later reader can see that this exact source was executed, and by whom.
 // @Tags         Scripts
 // @Accept       json
 // @Produce      json
@@ -199,6 +214,7 @@ func (h *Handler) portalDryRunSource(w http.ResponseWriter, r *http.Request, use
 			UserID: user.UserID, Email: user.Email, Roles: user.Roles,
 			AuthType: user.AuthType,
 		},
+		AllowWrites: req.AllowWrites,
 	})
 	if err != nil {
 		// Busy is the platform declining to start another interpreter right now,
@@ -261,13 +277,20 @@ func draftOutcome(outcome *scriptdraft.Outcome) dryRunResponse {
 	out := dryRunResponse{
 		RunID: outcome.RunID, Status: script.RunStatusSucceeded,
 		Outputs: draftOutputs(outcome),
+		Writes:  []scriptrun.WriteRecord{},
 		Message: "Nothing was persisted. platform.export reported the shape of each output " +
-			"rather than writing it.",
+			"rather than writing it, and a write-class platform.call would have been refused " +
+			"rather than made.",
 	}
 	if outcome.Result != nil {
 		out.Log = outcome.Result.Log
 		out.LogTruncated = outcome.Result.LogTruncated
 		out.Metrics = draftMetrics(outcome.Result)
+		out.RefusedWrite = outcome.Result.RefusedWrite
+		if len(outcome.Result.Writes) > 0 {
+			out.Writes = outcome.Result.Writes
+			out.Message = wroteForRealMessage(len(out.Writes))
+		}
 		if outcome.Result.State != nil {
 			out.State = orEmptyObject(outcome.Result.State.Value)
 			out.Message += " platform.save_state reported the state a platform run would have saved and did not save it."
@@ -276,10 +299,35 @@ func draftOutcome(outcome *scriptdraft.Outcome) dryRunResponse {
 	if outcome.Failed() {
 		out.Status = script.RunStatusFailed
 		out.Error = outcome.Err.Error()
-		out.Message = "A script failure is deterministic: the same source on the same inputs fails " +
-			"the same way, so running it again changes nothing. Fix the script and dry-run it again."
+		out.Message = dryRunFailureMessage(out.RefusedWrite)
 	}
 	return out
+}
+
+// wroteForRealMessage states that a dry run with the barrier lifted persisted,
+// because "nothing was persisted" on a run that created a resource is the
+// sentence a reader would act on wrongly.
+func wroteForRealMessage(n int) string {
+	calls := "calls"
+	if n == 1 {
+		calls = "call"
+	}
+	return fmt.Sprintf(
+		"This dry run was allowed to write, and the %d %s listed under writes persisted for real. "+
+			"platform.export still reported the shape of each output rather than writing it.", n, calls)
+}
+
+// dryRunFailureMessage separates the two failures an author acts on
+// differently: a script that is wrong, and a script that is right but wanted to
+// write.
+func dryRunFailureMessage(refused *scriptrun.WriteRecord) string {
+	if refused != nil {
+		return "The dry run stopped at a call that persists (refused_write), because a dry run does not " +
+			"write. Run it again with allow_writes to let it write for real, and it will report every " +
+			"write it made."
+	}
+	return "A script failure is deterministic: the same source on the same inputs fails " +
+		"the same way, so running it again changes nothing. Fix the script and dry-run it again."
 }
 
 // draftMetrics projects the engine's result into the metrics shape every other
