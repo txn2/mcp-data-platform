@@ -9,9 +9,12 @@
 // adds is the loop — real interpreter errors, real rows, real shapes — so a
 // script is finished before it is saved as the version that runs.
 //
-// It is deliberately NOT a way around the execution gate: it persists nothing
-// (platform.export previews), it runs under tighter limits than a platform run
-// will, and it persists nothing a run would.
+// It is deliberately NOT a way around the execution gate. It runs under tighter
+// limits than a platform run will, and by default it persists nothing: the
+// three named helpers preview, and every other write a script makes goes
+// through platform.call and is stopped by the engine's write barrier (#1664).
+// A caller who wants the writes asks for them, and the outcome then lists what
+// the run persisted.
 //
 // The package exists because there are two surfaces that ask for a draft run —
 // the manage_script tool an agent calls and the editor its owner works in
@@ -29,6 +32,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
+	"github.com/txn2/mcp-data-platform/internal/toolwrite"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 	pkgsession "github.com/txn2/mcp-data-platform/pkg/session"
@@ -91,6 +95,17 @@ type Request struct {
 	// the outcome's result.
 	State    map[string]any
 	Identity Identity
+	// AllowWrites lifts the engine's write barrier, letting the draft persist
+	// through platform.call for real (#1664).
+	//
+	// It is off by default because a draft is a rehearsal: an author drafting
+	// an ingestion script wants to exercise the landing pipeline without
+	// landing, and a draft that forgot to ask for it left resources,
+	// registrations and assets behind with no run record. It exists because the
+	// rehearsal has a limit — a pipeline whose next step reads what the last
+	// one created cannot be exercised without the create — and the person
+	// making that call is the one who owns what it writes.
+	AllowWrites bool
 }
 
 // Outcome is what one draft execution did. Failure is a normal outcome and is
@@ -117,6 +132,10 @@ type Runner struct {
 	// destinations is the configured bucket destination set export names
 	// resolve against.
 	destinations []script.Destination
+	// classifier decides which of a draft's platform.call calls persist. Its
+	// zero value classifies from the declared table alone; WithToolkits gives
+	// it the lookups that read the live connections.
+	classifier toolwrite.Classifier
 	// slots bounds concurrent executions on this replica. A buffered channel
 	// rather than a mutex because a caller must be able to give up waiting.
 	slots chan struct{}
@@ -138,6 +157,21 @@ func New(server *mcp.Server, destinations []script.Destination) *Runner {
 		slots:        make(chan struct{}, maxConcurrentDrafts),
 		now:          func() time.Time { return time.Now().UTC() },
 	}
+}
+
+// WithToolkits returns the Runner with the write barrier's live lookups
+// installed, and is how a composition root that holds the toolkit registry
+// hands them over: the api gateway's operation-id to HTTP method resolution,
+// and what an MCP gateway's upstream declares about a proxied tool.
+//
+// Without them the barrier classifies from the declared table alone, which
+// refuses both of those forms. With them, a draft pulls through the address
+// api_discover names and calls a proxied tool its upstream says reads.
+func (r *Runner) WithToolkits(toolkits ToolkitLister) *Runner {
+	if r != nil {
+		r.classifier = ClassifierOver(toolkits)
+	}
+	return r
 }
 
 // ErrNoIdentity marks a draft request carrying nobody to run as. A draft has no
@@ -181,8 +215,23 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Outcome, error) {
 		// verifies in the loop is what a scheduled run will do.
 		FireTime: r.now(), Params: req.Params, State: req.State, Caller: caller,
 		Destinations: r.destinations,
+		// The barrier is on unless the caller asked for the writes, and a
+		// caller who asked is owed the list. Both surfaces that reach a draft
+		// pass the request through here, so this is one decision rather than
+		// one per surface.
+		Writes:     barrierFor(req.AllowWrites),
+		Classifier: r.classifier,
 	})
 	return &Outcome{RunID: runID, Result: result, Err: runErr}, nil
+}
+
+// barrierFor is what a draft does about a write, from the one thing its caller
+// said about it.
+func barrierFor(allowWrites bool) scriptrun.WriteBarrier {
+	if allowWrites {
+		return scriptrun.WritesReported
+	}
+	return scriptrun.WritesRefused
 }
 
 // acquire takes one of this replica's execution slots, giving up rather than

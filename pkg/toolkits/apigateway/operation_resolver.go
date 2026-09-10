@@ -233,3 +233,37 @@ func (t *Toolkit) ResolveOperationRequest(
 	}
 	return m, p, true
 }
+
+// MethodForOperation reports the HTTP method an operation_id is invoked with on
+// one connection, without resolving the path it would go to.
+//
+// It exists for the managed-script draft's write barrier (#1664), which has to
+// decide whether an api_invoke_endpoint call reads or writes before the call is
+// made. A call addressed by method+path carries its own answer; one addressed
+// by operation_id, which is how api_discover names an operation, carries only
+// an id, and a barrier that could not read it would refuse every drafted pull.
+//
+// It is the method half of ResolveOperationRequest and deliberately not that
+// function: rebuilding the request needs every path placeholder to have a
+// value, and a classifier has no business refusing to answer because a template
+// variable was not supplied.
+//
+// ok is false when the connection is unknown, carries no catalog, or resolves
+// the id to nothing or to more than one operation. A caller then treats the
+// call as unclassified.
+func (t *Toolkit) MethodForOperation(connection, spec, operationID string) (method string, ok bool) {
+	if operationID == "" {
+		return "", false
+	}
+	t.mu.RLock()
+	c := t.connections[connection]
+	t.mu.RUnlock()
+	if c == nil {
+		return "", false
+	}
+	match, _ := resolveOperation(c.specs, operationID, spec)
+	if match == nil {
+		return "", false
+	}
+	return match.method, true
+}

@@ -1,4 +1,12 @@
-package scriptrun
+// Package scriptdate is the date arithmetic a managed script is given, as a
+// Starlark module.
+//
+// It is separate from the engine because it shares nothing with it: every
+// function is a pure transformation of its arguments, there is no run, no
+// caller and no state, and the engine's only use of it is to predeclare the
+// module. Keeping it here is what lets the date contract be read, and tested,
+// without the interpreter around it.
+package scriptdate
 
 import (
 	"fmt"
@@ -11,12 +19,14 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
-// timeLayout is the wire form of an instant (the run's fire time). Dates use
+// TimeLayout is the wire form of an instant (the run's fire time). Dates use
 // script.DateLayout, so a script that slices a date out of the fire time and a
-// schedule that binds one are talking about the same strings.
-const timeLayout = time.RFC3339
+// schedule that binds one are talking about the same strings. It is exported
+// because the engine formats run.fire_time with it, and the two spellings must
+// be one.
+const TimeLayout = time.RFC3339
 
-// dateModule is the curated date arithmetic a report script actually needs, and
+// Module is the curated date arithmetic a report script actually needs, and
 // nothing else. Every function is a pure transformation of its arguments.
 //
 // There is deliberately NO now() and no today(). A clock read is the single
@@ -30,7 +40,8 @@ const timeLayout = time.RFC3339
 // crossing into SQL and into an output file either way, the string form is what
 // an author reads in a log, and a string needs no marshaling contract of its
 // own.
-var dateModule = &starlarkstruct.Module{
+// Module is the date module the engine predeclares.
+var Module = &starlarkstruct.Module{
 	Name: "date",
 	Members: starlark.StringDict{
 		"of":         starlark.NewBuiltin("date.of", dateOf),
@@ -48,6 +59,15 @@ var dateModule = &starlarkstruct.Module{
 // argValue is the argument name every date function that takes a single date
 // shares, spelled once so the three-place callers and unpackValue agree.
 const argValue = "value"
+
+// argErr wraps an argument-unpacking failure with the binding it came from, so
+// an author reads which call they got wrong rather than a bare argument name.
+// It is the engine's own convention, repeated here rather than imported: this
+// package is downstream of nothing, and one line of formatting is a smaller
+// cost than an import edge back into the interpreter.
+func argErr(b *starlark.Builtin, err error) error {
+	return fmt.Errorf("in %s: %w", b.Name(), err)
+}
 
 // unpackValue reads the single `value` argument of a one-date function.
 func unpackValue(b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (string, error) {
@@ -77,7 +97,7 @@ func dateOf(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs
 	if err != nil {
 		return nil, err
 	}
-	t, err := time.Parse(timeLayout, value)
+	t, err := time.Parse(TimeLayout, value)
 	if err != nil {
 		// A caller who already holds a date should get it back unchanged rather
 		// than an error telling them to convert what is already converted.

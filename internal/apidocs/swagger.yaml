@@ -6532,6 +6532,14 @@ definitions:
     type: object
   scripthttp.draftRequest:
     properties:
+      allow_writes:
+        description: |-
+          AllowWrites lets a dry run persist through platform.call (#1664). A dry
+          run refuses write-class calls by default, which is what makes it a
+          rehearsal; the author asks for the writes when the pipeline's next step
+          reads what the last one created. Ignored by validate, which executes
+          nothing.
+        type: boolean
       params:
         additionalProperties: {}
         type: object
@@ -6559,6 +6567,12 @@ definitions:
         items:
           $ref: '#/definitions/script.DryRunOutput'
         type: array
+      refused_write:
+        allOf:
+        - $ref: '#/definitions/scriptrun.WriteRecord'
+        description: |-
+          RefusedWrite is the call the write barrier stopped, absent when it
+          stopped none. At most one: the refusal ends the run.
       run_id:
         example: run_a1b2c3d4
         type: string
@@ -6572,6 +6586,14 @@ definitions:
       status:
         example: succeeded
         type: string
+      writes:
+        description: |-
+          Writes lists the persisting platform.call calls the run made, empty
+          unless it was run with allow_writes (#1664). Those calls landed, and this
+          is the only place the response says so.
+        items:
+          $ref: '#/definitions/scriptrun.WriteRecord'
+        type: array
     type: object
   scripthttp.metadataRequest:
     properties:
@@ -7246,6 +7268,17 @@ definitions:
         type: string
       severity:
         example: error
+        type: string
+    type: object
+  scriptrun.WriteRecord:
+    properties:
+      call:
+        description: |-
+          Call names the call the classifier decided on: the tool, plus the action
+          or method that made it a write where the tool has one.
+        type: string
+      tool:
+        description: Tool is the tool name the script passed.
         type: string
     type: object
   sessionview.AssetRef:
@@ -17444,10 +17477,13 @@ paths:
       consumes:
       - application/json
       description: 'Executes Starlark for a script the caller owns, under the caller''s
-        own identity and persona and with tighter limits, persisting nothing: platform.export
-        reports the shape of each output instead of writing it. An empty source runs
-        the script''s saved code. The account of the run is kept, so a later reader
-        can see that this exact source was executed, and by whom.'
+        own identity and persona and with tighter limits. It persists nothing by default:
+        platform.export reports the shape of each output instead of writing it, and
+        a platform.call that would persist is refused and named in refused_write.
+        Send allow_writes to let the run write for real, and every write it makes
+        is listed under writes. An empty source runs the script''s saved code. The
+        account of the run is kept, so a later reader can see that this exact source
+        was executed, and by whom.'
       parameters:
       - description: Script ID
         in: path

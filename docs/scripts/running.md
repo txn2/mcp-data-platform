@@ -502,10 +502,28 @@ this way: refusing it would take away the edit that fixes the script.
 **Dry run** (`POST /api/v1/portal/scripts/{id}/dry-run`) executes the edit
 under the author's own identity and persona, with the draft limits, persisting
 nothing: `platform.export` reports the shape and size of each output instead of
-writing it, no asset is versioned, and no object is delivered. It is the same
-execution `manage_script command=run_draft` performs, through one
-implementation (`internal/platform/scriptdraft`), so neither surface can drift
-from the other.
+writing it, no asset is versioned, and no object is delivered. A write reached
+through `platform.call` is refused rather than made, and the response names the
+call that ended the run in `refused_write` — the point of a draft is to
+exercise a landing pipeline without landing (#1664). It is the same execution
+`manage_script command=run_draft` performs, through one implementation
+(`internal/platform/scriptdraft`), so neither surface can drift from the other.
+
+**Writing for real.** A pipeline whose next step reads what the last one
+created cannot be rehearsed without the create, so both surfaces take
+`allow_writes`: `manage_script command=run_draft allow_writes=true`, and the
+editor's "Write for real" control beside the Dry run button. The run then
+writes as the caller — the authority it already had — and the response lists
+every write it made under `writes`. The control clears itself after each run,
+because writing for real is a decision about one run.
+
+Which calls count is decided by a declared table (`internal/toolwrite`), and it
+is deny-by-default: a tool no rule names is treated as one that persists.
+`api_invoke_endpoint` is classified by the HTTP method it sends, resolving an
+`operation_id` through the api gateway's catalog; `graphql_query` by whether the
+operation that will execute is a mutation; and a tool the platform did not
+define, such as anything an MCP gateway connection proxies, by the upstream's
+own `readOnlyHint`.
 
 Both surfaces execute the source sent with the call, which is the whole point:
 a save is immediately the version `run_script` executes and a schedule fires,

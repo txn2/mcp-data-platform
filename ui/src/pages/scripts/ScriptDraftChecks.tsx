@@ -44,11 +44,13 @@ export function ValidationReport({
 
       <ReachLists report={report} />
 
-      {report.note && <p className="text-xs text-muted-foreground">{report.note}</p>}
+      {report.note && (
+        <p className="text-xs text-muted-foreground">{report.note}</p>
+      )}
 
       <p className="text-xs text-muted-foreground">
-        This is what the EDIT reaches. Version {contract.version} keeps running until the
-        edit is saved.
+        This is what the EDIT reaches. Version {contract.version} keeps running
+        until the edit is saved.
       </p>
     </div>
   );
@@ -110,7 +112,9 @@ function Findings({ findings }: { findings: ScriptFinding[] }) {
             {f.line ? ` (line ${f.line})` : ""}:
           </span>{" "}
           {f.message}
-          {f.hint && <span className="block text-muted-foreground">{f.hint}</span>}
+          {f.hint && (
+            <span className="block text-muted-foreground">{f.hint}</span>
+          )}
         </li>
       ))}
     </ul>
@@ -125,14 +129,18 @@ export function DryRunReport({ result }: { result: ScriptDryRun }) {
   return (
     <div className="space-y-3 rounded-md border p-3">
       <div className="flex items-center gap-2">
-        <Badge variant={failed ? "destructive" : "secondary"}>{result.status}</Badge>
+        <Badge variant={failed ? "destructive" : "secondary"}>
+          {result.status}
+        </Badge>
         <span className="text-xs text-muted-foreground">{result.message}</span>
       </div>
 
       {failed && result.error && (
         <Alert variant="destructive">
           <AlertDescription>
-            <pre className="overflow-x-auto whitespace-pre-wrap text-xs">{result.error}</pre>
+            <pre className="overflow-x-auto whitespace-pre-wrap text-xs">
+              {result.error}
+            </pre>
           </AlertDescription>
         </Alert>
       )}
@@ -146,10 +154,15 @@ export function DryRunReport({ result }: { result: ScriptDryRun }) {
 
       <DryRunOutputs result={result} />
 
+      <RefusedWrite result={result} />
+
+      <PersistedWrites result={result} />
+
       {result.state && (
         <div className="space-y-1 text-xs">
           <p className="text-muted-foreground">
-            Would save this state for the next run to read (a dry run saves nothing):
+            Would save this state for the next run to read (a dry run saves
+            nothing):
           </p>
           <pre className="max-h-40 overflow-auto rounded-md bg-muted p-2 font-mono">
             {JSON.stringify(result.state, null, 2)}
@@ -167,6 +180,46 @@ export function DryRunReport({ result }: { result: ScriptDryRun }) {
           </pre>
         </div>
       )}
+    </div>
+  );
+}
+
+// RefusedWrite names the call the dry run stopped at, and what to do about it.
+//
+// The traceback above already carries the sentence, buried in a Starlark stack.
+// This is the same fact where the author is looking, because the two failures
+// they act on differently are "my script is wrong" and "my script is right and
+// wants to write".
+function RefusedWrite({ result }: { result: ScriptDryRun }) {
+  if (!result.refused_write) return null;
+  return (
+    <Alert>
+      <AlertDescription className="text-xs">
+        This dry run stopped at{" "}
+        <span className="font-mono">{result.refused_write.call}</span>, which
+        persists outside the run. Tick "Write for real" to let it write and
+        report what it wrote.
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+// PersistedWrites is the account a dry run with the barrier lifted owes its
+// author: these calls landed, and nothing else on the page says so.
+function PersistedWrites({ result }: { result: ScriptDryRun }) {
+  if (result.writes.length === 0) return null;
+  return (
+    <div className="space-y-1 text-xs">
+      <p className="text-muted-foreground">
+        Persisted for real ({result.writes.length}):
+      </p>
+      <ul className="space-y-1">
+        {result.writes.map((w, i) => (
+          <li key={`${w.call}-${i}`} className="font-mono">
+            {w.call}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

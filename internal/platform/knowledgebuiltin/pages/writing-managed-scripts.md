@@ -12,7 +12,7 @@ examples you can copy.
 ```mermaid
 flowchart LR
   C["create / update<br/>parsed on save"] --> V["validate<br/>reports what it would reach<br/>executes nothing"]
-  V --> D["run_draft<br/>executes as YOU<br/>persists nothing"]
+  V --> D["run_draft<br/>executes as YOU<br/>writes nothing unless you ask"]
   D -- "edit and send source again" --> V
   D --> S["save the version"]
   S --> R["run_script or a schedule<br/>runs as script:name<br/>with your roles at the save"]
@@ -24,7 +24,15 @@ flowchart LR
    connections, and destinations it would reach. It executes nothing.
 3. `command=run_draft` executes the draft for real under your own identity and
    persona, with tighter limits, persisting nothing: `platform.export` reports
-   the shape and size of each output instead of writing it.
+   the shape and size of each output instead of writing it, and a
+   `platform.call` that would persist — `manage_resource create`,
+   `manage_table register`, `trino_execute`, `api_export` and the rest — is
+   refused and named in `refused_write`. That is what makes a draft a rehearsal
+   of a landing pipeline rather than a run of it.
+
+   Send `allow_writes=true` when a later step needs what an earlier one
+   creates. The run then writes for real, as you, and lists every write it made
+   under `writes`.
 
 Steps 2 and 3 act on the `source` you send with the call, and on the saved
 version when you send none. That is what makes them a loop: a save is

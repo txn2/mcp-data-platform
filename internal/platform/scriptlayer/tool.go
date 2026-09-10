@@ -85,6 +85,12 @@ type manageScriptInput struct {
 	// declared params before the run starts.
 	Args map[string]any `json:"args,omitempty"`
 
+	// AllowWrites lets a run_draft persist through platform.call (#1664). A
+	// draft refuses write-class calls by default, which is what makes it a
+	// rehearsal; this is how an author exercises a pipeline whose next step
+	// reads what the last one created.
+	AllowWrites bool `json:"allow_writes,omitempty"`
+
 	// Cron and Timezone carry the cadence for schedule_set. Args carries the
 	// schedule's bound parameter values — the same vocabulary run_draft binds,
 	// which is why it is the same argument, with the addition that a schedule's
@@ -326,6 +332,14 @@ func manageScriptSchema() any {
 			keyDescription: "Parameter values for run_draft, or the bound values a schedule fires with, " +
 				"checked against the script's declared params. A schedule's value may contain " +
 				script.FireDateToken + ", which expands to the date of the fire in the schedule's timezone.",
+		},
+		"allow_writes": map[string]any{
+			keyType: valBoolean,
+			keyDescription: "For run_draft: let the draft persist through platform.call. A draft refuses " +
+				"write-class calls (manage_resource create, manage_table register, api_export, " +
+				"trino_execute and the rest) so a landing pipeline can be exercised without landing. " +
+				"Set it when the next step of the pipeline reads what the last one created; the run then " +
+				"writes for real and reports every write it made.",
 		},
 		"cron": map[string]any{
 			keyType: valString,

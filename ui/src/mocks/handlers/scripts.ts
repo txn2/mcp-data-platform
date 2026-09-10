@@ -46,7 +46,9 @@ const versions = JSON.parse(JSON.stringify(mockScriptVersions)) as Record<
 // Contracts are mutable for the same reason the records are: documenting a
 // script on its own page has to be what the page reads back (#1369), and a
 // saved edit has to be the version the contract says runs.
-const contracts = JSON.parse(JSON.stringify(mockScriptContracts)) as typeof mockScriptContracts;
+const contracts = JSON.parse(
+  JSON.stringify(mockScriptContracts),
+) as typeof mockScriptContracts;
 
 // LONG_DESCRIPTION_BYTES mirrors the server's advisory threshold: a description
 // at or over it gets a non-blocking suggestion that it might belong somewhere
@@ -72,7 +74,9 @@ const schedules = JSON.parse(JSON.stringify(mockScriptSchedules)) as Record<
 
 // States are mutable for the same reason: a reset on this surface has to be
 // what the page reads back, at the revision the reset moved it to (#1537).
-const states = JSON.parse(JSON.stringify(mockScriptStates)) as typeof mockScriptStates;
+const states = JSON.parse(
+  JSON.stringify(mockScriptStates),
+) as typeof mockScriptStates;
 
 // stateOf is a script's state as the server reports it: the stored row, or
 // revision 0 and {} for a script that never saved any.
@@ -82,7 +86,11 @@ function stateOf(scriptID: string) {
 
 // resetState is the write both state routes share: the whole object replaced,
 // the revision moved, the person recorded.
-function resetState(scriptID: string, state: Record<string, unknown>, message: string) {
+function resetState(
+  scriptID: string,
+  state: Record<string, unknown>,
+  message: string,
+) {
   const previous = stateOf(scriptID);
   states[scriptID] = {
     state,
@@ -106,7 +114,10 @@ function emptyDemoRequested(surface: string): boolean {
 function setScheduleEnabled(scriptID: string, enabled: boolean) {
   const schedule = schedules[scriptID];
   if (!schedule) {
-    return HttpResponse.json({ detail: "this script has no schedule" }, { status: 404 });
+    return HttpResponse.json(
+      { detail: "this script has no schedule" },
+      { status: 404 },
+    );
   }
   schedule.enabled = enabled;
   return HttpResponse.json(reportable(schedule));
@@ -156,7 +167,10 @@ export const scriptHandlers = [
   http.get(`${ADMIN_BASE}/scripts/:id/versions/:version`, ({ params }) => {
     const payload = mockScriptVersionDetails[`${params.id}/${params.version}`];
     if (!payload) {
-      return HttpResponse.json({ detail: "version not found" }, { status: 404 });
+      return HttpResponse.json(
+        { detail: "version not found" },
+        { status: 404 },
+      );
     }
     return HttpResponse.json(payload);
   }),
@@ -184,7 +198,11 @@ export const scriptHandlers = [
     const search = (query.get("search") ?? "").toLowerCase();
     const data = scripts
       .filter((script) => !category || script.category === category)
-      .filter((script) => tags.length === 0 || tags.some((t) => (script.tags ?? []).includes(t)))
+      .filter(
+        (script) =>
+          tags.length === 0 ||
+          tags.some((t) => (script.tags ?? []).includes(t)),
+      )
       .filter(
         (script) =>
           !search ||
@@ -214,7 +232,9 @@ export const scriptHandlers = [
     if (emptyDemoRequested("scripts")) {
       return HttpResponse.json({ data: [], total: 0, limit: 50 });
     }
-    const named = new Map(scripts.map((script) => [script.id, script.display_name || script.name]));
+    const named = new Map(
+      scripts.map((script) => [script.id, script.display_name || script.name]),
+    );
     // The listing narrows to one script on the server (#1407), so the mock
     // narrows it too: a page that filtered its own rows would pass against a
     // server that ignored the parameter.
@@ -254,63 +274,78 @@ export const scriptHandlers = [
   // Documenting the script (#1369). It applies at once; the record and the
   // contract both move, because the page reads the contract and the listing
   // reads the record.
-  http.put(`${PORTAL_BASE}/scripts/:id/metadata`, async ({ params, request }) => {
-    const id = String(params.id);
-    const body = (await request.json()) as {
-      display_name?: string;
-      description?: string;
-      category?: string;
-      tags?: string[];
-    };
-    const script = scripts.find((s) => s.id === id);
-    const contract = contracts[id];
-    if (!script || !contract) {
-      return HttpResponse.json({ detail: "script not found" }, { status: 404 });
-    }
-    if (body.category && !/^[a-z][a-z0-9-]{0,30}$/.test(body.category)) {
-      return HttpResponse.json(
-        {
-          detail:
-            "category must be at most 31 characters of lowercase letters, digits, and hyphens, starting with a letter",
-        },
-        { status: 400 },
-      );
-    }
-    // The server versions an edit only when it MOVED a versioned field
-    // (SnapshotChanged), and the advisory is taken from the description the
-    // write leaves behind rather than from the request — an edit that changes
-    // only the category still carries the advisory when the stored description
-    // is over the threshold. A mock that bumped on every request, or read the
-    // notice off the body, would let a page keyed on either pass here and be
-    // wrong against the real API.
-    const moved =
-      (body.display_name !== undefined && body.display_name !== script.display_name) ||
-      (body.description !== undefined && body.description !== script.description) ||
-      (body.category !== undefined && body.category !== script.category) ||
-      (body.tags !== undefined && body.tags.join(",") !== (script.tags ?? []).join(","));
-    for (const target of [script, contract]) {
-      if (body.display_name !== undefined) target.display_name = body.display_name;
-      if (body.description !== undefined) target.description = body.description;
-      if (body.category !== undefined) target.category = body.category;
-      if (body.tags !== undefined) target.tags = body.tags;
-    }
-    if (moved) {
-      script.version += 1;
-      contract.version = script.version;
-    }
-    return HttpResponse.json({
-      version: script.version,
-      description_notice: descriptionNotice(script.description),
-      message: "Saved. This changes what the script says about itself and not what it does.",
-    });
-  }),
+  http.put(
+    `${PORTAL_BASE}/scripts/:id/metadata`,
+    async ({ params, request }) => {
+      const id = String(params.id);
+      const body = (await request.json()) as {
+        display_name?: string;
+        description?: string;
+        category?: string;
+        tags?: string[];
+      };
+      const script = scripts.find((s) => s.id === id);
+      const contract = contracts[id];
+      if (!script || !contract) {
+        return HttpResponse.json(
+          { detail: "script not found" },
+          { status: 404 },
+        );
+      }
+      if (body.category && !/^[a-z][a-z0-9-]{0,30}$/.test(body.category)) {
+        return HttpResponse.json(
+          {
+            detail:
+              "category must be at most 31 characters of lowercase letters, digits, and hyphens, starting with a letter",
+          },
+          { status: 400 },
+        );
+      }
+      // The server versions an edit only when it MOVED a versioned field
+      // (SnapshotChanged), and the advisory is taken from the description the
+      // write leaves behind rather than from the request — an edit that changes
+      // only the category still carries the advisory when the stored description
+      // is over the threshold. A mock that bumped on every request, or read the
+      // notice off the body, would let a page keyed on either pass here and be
+      // wrong against the real API.
+      const moved =
+        (body.display_name !== undefined &&
+          body.display_name !== script.display_name) ||
+        (body.description !== undefined &&
+          body.description !== script.description) ||
+        (body.category !== undefined && body.category !== script.category) ||
+        (body.tags !== undefined &&
+          body.tags.join(",") !== (script.tags ?? []).join(","));
+      for (const target of [script, contract]) {
+        if (body.display_name !== undefined)
+          target.display_name = body.display_name;
+        if (body.description !== undefined)
+          target.description = body.description;
+        if (body.category !== undefined) target.category = body.category;
+        if (body.tags !== undefined) target.tags = body.tags;
+      }
+      if (moved) {
+        script.version += 1;
+        contract.version = script.version;
+      }
+      return HttpResponse.json({
+        version: script.version,
+        description_notice: descriptionNotice(script.description),
+        message:
+          "Saved. This changes what the script says about itself and not what it does.",
+      });
+    },
+  ),
 
   // Moving a script to another person (#1404). It is an administrator's
   // action, and the version it records is what carries the authority a run
   // presents from then on.
   http.put(`${PORTAL_BASE}/scripts/:id/owner`, async ({ params, request }) => {
     const id = String(params.id);
-    const body = (await request.json()) as { owner_email?: string; outputs?: string };
+    const body = (await request.json()) as {
+      owner_email?: string;
+      outputs?: string;
+    };
     const script = scripts.find((s) => s.id === id);
     const contract = contracts[id];
     if (!script || !contract) {
@@ -329,7 +364,11 @@ export const scriptHandlers = [
         { status: 400 },
       );
     }
-    if (scripts.some((s) => s.id !== id && s.name === script.name && s.owner_email === to)) {
+    if (
+      scripts.some(
+        (s) => s.id !== id && s.name === script.name && s.owner_email === to,
+      )
+    ) {
       return HttpResponse.json(
         { detail: `${to} already keeps a script named "${script.name}"` },
         { status: 409 },
@@ -345,7 +384,11 @@ export const scriptHandlers = [
         !item.deleted,
     );
     const disposition = (body.outputs ?? "").trim().toLowerCase();
-    if (disposition !== "" && disposition !== "move" && disposition !== "keep") {
+    if (
+      disposition !== "" &&
+      disposition !== "move" &&
+      disposition !== "keep"
+    ) {
       return HttpResponse.json(
         { detail: `outputs must be "move" or "keep", not "${body.outputs}"` },
         { status: 400 },
@@ -370,15 +413,19 @@ export const scriptHandlers = [
       for (const item of outputs) item.owner_email = to;
       account = {
         assets: outputs.filter((i) => i.target_kind === "asset").length,
-        collections: outputs.filter((i) => i.target_kind === "collection").length,
+        collections: outputs.filter((i) => i.target_kind === "collection")
+          .length,
         disposition: "move",
       };
       message += ` The ${countFiles(outputs)} its runs wrote now belong to ${to} too.`;
     } else if (outputs.length > 0) {
-      const kept = outputs.filter((i) => (i.owner_email ?? "").toLowerCase() !== to);
+      const kept = outputs.filter(
+        (i) => (i.owner_email ?? "").toLowerCase() !== to,
+      );
       account = {
         assets: outputs.filter((i) => i.target_kind === "asset").length,
-        collections: outputs.filter((i) => i.target_kind === "collection").length,
+        collections: outputs.filter((i) => i.target_kind === "collection")
+          .length,
         disposition: "keep",
         kept: kept.map((i) => ({
           target_kind: i.target_kind,
@@ -505,7 +552,8 @@ export const scriptHandlers = [
         run_id: `dpx_${Date.now().toString(36)}`,
         status: "pending",
         version: contract.version,
-        message: "Queued. It appears in this script's run history and updates as it progresses.",
+        message:
+          "Queued. It appears in this script's run history and updates as it progresses.",
       },
       { status: 202 },
     );
@@ -557,10 +605,13 @@ export const scriptHandlers = [
     });
   }),
 
-  // Dry-running an edit. Nothing is persisted, which is why the outputs carry a
-  // shape and no locator.
+  // Dry-running an edit. Nothing is persisted unless the author asked for the
+  // writes, which is why the outputs carry a shape and no locator.
   http.post(`${PORTAL_BASE}/scripts/:id/dry-run`, async ({ request }) => {
-    const body = (await request.json()) as { source?: string };
+    const body = (await request.json()) as {
+      source?: string;
+      allow_writes?: boolean;
+    };
     const source = body.source ?? "";
     if (source.includes("fail(")) {
       return HttpResponse.json({
@@ -570,9 +621,50 @@ export const scriptHandlers = [
         log: "reading yesterday's rows",
         metrics: { steps: 128, duration_ms: 210, queries: 1, exports: 0 },
         outputs: [],
+        writes: [],
         message:
           "A script failure is deterministic: the same source on the same inputs fails the " +
           "same way, so running it again changes nothing. Fix the script and dry-run it again.",
+      });
+    }
+    // A source that lands something is the shape #1664 is about: barred by
+    // default, and reported as persisted when the author asked for it.
+    const lands = source.includes("manage_resource");
+    if (lands && !body.allow_writes) {
+      return HttpResponse.json({
+        run_id: "dpx_draft_demo",
+        status: "failed",
+        error:
+          "Traceback (most recent call last):\n  ingest:1:14: in <toplevel>\n" +
+          "Error in platform.call: in platform.call: manage_resource action=create persists " +
+          "outside this run, and a draft run does not write.",
+        log: "reading yesterday's rows",
+        metrics: { steps: 96, duration_ms: 140, queries: 1, exports: 0 },
+        outputs: [],
+        writes: [],
+        refused_write: {
+          tool: "manage_resource",
+          call: "manage_resource action=create",
+        },
+        message:
+          "The dry run stopped at a call that persists (refused_write), because a dry run does " +
+          "not write. Run it again with allow_writes to let it write for real, and it will " +
+          "report every write it made.",
+      });
+    }
+    if (lands) {
+      return HttpResponse.json({
+        run_id: "dpx_draft_demo",
+        status: "succeeded",
+        log: "reading yesterday's rows\nfiled daily.csv",
+        metrics: { steps: 1120, duration_ms: 1940, queries: 1, exports: 0 },
+        outputs: [],
+        writes: [
+          { tool: "manage_resource", call: "manage_resource action=create" },
+        ],
+        message:
+          "This dry run was allowed to write, and the 1 call listed under writes persisted for " +
+          "real. platform.export still reported the shape of each output rather than writing it.",
       });
     }
     return HttpResponse.json({
@@ -581,20 +673,29 @@ export const scriptHandlers = [
       log: "reading yesterday's rows\n1,284 rows for 2026-08-17",
       metrics: { steps: 1042, duration_ms: 1830, queries: 1, exports: 1 },
       outputs: [
-        { name: "daily_sales", destination: "portal", format: "csv", row_count: 1284, bytes: 48213 },
+        {
+          name: "daily_sales",
+          destination: "portal",
+          format: "csv",
+          row_count: 1284,
+          bytes: 48213,
+        },
       ],
+      writes: [],
       ...(source.includes("platform.save_state")
         ? {
             state: { synced_through: "2026-08-17", rows: 1284 },
             message:
               "Nothing was persisted. platform.export reported the shape of each output " +
-              "rather than writing it. platform.save_state reported the state a platform run " +
+              "rather than writing it, and a write-class platform.call would have been refused " +
+              "rather than made. platform.save_state reported the state a platform run " +
               "would have saved and did not save it.",
           }
         : {
             message:
               "Nothing was persisted. platform.export reported the shape of each output " +
-              "rather than writing it.",
+              "rather than writing it, and a write-class platform.call would have been refused " +
+              "rather than made.",
           }),
     });
   }),
@@ -610,45 +711,54 @@ export const scriptHandlers = [
   http.get(`${PORTAL_BASE}/scripts/:id/schedule`, ({ params }) => {
     const schedule = schedules[String(params.id)];
     if (!schedule) {
-      return HttpResponse.json({ detail: "this script has no schedule" }, { status: 404 });
+      return HttpResponse.json(
+        { detail: "this script has no schedule" },
+        { status: 404 },
+      );
     }
     return HttpResponse.json(reportable(schedule));
   }),
 
-  http.put(`${PORTAL_BASE}/scripts/:id/schedule`, async ({ params, request }) => {
-    const id = String(params.id);
-    const body = (await request.json()) as {
-      cron?: string;
-      timezone?: string;
-      params?: Record<string, unknown>;
-    };
-    // The server refuses a cadence it cannot parse before anything is stored,
-    // and naming what to fix is the whole of that answer.
-    if (!body.cron?.trim()) {
-      return HttpResponse.json(
-        { detail: 'a schedule needs a cron expression, for example "0 7 * * 1-5" for 07:00 on weekdays' },
-        { status: 400 },
-      );
-    }
-    const previous = schedules[id];
-    schedules[id] = {
-      id: previous?.id ?? `sched-${id}`,
-      script_id: id,
-      cron_spec: body.cron.trim(),
-      timezone: body.timezone?.trim() || "UTC",
-      params: body.params,
-      // Replacing a cadence keeps the paused state: editing a parked
-      // automation must not quietly restart it.
-      enabled: previous?.enabled ?? true,
-      // The next fire is recomputed from now whether or not the schedule is
-      // enabled, as the server does: the old cadence's next fire is not a fire
-      // this schedule has any more. A paused schedule simply does not report it.
-      next_run_at: new Date(Date.now() + 22 * 3_600_000).toISOString(),
-      last_fire_at: previous?.last_fire_at,
-      missed_fires: previous?.missed_fires ?? 0,
-    };
-    return HttpResponse.json(reportable(schedules[id]));
-  }),
+  http.put(
+    `${PORTAL_BASE}/scripts/:id/schedule`,
+    async ({ params, request }) => {
+      const id = String(params.id);
+      const body = (await request.json()) as {
+        cron?: string;
+        timezone?: string;
+        params?: Record<string, unknown>;
+      };
+      // The server refuses a cadence it cannot parse before anything is stored,
+      // and naming what to fix is the whole of that answer.
+      if (!body.cron?.trim()) {
+        return HttpResponse.json(
+          {
+            detail:
+              'a schedule needs a cron expression, for example "0 7 * * 1-5" for 07:00 on weekdays',
+          },
+          { status: 400 },
+        );
+      }
+      const previous = schedules[id];
+      schedules[id] = {
+        id: previous?.id ?? `sched-${id}`,
+        script_id: id,
+        cron_spec: body.cron.trim(),
+        timezone: body.timezone?.trim() || "UTC",
+        params: body.params,
+        // Replacing a cadence keeps the paused state: editing a parked
+        // automation must not quietly restart it.
+        enabled: previous?.enabled ?? true,
+        // The next fire is recomputed from now whether or not the schedule is
+        // enabled, as the server does: the old cadence's next fire is not a fire
+        // this schedule has any more. A paused schedule simply does not report it.
+        next_run_at: new Date(Date.now() + 22 * 3_600_000).toISOString(),
+        last_fire_at: previous?.last_fire_at,
+        missed_fires: previous?.missed_fires ?? 0,
+      };
+      return HttpResponse.json(reportable(schedules[id]));
+    },
+  ),
 
   // Pausing and resuming are two routes rather than one with the state in the
   // path, exactly as the server registers them.
@@ -668,9 +778,16 @@ export const scriptHandlers = [
 
   http.put(`${PORTAL_BASE}/scripts/:id/state`, async ({ params, request }) => {
     const body = (await request.json()) as { state?: Record<string, unknown> };
-    if (!body.state || typeof body.state !== "object" || Array.isArray(body.state)) {
+    if (
+      !body.state ||
+      typeof body.state !== "object" ||
+      Array.isArray(body.state)
+    ) {
       return HttpResponse.json(
-        { detail: "state is required: send the whole object the next run should read" },
+        {
+          detail:
+            "state is required: send the whole object the next run should read",
+        },
         { status: 400 },
       );
     }
@@ -712,7 +829,9 @@ function countFiles(items: MockProducedItem[]): string {
   const parts: string[] = [];
   if (assets > 0) parts.push(assets === 1 ? "1 asset" : `${assets} assets`);
   if (collections > 0) {
-    parts.push(collections === 1 ? "1 collection" : `${collections} collections`);
+    parts.push(
+      collections === 1 ? "1 collection" : `${collections} collections`,
+    );
   }
   return parts.join(" and ");
 }

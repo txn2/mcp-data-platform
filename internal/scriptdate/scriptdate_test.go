@@ -1,21 +1,41 @@
-package scriptrun
+package scriptdate
 
 import (
-	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.starlark.net/starlark"
+	"go.starlark.net/starlarkstruct"
+	"go.starlark.net/syntax"
 )
 
-// evalPrint runs a one-line expression and returns what it printed.
+// fireTime is the pinned instant a run reads as run.fire_time. The module has
+// no clock, so every date in these cases is derived from this one value.
+const fireTime = "2026-08-13T14:30:00Z"
+
+// evalPrint evaluates a one-line expression against the date module alone and
+// returns what it printed.
+//
+// It predeclares the module and a run struct carrying the fire time, which is
+// the whole environment these functions see. Running them without the engine is
+// the reason this package is separate from it.
 func evalPrint(t *testing.T, expr string) (string, error) {
 	t.Helper()
-	result, err := Run(context.Background(), Options{
-		Source: "print(" + expr + ")", Name: "t", RunID: "r", FireTime: fireTime,
-	})
-	require.NotNil(t, result)
-	return result.Log, err
+	var out strings.Builder
+	thread := &starlark.Thread{
+		Name:  "t",
+		Print: func(_ *starlark.Thread, msg string) { _, _ = out.WriteString(msg + "\n") },
+	}
+	env := starlark.StringDict{
+		"date": Module,
+		"run": starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+			"fire_time": starlark.String(fireTime),
+		}),
+	}
+	_, err := starlark.ExecFileOptions(&syntax.FileOptions{}, thread, "t.star", "print("+expr+")", env)
+	return out.String(), err
 }
 
 func TestDateModule(t *testing.T) {
@@ -62,6 +82,10 @@ func TestDateModule_Refusals(t *testing.T) {
 		{"diff end junk", `date.diff_days("2026-08-13", "x")`, "YYYY-MM-DD"},
 		{"start of month junk", `date.start_of_month("x")`, "YYYY-MM-DD"},
 		{"weekday junk", `date.weekday("x")`, "YYYY-MM-DD"},
+		// An argument the binding cannot unpack at all, which reads as the
+		// call it came from rather than as a bare argument name.
+		{"wrong argument type", `date.parse(13)`, "in date.parse"},
+		{"unknown argument name", `date.of(when="x")`, "in date.of"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

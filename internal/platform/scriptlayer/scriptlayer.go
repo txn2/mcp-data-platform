@@ -21,6 +21,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
@@ -54,6 +55,11 @@ type Config struct {
 	// draft run resolves platform.export names against exactly as a platform
 	// run does.
 	Destinations []script.Destination
+	// Toolkits is the live toolkit registry a draft's write barrier reads the
+	// api gateway's operation ids and an MCP gateway's proxied-tool
+	// declarations through (#1664). Nil leaves the barrier classifying from
+	// its declared table alone, which refuses both of those forms.
+	Toolkits scriptdraft.ToolkitLister
 }
 
 // Handle owns the assembled script layer. All accessors are nil-safe, so a
@@ -83,6 +89,9 @@ type Handle struct {
 	// destinations is the configured bucket destination set draft runs resolve
 	// export names against.
 	destinations []script.Destination
+	// toolkits is the live toolkit registry a draft's write barrier reads the
+	// connection-dependent half of its classification through.
+	toolkits scriptdraft.ToolkitLister
 	// indexProducer is the write-path index-job producer the Postgres script
 	// store was built with, so a created or re-described script enters ranked
 	// search without waiting for the reconciler (#1370). Nil when the layer was
@@ -96,6 +105,7 @@ func New(cfg Config) *Handle {
 	h := &Handle{
 		store: cfg.Store, runs: cfg.Runs, adminPersona: cfg.AdminPersona,
 		portalURL: cfg.PortalURL, destinations: cfg.Destinations,
+		toolkits: cfg.Toolkits,
 	}
 	if h.store == nil && cfg.DB != nil {
 		h.indexProducer = indexjobs.NewProducer(scriptindex.SourceKind)

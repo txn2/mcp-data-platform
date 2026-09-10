@@ -645,7 +645,21 @@ It is deliberately not a platform run:
 
 - It persists nothing. `platform.export` previews — it serializes the output to
   measure it and writes nothing — so no asset is versioned and no object is
-  delivered, wherever the output was addressed.
+  delivered, wherever the output was addressed. `platform.save_state` reports
+  the state a platform run would have saved rather than saving it.
+- **A write reached through `platform.call` is refused** (#1664). The three
+  named helpers preview themselves; every other write a script makes is an
+  ordinary tool call, so without a barrier a draft of an ingestion script
+  created the resources, registrations and assets a real run would, with no run
+  record to explain where they came from. The barrier classifies each call
+  before it is issued (`internal/toolwrite`) and fails the run at the first one
+  that persists, naming it in `refused_write`.
+
+  A caller who needs the writes asks for them: `allow_writes` on the tool and on
+  the portal's dry run lifts the barrier for one run, and the response then
+  lists every write it made under `writes`. It changes no authority — the run
+  was already the caller's own session, reaching what they reach — only whether
+  a rehearsal is allowed to land.
 - It runs under the draft limits, which are tighter than a platform run's.
 - It executes the source as sent, not the saved version, so an author iterates
   without saving.
@@ -665,6 +679,24 @@ takes that lever by executing one run at a time per replica. A draft has no
 queue in front of it, so the runner holds a small fixed number of execution
 slots and a request that cannot get one within a few seconds is refused as busy
 rather than queued.
+
+**What the barrier can and cannot classify.** The classification is a declared
+table rather than an inference, so what a draft will and will not do is readable
+in one file, and it is deny-by-default: a tool no rule names is treated as one
+that persists. `TestEveryRegisteredToolIsClassified` (`test/structure`) refuses a
+tool the platform registers with no rule, so the table cannot go stale behind a
+new toolkit.
+
+Two forms are decided from the call rather than the name. An
+`api_invoke_endpoint` call is classified by the HTTP method it sends, resolving
+an `operation_id` through the api gateway's own catalog so a read-only pull
+addressed the way `api_discover` names it is not refused; a `graphql_query` is
+classified by whether the operation that will execute is a mutation, and a
+document the platform cannot parse is a write. For a tool the platform did not
+define at all — everything an MCP gateway connection proxies, under names its
+upstream chose — the barrier reads the upstream's own `readOnlyHint` off the
+session's tool listing and takes it at its word; an upstream that declares
+nothing leaves the call a write.
 
 **The account kept of a draft run.** A dry run persists nothing it PRODUCED;
 what is stored is the account of one having happened: the run id (which is also

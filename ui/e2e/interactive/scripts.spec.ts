@@ -11,7 +11,9 @@ import { authenticate } from "../screenshots/helpers/auth";
 async function gotoScripts(page: Page): Promise<void> {
   await authenticate(page);
   await page.goto("/portal/scripts");
-  await expect(page.getByRole("heading", { name: "Scripts", level: 1 })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Scripts", level: 1 }),
+  ).toBeVisible();
 }
 
 test.describe("Portal script pages", () => {
@@ -50,13 +52,20 @@ test.describe("Portal script pages", () => {
     await expect(page.getByText("You have no scripts yet")).toBeVisible();
   });
 
-  test("opens one script's details, its source, and its run history", async ({ page }) => {
+  test("opens one script's details, its source, and its run history", async ({
+    page,
+  }) => {
     await gotoScripts(page);
-    await page.getByRole("row").filter({ hasText: "Daily Sales Report" }).click();
+    await page
+      .getByRole("row")
+      .filter({ hasText: "Daily Sales Report" })
+      .click();
 
     // The details: what will execute, on what schedule, and what it takes,
     // read in one section rather than a card apart from it (#1406).
-    await expect(page.getByRole("heading", { name: "Daily Sales Report" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Daily Sales Report" }),
+    ).toBeVisible();
     // Both scoped to the details: the schedule editor below states the same
     // schedule and names the same parameter, because that is the box its
     // binding goes in.
@@ -64,7 +73,9 @@ test.describe("Portal script pages", () => {
     // In words, as every surface states a cadence (#1407): the expression is
     // read and written in the schedule editor, and nowhere else.
     await expect(
-      page.getByText("Every weekday at 7:00 AM, America/Los_Angeles", { exact: true }),
+      page.getByText("Every weekday at 7:00 AM, America/Los_Angeles", {
+        exact: true,
+      }),
     ).toBeVisible();
     await expect(page.getByText("0 7 * * 1-5", { exact: true })).toHaveCount(0);
 
@@ -87,36 +98,59 @@ test.describe("Portal script pages", () => {
 
     // The bindings every fire passes are inside the folded schedule section.
     await page.getByRole("button", { name: /^Schedule/ }).click();
-    await expect(page.locator("#script-param-schedule-report_date")).toHaveValue("${fire_date}");
+    await expect(
+      page.locator("#script-param-schedule-report_date"),
+    ).toHaveValue("${fire_date}");
 
     // The version that runs is the text in the editor, without a click.
     await expect(page.getByText(/platform\.export/).first()).toBeVisible();
 
     // Every terminal state a run can end in.
     await expect(page.getByText("Skipped (overlap)")).toBeVisible();
-    await expect(page.getByText(/relation "sales.orders" does not exist/).first()).toBeVisible();
+    await expect(
+      page.getByText(/relation "sales.orders" does not exist/).first(),
+    ).toBeVisible();
 
     // Run history in three columns, with what repeats folded into the row it
     // qualifies (#1362): no Trigger, Version, or Outputs column of its own.
     await expect(page.getByRole("columnheader", { name: "Run" })).toBeVisible();
-    await expect(page.getByRole("columnheader", { name: "Produced" })).toBeVisible();
-    await expect(page.getByRole("columnheader", { name: "Trigger" })).toHaveCount(0);
-    await expect(page.getByRole("columnheader", { name: "Version" })).toHaveCount(0);
+    await expect(
+      page.getByRole("columnheader", { name: "Produced" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("columnheader", { name: "Trigger" }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("columnheader", { name: "Version" }),
+    ).toHaveCount(0);
     await expect(page.getByText("schedule · v2").first()).toBeVisible();
     await expect(page.getByText("1 output").first()).toBeVisible();
   });
 
   test("opens a run and shows the log it captured", async ({ page }) => {
     await gotoScripts(page);
-    await page.getByRole("row").filter({ hasText: "Daily Sales Report" }).click();
-    await expect(page.getByRole("heading", { name: "Run history" })).toBeVisible();
+    await page
+      .getByRole("row")
+      .filter({ hasText: "Daily Sales Report" })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Run history" }),
+    ).toBeVisible();
 
-    await page.getByRole("row").filter({ hasText: "succeeded" }).first().click();
+    await page
+      .getByRole("row")
+      .filter({ hasText: "succeeded" })
+      .first()
+      .click();
 
     await expect(page.getByText(/wrote asset version 42/)).toBeVisible();
-    await expect(page.getByText("report_date=2026-08-13", { exact: true })).toBeVisible();
+    await expect(
+      page.getByText("report_date=2026-08-13", { exact: true }),
+    ).toBeVisible();
     // The asset the run versioned is reachable; the delivered copy is not.
-    await expect(page.getByRole("button", { name: "daily-sales" })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "daily-sales" }),
+    ).toBeVisible();
   });
 
   // The schedule controls are one mutation on this surface (#1307), so they
@@ -125,7 +159,10 @@ test.describe("Portal script pages", () => {
   // answer has to come back into the page that submitted it.
   test("an owner re-times their own script and pauses it", async ({ page }) => {
     await gotoScripts(page);
-    await page.getByRole("row").filter({ hasText: "Daily Sales Report" }).click();
+    await page
+      .getByRole("row")
+      .filter({ hasText: "Daily Sales Report" })
+      .click();
 
     // The section is folded, and says what the script does without being
     // opened (#1407). The builder is behind the reveal.
@@ -137,22 +174,27 @@ test.describe("Portal script pages", () => {
 
     // The schedule in force, as choices rather than as an expression, and the
     // binding every fire passes.
-    await expect(page.getByRole("button", { name: "Weekdays" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
+    await expect(
+      page.getByRole("button", { name: "Weekdays" }),
+    ).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByLabel("Time", { exact: true })).toHaveValue("07:00");
     // The page carries two parameter forms — the one a run and a dry run
     // share, and these bindings — so a control is named by the form it belongs
     // to rather than by the parameter alone, which matches both.
-    await expect(page.locator("#script-param-schedule-report_date")).toHaveValue("${fire_date}");
+    await expect(
+      page.locator("#script-param-schedule-report_date"),
+    ).toHaveValue("${fire_date}");
 
     // Moving the report an hour earlier is a change to the time, not to a cron
     // field, and the page says what it will save before it saves it.
     await page.getByLabel("Time", { exact: true }).fill("06:30");
-    await expect(page.getByText("Saves as: Every weekday at 6:30 AM")).toBeVisible();
+    await expect(
+      page.getByText("Saves as: Every weekday at 6:30 AM"),
+    ).toBeVisible();
     await page.getByRole("button", { name: "Update schedule" }).click();
-    await expect(page.getByText(/Every weekday at 6:30 AM/).first()).toBeVisible();
+    await expect(
+      page.getByText(/Every weekday at 6:30 AM/).first(),
+    ).toBeVisible();
     await expect(page.getByText("30 6 * * 1-5").first()).toBeVisible();
 
     await page.getByRole("button", { name: "Pause" }).click();
@@ -169,7 +211,10 @@ test.describe("Portal script pages", () => {
     page,
   }) => {
     await gotoScripts(page);
-    await page.getByRole("row").filter({ hasText: "Daily Sales Report" }).click();
+    await page
+      .getByRole("row")
+      .filter({ hasText: "Daily Sales Report" })
+      .click();
 
     // Run sits beside Dry run, over the one parameter form they both bind.
     const source = page.locator("div[data-slot=card]").filter({
@@ -181,26 +226,37 @@ test.describe("Portal script pages", () => {
     // Both are refused until every required value is bound, and the page says
     // which are missing rather than submitting a request it knows is bad.
     await expect(run).toBeDisabled();
-    await expect(page.getByText("report_date, source are required before a run.")).toBeVisible();
+    await expect(
+      page.getByText("report_date, source are required before a run."),
+    ).toBeVisible();
 
     await page.locator("#script-param-run-report_date").fill("2026-08-17");
     // The connection comes from the set this script's caller reaches, so it is
     // chosen. A name outside that set never reaches the form.
     await page.locator("#script-param-run-source").click();
     await page.getByRole("option", { name: /acme-warehouse/ }).click();
-    await expect(page.getByRole("option", { name: /acme-lake/ })).toHaveCount(0);
+    await expect(page.getByRole("option", { name: /acme-lake/ })).toHaveCount(
+      0,
+    );
 
     await expect(run).toBeEnabled();
     await run.click();
-    await expect(page.getByText(/Queued\. It appears in this script's run history/)).toBeVisible();
+    await expect(
+      page.getByText(/Queued\. It appears in this script's run history/),
+    ).toBeVisible();
   });
 
   // The version history is folded into the Source section behind a reveal
   // (#1406): the editor already holds the version that runs, so the history is
   // the versions before it and is not what the page opens on.
-  test("an owner opens the versions written before the one in the editor", async ({ page }) => {
+  test("an owner opens the versions written before the one in the editor", async ({
+    page,
+  }) => {
     await gotoScripts(page);
-    await page.getByRole("row").filter({ hasText: "Daily Sales Report" }).click();
+    await page
+      .getByRole("row")
+      .filter({ hasText: "Daily Sales Report" })
+      .click();
 
     const reveal = page.getByRole("button", { name: /Version history/ });
     await expect(reveal).toHaveAttribute("aria-expanded", "false");
@@ -209,19 +265,28 @@ test.describe("Portal script pages", () => {
     // The roles a run of a version presents are the point of the history, and
     // they are one click in rather than on the page by default.
     await page.getByText(/^v1$/).click();
-    await expect(page.getByText(/A run of this version presents/)).toBeVisible();
+    await expect(
+      page.getByText(/A run of this version presents/),
+    ).toBeVisible();
   });
 
   // Checking an edit before saving the version that runs (#1364). Both actions
   // reach the server: one parses, the other executes as the caller.
-  test("an owner validates and dry-runs an edit without persisting anything", async ({ page }) => {
+  test("an owner validates and dry-runs an edit without persisting anything", async ({
+    page,
+  }) => {
     await gotoScripts(page);
-    await page.getByRole("row").filter({ hasText: "Daily Sales Report" }).click();
+    await page
+      .getByRole("row")
+      .filter({ hasText: "Daily Sales Report" })
+      .click();
 
     await page.getByRole("button", { name: "Validate" }).click();
     await expect(page.getByText("Parses")).toBeVisible();
     // What the edit reaches, which is what its author is otherwise guessing at.
-    await expect(page.getByText("platform.query, platform.export").first()).toBeVisible();
+    await expect(
+      page.getByText("platform.query, platform.export").first(),
+    ).toBeVisible();
 
     // A dry run binds the live contract's values on the same form a run does,
     // and is unavailable until the required ones are supplied.
@@ -258,7 +323,9 @@ test.describe("Portal script pages", () => {
   // The tiles are computed from the listing itself and are the page's own
   // filters (#1405), so they are exercised against the mock server rather than
   // only through mocked hooks.
-  test("counts the caller's scripts in tiles that filter the listing", async ({ page }) => {
+  test("counts the caller's scripts in tiles that filter the listing", async ({
+    page,
+  }) => {
     await gotoScripts(page);
     // Scoped to the page: the sidebar carries a "Scripts" control of its own,
     // which is the section's nav entry rather than the tile.
@@ -266,8 +333,12 @@ test.describe("Portal script pages", () => {
 
     // Three tiles, each named plainly enough to need no caption under it, and
     // the word this page no longer uses is nowhere on it.
-    await expect(main.getByRole("button", { name: /^Scripts \d/ })).toBeVisible();
-    await expect(main.getByRole("button", { name: /^Scheduled/ })).toBeVisible();
+    await expect(
+      main.getByRole("button", { name: /^Scripts \d/ }),
+    ).toBeVisible();
+    await expect(
+      main.getByRole("button", { name: /^Scheduled/ }),
+    ).toBeVisible();
     await expect(main.getByRole("button", { name: /^Failing/ })).toBeVisible();
     await expect(page.getByText(/Automation/i)).toHaveCount(0);
 
@@ -296,19 +367,31 @@ test.describe("Portal script pages", () => {
   // way from one of them to the run itself. It goes through the mock server
   // because the listing, the address it links to, and the run that address
   // opens are three different requests.
-  test("reads every run across the caller's scripts, and opens one", async ({ page }) => {
+  test("reads every run across the caller's scripts, and opens one", async ({
+    page,
+  }) => {
     await gotoScripts(page);
     await page.getByRole("tab", { name: "Runs" }).click();
 
     // Runs from more than one script, newest first, with the reason a failure
     // failed in the row rather than behind it.
-    await expect(page.getByRole("cell", { name: /Daily Sales Report/ }).first()).toBeVisible();
-    await expect(page.getByRole("cell", { name: /Warehouse Freshness Check/ })).toBeVisible();
-    await expect(page.getByText(/relation "sales.orders" does not exist/)).toBeVisible();
+    await expect(
+      page.getByRole("cell", { name: /Daily Sales Report/ }).first(),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("cell", { name: /Warehouse Freshness Check/ }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(/relation "sales.orders" does not exist/),
+    ).toBeVisible();
 
     // A row opens the run itself: its script's page, with that run's log,
     // parameters and outputs already open.
-    await page.getByRole("row").filter({ hasText: /Daily Sales Report/ }).first().click();
+    await page
+      .getByRole("row")
+      .filter({ hasText: /Daily Sales Report/ })
+      .first()
+      .click();
     await expect(page).toHaveURL(/\/scripts\/script-001\/runs\//);
     await expect(page.getByText(/wrote asset version 42/)).toBeVisible();
   });
@@ -320,7 +403,10 @@ test.describe("Portal script pages", () => {
   // route rather than from the form.
   test("an administrator moves a script to another owner", async ({ page }) => {
     await gotoScripts(page);
-    await page.getByRole("row").filter({ hasText: "Daily Sales Report" }).click();
+    await page
+      .getByRole("row")
+      .filter({ hasText: "Daily Sales Report" })
+      .click();
 
     // The section states who has it before it offers to move it.
     await expect(page.getByText(/only person who sees it/)).toBeVisible();
@@ -329,7 +415,9 @@ test.describe("Portal script pages", () => {
     // (#1407): an address nobody has authenticated with cannot open the portal,
     // so a script handed to one would be visible to administrators alone.
     await page.getByLabel("New owner").click();
-    await page.getByRole("option", { name: /marcus.johnson@example.com/ }).click();
+    await page
+      .getByRole("option", { name: /marcus.johnson@example.com/ })
+      .click();
     await page.getByRole("button", { name: "Transfer ownership" }).click();
 
     // Both ends of the move are named before it is made, because the person
@@ -337,9 +425,13 @@ test.describe("Portal script pages", () => {
     await expect(page.getByText(/will no longer see it/)).toBeVisible();
     await page.getByRole("button", { name: "Transfer", exact: true }).click();
 
-    await expect(page.getByText(/now belongs to marcus.johnson@example.com/)).toBeVisible();
+    await expect(
+      page.getByText(/now belongs to marcus.johnson@example.com/),
+    ).toBeVisible();
     // The page re-reads the script, so the contract shows where it landed.
-    await expect(page.getByText("marcus.johnson@example.com").first()).toBeVisible();
+    await expect(
+      page.getByText("marcus.johnson@example.com").first(),
+    ).toBeVisible();
   });
 
   // The state a script carries between runs (#1537): read on its page at the
@@ -350,12 +442,19 @@ test.describe("Portal script pages", () => {
     page,
   }) => {
     await gotoScripts(page);
-    await page.getByRole("row").filter({ hasText: "Daily Sales Report" }).click();
+    await page
+      .getByRole("row")
+      .filter({ hasText: "Daily Sales Report" })
+      .click();
 
     // Folded, with where the state stands in the header.
-    await expect(page.getByRole("button", { name: /^State/ })).toContainText("Revision 41");
+    await expect(page.getByRole("button", { name: /^State/ })).toContainText(
+      "Revision 41",
+    );
     await page.getByRole("button", { name: /^State/ }).click();
-    await expect(page.getByTestId("script-state")).toContainText('"synced_through": "2026-08-13"');
+    await expect(page.getByTestId("script-state")).toContainText(
+      '"synced_through": "2026-08-13"',
+    );
     await expect(page.getByText("run run-001")).toBeVisible();
 
     // A clear is confirmed before it lands, and the answer says what it
@@ -368,7 +467,9 @@ test.describe("Portal script pages", () => {
     await expect(page.getByText("sarah.chen@example.com").last()).toBeVisible();
     // Folded again, the header states the revision the clear moved it to.
     await page.getByRole("button", { name: /^State/ }).click();
-    await expect(page.getByRole("button", { name: /^State/ })).toContainText("Revision 42");
+    await expect(page.getByRole("button", { name: /^State/ })).toContainText(
+      "Revision 42",
+    );
   });
 
   // Editing the code is the second mutation on this surface, and there is one
@@ -377,9 +478,14 @@ test.describe("Portal script pages", () => {
     page,
   }) => {
     await gotoScripts(page);
-    await page.getByRole("row").filter({ hasText: "Daily Sales Report" }).click();
+    await page
+      .getByRole("row")
+      .filter({ hasText: "Daily Sales Report" })
+      .click();
 
-    await expect(page.getByText(/Saving makes this the version that runs/)).toBeVisible();
+    await expect(
+      page.getByText(/Saving makes this the version that runs/),
+    ).toBeVisible();
     const editor = page.locator(".cm-content").first();
     await editor.click();
     await page.keyboard.type("\n# checked by the owner\n");
@@ -388,19 +494,67 @@ test.describe("Portal script pages", () => {
     await expect(page.getByText(/this version is what runs now/)).toBeVisible();
   });
 
-  test("says a run history's success rate over the runs it actually loaded", async ({ page }) => {
+  // The write barrier (#1664). A dry run of a landing pipeline stops at the
+  // call that persists, so the pipeline is rehearsed without landing; the
+  // author lifts it for one run and is told what that run wrote.
+  test("an owner is stopped at a write, then asks for it", async ({ page }) => {
     await gotoScripts(page);
-    await page.getByRole("row").filter({ hasText: "Daily Sales Report" }).click();
-    await expect(page.getByText(/succeeded over the last \d+ runs/)).toBeVisible();
+    await page
+      .getByRole("row")
+      .filter({ hasText: "Daily Sales Report" })
+      .click();
+
+    const editor = page.locator(".cm-content").first();
+    await editor.click();
+    await page.keyboard.type(
+      '\nplatform.call("manage_resource", {"action": "create"})\n',
+    );
+
+    await page.locator("#script-param-run-report_date").fill("2026-08-17");
+    await page.locator("#script-param-run-source").click();
+    await page.getByRole("option", { name: /acme-warehouse/ }).click();
+
+    await page.getByRole("button", { name: "Dry run" }).click();
+    await expect(page.getByText(/This dry run stopped at/)).toBeVisible();
+    await expect(
+      page.getByText("manage_resource action=create").first(),
+    ).toBeVisible();
+
+    await page.getByLabel(/Write for real/).check();
+    await page.getByRole("button", { name: "Dry run" }).click();
+    await expect(page.getByText("Persisted for real (1):")).toBeVisible();
+
+    // And the control clears itself, so the next dry run is a rehearsal again.
+    await expect(page.getByLabel(/Write for real/)).not.toBeChecked();
+  });
+
+  test("says a run history's success rate over the runs it actually loaded", async ({
+    page,
+  }) => {
+    await gotoScripts(page);
+    await page
+      .getByRole("row")
+      .filter({ hasText: "Daily Sales Report" })
+      .click();
+    await expect(
+      page.getByText(/succeeded over the last \d+ runs/),
+    ).toBeVisible();
   });
 
   test("returns to the listing from a script", async ({ page }) => {
     await gotoScripts(page);
-    await page.getByRole("row").filter({ hasText: "Warehouse Freshness Check" }).click();
-    await expect(page.getByRole("heading", { name: "Warehouse Freshness Check" })).toBeVisible();
+    await page
+      .getByRole("row")
+      .filter({ hasText: "Warehouse Freshness Check" })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Warehouse Freshness Check" }),
+    ).toBeVisible();
 
     await page.locator("main").getByRole("button", { name: "Scripts" }).click();
-    await expect(page.getByRole("heading", { name: "Scripts", level: 1 })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Scripts", level: 1 }),
+    ).toBeVisible();
     await expect(page.getByText("Dormant Accounts")).toBeVisible();
   });
 });
