@@ -332,6 +332,13 @@ func calculateResponseSize(result mcp.Result, err error) (chars, contentBlocks i
 			total += len(c.Data)
 		case *mcp.AudioContent:
 			total += len(c.Data)
+		case *mcp.EmbeddedResource:
+			// A fetched file travels here (#1657). Counting it is what keeps
+			// the recorded response size honest about the largest results the
+			// platform produces.
+			if c.Resource != nil {
+				total += len(c.Resource.Blob) + len(c.Resource.Text)
+			}
 		}
 	}
 

@@ -74,6 +74,40 @@ type Document struct {
 	// document handed out sample SQL over a table that no longer existed and
 	// said nothing about the one that did. Empty when nothing is registered.
 	Tables []HitTable `json:"tables,omitempty"`
+	// Note is one line about the rendering itself, for the reader of the
+	// document: that the file is attached rather than written into Body, that
+	// only a prefix of it is shown, or that it was too large to carry at all
+	// (#1657). Empty when the document is simply the whole content.
+	//
+	// It is a field of the record rather than a loose text block so that a
+	// client reading structured output sees it, and so there is one place a
+	// reader looks for what the answer left out.
+	Note string `json:"note,omitempty"`
+	// Attachment is the fetched file itself, for content that is neither text
+	// nor renderable as text: a picture a model looks at, or a family the
+	// server has no reader for and the caller's own tools open (#1657).
+	//
+	// It is carried out of band of the JSON, because the structured result is
+	// the same document serialized -- so a Bytes field inside it would ship
+	// every byte a second time, base64-expanded, in the very payload the
+	// attachment exists to stay out of. The fetch surface reads it and emits
+	// one MCP content block; nothing else in the response mentions it.
+	Attachment *Attachment `json:"-"`
+}
+
+// Attachment is a fetched document's own bytes, for content that is not text.
+// Image decides which MCP content block carries it: an image block, which a
+// model sees, or an embedded-resource block, which the client's tools open.
+type Attachment struct {
+	// URI is the canonical mcp:// address of the file, which is what a client
+	// re-reads it by.
+	URI string
+	// MIMEType is the file's stored media type.
+	MIMEType string
+	// Bytes is the file's content.
+	Bytes []byte
+	// Image reports that Bytes are a picture.
+	Image bool
 }
 
 // DocumentRef is one outbound link a Document declares (#705): a reference string a

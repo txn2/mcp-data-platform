@@ -35,6 +35,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	s3client "github.com/txn2/mcp-s3/pkg/client"
 
+	"github.com/txn2/mcp-data-platform/internal/docread"
+	"github.com/txn2/mcp-data-platform/internal/pdftext"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourceindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolkitcfg"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
@@ -82,6 +84,14 @@ type Handle struct {
 	// indexProducer is the write-path index-job producer the resource store was
 	// built with, exposed for the index-jobs queue to bind once it exists.
 	indexProducer *indexjobs.Producer
+	// docs renders a stored file into what a reader can use, and pdfText is
+	// the WebAssembly PDF extractor behind it (#1657). Both surfaces that hand
+	// a managed resource to a model -- search `fetch` and the content index --
+	// read through this one reader, so a file they both see reads the same way.
+	// The extractor compiles its module on the first PDF, not here, and Close
+	// releases its instance pool.
+	docs    *docread.Reader
+	pdfText *pdftext.Extractor
 }
 
 // ListChangedNotifier schedules a debounced resources/list_changed notification.
@@ -178,10 +188,13 @@ func New(db *sql.DB, cfg Config) (*Handle, error) {
 	// this layer), and a no-op if no queue is ever wired: resources then reach
 	// the index on the reconciler's next sweep (#1256).
 	producer := indexjobs.NewProducer(resourceindex.SourceKind)
+	extractor := pdftext.New()
 	h := &Handle{
 		store:         resource.NewPostgresStore(db, indexjobs.WithProducer(producer)),
 		uriScheme:     uriScheme(cfg),
 		indexProducer: producer,
+		pdfText:       extractor,
+		docs:          docread.New(extractor),
 	}
 
 	connName := s3Connection(cfg)
@@ -256,6 +269,27 @@ func resolveDefaultS3Instance(toolkits map[string]any) string {
 		return ""
 	}
 	return toolkitcfg.ResolveDefaultInstance(kindCfg, instances)
+}
+
+// DocumentReader returns the reader that renders a stored file into what a
+// model can use, or nil on a nil Handle. The consumers pass it on to the
+// resources search provider and the content index, which is what keeps one
+// file reading the same way through both (#1657).
+func (h *Handle) DocumentReader() *docread.Reader {
+	if h == nil {
+		return nil
+	}
+	return h.docs
+}
+
+// Close releases what the layer holds open: today, the PDF extractor's
+// WebAssembly instance pool. It is safe on a nil Handle and on one whose
+// extractor never compiled its module.
+func (h *Handle) Close() error {
+	if h == nil {
+		return nil
+	}
+	return h.pdfText.Close() //nolint:wrapcheck // the extractor's error is already named for a reader
 }
 
 // Store returns the managed resource store, or nil on a nil Handle (managed

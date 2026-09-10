@@ -685,7 +685,7 @@ routing each well-formed reference by its form to the owning source:
 | `urn:li:tag:<id>` | governance | the tag's name and description, plus the datasets that carry it |
 | `urn:li:domain:<id>` | governance | the domain's name and description, plus the datasets in it |
 | `mcp:asset:<id>` | assets | the asset's metadata record (blob bytes stay in S3, reached with `s3_object` `get` or `presign`) |
-| `mcp:resource:<id>` | resources | the resource's metadata record, plus its contents inline for a text resource at or under 1 MB; a binary or oversized one returns metadata with its canonical `mcp://` URI, MIME type, and size |
+| `mcp:resource:<id>` | resources | the resource's metadata record, plus its contents in whichever form the file admits (see below). Only a file over 1 MB returns metadata alone, with its canonical `mcp://` URI, MIME type, and size |
 | `mcp:prompt:<id>` | prompts | the full prompt |
 | `mcp:script:<id>` | scripts | the managed script's contract: name, description, owner, typed parameters, whether a run would be admitted, schedule, and the last successful run with what it produced. Never the source code (fetch-only, not citable on a page) |
 | `mcp:connection:(kind,name)` | connections | the connection descriptor |
@@ -761,6 +761,32 @@ than a hit whose reference then fails to fetch. This needs mcp-datahub v1.15.1
 or later against a DataHub that reports `exists`; on a DataHub that omits the
 field, a URN with no entity resolves to a stub built from that URN and is
 reported as found (#1605, #1610).
+
+#### What a fetched file comes back as
+
+A managed resource is a file someone uploaded, so `fetch` returns it in
+whichever form the file admits rather than describing it. One file, one form:
+
+| The file | What `fetch` returns |
+| --- | --- |
+| Text (markdown, CSV, JSON, SQL, source, SVG) | its contents in `document.body` |
+| PDF | its extracted text in `document.body` |
+| An Office document (`.docx`, `.xlsx`, `.pptx`, `.odt`, `.ods`, `.odp`) or any zip | its text parts in `document.body`, each under a banner naming the part and its size, followed by an inventory of the members that were not rendered. An Office document is a zip of XML parts, and the parts are what an agent reproducing it as a template needs |
+| An image | an MCP `image` content block, which a model looks at directly |
+| Anything else | an MCP `resource` content block carrying the bytes, for the client's own tools to open |
+
+A file above the 1 MB inline limit is the one case that returns metadata alone.
+Its record carries the canonical `mcp://` URI, which `resources/read` reads the
+whole file by with no limit.
+
+The same reader feeds the content index, so a PDF and a presentation are found
+by `search` on words that appear only inside them, not on their filename alone.
+A picture is indexed on its metadata: there is no text in it to find.
+
+PDF text is read by PDFium compiled to WebAssembly and run under wazero. It is
+cgo-free, and its module is compiled on the first PDF a deployment is asked to
+read rather than at startup, so a deployment that never meets one pays nothing
+for it.
 
 ---
 

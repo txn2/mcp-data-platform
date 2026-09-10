@@ -285,7 +285,7 @@ func assembledToolkit() *Toolkit {
 		knowledge.NewPromptsProvider(globalPrompts{}),
 		knowledge.NewAssetsProvider(assets),
 		knowledge.NewKnowledgePagesProvider(globalKnowledgePages{}),
-		knowledge.NewResourcesProvider(seedResourceStore(), seedResourceBlobs(), resourceBucket),
+		knowledge.NewResourcesProvider(seedResourceStore(), seedResourceBlobs(), resourceBucket, nil),
 	)
 	tk := New("default", router)
 	tk.SetPersonasForRoles(personaOfRole)
@@ -297,7 +297,7 @@ func assembledToolkit() *Toolkit {
 // what search and fetch do afterward.
 func assembledToolkitWithResources(store *scopedResourceStore) *Toolkit {
 	tk := New("default", knowledge.NewRouter(nil, nil,
-		knowledge.NewResourcesProvider(store, seedResourceBlobs(), resourceBucket),
+		knowledge.NewResourcesProvider(store, seedResourceBlobs(), resourceBucket, nil),
 	))
 	tk.SetPersonasForRoles(personaOfRole)
 	return tk

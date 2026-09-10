@@ -36,6 +36,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/docread"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/internal/tableavail"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
@@ -114,11 +115,17 @@ type Config struct {
 	// leaves the source out entirely.
 	Sessions knowledge.SessionReader
 
-	// ResourceBlobs and ResourceBucket let the resources provider return a text
-	// resource's contents inline from `fetch`. Nil leaves fetch returning
-	// metadata plus the canonical URI; it does not affect searchability.
+	// ResourceBlobs and ResourceBucket let the resources provider return a
+	// resource's contents from `fetch`. Nil leaves fetch returning metadata
+	// plus the canonical URI; it does not affect searchability.
 	ResourceBlobs  knowledge.ResourceContentReader
 	ResourceBucket string
+
+	// ResourceDocs renders a fetched file into what a reader can use: text
+	// drawn out of a PDF or an Office document, a picture handed over as it
+	// is (#1657). Nil falls back to a reader with no PDF extractor bound,
+	// which serves a PDF as its bytes.
+	ResourceDocs *docread.Reader
 
 	// ResourceReads audits resources dereferenced through fetch (#1014). Nil
 	// when audit is disabled, which leaves fetch serving the same content
@@ -303,7 +310,7 @@ func appendPortalStoreProviders(cfg Config, providers []knowledge.Provider) []kn
 	// can rank (#1012). Uploading one is publishing into a void unless search can
 	// find it.
 	if s, ok := cfg.ResourceStore.(knowledge.ResourceSearcher); ok {
-		rp := knowledge.NewResourcesProvider(s, cfg.ResourceBlobs, cfg.ResourceBucket)
+		rp := knowledge.NewResourcesProvider(s, cfg.ResourceBlobs, cfg.ResourceBucket, cfg.ResourceDocs)
 		rp.SetReadRecorder(cfg.ResourceReads)
 		providers = append(providers, rp)
 	}

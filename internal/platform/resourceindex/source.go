@@ -6,9 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"unicode/utf8"
 
-	"github.com/txn2/mcp-data-platform/pkg/contenttype"
+	"github.com/txn2/mcp-data-platform/internal/docread"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
@@ -32,13 +31,22 @@ type Source struct {
 	store  *Store
 	blobs  BlobReader
 	bucket string
+	docs   *docread.Reader
 }
 
 // NewSource returns a Source backed by the given store. blobs and bucket locate
 // the resource content; a nil reader (a deployment with no S3 connection
 // configured for resources) indexes metadata only.
-func NewSource(store *Store, blobs BlobReader, bucket string) *Source {
-	return &Source{store: store, blobs: blobs, bucket: bucket}
+//
+// docs renders a file into the text this index is built on. It is the same
+// reader the fetch path uses, which is what makes a PDF or a presentation
+// findable by what is inside it rather than by its filename alone (#1657); a
+// nil one falls back to a reader with no PDF extractor bound.
+func NewSource(store *Store, blobs BlobReader, bucket string, docs *docread.Reader) *Source {
+	if docs == nil {
+		docs = docread.New(nil)
+	}
+	return &Source{store: store, blobs: blobs, bucket: bucket, docs: docs}
 }
 
 // Compile-time interface check.
@@ -70,9 +78,12 @@ func (s *Source) LoadItems(ctx context.Context, sourceID string) ([]indexjobs.It
 // failed extraction recoverable:
 //
 //   - Nothing to extract (no blob storage wired — in which case the upload path
-//     stored no bytes either — or no key, a binary type, or an object too large
-//     to pull whole). The row keeps whatever text it has and is SETTLED, so it
-//     stops being a gap.
+//     stored no bytes either — or no key, a family that cannot hold text under
+//     any reading, an object too large to pull whole, or one the reader drew
+//     no text out of). The row keeps whatever text it has and is SETTLED, so
+//     it stops being a gap. The family check happens BEFORE the blob read, so
+//     a picture never costs one; a PDF and a presentation do, which is the
+//     whole of what makes them searchable (#1657).
 //   - Extracted, or the object is confirmed gone (a confirmed orphan clears the
 //     stale text: that content is permanently unreachable and indexing it would
 //     keep answering searches with text no reader can fetch). Written and
@@ -83,7 +94,7 @@ func (s *Source) LoadItems(ctx context.Context, sourceID string) ([]indexjobs.It
 //     prevent: the metadata embed succeeds either way, so a settled row would
 //     drop out of the gap query with its file contents never indexed.
 func (s *Source) resolveContentText(ctx context.Context, id string, row Row) string {
-	if s.blobs == nil || row.Resource.S3Key == "" || !contenttype.IsTextual(row.Resource.MIMEType) {
+	if s.blobs == nil || row.Resource.S3Key == "" || !docread.MayHoldText(row.Resource.MIMEType) {
 		s.settleContent(ctx, id, row, row.ContentText)
 		return row.ContentText
 	}
@@ -108,9 +119,20 @@ func (s *Source) resolveContentText(ctx context.Context, id string, row Row) str
 		return row.ContentText
 	}
 
-	extracted := extractText(body, resource.MaxContentIndexBytes)
+	extracted := s.extractText(ctx, row.Resource, body)
 	s.settleContent(ctx, id, row, extracted)
 	return extracted
+}
+
+// extractText renders the file into the bounded text prefix the index is built
+// on. A family the reader draws no text out of -- a picture, an unrecognized
+// binary -- yields "", which settles the row on its metadata alone.
+func (s *Source) extractText(ctx context.Context, res resource.Resource, body []byte) string {
+	read := s.docs.Read(ctx, res.MIMEType, res.Filename, body, resource.MaxContentIndexBytes)
+	if read.Form != docread.FormText {
+		return ""
+	}
+	return sanitize(read.Text)
 }
 
 // settleContent records the resolved text and marks the content pass done. The
@@ -136,20 +158,11 @@ func (s *Source) settleContent(ctx context.Context, id string, row Row, next str
 // Postgres TEXT cannot hold a NUL byte, and a file whose declared type is
 // textual can still carry stray binary, so a resource with one bad byte must not
 // become permanently unindexable.
-func extractText(body []byte, limit int) string {
-	if len(body) > limit {
-		body = body[:limit]
-		// Drop a partial trailing rune left by the cut. At most UTFMax-1 bytes can
-		// belong to one, so the trim is bounded rather than scanning the prefix.
-		for i := 0; i < utf8.UTFMax-1 && len(body) > 0; i++ {
-			r, size := utf8.DecodeLastRune(body)
-			if r != utf8.RuneError || size != 1 {
-				break
-			}
-			body = body[:len(body)-1]
-		}
-	}
-	text := strings.ToValidUTF8(string(body), "")
+// sanitize strips what a JSON string and a Postgres text column will not
+// carry: invalid UTF-8 and NUL bytes, both of which text drawn out of a binary
+// file can pick up.
+func sanitize(text string) string {
+	text = strings.ToValidUTF8(text, "")
 	return strings.ReplaceAll(text, "\x00", "")
 }
 

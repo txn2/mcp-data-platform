@@ -99,6 +99,7 @@ func (p *Platform) WireAPIGatewayEmbedJobsFromDB() {
 		CatalogIndexConfig: p.config.Knowledge.CatalogIndex,
 		ResourceBlobs:      p.resources.S3Client(),
 		ResourceBucket:     p.config.Resources.Managed.S3Bucket,
+		ResourceDocs:       p.resources.DocumentReader(),
 	})
 	if handle == nil {
 		// db + embedder are present but nothing registered. A worker with no

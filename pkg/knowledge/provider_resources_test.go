@@ -1,8 +1,11 @@
 package knowledge
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -11,6 +14,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/txn2/mcp-data-platform/internal/docread"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
 
@@ -118,7 +122,7 @@ func resourcesProvider() *ResourcesProvider {
 	return NewResourcesProvider(seededResources(), &fakeResourceBlobs{objects: map[string][]byte{
 		"k-global": []byte("column,description\ngross_margin_pct,margin after COGS\n"),
 		"k-bin":    {0x89, 'P', 'N', 'G'},
-	}}, "bucket")
+	}}, "bucket", nil)
 }
 
 func TestResourcesProvider_NameAndScope(t *testing.T) {
@@ -253,7 +257,7 @@ func TestResourcesProvider_SearchWithoutIntentIsNoop(t *testing.T) {
 }
 
 func TestResourcesProvider_SearchErrorIsWrapped(t *testing.T) {
-	p := NewResourcesProvider(&fakeResourceStore{searchErr: errors.New("db down")}, nil, "")
+	p := NewResourcesProvider(&fakeResourceStore{searchErr: errors.New("db down")}, nil, "", nil)
 	if _, err := p.Search(context.Background(), Query{Intent: "x"}); err == nil ||
 		!strings.Contains(err.Error(), "resource search") {
 		t.Fatalf("err = %v", err)
@@ -277,17 +281,190 @@ func TestResourcesProvider_FetchTextInlinesContent(t *testing.T) {
 	}
 }
 
-func TestResourcesProvider_FetchBinaryReturnsMetadataOnly(t *testing.T) {
+// An image comes back as the picture itself, attached, not as a body of text
+// and not as metadata alone. Before #1657 this returned the metadata row, and
+// an agent handed a size and a MIME type reports that it cannot open the file.
+func TestResourcesProvider_FetchAnImageAttachesThePicture(t *testing.T) {
 	doc, owned, err := resourcesProvider().Fetch(context.Background(), "mcp:resource:res_bin", Caller{})
 	if err != nil || !owned {
 		t.Fatalf("owned=%v err=%v", owned, err)
 	}
 	if doc.Body != "" {
-		t.Errorf("binary resource must not be inlined: %q", doc.Body)
+		t.Errorf("an image must not be inlined as text: %q", doc.Body)
+	}
+	if doc.Attachment == nil {
+		t.Fatal("an image fetch carried no attachment")
+	}
+	if !doc.Attachment.Image {
+		t.Error("the attachment was not marked as a picture")
+	}
+	if len(doc.Attachment.Bytes) == 0 || doc.Attachment.MIMEType != "image/png" {
+		t.Errorf("the attachment did not carry the file: %+v", doc.Attachment)
+	}
+	if doc.Attachment.URI != "mcp://global/references/logo.png" {
+		t.Errorf("the attachment did not carry the canonical URI: %q", doc.Attachment.URI)
+	}
+	// An empty body with no explanation is what produced the report that the
+	// platform was withholding the file.
+	if !strings.Contains(doc.Note, "attached") {
+		t.Errorf("the document did not say where the file went: %q", doc.Note)
 	}
 	res, ok := doc.Content.(*resource.Resource)
 	if !ok || res.URI != "mcp://global/references/logo.png" || res.SizeBytes == 0 {
-		t.Errorf("binary fetch must carry the URI and size: %+v", doc.Content)
+		t.Errorf("the record must still travel with its URI and size: %+v", doc.Content)
+	}
+}
+
+// A family the server has no reader for still reaches the caller: the bytes
+// are attached for the caller's own tools, not withheld.
+func TestResourcesProvider_FetchAnUnreadableFamilyAttachesItsBytes(t *testing.T) {
+	store := seededResources()
+	store.resources[3].MIMEType = "application/vnd.acme.thing"
+	p := NewResourcesProvider(store, &fakeResourceBlobs{objects: map[string][]byte{
+		"k-bin": {0x01, 0x02, 0x03, 0x04},
+	}}, "bucket", nil)
+
+	doc, _, err := p.Fetch(context.Background(), "mcp:resource:res_bin", Caller{})
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if doc.Attachment == nil || doc.Attachment.Image {
+		t.Fatalf("an unreadable family did not attach its bytes: %+v", doc.Attachment)
+	}
+	if len(doc.Attachment.Bytes) != 4 {
+		t.Errorf("the attachment did not carry the file: %d bytes", len(doc.Attachment.Bytes))
+	}
+}
+
+// A presentation is a zip of XML parts, and its parts are what a caller
+// reproducing it as a template needs. Flattening it to prose would throw away
+// the very structure they came for.
+func TestResourcesProvider_FetchAPresentationReturnsItsParts(t *testing.T) {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for _, part := range [][2]string{
+		{"[Content_Types].xml", `<?xml version="1.0"?><Types/>`},
+		{"ppt/slides/slide1.xml", `<?xml version="1.0"?><sld><a:t>Quarterly Review</a:t></sld>`},
+	} {
+		w, err := zw.Create(part[0])
+		if err != nil {
+			t.Fatalf("creating %s: %v", part[0], err)
+		}
+		if _, err = w.Write([]byte(part[1])); err != nil {
+			t.Fatalf("writing %s: %v", part[0], err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("closing the archive: %v", err)
+	}
+
+	store := seededResources()
+	store.resources[3].MIMEType = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+	store.resources[3].Filename = "deck.pptx"
+	p := NewResourcesProvider(store, &fakeResourceBlobs{
+		objects: map[string][]byte{"k-bin": buf.Bytes()},
+	}, "bucket", nil)
+
+	doc, _, err := p.Fetch(context.Background(), "mcp:resource:res_bin", Caller{})
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if doc.Attachment != nil {
+		t.Errorf("a presentation was attached as bytes rather than read: %+v", doc.Attachment)
+	}
+	if !strings.Contains(doc.Body, "ppt/slides/slide1.xml") || !strings.Contains(doc.Body, "Quarterly Review") {
+		t.Errorf("the deck's parts did not reach the body: %q", doc.Body)
+	}
+}
+
+// A PDF comes back as its text. The extractor is a stub here; the real one is
+// exercised in internal/pdftext, which is where the WebAssembly module belongs.
+func TestResourcesProvider_FetchAPDFReturnsItsText(t *testing.T) {
+	store := seededResources()
+	store.resources[3].MIMEType = "application/pdf"
+	store.resources[3].Filename = "report.pdf"
+	p := NewResourcesProvider(store, &fakeResourceBlobs{
+		objects: map[string][]byte{"k-bin": []byte("%PDF-1.5 whatever")},
+	}, "bucket", docread.New(stubPDFText("Quarterly revenue grew 12 percent")))
+
+	doc, _, err := p.Fetch(context.Background(), "mcp:resource:res_bin", Caller{})
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if doc.Attachment != nil {
+		t.Errorf("a readable PDF was attached as bytes: %+v", doc.Attachment)
+	}
+	if !strings.Contains(doc.Body, "grew 12 percent") {
+		t.Errorf("the PDF's text did not reach the body: %q", doc.Body)
+	}
+}
+
+// stubPDFText stands in for the WebAssembly extractor, including its contract
+// of stopping once it has produced what it was asked for: a stub that ignored
+// the budget would let the caller's truncation arithmetic pass untested.
+type stubPDFText string
+
+func (s stubPDFText) ExtractText(_ context.Context, _ []byte, limit int) (string, error) {
+	if len(s) > limit {
+		return string(s[:limit]), nil
+	}
+	return string(s), nil
+}
+
+// A file too large to carry is the one case that still answers with metadata,
+// and it must name the door that has no limit rather than look like a refusal.
+func TestResourcesProvider_FetchOversizedFileNamesTheWayToReadIt(t *testing.T) {
+	store := seededResources()
+	store.resources[0].SizeBytes = resource.MaxInlineContentBytes + 1
+	p := NewResourcesProvider(store, &fakeResourceBlobs{objects: map[string][]byte{"k-global": []byte("x")}}, "b", nil)
+
+	doc, _, err := p.Fetch(context.Background(), "mcp:resource:res_g", Caller{})
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if !strings.Contains(doc.Note, "resources/read") || !strings.Contains(doc.Note, store.resources[0].URI) {
+		t.Errorf("the note did not name the way to read the file: %q", doc.Note)
+	}
+}
+
+// A body that is a prefix must say so and name the door that has no limit, or
+// a reader acts on a bounded answer as though it were the whole file. A PDF is
+// where this is reachable: its extracted text can outrun the budget even when
+// the file itself fits inside it.
+func TestResourcesProvider_FetchTruncatedTextSaysSo(t *testing.T) {
+	store := seededResources()
+	store.resources[3].MIMEType = "application/pdf"
+	store.resources[3].Filename = "report.pdf"
+	p := NewResourcesProvider(store, &fakeResourceBlobs{
+		objects: map[string][]byte{"k-bin": []byte("%PDF-1.5 whatever")},
+	}, "bucket", docread.New(stubPDFText(strings.Repeat("p", resource.MaxInlineContentBytes+1024))))
+
+	doc, _, err := p.Fetch(context.Background(), "mcp:resource:res_bin", Caller{})
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if len(doc.Body) != resource.MaxInlineContentBytes {
+		t.Fatalf("body = %d bytes, want the budget", len(doc.Body))
+	}
+	if !strings.Contains(doc.Note, "Only the first part") || !strings.Contains(doc.Note, "resources/read") {
+		t.Errorf("a truncated body did not say so and name the way to the rest: %q", doc.Note)
+	}
+}
+
+// The attachment is carried out of band of the JSON. A Bytes field inside the
+// serialized document would ship the file a second time, base64-expanded, in
+// the very payload the attachment exists to stay out of.
+func TestResourcesProvider_FetchAttachmentIsNotSerialized(t *testing.T) {
+	doc, _, err := resourcesProvider().Fetch(context.Background(), "mcp:resource:res_bin", Caller{})
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	encoded, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatalf("marshaling the document: %v", err)
+	}
+	if strings.Contains(string(encoded), "ttachment") {
+		t.Errorf("the attachment reached the JSON payload: %s", encoded)
 	}
 }
 
@@ -297,7 +474,7 @@ func TestResourcesProvider_FetchBinaryReturnsMetadataOnly(t *testing.T) {
 func TestResourcesProvider_FetchOversizedTextIsNotInlined(t *testing.T) {
 	store := seededResources()
 	store.resources[0].SizeBytes = resource.MaxInlineContentBytes + 1
-	p := NewResourcesProvider(store, &fakeResourceBlobs{objects: map[string][]byte{"k-global": []byte("x")}}, "b")
+	p := NewResourcesProvider(store, &fakeResourceBlobs{objects: map[string][]byte{"k-global": []byte("x")}}, "b", nil)
 
 	doc, _, err := p.Fetch(context.Background(), "mcp:resource:res_g", Caller{})
 	if err != nil {
@@ -346,7 +523,7 @@ func TestResourcesProvider_FetchMissingIsNotFound(t *testing.T) {
 // A store failure is a real error, not a not-found: fetch must not report
 // "deleted" when the database is down.
 func TestResourcesProvider_FetchStoreErrorSurfaces(t *testing.T) {
-	p := NewResourcesProvider(&fakeResourceStore{getErr: errors.New("db down")}, nil, "")
+	p := NewResourcesProvider(&fakeResourceStore{getErr: errors.New("db down")}, nil, "", nil)
 	_, owned, err := p.Fetch(context.Background(), "mcp:resource:res_g", Caller{})
 	if !owned || err == nil || errors.Is(err, ErrNotFound) {
 		t.Fatalf("owned=%v err=%v, want a real error", owned, err)
@@ -355,7 +532,7 @@ func TestResourcesProvider_FetchStoreErrorSurfaces(t *testing.T) {
 
 // A blob read failure degrades to metadata-only rather than failing the fetch.
 func TestResourcesProvider_FetchBlobFailureDegrades(t *testing.T) {
-	p := NewResourcesProvider(seededResources(), &fakeResourceBlobs{err: errors.New("connection reset")}, "b")
+	p := NewResourcesProvider(seededResources(), &fakeResourceBlobs{err: errors.New("connection reset")}, "b", nil)
 	doc, _, err := p.Fetch(context.Background(), "mcp:resource:res_g", Caller{})
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
@@ -367,7 +544,7 @@ func TestResourcesProvider_FetchBlobFailureDegrades(t *testing.T) {
 
 // With no blob reader configured, fetch still resolves metadata.
 func TestResourcesProvider_FetchWithoutBlobReader(t *testing.T) {
-	p := NewResourcesProvider(seededResources(), nil, "")
+	p := NewResourcesProvider(seededResources(), nil, "", nil)
 	doc, _, err := p.Fetch(context.Background(), "mcp:resource:res_g", Caller{})
 	if err != nil || doc.Body != "" || doc.Title != "Sales Dictionary" {
 		t.Fatalf("doc=%+v err=%v", doc, err)
@@ -408,18 +585,18 @@ func TestResourcesProvider_FetchRecordsARead(t *testing.T) {
 	}
 }
 
-func TestResourcesProvider_FetchRecordsMetadataOnlyReads(t *testing.T) {
+func TestResourcesProvider_FetchRecordsANonTextRead(t *testing.T) {
 	reads := &recordingReads{}
 	p := resourcesProvider()
 	p.SetReadRecorder(reads)
 
-	// A binary resource comes back as metadata plus its URI. The caller still
-	// pulled the material into their session, so it still counts as usage.
+	// An image comes back as the picture rather than as text. The caller
+	// pulled the material into their session either way, so it counts as usage.
 	if _, _, err := p.Fetch(context.Background(), "mcp:resource:res_bin", Caller{UserID: "u-1"}); err != nil {
 		t.Fatalf("fetch: %v", err)
 	}
 	if len(reads.events) != 1 {
-		t.Fatalf("recorded reads = %d, want 1 for a metadata-only fetch", len(reads.events))
+		t.Fatalf("recorded reads = %d, want 1 for a non-text fetch", len(reads.events))
 	}
 }
 
