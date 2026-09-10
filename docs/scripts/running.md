@@ -743,9 +743,9 @@ refreshes with `manage_resource replace_content`, follows the file unless it
 was registered with `follow=false`: the version the run writes moves the table
 onto it before the write returns, so a query against the table reads the new
 contents from then on with no second call. What the write did to each table is
-reported on the export record (`tables`) and on the tool result, and printed
-into the run log as `tables: <output>: <sentence>`, so a run that left a pinned
-table behind says so in its history. See
+reported on the export record (`table_changes`) and on the tool result, and
+printed into the run log as `table_changes: <output>: <sentence>`, so a run
+that left a pinned table behind says so in its history. See
 [Registered Tables](../server/registered-tables.md#following-the-file).
 
 ### Tables and documents

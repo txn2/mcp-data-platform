@@ -15,7 +15,7 @@ const CONNECTIONS: TableConnectionList = {
 };
 
 const REGISTERED: TableRegistrationList = {
-  registrations: [
+  table_registrations: [
     {
       id: "reg_1",
       source_kind: "asset",
@@ -53,7 +53,7 @@ function stubRegister(register: () => Response) {
         return Promise.resolve(register());
       }
       if (url.includes("/tables")) {
-        return Promise.resolve(new Response(JSON.stringify({ registrations: [] }), { status: 200 }));
+        return Promise.resolve(new Response(JSON.stringify({ table_registrations: [] }), { status: 200 }));
       }
       return Promise.reject(new Error(`unexpected request: ${url}`));
     }),
@@ -95,7 +95,7 @@ function renderPanel(props: Partial<Parameters<typeof TablesPanel>[0]> = {}) {
 }
 
 beforeEach(() => {
-  stubFetch(CONNECTIONS, { registrations: [] });
+  stubFetch(CONNECTIONS, { table_registrations: [] });
 });
 
 afterEach(() => {
@@ -114,7 +114,7 @@ describe("registering a stored file as a table", () => {
   });
 
   it("is absent when no connection can hold a table", async () => {
-    stubFetch({ connections: [] }, { registrations: [] });
+    stubFetch({ connections: [] }, { table_registrations: [] });
     renderPanel();
     await waitFor(() => {
       expect(screen.queryByText("Query as a table")).not.toBeInTheDocument();
@@ -140,7 +140,7 @@ describe("registering a stored file as a table", () => {
 
   it("warns when the file has moved on since the table was registered", async () => {
     stubFetch(CONNECTIONS, {
-      registrations: [{ ...REGISTERED.registrations[0], stale: true, follow: false }],
+      table_registrations: [{ ...REGISTERED.table_registrations[0], stale: true, follow: false }],
     });
     renderPanel();
 
@@ -158,9 +158,9 @@ describe("registering a stored file as a table", () => {
 
     cleanup();
     stubFetch(CONNECTIONS, {
-      registrations: [
+      table_registrations: [
         {
-          ...REGISTERED.registrations[0],
+          ...REGISTERED.table_registrations[0],
           stale: true,
           follow: true,
           follow_error: "the coordinator refused the statement.",
@@ -178,7 +178,7 @@ describe("registering a stored file as a table", () => {
     // A table that corrects its file writes versions of it nobody typed
     // (#1577), so a reader of the file's history is told which table does it.
     stubFetch(CONNECTIONS, {
-      registrations: [{ ...REGISTERED.registrations[0], follow: true, repair: true }],
+      table_registrations: [{ ...REGISTERED.table_registrations[0], follow: true, repair: true }],
     });
     renderPanel();
     expect(await screen.findByText("Corrects the file")).toBeInTheDocument();
@@ -187,7 +187,7 @@ describe("registering a stored file as a table", () => {
     // to correct: saying it corrects the file would promise nothing.
     cleanup();
     stubFetch(CONNECTIONS, {
-      registrations: [{ ...REGISTERED.registrations[0], follow: false, repair: true }],
+      table_registrations: [{ ...REGISTERED.table_registrations[0], follow: false, repair: true }],
     });
     renderPanel();
     expect(await screen.findByText("Pinned to its version")).toBeInTheDocument();
@@ -197,7 +197,7 @@ describe("registering a stored file as a table", () => {
   it("registers a following table unless the person turns it off", async () => {
     const bodies: string[] = [];
     stubRegister(() => {
-      return new Response(JSON.stringify(REGISTERED.registrations[0]), { status: 201 });
+      return new Response(JSON.stringify(REGISTERED.table_registrations[0]), { status: 201 });
     });
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
@@ -207,9 +207,9 @@ describe("registering a stored file as a table", () => {
       }
       if (url.includes("/tables") && init?.method === "POST") {
         bodies.push(String(init.body));
-        return Promise.resolve(new Response(JSON.stringify(REGISTERED.registrations[0]), { status: 201 }));
+        return Promise.resolve(new Response(JSON.stringify(REGISTERED.table_registrations[0]), { status: 201 }));
       }
-      return Promise.resolve(new Response(JSON.stringify({ registrations: [] }), { status: 200 }));
+      return Promise.resolve(new Response(JSON.stringify({ table_registrations: [] }), { status: 200 }));
     });
     renderPanel();
     fireEvent.click(await screen.findByRole("button", { name: /register/i }));
@@ -355,7 +355,7 @@ describe("a CSV a query engine cannot read", () => {
       }
       return new Response(
         JSON.stringify({
-          ...REGISTERED.registrations[0],
+          ...REGISTERED.table_registrations[0],
           repaired: "Saved version 2 of this file, which put 153 rows back onto one line.",
         }),
         { status: 201 },

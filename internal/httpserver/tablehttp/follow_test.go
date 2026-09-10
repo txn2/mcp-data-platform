@@ -49,7 +49,7 @@ func TestListRoute_ReportsWhyAFollowDidNotMoveTheTable(t *testing.T) {
 	w = h.do(http.MethodGet, "/api/v1/portal/assets/asset_1/tables", "")
 	require.Equal(t, http.StatusOK, w.Code)
 	var list struct {
-		Registrations []registrationView `json:"registrations"`
+		Registrations []registrationView `json:"table_registrations"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &list))
 	require.Len(t, list.Registrations, 1)
@@ -93,7 +93,7 @@ func TestRegisterRoute_CarriesTheRepairChoice(t *testing.T) {
 	w = h.do(http.MethodGet, "/api/v1/portal/assets/asset_1/tables", "")
 	require.Equal(t, http.StatusOK, w.Code)
 	var list struct {
-		Registrations []registrationView `json:"registrations"`
+		Registrations []registrationView `json:"table_registrations"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &list))
 	require.Len(t, list.Registrations, 2)

@@ -702,13 +702,16 @@ endpoints emit no reference and are not fetch targets.
 
 A fetched asset or resource that has been registered as a query-engine table
 also carries `tables`: one entry per registration over the file, newest first,
-each with `registration_id`, `connection`, `query_table`, `sample_sql`, `stale`,
-`follow`, `repair` and `follow_error` -- the same facts, in the same order,
-[`manage_table`](#manage_table) `action=list` reports. A file registered twice
+each with `registration_id`, `connection`, `query_table`, `columns`,
+`sample_sql`, `stale`, `follow`, `repair` and `follow_error` -- the same facts,
+in the same order, [`manage_table`](#manage_table) `action=list` reports under
+`table_registrations`. The columns are carried so the query can be written
+without a second call. A file registered twice
 is two entries and the document names both. A `search` hit carries one `table`
-instead, the newest registration whose `follow_error` is empty, so a hit points
-at a table a follow has not disowned; when every registration carries one, the
-hit has no `table` and the document is where the reasons are.
+instead and without the columns -- a hit is a pointer chosen from a ranked page
+of them -- and it is the newest registration whose `follow_error` is empty, so
+a hit points at a table a follow has not disowned; when every registration
+carries one, the hit has no `table` and the document is where the reasons are.
 
 A fetched governance entity fills `content` with `{urn, kind, name, description,
 datasets[], more_datasets?, datasets_withheld?, notice?}`. The carrier list is
@@ -1033,15 +1036,15 @@ The file is named by its `reference` — the string a `search` hit and a `fetch`
 | `table_name` | string | No | filename slug | Name for the registered table; prefixed with your persona either way |
 | `follow` | boolean | No | `true` | Whether the table follows the file: each revision or version written over it moves the table onto the new contents. `false` pins the table to the version it is registered over |
 | `repair` | boolean | No | `false` | Save a corrected version of a file that cannot be read as a table the way it is stored, and register that. The choice is kept on the registration: a following table corrects each later version carrying the same kind of defect and moves onto the corrected version |
-| `registration_id` | string | Conditional | - | Registration to drop (required for unregister). `action=list` reports them |
+| `registration_id` | string | Conditional | - | Registration to drop (required for unregister). `action=list` reports them on the rows of `table_registrations` |
 
 **Actions:**
 
 - **register**: create the table and report its qualified name, its columns, a sample join showing the `CAST` a typed column needs, and whether it follows the file. Every column is `VARCHAR`, which is the storage format's rule rather than a platform choice
-- **list**: what is registered over this file, each entry saying whether it `follow`s the file, whether it has gone `stale` — the file has a newer revision or version than the table points at — and, for a following table that is stale, the `follow_error` that kept it there
+- **list**: what is registered over this file, under `table_registrations`. Each row carries the `registration_id` an unregister takes, the `query_table`, its `columns` and `sample_sql`, who registered it, whether it `follow`s the file, whether it has gone `stale` — the file has a newer revision or version than the table points at — and, for a following table that is stale, the `follow_error` that kept it there. Check here for an existing registration before registering: registering the same name again replaces the row and changes its id. The same registrations appear as `tables` on a `search` hit and a `fetch` document, projected for the caller who only wants to write the query
 - **unregister**: drop one table. The file itself is unchanged
 
-A write over the file — `manage_resource replace_content`, a `manage_asset` content edit, a script's `platform.export` — moves every following table onto the version it wrote and reports each table in its result (`tables`), so the write that leaves a pinned table behind says so. See [Following the file](registered-tables.md#following-the-file).
+A write over the file — `manage_resource replace_content`, a `manage_asset` content edit, a script's `platform.export` — moves every following table onto the version it wrote and reports each table in its result (`table_changes`, one sentence per table), so the write that leaves a pinned table behind says so. See [Following the file](registered-tables.md#following-the-file).
 
 Registering is the authority to change the file, not the authority to read it: an asset by its owner or an administrator, a resource by its uploader or an administrator of its scope. A reference naming a file you may not register is answered as absent, whether it is missing, deleted, or somebody else's. See [Registered Tables](registered-tables.md).
 
@@ -1077,7 +1080,7 @@ The other three actions close the lifecycle around those two (#1665). `get` answ
 **Actions:**
 
 - **create**: file new content and report its `resource_id`, its `mcp:resource:` reference, and its `mcp://` URI
-- **replace_content**: write new bytes over an existing resource and report the `version` the content was recorded as, and `tables`: one sentence per table registered over the file, saying it followed onto the new version or is pinned and now behind it ([Following the file](registered-tables.md#following-the-file))
+- **replace_content**: write new bytes over an existing resource and report the `version` the content was recorded as, and `table_changes`: one sentence per table registered over the file, saying it followed onto the new version or is pinned and now behind it ([Following the file](registered-tables.md#following-the-file))
 - **get**: report what is filed at an address (`scope` + `path` + `filename`), or what a reference names, without the bytes. `found: false` and the `uri` it looked up is the answer for an empty address, not an error
 - **list**: report the files under a folder, newest first, with the `total` the page was cut from
 - **delete**: remove a file and its version history
@@ -1088,7 +1091,7 @@ The other three actions close the lifecycle around those two (#1665). `get` answ
 
 A knowledge page is not a third: the platform refuses an `mcp:resource:` citation on a shared page, because a resource is visibility-scoped and the citation would be broken for every reader outside that scope, so no page can point at one.
 
-The counts are counts and not names because each of those records carries an audience of its own and the person deleting the file is not necessarily in any of it; the portal's Used-by panel on the file resolves those audiences and names what its reader may open. A table is named, because `manage_table` already names it to the same caller. A deployment that cannot establish what depends on a file refuses the delete and says so rather than reporting that nothing does.
+The counts are counts and not names because each of those records carries an audience of its own and the person deleting the file is not necessarily in any of it; the portal's Used-by panel on the file resolves those audiences and names what its reader may open. The tables are reported as `table_registrations`, the rows `manage_table action=list` answers with, because `manage_table` already names them to the same caller. A deployment that cannot establish what depends on a file refuses the delete and says so rather than reporting that nothing does.
 
 **Declaring the type.** A `create` says what the bytes are and a create that does not is refused. The type is not detected on this path because the families an agent writes cannot be named from content: SVG, HTML, JSX and Markdown are all stored `text/plain` when nothing is declared, and `text/plain` is served under `nosniff`, so an `<img>` naming that file is a broken image on every surface with nothing reporting a problem. A `replace_content` keeps the type the resource already carries, so refreshing a file cannot reclassify it under every reference to it; declare one there only to change what family the file is. The types to choose between are listed on the built-in knowledge page `mcp:knowledge_page:platform-content-types-for-stored-files` and in [Content Types and Viewers](content-viewers.md).
 

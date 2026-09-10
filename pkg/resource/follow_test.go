@@ -41,9 +41,9 @@ func TestReplaceContent_FollowsTheTablesOverTheFile(t *testing.T) {
 	if body["id"] != "res-1" {
 		t.Errorf("the response is still the resource: id = %v", body["id"])
 	}
-	tables, _ := body["tables"].([]any)
+	tables, _ := body["table_changes"].([]any)
 	if len(tables) != 1 || tables[0] != "scratch.uploads.t on scratch now reads version 1." {
-		t.Errorf("tables = %v, want the hook's report beside the resource", body["tables"])
+		t.Errorf("tables = %v, want the hook's report beside the resource", body["table_changes"])
 	}
 	if len(follow.asked) != 1 || follow.asked[0] != "res-1@1" {
 		t.Errorf("hook asked about %v, want res-1 at the version the revision recorded", follow.asked)
@@ -67,7 +67,7 @@ func TestRestoreVersion_FollowsTheTablesOverTheFile(t *testing.T) {
 	if len(follow.asked) != 1 || follow.asked[0] != seedResourceID+"@2" {
 		t.Errorf("hook asked about %v, want the restore's own version", follow.asked)
 	}
-	if _, present := decodeJSON(t, w.Body)["tables"]; present {
+	if _, present := decodeJSON(t, w.Body)["table_changes"]; present {
 		t.Error("an empty report is absent from the response, not an empty list")
 	}
 }

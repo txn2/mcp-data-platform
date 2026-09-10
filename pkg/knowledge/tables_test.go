@@ -151,6 +151,24 @@ func TestPreferredTable(t *testing.T) {
 	assert.Equal(t, "middle", got.Table)
 }
 
+// TestPreferredTableDropsTheColumnsFromTheHit is #1666: the columns are on the
+// fetched document, where the record is read in full and the query is written
+// from. A ranked page of hits, each carrying a wide table's column list, is a
+// large answer to the question of which record to read, and the list it came
+// from is left intact for the document that reports it.
+func TestPreferredTableDropsTheColumnsFromTheHit(t *testing.T) {
+	tables := []HitTable{{
+		Table:   "scratch.uploads.stores",
+		Columns: []string{"store_id", "store_name", "units"},
+	}}
+
+	got := preferredTable(tables)
+	require.NotNil(t, got)
+	assert.Empty(t, got.Columns, "a hit is a pointer, not the record")
+	assert.Equal(t, []string{"store_id", "store_name", "units"}, tables[0].Columns,
+		"the list the document reports is untouched")
+}
+
 // TestDocumentOmitsTablesWhenNothingIsRegistered pins the wire shape: no
 // tables key at all, rather than an empty list to interpret.
 func TestDocumentOmitsTablesWhenNothingIsRegistered(t *testing.T) {

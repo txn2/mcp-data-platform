@@ -299,7 +299,7 @@ var manageTableSchema = json.RawMessage(`{
     "action": {
       "type": "string",
       "enum": ["register", "list", "unregister"],
-      "description": "What to do: register the file as a table, list the tables already registered over it, or unregister one."
+      "description": "What to do: register the file as a table, list the registrations already over it, or unregister one. list answers with table_registrations, one row per registration; the same registrations appear as tables on a search hit and a fetched document, projected for querying rather than for maintenance."
     },
     "reference": {
       "type": "string",
@@ -315,7 +315,7 @@ var manageTableSchema = json.RawMessage(`{
     },
     "registration_id": {
       "type": "string",
-      "description": "Registration to drop (required for unregister). Call action=list to see the tables registered over a file."
+      "description": "Registration to drop (required for unregister). Call action=list and read the registration_id off a row of table_registrations."
     },
     "follow": {
       "type": "boolean",

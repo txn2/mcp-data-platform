@@ -20222,8 +20222,8 @@
                     "type": "string",
                     "example": "ok"
                 },
-                "tables": {
-                    "description": "Tables is what a content write did to the tables registered over the\nasset's file (#1536), one sentence per table, absent when there are\nnone.",
+                "table_changes": {
+                    "description": "TableChanges is what a content write did to the tables registered over\nthe asset's file (#1536), one sentence per table, absent when there are\nnone. It is a change report rather than the `tables` a caller queries,\nand is named apart from them for that reason (#1666).",
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -25149,8 +25149,8 @@
                     "type": "string",
                     "example": "updated"
                 },
-                "tables": {
-                    "description": "Tables is what a content write did to the tables registered over the\nasset's file (#1536), one sentence per table, absent when there are\nnone.",
+                "table_changes": {
+                    "description": "TableChanges is what a content write did to the tables registered over\nthe asset's file (#1536), one sentence per table, absent when there are\nnone. It is a change report rather than the `tables` a caller queries,\nand is named apart from them for that reason (#1666).",
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -26252,8 +26252,8 @@
                     "type": "integer",
                     "example": 34000
                 },
-                "tables": {
-                    "description": "Tables is one sentence per registered table -- followed onto the new\nversion, or pinned and now behind it -- and absent when there are none.",
+                "table_changes": {
+                    "description": "TableChanges is one sentence per registered table -- followed onto the\nnew version, or pinned and now behind it -- and absent when there are\nnone. It reports what the revision did, which is why it is not named\n`tables`: those are the rows a caller queries (#1666).",
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -26790,8 +26790,8 @@
                 "row_count": {
                     "type": "integer"
                 },
-                "tables": {
-                    "description": "Tables is what this version did to the tables registered over the\noutput's file (#1536): one sentence per table, saying it followed onto\nthe version or is pinned and now behind it. Absent when none is\nregistered.",
+                "table_changes": {
+                    "description": "TableChanges is what this version did to the tables registered over the\noutput's file (#1536): one sentence per table, saying it followed onto\nthe version or is pinned and now behind it. Absent when none is\nregistered. It is a change report rather than the `tables` a fetched\nreference carries (#1666).",
                     "type": "array",
                     "items": {
                         "type": "string"

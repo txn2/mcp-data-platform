@@ -506,9 +506,9 @@ func refusedWriteMessage(decision toolwrite.Decision) string {
 
 // tableSentences reads the table report a file-writing tool's result carries:
 // manage_resource replace_content and manage_asset's content edits answer with
-// a "tables" list of sentences. Any other result has none.
+// a "table_changes" list of sentences (#1666). Any other result has none.
 func tableSentences(out map[string]any) []string {
-	raw, ok := out["tables"].([]any)
+	raw, ok := out["table_changes"].([]any)
 	if !ok {
 		return nil
 	}
@@ -740,8 +740,8 @@ func (h *hostState) finishRecord(
 	record.ResourceURI = written.ResourceURI
 	record.ResourceVersion = written.ResourceVersion
 	record.Bytes = written.Bytes
-	record.Tables = written.Tables
-	h.noteTables(record.Name, written.Tables)
+	record.TableChanges = written.TableChanges
+	h.noteTables(record.Name, written.TableChanges)
 	return record, nil
 }
 
@@ -749,9 +749,9 @@ func (h *hostState) finishRecord(
 // it wrote into the run log, one line per table (#1536). The run's log is its
 // history, and a scheduled run that put a table behind its file has to say so
 // there, whether or not the script prints the result it was handed.
-func (h *hostState) noteTables(subject string, tables []string) {
-	for _, line := range tables {
-		h.log.write("tables: " + subject + ": " + line)
+func (h *hostState) noteTables(subject string, changes []string) {
+	for _, line := range changes {
+		h.log.write("table_changes: " + subject + ": " + line)
 	}
 }
 
@@ -962,12 +962,12 @@ func exportValue(record ExportRecord) starlark.Value {
 		_ = out.SetKey(starlark.String("uri"), starlark.String(record.ResourceURI))
 		_ = out.SetKey(starlark.String("version"), starlark.MakeInt(record.ResourceVersion))
 	}
-	if len(record.Tables) > 0 {
-		tables := make([]starlark.Value, 0, len(record.Tables))
-		for _, line := range record.Tables {
-			tables = append(tables, starlark.String(line))
+	if len(record.TableChanges) > 0 {
+		changes := make([]starlark.Value, 0, len(record.TableChanges))
+		for _, line := range record.TableChanges {
+			changes = append(changes, starlark.String(line))
 		}
-		_ = out.SetKey(starlark.String("tables"), starlark.NewList(tables))
+		_ = out.SetKey(starlark.String("table_changes"), starlark.NewList(changes))
 	}
 	return out
 }

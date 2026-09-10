@@ -460,6 +460,12 @@ const manageTableToolDescription = "Makes a stored CSV file queryable as a table
 	"Registering the same name on the same connection replaces that registration, which is how a stale " +
 	"one is moved forward; a different name, or another connection, adds a second table over the same " +
 	"file rather than replacing anything. " +
+	"'list' answers with 'table_registrations': one row per registration over the file, carrying the " +
+	"registration_id 'unregister' takes, the query_table, its columns, the sample statement, and the " +
+	"follow, repair and follow_error state. Check for an existing registration there rather than " +
+	"registering blind, because registering the same name again replaces the row and changes its id. The " +
+	"same registrations appear as 'tables' on a search hit and a fetched document, projected for the " +
+	"caller who only wants to write the query. " +
 	"'unregister' drops the table and leaves the file untouched. " +
 	"Registering is the authority to change the file, not the authority to read it: an asset's owner or an " +
 	"administrator, a resource's uploader or an administrator of its scope. The scratch schema is shared, " +
@@ -1000,11 +1006,15 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageAssetInput) (*mc
 // file, ready to be added to a result: the version written and one sentence
 // per table. Nil when no table is registered over the file, so a result says
 // nothing about tables that do not exist.
-func tableFields(version int, tables []string) map[string]any {
-	if len(tables) == 0 {
+//
+// The key is `table_changes` rather than `tables` because these are sentences
+// about what the write did, not the rows a caller queries (#1666). A caller
+// that wants the tables themselves fetches the reference.
+func tableFields(version int, changes []string) map[string]any {
+	if len(changes) == 0 {
 		return nil
 	}
-	return map[string]any{fieldVersion: version, "tables": tables}
+	return map[string]any{fieldVersion: version, fieldTableChanges: changes}
 }
 
 // addTableFields puts a content write's table report on a result, and
@@ -1015,9 +1025,9 @@ func addTableFields(result, fields map[string]any) {
 		return
 	}
 	maps.Copy(result, fields)
-	if tables, ok := fields["tables"].([]string); ok {
+	if changes, ok := fields[fieldTableChanges].([]string); ok {
 		if msg, ok := result[fieldMessage].(string); ok {
-			result[fieldMessage] = msg + " " + strings.Join(tables, " ")
+			result[fieldMessage] = msg + " " + strings.Join(changes, " ")
 		}
 	}
 }

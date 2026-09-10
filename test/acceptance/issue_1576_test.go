@@ -317,7 +317,7 @@ func TestIssue1576_ATableOverAMovedFileFollowsTheVersionsTheScriptWrites(t *test
 	}
 
 	listing := owner.call("manage_table", map[string]any{"action": "list", "reference": reference})
-	rows, _ := listing["registrations"].([]any)
+	rows, _ := listing["table_registrations"].([]any)
 	var followError string
 	var found bool
 	for _, entry := range rows {

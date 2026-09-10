@@ -34,7 +34,7 @@ func (e *landingExporter) Export(_ context.Context, req ExportRequest) (*ExportR
 		ResourceURI:     "mcp://user/jane@example.com/" + req.Key,
 		ResourceVersion: version,
 		Bytes:           64,
-		Tables:          []string{"scratch.orders followed onto version 1."},
+		TableChanges:    []string{"scratch.orders followed onto version 1."},
 	}, nil
 }
 
@@ -78,7 +78,7 @@ print(out["reference"], out["uri"], out["version"])
 	assert.Contains(t, result.Log, "mcp:resource:res-1 mcp://user/jane@example.com/datasets/orders.csv 1")
 	// What the write did to the tables over the file is in the run's own log,
 	// whether or not the script printed it (#1536).
-	assert.Contains(t, result.Log, "tables: orders: scratch.orders followed onto version 1.")
+	assert.Contains(t, result.Log, "table_changes: orders: scratch.orders followed onto version 1.")
 }
 
 // The key is the file's identity across runs, so a library output without one has

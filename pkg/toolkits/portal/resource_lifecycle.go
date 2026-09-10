@@ -146,11 +146,13 @@ type resourceDeleteOutput struct {
 	// what the refusal is about, and on a forced delete, which is what the
 	// caller chose to break.
 	Holds *ResourceHolds `json:"holds,omitempty"`
-	// Tables names the query-engine tables registered over the file. They are
-	// named where the other holders are counted because the caller already
-	// reaches them by name through manage_table.
-	Tables  []string `json:"tables,omitempty"`
-	Message string   `json:"message"`
+	// TableRegistrations are the query-engine tables registered over the file,
+	// in the shape and under the key manage_table action=list reports (#1666).
+	// They are named where the other holders are counted because the caller
+	// already reaches them through manage_table, and a caller deciding whether
+	// to force the delete is deciding about those registrations.
+	TableRegistrations []TableRegistration `json:"table_registrations,omitempty"`
+	Message            string              `json:"message"`
 }
 
 // handleGetResource answers what is filed at an address, or at a reference.
@@ -271,7 +273,7 @@ func (t *Toolkit) handleDeleteResource(
 		// What the caller chose to break, gathered before the file goes: after
 		// the delete the counts are the same rows and there is nothing left to
 		// name them against.
-		out.Holds, out.Tables = t.resourceHoldings(ctx, res.ID, reference)
+		out.Holds, out.TableRegistrations = t.resourceHoldings(ctx, res.ID, reference)
 	}
 	if _, err := t.resourceWriter.Delete(ctx, res.ID, claims); err != nil {
 		return toolkit.ErrorResult(err.Error()), nil, nil
@@ -301,23 +303,24 @@ func (t *Toolkit) refuseDelete(
 		return out, false, fmt.Errorf("could not establish what depends on this file, so it was not deleted. "+
 			"Try again, or pass force=true to delete without the check: %w", err)
 	}
-	tables := t.resourceTables(ctx, reference)
-	if !holds.Any() && len(tables) == 0 {
+	regs := t.resourceTables(ctx, reference)
+	if !holds.Any() && len(regs) == 0 {
 		return out, false, nil
 	}
 
+	names := queryTableNames(regs)
 	reasons := holds.Describe()
-	switch len(tables) {
+	switch len(names) {
 	case 0:
 	case 1:
-		reasons = append(reasons, "the table "+tables[0]+" is registered over it")
+		reasons = append(reasons, "the table "+names[0]+" is registered over it")
 	default:
 		reasons = append(reasons, fmt.Sprintf("%d tables are registered over it: %s",
-			len(tables), strings.Join(tables, listSeparator)))
+			len(names), strings.Join(names, listSeparator)))
 	}
 	out = resourceDeleteOutput{
 		ResourceID: res.ID, URI: res.URI, Filename: res.Filename,
-		Holds: &holds, Tables: tables,
+		Holds: &holds, TableRegistrations: regs,
 		Message: fmt.Sprintf("Not deleted: %s. Deleting it leaves each of those pointing at a file that is "+
 			"not there. Open %s in the portal to see exactly what depends on it, or call this again with "+
 			"force=true to delete it and break them.", strings.Join(reasons, listSeparator), reference),
@@ -336,7 +339,7 @@ const listSeparator = ", "
 // decided, so a count that could not be gathered must not stop them.
 func (t *Toolkit) resourceHoldings(
 	ctx context.Context, resourceID, reference string,
-) (holds *ResourceHolds, tables []string) {
+) (holds *ResourceHolds, regs []TableRegistration) {
 	if t.resourceHolds != nil {
 		if h, err := t.resourceHolds.ResourceHolds(ctx, resourceID); err == nil && h.Any() {
 			holds = &h
@@ -345,9 +348,9 @@ func (t *Toolkit) resourceHoldings(
 	return holds, t.resourceTables(ctx, reference)
 }
 
-// resourceTables names the query-engine tables registered over the file. A
+// resourceTables reads the query-engine tables registered over the file. A
 // deployment that cannot register tables has none.
-func (t *Toolkit) resourceTables(ctx context.Context, reference string) []string {
+func (t *Toolkit) resourceTables(ctx context.Context, reference string) []TableRegistration {
 	if t.tables == nil {
 		return nil
 	}
@@ -355,6 +358,12 @@ func (t *Toolkit) resourceTables(ctx context.Context, reference string) []string
 	if err != nil {
 		return nil
 	}
+	return regs
+}
+
+// queryTableNames is the registrations as a sentence lists them: the qualified
+// name a query writes, in the order they were reported.
+func queryTableNames(regs []TableRegistration) []string {
 	names := make([]string, 0, len(regs))
 	for _, reg := range regs {
 		names = append(names, reg.QueryTable)
@@ -426,13 +435,14 @@ func deleteMessage(out resourceDeleteOutput) string {
 	}
 	// "unregistered" rather than "dropped": taking the table down is
 	// best-effort by contract, and the registration is what definitively goes.
-	switch len(out.Tables) {
+	names := queryTableNames(out.TableRegistrations)
+	switch len(names) {
 	case 0:
 	case 1:
-		msg += " The table registered over it was unregistered with it: " + out.Tables[0] + "."
+		msg += " The table registered over it was unregistered with it: " + names[0] + "."
 	default:
 		msg += fmt.Sprintf(" The %d tables registered over it were unregistered with it: %s.",
-			len(out.Tables), strings.Join(out.Tables, listSeparator))
+			len(names), strings.Join(names, listSeparator))
 	}
 	return msg
 }

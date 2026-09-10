@@ -192,7 +192,7 @@ func landedResource(t *testing.T, res *mcp.CallToolResult) struct {
 	ContentType string   `json:"content_type"`
 	Version     int      `json:"version"`
 	Created     bool     `json:"created"`
-	Tables      []string `json:"tables"`
+	Tables      []string `json:"table_changes"`
 } {
 	t.Helper()
 	require.False(t, res.IsError, "api_export refused the call: %s", resultText(t, res))
@@ -204,7 +204,7 @@ func landedResource(t *testing.T, res *mcp.CallToolResult) struct {
 			ContentType string   `json:"content_type"`
 			Version     int      `json:"version"`
 			Created     bool     `json:"created"`
-			Tables      []string `json:"tables"`
+			Tables      []string `json:"table_changes"`
 		} `json:"resource"`
 		AssetID string `json:"asset_id"`
 	}

@@ -279,7 +279,7 @@ func TestListTables(t *testing.T) {
 	require.False(t, res.IsError, resultText(t, res))
 	body := decodeResult(t, res)
 	assert.Equal(t, float64(0), body["total"])
-	assert.NotNil(t, body["registrations"])
+	assert.NotNil(t, body["table_registrations"])
 
 	require.False(t, callTable(ownerCtx(), t, tk, manageTableInput{
 		Action: tableActionRegister, Reference: assetReference, Connection: "scratch",
@@ -289,7 +289,21 @@ func TestListTables(t *testing.T) {
 		Action: tableActionList, Reference: assetReference,
 	})
 	require.False(t, res.IsError, resultText(t, res))
-	assert.Equal(t, float64(1), decodeResult(t, res)["total"])
+	listed := decodeResult(t, res)
+	assert.Equal(t, float64(1), listed["total"])
+
+	// The maintenance view answers under one name (#1666). `tables` is the
+	// query view a fetched document carries, and the listing must not wear it
+	// -- reading `tables` off this result is what returned an empty list every
+	// run and re-registered a table that already existed.
+	assert.NotContains(t, listed, "tables")
+	assert.NotContains(t, listed, "registrations")
+	rows, ok := listed["table_registrations"].([]any)
+	require.True(t, ok, "the listing answers under table_registrations")
+	require.Len(t, rows, 1)
+	row, ok := rows[0].(map[string]any)
+	require.True(t, ok)
+	assert.NotEmpty(t, row["registration_id"], "the row carries the id unregister takes")
 }
 
 // TestTableActions_CarryTheRegistrarsRefusal: the platform's refusals name

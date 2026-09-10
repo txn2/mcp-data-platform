@@ -140,7 +140,7 @@ func replace1577(t *testing.T, c *client, reference string, args map[string]any)
 		call[k] = v
 	}
 	replaced := c.call("manage_resource", call)
-	lines, _ := replaced["tables"].([]any)
+	lines, _ := replaced["table_changes"].([]any)
 	var said []string
 	for _, line := range lines {
 		text, _ := line.(string)
@@ -273,7 +273,7 @@ func TestIssue1577_ARegistrationWithoutTheChoiceIsLeftBehind(t *testing.T) {
 func followError1577(t *testing.T, c *client, reference, registrationID string) string {
 	t.Helper()
 	listing := c.call("manage_table", map[string]any{"action": "list", "reference": reference})
-	rows, _ := listing["registrations"].([]any)
+	rows, _ := listing["table_registrations"].([]any)
 	for _, entry := range rows {
 		reg, _ := entry.(map[string]any)
 		if reg["registration_id"] == registrationID {
@@ -380,7 +380,7 @@ func TestIssue1577_TheChoiceIsReportedAndIsTheOneCurrentlyRegistered(t *testing.
 	// The tool's listing, which is what an agent reads.
 	listed := map[string]bool{}
 	listing := c.call("manage_table", map[string]any{"action": "list", "reference": reference})
-	rows, _ := listing["registrations"].([]any)
+	rows, _ := listing["table_registrations"].([]any)
 	for _, entry := range rows {
 		reg, _ := entry.(map[string]any)
 		name, _ := reg["query_table"].(string)
@@ -397,7 +397,7 @@ func TestIssue1577_TheChoiceIsReportedAndIsTheOneCurrentlyRegistered(t *testing.
 	if status != 200 {
 		t.Fatalf("reading the file's tables: status %d, %v", status, body)
 	}
-	panel, _ := body["registrations"].([]any)
+	panel, _ := body["table_registrations"].([]any)
 	var sawCorrecting bool
 	for _, entry := range panel {
 		reg, _ := entry.(map[string]any)

@@ -259,7 +259,7 @@ func TestResourceRevision_MovesAFollowingTableBeforeTheRouteAnswers(t *testing.T
 	assert.Equal(t, "res_1", body["id"], "the response is still the resource")
 	assert.Equal(t, []any{
 		"scratch.uploads.analyst_stores on scratch now reads version 2. Its columns changed with the file.",
-	}, body["tables"])
+	}, body["table_changes"])
 
 	// The revision's directory is the one the route wrote the object into.
 	require.Contains(t, h.res.S3Key, "/res_1/v/")
@@ -287,7 +287,7 @@ func TestResourceRevision_LeavesAPinnedTableAndSaysSo(t *testing.T) {
 
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	tables, _ := body["tables"].([]any)
+	tables, _ := body["table_changes"].([]any)
 	require.Len(t, tables, 1)
 	assert.Contains(t, tables[0], "scratch.uploads.analyst_stores on scratch is pinned")
 	assert.Contains(t, tables[0], "with follow left on")
@@ -312,7 +312,7 @@ func TestResourceRevision_AFailedFollowNeverFailsTheWrite(t *testing.T) {
 
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	tables, _ := body["tables"].([]any)
+	tables, _ := body["table_changes"].([]any)
 	require.Len(t, tables, 1)
 	assert.Contains(t, tables[0], "could not be moved to version 2")
 	assert.Contains(t, tables[0], "coordinator down")

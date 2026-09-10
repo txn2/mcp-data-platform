@@ -852,6 +852,15 @@ func TestLookup_TablesFor(t *testing.T) {
 	assert.True(t, got.Follow, "a registration follows its file unless the caller pins it")
 	assert.False(t, got.Repair)
 	assert.Empty(t, got.FollowError)
+
+	// The columns come along so a caller that fetched the record writes the
+	// SELECT without describing the table first (#1666).
+	names := make([]string, 0, len(reg.Columns))
+	for _, c := range reg.Columns {
+		names = append(names, c.Name)
+	}
+	assert.Equal(t, names, got.Columns)
+	assert.NotEmpty(t, got.Columns, "the registration declares columns, so the lookup reports them")
 }
 
 // TestLookup_TablesForReportsEveryRegistration is #1627: a file registered

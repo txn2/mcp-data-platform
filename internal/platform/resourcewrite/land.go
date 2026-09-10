@@ -298,20 +298,20 @@ func (l *Lander) address(dest toolkit.ResourceDestination, claims resource.Claim
 }
 
 // landingOf renders a written resource as the result every export tool reports.
-func landingOf(res *resource.Resource, version int, created bool, tables []string) *toolkit.ResourceLanding {
+func landingOf(res *resource.Resource, version int, created bool, changes []string) *toolkit.ResourceLanding {
 	out := &toolkit.ResourceLanding{
-		ResourceID:  res.ID,
-		Reference:   knowledgepage.EntityRef{TargetType: knowledgepage.RefTargetResource, ResourceID: res.ID}.URN(),
-		URI:         res.URI,
-		Filename:    res.Filename,
-		Scope:       string(res.Scope),
-		ScopeID:     res.ScopeID,
-		Path:        res.Path,
-		ContentType: res.MIMEType,
-		SizeBytes:   res.SizeBytes,
-		Version:     version,
-		Created:     created,
-		Tables:      tables,
+		ResourceID:   res.ID,
+		Reference:    knowledgepage.EntityRef{TargetType: knowledgepage.RefTargetResource, ResourceID: res.ID}.URN(),
+		URI:          res.URI,
+		Filename:     res.Filename,
+		Scope:        string(res.Scope),
+		ScopeID:      res.ScopeID,
+		Path:         res.Path,
+		ContentType:  res.MIMEType,
+		SizeBytes:    res.SizeBytes,
+		Version:      version,
+		Created:      created,
+		TableChanges: changes,
 	}
 	out.Message = landingMessage(out)
 	return out
@@ -331,7 +331,7 @@ func landingMessage(out *toolkit.ResourceLanding) string {
 			"reference and the uri above do not change, so an asset referencing it and a table registered "+
 			"over it follow the new content.", out.URI, out.SizeBytes)
 	}
-	return strings.Join(append([]string{message}, out.Tables...), " ")
+	return strings.Join(append([]string{message}, out.TableChanges...), " ")
 }
 
 // normalizedTags substitutes an empty list for an absent one, which is what the

@@ -402,8 +402,8 @@ func (h *Handler) updateAdminAssetContent(w http.ResponseWriter, r *http.Request
 	}
 
 	writeJSON(w, http.StatusOK, statusResponse{
-		Status: statusUpdated,
-		Tables: h.followTables(r.Context(), id, version),
+		Status:       statusUpdated,
+		TableChanges: h.followTables(r.Context(), id, version),
 	})
 }
 
@@ -757,9 +757,9 @@ func (h *Handler) revertAdminVersion(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"status":  statusReverted,
-		"version": assignedVersion,
-		"tables":  h.followTables(r.Context(), id, assignedVersion),
+		"status":        statusReverted,
+		"version":       assignedVersion,
+		"table_changes": h.followTables(r.Context(), id, assignedVersion),
 	})
 }
 

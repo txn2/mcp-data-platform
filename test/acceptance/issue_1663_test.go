@@ -260,7 +260,7 @@ func TestIssue1663_ALandedCSVIsQueryableAndTheTableFollowsIt(t *testing.T) {
 	if v := number(t, second, "version"); v != 2 {
 		t.Fatalf("version = %v; want the second export recorded as version 2: %v", v, second)
 	}
-	tables, _ := second["tables"].([]any)
+	tables, _ := second["table_changes"].([]any)
 	var followed bool
 	for _, line := range tables {
 		if text, _ := line.(string); strings.Contains(text, table) {

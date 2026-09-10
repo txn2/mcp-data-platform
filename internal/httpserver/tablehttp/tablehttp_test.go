@@ -427,7 +427,7 @@ func TestListRoute_ReportsWhatIsRegistered(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 
 	var body struct {
-		Registrations []registrationView `json:"registrations"`
+		Registrations []registrationView `json:"table_registrations"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	require.Len(t, body.Registrations, 1)
@@ -440,7 +440,7 @@ func TestListRoute_EmptyIsAnArray(t *testing.T) {
 	h := newHarness(t)
 	w := h.do(http.MethodGet, "/api/v1/portal/assets/asset_1/tables", "")
 	require.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Body.String(), `"registrations":[]`)
+	assert.Contains(t, w.Body.String(), `"table_registrations":[]`)
 }
 
 func TestUnregisterRoute_DropsTheTable(t *testing.T) {

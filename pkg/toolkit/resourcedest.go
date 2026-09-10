@@ -115,11 +115,13 @@ type ResourceLanding struct {
 	// mean different things to the caller: a create is a new address to wire
 	// something up to, a replacement is an address that already has readers.
 	Created bool `json:"created"`
-	// Tables is one sentence per table registered over the file, saying it
-	// followed onto the new version or is pinned and now behind it (#1536).
-	// Absent when no table is registered over the file.
-	Tables  []string `json:"tables,omitempty"`
-	Message string   `json:"message"`
+	// TableChanges is one sentence per table registered over the file, saying
+	// it followed onto the new version or is pinned and now behind it (#1536).
+	// Absent when no table is registered over the file. It reports what this
+	// write did, so it is named apart from the `tables` a fetched reference
+	// carries, which are the rows a caller queries (#1666).
+	TableChanges []string `json:"table_changes,omitempty"`
+	Message      string   `json:"message"`
 }
 
 // ResourceLander writes an export's bytes into a managed resource at a path,

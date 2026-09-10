@@ -1171,14 +1171,14 @@ The file is named by its `reference`, the string a `search` hit and a `fetch` do
 | `table_name` | string | No | filename slug | Name for the registered table; persona-prefixed either way |
 | `follow` | boolean | No | `true` | Whether the table follows the file: each revision or version written over it moves the table onto the new contents. `false` pins the table to the version it is registered over |
 | `repair` | boolean | No | `false` | Save a corrected version of a file that cannot be read as a table the way it is stored, and register that. The choice is kept on the registration: a following table corrects each later version carrying the same kind of defect and moves onto the corrected version |
-| `registration_id` | string | Conditional | - | Registration to drop (required for `unregister`) |
+| `registration_id` | string | Conditional | - | Registration to drop (required for `unregister`), read off a row of `table_registrations` |
 
 **Actions:**
 
 | Action | Description | Required Params |
 |--------|-------------|-----------------|
 | `register` | Create an external table over the file. Every column is `VARCHAR`, so the response carries a sample join showing the `CAST` | `reference`, `connection` |
-| `list` | The tables registered over this file, each with its columns, whether it follows the file (`follow`), whether the file has moved on since (`stale`), and why a following table is behind (`follow_error`) | `reference` |
+| `list` | The registrations over this file, under `table_registrations`: each with its `registration_id`, columns, whether it follows the file (`follow`), whether the file has moved on since (`stale`), and why a following table is behind (`follow_error`). Check here before registering: registering the same name again replaces the row and changes its id | `reference` |
 | `unregister` | Drop one registered table. The file itself is unchanged | `registration_id` |
 
 **Response Schema (register):**
@@ -1197,6 +1197,30 @@ The file is named by its `reference`, the string a `search` hit and a `fetch` do
   "message": "Registered as scratch.uploads.analyst_vendor_keys on connection scratch. Every column is VARCHAR, so a join to a typed column needs a CAST. The table follows the file: each revision or version written moves it onto the new contents. Register with follow=false for a table pinned to this version."
 }
 ```
+
+**Response Schema (list):**
+
+```json
+{
+  "reference": "mcp:resource:res_01HK7R9F",
+  "table_registrations": [
+    {
+      "registration_id": "reg_9f2c1d4b8a3e5602",
+      "connection": "scratch",
+      "query_table": "scratch.uploads.analyst_vendor_keys",
+      "columns": ["store_id", "vendor_code", "rebate_pct"],
+      "sample_sql": "SELECT ... CAST(u.store_id AS integer) ...",
+      "registered_by": "analyst@example.com",
+      "stale": false,
+      "follow": true,
+      "repair": false
+    }
+  ],
+  "total": 1
+}
+```
+
+The same registrations reach a `search` hit and a `fetch` document under `tables`, projected for the caller who only wants to write the query rather than change a registration. `table_changes`, which a content write reports, is neither: it is one sentence per table saying what that write did to it. See [Registered Tables](../server/registered-tables.md#two-views-and-the-three-words-for-them).
 
 **Error Codes:**
 
@@ -1274,9 +1298,9 @@ A `create` declares what the bytes are in `content_type`; a create that does not
 }
 ```
 
-`get` returns `found`, the `uri` it looked up (reported whether or not anything is filed there), and a `resource` record carrying everything a `fetch` of the reference would except the bytes. `list` returns `path`, `resources` as that same record shape, `total` and `offset`. `delete` returns `deleted`, and on a refusal the `holds` counts and the `tables` that stopped it.
+`get` returns `found`, the `uri` it looked up (reported whether or not anything is filed there), and a `resource` record carrying everything a `fetch` of the reference would except the bytes. `list` returns `path`, `resources` as that same record shape, `total` and `offset`. `delete` returns `deleted`, and on a refusal the `holds` counts and the `table_registrations` that stopped it, in the shape `manage_table action=list` reports.
 
-`replace_content` returns the same shape plus `version`, the number the content was recorded as, and `tables` when a table is registered over the file: one sentence per table, saying it followed onto the new version (`scratch.uploads.analyst_stores on scratch now reads version 7.`) or is pinned and now behind it, with the same sentences appended to `message`. A create reports no version: it records version 1 only where the deployment keeps a version trail, and a number the history may not hold is worse than none. See [Following the file](../server/registered-tables.md#following-the-file).
+`replace_content` returns the same shape plus `version`, the number the content was recorded as, and `table_changes` when a table is registered over the file: one sentence per table, saying it followed onto the new version (`scratch.uploads.analyst_stores on scratch now reads version 7.`) or is pinned and now behind it, with the same sentences appended to `message`. A create reports no version: it records version 1 only where the deployment keeps a version trail, and a number the history may not hold is worse than none. See [Following the file](../server/registered-tables.md#following-the-file).
 
 **Error Codes:**
 
@@ -1302,4 +1326,4 @@ A `create` declares what the bytes are in `content_type`; a create that does not
 
 Creating is scope authority — your own user scope, a persona you administer, or the global scope as a platform administrator — and a refusal names the scope rather than the file, because where it was filed is what the caller has to change. Replacing and deleting are the authority to change that file: its uploader, or an administrator of its scope. Deleting is not a stronger authority than overwriting, because a replacement already leaves nothing of the previous content beyond the version trail a delete takes with it.
 
-A delete is refused while an asset references the file, a prompt attaches it, or a query-engine table is registered over it. Neither of the first two is a foreign key — deleting the file deliberately leaves the row behind so the thing that depended on it reports the material as missing — so nothing in the database stops the delete and the tool does. A knowledge page is not among them: the platform refuses an `mcp:resource:` citation on a shared page, because a resource is visibility-scoped, so no page can point at one. The refusal counts each kind rather than naming them, because each of those records carries an audience the caller is not necessarily in; the portal's Used-by panel on the file resolves those audiences. A table is named, because `manage_table` already names it to the same caller. `force: true` deletes anyway and drops any table over the file. A resource you cannot see is answered as absent, whether it is missing, deleted, or somebody else's. A managed-script run is judged as the person it acts for: it authenticates as a principal that owns no file, so a create with no scope named files into its version author's library and a replacement reaches what that person uploaded ([Script security](../scripts/security.md#who-a-run-acts-for)). See [Asset References](../server/asset-references.md).
+A delete is refused while an asset references the file, a prompt attaches it, or a query-engine table is registered over it. Neither of the first two is a foreign key — deleting the file deliberately leaves the row behind so the thing that depended on it reports the material as missing — so nothing in the database stops the delete and the tool does. A knowledge page is not among them: the platform refuses an `mcp:resource:` citation on a shared page, because a resource is visibility-scoped, so no page can point at one. The refusal counts each kind rather than naming them, because each of those records carries an audience the caller is not necessarily in; the portal's Used-by panel on the file resolves those audiences. The tables are reported as `table_registrations`, the rows `manage_table action=list` answers with, because `manage_table` already names them to the same caller. `force: true` deletes anyway and drops any table over the file. A resource you cannot see is answered as absent, whether it is missing, deleted, or somebody else's. A managed-script run is judged as the person it acts for: it authenticates as a principal that owns no file, so a create with no scope named files into its version author's library and a replacement reaches what that person uploaded ([Script security](../scripts/security.md#who-a-run-acts-for)). See [Asset References](../server/asset-references.md).

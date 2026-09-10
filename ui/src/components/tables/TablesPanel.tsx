@@ -139,7 +139,7 @@ function usePanelData(
   const registrationQuery = useTableRegistrations(kind, eligible ? id : undefined);
 
   const connections = connectionQuery.data?.connections ?? [];
-  const registrations = registrationQuery.data?.registrations ?? [];
+  const registrations = registrationQuery.data?.table_registrations ?? [];
   return {
     visible: eligible && (connections.length > 0 || registrations.length > 0),
     connections,

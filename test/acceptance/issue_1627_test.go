@@ -207,7 +207,7 @@ func fetchTables1627(t *testing.T, c *client, reference string) []map[string]any
 func listTables1627(t *testing.T, c *client, reference string) []map[string]any {
 	t.Helper()
 	out := c.call("manage_table", map[string]any{"action": "list", "reference": reference})
-	raw, _ := out["registrations"].([]any)
+	raw, _ := out["table_registrations"].([]any)
 	return objects1627(t, raw)
 }
 

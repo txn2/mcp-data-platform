@@ -25,7 +25,7 @@ func (e *followingExporter) Export(ctx context.Context, req ExportRequest) (*Exp
 	if err != nil {
 		return nil, err
 	}
-	res.Tables = e.tables
+	res.TableChanges = e.tables
 	return res, nil
 }
 
@@ -34,7 +34,7 @@ func (e *followingExporter) PublishData(ctx context.Context, req PublishRequest)
 	if err != nil {
 		return nil, err
 	}
-	res.Tables = e.tables
+	res.TableChanges = e.tables
 	return res, nil
 }
 
@@ -42,19 +42,19 @@ func TestRun_ExportCarriesTheTableReportToTheScriptAndTheLog(t *testing.T) {
 	exporter := &followingExporter{tables: []string{"scratch.uploads.t on scratch now reads version 1."}}
 	result, err := exporterRun(t, `
 out = platform.export(name="daily", rows=[{"a": 1}], format="json")
-print(out["tables"][0])
+print(out["table_changes"][0])
 res = platform.publish_data("dash", {"k": 1})
-print(len(res["tables"]))
+print(len(res["table_changes"]))
 `, exporter)
 	require.NoError(t, err)
 
 	require.Len(t, result.Exports, 2)
-	assert.Equal(t, []string{"scratch.uploads.t on scratch now reads version 1."}, result.Exports[0].Tables)
-	assert.Equal(t, []string{"scratch.uploads.t on scratch now reads version 1."}, result.Exports[1].Tables)
+	assert.Equal(t, []string{"scratch.uploads.t on scratch now reads version 1."}, result.Exports[0].TableChanges)
+	assert.Equal(t, []string{"scratch.uploads.t on scratch now reads version 1."}, result.Exports[1].TableChanges)
 	assert.Equal(t,
-		"tables: daily: scratch.uploads.t on scratch now reads version 1.\n"+
+		"table_changes: daily: scratch.uploads.t on scratch now reads version 1.\n"+
 			"scratch.uploads.t on scratch now reads version 1.\n"+
-			"tables: dash: scratch.uploads.t on scratch now reads version 1.\n"+
+			"table_changes: dash: scratch.uploads.t on scratch now reads version 1.\n"+
 			"1\n",
 		result.Log, "the host writes the report into the log before the script's own line")
 }
@@ -62,11 +62,11 @@ print(len(res["tables"]))
 func TestRun_ExportWithNoTablesSaysNothing(t *testing.T) {
 	result, err := exporterRun(t, `
 out = platform.export(name="daily", rows=[{"a": 1}], format="json")
-print("tables" in out)
+print("table_changes" in out)
 `, &recordingExporter{})
 	require.NoError(t, err)
 	assert.Equal(t, "False\n", result.Log)
-	assert.Nil(t, result.Exports[0].Tables)
+	assert.Nil(t, result.Exports[0].TableChanges)
 }
 
 // tablesCaller answers a tool call the way manage_resource replace_content
@@ -81,7 +81,7 @@ func (c *tablesCaller) CallTool(ctx context.Context, name string, args map[strin
 	if err != nil {
 		return nil, err
 	}
-	out["tables"] = c.tables
+	out["table_changes"] = c.tables
 	out["message"] = "Content replaced and recorded as version 7."
 	return out, nil
 }
@@ -99,8 +99,8 @@ print(res["message"])
 	require.NoError(t, err)
 
 	assert.Equal(t,
-		"tables: manage_resource: scratch.uploads.t on scratch now reads version 7.\n"+
-			"tables: manage_resource: scratch.uploads.s on scratch is pinned to the version it was registered"+
+		"table_changes: manage_resource: scratch.uploads.t on scratch now reads version 7.\n"+
+			"table_changes: manage_resource: scratch.uploads.s on scratch is pinned to the version it was registered"+
 			" over and is now behind this file.\n"+
 			"Content replaced and recorded as version 7.\n",
 		result.Log)
@@ -108,6 +108,6 @@ print(res["message"])
 
 func TestTableSentences(t *testing.T) {
 	assert.Nil(t, tableSentences(map[string]any{}))
-	assert.Nil(t, tableSentences(map[string]any{"tables": "not a list"}))
-	assert.Equal(t, []string{"a", "b"}, tableSentences(map[string]any{"tables": []any{"a", 1, "b"}}))
+	assert.Nil(t, tableSentences(map[string]any{"table_changes": "not a list"}))
+	assert.Equal(t, []string{"a", "b"}, tableSentences(map[string]any{"table_changes": []any{"a", 1, "b"}}))
 }

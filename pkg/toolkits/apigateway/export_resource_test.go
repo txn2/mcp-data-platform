@@ -59,7 +59,7 @@ func (f *fakeLander) LandResource(
 		URI: "mcp://user/u1/" + address, Filename: dest.Filename, Path: dest.Path,
 		Scope: "user", ScopeID: "u1", ContentType: contentType,
 		SizeBytes: int64(len(body)), Version: version, Created: version == 1,
-		Tables: f.tables, Message: "Landed.",
+		TableChanges: f.tables, Message: "Landed.",
 	}, nil
 }
 
@@ -386,7 +386,7 @@ func TestExportingTwiceToOnePathVersionsOneFile(t *testing.T) {
 	if second.Resource.Version != 2 || second.Resource.Created {
 		t.Errorf("the second export = version %d created %v", second.Resource.Version, second.Resource.Created)
 	}
-	if len(second.Resource.Tables) != 1 {
-		t.Errorf("the tables over the file were not reported: %v", second.Resource.Tables)
+	if len(second.Resource.TableChanges) != 1 {
+		t.Errorf("the tables over the file were not reported: %v", second.Resource.TableChanges)
 	}
 }

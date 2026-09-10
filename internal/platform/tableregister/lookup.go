@@ -79,12 +79,18 @@ func indexSubjects(
 
 // hitTable renders one registration as the reference a hit or a document
 // carries, with the four state fields manage_table action=list reports so the
-// surfaces cannot disagree (#1627).
+// surfaces cannot disagree (#1627), and the column names a caller needs to
+// write the query without a second call (#1666).
 func hitTable(reg Registration, subject knowledge.TableSubject) knowledge.HitTable {
+	names := make([]string, 0, len(reg.Columns))
+	for _, c := range reg.Columns {
+		names = append(names, c.Name)
+	}
 	return knowledge.HitTable{
 		RegistrationID: reg.ID,
 		Connection:     reg.Connection,
 		Table:          reg.QualifiedName(),
+		Columns:        names,
 		Sample:         SampleJoinSQL(reg),
 		Stale:          reg.IsStale(subject.Bucket, subject.HeadKey),
 		Follow:         reg.Follow,
