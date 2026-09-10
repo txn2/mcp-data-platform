@@ -176,10 +176,14 @@ type ExportUserContext struct {
 // import cycles. Mirrors trinokit.ExportDeps so the platform-side
 // wiring can stay symmetric.
 type ExportDeps struct {
-	AssetStore     ExportAssetStore
-	VersionStore   ExportVersionStore
-	S3Client       ExportS3Client
-	ShareCreator   ExportShareCreator
+	AssetStore   ExportAssetStore
+	VersionStore ExportVersionStore
+	S3Client     ExportS3Client
+	ShareCreator ExportShareCreator
+	// ResourceLander lands a response in a managed resource by path instead of
+	// in a new asset (#1663). nil leaves the asset destination the only one,
+	// which is what a deployment with no managed-resource library has.
+	ResourceLander toolkit.ResourceLander
 	S3Bucket       string
 	S3Prefix       string
 	BaseURL        string
@@ -221,18 +225,26 @@ type exportInput struct {
 	// Paginate, when set, makes the export a page walk (issue #1535): the
 	// merged array is streamed into the one asset as pages arrive.
 	Paginate *PaginateInput `json:"paginate,omitempty"`
+	// Resource, when set, lands the response in the managed resource at that
+	// path instead of in a new portal asset (#1663).
+	Resource *toolkit.ResourceDestination `json:"resource,omitempty"`
 }
 
 // exportOutput is the response returned to the model. Mirrors
 // trino_export's output: asset metadata, no body bytes.
 type exportOutput struct {
-	AssetID     string `json:"asset_id"`
+	AssetID     string `json:"asset_id,omitempty"`
 	PortalURL   string `json:"portal_url,omitempty"`
 	ShareURL    string `json:"share_url,omitempty"`
 	ContentType string `json:"content_type,omitempty"`
 	Status      int    `json:"upstream_status"`
 	SizeBytes   int64  `json:"size_bytes"`
-	Message     string `json:"message"`
+	// Resource is where a resource destination landed the response (#1663):
+	// the reference and uri to hand to the next call, the version written, and
+	// what the write did to the tables registered over the file. Set instead of
+	// asset_id, never beside it.
+	Resource *toolkit.ResourceLanding `json:"resource,omitempty"`
+	Message  string                   `json:"message"`
 	// WalkStats is set on a page walk; nil on a single-page export.
 	*WalkStats
 }
@@ -254,7 +266,8 @@ func (t *Toolkit) registerExportTool(s *mcp.Server) {
 			"Use this when api_invoke_endpoint reports body_truncated, when you expect a response too large to be useful through the model, or when you want to hand off the data to trino_query / s3_object / a portal share. " +
 			"Address the operation either by operation_id (with any path template values in path_params) or by method+path directly, exactly like api_invoke_endpoint; supply one form, not both. " +
 			"Pass `paginate` to walk every page of a paginated collection in this one call: the merged array is streamed into the asset as pages arrive, and the result reports pages_fetched, items_merged, and stopped_by. " +
-			"Returns asset metadata (id, URL, size, content type) — the data is NOT returned through this response. " +
+			"Pass `resource` to land the response in a MANAGED RESOURCE at a path instead of a new asset: the same path next time is the NEXT VERSION of that one file, keeping its id, its mcp:// URI, the assets that reference it and the tables registered over it. That is the destination for a recurring pull of one source. " +
+			"Returns asset metadata (id, URL, size, content type), or the resource's reference, uri and version — the data is NOT returned through this response. " +
 			"NAMING: keep `name` short and portable, ASCII letters / digits / spaces / hyphens / dots only. " +
 			"The name doubles as the download filename.",
 		InputSchema: apiExportInputSchema,
@@ -293,7 +306,12 @@ func (t *Toolkit) handleExport(ctx context.Context, _ *mcp.CallToolRequest, in e
 		return toolkit.ErrorResult(fmt.Sprintf("connection %q not found", in.Connection)), nil, nil
 	}
 	if in.Name == "" {
-		return toolkit.ErrorResult("name is required (becomes the asset's download filename)"), nil, nil
+		return toolkit.ErrorResult("name is required (the asset's download filename, or the display name of the managed resource a 'resource' destination lands in)"), nil, nil
+	}
+	if in.Resource != nil {
+		if denial := checkResourceDestination(ctx, deps, in); denial != nil {
+			return denial, nil, nil
+		}
 	}
 	uc := resolveExportUser(ctx, deps)
 	if uc == nil {
@@ -437,8 +455,18 @@ func (*Toolkit) runExport(ctx context.Context, a runExportArgs) (*exportOutput, 
 	// Chunked/undeclared-length bodies are bounded during the stream by
 	// MaxBytes in persistExportAsset, which aborts and cleans up the
 	// incomplete multipart upload past the cap (issue #537).
-	if resp.ContentLength > 0 && resp.ContentLength > deps.Config.MaxBytes {
+	// The cap is the ASSET destination's. A managed-resource destination is
+	// bounded by the library's own upload ceiling instead, applied by the
+	// lander, so a file this platform accepts at its upload form is one an
+	// export can land whatever portal.export.max_bytes says (#1663).
+	if in.Resource == nil && resp.ContentLength > 0 && resp.ContentLength > deps.Config.MaxBytes {
 		return nil, fmt.Errorf("upstream response (%d bytes) exceeds api_export cap of %d bytes — narrow the request (smaller page, fewer fields) or raise platform.export.max_bytes", resp.ContentLength, deps.Config.MaxBytes)
+	}
+
+	if in.Resource != nil {
+		if err := refuseUnsuccessfulLanding(resp.StatusCode, exportDestinationOf(in)); err != nil {
+			return nil, err
+		}
 	}
 
 	declaredType := resp.Header.Get("Content-Type")
@@ -450,6 +478,10 @@ func (*Toolkit) runExport(ctx context.Context, a runExportArgs) (*exportOutput, 
 	contentType, body, err := contenttype.DetectStream(declaredType, resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("reading upstream response: %s", scrubTransportError(err))
+	}
+
+	if in.Resource != nil {
+		return landExport(ctx, deps, in, upstreamAnswer{body: body, contentType: contentType, status: resp.StatusCode})
 	}
 
 	// Stream the upstream body straight to S3 (no full-body buffer). Bound
@@ -646,19 +678,51 @@ func (*Toolkit) runExportWalk(ctx context.Context, a runExportArgs) (*exportOutp
 	}()
 
 	persist := persistExportArgs{deps: deps, uc: uc, in: in, body: pr, maxBytes: deps.Config.MaxBytes, contentType: applicationJSON}
-	obj, putErr := putExportObject(ctx, persist)
-	// Unblock the walk if storage stopped reading first, then take its
-	// verdict: a failed page is the cause the caller should see; a walk
-	// that only stopped because its reader went away defers to the
-	// reader's error.
+	landed, consumeErr := consumeWalkOutput(ctx, persist)
+	// Unblock the walk if the consumer stopped reading first, then take its
+	// verdict: a failed page is the cause the caller should see; a walk that
+	// only stopped because its reader went away defers to the reader's error.
 	_ = pr.Close() // a pipe close never fails
 	if walkErr := <-done; walkErr != nil && !errors.Is(walkErr, errWalkConsumerStopped) {
 		return nil, walkErr
 	}
-	if putErr != nil {
-		return nil, putErr
+	if consumeErr != nil {
+		return nil, consumeErr
 	}
+	if landed.landing != nil {
+		return walkResourceOutput(in, walk, landed.landing), nil
+	}
+	return finishWalkAsset(ctx, persist, walk, landed.obj)
+}
 
+// walkConsumed is where a walk's merged document went: an object under a fresh
+// asset id, or a version of the managed resource at the destination's path.
+// Exactly one is set.
+type walkConsumed struct {
+	obj     exportObject
+	landing *toolkit.ResourceLanding
+}
+
+// consumeWalkOutput reads the merged document out of the walk's pipe into
+// whichever destination the call named. Both destinations stream, so memory
+// holds one page at a time however many pages there are and whichever one was
+// named.
+func consumeWalkOutput(ctx context.Context, p persistExportArgs) (walkConsumed, error) {
+	if p.in.Resource == nil {
+		obj, err := putExportObject(ctx, p)
+		return walkConsumed{obj: obj}, err
+	}
+	landing, err := p.deps.ResourceLander.LandResource(ctx, exportDestinationOf(p.in), p.body, applicationJSON)
+	if err != nil {
+		return walkConsumed{}, err //nolint:wrapcheck // the lander's sentence is written for whoever made the call
+	}
+	return walkConsumed{landing: landing}, nil
+}
+
+// finishWalkAsset records the asset row and version row for a completed walk and
+// reports the asset the pages were merged into.
+func finishWalkAsset(ctx context.Context, persist persistExportArgs, walk *pagewalk.Walk, obj exportObject) (*exportOutput, error) {
+	deps, uc, in := persist.deps, persist.uc, persist.in
 	prov := buildExportProvenance(uc, in, walk.Last.Status, "")
 	prov.ToolCalls[0].Parameters["paginate"] = in.Paginate
 	prov.ToolCalls[0].Parameters["pages_fetched"] = walk.Stats.PagesFetched
@@ -680,6 +744,22 @@ func (*Toolkit) runExportWalk(ctx context.Context, a runExportArgs) (*exportOutp
 		Message:     fmt.Sprintf("Exported %d items from %d pages of %s %s (%d bytes).", walk.Stats.ItemsMerged, walk.Stats.PagesFetched, method, in.Path, obj.size),
 		WalkStats:   &walk.Stats,
 	}, nil
+}
+
+// walkResourceOutput reports a walk that landed in a managed resource. It says
+// both halves of what happened: how much of the upstream was walked, and what
+// the write did to the file every reader of that path holds.
+func walkResourceOutput(in exportInput, walk *pagewalk.Walk, landing *toolkit.ResourceLanding) *exportOutput {
+	method, _ := validateMethod(in.Method)
+	return &exportOutput{
+		ContentType: landing.ContentType,
+		Status:      walk.Last.Status,
+		SizeBytes:   landing.SizeBytes,
+		Resource:    landing,
+		Message: fmt.Sprintf("Exported %d items from %d pages of %s %s. %s",
+			walk.Stats.ItemsMerged, walk.Stats.PagesFetched, method, in.Path, landing.Message),
+		WalkStats: &walk.Stats,
+	}
 }
 
 // exportInvokeInput is the request template an export walk runs on: the

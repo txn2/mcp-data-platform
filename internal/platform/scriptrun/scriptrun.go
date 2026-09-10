@@ -264,6 +264,15 @@ type ExportResult struct {
 	AssetVersion int
 	Bucket       string
 	Key          string
+	// ResourceID, ResourceRef, ResourceURI and ResourceVersion are where a
+	// managed-resource output landed (#1663): the file's id, the reference and
+	// the mcp:// URI other tools take, and the version this run recorded. The
+	// first three are the same every run, which is the point of that
+	// destination.
+	ResourceID      string
+	ResourceRef     string
+	ResourceURI     string
+	ResourceVersion int
 	// Bytes is the serialized size actually written.
 	Bytes int
 	// Tables is what the version did to the tables registered over the
@@ -300,6 +309,14 @@ type ExportRecord struct {
 	AssetVersion int    `json:"asset_version,omitempty"`
 	Bucket       string `json:"bucket,omitempty"`
 	Key          string `json:"key,omitempty"`
+	// ResourceID, ResourceRef, ResourceURI and ResourceVersion name the managed
+	// resource a library output landed in (#1663). A script reads the reference
+	// and the uri off the record to cite the file it just wrote, and they are
+	// the same ones the next run reports.
+	ResourceID      string `json:"resource_id,omitempty"`
+	ResourceRef     string `json:"reference,omitempty"`
+	ResourceURI     string `json:"uri,omitempty"`
+	ResourceVersion int    `json:"version,omitempty"`
 	// Tables is what the version did to the tables registered over the
 	// output's file (#1536): one sentence per table, saying it followed onto
 	// the version or is pinned and now behind it. The same sentences are

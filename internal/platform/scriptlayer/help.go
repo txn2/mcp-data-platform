@@ -72,14 +72,25 @@ WHAT IS AVAILABLE
       dashboard keeps its identity instead of a new asset appearing every
       morning.
       destination says where the output goes. The default, "portal", is that
-      versioned asset. A destination the deployment configures for a bucket
-      delivers the same bytes to an external system instead; the script names
-      only the destination, and the connection, bucket and prefix come from
-      the configuration. Exporting one result to both is two calls with one
-      name.
+      versioned asset. "resources" writes the platform's managed-resource
+      library instead, at the path given as key: a file with a stable id and
+      mcp:// URI, a version history, and tables registered over it that follow
+      its content, which is the destination for a data file other things read
+      (a table registration, an asset that references it, a second script). A
+      destination the deployment configures for a bucket delivers the same
+      bytes to an external system instead; the script names only the
+      destination, and the connection, bucket and prefix come from the
+      configuration. Exporting one result to several places is one call each,
+      sharing the name.
       key is the object key beneath a bucket destination's configured prefix
       ("2026/08/sales.csv"); it defaults to the output name plus the format's
       extension, and the portal takes no key because it stores its own objects.
+      For "resources" the key is REQUIRED and is the file's path in the library
+      ("datasets/orders.csv"), folder and filename: it is the file's identity
+      across runs, so the same key next run records the next version of that
+      same file, and the record carries its resource_id, reference, uri and
+      version. The file lands in the library of the person the run acts for;
+      name is its display name there.
       destination and key must be passed BY NAME. Only name, rows and format may
       be positional, because where a script writes has to be readable from its
       source.

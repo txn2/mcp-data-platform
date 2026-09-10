@@ -185,10 +185,11 @@ Requires portal to be enabled with S3 storage configured. Requires explicit pers
 | `idempotency_key` | string | No | - | Client-supplied key to prevent duplicate assets on retry |
 | `timeout_seconds` | integer | No | deployment default | Query execution timeout in seconds |
 | `create_public_link` | boolean | No | false | Generate a public share link for the exported asset. Useful for automation pipelines that need a shareable URL. |
+| `resource` | object | No | - | Land the result in a managed resource at `{"path": ..., "filename": ...}` instead of a new asset, create-or-replace by path. Mutually exclusive with `idempotency_key` and `create_public_link`. See [Landing a response in a managed resource](api-gateway.md#landing-a-response-in-a-managed-resource); `api_export` and `graphql_export` take the same block. |
 
 **Response includes:**
 
-- Asset ID and portal URL
+- Asset ID and portal URL, or the landed resource's reference, URI and version
 - Public share URL (if `create_public_link` is true)
 - Format, row count, and file size in bytes
 - No query data (data is written to S3, not returned through the LLM)

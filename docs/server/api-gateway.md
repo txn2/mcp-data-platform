@@ -112,6 +112,36 @@ One tool call is one rate-limit token, one audit row, and, from a managed script
 
 On the built-in `util` connection, a `POST /util/fetch` walk pages the document named by the `url` in the request body: a next link (the fetched response's `Link` header is relayed, as are body signals) is pinned to that document's scheme and host, since the page is requested at the link itself, and a cursor or page parameter is added to that URL's query. The REST shim's raw passthrough route streams one body and refuses `paginate`.
 
+## Landing a response in a managed resource
+
+`api_export`'s default destination is a portal asset, and every call makes a new one. Pass `resource` instead and the response lands as a [managed resource](../portal/resources.md) at a path you name, created the first time and recorded as the next version of that same file every time after:
+
+```json
+{
+  "connection": "acme",
+  "operation_id": "listOrders",
+  "name": "ACME orders",
+  "resource": { "path": "datasets/acme", "filename": "orders.csv" }
+}
+```
+
+The result carries the file rather than an asset: its `mcp:resource:<id>` reference, its canonical `mcp://` URI, the `version` this call recorded, whether it was `created`, and one sentence per table registered over it saying whether the table followed onto the new version.
+
+That is the destination for a recurring pull of one source. The file's id and URI do not move, so an asset that references it, a citation that names it, and a `manage_table` registration that follows it all keep resolving across every refresh, and nothing has to be re-pointed. The response streams from the upstream into the file's storage exactly as it streams into an asset's, so a 200 MB CSV is an ordinary call rather than something that has to be cut up to pass through a model or a script.
+
+Rules worth knowing before you wire one up:
+
+- `path` and `filename` are both required: a managed resource is filed in a folder, and the two together are the address. Give the file the extension its content deserves, since a `.csv` landed here is registerable as a table even when the upstream labels its response `text/plain`.
+- `scope` defaults to the caller's own library. A `persona` or `global` library is named explicitly and takes the matching administrator role, checked before the upstream is called.
+- `name` is the file's display name, and `description` and `tags` label it. They are recorded when the file is created and left alone by later landings, so a file people have since renamed or re-tagged in the portal is not re-labelled by tonight's refresh. A call with no description gets one naming the connection and operation it came from.
+- `idempotency_key` and `create_public_link` are refused with this destination: the first answers a repeat call with the asset the first one made, which is the opposite of re-versioning one file, and a public share link is a portal asset's.
+- An upstream that answers anything but a 2xx is **not** landed. The call fails naming the status, and the file keeps serving the version it had. An asset destination still keeps a failed response, where a new file every time makes it evidence rather than a corrupted dataset.
+- The size ceiling is the library's own, [`resources.managed.max_upload_bytes`](configuration.md#managed-resources), not `portal.export.max_bytes`: a file this platform would refuse at its upload form is one it refuses here, at the same size. Nothing is written when the ceiling is passed.
+
+`paginate` works the same way at this destination: the merged array is streamed into the file as pages arrive, and the result reports both what the walk did and what the write did to the file.
+
+`trino_export` and `graphql_export` take the same `resource` block for a query result and a GraphQL document's result, on the same terms with one difference: both build their result in memory before any destination is chosen, so `portal.export.max_bytes` still bounds what they produce, and the library's ceiling applies on top of it. A managed script reaches the same destination through `platform.export(..., destination="resources", key="datasets/orders.csv")`; see [Running a script](../scripts/running.md).
+
 ## Request bodies
 
 The `body` argument is a JSON value, and the connection's catalog decides how it reaches the upstream. The resolved operation's declared `requestBody` media type drives the encoding, so a caller passes the data and never the framing:

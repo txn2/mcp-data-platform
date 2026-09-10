@@ -71,7 +71,7 @@ func TestExport_UnconfiguredDestinationIsRefused(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `destination "elsewhere" is not configured`)
 	assert.Contains(t, err.Error(), "acme-drop")
-	assert.Contains(t, err.Error(), `"portal" is always available`)
+	assert.Contains(t, err.Error(), `"portal" and "resources" are always available`)
 	assert.Empty(t, exporter.requests, "the refusal precedes the write")
 }
 

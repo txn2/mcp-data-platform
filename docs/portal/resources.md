@@ -148,6 +148,17 @@ History is bounded: a resource keeps its most recent 10 revisions by default ([`
 
 An agent revises through the same path, without the portal step. `manage_resource action=replace_content` writes new bytes over an existing resource under your own permissions, and the result lands in this Version history like any other revision — same number, same author, same restore — with its `change_summary` shown beneath it. `manage_resource action=create` files a new resource the same way. A [managed script](../scripts/running.md) reaches both, which is what lets a scheduled run refresh the file a dashboard reads without anybody uploading it again. See [manage_resource](../server/tools.md#manage_resource).
 
+### A file an export keeps current
+
+The export tools land here too, which is how a file gets refreshed without its bytes passing through anybody. `api_export`, `trino_export` and `graphql_export` each take a `resource` destination naming a folder and a filename, and `platform.export` in a managed script takes `destination="resources"` with the path as its `key`. The first call creates the file; every call after it records the next version of that same file, because the path is the identity.
+
+```
+api_export  connection=acme operation_id=listOrders name="ACME orders"
+            resource={"path": "datasets/acme", "filename": "orders.csv"}
+```
+
+The response goes from the upstream into storage without being held anywhere whole, so the size a file can be here is the library's own ceiling rather than anything a model or a script could carry. What the write did appears in this Version history like every other revision, and a table registered over the file follows the new version and says so in the result. An upstream that answered with an error is refused rather than landed: the file keeps serving the version it had. See [Landing a response in a managed resource](../server/api-gateway.md#landing-a-response-in-a-managed-resource).
+
 ## Querying a CSV resource as a table
 
 A CSV resource carries the same **Query as a table** panel the asset viewer does. Registering asks for two things: the connection the table is created on, and what to call it. The name is optional and defaults to a slug of the file name; either way your persona is added as a prefix, because the schema it lands in is shared with everyone else who has that connection.

@@ -25,6 +25,7 @@ package scriptexec
 import (
 	"context"
 	"database/sql"
+	"io"
 	"log/slog"
 	"time"
 
@@ -38,7 +39,9 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
+	"github.com/txn2/mcp-data-platform/pkg/resource"
 	"github.com/txn2/mcp-data-platform/pkg/script"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 // Structured-logging keys.
@@ -140,6 +143,24 @@ type ExportDeps struct {
 	// output and prints into its log. Nil on a deployment that cannot
 	// register tables.
 	FollowTables func(ctx context.Context, assetID string, version int) []string
+	// Lander writes an output into the managed resource at a path, creating the
+	// file the first time and recording a new version of it after (#1663). It is
+	// what the built-in "resources" destination writes through. Nil leaves that
+	// destination reporting that this deployment has no library, which is what a
+	// deployment without one should say.
+	Lander ResourceLander
+}
+
+// ResourceLander lands one output in the managed resource at a path. It is the
+// platform's managed-resource writer, narrowed to the one call this package
+// makes, and it takes the acting identity explicitly: a run's writes go through
+// the platform's own funnels rather than across the MCP middleware that would
+// have put a principal on the context.
+type ResourceLander interface {
+	Land(
+		ctx context.Context, dest toolkit.ResourceDestination,
+		content io.Reader, contentType string, claims resource.Claims,
+	) (*toolkit.ResourceLanding, error)
 }
 
 // ready reports whether an output can actually be written.

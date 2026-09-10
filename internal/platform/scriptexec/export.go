@@ -12,6 +12,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
+	"github.com/txn2/mcp-data-platform/pkg/resource"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -52,13 +53,26 @@ type outputWriter struct {
 	// delivered file — two output names can arrive at one key, and the second
 	// write would silently replace the first.
 	delivered map[string]string
+	// claims is the managed-resource identity this run's library writes are made
+	// under: the script as the principal, the version's author as the person
+	// (#1419). Resolved once per run, because it cannot change within one.
+	claims resource.Claims
+}
+
+// claimedRun is the one execution an output writer serves: the claimed queue
+// row, the script it executes, and the version whose author it acts for.
+type claimedRun struct {
+	run     *script.Run
+	script  *script.Script
+	version *script.Version
 }
 
 // newOutputWriter builds the writer for one claimed run.
-func newOutputWriter(deps ExportDeps, runs script.RunStore, run *script.Run, sc *script.Script, caller scriptrun.Caller) *outputWriter {
+func newOutputWriter(deps ExportDeps, runs script.RunStore, rc claimedRun, caller scriptrun.Caller) *outputWriter {
 	return &outputWriter{
-		deps: deps, runs: runs, run: run, script: sc, caller: caller,
+		deps: deps, runs: runs, run: rc.run, script: rc.script, caller: caller,
 		written: map[string]bool{}, delivered: map[string]string{},
+		claims: runClaims(rc.script, rc.version),
 	}
 }
 
@@ -106,6 +120,9 @@ func (w *outputWriter) write(ctx context.Context, req scriptrun.ExportRequest, i
 	if req.Destination.IsPortal() {
 		return w.writePortal(ctx, req, identity, data)
 	}
+	if req.Destination.IsResource() {
+		return w.writeResource(ctx, req, identity, data)
+	}
 	return w.deliver(ctx, req, identity, data)
 }
 
@@ -147,9 +164,23 @@ func (w *outputWriter) priorAttempt(name, destination string) *scriptrun.ExportR
 	// same prior record and be answered with it, and the script bug the first
 	// attempt would have failed on would pass silently.
 	w.written[outputKey(name, destination)] = true
+	// The ADDRESS it occupies is claimed for this attempt too, for the same
+	// reason: a second output aimed at the key an earlier attempt already wrote
+	// must be refused by the reclaimed attempt exactly as the first attempt
+	// refused it, rather than landing on top of it because the write it would
+	// have collided with was skipped.
+	if prior.Key != "" {
+		if prior.ResourceID != "" {
+			w.delivered[libraryAddress(prior.Key)] = name
+		} else {
+			w.delivered[objectAddress(script.Destination{Bucket: prior.Bucket}, prior.Key)] = name
+		}
+	}
 	return &scriptrun.ExportResult{
 		AssetID: prior.AssetID, AssetVersion: prior.AssetVersion,
 		Bucket: prior.Bucket, Key: prior.Key, Bytes: prior.Bytes,
+		ResourceID: prior.ResourceID, ResourceURI: prior.ResourceURI,
+		ResourceVersion: prior.ResourceVersion,
 	}
 }
 

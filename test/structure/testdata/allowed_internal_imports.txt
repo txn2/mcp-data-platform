@@ -298,6 +298,7 @@ internal/platform/portalstore -> internal/platform/assetindex
 internal/platform/portalstore -> internal/platform/collectionindex
 internal/platform/portalstore -> internal/platform/knowledgepageindex
 internal/platform/portalstore -> internal/platform/notices
+internal/platform/portalstore -> internal/platform/resourcewrite
 internal/platform/portalstore -> internal/portal/assetrefs
 internal/platform/portalstore -> internal/portal/assetrefstore
 internal/platform/portalstore -> internal/producedby
@@ -356,7 +357,11 @@ internal/platform/resourcetemplates -> pkg/query
 internal/platform/resourcetemplates -> pkg/semantic
 internal/platform/resourcetemplates -> pkg/urnbuild
 internal/platform/resourcewrite -> internal/producedby
+internal/platform/resourcewrite -> pkg/contenttype
+internal/platform/resourcewrite -> pkg/middleware
+internal/platform/resourcewrite -> pkg/portal/knowledgepage
 internal/platform/resourcewrite -> pkg/resource
+internal/platform/resourcewrite -> pkg/toolkit
 internal/platform/reviewalert -> internal/logsan
 internal/platform/reviewalert -> pkg/notification
 internal/platform/reviewalert -> pkg/toolkits/knowledge
@@ -379,9 +384,11 @@ internal/platform/scriptexec -> pkg/middleware
 internal/platform/scriptexec -> pkg/notification
 internal/platform/scriptexec -> pkg/observability
 internal/platform/scriptexec -> pkg/portal
+internal/platform/scriptexec -> pkg/resource
 internal/platform/scriptexec -> pkg/script
 internal/platform/scriptexec -> pkg/session
 internal/platform/scriptexec -> pkg/textpatch
+internal/platform/scriptexec -> pkg/toolkit
 internal/platform/scriptindex -> pkg/indexjobs
 internal/platform/scriptindex -> pkg/script
 internal/platform/scriptlayer -> internal/platform/scriptdraft

@@ -112,7 +112,7 @@ const callArgsPosition = 2
 // hint and the number of SetKey calls below it cannot drift apart.
 const (
 	queryResultFields  = 3
-	exportRecordFields = 13
+	exportRecordFields = 17
 )
 
 // TextResultKey is the single field a tool result arrives under when the tool
@@ -223,8 +223,11 @@ func (h *hostState) resolveDestination(name string) (script.Destination, error) 
 // script whose export was accepted by validate and then refused at run time
 // had already executed its queries by the time it learned.
 func ResolveDestination(name string, declared []script.Destination) (script.Destination, error) {
-	if name == script.DestinationPortal {
+	switch name {
+	case script.DestinationPortal:
 		return script.PortalDestination(), nil
+	case script.DestinationResources:
+		return script.ResourcesDestination(), nil
 	}
 	for _, d := range declared {
 		if d.Name == name {
@@ -232,11 +235,11 @@ func ResolveDestination(name string, declared []script.Destination) (script.Dest
 		}
 	}
 	if len(declared) == 0 {
-		return script.Destination{}, fmt.Errorf("destination %q is not configured: this deployment declares no bucket destinations, so %q is the only place a script can write",
-			name, script.DestinationPortal)
+		return script.Destination{}, fmt.Errorf("destination %q is not configured: this deployment declares no bucket destinations, so %q and %q are the only places a script can write",
+			name, script.DestinationPortal, script.DestinationResources)
 	}
-	return script.Destination{}, fmt.Errorf("destination %q is not configured; this deployment declares %s, and %q is always available",
-		name, strings.Join(destinationNames(declared), ", "), script.DestinationPortal)
+	return script.Destination{}, fmt.Errorf("destination %q is not configured; this deployment declares %s, and %q and %q are always available",
+		name, strings.Join(destinationNames(declared), ", "), script.DestinationPortal, script.DestinationResources)
 }
 
 // destinationNames lists the configured destinations for a refusal.
@@ -611,6 +614,10 @@ func (h *hostState) finishRecord(
 	record.AssetVersion = written.AssetVersion
 	record.Bucket = written.Bucket
 	record.Key = written.Key
+	record.ResourceID = written.ResourceID
+	record.ResourceRef = written.ResourceRef
+	record.ResourceURI = written.ResourceURI
+	record.ResourceVersion = written.ResourceVersion
 	record.Bytes = written.Bytes
 	record.Tables = written.Tables
 	h.noteTables(record.Name, written.Tables)
@@ -704,6 +711,9 @@ func (h *hostState) exportRequest(b *starlark.Builtin, args starlark.Tuple, kwar
 // output, so it is checked against the rules that keep it under the
 // destination's prefix and left exactly as written.
 func checkExportKey(b *starlark.Builtin, destination script.Destination, key string) error {
+	if destination.IsResource() {
+		return checkLibraryKey(b, key)
+	}
 	if key == "" {
 		return nil
 	}
@@ -712,6 +722,24 @@ func checkExportKey(b *starlark.Builtin, destination script.Destination, key str
 			b.Name(), destination.Name)
 	}
 	if err := script.ValidateObjectKey(key); err != nil {
+		return fmt.Errorf("in %s: key %q cannot be used: %w", b.Name(), key, err)
+	}
+	return nil
+}
+
+// checkLibraryKey validates the key a managed-resource output is addressed by.
+//
+// Here the key is REQUIRED, which is the opposite of every other destination: the
+// library file's identity across runs IS its path, so a resource output with no
+// key has no address to be the same file at. The output name still labels the
+// file, and the path is what the next run, a person, and a table registration
+// find it by.
+func checkLibraryKey(b *starlark.Builtin, key string) error {
+	if key == "" {
+		return fmt.Errorf("in %s: the %q destination needs a key, which is the path the file is filed at in the library, for example key=\"datasets/orders.csv\". It is the file's identity across runs: the same key next run writes the next version of that same file",
+			b.Name(), script.DestinationResources)
+	}
+	if _, _, err := script.SplitLibraryKey(key); err != nil {
 		return fmt.Errorf("in %s: key %q cannot be used: %w", b.Name(), key, err)
 	}
 	return nil
@@ -784,8 +812,9 @@ func (h *hostState) persistOrPreview(b *starlark.Builtin, req ExportRequest) (Ex
 }
 
 // exportValue renders one export record as the dict the script receives. Where
-// the output went decides which half of the record is present: an asset version
-// for the portal, an object for a bucket.
+// the output went decides which part of the record is present: an asset version
+// for the portal, an object for a bucket, the file's reference and version for
+// the library.
 func exportValue(record ExportRecord) starlark.Value {
 	out := starlark.NewDict(exportRecordFields)
 	_ = out.SetKey(starlark.String("preview"), starlark.Bool(record.Preview))
@@ -800,9 +829,17 @@ func exportValue(record ExportRecord) starlark.Value {
 		_ = out.SetKey(starlark.String("asset_id"), starlark.String(record.AssetID))
 		_ = out.SetKey(starlark.String("asset_version"), starlark.MakeInt(record.AssetVersion))
 	}
-	if record.Key != "" {
+	if record.Bucket != "" {
 		_ = out.SetKey(starlark.String("bucket"), starlark.String(record.Bucket))
+	}
+	if record.Key != "" {
 		_ = out.SetKey(starlark.String("key"), starlark.String(record.Key))
+	}
+	if record.ResourceID != "" {
+		_ = out.SetKey(starlark.String("resource_id"), starlark.String(record.ResourceID))
+		_ = out.SetKey(starlark.String("reference"), starlark.String(record.ResourceRef))
+		_ = out.SetKey(starlark.String("uri"), starlark.String(record.ResourceURI))
+		_ = out.SetKey(starlark.String("version"), starlark.MakeInt(record.ResourceVersion))
 	}
 	if len(record.Tables) > 0 {
 		tables := make([]starlark.Value, 0, len(record.Tables))

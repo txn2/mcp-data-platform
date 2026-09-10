@@ -887,6 +887,46 @@ the security model's
 Each delivery is recorded on the run — destination, bucket, key, and bytes — and
 audited under the script's own principal like every other capability call.
 
+### Keeping a file in the resource library current
+
+The portal destination gives an output an identity only the script can name. When
+the output is a data **file** other things read — a table registered over it, an
+asset that references it, a second script — the destination is `resources`, the
+platform's [managed-resource library](../portal/resources.md), and the file's
+identity is its **path**:
+
+```python
+rows = platform.query(connection="warehouse", sql="SELECT ...")["rows"]
+
+out = platform.export(
+    name="ACME orders",
+    rows=rows,
+    format="csv",
+    destination="resources",
+    key="datasets/acme/orders.csv",
+)
+print(out["reference"], out["uri"], out["version"])
+```
+
+- `resources` is built in, like `portal`: the platform owns where its own library
+  is, so it is never declared in `scripts.destinations` and needs no
+  configuration.
+- The `key` is **required** here and is the file's path: a folder chain and a
+  filename. It is the identity across runs, so the same key next run records the
+  next version of that same file rather than making a second one, and everything
+  referencing the file follows without being re-pointed.
+- The record the call returns carries `resource_id`, `reference`, `uri` and
+  `version`, so a run can cite the file it just wrote. The first three are the
+  same every run.
+- The file lands in the library of the person the run acts for — the version's
+  author — and `name` is its display name there. Writing to the persona or global
+  library is an explicit scope, which `platform.call("api_export", ...)` and
+  `manage_resource` take and this destination does not.
+- What the write did to the tables registered over the file is printed into the
+  run log, one line per table, whether or not the script prints the result.
+- A draft run previews it like every other output: the content is serialized to
+  measure it and nothing is written.
+
 Each run records what it did — status, timings, interpreter steps, the queries
 it issued, the outputs it wrote, and the log the script printed — and that
 record is readable through the tool:

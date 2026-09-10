@@ -27,6 +27,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/collectionindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/knowledgepageindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/notices"
+	"github.com/txn2/mcp-data-platform/internal/platform/resourcewrite"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefstore"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
@@ -100,6 +101,12 @@ type Handle struct {
 	// exists. Empty when the Handle was assembled from injected stores
 	// (NewFromStores), which own their own indexing arrangements.
 	indexProducers []*indexjobs.Producer
+	// landing is the managed-resource destination the export tools write
+	// through when a call names one (#1663). It is held here, and not by the
+	// caller, for the reason BindResourceWriter is: the export tools are
+	// assembled with this layer and the managed-resource layer is built after
+	// it, so what they are given has to be a holder that is bound later.
+	landing *resourcewrite.Ref
 }
 
 // Stores bundles the six store implementations and the S3 blob client the
@@ -179,6 +186,7 @@ func NewFromStores(s Stores, embedder embedding.Provider, cfg Config) *Handle {
 		s3Client:           s.S3Client,
 		contentRefs:        s.ContentRefs,
 		producers:          s.Producers,
+		landing:            &resourcewrite.Ref{},
 	}
 	// The declaration path is built here, over the two stores it checks
 	// against, so an asset reference works on a deployment with no
@@ -261,6 +269,30 @@ func (h *Handle) BindResourceWriter(w portalkit.ResourceWriter) {
 	h.toolkit.SetResourceWriter(w)
 }
 
+// ResourceLanding is the managed-resource destination to hand an export tool at
+// wiring time. It is the same holder for the life of the Handle, so a tool wired
+// before the library exists lands in the library once it does.
+//
+// A nil Handle answers a nil holder, and a nil holder answers every landing with
+// the reason there is no library, which is what a deployment with no portal and
+// no resource layer has.
+func (h *Handle) ResourceLanding() *resourcewrite.Ref {
+	if h == nil {
+		return nil
+	}
+	return h.landing
+}
+
+// BindResourceLander publishes the lander behind the holder above, once the
+// managed-resource layer exists. Binding nothing leaves every resource
+// destination answering that this deployment has no library.
+func (h *Handle) BindResourceLander(l *resourcewrite.Lander) {
+	if h == nil || h.landing == nil {
+		return
+	}
+	h.landing.Bind(l)
+}
+
 // FollowAssetTables reports what a new version of an asset did to the tables
 // registered over its file (#1536), through the registrar the asset toolkit
 // was bound to. It is how a writer assembled before the registrar exists --
@@ -273,6 +305,17 @@ func (h *Handle) FollowAssetTables(ctx context.Context, assetID string, version 
 		return nil
 	}
 	return h.toolkit.FollowAssetTables(ctx, assetID, version)
+}
+
+// FollowResourceTables is FollowAssetTables for a managed resource whose content
+// was just replaced, reached the same way and for the same reason: an export
+// landing in a managed resource (#1663) is assembled before the registrar
+// exists. A Handle with no toolkit, or a toolkit never bound, reports nothing.
+func (h *Handle) FollowResourceTables(ctx context.Context, resourceID string, version int) []string {
+	if h == nil || h.toolkit == nil {
+		return nil
+	}
+	return h.toolkit.FollowResourceTables(ctx, resourceID, version)
 }
 
 // AssetStore returns the portal asset store, or nil on a nil Handle (portal

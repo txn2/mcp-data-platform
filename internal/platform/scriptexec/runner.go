@@ -80,7 +80,7 @@ func (r *runner) execute(ctx context.Context, run *script.Run, sc *script.Script
 	opts.State = run.StateRead
 	opts.Caller = caller
 	opts.Destinations = r.destinations
-	opts.Exporter = r.exporter(run, sc, caller)
+	opts.Exporter = r.exporter(claimedRun{run: run, script: sc, version: v}, caller)
 
 	result, runErr := scriptrun.Run(ctx, opts)
 	outcome := attemptFrom(result, runErr)
@@ -179,12 +179,12 @@ func (r *runner) connect(ctx context.Context, run *script.Run, sc *script.Script
 //
 // (A draft run still previews everywhere: that is decided by the authoring
 // path, which passes no exporter at all.)
-func (r *runner) exporter(run *script.Run, sc *script.Script, caller scriptrun.Caller) scriptrun.Exporter {
+func (r *runner) exporter(rc claimedRun, caller scriptrun.Caller) scriptrun.Exporter {
 	if !r.export.ready() {
 		slog.Warn("scripts: this deployment has no portal asset store or object storage; runs that write portal outputs will fail",
-			logKeyRunID, run.ID)
+			logKeyRunID, rc.run.ID)
 	}
-	return newOutputWriter(r.export, r.runs, run, sc, caller)
+	return newOutputWriter(r.export, r.runs, rc, caller)
 }
 
 // recordAudit writes the script_run lifecycle event.

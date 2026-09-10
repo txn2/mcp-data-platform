@@ -214,7 +214,7 @@ func TestPublishData_ReclaimedRunDoesNotRefreshTwice(t *testing.T) {
 	first, err := h.writer.PublishData(context.Background(), publishRequest("dash", map[string]any{"a": int64(1)}))
 	require.NoError(t, err)
 
-	reclaimed := newOutputWriter(h.writer.deps, h.runs, h.run, h.writer.script, h.caller)
+	reclaimed := newOutputWriter(h.writer.deps, h.runs, claimedRun{run: h.run, script: h.writer.script, version: testVersion()}, h.caller)
 	versionsBefore := len(h.versions.created)
 	again, err := reclaimed.PublishData(context.Background(), publishRequest("dash", map[string]any{"a": int64(1)}))
 	require.NoError(t, err)

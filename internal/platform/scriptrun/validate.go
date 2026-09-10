@@ -107,7 +107,8 @@ func CheckDestinations(report Report, declared []script.Destination) []Finding {
 				Severity: SeverityError,
 				Message:  err.Error(),
 				Hint: "Name a destination this deployment declares, or write to " +
-					script.DestinationPortal + ", which is always available. " +
+					script.DestinationPortal + " or " + script.DestinationResources +
+					", which are always available. " +
 					"A destination is deployment configuration (scripts.destinations), " +
 					"not something the script can add.",
 			})

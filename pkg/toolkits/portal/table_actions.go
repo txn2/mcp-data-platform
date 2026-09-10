@@ -300,8 +300,11 @@ func (t *Toolkit) FollowAssetTables(ctx context.Context, assetID string, version
 	return t.tables.FollowAssetTables(ctx, assetID, version)
 }
 
-// followResourceTables is FollowAssetTables for a replaced managed resource.
-func (t *Toolkit) followResourceTables(ctx context.Context, resourceID string, version int) []string {
+// FollowResourceTables is FollowAssetTables for a replaced managed resource. It
+// is exported for the same reason: a write path assembled before the registrar
+// exists reaches it through the toolkit the registrar is bound onto. An export
+// landing in a managed resource is such a path (#1663).
+func (t *Toolkit) FollowResourceTables(ctx context.Context, resourceID string, version int) []string {
 	if t.tables == nil {
 		return nil
 	}
