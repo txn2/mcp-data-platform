@@ -217,9 +217,16 @@ func newWriterHarness(t *testing.T) writerHarness {
 	caller := &fakeCaller{}
 	deps := ExportDeps{Assets: assets, Versions: versions, S3: s3, Bucket: "assets", Prefix: "portal"}
 	return writerHarness{
-		writer: newOutputWriter(deps, runs, run, sc, caller),
+		writer: newOutputWriter(deps, runs, claimedRun{run: run, script: sc, version: testVersion()}, caller),
 		assets: assets, versions: versions, s3: s3, runs: runs, caller: caller, run: run,
 	}
+}
+
+// testVersion is the saved version a writer harness runs: its author and their
+// roles are what a run's library writes are made under (#1419, #1663).
+func testVersion() *script.Version {
+	_, v, _ := executableState()
+	return v
 }
 
 // csvRequest is one output in the shape the engine hands over, addressed to the
@@ -373,7 +380,7 @@ func TestOutputWriter_SameNameIsANewVersionOfOneAsset(t *testing.T) {
 	}
 	require.NoError(t, h.runs.Enqueue(ctx, secondRun))
 	secondRun.LockedBy, secondRun.Attempt = "worker-a", 1
-	secondWriter := newOutputWriter(h.writer.deps, h.runs, secondRun, h.writer.script, h.caller)
+	secondWriter := newOutputWriter(h.writer.deps, h.runs, claimedRun{run: secondRun, script: h.writer.script, version: testVersion()}, h.caller)
 
 	second, err := secondWriter.Export(ctx, csvRequest("daily"))
 	require.NoError(t, err)
@@ -396,7 +403,7 @@ func TestOutputWriter_ReclaimedRunDoesNotWriteTwice(t *testing.T) {
 
 	// The reclaim: another worker takes the same run over and builds a fresh
 	// writer over the row, which now carries what the first attempt wrote.
-	reclaimed := newOutputWriter(h.writer.deps, h.runs, h.run, h.writer.script, h.caller)
+	reclaimed := newOutputWriter(h.writer.deps, h.runs, claimedRun{run: h.run, script: h.writer.script, version: testVersion()}, h.caller)
 	again, err := reclaimed.Export(ctx, csvRequest("daily"))
 	require.NoError(t, err)
 
@@ -542,7 +549,7 @@ func TestOutputWriter_SameNamedScriptsOfTwoOwnersGetTwoAssets(t *testing.T) {
 	otherRun := &script.Run{ID: "dpx_other", ScriptID: other.ID, VersionID: "sver_other", Version: 1}
 	require.NoError(t, h.runs.Enqueue(ctx, otherRun))
 	otherRun.LockedBy, otherRun.Attempt = "worker-a", 1
-	otherWriter := newOutputWriter(h.writer.deps, h.runs, otherRun, other, h.caller)
+	otherWriter := newOutputWriter(h.writer.deps, h.runs, claimedRun{run: otherRun, script: other, version: testVersion()}, h.caller)
 
 	mine, err := h.writer.Export(ctx, csvRequest("daily"))
 	require.NoError(t, err)

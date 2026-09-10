@@ -2,7 +2,6 @@ package portal
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -235,7 +234,7 @@ func (t *Toolkit) handleReplaceResourceContent(
 		fmt.Sprintf("Content replaced and recorded as version %d, restorable from the file's version history. "+
 			"The id, uri and filename are unchanged, so every asset referencing this file now serves the new "+
 			"bytes without being re-saved.", version))
-	out.Tables = t.followResourceTables(ctx, id, version)
+	out.Tables = t.FollowResourceTables(ctx, id, version)
 	if len(out.Tables) > 0 {
 		out.Message += " " + strings.Join(out.Tables, " ")
 	}
@@ -309,29 +308,11 @@ func decodeResourceContent(input manageResourceInput) ([]byte, error) {
 	}
 }
 
-// resolveResourceScope settles where a create files the resource. The default
-// is the caller's own user scope, the one place every authenticated caller may
-// write; a persona or global resource is named explicitly, because it is
-// visible to people other than its author.
-//
-// "The caller's own" is the person, not the principal. A managed-script run
-// authenticates as script:<name>, and defaulting to that would file the
-// resource in a library belonging to nobody -- present to the run and absent
-// from its author's Resources page, which is where the person who scheduled it
-// will look. It defaults to the address the run acts for instead (#1419).
+// resolveResourceScope settles where a create files the resource, through the
+// one rule every managed-resource write surface settles it by.
 func resolveResourceScope(input manageResourceInput, claims resource.Claims) (scope resource.Scope, scopeID string) {
-	scope = resource.Scope(strings.TrimSpace(input.Scope))
-	scopeID = strings.TrimSpace(input.ScopeID)
-	if scope == "" {
-		scope = resource.ScopeUser
-	}
-	if scope == resource.ScopeUser && scopeID == "" {
-		scopeID = cmp.Or(claims.OnBehalfOf, claims.Sub)
-	}
-	if scope == resource.ScopeGlobal {
-		scopeID = ""
-	}
-	return scope, scopeID
+	return resource.ResolveScopeFor(resource.Scope(strings.TrimSpace(input.Scope)),
+		strings.TrimSpace(input.ScopeID), claims)
 }
 
 // validateResourcePlacement checks the fields a create needs beyond its

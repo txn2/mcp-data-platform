@@ -1824,14 +1824,15 @@ func (p *Platform) wireTrinoExport() {
 			continue
 		}
 		trinoTk.SetExportDeps(trinokit.ExportDeps{
-			AssetStore:   trinoExporter,
-			VersionStore: trinoExporter,
-			S3Client:     p.portalStore.S3Client(),
-			ShareCreator: trinoExporter,
-			S3Bucket:     p.config.Portal.S3Bucket,
-			S3Prefix:     p.config.Portal.S3Prefix,
-			BaseURL:      p.config.Portal.PublicBaseURL,
-			Config:       exportCfg,
+			AssetStore:     trinoExporter,
+			VersionStore:   trinoExporter,
+			S3Client:       p.portalStore.S3Client(),
+			ShareCreator:   trinoExporter,
+			ResourceLander: p.portalStore.ResourceLanding(),
+			S3Bucket:       p.config.Portal.S3Bucket,
+			S3Prefix:       p.config.Portal.S3Prefix,
+			BaseURL:        p.config.Portal.PublicBaseURL,
+			Config:         exportCfg,
 			GetUserContext: func(ctx context.Context) *trinokit.ExportUserContext {
 				pc := middleware.GetPlatformContext(ctx)
 				if pc == nil {
@@ -1913,6 +1914,16 @@ func (p *Platform) initManagedResources() error {
 		Producers: p.portalStore.Producers(),
 	}); w != nil {
 		p.portalStore.BindResourceWriter(w)
+		// The same writer, reached by path instead of by id, is the destination
+		// every export tool lands a response in (#1663). The table follower is
+		// the portal layer's, which reaches the registrar the composition root
+		// binds onto the asset toolkit later.
+		lander := resourcewrite.NewLander(resourcewrite.LanderDeps{
+			Writer:         w,
+			MaxUploadBytes: p.config.Resources.Managed.MaxUploadBytes,
+		})
+		lander.SetTableFollower(p.portalStore.FollowResourceTables)
+		p.portalStore.BindResourceLander(lander)
 	}
 
 	// Bind the recorder that audits served resource content (#1014) so the MCP
@@ -3639,14 +3650,15 @@ func (p *Platform) wireAPIGatewayExport() {
 			continue
 		}
 		apiTk.SetExportDeps(apigatewaykit.ExportDeps{
-			AssetStore:   apiExporter,
-			VersionStore: apiExporter,
-			S3Client:     p.portalStore.S3Client(),
-			ShareCreator: apiExporter,
-			S3Bucket:     p.config.Portal.S3Bucket,
-			S3Prefix:     p.config.Portal.S3Prefix,
-			BaseURL:      p.config.Portal.PublicBaseURL,
-			Config:       exportCfg,
+			AssetStore:     apiExporter,
+			VersionStore:   apiExporter,
+			S3Client:       p.portalStore.S3Client(),
+			ShareCreator:   apiExporter,
+			ResourceLander: p.portalStore.ResourceLanding(),
+			S3Bucket:       p.config.Portal.S3Bucket,
+			S3Prefix:       p.config.Portal.S3Prefix,
+			BaseURL:        p.config.Portal.PublicBaseURL,
+			Config:         exportCfg,
 			GetUserContext: func(ctx context.Context) *apigatewaykit.ExportUserContext {
 				pc := middleware.GetPlatformContext(ctx)
 				if pc == nil {

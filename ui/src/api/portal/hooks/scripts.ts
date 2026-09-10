@@ -58,11 +58,12 @@ export interface ScriptRun {
 }
 
 // ScriptRunOutput is one thing a run persisted, as the run record carries it:
-// a versioned portal asset, or an object delivered to a bucket. The two are
-// different kinds of answer — the platform still serves the asset and can link
-// to it, while the delivered object left the platform and cannot be fetched
-// back. An empty destination is the portal, which is where an output that
-// named none has always landed.
+// a versioned portal asset, a file in the managed-resource library, or an
+// object delivered to a bucket. They are different kinds of answer — the
+// platform still serves the asset and the library file and can link to either,
+// while the delivered object left the platform and cannot be fetched back. An
+// empty destination is the portal, which is where an output that named none has
+// always landed.
 export interface ScriptRunOutput {
   name: string;
   destination?: string;
@@ -70,6 +71,11 @@ export interface ScriptRunOutput {
   asset_version?: number;
   bucket?: string;
   key?: string;
+  // A library output is the file at `key`: the same file every run, with the
+  // version this run recorded of it.
+  resource_id?: string;
+  resource_uri?: string;
+  resource_version?: number;
   format: string;
   row_count: number;
   // A document was written verbatim from a string body, so its row count is

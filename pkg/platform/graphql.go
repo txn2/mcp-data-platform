@@ -78,13 +78,14 @@ func (p *Platform) graphQLExportDeps() *graphqlkit.ExportDeps {
 		p.config.Portal.PublicBaseURL, p.captureProvenance,
 	)
 	return &graphqlkit.ExportDeps{
-		AssetStore:   exporter,
-		VersionStore: exporter,
-		S3Client:     p.portalStore.S3Client(),
-		ShareCreator: exporter,
-		S3Bucket:     p.config.Portal.S3Bucket,
-		S3Prefix:     p.config.Portal.S3Prefix,
-		BaseURL:      p.config.Portal.PublicBaseURL,
+		AssetStore:     exporter,
+		VersionStore:   exporter,
+		S3Client:       p.portalStore.S3Client(),
+		ShareCreator:   exporter,
+		ResourceLander: p.portalStore.ResourceLanding(),
+		S3Bucket:       p.config.Portal.S3Bucket,
+		S3Prefix:       p.config.Portal.S3Prefix,
+		BaseURL:        p.config.Portal.PublicBaseURL,
 		Config: graphqlkit.ExportConfig{
 			MaxBytes:       cfg.MaxBytes,
 			DefaultTimeout: cfg.DefaultTimeout,

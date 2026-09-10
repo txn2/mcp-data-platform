@@ -16,6 +16,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	trinoclient "github.com/txn2/mcp-trino/pkg/client"
+
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 // Schema key/type constants to satisfy revive add-constant.
@@ -36,6 +38,7 @@ const (
 	propFormat     = "format"
 	propName       = "name"
 	propTags       = "tags"
+	propResource   = "resource"
 )
 
 const (
@@ -204,10 +207,14 @@ type ExportDeps struct {
 	VersionStore ExportVersionStore
 	S3Client     ExportS3Client
 	ShareCreator ExportShareCreator // nil = public link creation disabled
-	S3Bucket     string
-	S3Prefix     string
-	BaseURL      string
-	Config       ExportConfig
+	// ResourceLander lands a result in a managed resource by path instead of in
+	// a new asset (#1663). nil leaves the asset destination the only one, which
+	// is what a deployment with no managed-resource library has.
+	ResourceLander toolkit.ResourceLander
+	S3Bucket       string
+	S3Prefix       string
+	BaseURL        string
+	Config         ExportConfig
 
 	// GetUserContext extracts user identity from the request context.
 	// Injected by the platform to avoid importing middleware.
@@ -226,17 +233,25 @@ type exportInput struct {
 	IdempotencyKey   string   `json:"idempotency_key"`
 	TimeoutSeconds   int      `json:"timeout_seconds"`
 	CreatePublicLink bool     `json:"create_public_link"`
+	// Resource, when set, lands the formatted result in the managed resource at
+	// that path instead of in a new portal asset (#1663).
+	Resource *toolkit.ResourceDestination `json:"resource,omitempty"`
 }
 
 // exportOutput is the response returned to the agent.
 type exportOutput struct {
-	AssetID   string `json:"asset_id"`
+	AssetID   string `json:"asset_id,omitempty"`
 	PortalURL string `json:"portal_url,omitempty"`
 	ShareURL  string `json:"share_url,omitempty"`
 	Format    string `json:"format"`
 	RowCount  int    `json:"row_count"`
 	SizeBytes int64  `json:"size_bytes"`
-	Message   string `json:"message"`
+	// Resource is where a resource destination landed the result (#1663): the
+	// reference and uri to hand to the next call, the version written, and what
+	// the write did to the tables registered over the file. Set instead of
+	// asset_id, never beside it.
+	Resource *toolkit.ResourceLanding `json:"resource,omitempty"`
+	Message  string                   `json:"message"`
 }
 
 // SetExportDeps injects portal dependencies for trino_export.
@@ -258,7 +273,11 @@ func (t *Toolkit) registerExportTool(s *mcp.Server) {
 		Description: "Export query results directly to a portal asset file (CSV, JSON, Markdown, or text). " +
 			"Use ONLY after you have validated the query shape with trino_query using a small LIMIT. " +
 			"Do NOT use this for data exploration. " +
-			"Returns asset metadata (ID, URL, row count, size); the data is NOT returned through this response. " +
+			"Pass `resource` to land the result in a MANAGED RESOURCE at a path instead of a new asset: the same " +
+			"path next time is the NEXT VERSION of that one file, keeping its id, its mcp:// URI, the assets that " +
+			"reference it and the tables registered over it. That is the destination for a recurring export. " +
+			"Returns asset metadata (ID, URL, row count, size), or the resource's reference, uri and version; " +
+			"the data is NOT returned through this response. " +
 			"NAMING: keep `name` short and portable, using only ASCII letters, digits, spaces, hyphens, and dots. " +
 			"Avoid em/en dashes, smart quotes, ellipses, and other Unicode punctuation; they will be normalized to ASCII. " +
 			"The name doubles as the download filename.",
@@ -282,6 +301,12 @@ func (t *Toolkit) handleExport(ctx context.Context, _ *mcp.CallToolRequest, in e
 	input, uc, errResult := t.validateAndPrepare(ctx, in, deps)
 	if errResult != nil {
 		return errResult, nil, nil
+	}
+
+	if input.Resource != nil {
+		if denial := checkResourceDestination(ctx, deps, input); denial != nil {
+			return denial, nil, nil
+		}
 	}
 
 	// Idempotency check
@@ -366,6 +391,12 @@ func (t *Toolkit) executeAndPersist(ctx context.Context, deps *ExportDeps, input
 	allTags := make([]string, 0, len(input.Tags)+len(sysTags))
 	allTags = append(allTags, input.Tags...)
 	allTags = append(allTags, sysTags...)
+
+	if input.Resource != nil {
+		return t.landExport(ctx, deps, input, landedResult{
+			body: formatted, contentType: formatter.ContentType(), tags: allTags, rowCount: len(rows),
+		})
+	}
 
 	assetID, err := generateExportID()
 	if err != nil {
@@ -858,7 +889,8 @@ func exportInputSchema() map[string]any {
 			},
 			propName: map[string]any{
 				schemaKeyType: schemaTypeString,
-				schemaKeyDesc: "Display name for the exported asset; also used as the download filename. " +
+				schemaKeyDesc: "Display name for the exported asset, or for the managed resource a resource " +
+					"destination lands in; also used as the download filename for an asset. " +
 					"Use ASCII letters, digits, spaces, hyphens, and dots. " +
 					"Em/en dashes, smart quotes, ellipses, and other Unicode punctuation are auto-normalized to ASCII.",
 				"maxLength": maxExportNameLength,
@@ -889,6 +921,7 @@ func exportInputSchema() map[string]any {
 				schemaKeyType: "boolean",
 				schemaKeyDesc: "Generate a public share link for the exported asset. Useful for automation pipelines that need a shareable URL.",
 			},
+			propResource: resourceDestinationSchema(),
 		},
 		"required": []string{propSQL, propFormat, propName},
 	}

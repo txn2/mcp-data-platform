@@ -131,10 +131,14 @@ type ExportUserContext struct {
 // A nil AssetStore is export disabled: the tool is not registered, so
 // the model never sees one it could not successfully call.
 type ExportDeps struct {
-	AssetStore     ExportAssetStore
-	VersionStore   ExportVersionStore
-	S3Client       ExportS3Client
-	ShareCreator   ExportShareCreator
+	AssetStore   ExportAssetStore
+	VersionStore ExportVersionStore
+	S3Client     ExportS3Client
+	ShareCreator ExportShareCreator
+	// ResourceLander lands a result in a managed resource by path instead of in
+	// a new asset (#1663). nil leaves the asset destination the only one, which
+	// is what a deployment with no managed-resource library has.
+	ResourceLander toolkit.ResourceLander
 	S3Bucket       string
 	S3Prefix       string
 	BaseURL        string
@@ -179,12 +183,15 @@ type exportInput struct {
 	Tags             []string        `json:"tags,omitempty"`
 	IdempotencyKey   string          `json:"idempotency_key,omitempty"`
 	CreatePublicLink bool            `json:"create_public_link,omitempty"`
+	// Resource, when set, lands the result in the managed resource at that path
+	// instead of in a new portal asset (#1663).
+	Resource *toolkit.ResourceDestination `json:"resource,omitempty"`
 }
 
 // exportOutput is the asset metadata the model gets back. The data
 // itself is not in it: that is the whole point of the tool.
 type exportOutput struct {
-	AssetID     string            `json:"asset_id"`
+	AssetID     string            `json:"asset_id,omitempty"`
 	PortalURL   string            `json:"portal_url,omitempty"`
 	ShareURL    string            `json:"share_url,omitempty"`
 	ContentType string            `json:"content_type,omitempty"`
@@ -192,7 +199,12 @@ type exportOutput struct {
 	Operations  []string          `json:"operations,omitempty"`
 	Errors      []Error           `json:"errors,omitempty"`
 	Pagination  *PaginationReport `json:"pagination,omitempty"`
-	Message     string            `json:"message"`
+	// Resource is where a resource destination landed the result (#1663): the
+	// reference and uri to hand to the next call, the version written, and what
+	// the write did to the tables registered over the file. Set instead of
+	// asset_id, never beside it.
+	Resource *toolkit.ResourceLanding `json:"resource,omitempty"`
+	Message  string                   `json:"message"`
 }
 
 // registerExportTool registers graphql_export, but only when the
@@ -211,9 +223,15 @@ func (t *Toolkit) registerExportTool(s *mcp.Server) {
 			"through the model context. Use this when graphql_query reports data_truncated, when you expect a " +
 			"result too large to be useful through the model, or when you want to hand the data to another tool " +
 			"or share it with a person. The document is parsed, validated and authorized exactly as graphql_query " +
-			"validates it, and paginate walks pages the same way. Returns asset metadata (id, URL, size) — the " +
+			"validates it, and paginate walks pages the same way. " +
+			"Pass `resource` to land the result in a MANAGED RESOURCE at a path instead of a new asset: the same " +
+			"path next time is the NEXT VERSION of that one file, keeping its id, its mcp:// URI, the assets that " +
+			"reference it and the tables registered over it. That is the destination for a document run on a " +
+			"schedule. " +
+			"Returns asset metadata (id, URL, size), or the resource's reference, uri and version — the " +
 			"data is NOT in this response. NAMING: keep `name` short and portable, ASCII letters, digits, spaces, " +
-			"hyphens and dots only; it doubles as the download filename.",
+			"hyphens and dots only; it doubles as the download filename, and is the display name when a resource " +
+			"destination names the filename itself.",
 		InputSchema: exportSchema,
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: false},
 	}, t.handleExport)
@@ -234,6 +252,11 @@ func (t *Toolkit) handleExport(ctx context.Context, _ *mcp.CallToolRequest, in e
 	uc := resolveExportUser(ctx, deps)
 	if uc == nil {
 		return toolkit.ErrorResult("authentication required for graphql_export"), nil, nil
+	}
+	if in.Resource != nil {
+		if denial := checkResourceDestination(ctx, deps, in); denial != nil {
+			return denial, nil, nil
+		}
 	}
 	prepared, errMsg := t.prepare(ctx, in.query())
 	if errMsg != "" {
@@ -280,6 +303,9 @@ func (t *Toolkit) runExport(ctx context.Context, deps *ExportDeps, uc *ExportUse
 	if int64(len(payload)) > deps.Config.MaxBytes {
 		return nil, fmt.Errorf("the result (%d bytes) exceeds the graphql_export cap of %d bytes — narrow the selection or the page size, or ask an administrator to raise platform.export.max_bytes",
 			len(payload), deps.Config.MaxBytes)
+	}
+	if in.Resource != nil {
+		return landExport(ctx, deps, in, payload, result)
 	}
 	assetID, size, err := t.persist(ctx, deps, uc, in, payload)
 	if err != nil {

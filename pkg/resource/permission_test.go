@@ -672,3 +672,43 @@ func TestCanSeeLibrary(t *testing.T) {
 		"write authority over a library is authority to read it")
 	assert.True(t, CanSeeLibrary(admin, ScopeFilter{Scope: ScopeUser, ScopeID: "someone-else"}))
 }
+
+// TestResolveScopeFor covers the one rule every managed-resource write surface
+// settles an unnamed library by: the caller's own, by the address an unattended
+// caller acts for when it has one, and a named library left exactly as named.
+func TestResolveScopeFor(t *testing.T) {
+	person := Claims{Sub: "user-1", Email: "analyst@example.com"}
+	run := Claims{Sub: "script:daily", OnBehalfOf: "author@example.com"}
+
+	tests := map[string]struct {
+		scope     Scope
+		scopeID   string
+		claims    Claims
+		wantScope Scope
+		wantID    string
+	}{
+		"nothing named falls to the caller's own library": {
+			"", "", person, ScopeUser, "user-1",
+		},
+		"an unattended caller files under the person it acts for": {
+			"", "", run, ScopeUser, "author@example.com",
+		},
+		"a named user library is left as named": {
+			ScopeUser, "somebody-else", person, ScopeUser, "somebody-else",
+		},
+		"a persona library keeps its persona": {
+			ScopePersona, "analyst", person, ScopePersona, "analyst",
+		},
+		"the global library carries no id": {
+			ScopeGlobal, "ignored", person, ScopeGlobal, "",
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			scope, scopeID := ResolveScopeFor(tt.scope, tt.scopeID, tt.claims)
+			if scope != tt.wantScope || scopeID != tt.wantID {
+				t.Errorf("ResolveScopeFor = (%q, %q); want (%q, %q)", scope, scopeID, tt.wantScope, tt.wantID)
+			}
+		})
+	}
+}

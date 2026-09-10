@@ -85,8 +85,17 @@ func TestExportRegistration_AcceptsEveryPublishedProperty(t *testing.T) {
 		"limit": 10, "idempotency_key": "k1", "timeout_seconds": 30,
 		"create_public_link": false,
 	}
-	// Every published property must appear in the sample, or the walk proves
-	// nothing about the ones it skipped.
+	// The resource destination is walked separately: it is refused before the
+	// query by the destination check on a toolkit with no managed-resource
+	// library, so a call carrying it cannot also prove the query was reached.
+	// The refusal it earns is the proof the SDK accepted the property, which is
+	// what this test is about.
+	resourceArgs := map[string]any{
+		"sql": "SELECT 1", "format": "csv", "name": "rows",
+		"resource": map[string]any{"path": "datasets", "filename": "rows.csv"},
+	}
+	// Every published property must appear in one of the samples, or the walk
+	// proves nothing about the ones it skipped.
 	schemaRaw, err := json.Marshal(exportInputSchema())
 	if err != nil {
 		t.Fatalf("marshal schema: %v", err)
@@ -98,7 +107,9 @@ func TestExportRegistration_AcceptsEveryPublishedProperty(t *testing.T) {
 		t.Fatalf("unmarshal schema: %v", err)
 	}
 	for name := range obj.Properties {
-		if _, ok := args[name]; !ok {
+		_, inAsset := args[name]
+		_, inResource := resourceArgs[name]
+		if !inAsset && !inResource {
 			t.Fatalf("published property %q missing from the sample call", name)
 		}
 	}
@@ -113,5 +124,13 @@ func TestExportRegistration_AcceptsEveryPublishedProperty(t *testing.T) {
 	}
 	if text := firstTextBlock(res); !strings.Contains(text, "query execution failed") {
 		t.Fatalf("valid arguments did not reach the handler's query step; got: %s", text)
+	}
+
+	landing, err := sess.CallTool(context.Background(), &mcp.CallToolParams{Name: exportToolName, Arguments: resourceArgs})
+	if err != nil {
+		t.Fatalf("call: %v", err)
+	}
+	if text := firstTextBlock(landing); !strings.Contains(text, "managed-resource library") {
+		t.Fatalf("a resource destination was not accepted by the schema and answered by the handler; got: %s", text)
 	}
 }

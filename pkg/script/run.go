@@ -89,9 +89,18 @@ type RunOutput struct {
 	AssetID      string `json:"asset_id,omitempty"`
 	AssetVersion int    `json:"asset_version,omitempty"`
 
-	// Bucket and Key locate a delivered object.
+	// Bucket and Key locate a delivered object. Key alone, with no bucket,
+	// locates a file in the managed-resource library.
 	Bucket string `json:"bucket,omitempty"`
 	Key    string `json:"key,omitempty"`
+
+	// ResourceID, ResourceURI and ResourceVersion identify a managed-resource
+	// output (#1663): the file this output is, and the version this run
+	// recorded. The id and the uri are the same every run, which is what that
+	// destination is for; the version is what moved.
+	ResourceID      string `json:"resource_id,omitempty"`
+	ResourceURI     string `json:"resource_uri,omitempty"`
+	ResourceVersion int    `json:"resource_version,omitempty"`
 
 	Format   string `json:"format"`
 	RowCount int    `json:"row_count"`

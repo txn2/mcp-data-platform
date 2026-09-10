@@ -127,7 +127,7 @@ func TestOutputWriter_ReclaimedRunDoesNotDeliverTwice(t *testing.T) {
 	first, err := h.writer.Export(ctx, deliveryRequest("daily", ""))
 	require.NoError(t, err)
 
-	reclaimed := newOutputWriter(h.writer.deps, h.runs, h.run, h.writer.script, h.caller)
+	reclaimed := newOutputWriter(h.writer.deps, h.runs, claimedRun{run: h.run, script: h.writer.script, version: testVersion()}, h.caller)
 	again, err := reclaimed.Export(ctx, deliveryRequest("daily", ""))
 	require.NoError(t, err)
 

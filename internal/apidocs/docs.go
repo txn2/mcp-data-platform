@@ -26756,7 +26756,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "bucket": {
-                    "description": "Bucket and Key locate a delivered object.",
+                    "description": "Bucket and Key locate a delivered object. Key alone, with no bucket,\nlocates a file in the managed-resource library.",
                     "type": "string"
                 },
                 "bytes": {
@@ -26782,6 +26782,16 @@ const docTemplate = `{
                 "refresh": {
                     "description": "Refresh marks a platform.publish_data write: the run replaced the data\nregion of an existing asset rather than writing a whole output, so Bytes\nis the payload spliced in, not the document.",
                     "type": "boolean"
+                },
+                "resource_id": {
+                    "description": "ResourceID, ResourceURI and ResourceVersion identify a managed-resource\noutput (#1663): the file this output is, and the version this run\nrecorded. The id and the uri are the same every run, which is what that\ndestination is for; the version is what moved.",
+                    "type": "string"
+                },
+                "resource_uri": {
+                    "type": "string"
+                },
+                "resource_version": {
+                    "type": "integer"
                 },
                 "row_count": {
                     "type": "integer"

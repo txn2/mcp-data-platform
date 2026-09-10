@@ -94,6 +94,22 @@ describe("outputs", () => {
     expect(link.detail).toBe("data refresh, asset version 43");
   });
 
+  it("links a library output to the file and names the version this run wrote", () => {
+    const link = outputLink({
+      name: "daily-sales",
+      destination: "resources",
+      key: "datasets/daily.csv",
+      resource_id: "res-1",
+      resource_uri: "mcp://user/jane@example.com/datasets/daily.csv",
+      resource_version: 7,
+      format: "csv",
+      row_count: 10,
+      bytes: 100,
+    });
+    expect(link.href).toBe("/resources/res-1");
+    expect(link.detail).toBe("library file datasets/daily.csv, version 7");
+  });
+
   it("names a delivered object without offering a link to it", () => {
     const link = outputLink({
       name: "daily-sales",

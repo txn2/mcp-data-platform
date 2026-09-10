@@ -6185,7 +6185,9 @@ definitions:
       asset_version:
         type: integer
       bucket:
-        description: Bucket and Key locate a delivered object.
+        description: |-
+          Bucket and Key locate a delivered object. Key alone, with no bucket,
+          locates a file in the managed-resource library.
         type: string
       bytes:
         type: integer
@@ -6213,6 +6215,17 @@ definitions:
           region of an existing asset rather than writing a whole output, so Bytes
           is the payload spliced in, not the document.
         type: boolean
+      resource_id:
+        description: |-
+          ResourceID, ResourceURI and ResourceVersion identify a managed-resource
+          output (#1663): the file this output is, and the version this run
+          recorded. The id and the uri are the same every run, which is what that
+          destination is for; the version is what moved.
+        type: string
+      resource_uri:
+        type: string
+      resource_version:
+        type: integer
       row_count:
         type: integer
       tables:

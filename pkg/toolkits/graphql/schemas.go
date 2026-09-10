@@ -1,6 +1,10 @@
 package graphql
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
+)
 
 // The JSON Schemas the three tools advertise. They are written by hand
 // rather than derived from the input structs because the descriptions
@@ -155,6 +159,20 @@ var exportSchema = json.RawMessage(`{
       "minimum": 1,
       "maximum": 600,
       "description": "Optional per-call timeout. The connection's own call_timeout still applies and the lower of the two wins."
-    },` + paginateSchemaProperty + `
+    },
+    "tags": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Optional tags for categorization, carried by the asset or the managed resource this call writes."
+    },
+    "idempotency_key": {
+      "type": "string",
+      "description": "Optional idempotency key. When supplied, a prior export by this caller with the same key returns the existing asset's metadata without re-running the document. Not valid with a resource destination, which already makes a repeat call the next version of one file."
+    },
+    "create_public_link": {
+      "type": "boolean",
+      "description": "When true, also create a public share link for the resulting asset. Returns share_url alongside the asset metadata."
+    },
+    "resource": ` + toolkit.ResourceDestinationSchema + `,` + paginateSchemaProperty + `
   }
 }`)

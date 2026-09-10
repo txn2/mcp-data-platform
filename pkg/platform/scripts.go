@@ -36,6 +36,10 @@ func wireScripts(p *Platform) *scriptexec.Handle {
 			// asset (#1536). The registrar does not exist yet; the portal
 			// layer reaches it through the toolkit it is bound to later.
 			FollowTables: p.portalStore.FollowAssetTables,
+			// The same managed-resource destination the export tools land in
+			// (#1663), which is how a script's output becomes one rolling file
+			// with a version history rather than an asset series only it owns.
+			Lander: p.portalStore.ResourceLanding(),
 		},
 		Audit:                 p.audit.Logger(),
 		Metrics:               p.obs.Metrics(),

@@ -1,6 +1,10 @@
 package apigateway
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
+)
 
 // Every api_* input schema below is closed at the top level
 // ("additionalProperties": false), so a misnamed argument is refused by the
@@ -146,7 +150,7 @@ var apiExportInputSchema = json.RawMessage(`{
     },
     "name": {
       "type": "string",
-      "description": "Asset display name; doubles as download filename. Keep short and ASCII-only (letters, digits, spaces, hyphens, dots). Required."
+      "description": "Asset display name; doubles as download filename. Keep short and ASCII-only (letters, digits, spaces, hyphens, dots). Required. With a resource destination it is the file's display name in the library and the filename comes from resource.filename instead."
     },
     "description": {
       "type": "string",
@@ -164,7 +168,8 @@ var apiExportInputSchema = json.RawMessage(`{
     "create_public_link": {
       "type": "boolean",
       "description": "When true, also create a public share link for the resulting asset. Returns share_url alongside the asset metadata."
-    },` + paginateSchemaProperty + `
+    },
+    "resource": ` + toolkit.ResourceDestinationSchema + `,` + paginateSchemaProperty + `
   }
 }`)
 

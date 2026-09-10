@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"cmp"
 	"slices"
 	"strings"
 )
@@ -443,4 +444,33 @@ func isPersonaAdmin(c Claims, personaName string) bool {
 	}
 	return slices.Contains(c.AdminOfPersonas, personaName) ||
 		slices.Contains(c.Roles, "persona-admin:"+personaName)
+}
+
+// ResolveScopeFor settles the library a write files a resource in when its
+// caller named only part of one.
+//
+// The default is the caller's own user library, the one place every
+// authenticated caller may write; a persona or global library is named
+// explicitly, because it is visible to people other than its author.
+//
+// "The caller's own" is the person, not the principal. A managed-script run
+// authenticates as script:<name>, and defaulting to that would file the resource
+// in a library belonging to nobody: present to the run and absent from its
+// author's Resources page, which is where the person who scheduled it will look.
+// It defaults to the address the run acts for instead (#1419).
+//
+// It is here rather than on each write surface because the two are the same
+// decision. manage_resource and an export destination that disagreed about where
+// "no scope" means would file one caller's two writes in two libraries.
+func ResolveScopeFor(scope Scope, scopeID string, claims Claims) (resolved Scope, resolvedID string) {
+	if scope == "" {
+		scope = ScopeUser
+	}
+	if scope == ScopeUser && scopeID == "" {
+		scopeID = cmp.Or(claims.OnBehalfOf, claims.Sub)
+	}
+	if scope == ScopeGlobal {
+		scopeID = ""
+	}
+	return scope, scopeID
 }

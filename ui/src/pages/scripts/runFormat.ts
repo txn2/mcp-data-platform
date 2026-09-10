@@ -67,24 +67,35 @@ export function dryRunOutputPhrase(o: {
 }
 
 // OutputLink is how one output of a run is presented: an asset the platform
-// still serves carries a path to it, and an object delivered to a bucket
-// carries only where it was written, because the bytes left the platform and
-// nothing here will serve them back.
+// still serves carries a path to it, a file in the resource library carries a
+// path to the file and the version this run wrote of it, and an object
+// delivered to a bucket carries only where it was written, because the bytes
+// left the platform and nothing here will serve them back.
 export interface OutputLink {
   label: string;
   detail: string;
   href?: string;
 }
 
-// outputLink describes one recorded output of a run.
+// assetDetail reads an asset output's line: a whole write, or the data-region
+// refresh that replaced part of one.
+function assetDetail(output: ScriptRunOutput): string {
+  const version = output.asset_version ?? 1;
+  return output.refresh ? `data refresh, asset version ${version}` : `asset version ${version}`;
+}
+
+// outputLink describes one recorded output of a run. Which locator the record
+// carries decides the line: an asset, a file in the resource library, an object
+// in a bucket, or none of the three.
 export function outputLink(output: ScriptRunOutput): OutputLink {
   if (output.asset_id) {
+    return { label: output.name, detail: assetDetail(output), href: `/assets/${output.asset_id}` };
+  }
+  if (output.resource_id) {
     return {
       label: output.name,
-      detail: output.refresh
-        ? `data refresh, asset version ${output.asset_version ?? 1}`
-        : `asset version ${output.asset_version ?? 1}`,
-      href: `/assets/${output.asset_id}`,
+      detail: `library file ${output.key ?? ""}, version ${output.resource_version ?? 1}`,
+      href: `/resources/${output.resource_id}`,
     };
   }
   if (output.bucket) {

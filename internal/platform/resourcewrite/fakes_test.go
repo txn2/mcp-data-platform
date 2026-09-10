@@ -26,14 +26,25 @@ type memStore struct {
 	insertErr error
 	// getErr, if set, is what Get returns for any id.
 	getErr error
+	// getByURIErr, if set, is what GetByURI returns for any address. It is
+	// separate from getErr because the two reads answer different questions and
+	// a caller acts differently on each failing.
+	getByURIErr error
 	// addRevisionErr, if set, is what the next AddRevision returns.
 	addRevisionErr error
+	// aliases maps every address a resource has vacated by being moved to the
+	// resource that vacated it, which is what the Postgres store records inside
+	// a move's transaction (resource_uri_aliases). GetByURI consults it after a
+	// live miss, so a citation written before a move keeps resolving; without it
+	// here a test would assert an answer production does not give.
+	aliases map[string]string
 }
 
 func newMemStore() *memStore {
 	return &memStore{
 		resources: map[string]*resource.Resource{},
 		versions:  map[string][]resource.Version{},
+		aliases:   map[string]string{},
 	}
 }
 
@@ -88,11 +99,23 @@ func (m *memStore) GetByIDs(_ context.Context, ids []string) (map[string]*resour
 	return out, nil
 }
 
+// GetByURI answers by live address first and by the alias trail second, which is
+// the order the Postgres store reads them in: whoever holds an address now wins,
+// and a vacated address still reaches the file that left it.
 func (m *memStore) GetByURI(_ context.Context, uri string) (*resource.Resource, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.getByURIErr != nil {
+		return nil, m.getByURIErr
+	}
 	for _, r := range m.resources {
 		if r.URI == uri {
+			copied := *r
+			return &copied, nil
+		}
+	}
+	if id, aliased := m.aliases[uri]; aliased {
+		if r, ok := m.resources[id]; ok {
 			copied := *r
 			return &copied, nil
 		}
@@ -154,6 +177,13 @@ func (m *memStore) Move(_ context.Context, moves []resource.Move) error {
 	}
 	for i, mv := range moves {
 		r := staged[i]
+		// The vacated address becomes an alias of the resource that left it, and
+		// the address it now holds stops being an alias of anything: both halves
+		// of what the Postgres store does inside the move's transaction.
+		if r.URI != "" && r.URI != mv.URI {
+			m.aliases[r.URI] = mv.ID
+		}
+		delete(m.aliases, mv.URI)
 		r.Scope, r.ScopeID, r.Path, r.URI = mv.Scope, mv.ScopeID, mv.Path, mv.URI
 	}
 	return nil

@@ -16,6 +16,18 @@ import (
 // the shortest thing to write.
 const DestinationPortal = "portal"
 
+// DestinationResources is the name of the managed-resource destination: a file
+// in the platform's resource library, addressed by the path the script writes as
+// the key (#1663).
+//
+// It is built in like the portal, and for the same reason: the platform owns
+// where its own library is, and there is nothing for configuration to point
+// somewhere else. What it adds over the portal is the address. A portal output's
+// identity is the output NAME, so a script's outputs are its own; a resource
+// output's identity is a PATH, which a person, a second script, and a table
+// registration can all name.
+const DestinationResources = "resources"
+
 // Destination kinds. The kind decides what the platform does with the bytes,
 // and the set is closed: a destination is a place the platform implements a
 // write for, not an open transport.
@@ -26,10 +38,14 @@ const (
 	// DestinationKindS3 writes an object to a bucket over a named platform S3
 	// connection. It is the only way an output leaves the platform.
 	DestinationKindS3 = "s3"
+
+	// DestinationKindResource versions the managed resource at a path in the
+	// platform's own library, creating it the first time (#1663).
+	DestinationKindResource = "resource"
 )
 
 // DestinationKinds is the full set of destination kinds.
-var DestinationKinds = []string{DestinationKindPortal, DestinationKindS3}
+var DestinationKinds = []string{DestinationKindPortal, DestinationKindS3, DestinationKindResource}
 
 // Key limits. maxObjectKeyLength is S3's own limit on a full key; a
 // destination's prefix is bounded well inside it so the key a script writes
@@ -82,10 +98,24 @@ func PortalDestination() Destination {
 // IsPortal reports whether the destination is the platform's own asset store.
 func (d Destination) IsPortal() bool { return d.Kind == DestinationKindPortal }
 
+// ResourcesDestination returns the canonical managed-resource destination.
+func ResourcesDestination() Destination {
+	return Destination{Name: DestinationResources, Kind: DestinationKindResource}
+}
+
+// IsResource reports whether the destination is the platform's own managed
+// resource library.
+func (d Destination) IsResource() bool { return d.Kind == DestinationKindResource }
+
+// IsBuiltIn reports whether the platform owns this destination's address, which
+// is what makes it available without configuration and what makes declaring it
+// meaningless.
+func (d Destination) IsBuiltIn() bool { return d.IsPortal() || d.IsResource() }
+
 // Label renders a destination for an error message or a log line: the name a
 // script writes, and the address it resolves to.
 func (d Destination) Label() string {
-	if d.IsPortal() {
+	if d.IsBuiltIn() {
 		return d.Name
 	}
 	return fmt.Sprintf("%s (%s %s %s/%s)", d.Name, d.Kind, d.Connection, d.Bucket, d.Prefix)
@@ -112,23 +142,37 @@ func (d Destination) Validate() error {
 		return fmt.Errorf("destination %q has unknown kind %q: the platform implements %v",
 			d.Name, d.Kind, DestinationKinds)
 	}
-	if d.IsPortal() {
-		return d.validatePortal()
+	if d.IsBuiltIn() {
+		return d.validateBuiltIn()
 	}
 	return d.validateBucket()
 }
 
-// validatePortal refuses a portal destination carrying an address. The
-// platform owns where its own assets live, so a connection or bucket here
-// would be an address nothing reads.
-func (d Destination) validatePortal() error {
-	if d.Name != DestinationPortal {
-		return fmt.Errorf("the portal destination must be named %q, not %q", DestinationPortal, d.Name)
+// validateBuiltIn refuses a built-in destination carrying an address. The
+// platform owns where its own assets and its own library live, so a connection
+// or bucket here would be an address nothing reads.
+func (d Destination) validateBuiltIn() error {
+	name := DestinationPortal
+	if d.IsResource() {
+		name = DestinationResources
+	}
+	if d.Name != name {
+		return fmt.Errorf("the %s destination must be named %q, not %q", d.Kind, name, d.Name)
 	}
 	if d.Connection != "" || d.Bucket != "" || d.Prefix != "" {
-		return errors.New("the portal destination takes no connection, bucket, or prefix: the platform owns where its own assets are stored")
+		return fmt.Errorf("the %q destination takes no connection, bucket, or prefix: the platform owns where its own %s are stored",
+			name, builtInSubject(d.Kind))
 	}
 	return nil
+}
+
+// builtInSubject names what a built-in destination stores, for the refusal
+// above.
+func builtInSubject(kind string) string {
+	if kind == DestinationKindResource {
+		return "library files"
+	}
+	return "assets"
 }
 
 // validateBucket refuses an external destination that does not name a complete
@@ -139,8 +183,8 @@ func (d Destination) validateBucket() error {
 	// bucket wearing it would make every surface that resolves destinations by
 	// name lie: an export naming no destination defaults to "portal", and a
 	// data-region refresh writes only portal documents.
-	if d.Name == DestinationPortal {
-		return fmt.Errorf("the destination name %q is reserved for the platform's own asset store; give the bucket destination its own name", DestinationPortal)
+	if d.Name == DestinationPortal || d.Name == DestinationResources {
+		return fmt.Errorf("the destination name %q is reserved for one of the platform's own stores; give the bucket destination its own name", d.Name)
 	}
 	if d.Connection == "" {
 		return fmt.Errorf("destination %q must name the platform connection it writes over; a script never supplies one", d.Name)
@@ -166,8 +210,8 @@ func (d Destination) validateBucket() error {
 func ValidateDeclaredDestinations(destinations []Destination) error {
 	seen := make(map[string]bool, len(destinations))
 	for _, d := range destinations {
-		if d.IsPortal() {
-			return errors.New("the portal destination is built in and cannot be declared")
+		if d.IsBuiltIn() {
+			return fmt.Errorf("the %q destination is built in and cannot be declared", d.Name)
 		}
 		if err := d.Validate(); err != nil {
 			return err
@@ -178,6 +222,36 @@ func ValidateDeclaredDestinations(destinations []Destination) error {
 		seen[d.Name] = true
 	}
 	return nil
+}
+
+// SplitLibraryKey reads the key a script writes to the managed-resource
+// destination as the address it is: the folder chain inside the library, and the
+// file's name within it (#1663).
+//
+// It is one string rather than two arguments because that is how the file is
+// written everywhere else it is named: in the portal's own breadcrumb, in the
+// mcp:// URI, and in the table registration that follows it. A script writing
+// key="datasets/acme/orders.csv" and a person looking at
+// datasets/acme/orders.csv are looking at the same words.
+//
+// The folder is required because a managed resource is filed in one, the same way
+// an upload through the portal is. The refusal says so rather than inventing a
+// folder, because a file landing somewhere the source does not name is the
+// problem this whole destination exists to avoid.
+//
+// The segment rules are the object key's own, so one key grammar covers both
+// destinations a script can address by key. What a library accepts beyond that --
+// the folder depth, the characters a filename keeps -- is the library's to
+// enforce at the write, and it reports its own refusals.
+func SplitLibraryKey(key string) (path, filename string, err error) {
+	if err := ValidateObjectKey(key); err != nil {
+		return "", "", err
+	}
+	i := strings.LastIndex(key, "/")
+	if i < 0 {
+		return "", "", fmt.Errorf("the key %q names a file but no folder; a file in the library is filed in one, so write it as \"datasets/%s\"", key, key)
+	}
+	return key[:i], key[i+1:], nil
 }
 
 // ValidateObjectKey checks a relative object key: the configured prefix of a
