@@ -243,8 +243,14 @@ type Hit struct {
 	Table *HitTable `json:"table,omitempty"`
 }
 
-// HitTable is one registration over a file: the connection to run against, the
-// name to write in the FROM clause, and the state of the registration itself.
+// HitTable is one registration over a file, projected for the caller who wants
+// to query it: the connection to run against, the name to write in the FROM
+// clause, the columns to select, and enough of the registration's state to know
+// whether the answer can be trusted.
+//
+// This is the `tables` a search hit and a fetched document carry. The same
+// registrations under `table_registrations` on manage_table action=list are the
+// maintenance view of the same records (#1666).
 //
 // Sample carries a statement showing the CAST a join needs, because a table
 // registered over a CSV has VARCHAR for every column and the obvious join
@@ -262,11 +268,16 @@ type HitTable struct {
 	RegistrationID string `json:"registration_id,omitempty"`
 	Connection     string `json:"connection"`
 	Table          string `json:"query_table"`
-	Sample         string `json:"sample_sql,omitempty"`
-	Stale          bool   `json:"stale,omitempty"`
-	Follow         bool   `json:"follow"`
-	Repair         bool   `json:"repair"`
-	FollowError    string `json:"follow_error,omitempty"`
+	// Columns are the table's column names, in order. They are carried so a
+	// caller that fetched the record can write the SELECT without describing
+	// the table first (#1666); every one is VARCHAR when the file is a CSV,
+	// which is what Sample shows the CAST for.
+	Columns     []string `json:"columns,omitempty"`
+	Sample      string   `json:"sample_sql,omitempty"`
+	Stale       bool     `json:"stale,omitempty"`
+	Follow      bool     `json:"follow"`
+	Repair      bool     `json:"repair"`
+	FollowError string   `json:"follow_error,omitempty"`
 }
 
 // HitLink is the client-attachable file behind a Hit: the canonical resource URI

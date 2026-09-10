@@ -68,8 +68,8 @@ func (w *outputWriter) writeResource(
 		ResourceURI:     landing.URI,
 		ResourceVersion: landing.Version,
 		Format:          req.Format, RowCount: len(req.Rows), Document: req.Body != nil,
-		Bytes:  len(data),
-		Tables: landing.Tables,
+		Bytes:        len(data),
+		TableChanges: landing.TableChanges,
 	}
 	return &scriptrun.ExportResult{
 		Key:             req.Key,
@@ -78,7 +78,7 @@ func (w *outputWriter) writeResource(
 		ResourceURI:     landing.URI,
 		ResourceVersion: landing.Version,
 		Bytes:           len(data),
-		Tables:          landing.Tables,
+		TableChanges:    landing.TableChanges,
 	}, out, nil
 }
 

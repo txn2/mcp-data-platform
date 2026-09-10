@@ -330,10 +330,11 @@ type Handler struct {
 // statusResponse is a generic status response.
 type statusResponse struct {
 	Status string `json:"status" example:"ok"`
-	// Tables is what a content write did to the tables registered over the
-	// asset's file (#1536), one sentence per table, absent when there are
-	// none.
-	Tables []string `json:"tables,omitempty"`
+	// TableChanges is what a content write did to the tables registered over
+	// the asset's file (#1536), one sentence per table, absent when there are
+	// none. It is a change report rather than the `tables` a caller queries,
+	// and is named apart from them for that reason (#1666).
+	TableChanges []string `json:"table_changes,omitempty"`
 }
 
 // @title MCP Data Platform API

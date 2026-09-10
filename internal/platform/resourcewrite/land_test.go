@@ -94,7 +94,7 @@ func TestLandReplacesTheFileAlreadyAtThePath(t *testing.T) {
 	assert.False(t, second.Created)
 	assert.Equal(t, 2, second.Version)
 	assert.Equal(t, []int{2}, lf.followed, "the tables over the file follow the version written")
-	assert.Equal(t, lf.tables, second.Tables)
+	assert.Equal(t, lf.tables, second.TableChanges)
 	assert.Contains(t, second.Message, "acme.orders followed onto version 2.")
 
 	versions, err := lf.store.ListVersions(context.Background(), second.ResourceID)

@@ -222,7 +222,7 @@ func (w *outputWriter) writePortal(ctx context.Context, req scriptrun.ExportRequ
 		return nil, script.RunOutput{}, err
 	}
 	summary := fmt.Sprintf("%s v%d, run %s", w.script.Name, w.run.Version, w.run.ID)
-	version, tables, err := w.storeVersion(ctx, asset.ID, identity, data, summary)
+	version, changes, err := w.storeVersion(ctx, asset.ID, identity, data, summary)
 	if err != nil {
 		return nil, script.RunOutput{}, fmt.Errorf("writing output %q: %w", req.Name, err)
 	}
@@ -230,9 +230,11 @@ func (w *outputWriter) writePortal(ctx context.Context, req scriptrun.ExportRequ
 		Name: req.Name, Destination: req.Destination.Name,
 		AssetID: asset.ID, AssetVersion: version,
 		Format: req.Format, RowCount: len(req.Rows), Document: req.Body != nil,
-		Bytes: len(data), Tables: tables,
+		Bytes: len(data), TableChanges: changes,
 	}
-	return &scriptrun.ExportResult{AssetID: asset.ID, AssetVersion: version, Bytes: len(data), Tables: tables}, out, nil
+	return &scriptrun.ExportResult{
+		AssetID: asset.ID, AssetVersion: version, Bytes: len(data), TableChanges: changes,
+	}, out, nil
 }
 
 // storeVersion is the one store step a script output version takes, shared by

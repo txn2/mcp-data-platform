@@ -68,7 +68,7 @@ function stubApi(detail: Resource | null) {
           ],
         });
       }
-      if (url.endsWith("/tables")) return json({ registrations: [] });
+      if (url.endsWith("/tables")) return json({ table_registrations: [] });
       if (url.endsWith("/table-connections")) {
         return json({
           connections: [{ name: "warehouse", catalog: "scratch", schema: "uploads" }],

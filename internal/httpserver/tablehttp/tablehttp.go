@@ -185,7 +185,7 @@ func (h *Handler) list(kind string, subject Subject) http.HandlerFunc {
 		for _, reg := range regs {
 			views = append(views, viewOf(reg, src))
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"registrations": views})
+		writeJSON(w, http.StatusOK, map[string]any{"table_registrations": views})
 	}
 }
 

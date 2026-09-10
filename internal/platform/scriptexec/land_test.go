@@ -51,7 +51,7 @@ func (f *fakeLander) Land(
 		ResourceID: "res-" + address, Reference: "mcp:resource:res-" + address,
 		URI: "mcp://user/jane@example.com/" + address, Filename: dest.Filename, Path: dest.Path,
 		ContentType: contentType, SizeBytes: int64(len(body)), Version: version,
-		Created: version == 1, Tables: f.tables, Message: "Landed.",
+		Created: version == 1, TableChanges: f.tables, Message: "Landed.",
 	}, nil
 }
 
@@ -120,7 +120,7 @@ func TestExportToTheLibraryIsRecordedOnTheRun(t *testing.T) {
 	assert.Equal(t, "res-datasets/orders.csv", out.ResourceID)
 	assert.Equal(t, "mcp://user/jane@example.com/datasets/orders.csv", out.ResourceURI)
 	assert.Equal(t, 1, out.ResourceVersion)
-	assert.Equal(t, lander.tables, out.Tables)
+	assert.Equal(t, lander.tables, out.TableChanges)
 }
 
 // Two outputs at one key would make the second a version of the first one's

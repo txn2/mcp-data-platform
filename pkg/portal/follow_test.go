@@ -47,7 +47,7 @@ func TestUpdateAssetContentFollowsTheTablesOverTheFile(t *testing.T) {
 	var resp statusResponse
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	assert.Equal(t, "updated", resp.Status)
-	assert.Equal(t, []string{"scratch.uploads.t on scratch now reads version 2."}, resp.Tables)
+	assert.Equal(t, []string{"scratch.uploads.t on scratch now reads version 2."}, resp.TableChanges)
 	assert.Equal(t, []string{"a1@2"}, follow.asked, "the hook is given the version the write produced")
 }
 
@@ -68,7 +68,7 @@ func TestRevertToVersionFollowsTheTablesOverTheFile(t *testing.T) {
 	var result map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
 	assert.Equal(t, float64(3), result["version"])
-	assert.Equal(t, []any{"scratch.uploads.t on scratch is pinned"}, result["tables"])
+	assert.Equal(t, []any{"scratch.uploads.t on scratch is pinned"}, result["table_changes"])
 	assert.Equal(t, []string{"a1@3"}, follow.asked)
 }
 
@@ -86,5 +86,5 @@ func TestContentWritesWithoutARegistrarSayNothingAboutTables(t *testing.T) {
 	h.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusOK, w.Code)
-	assert.NotContains(t, w.Body.String(), "tables")
+	assert.NotContains(t, w.Body.String(), "table_changes")
 }

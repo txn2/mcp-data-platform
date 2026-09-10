@@ -60,7 +60,7 @@ func (w *outputWriter) PublishData(ctx context.Context, req scriptrun.PublishReq
 		return nil, err
 	}
 
-	version, tables, err := w.writeRefreshedVersion(ctx, asset, spliced)
+	version, changes, err := w.writeRefreshedVersion(ctx, asset, spliced)
 	if err != nil {
 		return nil, err
 	}
@@ -68,10 +68,12 @@ func (w *outputWriter) PublishData(ctx context.Context, req scriptrun.PublishReq
 		Name: req.Name, Destination: destination,
 		AssetID: asset.ID, AssetVersion: version,
 		Format: scriptrun.PublishFormat, RowCount: scriptrun.PublishRowCount(req.Data),
-		Refresh: true, Bytes: len(payload), Tables: tables,
+		Refresh: true, Bytes: len(payload), TableChanges: changes,
 	}
 	w.record(ctx, out)
-	return &scriptrun.ExportResult{AssetID: asset.ID, AssetVersion: version, Bytes: len(payload), Tables: tables}, nil
+	return &scriptrun.ExportResult{
+		AssetID: asset.ID, AssetVersion: version, Bytes: len(payload), TableChanges: changes,
+	}, nil
 }
 
 // refreshTarget resolves the asset a refresh names — through the same identity

@@ -253,7 +253,7 @@ func TestDeleteRefusesWhileATableIsRegisteredOverTheFile(t *testing.T) {
 	}))
 
 	assert.False(t, out.Deleted)
-	assert.Equal(t, []string{"scratch.uploads.weather"}, out.Tables,
+	assert.Equal(t, []string{"scratch.uploads.weather"}, queryTableNames(out.TableRegistrations),
 		"a table is named where the other holders are counted, because manage_table already names it")
 	assert.Contains(t, out.Message, "scratch.uploads.weather")
 	assert.Empty(t, reg.droppedResources)
@@ -485,7 +485,7 @@ func TestDeleteTreatsAnUnreadableRegistrarAsNoTables(t *testing.T) {
 	}))
 
 	assert.True(t, out.Deleted, "the table half degrades; the three that would break silently do not")
-	assert.Empty(t, out.Tables)
+	assert.Empty(t, out.TableRegistrations)
 }
 
 func TestGetByAReferenceNamingAFileThatIsGone(t *testing.T) {

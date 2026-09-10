@@ -81,7 +81,7 @@ func TestIssue1546_AFollowReportsARegistrationWhoseTableIsGone(t *testing.T) {
 		"content":        "store_id,units\n1,11\n2,22\n3,33\n",
 		"change_summary": "Acceptance: a replace whose follow must notice the missing sibling.",
 	})
-	tables, _ := replaced["tables"].([]any)
+	tables, _ := replaced["table_changes"].([]any)
 	var reported bool
 	for _, line := range tables {
 		text, _ := line.(string)
@@ -94,7 +94,7 @@ func TestIssue1546_AFollowReportsARegistrationWhoseTableIsGone(t *testing.T) {
 	}
 
 	listing := c.call("manage_table", map[string]any{"action": "list", "reference": reference})
-	regs, _ := listing["registrations"].([]any)
+	regs, _ := listing["table_registrations"].([]any)
 	var flagged bool
 	for _, entry := range regs {
 		reg, _ := entry.(map[string]any)
@@ -158,7 +158,7 @@ func dropByHand(c *client, table string) {
 func siblingFollowError(c *client, reference, table string) string {
 	c.t.Helper()
 	listing := c.call("manage_table", map[string]any{"action": "list", "reference": reference})
-	regs, _ := listing["registrations"].([]any)
+	regs, _ := listing["table_registrations"].([]any)
 	for _, entry := range regs {
 		reg, _ := entry.(map[string]any)
 		if reg["query_table"] == table {
@@ -183,7 +183,7 @@ func TestIssue1546_AReplacingRegistrationReportsARegistrationWhoseTableIsGone(t 
 		"action": "register", "reference": reference, "connection": scratchResourceConnection,
 		"table_name": "acc_" + stamp,
 	})
-	tables, _ := replaced["tables"].([]any)
+	tables, _ := replaced["table_changes"].([]any)
 	var reported bool
 	for _, line := range tables {
 		text, _ := line.(string)

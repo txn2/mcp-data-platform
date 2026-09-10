@@ -965,8 +965,8 @@ func (h *Handler) updateAssetContent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, statusResponse{
-		Status: statusUpdated,
-		Tables: h.followTables(r.Context(), id, version),
+		Status:       statusUpdated,
+		TableChanges: h.followTables(r.Context(), id, version),
 	})
 }
 
@@ -1730,9 +1730,9 @@ func (h *Handler) revertToVersion(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"status":   statusReverted,
-		keyVersion: assignedVersion,
-		"tables":   h.followTables(r.Context(), id, assignedVersion),
+		"status":        statusReverted,
+		keyVersion:      assignedVersion,
+		"table_changes": h.followTables(r.Context(), id, assignedVersion),
 	})
 }
 
@@ -2636,10 +2636,11 @@ func (h *Handler) embedSearchQuery(ctx context.Context, query string) []float32 
 // statusResponse is a generic status response.
 type statusResponse struct {
 	Status string `json:"status" example:"updated"`
-	// Tables is what a content write did to the tables registered over the
-	// asset's file (#1536), one sentence per table, absent when there are
-	// none.
-	Tables []string `json:"tables,omitempty"`
+	// TableChanges is what a content write did to the tables registered over
+	// the asset's file (#1536), one sentence per table, absent when there are
+	// none. It is a change report rather than the `tables` a caller queries,
+	// and is named apart from them for that reason (#1666).
+	TableChanges []string `json:"table_changes,omitempty"`
 }
 
 // validateUpdateRequest validates the fields in an update request.

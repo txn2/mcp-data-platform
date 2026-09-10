@@ -330,9 +330,9 @@ type ExportResult struct {
 	ResourceVersion int
 	// Bytes is the serialized size actually written.
 	Bytes int
-	// Tables is what the version did to the tables registered over the
+	// TableChanges is what the version did to the tables registered over the
 	// output's file (#1536), one sentence per table.
-	Tables []string
+	TableChanges []string
 }
 
 // ExportRecord is what one platform.export call did, in call order on the run's
@@ -372,12 +372,15 @@ type ExportRecord struct {
 	ResourceRef     string `json:"reference,omitempty"`
 	ResourceURI     string `json:"uri,omitempty"`
 	ResourceVersion int    `json:"version,omitempty"`
-	// Tables is what the version did to the tables registered over the
+	// TableChanges is what the version did to the tables registered over the
 	// output's file (#1536): one sentence per table, saying it followed onto
 	// the version or is pinned and now behind it. The same sentences are
 	// printed into the run log, so the run's history says the table moved, or
 	// did not, without the script having to print anything.
-	Tables []string `json:"tables,omitempty"`
+	//
+	// It is a change report, not the `tables` a fetched reference carries,
+	// and is named apart from them for that reason (#1666).
+	TableChanges []string `json:"table_changes,omitempty"`
 }
 
 // Result reports one completed execution.

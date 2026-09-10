@@ -78,7 +78,7 @@ func replace1583(t *testing.T, c *client, reference string, content map[string]a
 		call[k] = v
 	}
 	replaced := c.call("manage_resource", call)
-	lines, _ := replaced["tables"].([]any)
+	lines, _ := replaced["table_changes"].([]any)
 	if len(lines) == 0 {
 		t.Fatalf("the write said nothing about the tables over the file: %v", replaced)
 	}

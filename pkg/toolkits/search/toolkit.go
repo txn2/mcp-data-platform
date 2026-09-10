@@ -326,8 +326,11 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"fetch never reads content you could not have found with search: your own personal records, plus " +
 			"the insights the organization has applied. A stored file (an uploaded resource, a saved asset) " +
 			"carries \"tables\": every query-engine table registered over it, newest first, each with the " +
-			"sample SQL a join needs and, on any a follow could not move, the follow_error saying why that one " +
-			"may no longer be queryable.",
+			"connection, the query_table, its columns and the sample SQL a join needs, and, on any a follow " +
+			"could not move, the follow_error saying why that one may no longer be queryable. That is enough " +
+			"to write the query without a second call; manage_table action=list reports the same " +
+			"registrations under \"table_registrations\" when you need to change one instead. A search " +
+			"hit's \"table\" carries no columns: a hit is a pointer, and this is where the record is read.",
 		InputSchema:  fetchSchema,
 		OutputSchema: fetchResultSchema,
 	}, t.handleFetch)

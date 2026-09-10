@@ -148,11 +148,45 @@ DELETE /api/v1/portal/assets/{id}/tables/{registrationID}
 
 ## Finding what is registered
 
+### Two views, and the three words for them
+
+A registration is read for one of two reasons, and the platform answers each
+under its own key.
+
+| you want to | key | carried by | each row is |
+|---|---|---|---|
+| query the file | `tables` | a `fetch` document, a `search` hit (as one `table`) | connection, `query_table`, `columns`, `sample_sql`, and the `stale` / `follow_error` that say whether to trust the answer |
+| change a registration | `table_registrations` | `manage_table action=list`, `manage_resource action=delete` on a refusal, the per-file REST route | the same, plus the id an unregister takes, `registered_by`, `follow`, `repair` and `repaired` |
+
+The columns are on the document and not on the hit. A hit is a pointer chosen
+from a ranked page of them, and a page each carrying a wide table's column list
+is a large answer to the question of which record to read.
+
+The two tools name the registration `registration_id` and give the columns as
+plain names. The REST route answers under the same key with the stored record's
+own field names, so there the id is `id` and each column is a `{name, type}`
+object.
+
+A third key, `table_changes`, is not a list of tables at all. It is one
+sentence per table saying what a write just did to it, and it is carried by
+every surface that writes over a file: `manage_resource replace_content`, the
+`manage_asset` content edits, the portal and admin content routes, a script's
+export record, and the run log. The same sentences are appended to that
+result's `message`. See [Following the file](#following-the-file).
+
+Reading `tables` off a `manage_table action=list` result is the mistake this
+vocabulary exists to prevent: it used to answer under `registrations` while
+every other surface said `tables`, so a script checking for an existing
+registration found nothing and registered again on every run, changing the
+registration id each time while the table itself survived.
+
+### Scratch Tables
+
 The scratch schema is shared: everyone granted the connection sees every table
 in it. So the question "what is registered here" is one a reader has to be able
 to ask of the platform rather than of one file at a time.
 
-**Scratch Tables**, in the portal's own section list, answers it. One list of
+**Scratch Tables**, in the portal's own section list, answers that. One list of
 every registration, whichever kind of file each was built over: the qualified
 name to write in a `FROM` clause, the connection it lives on, the file behind
 it, how many columns it has, who registered it and when, and whether it is
@@ -461,12 +495,14 @@ version whose header differs gives the table the new columns.
 **The write says what happened to every table over the file.** The result of
 `manage_resource replace_content`, of `manage_asset` content edits and
 reverts, of the portal's and the admin console's content routes, and of a
-script's `platform.export` carries one sentence per registered table:
+script's `platform.export` carries `table_changes`, one sentence per
+registered table:
 `scratch.uploads.analyst_stores on scratch now reads version 7.` for a table
 that followed, or `... is pinned to the version it was registered over and is
 now behind this file; register it again to move it ...` for one that is not.
-A managed script's run log carries the same sentences, so a scheduled run that
-put a table behind its file says so in its history.
+The sentences are appended to the result's `message` as well. A managed
+script's run log carries them too, as `table_changes: <output>: <sentence>`,
+so a scheduled run that put a table behind its file says so in its history.
 
 **The write is never failed by the follow.** The file changed; that write
 succeeded. A follow the coordinator refuses leaves the registration where it
@@ -567,7 +603,7 @@ A follow, an unregister and a replacing registration each run `DROP TABLE`.
 Afterwards the write asks the connection whether every other registration on
 it still holds its table, records the ones that do not (`follow_error` opens
 with *The table no longer exists*), and says so: a follow reports it in the
-`tables` sentences beside the tables it moved (`<table> on <connection> no
+`table_changes` sentences beside the tables it moved (`<table> on <connection> no
 longer exists: the table was removed while <other> was moved to version N.
 Register it again to restore it.`), a replacing registration in its result,
 and an unregister on the registration rows the listing reads. A lookup the
@@ -598,15 +634,16 @@ JOIN scratch.uploads.analyst_vendor_keys u
 
 `search` carries a table reference on a hit for a registered file, and `fetch`
 carries a `tables` list on the record: one entry per registration over the
-file, newest first, each with a sample statement showing the cast and with the
-same `registration_id`, `follow`, `repair` and `follow_error` the listing
-reports. A file registered twice - on two connections, or registered again
+file, newest first, each with the column names, a sample statement showing the
+cast, and the same `registration_id`, `follow`, `repair` and `follow_error`
+`manage_table action=list` reports under `table_registrations`. That is enough
+to write the query without a second call. A file registered twice - on two connections, or registered again
 after a header change - is two entries, and the document names both.
 
-The hit carries one, because a hit is a pointer to somewhere the data can be
-queried rather than an inventory: it is the newest registration whose
-`follow_error` is empty, so a hit never points at a table a follow has already
-reported gone. A file whose every registration carries a follow error gets no
+The hit carries one, without the columns, because a hit is a pointer to
+somewhere the data can be queried rather than an inventory: it is the newest
+registration whose `follow_error` is empty, so a hit never points at a table a
+follow has already reported gone. A file whose every registration carries a follow error gets no
 `table` on its hit, and its `fetch` document is where the reasons are.
 
 Those are the same references `manage_table` takes, so finding a file and

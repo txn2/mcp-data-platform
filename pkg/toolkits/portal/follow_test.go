@@ -43,7 +43,7 @@ func TestReplaceContentFollowsTheTablesOverTheResource(t *testing.T) {
 		Action: resourceActionReplace, Reference: "mcp:resource:res1", Content: "day,high\nmon,88\n",
 	}))
 
-	assert.Equal(t, []string{followedSentence}, out.Tables)
+	assert.Equal(t, []string{followedSentence}, out.TableChanges)
 	assert.Contains(t, out.Message, followedSentence, "the message says it too, for a caller reading only that")
 	assert.Equal(t, []string{"resource:res1:2"}, reg.followedFor, "the version the writer recorded")
 }
@@ -53,7 +53,7 @@ func TestReplaceContentWithoutARegistrarSaysNothingAboutTables(t *testing.T) {
 	out := decodeResourceOutput(t, callResource(t, tk, manageResourceInput{
 		Action: resourceActionReplace, Reference: "mcp:resource:res1", Content: "day,high\nmon,88\n",
 	}))
-	assert.Nil(t, out.Tables)
+	assert.Nil(t, out.TableChanges)
 }
 
 // contentToolkit is an asset toolkit with a versioned asset and a registrar
@@ -100,7 +100,7 @@ func TestManageAssetContentWritesFollowTheTablesOverTheAsset(t *testing.T) {
 			parsed := decodeFollowResult(t, result)
 
 			assert.Equal(t, tc.wantVersion, parsed["version"])
-			assert.Equal(t, []any{followedSentence}, parsed["tables"])
+			assert.Equal(t, []any{followedSentence}, parsed["table_changes"])
 			assert.Contains(t, parsed["message"], followedSentence)
 			assert.Equal(t, []string{"asset:a1:2"}, reg.followedFor)
 		})
@@ -114,7 +114,7 @@ func TestManageAssetUpdateWithoutContentAsksNothing(t *testing.T) {
 	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{Action: "update", AssetID: "a1", Name: "Renamed"})
 	require.NoError(t, err)
 	parsed := decodeFollowResult(t, result)
-	assert.NotContains(t, parsed, "tables")
+	assert.NotContains(t, parsed, "table_changes")
 	assert.Empty(t, reg.followedFor)
 }
 

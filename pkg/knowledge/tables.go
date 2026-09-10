@@ -89,10 +89,17 @@ func lookupTables(ctx context.Context, lookup TableLookup, subject TableSubject)
 // whose follow has not failed, or none. A hit whose sample_sql names a table
 // that may no longer exist is the failure #1627 was filed for; a caller who
 // needs the broken ones fetches the record, which reports them all.
+//
+// The columns are dropped from the hit's copy (#1666). A hit is a pointer to
+// where the data can be queried, chosen from a ranked page of them, and a page
+// of hits each carrying a wide table's column list is a large answer to the
+// question of which record to read. They are on the fetched document, which is
+// where the record is read in full and where the query is written from.
 func preferredTable(tables []HitTable) *HitTable {
 	for i := range tables {
 		if tables[i].FollowError == "" {
 			chosen := tables[i]
+			chosen.Columns = nil
 			return &chosen
 		}
 	}

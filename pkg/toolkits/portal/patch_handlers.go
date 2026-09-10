@@ -20,6 +20,11 @@ import (
 const (
 	fieldVersion     = "version"
 	fieldContentType = "content_type"
+	// fieldTableChanges carries the sentences a content write reports about
+	// the tables registered over the file it changed. It is named apart from
+	// the `tables` a fetched document carries, which are rows a caller queries
+	// (#1666).
+	fieldTableChanges = "table_changes"
 )
 
 // assetIdentity is the asset half of every content-verb response: which asset,

@@ -159,9 +159,11 @@ func (h *Handler) handleReplaceContent(w http.ResponseWriter, r *http.Request) {
 // these routes already reads, with one field beside it.
 type revisedResource struct {
 	*Resource
-	// Tables is one sentence per registered table -- followed onto the new
-	// version, or pinned and now behind it -- and absent when there are none.
-	Tables []string `json:"tables,omitempty"`
+	// TableChanges is one sentence per registered table -- followed onto the
+	// new version, or pinned and now behind it -- and absent when there are
+	// none. It reports what the revision did, which is why it is not named
+	// `tables`: those are the rows a caller queries (#1666).
+	TableChanges []string `json:"table_changes,omitempty"`
 }
 
 // RevisionUpload is the content a revision writes: the bytes, the type they are
@@ -250,7 +252,7 @@ func (h *Handler) storeRevision(ctx context.Context, res *Resource, claims *Clai
 	}
 	out := &revisedResource{Resource: updated}
 	if h.deps.OnRevised != nil {
-		out.Tables = h.deps.OnRevised(ctx, res.ID, version.Version)
+		out.TableChanges = h.deps.OnRevised(ctx, res.ID, version.Version)
 	}
 	return out, nil
 }

@@ -3514,7 +3514,9 @@ export const handlers = [
   }),
 
   http.get("/api/v1/resources/:id/tables", ({ params }) =>
-    HttpResponse.json({ registrations: mockTableRegistrations[params.id as string] ?? [] }),
+    HttpResponse.json({
+      table_registrations: mockTableRegistrations[params.id as string] ?? [],
+    }),
   ),
 
   http.post("/api/v1/resources/:id/tables", async ({ params, request }) =>
@@ -3527,7 +3529,9 @@ export const handlers = [
   }),
 
   http.get("/api/v1/portal/assets/:id/tables", ({ params }) =>
-    HttpResponse.json({ registrations: mockTableRegistrations[params.id as string] ?? [] }),
+    HttpResponse.json({
+      table_registrations: mockTableRegistrations[params.id as string] ?? [],
+    }),
   ),
 
   http.post("/api/v1/portal/assets/:id/tables", async ({ params, request }) =>

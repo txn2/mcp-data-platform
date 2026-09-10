@@ -57,7 +57,7 @@ export interface TableRegistration {
 export const CSV_NEEDS_REPAIR = "urn:mcp-data-platform:problem:csv-needs-repair";
 
 export interface TableRegistrationList {
-  registrations: TableRegistration[];
+  table_registrations: TableRegistration[];
 }
 
 // TableConnection is one connection a table can be registered onto: granted to

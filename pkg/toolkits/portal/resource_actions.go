@@ -126,12 +126,15 @@ type resourceOutput struct {
 	// keeps a version trail, and reporting a number the history may not hold
 	// would be worse than reporting none.
 	Version int `json:"version,omitempty"`
-	// Tables is what a replacement did to the tables registered over the
+	// TableChanges is what a replacement did to the tables registered over the
 	// file (#1536): one sentence per table, saying it followed onto the new
 	// version, or is pinned and now behind it and how to move it. Absent when
 	// no table is registered over the file.
-	Tables  []string `json:"tables,omitempty"`
-	Message string   `json:"message"`
+	//
+	// It reports what this write did, so it is named apart from the `tables` a
+	// fetched reference carries, which are the rows a caller queries (#1666).
+	TableChanges []string `json:"table_changes,omitempty"`
+	Message      string   `json:"message"`
 }
 
 // handleManageResource dispatches a manage_resource call.
@@ -298,9 +301,9 @@ func (t *Toolkit) replaceResourceContent(
 		fmt.Sprintf("Content replaced and recorded as version %d, restorable from the file's version history. "+
 			"The id, uri and filename are unchanged, so every asset referencing this file now serves the new "+
 			"bytes without being re-saved.", version))
-	out.Tables = t.FollowResourceTables(ctx, id, version)
-	if len(out.Tables) > 0 {
-		out.Message += " " + strings.Join(out.Tables, " ")
+	out.TableChanges = t.FollowResourceTables(ctx, id, version)
+	if len(out.TableChanges) > 0 {
+		out.Message += " " + strings.Join(out.TableChanges, " ")
 	}
 	return toolkit.JSONResultTyped(out)
 }

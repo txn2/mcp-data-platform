@@ -37,10 +37,14 @@ type TableRegistration struct {
 	// registered, and is empty when none was needed (#1441). The file itself
 	// changed, so the person who asked for the registration is told so.
 	Repaired string `json:"repaired,omitempty"`
-	// Tables is what a replacing registration found about the OTHER tables
-	// on the connection after its DROP ran (#1546): one sentence per table
-	// that no longer exists. Empty when every other table is still there.
-	Tables []string `json:"tables,omitempty"`
+	// TableChanges is what a replacing registration found about the OTHER
+	// tables on the connection after its DROP ran (#1546): one sentence per
+	// table that no longer exists. Empty when every other table is still
+	// there.
+	//
+	// It is a change report, not an inventory, and it is named apart from the
+	// `tables` a reader queries for that reason (#1666).
+	TableChanges []string `json:"table_changes,omitempty"`
 }
 
 // TableRegistrar makes a stored CSV readable as a query-engine table (#1327),
@@ -146,10 +150,16 @@ type tableRegistrationOutput struct {
 }
 
 // tableListOutput is the result of the list action.
+//
+// The rows are `table_registrations` rather than `tables` because this is the
+// maintenance view: every row carries the registration_id unregister takes and
+// the follow state a caller repairs (#1666). A caller that only wants to write
+// a query reads the `tables` a fetched document carries instead, which is the
+// same registrations projected for the FROM clause.
 type tableListOutput struct {
-	Reference     string              `json:"reference"`
-	Registrations []TableRegistration `json:"registrations"`
-	Total         int                 `json:"total"`
+	Reference          string              `json:"reference"`
+	TableRegistrations []TableRegistration `json:"table_registrations"`
+	Total              int                 `json:"total"`
 }
 
 // handleManageTable dispatches a manage_table call.
@@ -207,8 +217,8 @@ func (t *Toolkit) handleRegisterTable(
 	if reg.Repaired != "" {
 		message = reg.Repaired + " " + message
 	}
-	if len(reg.Tables) > 0 {
-		message += " " + strings.Join(reg.Tables, " ")
+	if len(reg.TableChanges) > 0 {
+		message += " " + strings.Join(reg.TableChanges, " ")
 	}
 	return toolkit.JSONResultTyped(tableRegistrationOutput{
 		Reference:         input.Reference,
@@ -253,9 +263,9 @@ func (t *Toolkit) handleListTables(
 		regs = []TableRegistration{}
 	}
 	return toolkit.JSONResultTyped(tableListOutput{
-		Reference:     input.Reference,
-		Registrations: regs,
-		Total:         len(regs),
+		Reference:          input.Reference,
+		TableRegistrations: regs,
+		Total:              len(regs),
 	})
 }
 

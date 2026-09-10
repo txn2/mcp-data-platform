@@ -1044,11 +1044,12 @@ definitions:
       status:
         example: ok
         type: string
-      tables:
+      table_changes:
         description: |-
-          Tables is what a content write did to the tables registered over the
-          asset's file (#1536), one sentence per table, absent when there are
-          none.
+          TableChanges is what a content write did to the tables registered over
+          the asset's file (#1536), one sentence per table, absent when there are
+          none. It is a change report rather than the `tables` a caller queries,
+          and is named apart from them for that reason (#1666).
         items:
           type: string
         type: array
@@ -4860,11 +4861,12 @@ definitions:
       status:
         example: updated
         type: string
-      tables:
+      table_changes:
         description: |-
-          Tables is what a content write did to the tables registered over the
-          asset's file (#1536), one sentence per table, absent when there are
-          none.
+          TableChanges is what a content write did to the tables registered over
+          the asset's file (#1536), one sentence per table, absent when there are
+          none. It is a change report rather than the `tables` a caller queries,
+          and is named apart from them for that reason (#1666).
         items:
           type: string
         type: array
@@ -5773,10 +5775,12 @@ definitions:
       size_bytes:
         example: 34000
         type: integer
-      tables:
+      table_changes:
         description: |-
-          Tables is one sentence per registered table -- followed onto the new
-          version, or pinned and now behind it -- and absent when there are none.
+          TableChanges is one sentence per registered table -- followed onto the
+          new version, or pinned and now behind it -- and absent when there are
+          none. It reports what the revision did, which is why it is not named
+          `tables`: those are the rows a caller queries (#1666).
         items:
           type: string
         type: array
@@ -6228,12 +6232,13 @@ definitions:
         type: integer
       row_count:
         type: integer
-      tables:
+      table_changes:
         description: |-
-          Tables is what this version did to the tables registered over the
+          TableChanges is what this version did to the tables registered over the
           output's file (#1536): one sentence per table, saying it followed onto
           the version or is pinned and now behind it. Absent when none is
-          registered.
+          registered. It is a change report rather than the `tables` a fetched
+          reference carries (#1666).
         items:
           type: string
         type: array
