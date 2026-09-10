@@ -61,7 +61,7 @@ func TestWireRuntime_TransportGating(t *testing.T) {
 	t.Run("stdio skips gateway and admin", func(t *testing.T) {
 		t.Parallel()
 		p, tk := newP(t)
-		p.WireRuntime(RuntimeConfig{Transport: "stdio", Address: ":8080"})
+		require.NoError(t, p.WireRuntime(RuntimeConfig{Transport: "stdio", Address: ":8080"}))
 		require.NotNil(t, p.apiMemBudget, "mem budget must wire for stdio too")
 		require.False(t, tk.HasConnection(adminSelfConnectionName),
 			"stdio must not seed the admin self-connection")
@@ -70,7 +70,7 @@ func TestWireRuntime_TransportGating(t *testing.T) {
 	t.Run("http wires gateway and admin", func(t *testing.T) {
 		t.Parallel()
 		p, tk := newP(t)
-		p.WireRuntime(RuntimeConfig{Transport: "http", Address: ":8080"})
+		require.NoError(t, p.WireRuntime(RuntimeConfig{Transport: "http", Address: ":8080"}))
 		require.NotNil(t, p.apiMemBudget)
 		require.True(t, tk.HasConnection(adminSelfConnectionName),
 			"http must seed the admin self-connection")
@@ -128,7 +128,7 @@ func TestWireRuntime_GatewayIntegrationsBeforeAdminSeed(t *testing.T) {
 			WillReturnRows(specRows())
 	}
 
-	p.WireRuntime(RuntimeConfig{Transport: "http", Address: ":8080"})
+	require.NoError(t, p.WireRuntime(RuntimeConfig{Transport: "http", Address: ":8080"}))
 
 	require.True(t, tk.HasConnection(adminSelfConnectionName),
 		"admin self-connection must register, proving WireGatewayIntegrations wired the catalog store before the seed ran")
@@ -192,7 +192,7 @@ func TestWireRuntime_NoCatalogWarningWhenStartupWiresTheStore(t *testing.T) {
 			WillReturnRows(specRows())
 	}
 
-	p.WireRuntime(RuntimeConfig{Transport: "http", Address: ":8080"})
+	require.NoError(t, p.WireRuntime(RuntimeConfig{Transport: "http", Address: ":8080"}))
 
 	require.NotNil(t, p.APIGatewayCatalogStore(), "startup must wire the catalog store")
 	require.NotContains(t, buf.String(), "no catalog store wired",
@@ -220,7 +220,7 @@ func TestWireRuntime_WarnsOncePerConnectionWhenNoStoreEverArrives(t *testing.T) 
 	require.NoError(t, lc.Start(context.Background()))
 	p := &Platform{toolkitRegistry: reg, lifecycle: lc, config: &Config{}}
 
-	p.WireRuntime(RuntimeConfig{Transport: "stdio", Address: ":8080"})
+	require.NoError(t, p.WireRuntime(RuntimeConfig{Transport: "stdio", Address: ":8080"}))
 
 	out := buf.String()
 	require.Equal(t, 2, strings.Count(out, "no catalog store wired"),

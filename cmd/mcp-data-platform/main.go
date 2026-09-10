@@ -183,13 +183,17 @@ func startServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Platfor
 	// transport-aware runtime wiring in one call: WireRuntime owns the
 	// ordering of the api-gateway metrics/mem-budget, gateway integrations,
 	// and admin self-connection wiring so main.go no longer encodes it
-	// (#854). All of it is nil-safe and no-op when the relevant subsystems
-	// are disabled.
+	// (#854). Every step is nil-safe and no-op when the relevant subsystems
+	// are disabled; the tool-inventory check that closes the sequence is the
+	// one that can fail, and a deployment whose tool listing disagrees with
+	// its toolkits must not serve (#1680).
 	if p != nil {
 		if err := p.StartMetricsListener(ctx); err != nil {
 			return fmt.Errorf("starting metrics listener: %w", err)
 		}
-		p.WireRuntime(platform.RuntimeConfig{Transport: opts.transport, Address: opts.address})
+		if err := p.WireRuntime(platform.RuntimeConfig{Transport: opts.transport, Address: opts.address}); err != nil {
+			return fmt.Errorf("runtime wiring: %w", err)
+		}
 	}
 
 	// Optional debug pprof listener (off unless PPROF_ADDR is set). Used by the

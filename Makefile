@@ -46,7 +46,7 @@ GOFMT := gofmt
 GOLINT := golangci-lint
 
 .PHONY: all build test lint lint-full fmt clean install help docs-serve docs-build verify verify-release \
-	tools-check dead-code mutate patch-coverage doc-check acceptance acceptance-check posture-check swagger swagger-check verify-checks verify-go verify-lint verify-docker verify-ui \
+	tools-check dead-code mutate patch-coverage doc-check acceptance acceptance-check acceptance-release-check posture-check swagger swagger-check verify-checks verify-go verify-lint verify-docker verify-ui \
 	semgrep codeql sast osv embed-clean migrate-check \
 	frontend-install frontend-build frontend-build-content-viewer content-viewer-embed \
 	frontend-dev frontend-mock frontend-test frontend-lint frontend-e2e \
@@ -469,12 +469,27 @@ acceptance-check:
 ## partway through and reports the tests that were still on the clock as
 ## failures. A run that was cut short is not a suite that failed (#1632).
 ACCEPTANCE_TIMEOUT ?= 40m
+## ISSUE=<n> runs one ticket's criteria (-run TestIssue<n>_) instead of the
+## whole suite. Either way the run is recorded as a go test -json stream at
+## build/<n>/acceptance.jsonl per ticket, which is the evidence make
+## acceptance-check and make verify-release read: a criterion that did not run
+## leaves no pass event, and no prose can supply one (#1680).
 acceptance:
 	@# dev/start.sh relocates the stack when the default ports are busy and
 	@# records where it went; the suite follows it unless MCP_BASE_URL is set.
 	@set -a; [ -f dev/.dev-ports.env ] && . ./dev/.dev-ports.env; set +a; \
 	echo "Running acceptance suite against $${MCP_BASE_URL:-http://localhost:$${DEV_API_PORT:-8080}}..."; \
-	$(GOTEST) -count=1 -timeout $(ACCEPTANCE_TIMEOUT) -tags=integration ./test/acceptance/ -v
+	run_flag=""; \
+	if [ -n "$(ISSUE)" ]; then run_flag="-run TestIssue$(ISSUE)_"; echo "  limited to #$(ISSUE)"; fi; \
+	set -o pipefail; \
+	$(GOTEST) -count=1 -timeout $(ACCEPTANCE_TIMEOUT) -tags=integration ./test/acceptance/ -v -json $$run_flag \
+		| python3 scripts/acceptance-evidence.py split
+
+## acceptance-release-check: Refuse a release whose tickets have no passing acceptance run
+## Every test/acceptance/issue_<n>_test.go changed since the last tag must have
+## a recorded run at build/<n>/acceptance.jsonl in which every criterion passed.
+acceptance-release-check:
+	@python3 scripts/acceptance-evidence.py release
 
 ## posture-check: Fail when README/llms.txt engineering-posture claims go stale
 posture-check:
@@ -595,7 +610,7 @@ embed-clean:
 
 ## verify-release: Full verify PLUS CodeQL and mutation testing — run only before cutting a release
 ## Both are expensive and must NOT run per-revision; CI runs each on the PR.
-verify-release: verify codeql mutate acceptance
+verify-release: verify codeql mutate acceptance acceptance-release-check
 	@echo ""
 	@echo "=== Release verification complete (incl. CodeQL, mutation testing and the acceptance suite) ==="
 

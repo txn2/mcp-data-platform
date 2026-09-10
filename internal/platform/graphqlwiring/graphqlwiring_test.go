@@ -129,21 +129,37 @@ func TestWireIsANoOpWithoutAGraphQLToolkit(t *testing.T) {
 	Wire(context.Background(), Deps{})
 }
 
-func TestWireAttachesTheExportDependenciesItWasGiven(t *testing.T) {
+func TestAttachExportAttachesTheExportDependenciesItWasGiven(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(introspectionResult))
 	}))
 	defer server.Close()
 	reg := newRegistry(t, server.URL)
 
-	Wire(context.Background(), Deps{
-		Registry: reg,
-		Export:   &graphqlkit.ExportDeps{},
-	})
+	AttachExport(reg, &graphqlkit.ExportDeps{})
 
 	tools := Toolkits(reg)[0].Tools()
 	if len(tools) != 3 {
 		t.Errorf("tools = %v; export is registered once the platform wires it", tools)
+	}
+}
+
+// TestAttachExportWithoutDependenciesLeavesTheToolUnregistered covers the
+// deployment with no portal: the kind still runs, with the export tool absent
+// from the toolkit's list rather than present and unreachable.
+func TestAttachExportWithoutDependenciesLeavesTheToolUnregistered(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(introspectionResult))
+	}))
+	defer server.Close()
+	reg := newRegistry(t, server.URL)
+
+	AttachExport(reg, nil)
+	AttachExport(nil, &graphqlkit.ExportDeps{})
+
+	tools := Toolkits(reg)[0].Tools()
+	if len(tools) != 2 {
+		t.Errorf("tools = %v; want the two unconditional tools", tools)
 	}
 }
 
@@ -205,7 +221,6 @@ func TestWireAttachesEveryOptionalDependency(t *testing.T) {
 		AuthEvents:  authevents.NewWriter(nil, nil),
 		MemBudget:   membudget.New(1 << 20),
 		Metrics:     metrics,
-		Export:      &graphqlkit.ExportDeps{},
 	})
 
 	tk := Toolkits(reg)[0]

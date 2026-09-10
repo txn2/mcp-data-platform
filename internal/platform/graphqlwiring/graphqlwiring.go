@@ -48,8 +48,6 @@ type Deps struct {
 	MemBudget *membudget.Budget
 	// Metrics instruments outbound calls.
 	Metrics *observability.Metrics
-	// Export enables graphql_export. Nil leaves the tool unregistered.
-	Export *graphqlkit.ExportDeps
 }
 
 // Toolkits returns the live graphql toolkits in a registry.
@@ -90,7 +88,25 @@ func Wire(ctx context.Context, d Deps) {
 		tk.HydrateSchemas(ctx)
 	}
 	slog.Info("graphql connections wired",
-		"toolkits", len(toolkits), "schema_store", store != nil, "export", d.Export != nil)
+		"toolkits", len(toolkits), "schema_store", store != nil)
+}
+
+// AttachExport enables graphql_export on every live graphql toolkit. A nil
+// deps leaves the tool unregistered, which is what a deployment with no
+// portal wants.
+//
+// Separate from Wire, and called from a much earlier point in the boot
+// sequence, because a toolkit registers its export tool only when the
+// dependencies are already set: the platform registers every toolkit's tools
+// before it reaches Wire, so attaching here would leave the name in the
+// toolkit's Tools() list and the tool unknown to every client (#1675).
+func AttachExport(reg *registry.Registry, deps *graphqlkit.ExportDeps) {
+	if deps == nil {
+		return
+	}
+	for _, tk := range Toolkits(reg) {
+		tk.SetExportDeps(*deps)
+	}
 }
 
 // attach installs one toolkit's dependencies. The auth-event writer
@@ -116,8 +132,5 @@ func attach(tk *graphqlkit.Toolkit, d Deps, store *graphqlstore.Store) {
 	}
 	if d.Metrics != nil {
 		tk.SetMetrics(d.Metrics)
-	}
-	if d.Export != nil {
-		tk.SetExportDeps(*d.Export)
 	}
 }

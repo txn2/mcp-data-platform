@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# acceptance-check.sh — Soft gate: a change to the platform's non-test Go code
-# with no acceptance test beside it.
+# acceptance-check.sh — Two gates over the acceptance suite (test/acceptance),
+# where a ticket's criteria are executed through the real tool surface against
+# a running platform (`make acceptance`, required by `make verify-release`).
 #
-# The acceptance suite (test/acceptance) is where a ticket's acceptance
-# criteria are executed through the real tool surface against a running
-# platform (`make acceptance`, required by `make verify-release`). This check
-# warns when the working tree changes production Go under pkg/, internal/ or
-# cmd/ relative to the base branch and touches no test/acceptance/*_test.go, so
-# a feature does not reach a release having never been run.
+# A change to production Go under pkg/, internal/ or cmd/ with no acceptance
+# file beside it WARNS, so a feature does not reach a release having never been
+# run. A changed acceptance file whose criteria have no passing run on record
+# FAILS: the evidence half is delegated to scripts/acceptance-evidence.py and
+# reads the go test -json stream, not the transcript's prose (#1680).
 #
-# It never fails on the diff's contents. It does fail when the base branch
-# cannot be resolved: a check that silently skips is a check that was not run.
+# It also fails when the base branch cannot be resolved: a check that silently
+# skips is a check that was not run.
 #
 # Compatible with bash 3.2+ (macOS) and GNU bash (CI).
 set -euo pipefail
@@ -48,32 +48,23 @@ if [ -z "$production_go" ]; then
     exit 0
 fi
 
-# MCP is JSON-RPC, and a parameter whose schema is untyped accepts more than
-# one JSON form. #1548 reached a release with its acceptance test green
-# because every check sent api_invoke_endpoint.body as an object and the
-# client sent a string. The acceptance test sends every form the schema
-# admits, and the transcript of the run lives at build/<n>/acceptance.md,
-# opening with a "Wire forms:" line naming the forms sent. Missing or
-# unmarked, this check fails: no transcript, no check.
+# The evidence half of the gate reads results, not prose.
+#
+# Two things are checked for every changed test/acceptance/issue_<n>_test.go.
+# First, every `func TestIssue<n>_...` it declares has a terminal pass event in
+# build/<n>/acceptance.jsonl, the go test -json stream `make acceptance` writes:
+# a criterion that was absent, skipped or failed fails the gate, so a transcript
+# section saying a criterion did not run is a failed gate by construction
+# (#1663 shipped behind exactly that paragraph, and 1.131.0 shipped the tool it
+# covered unreachable -- #1675, #1680). Second, MCP is JSON-RPC and a parameter
+# whose schema is untyped accepts more than one JSON form (#1548), so the run's
+# transcript at build/<n>/acceptance.md must still carry a "Wire forms:"
+# line naming the forms sent. A tool the diff registers with no criterion
+# calling it fails the gate too: #1277 registered three tools and closed with
+# criteria for two.
 if [ -n "$acceptance" ]; then
-    count="$(printf '%s\n' "$acceptance" | grep -c . || true)"
-    missing=""
-    for file in $acceptance; do
-        n="$(basename "$file" | sed -nE 's/^issue_([0-9]+)_test\.go$/\1/p')"
-        [ -n "$n" ] || continue
-        transcript="build/${n}/acceptance.md"
-        if [ ! -s "$transcript" ] || ! grep -q '^Wire forms:' "$transcript"; then
-            missing="${missing}  ${file} -> ${transcript}\n"
-        fi
-    done
-    if [ -n "$missing" ]; then
-        printf 'FAIL acceptance-check: %s acceptance file(s) changed, but the run transcript is missing or does not open with a "Wire forms:" line:\n' "$count" >&2
-        printf '%b' "$missing" >&2
-        echo '  Run the ticket'"'"'s acceptance against the dev stack (make acceptance) sending every JSON form each touched parameter accepts, and keep the transcript at build/<n>/acceptance.md starting with "Wire forms: <the forms sent>".' >&2
-        exit 1
-    fi
-    echo "acceptance-check: ${count} acceptance file(s) changed beside the Go changes, each with a run transcript under build/<n>/."
-    exit 0
+    # shellcheck disable=SC2086 # the file list is newline-separated by construction
+    exec python3 scripts/acceptance-evidence.py check --merge-base "$MERGE_BASE" $acceptance
 fi
 
 count="$(printf '%s\n' "$production_go" | grep -c . || true)"
@@ -81,8 +72,8 @@ cat <<EOF
 WARNING acceptance-check: ${count} production Go file(s) changed against ${BASE_BRANCH} and no test/acceptance/*_test.go changed.
   Every ticket's acceptance criteria are executed through the real tool surface against a running platform before the change is declared ready:
     1. write test/acceptance/issue_<n>_test.go from the ticket's Acceptance section,
-    2. run it with \`make dev\` up: \`make acceptance\`,
-    3. keep the transcript under build/<n>/acceptance.md.
+    2. run it with \`make dev\` up: \`make acceptance ISSUE=<n>\`, which records the run at build/<n>/acceptance.jsonl,
+    3. keep the transcript under build/<n>/acceptance.md, carrying a "Wire forms:" line.
   A change that touches no user-facing behavior (a refactor, a log line) may leave this warning standing and say so in the PR.
 EOF
 exit 0

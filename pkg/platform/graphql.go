@@ -47,8 +47,23 @@ func (p *Platform) WireGraphQL(ctx context.Context) {
 		AuthEvents:  p.connAuth.AuthEventWriter(),
 		MemBudget:   p.apiMemBudget,
 		Metrics:     p.Metrics(),
-		Export:      p.graphQLExportDeps(),
 	})
+}
+
+// wireGraphQLExport attaches graphql_export's dependencies to every live
+// graphql toolkit.
+//
+// It runs from initPortal, beside wireTrinoExport and wireAPIGatewayExport,
+// rather than from WireGraphQL with the rest of the kind's dependencies. The
+// tool is registered on the MCP server only when these are already set, and
+// Start registers the toolkits' tools before WireRuntime runs, so the late
+// path left the name in the toolkit's Tools() list and the tool unknown to
+// every client (#1675).
+//
+// A package-level function rather than a Platform method, matching
+// wireUtilConnection: the wiring sequence grows without growing the facade.
+func wireGraphQLExport(p *Platform) {
+	graphqlwiring.AttachExport(p.toolkitRegistry, p.graphQLExportDeps())
 }
 
 // graphQLRoutePolicy builds the per-operation authorization gate, or

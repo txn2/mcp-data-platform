@@ -3,6 +3,8 @@ package platform
 import (
 	"context"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/toolinventory"
+	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 )
 
@@ -59,7 +61,13 @@ func isHTTPTransport(t string) bool {
 //
 // Every step is individually idempotent and nil-safe, so WireRuntime is safe to
 // call once per boot regardless of which subsystems are configured.
-func (p *Platform) WireRuntime(rc RuntimeConfig) {
+//
+// It returns an error only from the tool-inventory check that closes the
+// sequence: with every dependency now attached, a tool a toolkit names and the
+// MCP server does not hold is a wiring fault the deployment must not survive
+// (#1680). A caller that ignores the error runs with a tool that is listed
+// everywhere and callable nowhere, which is what #1675 was.
+func (p *Platform) WireRuntime(rc RuntimeConfig) error {
 	// Both transports: instrument api-gateway toolkits and install the
 	// process-wide in-flight memory budget so the OOM guard applies whether the
 	// platform runs in stdio or HTTP mode.
@@ -91,11 +99,39 @@ func (p *Platform) WireRuntime(rc RuntimeConfig) {
 	// wired there.
 	p.WireGraphQL(context.Background())
 
-	// Last on both transports: every store that can back an api-gateway
-	// catalog has now been wired, or was never going to be. Only from here
-	// is "connection references a catalog with no store" a state an operator
-	// can act on (#1509).
+	// Every store that can back an api-gateway catalog has now been wired, or
+	// was never going to be. Only from here is "connection references a
+	// catalog with no store" a state an operator can act on (#1509).
 	markAPIGatewayCatalogWiringComplete(p)
+
+	// Last, and the only step that can fail: the inventory a client sees is
+	// compared with the inventory the deployment names.
+	ctx := context.Background()
+	//nolint:wrapcheck // the seam's message is the whole finding; wrapping would say "runtime wiring" twice
+	return toolinventory.Verify(ctx, toolInventoryDeps(ctx, p))
+}
+
+// toolInventoryDeps assembles the inventory comparison's inputs from what only
+// the facade holds. A package-level function rather than a Platform method,
+// matching wireUtilConnection: the wiring sequence grows without growing the
+// facade.
+func toolInventoryDeps(ctx context.Context, p *Platform) toolinventory.Deps {
+	// The operator's own globs, resolved once: a tool tools.deny hides is
+	// absent from tools/list by intent rather than by fault.
+	allow := p.config.ToolsAllowSnapshot()
+	deny := p.config.ToolsDenySnapshot(ctx)
+
+	own := p.PlatformTools()
+	platformTools := make([]toolinventory.PlatformTool, 0, len(own))
+	for _, pt := range own {
+		platformTools = append(platformTools, toolinventory.PlatformTool{Name: pt.Name, Kind: pt.Kind})
+	}
+	return toolinventory.Deps{
+		Server:        p.mcpServer,
+		Registry:      p.toolkitRegistry,
+		PlatformTools: platformTools,
+		Visible:       func(name string) bool { return middleware.IsToolVisible(name, allow, deny) },
+	}
 }
 
 // markAPIGatewayCatalogWiringComplete tells every live api gateway toolkit that
