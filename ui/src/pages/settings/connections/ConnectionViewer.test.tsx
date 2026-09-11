@@ -77,3 +77,55 @@ describe("ConnectionViewer edit and delete affordances", () => {
     expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
   });
 });
+
+// A connection can carry both OAuth config vocabularies. The canonical keys
+// win, so the legacy ones hold values nothing reads. Listing both sets as
+// equals is how a real client id sat beside a placeholder with nothing saying
+// which one the connection was live on (#1682).
+describe("ConnectionViewer — a connection carrying both OAuth vocabularies", () => {
+  const mixed = connection({
+    kind: "api",
+    name: "analytics",
+    connection: "analytics",
+    config: {
+      base_url: "https://analytics.example.com",
+      auth_mode: "oauth",
+      oauth_grant: "authorization_code",
+      oauth_client_id: "PENDING-REPLACE-ME",
+      oauth2_client_id: "986495125425.apps.googleusercontent.com",
+    },
+  });
+
+  it("marks the shadowed key and says which vocabulary is in use", () => {
+    renderViewer(mixed);
+
+    expect(screen.getByText("shadowed")).toBeInTheDocument();
+    expect(
+      screen.getByText(/both OAuth configuration vocabularies/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("986495125425.apps.googleusercontent.com"),
+    ).toHaveClass("line-through");
+    expect(screen.getByText("PENDING-REPLACE-ME")).not.toHaveClass(
+      "line-through",
+    );
+  });
+
+  it("marks nothing on a single-vocabulary connection", () => {
+    renderViewer(
+      connection({
+        kind: "api",
+        config: {
+          auth_mode: "oauth",
+          oauth_grant: "client_credentials",
+          oauth_client_id: "platform-client",
+        },
+      }),
+    );
+
+    expect(screen.queryByText("shadowed")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/both OAuth configuration vocabularies/i),
+    ).not.toBeInTheDocument();
+  });
+});

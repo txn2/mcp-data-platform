@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useSetConnectionInstance } from "@/api/admin/hooks";
 import type { EffectiveConnection } from "@/api/admin/types";
+import { canonicalizeOAuthConfig } from "./oauthVocabulary";
 
 // useConnectionForm owns the common create/edit lifecycle for a connection
 // instance: kind/name/description/config state, dirty tracking, per-kind
@@ -27,8 +28,13 @@ export function useConnectionForm({
   const [description, setDescription] = useState(
     connection?.description || (connection?.config?.description as string) || "",
   );
+  // A stored config is folded onto the canonical OAuth keys as it loads, so the
+  // form shows the values the platform is authenticating with whichever
+  // vocabulary the row was written in, and a save writes one vocabulary rather
+  // than leaving the other one beside it to shadow what the operator typed
+  // (#1681, #1682). Every other key is untouched.
   const [configObj, setConfigObj] = useState<Record<string, unknown>>(
-    connection?.config ? { ...connection.config } : {},
+    connection?.config ? canonicalizeOAuthConfig(connection.config) : {},
   );
   // configObjRef mirrors configObj synchronously so handleSave can
   // read the latest value even when the Save click follows a child
@@ -61,7 +67,13 @@ export function useConnectionForm({
       onDirtyChange(!!name.trim());
     } else {
       const origDesc = connection?.description || (connection?.config?.description as string) || "";
-      const origJson = JSON.stringify(connection?.config ?? {});
+      // The baseline is the canonicalized original, so merely opening a legacy
+      // connection does not read as an unsaved change. Save stays available (it
+      // is gated on validity, not on dirtiness), which is how the row is
+      // rewritten.
+      const origJson = JSON.stringify(
+        connection?.config ? canonicalizeOAuthConfig(connection.config) : {},
+      );
       onDirtyChange(
         description !== origDesc || configJson !== origJson,
       );

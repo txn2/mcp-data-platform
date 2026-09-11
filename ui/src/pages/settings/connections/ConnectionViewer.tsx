@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Trash2, Database } from "lucide-react";
+import { Trash2, Database, EyeOff } from "lucide-react";
 import { useDeleteConnectionInstance } from "@/api/admin/hooks";
 import type { EffectiveConnection } from "@/api/admin/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -7,20 +7,29 @@ import { CollapsibleMarkdown } from "@/components/renderers/CollapsibleMarkdown"
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { GatewayActionBar, GatewayRulesDrawer } from "../GatewayActions";
 import { ConnectionOAuthStatusCard } from "../ConnectionOAuthStatusCard";
 import { CONFIG_LABELS, kindColor } from "./constants";
+import { shadowedOAuthKeys } from "./oauthVocabulary";
 import { GatewayHealthDetail } from "./HealthBadges";
 import { GraphQLSchemaCard } from "./GraphQLSchemaCard";
 
 // ConfigRows renders the raw config key/value pairs of a connection, using the
 // per-kind human labels where one exists and falling back to the raw key.
+//
+// A key in `shadowed` holds a value nothing reads: its canonical sibling is set
+// and wins. It is struck through and labelled rather than listed as an equal,
+// because listing both sets as equals is what let a real client id sit beside a
+// placeholder with nothing saying which one the connection was live on (#1682).
 function ConfigRows({
   kind,
   entries,
+  shadowed,
 }: {
   kind: string;
   entries: [string, unknown][];
+  shadowed: string[];
 }) {
   const labelMap = CONFIG_LABELS[kind] ?? {};
   return (
@@ -31,6 +40,7 @@ function ConfigRows({
             ? JSON.stringify(value)
             : String(value);
         const displayLabel = labelMap[key];
+        const isShadowed = shadowed.includes(key);
         return (
           <div key={key} className="flex items-center gap-4 px-4 py-2">
             <span
@@ -42,7 +52,24 @@ function ConfigRows({
                 <span className="ml-1 font-mono text-[10px] opacity-50">{key}</span>
               )}
             </span>
-            <span className="flex-1 truncate font-mono text-xs">{displayValue}</span>
+            <span
+              className={cn(
+                "flex-1 truncate font-mono text-xs",
+                isShadowed && "text-muted-foreground line-through",
+              )}
+            >
+              {displayValue}
+            </span>
+            {isShadowed && (
+              <Badge
+                variant="outline"
+                className="shrink-0 gap-1 text-[10px]"
+                title={`Not in use: the canonical key overrides ${key}. Open the editor and save to remove it.`}
+              >
+                <EyeOff className="size-3" />
+                shadowed
+              </Badge>
+            )}
           </div>
         );
       })}
@@ -90,6 +117,7 @@ export function ConnectionViewer({
   const configEntries = Object.entries(connection.config ?? {}).filter(
     ([key]) => !hiddenConfigKeys.has(key),
   );
+  const shadowedKeys = shadowedOAuthKeys(connection.config ?? {});
   // The configuration file owns a connection it declares: the API refuses both
   // to delete one (that would take it out of every live toolkit until the next
   // restart put it back) and to save a record for one (the record applied to
@@ -225,7 +253,19 @@ export function ConnectionViewer({
             </span>
           }
         >
-          <ConfigRows kind={connection.kind} entries={configEntries} />
+          {shadowedKeys.length > 0 && (
+            <p className="mb-3 text-xs text-muted-foreground">
+              This connection carries both OAuth configuration vocabularies. The
+              canonical <code>oauth_*</code> keys are the ones in use; the
+              struck-through values below are ignored. Open the editor and save
+              to drop them.
+            </p>
+          )}
+          <ConfigRows
+            kind={connection.kind}
+            entries={configEntries}
+            shadowed={shadowedKeys}
+          />
         </SectionCard>
       )}
 

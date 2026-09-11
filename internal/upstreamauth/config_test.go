@@ -260,27 +260,27 @@ func TestValidateAuth_OAuthGrants(t *testing.T) {
 		{
 			name:    "authorization_code without authorization_url",
 			cfg:     Config{AuthMode: AuthModeOAuth, OAuth2: withField(full, func(o *OAuth2Config) { o.AuthorizationURL = "" })},
-			wantMsg: "oauth2.authorization_url is required",
+			wantMsg: "oauth_authorization_url is required",
 		},
 		{
 			name:    "missing token_url",
 			cfg:     Config{AuthMode: AuthModeOAuth, OAuth2: withField(full, func(o *OAuth2Config) { o.TokenURL = "" })},
-			wantMsg: "oauth2.token_url is required",
+			wantMsg: "oauth_token_url is required",
 		},
 		{
 			name:    "missing client_id",
 			cfg:     Config{AuthMode: AuthModeOAuth, OAuth2: withField(full, func(o *OAuth2Config) { o.ClientID = "" })},
-			wantMsg: "oauth2.client_id is required",
+			wantMsg: "oauth_client_id is required",
 		},
 		{
 			name:    "missing client_secret",
 			cfg:     Config{AuthMode: AuthModeOAuth, OAuth2: withField(full, func(o *OAuth2Config) { o.ClientSecret = "" })},
-			wantMsg: "oauth2.client_secret is required",
+			wantMsg: "oauth_client_secret is required",
 		},
 		{
 			name:    "invalid endpoint auth style",
 			cfg:     Config{AuthMode: AuthModeOAuth, OAuth2: withField(full, func(o *OAuth2Config) { o.EndpointAuthStyle = "cookie" })},
-			wantMsg: "invalid oauth2.endpoint_auth_style",
+			wantMsg: "invalid oauth_endpoint_auth_style",
 		},
 	}
 	for _, tc := range cases {
@@ -514,5 +514,51 @@ func TestValidateOAuthAuth_LegacyModeOutranksTheGrantField(t *testing.T) {
 		},
 	}.ValidateAuth()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "oauth2.authorization_url is required")
+	assert.Contains(t, err.Error(), "oauth_authorization_url is required")
+}
+
+// A refusal names the mode and grant the connection carries, so an operator
+// reading it looks at the configuration they wrote rather than at the
+// client_credentials mode the message used to hard-code (#1681).
+func TestValidateAuth_RefusalNamesTheModeAndGrantInScope(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  Config
+		want string
+	}{
+		{
+			name: "canonical authorization_code",
+			cfg: Config{AuthMode: AuthModeOAuth, OAuth2: OAuth2Config{
+				Grant: connoauth.GrantAuthorizationCode, EndpointAuthStyle: OAuth2AuthStyleHeader,
+			}},
+			want: `oauth_token_url is required when auth_mode is "oauth" and oauth_grant is "authorization_code"`,
+		},
+		{
+			// A Config parsed from a canonical connection that names no
+			// grant defaults to client_credentials, and the message says so
+			// rather than leaving the grant blank.
+			name: "canonical with no grant stated",
+			cfg: Config{AuthMode: AuthModeOAuth, OAuth2: OAuth2Config{
+				EndpointAuthStyle: OAuth2AuthStyleHeader,
+			}},
+			want: `oauth_token_url is required when auth_mode is "oauth" and oauth_grant is "client_credentials"`,
+		},
+		{
+			// A Config built from a connection still stored in a legacy mode
+			// keeps naming that mode: it is what the operator will find in
+			// the configuration file they are editing.
+			name: "legacy mode",
+			cfg: Config{AuthMode: AuthModeOAuth2AuthorizationCode, OAuth2: OAuth2Config{
+				EndpointAuthStyle: OAuth2AuthStyleHeader,
+			}},
+			want: `oauth_token_url is required when auth_mode is "oauth2_authorization_code"`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.ValidateAuth()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.want)
+		})
+	}
 }

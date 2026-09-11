@@ -187,11 +187,6 @@
       "count": 1
     }
   },
-  "src/pages/settings/connections/GatewayConfigForm.tsx": {
-    "complexity": {
-      "count": 1
-    }
-  },
   "src/pages/settings/connections/useConnectionForm.ts": {
     "complexity": {
       "count": 1

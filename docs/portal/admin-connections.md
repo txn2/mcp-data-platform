@@ -104,6 +104,46 @@ the upstream invalidates the refresh token. Click **Reconnect** to
 re-authorize manually if needed; click **Refresh now** to force an
 immediate refresh.
 
+### HTTP Connections: the OAuth 2.1 block
+
+Connections of kind `api`, `graphql` and `mcp` share one OAuth block, because
+all three read the same connection-config keys. Selecting **OAuth 2.1** as the
+auth mode reveals it:
+
+- **Grant type** (`oauth_grant`) — `client_credentials` (machine-to-machine) or
+  `authorization_code + PKCE` (browser sign-in). The grant is its own field, not
+  part of the mode name, which is why one mode serves both flows.
+- **Authorization URL** (`oauth_authorization_url`) — appears only for
+  `authorization_code`, with the **Connect** button beneath it.
+- **Token URL** (`oauth_token_url`) — the endpoint the platform POSTs the grant to.
+- **Client ID** and **Client Secret** (`oauth_client_id`, `oauth_client_secret`) —
+  the secret is encrypted at rest and shown back as `[REDACTED]`. Re-saving with
+  `[REDACTED]` keeps the stored value; pasting a new one rotates it.
+- **Scope** (`oauth_scope`) — one space-delimited string, the OAuth 2.0 wire form.
+- **Endpoint auth style** (`oauth_endpoint_auth_style`) — `header` (the OAuth 2.1
+  default) or `params`, which some identity providers require. Shown for the
+  HTTP-based kinds.
+- **OIDC prompt** (`oauth_prompt`) — `authorization_code` only.
+
+![OAuth 2.1 credentials](../images/screenshots/light/admin-admin-connection-oauth-light.webp#only-light)![OAuth 2.1 credentials](../images/screenshots/dark/admin-admin-connection-oauth-dark.webp#only-dark)
+
+An `api` connection authored before these keys unified across the kinds may
+still carry the earlier `oauth2_*` spelling with the grant encoded in the
+auth mode (`oauth2_authorization_code`). The platform reads both, preferring the
+canonical key per field, and the editor folds the earlier spelling onto the
+canonical keys when it opens such a connection, so saving it rewrites the
+connection into one vocabulary. The admin API does the same for a write that
+arrives in the earlier spelling, and refuses a write that carries both with
+disagreeing values, naming the pair.
+
+A connection that already carries both — written before that check existed —
+says so where it is read. The configuration table strikes through each value
+nothing reads and badges it **shadowed**, and the OAuth status card names the
+ignored keys. The canonical value is the live one, so the field the editor
+shows is the field to correct; saving the connection drops the rest.
+
+![Shadowed OAuth keys](../images/screenshots/light/admin-admin-connection-oauth-shadowed-light.webp#only-light)![Shadowed OAuth keys](../images/screenshots/dark/admin-admin-connection-oauth-shadowed-dark.webp#only-dark)
+
 ### HTTP Connections: the Signed JWT block
 
 Connections of kind `api` and `graphql` share one auth-mode picker. Selecting

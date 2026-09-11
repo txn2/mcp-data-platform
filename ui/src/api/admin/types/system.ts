@@ -184,6 +184,15 @@ export interface ConnectionOAuthStatus {
     reason?: string;
     idp_host?: string;
   };
+  // Which OAuth config vocabulary the stored connection carries:
+  // "canonical", "legacy", or "mixed". A mixed connection reads as fully
+  // configured everywhere while authenticating with whichever value the
+  // canonical key holds, so the card says so rather than leaving the
+  // operator to compare two sets of keys (#1682).
+  config_vocabulary?: "canonical" | "legacy" | "mixed";
+  // The legacy keys whose value nothing reads, because the canonical
+  // sibling is set and wins.
+  shadowed_config_keys?: string[];
 }
 
 // ConnectionAuthEvent mirrors authevents.Event. The History panel

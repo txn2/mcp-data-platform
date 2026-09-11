@@ -153,6 +153,33 @@ function Inner({ kind, name }: { kind: string; name: string }) {
         </Alert>
       )}
 
+      {status?.config_vocabulary === "mixed" && (
+        <Alert variant="destructive" className="px-2 py-1">
+          <AlertDescription className="text-xs">
+            {/* One paragraph: AlertDescription is a grid, so sibling inline
+                elements would each take a row of their own. */}
+            <p>
+              <span className="font-medium">
+                Two OAuth configurations on one connection:
+              </span>{" "}
+              the canonical <code>oauth_*</code> keys are the ones this
+              connection authenticates with
+              {(status.shadowed_config_keys?.length ?? 0) > 0 && (
+                <>
+                  , and{" "}
+                  <span className="font-mono">
+                    {status.shadowed_config_keys?.join(", ")}
+                  </span>{" "}
+                  {status.shadowed_config_keys?.length === 1 ? "is" : "are"}{" "}
+                  ignored
+                </>
+              )}
+              . Open the editor and save to drop the unused keys.
+            </p>
+          </AlertDescription>
+        </Alert>
+      )}
+
       {status?.needs_reauth && <ConnectionStatePrompt status={status} />}
 
       {status && <StatusGrid status={status} />}

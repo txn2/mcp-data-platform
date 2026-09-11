@@ -107,11 +107,14 @@ export const mockConnectionInstances: ConnectionInstance[] = [
     kind: "mcp",
     name: "acme-crm-gateway",
     config: {
-      url: "https://crm-mcp.internal:9000",
-      transport: "http",
+      endpoint: "https://crm-mcp.internal:9000/mcp",
       auth_mode: "oauth",
-      token_url: "https://auth.acme.example.com/oauth2/token",
-      scope: "crm.read crm.write",
+      oauth_grant: "authorization_code",
+      oauth_authorization_url: "https://auth.acme.example.com/oauth2/authorize",
+      oauth_token_url: "https://auth.acme.example.com/oauth2/token",
+      oauth_client_id: "acme-crm-gateway",
+      oauth_client_secret: "[REDACTED]",
+      oauth_scope: "crm.read crm.write",
     },
     description:
       "Gateway-proxied CRM MCP server. Responses are auto-enriched with DataHub context and Trino query availability via the cross-enrichment rules attached to this connection.",
@@ -122,11 +125,13 @@ export const mockConnectionInstances: ConnectionInstance[] = [
     kind: "mcp",
     name: "acme-support-gateway",
     config: {
-      url: "https://support-mcp.internal:9100",
-      transport: "http",
+      endpoint: "https://support-mcp.internal:9100/mcp",
       auth_mode: "oauth",
-      token_url: "https://auth.acme.example.com/oauth2/token",
-      scope: "support.read",
+      oauth_grant: "client_credentials",
+      oauth_token_url: "https://auth.acme.example.com/oauth2/token",
+      oauth_client_id: "acme-support-gateway",
+      oauth_client_secret: "[REDACTED]",
+      oauth_scope: "support.read",
     },
     description:
       "Gateway-proxied support-desk MCP server exposing ticket search and SLA lookups.",
@@ -134,19 +139,52 @@ export const mockConnectionInstances: ConnectionInstance[] = [
     updated_at: "2025-01-20T10:15:00Z",
   },
   {
+    // An api-kind OAuth connection in the canonical shape: auth_mode "oauth"
+    // with the grant in oauth_grant, which is what migration 000050 produced
+    // and what the admin API persists. The editor renders the whole OAuth
+    // block for it (#1681).
     kind: "api",
     name: "acme-billing-api",
     config: {
       base_url: "https://billing.internal/api/v1",
-      spec_url: "https://billing.internal/openapi.json",
       auth_mode: "oauth",
-      token_url: "https://auth.acme.example.com/oauth2/token",
-      scope: "billing.read",
+      oauth_grant: "authorization_code",
+      oauth_authorization_url: "https://auth.acme.example.com/oauth2/authorize",
+      oauth_token_url: "https://auth.acme.example.com/oauth2/token",
+      oauth_client_id: "acme-billing-api",
+      oauth_client_secret: "[REDACTED]",
+      oauth_scope: "billing.read",
+      oauth_endpoint_auth_style: "params",
     },
     description:
       "HTTP API gateway over the internal billing service. Exposes invoice and subscription lookups as a single `api_invoke` tool with discovery.",
     created_by: "admin@acme.example.com",
     updated_at: "2025-01-18T14:48:00Z",
+  },
+  {
+    // A connection carrying both OAuth vocabularies, as a deployment
+    // configured before they unified still can: the canonical keys are what it
+    // authenticates with and the oauth2_* ones are inert. The viewer strikes
+    // the inert values through and the OAuth status card says so (#1682).
+    kind: "api",
+    name: "acme-analytics-api",
+    config: {
+      base_url: "https://analytics.internal/api/v1",
+      auth_mode: "oauth",
+      oauth_grant: "authorization_code",
+      oauth_authorization_url: "https://auth.acme.example.com/oauth2/authorize",
+      oauth_token_url: "https://auth.acme.example.com/oauth2/token",
+      oauth_client_id: "PENDING-REPLACE-ME",
+      oauth_client_secret: "[REDACTED]",
+      oauth_scope: "analytics.readonly",
+      oauth2_client_id: "acme-analytics-api",
+      oauth2_client_secret: "[REDACTED]",
+      oauth2_scopes: ["analytics.readonly"],
+    },
+    description:
+      "Analytics reporting API. Carries both OAuth config vocabularies: the canonical keys are live and the legacy ones are ignored.",
+    created_by: "admin@acme.example.com",
+    updated_at: "2025-01-22T11:10:00Z",
   },
   {
     // An upstream that issues an identifier and a signing key and expects the
@@ -237,6 +275,24 @@ export const mockConnectionOAuthStatus: Record<string, ConnectionOAuthStatus> =
       authenticated_by: "admin@acme.example.com",
       authenticated_at: new Date(now - 7 * DAY).toISOString(),
       needs_reauth: false,
+      config_vocabulary: "canonical",
+    },
+    // The connection carrying both vocabularies. It reports configured, which
+    // is exactly the trap: the status alone said nothing about the credential
+    // it was ignoring.
+    "api/acme-analytics-api": {
+      configured: true,
+      token_acquired: false,
+      has_refresh_token: false,
+      token_url: "https://auth.acme.example.com/oauth2/token",
+      scope: "analytics.readonly",
+      needs_reauth: true,
+      config_vocabulary: "mixed",
+      shadowed_config_keys: [
+        "oauth2_client_id",
+        "oauth2_client_secret",
+        "oauth2_scopes",
+      ],
     },
   };
 

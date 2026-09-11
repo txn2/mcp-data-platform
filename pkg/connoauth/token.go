@@ -126,6 +126,19 @@ type OAuthStatus struct {
 	// needed because the IdP killed the chain, not because the
 	// connection was never set up.
 	LastRevocation *RevocationEvent `json:"last_revocation,omitempty"`
+	// ConfigVocabulary names which OAuth config vocabulary the
+	// connection's stored config carries: VocabularyCanonical,
+	// VocabularyLegacy or VocabularyMixed. Set by the admin status
+	// handler from the raw config map, never by the Source's own
+	// Status(), which sees only the resolved Config and so cannot tell
+	// a canonical connection from a legacy one.
+	ConfigVocabulary string `json:"config_vocabulary,omitempty"`
+	// ShadowedConfigKeys lists the legacy config keys whose value
+	// nothing reads because the canonical sibling is set. A mixed
+	// connection otherwise reports as fully configured while
+	// authenticating with a credential the operator never saw (#1682);
+	// these are the keys that are being ignored.
+	ShadowedConfigKeys []string `json:"shadowed_config_keys,omitempty"`
 }
 
 // RevocationEvent is the trimmed-down audit-event view the OAuth

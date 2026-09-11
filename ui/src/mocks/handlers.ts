@@ -1833,7 +1833,17 @@ export const handlers = [
           "crm_get_account",
           "crm_list_opportunities",
         ],
-        config: { url: "https://crm-mcp.internal:9000", auth: "oauth2" },
+        config: {
+          endpoint: "https://crm-mcp.internal:9000/mcp",
+          auth_mode: "oauth",
+          oauth_grant: "authorization_code",
+          oauth_authorization_url:
+            "https://auth.acme.example.com/oauth2/authorize",
+          oauth_token_url: "https://auth.acme.example.com/oauth2/token",
+          oauth_client_id: "acme-crm-gateway",
+          oauth_client_secret: "[REDACTED]",
+          oauth_scope: "crm.read crm.write",
+        },
         created_by: "sarah.chen@example.com",
         updated_at: new Date(Date.now() - 2 * 86400000).toISOString(),
         health: {
@@ -1841,6 +1851,62 @@ export const handlers = [
           last_success: new Date(Date.now() - 90 * 1000).toISOString(),
           last_error: "",
         },
+      },
+      {
+        // An api-kind OAuth connection in the canonical shape: auth_mode
+        // "oauth" with the grant in oauth_grant, which is what migration
+        // 000050 produced and what the admin API persists. The editor renders
+        // the whole OAuth block for it (#1681).
+        kind: "api",
+        name: "acme-billing-api",
+        connection: "acme-billing-api",
+        description:
+          "HTTP API gateway over the internal billing service. Exposes invoice and subscription lookups with discovery.",
+        source: "database",
+        tools: ["api_discover", "api_invoke_endpoint", "api_export"],
+        config: {
+          base_url: "https://billing.internal/api/v1",
+          auth_mode: "oauth",
+          oauth_grant: "authorization_code",
+          oauth_authorization_url:
+            "https://auth.acme.example.com/oauth2/authorize",
+          oauth_token_url: "https://auth.acme.example.com/oauth2/token",
+          oauth_client_id: "acme-billing-api",
+          oauth_client_secret: "[REDACTED]",
+          oauth_scope: "billing.read",
+          oauth_endpoint_auth_style: "params",
+        },
+        created_by: "admin@example.com",
+        updated_at: new Date(Date.now() - 4 * 86400000).toISOString(),
+      },
+      {
+        // A connection carrying both OAuth config vocabularies, as a
+        // deployment configured before they unified still can. The canonical
+        // keys are what it authenticates with; the oauth2_* ones are inert and
+        // the viewer marks them rather than listing them as equals (#1682).
+        kind: "api",
+        name: "acme-analytics-api",
+        connection: "acme-analytics-api",
+        description:
+          "Analytics reporting API. Carries both OAuth config vocabularies: the canonical keys are live and the legacy ones are ignored.",
+        source: "database",
+        tools: ["api_discover", "api_invoke_endpoint", "api_export"],
+        config: {
+          base_url: "https://analytics.internal/api/v1",
+          auth_mode: "oauth",
+          oauth_grant: "authorization_code",
+          oauth_authorization_url:
+            "https://auth.acme.example.com/oauth2/authorize",
+          oauth_token_url: "https://auth.acme.example.com/oauth2/token",
+          oauth_client_id: "PENDING-REPLACE-ME",
+          oauth_client_secret: "[REDACTED]",
+          oauth_scope: "analytics.readonly",
+          oauth2_client_id: "acme-analytics-api",
+          oauth2_client_secret: "[REDACTED]",
+          oauth2_scopes: ["analytics.readonly"],
+        },
+        created_by: "admin@example.com",
+        updated_at: new Date(Date.now() - 1 * 86400000).toISOString(),
       },
     ]);
   }),

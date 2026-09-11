@@ -48,6 +48,7 @@ export function GraphQLConfigForm({
       <ApiGatewayAuthFields
         config={config}
         onChange={onChange}
+        kind="graphql"
         connectionName={connectionName}
         isCreate={isCreate}
         onOpenHelp={() => setAuthHelpOpen(true)}
