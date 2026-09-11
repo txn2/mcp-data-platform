@@ -190,6 +190,12 @@ func (h *handler) connectionOAuthStatus(w http.ResponseWriter, r *http.Request) 
 		WithActor(h.cfg.Author(r.Context()))
 	status := src.Status(r.Context())
 	status.LastRevocation = h.lastRevocationFor(r.Context(), kind, name)
+	// Which vocabulary the stored config speaks is not derivable from the
+	// resolved Config: ParseConfig normalizes both onto the same fields.
+	// It is read off the raw map here so a mixed connection reports the
+	// keys it is ignoring rather than reporting as configured and leaving
+	// the shadowed credential invisible (#1682).
+	status.ConfigVocabulary, status.ShadowedConfigKeys = connoauth.DescribeVocabulary(inst.Config)
 	httpjson.WriteJSON(w, http.StatusOK, status)
 }
 

@@ -440,7 +440,8 @@ func (c Config) ValidateAuth() error {
 		// Config.AuthMode inspection.
 		return nil
 	default:
-		return c.errf("invalid auth_mode %q (want none, bearer, api_key, basic, signed_jwt, oauth2_client_credentials, oauth2_authorization_code, or mtls)", c.AuthMode)
+		return c.errf("invalid auth_mode %q (want none, bearer, api_key, basic, signed_jwt, oauth, or mtls; an oauth connection carries its flow in %s)",
+			c.AuthMode, connoauth.ConfigKeyGrant)
 	}
 }
 
@@ -493,6 +494,31 @@ func (c Config) validateBasicAuth() error {
 	return nil
 }
 
+// errOAuthFieldRequired is the shape of every missing-OAuth-field
+// refusal: the config key, then the mode and grant it is required under.
+const errOAuthFieldRequired = "%s is required when %s"
+
+// oauthRequirement names the mode and grant a missing-field refusal is
+// speaking about, in the vocabulary the connection is actually stored
+// in. A canonical connection reports auth_mode "oauth" and the grant it
+// carries; the legacy mode values encoded the grant in the mode, and a
+// Config built from one of those reports it that way. Naming the
+// client_credentials mode unconditionally sent operators of an
+// authorization_code connection looking for a misconfiguration that did
+// not exist (#1681).
+func (c Config) oauthRequirement() string {
+	switch c.AuthMode {
+	case AuthModeOAuth2ClientCredentials, AuthModeOAuth2AuthorizationCode:
+		return fmt.Sprintf("auth_mode is %q", c.AuthMode)
+	default:
+		grant := c.OAuth2.Grant
+		if grant == "" {
+			grant = connoauth.GrantClientCredentials
+		}
+		return fmt.Sprintf("auth_mode is %q and %s is %q", AuthModeOAuth, connoauth.ConfigKeyGrant, grant)
+	}
+}
+
 // validateOAuth2AuthCode adds the authorization_code-specific
 // requirement (AuthorizationURL) on top of the client_credentials
 // validation. ClientSecret is still required because OAuth 2.1
@@ -503,27 +529,27 @@ func (c Config) validateOAuth2AuthCode() error {
 		return err
 	}
 	if c.OAuth2.AuthorizationURL == "" {
-		return c.err("oauth2.authorization_url is required when auth_mode is \"oauth2_authorization_code\"")
+		return c.errf(errOAuthFieldRequired, connoauth.ConfigKeyAuthorizationURL, c.oauthRequirement())
 	}
 	return nil
 }
 
 func (c Config) validateOAuth2() error {
 	if c.OAuth2.TokenURL == "" {
-		return c.err("oauth2.token_url is required when auth_mode is \"oauth2_client_credentials\"")
+		return c.errf(errOAuthFieldRequired, connoauth.ConfigKeyTokenURL, c.oauthRequirement())
 	}
 	if c.OAuth2.ClientID == "" {
-		return c.err("oauth2.client_id is required when auth_mode is \"oauth2_client_credentials\"")
+		return c.errf(errOAuthFieldRequired, connoauth.ConfigKeyClientID, c.oauthRequirement())
 	}
 	if c.OAuth2.ClientSecret == "" {
-		return c.err("oauth2.client_secret is required when auth_mode is \"oauth2_client_credentials\"")
+		return c.errf(errOAuthFieldRequired, connoauth.ConfigKeyClientSecret, c.oauthRequirement())
 	}
 	switch c.OAuth2.EndpointAuthStyle {
 	case OAuth2AuthStyleHeader, OAuth2AuthStyleParams:
 		return nil
 	default:
-		return c.errf("invalid oauth2.endpoint_auth_style %q (want %q or %q)",
-			c.OAuth2.EndpointAuthStyle, OAuth2AuthStyleHeader, OAuth2AuthStyleParams)
+		return c.errf("invalid %s %q (want %q or %q)",
+			connoauth.ConfigKeyEndpointAuthStyle, c.OAuth2.EndpointAuthStyle, OAuth2AuthStyleHeader, OAuth2AuthStyleParams)
 	}
 }
 

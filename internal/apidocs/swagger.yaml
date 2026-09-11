@@ -2669,6 +2669,15 @@ definitions:
           AuthenticatedBy is the email/id of the operator who completed
           the browser flow. Empty for never-authorized connections.
         type: string
+      config_vocabulary:
+        description: |-
+          ConfigVocabulary names which OAuth config vocabulary the
+          connection's stored config carries: VocabularyCanonical,
+          VocabularyLegacy or VocabularyMixed. Set by the admin status
+          handler from the raw config map, never by the Source's own
+          Status(), which sees only the resolved Config and so cannot tell
+          a canonical connection from a legacy one.
+        type: string
       configured:
         description: |-
           Configured indicates the connection is set up for the
@@ -2738,6 +2747,16 @@ definitions:
           IdP. Surfaced so operators can verify offline_access is present
           on Keycloak/Auth0/Okta IdPs.
         type: string
+      shadowed_config_keys:
+        description: |-
+          ShadowedConfigKeys lists the legacy config keys whose value
+          nothing reads because the canonical sibling is set. A mixed
+          connection otherwise reports as fully configured while
+          authenticating with a credential the operator never saw (#1682);
+          these are the keys that are being ignored.
+        items:
+          type: string
+        type: array
       token_acquired:
         description: |-
           TokenAcquired is true when a non-empty access_token sits in the

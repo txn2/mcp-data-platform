@@ -249,7 +249,11 @@ The OAuth 2.1 authorization-code grant completes via the platform's shared `/api
 
 The `signed_jwt` config keys (`jwt_algorithm`, `jwt_client_secret`, `jwt_private_key_pem`, `jwt_key_id`, `jwt_issuer`, `jwt_subject`, `jwt_audience`, `jwt_token_lifetime`, `jwt_issued_at_skew`) are likewise shared with every HTTP-based kind. The secret and the private key are encrypted at rest and returned as `[REDACTED]`. [Signed JWT upstreams](signed-jwt-auth.md) documents them with worked examples.
 
-> **Deprecated (still accepted).** Earlier api-gateway connections used an `oauth2_*` key prefix and encoded the grant in the `auth_mode` value (`oauth2_client_credentials` / `oauth2_authorization_code`), with `oauth2_scopes` as an array. Those are read as a fallback and rewritten to the canonical keys automatically by a database migration on upgrade; no reconnect is required. The fallback is scheduled for removal in a future release.
+> **Deprecated (still accepted on read).** Earlier api-gateway connections used an `oauth2_*` key prefix and encoded the grant in the `auth_mode` value (`oauth2_client_credentials` / `oauth2_authorization_code`), with `oauth2_scopes` as an array. Those are still read as a fallback, so a connection a configuration file declares in that spelling keeps working; the fallback is scheduled for removal in a future release.
+>
+> Nothing writes them any more. A write in the earlier spelling is rewritten onto the canonical keys before it is stored, whichever route it arrives on, so one vocabulary is persisted and the upgrade migration is not a one-shot window a later save can undo. A write carrying both spellings with **disagreeing** values is refused with a 400 naming the pair: the canonical key wins at read time, so accepting it would authenticate with one value while displaying the other beside it as an equal. Equal values are not a conflict and the earlier key is dropped.
+>
+> A connection stored before that check says so where it is read. `GET /api/v1/admin/connections/{kind}/{name}/oauth-status` reports `config_vocabulary` (`canonical`, `legacy` or `mixed`) and `shadowed_config_keys`, the keys whose value nothing reads, and the portal strikes those values through in the connection's configuration table. Opening such a connection in the editor and saving it rewrites the row into one vocabulary.
 
 ### Identity passthrough
 

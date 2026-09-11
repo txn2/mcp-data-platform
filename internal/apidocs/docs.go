@@ -22277,6 +22277,10 @@ const docTemplate = `{
                     "description": "AuthenticatedBy is the email/id of the operator who completed\nthe browser flow. Empty for never-authorized connections.",
                     "type": "string"
                 },
+                "config_vocabulary": {
+                    "description": "ConfigVocabulary names which OAuth config vocabulary the\nconnection's stored config carries: VocabularyCanonical,\nVocabularyLegacy or VocabularyMixed. Set by the admin status\nhandler from the raw config map, never by the Source's own\nStatus(), which sees only the resolved Config and so cannot tell\na canonical connection from a legacy one.",
+                    "type": "string"
+                },
                 "configured": {
                     "description": "Configured indicates the connection is set up for the\nauthorization_code grant. False means the status endpoint was\nhit for a non-OAuth connection (or one with a different grant)\nand the UI should hide the OAuth block entirely.",
                     "type": "boolean"
@@ -22320,6 +22324,13 @@ const docTemplate = `{
                 "scope": {
                     "description": "Scope is the space-delimited scope string negotiated with the\nIdP. Surfaced so operators can verify offline_access is present\non Keycloak/Auth0/Okta IdPs.",
                     "type": "string"
+                },
+                "shadowed_config_keys": {
+                    "description": "ShadowedConfigKeys lists the legacy config keys whose value\nnothing reads because the canonical sibling is set. A mixed\nconnection otherwise reports as fully configured while\nauthenticating with a credential the operator never saw (#1682);\nthese are the keys that are being ignored.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "token_acquired": {
                     "description": "TokenAcquired is true when a non-empty access_token sits in the\npersisted row. False after a revoked-refresh cleanup or before\nthe first Connect.",

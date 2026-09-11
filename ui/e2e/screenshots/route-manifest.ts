@@ -4,6 +4,7 @@ import { drawerRoutes } from "./route-drawers";
 import { scratchTableRoutes } from "./route-scratch-tables";
 import { apiBrowserAdminRoutes, apiBrowserUserRoutes } from "./route-apis";
 import { sectionIntroRoutes } from "./route-section-intros";
+import { adminConnectionRoutes } from "./route-connections";
 import { adminPersonaRoutes } from "./route-personas";
 import { adminScriptRoutes, userScriptRoutes } from "./route-scripts";
 import {
@@ -412,67 +413,7 @@ export const routes: ScreenshotRoute[] = [
     path: "/portal/admin/agent-instructions",
     category: "admin",
   },
-  {
-    slug: "admin-connections",
-    path: "/portal/admin/connections",
-    category: "admin",
-  },
-  {
-    // Connection editor (edit form). Select a connection, then open Edit.
-    slug: "admin-connection-edit",
-    path: "/portal/admin/connections",
-    category: "admin",
-    beforeCapture: async (page) => {
-      const row = page.locator("text=acme-warehouse").first();
-      if (await row.isVisible()) {
-        await row.click();
-        await page.waitForTimeout(400);
-      }
-      const edit = page.locator("button:has-text('Edit')").first();
-      if (await edit.isVisible()) {
-        await edit.click();
-        await page.waitForTimeout(600);
-      }
-    },
-  },
-  {
-    // The signed_jwt credential block (#1648), captured on the connection whose
-    // upstream needs it: the algorithm picker and the claims the upstream
-    // registered, which no other auth mode has.
-    slug: "admin-connection-signed-jwt",
-    // The panel reads its selection from the query string, which selects the
-    // connection without depending on where its row lands in the sidebar.
-    path: "/portal/admin/connections?kind=api&name=acme-erp-api",
-    category: "admin",
-    beforeCapture: async (page) => {
-      const edit = page.locator("button:has-text('Edit')").first();
-      if (await edit.isVisible()) {
-        await edit.click();
-        await page.waitForTimeout(600);
-      }
-      // The credential block is taller than the frame, so the capture is
-      // anchored where it reads as one form: the algorithm picker and the key
-      // material at the top, down to the two timings.
-      const issuer = page.locator("text=Issuer (iss)").first();
-      if (await issuer.isVisible()) {
-        await issuer.scrollIntoViewIfNeeded();
-        await page.waitForTimeout(300);
-      }
-    },
-  },
-  {
-    // Connection create form (new gateway/Trino/S3 connection).
-    slug: "admin-connection-create",
-    path: "/portal/admin/connections",
-    category: "admin",
-    beforeCapture: async (page) => {
-      const add = page.locator("button:has-text('Add Connection')").first();
-      if (await add.isVisible()) {
-        await add.click();
-        await page.waitForTimeout(600);
-      }
-    },
-  },
+  ...adminConnectionRoutes,
   ...adminPersonaRoutes,
   ...adminResourceRoutes,
   {

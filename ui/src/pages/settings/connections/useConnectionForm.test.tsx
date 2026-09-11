@@ -118,3 +118,79 @@ describe("useConnectionForm — edit mode", () => {
     expect(result.current.saveError).toBe("boom");
   });
 });
+
+// A connection stored in the legacy OAuth spelling has to reach the form in the
+// one the form speaks, or the editor renders empty fields beside a mode it
+// cannot match (#1681), and a save puts the legacy keys back beside the
+// canonical ones where they shadow what the operator typed (#1682).
+describe("useConnectionForm — the OAuth vocabulary a stored config arrives in", () => {
+  const legacyOAuth: EffectiveConnection = {
+    kind: "api",
+    name: "analytics",
+    connection: "analytics",
+    source: "database",
+    tools: [],
+    config: {
+      base_url: "https://analytics.example.com",
+      auth_mode: "oauth2_authorization_code",
+      oauth2_token_url: "https://idp.example.com/token",
+      oauth2_client_id: "platform-client",
+      oauth2_scopes: ["analytics.readonly"],
+    },
+  };
+
+  it("loads a legacy config folded onto the canonical keys", () => {
+    const { result } = renderHook(() =>
+      useConnectionForm({
+        connection: legacyOAuth,
+        onSave: noop,
+        onDirtyChange: noop,
+      }),
+    );
+
+    expect(result.current.configObj).toEqual({
+      base_url: "https://analytics.example.com",
+      auth_mode: "oauth",
+      oauth_grant: "authorization_code",
+      oauth_token_url: "https://idp.example.com/token",
+      oauth_client_id: "platform-client",
+      oauth_scope: "analytics.readonly",
+    });
+  });
+
+  it("saves the canonical config and none of the legacy keys", () => {
+    const { result } = renderHook(() =>
+      useConnectionForm({
+        connection: legacyOAuth,
+        onSave: noop,
+        onDirtyChange: noop,
+      }),
+    );
+    act(() => result.current.handleSave());
+
+    const saved = mutate.mock.calls[0]?.[0] as {
+      config: Record<string, unknown>;
+    };
+    expect(saved.config.oauth_client_id).toBe("platform-client");
+    for (const legacy of [
+      "oauth2_client_id",
+      "oauth2_scopes",
+      "oauth2_token_url",
+    ]) {
+      expect(saved.config).not.toHaveProperty(legacy);
+    }
+  });
+
+  it("does not report merely opening such a connection as an unsaved change", () => {
+    const onDirtyChange = vi.fn();
+    renderHook(() =>
+      useConnectionForm({
+        connection: legacyOAuth,
+        onSave: noop,
+        onDirtyChange,
+      }),
+    );
+
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+  });
+});

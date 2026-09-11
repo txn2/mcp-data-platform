@@ -2,6 +2,8 @@ package registry
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestValidateConnectionConfig(t *testing.T) {
@@ -139,5 +141,34 @@ func TestRegisterBuiltinFactoriesIncludesGraphQL(t *testing.T) {
 	}
 	if tk.Kind() != "graphql" {
 		t.Errorf("kind = %q", tk.Kind())
+	}
+}
+
+// Both OAuth spellings validate here on their own, and reconciling them is not
+// this function's job: the admin write boundary folds a write onto the
+// canonical keys before the config reaches the per-kind parser (#1682). What
+// this pins is that neither spelling stops validating, so a connection the
+// configuration file declares in the earlier one is not refused.
+func TestValidateConnectionConfig_AcceptsEitherVocabularyAlone(t *testing.T) {
+	for name, cfg := range map[string]map[string]any{
+		"canonical": {
+			"base_url":            "https://api.example.com",
+			"auth_mode":           "oauth",
+			"oauth_grant":         "client_credentials",
+			"oauth_token_url":     "https://idp.example.com/token",
+			"oauth_client_id":     "c",
+			"oauth_client_secret": "s",
+		},
+		"legacy": {
+			"base_url":             "https://api.example.com",
+			"auth_mode":            "oauth2_client_credentials",
+			"oauth2_token_url":     "https://idp.example.com/token",
+			"oauth2_client_id":     "c",
+			"oauth2_client_secret": "s",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			assert.NoError(t, ValidateConnectionConfig("api", cfg))
+		})
 	}
 }

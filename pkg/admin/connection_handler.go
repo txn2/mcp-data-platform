@@ -243,11 +243,32 @@ func (h *Handler) setConnectionInstance(w http.ResponseWriter, r *http.Request) 
 		delete(req.Config, key)
 	}
 
+	// Fold any legacy oauth2_* key onto its canonical oauth_* sibling so
+	// one vocabulary, and only one, is ever persisted. Migration 000050
+	// canonicalized what existed when it ran; without this every later
+	// write could put the legacy shape back, and a row holding both
+	// authenticated with the canonical value while the portal displayed
+	// the operator's own entry beside it as an equal (#1682).
+	canonical, err := connoauth.Canonicalize(req.Config)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid connection config: "+err.Error())
+		return
+	}
+	req.Config = canonical
+
 	// If any sensitive field is "[REDACTED]", preserve the existing value from the store.
 	if hasRedactedValues(req.Config) {
 		existing, err := h.deps.ConnectionStore.Get(r.Context(), kind, name)
 		if err == nil && existing != nil {
-			req.Config = mergeRedactedFields(req.Config, existing.Config)
+			// The stored config is canonicalized for the merge too: a row
+			// still holding oauth2_client_secret has no oauth_client_secret
+			// for the submitted placeholder to resolve against, and the
+			// literal "[REDACTED]" would be saved as the secret.
+			stored, storedErr := connoauth.Canonicalize(existing.Config)
+			if storedErr != nil {
+				stored = existing.Config
+			}
+			req.Config = mergeRedactedFields(req.Config, stored)
 		}
 	}
 

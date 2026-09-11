@@ -126,6 +126,12 @@ func GraphQLAggregateFactory(defaultName string, instances map[string]map[string
 // ValidateConnectionConfig validates a connection config map against
 // the per-kind parser. Returns nil when the config is valid or the
 // kind has no registered validator.
+//
+// It is not where the OAuth config vocabularies are reconciled. Both
+// spellings validate on their own here, and always did, which is how a
+// config carrying both passed (#1682); the write boundary in pkg/admin
+// folds a write onto the canonical keys, and refuses the one pair no
+// rule can resolve, before the config reaches this parser.
 func ValidateConnectionConfig(kind string, cfg map[string]any) error {
 	var err error
 	switch kind {

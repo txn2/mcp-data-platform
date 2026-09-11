@@ -272,7 +272,7 @@ func TestParseConfig_ValidationErrors(t *testing.T) {
 				"oauth2_client_id":     "c",
 				"oauth2_client_secret": "s",
 			},
-			want: "oauth2.token_url is required",
+			want: "oauth_token_url is required",
 		},
 		{
 			name: "oauth2 missing client_id",
@@ -282,7 +282,7 @@ func TestParseConfig_ValidationErrors(t *testing.T) {
 				"oauth2_token_url":     "https://idp/token",
 				"oauth2_client_secret": "s",
 			},
-			want: "oauth2.client_id is required",
+			want: "oauth_client_id is required",
 		},
 		{
 			name: "oauth2 missing client_secret",
@@ -292,7 +292,7 @@ func TestParseConfig_ValidationErrors(t *testing.T) {
 				"oauth2_token_url": "https://idp/token",
 				"oauth2_client_id": "c",
 			},
-			want: "oauth2.client_secret is required",
+			want: "oauth_client_secret is required",
 		},
 		{
 			name: "oauth2 invalid endpoint_auth_style",
@@ -315,7 +315,7 @@ func TestParseConfig_ValidationErrors(t *testing.T) {
 				"oauth2_client_id":     "c",
 				"oauth2_client_secret": "s",
 			},
-			want: "oauth2.authorization_url is required",
+			want: "oauth_authorization_url is required",
 		},
 		{
 			name: "basic without username",
@@ -368,7 +368,7 @@ func TestParseConfig_ValidationErrors(t *testing.T) {
 				"oauth2_client_id":         "c",
 				"oauth2_authorization_url": "https://idp/auth",
 			},
-			want: "oauth2.client_secret is required",
+			want: "oauth_client_secret is required",
 		},
 	}
 	for _, tc := range cases {

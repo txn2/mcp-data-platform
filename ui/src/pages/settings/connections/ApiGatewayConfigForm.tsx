@@ -48,6 +48,7 @@ export function ApiGatewayConfigForm({
       <ApiGatewayAuthFields
         config={config}
         onChange={onChange}
+        kind="api"
         connectionName={connectionName}
         isCreate={isCreate}
         onOpenHelp={() => setAuthHelpOpen(true)}

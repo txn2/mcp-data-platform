@@ -56,3 +56,11 @@ var (
 	errNoRefreshToken = errors.New("connoauth: no refresh token persisted")
 	errRefreshExpired = errors.New("connoauth: refresh token has expired")
 )
+
+// ErrVocabularyConflict is returned by Canonicalize when a config
+// carries a legacy `oauth2_*` key alongside its canonical `oauth_*`
+// sibling and the two hold different values. Callers map it to a 400:
+// both values were authored deliberately and only the operator knows
+// which is current, so no rule can pick one without discarding a
+// credential somebody typed (#1682).
+var ErrVocabularyConflict = errors.New("connoauth: conflicting oauth config vocabularies")
