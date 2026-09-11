@@ -115,7 +115,9 @@ func (t *Toolkit) handleQuery(ctx context.Context, _ *mcp.CallToolRequest, in Qu
 		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
 	t.fitInline(prepared, in, out)
-	return toolkit.JSONResult(out), out, nil
+	result := toolkit.JSONResult(out)
+	stampAuditOutcome(result, classifyUpstream(out.Status, out.Errors, out.UpstreamError))
+	return result, out, nil
 }
 
 // prepared is one authorized, validated call, ready to send.

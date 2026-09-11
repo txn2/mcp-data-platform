@@ -139,6 +139,8 @@ Before anything is sent, the document is parsed, the operation to run is resolve
 
 A GraphQL endpoint reports almost every failure as an HTTP 200 carrying an `errors` array. The result reports `upstream_error: true` for a non-2xx *or* a 200 with errors, and that is what the platform's audit, call catalog and outbound metrics classify the call on. The `errors` array is passed through unchanged — its messages, paths and `extensions` are the upstream's own words and the only diagnosis a caller gets — and any partial `data` is preserved beside it.
 
+A call whose result says `upstream_error: true` is a failed call everywhere the platform records it, as an `api_invoke_endpoint` whose upstream answered a 4xx is. Its audit row and its call record carry `success: false` and an `error_message` naming the first upstream error (and how many followed it), so the record's outcome is `failed` and `fetch mcp:call:<id>` says so. The outbound metric records the same verdict, `status_category="upstream_err"` under `http_status_class="2xx"`, because for this kind the status line is not where the answer is. `graphql_export` is held to the same rule: the export lands, carrying the errors as sent, and reports `status` and `upstream_error` beside the asset.
+
 ### Results too large to read
 
 `max_inline_bytes` bounds the rendered result. A result past it has its `data` withheld — a JSON document cut in half cannot be parsed, so it is withheld whole rather than halved — sets `data_truncated`, reports `data_bytes`, and carries `export_arguments`: the `graphql_export` call that writes the same result to a portal asset.

@@ -7,7 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/apigwmetrics"
+	"github.com/txn2/mcp-data-platform/internal/membudget"
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth"
 	"github.com/txn2/mcp-data-platform/internal/useragent"
 	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
@@ -93,6 +96,12 @@ func (e *execution) upstreamFailed() bool {
 // execute posts one document to a connection's endpoint and reads the
 // answer. The caller has already validated the document; this is the
 // transport step alone.
+//
+// The outbound metric is recorded here rather than by a transport
+// wrapper because its verdict is not on the status line: a GraphQL
+// endpoint reports failure as a 200 carrying errors, and only a read
+// body says which (#1678). Every send this kind makes, including the
+// schema introspection, comes through here, so nothing is uncounted.
 func (t *Toolkit) execute(ctx context.Context, c *conn, body graphQLRequest) (*execution, error) {
 	payload, err := json.Marshal(body)
 	if err != nil {
@@ -102,15 +111,30 @@ func (t *Toolkit) execute(ctx context.Context, c *conn, body graphQLRequest) (*e
 	if err != nil {
 		return nil, err
 	}
+	t.mu.RLock()
+	budget, metrics := t.memBudget, t.metrics
+	t.mu.RUnlock()
+
+	start := time.Now()
 	resp, err := c.client.Do(req)
 	if err != nil {
+		apigwmetrics.Record(ctx, metrics, c.cfg.ConnectionName, apigwmetrics.Observation{Failed: true, Duration: time.Since(start)})
 		return nil, fmt.Errorf("graphql: calling %s: %w", c.cfg.EndpointURL, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	t.mu.RLock()
-	budget := t.memBudget
-	t.mu.RUnlock()
+	out, err := t.readExecution(resp, req.Header, budget, c)
+	if err != nil {
+		apigwmetrics.Record(ctx, metrics, c.cfg.ConnectionName, apigwmetrics.Observation{Status: resp.StatusCode, Failed: true, Duration: time.Since(start)})
+		return nil, err
+	}
+	apigwmetrics.Record(ctx, metrics, c.cfg.ConnectionName, apigwmetrics.Observation{Status: out.status, Failed: out.upstreamFailed(), Duration: time.Since(start)})
+	return out, nil
+}
+
+// readExecution reads one response into an execution, within the
+// connection's read cap and the platform's in-flight budget.
+func (*Toolkit) readExecution(resp *http.Response, sent http.Header, budget *membudget.Budget, c *conn) (*execution, error) {
 	readCap := readLimit(c.cfg.MaxResponseBytes)
 	reserved, ok := reserveBodyBudget(budget, resp.ContentLength, readCap)
 	if !ok {
@@ -122,7 +146,7 @@ func (t *Toolkit) execute(ctx context.Context, c *conn, body graphQLRequest) (*e
 	if err != nil {
 		return nil, err
 	}
-	out := &execution{status: resp.StatusCode, body: raw, truncated: truncated, userAgent: useragent.Effective(req.Header)}
+	out := &execution{status: resp.StatusCode, body: raw, truncated: truncated, userAgent: useragent.Effective(sent)}
 	// A body cut at the read cap is not parseable JSON, and reporting a
 	// decode failure for it would blame the payload for the cap.
 	if !truncated {

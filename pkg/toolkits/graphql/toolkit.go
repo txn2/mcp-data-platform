@@ -12,7 +12,6 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/txn2/mcp-data-platform/internal/apigwmetrics"
 	"github.com/txn2/mcp-data-platform/internal/gqlschema"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/membudget"
@@ -160,9 +159,6 @@ func (t *Toolkit) addParsedConnection(name string, cfg Config) error {
 	}
 	upstreamauth.SetConnOAuthStore(auth, t.connOAuthStore)
 	upstreamauth.SetAuthEvents(auth, t.authEvents)
-	if t.metrics.Enabled() {
-		apigwmetrics.Instrument(c.client, cfg.ConnectionName, t.metrics)
-	}
 	t.connections[name] = c
 	return nil
 }
@@ -273,23 +269,13 @@ func (t *Toolkit) SetEmbeddingProvider(p embedding.Provider) {
 	t.embedder = p
 }
 
-// SetMetrics wires the observability recorder and retroactively
-// instruments every already-registered connection's HTTP client, so
-// connections added before metrics were enabled still emit outbound
-// observations. Called once at startup before any listener accepts
-// requests; apigwmetrics.Instrument is idempotent against the same
-// (connection, metrics) pair, so a second call with the same recorder
-// is a no-op rather than a double wrap.
+// SetMetrics wires the observability recorder. Every send reads it at
+// call time, so a connection registered before metrics were enabled
+// records from the first call after (#1678).
 func (t *Toolkit) SetMetrics(m *observability.Metrics) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.metrics = m
-	if !m.Enabled() {
-		return
-	}
-	for _, c := range t.connections {
-		apigwmetrics.Instrument(c.client, c.cfg.ConnectionName, m)
-	}
 }
 
 // SetMemBudget wires the shared in-flight memory budget the buffered

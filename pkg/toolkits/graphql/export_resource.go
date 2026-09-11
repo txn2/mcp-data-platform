@@ -75,12 +75,14 @@ func landExport(
 		return nil, err //nolint:wrapcheck // the lander's sentence is written for whoever made the call
 	}
 	return &exportOutput{
-		ContentType: landing.ContentType,
-		SizeBytes:   landing.SizeBytes,
-		Operations:  result.Operations,
-		Errors:      result.Errors,
-		Pagination:  result.Pagination,
-		Resource:    landing,
+		ContentType:   landing.ContentType,
+		SizeBytes:     landing.SizeBytes,
+		Operations:    result.Operations,
+		Status:        result.Status,
+		UpstreamError: result.UpstreamError,
+		Errors:        result.Errors,
+		Pagination:    result.Pagination,
+		Resource:      landing,
 		Message: fmt.Sprintf("Exported %d bytes from connection %s. %s",
 			landing.SizeBytes, in.Connection, landing.Message),
 	}, nil
