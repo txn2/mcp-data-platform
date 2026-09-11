@@ -130,14 +130,14 @@ func (t *Toolkit) loadStored(ctx context.Context, c *conn, keepErr bool) (bool, 
 	if err != nil {
 		if !errors.Is(err, ErrSchemaNotFound) {
 			slog.Warn("graphql: reading the stored schema failed",
-				logKeyConnection, logsan.SanitizeForLog(c.cfg.ConnectionName), logKeyError, err)
+				logKeyConnection, logsan.SanitizeForLog(c.cfg.ConnectionName), logKeyError, logsan.SanitizeForLog(err.Error()))
 		}
 		return false, fmt.Errorf("graphql: reading the stored schema for %s: %w", c.cfg.ConnectionName, err)
 	}
 	parsed, err := gqlschema.Load(stored.SDL)
 	if err != nil {
 		slog.Warn("graphql: the stored schema does not load",
-			logKeyConnection, logsan.SanitizeForLog(c.cfg.ConnectionName), logKeyError, err)
+			logKeyConnection, logsan.SanitizeForLog(c.cfg.ConnectionName), logKeyError, logsan.SanitizeForLog(err.Error()))
 		return false, fmt.Errorf("graphql: the stored schema for %s does not load: %w", stored.Connection, err)
 	}
 	v := schemaVersion{schema: parsed, source: stored.Source, fetchedAt: stored.FetchedAt}

@@ -105,7 +105,7 @@ func ReloadStoredSchema(ctx context.Context, reg *registry.Registry, name string
 		}
 		if err := tk.LoadStoredSchema(ctx, name); err != nil {
 			slog.Warn("graphql: loading the stored schema a peer announced failed",
-				"connection", logsan.SanitizeForLog(name), "error", err)
+				"connection", logsan.SanitizeForLog(name), "error", logsan.SanitizeForLog(err.Error()))
 		}
 	}
 }
