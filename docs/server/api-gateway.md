@@ -382,6 +382,10 @@ Some APIs require **both** an OAuth bearer **and** a separate header on every ca
 
 Headers listed under `static_headers` are attached to every outbound request, in addition to whatever `auth_mode` contributes. They are **operator-supplied**: the model cannot set, override, or read them, and validation refuses to load a connection whose `static_headers` would collide with the auth path.
 
+### User-Agent
+
+Every outbound request presents `User-Agent: mcp-data-platform/<version>` unless the request already names one. Go's default, `Go-http-client/1.1`, is a value a web application firewall in front of a public endpoint refuses outright, and the refusal is an HTML page that does not say why. The product string names the platform's traffic in an upstream's access log and gives a firewall rule something to match on. To send a different value, pin it: `static_headers: {"User-Agent": "<value>"}`. A per-call `headers` entry naming `User-Agent` is honored the same way, under the precedence below. The same default applies to the token requests an `oauth` connection makes to its identity provider.
+
 ### Encryption at rest
 
 Header values are encrypted with AES-256-GCM via the platform's `FieldEncryptor` (same mechanism that protects `credential`, `client_secret`, etc.). Set `ENCRYPTION_KEY` to enable; without it, values are stored in plaintext just like every other sensitive field. The admin API redacts header values to `"[REDACTED]"` so the portal can edit other fields without ever showing the secret.

@@ -1,4 +1,5 @@
 cmd/dev-mcp-mock -> internal/logsan
+cmd/mcp-data-platform -> internal/buildinfo
 cmd/mcp-data-platform -> internal/httpserver
 cmd/mcp-data-platform -> internal/server
 cmd/mcp-data-platform -> pkg/platform
@@ -530,6 +531,7 @@ internal/producedview -> internal/producedby
 internal/producedview -> pkg/resource
 internal/producedview -> pkg/script
 internal/scriptdate -> pkg/script
+internal/server -> internal/buildinfo
 internal/server -> internal/platform/knowledgebuiltin
 internal/server -> pkg/platform
 internal/tableavail -> pkg/query
@@ -537,8 +539,10 @@ internal/toolwrite -> internal/gqlschema
 internal/upstreamauth -> internal/apigwtls
 internal/upstreamauth -> internal/cfgmap
 internal/upstreamauth -> internal/membudget
+internal/upstreamauth -> internal/useragent
 internal/upstreamauth -> pkg/authevents
 internal/upstreamauth -> pkg/connoauth
+internal/useragent -> internal/buildinfo
 pkg/admin -> internal/admin/apiroutesapi
 pkg/admin -> internal/admin/auditapi
 pkg/admin -> internal/admin/callapi
@@ -550,6 +554,7 @@ pkg/admin -> internal/admin/notifyapi
 pkg/admin -> internal/admin/sessionapi
 pkg/admin -> internal/admin/settingsapi
 pkg/admin -> internal/agentinstructions
+pkg/admin -> internal/buildinfo
 pkg/admin -> internal/httpjson
 pkg/admin -> internal/logsan
 pkg/admin -> internal/platform/callrecord
@@ -557,7 +562,6 @@ pkg/admin -> internal/platform/connsource
 pkg/admin -> internal/platform/reviewalert
 pkg/admin -> internal/portal/assetrefs
 pkg/admin -> internal/portal/portaldomain
-pkg/admin -> internal/server
 pkg/admin -> pkg/audit
 pkg/admin -> pkg/auth
 pkg/admin -> pkg/authevents
@@ -605,6 +609,7 @@ pkg/configstore/postgres -> pkg/configstore
 pkg/connid -> pkg/registry
 pkg/connid -> pkg/toolkit
 pkg/connoauth -> internal/logsan
+pkg/connoauth -> internal/useragent
 pkg/connoauth -> pkg/authevents
 pkg/connreconcile -> pkg/registry
 pkg/connreconcile -> pkg/toolkit
@@ -891,6 +896,7 @@ pkg/toolkits/graphql -> internal/logsan
 pkg/toolkits/graphql -> internal/membudget
 pkg/toolkits/graphql -> internal/opranking
 pkg/toolkits/graphql -> internal/upstreamauth
+pkg/toolkits/graphql -> internal/useragent
 pkg/toolkits/graphql -> pkg/authevents
 pkg/toolkits/graphql -> pkg/connoauth
 pkg/toolkits/graphql -> pkg/embedding

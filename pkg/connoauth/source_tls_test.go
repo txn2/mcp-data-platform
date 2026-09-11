@@ -15,12 +15,16 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/useragent"
 )
 
 // TestNewTokenExchangeClient_EmptyBundleLeavesTransportNil keeps the
 // default behavior intact for the common case (public IdP, no custom
-// CA needed). A regression that attached an empty-pool tls.Config
-// would silently break trust against system CAs.
+// CA needed): the system default transport, under the platform's
+// User-Agent wrapper as every token client is (#1679). A regression
+// that attached an empty-pool tls.Config would silently break trust
+// against system CAs.
 func TestNewTokenExchangeClient_EmptyBundleLeavesTransportNil(t *testing.T) {
 	t.Parallel()
 	client, err := newTokenExchangeClient(Config{})
@@ -30,8 +34,12 @@ func TestNewTokenExchangeClient_EmptyBundleLeavesTransportNil(t *testing.T) {
 	if client == nil {
 		t.Fatal("client must not be nil")
 	}
-	if client.Transport != nil {
-		t.Fatalf("Transport must stay nil when no bundle is set (got %T)", client.Transport)
+	base, wrapped := useragent.Wraps(client.Transport)
+	if !wrapped {
+		t.Fatalf("Transport must carry the User-Agent wrapper (got %T)", client.Transport)
+	}
+	if base != http.DefaultTransport {
+		t.Fatalf("Transport must wrap the system default when no bundle is set (got %T)", base)
 	}
 	if client.Timeout != tokenFetchTimeout {
 		t.Fatalf("Timeout=%v, want %v", client.Timeout, tokenFetchTimeout)
@@ -50,9 +58,13 @@ func TestNewTokenExchangeClient_ValidBundleAttachesRootCAs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newTokenExchangeClient: %v", err)
 	}
-	tr, ok := client.Transport.(*http.Transport)
+	base, wrapped := useragent.Wraps(client.Transport)
+	if !wrapped {
+		t.Fatalf("Transport must carry the User-Agent wrapper, got %T", client.Transport)
+	}
+	tr, ok := base.(*http.Transport)
 	if !ok {
-		t.Fatalf("Transport must be *http.Transport, got %T", client.Transport)
+		t.Fatalf("wrapped transport must be *http.Transport, got %T", base)
 	}
 	if tr.TLSClientConfig == nil {
 		t.Fatal("TLSClientConfig must be populated when a bundle is set")

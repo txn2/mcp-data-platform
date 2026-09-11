@@ -40,9 +40,9 @@ builds:
       - -a
     ldflags:
       - -s -w
-      - -X github.com/txn2/mcp-data-platform/internal/server.Version={{.Version}}
-      - -X github.com/txn2/mcp-data-platform/internal/server.Commit={{.ShortCommit}}
-      - -X github.com/txn2/mcp-data-platform/internal/server.Date={{.Date}}
+      - -X github.com/txn2/mcp-data-platform/internal/buildinfo.Version={{.Version}}
+      - -X github.com/txn2/mcp-data-platform/internal/buildinfo.Commit={{.ShortCommit}}
+      - -X github.com/txn2/mcp-data-platform/internal/buildinfo.Date={{.Date}}
 
 archives:
   - id: default

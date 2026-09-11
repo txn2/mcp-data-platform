@@ -15,6 +15,7 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/useragent"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 )
 
@@ -71,6 +72,9 @@ func newTokenExchangeClient(cfg Config) (*http.Client, error) {
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
+		// The oauth2 library builds the token request itself, so the
+		// platform's User-Agent is applied by the transport (#1679).
+		Transport: useragent.Transport(nil),
 	}
 	if cfg.CABundlePEM == "" {
 		return client, nil
@@ -82,12 +86,12 @@ func newTokenExchangeClient(cfg Config) (*http.Client, error) {
 	if ok := pool.AppendCertsFromPEM([]byte(cfg.CABundlePEM)); !ok {
 		return nil, errors.New("connoauth: ca_bundle_pem contained no valid certificates")
 	}
-	client.Transport = &http.Transport{
+	client.Transport = useragent.Transport(&http.Transport{
 		TLSClientConfig: &tls.Config{
 			MinVersion: tls.VersionTLS12,
 			RootCAs:    pool,
 		},
-	}
+	})
 	return client, nil
 }
 

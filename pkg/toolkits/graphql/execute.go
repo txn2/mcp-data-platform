@@ -9,6 +9,7 @@ import (
 	"net/http"
 
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth"
+	"github.com/txn2/mcp-data-platform/internal/useragent"
 	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
 )
 
@@ -70,6 +71,11 @@ type execution struct {
 	// JSON (an upstream answering an HTML error page, a proxy in the
 	// way).
 	parsed *graphQLResponse
+	// userAgent is the User-Agent the request was sent with: the
+	// connection's static header when it pins one, else the platform's
+	// product string. A refusal that names it tells the operator which
+	// knob to turn (#1679).
+	userAgent string
 }
 
 // upstreamFailed reports an outcome that is a failure whatever the
@@ -116,7 +122,7 @@ func (t *Toolkit) execute(ctx context.Context, c *conn, body graphQLRequest) (*e
 	if err != nil {
 		return nil, err
 	}
-	out := &execution{status: resp.StatusCode, body: raw, truncated: truncated}
+	out := &execution{status: resp.StatusCode, body: raw, truncated: truncated, userAgent: useragent.Effective(req.Header)}
 	// A body cut at the read cap is not parseable JSON, and reporting a
 	// decode failure for it would blame the payload for the cap.
 	if !truncated {

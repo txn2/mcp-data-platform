@@ -14,6 +14,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/useragent"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
@@ -684,8 +685,12 @@ func TestNewHTTPClient_HasTransport(t *testing.T) {
 	if c.Transport == nil {
 		t.Fatal("Client.Transport is nil; cfg.ConnectTimeout would be dropped")
 	}
-	if _, ok := c.Transport.(*http.Transport); !ok {
-		t.Errorf("Client.Transport = %T; want *http.Transport", c.Transport)
+	base, wrapped := useragent.Wraps(c.Transport)
+	if !wrapped {
+		t.Fatalf("Client.Transport = %T; want the User-Agent wrapper (#1679)", c.Transport)
+	}
+	if _, ok := base.(*http.Transport); !ok {
+		t.Errorf("wrapped transport = %T; want *http.Transport", base)
 	}
 }
 

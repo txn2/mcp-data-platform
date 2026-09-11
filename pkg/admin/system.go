@@ -7,7 +7,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	mcpserver "github.com/txn2/mcp-data-platform/internal/server"
+	"github.com/txn2/mcp-data-platform/internal/buildinfo"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
@@ -56,9 +56,9 @@ type systemFeatures struct {
 func (h *Handler) getSystemInfo(w http.ResponseWriter, r *http.Request) {
 	cfg := h.deps.Config
 	resp := systemInfoResponse{
-		Version:    mcpserver.Version,
-		Commit:     mcpserver.Commit,
-		BuildDate:  mcpserver.Date,
+		Version:    buildinfo.Version,
+		Commit:     buildinfo.Commit,
+		BuildDate:  buildinfo.Date,
 		ConfigMode: configModeFile,
 	}
 	if cfg != nil {
@@ -112,7 +112,7 @@ type publicBrandingResponse struct {
 // This endpoint is unauthenticated and returns only non-sensitive display info.
 func (h *Handler) getPublicBranding(w http.ResponseWriter, _ *http.Request) {
 	resp := publicBrandingResponse{
-		Version: mcpserver.Version,
+		Version: buildinfo.Version,
 	}
 	if h.deps.Config != nil {
 		resp.Name = h.deps.Config.Server.Name

@@ -31,7 +31,7 @@ toolkits:
 | `endpoint_url` | The full URL documents are POSTed to. Required. Unlike an HTTP API's `base_url` this is the whole address: a GraphQL endpoint has exactly one |
 | `description` | Human-readable description, surfaced by `list_connections` and the admin UI. Empty falls back to the endpoint |
 | `auth_mode` and its credentials | The shared upstream authentication modes: `none`, `bearer`, `api_key`, `basic`, `signed_jwt`, `oauth`, `mtls`. Same keys, same behavior and same at-rest encryption as the API gateway's. `signed_jwt` is what a Sage X3 connected application needs; see [Signed JWT upstreams](signed-jwt-auth.md) |
-| `static_headers` | Headers attached to every outbound request. This is where an upstream's tenant or folder routing goes. Operator-owned; the model never sets or overrides them |
+| `static_headers` | Headers attached to every outbound request. This is where an upstream's tenant or folder routing goes, and where a `User-Agent` other than the platform's default `mcp-data-platform/<version>` is pinned. Operator-owned; the model never sets or overrides them |
 | `connect_timeout`, `call_timeout` | Dial and per-call bounds. Default 10s and 60s |
 | `max_response_bytes` | Upstream read cap: the most the platform reads of one response. Default 10 MiB |
 | `max_inline_bytes` | Model-context budget: the most a rendered `graphql_query` result may hold. Default 32 KiB |
@@ -53,6 +53,8 @@ The platform keeps each connection's schema and serves discovery from it rather 
 **Admin > Connections** shows what the platform holds for a graphql connection — how many operations, whether it was introspected or uploaded, when, and the hash — with a button to re-read it from the endpoint. `GET /api/v1/admin/connection-instances/graphql/{name}/schema` reports the same state, and `POST .../refresh-schema` performs the read.
 
 **An endpoint that disables introspection** is a named error on the connection, not a silent empty index: `graphql_discover` refuses and quotes what the upstream said. For that case an operator supplies the schema themselves — paste it into the same panel, or POST it as the body of `refresh-schema`. Both SDL and a saved introspection result are accepted, in either the full GraphQL response shape or the `__schema` object alone.
+
+**An endpoint behind a web application firewall** may answer the introspection with HTTP 403 and an HTML block page, which says nothing about the request. The platform sends every request as `User-Agent: mcp-data-platform/<version>` rather than Go's default, which is the value such a rule most often refuses; when a 403 HTML page comes back anyway, the error recorded on the connection names the User-Agent the request carried and the key that changes it, `static_headers: {"User-Agent": "<value>"}`. The pinned value is then what every query and every page of a walk on that connection presents.
 
 The introspection query the platform sends is at the compatibility level every GraphQL server implements: no `isRepeatable` on directives, no `specifiedByURL` on scalars, no `includeDeprecated` argument on `args`. The cost of that floor is that directive repeatability is not recorded, so a document repeating a custom directive on one element is refused under strict validation; such a document passes under `warn`.
 
