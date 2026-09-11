@@ -37,6 +37,12 @@ func endpoint(t *testing.T, body string) *httptest.Server {
 
 // mount builds a toolkit against an endpoint and registers these routes.
 func mount(t *testing.T, endpointURL string, mutable bool) (*http.ServeMux, *graphqlkit.Toolkit) {
+	mux, tk, _ := mountAnnouncing(t, endpointURL, mutable)
+	return mux, tk
+}
+
+// mountAnnouncing is mount with the stored-schema announcements recorded.
+func mountAnnouncing(t *testing.T, endpointURL string, mutable bool) (*http.ServeMux, *graphqlkit.Toolkit, *[]string) {
 	t.Helper()
 	cfg, err := graphqlkit.ParseConfig(map[string]any{"endpoint_url": endpointURL})
 	if err != nil {
@@ -47,11 +53,13 @@ func mount(t *testing.T, endpointURL string, mutable bool) (*http.ServeMux, *gra
 		DefaultName: "gql", Instances: map[string]graphqlkit.Config{"gql": cfg},
 	})
 	mux := http.NewServeMux()
+	announced := &[]string{}
 	Register(mux, Config{
-		Toolkits: func() []registry.Toolkit { return []registry.Toolkit{tk} },
-		Mutable:  mutable,
+		Toolkits:     func() []registry.Toolkit { return []registry.Toolkit{tk} },
+		Mutable:      mutable,
+		SchemaStored: func(kind, name string) { *announced = append(*announced, kind+"/"+name) },
 	})
-	return mux, tk
+	return mux, tk, announced
 }
 
 // call issues one request against the mounted routes.
@@ -164,6 +172,34 @@ func TestRefreshSeparatesTheOperatorsInputFromTheUpstreamsFailure(t *testing.T) 
 	rec = call(t, mux, http.MethodPost, "/api/v1/admin/connection-instances/graphql/gql/refresh-schema", "type Query {")
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d; an unparseable upload is a 400", rec.Code)
+	}
+}
+
+// TestAStoredSchemaIsAnnouncedToPeers: an upload and a re-read both replace
+// the stored schema, and each is announced so the other replicas install it
+// (#1676). A refresh the endpoint refused and an upload that did not parse
+// stored nothing, and announce nothing.
+func TestAStoredSchemaIsAnnouncedToPeers(t *testing.T) {
+	server := endpoint(t, introspectionResult)
+	mux, _, announced := mountAnnouncing(t, server.URL, true)
+	sdl, err := os.ReadFile("../../../internal/gqlschema/testdata/flat.graphql")
+	if err != nil {
+		t.Fatalf("fixture: %v", err)
+	}
+
+	call(t, mux, http.MethodPost, "/api/v1/admin/connection-instances/graphql/gql/refresh-schema", string(sdl))
+	call(t, mux, http.MethodPost, "/api/v1/admin/connection-instances/graphql/gql/refresh-schema", "")
+	call(t, mux, http.MethodPost, "/api/v1/admin/connection-instances/graphql/gql/refresh-schema", "type Query {")
+
+	if got := *announced; len(got) != 2 || got[0] != "graphql/gql" || got[1] != "graphql/gql" {
+		t.Errorf("announced = %v; want one announcement per stored schema and none for the refused upload", got)
+	}
+
+	refusing := endpoint(t, `{"errors":[{"message":"introspection disabled"}]}`)
+	mux, _, announced = mountAnnouncing(t, refusing.URL, true)
+	call(t, mux, http.MethodPost, "/api/v1/admin/connection-instances/graphql/gql/refresh-schema", "")
+	if got := *announced; len(got) != 0 {
+		t.Errorf("announced = %v; a re-read the endpoint refused stored nothing", got)
 	}
 }
 

@@ -13,6 +13,7 @@ import (
 	"database/sql"
 	"log/slog"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/membudget"
 	"github.com/txn2/mcp-data-platform/internal/platform/graphqlstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/routepolicy"
@@ -89,6 +90,24 @@ func Wire(ctx context.Context, d Deps) {
 	}
 	slog.Info("graphql connections wired",
 		"toolkits", len(toolkits), "schema_store", store != nil)
+}
+
+// ReloadStoredSchema installs the stored schema on every live graphql
+// toolkit holding the connection. The reload bus calls it when a peer
+// replica stored a schema, an upload or a re-read, so every replica
+// answers from the store rather than from whatever its own last read
+// left it with (#1676). The endpoint is not touched: the store already
+// holds the answer.
+func ReloadStoredSchema(ctx context.Context, reg *registry.Registry, name string) {
+	for _, tk := range Toolkits(reg) {
+		if !tk.HasConnection(name) {
+			continue
+		}
+		if err := tk.LoadStoredSchema(ctx, name); err != nil {
+			slog.Warn("graphql: loading the stored schema a peer announced failed",
+				"connection", logsan.SanitizeForLog(name), "error", logsan.SanitizeForLog(err.Error()))
+		}
+	}
 }
 
 // AttachExport enables graphql_export on every live graphql toolkit. A nil

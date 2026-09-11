@@ -3762,7 +3762,7 @@ const docTemplate = `{
         },
         "/admin/connection-instances/graphql/{name}/refresh-schema": {
             "post": {
-                "description": "With an empty body, reads the connection's schema from its endpoint by introspection. With a body, takes the body as the schema: SDL, or a saved introspection result in either the full GraphQL response shape or the __schema object alone. Either way the schema is stored, the operation index is rebuilt, and the response reports the new state.",
+                "description": "With an empty body, reads the connection's schema from its endpoint by introspection. With a body, takes the body as the schema: SDL, or a saved introspection result in either the full GraphQL response shape or the __schema object alone. Either way the schema is stored, the operation index is rebuilt on every replica, and the response reports the new state. A re-read the endpoint refuses leaves the schema the connection holds in place and reports the refusal beside it.",
                 "consumes": [
                     "text/plain"
                 ],

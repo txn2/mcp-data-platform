@@ -303,7 +303,13 @@ func (t *Toolkit) SetMemBudget(b *membudget.Budget) {
 }
 
 // AddConnection registers a connection at runtime from the generic
-// config map the admin API stores. Satisfies toolkit.ConnectionManager.
+// config map the admin API stores, and reads its schema. Satisfies
+// toolkit.ConnectionManager.
+//
+// The read goes to the endpoint first and the store second: a connection
+// created here is new to this process, and what the store holds for it
+// (a schema another replica read or was handed) is what serves it when
+// the endpoint will not (#1676).
 func (t *Toolkit) AddConnection(name string, config map[string]any) error {
 	cfg, err := ParseConfig(config)
 	if err != nil {
@@ -313,14 +319,66 @@ func (t *Toolkit) AddConnection(name string, config map[string]any) error {
 	if err := t.addParsedConnection(name, cfg); err != nil {
 		return err
 	}
-	t.loadOrRefresh(context.Background(), name)
+	t.readOrLoadStored(context.Background(), name)
 	return nil
 }
 
+// UpdateConnection replaces a held connection's configuration and reads
+// its schema again, keeping the schema it holds when the read fails.
+// Satisfies toolkit.ConnectionUpdater, which is what makes a
+// configuration save a change rather than a deletion followed by a
+// registration: RemoveConnection drops the stored schema, and a save
+// that went through it lost every schema an operator had supplied
+// (#1676). A configuration that does not parse is refused with the
+// connection left as it was.
+func (t *Toolkit) UpdateConnection(name string, config map[string]any) error {
+	cfg, err := ParseConfig(config)
+	if err != nil {
+		return err
+	}
+	cfg.ConnectionName = name
+	auth, err := NewAuthenticator(cfg)
+	if err != nil {
+		return err
+	}
+	existing, _, ok := t.lookup(name)
+	if !ok {
+		return notFound(name)
+	}
+	ctx := context.Background()
+	c := &conn{cfg: cfg, auth: auth, client: newHTTPClient(cfg)}
+	t.carrySchema(ctx, existing, c)
+	t.mu.Lock()
+	t.connections[name] = c
+	t.mu.Unlock()
+	if existing.client != nil {
+		existing.client.CloseIdleConnections()
+	}
+	t.readOrLoadStored(ctx, name)
+	return nil
+}
+
+// carrySchema installs the schema one connection holds on its
+// replacement, with the operation index rebuilt under the replacement's
+// configuration (namespace_depth may have changed). The replacement is
+// complete before it is swapped in, so a save is never a moment with no
+// schema in which a call would be refused, and a deployment with no
+// store keeps its schema through a save whose re-read fails.
+func (t *Toolkit) carrySchema(ctx context.Context, from, to *conn) {
+	from.schemaMu.RLock()
+	v := schemaVersion{schema: from.schema, source: from.source, fetchedAt: from.fetchedAt, schemaErr: from.schemaErr}
+	from.schemaMu.RUnlock()
+	if v.schema == nil {
+		return
+	}
+	t.install(ctx, to, v)
+}
+
 // RemoveConnection drops a connection and closes its idle transports.
-// The stored schema is dropped with it: a connection that is gone
-// should not leave an operation index behind for a later connection of
-// the same name to inherit.
+// It is the deletion: the stored schema is dropped with the connection,
+// so one that is gone does not leave an operation index behind for a
+// later connection of the same name to inherit. A configuration change
+// arrives through UpdateConnection instead.
 func (t *Toolkit) RemoveConnection(name string) error {
 	t.mu.Lock()
 	c, ok := t.connections[name]

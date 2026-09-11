@@ -183,13 +183,30 @@ func TestWarnValidationSendsTheDocumentAndReportsTheViolations(t *testing.T) {
 	}
 }
 
-func TestAConnectionWithNoSchemaValidatesNothingAndStillRuns(t *testing.T) {
+// TestAConnectionWithNoSchemaRefusesADocument: with no operation index a
+// document would be reduced to its root fields and authorized under them,
+// which no persona rule for this kind is written against (#1676). The
+// refusal names the cause the connection recorded, and nothing is sent.
+func TestAConnectionWithNoSchemaRefusesADocument(t *testing.T) {
 	u := newUpstream(t)
 	u.respond = answer(`{"data":{"anything":1}}`)
 	tk := newToolkit(t, u, "", nil)
-	out := callQuery(t, tk, QueryInput{Connection: "gql", Query: `{ anything }`})
-	if out.Status != http.StatusOK {
-		t.Errorf("status = %d", out.Status)
+	if err := tk.RefreshSchema(context.Background(), "gql"); err == nil {
+		t.Fatal("the fake endpoint answered the introspection query; this test needs one that refuses")
+	}
+
+	refusal := refuseQuery(t, tk, QueryInput{Connection: "gql", Query: `{ anything }`})
+
+	if !strings.Contains(refusal, `connection "gql" has no schema`) {
+		t.Errorf("refusal = %q", refusal)
+	}
+	if !strings.Contains(refusal, "introspection is not allowed") {
+		t.Errorf("refusal = %q; the cause the connection recorded is what the caller is told", refusal)
+	}
+	for _, req := range u.calls() {
+		if !strings.Contains(req.Query, "__schema") {
+			t.Errorf("a document was sent to the endpoint with no index to authorize it under: %q", req.Query)
+		}
 	}
 }
 
