@@ -251,7 +251,7 @@ func TestCanAccessResource(t *testing.T) {
 // person until an administrator transfers the script, which rewrites the version
 // under their own authorship and leaves somebody else the owner.
 func scriptRun(owner, author string) Claims {
-	return BuildClaims("script:weekly-refresh", owner, "analyst", []string{"analyst"}, false).ActingFor(author)
+	return BuildClaims("script:weekly-refresh", owner, "analyst", []string{"analyst"}, false).ActingFor(author, "")
 }
 
 // ownRun is the ordinary case: the script's owner wrote its current version.
@@ -293,7 +293,7 @@ func TestATransferredRunActsForItsAuthorAndNotItsOwner(t *testing.T) {
 }
 
 func TestVisibleScopesDoNotRepeatOneAddress(t *testing.T) {
-	c := BuildClaims("sub-1", "a@example.com", "", nil, false).ActingFor("a@example.com")
+	c := BuildClaims("sub-1", "a@example.com", "", nil, false).ActingFor("a@example.com", "")
 
 	scopes := VisibleScopes(c)
 
@@ -506,7 +506,7 @@ func TestAFileAScriptFiledIsTheAuthorsToChangeWherever(t *testing.T) {
 	}
 	person := Claims{Sub: "author-sub", Email: author, Personas: []string{"analyst"}}
 	sibling := BuildClaims("script:monthly-rollup", author, "analyst", []string{"analyst"}, false).
-		ActingFor(author)
+		ActingFor(author, "")
 
 	assert.True(t, CanModifyResource(person, filed),
 		"the person whose authority filed it is who may change it, wherever it is filed")

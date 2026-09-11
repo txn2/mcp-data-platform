@@ -27,6 +27,19 @@ type Claims struct {
 	// else. An empty value must never match an empty owner or an empty scope
 	// id: absence of an identity is not a shared identity.
 	OnBehalfOf string
+	// OnBehalfOfSub is the subject the person named by OnBehalfOf authenticates
+	// as, carried from PlatformContext.OnBehalfOfSub. A user library is keyed by
+	// subject: a session files there by its own Sub, and the portal's upload
+	// does too. A run that knew only its author's ADDRESS filed the same path
+	// in a second library keyed by that address, so one person's session and
+	// their script resolved scope=user to two files (#1677). Every rule below
+	// that keys a user library reads this first, so a run and its author's
+	// session name one library.
+	//
+	// Empty when the platform has not yet seen the author authenticate, in
+	// which case the address keys the run's library as before. Empty for every
+	// human caller, whose own Sub is the same thing.
+	OnBehalfOfSub string
 }
 
 // personaAdminInfix is the role substring that marks a persona-admin grant.
@@ -59,14 +72,19 @@ func BuildClaims(sub, email, persona string, roles []string, isAdmin bool) Claim
 }
 
 // ActingFor returns the claims with the address of the person an unattended
-// caller acts for. It is a step after BuildClaims rather than another parameter
-// on it because only the surfaces an unattended caller reaches have an address
-// to supply, and a surface that has none says nothing.
+// caller acts for, and the subject that person authenticates as. It is a step
+// after BuildClaims rather than another parameter on it because only the
+// surfaces an unattended caller reaches have an address to supply, and a
+// surface that has none says nothing.
 //
-// An empty address is a no-op, so a surface can pass whatever its context
-// carries without asking whether the caller is one.
-func (c Claims) ActingFor(address string) Claims {
-	c.OnBehalfOf = address
+// Empty values are a no-op, so a surface can pass whatever its context carries
+// without asking whether the caller is one. The subject is only read alongside
+// an address: a subject with no person behind it names nobody.
+func (c Claims) ActingFor(address, subject string) Claims {
+	c.OnBehalfOf, c.OnBehalfOfSub = address, ""
+	if address != "" {
+		c.OnBehalfOfSub = subject
+	}
 	return c
 }
 
@@ -284,12 +302,19 @@ func VisibleScopes(c Claims) []ScopeFilter {
 
 	// User sees their own resources (match by sub or address so admins can
 	// scope resources to users by email address). For an unattended caller the
-	// address is the person it acts for, which is also where its own writes
-	// land; see PersonAddress for why its own Email is not consulted.
+	// subject and the address are the person it acts for, which is also where
+	// its own writes land; see PersonAddress for why its own Email is not
+	// consulted.
 	if c.Sub != "" {
 		filters = append(filters, ScopeFilter{Scope: ScopeUser, ScopeID: c.Sub})
 	}
-	if addr := PersonAddress(c); addr != "" && addr != c.Sub {
+	if sub := PersonSubject(c); sub != "" && sub != c.Sub {
+		filters = append(filters, ScopeFilter{Scope: ScopeUser, ScopeID: sub})
+	}
+	// The address stays visible beside the subject: a resource an administrator
+	// scoped to somebody by address, or one a run filed before the platform had
+	// seen its author's subject, is keyed by it.
+	if addr := PersonAddress(c); addr != "" && addr != c.Sub && addr != PersonSubject(c) {
 		filters = append(filters, ScopeFilter{Scope: ScopeUser, ScopeID: addr})
 	}
 
@@ -322,9 +347,27 @@ func PersonAddress(c Claims) string {
 	return c.Email
 }
 
+// PersonSubject is the subject the person these claims speak for authenticates
+// as: their own for anyone acting as themselves, and for an unattended caller
+// the subject of the person it acts for, when the platform has seen that person
+// authenticate. It is what keys the user library a write with no scope named
+// lands in, so a run and its author's session file one path in one library
+// (#1677).
+//
+// It falls back to the caller's own Sub, which for a run is its principal. That
+// keys no library a person looks in, which is why ResolveScopeFor consults the
+// address before it for an unattended caller.
+func PersonSubject(c Claims) string {
+	if c.OnBehalfOf != "" && c.OnBehalfOfSub != "" {
+		return c.OnBehalfOfSub
+	}
+	return c.Sub
+}
+
 // isOwnScope reports whether a user scope id names the person these claims speak
-// for, by either of the two identifiers a user scope is keyed on. Both sides
-// must be non-empty: absence of an identity is not a shared identity.
+// for, by any of the identifiers a user scope is keyed on: the subject, the
+// address, and for an unattended caller the subject of the person it acts for.
+// Both sides must be non-empty: absence of an identity is not a shared identity.
 //
 // The comparison is exact, deliberately. VisibleScopes emits the address
 // verbatim and CanReadResource compares it verbatim, and those are what the
@@ -337,7 +380,7 @@ func isOwnScope(c Claims, scopeID string) bool {
 	if scopeID == "" {
 		return false
 	}
-	if scopeID == c.Sub {
+	if scopeID == c.Sub || scopeID == PersonSubject(c) {
 		return true
 	}
 	return scopeID == PersonAddress(c)
@@ -457,7 +500,9 @@ func isPersonaAdmin(c Claims, personaName string) bool {
 // authenticates as script:<name>, and defaulting to that would file the resource
 // in a library belonging to nobody: present to the run and absent from its
 // author's Resources page, which is where the person who scheduled it will look.
-// It defaults to the address the run acts for instead (#1419).
+// It defaults to the library the author's own session files in instead: the one
+// keyed by their subject, when the platform has seen them authenticate, and
+// otherwise the one keyed by their address (#1419, #1677).
 //
 // It is here rather than on each write surface because the two are the same
 // decision. manage_resource and an export destination that disagreed about where
@@ -467,7 +512,11 @@ func ResolveScopeFor(scope Scope, scopeID string, claims Claims) (resolved Scope
 		scope = ScopeUser
 	}
 	if scope == ScopeUser && scopeID == "" {
-		scopeID = cmp.Or(claims.OnBehalfOf, claims.Sub)
+		if claims.OnBehalfOf != "" {
+			scopeID = cmp.Or(claims.OnBehalfOfSub, claims.OnBehalfOf)
+		} else {
+			scopeID = claims.Sub
+		}
 	}
 	if scope == ScopeGlobal {
 		scopeID = ""

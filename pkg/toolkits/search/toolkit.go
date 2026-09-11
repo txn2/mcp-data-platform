@@ -537,7 +537,7 @@ func (t *Toolkit) callerFromContext(ctx context.Context) knowledge.Caller {
 	}
 	caller := knowledge.Caller{
 		UserID: pc.UserID, Email: pc.UserEmail, Persona: pc.PersonaName,
-		OnBehalfOf: pc.OnBehalfOfEmail, SessionID: pc.SessionID,
+		OnBehalfOf: pc.OnBehalfOfEmail, OnBehalfOfSub: pc.OnBehalfOfSub, SessionID: pc.SessionID,
 		ProducerID: scriptProducerID(ctx),
 		Roles:      pc.Roles, IsAdmin: pc.IsAdmin,
 	}

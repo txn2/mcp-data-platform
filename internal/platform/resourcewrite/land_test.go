@@ -376,3 +376,42 @@ func TestLandRefusesWhenTheAddressCannotBeRead(t *testing.T) {
 	assert.Contains(t, err.Error(), "could not read what is filed at")
 	assert.Empty(t, lf.blobs.objects)
 }
+
+// TestARunOfASeenAuthorLandsWhereTheAuthorsSessionLooks is #1677 at the
+// library: a run that presents its author's subject files a path with no scope
+// named in the library the author's own session resolves that path to, so the
+// session's lookup at the same address finds the run's file. A run whose author
+// the platform has not seen stays keyed by address, and the session's lookup at
+// its default address answers nothing -- which is what the fold exists for.
+func TestARunOfASeenAuthorLandsWhereTheAuthorsSessionLooks(t *testing.T) {
+	seen := resource.BuildClaims("script:weekly-refresh", "owner@example.com", "analyst", []string{"analyst"}, false).
+		ActingFor(authorMail, authorSub)
+	unseen := resource.BuildClaims("script:weekly-refresh", "owner@example.com", "analyst", []string{"analyst"}, false).
+		ActingFor(authorMail, "")
+	dest := toolkit.ResourceDestination{Path: "reports", Filename: "rolling.csv", DisplayName: "Rolling", Description: "A rolling file"}
+	addr := toolkit.ResourceAddress{Path: "reports", Filename: "rolling.csv"}
+
+	t.Run("seen author", func(t *testing.T) {
+		lf := newLandFixture(t)
+		landed, err := lf.lander.Land(context.Background(), dest, strings.NewReader("a,b\n"), "text/csv", seen)
+		require.NoError(t, err)
+		assert.Equal(t, "mcp://user/"+authorSub+"/reports/rolling.csv", landed.URI)
+
+		found, uri, err := lf.writer.Locate(context.Background(), addr, analyst())
+		require.NoError(t, err)
+		require.NotNil(t, found, "the author's session finds the run's file at its own default address")
+		assert.Equal(t, landed.ResourceID, found.ID)
+		assert.Equal(t, landed.URI, uri)
+		assert.Equal(t, authorMail, found.UploaderEmail)
+	})
+	t.Run("unseen author", func(t *testing.T) {
+		lf := newLandFixture(t)
+		landed, err := lf.lander.Land(context.Background(), dest, strings.NewReader("a,b\n"), "text/csv", unseen)
+		require.NoError(t, err)
+		assert.Equal(t, "mcp://user/"+authorMail+"/reports/rolling.csv", landed.URI)
+
+		found, _, err := lf.writer.Locate(context.Background(), addr, analyst())
+		require.NoError(t, err)
+		assert.Nil(t, found, "keyed by address, the file is not at the session's default address")
+	})
+}

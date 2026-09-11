@@ -378,11 +378,18 @@ Five limits, stated rather than implied:
   would make a failed note a lost file, which is the worse trade.
 - **Resource enumeration is the author's, and only their own library.** A
   managed resource is scoped rather than owned, and a personal library is keyed
-  by an identifier a run does not have, so the resource rules read the address:
-  the visible-scope set, `CanWriteScope`, `CanAccessResource` and
-  `CanModifyResource` (`pkg/resource/permission.go`). A run therefore lists,
-  reads, creates and replaces in its author's library, which is also where a
-  `manage_resource` create with no scope named files the file. It is not the
+  by the subject its owner authenticates as, which a run does not present. The
+  run carries two things about the person it acts for instead: their address
+  (`OnBehalfOf`) and the subject that address most recently authenticated as
+  (`OnBehalfOfSub`, read from the `identity_subjects` table the authenticator
+  fills, #1677). The resource rules read both: the visible-scope set,
+  `CanWriteScope`, `CanAccessResource` and `CanModifyResource`
+  (`pkg/resource/permission.go`). A run therefore lists, reads, creates and
+  replaces in its author's library -- the same one the author's session
+  resolves `scope=user` to -- which is also where a `manage_resource` create
+  with no scope named files the file. Until the platform has seen the author
+  authenticate, the run files by address, and what it filed there is folded
+  into the subject-keyed library once the pair is known. It is not the
   author's whole reach: creating a persona or global resource still takes the
   scope authority the roles carry, and what a run can SEE outside its author's
   own library is what that library's own rules give it — a persona the author

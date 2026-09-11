@@ -65,6 +65,9 @@ type claimedRun struct {
 	run     *script.Run
 	script  *script.Script
 	version *script.Version
+	// subject is what the version's author authenticates as, resolved once
+	// when the run opened its session; see runner.authorSubject.
+	subject string
 }
 
 // newOutputWriter builds the writer for one claimed run.
@@ -72,7 +75,7 @@ func newOutputWriter(deps ExportDeps, runs script.RunStore, rc claimedRun, calle
 	return &outputWriter{
 		deps: deps, runs: runs, run: rc.run, script: rc.script, caller: caller,
 		written: map[string]bool{}, delivered: map[string]string{},
-		claims: runClaims(rc.script, rc.version),
+		claims: runClaims(rc.script, rc.version, rc.subject),
 	}
 }
 

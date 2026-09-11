@@ -115,6 +115,11 @@ type Caller struct {
 	// does not have. A provider whose owner key is the caller's own id or address
 	// must keep using those.
 	OnBehalfOf string
+	// OnBehalfOfSub is the subject that person authenticates as, carried from
+	// PlatformContext.OnBehalfOfSub, so a run's discovery reads the library its
+	// author's session files in (#1677). Empty when unknown, and for every
+	// human caller.
+	OnBehalfOfSub string
 
 	// ProducerID is the id of the managed script an unattended caller is a run
 	// of, carried from the producer its own writes are recorded under

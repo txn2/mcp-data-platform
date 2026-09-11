@@ -442,6 +442,9 @@ internal/platform/sessionview -> internal/httpjson
 internal/platform/sessionview -> pkg/memory
 internal/platform/sessionview -> pkg/session
 internal/platform/sessionview -> pkg/toolkits/knowledge
+internal/platform/subjects -> internal/logsan
+internal/platform/subjects -> pkg/middleware
+internal/platform/subjects -> pkg/resource
 internal/platform/tableregister -> internal/logsan
 internal/platform/tableregister -> internal/platform/tablecsv
 internal/platform/tableregister -> pkg/audit
@@ -460,7 +463,9 @@ internal/platform/toolratelimit -> internal/logsan
 internal/platform/toolratelimit -> pkg/middleware
 internal/platform/toolratelimit -> pkg/observability
 internal/platform/toolratelimit -> pkg/ratelimit
+internal/platform/userdir -> internal/platform/subjects
 internal/platform/userdir -> pkg/middleware
+internal/platform/userdir -> pkg/resource
 internal/platform/userdir -> pkg/user
 internal/platform/utilconn -> internal/platform/utilhandler
 internal/platform/utilconn -> pkg/toolkits/apigateway

@@ -106,6 +106,12 @@ type Config struct {
 	// Audit records the script_run lifecycle event. Optional.
 	Audit middleware.AuditLogger
 
+	// Subjects tells a run the subject its author's own session authenticates
+	// as, so the run files managed resources in the library that session files
+	// in rather than one keyed by the author's address (#1677). Nil leaves a
+	// run keyed by address.
+	Subjects SubjectResolver
+
 	// Notifier queues the alert a failed SCHEDULED run raises. When nil and DB
 	// is set, one is built over the notification queue unless
 	// NotificationsDisabled says the deployment turned notifications off.
@@ -128,6 +134,14 @@ type Config struct {
 	// reaches no pod an agent is talking to. The zero value runs the worker,
 	// which is the single-binary default.
 	WorkerDisabled bool
+}
+
+// SubjectResolver answers the subject a run acting for an address presents.
+type SubjectResolver interface {
+	// ForRun returns the subject the address most recently authenticated as,
+	// with what that address filed folded into the subject's library, or ""
+	// when the platform has not seen the person authenticate.
+	ForRun(ctx context.Context, address string) string
 }
 
 // ExportDeps is what turning a script's rows into a portal asset needs.

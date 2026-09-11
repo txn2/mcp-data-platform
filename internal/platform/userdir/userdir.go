@@ -20,7 +20,9 @@ import (
 	"database/sql"
 	"log/slog"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/subjects"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
+	"github.com/txn2/mcp-data-platform/pkg/resource"
 	"github.com/txn2/mcp-data-platform/pkg/user"
 )
 
@@ -39,6 +41,11 @@ const (
 type Handle struct {
 	store     user.Store
 	directory *user.Directory
+	// subjects records the subject each address authenticates as, learned at
+	// the same chokepoint the directory observes on, and is what a
+	// managed-script run reads to file resources in its author's own library
+	// (#1677).
+	subjects *subjects.Book
 }
 
 // New builds the user store and directory from db. It returns nil when db is nil
@@ -50,7 +57,29 @@ func New(db *sql.DB) *Handle {
 	}
 	store := user.NewPostgresStore(db)
 	slog.Info("user directory enabled")
-	return &Handle{store: store, directory: user.NewDirectory(store)}
+	return &Handle{
+		store:     store,
+		directory: user.NewDirectory(store),
+		subjects:  subjects.New(subjects.NewPostgresStore(db)),
+	}
+}
+
+// Subjects is the recorded pairs a managed-script run resolves its author's
+// subject through, or nil on a nil Handle (no database).
+func (h *Handle) Subjects() *subjects.Book {
+	if h == nil {
+		return nil
+	}
+	return h.subjects
+}
+
+// BindResourceFold supplies what the fold of an address-keyed library into the
+// subject-keyed one refiles through, once the managed-resource layer exists.
+func (h *Handle) BindResourceFold(deps resource.Deps) {
+	if h == nil {
+		return
+	}
+	h.subjects.BindResources(deps)
 }
 
 // Store returns the known-users directory store, or nil on a nil Handle (no
@@ -80,6 +109,11 @@ func (h *Handle) ObserveAuthenticated(info *middleware.UserInfo) {
 	if h == nil || h.directory == nil || info == nil {
 		return
 	}
+	// The pair is recorded for an API key too: a key is held by a person and
+	// a session presents it as its own subject, so a script that person
+	// authors has to file where that session files. The directory below stays
+	// people-only; a key is nobody to share with.
+	h.subjects.Observe(info)
 	if info.AuthType != authTypeLabelOIDC && info.AuthType != authTypeLabelOAuth {
 		return
 	}

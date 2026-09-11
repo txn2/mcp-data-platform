@@ -8,7 +8,9 @@ import (
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/subjects"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
+	"github.com/txn2/mcp-data-platform/pkg/resource"
 	"github.com/txn2/mcp-data-platform/pkg/user"
 )
 
@@ -166,4 +168,71 @@ func TestObserveBrowserLogin(t *testing.T) {
 	t.Run("nil directory is safe", func(_ *testing.T) {
 		(&Handle{}).ObserveBrowserLogin("a@b.io", "A", "B")
 	})
+}
+
+// fakeSubjectStore records the pair the book writes.
+type fakeSubjectStore struct {
+	mu     sync.Mutex
+	pairs  map[string]string
+	signal chan struct{}
+}
+
+func (f *fakeSubjectStore) Record(_ context.Context, address, subject string) error {
+	f.mu.Lock()
+	f.pairs[address] = subject
+	f.mu.Unlock()
+	f.signal <- struct{}{}
+	return nil
+}
+
+func (f *fakeSubjectStore) Lookup(_ context.Context, address string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.pairs[address], nil
+}
+
+// TestObserveAuthenticated_RecordsTheSubjectForAnAPIKeyToo is #1677: the pair a
+// managed-script run resolves its author's library through is recorded for
+// every principal a person authenticates as, API keys included, while the
+// directory stays people-only.
+func TestObserveAuthenticated_RecordsTheSubjectForAnAPIKeyToo(t *testing.T) {
+	users := newFakeUserStore()
+	pairs := &fakeSubjectStore{pairs: map[string]string{}, signal: make(chan struct{}, 8)}
+	h := handleWith(users)
+	h.subjects = subjects.New(pairs)
+
+	h.ObserveAuthenticated(&middleware.UserInfo{
+		Email: "admin@example.com", UserID: "apikey:admin", AuthType: middleware.AuthTypeAPIKey,
+	})
+	select {
+	case <-pairs.signal:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected the pair to be recorded")
+	}
+	select {
+	case <-users.signal:
+		t.Fatal("an API key is nobody to share with and must not enter the directory")
+	case <-time.After(100 * time.Millisecond):
+	}
+	if got := h.Subjects().ForRun(context.Background(), "admin@example.com"); got != "apikey:admin" {
+		t.Fatalf("ForRun = %q", got)
+	}
+}
+
+func TestSubjects_NilSafety(t *testing.T) {
+	var h *Handle
+	if h.Subjects() != nil {
+		t.Error("nil handle Subjects() should be nil")
+	}
+	h.BindResourceFold(resource.Deps{}) // no panic
+	handleWith(newFakeUserStore()).BindResourceFold(resource.Deps{})
+
+	db, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if New(db).Subjects() == nil {
+		t.Error("Subjects() should be non-nil with a database")
+	}
 }

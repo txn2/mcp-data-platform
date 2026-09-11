@@ -135,5 +135,5 @@ func refClaims(ctx context.Context) resource.Claims {
 		return resource.Claims{}
 	}
 	return resource.BuildClaims(pc.UserID, pc.UserEmail, pc.PersonaName, pc.Roles, pc.IsAdmin).
-		ActingFor(pc.OnBehalfOfEmail)
+		ActingFor(pc.OnBehalfOfEmail, pc.OnBehalfOfSub)
 }

@@ -354,7 +354,7 @@ func TestWriteWithoutARegistrationCallback(t *testing.T) {
 // person it acts for.
 func runFor(author string) resource.Claims {
 	return resource.BuildClaims("script:weekly-refresh", author, "analyst", []string{"analyst"}, false).
-		ActingFor(author)
+		ActingFor(author, "")
 }
 
 // TestARunRefreshesTheFileItsAuthorUploaded is the script half of the
@@ -411,7 +411,7 @@ func TestARunRecordsThePersonItActedFor(t *testing.T) {
 	const author = "author@example.com"
 	f := newFixture(t)
 	transferred := resource.BuildClaims(
-		"script:weekly-refresh", "owner@example.com", "analyst", []string{"analyst"}, false).ActingFor(author)
+		"script:weekly-refresh", "owner@example.com", "analyst", []string{"analyst"}, false).ActingFor(author, "")
 
 	in := newResource()
 	in.Scope, in.ScopeID = resource.ScopeUser, author
@@ -578,7 +578,7 @@ func TestARunRefreshesAFileItsAuthorsOtherScriptFiled(t *testing.T) {
 	assert.Equal(t, 2, version)
 
 	sibling := resource.BuildClaims("script:monthly-rollup", authorMail, "analyst",
-		[]string{"analyst"}, false).ActingFor(authorMail)
+		[]string{"analyst"}, false).ActingFor(authorMail, "")
 	_, version, err = f.writer.Replace(t.Context(), filed.ID, resource.RevisionUpload{
 		Content: bytes.NewReader([]byte("day,high\nmon,71\n")), MIMEType: "text/csv",
 	}, sibling)
@@ -586,7 +586,7 @@ func TestARunRefreshesAFileItsAuthorsOtherScriptFiled(t *testing.T) {
 	assert.Equal(t, 3, version)
 
 	stranger := resource.BuildClaims("script:weekly-refresh", "stranger@example.com", "analyst",
-		[]string{"analyst"}, false).ActingFor("stranger@example.com")
+		[]string{"analyst"}, false).ActingFor("stranger@example.com", "")
 	_, _, err = f.writer.Replace(t.Context(), filed.ID, resource.RevisionUpload{
 		Content: bytes.NewReader([]byte("x")), MIMEType: "text/csv",
 	}, stranger)

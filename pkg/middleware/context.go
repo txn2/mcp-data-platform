@@ -84,6 +84,10 @@ type PlatformContext struct {
 	// Empty for every human caller. An empty value must never match an
 	// empty owner address: absence of an identity is not a shared identity.
 	OnBehalfOfEmail string
+	// OnBehalfOfSub is the subject that person authenticates as, carried from
+	// UserInfo.OnBehalfOfSub, so a run files managed resources in the library
+	// its author's own session files in (#1677). Empty when unknown.
+	OnBehalfOfSub string
 
 	// Tool information
 	ToolName    string

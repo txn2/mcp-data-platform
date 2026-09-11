@@ -937,9 +937,17 @@ print(out["reference"], out["uri"], out["version"])
   `version`, so a run can cite the file it just wrote. The first three are the
   same every run.
 - The file lands in the library of the person the run acts for — the version's
-  author — and `name` is its display name there. Writing to the persona or global
-  library is an explicit scope, which `platform.call("api_export", ...)` and
-  `manage_resource` take and this destination does not.
+  author — and `name` is its display name there. It is the same library the
+  author's own session files in: a user library is keyed by the subject a
+  person authenticates as, the platform records that subject for the author's
+  address whenever they authenticate, and the run reads it when it opens its
+  session (#1677). A file a run filed under the address before the platform had
+  seen the author's subject is folded into the subject-keyed library the next
+  time either the author authenticates or a run of theirs executes, keeping its
+  id and leaving its old address resolving, so a scheduled script keeps its
+  rolling file. Writing to the persona or global library is an explicit scope,
+  which `platform.call("api_export", ...)` and `manage_resource` take and this
+  destination does not.
 - What the write did to the tables registered over the file is printed into the
   run log, one line per table, whether or not the script prints the result.
 - A draft run previews it like every other output: the content is serialized to

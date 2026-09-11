@@ -343,6 +343,7 @@ func authenticateAndAuthorize(
 		params.pc.UserID = userInfo.UserID
 		params.pc.UserEmail = userInfo.Email
 		params.pc.OnBehalfOfEmail = userInfo.OnBehalfOf
+		params.pc.OnBehalfOfSub = userInfo.OnBehalfOfSub
 		params.pc.UserClaims = userInfo.Claims
 		params.pc.Roles = userInfo.Roles
 		params.pc.AuthType = userInfo.AuthType

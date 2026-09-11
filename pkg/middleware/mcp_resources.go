@@ -376,7 +376,7 @@ func scopesFromPlatformContext(pc *PlatformContext, cfg ManagedResourceConfig) [
 // several personas), otherwise from the single resolved persona on the context.
 func claimsFromPC(pc *PlatformContext, cfg ManagedResourceConfig) resource.Claims {
 	claims := resource.BuildClaims(pc.UserID, pc.UserEmail, pc.PersonaName, pc.Roles, pc.IsAdmin).
-		ActingFor(pc.OnBehalfOfEmail)
+		ActingFor(pc.OnBehalfOfEmail, pc.OnBehalfOfSub)
 	if cfg.PersonasForRoles != nil {
 		claims.Personas = cfg.PersonasForRoles(pc.Roles)
 	}

@@ -227,7 +227,7 @@ func TestRunClaimsNameTheVersionAuthor(t *testing.T) {
 	sc := &script.Script{ID: "script_1", Name: "daily", OwnerEmail: "newowner@example.com"}
 	v := &script.Version{Author: "admin@example.com", AuthorRoles: []string{"admin"}}
 
-	claims := runClaims(sc, v)
+	claims := runClaims(sc, v, "")
 
 	assert.Equal(t, "script:daily", claims.Sub)
 	assert.Equal(t, "newowner@example.com", claims.Email)

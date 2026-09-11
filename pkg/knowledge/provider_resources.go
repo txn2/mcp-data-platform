@@ -328,7 +328,7 @@ func attachedNote(read docread.Result) string {
 // author can see and the file it wrote itself -- which is filed under the person
 // it acts for, not under the principal (#1487). It is inert for a human.
 func callerClaims(c Caller) resource.Claims {
-	claims := resource.BuildClaims(c.UserID, c.Email, "", c.Roles, c.IsAdmin).ActingFor(c.OnBehalfOf)
+	claims := resource.BuildClaims(c.UserID, c.Email, "", c.Roles, c.IsAdmin).ActingFor(c.OnBehalfOf, c.OnBehalfOfSub)
 	claims.Personas = c.Personas
 	return claims
 }
