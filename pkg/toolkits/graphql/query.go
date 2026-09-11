@@ -98,6 +98,7 @@ func queryTool() *mcp.Tool {
 			"walk a paged connection in this one call and receive the merged array. Write the document with " +
 			"graphql_discover, whose skeleton already validates. " + toolkit.CaptureRoute,
 		InputSchema: querySchema,
+		Annotations: toolkit.WriteAnnotations(true),
 	}
 }
 

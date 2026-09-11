@@ -242,7 +242,9 @@ func (t *Toolkit) registerExportTool(s *mcp.Server) {
 			"hyphens and dots only; it doubles as the download filename, and is the display name when a resource " +
 			"destination names the filename itself.",
 		InputSchema: exportSchema,
-		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: false},
+		// An export lands a new asset, or the next version of a managed
+		// resource with the earlier versions kept, so it only adds.
+		Annotations: toolkit.WriteAnnotations(false),
 	}, t.handleExport)
 }
 

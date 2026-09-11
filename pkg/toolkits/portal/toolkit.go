@@ -510,6 +510,9 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		Title:       "Save Asset",
 		Description: saveToolDescription,
 		InputSchema: saveAssetSchema,
+		// A save lands a new asset, or a new version of one with the
+		// earlier versions kept, so it only adds.
+		Annotations: toolkit.WriteAnnotations(false),
 	}, t.handleSaveAsset)
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -517,6 +520,8 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		Title:       "Manage Asset",
 		Description: manageToolDescription,
 		InputSchema: manageAssetSchema,
+		// delete, delete_collection and the content verbs overwrite.
+		Annotations: toolkit.WriteAnnotations(true),
 	}, t.handleManageAsset)
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -524,6 +529,8 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		Title:       "Manage Table",
 		Description: manageTableToolDescription,
 		InputSchema: manageTableSchema,
+		// unregister removes a registration.
+		Annotations: toolkit.WriteAnnotations(true),
 	}, t.handleManageTable)
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -531,6 +538,8 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		Title:       "Manage Resource",
 		Description: manageResourceToolDescription,
 		InputSchema: manageResourceSchema,
+		// delete removes a file, and replace_content overwrites one.
+		Annotations: toolkit.WriteAnnotations(true),
 	}, t.handleManageResource)
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -545,6 +554,9 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"request_validation, respond_validation (the thread author records validated/disputed via validation_result). " +
 			"memory_capture thread_ids=[...] folds a thread into the knowledge loop and resolves it.",
 		InputSchema: manageFeedbackSchema,
+		// A thread accumulates a timeline: reply, resolve and the two
+		// validation verbs all append, and no action removes from it.
+		Annotations: toolkit.WriteAnnotations(false),
 	}, t.handleManageFeedback)
 
 	t.registerPrompts(s)

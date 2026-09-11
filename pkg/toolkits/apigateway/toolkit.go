@@ -530,6 +530,7 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"streams the walk into an asset). Use list_connections to discover " +
 			"available kind=api connections. " + toolkit.CaptureRoute,
 		InputSchema: invokeEndpointSchema,
+		Annotations: toolkit.WriteAnnotations(true),
 	}, t.handleInvoke)
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -548,6 +549,7 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"method+path directly there. Operations the persona's route rules deny are absent, and " +
 			"persona policy still applies at invoke time.",
 		InputSchema: discoverSchema,
+		Annotations: toolkit.ReadOnlyAnnotations(),
 	}, t.handleDiscover)
 
 	// api_export is registered only when ExportDeps were wired by

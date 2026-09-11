@@ -30,3 +30,26 @@ func AnnotationsToMCP(cfg AnnotationConfig) *mcp.ToolAnnotations {
 	}
 	return ann
 }
+
+// ReadOnlyAnnotations is what a tool that only reads advertises: it does not
+// modify its environment, and calling it again with the same arguments changes
+// nothing. A client that honors readOnlyHint auto-approves such a tool instead
+// of asking the user to confirm a write (#1692).
+//
+// It returns a fresh value on every call because mcp.ToolAnnotations is
+// mutable and each registration hands the SDK its own.
+func ReadOnlyAnnotations() *mcp.ToolAnnotations {
+	return &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true}
+}
+
+// WriteAnnotations is what a tool that can modify its environment advertises.
+// destructive says whether any action the tool admits removes or overwrites
+// state that is already there; a tool exposing both reads and writes is a
+// write, because the annotation describes the most it can do.
+//
+// The hint is stated rather than left out: the MCP default for an absent
+// destructiveHint is true, so a purely additive write that omits it is read as
+// one that may destroy (#1692).
+func WriteAnnotations(destructive bool) *mcp.ToolAnnotations {
+	return &mcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: &destructive}
+}

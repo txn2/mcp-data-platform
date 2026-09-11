@@ -301,6 +301,19 @@ func set(values ...string) map[string]bool {
 	return out
 }
 
+// ReadOnly reports whether EVERY call to a tool persists nothing, which is
+// what an MCP client reads readOnlyHint to learn. It is the per-tool half of
+// this package's per-call question: a tool whose actions split (manage_asset,
+// s3_object) is not read-only however the one call in hand is classified,
+// because the annotation describes the tool and not the call (#1692).
+//
+// The registration sites advertise the hint and a structural gate holds the two
+// together, so a tool classified here and annotated otherwise fails the build
+// rather than telling a client the opposite of what a draft run believes.
+func ReadOnly(tool string) bool {
+	return readOnlyTools[strings.TrimSpace(tool)]
+}
+
 // Classified reports whether any rule here names the tool, whatever it decides
 // about a given call. The structural gate asks this of every tool the platform
 // registers; a caller deciding one call asks Classify.

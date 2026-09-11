@@ -269,7 +269,8 @@ func (t *Toolkit) SetExportDeps(deps ExportDeps) {
 // before (#1589).
 func (t *Toolkit) registerExportTool(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
-		Name: exportToolName,
+		Name:  exportToolName,
+		Title: "Export Query Results",
 		Description: "Export query results directly to a portal asset file (CSV, JSON, Markdown, or text). " +
 			"Use ONLY after you have validated the query shape with trino_query using a small LIMIT. " +
 			"Do NOT use this for data exploration. " +
@@ -282,9 +283,9 @@ func (t *Toolkit) registerExportTool(s *mcp.Server) {
 			"Avoid em/en dashes, smart quotes, ellipses, and other Unicode punctuation; they will be normalized to ASCII. " +
 			"The name doubles as the download filename.",
 		InputSchema: exportInputSchema(),
-		Annotations: &mcp.ToolAnnotations{
-			ReadOnlyHint: false,
-		},
+		// An export lands a new asset, or the next version of a managed
+		// resource with the earlier versions kept, so it only adds.
+		Annotations: toolkit.WriteAnnotations(false),
 	}, t.handleExport)
 }
 

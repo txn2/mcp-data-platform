@@ -10,6 +10,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 const manageToolName = "memory_manage"
@@ -64,6 +65,8 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"preferences, business context, and data-quality observations). " +
 			"To find memory back, use search.",
 		InputSchema: memoryManageSchema,
+		// forget archives a record and consolidate supersedes one.
+		Annotations: toolkit.WriteAnnotations(true),
 	}, t.handleManage)
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -78,6 +81,10 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"instead of duplicating, and near-matches below the supersede bar are returned as similar_existing " +
 			"so you can consolidate instead of creating a duplicate.",
 		InputSchema: memoryCaptureSchema,
+		// Capture is recall-first: a restatement supersedes the record
+		// it restates rather than landing beside it, so a capture can
+		// retire something already held.
+		Annotations: toolkit.WriteAnnotations(true),
 	}, t.handleMemoryCapture)
 }
 

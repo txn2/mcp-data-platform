@@ -3,9 +3,10 @@ package promptlayer
 import (
 	"context"
 
-	"github.com/txn2/mcp-data-platform/internal/platform/promptlayer/promptschema"
-
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/txn2/mcp-data-platform/internal/platform/promptlayer/promptschema"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 // ToolNameShowPrompts is the MCP tool name of the presentation-only prompt
@@ -51,6 +52,7 @@ func (h *Handle) RegisterShowPromptsTool(server *mcp.Server) {
 			"follow-up tool calls. Use manage_prompt only to run, create, or edit a prompt, or when you need " +
 			"prompt data for your own reasoning rather than to show it to the human.",
 		InputSchema: showPromptsSchema(),
+		Annotations: toolkit.ReadOnlyAnnotations(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input showPromptsInput) (*mcp.CallToolResult, any, error) {
 		return h.handleShowPrompts(ctx, input)
 	})

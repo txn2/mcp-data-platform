@@ -305,6 +305,7 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"resulting_state in the apply_knowledge apply response), not search.",
 		InputSchema:  searchSchema,
 		OutputSchema: searchResultSchema,
+		Annotations:  toolkit.ReadOnlyAnnotations(),
 	}, t.handleSearch)
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -333,6 +334,7 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"hit's \"table\" carries no columns: a hit is a pointer, and this is where the record is read.",
 		InputSchema:  fetchSchema,
 		OutputSchema: fetchResultSchema,
+		Annotations:  toolkit.ReadOnlyAnnotations(),
 	}, t.handleFetch)
 }
 

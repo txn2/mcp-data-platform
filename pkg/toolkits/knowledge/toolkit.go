@@ -253,6 +253,9 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 				"Structured properties, incidents, and context documents require DataHub 1.4.x. " +
 				"Insight lifecycle: pending → approved/rejected/superseded; approved → applied/rejected; applied → pending (when its changeset is rolled back).",
 			InputSchema: applyKnowledgeSchema,
+			// bulk_untag and delete_tag remove, and update_description
+			// overwrites what an entity already said.
+			Annotations: toolkit.WriteAnnotations(true),
 		}, t.handleApplyKnowledge)
 	}
 

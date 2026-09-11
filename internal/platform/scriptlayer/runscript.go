@@ -11,6 +11,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/script"
 	pkgsession "github.com/txn2/mcp-data-platform/pkg/session"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 // ToolNameRunScript is the MCP tool name of the platform-execution tool,
@@ -57,6 +58,9 @@ func (h *Handle) registerRunScript(server *mcp.Server) {
 		Title:       "Run Script",
 		Description: runScriptDescription,
 		InputSchema: runScriptSchema(),
+		// A run executes a saved script, which reaches whatever tool the
+		// script calls, so it claims the widest reach any of them has.
+		Annotations: toolkit.WriteAnnotations(true),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input runScriptInput) (*mcp.CallToolResult, any, error) {
 		return h.handleRunScript(ctx, input)
 	})

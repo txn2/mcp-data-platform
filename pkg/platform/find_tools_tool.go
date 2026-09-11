@@ -49,7 +49,7 @@ func (p *Platform) registerFindToolsTool() {
 		Name:         platformFindToolsName,
 		Title:        "Find Tools",
 		Description:  "Find the most relevant platform tools for a natural-language task description, ranked by semantic similarity. Call this once at the start of a task to discover which tools to use instead of reading every tool name. Returns only tools your persona is permitted to call.",
-		Annotations:  &mcp.ToolAnnotations{ReadOnlyHint: true},
+		Annotations:  &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
 		OutputSchema: findToolsOutputSchema,
 	}, func(ctx context.Context, req *mcp.CallToolRequest, input findToolsInput) (*mcp.CallToolResult, any, error) {
 		return p.handleFindTools(ctx, req, input)

@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 // ToolNameShowScripts is the MCP tool name of the presentation-only trigger
@@ -45,6 +47,7 @@ func (h *Handle) registerShowScripts(server *mcp.Server) {
 			"no follow-up tool calls. Use manage_script instead to create, edit, validate, or dry-run a " +
 			"script, or when you need script or run data for your own reasoning rather than to show it.",
 		InputSchema: showScriptsSchema(),
+		Annotations: toolkit.ReadOnlyAnnotations(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input showScriptsInput) (*mcp.CallToolResult, any, error) {
 		return h.handleShowScripts(ctx, input)
 	})

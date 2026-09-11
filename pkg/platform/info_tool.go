@@ -158,6 +158,7 @@ func (p *Platform) registerInfoTool() {
 		Title:        instructions.InfoToolTitle(p.config.Server.Name, defaultServerName, platformInfoTitle),
 		Description:  instructions.InfoToolDescription(p.config.Server.Name, defaultServerName, p.config.Server.Tags),
 		OutputSchema: infoOutputSchema,
+		Annotations:  &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, _ platformInfoInput) (*mcp.CallToolResult, any, error) {
 		return p.handleInfo(ctx, req)
 	})
