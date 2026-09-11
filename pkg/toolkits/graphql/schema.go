@@ -68,7 +68,7 @@ func (t *Toolkit) loadOrRefresh(ctx context.Context, name string) {
 	}
 	if err := t.RefreshSchema(ctx, name); err != nil {
 		slog.Warn("graphql: reading the endpoint's schema failed",
-			logKeyConnection, logsan.SanitizeForLog(name), logKeyError, err)
+			logKeyConnection, logsan.SanitizeForLog(name), logKeyError, logsan.SanitizeForLog(err.Error()))
 	}
 }
 
@@ -86,7 +86,7 @@ func (t *Toolkit) readOrLoadStored(ctx context.Context, name string) {
 		return
 	}
 	slog.Warn("graphql: reading the endpoint's schema failed",
-		logKeyConnection, logsan.SanitizeForLog(name), logKeyError, err)
+		logKeyConnection, logsan.SanitizeForLog(name), logKeyError, logsan.SanitizeForLog(err.Error()))
 	c, _, ok := t.lookup(name)
 	if !ok {
 		return
