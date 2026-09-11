@@ -120,6 +120,76 @@ func TestWireRecordsWhyASchemaCouldNotBeRead(t *testing.T) {
 	}
 }
 
+// memoryStore is a graphqlkit.SchemaStore over a map: what a peer replica
+// wrote, as this replica reads it.
+type memoryStore struct {
+	schemas map[string]graphqlkit.StoredSchema
+}
+
+func (m *memoryStore) GetSchema(_ context.Context, connection string) (graphqlkit.StoredSchema, error) {
+	s, ok := m.schemas[connection]
+	if !ok {
+		return graphqlkit.StoredSchema{}, graphqlkit.ErrSchemaNotFound
+	}
+	return s, nil
+}
+
+func (m *memoryStore) PutSchema(_ context.Context, s graphqlkit.StoredSchema) error {
+	m.schemas[s.Connection] = s
+	return nil
+}
+
+func (m *memoryStore) DeleteSchema(_ context.Context, connection string) error {
+	delete(m.schemas, connection)
+	return nil
+}
+
+// TestReloadStoredSchemaInstallsWhatAPeerStored: a peer's announcement lands
+// the store's schema on every graphql toolkit holding the connection, and on
+// no other (#1676).
+func TestReloadStoredSchemaInstallsWhatAPeerStored(t *testing.T) {
+	refusing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"errors":[{"message":"introspection disabled"}]}`))
+	}))
+	defer refusing.Close()
+	reg := newRegistry(t, refusing.URL)
+	store := &memoryStore{schemas: map[string]graphqlkit.StoredSchema{}}
+	Wire(context.Background(), Deps{Registry: reg})
+	tk := Toolkits(reg)[0]
+	tk.SetSchemaStore(store)
+
+	// The peer's upload, as the store holds it.
+	peer := graphqlkit.NewMulti(graphqlkit.MultiConfig{})
+	peer.SetSchemaStore(store)
+	if err := peer.AddConnection("gql", map[string]any{"endpoint_url": refusing.URL}); err != nil {
+		t.Fatalf("peer add: %v", err)
+	}
+	if err := peer.SetSchema(context.Background(), "gql", []byte("schema { query: Query } type Query { health: String }")); err != nil {
+		t.Fatalf("peer upload: %v", err)
+	}
+	if before, _ := tk.SchemaInfo("gql"); before.OperationCount != 0 || before.Error == "" {
+		t.Fatalf("this replica's own read did not fail: %+v", before)
+	}
+
+	ReloadStoredSchema(context.Background(), reg, "gql")
+
+	after, _ := tk.SchemaInfo("gql")
+	if after.Source != graphqlkit.SchemaSourceUpload || after.OperationCount != 1 || after.Error != "" {
+		t.Errorf("info = %+v; the peer's upload is what this replica serves", after)
+	}
+	// A connection this registry does not hold, and a registry with nothing
+	// to reload, are left alone; so is a connection whose row is gone by the
+	// time the announcement lands, which keeps what it holds.
+	ReloadStoredSchema(context.Background(), reg, "absent")
+	ReloadStoredSchema(context.Background(), nil, "gql")
+	delete(store.schemas, "gql")
+	ReloadStoredSchema(context.Background(), reg, "gql")
+	if kept, _ := tk.SchemaInfo("gql"); kept.Hash != after.Hash {
+		t.Errorf("an announcement with no row behind it changed the connection: %+v", kept)
+	}
+}
+
 func TestWireIsANoOpWithoutAGraphQLToolkit(t *testing.T) {
 	reg := registry.NewRegistry()
 	if err := reg.Register(otherToolkit{}); err != nil {

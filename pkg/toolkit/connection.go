@@ -91,3 +91,13 @@ type ConnectionManager interface {
 	RemoveConnection(name string) error
 	HasConnection(name string) bool
 }
+
+// ConnectionUpdater is an optional interface for a ConnectionManager that
+// keeps state for a connection beyond its registration (a stored schema) and
+// so has to tell a changed configuration from a deletion. A reconcile of a
+// connection the toolkit already holds calls UpdateConnection in place of
+// RemoveConnection followed by AddConnection; RemoveConnection stays the
+// deletion, and is where such state is dropped (#1676).
+type ConnectionUpdater interface {
+	UpdateConnection(name string, config map[string]any) error
+}

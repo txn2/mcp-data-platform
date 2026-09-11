@@ -67,9 +67,9 @@ type Config struct {
 // This is also the reloadBus's handler type, so New passes it straight through.
 type ReloadHandlers struct {
 	// Connection receives (kind, name, op) where op is the opaque intent string
-	// the publisher passed to PublishConnectionReload ("upsert"/"delete", empty
-	// for a legacy pre-op event). The bus does not interpret op; the handler
-	// does.
+	// the publisher passed to PublishConnectionReload ("upsert", "delete" or
+	// "schema", empty for a legacy pre-op event). The bus does not interpret
+	// op; the handler does.
 	Connection func(kind, name, op string)
 	Catalog    func(catalogID string)
 	Persona    func()
@@ -292,8 +292,9 @@ func (h *Handle) StatelessForced() bool {
 }
 
 // PublishConnectionReload announces that the (kind, name) connection changed so
-// peers rebuild it. op is an opaque intent string ("upsert"/"delete") the bus
-// carries verbatim to the peer handler. No-op on a nil Handle.
+// peers rebuild it. op is an opaque intent string ("upsert", "delete" or
+// "schema") the bus carries verbatim to the peer handler. No-op on a nil
+// Handle.
 func (h *Handle) PublishConnectionReload(ctx context.Context, kind, name, op string) {
 	if h == nil {
 		return

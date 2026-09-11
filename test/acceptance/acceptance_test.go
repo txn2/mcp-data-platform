@@ -59,6 +59,9 @@ type client struct {
 	// apiKey is the identity this session authenticated with, kept so a REST
 	// route can be reached as the same person the tool calls are made by.
 	apiKey string
+	// base is the platform process this session is open on, so a REST route
+	// reaches the same replica the tool calls do.
+	base string
 }
 
 // baseURL is where the suite connects: MCP_BASE_URL, or the dev server on
@@ -79,11 +82,16 @@ func baseURL() string {
 // requires of a session before a query tool is admitted.
 func connect(t *testing.T) *client {
 	t.Helper()
-	apiKey := os.Getenv("MCP_API_KEY")
-	if apiKey == "" {
-		apiKey = defaultDevAPIKey
+	return connectAs(t, devAPIKey())
+}
+
+// devAPIKey is the administrator key the suite authenticates with: MCP_API_KEY,
+// or the dev stack's.
+func devAPIKey() string {
+	if apiKey := os.Getenv("MCP_API_KEY"); apiKey != "" {
+		return apiKey
 	}
-	return connectAs(t, apiKey)
+	return defaultDevAPIKey
 }
 
 // connectAs is connect for a named identity: a criterion about who may reach
@@ -93,8 +101,25 @@ func connect(t *testing.T) *client {
 // at elsewhere supplies its own keys.
 func connectAs(t *testing.T, apiKey string) *client {
 	t.Helper()
-	target := baseURL()
+	return connectAt(t, baseURL(), apiKey)
+}
 
+// connectPeer opens a session on a second replica of the same deployment, the
+// one MCP_PEER_BASE_URL names. A criterion about what every replica answers
+// needs two processes over one database, and nothing stands in for the second
+// one: the criterion fails, rather than skips, when no peer is named.
+func connectPeer(t *testing.T) *client {
+	t.Helper()
+	target := os.Getenv("MCP_PEER_BASE_URL")
+	if target == "" {
+		t.Fatal("MCP_PEER_BASE_URL is not set. This criterion runs against two replicas of one deployment: start a second platform process from the same configuration on another port, against the same database, and set MCP_PEER_BASE_URL to it")
+	}
+	return connectAt(t, target, devAPIKey())
+}
+
+// connectAt opens a session on one platform process as one identity.
+func connectAt(t *testing.T, target, apiKey string) *client {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), sessionTimeout)
 	t.Cleanup(cancel)
 
@@ -106,7 +131,7 @@ func connectAs(t *testing.T, apiKey string) *client {
 	}
 	t.Cleanup(func() { _ = session.Close() })
 
-	c := &client{t: t, ctx: ctx, session: session}
+	c := &client{t: t, ctx: ctx, session: session, base: target}
 	info := c.call("platform_info", nil)
 	c.sessionID, _ = info["session_id"].(string)
 	if c.sessionID == "" {
@@ -150,7 +175,7 @@ func jsonBody(t *testing.T, v any) io.Reader {
 // rather than only through the tool surface.
 func (c *client) rest(method, path string, body io.Reader) (int, map[string]any) {
 	c.t.Helper()
-	req, err := http.NewRequestWithContext(c.ctx, method, baseURL()+path, body)
+	req, err := http.NewRequestWithContext(c.ctx, method, c.base+path, body)
 	if err != nil {
 		c.t.Fatalf("%s %s: %v", method, path, err)
 	}

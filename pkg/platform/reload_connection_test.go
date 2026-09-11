@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/txn2/mcp-data-platform/pkg/registry"
+	graphqlkit "github.com/txn2/mcp-data-platform/pkg/toolkits/graphql"
 )
 
 // recordingConnMgr is a registry.Toolkit that also implements
@@ -301,6 +302,84 @@ func TestReloadConnectionLocal_DeleteOpSkipsStoreRead(t *testing.T) {
 
 	if !slices.Equal(tk.events, []string{"remove:c1"}) {
 		t.Errorf("ReloadDelete did not remove without a store read: events = %v", tk.events)
+	}
+}
+
+// peerSchemaStore is a graphqlkit.SchemaStore holding what a peer replica
+// stored, so the schema op can be observed to install it here.
+type peerSchemaStore struct {
+	schemas map[string]graphqlkit.StoredSchema
+}
+
+func (s peerSchemaStore) GetSchema(_ context.Context, connection string) (graphqlkit.StoredSchema, error) {
+	stored, ok := s.schemas[connection]
+	if !ok {
+		return graphqlkit.StoredSchema{}, graphqlkit.ErrSchemaNotFound
+	}
+	return stored, nil
+}
+
+func (s peerSchemaStore) PutSchema(_ context.Context, stored graphqlkit.StoredSchema) error {
+	s.schemas[stored.Connection] = stored
+	return nil
+}
+
+func (s peerSchemaStore) DeleteSchema(_ context.Context, connection string) error {
+	delete(s.schemas, connection)
+	return nil
+}
+
+// TestReloadConnectionLocal_SchemaOpInstallsTheStoredSchema: a peer that
+// stored a schema announces it under the schema op, and this replica installs
+// it from the schema store without reading the connection store and without
+// touching the endpoint (#1676).
+func TestReloadConnectionLocal_SchemaOpInstallsTheStoredSchema(t *testing.T) {
+	store := peerSchemaStore{schemas: map[string]graphqlkit.StoredSchema{}}
+	peer := graphqlkit.NewMulti(graphqlkit.MultiConfig{})
+	peer.SetSchemaStore(store)
+	// Registration reads the endpoint; a name that does not resolve is the
+	// refusal, and the upload is what the store then holds.
+	const endpoint = "http://unreached.invalid/graphql"
+	if err := peer.AddConnection("erp", map[string]any{"endpoint_url": endpoint, "connect_timeout": "1s"}); err != nil {
+		t.Fatalf("peer add: %v", err)
+	}
+	if err := peer.SetSchema(context.Background(), "erp", []byte("schema { query: Query } type Query { health: String }")); err != nil {
+		t.Fatalf("peer upload: %v", err)
+	}
+
+	local := graphqlkit.NewMulti(graphqlkit.MultiConfig{})
+	if err := local.AddConnection("erp", map[string]any{"endpoint_url": endpoint, "connect_timeout": "1s"}); err != nil {
+		t.Fatalf("local add: %v", err)
+	}
+	local.SetSchemaStore(store)
+	reg := registry.NewRegistry()
+	if err := reg.Register(local); err != nil {
+		t.Fatalf("register toolkit: %v", err)
+	}
+	p := &Platform{
+		toolkitRegistry: reg,
+		connectionStore: storeReadForbidden{t: t}, // Get would fail the test
+	}
+
+	p.reloadConnectionLocal(graphqlkit.Kind, "erp", ReloadSchema.String())
+
+	info, err := local.SchemaInfo("erp")
+	if err != nil {
+		t.Fatalf("schema info: %v", err)
+	}
+	if info.Source != graphqlkit.SchemaSourceUpload || info.OperationCount != 1 || info.Error != "" {
+		t.Errorf("info = %+v; the schema op installs what the peer stored", info)
+	}
+}
+
+func TestConnectionReloadOpRoundTripsOnTheWire(t *testing.T) {
+	for _, op := range []ConnectionReloadOp{ReloadUpsert, ReloadDelete, ReloadSchema} {
+		if got := parseConnectionReloadOp(op.String()); got != op {
+			t.Errorf("parse(%q) = %v, want %v", op.String(), got, op)
+		}
+	}
+	if got := parseConnectionReloadOp(""); got != ReloadUpsert {
+		t.Errorf("a legacy event without an op parsed as %v", got)
 	}
 }
 

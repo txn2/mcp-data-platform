@@ -130,16 +130,9 @@ type prepared struct {
 // prepare parses, validates and authorizes a document. The returned
 // string is the caller-facing refusal when it is not empty.
 func (t *Toolkit) prepare(ctx context.Context, in QueryInput) (ready prepared, refusal string) {
-	if in.Connection == "" {
-		return prepared{}, "connection is required"
-	}
-	if strings.TrimSpace(in.Query) == "" {
-		return prepared{}, "query is required: pass the GraphQL document to execute (graphql_discover renders one)"
-	}
-	c, policy, ok := t.lookup(in.Connection)
-	if !ok {
-		return prepared{}, fmt.Sprintf(
-			"connection %q not found (use list_connections to discover graphql connections)", in.Connection)
+	c, policy, refusal := t.resolve(in)
+	if refusal != "" {
+		return prepared{}, refusal
 	}
 	variables, err := decodeVariables(in.Variables)
 	if err != nil {
@@ -176,6 +169,34 @@ func (t *Toolkit) prepare(ctx context.Context, in QueryInput) (ready prepared, r
 	}, ""
 }
 
+// resolve finds the connection a document is for and refuses one that
+// cannot take a document. A connection with no schema is one of those:
+// the operation index is what a document is reduced to and authorized
+// under, and with none the reduction would fall back to the document's
+// root fields, which no persona rule for this kind is written against
+// (#1676). The refusal names the cause the connection recorded, the
+// same one graphql_discover reports.
+func (t *Toolkit) resolve(in QueryInput) (c *conn, policy RoutePolicy, refusal string) {
+	if in.Connection == "" {
+		return nil, nil, "connection is required"
+	}
+	if strings.TrimSpace(in.Query) == "" {
+		return nil, nil, "query is required: pass the GraphQL document to execute (graphql_discover renders one)"
+	}
+	c, policy, ok := t.lookup(in.Connection)
+	if !ok {
+		return nil, nil, fmt.Sprintf(
+			"connection %q not found (use list_connections to discover graphql connections)", in.Connection)
+	}
+	c.schemaMu.RLock()
+	schema, schemaErr := c.schema, c.schemaErr
+	c.schemaMu.RUnlock()
+	if schema == nil {
+		return nil, nil, noSchemaMessage(in.Connection, schemaErr)
+	}
+	return c, policy, ""
+}
+
 // checkSchema validates a document against the connection's schema.
 // Under strict the violations are a refusal naming the connection and
 // the schema's fetch time, so a caller working from a newer schema than
@@ -185,9 +206,6 @@ func (*Toolkit) checkSchema(c *conn, doc *gqlschema.Document) (warnings []string
 	c.schemaMu.RLock()
 	schema, fetchedAt := c.schema, c.fetchedAt
 	c.schemaMu.RUnlock()
-	if schema == nil {
-		return nil, ""
-	}
 	violations := doc.Validate(schema)
 	if len(violations) == 0 {
 		return nil, ""

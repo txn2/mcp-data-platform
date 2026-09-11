@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/graphqlwiring"
 	"github.com/txn2/mcp-data-platform/pkg/auth"
 	"github.com/txn2/mcp-data-platform/pkg/connreconcile"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
@@ -31,24 +32,30 @@ const (
 	// ReloadDelete marks a deleted connection: the peer removes it from every
 	// matching live toolkit without reading the store.
 	ReloadDelete
+	// ReloadSchema marks a connection whose stored schema changed, by an
+	// upload or a re-read on the publishing replica: the peer installs what
+	// the schema store holds, without reading the connection store and
+	// without touching the endpoint (#1676).
+	ReloadSchema
 )
 
+// reloadOpNames is each op's spelling on the wire, which a peer's handler
+// parses it back from.
+var reloadOpNames = map[ConnectionReloadOp]string{ReloadUpsert: "upsert", ReloadDelete: "delete", ReloadSchema: "schema"}
+
 // String renders the op for the reload-bus wire payload and logs.
-func (o ConnectionReloadOp) String() string {
-	if o == ReloadDelete {
-		return "delete"
-	}
-	return "upsert"
-}
+func (o ConnectionReloadOp) String() string { return reloadOpNames[o] }
 
 // parseConnectionReloadOp maps the wire op back to a ConnectionReloadOp. Any
-// value other than the explicit delete marker — including the empty string a
+// value that is not an explicit marker — including the empty string a
 // pre-#885 replica publishes during a rolling upgrade — is treated as an
 // upsert, so an unrecognized or missing op falls back to the read-and-decide
 // path rather than removing a connection.
 func parseConnectionReloadOp(s string) ConnectionReloadOp {
-	if s == ReloadDelete.String() {
-		return ReloadDelete
+	for op, name := range reloadOpNames {
+		if name == s {
+			return op
+		}
 	}
 	return ReloadUpsert
 }
@@ -70,6 +77,9 @@ func parseConnectionReloadOp(s string) ConnectionReloadOp {
 //     read happens, so a transient store failure can never leave a deleted
 //     connection live on this replica. A failed removal is logged at WARN, not
 //     ERROR: removing an already-absent connection is not state-corrupting.
+//   - ReloadSchema: install the schema the schema store holds on every graphql
+//     toolkit holding the connection. The connection's configuration did not
+//     change, so nothing is rebuilt and the endpoint is not read.
 //   - ReloadUpsert (and any legacy event without an op): read the store and
 //     decide. The read outcome drives a three-way branch so a transient read
 //     failure never silently drops a live connection (issue #885):
@@ -84,9 +94,14 @@ func parseConnectionReloadOp(s string) ConnectionReloadOp {
 // what it runs on (#1400). An upsert that finds a row still applies to one.
 func (p *Platform) reloadConnectionLocal(kind, name, op string) {
 	rec := connreconcile.New(p.toolkitRegistry)
-	if parseConnectionReloadOp(op) == ReloadDelete {
+	switch parseConnectionReloadOp(op) {
+	case ReloadDelete:
 		p.removeReloadedConnection(rec, kind, name, "reload-bus: failed to remove deleted connection from toolkit")
 		return
+	case ReloadSchema:
+		graphqlwiring.ReloadStoredSchema(context.Background(), p.toolkitRegistry, name)
+		return
+	case ReloadUpsert:
 	}
 
 	inst, err := p.connectionStore.Get(context.Background(), kind, name)

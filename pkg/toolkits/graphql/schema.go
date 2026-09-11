@@ -17,7 +17,10 @@ import (
 
 // SchemaInfo is what an operator surface reports about a connection's
 // schema: which version the platform holds, where it came from, when,
-// how many operations it exposes, and — when there is none — why.
+// how many operations it exposes, and why the last read failed when it
+// did. A failed read leaves the schema the connection held in place, so
+// Error beside a hash is a schema that survived a re-read the endpoint
+// refused; Error with no hash is a connection that has never had one.
 type SchemaInfo struct {
 	Connection     string    `json:"connection"`
 	Hash           string    `json:"schema_hash,omitempty"`
@@ -60,21 +63,8 @@ func (t *Toolkit) loadOrRefresh(ctx context.Context, name string) {
 	if !ok {
 		return
 	}
-	t.mu.RLock()
-	store := t.schemaStore
-	t.mu.RUnlock()
-	if store != nil {
-		stored, err := store.GetSchema(ctx, c.cfg.ConnectionName)
-		if err == nil {
-			if applyErr := t.applyStored(ctx, c, stored); applyErr == nil {
-				return
-			}
-			slog.Warn("graphql: stored schema did not load; re-reading the endpoint",
-				logKeyConnection, logsan.SanitizeForLog(name))
-		} else if !errors.Is(err, ErrSchemaNotFound) {
-			slog.Warn("graphql: reading the stored schema failed",
-				logKeyConnection, logsan.SanitizeForLog(name), logKeyError, err)
-		}
+	if loaded, _ := t.loadStored(ctx, c, false); loaded {
+		return
 	}
 	if err := t.RefreshSchema(ctx, name); err != nil {
 		slog.Warn("graphql: reading the endpoint's schema failed",
@@ -82,14 +72,82 @@ func (t *Toolkit) loadOrRefresh(ctx context.Context, name string) {
 	}
 }
 
-// applyStored installs a stored schema on a connection.
-func (t *Toolkit) applyStored(ctx context.Context, c *conn, stored StoredSchema) error {
+// readOrLoadStored brings a connection's schema up on register and on
+// reconcile: the endpoint is read, and when the read fails the schema
+// the store holds is installed with the failure reported beside it. The
+// store is the source of truth across replicas, so a replica whose own
+// read fails serves what another replica read or was handed rather
+// than nothing (#1676). A deployment without a store keeps what the
+// connection already held, which is the schema it had before a
+// reconcile.
+func (t *Toolkit) readOrLoadStored(ctx context.Context, name string) {
+	err := t.RefreshSchema(ctx, name)
+	if err == nil {
+		return
+	}
+	slog.Warn("graphql: reading the endpoint's schema failed",
+		logKeyConnection, logsan.SanitizeForLog(name), logKeyError, err)
+	c, _, ok := t.lookup(name)
+	if !ok {
+		return
+	}
+	// A store with nothing for the connection leaves what it held; any
+	// other failure is logged where it happens.
+	_, _ = t.loadStored(ctx, c, true)
+}
+
+// LoadStoredSchema installs the schema the store holds for a connection,
+// replacing whatever this instance holds and clearing any failure it
+// recorded. It is how a schema stored by another replica, an upload or
+// a re-read, reaches this one: the reload bus calls it when a peer
+// announces one. The store's answer is final because it is what every
+// replica shares; this instance's own last read is superseded by it. An
+// instance with no store has nothing to load and is left as it is.
+func (t *Toolkit) LoadStoredSchema(ctx context.Context, name string) error {
+	c, _, ok := t.lookup(name)
+	if !ok {
+		return notFound(name)
+	}
+	_, err := t.loadStored(ctx, c, false)
+	return err
+}
+
+// loadStored installs the stored schema on a connection when the store
+// holds one. keepErr carries the connection's recorded read failure
+// through the install, which is how a failed re-read is reported beside
+// the schema that survived it; false clears it, for a load that is the
+// answer rather than the fallback. The first result reports a schema
+// installed; the error is the store's, or the stored schema's when it
+// does not parse.
+func (t *Toolkit) loadStored(ctx context.Context, c *conn, keepErr bool) (bool, error) {
+	t.mu.RLock()
+	store := t.schemaStore
+	t.mu.RUnlock()
+	if store == nil {
+		return false, nil
+	}
+	stored, err := store.GetSchema(ctx, c.cfg.ConnectionName)
+	if err != nil {
+		if !errors.Is(err, ErrSchemaNotFound) {
+			slog.Warn("graphql: reading the stored schema failed",
+				logKeyConnection, logsan.SanitizeForLog(c.cfg.ConnectionName), logKeyError, err)
+		}
+		return false, fmt.Errorf("graphql: reading the stored schema for %s: %w", c.cfg.ConnectionName, err)
+	}
 	parsed, err := gqlschema.Load(stored.SDL)
 	if err != nil {
-		return fmt.Errorf("graphql: the stored schema for %s does not load: %w", stored.Connection, err)
+		slog.Warn("graphql: the stored schema does not load",
+			logKeyConnection, logsan.SanitizeForLog(c.cfg.ConnectionName), logKeyError, err)
+		return false, fmt.Errorf("graphql: the stored schema for %s does not load: %w", stored.Connection, err)
 	}
-	t.install(ctx, c, parsed, stored.Source, stored.FetchedAt)
-	return nil
+	v := schemaVersion{schema: parsed, source: stored.Source, fetchedAt: stored.FetchedAt}
+	if keepErr {
+		c.schemaMu.RLock()
+		v.schemaErr = c.schemaErr
+		c.schemaMu.RUnlock()
+	}
+	t.install(ctx, c, v)
+	return true, nil
 }
 
 // RefreshSchema reads a connection's schema from its endpoint by
@@ -124,7 +182,9 @@ func (t *Toolkit) RefreshSchema(ctx context.Context, name string) error {
 // SetSchema installs a schema an operator supplied, accepting either
 // SDL or an introspection result. It is the path for an endpoint that
 // disables introspection, where the platform cannot read the schema for
-// itself.
+// itself. A payload that does not parse is the operator's input and is
+// returned to them; it is not recorded on the connection, whose state is
+// whatever it held before the attempt.
 func (t *Toolkit) SetSchema(ctx context.Context, name string, payload []byte) error {
 	c, _, ok := t.lookup(name)
 	if !ok {
@@ -132,7 +192,7 @@ func (t *Toolkit) SetSchema(ctx context.Context, name string, payload []byte) er
 	}
 	parsed, err := gqlschema.LoadAny(payload)
 	if err != nil {
-		return t.recordSchemaError(c, err)
+		return fmt.Errorf("graphql: %w", err)
 	}
 	t.store(ctx, c, parsed, SchemaSourceUpload)
 	return nil
@@ -175,7 +235,7 @@ func introspectionFailure(res *execution) error {
 // a working connection down.
 func (t *Toolkit) store(ctx context.Context, c *conn, parsed *gqlschema.Schema, source string) {
 	now := time.Now().UTC()
-	t.install(ctx, c, parsed, source, now)
+	t.install(ctx, c, schemaVersion{schema: parsed, source: source, fetchedAt: now})
 	t.mu.RLock()
 	schemaStore := t.schemaStore
 	t.mu.RUnlock()
@@ -195,19 +255,30 @@ func (t *Toolkit) store(ctx context.Context, c *conn, parsed *gqlschema.Schema, 
 	}
 }
 
+// schemaVersion is one schema as a connection installs it: the parsed
+// schema, where it came from and when, and what the connection reports
+// beside it. schemaErr is empty for a schema that is the answer, and the
+// read's failure for one that stood in for a read that failed.
+type schemaVersion struct {
+	schema    *gqlschema.Schema
+	source    string
+	fetchedAt time.Time
+	schemaErr string
+}
+
 // install replaces a connection's schema, operation index and vectors
 // under one write lock, so a call in flight sees either the old set or
 // the new one and never a half-rebuilt index.
-func (t *Toolkit) install(ctx context.Context, c *conn, parsed *gqlschema.Schema, source string, at time.Time) {
-	ops := gqlschema.Operations(parsed, c.cfg.NamespaceDepth)
-	vectors := t.loadVectors(ctx, c.cfg.ConnectionName, parsed.Hash())
+func (t *Toolkit) install(ctx context.Context, c *conn, v schemaVersion) {
+	ops := gqlschema.Operations(v.schema, c.cfg.NamespaceDepth)
+	vectors := t.loadVectors(ctx, c.cfg.ConnectionName, v.schema.Hash())
 	c.schemaMu.Lock()
-	c.schema = parsed
+	c.schema = v.schema
 	c.operations = ops
 	c.vectors = vectors
-	c.source = source
-	c.fetchedAt = at
-	c.schemaErr = ""
+	c.source = v.source
+	c.fetchedAt = v.fetchedAt
+	c.schemaErr = v.schemaErr
 	c.schemaMu.Unlock()
 }
 
@@ -254,8 +325,9 @@ func (t *Toolkit) ReloadVectors(ctx context.Context, name string) {
 	c.schemaMu.Unlock()
 }
 
-// recordSchemaError records why a connection has no usable schema and
-// returns the error for the caller to report.
+// recordSchemaError records why a connection's last read failed and
+// returns the error for the caller to report. The schema the connection
+// holds, if any, is left in place: the failure is reported beside it.
 func (*Toolkit) recordSchemaError(c *conn, err error) error {
 	c.schemaMu.Lock()
 	c.schemaErr = err.Error()
@@ -311,29 +383,6 @@ func (t *Toolkit) Operations(name string) (ops []gqlschema.Operation, schemaHash
 		return nil, "", false
 	}
 	return c.operations, c.schema.Hash(), true
-}
-
-// ReloadConnection drops and rebuilds a connection so a config change
-// takes effect, then brings its schema back up. In-flight OAuth refresh
-// tokens persist through the unified connoauth store.
-func (t *Toolkit) ReloadConnection(name string) error {
-	t.mu.Lock()
-	existing, ok := t.connections[name]
-	if !ok {
-		t.mu.Unlock()
-		return notFound(name)
-	}
-	cfg := existing.cfg
-	if existing.client != nil {
-		existing.client.CloseIdleConnections()
-	}
-	delete(t.connections, name)
-	t.mu.Unlock()
-	if err := t.addParsedConnection(name, cfg); err != nil {
-		return err
-	}
-	t.loadOrRefresh(context.Background(), name)
-	return nil
 }
 
 // notFound names a connection this toolkit does not hold. One helper

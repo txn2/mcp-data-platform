@@ -228,6 +228,7 @@ internal/platform/exportadapters -> pkg/toolkits/trino
 internal/platform/graphqlindex -> pkg/indexjobs
 internal/platform/graphqlindex -> pkg/toolkits/graphql
 internal/platform/graphqlstore -> pkg/toolkits/graphql
+internal/platform/graphqlwiring -> internal/logsan
 internal/platform/graphqlwiring -> internal/membudget
 internal/platform/graphqlwiring -> internal/platform/graphqlstore
 internal/platform/graphqlwiring -> internal/platform/routepolicy

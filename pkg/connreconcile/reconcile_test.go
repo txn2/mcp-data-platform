@@ -46,6 +46,20 @@ func (t *recordingToolkit) RemoveConnection(name string) error {
 	return t.removeErr
 }
 
+// updatingToolkit is a recordingToolkit that also implements
+// toolkit.ConnectionUpdater: a change to a connection it holds is handed to
+// it as one, and a removal on it is a deletion.
+type updatingToolkit struct {
+	recordingToolkit
+	updateErr error
+}
+
+func (t *updatingToolkit) UpdateConnection(name string, config map[string]any) error {
+	t.events = append(t.events, "update:"+name)
+	t.addConfigs = append(t.addConfigs, config)
+	return t.updateErr
+}
+
 // plainToolkit implements registry.Toolkit but NOT ConnectionManager, so the
 // reconciler must skip it even when its kind matches.
 type plainToolkit struct{ kind, name string }
@@ -134,6 +148,39 @@ func TestReconciler_Upsert(t *testing.T) {
 		}
 	})
 
+	t.Run("an updater holding the connection is handed the change, not a remove and an add", func(t *testing.T) {
+		tk := &updatingToolkit{recordingToolkit: recordingToolkit{kind: kind, has: true}}
+		failures := New(mustRegister(t, tk)).Upsert(kind, name, cfg)
+		if len(failures) != 0 {
+			t.Fatalf("expected no failures, got %v", failures)
+		}
+		if got := tk.events; len(got) != 1 || got[0] != "update:c1" {
+			t.Errorf("events = %v, want [update:c1]", got)
+		}
+		if len(tk.addConfigs) != 1 || tk.addConfigs[0]["base_url"] != "https://new" {
+			t.Errorf("update config = %v, want base_url=https://new", tk.addConfigs)
+		}
+	})
+
+	t.Run("an updater not holding the connection is handed an add", func(t *testing.T) {
+		tk := &updatingToolkit{recordingToolkit: recordingToolkit{kind: kind, has: false}}
+		New(mustRegister(t, tk)).Upsert(kind, name, cfg)
+		if got := tk.events; len(got) != 1 || got[0] != "add:c1" {
+			t.Errorf("events = %v, want [add:c1]", got)
+		}
+	})
+
+	t.Run("a failed update is reported as its own phase", func(t *testing.T) {
+		tk := &updatingToolkit{recordingToolkit: recordingToolkit{kind: kind, has: true}, updateErr: errors.New("bad config")}
+		failures := New(mustRegister(t, tk)).Upsert(kind, name, cfg)
+		if len(failures) != 1 || failures[0].Phase != PhaseUpdate {
+			t.Errorf("failures = %v, want one PhaseUpdate", failures)
+		}
+		if got := tk.events; len(got) != 1 || got[0] != "update:c1" {
+			t.Errorf("events = %v; a failed update is not retried as a remove and an add", got)
+		}
+	})
+
 	t.Run("a failed remove aborts the add for that toolkit", func(t *testing.T) {
 		tk := &recordingToolkit{kind: kind, has: true, removeErr: errors.New("stuck")}
 		failures := New(mustRegister(t, tk)).Upsert(kind, name, cfg)
@@ -183,6 +230,12 @@ func TestReconciler_SkipsNonManagerAndNilSource(t *testing.T) {
 			t.Errorf("Upsert on nil source = %v, want nil", f)
 		}
 	})
+}
+
+func TestPhaseStringNamesEveryPhase(t *testing.T) {
+	if got := PhaseUpdate.String(); got != "update" {
+		t.Errorf("PhaseUpdate.String() = %q", got)
+	}
 }
 
 func TestPhaseString(t *testing.T) {

@@ -126,25 +126,6 @@ func TestListConnectionsReportsWhatAnOperatorNeeds(t *testing.T) {
 	}
 }
 
-func TestReloadConnectionRebuildsAndRereadsTheSchema(t *testing.T) {
-	u := newUpstream(t)
-	u.introspection = flatIntrospectionResult
-	tk := newToolkit(t, u, "", nil)
-	if err := tk.ReloadConnection("gql"); err != nil {
-		t.Fatalf("reload: %v", err)
-	}
-	info, err := tk.SchemaInfo("gql")
-	if err != nil {
-		t.Fatalf("schema info: %v", err)
-	}
-	if info.OperationCount == 0 {
-		t.Error("the reload did not read the schema back")
-	}
-	if err := tk.ReloadConnection("missing"); !errors.Is(err, ErrConnectionNotFound) {
-		t.Errorf("reloading an unknown connection gave %v", err)
-	}
-}
-
 // listServerTools returns the tool names an MCP client sees on a server,
 // which is the only statement about registration that binds: a toolkit's own
 // Tools() is what it intends to register, not what the server holds (#1675).

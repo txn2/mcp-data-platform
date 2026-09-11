@@ -27,14 +27,20 @@ const (
 	PhaseRemove Phase = iota
 	// PhaseAdd marks a failure returned by AddConnection.
 	PhaseAdd
+	// PhaseUpdate marks a failure returned by UpdateConnection.
+	PhaseUpdate
 )
 
 // String renders the phase for structured log output.
 func (p Phase) String() string {
-	if p == PhaseAdd {
+	switch p {
+	case PhaseAdd:
 		return "add"
+	case PhaseUpdate:
+		return "update"
+	default:
+		return "remove"
 	}
-	return "remove"
 }
 
 // Failure is one toolkit operation that returned an error during a reconcile.
@@ -85,26 +91,43 @@ func (r *Reconciler) Remove(kind, name string) []Failure {
 	return failures
 }
 
-// Upsert makes config the live config for name on every matching toolkit,
-// removing an existing registration first so a changed config replaces the old
-// one rather than layering on top of it. A toolkit whose remove fails is
-// skipped (its add is not attempted, to avoid stacking on stale state) but the
-// loop continues so other toolkits of the same kind are still updated. Returns
-// one Failure per failed operation, in registration order.
+// Upsert makes config the live config for name on every matching toolkit.
+// A toolkit that implements toolkit.ConnectionUpdater and already holds the
+// connection is handed the change as one: a removal on such a toolkit is a
+// deletion, dropping what it keeps for the connection beyond its
+// registration (#1676). Any other toolkit has an existing registration
+// removed first so the changed config replaces the old one rather than
+// layering on top of it; one whose remove fails is skipped (its add is not
+// attempted, to avoid stacking on stale state) but the loop continues so
+// other toolkits of the same kind are still updated. Returns one Failure per
+// failed operation, in registration order.
 func (r *Reconciler) Upsert(kind, name string, config map[string]any) []Failure {
 	var failures []Failure
 	for _, cm := range r.managers(kind) {
-		if cm.HasConnection(name) {
-			if err := cm.RemoveConnection(name); err != nil {
-				failures = append(failures, Failure{Phase: PhaseRemove, Err: err})
-				continue
-			}
-		}
-		if err := cm.AddConnection(name, config); err != nil {
-			failures = append(failures, Failure{Phase: PhaseAdd, Err: err})
+		if f, ok := upsertOne(cm, name, config); !ok {
+			failures = append(failures, f)
 		}
 	}
 	return failures
+}
+
+// upsertOne applies one connection change to one toolkit.
+func upsertOne(cm toolkit.ConnectionManager, name string, config map[string]any) (failure Failure, ok bool) {
+	if cm.HasConnection(name) {
+		if updater, updates := cm.(toolkit.ConnectionUpdater); updates {
+			if err := updater.UpdateConnection(name, config); err != nil {
+				return Failure{Phase: PhaseUpdate, Err: err}, false
+			}
+			return Failure{}, true
+		}
+		if err := cm.RemoveConnection(name); err != nil {
+			return Failure{Phase: PhaseRemove, Err: err}, false
+		}
+	}
+	if err := cm.AddConnection(name, config); err != nil {
+		return Failure{Phase: PhaseAdd, Err: err}, false
+	}
+	return Failure{}, true
 }
 
 // managers returns every registered toolkit of kind that implements

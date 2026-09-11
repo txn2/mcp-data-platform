@@ -38,6 +38,10 @@ type Config struct {
 	// route only: re-reading a schema writes it to the store, and a
 	// file-configured deployment has nowhere to put it.
 	Mutable bool
+	// SchemaStored is told the connection kind and name whose stored
+	// schema this replica just replaced, by an upload or a re-read, so
+	// the parent can announce it to peer replicas. Nil announces nothing.
+	SchemaStored func(kind, name string)
 }
 
 // handler binds the routes to their dependencies.
@@ -92,7 +96,7 @@ func (h *handler) getSchema(w http.ResponseWriter, r *http.Request) {
 // introspection.
 //
 // @Summary      Re-read or supply a GraphQL connection's schema
-// @Description  With an empty body, reads the connection's schema from its endpoint by introspection. With a body, takes the body as the schema: SDL, or a saved introspection result in either the full GraphQL response shape or the __schema object alone. Either way the schema is stored, the operation index is rebuilt, and the response reports the new state.
+// @Description  With an empty body, reads the connection's schema from its endpoint by introspection. With a body, takes the body as the schema: SDL, or a saved introspection result in either the full GraphQL response shape or the __schema object alone. Either way the schema is stored, the operation index is rebuilt on every replica, and the response reports the new state. A re-read the endpoint refuses leaves the schema the connection holds in place and reports the refusal beside it.
 // @Tags         Connections
 // @Accept       plain
 // @Produce      json
@@ -117,6 +121,9 @@ func (h *handler) refreshSchema(w http.ResponseWriter, r *http.Request) {
 	if err := h.apply(r.Context(), tk, name, payload); err != nil {
 		httpjson.WriteError(w, statusFor(payload), err.Error())
 		return
+	}
+	if h.cfg.SchemaStored != nil {
+		h.cfg.SchemaStored(graphqlkit.Kind, name)
 	}
 	info, err := tk.SchemaInfo(name)
 	if err != nil {
