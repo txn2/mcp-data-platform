@@ -356,3 +356,55 @@ func TestOrDefaultRetention(t *testing.T) {
 	assert.Equal(t, DefaultRunRetention, orDefaultRetention(-time.Hour))
 	assert.Equal(t, time.Hour, orDefaultRetention(time.Hour))
 }
+
+// recordingSubjects answers one subject and remembers what it was asked.
+type recordingSubjects struct {
+	subject string
+	asked   []string
+}
+
+func (r *recordingSubjects) ForRun(_ context.Context, address string) string {
+	r.asked = append(r.asked, address)
+	return r.subject
+}
+
+// TestRunner_PresentsTheSubjectItsAuthorsSessionUses is #1677: the run
+// carries the subject the version author authenticates as, resolved by the
+// author's ADDRESS, so a tool filing a managed resource under "the caller's
+// own library" lands where the author's session looks.
+func TestRunner_PresentsTheSubjectItsAuthorsSessionUses(t *testing.T) {
+	var seen middleware.PlatformContext
+	sc, v, run := executableState()
+	run.LockedBy, run.Attempt = "worker-a", 1
+	v.Source = `platform.query(connection="warehouse", sql="SELECT 1")`
+	v.Author = "author@example.com"
+	runs := &fakeRuns{}
+	require.NoError(t, runs.Enqueue(context.Background(), run))
+	run.LockedBy, run.Attempt = "worker-a", 1
+
+	subjects := &recordingSubjects{subject: "author-sub"}
+	r := newRunner(runs, Config{Server: identityServer(t, &seen), Subjects: subjects})
+	out := r.execute(context.Background(), run, sc, v)
+
+	require.Equal(t, script.RunStatusSucceeded, out.result.Status, out.result.Error)
+	assert.Equal(t, []string{"author@example.com"}, subjects.asked, "resolved by the version author, not the owner")
+	assert.Equal(t, "author@example.com", seen.OnBehalfOfEmail)
+	assert.Equal(t, "author-sub", seen.OnBehalfOfSub)
+}
+
+func TestRunner_WithoutASubjectResolverStaysKeyedByAddress(t *testing.T) {
+	var seen middleware.PlatformContext
+	sc, v, run := executableState()
+	run.LockedBy, run.Attempt = "worker-a", 1
+	v.Source = `platform.query(connection="warehouse", sql="SELECT 1")`
+	runs := &fakeRuns{}
+	require.NoError(t, runs.Enqueue(context.Background(), run))
+	run.LockedBy, run.Attempt = "worker-a", 1
+
+	r := newRunner(runs, Config{Server: identityServer(t, &seen)})
+	out := r.execute(context.Background(), run, sc, v)
+	require.Equal(t, script.RunStatusSucceeded, out.result.Status, out.result.Error)
+	assert.Equal(t, "jane@example.com", seen.OnBehalfOfEmail)
+	assert.Equal(t, "", seen.OnBehalfOfSub)
+	assert.Equal(t, "", r.authorSubject(context.Background(), nil))
+}

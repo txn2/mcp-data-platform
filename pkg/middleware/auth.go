@@ -56,6 +56,13 @@ type UserInfo struct {
 	// authenticated context and never accepted as an argument — the same rule
 	// Roles follows, and for the same reason.
 	OnBehalfOf string
+	// OnBehalfOfSub is the subject the person named by OnBehalfOf
+	// authenticates as, when the platform has seen them do so. A user library
+	// of managed resources is keyed by subject, so a run that presented only
+	// the address filed the same path in a second library (#1677). Empty
+	// leaves the address keying the run's library, and it is read only
+	// alongside OnBehalfOf.
+	OnBehalfOfSub string
 }
 
 // AuthType values set by the authenticators, identifying HOW a caller was

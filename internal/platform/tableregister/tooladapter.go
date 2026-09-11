@@ -271,12 +271,13 @@ func (a *ToolAdapter) callerFrom(ctx context.Context) Caller {
 		return Caller{}
 	}
 	return Caller{
-		UserID:     pc.UserID,
-		Email:      pc.UserEmail,
-		Persona:    pc.PersonaName,
-		Roles:      pc.Roles,
-		IsAdmin:    hasAnyRole(pc.Roles, a.adminRoles),
-		OnBehalfOf: pc.OnBehalfOfEmail,
+		UserID:        pc.UserID,
+		Email:         pc.UserEmail,
+		Persona:       pc.PersonaName,
+		Roles:         pc.Roles,
+		IsAdmin:       hasAnyRole(pc.Roles, a.adminRoles),
+		OnBehalfOf:    pc.OnBehalfOfEmail,
+		OnBehalfOfSub: pc.OnBehalfOfSub,
 	}
 }
 

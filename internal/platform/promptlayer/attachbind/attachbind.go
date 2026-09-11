@@ -77,7 +77,7 @@ func (b *Binder) ResolveResources(ctx context.Context, pr *prompt.Prompt, person
 		return b.resources.Resolve(ctx, pr.ID, resource.Claims{})
 	}
 	claims := resource.BuildClaims(pc.UserID, pc.UserEmail, pc.PersonaName, pc.Roles, pc.IsAdmin).
-		ActingFor(pc.OnBehalfOfEmail)
+		ActingFor(pc.OnBehalfOfEmail, pc.OnBehalfOfSub)
 	// A caller can hold several personas, and PlatformContext carries only the
 	// first. Where the full set is known (the prompts/get path resolves it to
 	// decide visibility) it replaces the single-persona default, so a member of

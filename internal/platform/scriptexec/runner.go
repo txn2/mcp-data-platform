@@ -42,20 +42,32 @@ type runner struct {
 	export       ExportDeps
 	audit        middleware.AuditLogger
 	destinations []script.Destination
+	subjects     SubjectResolver
 }
 
 // newRunner builds the executor the worker drives.
 func newRunner(runs script.RunStore, cfg Config) *runner {
 	return &runner{
 		runs: runs, server: cfg.Server, export: cfg.Export,
-		audit: cfg.Audit, destinations: cfg.Destinations,
+		audit: cfg.Audit, destinations: cfg.Destinations, subjects: cfg.Subjects,
 	}
+}
+
+// authorSubject is the subject the version's author authenticates as, which
+// keys the user library the run files in (#1677). Empty when the platform has
+// not seen the author authenticate, or has nowhere to have recorded it.
+func (r *runner) authorSubject(ctx context.Context, v *script.Version) string {
+	if r.subjects == nil || v == nil {
+		return ""
+	}
+	return r.subjects.ForRun(ctx, v.Author)
 }
 
 // execute runs one claimed run: open a session as the script principal,
 // execute the queued version's source, and report the outcome.
 func (r *runner) execute(ctx context.Context, run *script.Run, sc *script.Script, v *script.Version) attempt {
-	caller, cleanup, err := r.connect(ctx, run, sc, v)
+	subject := r.authorSubject(ctx, v)
+	caller, cleanup, err := r.connect(ctx, run, sc, v, subject)
 	if err != nil {
 		// The session is platform machinery, not the script: failing to open one
 		// says nothing about the code and everything about this replica.
@@ -80,7 +92,7 @@ func (r *runner) execute(ctx context.Context, run *script.Run, sc *script.Script
 	opts.State = run.StateRead
 	opts.Caller = caller
 	opts.Destinations = r.destinations
-	opts.Exporter = r.exporter(claimedRun{run: run, script: sc, version: v}, caller)
+	opts.Exporter = r.exporter(claimedRun{run: run, script: sc, version: v, subject: subject}, caller)
 
 	result, runErr := scriptrun.Run(ctx, opts)
 	outcome := attemptFrom(result, runErr)
@@ -135,7 +147,9 @@ func attemptFrom(result *scriptrun.Result, runErr error) attempt {
 //     writes is recorded against (#1569). It is stamped here because this is
 //     the only layer that holds the id: the principal carries the script's
 //     NAME, and a name does not survive a rename.
-func (r *runner) connect(ctx context.Context, run *script.Run, sc *script.Script, v *script.Version) (scriptrun.Caller, func(), error) {
+func (r *runner) connect(
+	ctx context.Context, run *script.Run, sc *script.Script, v *script.Version, subject string,
+) (scriptrun.Caller, func(), error) {
 	serverCtx := middleware.WithSource(ctx, middleware.SourceScript)
 	serverCtx = pkgsession.WithAwareSessionID(serverCtx, run.ID)
 	serverCtx = producedby.With(serverCtx, producedby.Producer{
@@ -159,6 +173,10 @@ func (r *runner) connect(ctx context.Context, run *script.Run, sc *script.Script
 		// version history, not this binding's: roles resolving to the admin
 		// persona already reach every asset through each check's admin arm.
 		OnBehalfOf: v.Author,
+		// The subject the author's own session authenticates as, so the run's
+		// managed resources land in the library that session files in
+		// (#1677). Empty until the platform has seen the author authenticate.
+		OnBehalfOfSub: subject,
 	})
 	caller, cleanup, err := scriptrun.Connect(serverCtx, r.server, "script-run")
 	if err != nil {

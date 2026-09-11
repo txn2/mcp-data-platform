@@ -97,11 +97,15 @@ func libraryAddress(key string) string {
 // be the same one, or a transferred script would combine one person's authority
 // with another's library.
 //
+// The subject is the one the author's own session authenticates as, when the
+// platform has seen it, so the output lands in the library that session files
+// in rather than one keyed by the author's address (#1677).
+//
 // The roles are the author's, and admin is NOT asserted: that resolution belongs
 // to the persona layer, and claiming it here would hand every run an authority
 // nothing granted it. A run's library output lands in the author's own library,
 // which needs no admin arm.
-func runClaims(sc *script.Script, v *script.Version) resource.Claims {
+func runClaims(sc *script.Script, v *script.Version, subject string) resource.Claims {
 	return resource.BuildClaims(sc.Principal(), sc.OwnerEmail, "", v.AuthorRoles, false).
-		ActingFor(v.Author)
+		ActingFor(v.Author, subject)
 }

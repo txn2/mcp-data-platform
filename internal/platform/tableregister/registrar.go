@@ -46,6 +46,10 @@ type Caller struct {
 	// author reaches (#1419, #1487). The portal path never sets it: a browser
 	// request is always somebody acting as themselves.
 	OnBehalfOf string
+	// OnBehalfOfSub is the subject that person authenticates as, when known,
+	// so the file a run registers a table over is looked for in the library
+	// its author's session files in (#1677).
+	OnBehalfOfSub string
 }
 
 // Request is one registration.

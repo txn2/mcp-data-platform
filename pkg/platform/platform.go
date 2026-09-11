@@ -1951,11 +1951,26 @@ func (p *Platform) initManagedResources() error {
 	// continue to serve unchanged. The logger is the platform's own —
 	// asynchronous by default — because these surfaces sit in front of an
 	// agent's read.
+	var rec *resourceaudit.Recorder
 	if p.audit.Logger() != nil && !isExplicitlyDisabled(p.config.Audit.Enabled) {
-		if rec := resourceaudit.New(p.audit.Logger(), p.resources.ReadTracker()); rec != nil {
+		if rec = resourceaudit.New(p.audit.Logger(), p.resources.ReadTracker()); rec != nil {
 			p.resources.SetReadRecorder(rec)
 		}
 	}
+	// Folding an address-keyed user library into the subject-keyed one (#1677)
+	// refiles through the same store, scheme, move trail and registry
+	// callbacks a PATCH move does, so a folded file is listed by clients under
+	// the address it now has.
+	fold := resource.Deps{
+		Store:     handle.Store(),
+		URIScheme: handle.URIScheme(),
+		OnCreate:  p.RegisterManagedResource,
+		OnDelete:  p.UnregisterManagedResource,
+	}
+	if rec != nil {
+		fold.MoveRecorder = rec
+	}
+	p.users.BindResourceFold(fold)
 	return nil
 }
 

@@ -41,7 +41,10 @@ func wireScripts(p *Platform) *scriptexec.Handle {
 			// with a version history rather than an asset series only it owns.
 			Lander: p.portalStore.ResourceLanding(),
 		},
-		Audit:                 p.audit.Logger(),
+		Audit: p.audit.Logger(),
+		// The subject a run's author authenticates as, so the run files
+		// managed resources where that person's own session does (#1677).
+		Subjects:              p.users.Subjects(),
 		Metrics:               p.obs.Metrics(),
 		Destinations:          p.config.Scripts.ScriptDestinations(),
 		RunRetention:          p.config.Scripts.RunRetention(),

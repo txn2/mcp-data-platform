@@ -67,7 +67,7 @@ func ResourceSubject(store resource.Store, bucket string) tableregister.Subject 
 			return tableregister.Source{}, false
 		}
 		claims := resource.BuildClaims(caller.UserID, caller.Email, caller.Persona, caller.Roles, caller.IsAdmin).
-			ActingFor(caller.OnBehalfOf)
+			ActingFor(caller.OnBehalfOf, caller.OnBehalfOfSub)
 		if !resource.CanModifyResource(claims, res) {
 			return tableregister.Source{}, false
 		}
@@ -242,7 +242,7 @@ func resourceSourceRefs(
 		return nil
 	}
 	claims := resource.BuildClaims(caller.UserID, caller.Email, caller.Persona, caller.Roles, caller.IsAdmin).
-		ActingFor(caller.OnBehalfOf)
+		ActingFor(caller.OnBehalfOf, caller.OnBehalfOfSub)
 	out := make(map[string]tableregister.SourceRef, len(found))
 	for id, res := range found {
 		if res == nil {
