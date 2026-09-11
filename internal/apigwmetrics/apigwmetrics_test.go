@@ -232,3 +232,30 @@ func scrapeMetricsHandler(t *testing.T, h http.Handler) string {
 	}
 	return string(body)
 }
+
+// TestRecord_BodyVerdictOverridesTheStatusLine is what the graphql kind
+// relies on: the status class is the status line's, the category is the
+// caller's verdict, so a 200 carrying errors is upstream_err under 2xx
+// (#1678). A nil recorder records nothing and does not panic.
+func TestRecord_BodyVerdictOverridesTheStatusLine(t *testing.T) {
+	Record(context.Background(), nil, "primary", Observation{Status: http.StatusOK, Failed: true})
+
+	m, err := observability.New(observability.Config{Enabled: true})
+	if err != nil {
+		t.Fatalf("observability.New: %v", err)
+	}
+	defer func() { _ = m.Shutdown(context.Background()) }()
+	ctx := mcpcontext.WithPersona(context.Background(), "analyst")
+	Record(ctx, m, "primary", Observation{Status: http.StatusOK, Failed: true})
+	Record(ctx, m, "primary", Observation{Status: http.StatusOK})
+
+	body := scrapeMetricsHandler(t, m.Handler())
+	for _, want := range []string{
+		`apigateway_outbound_total{connection="primary",http_status_class="2xx",persona="analyst",status_category="upstream_err"} 1`,
+		`apigateway_outbound_total{connection="primary",http_status_class="2xx",persona="analyst",status_category="ok"} 1`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("scrape missing %q\n--- body ---\n%s", want, body)
+		}
+	}
+}

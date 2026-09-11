@@ -1,7 +1,10 @@
-// Package apigwmetrics records the api-gateway toolkit's outbound HTTP
-// observations at the http.RoundTripper level, so every call the gateway makes
-// -- api_invoke_endpoint, api_export, the REST shim, a page walk -- is measured
-// without touching a call site.
+// Package apigwmetrics records an HTTP connection kind's outbound
+// observations. The api gateway records at the http.RoundTripper level, so
+// every call it makes -- api_invoke_endpoint, api_export, the REST shim, a page
+// walk -- is measured without touching a call site. The graphql kind records
+// from its one send path instead, through Record, because its upstream reports
+// failure inside a 200 and the verdict is only known once the body is read
+// (#1678).
 //
 // It lives outside pkg/toolkits/apigateway because it holds no gateway types:
 // it takes a connection name, an observability recorder, and the request's own
@@ -10,6 +13,7 @@
 package apigwmetrics
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -96,11 +100,42 @@ func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if resp != nil {
 		status = resp.StatusCode
 	}
-	t.metrics.RecordAPIGatewayOutbound(req.Context(), observability.APIGatewayAttrs{
-		Connection:      t.connection,
-		HTTPStatusClass: observability.HTTPStatusClass(status),
-		StatusCategory:  observability.HTTPStatusCategory(status, err),
-		Persona:         mcpcontext.GetPersona(req.Context()),
-	}, duration)
+	Record(req.Context(), t.metrics, t.connection, Observation{
+		Status:   status,
+		Failed:   observability.HTTPStatusCategory(status, err) != observability.StatusOK,
+		Duration: duration,
+	})
 	return resp, err //nolint:wrapcheck // see comment above
+}
+
+// Observation is one outbound call as the recorder sees it. Status is the
+// status line (0 for a transport failure) and supplies the http_status_class
+// label; Failed decides status_category, because the two are not the same
+// fact for every kind: the transport above derives Failed from the status
+// line alone, and the graphql kind passes what the body said, so a 200
+// carrying an errors array is counted as upstream_err under the 2xx class
+// (#1678).
+type Observation struct {
+	Status   int
+	Failed   bool
+	Duration time.Duration
+}
+
+// Record writes one outbound observation. The persona label comes off ctx,
+// which descends from the tool call being served; a call made outside one
+// records as unknown (#1615). A nil recorder records nothing.
+func Record(ctx context.Context, metrics *observability.Metrics, connection string, o Observation) {
+	if !metrics.Enabled() {
+		return
+	}
+	category := observability.StatusOK
+	if o.Failed {
+		category = observability.StatusUpstreamErr
+	}
+	metrics.RecordAPIGatewayOutbound(ctx, observability.APIGatewayAttrs{
+		Connection:      connection,
+		HTTPStatusClass: observability.HTTPStatusClass(o.Status),
+		StatusCategory:  category,
+		Persona:         mcpcontext.GetPersona(ctx),
+	}, o.Duration)
 }

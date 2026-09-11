@@ -25,14 +25,22 @@ const (
 //     200 with the upstream code in the body) means the upstream
 //     broke. The gateway did its job.
 //
-// audit_logs.error_category and the Phase 1 status_category label
-// adopt these constants so dashboards can alert on each independently.
+// A toolkit stamps one of these on its result's _meta (MetaAuditOutcome
+// below); the audit middleware records success=false on the row for
+// any value but OutcomeOK, and carries the value as the category of the
+// event it builds.
 const (
 	OutcomeOK              = "ok"
 	OutcomeUpstream4xx     = "upstream_4xx"
 	OutcomeUpstream5xx     = "upstream_5xx"
 	OutcomeTransportErr    = "transport_err"
 	OutcomeUpstreamTimeout = "upstream_timeout"
+	// OutcomeUpstreamError is a 2xx whose body reports failure. A GraphQL
+	// endpoint answers almost every failure as an HTTP 200 carrying an
+	// errors array, and the status-line categories above cannot name
+	// that; this one does, so the audit row and the call record of such
+	// a call carry success=false like a 4xx does (#1678).
+	OutcomeUpstreamError = "upstream_error"
 )
 
 // Well-known CallToolResult Meta keys read by the audit middleware to

@@ -191,14 +191,23 @@ type exportInput struct {
 // exportOutput is the asset metadata the model gets back. The data
 // itself is not in it: that is the whole point of the tool.
 type exportOutput struct {
-	AssetID     string            `json:"asset_id,omitempty"`
-	PortalURL   string            `json:"portal_url,omitempty"`
-	ShareURL    string            `json:"share_url,omitempty"`
-	ContentType string            `json:"content_type,omitempty"`
-	SizeBytes   int64             `json:"size_bytes"`
-	Operations  []string          `json:"operations,omitempty"`
-	Errors      []Error           `json:"errors,omitempty"`
-	Pagination  *PaginationReport `json:"pagination,omitempty"`
+	AssetID     string   `json:"asset_id,omitempty"`
+	PortalURL   string   `json:"portal_url,omitempty"`
+	ShareURL    string   `json:"share_url,omitempty"`
+	ContentType string   `json:"content_type,omitempty"`
+	SizeBytes   int64    `json:"size_bytes"`
+	Operations  []string `json:"operations,omitempty"`
+	// Status is the HTTP status the endpoint answered with, and
+	// UpstreamError whether that answer was a failure: a non-2xx, or a
+	// 200 carrying errors. They are the same facts graphql_query reports,
+	// and what the call is audited on (#1678); the errors are written
+	// into the asset as sent, so whoever opens it sees them too. A
+	// replayed export (idempotency_key) made no call and carries no
+	// status.
+	Status        int               `json:"status,omitempty"`
+	UpstreamError bool              `json:"upstream_error"`
+	Errors        []Error           `json:"errors,omitempty"`
+	Pagination    *PaginationReport `json:"pagination,omitempty"`
 	// Resource is where a resource destination landed the result (#1663): the
 	// reference and uri to hand to the next call, the version written, and what
 	// the write did to the tables registered over the file. Set instead of
@@ -272,7 +281,9 @@ func (t *Toolkit) handleExport(ctx context.Context, _ *mcp.CallToolRequest, in e
 	if err != nil {
 		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
-	return toolkit.JSONResult(out), out, nil
+	result := toolkit.JSONResult(out)
+	stampAuditOutcome(result, classifyUpstream(out.Status, out.Errors, out.UpstreamError))
+	return result, out, nil
 }
 
 // query projects an export's executing arguments onto the query input,
@@ -312,15 +323,17 @@ func (t *Toolkit) runExport(ctx context.Context, deps *ExportDeps, uc *ExportUse
 		return nil, err
 	}
 	return &exportOutput{
-		AssetID:     assetID,
-		PortalURL:   buildExportPortalURL(deps.BaseURL, assetID),
-		ShareURL:    maybeCreateExportShare(ctx, deps, in, assetID, uc.UserEmail),
-		ContentType: exportContentType,
-		SizeBytes:   size,
-		Operations:  result.Operations,
-		Errors:      result.Errors,
-		Pagination:  result.Pagination,
-		Message:     fmt.Sprintf("Exported %d bytes from connection %s.", size, in.Connection),
+		AssetID:       assetID,
+		PortalURL:     buildExportPortalURL(deps.BaseURL, assetID),
+		ShareURL:      maybeCreateExportShare(ctx, deps, in, assetID, uc.UserEmail),
+		ContentType:   exportContentType,
+		SizeBytes:     size,
+		Operations:    result.Operations,
+		Status:        result.Status,
+		UpstreamError: result.UpstreamError,
+		Errors:        result.Errors,
+		Pagination:    result.Pagination,
+		Message:       fmt.Sprintf("Exported %d bytes from connection %s.", size, in.Connection),
 	}, nil
 }
 
