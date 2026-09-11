@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	_ "github.com/txn2/mcp-data-platform/internal/apidocs" // register swagger docs
-	mcpserver "github.com/txn2/mcp-data-platform/internal/server"
+	"github.com/txn2/mcp-data-platform/internal/buildinfo"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
@@ -20,12 +20,12 @@ import (
 
 func TestGetSystemInfo(t *testing.T) {
 	t.Run("returns runtime feature availability", func(t *testing.T) {
-		origCommit, origDate := mcpserver.Commit, mcpserver.Date
-		mcpserver.Commit = "abc1234"
-		mcpserver.Date = "2025-01-15T10:30:00Z"
+		origCommit, origDate := buildinfo.Commit, buildinfo.Date
+		buildinfo.Commit = "abc1234"
+		buildinfo.Date = "2025-01-15T10:30:00Z"
 		t.Cleanup(func() {
-			mcpserver.Commit = origCommit
-			mcpserver.Date = origDate
+			buildinfo.Commit = origCommit
+			buildinfo.Date = origDate
 		})
 
 		cfg := testConfig()

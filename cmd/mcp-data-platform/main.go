@@ -20,6 +20,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/buildinfo"
 	"github.com/txn2/mcp-data-platform/internal/httpserver"
 	mcpserver "github.com/txn2/mcp-data-platform/internal/server"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
@@ -127,7 +128,7 @@ func run() error {
 
 	if opts.showVersion {
 		fmt.Printf("mcp-data-platform version %s (commit: %s, built: %s)\n",
-			mcpserver.Version, mcpserver.Commit, mcpserver.Date)
+			buildinfo.Version, buildinfo.Commit, buildinfo.Date)
 		return nil
 	}
 

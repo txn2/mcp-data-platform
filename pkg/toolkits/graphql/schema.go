@@ -12,6 +12,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/gqlschema"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/useragent"
 )
 
 // SchemaInfo is what an operator surface reports about a connection's
@@ -141,9 +142,21 @@ func (t *Toolkit) SetSchema(ctx context.Context, name string, payload []byte) er
 // of the introspection call into an operator-facing error. The
 // upstream's own message is carried through: on an endpoint that
 // disables introspection it is the sentence that says so.
+//
+// A 403 carrying an HTML page is the one refusal whose body says
+// nothing: it is a web application firewall's block page, and the
+// request attribute such a rule most often keys on is the User-Agent
+// (#1679). That case names the User-Agent the request went out with and
+// the connection key that changes it, in place of the page.
 func introspectionFailure(res *execution) error {
 	if res.truncated {
 		return errors.New("graphql: the introspection result exceeded this connection's max_response_bytes; raise it or upload the schema")
+	}
+	if res.status == http.StatusForbidden && looksLikeHTML(res.body) {
+		return fmt.Errorf("graphql: the endpoint answered HTTP 403 to the introspection query with an HTML page rather than a GraphQL response; "+
+			"the request's User-Agent was %q, which a web application firewall may refuse: "+
+			"set static_headers {%q: \"<another value>\"} on the connection to send a different one",
+			res.userAgent, useragent.Header)
 	}
 	if res.status < http.StatusOK || res.status >= http.StatusMultipleChoices {
 		return fmt.Errorf("graphql: the endpoint answered HTTP %d to the introspection query: %s",
@@ -328,6 +341,19 @@ func (t *Toolkit) ReloadConnection(name string) error {
 // reading two of them should not find two spellings.
 func notFound(name string) error {
 	return fmt.Errorf("graphql: %s: %w", name, ErrConnectionNotFound)
+}
+
+// looksLikeHTML reports a body that is an HTML document rather than a
+// GraphQL response: a block page, a proxy's error page. It reads the
+// opening of the body only, which is where a document declares itself.
+func looksLikeHTML(body []byte) bool {
+	const opening = 1024
+	head := body
+	if len(head) > opening {
+		head = head[:opening]
+	}
+	lower := strings.ToLower(string(head))
+	return strings.Contains(lower, "<html") || strings.Contains(lower, "<!doctype html")
 }
 
 // snippet bounds an upstream's raw body when it is quoted in an error,

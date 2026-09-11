@@ -5,7 +5,7 @@ BINARY_NAME := mcp-data-platform
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 BUILD_TIME := $(shell date -u '+%Y-%m-%d_%H:%M:%S')
 GO_VERSION := $(shell go version | cut -d ' ' -f 3)
-LDFLAGS := -ldflags "-X github.com/txn2/mcp-data-platform/internal/server.Version=$(VERSION)"
+LDFLAGS := -ldflags "-X github.com/txn2/mcp-data-platform/internal/buildinfo.Version=$(VERSION)"
 
 # Directories
 CMD_DIR := ./cmd/mcp-data-platform

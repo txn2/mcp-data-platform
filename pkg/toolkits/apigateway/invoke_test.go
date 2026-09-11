@@ -9,8 +9,11 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/useragent"
 )
 
 func TestValidateMethod_AcceptsKnownAndRejectsOthers(t *testing.T) {
@@ -492,6 +495,56 @@ func TestInvoke_EndToEnd_StaticHeadersAlongsideBearer(t *testing.T) {
 	}
 	if out.Status != http.StatusOK {
 		t.Errorf("status = %d", out.Status)
+	}
+}
+
+// TestInvoke_SendsTheProductUserAgent is #1679: every request went out
+// as Go-http-client/1.1, which a web application firewall refuses. The
+// upstream records what arrived: the platform's product string, or the
+// value the operator pinned under static_headers.
+func TestInvoke_SendsTheProductUserAgent(t *testing.T) {
+	var mu sync.Mutex
+	var seen []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		seen = append(seen, r.Header.Get("User-Agent"))
+		mu.Unlock()
+		_, _ = io.WriteString(w, `{"ok":true}`)
+	}))
+	defer srv.Close()
+
+	call := func(t *testing.T, static map[string]string, perCall map[string]string) {
+		t.Helper()
+		cfg := Config{
+			BaseURL: srv.URL, AuthMode: AuthModeNone, ConnectTimeout: 2 * time.Second,
+			CallTimeout: 5 * time.Second, MaxResponseBytes: DefaultMaxResponseBytes, StaticHeaders: static,
+		}
+		auth, err := NewAuthenticator(cfg)
+		if err != nil {
+			t.Fatalf("NewAuthenticator: %v", err)
+		}
+		if _, err := invoke(context.Background(), invocation{cfg: cfg, auth: auth, client: newHTTPClient(cfg)},
+			InvokeInput{Connection: "c", Method: "GET", Path: "/v1/echo", Headers: perCall}); err != nil {
+			t.Fatalf("invoke: %v", err)
+		}
+	}
+	call(t, nil, nil)
+	call(t, map[string]string{"User-Agent": "acme-integrations/2"}, nil)
+	call(t, nil, map[string]string{"User-Agent": "per-call/1"})
+
+	mu.Lock()
+	defer mu.Unlock()
+	want := []string{useragent.Product(), "acme-integrations/2", "per-call/1"}
+	if len(seen) != len(want) {
+		t.Fatalf("upstream saw %v; want %v", seen, want)
+	}
+	for i := range want {
+		if seen[i] != want[i] {
+			t.Errorf("call %d carried User-Agent %q; want %q", i, seen[i], want[i])
+		}
+	}
+	if strings.HasPrefix(seen[0], "Go-http-client") {
+		t.Error("the default request carried Go's User-Agent")
 	}
 }
 

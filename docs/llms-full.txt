@@ -3963,6 +3963,10 @@ Motivating cases:
 
 The model is additionally blocked at request time from supplying any header name that collides with `static_headers`, so the operator's value is authoritative even before auth runs.
 
+### User-Agent
+
+Every outbound request presents `User-Agent: mcp-data-platform/<version>` unless the request already names one (`internal/useragent`, applied at the http.RoundTripper level to every client `internal/upstreamauth` builds, including the OAuth token-exchange clients). Go's default `Go-http-client/1.1` is a value a web application firewall refuses with an HTML page that says nothing about why (#1679). Pin another value with `static_headers: {"User-Agent": "<value>"}`; a per-call `headers` entry naming it is honored under the precedence above.
+
 ### Request body and Content-Type
 
 `api_invoke_endpoint` chooses an outbound `Content-Type` from the connection's OpenAPI catalog when the model's (method, path) resolves to a known operation:
@@ -4238,7 +4242,7 @@ What it reuses rather than forks: outbound authentication and transport policy (
 
 ## Configuration
 
-`endpoint_url` is the full URL documents are POSTed to; unlike an HTTP API's `base_url` it is the whole address. `auth_mode` and its credentials, `static_headers`, `connect_timeout`, `call_timeout`, `max_response_bytes`, the mTLS/CA material and `identity_passthrough` are the shared upstream keys, read by the same code an `api` connection reads them with — including `signed_jwt` and its `jwt_*` keys, which is the mode a Sage X3 connected application needs. The kind's own keys are `schema_validation` (`strict` | `warn`, default strict), `max_query_depth` (default 15), `namespace_depth` (default 3), `read_only`, `max_inline_bytes` (default 32 KiB) and `description`.
+`endpoint_url` is the full URL documents are POSTed to; unlike an HTTP API's `base_url` it is the whole address. `auth_mode` and its credentials, `static_headers`, `connect_timeout`, `call_timeout`, `max_response_bytes`, the mTLS/CA material and `identity_passthrough` are the shared upstream keys, read by the same code an `api` connection reads them with — including `signed_jwt` and its `jwt_*` keys, which is the mode a Sage X3 connected application needs. The kind's own keys are `schema_validation` (`strict` | `warn`, default strict), `max_query_depth` (default 15), `namespace_depth` (default 3), `read_only`, `max_inline_bytes` (default 32 KiB) and `description`. Every request goes out as `User-Agent: mcp-data-platform/<version>` unless `static_headers` pins one (#1679).
 
 ## The schema
 
@@ -4246,7 +4250,7 @@ On register and on reconcile the toolkit runs the canonical introspection query 
 
 The introspection query is at the compatibility level every GraphQL server implements — no `isRepeatable`, no `specifiedByURL`, no `includeDeprecated` on `args` — because a schema read is the one call that must succeed before a connection is usable at all. The cost is that directive repeatability is not recorded, so a document repeating a custom directive is refused under strict validation and passes under warn.
 
-An endpoint with introspection disabled is a named error on the connection, quoted from the upstream, rather than an operation index that is silently empty. For that case an operator supplies the schema: `POST /api/v1/admin/connection-instances/graphql/{name}/refresh-schema` with an empty body re-reads the endpoint, and with a body takes the body as the schema — SDL, or a saved introspection result in either the full response shape or the `__schema` object alone. `GET .../schema` reports which version the platform holds, where it came from, when, how many operations it exposes, and the cause when it holds none. Admin > Connections shows the same state with a re-read button and a paste box.
+An endpoint behind a web application firewall that answers the introspection with HTTP 403 and an HTML block page gets an error that names the User-Agent the request carried and the `static_headers` key that changes it, in place of the page (#1679). An endpoint with introspection disabled is a named error on the connection, quoted from the upstream, rather than an operation index that is silently empty. For that case an operator supplies the schema: `POST /api/v1/admin/connection-instances/graphql/{name}/refresh-schema` with an empty body re-reads the endpoint, and with a body takes the body as the schema — SDL, or a saved introspection result in either the full response shape or the `__schema` object alone. `GET .../schema` reports which version the platform holds, where it came from, when, how many operations it exposes, and the cause when it holds none. Admin > Connections shows the same state with a re-read button and a paste box.
 
 ## Namespace descent
 

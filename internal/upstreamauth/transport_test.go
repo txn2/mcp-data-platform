@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/membudget"
+	"github.com/txn2/mcp-data-platform/internal/useragent"
 )
 
 func TestConfigAuthHeader(t *testing.T) {
@@ -103,13 +104,16 @@ func TestIsValidHeaderName(t *testing.T) {
 // resilience contract: a CA bundle that fails to parse at runtime
 // (impossible if Validate ran but possible if a caller bypassed it)
 // must NOT panic or block token fetches with a nil transport. The
-// fallback is a plain http.Client without the bundle, matching the
-// pre-feature behavior; the request will then fail with a TLS error
-// against the IdP and the operator gets a normal error path.
+// fallback is the system default transport without the bundle, under
+// the platform's User-Agent wrapper as every token client is (#1679);
+// the request will then fail with a TLS error against the IdP and the
+// operator gets a normal error path.
 func TestNewTokenExchangeClient_BadBundleFallsBackQuietly(t *testing.T) {
 	client := newTokenExchangeClient(Config{TLSCABundlePEM: "not pem"})
 	require.NotNil(t, client)
-	assert.Nil(t, client.Transport, "fallback must not attach a half-built transport")
+	base, wrapped := useragent.Wraps(client.Transport)
+	require.True(t, wrapped, "the token client must send the platform's User-Agent")
+	assert.Same(t, http.DefaultTransport, base, "fallback must not attach a half-built transport")
 }
 
 // TestNewTokenExchangeClient_HonorsCABundle exercises the IdP-side CA
@@ -372,7 +376,9 @@ func TestNewHTTPClient_WiresTimeoutsAndRefusesRedirects(t *testing.T) {
 	assert.Equal(t, cfg.CallTimeout, client.Timeout)
 	require.NotNil(t, client.Transport, "a nil transport would silently fall back to http.DefaultTransport")
 
-	tr, ok := client.Transport.(*http.Transport)
+	base, wrapped := useragent.Wraps(client.Transport)
+	require.True(t, wrapped, "the client must send the platform's User-Agent (#1679)")
+	tr, ok := base.(*http.Transport)
 	require.True(t, ok)
 	assert.Equal(t, cfg.ConnectTimeout, tr.TLSHandshakeTimeout)
 	require.NotNil(t, tr.DialContext, "DialContext is nil; ConnectTimeout cannot be enforced")

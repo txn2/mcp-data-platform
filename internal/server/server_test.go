@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/txn2/mcp-data-platform/internal/buildinfo"
+
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 )
 
@@ -17,13 +19,6 @@ func TestNewWithDefaults(t *testing.T) {
 
 	if s == nil {
 		t.Error("expected non-nil server")
-	}
-}
-
-func TestVersion(t *testing.T) {
-	// Version should be set to "dev" by default
-	if Version != "dev" {
-		t.Errorf("expected Version 'dev', got %q", Version)
 	}
 }
 
@@ -83,8 +78,8 @@ func TestNew(t *testing.T) {
 			}
 		}()
 
-		if cfg.Server.Version != Version {
-			t.Errorf("expected version %q, got %q", Version, cfg.Server.Version)
+		if cfg.Server.Version != buildinfo.Version {
+			t.Errorf("expected version %q, got %q", buildinfo.Version, cfg.Server.Version)
 		}
 	})
 

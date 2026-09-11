@@ -1010,7 +1010,7 @@ toolkits:
 | `endpoint_url` | string | - | **Required.** The full URL documents are POSTed to. Unlike an HTTP API's `base_url` this is the whole address: a GraphQL endpoint has exactly one |
 | `description` | string | endpoint URL | Human-readable description, surfaced by `list_connections` and the admin UI |
 | `auth_mode` | string | `none` | `none`, `bearer`, `api_key`, `basic`, `signed_jwt`, `oauth`, `mtls`. Same keys, defaults and at-rest encryption as an `api` connection's — both kinds read them through one shared implementation. `signed_jwt` mints a short-lived assertion per call from an identifier and a signing key; see [Signed JWT upstreams](signed-jwt-auth.md) |
-| `static_headers` | map | `{}` | Headers attached to every outbound request, in addition to whatever `auth_mode` contributes. This is where an upstream's tenant or folder routing goes. Operator-owned; a model can neither set nor override them. Encrypted at rest |
+| `static_headers` | map | `{}` | Headers attached to every outbound request, in addition to whatever `auth_mode` contributes. This is where an upstream's tenant or folder routing goes, and where a `User-Agent` other than the platform's default `mcp-data-platform/<version>` is pinned for an endpoint whose firewall refuses it. Operator-owned; a model can neither set nor override them. Encrypted at rest |
 | `connect_timeout` | duration | `10s` | Dial timeout |
 | `call_timeout` | duration | `60s` | Per-call timeout. A caller's `timeout_seconds` may lower it, never raise it |
 | `max_response_bytes` | int64 | `10485760` | Upstream read cap: the most the platform reads of one response |
