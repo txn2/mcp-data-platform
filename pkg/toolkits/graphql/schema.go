@@ -234,7 +234,11 @@ func introspectionFailure(res *execution) error {
 // in memory, and refusing the refresh over a storage failure would take
 // a working connection down.
 func (t *Toolkit) store(ctx context.Context, c *conn, parsed *gqlschema.Schema, source string) {
-	now := time.Now().UTC()
+	// The store keeps fetched_at at microsecond precision (TIMESTAMPTZ),
+	// and what this instance holds must be what every other instance
+	// reads back, so the time is written at that precision from the
+	// start rather than differing by the nanoseconds the column drops.
+	now := time.Now().UTC().Truncate(time.Microsecond)
 	t.install(ctx, c, schemaVersion{schema: parsed, source: source, fetchedAt: now})
 	t.mu.RLock()
 	schemaStore := t.schemaStore
