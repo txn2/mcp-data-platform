@@ -195,6 +195,34 @@ Rule failures attach a `warning:` text content to the response and never
 fail the parent tool call. See [Gateway Toolkit](../server/gateway.md#cross-enrichment-rules)
 for the full rule schema.
 
+### GraphQL Connections: the Schema card
+
+Selecting a `graphql` connection shows a **Schema** card above its
+configuration: how many operations the platform's schema exposes, whether the
+schema was introspected or uploaded, when it was read, and the first twelve
+characters of its hash. That is what `graphql_discover` lists and what
+`graphql_query` validates a document against.
+
+**Re-read from endpoint** runs the introspection query again. **Upload a schema**
+opens a paste box for SDL or a saved introspection result, which is the path for
+an endpoint that disables introspection.
+
+A read the endpoint refuses does not take the schema away. The card then shows
+the schema it is still serving with the refusal beside it, so an endpoint behind
+a sign-in redirect or a firewall reads as a failed refresh rather than a lost
+upload:
+
+![Schema held through a failed re-read](../images/screenshots/light/admin-admin-connection-graphql-schema-light.webp#only-light)![Schema held through a failed re-read](../images/screenshots/dark/admin-admin-connection-graphql-schema-dark.webp#only-dark)
+
+A connection the platform holds no schema for at all says so and names the
+cause. `graphql_discover` and `graphql_query` refuse on that connection until a
+read succeeds or an operator uploads one:
+
+![No schema held](../images/screenshots/light/admin-admin-connection-graphql-no-schema-light.webp#only-light)![No schema held](../images/screenshots/dark/admin-admin-connection-graphql-no-schema-dark.webp#only-dark)
+
+See [GraphQL Toolkit](../server/graphql-gateway.md#the-schema) for how the
+schema is stored, shared across replicas, and keyed by hash.
+
 ## API Catalogs
 
 API Catalogs are versioned, globally-owned bundles of OpenAPI 3.x specs that `kind: api` connections share. One catalog can back many connections, so a single upload (for example a Salesforce or Stripe spec) documents every connection that points at that vendor.

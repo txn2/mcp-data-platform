@@ -1908,6 +1908,48 @@ export const handlers = [
         created_by: "admin@example.com",
         updated_at: new Date(Date.now() - 1 * 86400000).toISOString(),
       },
+      {
+        // A graphql connection whose endpoint redirects the introspection
+        // query, holding the schema an operator uploaded. The Schema card
+        // shows the held schema and the failed re-read together (#1689).
+        kind: "graphql",
+        name: "acme-orders-graphql",
+        connection: "acme-orders-graphql",
+        description:
+          "Order management GraphQL endpoint. Introspection is behind the sign-in redirect, so the schema is the one an operator uploaded.",
+        source: "database",
+        tools: ["graphql_discover", "graphql_query", "graphql_export"],
+        config: {
+          endpoint_url: "https://orders.internal/graphql",
+          auth_mode: "api_key",
+          api_key_header: "x-api-key",
+          credential: "[REDACTED]",
+          schema_validation: "strict",
+          max_query_depth: 12,
+          namespace_depth: 3,
+        },
+        created_by: "admin@example.com",
+        updated_at: new Date(Date.now() - 2 * 86400000).toISOString(),
+      },
+      {
+        // A graphql connection the platform holds no schema for: introspection
+        // is refused and none was uploaded.
+        kind: "graphql",
+        name: "acme-partners-graphql",
+        connection: "acme-partners-graphql",
+        description:
+          "Partner portal GraphQL endpoint. Introspection is disabled and no schema has been supplied.",
+        source: "database",
+        tools: ["graphql_discover", "graphql_query", "graphql_export"],
+        config: {
+          endpoint_url: "https://partners.internal/graphql",
+          auth_mode: "bearer",
+          credential: "[REDACTED]",
+          schema_validation: "warn",
+        },
+        created_by: "admin@example.com",
+        updated_at: new Date(Date.now() - 2 * 86400000).toISOString(),
+      },
     ]);
   }),
 

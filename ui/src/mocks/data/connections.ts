@@ -1,3 +1,4 @@
+import type { GraphQLSchemaInfo } from "@/api/admin/hooks";
 import type {
   ConnectionInstance,
   ConnectionsOAuthHealthResponse,
@@ -209,7 +210,67 @@ export const mockConnectionInstances: ConnectionInstance[] = [
     created_by: "admin@acme.example.com",
     updated_at: "2025-01-19T09:05:00Z",
   },
+  {
+    // A graphql connection holding a schema an operator uploaded, whose
+    // endpoint answers the introspection query with a redirect to a sign-in
+    // page. The platform keeps the uploaded schema and records the refusal
+    // beside it (#1676); the Schema card has to show both (#1689).
+    kind: "graphql",
+    name: "acme-orders-graphql",
+    config: {
+      endpoint_url: "https://orders.internal/graphql",
+      auth_mode: "api_key",
+      api_key_header: "x-api-key",
+      credential: "[REDACTED]",
+      schema_validation: "strict",
+      max_query_depth: 12,
+      namespace_depth: 3,
+    },
+    description:
+      "Order management GraphQL endpoint. Introspection is behind the sign-in redirect, so the schema is the one an operator uploaded.",
+    created_by: "admin@acme.example.com",
+    updated_at: "2025-01-21T08:30:00Z",
+  },
+  {
+    // A graphql connection the platform holds no schema for at all: the
+    // endpoint refuses introspection and nobody has uploaded one, so
+    // graphql_discover has nothing to list.
+    kind: "graphql",
+    name: "acme-partners-graphql",
+    config: {
+      endpoint_url: "https://partners.internal/graphql",
+      auth_mode: "bearer",
+      credential: "[REDACTED]",
+      schema_validation: "warn",
+    },
+    description:
+      "Partner portal GraphQL endpoint. Introspection is disabled and no schema has been supplied.",
+    created_by: "admin@acme.example.com",
+    updated_at: "2025-01-21T09:05:00Z",
+  },
 ];
+
+// What the platform holds for each graphql connection, keyed by connection
+// name: GET /connection-instances/graphql/:name/schema. The two rows are the
+// two states the Schema card distinguishes -- a held schema whose last re-read
+// failed, and no schema at all.
+export const mockGraphQLSchemaState: Record<string, GraphQLSchemaInfo> = {
+  "acme-orders-graphql": {
+    connection: "acme-orders-graphql",
+    schema_hash: "ff68d87b41c2a9e30b5d7c18aa4f6921",
+    source: "upload",
+    fetched_at: "2025-01-21T08:30:00Z",
+    operation_count: 8,
+    error:
+      "graphql: the endpoint answered HTTP 302 to the introspection query: ",
+  },
+  "acme-partners-graphql": {
+    connection: "acme-partners-graphql",
+    operation_count: 0,
+    error:
+      "graphql: the endpoint refused the introspection query: GraphQL introspection is not allowed",
+  },
+};
 
 // Bulk OAuth-health rows powering the connection-list health badge. One row per
 // connection. Non-gateway kinds report has_oauth=false so the UI hides the

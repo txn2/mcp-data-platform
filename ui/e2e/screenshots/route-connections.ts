@@ -2,9 +2,10 @@ import { type ScreenshotRoute } from "./route-types";
 
 // Every connection capture: the list, the editor, the two credential blocks
 // whose fields only one auth mode has, the connection carrying both OAuth
-// config vocabularies, and the create form. They live beside the manifest for
-// the same reason the persona and script routes do -- one page's states kept
-// together, and the manifest kept under its line budget.
+// config vocabularies, the two states of a graphql connection's Schema card,
+// and the create form. They live beside the manifest for the same reason the
+// persona and script routes do -- one page's states kept together, and the
+// manifest kept under its line budget.
 export const adminConnectionRoutes: ScreenshotRoute[] = [
   {
     slug: "admin-connections",
@@ -92,6 +93,37 @@ export const adminConnectionRoutes: ScreenshotRoute[] = [
       const issuer = page.locator("text=Issuer (iss)").first();
       if (await issuer.isVisible()) {
         await issuer.scrollIntoViewIfNeeded();
+        await page.waitForTimeout(300);
+      }
+    },
+  },
+  {
+    // The Schema card on a graphql connection that holds a schema whose last
+    // re-read the endpoint refused (#1689). The card renders the held schema
+    // -- operation count, source, read time, hash -- with the refusal beside
+    // it; it used to render this state as "the platform holds no schema", and
+    // an operator reading that re-uploads a schema the platform already has.
+    slug: "admin-connection-graphql-schema",
+    path: "/portal/admin/connections?kind=graphql&name=acme-orders-graphql",
+    category: "admin",
+    beforeCapture: async (page) => {
+      const card = page.locator("text=operations").first();
+      if (await card.isVisible()) {
+        await card.scrollIntoViewIfNeeded();
+        await page.waitForTimeout(300);
+      }
+    },
+  },
+  {
+    // The other Schema card state: the platform holds no schema at all, which
+    // is the only state that says so.
+    slug: "admin-connection-graphql-no-schema",
+    path: "/portal/admin/connections?kind=graphql&name=acme-partners-graphql",
+    category: "admin",
+    beforeCapture: async (page) => {
+      const card = page.locator("text=holds no schema").first();
+      if (await card.isVisible()) {
+        await card.scrollIntoViewIfNeeded();
         await page.waitForTimeout(300);
       }
     },
