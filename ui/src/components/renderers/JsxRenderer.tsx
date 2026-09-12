@@ -170,6 +170,13 @@ function showError(text, tag, style) {
 /**
  * Build the full iframe HTML document for a JSX artifact.
  *
+ * The document carries the viewport declaration, which the artifact itself
+ * cannot add: a JSX asset is a component, and this is the only document written
+ * around it. Without it a phone browser lays the frame out at a notional
+ * desktop width and scales the result down, so a component that reflows
+ * correctly is still read at a fraction of its type size (#1701). It is the
+ * same declaration ui/index.html and both public-viewer templates carry.
+ *
  * Mount helpers are imported under collision-proof namespaced aliases
  * (`__artifactReact`, `__artifactCreateRoot`) rather than the bare `React` /
  * `createRoot` identifiers. Sucrase's automatic JSX runtime preserves the
@@ -195,6 +202,7 @@ export function buildJsxIframeHtml(content: string): string {
 <html>
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="${buildCSP(viewerOrigin())}">
   <script type="importmap">${IMPORT_MAP}</script>
   <style>
@@ -228,6 +236,7 @@ ${transformed}
 <html>
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="${buildCSP(viewerOrigin())}">
   <script type="importmap">${IMPORT_MAP}</script>
   <style>

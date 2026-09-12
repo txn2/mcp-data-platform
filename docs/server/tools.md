@@ -994,6 +994,8 @@ Save AI-generated content to the asset portal as a versioned asset. Captures the
 - Portal URL for viewing (if `public_base_url` is configured)
 - Whether provenance was captured, and how many calls it recorded
 
+**Writing one that fits the reader's screen.** A saved document is opened on a phone as readily as on a laptop, usually through a share link, and the reader with the narrow screen cannot widen it. The rules an `html`, `jsx` or `svg` document has to follow to reflow into it — which content type is framed by what, the viewport declaration an HTML document owes, rows that wrap, the three things allowed their own horizontal scroll box, and an SVG sized by its `viewBox` rather than its attributes — ship as the built-in knowledge page `mcp:knowledge_page:platform-documents-that-fit-any-screen`, which the instruction baseline names for every caller that can write an asset.
+
 ---
 
 ### manage_asset

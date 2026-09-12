@@ -47,7 +47,12 @@ export function PageHeader({
           {urn && <p className="break-all font-mono text-xs text-muted-foreground">{urn}</p>}
           {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
         </div>
-        {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+        {/* The actions wrap rather than holding one row: at phone width the
+            widest of these rows (a shared asset's Feedback, Shared badge,
+            Download, Save to My Assets and the sidebar toggle) is wider than
+            the screen, and a group that can neither shrink nor wrap pushed it
+            off the right edge with no way to reach it but panning (#1693). */}
+        {actions && <div data-testid="page-header-actions" className="flex flex-wrap items-center gap-2">{actions}</div>}
       </div>
     </div>
   );

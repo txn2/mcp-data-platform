@@ -50,8 +50,11 @@ export function ViewerLayout({
   const [sidebarOpen, setSidebarOpen] = useState(sidebarInitiallyOpen);
 
   return (
-    <div className="flex h-full gap-4">
-      <div className="min-w-0 flex-1 space-y-3">
+    // Below lg the sidebar is stacked under the content rather than beside it:
+    // a 320px column next to the content is wider than a phone screen, and the
+    // page scrolled sideways whenever it was open (#1693).
+    <div className="flex h-full flex-col gap-4 lg:flex-row">
+      <div data-testid="viewer-content" className="min-w-0 flex-1 space-y-3">
         <PageHeader
           onBack={onBack}
           title={<span className="min-w-0 truncate">{title}</span>}
@@ -76,7 +79,9 @@ export function ViewerLayout({
       </div>
 
       {sidebar && sidebarOpen && (
-        <Card className="w-80 shrink-0 gap-4 overflow-auto p-4">{sidebar}</Card>
+        <Card data-testid="viewer-details" className="w-full shrink-0 gap-4 overflow-auto p-4 lg:w-80">
+          {sidebar}
+        </Card>
       )}
     </div>
   );

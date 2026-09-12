@@ -83,6 +83,12 @@ var pageMetas = []pageMeta{
 		tags:    []string{"provenance", "knowledge", "memory"},
 	},
 	{
+		file:    "documents-that-fit-any-screen.md",
+		slug:    "platform-documents-that-fit-any-screen",
+		summary: "Writing a stored document that reflows into the reader's screen rather than scrolling sideways: which content type is framed by what, the viewport declaration an HTML asset owes, rows that wrap, the three things allowed their own scroll box, and the five defects to look for before saving.",
+		tags:    []string{"assets", "authoring", "layout"},
+	},
+	{
 		file:    "content-types-for-stored-files.md",
 		slug:    knowledgepage.BuiltinSlugContentTypes,
 		summary: "The media type every stored file carries and why a write declares it: the families detection cannot name from bytes, the types to declare for text and for binary content, and what a replacement keeps.",
