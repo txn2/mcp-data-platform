@@ -206,6 +206,12 @@ function hashStr(s: string): number {
   return h >>> 0;
 }
 
+// mockKeyPersona is the persona a mock API key's roles reach: the first mock
+// persona carrying one of them, or undefined when none does.
+function mockKeyPersona(roles: string[]): string | undefined {
+  return mockPersonas.find((p) => p.roles.some((r) => roles.includes(r)))?.name;
+}
+
 // Synthesize the aggregated per-tool detail returned by GET /tools/:name.
 // Mirrors the Go handler that fuses tool metadata, per-persona access, recent
 // activity, and enrichment-rule counts into one payload for the Tools page.
@@ -249,6 +255,7 @@ function buildToolDetail(name: string): ToolDetail | null {
     toolkit_name: info.toolkit,
     connection: info.connection,
     input_schema: schema?.parameters,
+    annotations: schema?.annotations,
     personas,
     hidden_by_global_deny: info.hidden ?? false,
     description_overridden: false,
@@ -4098,18 +4105,36 @@ export const handlers = [
   // Admin — Keys
   // =========================================================================
 
+  // Mirrors the Go key routes' persona resolution (#1705): a key acts as the
+  // first mock persona carrying one of its roles, and is flagged when none does.
   http.get(`${ADMIN_BASE}/auth/keys`, () => {
-    return HttpResponse.json(mockAPIKeys);
+    return HttpResponse.json({
+      ...mockAPIKeys,
+      keys: mockAPIKeys.keys.map((k) => {
+        const persona = mockKeyPersona(k.roles);
+        return persona ? { ...k, persona } : { ...k, no_persona: true };
+      }),
+    });
   }),
 
   http.post(`${ADMIN_BASE}/auth/keys`, async ({ request }) => {
     const body = (await request.json()) as Record<string, unknown>;
+    const roles = (body.roles as string[]) ?? ["viewer"];
+    const persona = mockKeyPersona(roles);
+    const granting = [...new Set(mockPersonas.flatMap((p) => p.roles))].sort();
     return HttpResponse.json({
       name: (body.name as string) ?? "new-key",
       key: `mck_${Math.random().toString(36).slice(2, 34)}`,
-      roles: (body.roles as string[]) ?? ["viewer"],
+      roles,
       warning:
         "Store this key securely. It will not be shown again.",
+      ...(persona
+        ? { persona }
+        : {
+            warnings: [
+              `No persona carries any of the roles ${roles.map((r) => `"${r}"`).join(", ")}, so this key authenticates and lists no tools. Roles the personas carry: ${granting.map((r) => `"${r}"`).join(", ")}.`,
+            ],
+          }),
     });
   }),
 

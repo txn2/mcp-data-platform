@@ -32,7 +32,8 @@ type operationAddressing struct {
 }
 
 // resolve returns the concrete (method, path) for the call. In the plain
-// method+path mode it returns them unchanged. In the operation_id mode it
+// method+path mode it returns them unchanged, once the path is inside the
+// connection's required prefix. In the operation_id mode it
 // resolves the id against the connection's catalog and substitutes
 // path_params into the resolved path template. It is an error to supply
 // both addressing modes at once, or to supply path_params without an
@@ -44,6 +45,9 @@ func (a operationAddressing) resolve(c *conn) (method, path string, err error) {
 		}
 		if a.Method == "" && a.Path == "" {
 			return "", "", errors.New("apigateway: provide operation_id, or method and path")
+		}
+		if err := c.checkRequiredPathPrefix(a.Method, a.Path); err != nil {
+			return "", "", err
 		}
 		return a.Method, a.Path, nil
 	}

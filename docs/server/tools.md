@@ -85,6 +85,8 @@ These tools advertise `readOnlyHint: true`: `platform_info`, `search`, `fetch`, 
 
 A tool proxied from an upstream MCP server through the [gateway toolkit](gateway.md) carries the upstream's own annotations unchanged, including none at all where the upstream publishes none. The three toolkits built on the `mcp-trino`, `mcp-datahub` and `mcp-s3` libraries take their annotations from those libraries, and an operator can override them per deployment under a toolkit's `annotations:` key.
 
+The admin API returns the same object. `GET /api/v1/admin/tools/schemas` carries `annotations` on each tool and `GET /api/v1/admin/tools/{name}` carries it on the detail, both read from the server's own `tools/list` after any override, with the MCP keys unchanged and the key absent for a tool that states none. The portal's Tools page shows them as badges on the tool's header: `read-only`, `additive` for a write that states `destructiveHint: false`, `destructive` for any other write (an unstated `destructiveHint` is `true` by the specification's default), `idempotent`, and `no hints` for a tool that advertises none. That is where an operator checks that an `annotations:` override took effect without opening an MCP client.
+
 ---
 
 ## Trino Tools
@@ -1361,8 +1363,8 @@ When a deny pattern is a glob (e.g. `*_admin_*`) rather than a literal name, the
 | Endpoint | Use |
 | --- | --- |
 | `GET /api/v1/admin/tools` | Inventory of every registered tool with kind / connection. |
-| `GET /api/v1/admin/tools/schemas` | Bulk fetch input schemas. |
-| `GET /api/v1/admin/tools/{name}` | Aggregating per-tool detail used by the master-detail page. |
+| `GET /api/v1/admin/tools/schemas` | Bulk fetch input schemas and the annotations each tool advertises. |
+| `GET /api/v1/admin/tools/{name}` | Aggregating per-tool detail used by the master-detail page, including its annotations. |
 | `POST /api/v1/admin/tools/call` | Invoke a tool with parameters; returns the same content envelope clients see. |
 | `PUT /api/v1/admin/tools/{name}/visibility` | Add/remove the tool from `tools.deny` (read-modify-write under the hood). |
 | `POST /api/v1/admin/personas/{name}/test-access` | Preview a persona's allow/deny decision for one tool. |

@@ -2,6 +2,7 @@ package persona
 
 import (
 	"context"
+	"slices"
 	"strings"
 )
 
@@ -82,21 +83,44 @@ func (m *OIDCRoleMapper) matchesPrefix(role string) bool {
 // to the deny-all DefaultPersona, so an identity an operator never granted a
 // role reaches no tool.
 func (m *OIDCRoleMapper) MapToPersona(_ context.Context, roles []string) (*Persona, error) {
-	// Check explicit mappings first
+	if persona, ok := m.Resolve(roles); ok {
+		return persona, nil
+	}
+	return DefaultPersona(), nil
+}
+
+// Resolve returns the persona roles map to, or (nil, false) when they map to
+// none: an explicit role-to-persona mapping first, then the registry's role
+// matching. It is MapToPersona without the deny-all fallback, for a caller that
+// needs to tell an unmapped identity apart from one mapped to a persona, such
+// as the admin API warning about a key whose roles reach nothing (#1705).
+func (m *OIDCRoleMapper) Resolve(roles []string) (*Persona, bool) {
 	for _, role := range roles {
 		if personaName, ok := m.PersonaMapping[role]; ok {
 			if persona, ok := m.Registry.Get(personaName); ok {
-				return persona, nil
+				return persona, true
 			}
 		}
 	}
+	return m.Registry.GetForRoles(roles)
+}
 
-	// Fall back to registry role matching
-	if persona, ok := m.Registry.GetForRoles(roles); ok {
-		return persona, nil
+// GrantingRoles returns, sorted and without duplicates, every role that
+// Resolve maps to a persona on its own: the roles each registered persona
+// matches on, and each explicitly mapped role whose persona is registered.
+// It is the list an operator chooses a key's roles from.
+func (m *OIDCRoleMapper) GrantingRoles() []string {
+	var roles []string
+	for _, p := range m.Registry.All() {
+		roles = append(roles, p.Roles...)
 	}
-
-	return DefaultPersona(), nil
+	for role, personaName := range m.PersonaMapping {
+		if _, ok := m.Registry.Get(personaName); ok {
+			roles = append(roles, role)
+		}
+	}
+	slices.Sort(roles)
+	return slices.Compact(roles)
 }
 
 // StaticRoleMapper assigns every caller one named persona regardless of their

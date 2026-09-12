@@ -16,6 +16,19 @@ export interface ToolParameterSchema {
   default?: string | number | boolean;
 }
 
+/**
+ * The behavior hints a tool advertises in tools/list, after any per-deployment
+ * override (#1706). The keys are the MCP ones, unchanged. destructiveHint and
+ * openWorldHint default to true in the MCP specification when absent, so an
+ * absent key is not the same as false.
+ */
+export interface ToolAnnotations {
+  readOnlyHint: boolean;
+  destructiveHint?: boolean;
+  idempotentHint: boolean;
+  openWorldHint?: boolean;
+}
+
 /** Full schema for a tool including input parameters. */
 export interface ToolSchema {
   name: string;
@@ -27,6 +40,8 @@ export interface ToolSchema {
     required: string[];
     properties: Record<string, ToolParameterSchema>;
   };
+  /** Absent when the tool advertises no annotations. */
+  annotations?: ToolAnnotations;
 }
 
 /** Batch response from GET /tools/schemas. */
@@ -196,6 +211,8 @@ export interface ToolDetail {
   toolkit_name?: string;
   connection?: string;
   input_schema?: unknown;
+  /** Absent when the tool advertises no annotations. */
+  annotations?: ToolAnnotations;
   personas: ToolPersonaAccess[];
   hidden_by_global_deny: boolean;
   global_deny_pattern?: string;

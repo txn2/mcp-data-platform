@@ -61,6 +61,16 @@ The connection behaves like any other API gateway connection:
   an operation's parameters and request body.
 - `api_invoke_endpoint` — call an operation (e.g. `POST /api/v1/admin/personas`).
 
+The `operation_id` that `api_discover` and `search` report is relative to the
+API prefix (`GET /admin/tools`), while a raw `path` is joined to the loopback
+root, which also serves the portal. A raw path must therefore start with
+`/api/v1`. The connection sets `required_path_prefix: /api/v1`, so a raw
+`path: /admin/tools` is refused before it is sent, and the refusal names
+`/api/v1/admin/tools` and the operation's `operation_id`. Address the operation
+by `operation_id`, or send the full path. When `base_url` is overridden with a
+URL whose path already ends with `/api/v1`, raw paths are relative to it and
+nothing is refused.
+
 ## Access control
 
 Connections are **deny-by-default** ([Personas](../personas/overview.md)): a

@@ -99,7 +99,7 @@ function KeyRow({
         {k.description || <span className="italic opacity-50">--</span>}
       </TableCell>
       <TableCell className="whitespace-normal px-5 py-3">
-        <KeyRoles roles={k.roles} />
+        <KeyRoles roles={k.roles} persona={k.persona} />
       </TableCell>
       <TableCell className="px-5 py-3 text-muted-foreground">
         {formatExpiration(k.expires_at)}
@@ -137,23 +137,36 @@ function KeyName({ apiKey: k }: { apiKey: APIKeySummary }) {
         </Badge>
       )}
       {k.expired && <Badge variant="danger">Expired</Badge>}
+      {k.no_persona && (
+        <Badge
+          variant="danger"
+          title="No persona carries any of this key's roles, so the key authenticates and lists no tools."
+        >
+          No persona
+        </Badge>
+      )}
     </div>
   );
 }
 
-function KeyRoles({ roles }: { roles: string[] }) {
+// KeyRoles lists the key's roles and the persona they reach, since the persona
+// is what decides which tools the key lists and the roles alone do not say.
+function KeyRoles({ roles, persona }: { roles: string[]; persona?: string }) {
   if (roles.length === 0) {
     return (
       <span className="text-xs italic text-muted-foreground opacity-50">None</span>
     );
   }
   return (
-    <div className="flex flex-wrap gap-1">
+    <div className="flex flex-wrap items-center gap-1">
       {roles.map((r) => (
         <Badge key={r} variant="outline">
           {r}
         </Badge>
       ))}
+      {persona && (
+        <span className="text-xs text-muted-foreground">as {persona}</span>
+      )}
     </div>
   );
 }

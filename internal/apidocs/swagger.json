@@ -2652,7 +2652,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns all API keys (key values are never exposed, only names and roles).",
+                "description": "Returns all API keys (key values are never exposed, only names and roles), each with the persona its roles reach, or no_persona when they reach none.",
                 "produces": [
                     "application/json"
                 ],
@@ -2678,7 +2678,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Generates a new API key. The key value is returned only once.",
+                "description": "Generates a new API key. The key value is returned only once. A key whose roles reach no persona is still created, and the response carries a warning naming the roles the personas carry.",
                 "consumes": [
                     "application/json"
                 ],
@@ -8246,7 +8246,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns JSON schemas for all registered tools including parameter definitions.",
+                "description": "Returns JSON schemas for all registered tools including parameter definitions and the annotations tools/list advertises for each.",
                 "produces": [
                     "application/json"
                 ],
@@ -8274,7 +8274,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns everything the admin Tools page needs to render a single tool: kind, toolkit, connection, schema, per-persona allow/deny matrix with matched pattern, hidden state, description-override status, recent audit aggregate, and enrichment-rule count for gateway-proxied tools.",
+                "description": "Returns everything the admin Tools page needs to render a single tool: kind, toolkit, connection, schema, annotations, per-persona allow/deny matrix with matched pattern, hidden state, description-override status, recent audit aggregate, and enrichment-rule count for gateway-proxied tools.",
                 "produces": [
                     "application/json"
                 ],
@@ -18922,11 +18922,40 @@
                 }
             }
         },
+        "admin.ToolAnnotations": {
+            "type": "object",
+            "properties": {
+                "destructiveHint": {
+                    "type": "boolean",
+                    "example": false
+                },
+                "idempotentHint": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "openWorldHint": {
+                    "type": "boolean",
+                    "example": false
+                },
+                "readOnlyHint": {
+                    "type": "boolean",
+                    "example": true
+                }
+            }
+        },
         "admin.ToolDetail": {
             "type": "object",
             "properties": {
                 "activity": {
                     "$ref": "#/definitions/admin.ToolActivityAggregate"
+                },
+                "annotations": {
+                    "description": "Annotations are the behavior hints tools/list advertises for the tool,\nafter any per-deployment override (#1706). Absent when it states none.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/admin.ToolAnnotations"
+                        }
+                    ]
                 },
                 "connection": {
                     "type": "string"
@@ -19346,6 +19375,11 @@
                     "type": "string",
                     "example": "ci-pipeline"
                 },
+                "persona": {
+                    "description": "Persona is the persona the key acts as. Absent when its roles reach none.",
+                    "type": "string",
+                    "example": "analyst"
+                },
                 "roles": {
                     "type": "array",
                     "items": {
@@ -19358,6 +19392,13 @@
                 "warning": {
                     "type": "string",
                     "example": "Store this key securely. It will not be shown again."
+                },
+                "warnings": {
+                    "description": "Warnings name what is wrong with the key as created. The key is created\nregardless: a persona carrying its roles may be defined afterward.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -19367,12 +19408,60 @@
                 "keys": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/auth.APIKeySummary"
+                        "$ref": "#/definitions/admin.authKeySummary"
                     }
                 },
                 "total": {
                     "type": "integer",
                     "example": 3
+                }
+            }
+        },
+        "admin.authKeySummary": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string",
+                    "example": "CI/CD pipeline integration"
+                },
+                "email": {
+                    "type": "string",
+                    "example": "ci@example.com"
+                },
+                "expired": {
+                    "type": "boolean",
+                    "example": false
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "ci-pipeline"
+                },
+                "no_persona": {
+                    "description": "NoPersona is true when the key's roles reach no persona, so the key\nauthenticates and lists no tools.",
+                    "type": "boolean",
+                    "example": false
+                },
+                "persona": {
+                    "description": "Persona is the persona the key acts as. Absent when its roles reach none.",
+                    "type": "string",
+                    "example": "analyst"
+                },
+                "roles": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "analyst"
+                    ]
+                },
+                "source": {
+                    "description": "\"file\", \"database\", or \"both\"",
+                    "type": "string",
+                    "example": "database"
                 }
             }
         },
@@ -20584,6 +20673,14 @@
         "admin.toolSchema": {
             "type": "object",
             "properties": {
+                "annotations": {
+                    "description": "Annotations are the behavior hints tools/list advertises for the tool,\nafter any per-deployment override. Absent when the tool states none.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/admin.ToolAnnotations"
+                        }
+                    ]
+                },
                 "description": {
                     "type": "string",
                     "example": "Execute a SQL query against Trino and return results."
@@ -21734,44 +21831,6 @@
                 "total": {
                     "type": "integer",
                     "example": 1500
-                }
-            }
-        },
-        "auth.APIKeySummary": {
-            "type": "object",
-            "properties": {
-                "description": {
-                    "type": "string",
-                    "example": "CI/CD pipeline integration"
-                },
-                "email": {
-                    "type": "string",
-                    "example": "ci@example.com"
-                },
-                "expired": {
-                    "type": "boolean",
-                    "example": false
-                },
-                "expires_at": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string",
-                    "example": "ci-pipeline"
-                },
-                "roles": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    },
-                    "example": [
-                        "analyst"
-                    ]
-                },
-                "source": {
-                    "description": "\"file\", \"database\", or \"both\"",
-                    "type": "string",
-                    "example": "database"
                 }
             }
         },

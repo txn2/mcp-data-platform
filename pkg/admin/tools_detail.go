@@ -67,6 +67,10 @@ type ToolDetail struct {
 	// JSON Schema for the tool's input parameters.
 	InputSchema any `json:"input_schema,omitempty"`
 
+	// Annotations are the behavior hints tools/list advertises for the tool,
+	// after any per-deployment override (#1706). Absent when it states none.
+	Annotations *ToolAnnotations `json:"annotations,omitempty"`
+
 	// Persona allow/deny matrix — one entry per database-managed
 	// persona, with the matched pattern and source recorded.
 	Personas []ToolPersonaAccess `json:"personas"`
@@ -121,7 +125,7 @@ type ToolActivityAggregate struct {
 // getToolDetail handles GET /api/v1/admin/tools/{name}.
 //
 // @Summary      Get aggregating tool detail
-// @Description  Returns everything the admin Tools page needs to render a single tool: kind, toolkit, connection, schema, per-persona allow/deny matrix with matched pattern, hidden state, description-override status, recent audit aggregate, and enrichment-rule count for gateway-proxied tools.
+// @Description  Returns everything the admin Tools page needs to render a single tool: kind, toolkit, connection, schema, annotations, per-persona allow/deny matrix with matched pattern, hidden state, description-override status, recent audit aggregate, and enrichment-rule count for gateway-proxied tools.
 // @Tags         Tools
 // @Produce      json
 // @Param        name  path  string  true  "Tool name"
@@ -182,7 +186,8 @@ func (h *Handler) getToolDetail(w http.ResponseWriter, r *http.Request) {
 }
 
 // fillToolDescriptionAndSchema runs ListTools on an internal session
-// and copies the matching tool's description + schema into the detail.
+// and copies the matching tool's description, schema and annotations into
+// the detail.
 // Description is the post-override version because the override
 // middleware runs before this returns.
 func (h *Handler) fillToolDescriptionAndSchema(r *http.Request, name string, d *ToolDetail) {
@@ -200,6 +205,7 @@ func (h *Handler) fillToolDescriptionAndSchema(r *http.Request, name string, d *
 			d.Title = tool.Title
 			d.Description = tool.Description
 			d.InputSchema = tool.InputSchema
+			d.Annotations = annotationsFromMCP(tool.Annotations)
 			return
 		}
 	}

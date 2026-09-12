@@ -362,6 +362,28 @@ export const mockToolSchemas: Record<string, ToolSchema> = {
   },
 };
 
+// The hints each mock tool advertises in tools/list (#1706), in the three
+// shapes a deployment serves: reads, a write that states whether it destroys,
+// and gateway tools whose upstream publishes no annotations (the crm_* tools).
+const mockReadAnnotations = { readOnlyHint: true, idempotentHint: true };
+for (const name of [
+  "trino_query",
+  "trino_explain",
+  "trino_browse",
+  "trino_describe_table",
+  "datahub_search",
+  "datahub_get_lineage",
+  "datahub_browse",
+  "s3_list",
+]) {
+  mockToolSchemas[name]!.annotations = { ...mockReadAnnotations };
+}
+mockToolSchemas.s3_object!.annotations = {
+  readOnlyHint: false,
+  destructiveHint: true,
+  idempotentHint: false,
+};
+
 // ---------------------------------------------------------------------------
 // Mock Result Generators — ACME-themed responses per tool
 // ---------------------------------------------------------------------------

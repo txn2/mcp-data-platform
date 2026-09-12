@@ -2,9 +2,12 @@ package platform
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
@@ -330,5 +333,78 @@ func TestSeedAdminSelfConnection_EnqueuesEmbedding(t *testing.T) {
 	}
 	if enq.key.CatalogID != adminSelfCatalogID || enq.key.SpecName != adminSelfSpecName {
 		t.Errorf("enqueued key = %+v; want catalog=%s spec=%s", enq.key, adminSelfCatalogID, adminSelfSpecName)
+	}
+}
+
+// callSeededAdminConnection seeds the platform-admin connection at baseURL,
+// carrying the binary's real embedded admin spec, and calls
+// api_invoke_endpoint GET path on it through an MCP client against the
+// toolkit's registered tools, returning the error sentence of the refusal or
+// failure the call answered with. Both base URLs used here are unroutable, so
+// a request that is sent fails as a transport error rather than succeeding.
+func callSeededAdminConnection(t *testing.T, baseURL, path string) string {
+	t.Helper()
+	store := apicatalog.NewMemoryStore()
+	tk := apigatewaykit.New("api")
+	tk.SetCatalogStore(store)
+	p := &Platform{toolkitRegistry: registry.NewRegistry()}
+	ctx := context.Background()
+	if err := p.seedAdminSelfConnection(ctx, tk, store, nil, baseURL); err != nil {
+		t.Fatalf("seedAdminSelfConnection: %v", err)
+	}
+
+	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "v0"}, nil)
+	tk.RegisterTools(server)
+	st, ct := mcp.NewInMemoryTransports()
+	if _, err := server.Connect(ctx, st, nil); err != nil {
+		t.Fatalf("server connect: %v", err)
+	}
+	session, err := mcp.NewClient(&mcp.Implementation{Name: "client", Version: "v0"}, nil).Connect(ctx, ct, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+	t.Cleanup(func() { _ = session.Close() })
+
+	res, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "api_invoke_endpoint",
+		Arguments: map[string]any{"connection": adminSelfConnectionName, "method": "GET", "path": path},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if !res.IsError || len(res.Content) == 0 {
+		t.Fatalf("GET %s on an unroutable base URL did not fail: %+v", path, res)
+	}
+	var envelope struct {
+		Error string `json:"error"`
+	}
+	text, _ := res.Content[0].(*mcp.TextContent)
+	if text == nil || json.Unmarshal([]byte(text.Text), &envelope) != nil {
+		t.Fatalf("the result is not the error envelope: %+v", res.Content)
+	}
+	return envelope.Error
+}
+
+// TestSeedAdminSelfConnection_RefusesARawPathOutsideTheAPIPrefix holds the
+// seeded connection to the rule #1707 added: the path an agent reads off an
+// operation_id ("/admin/tools") is refused before it reaches the loopback,
+// naming the path under /api/v1 and that operation_id.
+func TestSeedAdminSelfConnection_RefusesARawPathOutsideTheAPIPrefix(t *testing.T) {
+	refusal := callSeededAdminConnection(t, "http://127.0.0.1:1", "/admin/tools")
+	for _, want := range []string{`Send path "/api/v1/admin/tools"`, `operation_id "GET /admin/tools"`} {
+		if !strings.Contains(refusal, want) {
+			t.Errorf("refusal %q does not contain %q", refusal, want)
+		}
+	}
+}
+
+// TestSeedAdminSelfConnection_APathBaseURLRequiresNoPrefix holds the base_url
+// override: a base URL that already ends with the API prefix supplies it, so
+// "/admin/tools" is the right raw path there. It is sent, and fails only on the
+// unroutable address, instead of being refused for lacking the prefix.
+func TestSeedAdminSelfConnection_APathBaseURLRequiresNoPrefix(t *testing.T) {
+	failure := callSeededAdminConnection(t, "http://127.0.0.1:1/api/v1", "/admin/tools")
+	if strings.Contains(failure, "Send path") {
+		t.Fatalf("a base URL carrying the prefix refused a path relative to it: %s", failure)
 	}
 }

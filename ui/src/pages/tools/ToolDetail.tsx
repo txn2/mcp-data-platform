@@ -9,6 +9,7 @@ import { OverviewTab } from "./tabs/OverviewTab";
 import { TryItTab } from "./tabs/TryItTab";
 import { ActivityTab } from "./tabs/ActivityTab";
 import { EnrichmentTab } from "./tabs/EnrichmentTab";
+import { ToolHintBadges } from "./parts/ToolHintBadges";
 import { VisibilityTab } from "./tabs/VisibilityTab";
 import { useTryItSession, type TryItSession } from "./useTryItSession";
 
@@ -102,8 +103,8 @@ export function ToolDetail({ toolName, tab, onTabChange }: ToolDetailProps) {
   );
 }
 
-// ToolHeader names the tool and states, in badges, where it comes from and
-// whether the platform is serving it at all.
+// ToolHeader names the tool and states, in badges, where it comes from, what a
+// client is told it does, and whether the platform is serving it at all.
 function ToolHeader({ detail }: { detail: ToolDetailDTO }) {
   return (
     <div className="border-b p-4">
@@ -115,6 +116,7 @@ function ToolHeader({ detail }: { detail: ToolDetailDTO }) {
         {detail.connection && (
           <StatusBadge variant="neutral">{detail.connection}</StatusBadge>
         )}
+        <ToolHintBadges annotations={detail.annotations} />
         {detail.hidden_by_global_deny && (
           <Badge variant="warning">
             <EyeOff />

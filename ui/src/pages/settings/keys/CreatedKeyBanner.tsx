@@ -7,7 +7,9 @@ import { cn } from "@/lib/utils";
 
 // CreatedKeyBanner shows a freshly minted secret exactly once. It is a warning
 // rather than a success notice: the secret is unrecoverable after dismissal,
-// so the banner's job is to say "act now", not "well done".
+// so the banner's job is to say "act now", not "well done". A key whose roles
+// reach no persona is created all the same, and the warning saying so is shown
+// here, beside the secret, where the operator is already reading (#1705).
 export function CreatedKeyBanner({
   response,
   onDismiss,
@@ -67,6 +69,11 @@ export function CreatedKeyBanner({
           <X />
         </Button>
       </AlertDescription>
+      {response.warnings?.map((w) => (
+        <AlertDescription key={w} role="note" className="mt-2 font-medium">
+          {w}
+        </AlertDescription>
+      ))}
     </Alert>
   );
 }

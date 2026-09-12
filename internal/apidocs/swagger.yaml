@@ -11,10 +11,31 @@ definitions:
       window_seconds:
         type: integer
     type: object
+  admin.ToolAnnotations:
+    properties:
+      destructiveHint:
+        example: false
+        type: boolean
+      idempotentHint:
+        example: true
+        type: boolean
+      openWorldHint:
+        example: false
+        type: boolean
+      readOnlyHint:
+        example: true
+        type: boolean
+    type: object
   admin.ToolDetail:
     properties:
       activity:
         $ref: '#/definitions/admin.ToolActivityAggregate'
+      annotations:
+        allOf:
+        - $ref: '#/definitions/admin.ToolAnnotations'
+        description: |-
+          Annotations are the behavior hints tools/list advertises for the tool,
+          after any per-deployment override (#1706). Absent when it states none.
       connection:
         type: string
       description:
@@ -320,6 +341,11 @@ definitions:
       name:
         example: ci-pipeline
         type: string
+      persona:
+        description: Persona is the persona the key acts as. Absent when its roles
+          reach none.
+        example: analyst
+        type: string
       roles:
         example:
         - analyst
@@ -329,16 +355,61 @@ definitions:
       warning:
         example: Store this key securely. It will not be shown again.
         type: string
+      warnings:
+        description: |-
+          Warnings name what is wrong with the key as created. The key is created
+          regardless: a persona carrying its roles may be defined afterward.
+        items:
+          type: string
+        type: array
     type: object
   admin.authKeyListResponse:
     properties:
       keys:
         items:
-          $ref: '#/definitions/auth.APIKeySummary'
+          $ref: '#/definitions/admin.authKeySummary'
         type: array
       total:
         example: 3
         type: integer
+    type: object
+  admin.authKeySummary:
+    properties:
+      description:
+        example: CI/CD pipeline integration
+        type: string
+      email:
+        example: ci@example.com
+        type: string
+      expired:
+        example: false
+        type: boolean
+      expires_at:
+        type: string
+      name:
+        example: ci-pipeline
+        type: string
+      no_persona:
+        description: |-
+          NoPersona is true when the key's roles reach no persona, so the key
+          authenticates and lists no tools.
+        example: false
+        type: boolean
+      persona:
+        description: Persona is the persona the key acts as. Absent when its roles
+          reach none.
+        example: analyst
+        type: string
+      roles:
+        example:
+        - analyst
+        items:
+          type: string
+        type: array
+      source:
+        description: '"file", "database", or "both"'
+        example: database
+        type: string
     type: object
   admin.changelogListResponse:
     properties:
@@ -1264,6 +1335,12 @@ definitions:
     type: object
   admin.toolSchema:
     properties:
+      annotations:
+        allOf:
+        - $ref: '#/definitions/admin.ToolAnnotations'
+        description: |-
+          Annotations are the behavior hints tools/list advertises for the tool,
+          after any per-deployment override. Absent when the tool states none.
       description:
         example: Execute a SQL query against Trino and return results.
         type: string
@@ -2171,33 +2248,6 @@ definitions:
       total:
         example: 1500
         type: integer
-    type: object
-  auth.APIKeySummary:
-    properties:
-      description:
-        example: CI/CD pipeline integration
-        type: string
-      email:
-        example: ci@example.com
-        type: string
-      expired:
-        example: false
-        type: boolean
-      expires_at:
-        type: string
-      name:
-        example: ci-pipeline
-        type: string
-      roles:
-        example:
-        - analyst
-        items:
-          type: string
-        type: array
-      source:
-        description: '"file", "database", or "both"'
-        example: database
-        type: string
     type: object
   authevents.Event:
     properties:
@@ -9471,7 +9521,8 @@ paths:
   /admin/auth/keys:
     get:
       description: Returns all API keys (key values are never exposed, only names
-        and roles).
+        and roles), each with the persona its roles reach, or no_persona when they
+        reach none.
       produces:
       - application/json
       responses:
@@ -9488,7 +9539,9 @@ paths:
     post:
       consumes:
       - application/json
-      description: Generates a new API key. The key value is returned only once.
+      description: Generates a new API key. The key value is returned only once. A
+        key whose roles reach no persona is still created, and the response carries
+        a warning naming the roles the personas carry.
       parameters:
       - description: Key definition
         in: body
@@ -13050,9 +13103,9 @@ paths:
   /admin/tools/{name}:
     get:
       description: 'Returns everything the admin Tools page needs to render a single
-        tool: kind, toolkit, connection, schema, per-persona allow/deny matrix with
-        matched pattern, hidden state, description-override status, recent audit aggregate,
-        and enrichment-rule count for gateway-proxied tools.'
+        tool: kind, toolkit, connection, schema, annotations, per-persona allow/deny
+        matrix with matched pattern, hidden state, description-override status, recent
+        audit aggregate, and enrichment-rule count for gateway-proxied tools.'
       parameters:
       - description: Tool name
         in: path
@@ -13149,7 +13202,7 @@ paths:
   /admin/tools/schemas:
     get:
       description: Returns JSON schemas for all registered tools including parameter
-        definitions.
+        definitions and the annotations tools/list advertises for each.
       produces:
       - application/json
       responses:
