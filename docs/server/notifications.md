@@ -4,7 +4,8 @@ The platform emails users when something needs their attention: a teammate
 shares an asset, collection, or prompt with them, comments on something they
 own or that is shared with them, or names them in a comment with an
 @-mention. It also alerts operators when the knowledge review queue goes
-unworked. Delivery is durable (a database-backed queue with retries), never
+unworked, and tells whoever authorized a connection when its credential is
+discarded. Delivery is durable (a database-backed queue with retries), never
 blocks the originating request, and respects per-user preferences including
 a daily digest mode.
 
@@ -209,6 +210,82 @@ the review queue is not a surface they can act on.
 recipient list, so removing an address there is how you stop sending it.
 A recipient still opts out for themselves with delivery mode `off`, including
 through the unsubscribe link the email carries like any other.
+
+## Connection revocation alerts
+
+A connection's OAuth credential is authorized once, in a browser, by one
+person. Everyone else reaches the upstream through it without ever seeing that
+sign-in. When the upstream rejects the refresh, the platform discards the
+credential and every call through that connection fails needing
+reauthorization -- and until this existed, nobody was told. The revocation was
+written to the connection's auth-event history and shown on its OAuth status
+card, both of which answer an operator who already knows to ask.
+
+This is the one auth surface where the person holding the credential is
+deliberately not the person using the connection day to day, which is exactly
+why that person is not watching the status card. On a scheduled script there
+is no person at all: the run comes back with an empty or partial answer that
+reads like data rather than like an outage.
+
+**Who is told, and when.** The moment the credential is discarded, the
+platform emails the identity that authorized the connection. The email names
+the connection and the upstream, says when the refresh failed and what the
+upstream returned, and links to the Connections page, where reconnecting it
+restores access.
+
+One email per revocation, not one per rejected call: the revocation is
+recorded as an open row, and a connection that already has one is not
+announced again. Authorizing the connection again deletes that row, so a
+later revocation is news.
+
+**Escalation.** The premise of the first email is that its recipient may be
+unreachable -- the reason [proactive refresh](../auth/oauth-gateway.md) exists
+at all. A connection is a tenant asset, so a revocation nobody has acted on
+after the operator's window is raised with the addresses the operator named.
+That email says whose authorization lapsed and how long it has been, so the
+reader knows why it reached them rather than the person who signed in.
+
+![Admin Settings: the connection revocation alert card](../images/screenshots/light/admin-admin-settings-connection-alert-light.webp#only-light)![Admin Settings: the connection revocation alert card](../images/screenshots/dark/admin-admin-settings-connection-alert-dark.webp#only-dark)
+
+Admins configure it in the portal under **Admin, then Settings**, beside the
+review-queue section, or via the REST API:
+
+| Field | Description |
+|-------|-------------|
+| `enabled` | Master switch for both emails. Off, the revocation is still recorded in the auth-event history and shown on the status card, and nobody is told. |
+| `escalate_after_hours` | How long a connection stays revoked before the escalation is raised (1-720, default 24). |
+| `recipients` | The addresses the escalation is delivered to (at most 20). Empty is the default and means no escalation: the person who authorized the connection is still told, and nobody else is. |
+
+The recipient list is explicit rather than derived from roles, for the same
+reason the review-queue list is: role membership arrives with a request from
+the identity provider, so there is no set of admins the platform can enumerate
+when the sweep runs.
+
+```
+GET /api/v1/admin/settings/connection-alert    read the window and recipients
+PUT /api/v1/admin/settings/connection-alert    update them
+```
+
+**The three ways a credential is discarded.** The email says which one it was,
+because they ask the reader for different things. The upstream rejected the
+refresh (the email carries the RFC 6749 code it returned, such as
+`invalid_grant` for a revoked refresh token or `invalid_client` for a client
+secret that no longer works); the connection held no refresh token to renew
+with; or the refresh deadline the upstream had disclosed passed before the
+renewal. Only the first is a rejection, and the email never reports one that
+did not happen.
+
+**Escalation policy.** The sweep stamps each revocation as it escalates it, in
+the same statement that selects it, so exactly one replica raises a given
+escalation and it is raised once. It also re-checks the credential table
+before mailing anyone: a connection that holds a credential again is never
+escalated, whatever the bookkeeping row says.
+
+**Preferences.** Like the review-queue alert, this category has no per-user
+toggle. Its first recipient is addressed by responsibility rather than by
+interest, and its second was named by the operator. A recipient still opts out
+for themselves with delivery mode `off`, including through the unsubscribe
+link the email carries like any other.
 
 ## User notification preferences
 

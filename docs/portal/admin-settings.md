@@ -43,6 +43,16 @@ section that would deliver nothing (enabled with no recipients, or with
 both thresholds cleared) says so in a banner rather than saving silently.
 See [review queue alerts](../server/notifications.md#review-queue-alerts).
 
+A **Connection revocation alerts** section follows that: it decides who hears
+that a connection's OAuth credential was discarded and every call through it
+now fails needing reauthorization. The person who authorized the connection is
+emailed as soon as it happens and needs no configuration here; what this
+section sets is the escalation — how long a revoked connection goes
+unauthorized before the addresses listed here are told as well. Leaving the
+list empty is the default, and the section says so in a banner rather than
+implying a gap. See [connection revocation
+alerts](../server/notifications.md#connection-revocation-alerts).
+
 ## Change Log
 
 The Change Log page provides an audit trail of all configuration changes made via the admin UI.

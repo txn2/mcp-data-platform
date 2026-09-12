@@ -7809,6 +7809,80 @@
                 }
             }
         },
+        "/admin/settings/connection-alert": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the configuration for the alert raised when an upstream rejects a connection's refresh and the platform discards the credential. Before an operator has written one, the platform defaults are returned with no escalation recipients, and a warning states that only the person who authorized a connection is told.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Get connection-revocation alert settings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/connalert.SettingsView"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Upserts the connection-revocation alert configuration: whether the alerts are sent at all, how long a revoked connection goes unauthorized before the escalation is raised, and the addresses it is raised with.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Update connection-revocation alert settings",
+                "parameters": [
+                    {
+                        "description": "Connection alert settings",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/connalert.SettingsInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/connalert.SettingsView"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/settingsapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/settings/review-queue-alert": {
             "get": {
                 "security": [
@@ -22257,6 +22331,61 @@
                 "value": {
                     "type": "string",
                     "example": "ACME Corp analytics platform"
+                }
+            }
+        },
+        "connalert.SettingsInput": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "escalate_after_hours": {
+                    "type": "integer",
+                    "example": 24
+                },
+                "recipients": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "platform-admin@example.com"
+                    ]
+                }
+            }
+        },
+        "connalert.SettingsView": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "escalate_after_hours": {
+                    "type": "integer",
+                    "example": 24
+                },
+                "recipients": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "updated_by": {
+                    "type": "string",
+                    "example": "admin@example.com"
+                },
+                "warnings": {
+                    "description": "Warnings describes a configuration that saves cleanly but escalates\nnowhere. They never block a save; they exist so the operator sees what\nthe setting does at the surface where it was chosen.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },

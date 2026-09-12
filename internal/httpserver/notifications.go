@@ -8,6 +8,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/notifyhttp"
 	"github.com/txn2/mcp-data-platform/internal/notification/notifyrender"
 	"github.com/txn2/mcp-data-platform/internal/platform/branding"
+	"github.com/txn2/mcp-data-platform/internal/platform/connalert"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
 	"github.com/txn2/mcp-data-platform/internal/platform/reviewalert"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
@@ -69,6 +70,66 @@ func buildReviewAlert(p *platform.Platform, notify *notifydelivery.Handle) *revi
 		log.Println("Knowledge review-queue staleness alert enabled")
 	}
 	return checker
+}
+
+// connAlertStore builds the connection-revocation alert's persistence (#1694),
+// or nil when the alert cannot exist in this deployment: no database, or
+// notifications turned off in YAML. Like the review alert's store it is
+// stateless over the pool, so the admin API and the sweep each build one rather
+// than sharing a handle whose lifecycle it does not have.
+func connAlertStore(p *platform.Platform) *connalert.PostgresStore {
+	if p == nil || p.DB() == nil || !p.Config().Notifications.IsEnabled() {
+		return nil
+	}
+	return connalert.NewPostgresStore(p.DB())
+}
+
+// connAlertSettings narrows the store to the half the admin settings surface
+// needs, or nil when the alert cannot exist here. A nil result unmounts the
+// admin routes: an operator must not be able to name recipients for an alert
+// nothing will ever send. The explicit nil check keeps a typed nil out of the
+// interface.
+func connAlertSettings(p *platform.Platform) connalert.SettingsStore {
+	store := connAlertStore(p)
+	if store == nil {
+		return nil
+	}
+	return store
+}
+
+// buildConnAlertConfig assembles what the revocation alert and its escalation
+// both need, or the zero config when anything is absent.
+func buildConnAlertConfig(p *platform.Platform, notify *notifydelivery.Handle) connalert.Config {
+	store := connAlertStore(p)
+	if store == nil || notify == nil {
+		return connalert.Config{}
+	}
+	return connalert.Config{
+		Settings: store,
+		Alerts:   store,
+		Enqueuer: notify.Enqueuer(),
+		BaseURL:  p.Config().Portal.PublicBaseURL,
+	}
+}
+
+// wireConnRevocationAlert tells the auth-event writer where to announce a
+// discarded credential (#1694), and returns the sweep that escalates one nobody
+// has acted on. Both are nil when the alert cannot exist here.
+//
+// The writer is built with the token store, long before the notification
+// substrate exists, so the sink is attached here rather than at construction.
+// It is the one dependency every connoauth.Source already carries, which is why
+// the announcement rides it instead of being threaded a second time through
+// every toolkit that wires OAuth.
+func wireConnRevocationAlert(p *platform.Platform, notify *notifydelivery.Handle) *connalert.Escalator {
+	cfg := buildConnAlertConfig(p, notify)
+	alerter := connalert.NewAlerter(cfg)
+	if alerter == nil {
+		return nil
+	}
+	p.AuthEventWriter().WithRevocations(alerter)
+	log.Println("Connection revocation alerts enabled")
+	return connalert.NewEscalator(cfg)
 }
 
 // buildNotifications assembles the email-notification substrate from the

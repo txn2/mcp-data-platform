@@ -252,6 +252,7 @@ func (c *client) callRaw(name string, args map[string]any) (*mcp.CallToolResult,
 	if c.sessionID != "" {
 		args["session_id"] = c.sessionID
 	}
+	statePurpose(name, args)
 	for attempt := 0; ; attempt++ {
 		res, err := c.session.CallTool(c.ctx, &mcp.CallToolParams{Name: name, Arguments: args})
 		if err != nil {
@@ -263,6 +264,31 @@ func (c *client) callRaw(name string, args map[string]any) (*mcp.CallToolResult,
 		}
 		time.Sleep(retryAfter(text))
 	}
+}
+
+// assetWriteTools are the two tools #1695 added to the purpose gate. They are
+// not data-access tools, which is why they were outside it: an asset is the
+// OUTPUT of the work, and the sentence recorded beside it is what lets someone
+// opening it weeks later learn what it was for.
+//
+// The suite states one the way the platform's own instructions tell an agent
+// to, for the same reason it threads the session handle on every call: both are
+// arguments the platform adds to the tool and requires of a real agent, so a
+// suite that omitted them would be a client no deployment accepts. A criterion
+// ABOUT the gate sends its own literal params through session.CallTool rather
+// than through this, so the gate is still exercised as an agent meets it.
+var assetWriteTools = map[string]bool{"save_asset": true, "manage_asset": true}
+
+// statePurpose states why a gated call is being made, when the caller has not.
+// A caller that passes its own purpose keeps it.
+func statePurpose(name string, args map[string]any) {
+	if !assetWriteTools[name] {
+		return
+	}
+	if _, stated := args["purpose"]; stated {
+		return
+	}
+	args["purpose"] = "The acceptance suite is exercising an acceptance criterion against this asset."
 }
 
 // retryAfter reads the interval a rate-limit refusal names ("Wait about N

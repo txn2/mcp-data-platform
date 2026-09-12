@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ConfigField, ConfigSelect, ConfigToggle } from "./connections/fields";
+import { ConnectionAlertCard } from "./ConnectionAlertCard";
 import { ReviewAlertCard } from "./ReviewAlertCard";
 import { SettingsCard } from "./panels";
 import {
@@ -300,9 +301,9 @@ function SaveFeedbackBanners({
 
 // ---------------------------------------------------------------------------
 // AdminSettingsPage: platform settings (/admin/settings). Email (SMTP)
-// delivery used by the notification mailer (#631), and the two review-queue
-// alerts that send through it: knowledge insights (#803) and managed-script
-// reviews (#1287). The two alerts are one card rendered twice — same
+// delivery used by the notification mailer (#631), and the alerts that send
+// through it: the review queues (#803, #1287) and connection revocations
+// (#1694). The review-queue alerts are one card rendered per queue — same
 // mechanism, own thresholds and recipients.
 // ---------------------------------------------------------------------------
 
@@ -320,6 +321,7 @@ export function AdminSettingsPage() {
         itemNoun="insight"
         isReadOnly={isReadOnly}
       />
+      <ConnectionAlertCard isReadOnly={isReadOnly} />
     </div>
   );
 }

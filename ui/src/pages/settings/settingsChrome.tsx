@@ -128,3 +128,53 @@ export function UpdatedByMeta({
 export function UnsavedChangesBanner() {
   return <WarningBanner className="py-1.5">You have unsaved changes</WarningBanner>;
 }
+
+// AlertStatusBanners states why an alert settings section cannot act, before
+// the form that configures it: warnings the server raised against the SAVED
+// configuration, file-config mode, and a failed load.
+//
+// Shared by every operator-alert card (#803, #1287, #1694) so the three report
+// the same states in the same order.
+export function AlertStatusBanners({
+  warnings,
+  isReadOnly,
+  loadFailed,
+  onRetry,
+}: {
+  warnings: string[];
+  isReadOnly: boolean;
+  loadFailed: boolean;
+  onRetry: () => void;
+}) {
+  return (
+    <>
+      {warnings.map((warning) => (
+        <WarningBanner key={warning}>{warning}</WarningBanner>
+      ))}
+      {isReadOnly && <ReadOnlyBanner />}
+      {loadFailed && (
+        <ErrorBanner
+          message="Failed to load these alert settings. The server may be unavailable."
+          onRetry={onRetry}
+        />
+      )}
+    </>
+  );
+}
+
+// SaveFeedbackBanners reports the outcome of the last save attempt and the
+// standing unsaved-changes state.
+export function SaveFeedbackBanners({
+  saveError,
+  dirty,
+}: {
+  saveError: string | null;
+  dirty: boolean;
+}) {
+  return (
+    <>
+      {saveError && <ErrorBanner message={saveError} />}
+      {dirty && !saveError && <UnsavedChangesBanner />}
+    </>
+  );
+}

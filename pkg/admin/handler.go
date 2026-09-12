@@ -14,6 +14,8 @@ import (
 	httpswagger "github.com/swaggo/http-swagger/v2"
 
 	"github.com/txn2/mcp-data-platform/internal/admin/apiroutesapi"
+	"github.com/txn2/mcp-data-platform/internal/admin/connoauthapi"
+	"github.com/txn2/mcp-data-platform/internal/platform/connalert"
 	"github.com/txn2/mcp-data-platform/internal/platform/reviewalert"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/pkg/auth"
@@ -237,6 +239,13 @@ type Deps struct {
 	// threshold, cooldown, and recipients (#803). nil disables the
 	// /api/v1/admin/settings/review-queue-alert routes.
 	ReviewQueueAlert reviewalert.SettingsStore
+	// ConnectionAlert persists the connection-revocation alert's escalation
+	// window and recipients (#1694). nil disables the
+	// /api/v1/admin/settings/connection-alert routes.
+	ConnectionAlert connalert.SettingsStore
+	// ConnectionRevocations forgets a connection's open revocation when the
+	// OAuth callback authorizes it again (#1694). nil forgets nothing.
+	ConnectionRevocations connoauthapi.RevocationClearer
 	// NotificationHistory reads the delivery history behind the admin
 	// Notifications tab: what was sent, what failed and why. nil disables
 	// the /api/v1/admin/notifications routes.

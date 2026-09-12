@@ -1,7 +1,7 @@
 // Package settingsapi serves the /api/v1/admin/settings surface: the stored
 // SMTP configuration (#631), the send-test action, the test recipient's
-// notification opt-out status (#1022), and the knowledge review-queue alert
-// threshold (#803). It is a decomposition seam of pkg/admin (which sits at the
+// notification opt-out status (#1022), the knowledge review-queue alert
+// threshold (#803), and the connection-revocation alert's escalation (#1694). It is a decomposition seam of pkg/admin (which sits at the
 // package size budget): the parent registers it on the admin mux and injects
 // the request-scoped helpers it shares with the other admin routes.
 package settingsapi
@@ -14,6 +14,7 @@ import (
 	"net/mail"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/connalert"
 	"github.com/txn2/mcp-data-platform/internal/platform/reviewalert"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 	"github.com/txn2/mcp-data-platform/pkg/notification/smtp"
@@ -38,6 +39,10 @@ type Config struct {
 	// ReviewAlert persists the knowledge review-queue alert threshold
 	// (#803). nil disables the review-queue-alert routes.
 	ReviewAlert reviewalert.SettingsStore
+	// ConnectionAlert persists the connection-revocation alert's escalation
+	// window and recipients (#1694). nil disables the connection-alert
+	// routes.
+	ConnectionAlert connalert.SettingsStore
 	// Mutable reports database config mode; false swaps the write routes for
 	// ReadOnly.
 	Mutable bool
@@ -62,6 +67,7 @@ type handler struct {
 func Register(mux *http.ServeMux, cfg Config) {
 	h := &handler{cfg: cfg}
 	registerReviewAlert(mux, h)
+	registerConnAlert(mux, h)
 	if cfg.Settings == nil {
 		return
 	}

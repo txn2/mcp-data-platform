@@ -50,7 +50,7 @@ func TestWriterHelpersEmitExpectedTypes(t *testing.T) {
 			name: "TokenDeletedRevoked",
 			call: func(w *Writer, ctx context.Context) {
 				w.TokenDeletedRevoked(ctx, "mcp", "x", "u", "https://idp/token",
-					"invalid_grant")
+					"invalid_grant", "operator@example.com")
 			},
 			want: TypeTokenDeletedRevoked,
 		},

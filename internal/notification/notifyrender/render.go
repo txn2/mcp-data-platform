@@ -290,6 +290,9 @@ func buildItem(n notification.Notification) emailItem {
 		// quotation, and a backtrace is not something a colleague said.
 		item.Body = scriptRunBody(n.Payload)
 		item.Message = ""
+	case notification.KindConnectionAuth:
+		item.Body = connAuthBody(n.Payload.Connection)
+		item.LinkText = connAuthLinkText
 	}
 	return item
 }
@@ -316,6 +319,8 @@ func subjectFor(n notification.Notification) string {
 		return reviewQueueSubject(n.Payload.Review)
 	case notification.KindScriptRun:
 		return scriptRunSubject(n.Payload)
+	case notification.KindConnectionAuth:
+		return connAuthSubject(n.Payload.Connection)
 	default:
 		return fmt.Sprintf("%s commented on %q", n.Payload.Actor, n.Payload.ItemTitle)
 	}

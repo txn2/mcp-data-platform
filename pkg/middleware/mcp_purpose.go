@@ -50,11 +50,26 @@ const proxiedToolkitKind = "mcp"
 
 // defaultPurposeTools is the tool set the purpose argument is advertised and
 // enforced on when purpose.tools is unset: the data-access surface, where "why
-// did this call happen" is a question an operator actually asks of a stored row.
-// Orientation and platform-management tools (platform_info, list_connections,
-// platform_find_tools, memory_*, manage_*, save_asset) are deliberately absent —
-// their purpose is their name, and gating them would tax every call the agent
-// makes to set itself up.
+// did this call happen" is a question an operator actually asks of a stored row,
+// plus the two tools that write an asset (#1695).
+//
+// An asset is the one output a person opens weeks later, usually someone who was
+// not there when it was made, and "what was this for" is the first thing they
+// ask. Recording the sentence beside the write is what lets the platform answer,
+// and it is also what lets a later call be matched against the record — a row
+// with nothing said about its intent is the hardest kind to surface back.
+//
+// manage_asset is named whole rather than only where it writes. Its reads pay
+// the same sentence its writes do, which is the cost of the gate deciding from
+// a tool name: one name covers both halves, and the half worth recording is the
+// one that changes what a reader later finds. Applying knowledge stays outside
+// the set on its own reasoning — what an apply_knowledge call applies is itself
+// the explanation, while an asset is the output and not the reason for it.
+//
+// The rest of the orientation and platform-management surface (platform_info,
+// list_connections, platform_find_tools, memory_*, the other manage_* tools) is
+// deliberately absent: their purpose is their name, and gating them would tax
+// every call the agent makes to set itself up.
 var defaultPurposeTools = []string{
 	"search",
 	"fetch",
@@ -67,6 +82,8 @@ var defaultPurposeTools = []string{
 	"datahub_get_*",
 	"s3_object",
 	"s3_list",
+	"save_asset",
+	"manage_asset",
 	purposeKindPrefix + "mcp",
 }
 

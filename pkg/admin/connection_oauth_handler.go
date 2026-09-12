@@ -38,5 +38,6 @@ func (h *Handler) registerConnectionOAuthRoutes() {
 		Author:         authorEmailOrID,
 		Decode:         decodeStrict,
 		DecodeOptional: decodeStrictOptional,
+		Revocations:    h.deps.ConnectionRevocations,
 	})
 }

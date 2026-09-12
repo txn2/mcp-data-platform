@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/url"
+	"sync"
 	"time"
 )
 
@@ -22,6 +23,13 @@ type Writer struct {
 	// logger is the per-package logger; defaulting to slog.Default()
 	// keeps tests' captured log output the same as production.
 	logger *slog.Logger
+	// mu guards revocations, which is wired after this Writer is
+	// already serving the background refresher's goroutine.
+	mu sync.RWMutex
+	// revocations is told when a credential is discarded, so somebody
+	// hears about it rather than only the history table. nil-safe;
+	// see WithRevocations in revocation.go for why it lives here.
+	revocations RevocationSink
 }
 
 // NewWriter wraps store. Pass logger=nil to use the global default.
@@ -206,8 +214,14 @@ func (w *Writer) RotationPersistenceFailed(ctx context.Context, kind, name, acto
 }
 
 // TokenDeletedRevoked records the auto-deletion of a token row after
-// a revoked-refresh signal from the IdP.
-func (w *Writer) TokenDeletedRevoked(ctx context.Context, kind, name, actor, tokenURL, reason string) {
+// a revoked-refresh signal from the IdP, and announces it to the wired
+// RevocationSink.
+//
+// authorizedBy is the identity that authorized the connection. It is not
+// written to the event row — the history panel reads a fixed detail shape —
+// but the sink needs it, and this is the last point at which anything holds
+// it: the token row carrying it has just been deleted.
+func (w *Writer) TokenDeletedRevoked(ctx context.Context, kind, name, actor, tokenURL, reason, authorizedBy string) {
 	detail, _ := json.Marshal(map[string]string{"reason": reason})
 	w.Emit(ctx, Event{
 		Kind: kind, Name: name,
@@ -215,6 +229,14 @@ func (w *Writer) TokenDeletedRevoked(ctx context.Context, kind, name, actor, tok
 		Actor:   actor,
 		IDPHost: idpHostOf(tokenURL),
 		Detail:  detail,
+	})
+	w.announceRevoked(ctx, Revocation{
+		Kind:         kind,
+		Name:         name,
+		AuthorizedBy: authorizedBy,
+		IDPHost:      idpHostOf(tokenURL),
+		Reason:       reason,
+		At:           time.Now().UTC(),
 	})
 }
 

@@ -14,6 +14,8 @@ vi.mock("@/api/admin/hooks", () => ({
   useSMTPRecipientStatus: vi.fn(),
   useReviewAlert: vi.fn(),
   useSetReviewAlert: vi.fn(),
+  useConnectionAlert: vi.fn(),
+  useSetConnectionAlert: vi.fn(),
 }));
 
 import {
@@ -24,6 +26,8 @@ import {
   useSMTPRecipientStatus,
   useReviewAlert,
   useSetReviewAlert,
+  useConnectionAlert,
+  useSetConnectionAlert,
 } from "@/api/admin/hooks";
 
 const mockUseSystemInfo = vi.mocked(useSystemInfo);
@@ -90,6 +94,18 @@ beforeEach(() => {
   vi.mocked(useSMTPRecipientStatus).mockReturnValue({
     data: undefined,
   } as unknown as ReturnType<typeof useSMTPRecipientStatus>);
+  // The connection-revocation section is not under test here; it only has to
+  // render, so the page-composition case sees all of its sections.
+  vi.mocked(useConnectionAlert).mockReturnValue({
+    data: undefined,
+    isLoading: false,
+    error: null,
+    refetch: vi.fn(),
+  } as unknown as ReturnType<typeof useConnectionAlert>);
+  vi.mocked(useSetConnectionAlert).mockReturnValue({
+    mutate: vi.fn(),
+    isPending: false,
+  } as unknown as ReturnType<typeof useSetConnectionAlert>);
 });
 
 afterEach(cleanup);

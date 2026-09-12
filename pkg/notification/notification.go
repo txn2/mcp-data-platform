@@ -57,6 +57,20 @@ const (
 	// it as well would notify a person about something they are already
 	// reading.
 	CategoryScriptRun = "script_run"
+	// CategoryConnectionAuth covers the alert raised when an upstream rejects a
+	// connection's refresh and the platform discards the credential (#1694).
+	// Like the two above it carries no per-user toggle, for the script-run
+	// reason: its first recipient is the person who authorized the connection,
+	// which is a responsibility and not an interest, and its second is whoever
+	// the operator named to hear about a connection nobody has come back to.
+	// ModeOff, including through the unsubscribe link, remains each
+	// recipient's own opt-out.
+	//
+	// This is the one auth surface where the person holding the upstream
+	// credential is deliberately not the person using the connection day to
+	// day, which is exactly why that person will not be watching the status
+	// card that already reports it.
+	CategoryConnectionAuth = "connection_auth"
 )
 
 // Delivery modes for user preferences.
@@ -102,6 +116,10 @@ const (
 	// names the script in ItemTitle, the run in ItemID, and carries the failure
 	// and the tail of what the script printed in Message.
 	KindScriptRun = "script_run"
+	// KindConnectionAuth marks a connection whose credential was discarded
+	// (#1694). Its payload carries a ConnectionAuth describing the revocation
+	// instead of an item reference.
+	KindConnectionAuth = "connection_auth"
 )
 
 // ReviewQueue is the pending-review rollup a KindReviewQueue notification
@@ -125,6 +143,50 @@ type ReviewQueue struct {
 	StaleAfterDays int `json:"stale_after_days"`
 }
 
+// ConnectionAuth is the revocation a KindConnectionAuth notification reports:
+// which connection lost its credential, which upstream rejected it, what the
+// upstream said, and when.
+//
+// The queued row holds the revocation as the platform saw it rather than a
+// sentence about it, for the ReviewQueue reason: a digest recipient reads what
+// actually happened, not a re-measurement taken when the digest went out. Here
+// there is a second reason — by the time the mail is rendered the token row has
+// been deleted, so nothing could be re-read even if the renderer wanted to.
+type ConnectionAuth struct {
+	// Kind is the connection kind (mcp, api, graphql). With Name it is how a
+	// recipient finds the connection, and the two are rendered together rather
+	// than as one joined string so the email can link to it.
+	Kind string `json:"kind"`
+	// Name is the connection name within the kind.
+	Name string `json:"name"`
+	// IDPHost is the host of the upstream token endpoint that rejected the
+	// refresh. Empty when the platform decided locally (see Reason).
+	IDPHost string `json:"idp_host,omitempty"`
+	// Reason is what the upstream returned, in the stable short form the auth
+	// event history records: an RFC 6749 error code such as invalid_grant or
+	// invalid_client when the upstream answered, and no_refresh_token or
+	// refresh_expired when the platform reached the verdict without calling
+	// it. The email states which of those two it was, because they ask the
+	// recipient for different things.
+	Reason string `json:"reason,omitempty"`
+	// AuthorizedBy is the identity that authorized the connection, and the
+	// address the first alert is sent to. It is carried in the payload as well
+	// so the escalation to the operator's chosen recipients can say whose
+	// authorization lapsed.
+	AuthorizedBy string `json:"authorized_by,omitempty"`
+	// RevokedAt is when the credential was discarded.
+	RevokedAt time.Time `json:"revoked_at,omitzero"`
+	// Escalated marks the second alert: the connection was still unauthorized
+	// after the operator's escalation window, so it went to the addresses the
+	// operator named rather than to the person who authorized it. The two
+	// alerts carry the same revocation and differ only in who is being asked
+	// to act, which is what this field lets the email say.
+	Escalated bool `json:"escalated,omitempty"`
+	// EscalatedAfterHours is the window that elapsed before the escalation was
+	// raised. Zero on the first alert.
+	EscalatedAfterHours int `json:"escalated_after_hours,omitempty"`
+}
+
 // Payload carries the event details a template needs to render an email.
 // It is stored as the queue row's JSONB payload.
 type Payload struct {
@@ -143,6 +205,9 @@ type Payload struct {
 	// Review carries the review-queue rollup of a KindReviewQueue alert and
 	// is nil for every other kind.
 	Review *ReviewQueue `json:"review,omitempty"`
+	// Connection carries the revocation a KindConnectionAuth alert reports and
+	// is nil for every other kind.
+	Connection *ConnectionAuth `json:"connection,omitempty"`
 }
 
 // Notification is one queued delivery.

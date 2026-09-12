@@ -14,12 +14,16 @@ vi.mock("@/api/admin/hooks", () => ({
 }));
 
 // The page composes independent sections. This file covers the SMTP one, so
-// the review-queue alerts are stubbed out: with all three rendered, "the
-// switch" and "the loading indicator" would name several elements each. The
-// alert section (and the page composing them) is covered in
-// ReviewAlertCard.test.tsx.
+// the alert sections are stubbed out: with all of them rendered, "the switch"
+// and "the loading indicator" would name several elements each. The alert
+// sections (and the page composing them) are covered in
+// ReviewAlertCard.test.tsx and ConnectionAlertCard.test.tsx.
 vi.mock("./ReviewAlertCard", () => ({
   ReviewAlertCard: () => null,
+}));
+
+vi.mock("./ConnectionAlertCard", () => ({
+  ConnectionAlertCard: () => null,
 }));
 
 import {

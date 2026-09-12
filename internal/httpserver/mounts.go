@@ -757,6 +757,13 @@ func buildAdminHandler(p *platform.Platform, notify *notifydelivery.Handle) http
 	deps.NotificationHistory = notify.History()
 	deps.NotificationRetention = notifydelivery.HistoryRetention
 	deps.ReviewQueueAlert = reviewAlertSettings(p, reviewalert.KnowledgeTarget())
+	deps.ConnectionAlert = connAlertSettings(p)
+	// The OAuth callback forgets a connection's open revocation as it
+	// authorizes it again (#1694). Assigned through the same nil-guarded
+	// builder so a typed nil never reaches the interface.
+	if store := connAlertStore(p); store != nil {
+		deps.ConnectionRevocations = store
+	}
 
 	return admin.NewHandler(deps, buildAdminAuth(p))
 }
