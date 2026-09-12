@@ -39,8 +39,9 @@ type Config struct {
 	// file-configured deployment has nowhere to put it.
 	Mutable bool
 	// SchemaStored is told the connection kind and name whose stored
-	// schema this replica just replaced, by an upload or a re-read, so
-	// the parent can announce it to peer replicas. Nil announces nothing.
+	// schema state this replica just changed, by an upload, a re-read, or
+	// a re-read the endpoint refused beside a stored schema, so the parent
+	// can announce it to peer replicas. Nil announces nothing.
 	SchemaStored func(kind, name string)
 }
 
@@ -96,7 +97,7 @@ func (h *handler) getSchema(w http.ResponseWriter, r *http.Request) {
 // introspection.
 //
 // @Summary      Re-read or supply a GraphQL connection's schema
-// @Description  With an empty body, reads the connection's schema from its endpoint by introspection. With a body, takes the body as the schema: SDL, or a saved introspection result in either the full GraphQL response shape or the __schema object alone. Either way the schema is stored, the operation index is rebuilt on every replica, and the response reports the new state. A re-read the endpoint refuses leaves the schema the connection holds in place and reports the refusal beside it.
+// @Description  With an empty body, reads the connection's schema from its endpoint by introspection. With a body, takes the body as the schema: SDL, or a saved introspection result in either the full GraphQL response shape or the __schema object alone. Either way the schema is stored, the operation index is rebuilt on every replica, and the response reports the new state. A re-read the endpoint refuses is state too: the schema the connection holds stays in place, the refusal is recorded beside it on every replica, and the response is the same 200 with `error` filled. A body that does not parse is the caller's input and answers 400.
 // @Tags         Connections
 // @Accept       plain
 // @Produce      json
@@ -104,7 +105,6 @@ func (h *handler) getSchema(w http.ResponseWriter, r *http.Request) {
 // @Success      200  {object}  graphql.SchemaInfo
 // @Failure      400  {object}  httpjson.ProblemDetail
 // @Failure      404  {object}  httpjson.ProblemDetail
-// @Failure      502  {object}  httpjson.ProblemDetail
 // @Router       /admin/connection-instances/graphql/{name}/refresh-schema [post]
 func (h *handler) refreshSchema(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue(pathKeyName)
@@ -118,17 +118,22 @@ func (h *handler) refreshSchema(w http.ResponseWriter, r *http.Request) {
 		httpjson.WriteError(w, http.StatusBadRequest, "reading the uploaded schema failed: "+err.Error())
 		return
 	}
-	if err := h.apply(r.Context(), tk, name, payload); err != nil {
-		httpjson.WriteError(w, statusFor(payload), err.Error())
+	applyErr := h.apply(r.Context(), tk, name, payload)
+	if applyErr != nil && !isReread(payload) {
+		httpjson.WriteError(w, http.StatusBadRequest, applyErr.Error())
 		return
 	}
-	if h.cfg.SchemaStored != nil {
-		h.cfg.SchemaStored(graphqlkit.Kind, name)
-	}
+	// A connection removed while the request ran answers 404 here.
 	info, err := tk.SchemaInfo(name)
 	if err != nil {
 		httpjson.WriteError(w, http.StatusNotFound, err.Error())
 		return
+	}
+	// A refused re-read changed the stored state only when there was a
+	// stored schema to record the refusal beside; a connection holding
+	// none has nothing a peer could load.
+	if h.cfg.SchemaStored != nil && (applyErr == nil || info.Hash != "") {
+		h.cfg.SchemaStored(graphqlkit.Kind, name)
 	}
 	httpjson.WriteJSON(w, http.StatusOK, info)
 }
@@ -136,7 +141,7 @@ func (h *handler) refreshSchema(w http.ResponseWriter, r *http.Request) {
 // apply installs the schema: from the body when there is one, from the
 // endpoint when there is not.
 func (*handler) apply(ctx context.Context, tk *graphqlkit.Toolkit, name string, payload []byte) error {
-	if strings.TrimSpace(string(payload)) == "" {
+	if isReread(payload) {
 		//nolint:wrapcheck // the toolkit's message is already operator-facing
 		return tk.RefreshSchema(ctx, name)
 	}
@@ -144,14 +149,15 @@ func (*handler) apply(ctx context.Context, tk *graphqlkit.Toolkit, name string, 
 	return tk.SetSchema(ctx, name, payload)
 }
 
-// statusFor separates the two failures an operator acts on differently:
-// a schema they supplied that does not parse is their input, and an
-// endpoint that would not answer is the upstream.
-func statusFor(payload []byte) int {
-	if strings.TrimSpace(string(payload)) == "" {
-		return http.StatusBadGateway
-	}
-	return http.StatusBadRequest
+// isReread reports a request that asks the platform to read the schema
+// from the endpoint rather than supplying one. Its failure is the
+// upstream's answer, recorded on the connection and reported as state
+// with a 200: a 5xx here was replaced by the CDN in front of a
+// deployment, and the browser that pressed Re-read got a status code
+// with no sentence (#1704). A supplied schema that does not parse is the
+// caller's input, recorded nowhere, and stays a 400.
+func isReread(payload []byte) bool {
+	return strings.TrimSpace(string(payload)) == ""
 }
 
 // toolkitFor finds the live graphql toolkit holding a connection.

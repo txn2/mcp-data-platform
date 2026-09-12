@@ -11,7 +11,11 @@ vi.mock("@/api/admin/hooks", () => ({
   })),
 }));
 
-import { useGraphQLSchema, type GraphQLSchemaInfo } from "@/api/admin/hooks";
+import {
+  useGraphQLSchema,
+  useRefreshGraphQLSchema,
+  type GraphQLSchemaInfo,
+} from "@/api/admin/hooks";
 import { GraphQLSchemaCard } from "./GraphQLSchemaCard";
 
 const mockSchema = vi.mocked(useGraphQLSchema);
@@ -97,5 +101,60 @@ describe("GraphQLSchemaCard schema state", () => {
     expect(screen.getByText(/operations/)).toBeInTheDocument();
     expect(screen.getByText("introspected")).toBeInTheDocument();
     expect(screen.queryByText(/holds no schema/i)).not.toBeInTheDocument();
+  });
+});
+
+// The refresh route answers a re-read the endpoint refused as the state it
+// left, a 200 with `error` filled, because a CDN in front of a deployment
+// replaced the body of the 502 it used to answer and the button printed
+// "Request failed with status 502" (#1704). The button's report comes from
+// that state.
+describe("GraphQLSchemaCard re-read outcome", () => {
+  const held: GraphQLSchemaInfo = {
+    connection: "acme-orders-graphql",
+    schema_hash: "ff68d87b41c2a9e30b5d7c18aa4f6921",
+    source: "upload",
+    fetched_at: "2025-01-21T08:30:00Z",
+    operation_count: 8,
+    error: "graphql: the endpoint answered HTTP 302 to the introspection query: ",
+  };
+
+  function renderAfterRefresh(
+    info: GraphQLSchemaInfo,
+    outcome: { data?: GraphQLSchemaInfo; error?: Error },
+  ) {
+    vi.mocked(useRefreshGraphQLSchema).mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+      data: outcome.data,
+      error: outcome.error ?? null,
+    } as unknown as ReturnType<typeof useRefreshGraphQLSchema>);
+    return renderCard(info);
+  }
+
+  it("points at the recorded refusal when the re-read was refused", () => {
+    renderAfterRefresh(held, { data: held });
+
+    expect(
+      screen.getByText("The read failed, for the reason already shown above."),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText(/HTTP 302/)).toHaveLength(1);
+  });
+
+  it("reports nothing under the button when the read installed a schema", () => {
+    const fresh = { ...held, source: "introspection", error: undefined };
+    renderAfterRefresh(fresh, { data: fresh });
+
+    expect(screen.queryByText(/The read failed/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/last attempt to re-read/i)).not.toBeInTheDocument();
+  });
+
+  it("prints a refused upload's cause, which is recorded nowhere", () => {
+    const clean = { ...held, error: undefined };
+    renderAfterRefresh(clean, {
+      error: new Error("graphql: parsing the schema: unexpected end of input"),
+    });
+
+    expect(screen.getByText(/unexpected end of input/)).toBeInTheDocument();
   });
 });

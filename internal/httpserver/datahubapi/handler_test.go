@@ -802,9 +802,9 @@ func TestValidationErrors(t *testing.T) {
 	}
 }
 
-func TestUpstreamErrors_502(t *testing.T) {
+func TestUpstreamErrors_503(t *testing.T) {
 	// Each write carries a WELL-FORMED payload so the request passes validation and
-	// reaches the writer: a 502 here proves the genuine-upstream-failure path, as
+	// reaches the writer: a 503 here proves the genuine-upstream-failure path, as
 	// distinct from the malformed-value 400 path covered by TestMalformedValue_400.
 	writeCases := []struct{ ep, body string }{
 		{"/api/v1/portal/datahub/primary/catalog/entity/description", fmt.Sprintf(`{"urn":%q,"description":"x"}`, dhTestURN)},
@@ -818,8 +818,8 @@ func TestUpstreamErrors_502(t *testing.T) {
 		backend.writeErr = fmt.Errorf("datahub down")
 		log := &fakeAuditLogger{}
 		h := newTestHandler(backend, true, writerResolver(), log)
-		if rec := serve(h, viewer, "PUT", tc.ep, tc.body); rec.Code != http.StatusBadGateway {
-			t.Errorf("%s status = %d, want 502", tc.ep, rec.Code)
+		if rec := serve(h, viewer, "PUT", tc.ep, tc.body); rec.Code != http.StatusServiceUnavailable {
+			t.Errorf("%s status = %d, want 503", tc.ep, rec.Code)
 		}
 		if ev := log.last(); ev == nil || ev.Success {
 			t.Errorf("%s: expected unsuccessful audit event", tc.ep)
@@ -837,31 +837,31 @@ func TestUpstreamErrors_502(t *testing.T) {
 		backend := newFakeDataHub()
 		backend.readErr = fmt.Errorf("datahub down")
 		h := newTestHandler(backend, true, writerResolver(), &fakeAuditLogger{})
-		if rec := serve(h, viewer, "GET", p, ""); rec.Code != http.StatusBadGateway {
-			t.Errorf("%s status = %d, want 502", p, rec.Code)
+		if rec := serve(h, viewer, "GET", p, ""); rec.Code != http.StatusServiceUnavailable {
+			t.Errorf("%s status = %d, want 503", p, rec.Code)
 		}
 	}
 	// document upsert/delete upstream errors
 	backend := newFakeDataHub()
 	backend.upsertErr = fmt.Errorf("boom")
 	h := newTestHandler(backend, true, writerResolver(), &fakeAuditLogger{})
-	if rec := serve(h, viewer, "POST", "/api/v1/portal/datahub/primary/documents", `{"entity_urn":"`+dhTestURN+`","title":"t"}`); rec.Code != http.StatusBadGateway {
-		t.Errorf("create upstream error status = %d, want 502", rec.Code)
+	if rec := serve(h, viewer, "POST", "/api/v1/portal/datahub/primary/documents", `{"entity_urn":"`+dhTestURN+`","title":"t"}`); rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("create upstream error status = %d, want 503", rec.Code)
 	}
-	if rec := serve(h, viewer, "PUT", "/api/v1/portal/datahub/primary/documents/d1", `{"title":"t"}`); rec.Code != http.StatusBadGateway {
-		t.Errorf("update upstream error status = %d, want 502", rec.Code)
+	if rec := serve(h, viewer, "PUT", "/api/v1/portal/datahub/primary/documents/d1", `{"title":"t"}`); rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("update upstream error status = %d, want 503", rec.Code)
 	}
 	backend2 := newFakeDataHub()
 	backend2.deleteErr = fmt.Errorf("boom")
 	h2 := newTestHandler(backend2, true, writerResolver(), &fakeAuditLogger{})
-	if rec := serve(h2, viewer, "DELETE", "/api/v1/portal/datahub/primary/documents/d1", ""); rec.Code != http.StatusBadGateway {
-		t.Errorf("delete upstream error status = %d, want 502", rec.Code)
+	if rec := serve(h2, viewer, "DELETE", "/api/v1/portal/datahub/primary/documents/d1", ""); rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("delete upstream error status = %d, want 503", rec.Code)
 	}
 }
 
 // TestMalformedValue_400 is the #785 acceptance criterion: a malformed metadata
 // value (e.g. "test") is a client error rejected with 400 and a human-readable
-// message, and never reaches the writer/DataHub (which would otherwise 502).
+// message, and never reaches the writer/DataHub (which would otherwise 503).
 func TestMalformedValue_400(t *testing.T) {
 	cases := []struct{ name, ep, body string }{
 		{"tag", "/api/v1/portal/datahub/primary/catalog/entity/tags", fmt.Sprintf(`{"urn":%q,"add":["test"]}`, dhTestURN)},
@@ -890,7 +890,7 @@ func TestMalformedValue_400(t *testing.T) {
 }
 
 // TestCatalogLookups exercises the picker lookup endpoints: name-searchable
-// results on success, read-gating, and a 502 on genuine upstream failure.
+// results on success, read-gating, and a 503 on genuine upstream failure.
 func TestCatalogLookups(t *testing.T) {
 	refs := []semantic.EntityRef{{URN: "urn:li:tag:PII", Name: "PII"}, {URN: "urn:li:domain:finance", Name: "Finance"}}
 	paths := []string{
@@ -918,12 +918,12 @@ func TestCatalogLookups(t *testing.T) {
 		if rec := serve(hNo, viewer, "GET", p, ""); rec.Code != http.StatusForbidden {
 			t.Errorf("%s no-access status = %d, want 403", p, rec.Code)
 		}
-		// upstream failure -> 502
+		// upstream failure -> 503
 		backendErr := newFakeDataHub()
 		backendErr.readErr = fmt.Errorf("datahub down")
 		hErr := newTestHandler(backendErr, false, readerResolver(), &fakeAuditLogger{})
-		if rec := serve(hErr, viewer, "GET", p, ""); rec.Code != http.StatusBadGateway {
-			t.Errorf("%s upstream-error status = %d, want 502", p, rec.Code)
+		if rec := serve(hErr, viewer, "GET", p, ""); rec.Code != http.StatusServiceUnavailable {
+			t.Errorf("%s upstream-error status = %d, want 503", p, rec.Code)
 		}
 	}
 }
@@ -1040,7 +1040,7 @@ func hasCall(calls []string, want string) bool {
 }
 
 // TestCatalogEntity_NotHeldIsNotFound is #1610. A URN the catalog has never
-// ingested is a 404, and a catalog that could not be reached stays a 502: the
+// ingested is a 404, and a catalog that could not be reached stays a 503: the
 // portal says plainly that a cited dataset is not in this catalog, and it can
 // only say so if the two are told apart here.
 func TestCatalogEntity_NotHeldIsNotFound(t *testing.T) {
@@ -1050,7 +1050,7 @@ func TestCatalogEntity_NotHeldIsNotFound(t *testing.T) {
 		want int
 	}{
 		{"a URN the catalog does not hold", fmt.Errorf("datahub holds no entity: %w", semantic.ErrNotFound), http.StatusNotFound},
-		{"a catalog that could not be reached", errors.New("dial tcp: connection refused"), http.StatusBadGateway},
+		{"a catalog that could not be reached", errors.New("dial tcp: connection refused"), http.StatusServiceUnavailable},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			backend := newFakeDataHub()

@@ -100,7 +100,7 @@ A node that still holds entries is not offered a delete at all. DataHub takes th
 
 One glossary backs both surfaces: a term defined here is immediately what the Tables tab's glossary picker offers, as it is in DataHub.
 
-These tabs are backed by the portal DataHub REST API at `/api/v1/portal/datahub/{connection}/...`. Reads require DataHub access on your persona; a write is permitted only when your persona grants the matching MCP tool **and** the target connection is write-enabled (`read_only: false`). Both checks are enforced server-side regardless of what the UI shows, and every write is recorded in the audit log. Tag and glossary-term edits are applied as batched add/remove sets so concurrent edits do not clobber one another. The pickers are backed by name-search lookup endpoints (`catalog/lookup/tags`, `catalog/lookup/glossary-terms`, `catalog/lookup/domains`). A malformed metadata value is rejected with `400 Bad Request`; a URN the catalog has never ingested is `404 Not Found`, which is how the portal can say a cited dataset is not in this catalog rather than that the read failed; `502 Bad Gateway` is reserved for genuine upstream DataHub failures.
+These tabs are backed by the portal DataHub REST API at `/api/v1/portal/datahub/{connection}/...`. Reads require DataHub access on your persona; a write is permitted only when your persona grants the matching MCP tool **and** the target connection is write-enabled (`read_only: false`). Both checks are enforced server-side regardless of what the UI shows, and every write is recorded in the audit log. Tag and glossary-term edits are applied as batched add/remove sets so concurrent edits do not clobber one another. The pickers are backed by name-search lookup endpoints (`catalog/lookup/tags`, `catalog/lookup/glossary-terms`, `catalog/lookup/domains`). A malformed metadata value is rejected with `400 Bad Request`; a URN the catalog has never ingested is `404 Not Found`, which is how the portal can say a cited dataset is not in this catalog rather than that the read failed; `503 Service Unavailable` is reserved for genuine upstream DataHub failures, carrying the failure in its problem body (a CDN in front of a deployment replaces the body of an origin 502 or 504, so neither is used).
 
 ### Tag endpoints
 
@@ -111,7 +111,7 @@ Managing the tag vocabulary adds two routes, because the reads it needs already 
 | `POST catalog/tags` | Creates a tag from `{name, description}` and returns the URN DataHub assigned it, `201`. Gated on `datahub_create` and a write-enabled connection. |
 | `DELETE catalog/tags?urn=` | Retires a tag definition. Gated on `datahub_delete` and a write-enabled connection. The URN is a query parameter rather than a path segment because a tag URN is itself colon-delimited. |
 
-A URN that is not a tag is a `400` before the call reaches DataHub, rather than a forwarded call surfacing as a misleading `502`. A newly created tag is not immediately listable: the list read is served from DataHub's search index, which is populated asynchronously, so the returned URN is authoritative until the index catches up.
+A URN that is not a tag is a `400` before the call reaches DataHub, rather than a forwarded call surfacing as a misleading `503`. A newly created tag is not immediately listable: the list read is served from DataHub's search index, which is populated asynchronously, so the returned URN is authoritative until the index catches up.
 
 ### Domain endpoints
 
@@ -143,7 +143,7 @@ Two things the glossary needs are not routes of their own, because they already 
 
 Each node in a read carries `terms_count` and `nodes_count`, DataHub's own tally of its direct children, so a browser can render an expandable branch without first fetching it.
 
-A URN of the wrong kind is a `400` — children hang off a node only, while a parent chain and a delete accept either kind of glossary entity — and a node DataHub does not know is a `404`, not a `502`.
+A URN of the wrong kind is a `400` — children hang off a node only, while a parent chain and a delete accept either kind of glossary entity — and a node DataHub does not know is a `404`, not a `503`.
 
 Deleting a node does not delete what is inside it, and deleting a term does not remove the term from the tables annotated with it: upstream `DeleteGlossaryEntity` touches only the entity named. That is why the portal shows a node's children and a term's usage before offering the delete.
 

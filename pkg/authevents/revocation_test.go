@@ -85,20 +85,37 @@ func TestRevocationSink_Absent(t *testing.T) {
 
 // TestWithRevocations_WiredLate covers the ordering the composition root
 // actually has: the refresher is already emitting through this Writer when the
-// HTTP root attaches the sink.
+// HTTP root attaches the sink. Emission runs concurrently with the attach, so
+// the race detector sees both sides, and the first emission after the attach
+// returns must reach the sink. Asserting on emissions that merely overlap the
+// attach would depend on which goroutine the scheduler runs first: with one
+// CPU the emitter can finish before the sink is attached at all.
 func TestWithRevocations_WiredLate(t *testing.T) {
 	w := NewWriter(NewMemoryStore(), nil)
 	sink := &recordingSink{}
+	emit := func() {
+		w.TokenDeletedRevoked(context.Background(), "api", "billing",
+			SystemBackgroundRefresh, "https://idp.example.com/token", "invalid_grant", "ops@example.com")
+	}
 
+	attached := make(chan struct{})
 	var wg sync.WaitGroup
 	wg.Go(func() {
-		for range 50 {
-			w.TokenDeletedRevoked(context.Background(), "api", "billing",
-				SystemBackgroundRefresh, "https://idp.example.com/token", "invalid_grant", "ops@example.com")
+		for {
+			select {
+			case <-attached:
+				emit()
+				return
+			default:
+				emit()
+			}
 		}
 	})
-	wg.Go(func() { w.WithRevocations(sink) })
+	wg.Go(func() {
+		w.WithRevocations(sink)
+		close(attached)
+	})
 	wg.Wait()
 
-	assert.NotEmpty(t, sink.all(), "the sink must be reached once it is attached")
+	assert.NotEmpty(t, sink.all(), "the first revocation after the sink is attached must reach it")
 }

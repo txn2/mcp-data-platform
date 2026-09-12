@@ -137,8 +137,15 @@ func TestAddConnectionLoadsTheStoreWhenTheReadFails(t *testing.T) {
 	if info.Source != SchemaSourceUpload || info.OperationCount != namespacedOperationCount(t) {
 		t.Errorf("info = %+v; the store is what a replica whose own read fails serves", info)
 	}
-	if !strings.Contains(info.Error, "introspection is not allowed") {
-		t.Errorf("info = %+v; the failed read is reported beside the schema", info)
+	// The registration's read was about no schema, not about the upload, so
+	// this replica answers what the replica that served the upload answers:
+	// the upload with nothing beside it (#1703).
+	onFirst, _ := first.SchemaInfo("gql")
+	if info.Error != onFirst.Error {
+		t.Errorf("info = %+v; the replica that served the upload reports %q", info, onFirst.Error)
+	}
+	if stored, _ := store.GetSchema(context.Background(), "gql"); stored.ReadError != "" {
+		t.Errorf("a registration read marked the upload refused: %+v", stored)
 	}
 }
 
@@ -249,5 +256,142 @@ func TestARefreshThatFailsKeepsTheSchemaAndReportsBesideIt(t *testing.T) {
 	}
 	if cleared, _ := tk.SchemaInfo("gql"); cleared.Error != "" {
 		t.Errorf("a refresh that succeeded left the old failure in place: %+v", cleared)
+	}
+}
+
+func TestARefusedRefreshIsRecordedInTheStoreAndReachesAnotherInstance(t *testing.T) {
+	u := newUpstream(t) // refuses introspection
+	store := newMemorySchemaStore()
+	first := newToolkit(t, u, "", nil)
+	first.SetSchemaStore(store)
+	second := newToolkit(t, u, "", nil)
+	second.SetSchemaStore(store)
+	ctx := context.Background()
+	if err := first.SetSchema(ctx, "gql", fixtureSDL(t, "namespaced")); err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+	if err := second.LoadStoredSchema(ctx, "gql"); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	if err := first.RefreshSchema(ctx, "gql"); err == nil {
+		t.Fatal("the fake endpoint answered the introspection query")
+	}
+	stored, _ := store.GetSchema(ctx, "gql")
+	if !strings.Contains(stored.ReadError, "introspection is not allowed") {
+		t.Errorf("the refusal was not recorded with the stored schema: %+v", stored)
+	}
+	if err := second.LoadStoredSchema(ctx, "gql"); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	onFirst, _ := first.SchemaInfo("gql")
+	onSecond, _ := second.SchemaInfo("gql")
+	if onSecond.Error != onFirst.Error || onSecond.Hash != onFirst.Hash {
+		t.Errorf("the instance that did not run the read answers differently: %+v vs %+v", onFirst, onSecond)
+	}
+
+	// An upload installs a schema, and a schema installed has no refusal
+	// beside it anywhere.
+	if err := first.SetSchema(ctx, "gql", fixtureSDL(t, "namespaced")); err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+	if err := second.LoadStoredSchema(ctx, "gql"); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cleared, _ := second.SchemaInfo("gql"); cleared.Error != "" {
+		t.Errorf("an upload left the refusal in place: %+v", cleared)
+	}
+}
+
+func TestARefusedRefreshTheStoreCannotRecordIsStillReportedHere(t *testing.T) {
+	u := newUpstream(t) // refuses introspection
+	store := newMemorySchemaStore()
+	tk := newToolkit(t, u, "", nil)
+	tk.SetSchemaStore(store)
+	ctx := context.Background()
+	if err := tk.SetSchema(ctx, "gql", fixtureSDL(t, "flat")); err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+	store.recordErr = errors.New("database is down")
+
+	if err := tk.RefreshSchema(ctx, "gql"); err == nil {
+		t.Fatal("the fake endpoint answered the introspection query")
+	}
+	if info, _ := tk.SchemaInfo("gql"); !strings.Contains(info.Error, "introspection is not allowed") {
+		t.Errorf("a store that could not record the refusal cost this instance its report: %+v", info)
+	}
+}
+
+// TestARefusalAboutAnOlderVersionIsNotRecordedBesideANewerOne is the race the
+// two-replica acceptance run found: a replica's read of the endpoint began
+// before it held the schema another replica had just uploaded, and finished
+// after. The refusal is about the version the reader held, so the upload in
+// the store is left with nothing beside it, and the reader, falling back to
+// the store, reports the upload as every other replica does.
+func TestARefusalAboutAnOlderVersionIsNotRecordedBesideANewerOne(t *testing.T) {
+	u := newUpstream(t) // refuses introspection
+	store := newMemorySchemaStore()
+	uploader := newToolkit(t, u, "", nil)
+	uploader.SetSchemaStore(store)
+	reader := newToolkit(t, u, "", nil)
+	reader.SetSchemaStore(store)
+	ctx := context.Background()
+
+	// The reader holds no schema when its read begins; the upload lands
+	// while the read is in flight.
+	u.onIntrospection = func() {
+		if err := uploader.SetSchema(ctx, "gql", fixtureSDL(t, "namespaced")); err != nil {
+			t.Errorf("upload: %v", err)
+		}
+	}
+	reader.readOrLoadStored(ctx, "gql")
+
+	stored, _ := store.GetSchema(ctx, "gql")
+	if stored.Hash == "" || stored.ReadError != "" {
+		t.Errorf("a read that began before the upload marked it refused: %+v", stored)
+	}
+	onReader, _ := reader.SchemaInfo("gql")
+	onUploader, _ := uploader.SchemaInfo("gql")
+	if onReader.Hash != onUploader.Hash || onReader.Error != onUploader.Error {
+		t.Errorf("the two instances answer differently: uploader %+v, reader %+v", onUploader, onReader)
+	}
+}
+
+// TestARefusalAboutAVersionReplacedDuringTheReadIsNotReportedBesideTheNewOne:
+// the same race on the instance that ran the read. A peer's upload reaches it
+// through the reload bus while its re-read is in flight; the refusal is about
+// the version it held before, so it reports the newer one as the store and
+// every other replica do.
+func TestARefusalAboutAVersionReplacedDuringTheReadIsNotReportedBesideTheNewOne(t *testing.T) {
+	u := newUpstream(t) // refuses introspection
+	store := newMemorySchemaStore()
+	peer := newToolkit(t, u, "", nil)
+	peer.SetSchemaStore(store)
+	reader := newToolkit(t, u, "", nil)
+	reader.SetSchemaStore(store)
+	ctx := context.Background()
+	if err := reader.SetSchema(ctx, "gql", fixtureSDL(t, "flat")); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	u.onIntrospection = func() {
+		if err := peer.SetSchema(ctx, "gql", fixtureSDL(t, "namespaced")); err != nil {
+			t.Errorf("peer upload: %v", err)
+		}
+		if err := reader.LoadStoredSchema(ctx, "gql"); err != nil {
+			t.Errorf("announcement: %v", err)
+		}
+	}
+	if err := reader.RefreshSchema(ctx, "gql"); err == nil {
+		t.Fatal("the fake endpoint answered the introspection query")
+	}
+
+	onReader, _ := reader.SchemaInfo("gql")
+	onPeer, _ := peer.SchemaInfo("gql")
+	if onReader.Hash != onPeer.Hash || onReader.Error != "" || onPeer.Error != "" {
+		t.Errorf("the refusal was reported beside the version that replaced it: reader %+v, peer %+v", onReader, onPeer)
+	}
+	if stored, _ := store.GetSchema(ctx, "gql"); stored.ReadError != "" {
+		t.Errorf("the store marked the newer version refused: %+v", stored)
 	}
 }

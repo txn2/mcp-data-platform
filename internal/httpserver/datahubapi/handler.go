@@ -279,7 +279,7 @@ func (h *Handler) searchCatalog(w http.ResponseWriter, r *http.Request) {
 	}
 	results, err := reader.SearchTables(r.Context(), filter)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "catalog search failed: "+err.Error())
+		writeUpstreamError(w, "catalog search failed: "+err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"results": results})
@@ -297,7 +297,7 @@ func (h *Handler) browseCatalog(w http.ResponseWriter, r *http.Request) {
 	}
 	results, err := reader.SearchTables(r.Context(), filter)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "catalog browse failed: "+err.Error())
+		writeUpstreamError(w, "catalog browse failed: "+err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"results": results})
@@ -327,7 +327,7 @@ func (h *Handler) getCatalogEntity(w http.ResponseWriter, r *http.Request) {
 	}
 	tableCtx, err := reader.GetTableContext(r.Context(), *id)
 	if err != nil {
-		// A URN the catalog has never ingested is a 404, not a 502 (#1610): the
+		// A URN the catalog has never ingested is a 404, not a 503 (#1610): the
 		// portal states plainly that a cited dataset is not in this catalog, and
 		// that reading is only available to it if the two are distinguishable.
 		writeCatalogReadError(w, "entity read failed", err)
@@ -358,7 +358,7 @@ func (h *Handler) getEntityDocuments(w http.ResponseWriter, r *http.Request) {
 	}
 	docs, err := reader.GetRelatedDocuments(r.Context(), urn)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "entity documents read failed: "+err.Error())
+		writeUpstreamError(w, "entity documents read failed: "+err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"documents": orEmpty(docs)})
@@ -375,7 +375,7 @@ func (h *Handler) lookupTags(w http.ResponseWriter, r *http.Request) {
 	}
 	refs, err := reader.SearchTags(r.Context(), r.URL.Query().Get("q"), clampLimit(r.URL.Query().Get(qpLimit)))
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "tag lookup failed: "+err.Error())
+		writeUpstreamError(w, "tag lookup failed: "+err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"results": refs})
@@ -389,7 +389,7 @@ func (h *Handler) lookupGlossaryTerms(w http.ResponseWriter, r *http.Request) {
 	}
 	refs, err := reader.SearchGlossaryTerms(r.Context(), r.URL.Query().Get("q"), clampLimit(r.URL.Query().Get(qpLimit)))
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "glossary term lookup failed: "+err.Error())
+		writeUpstreamError(w, "glossary term lookup failed: "+err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"results": refs})
@@ -405,7 +405,7 @@ func (h *Handler) lookupDomains(w http.ResponseWriter, r *http.Request) {
 	}
 	refs, err := reader.ListDomains(r.Context())
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "domain lookup failed: "+err.Error())
+		writeUpstreamError(w, "domain lookup failed: "+err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"results": refs})
@@ -414,7 +414,7 @@ func (h *Handler) lookupDomains(w http.ResponseWriter, r *http.Request) {
 // requireURNParam reads and validates the urn query parameter, writing the 400
 // and returning ok=false when it is missing or not one of allowedTypes. Rejecting
 // a URN of the wrong kind here keeps it from reaching DataHub and coming back as
-// a 502.
+// a 503.
 func requireURNParam(w http.ResponseWriter, r *http.Request, allowedTypes []string) (string, bool) {
 	urn := strings.TrimSpace(r.URL.Query().Get("urn"))
 	if urn == "" {
@@ -441,7 +441,7 @@ func (h *Handler) searchDocuments(w http.ResponseWriter, r *http.Request) {
 	}
 	docs, err := reader.SearchDocuments(r.Context(), q, clampLimit(r.URL.Query().Get(qpLimit)))
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "document search failed: "+err.Error())
+		writeUpstreamError(w, "document search failed: "+err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"documents": docs})
@@ -455,7 +455,7 @@ func (h *Handler) browseDocuments(w http.ResponseWriter, r *http.Request) {
 	docs, total, err := reader.BrowseDocuments(r.Context(),
 		parseOffset(r.URL.Query().Get(qpOffset)), clampLimit(r.URL.Query().Get(qpLimit)))
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "document browse failed: "+err.Error())
+		writeUpstreamError(w, "document browse failed: "+err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"documents": docs, "total": total})
@@ -468,7 +468,7 @@ func (h *Handler) getDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	doc, err := reader.GetDocument(r.Context(), documentURN(r.PathValue("id")))
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "document read failed: "+err.Error())
+		writeUpstreamError(w, "document read failed: "+err.Error())
 		return
 	}
 	if doc == nil {
@@ -572,7 +572,7 @@ func (h *Handler) applyCatalogChange(w http.ResponseWriter, r *http.Request, fie
 	err := op(auth.writer, req)
 	h.audit(r, auth, datahubUpdateTool, catalogChangeAuditParams(field, req), err)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "update "+field+" failed: "+err.Error())
+		writeUpstreamError(w, "update "+field+" failed: "+err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -586,7 +586,7 @@ func (h *Handler) updateCatalogDescription(w http.ResponseWriter, r *http.Reques
 
 func (h *Handler) updateCatalogTags(w http.ResponseWriter, r *http.Request) {
 	// A malformed value (e.g. "test") is a client error: reject it with a 400 here
-	// rather than forwarding it to DataHub, which would surface as a misleading 502.
+	// rather than forwarding it to DataHub, which would surface as a misleading 503.
 	validate := func(req catalogChangeRequest) string {
 		return validateURNValues("tag", tagURNTypes, req.Add, req.Remove)
 	}
@@ -613,7 +613,7 @@ func (h *Handler) updateCatalogOwners(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) updateCatalogDomain(w http.ResponseWriter, r *http.Request) {
 	// A set request (clear_domain=false) with an empty or malformed domain is
 	// rejected with a 400 rather than silently unsetting the domain or forwarding a
-	// bad value to DataHub (which would surface as a 502).
+	// bad value to DataHub (which would surface as a 503).
 	validate := func(req catalogChangeRequest) string {
 		if req.ClearDomain {
 			return ""
@@ -672,7 +672,7 @@ func (h *Handler) createDocument(w http.ResponseWriter, r *http.Request) {
 	})
 	h.audit(r, auth, datahubCreateTool, map[string]any{"entity_urn": entityURN, "title": req.Title}, err)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "create context document failed: "+err.Error())
+		writeUpstreamError(w, "create context document failed: "+err.Error())
 		return
 	}
 	writeJSON(w, http.StatusCreated, doc)
@@ -700,7 +700,7 @@ func (h *Handler) updateDocument(w http.ResponseWriter, r *http.Request) {
 	})
 	h.audit(r, auth, datahubUpdateTool, map[string]any{"document_id": id, "title": req.Title}, err)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "update context document failed: "+err.Error())
+		writeUpstreamError(w, "update context document failed: "+err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, doc)
@@ -715,7 +715,7 @@ func (h *Handler) deleteDocument(w http.ResponseWriter, r *http.Request) {
 	err := auth.writer.DeleteContextDocument(r.Context(), id)
 	h.audit(r, auth, datahubDeleteTool, map[string]any{"document_id": id}, err)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "delete context document failed: "+err.Error())
+		writeUpstreamError(w, "delete context document failed: "+err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
@@ -751,7 +751,7 @@ var (
 // validateURNValues returns a human-readable 400 message if any value across the
 // given lists is not a well-formed DataHub URN of one of the allowed entity types,
 // or "" when every value is valid. It is what turns a malformed picker/free-text
-// value (e.g. "test") into a 400 instead of a forwarded 502 (#785). label names
+// value (e.g. "test") into a 400 instead of a forwarded 503 (#785). label names
 // the field in the message.
 func validateURNValues(label string, allowedTypes []string, lists ...[]string) string {
 	for _, list := range lists {
@@ -891,4 +891,12 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 		Status: status,
 		Detail: msg,
 	})
+}
+
+// writeUpstreamError reports a DataHub call that failed. The status is 503,
+// not 502: the portal calls these routes from a browser, and a CDN in front
+// of a deployment replaces the body of an origin 502 with its own, so the
+// page would get a status code and none of the sentence below (#1704).
+func writeUpstreamError(w http.ResponseWriter, msg string) {
+	writeError(w, http.StatusServiceUnavailable, msg)
 }

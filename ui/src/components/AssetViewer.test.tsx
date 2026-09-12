@@ -271,7 +271,10 @@ describe("AssetViewer recapture", () => {
     renderViewer({ asset: markdownAsset(cleared) });
 
     await screen.findByTestId("thumbnail-capture", {}, { timeout: 4000 });
-    expect(captureMounts).toHaveLength(1);
+    // The element is in the DOM before the effect that records the mount has
+    // run, so the count is waited for rather than read (it read 0 on a loaded
+    // CI runner).
+    await waitFor(() => expect(captureMounts).toHaveLength(1));
 
     await pressRecapture();
 

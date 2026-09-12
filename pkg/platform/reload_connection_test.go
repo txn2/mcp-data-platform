@@ -324,6 +324,14 @@ func (s peerSchemaStore) PutSchema(_ context.Context, stored graphqlkit.StoredSc
 	return nil
 }
 
+func (s peerSchemaStore) RecordReadError(_ context.Context, held graphqlkit.StoredSchema) error {
+	if stored, ok := s.schemas[held.Connection]; ok && stored.Hash == held.Hash && stored.FetchedAt.Equal(held.FetchedAt) {
+		stored.ReadError = held.ReadError
+		s.schemas[held.Connection] = stored
+	}
+	return nil
+}
+
 func (s peerSchemaStore) DeleteSchema(_ context.Context, connection string) error {
 	delete(s.schemas, connection)
 	return nil

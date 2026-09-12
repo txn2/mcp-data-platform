@@ -38,6 +38,11 @@ type StoredSchema struct {
 	Source string
 	// FetchedAt is when the schema was read or uploaded.
 	FetchedAt time.Time
+	// ReadError is why the last read of the connection's endpoint was
+	// refused, empty when the last read or upload installed this schema.
+	// It is kept with the schema so every replica, and a restart, reports
+	// the refusal beside the schema that survived it (#1703).
+	ReadError string
 }
 
 // SchemaStore persists a connection's schema. A deployment without one
@@ -52,6 +57,14 @@ type SchemaStore interface {
 	// PutSchema writes a connection's schema, replacing any previous
 	// one.
 	PutSchema(ctx context.Context, s StoredSchema) error
+	// RecordReadError records s.ReadError, why a read of the endpoint was
+	// refused, beside the stored schema for s.Connection without touching
+	// the schema. It records only when the store still holds the version
+	// s names by Hash and FetchedAt, the one the reader held when its
+	// read began: a refusal is about that version, and a reader that had
+	// not yet installed a newer one, or held none, must not mark the newer
+	// one refused. Recording nothing is not an error.
+	RecordReadError(ctx context.Context, s StoredSchema) error
 	// DeleteSchema removes a connection's schema, called when the
 	// connection is deleted.
 	DeleteSchema(ctx context.Context, connection string) error

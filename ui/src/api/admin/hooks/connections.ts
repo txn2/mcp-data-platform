@@ -300,6 +300,11 @@ export function useGraphQLSchema(name: string, enabled: boolean) {
 // argument the platform reads it from the endpoint by introspection; with one,
 // the text is taken as the schema itself (SDL or a saved introspection
 // result), which is the path for an endpoint that disables introspection.
+//
+// The route answers with the state it left, including a re-read the endpoint
+// refused (200 with `error` filled, #1704), so that state is written to the
+// schema query at once: the card compares the button's outcome with what the
+// connection records, and the two must be the same answer.
 export function useRefreshGraphQLSchema(name: string) {
   const qc = useQueryClient();
   return useMutation({
@@ -312,7 +317,8 @@ export function useRefreshGraphQLSchema(name: string) {
           body: schema ?? "",
         },
       ),
-    onSuccess: () => {
+    onSuccess: (info) => {
+      qc.setQueryData(["graphql-schema", name], info);
       void qc.invalidateQueries({ queryKey: ["graphql-schema", name] });
       void qc.invalidateQueries({ queryKey: ["connections"] });
     },

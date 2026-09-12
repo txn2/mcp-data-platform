@@ -210,7 +210,10 @@ an endpoint that disables introspection.
 A read the endpoint refuses does not take the schema away. The card then shows
 the schema it is still serving with the refusal beside it, so an endpoint behind
 a sign-in redirect or a firewall reads as a failed refresh rather than a lost
-upload:
+upload. The refusal is kept with the schema, so the card shows it whichever
+replica serves the page and after a restart, until a read or an upload succeeds.
+Pressing **Re-read from endpoint** when the endpoint still refuses says so under
+the button, pointing at the refusal already on the card:
 
 ![Schema held through a failed re-read](../images/screenshots/light/admin-admin-connection-graphql-schema-light.webp#only-light)![Schema held through a failed re-read](../images/screenshots/dark/admin-admin-connection-graphql-schema-dark.webp#only-dark)
 

@@ -104,8 +104,9 @@ export const connectionInstanceHandlers = [
   // One route, both ways a schema arrives, as the real one works: an empty
   // body re-reads the endpoint, and a body is the schema itself. Neither
   // fixture's endpoint answers introspection, so a re-read is the upstream's
-  // refusal at 502 and leaves the stored state alone; a pasted schema is
-  // accepted and becomes what the connection holds.
+  // refusal, recorded beside whatever the connection holds and answered as
+  // that state with a 200 (#1704); a pasted schema is accepted and becomes
+  // what the connection holds, with nothing beside it.
   http.post(
     `${ADMIN_BASE}/connection-instances/graphql/:name/refresh-schema`,
     async ({ params, request }) => {
@@ -114,10 +115,12 @@ export const connectionInstanceHandlers = [
       if (!info) return new HttpResponse(null, { status: 404 });
       const body = (await request.text().catch(() => "")).trim();
       if (body === "") {
-        return HttpResponse.json(
-          { detail: info.error ?? "the endpoint refused the introspection query" },
-          { status: 502 },
-        );
+        const refused: GraphQLSchemaInfo = {
+          ...info,
+          error: info.error ?? "graphql: the endpoint refused the introspection query",
+        };
+        mockGraphQLSchemaState[name] = refused;
+        return HttpResponse.json(refused);
       }
       const applied: GraphQLSchemaInfo = {
         connection: name,

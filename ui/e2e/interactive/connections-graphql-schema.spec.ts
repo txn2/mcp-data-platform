@@ -61,8 +61,9 @@ test.describe("Schema card — a held schema whose re-read failed", () => {
     const card = await openSchemaCard(page, "acme-orders-graphql");
     await card.getByRole("button", { name: "Re-read from endpoint" }).click();
 
-    // The platform answers 502 and leaves the stored schema in place, so the
-    // card reports the attempt without retracting the schema.
+    // The platform records the refusal beside the stored schema and answers
+    // with that state (#1704), so the card reports the attempt without
+    // retracting the schema.
     await expect(card.getByText("8 operations")).toBeVisible();
     await expect(card.getByText("ff68d87b41c2")).toBeVisible();
     await expect(card.getByText(/holds no schema/i)).toHaveCount(0);

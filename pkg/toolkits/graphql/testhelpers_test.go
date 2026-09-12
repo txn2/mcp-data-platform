@@ -30,6 +30,9 @@ type upstream struct {
 	// Empty answers a GraphQL error, which is what an endpoint with
 	// introspection disabled does.
 	introspection string
+	// onIntrospection runs while the introspection query is in flight,
+	// before it is answered: what another instance does during a read.
+	onIntrospection func()
 	// respond answers every other document. Nil answers an empty data
 	// object.
 	respond func(req graphQLRequest, callNo int) (status int, body string)
@@ -55,10 +58,14 @@ func (u *upstream) serve(w http.ResponseWriter, r *http.Request) {
 	callNo := len(u.requests)
 	respond := u.respond
 	introspection := u.introspection
+	onIntrospection := u.onIntrospection
 	u.mu.Unlock()
 
 	w.Header().Set("Content-Type", "application/json")
 	if strings.Contains(req.Query, "__schema") {
+		if onIntrospection != nil {
+			onIntrospection()
+		}
 		if introspection == "" {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"errors":[{"message":"GraphQL introspection is not allowed"}]}`))

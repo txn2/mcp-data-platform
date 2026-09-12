@@ -159,13 +159,23 @@ func TestRefreshSeparatesTheOperatorsInputFromTheUpstreamsFailure(t *testing.T) 
 	server := endpoint(t, `{"errors":[{"message":"introspection disabled"}]}`)
 	mux, _ := mount(t, server.URL, true)
 
-	// The endpoint would not answer: that is the upstream's failure.
+	// The endpoint would not answer: that is the upstream's answer, and it
+	// is recorded on the connection. The route reports the state it left,
+	// the same shape GET .../schema answers, in a status no CDN replaces
+	// (#1704).
 	rec := call(t, mux, http.MethodPost, "/api/v1/admin/connection-instances/graphql/gql/refresh-schema", "")
-	if rec.Code != http.StatusBadGateway {
-		t.Errorf("status = %d; an endpoint that refused is a 502", rec.Code)
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d; a refused re-read is reported as state", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "introspection disabled") {
-		t.Errorf("body = %s; the upstream's own words are the diagnosis", rec.Body)
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("content type = %q; the state is the schema info, not a problem", ct)
+	}
+	if info := decodeInfo(t, rec); !strings.Contains(info.Error, "introspection disabled") {
+		t.Errorf("info = %+v; the upstream's own words are the diagnosis", info)
+	}
+	get := call(t, mux, http.MethodGet, "/api/v1/admin/connection-instances/graphql/gql/schema", "")
+	if get.Body.String() != rec.Body.String() {
+		t.Errorf("the refresh answered %s and the read answers %s; one state, one shape", rec.Body, get.Body)
 	}
 
 	// A schema they supplied that does not parse is their input.
@@ -177,7 +187,9 @@ func TestRefreshSeparatesTheOperatorsInputFromTheUpstreamsFailure(t *testing.T) 
 
 // TestAStoredSchemaIsAnnouncedToPeers: an upload and a re-read both replace
 // the stored schema, and each is announced so the other replicas install it
-// (#1676). A refresh the endpoint refused and an upload that did not parse
+// (#1676). A re-read the endpoint refused beside a held schema is recorded
+// with it and announced too, so every replica reports it (#1703). An upload
+// that did not parse, and a refusal on a connection holding no schema,
 // stored nothing, and announce nothing.
 func TestAStoredSchemaIsAnnouncedToPeers(t *testing.T) {
 	server := endpoint(t, introspectionResult)
@@ -199,7 +211,13 @@ func TestAStoredSchemaIsAnnouncedToPeers(t *testing.T) {
 	mux, _, announced = mountAnnouncing(t, refusing.URL, true)
 	call(t, mux, http.MethodPost, "/api/v1/admin/connection-instances/graphql/gql/refresh-schema", "")
 	if got := *announced; len(got) != 0 {
-		t.Errorf("announced = %v; a re-read the endpoint refused stored nothing", got)
+		t.Errorf("announced = %v; a refusal on a connection holding no schema stored nothing", got)
+	}
+
+	call(t, mux, http.MethodPost, "/api/v1/admin/connection-instances/graphql/gql/refresh-schema", string(sdl))
+	call(t, mux, http.MethodPost, "/api/v1/admin/connection-instances/graphql/gql/refresh-schema", "")
+	if got := *announced; len(got) != 2 {
+		t.Errorf("announced = %v; want the upload and the refusal recorded beside it", got)
 	}
 }
 

@@ -44,11 +44,12 @@ const flatIntrospectionResult = `{
 // toolkit stores what it read and reads back what it stored, without a
 // database. The real store's SQL is covered by its own package.
 type memorySchemaStore struct {
-	mu       sync.Mutex
-	schemas  map[string]StoredSchema
-	putErr   error
-	getErr   error
-	putCalls int
+	mu        sync.Mutex
+	schemas   map[string]StoredSchema
+	putErr    error
+	getErr    error
+	recordErr error
+	putCalls  int
 }
 
 func newMemorySchemaStore() *memorySchemaStore {
@@ -76,6 +77,21 @@ func (m *memorySchemaStore) PutSchema(_ context.Context, s StoredSchema) error {
 		return m.putErr
 	}
 	m.schemas[s.Connection] = s
+	return nil
+}
+
+// RecordReadError models the real store's conditional UPDATE: the refusal
+// lands on the stored row only while it holds the version the reader held.
+func (m *memorySchemaStore) RecordReadError(_ context.Context, held StoredSchema) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.recordErr != nil {
+		return m.recordErr
+	}
+	if s, ok := m.schemas[held.Connection]; ok && s.Hash == held.Hash && s.FetchedAt.Equal(held.FetchedAt) {
+		s.ReadError = held.ReadError
+		m.schemas[held.Connection] = s
+	}
 	return nil
 }
 

@@ -160,7 +160,7 @@ func (h *Handler) browseGlossaryRoots(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 	if err := g.Wait(); err != nil {
-		writeError(w, http.StatusBadGateway, "glossary roots read failed: "+err.Error())
+		writeUpstreamError(w, "glossary roots read failed: "+err.Error())
 		return
 	}
 	resp.Nodes = orEmpty(resp.Nodes)
@@ -260,7 +260,7 @@ func orEmpty[T any](s []T) []T {
 }
 
 // writeCatalogReadError maps an upstream catalog read failure to a status. A
-// URN that DataHub does not know is a 404 rather than a 502: the request was
+// URN that DataHub does not know is a 404 rather than a 503: the request was
 // well-formed and the backend answered, the entity simply is not there.
 //
 // Two sentinels answer for that, because the reads behind this surface report
@@ -269,14 +269,14 @@ func orEmpty[T any](s []T) []T {
 // the by-URN term and entity reads are mapped onto (#1610). The adapter puts
 // both in the chain, so either test alone would pass today; both are here
 // because a reader that answers only one of them is one wiring change (a
-// caching decorator, another provider) away from a 502 for an entity that
+// caching decorator, another provider) away from a 503 for an entity that
 // simply is not there.
 func writeCatalogReadError(w http.ResponseWriter, label string, err error) {
 	if errors.Is(err, dhclient.ErrNotFound) || errors.Is(err, semantic.ErrNotFound) {
 		writeError(w, http.StatusNotFound, label+": "+err.Error())
 		return
 	}
-	writeError(w, http.StatusBadGateway, label+": "+err.Error())
+	writeUpstreamError(w, label+": "+err.Error())
 }
 
 // --- edits (#1155 nodes, #1158 terms and delete) ---
@@ -315,7 +315,7 @@ func (h *Handler) createGlossaryEntity(w http.ResponseWriter, r *http.Request, k
 		return
 	}
 	// A malformed parent is a client error: reject it here rather than forwarding
-	// it to DataHub, which would surface as a misleading 502.
+	// it to DataHub, which would surface as a misleading 503.
 	if req.ParentNode != "" && !isURNOfType(req.ParentNode, glossaryNodeURNTypes) {
 		writeError(w, http.StatusBadRequest,
 			fmt.Sprintf("invalid parent node: %q must be a %s", req.ParentNode, urnHint(glossaryNodeURNTypes)))
@@ -328,7 +328,7 @@ func (h *Handler) createGlossaryEntity(w http.ResponseWriter, r *http.Request, k
 		"parent_node": req.ParentNode,
 	}, err)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, kind.label+" create failed: "+err.Error())
+		writeUpstreamError(w, kind.label+" create failed: "+err.Error())
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]string{"urn": urn})
@@ -355,7 +355,7 @@ func (h *Handler) deleteGlossaryEntity(w http.ResponseWriter, r *http.Request) {
 		"urn":         urn,
 	}, err)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "glossary entity delete failed: "+err.Error())
+		writeUpstreamError(w, "glossary entity delete failed: "+err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})

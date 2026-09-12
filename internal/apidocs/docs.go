@@ -673,8 +673,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
-                    "502": {
-                        "description": "Bad Gateway",
+                    "503": {
+                        "description": "Service Unavailable",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -989,8 +989,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
-                    "502": {
-                        "description": "Bad Gateway",
+                    "503": {
+                        "description": "Service Unavailable",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -3762,7 +3762,7 @@ const docTemplate = `{
         },
         "/admin/connection-instances/graphql/{name}/refresh-schema": {
             "post": {
-                "description": "With an empty body, reads the connection's schema from its endpoint by introspection. With a body, takes the body as the schema: SDL, or a saved introspection result in either the full GraphQL response shape or the __schema object alone. Either way the schema is stored, the operation index is rebuilt on every replica, and the response reports the new state. A re-read the endpoint refuses leaves the schema the connection holds in place and reports the refusal beside it.",
+                "description": "With an empty body, reads the connection's schema from its endpoint by introspection. With a body, takes the body as the schema: SDL, or a saved introspection result in either the full GraphQL response shape or the __schema object alone. Either way the schema is stored, the operation index is rebuilt on every replica, and the response reports the new state. A re-read the endpoint refuses is state too: the schema the connection holds stays in place, the refusal is recorded beside it on every replica, and the response is the same 200 with ` + "`" + `error` + "`" + ` filled. A body that does not parse is the caller's input and answers 400.",
                 "consumes": [
                     "text/plain"
                 ],
@@ -3797,12 +3797,6 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/httpjson.ProblemDetail"
-                        }
-                    },
-                    "502": {
-                        "description": "Bad Gateway",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -4312,8 +4306,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
-                    "502": {
-                        "description": "Bad Gateway",
+                    "503": {
+                        "description": "Service Unavailable",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -4787,8 +4781,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/admin.problemDetail"
                         }
                     },
-                    "502": {
-                        "description": "Bad Gateway",
+                    "503": {
+                        "description": "Service Unavailable",
                         "schema": {
                             "$ref": "#/definitions/admin.problemDetail"
                         }
@@ -4836,8 +4830,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/admin.problemDetail"
                         }
                     },
-                    "502": {
-                        "description": "Bad Gateway",
+                    "503": {
+                        "description": "Service Unavailable",
                         "schema": {
                             "$ref": "#/definitions/admin.refreshGatewayConnectionResponse"
                         }
@@ -4946,8 +4940,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/admin.problemDetail"
                         }
                     },
-                    "502": {
-                        "description": "Bad Gateway",
+                    "503": {
+                        "description": "Service Unavailable",
                         "schema": {
                             "$ref": "#/definitions/admin.testGatewayConnectionResponse"
                         }
@@ -8135,8 +8129,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/settingsapi.problemDetail"
                         }
                     },
-                    "502": {
-                        "description": "Bad Gateway",
+                    "503": {
+                        "description": "Service Unavailable",
                         "schema": {
                             "$ref": "#/definitions/settingsapi.problemDetail"
                         }

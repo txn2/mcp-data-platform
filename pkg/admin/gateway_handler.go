@@ -64,7 +64,7 @@ func (h *Handler) getGatewayConnectionStatus(w http.ResponseWriter, r *http.Requ
 // @Success      200  {object}  gatewaykit.ConnectionStatus
 // @Failure      404  {object}  problemDetail
 // @Failure      409  {object}  problemDetail
-// @Failure      502  {object}  problemDetail
+// @Failure      503  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
 // @Router       /admin/gateway/connections/{name}/reacquire-oauth [post]
@@ -80,7 +80,7 @@ func (h *Handler) reacquireGatewayOAuth(w http.ResponseWriter, r *http.Request) 
 			writeError(w, http.StatusNotFound, "gateway connection not found")
 			return
 		}
-		writeError(w, http.StatusBadGateway, err.Error())
+		writeError(w, http.StatusServiceUnavailable, err.Error())
 		return
 	}
 	status := tk.Status(r.Context(), name)
@@ -125,7 +125,7 @@ type testGatewayConnectionResponse struct {
 // @Param        body  body  testGatewayConnectionRequest  true  "Config to test"
 // @Success      200   {object}  testGatewayConnectionResponse
 // @Failure      400   {object}  problemDetail
-// @Failure      502   {object}  testGatewayConnectionResponse
+// @Failure      503   {object}  testGatewayConnectionResponse
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
 // @Router       /admin/gateway/connections/{name}/test [post]
@@ -157,7 +157,7 @@ func (h *Handler) testGatewayConnection(w http.ResponseWriter, r *http.Request) 
 
 	tools, err := gatewaykit.Probe(ctx, cfg)
 	if err != nil {
-		writeJSON(w, http.StatusBadGateway, testGatewayConnectionResponse{
+		writeJSON(w, http.StatusServiceUnavailable, testGatewayConnectionResponse{
 			Healthy: false,
 			Error:   err.Error(),
 		})
@@ -198,7 +198,7 @@ func (h *Handler) tryTestLiveConnection(w http.ResponseWriter, r *http.Request, 
 			// "click Connect" message it was built for.
 			return false
 		}
-		writeJSON(w, http.StatusBadGateway, testGatewayConnectionResponse{
+		writeJSON(w, http.StatusServiceUnavailable, testGatewayConnectionResponse{
 			Healthy: false,
 			Error:   err.Error(),
 		})
@@ -291,7 +291,7 @@ type refreshGatewayConnectionResponse struct {
 // @Param        name  path  string  true  "Gateway connection name"
 // @Success      200   {object}  refreshGatewayConnectionResponse
 // @Failure      404   {object}  problemDetail
-// @Failure      502   {object}  refreshGatewayConnectionResponse
+// @Failure      503   {object}  refreshGatewayConnectionResponse
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
 // @Router       /admin/gateway/connections/{name}/refresh [post]
@@ -324,7 +324,7 @@ func (h *Handler) refreshGatewayConnection(w http.ResponseWriter, r *http.Reques
 		}
 	}
 	if aerr := cm.AddConnection(name, inst.Config); aerr != nil {
-		writeJSON(w, http.StatusBadGateway, refreshGatewayConnectionResponse{
+		writeJSON(w, http.StatusServiceUnavailable, refreshGatewayConnectionResponse{
 			Healthy: false,
 			Error:   aerr.Error(),
 		})

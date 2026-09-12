@@ -402,8 +402,8 @@ func TestSendTest_DeliveryFailure(t *testing.T) {
 	send := func(context.Context, string) error { return errors.New("smtp refused") }
 	mux := testMux(Config{Settings: &fakeSettings{}, SendTest: send, Mutable: true})
 	res := doJSON(t, mux, http.MethodPost, "/api/v1/admin/settings/smtp/test", smtp.TestEmailRequest{To: "a@b.io"})
-	if res.Code != http.StatusBadGateway {
-		t.Fatalf("status = %d; want 502", res.Code)
+	if res.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d; want 503", res.Code)
 	}
 }
 
@@ -424,8 +424,8 @@ func TestSendTest_FailureResponseIsInvariant(t *testing.T) {
 		send := func(context.Context, string) error { return failErr }
 		mux := testMux(Config{Settings: &fakeSettings{}, SendTest: send, Mutable: true})
 		res := doJSON(t, mux, http.MethodPost, "/api/v1/admin/settings/smtp/test", smtp.TestEmailRequest{To: "a@b.io"})
-		if res.Code != http.StatusBadGateway {
-			t.Fatalf("failure %d: status = %d; want 502", i, res.Code)
+		if res.Code != http.StatusServiceUnavailable {
+			t.Fatalf("failure %d: status = %d; want 503", i, res.Code)
 		}
 		body := res.Body.String()
 		if strings.Contains(body, "refused") || strings.Contains(body, "timeout") ||
