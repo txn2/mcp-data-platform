@@ -146,18 +146,19 @@ func TestServe_UpstreamErrorPassesThrough(t *testing.T) {
 	assert.Contains(t, resp.Body.String(), "bad_data")
 }
 
-func TestServe_UpstreamUnreachable502(t *testing.T) {
-	// Closed server -> connection refused (not a timeout) -> 502.
+func TestServe_UpstreamUnreachable503(t *testing.T) {
+	// Closed server -> connection refused (not a timeout) -> 503.
 	upstream := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	url := upstream.URL
 	upstream.Close()
 
 	h := newTestHandler(t, url, granted())
 	resp := doGet(t, h, "/api/v1/observability/query?query=up")
-	assert.Equal(t, http.StatusBadGateway, resp.Code)
+	assert.Equal(t, http.StatusServiceUnavailable, resp.Code)
+	assert.Contains(t, resp.Body.String(), "prometheus unreachable", "the body names which failure the 503 is")
 }
 
-func TestServe_UpstreamTimeout504(t *testing.T) {
+func TestServe_UpstreamTimeout503(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(200 * time.Millisecond)
 		_, _ = io.WriteString(w, "{}")
@@ -167,7 +168,8 @@ func TestServe_UpstreamTimeout504(t *testing.T) {
 	h, err := New(Config{URL: upstream.URL, Timeout: 20 * time.Millisecond}, stubAuthorizer{dec: granted()})
 	require.NoError(t, err)
 	resp := doGet(t, h, "/api/v1/observability/query?query=up")
-	assert.Equal(t, http.StatusGatewayTimeout, resp.Code)
+	assert.Equal(t, http.StatusServiceUnavailable, resp.Code)
+	assert.Contains(t, resp.Body.String(), "prometheus query timed out", "the body names which failure the 503 is")
 }
 
 // --- helpers ---

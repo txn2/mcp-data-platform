@@ -150,7 +150,7 @@ func (h *handler) setSMTP(w http.ResponseWriter, r *http.Request) {
 // @Success      200  {object}  map[string]string
 // @Failure      400  {object}  problemDetail
 // @Failure      409  {object}  problemDetail
-// @Failure      502  {object}  problemDetail
+// @Failure      503  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
 // @Router       /admin/settings/smtp/test [post]
@@ -176,7 +176,7 @@ func (h *handler) sendTest(w http.ResponseWriter, r *http.Request) {
 		// for anything the server can route to. The sender logs the real error
 		// with the host and port, so the response gives up no detail an
 		// operator cannot read there.
-		writeError(w, http.StatusBadGateway, testSendFailureDetail)
+		writeError(w, http.StatusServiceUnavailable, testSendFailureDetail)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "sent", "to": req.To})

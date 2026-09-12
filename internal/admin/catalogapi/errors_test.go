@@ -590,7 +590,7 @@ func TestSpecErrorStatus_AllBranches(t *testing.T) {
 		{apicatalog.ErrNotFound, http.StatusNotFound},
 		{apicatalog.ErrInvalidSpecName, http.StatusBadRequest},
 		{apicatalog.ErrSSRFBlocked, http.StatusBadRequest},
-		{apicatalog.ErrUpstream, http.StatusBadGateway},
+		{apicatalog.ErrUpstream, http.StatusServiceUnavailable},
 		{apicatalog.ErrTooLarge, http.StatusRequestEntityTooLarge},
 		{errors.New("boom"), http.StatusInternalServerError},
 	}

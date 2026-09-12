@@ -329,6 +329,31 @@ func TestReacquireConnectionOAuth_NeedsReauth(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, w.Code)
 }
 
+// TestReacquireConnectionOAuth_UpstreamFailureAnswers503: an IdP that fails
+// the exchange is relayed as 503 with its detail. A 502 was the status
+// before #1704, and a CDN in front of a deployment replaces a 502's body, so
+// the status card showed a status code with no cause.
+func TestReacquireConnectionOAuth_UpstreamFailureAnswers503(t *testing.T) {
+	srv := fakeIDPServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	fx := setupOAuthFixture(t, srv)
+	h, store := fx.handler, fx.store
+	_ = store.Set(context.Background(), connoauth.PersistedToken{
+		Key:          connoauth.Key{Kind: connoauth.KindMCP, Name: "alpha"},
+		AccessToken:  "at",
+		RefreshToken: "rt",
+		ExpiresAt:    time.Now().Add(time.Hour),
+	})
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
+		"/api/v1/admin/connections/mcp/alpha/reacquire-oauth", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code, "body=%s", w.Body.String())
+	assert.Contains(t, w.Body.String(), "refresh failed")
+}
+
 // ────────────────────────────────────────────────────────────────────────
 // connectionOAuthCallback — the full Start → callback → token persisted
 // + AfterConnect hook fired round-trip.

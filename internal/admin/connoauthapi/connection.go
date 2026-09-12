@@ -483,7 +483,7 @@ func (h *handler) connectionAuthEvents(w http.ResponseWriter, r *http.Request) {
 // @Success      200
 // @Failure      404   {object}  httpjson.ProblemDetail
 // @Failure      409   {object}  httpjson.ProblemDetail
-// @Failure      502   {object}  httpjson.ProblemDetail
+// @Failure      503   {object}  httpjson.ProblemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
 // @Router       /admin/connections/{kind}/{name}/reacquire-oauth [post]
@@ -510,7 +510,7 @@ func (h *handler) reacquireConnectionOAuth(w http.ResponseWriter, r *http.Reques
 			httpjson.WriteError(w, http.StatusConflict, "connection needs admin reconnect")
 			return
 		}
-		httpjson.WriteError(w, http.StatusBadGateway, "refresh failed: "+err.Error())
+		httpjson.WriteError(w, http.StatusServiceUnavailable, "refresh failed: "+err.Error())
 		return
 	}
 	// Return the post-refresh status so the portal's status card updates

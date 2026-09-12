@@ -70,7 +70,7 @@ func TestGlossaryTerm(t *testing.T) {
 }
 
 // TestGlossaryTerm_Unknown proves a term the catalog does not hold is a 404, not
-// a 502: the request was well-formed and the backend answered.
+// a 503: the request was well-formed and the backend answered.
 func TestGlossaryTerm_Unknown(t *testing.T) {
 	h := newTestHandler(glossaryBackend(), false, readerResolver(), &fakeAuditLogger{})
 	rec := serve(h, viewer, "GET", glossaryBase+"/term?urn=urn:li:glossaryTerm:missing", "")
@@ -83,7 +83,7 @@ func TestGlossaryTerm_Unknown(t *testing.T) {
 // arrives as the provider abstraction's sentinel alone, which is what
 // CachedProvider replays for a URN the catalog has already reported it does not
 // hold (#1610). Keying the status on the upstream client's sentinel only would
-// answer 502 for every repeat of the same lookup.
+// answer 503 for every repeat of the same lookup.
 func TestGlossaryTerm_UnknownThroughTheCache(t *testing.T) {
 	backend := glossaryBackend()
 	backend.readErr = fmt.Errorf("glossary term: %w", semantic.ErrNotFound)
@@ -96,7 +96,7 @@ func TestGlossaryTerm_UnknownThroughTheCache(t *testing.T) {
 
 // TestGlossaryTerm_RejectsOtherKinds proves the route takes only a term URN. A
 // node has no by-URN read upstream, so accepting one would forward a request
-// that can only fail as a misleading 502.
+// that can only fail as a misleading 503.
 func TestGlossaryTerm_RejectsOtherKinds(t *testing.T) {
 	h := newTestHandler(glossaryBackend(), false, readerResolver(), &fakeAuditLogger{})
 	for _, urn := range []string{testFinanceNodeURN, "urn:li:tag:pii", "not-a-urn", ""} {
@@ -107,15 +107,15 @@ func TestGlossaryTerm_RejectsOtherKinds(t *testing.T) {
 	}
 }
 
-// TestGlossaryTerm_BackendFailure surfaces an upstream failure as a 502, which
+// TestGlossaryTerm_BackendFailure surfaces an upstream failure as a 503, which
 // is what keeps "this term is gone" distinct from "the catalog did not answer".
 func TestGlossaryTerm_BackendFailure(t *testing.T) {
 	backend := glossaryBackend()
 	backend.readErr = errors.New("datahub down")
 	h := newTestHandler(backend, false, readerResolver(), &fakeAuditLogger{})
 	rec := serve(h, viewer, "GET", glossaryBase+"/term?urn="+testRevenueTermURN, "")
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf(glossaryStatusTmpl, rec.Code, http.StatusBadGateway, rec.Body.String())
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf(glossaryStatusTmpl, rec.Code, http.StatusServiceUnavailable, rec.Body.String())
 	}
 }
 
@@ -182,8 +182,8 @@ func TestGlossaryRoots_LegFailure(t *testing.T) {
 			tt.fail(backend)
 			h := newTestHandler(backend, false, readerResolver(), &fakeAuditLogger{})
 			rec := serve(h, viewer, "GET", glossaryBase+"/roots", "")
-			if rec.Code != http.StatusBadGateway {
-				t.Fatalf(glossaryStatusTmpl, rec.Code, http.StatusBadGateway, rec.Body.String())
+			if rec.Code != http.StatusServiceUnavailable {
+				t.Fatalf(glossaryStatusTmpl, rec.Code, http.StatusServiceUnavailable, rec.Body.String())
 			}
 		})
 	}
@@ -272,20 +272,20 @@ func TestGlossaryChildren_UnknownNode(t *testing.T) {
 	}
 }
 
-// TestGlossaryChildren_BackendFailure keeps a genuine upstream failure a 502, so
+// TestGlossaryChildren_BackendFailure keeps a genuine upstream failure a 503, so
 // it is not confused with the not-found case.
 func TestGlossaryChildren_BackendFailure(t *testing.T) {
 	backend := glossaryBackend()
 	backend.readErr = errors.New("datahub down")
 	h := newTestHandler(backend, false, readerResolver(), &fakeAuditLogger{})
 	rec := serve(h, viewer, "GET", glossaryBase+"/children?urn="+testFinanceNodeURN, "")
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf(glossaryStatusTmpl, rec.Code, http.StatusBadGateway, rec.Body.String())
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf(glossaryStatusTmpl, rec.Code, http.StatusServiceUnavailable, rec.Body.String())
 	}
 }
 
 // TestGlossaryURNValidation rejects a missing or wrong-typed URN with a 400
-// rather than forwarding it to DataHub and returning a misleading 502.
+// rather than forwarding it to DataHub and returning a misleading 503.
 func TestGlossaryURNValidation(t *testing.T) {
 	tests := []struct {
 		name string
@@ -343,14 +343,14 @@ func TestGlossaryParents(t *testing.T) {
 	}
 }
 
-// TestGlossaryParents_BackendFailure surfaces an upstream failure as a 502.
+// TestGlossaryParents_BackendFailure surfaces an upstream failure as a 503.
 func TestGlossaryParents_BackendFailure(t *testing.T) {
 	backend := glossaryBackend()
 	backend.readErr = errors.New("datahub down")
 	h := newTestHandler(backend, false, readerResolver(), &fakeAuditLogger{})
 	rec := serve(h, viewer, "GET", glossaryBase+"/parents?urn="+testRevenueTermURN, "")
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf(glossaryStatusTmpl, rec.Code, http.StatusBadGateway, rec.Body.String())
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf(glossaryStatusTmpl, rec.Code, http.StatusServiceUnavailable, rec.Body.String())
 	}
 }
 
@@ -521,7 +521,7 @@ func TestCreateGlossaryEntity_WriteGate(t *testing.T) {
 	}
 }
 
-// TestCreateGlossaryEntity_BackendFailure surfaces the failure as a 502 and
+// TestCreateGlossaryEntity_BackendFailure surfaces the failure as a 503 and
 // still records the failed attempt in the audit log.
 func TestCreateGlossaryEntity_BackendFailure(t *testing.T) {
 	for _, kind := range glossaryCreateKinds {
@@ -532,8 +532,8 @@ func TestCreateGlossaryEntity_BackendFailure(t *testing.T) {
 			h := newTestHandler(backend, true, writerResolver(), log)
 
 			rec := serve(h, viewer, "POST", glossaryBase+kind.path, `{"name":"Revenue"}`)
-			if rec.Code != http.StatusBadGateway {
-				t.Fatalf(glossaryStatusTmpl, rec.Code, http.StatusBadGateway, rec.Body.String())
+			if rec.Code != http.StatusServiceUnavailable {
+				t.Fatalf(glossaryStatusTmpl, rec.Code, http.StatusServiceUnavailable, rec.Body.String())
 			}
 			if len(log.events) != 1 || log.events[0].Success {
 				t.Fatalf("audit must record the failed create: %+v", log.events)
@@ -582,7 +582,7 @@ func TestDeleteGlossaryEntity(t *testing.T) {
 }
 
 // TestDeleteGlossaryEntity_Invalid rejects a missing or wrong-kinded URN with a
-// 400 rather than forwarding it to DataHub as a misleading 502.
+// 400 rather than forwarding it to DataHub as a misleading 503.
 func TestDeleteGlossaryEntity_Invalid(t *testing.T) {
 	for _, tt := range []struct {
 		name string
@@ -633,8 +633,8 @@ func TestDeleteGlossaryEntity_Gates(t *testing.T) {
 	backend.writeErr = errors.New("permission denied")
 	log := &fakeAuditLogger{}
 	h = newTestHandler(backend, true, writerResolver(), log)
-	if rec := serve(h, viewer, "DELETE", path, ""); rec.Code != http.StatusBadGateway {
-		t.Errorf("upstream failure: status = %d, want 502 (%s)", rec.Code, rec.Body.String())
+	if rec := serve(h, viewer, "DELETE", path, ""); rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("upstream failure: status = %d, want 503 (%s)", rec.Code, rec.Body.String())
 	}
 	if len(log.events) != 1 || log.events[0].Success {
 		t.Fatalf("audit must record the failed delete: %+v", log.events)
@@ -743,7 +743,7 @@ func TestEntityDocuments_Errors(t *testing.T) {
 	backend.readErr = errors.New("datahub down")
 	h = newTestHandler(backend, false, readerResolver(), &fakeAuditLogger{})
 	rec = serve(h, viewer, "GET", dhCatalogBase+"/entity/documents?urn="+testRevenueTermURN, "")
-	if rec.Code != http.StatusBadGateway {
-		t.Errorf("upstream failure: status = %d, want 502 (%s)", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("upstream failure: status = %d, want 503 (%s)", rec.Code, rec.Body.String())
 	}
 }

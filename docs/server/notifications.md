@@ -126,7 +126,7 @@ the admin UI shows an informational notice next to the send action so
 "receives test mail but never notifications" is self-explaining rather
 than a troubleshooting mystery.
 
-A failed send answers 502 with fixed text that does not vary with the
+A failed send answers 503 with fixed text that does not vary with the
 failure mode. The host and port are admin-chosen and deliberately
 unrestricted, so a reflected dial error would distinguish refused from
 timed out from TLS handshake failure for any address the server can reach.

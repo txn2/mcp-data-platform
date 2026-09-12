@@ -8214,8 +8214,8 @@ paths:
           description: Internal Server Error
           schema:
             $ref: '#/definitions/httpjson.ProblemDetail'
-        "502":
-          description: Bad Gateway
+        "503":
+          description: Service Unavailable
           schema:
             $ref: '#/definitions/httpjson.ProblemDetail'
       security:
@@ -8384,8 +8384,8 @@ paths:
           description: Internal Server Error
           schema:
             $ref: '#/definitions/httpjson.ProblemDetail'
-        "502":
-          description: Bad Gateway
+        "503":
+          description: Service Unavailable
           schema:
             $ref: '#/definitions/httpjson.ProblemDetail'
       security:
@@ -10308,8 +10308,10 @@ paths:
         introspection result in either the full GraphQL response shape or the __schema
         object alone. Either way the schema is stored, the operation index is rebuilt
         on every replica, and the response reports the new state. A re-read the endpoint
-        refuses leaves the schema the connection holds in place and reports the refusal
-        beside it.'
+        refuses is state too: the schema the connection holds stays in place, the
+        refusal is recorded beside it on every replica, and the response is the same
+        200 with `error` filled. A body that does not parse is the caller''s input
+        and answers 400.'
       parameters:
       - description: GraphQL connection name
         in: path
@@ -10329,10 +10331,6 @@ paths:
             $ref: '#/definitions/httpjson.ProblemDetail'
         "404":
           description: Not Found
-          schema:
-            $ref: '#/definitions/httpjson.ProblemDetail'
-        "502":
-          description: Bad Gateway
           schema:
             $ref: '#/definitions/httpjson.ProblemDetail'
       summary: Re-read or supply a GraphQL connection's schema
@@ -10520,8 +10518,8 @@ paths:
           description: Conflict
           schema:
             $ref: '#/definitions/httpjson.ProblemDetail'
-        "502":
-          description: Bad Gateway
+        "503":
+          description: Service Unavailable
           schema:
             $ref: '#/definitions/httpjson.ProblemDetail'
       security:
@@ -10842,8 +10840,8 @@ paths:
           description: Conflict
           schema:
             $ref: '#/definitions/admin.problemDetail'
-        "502":
-          description: Bad Gateway
+        "503":
+          description: Service Unavailable
           schema:
             $ref: '#/definitions/admin.problemDetail'
       security:
@@ -10874,8 +10872,8 @@ paths:
           description: Not Found
           schema:
             $ref: '#/definitions/admin.problemDetail'
-        "502":
-          description: Bad Gateway
+        "503":
+          description: Service Unavailable
           schema:
             $ref: '#/definitions/admin.refreshGatewayConnectionResponse'
       security:
@@ -10953,8 +10951,8 @@ paths:
           description: Bad Request
           schema:
             $ref: '#/definitions/admin.problemDetail'
-        "502":
-          description: Bad Gateway
+        "503":
+          description: Service Unavailable
           schema:
             $ref: '#/definitions/admin.testGatewayConnectionResponse'
       security:
@@ -13005,8 +13003,8 @@ paths:
           description: Conflict
           schema:
             $ref: '#/definitions/settingsapi.problemDetail'
-        "502":
-          description: Bad Gateway
+        "503":
+          description: Service Unavailable
           schema:
             $ref: '#/definitions/settingsapi.problemDetail'
       security:

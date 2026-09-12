@@ -97,7 +97,7 @@ func (h *Handler) createVocabularyEntry(w http.ResponseWriter, r *http.Request, 
 		"name":        req.Name,
 	}, err)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, v.kind+" create failed: "+err.Error())
+		writeUpstreamError(w, v.kind+" create failed: "+err.Error())
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]string{"urn": urn})
@@ -108,7 +108,7 @@ func (h *Handler) createVocabularyEntry(w http.ResponseWriter, r *http.Request, 
 // The URN is a query parameter rather than a path segment because a tag or
 // domain URN is itself colon-delimited, matching how the glossary reads take
 // theirs. A URN of the wrong kind is a 400 here rather than a forwarded call
-// that would surface as a misleading 502.
+// that would surface as a misleading 503.
 func (h *Handler) deleteVocabularyEntry(w http.ResponseWriter, r *http.Request, v vocabulary) {
 	auth, ok := h.authorizeWrite(w, r, datahubDeleteTool)
 	if !ok {
@@ -124,7 +124,7 @@ func (h *Handler) deleteVocabularyEntry(w http.ResponseWriter, r *http.Request, 
 		"urn":         urn,
 	}, err)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, v.kind+" delete failed: "+err.Error())
+		writeUpstreamError(w, v.kind+" delete failed: "+err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})

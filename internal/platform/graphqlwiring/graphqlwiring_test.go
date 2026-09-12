@@ -139,6 +139,14 @@ func (m *memoryStore) PutSchema(_ context.Context, s graphqlkit.StoredSchema) er
 	return nil
 }
 
+func (m *memoryStore) RecordReadError(_ context.Context, held graphqlkit.StoredSchema) error {
+	if stored, ok := m.schemas[held.Connection]; ok && stored.Hash == held.Hash && stored.FetchedAt.Equal(held.FetchedAt) {
+		stored.ReadError = held.ReadError
+		m.schemas[held.Connection] = stored
+	}
+	return nil
+}
+
 func (m *memoryStore) DeleteSchema(_ context.Context, connection string) error {
 	delete(m.schemas, connection)
 	return nil

@@ -116,8 +116,11 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request, upstreamPath str
 }
 
 // forward issues the upstream request and copies its status and body
-// through unchanged. On a gateway error it writes a 502/504 itself, so
-// callers do not inspect a return value.
+// through unchanged. When Prometheus cannot be reached or does not answer
+// in time it writes a 503 itself, so callers do not inspect a return value.
+// A 503 rather than a 502 or 504 because a CDN in front of the deployment
+// replaces the body of those two, and the portal would lose which of the
+// two it was (#1704).
 func (h *Handler) forward(w http.ResponseWriter, r *http.Request, upstreamPath string, passParams []string) {
 	vals := url.Values{}
 	for _, p := range passParams {
@@ -135,7 +138,7 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, upstreamPath s
 
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, reqURL.String(), http.NoBody)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "failed to build upstream request")
+		writeError(w, http.StatusInternalServerError, "failed to build upstream request")
 		return
 	}
 	if h.user != "" || h.pass != "" {
@@ -145,9 +148,9 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, upstreamPath s
 	resp, err := h.client.Do(req) // #nosec G107 -- URL host/scheme/path are fixed from validated operator config; only encoded query-string values are request-controlled
 	if err != nil {
 		if isTimeout(err) {
-			writeError(w, http.StatusGatewayTimeout, "prometheus query timed out")
+			writeError(w, http.StatusServiceUnavailable, "prometheus query timed out")
 		} else {
-			writeError(w, http.StatusBadGateway, "prometheus unreachable")
+			writeError(w, http.StatusServiceUnavailable, "prometheus unreachable")
 		}
 		return
 	}

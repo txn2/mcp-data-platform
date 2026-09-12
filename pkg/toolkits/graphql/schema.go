@@ -63,7 +63,7 @@ func (t *Toolkit) loadOrRefresh(ctx context.Context, name string) {
 	if !ok {
 		return
 	}
-	if loaded, _ := t.loadStored(ctx, c, false); loaded {
+	if loaded, _ := t.loadStored(ctx, c); loaded {
 		return
 	}
 	if err := t.RefreshSchema(ctx, name); err != nil {
@@ -74,7 +74,8 @@ func (t *Toolkit) loadOrRefresh(ctx context.Context, name string) {
 
 // readOrLoadStored brings a connection's schema up on register and on
 // reconcile: the endpoint is read, and when the read fails the schema
-// the store holds is installed with the failure reported beside it. The
+// the store holds is installed with the refusal the store records beside
+// it, which is this read's when this instance held the stored version. The
 // store is the source of truth across replicas, so a replica whose own
 // read fails serves what another replica read or was handed rather
 // than nothing (#1676). A deployment without a store keeps what the
@@ -93,33 +94,35 @@ func (t *Toolkit) readOrLoadStored(ctx context.Context, name string) {
 	}
 	// A store with nothing for the connection leaves what it held; any
 	// other failure is logged where it happens.
-	_, _ = t.loadStored(ctx, c, true)
+	_, _ = t.loadStored(ctx, c)
 }
 
 // LoadStoredSchema installs the schema the store holds for a connection,
-// replacing whatever this instance holds and clearing any failure it
-// recorded. It is how a schema stored by another replica, an upload or
-// a re-read, reaches this one: the reload bus calls it when a peer
-// announces one. The store's answer is final because it is what every
-// replica shares; this instance's own last read is superseded by it. An
-// instance with no store has nothing to load and is left as it is.
+// with the refusal the store records beside it, replacing whatever this
+// instance holds and whatever failure it recorded. It is how a schema
+// stored by another replica, an upload or a re-read, and a re-read
+// another replica was refused, reach this one: the reload bus calls it
+// when a peer announces one. The store's answer is final because it is
+// what every replica shares; this instance's own last read is superseded
+// by it. An instance with no store has nothing to load and is left as it
+// is.
 func (t *Toolkit) LoadStoredSchema(ctx context.Context, name string) error {
 	c, _, ok := t.lookup(name)
 	if !ok {
 		return notFound(name)
 	}
-	_, err := t.loadStored(ctx, c, false)
+	_, err := t.loadStored(ctx, c)
 	return err
 }
 
 // loadStored installs the stored schema on a connection when the store
-// holds one. keepErr carries the connection's recorded read failure
-// through the install, which is how a failed re-read is reported beside
-// the schema that survived it; false clears it, for a load that is the
-// answer rather than the fallback. The first result reports a schema
-// installed; the error is the store's, or the stored schema's when it
-// does not parse.
-func (t *Toolkit) loadStored(ctx context.Context, c *conn, keepErr bool) (bool, error) {
+// holds one, with the refusal the store records beside it. The store's
+// answer replaces this instance's own recorded failure: that failure was
+// recorded there if it was about the version the store holds, and a
+// failure about an older version, or about no schema at all, is not a
+// fact about this one. The first result reports a schema installed; the
+// error is the store's, or the stored schema's when it does not parse.
+func (t *Toolkit) loadStored(ctx context.Context, c *conn) (bool, error) {
 	t.mu.RLock()
 	store := t.schemaStore
 	t.mu.RUnlock()
@@ -140,13 +143,7 @@ func (t *Toolkit) loadStored(ctx context.Context, c *conn, keepErr bool) (bool, 
 			logKeyConnection, logsan.SanitizeForLog(c.cfg.ConnectionName), logKeyError, logsan.SanitizeForLog(err.Error()))
 		return false, fmt.Errorf("graphql: the stored schema for %s does not load: %w", stored.Connection, err)
 	}
-	v := schemaVersion{schema: parsed, source: stored.Source, fetchedAt: stored.FetchedAt}
-	if keepErr {
-		c.schemaMu.RLock()
-		v.schemaErr = c.schemaErr
-		c.schemaMu.RUnlock()
-	}
-	t.install(ctx, c, v)
+	t.install(ctx, c, schemaVersion{schema: parsed, source: stored.Source, fetchedAt: stored.FetchedAt, schemaErr: stored.ReadError})
 	return true, nil
 }
 
@@ -164,16 +161,17 @@ func (t *Toolkit) RefreshSchema(ctx context.Context, name string) error {
 	if !ok {
 		return notFound(name)
 	}
+	held := c.heldVersion()
 	res, err := t.execute(ctx, c, graphQLRequest{Query: gqlschema.IntrospectionQuery})
 	if err != nil {
-		return t.recordSchemaError(c, err)
+		return t.recordSchemaError(ctx, c, held, err)
 	}
 	if err := introspectionFailure(res); err != nil {
-		return t.recordSchemaError(c, err)
+		return t.recordSchemaError(ctx, c, held, err)
 	}
 	parsed, err := gqlschema.LoadIntrospection(res.body)
 	if err != nil {
-		return t.recordSchemaError(c, err)
+		return t.recordSchemaError(ctx, c, held, err)
 	}
 	t.store(ctx, c, parsed, SchemaSourceIntrospection)
 	return nil
@@ -331,12 +329,59 @@ func (t *Toolkit) ReloadVectors(ctx context.Context, name string) {
 
 // recordSchemaError records why a connection's last read failed and
 // returns the error for the caller to report. The schema the connection
-// holds, if any, is left in place: the failure is reported beside it.
-func (*Toolkit) recordSchemaError(c *conn, err error) error {
+// holds, if any, is left in place: the failure is reported beside it, on
+// this instance and in the store, so a replica that did not run the read
+// and a restart report it too (#1703).
+//
+// Both are recorded only beside held, the version this instance held when
+// the read began. A newer schema installed while the read was in flight,
+// a peer's upload arriving on the reload bus, is not what the endpoint
+// refused, and reporting the refusal beside it here while the store and
+// every other replica report none is the disagreement #1703 was filed
+// on. A store write that fails is logged rather than returned, for the
+// reason store gives.
+func (t *Toolkit) recordSchemaError(ctx context.Context, c *conn, held StoredSchema, err error) error {
 	c.schemaMu.Lock()
-	c.schemaErr = err.Error()
+	now := c.versionLocked()
+	current := now.Hash == held.Hash && now.FetchedAt.Equal(held.FetchedAt)
+	if current {
+		c.schemaErr = err.Error()
+	}
 	c.schemaMu.Unlock()
+	if !current {
+		slog.Info("graphql: a refused read was superseded by a schema installed while it ran",
+			logKeyConnection, logsan.SanitizeForLog(c.cfg.ConnectionName), logKeyError, logsan.SanitizeForLog(err.Error()))
+		return err
+	}
+	t.mu.RLock()
+	schemaStore := t.schemaStore
+	t.mu.RUnlock()
+	if schemaStore == nil || held.Hash == "" {
+		return err
+	}
+	held.ReadError = err.Error()
+	if werr := schemaStore.RecordReadError(ctx, held); werr != nil {
+		slog.Warn("graphql: recording the refused read failed",
+			logKeyConnection, logsan.SanitizeForLog(c.cfg.ConnectionName), logKeyError, logsan.SanitizeForLog(werr.Error()))
+	}
 	return err
+}
+
+// heldVersion names the schema version a connection holds, by the hash
+// and read time the store keys it on. Empty when it holds none.
+func (c *conn) heldVersion() StoredSchema {
+	c.schemaMu.RLock()
+	defer c.schemaMu.RUnlock()
+	return c.versionLocked()
+}
+
+// versionLocked is heldVersion for a caller already holding schemaMu.
+func (c *conn) versionLocked() StoredSchema {
+	v := StoredSchema{Connection: c.cfg.ConnectionName, FetchedAt: c.fetchedAt}
+	if c.schema != nil {
+		v.Hash = c.schema.Hash()
+	}
+	return v
 }
 
 // SchemaInfo reports what the platform holds for one connection.

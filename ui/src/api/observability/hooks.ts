@@ -12,10 +12,12 @@ const OBSERVABILITY_BASE = "/api/v1/observability";
 const PROM_STALE_TIME = 30_000;
 
 // isBackendUnconfigured reports whether an error is a metrics-backend
-// availability failure: HTTP 503 (not configured), 502 (unreachable), or
-// 504 (timed out). The views render these as a "metrics unavailable" empty
-// state rather than a hard error. With Prometheus auto-discovery an absent
-// backend surfaces as 502 here, not 503.
+// availability failure. The proxy answers 503 whether the backend is not
+// configured, unreachable, or timed out, naming which in the body (a CDN in
+// front of a deployment replaces the body of a 502 or 504, #1704); 502 and
+// 504 are still accepted because a proxy between the portal and the platform
+// can answer them itself. The views render these as a "metrics unavailable"
+// empty state rather than a hard error.
 export function isBackendUnconfigured(err: unknown): boolean {
   return (
     err instanceof ApiError &&

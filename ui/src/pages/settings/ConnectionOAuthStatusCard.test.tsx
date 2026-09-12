@@ -126,7 +126,7 @@ describe("formatActionError", () => {
   // which left the banner visually empty. formatActionError must
   // ALWAYS return a non-empty string the operator can act on.
   it("returns ApiError detail when non-empty", () => {
-    const err = new ApiError(502, "refresh failed: connoauth: token fetch failed: status=500");
+    const err = new ApiError(503, "refresh failed: connoauth: token fetch failed: status=500");
     expect(formatActionError(err, "Refresh failed")).toBe(
       "refresh failed: connoauth: token fetch failed: status=500",
     );

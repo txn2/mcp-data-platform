@@ -117,6 +117,19 @@ function ActionFailure({
   );
 }
 
+// actionFailure is what the last press of either button failed with, if it
+// did. A pasted schema that does not parse is refused (400) and recorded
+// nowhere. A re-read the endpoint refuses is recorded on the connection and
+// answered as that state (#1704), so its failure is the `error` the route
+// returned.
+function actionFailure(refresh: {
+  error: unknown;
+  data?: GraphQLSchemaInfo;
+}): string | null {
+  if (refresh.error instanceof Error) return refresh.error.message;
+  return refresh.data?.error || null;
+}
+
 // SchemaUpload is the paste box for an endpoint that disables introspection.
 function SchemaUpload({
   pending,
@@ -197,7 +210,7 @@ export function GraphQLSchemaCard({
   const refresh = useRefreshGraphQLSchema(connectionName);
   const [uploadOpen, setUploadOpen] = useState(false);
 
-  const failure = refresh.error instanceof Error ? refresh.error.message : null;
+  const failure = actionFailure(refresh);
 
   return (
     <SectionCard title="Schema">

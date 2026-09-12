@@ -90,7 +90,7 @@ func TestTestGatewayConnection_Success(t *testing.T) {
 	assert.True(t, found, "ping tool should be discovered")
 }
 
-func TestTestGatewayConnection_UnreachableReturns502(t *testing.T) {
+func TestTestGatewayConnection_UnreachableReturns503(t *testing.T) {
 	h, _ := gatewayHandlerDeps(t, &mockConnectionStore{})
 	body, _ := json.Marshal(testGatewayConnectionRequest{
 		Config: map[string]any{
@@ -105,7 +105,7 @@ func TestTestGatewayConnection_UnreachableReturns502(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
-	require.Equal(t, http.StatusBadGateway, w.Code)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code)
 	var resp testGatewayConnectionResponse
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	assert.False(t, resp.Healthy)
@@ -190,6 +190,43 @@ func TestTestGatewayConnection_RedactedMergedFromStore(t *testing.T) {
 //   - Tool LocalName "crm__ping" comes from the LIVE upstream's tool
 //     namespace, confirming the live client (not a probe) issued
 //     tools/list.
+//
+// TestTestGatewayConnection_LiveClientFailureReturns503: a live connection
+// whose upstream has gone away reports the failure in its body with a 503,
+// whose body a CDN in front of the deployment passes through (#1704).
+func TestTestGatewayConnection_LiveClientFailureReturns503(t *testing.T) {
+	srv := mcp.NewServer(&mcp.Implementation{Name: "up", Version: "0.0.1"}, nil)
+	mcp.AddTool(srv, &mcp.Tool{Name: "ping", Description: "pong"},
+		func(context.Context, *mcp.CallToolRequest, struct{}) (*mcp.CallToolResult, any, error) {
+			return &mcp.CallToolResult{}, nil, nil
+		})
+	upstream := httptest.NewServer(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil))
+
+	h, tk := gatewayHandlerDeps(t, &mockConnectionStore{})
+	if err := tk.AddConnection("crm", map[string]any{
+		"endpoint":        upstream.URL,
+		"connection_name": "crm",
+		"connect_timeout": "3s",
+		"call_timeout":    "3s",
+	}); err != nil {
+		t.Fatalf("seed live connection: %v", err)
+	}
+	upstream.CloseClientConnections()
+	upstream.Close()
+
+	req := httptest.NewRequestWithContext(context.Background(),
+		http.MethodPost, "/api/v1/admin/gateway/connections/crm/test",
+		bytes.NewReader([]byte(`{"config":{}}`)))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusServiceUnavailable, w.Code, "body=%s", w.Body.String())
+	var resp testGatewayConnectionResponse
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	assert.False(t, resp.Healthy)
+	assert.NotEmpty(t, resp.Error)
+}
+
 func TestTestGatewayConnection_UsesLiveClientWhenRegistered(t *testing.T) {
 	tokenURL := fakeTokenServerForAdmin(t)
 	liveURL := upstreamMCP(t)
@@ -341,7 +378,7 @@ func TestRefreshGatewayConnection_NotFoundIn404(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
-func TestRefreshGatewayConnection_UpstreamUnreachableReturns502(t *testing.T) {
+func TestRefreshGatewayConnection_UpstreamUnreachableReturns503(t *testing.T) {
 	store := &mockConnectionStore{
 		getResult: &platform.ConnectionInstance{
 			Kind: gatewaykit.Kind, Name: "broken",
@@ -359,7 +396,7 @@ func TestRefreshGatewayConnection_UpstreamUnreachableReturns502(t *testing.T) {
 		http.MethodPost, "/api/v1/admin/gateway/connections/broken/refresh", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusBadGateway, w.Code)
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 }
 
 func TestRefreshGatewayConnection_InternalErrorFromStoreReturns500(t *testing.T) {
@@ -561,7 +598,7 @@ func TestReacquireGatewayOAuth_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
-func TestReacquireGatewayOAuth_NotConfiguredReturns502(t *testing.T) {
+func TestReacquireGatewayOAuth_NotConfiguredReturns503(t *testing.T) {
 	url := upstreamMCP(t)
 	store := &mockConnectionStore{
 		getResult: &platform.ConnectionInstance{
@@ -581,7 +618,7 @@ func TestReacquireGatewayOAuth_NotConfiguredReturns502(t *testing.T) {
 		http.MethodPost, "/api/v1/admin/gateway/connections/noauth/reacquire-oauth", http.NoBody)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusBadGateway, w.Code)
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 }
 
 func TestRegisterGatewayRoutes_ImmutableSkipsRegistration(t *testing.T) {

@@ -38,15 +38,15 @@ describe("apiFetch error handling", () => {
   }
 
   it("surfaces body.error when body.detail is missing (gateway test endpoint shape)", async () => {
-    // The gateway test-connection endpoint returns 502 with
+    // The gateway test-connection endpoint returns 503 with
     // {healthy:false, error: "..."} — the previous client only read
     // body.detail and lost the actual upstream message, leaving the
-    // operator with a generic 'Bad Gateway' / 'Failed' indicator.
-    mockResponse(502, { healthy: false, error: "oauth: token endpoint returned 401: invalid_client" });
+    // operator with a generic 'Service Unavailable' / 'Failed' indicator.
+    mockResponse(503, { healthy: false, error: "oauth: token endpoint returned 401: invalid_client" });
     const apiFetch = await loadApiFetch();
     await expect(apiFetch("/gateway/connections/vendor/test", { method: "POST" }))
       .rejects.toMatchObject({
-        status: 502,
+        status: 503,
         message: "oauth: token endpoint returned 401: invalid_client",
       });
   });

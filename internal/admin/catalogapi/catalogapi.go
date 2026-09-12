@@ -731,7 +731,7 @@ type upsertCatalogSpecRequest struct {
 // @Failure      400  {object}  httpjson.ProblemDetail
 // @Failure      404  {object}  httpjson.ProblemDetail
 // @Failure      413  {object}  httpjson.ProblemDetail
-// @Failure      502  {object}  httpjson.ProblemDetail
+// @Failure      503  {object}  httpjson.ProblemDetail
 // @Failure      500  {object}  httpjson.ProblemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
@@ -754,7 +754,7 @@ func (h *handler) upsertCatalogSpec(w http.ResponseWriter, r *http.Request) {
 		// (missing content for inline, missing URL for url, invalid
 		// kind, upload-on-wrong-route) or fetch-time SSRF/upstream
 		// failures. Route the SSRF/fetch ones through
-		// specErrorStatus so 400/413/502 stay accurate, and surface
+		// specErrorStatus so 400/413/503 stay accurate, and surface
 		// everything else as 400.
 		status := http.StatusBadRequest
 		if isFetchError(err) {
@@ -860,7 +860,7 @@ func (*handler) specErrorStatus(err error) int {
 	case errors.Is(err, apicatalog.ErrSSRFBlocked):
 		return http.StatusBadRequest
 	case errors.Is(err, apicatalog.ErrUpstream):
-		return http.StatusBadGateway
+		return http.StatusServiceUnavailable
 	case errors.Is(err, apicatalog.ErrTooLarge):
 		return http.StatusRequestEntityTooLarge
 	}
@@ -1013,7 +1013,7 @@ func (h *handler) uploadCatalogSpec(w http.ResponseWriter, r *http.Request) {
 // @Failure      400  {object}  httpjson.ProblemDetail
 // @Failure      404  {object}  httpjson.ProblemDetail
 // @Failure      413  {object}  httpjson.ProblemDetail
-// @Failure      502  {object}  httpjson.ProblemDetail
+// @Failure      503  {object}  httpjson.ProblemDetail
 // @Failure      500  {object}  httpjson.ProblemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth

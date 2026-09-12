@@ -1414,7 +1414,7 @@ export const handlers = [
     const entity = catalogEntity(u);
     // A URN the catalog has never ingested is a 404 (#1610): DataHub reports it
     // through the entity's `exists` field, and the route separates that from
-    // the 502 it answers for a catalog it could not reach. Answering 200 with
+    // the 503 it answers for a catalog it could not reach. Answering 200 with
     // the URN echoed back, as this did while the platform read existence off
     // the record's own fields, would mock a response the backend no longer
     // produces and would hide the "cited but not in the catalog" path.
@@ -1456,7 +1456,7 @@ export const handlers = [
     }
     return deleteTag(tagUrn)
       ? HttpResponse.json({ status: "deleted" })
-      : HttpResponse.json({ detail: "tag delete failed" }, { status: 502 });
+      : HttpResponse.json({ detail: "tag delete failed" }, { status: 503 });
   }),
   // Domain governance (#1157): the list read is the picker's lookup route above,
   // and the membership read is the catalog search's domain filter.
@@ -1473,7 +1473,7 @@ export const handlers = [
     }
     return deleteDomain(domainUrn)
       ? HttpResponse.json({ status: "deleted" })
-      : HttpResponse.json({ detail: "domain delete failed" }, { status: 502 });
+      : HttpResponse.json({ detail: "domain delete failed" }, { status: 503 });
   }),
   // Glossary (#1155 hierarchy, #1158 browser and editor). The definition edit is
   // the entity-description route above, and a term's usage is the catalog
@@ -1531,7 +1531,7 @@ export const handlers = [
     }
     return deleteGlossaryEntity(entityUrn)
       ? HttpResponse.json({ status: "deleted" })
-      : HttpResponse.json({ detail: "glossary entity delete failed" }, { status: 502 });
+      : HttpResponse.json({ detail: "glossary entity delete failed" }, { status: 503 });
   }),
   http.get(`${PORTAL_BASE}/datahub/:conn/catalog/entity/documents`, ({ request }) => {
     const entityUrn = new URL(request.url).searchParams.get("urn") ?? "";
@@ -1557,10 +1557,10 @@ export const handlers = [
     const body = (await request.json()) as { title?: string; content?: string; category?: string };
     if (!body.title) return HttpResponse.json({ detail: "title is required" }, { status: 400 });
     const doc = updateDoc(String(params.id), { title: body.title, content: body.content ?? "", category: body.category });
-    return doc ? HttpResponse.json(doc) : new HttpResponse(null, { status: 502 });
+    return doc ? HttpResponse.json(doc) : new HttpResponse(null, { status: 503 });
   }),
   http.delete(`${PORTAL_BASE}/datahub/:conn/documents/:id`, ({ params }) =>
-    deleteDoc(String(params.id)) ? HttpResponse.json({ status: "deleted" }) : new HttpResponse(null, { status: 502 }),
+    deleteDoc(String(params.id)) ? HttpResponse.json({ status: "deleted" }) : new HttpResponse(null, { status: 503 }),
   ),
 
   // =========================================================================

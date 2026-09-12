@@ -52,7 +52,7 @@ func TestPutAndGetSchemaRoundTrip(t *testing.T) {
 	at := time.Date(2026, 9, 7, 12, 0, 0, 0, time.UTC)
 
 	mock.ExpectExec("INSERT INTO graphql_connection_schemas").
-		WithArgs("gql", "abc", sqlmock.AnyArg(), graphqlkit.SchemaSourceIntrospection, at).
+		WithArgs("gql", "abc", sqlmock.AnyArg(), graphqlkit.SchemaSourceIntrospection, at, "").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	err := store.PutSchema(context.Background(), graphqlkit.StoredSchema{
 		Connection: "gql", Hash: "abc", SDL: sdl,
@@ -64,14 +64,17 @@ func TestPutAndGetSchemaRoundTrip(t *testing.T) {
 
 	mock.ExpectQuery("SELECT schema_hash, sdl_gzip, source, fetched_at").
 		WithArgs("gql").
-		WillReturnRows(sqlmock.NewRows([]string{"schema_hash", "sdl_gzip", "source", "fetched_at"}).
-			AddRow("abc", gzipped(t, sdl), graphqlkit.SchemaSourceIntrospection, at))
+		WillReturnRows(sqlmock.NewRows([]string{"schema_hash", "sdl_gzip", "source", "fetched_at", "read_error"}).
+			AddRow("abc", gzipped(t, sdl), graphqlkit.SchemaSourceIntrospection, at, "HTTP 302"))
 	got, err := store.GetSchema(context.Background(), "gql")
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
 	if got.SDL != sdl || got.Hash != "abc" || got.Source != graphqlkit.SchemaSourceIntrospection {
 		t.Errorf("schema = %+v", got)
+	}
+	if got.ReadError != "HTTP 302" {
+		t.Errorf("read error = %q; the refusal stored beside the schema was not read back", got.ReadError)
 	}
 	if !got.FetchedAt.Equal(at) {
 		t.Errorf("fetched at = %v", got.FetchedAt)
@@ -98,8 +101,8 @@ func TestGetSchemaReportsAReadFailure(t *testing.T) {
 func TestGetSchemaRefusesACorruptedRow(t *testing.T) {
 	store, mock := newStore(t)
 	mock.ExpectQuery("SELECT schema_hash").WithArgs("gql").
-		WillReturnRows(sqlmock.NewRows([]string{"schema_hash", "sdl_gzip", "source", "fetched_at"}).
-			AddRow("abc", []byte("not gzip"), "upload", time.Now()))
+		WillReturnRows(sqlmock.NewRows([]string{"schema_hash", "sdl_gzip", "source", "fetched_at", "read_error"}).
+			AddRow("abc", []byte("not gzip"), "upload", time.Now(), ""))
 	if _, err := store.GetSchema(context.Background(), "gql"); err == nil {
 		t.Error("a row that is not compressed schema text was accepted")
 	}
@@ -110,6 +113,28 @@ func TestPutSchemaReportsAWriteFailure(t *testing.T) {
 	mock.ExpectExec("INSERT INTO graphql_connection_schemas").WillReturnError(errors.New("disk full"))
 	err := store.PutSchema(context.Background(), graphqlkit.StoredSchema{Connection: "gql", SDL: "type Query { a: String }"})
 	if err == nil {
+		t.Error("a write failure was swallowed")
+	}
+}
+
+func TestRecordReadErrorLeavesTheSchemaAlone(t *testing.T) {
+	store, mock := newStore(t)
+	at := time.Date(2026, 9, 7, 12, 0, 0, 0, time.UTC)
+	mock.ExpectExec(`UPDATE graphql_connection_schemas\s+SET read_error = \$4, updated_at = NOW\(\)\s+WHERE connection = \$1 AND schema_hash = \$2 AND fetched_at = \$3`).
+		WithArgs("gql", "abc", at, "HTTP 302").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	err := store.RecordReadError(context.Background(), graphqlkit.StoredSchema{
+		Connection: "gql", Hash: "abc", FetchedAt: at, ReadError: "HTTP 302",
+	})
+	if err != nil {
+		t.Fatalf("record: %v", err)
+	}
+}
+
+func TestRecordReadErrorReportsAWriteFailure(t *testing.T) {
+	store, mock := newStore(t)
+	mock.ExpectExec("UPDATE graphql_connection_schemas").WillReturnError(errors.New("disk full"))
+	if err := store.RecordReadError(context.Background(), graphqlkit.StoredSchema{Connection: "gql"}); err == nil {
 		t.Error("a write failure was swallowed")
 	}
 }

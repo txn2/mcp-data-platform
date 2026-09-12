@@ -162,7 +162,7 @@ func TestVocabularyDelete_Succeeds(t *testing.T) {
 }
 
 // TestVocabularyDelete_RejectsWrongURNKind keeps a URN of another kind from
-// reaching DataHub, where it would come back as a misleading 502. Each
+// reaching DataHub, where it would come back as a misleading 503. Each
 // vocabulary refuses the other's URNs, which is what proves the route is bound
 // to its own URN types rather than to any URN at all.
 func TestVocabularyDelete_RejectsWrongURNKind(t *testing.T) {
@@ -183,7 +183,7 @@ func TestVocabularyDelete_RejectsWrongURNKind(t *testing.T) {
 	}
 }
 
-// TestVocabularyWrites_UpstreamFailure surfaces as a 502, and a failed write is
+// TestVocabularyWrites_UpstreamFailure surfaces as a 503, and a failed write is
 // still audited as a failure so a rejected mutation stays in the trail.
 func TestVocabularyWrites_UpstreamFailure(t *testing.T) {
 	for _, tc := range vocabCases {
@@ -203,8 +203,8 @@ func TestVocabularyWrites_UpstreamFailure(t *testing.T) {
 				h := newTestHandler(backend, true, writerResolver(), log)
 
 				rec := serve(h, viewer, w.method, w.path, w.body)
-				if rec.Code != http.StatusBadGateway {
-					t.Fatalf(vocabStatusTmpl, tc.kind, rec.Code, http.StatusBadGateway, rec.Body.String())
+				if rec.Code != http.StatusServiceUnavailable {
+					t.Fatalf(vocabStatusTmpl, tc.kind, rec.Code, http.StatusServiceUnavailable, rec.Body.String())
 				}
 				ev := log.last()
 				if ev == nil || ev.Success || ev.ErrorMessage == "" {

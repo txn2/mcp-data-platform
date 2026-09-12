@@ -50,7 +50,7 @@ var (
 
 // GetSchema returns a connection's stored schema.
 func (s *Store) GetSchema(ctx context.Context, connection string) (graphqlkit.StoredSchema, error) {
-	const q = `SELECT schema_hash, sdl_gzip, source, fetched_at
+	const q = `SELECT schema_hash, sdl_gzip, source, fetched_at, read_error
 	             FROM graphql_connection_schemas
 	            WHERE connection = $1`
 	var (
@@ -58,8 +58,9 @@ func (s *Store) GetSchema(ctx context.Context, connection string) (graphqlkit.St
 		gz        []byte
 		source    string
 		fetchedAt time.Time
+		readErr   string
 	)
-	err := s.db.QueryRowContext(ctx, q, connection).Scan(&hash, &gz, &source, &fetchedAt)
+	err := s.db.QueryRowContext(ctx, q, connection).Scan(&hash, &gz, &source, &fetchedAt, &readErr)
 	if errors.Is(err, sql.ErrNoRows) {
 		return graphqlkit.StoredSchema{}, fmt.Errorf("connection %s: %w", connection, graphqlkit.ErrSchemaNotFound)
 	}
@@ -72,7 +73,7 @@ func (s *Store) GetSchema(ctx context.Context, connection string) (graphqlkit.St
 	}
 	return graphqlkit.StoredSchema{
 		Connection: connection, Hash: hash, SDL: sdl,
-		Source: source, FetchedAt: fetchedAt,
+		Source: source, FetchedAt: fetchedAt, ReadError: readErr,
 	}, nil
 }
 
@@ -83,16 +84,32 @@ func (s *Store) PutSchema(ctx context.Context, schema graphqlkit.StoredSchema) e
 		return err
 	}
 	const q = `INSERT INTO graphql_connection_schemas
-	                (connection, schema_hash, sdl_gzip, source, fetched_at, updated_at)
-	           VALUES ($1, $2, $3, $4, $5, NOW())
+	                (connection, schema_hash, sdl_gzip, source, fetched_at, read_error, updated_at)
+	           VALUES ($1, $2, $3, $4, $5, $6, NOW())
 	      ON CONFLICT (connection) DO UPDATE
 	              SET schema_hash = EXCLUDED.schema_hash,
 	                  sdl_gzip    = EXCLUDED.sdl_gzip,
 	                  source      = EXCLUDED.source,
 	                  fetched_at  = EXCLUDED.fetched_at,
+	                  read_error  = EXCLUDED.read_error,
 	                  updated_at  = NOW()`
-	if _, err := s.db.ExecContext(ctx, q, schema.Connection, schema.Hash, gz, schema.Source, schema.FetchedAt); err != nil {
+	if _, err := s.db.ExecContext(ctx, q,
+		schema.Connection, schema.Hash, gz, schema.Source, schema.FetchedAt, schema.ReadError); err != nil {
 		return fmt.Errorf("graphqlstore: writing schema: %w", err)
+	}
+	return nil
+}
+
+// RecordReadError records a refused read beside the connection's stored
+// schema, leaving the schema itself untouched. The row is updated only
+// while it still holds the version the reader held, so a read that raced
+// an upload records nothing.
+func (s *Store) RecordReadError(ctx context.Context, schema graphqlkit.StoredSchema) error {
+	const q = `UPDATE graphql_connection_schemas
+	              SET read_error = $4, updated_at = NOW()
+	            WHERE connection = $1 AND schema_hash = $2 AND fetched_at = $3`
+	if _, err := s.db.ExecContext(ctx, q, schema.Connection, schema.Hash, schema.FetchedAt, schema.ReadError); err != nil {
+		return fmt.Errorf("graphqlstore: recording the read error: %w", err)
 	}
 	return nil
 }
