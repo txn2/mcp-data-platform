@@ -138,6 +138,27 @@ describe("JsxRenderer", () => {
   });
 });
 
+// A JSX asset is a component, so the document written around it is the only
+// place the viewport can be declared. Without the declaration a phone lays the
+// frame out at a notional desktop width and scales the result down, and a
+// component that reflows correctly is still read at a fraction of its type
+// size (#1701). Both mount paths build their own document, so both are checked.
+describe("buildJsxIframeHtml: the frame declares the viewport", () => {
+  const VIEWPORT = '<meta name="viewport" content="width=device-width, initial-scale=1">';
+
+  it("declares it on the auto-mount path", () => {
+    const html = buildJsxIframeHtml(`export default function App() { return <div>Hi</div>; }`);
+    expect(html).toContain(VIEWPORT);
+  });
+
+  it("declares it on the self-mounting path", () => {
+    const code = `import { createRoot } from 'react-dom/client';
+function App() { return <div>Hi</div>; }
+createRoot(document.getElementById('root')).render(<App />);`;
+    expect(buildJsxIframeHtml(code)).toContain(VIEWPORT);
+  });
+});
+
 describe("buildJsxIframeHtml: duplicate React declaration (issue #625)", () => {
   it("does not inject a second React import when artifact already imports React", () => {
     // The artifact imports React and does not self-mount, so it takes the

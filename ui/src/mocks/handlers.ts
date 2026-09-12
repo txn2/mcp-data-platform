@@ -430,6 +430,18 @@ const portalAssets = [
 ];
 
 /**
+ * The permission the signed-in reader holds on an asset someone else owns.
+ * The real single-asset route answers with `is_owner` and `share_permission`
+ * (AssetResponse), and without them the viewer falls back to treating every
+ * asset as the reader's own -- which drew Delete and Share on a read-only
+ * share, and never drew the Shared badge or Save to My Assets that the shared
+ * case exists to show.
+ */
+const sharedPermissions = new Map(
+  mockSharedWithMe.map((s) => [s.asset.id, s.permission]),
+);
+
+/**
  * The two shapes an asset is served in (#1623). A capture is appended on every
  * write and nothing bounds them, so a listing carries a summary of an asset's
  * provenance and a single read carries only its newest captures; the rest are
@@ -2526,7 +2538,12 @@ export const handlers = [
     if (!asset) {
       return HttpResponse.json({ detail: "Not found" }, { status: 404 });
     }
-    return HttpResponse.json(assetReadRow(asset));
+    const permission = sharedPermissions.get(asset.id);
+    return HttpResponse.json({
+      ...assetReadRow(asset),
+      is_owner: permission === undefined,
+      ...(permission ? { share_permission: permission } : {}),
+    });
   }),
 
   http.get(`${PORTAL_BASE}/assets/:id/provenance`, ({ params, request }) => {

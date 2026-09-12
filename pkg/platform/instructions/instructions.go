@@ -152,6 +152,7 @@ const (
 	PageAssetReferences       = "platform-asset-references-and-the-refresh-loop"
 	PageProvenanceCapture     = "platform-provenance-and-the-capture-loop"
 	PageContentTypes          = "platform-content-types-for-stored-files"
+	PageFitAnyScreen          = "platform-documents-that-fit-any-screen"
 )
 
 // baselinePage is one entry of the page index: the tool whose capability the
@@ -189,6 +190,10 @@ var baselinePages = []baselinePage{
 	{
 		toolSaveAsset, PageContentTypes,
 		"the media type every stored file carries, the families detection cannot name from bytes, and what a write must declare",
+	},
+	{
+		toolSaveAsset, PageFitAnyScreen,
+		"writing a document that fits the reader's screen",
 	},
 }
 

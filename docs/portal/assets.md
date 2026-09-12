@@ -40,6 +40,8 @@ The viewer provides:
 - **Owner display** — Shows the asset owner's email address
 - **Metadata sidebar** — Type, size, created and updated timestamps, tags, version history, and the calls this asset was built from
 
+On a narrow screen the viewer is one column: the actions wrap onto as many rows as they need, and the metadata sidebar opens below the content rather than beside it. The page never scrolls sideways, so a share link followed on a phone reaches Download and Save to My Assets without panning. The same applies to the managed-resource, prompt and script viewers, which are built on the same header and layout.
+
 The **Provenance** panel groups those calls by capture — one per time the asset was written, so a revised asset shows what fed each of its versions. Each call names its kind (a SQL statement, an API request, or another data call), the connection it ran against, the purpose the agent stated for it, how long it took, and whether it failed; a failed call is shown, not hidden, because it is part of how the answer was reached. Opening a call shows the full statement or request with a copy action and the `mcp:call:` reference that names it in the audit log. A capture marked **Cited** is one where the agent named its sources itself rather than the platform taking the session's recent calls. See [Provenance](../server/provenance.md).
 
 The newest capture is shown expanded and every earlier one sits behind a disclosure naming how many there are, each opening on its own. An asset a scheduled script refreshes accumulates a capture per run, and the panel leads with the write that produced what is on screen rather than making you scroll past a year of them.
