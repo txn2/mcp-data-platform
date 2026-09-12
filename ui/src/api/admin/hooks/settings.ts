@@ -140,3 +140,49 @@ export function useSetReviewAlert(queue: ReviewAlertQueue) {
     },
   });
 }
+
+// --- Connection-revocation alert (#1694) ---
+
+// ConnectionAlertSettings is the stored configuration for the alert raised
+// when an upstream rejects a connection's refresh and the platform discards
+// the credential. Recipients are the escalation only: the person who
+// authorized the connection is told regardless, and an empty list is the
+// default rather than a misconfiguration.
+export interface ConnectionAlertSettings {
+  enabled: boolean;
+  escalate_after_hours: number;
+  recipients: string[];
+  updated_by?: string;
+  updated_at?: string;
+  warnings?: string[];
+}
+
+// ConnectionAlertInput is the PUT body: the same fields without the
+// server-owned audit columns and warnings.
+export type ConnectionAlertInput = Omit<
+  ConnectionAlertSettings,
+  "updated_by" | "updated_at" | "warnings"
+>;
+
+export function useConnectionAlert() {
+  return useQuery({
+    queryKey: ["settings", "connection-alert"],
+    queryFn: () => apiFetch<ConnectionAlertSettings>("/settings/connection-alert"),
+  });
+}
+
+export function useSetConnectionAlert() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ConnectionAlertInput) =>
+      apiFetch<ConnectionAlertSettings>("/settings/connection-alert", {
+        method: "PUT",
+        body: JSON.stringify(input),
+      }),
+    // The PUT answers with the stored state (recipients normalized, warnings
+    // re-evaluated), so seed the cache from it rather than refetching.
+    onSuccess: (data) => {
+      qc.setQueryData(["settings", "connection-alert"], data);
+    },
+  });
+}

@@ -242,7 +242,11 @@ func (s *Source) handleRevoked(ctx context.Context, persisted *PersistedToken, r
 	slog.Info("connoauth: connection token row deleted",
 		logKeyKind, logsan.SanitizeForLog(s.key.Kind), logKeyName, logsan.SanitizeForLog(s.key.Name),
 		"reason", reason, logKeyTokenURLHost, idpHost)
-	s.events.TokenDeletedRevoked(ctx, s.key.Kind, s.key.Name, s.actor, s.cfg.TokenURL, reason)
+	// persisted.AuthenticatedBy is read here rather than by the sink because the
+	// row it came from is gone as of the Delete above: this is the last point at
+	// which the platform knows whose authorization lapsed (#1694).
+	s.events.TokenDeletedRevoked(ctx, s.key.Kind, s.key.Name, s.actor, s.cfg.TokenURL,
+		reason, persisted.AuthenticatedBy)
 }
 
 // emitRevokedLeadEvent emits the first event of the revocation pair,

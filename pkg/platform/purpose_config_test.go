@@ -136,6 +136,8 @@ func TestDefaultPurposeToolsCoversTheDocumentedSet(t *testing.T) {
 		"datahub_get_*",
 		"s3_object",
 		"s3_list",
+		"save_asset",
+		"manage_asset",
 		"kind:mcp",
 	}, middleware.DefaultPurposeTools())
 }

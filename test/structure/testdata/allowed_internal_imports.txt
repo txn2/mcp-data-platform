@@ -37,6 +37,7 @@ internal/admin/notifyapi -> internal/notification/notifyrender
 internal/admin/notifyapi -> pkg/notification
 internal/admin/sessionapi -> internal/httpjson
 internal/admin/sessionapi -> internal/platform/sessionview
+internal/admin/settingsapi -> internal/platform/connalert
 internal/admin/settingsapi -> internal/platform/reviewalert
 internal/admin/settingsapi -> pkg/notification
 internal/admin/settingsapi -> pkg/notification/smtp
@@ -64,6 +65,7 @@ internal/httpserver -> internal/httpserver/versionhttp
 internal/httpserver -> internal/notification/notifyrender
 internal/httpserver -> internal/platform/branding
 internal/httpserver -> internal/platform/callrecord
+internal/httpserver -> internal/platform/connalert
 internal/httpserver -> internal/platform/connreach
 internal/httpserver -> internal/platform/connscope
 internal/httpserver -> internal/platform/knowledgebuiltin
@@ -204,6 +206,9 @@ internal/platform/completionlayer -> pkg/query
 internal/platform/completionlayer -> pkg/registry
 internal/platform/completionlayer -> pkg/semantic
 internal/platform/configenv -> internal/logsan
+internal/platform/connalert -> internal/logsan
+internal/platform/connalert -> pkg/authevents
+internal/platform/connalert -> pkg/notification
 internal/platform/connauth -> pkg/authevents
 internal/platform/connauth -> pkg/connoauth
 internal/platform/connauth -> pkg/platform/fieldcrypt
@@ -561,6 +566,7 @@ pkg/admin -> internal/buildinfo
 pkg/admin -> internal/httpjson
 pkg/admin -> internal/logsan
 pkg/admin -> internal/platform/callrecord
+pkg/admin -> internal/platform/connalert
 pkg/admin -> internal/platform/connsource
 pkg/admin -> internal/platform/reviewalert
 pkg/admin -> internal/portal/assetrefs

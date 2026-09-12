@@ -654,6 +654,7 @@ func (h *handler) completeConnectionOAuthExchange(ctx context.Context, pending *
 		// Connect with no idea why it doesn't stick.
 		return fmt.Errorf("persist token: %w", persistErr)
 	}
+	h.clearRevocation(ctx, pending.Kind, pending.Connection)
 	h.cfg.AuthEvents.ConnectCompleted(ctx, pending.Kind, pending.Connection, pending.StartedBy,
 		cfg.TokenURL, authevents.ConnectCompletedDetail{
 			Scope:            result.Scope,
@@ -673,6 +674,26 @@ func (h *handler) completeConnectionOAuthExchange(ctx context.Context, pending *
 			logKeyError, logsan.SanitizeForLog(err.Error()))
 	}
 	return nil
+}
+
+// clearRevocation forgets the connection's open revocation now that it carries
+// a credential again (#1694). This is what makes the NEXT revocation news: the
+// alert is announced once per open revocation, so a row left behind here would
+// silence the next one.
+//
+// A failure is logged and the Connect still succeeds. The credential is
+// persisted either way, and the escalation sweep re-checks the credential table
+// before mailing anyone, so a stale row costs a missed future announcement
+// rather than a wrong one.
+func (h *handler) clearRevocation(ctx context.Context, kind, name string) {
+	if h.cfg.Revocations == nil {
+		return
+	}
+	if err := h.cfg.Revocations.Clear(ctx, kind, name); err != nil {
+		slog.Warn("oauth-callback: clearing the connection's open revocation failed", // #nosec G706 -- structured slog call; values sanitized
+			logKeyKind, logsan.SanitizeForLog(kind), logKeyName, logsan.SanitizeForLog(name),
+			logKeyError, logsan.SanitizeForLog(err.Error()))
+	}
 }
 
 // lookupOAuthKindHandler resolves the kind path parameter to a

@@ -160,6 +160,13 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	reviewAlert.Start(ctx)
 	defer reviewAlert.Stop()
 
+	// Connection-revocation alerts (#1694). The sink is attached to the
+	// auth-event writer here, once the substrate it enqueues into exists; the
+	// escalation sweep starts and stops alongside the check above.
+	connEscalator := wireConnRevocationAlert(p, notify)
+	connEscalator.Start(ctx)
+	defer connEscalator.Stop()
+
 	mux := http.NewServeMux()
 	hcfg := extractHTTPConfig(p)
 	hc := health.NewChecker()

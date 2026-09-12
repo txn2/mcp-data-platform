@@ -43,7 +43,10 @@ func TestPurposeResolver_Gates(t *testing.T) {
 		{"platform_info", false, "orientation tools are deliberately excluded"},
 		{"list_connections", false, "orientation tools are deliberately excluded"},
 		{"memory_capture", false, "capture is not data access"},
-		{"save_asset", false, "not data access"},
+		{"save_asset", true, "an asset write states why it was written (#1695)"},
+		{"manage_asset", true, "the tool that edits and removes an asset, named whole (#1695)"},
+		{"manage_table", false, "the other manage_* tools stay outside the set"},
+		{"apply_knowledge", false, "what it applies is itself the explanation"},
 		{"vendor__list_contacts", true, "gateway-proxied, matched by kind:mcp"},
 		{"", false, "an empty tool name gates nothing"},
 	}

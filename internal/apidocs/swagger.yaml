@@ -2657,6 +2657,47 @@ definitions:
         example: ACME Corp analytics platform
         type: string
     type: object
+  connalert.SettingsInput:
+    properties:
+      enabled:
+        example: true
+        type: boolean
+      escalate_after_hours:
+        example: 24
+        type: integer
+      recipients:
+        example:
+        - platform-admin@example.com
+        items:
+          type: string
+        type: array
+    type: object
+  connalert.SettingsView:
+    properties:
+      enabled:
+        example: true
+        type: boolean
+      escalate_after_hours:
+        example: 24
+        type: integer
+      recipients:
+        items:
+          type: string
+        type: array
+      updated_at:
+        type: string
+      updated_by:
+        example: admin@example.com
+        type: string
+      warnings:
+        description: |-
+          Warnings describes a configuration that saves cleanly but escalates
+          nowhere. They never block a save; they exist so the operator sees what
+          the setting does at the surface where it was chosen.
+        items:
+          type: string
+        type: array
+    type: object
   connoauth.OAuthStatus:
     properties:
       authenticated_at:
@@ -12762,6 +12803,56 @@ paths:
       summary: Get session
       tags:
       - Sessions
+  /admin/settings/connection-alert:
+    get:
+      description: Returns the configuration for the alert raised when an upstream
+        rejects a connection's refresh and the platform discards the credential. Before
+        an operator has written one, the platform defaults are returned with no escalation
+        recipients, and a warning states that only the person who authorized a connection
+        is told.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/connalert.SettingsView'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get connection-revocation alert settings
+      tags:
+      - Settings
+    put:
+      consumes:
+      - application/json
+      description: 'Upserts the connection-revocation alert configuration: whether
+        the alerts are sent at all, how long a revoked connection goes unauthorized
+        before the escalation is raised, and the addresses it is raised with.'
+      parameters:
+      - description: Connection alert settings
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/connalert.SettingsInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/connalert.SettingsView'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/settingsapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Update connection-revocation alert settings
+      tags:
+      - Settings
   /admin/settings/review-queue-alert:
     get:
       description: Returns the knowledge review-queue staleness alert configuration.

@@ -1009,6 +1009,28 @@ function reviewQueueAlertWarnings(): string[] {
   return out;
 }
 
+// connectionAlert is the connection-revocation alert configuration (#1694).
+// It starts with an escalation configured, because a screenshot of the empty
+// default would show a warning rather than the feature.
+const connectionAlert = {
+  enabled: true,
+  escalate_after_hours: 24,
+  recipients: ["platform-admin@example.com"],
+  updated_by: "sarah.chen@example.com",
+  updated_at: "2026-09-11T16:40:00Z",
+  warnings: [] as string[],
+};
+
+// connectionAlertWarnings mirrors the server's check for an enabled alert that
+// escalates nowhere.
+function connectionAlertWarnings(): string[] {
+  if (!connectionAlert.enabled || connectionAlert.recipients.length > 0) return [];
+  return [
+    "no escalation recipients are configured, so only the person who authorized a " +
+      "connection is told when it is revoked",
+  ];
+}
+
 // mockNotificationRows backs both delivery-history surfaces: the admin
 // monitoring tab reads them whole, the user's own screen reads the subset a
 // recipient sees. One fixture keeps the two screenshots telling one story.
@@ -4007,6 +4029,28 @@ export const handlers = [
       );
     }
     return HttpResponse.json({ status: "sent", to: String(body.to ?? "") });
+  }),
+
+  // =========================================================================
+  // Admin: Settings (connection-revocation alert, #1694)
+  // =========================================================================
+
+  http.get(`${ADMIN_BASE}/settings/connection-alert`, () => {
+    connectionAlert.warnings = connectionAlertWarnings();
+    return HttpResponse.json(connectionAlert);
+  }),
+
+  http.put(`${ADMIN_BASE}/settings/connection-alert`, async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    connectionAlert.enabled = Boolean(body.enabled);
+    connectionAlert.escalate_after_hours = Number(body.escalate_after_hours ?? 24);
+    // The server normalizes recipients to the bare, lowercased address.
+    connectionAlert.recipients = (Array.isArray(body.recipients) ? body.recipients : [])
+      .map((r) => String(r).trim().toLowerCase());
+    connectionAlert.updated_by = "sarah.chen@example.com";
+    connectionAlert.updated_at = new Date().toISOString();
+    connectionAlert.warnings = connectionAlertWarnings();
+    return HttpResponse.json(connectionAlert);
   }),
 
   // =========================================================================

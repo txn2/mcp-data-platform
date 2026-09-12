@@ -87,6 +87,21 @@ type Config struct {
 	// OAuth start with an optional return_url), treating an empty body as
 	// success.
 	DecodeOptional func(w http.ResponseWriter, r *http.Request, dst any) error
+	// Revocations forgets a connection's open revocation once it is
+	// authorized again (#1694). nil is valid and forgets nothing: the
+	// escalation sweep checks the credential table before mailing anyone, so
+	// a deployment without this still never tells people to reconnect
+	// something that works — it is the NEXT revocation that would otherwise
+	// go unannounced, because the row from the last one is still open.
+	Revocations RevocationClearer
+}
+
+// RevocationClearer forgets a connection's open revocation. Satisfied by the
+// connection-alert store; declared here so this package depends on the one
+// method it calls rather than on the alert's whole persistence.
+type RevocationClearer interface {
+	// Clear forgets the open revocation for one connection, if any.
+	Clear(ctx context.Context, kind, name string) error
 }
 
 // handler binds the routes to their dependencies.
