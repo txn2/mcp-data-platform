@@ -573,3 +573,101 @@ func TestKnowledgePage_RestoreBuiltin(t *testing.T) {
 		t.Fatalf("unwired restore = %d, want 405", rec.Code)
 	}
 }
+
+// kpKeyedStore resolves a page strictly by the key it is asked for, and records
+// which read answered, so a test can tell an id read from a slug read. The
+// looser mock above returns its page for any key, which cannot show the order.
+type kpKeyedStore struct {
+	mockKnowledgePageStore
+	held      *knowledgepage.Page
+	idReads   []string
+	slugReads []string
+}
+
+func (k *kpKeyedStore) Get(_ context.Context, id string) (*knowledgepage.Page, error) {
+	k.idReads = append(k.idReads, id)
+	if k.getErr != nil {
+		return nil, k.getErr
+	}
+	if k.held == nil || k.held.ID != id {
+		return nil, knowledgepage.ErrNotFound
+	}
+	return k.held, nil
+}
+
+func (k *kpKeyedStore) GetBySlug(_ context.Context, slug string) (*knowledgepage.Page, error) {
+	k.slugReads = append(k.slugReads, slug)
+	if k.held == nil || k.held.Slug != slug {
+		return nil, knowledgepage.ErrNotFound
+	}
+	return k.held, nil
+}
+
+// The page route resolves a slug as well as an id (#1696), so the only
+// human-readable name a page promotion reports opens the page, as do the
+// mcp:knowledge_page:<slug> references the platform's own shipped text names its
+// pages by. It is the order pkg/knowledge resolves the same reference in.
+func TestKnowledgePage_GetResolvesAnIDThenASlug(t *testing.T) {
+	held := &knowledgepage.Page{ID: "kp1", Slug: "retail-seasons", Title: "Retail seasons"}
+
+	byID := &kpKeyedStore{held: held}
+	if rec := doKP(newKnowledgePageHandler(byID, kpViewer),
+		"GET", "/api/v1/portal/knowledge-pages/kp1", ""); rec.Code != http.StatusOK {
+		t.Fatalf("get by id = %d, want 200", rec.Code)
+	}
+	if len(byID.slugReads) != 0 {
+		t.Errorf("an id that resolved still went on to a slug read: %v", byID.slugReads)
+	}
+
+	bySlug := &kpKeyedStore{held: held}
+	rec := doKP(newKnowledgePageHandler(bySlug, kpViewer),
+		"GET", "/api/v1/portal/knowledge-pages/retail-seasons", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get by slug = %d, want 200", rec.Code)
+	}
+	var got knowledgepage.Page
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode page: %v", err)
+	}
+	if got.ID != "kp1" {
+		t.Errorf("the slug resolved to page %q, want kp1", got.ID)
+	}
+	if len(bySlug.idReads) != 1 {
+		t.Errorf("the slug read did not follow a miss on the id read: %v", bySlug.idReads)
+	}
+}
+
+// A key that names neither an id nor a slug is a clean 404, and a soft-deleted
+// page the id read found is not-found rather than a reason to go looking for a
+// different page under the same key.
+func TestKnowledgePage_GetByKeyAbsences(t *testing.T) {
+	missing := &kpKeyedStore{held: &knowledgepage.Page{ID: "kp1", Slug: "retail-seasons"}}
+	if rec := doKP(newKnowledgePageHandler(missing, kpViewer),
+		"GET", "/api/v1/portal/knowledge-pages/neither", ""); rec.Code != http.StatusNotFound {
+		t.Errorf("a key naming nothing = %d, want 404", rec.Code)
+	}
+
+	now := time.Now()
+	deleted := &kpKeyedStore{held: &knowledgepage.Page{ID: "kp1", Slug: "retail-seasons", DeletedAt: &now}}
+	if rec := doKP(newKnowledgePageHandler(deleted, kpViewer),
+		"GET", "/api/v1/portal/knowledge-pages/kp1", ""); rec.Code != http.StatusNotFound {
+		t.Errorf("a soft-deleted page = %d, want 404", rec.Code)
+	}
+	if len(deleted.slugReads) != 0 {
+		t.Errorf("a soft-deleted page the id read found sent the read on to a slug: %v", deleted.slugReads)
+	}
+}
+
+// A store that could not answer is a 500, not a 404: the slug read runs only
+// after a not-found, never after a failure.
+func TestKnowledgePage_GetByKeyReportsAFailedRead(t *testing.T) {
+	broken := &kpKeyedStore{held: &knowledgepage.Page{ID: "kp1", Slug: "retail-seasons"}}
+	broken.getErr = errors.New("connection refused")
+	rec := doKP(newKnowledgePageHandler(broken, kpViewer), "GET", "/api/v1/portal/knowledge-pages/kp1", "")
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("a failed read = %d, want 500", rec.Code)
+	}
+	if len(broken.slugReads) != 0 {
+		t.Errorf("a failed read went on to a slug read: %v", broken.slugReads)
+	}
+}

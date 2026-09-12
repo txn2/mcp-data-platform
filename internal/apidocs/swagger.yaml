@@ -15546,10 +15546,10 @@ paths:
       tags:
       - Knowledge
     get:
-      description: Returns a single canonical knowledge page by id. Open to every
-        authenticated user.
+      description: Returns a single canonical knowledge page by its id or its slug,
+        resolved in that order. Open to every authenticated user.
       parameters:
-      - description: Knowledge page id
+      - description: Knowledge page id or slug
         in: path
         name: id
         required: true

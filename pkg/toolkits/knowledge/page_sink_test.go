@@ -1134,3 +1134,56 @@ func TestPromoteToPage_RefusesABuiltinSlug(t *testing.T) {
 	assert.Contains(t, tc.Text, "built-in")
 	assert.Empty(t, pw.updated, "nothing may be written to the builtin page")
 }
+
+// --- the address a promotion hands back (#1696) ---
+
+// A promotion reports where the page it wrote is read. Before this the response
+// named the page by id and slug only, so an agent telling someone where the page
+// is had to compose an address, and the one it composed opened nothing.
+func TestPromoteToPage_ReportsWhereThePageIsRead(t *testing.T) {
+	store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkBusinessKnowledge}}}
+	pw := newFakePageWriter()
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk.SetPageWriter(pw)
+	tk.SetPortalBaseURL("https://portal.example.com/")
+
+	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, applyPageInput([]string{"i1"}))
+	require.NoError(t, err)
+	require.False(t, res.IsError, "unexpected error result")
+	out := parseJSONResult(t, res)
+
+	pageID, ok := out["page_id"].(string)
+	require.True(t, ok)
+	want := "https://portal.example.com/portal/knowledge/pages/" + pageID
+	assert.Equal(t, want, out["portal_url"],
+		"the address is the page route, keyed on the id the page keeps through a rename")
+	assert.Contains(t, out["message"], want,
+		"the message carries the address, because the message is what the caller repeats")
+}
+
+// A deployment that declared no public portal address cannot know one, so the
+// response carries no address rather than a relative path nobody can open.
+func TestPromoteToPage_NoAddressWithoutAPublicPortal(t *testing.T) {
+	store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkBusinessKnowledge}}}
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk.SetPageWriter(newFakePageWriter())
+
+	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, applyPageInput([]string{"i1"}))
+	require.NoError(t, err)
+	require.False(t, res.IsError, "unexpected error result")
+	out := parseJSONResult(t, res)
+
+	assert.NotContains(t, out, "portal_url")
+	assert.Contains(t, out["message"], "Roll back with action=rollback",
+		"the rest of the message is unchanged")
+}
+
+func TestPagePortalURL(t *testing.T) {
+	tk := &Toolkit{}
+	assert.Empty(t, tk.pagePortalURL("kp-1"), "no base address, no link")
+
+	tk.SetPortalBaseURL("  https://portal.example.com///  ")
+	assert.Equal(t, "https://portal.example.com/portal/knowledge/pages/kp-1", tk.pagePortalURL("kp-1"),
+		"a trailing slash on the configured address does not double in the link")
+	assert.Empty(t, tk.pagePortalURL(""), "no page, no link")
+}

@@ -361,12 +361,14 @@ func (t *Toolkit) recordInstructionsChangeset(ctx context.Context, w instruction
 				"insight_id", insID, "changeset_id", csID, "error", err)
 		}
 	}
-	return toolkit.JSONResultTyped(instructionsResult(csID, prom, len(insightIDs)))
+	return toolkit.JSONResultTyped(instructionsResult(csID, prom, len(insightIDs), t.pagePortalURL(prom.pageID)))
 }
 
 // instructionsResult builds the apply response for a promotion into the
-// customized layer.
-func instructionsResult(csID string, prom instructionsPromotion, insights int) map[string]any {
+// customized layer. portalURL is where the diverted page is read, empty for a
+// promotion that wrote no page or on a deployment with no public portal
+// address.
+func instructionsResult(csID string, prom instructionsPromotion, insights int, portalURL string) map[string]any {
 	action := "updated"
 	if prom.created {
 		action = "created"
@@ -392,9 +394,15 @@ func instructionsResult(csID string, prom instructionsPromotion, insights int) m
 		result[instructionsFieldSlug] = prom.slug
 		result["page_id"] = prom.pageID
 		msg = fmt.Sprintf("The rule was longer than the %d-byte inline limit, so it was written to knowledge page %q "+
-			"and agent-instruction section %q %s holding one index entry pointing at it. "+
-			"Roll back with action=rollback changeset_id=%s.",
-			maxInlineRuleBytes, prom.slug, prom.section, action, csID)
+			"and agent-instruction section %q %s holding one index entry pointing at it.",
+			maxInlineRuleBytes, prom.slug, prom.section, action)
+		// The person told the rule was recorded is the person who has to read
+		// it, so the response carries where the page is read (#1696).
+		if portalURL != "" {
+			result["portal_url"] = portalURL
+			msg += " Read it at " + portalURL + "."
+		}
+		msg += fmt.Sprintf(" Roll back with action=rollback changeset_id=%s.", csID)
 	}
 	if notice := agentinstructions.CustomizedNotice(prom.text); notice != "" {
 		result["size_notice"] = notice

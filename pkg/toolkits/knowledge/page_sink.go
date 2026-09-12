@@ -151,6 +151,37 @@ func (t *Toolkit) SetPageWriter(pw pageWriter) {
 	t.pageWriter = pw
 }
 
+// SetPortalBaseURL wires the deployment's public portal address, so a promotion
+// can hand back where the page it wrote is read (#1696). An empty value leaves
+// the address off the response rather than reporting a relative path no one can
+// open: a deployment that has not declared its public address cannot know it.
+func (t *Toolkit) SetPortalBaseURL(base string) {
+	t.portalBaseURL = strings.TrimRight(strings.TrimSpace(base), "/")
+}
+
+// pageRoute is the path a knowledge page is read at, under the deployment's
+// public address. It is the one place the address is composed, so both sinks
+// that write a page hand back the same one. The "/portal" head is the portal
+// app's base path (ui/vite.config.ts) and the rest is the route its own router
+// matches (ui/src/components/layout/AppShell.tsx), which is the same shape the
+// asset and collection addresses this platform hands back are built on.
+const pageRoute = "/portal/knowledge/pages/"
+
+// pagePortalURL is where a person reads the page this promotion wrote. It is
+// empty when the deployment declared no public portal address.
+//
+// A page id addresses it, not the slug: the id is what the page keeps through a
+// rename, and a built-in page's id differs per deployment. The route resolves
+// either (a slug is what the platform's own shipped text names a page by), so a
+// caller holding only a slug is not stuck; the address handed back names the id
+// because that is the one that cannot go stale.
+func (t *Toolkit) pagePortalURL(pageID string) string {
+	if t.portalBaseURL == "" || pageID == "" {
+		return ""
+	}
+	return t.portalBaseURL + pageRoute + pageID
+}
+
 // promoteToPage promotes a business_knowledge / operational_rule capture into a
 // canonical knowledge page (find-or-create by slug), recording a changeset for
 // audit + rollback parity with the DataHub path and marking the source insights
@@ -616,7 +647,16 @@ func (t *Toolkit) recordPageChangesetAndMarkApplied(ctx context.Context, input a
 	if prom.changeType == changeCreatePage {
 		action = "created"
 	}
-	msg := fmt.Sprintf("Knowledge page %s. Roll back with action=rollback changeset_id=%s.", action, csID)
+	msg := fmt.Sprintf("Knowledge page %s.", action)
+	// Where the page is read, named in the message as well as the payload,
+	// because the caller's next act is to tell a person where it is and the
+	// message is what they repeat (#1696). Composing an address from the slug
+	// instead produced a link that opened nothing.
+	portalURL := t.pagePortalURL(prom.pageID)
+	if portalURL != "" {
+		msg += " Read it at " + portalURL + "."
+	}
+	msg += fmt.Sprintf(" Roll back with action=rollback changeset_id=%s.", csID)
 	result := map[string]any{
 		"changeset_id":            csID,
 		"page_id":                 prom.pageID,
@@ -630,6 +670,9 @@ func (t *Toolkit) recordPageChangesetAndMarkApplied(ctx context.Context, input a
 		// references_attached is always present (a count, 0 when this apply attached
 		// none) so a consumer can read it unconditionally.
 		"references_attached": prom.attached,
+	}
+	if portalURL != "" {
+		result["portal_url"] = portalURL
 	}
 	// Surface references that did not land (#696): an insight-carried or inline-body
 	// citation that could not be attached (target deleted, or a non-citable / malformed

@@ -922,3 +922,46 @@ func TestRevertInstructionsChangeset_ReportsAPageLeftInPlace(t *testing.T) {
 	assert.Contains(t, err.Error(), "long-rule")
 	assert.Equal(t, "prior", ins.text, "the layer is restored even when the page is not")
 }
+
+// A rule diverted onto a page reports where that page is read (#1696). The
+// person told the rule was recorded is the person who has to read it, and the
+// index entry the layer holds is a reference rather than an address.
+func TestPromoteToInstructions_DivertedRuleReportsThePageAddress(t *testing.T) {
+	body := "Aggregations go through raw_query. " + strings.Repeat("Detail. ", 400)
+	tk, _ := newInstructionsToolkit(t, ruleInsight(), &spyChangesetStore{}, "")
+	pw := newFakePageWriter()
+	tk.SetPageWriter(pw)
+	tk.SetPortalBaseURL("https://portal.example.com")
+
+	in := applyInstructionsInput("OpenSearch aggregations", body, []string{"i1"})
+	in.Instructions.Summary = "how an aggregation is run against OpenSearch"
+	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, in)
+	require.NoError(t, err)
+	require.False(t, res.IsError, "unexpected error result: %s", resultMessage(t, res))
+
+	out := parseJSONResult(t, res)
+	pageID, ok := out["page_id"].(string)
+	require.True(t, ok)
+	want := "https://portal.example.com/portal/knowledge/pages/" + pageID
+	assert.Equal(t, want, out["portal_url"])
+	assert.Contains(t, out["message"], want)
+	assert.Contains(t, out["message"], "Roll back with action=rollback",
+		"the rollback instruction survives beside the address")
+}
+
+// A promotion that stayed inline wrote no page, so there is no page address to
+// report on it.
+func TestPromoteToInstructions_InlineRuleReportsNoPageAddress(t *testing.T) {
+	tk, _ := newInstructionsToolkit(t, ruleInsight(), &spyChangesetStore{}, "")
+	tk.SetPageWriter(newFakePageWriter())
+	tk.SetPortalBaseURL("https://portal.example.com")
+
+	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{},
+		applyInstructionsInput("Query engines", "Trino holds the warehouse.", []string{"i1"}))
+	require.NoError(t, err)
+	require.False(t, res.IsError, "unexpected error result: %s", resultMessage(t, res))
+
+	out := parseJSONResult(t, res)
+	assert.NotContains(t, out, "portal_url")
+	assert.NotContains(t, out, "page_id")
+}

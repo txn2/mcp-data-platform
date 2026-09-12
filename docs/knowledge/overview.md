@@ -210,6 +210,8 @@ This is a human-in-the-loop metadata curation workflow. Insights captured by any
 
 All three record a changeset, are listed by `action=list_changesets`, and revert through `action=rollback`. The target URN says which home a changeset belongs to: a catalog `urn:li:...`, `kp:<slug>` for a page, `ai:<section>` for an instruction section.
 
+A promotion that wrote a knowledge page reports `portal_url`, where a person reads that page, and repeats it in the response message. The address is composed by the platform from the deployment's public portal address, so the link an agent hands over is not one it guessed. A deployment that declared no public address reports no `portal_url`. The page route resolves a page's id or its slug, in that order, which is the order `fetch` resolves an `mcp:knowledge_page:` reference in, so the slug the platform's own text names a page by is also an address that opens it.
+
 ### The third sink: the deployment's own operating rules
 
 Some knowledge is neither a fact about a dataset nor a document to read on demand. It is a rule about how to work here -- which engine holds what, an engine-specific gotcha, a hard prohibition -- and it has to be in front of an agent before the agent picks a tool. That is the customized half of `agent_instructions` (`server.agent_instructions`), which `platform_info` composes beneath the platform's own baseline in every session's first response.

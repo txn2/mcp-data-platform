@@ -86,6 +86,19 @@ type Store interface {
 // the write.
 var ErrURIConflict = errors.New("a resource already occupies that URI")
 
+// ErrNoSuchResource marks a lookup that resolved to nothing the caller may see:
+// the resource does not exist, or it exists in a scope they cannot reach. The
+// two are deliberately one answer, because a caller who should not learn the
+// resource exists must not be able to tell them apart.
+//
+// It lives here, in the domain package, rather than beside the writer that
+// returns it, because the tool surface reads it: manage_resource answers a
+// reference that names nothing as an absent file rather than as a failed call
+// (#1690), and it makes that distinction without depending on which writer
+// implementation is bound behind the interface. A read that FAILED is a
+// different error and stays one.
+var ErrNoSuchResource = errors.New("no such managed resource")
+
 // IsNotFound reports whether an error from a Store read means the resource does
 // not exist, as opposed to the read having failed.
 //

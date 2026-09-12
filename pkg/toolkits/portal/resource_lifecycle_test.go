@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -133,6 +134,54 @@ func TestGetWithNeitherAReferenceNorAnAddress(t *testing.T) {
 	require.True(t, result.IsError)
 	assert.Contains(t, errText(t, result), "name the file to act on")
 	assert.Contains(t, errText(t, result), "scope, path and filename")
+}
+
+// A reference that names nothing the caller can see is the same absence an
+// empty address reports, not a failed call (#1690): a script holding a
+// reference in its state and calling get to choose between replace_content and
+// create has to be able to read a deleted file as an answer.
+func TestGetByAReferenceThatNamesNothingIsAnAnswer(t *testing.T) {
+	tk, w, _ := lifecycleToolkit(t)
+	w.getErr = fmt.Errorf("there is no managed resource %q you can see: %w", "res9", resource.ErrNoSuchResource)
+
+	out := decodeGet(t, callResource(t, tk, manageResourceInput{
+		Action: resourceActionGet, Reference: "mcp:resource:res9",
+	}))
+
+	assert.False(t, out.Found)
+	assert.Nil(t, out.Resource)
+	assert.Equal(t, "mcp:resource:res9", out.Reference,
+		"the absent answer names the reference it looked up, as the address branch names the address")
+	assert.Contains(t, out.Message, "mcp:resource:res9")
+	assert.Contains(t, out.Message, "action=create", "the answer names the way to write the file")
+}
+
+// The live half of the same branch: a resolved reference is reported beside the
+// record, so both answers name what was looked up.
+func TestGetByReferenceReportsTheReferenceItResolved(t *testing.T) {
+	tk, _, _ := lifecycleToolkit(t)
+
+	out := decodeGet(t, callResource(t, tk, manageResourceInput{
+		Action: resourceActionGet, Reference: "mcp:resource:res1",
+	}))
+
+	assert.True(t, out.Found)
+	assert.Equal(t, "mcp:resource:res1", out.Reference)
+}
+
+// The other half of the contract: absence became an answer and a read that
+// FAILED did not, because creating on a failed read files a second copy of a
+// file that is already there.
+func TestGetByReferenceReportsAFailedRead(t *testing.T) {
+	tk, w, _ := lifecycleToolkit(t)
+	w.getErr = errors.New("could not read the managed resource: connection refused")
+
+	result := callResource(t, tk, manageResourceInput{
+		Action: resourceActionGet, Reference: "mcp:resource:res1",
+	})
+
+	require.True(t, result.IsError)
+	assert.Contains(t, errText(t, result), "could not read the managed resource")
 }
 
 func TestGetReportsAFailedLookup(t *testing.T) {

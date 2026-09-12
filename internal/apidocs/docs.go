@@ -12358,7 +12358,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns a single canonical knowledge page by id. Open to every authenticated user.",
+                "description": "Returns a single canonical knowledge page by its id or its slug, resolved in that order. Open to every authenticated user.",
                 "produces": [
                     "application/json"
                 ],
@@ -12369,7 +12369,7 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Knowledge page id",
+                        "description": "Knowledge page id or slug",
                         "name": "id",
                         "in": "path",
                         "required": true

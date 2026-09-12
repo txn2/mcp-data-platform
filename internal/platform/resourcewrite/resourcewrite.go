@@ -35,7 +35,10 @@ var (
 	// one the caller cannot see. The two are deliberately the same answer: a
 	// caller who should not learn the resource exists must not be able to tell
 	// them apart.
-	ErrNoSuchResource = errors.New("no such managed resource")
+	//
+	// The sentinel itself is the domain package's, so a tool surface can tell
+	// an absent file from a failed read without importing this package (#1690).
+	ErrNoSuchResource = resource.ErrNoSuchResource
 	// ErrUnavailable is the deployment lacking the layer the write needs. It is
 	// reported as itself rather than as a failure, so a caller is never told a
 	// write happened that could not have.
