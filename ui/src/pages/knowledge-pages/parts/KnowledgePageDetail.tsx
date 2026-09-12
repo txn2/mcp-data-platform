@@ -18,8 +18,15 @@ import { KnowledgeBacklinks } from "@/components/knowledge/KnowledgeBacklinks";
 import { FeedbackButton } from "@/components/feedback/FeedbackButton";
 import { KnowledgePageHistory } from "./KnowledgePageHistory";
 
+/**
+ * KnowledgePageDetail renders one page. `addressKey` is what the route carried,
+ * which is the page's id or its slug: the read route resolves either, so a link
+ * naming a page by slug opens it (#1696). Everything below the read is keyed on
+ * the resolved `page.id`, because the panels beside the body (related, lineage,
+ * backlinks, references, history, remove) are id-only routes.
+ */
 export function KnowledgePageDetail({
-  id,
+  id: addressKey,
   canEdit,
   onNavigate,
   onBack,
@@ -33,7 +40,7 @@ export function KnowledgePageDetail({
   onEdit: () => void;
   onDeleted: () => void;
 }) {
-  const { data: page, isLoading, isError } = useKnowledgePage(id);
+  const { data: page, isLoading, isError } = useKnowledgePage(addressKey);
   const del = useDeleteKnowledgePage();
   const [showHistory, setShowHistory] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -49,6 +56,8 @@ export function KnowledgePageDetail({
       </Alert>
     );
   }
+
+  const id = page.id;
 
   return (
     <div className="space-y-4">

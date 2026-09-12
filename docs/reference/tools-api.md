@@ -906,7 +906,7 @@ Review, synthesize, and apply captured insights to the data catalog. Admin-only.
 | `insight_ids` | array | Conditional | Required for `approve`, `reject`; optional for `synthesize`, `apply` |
 | `changes` | array | Conditional | Required for `apply` with `sink: "datahub"` |
 | `sink` | string | No | Where an `apply` writes: `datahub` (default, applies `changes` to `entity_urn`), `knowledge_page` (promotes to a canonical page via `page`), or `agent_instructions` (promotes an operating rule into the deployment's own instructions via `instructions`). The capture-time `sink_class` is a hint, not a binding |
-| `page` | object | Conditional | Required for `sink: "knowledge_page"`: `{slug, title, summary, body, tags, references, force_new}`. Found-or-created by `slug`, so a repeat promotion consolidates |
+| `page` | object | Conditional | Required for `sink: "knowledge_page"`: `{slug, title, summary, body, tags, references, force_new}`. Found-or-created by `slug`, so a repeat promotion consolidates. The response carries `portal_url`, where the page is read, so the address handed to a person is one the platform composed rather than one the caller guessed |
 | `instructions` | object | Conditional | Required for `sink: "agent_instructions"` (see below) |
 | `changeset_id` | string | Conditional | Required for `rollback` |
 | `confirm` | bool | No | Required when `require_confirmation` is enabled (for `apply` and `rollback`) |
@@ -920,7 +920,7 @@ Review, synthesize, and apply captured insights to the data catalog. Admin-only.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `section` | string | Yes | Heading the rule lives under, and the find-or-create key. One line, no `#`, at most 120 characters |
-| `body` | string | Yes | The rule text. Over 1,500 bytes it is written to a knowledge page and the section keeps a one-line `mcp:knowledge_page:<slug>` index entry pointing at it |
+| `body` | string | Yes | The rule text. Over 1,500 bytes it is written to a knowledge page and the section keeps a one-line `mcp:knowledge_page:<slug>` index entry pointing at it; the response then carries the page's `page_id` and its `portal_url` |
 | `slug` | string | No | Slug for the page a diverted body lands on (default: a slug derived from `section`) |
 | `title` | string | No | Title for the page a diverted body lands on (default: `section`) |
 | `summary` | string | No | One line saying what reading the page answers; it becomes the index entry the instructions keep |
@@ -1276,7 +1276,7 @@ A `create` declares what the bytes are in `content_type`; a create that does not
 |--------|-------------|-----------------|
 | `create` | File new content as a managed resource and report its `mcp://` URI and its `mcp:resource:` reference. With `if_exists=replace` it records the next version of whatever is already at that address instead of refusing | `filename`, `display_name`, `path`, `description`, `content_type`, content |
 | `replace_content` | Write new content over an existing resource, keeping its id, URI and filename, and record the change as its next version | `reference`, content |
-| `get` | Report what is filed at an address, or what a reference names, without the bytes | `path` + `filename`, or `reference` |
+| `get` | Report what is filed at an address, or what a reference names, without the bytes. Nothing there is `found: false` rather than an error, on either branch | `path` + `filename`, or `reference` |
 | `list` | Report the files under a folder, newest first, with the `total` the page was cut from | - |
 | `delete` | Remove a file and its version history, refusing while something still points at it | `path` + `filename`, or `reference` |
 
@@ -1298,7 +1298,7 @@ A `create` declares what the bytes are in `content_type`; a create that does not
 }
 ```
 
-`get` returns `found`, the `uri` it looked up (reported whether or not anything is filed there), and a `resource` record carrying everything a `fetch` of the reference would except the bytes. `list` returns `path`, `resources` as that same record shape, `total` and `offset`. `delete` returns `deleted`, and on a refusal the `holds` counts and the `table_registrations` that stopped it, in the shape `manage_table action=list` reports.
+`get` returns `found`, what it looked up -- the `uri` for an address, the `reference` for a reference, each reported whether or not anything answers it -- and a `resource` record carrying everything a `fetch` of the reference would except the bytes. Finding nothing is an answer and not a failure on both branches: an empty address and a reference naming a file that is gone or outside what the caller can see are each `found: false`, the same way `fetch` answers a dangling reference, so a script deciding between `replace_content` and `create` reads a deleted file as absent rather than as a failed call. A read that *failed* stays a tool error, because creating on a failed read files a second copy of a file that is already there. `list` returns `path`, `resources` as that same record shape, `total` and `offset`. `delete` returns `deleted`, and on a refusal the `holds` counts and the `table_registrations` that stopped it, in the shape `manage_table action=list` reports.
 
 `replace_content` returns the same shape plus `version`, the number the content was recorded as, and `table_changes` when a table is registered over the file: one sentence per table, saying it followed onto the new version (`scratch.uploads.analyst_stores on scratch now reads version 7.`) or is pinned and now behind it, with the same sentences appended to `message`. A create reports no version: it records version 1 only where the deployment keeps a version trail, and a number the history may not hold is worse than none. See [Following the file](../server/registered-tables.md#following-the-file).
 
@@ -1314,7 +1314,7 @@ A `create` declares what the bytes are in `content_type`; a create that does not
 | Scope refused | `you cannot write to the global scope, which is administrators only: managed-resource write refused` |
 | Missing reference | `reference is required for replace_content: pass the mcp:resource:<id> reference ...` |
 | Reference of another kind | `reference "..." names a target of type "asset", not "resource". ...` |
-| Missing, deleted, or not visible | `there is no managed resource "<id>" you can see: no such managed resource` |
+| Missing, deleted, or not visible (`replace_content` and `delete`; `get` answers `found: false` instead) | `there is no managed resource "<id>" you can see: no such managed resource` |
 | No version trail | `this deployment keeps no version history for managed resources, so content cannot be replaced: managed-resource write unavailable` |
 | No signed-in identity | `Writing a managed resource needs a signed-in identity. ...` |
 | No managed-resource layer | `This deployment has no managed-resource library to write to: ... Nothing was saved.` |

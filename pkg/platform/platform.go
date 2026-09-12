@@ -1601,6 +1601,7 @@ func (p *Platform) initKnowledge() error {
 		ApplyDataHubConnection:   apply.DataHubConnection,
 		ApplyRequireConfirmation: apply.RequireConfirmation,
 		PageGuards:               p.config.Knowledge.Pages.Resolve(),
+		PortalBaseURL:            p.config.Portal.PublicBaseURL,
 		DataHub:                  p.resolveKnowledgeDataHubConfig(apply.DataHubConnection, applyEnabled),
 	})
 	if err != nil {

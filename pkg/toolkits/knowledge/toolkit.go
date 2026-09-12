@@ -120,6 +120,11 @@ type Toolkit struct {
 	pageGuards    knowledgepage.PageGuards
 	embeddingProv embedding.Provider
 
+	// portalBaseURL is the deployment's public portal address, used to tell a
+	// caller where the page a promotion wrote is read (#1696). Empty leaves the
+	// address off the response.
+	portalBaseURL string
+
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
 

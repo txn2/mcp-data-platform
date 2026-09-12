@@ -350,12 +350,13 @@ func (h *Handler) searchKnowledgePages(w http.ResponseWriter, r *http.Request) {
 }
 
 // getKnowledgePage handles GET /api/v1/portal/knowledge-pages/{id} (any user).
+// The key is the page's id or its slug (#1696); see readKnowledgePage.
 //
 // @Summary      Get a knowledge page
-// @Description  Returns a single canonical knowledge page by id. Open to every authenticated user.
+// @Description  Returns a single canonical knowledge page by its id or its slug, resolved in that order. Open to every authenticated user.
 // @Tags         Knowledge
 // @Produce      json
-// @Param        id  path  string  true  "Knowledge page id"
+// @Param        id  path  string  true  "Knowledge page id or slug"
 // @Success      200  {object}  knowledgepage.Page
 // @Failure      401  {object}  problemDetail
 // @Failure      404  {object}  problemDetail
@@ -368,7 +369,7 @@ func (h *Handler) getKnowledgePage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, errAuthRequired)
 		return
 	}
-	page, err := h.deps.KnowledgePageStore.Get(r.Context(), r.PathValue(kpIDParam))
+	page, err := h.readKnowledgePage(r.Context(), r.PathValue(kpIDParam))
 	if errors.Is(err, knowledgepage.ErrNotFound) {
 		writeError(w, http.StatusNotFound, errKnowledgePageNotFoundMsg)
 		return
@@ -377,11 +378,37 @@ func (h *Handler) getKnowledgePage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to get knowledge page")
 		return
 	}
-	if page.DeletedAt != nil {
-		writeError(w, http.StatusNotFound, errKnowledgePageNotFoundMsg)
-		return
-	}
 	writeJSON(w, http.StatusOK, page)
+}
+
+// readKnowledgePage resolves the key an address carries: by id first, then by
+// slug when no row holds that id. It is the same order pkg/knowledge resolves an
+// mcp:knowledge_page: reference in, so the address a person opens and the
+// reference an agent fetches name a page the same way (#1696). Without the slug
+// read, the only human-readable name a page promotion reports could not be
+// turned into an address that opens, and neither could the mcp:knowledge_page:
+// slugs the platform's own shipped text names its pages by.
+//
+// The order is the contract: an id read is never shadowed by a slug read, so a
+// page whose slug happens to equal another page's id still resolves as the id it
+// was asked for, and a soft-deleted page the id read found is not-found rather
+// than a reason to go looking for a different page under the same key.
+func (h *Handler) readKnowledgePage(ctx context.Context, key string) (*knowledgepage.Page, error) {
+	page, err := h.deps.KnowledgePageStore.Get(ctx, key)
+	if errors.Is(err, knowledgepage.ErrNotFound) {
+		page, err = h.deps.KnowledgePageStore.GetBySlug(ctx, key)
+	}
+	if err != nil {
+		// Wrapped with %w so the caller's not-found check still matches, and
+		// without the key, which is caller-supplied text.
+		return nil, fmt.Errorf("reading knowledge page: %w", err)
+	}
+	// The store's Get returns soft-deleted rows -- it is the editor's undelete
+	// path -- so the live read filters them here.
+	if page == nil || page.DeletedAt != nil {
+		return nil, knowledgepage.ErrNotFound
+	}
+	return page, nil
 }
 
 // updateKnowledgePage handles PUT /api/v1/portal/knowledge-pages/{id} (apply_knowledge access).

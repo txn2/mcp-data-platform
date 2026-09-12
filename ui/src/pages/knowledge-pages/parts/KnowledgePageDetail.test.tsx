@@ -23,7 +23,9 @@ vi.mock("@/api/portal/hooks", () => ({
 
 // The panels below the article each read their own endpoint and are covered by
 // their own tests; this one is about the page's own actions.
-vi.mock("@/components/knowledge/RelatedPanel", () => ({ RelatedPanel: () => null }));
+vi.mock("@/components/knowledge/RelatedPanel", () => ({
+  RelatedPanel: ({ pageId }: { pageId: string }) => <div data-testid="related-panel">{pageId}</div>,
+}));
 vi.mock("@/components/knowledge/LineagePanel", () => ({ LineagePanel: () => null }));
 vi.mock("@/components/knowledge/RefPicker", () => ({ RefPicker: () => null }));
 vi.mock("@/components/knowledge/KnowledgeBacklinks", () => ({ KnowledgeBacklinks: () => null }));
@@ -156,5 +158,28 @@ describe("KnowledgePageDetail builtin", () => {
 
     expect(screen.getByText(/Hide "Fiscal Calendar"\?/)).toBeInTheDocument();
     expect(screen.getByText(/upgrades will not bring it back/)).toBeInTheDocument();
+  });
+});
+
+// A page opened by slug (#1696): the read route resolves either key, so the
+// panels below the article have to be keyed on the id the page came back with,
+// not on the key the address carried, because their own routes take an id.
+describe("KnowledgePageDetail addressed by slug", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("keys the panels on the resolved page id, not the address", () => {
+    render(
+      <KnowledgePageDetail
+        id="fiscal-calendar"
+        canEdit
+        onBack={vi.fn()}
+        onEdit={vi.fn()}
+        onDeleted={vi.fn()}
+      />,
+    );
+
+    expect(vi.mocked(useKnowledgePage)).toHaveBeenCalledWith("fiscal-calendar");
+    expect(screen.getByTestId("related-panel")).toHaveTextContent("kp_1");
+    expect(screen.getByText("Fiscal Calendar")).toBeInTheDocument();
   });
 });

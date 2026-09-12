@@ -119,10 +119,16 @@ type resourceGetOutput struct {
 	// person deciding whether to write there needs to know before they do.
 	Found bool `json:"found"`
 	// URI is the address that was looked up, reported whether or not anything
-	// is filed at it.
-	URI      string          `json:"uri"`
-	Resource *resourceRecord `json:"resource,omitempty"`
-	Message  string          `json:"message"`
+	// is filed at it. It is empty on a lookup by reference that resolved to
+	// nothing, because a reference names a record rather than an address, so
+	// there is no address to report until a record answers.
+	URI string `json:"uri,omitempty"`
+	// Reference is the reference that was looked up, reported on the reference
+	// branch whether or not anything answers it, so an absent answer names what
+	// it looked for the way the address branch names the address (#1690).
+	Reference string          `json:"reference,omitempty"`
+	Resource  *resourceRecord `json:"resource,omitempty"`
+	Message   string          `json:"message"`
 }
 
 // resourceListOutput is what action=list reports.
@@ -171,11 +177,25 @@ func (t *Toolkit) handleGetResource(
 			return toolkit.ErrorResult(err.Error()), nil, nil
 		}
 		res, err := t.resourceWriter.Get(ctx, id, claims)
+		// A reference that names nothing the caller can see is an absent file,
+		// not a failed call, and it is the same absence an empty address
+		// reports (#1690). A script holding a reference in its state and
+		// calling get to choose between replace_content and create reads a
+		// deleted file as a clean answer; told the call failed, it would file a
+		// second copy or stop. A store that could not answer stays an error, so
+		// "gone" and "the lookup broke" remain two answers.
+		if errors.Is(err, resource.ErrNoSuchResource) {
+			return toolkit.JSONResultTyped(resourceGetOutput{
+				Reference: ref,
+				Message: "Nothing is filed under " + ref + ". The file may have been deleted, or it may be " +
+					"outside what you can see. Create it with action=create, addressing it by path and filename.",
+			})
+		}
 		if err != nil {
 			return toolkit.ErrorResult(err.Error()), nil, nil
 		}
 		return toolkit.JSONResultTyped(resourceGetOutput{
-			Found: true, URI: res.URI, Resource: recordOf(res),
+			Found: true, URI: res.URI, Reference: ref, Resource: recordOf(res),
 			Message: "This is the file " + ref + " names. Its content is not here: read it with fetch.",
 		})
 	}

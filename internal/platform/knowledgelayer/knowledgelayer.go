@@ -72,6 +72,11 @@ type Config struct {
 	// DataHub is the resolved DataHub connection for the apply writer; nil selects
 	// the noop writer with a startup WARN. Used only when ApplyEnabled.
 	DataHub *DataHubConfig
+	// PortalBaseURL is the deployment's public portal address. A promotion that
+	// writes a knowledge page hands back where that page is read (#1696); empty
+	// leaves the address off, since a deployment that declared no public
+	// address cannot know it.
+	PortalBaseURL string
 }
 
 // Handle owns the assembled knowledge-capture layer: the insight store, the
@@ -178,6 +183,9 @@ func (h *Handle) configureApply(db *sql.DB, embeddingProv embedding.Provider, cf
 	// Knowledge-page write guards (#705); the embedding provider powers the dedup
 	// probe and is inactive under a noop provider.
 	h.toolkit.SetPageGuards(cfg.PageGuards, embeddingProv)
+	// Where a promoted page is read, so the promotion can hand the address back
+	// rather than leaving the caller to compose one (#1696).
+	h.toolkit.SetPortalBaseURL(cfg.PortalBaseURL)
 
 	slog.Info("knowledge apply enabled",
 		"datahub_connection", cfg.ApplyDataHubConnection,

@@ -339,7 +339,7 @@ var manageResourceSchema = json.RawMessage(`{
     "action": {
       "type": "string",
       "enum": ["create", "replace_content", "get", "list", "delete"],
-      "description": "What to do: file new content as a managed resource (create), write new content over an existing one (replace_content), read what is filed at a path or a reference without its bytes (get), report the files under a folder (list), or remove a file and its version history (delete). A replacement moves every table registered over the file that follows it (the default) onto the new contents, and reports each table in its result; a table registered with follow=false stays on the version it was registered over and is reported as behind."
+      "description": "What to do: file new content as a managed resource (create), write new content over an existing one (replace_content), read what is filed at a path or a reference without its bytes (get), report the files under a folder (list), or remove a file and its version history (delete). A get finding nothing is an answer and not a failure: an empty address and a reference naming a file that is gone or outside what you can see both report found=false, the same way fetch reports a dangling reference, so a create-or-replace decides on it. A replacement moves every table registered over the file that follows it (the default) onto the new contents, and reports each table in its result; a table registered with follow=false stays on the version it was registered over and is reported as behind."
     },
     "reference": {
       "type": "string",
