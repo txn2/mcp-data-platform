@@ -1,5 +1,11 @@
 import { useState } from "react";
-import { RefreshCw, Upload, AlertCircle, CheckCircle2 } from "lucide-react";
+import {
+  RefreshCw,
+  Upload,
+  AlertCircle,
+  CheckCircle2,
+  TriangleAlert,
+} from "lucide-react";
 import {
   useGraphQLSchema,
   useRefreshGraphQLSchema,
@@ -20,19 +26,10 @@ function formatWhen(value?: string): string {
   return Number.isNaN(at.getTime()) ? value : at.toLocaleString();
 }
 
-// SchemaState is what the platform holds for the connection, or the named
-// cause when it holds nothing.
-function SchemaState({ info }: { info: GraphQLSchemaInfo }) {
-  if (info.error) {
-    return (
-      <Alert variant="destructive">
-        <AlertCircle />
-        <AlertDescription>
-          The platform holds no schema for this connection: {info.error}
-        </AlertDescription>
-      </Alert>
-    );
-  }
+// HeldSchema is the schema the connection serves discovery from: how many
+// operations it exposes, where it came from, when it was read, and which
+// version it is.
+function HeldSchema({ info }: { info: GraphQLSchemaInfo }) {
   return (
     <div className="flex flex-wrap items-center gap-2 text-xs">
       <CheckCircle2 className="size-4 text-emerald-600" />
@@ -52,6 +49,71 @@ function SchemaState({ info }: { info: GraphQLSchemaInfo }) {
         </span>
       )}
     </div>
+  );
+}
+
+// SchemaState is what the platform holds for the connection: the schema it
+// serves discovery from, the cause when it holds none, or both — a read the
+// endpoint refused keeps the schema the connection holds and records the
+// refusal beside it (#1676), and an operator reading "no schema" there
+// re-uploads one the platform already has (#1689). The platform fills the hash
+// exactly when it holds a schema, so "no hash and nothing indexed" is the only
+// state that holds none.
+function SchemaState({ info }: { info: GraphQLSchemaInfo }) {
+  if (!info.schema_hash && info.operation_count === 0) {
+    return (
+      <Alert variant="destructive">
+        <AlertCircle />
+        <AlertDescription>
+          {info.error
+            ? `The platform holds no schema for this connection: ${info.error}`
+            : "The platform holds no schema for this connection yet."}
+        </AlertDescription>
+      </Alert>
+    );
+  }
+  return (
+    <div className="space-y-2">
+      <HeldSchema info={info} />
+      {info.error && (
+        <Alert variant="warning">
+          <TriangleAlert />
+          <AlertDescription>
+            {/* The cause is its own line rather than a clause: it is the
+                upstream's sentence, and it arrives with its own punctuation. */}
+            <span>
+              The last attempt to re-read this schema from the endpoint failed.
+              The connection is still serving the schema above.
+            </span>
+            <span className="font-mono text-xs break-all">{info.error}</span>
+          </AlertDescription>
+        </Alert>
+      )}
+    </div>
+  );
+}
+
+// ActionFailure is what the button just did, which is not the same fact as
+// what the connection holds. A re-read the endpoint refuses is recorded on the
+// connection as well, so the cause would otherwise be printed twice in a row;
+// when it is the one already shown, this points at it instead. An upload the
+// platform refuses as unparseable is recorded nowhere, and is printed here.
+function ActionFailure({
+  failure,
+  recorded,
+}: {
+  failure: string;
+  recorded?: string;
+}) {
+  return (
+    <Alert variant="destructive">
+      <AlertCircle />
+      <AlertDescription>
+        {failure === recorded
+          ? "The read failed, for the reason already shown above."
+          : failure}
+      </AlertDescription>
+    </Alert>
   );
 }
 
@@ -165,12 +227,7 @@ export function GraphQLSchemaCard({
           </>
         )}
 
-        {failure && (
-          <Alert variant="destructive">
-            <AlertCircle />
-            <AlertDescription>{failure}</AlertDescription>
-          </Alert>
-        )}
+        {failure && <ActionFailure failure={failure} recorded={data?.error} />}
 
         {!isReadOnly && (
           <SchemaActions

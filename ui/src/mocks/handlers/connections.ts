@@ -1,4 +1,5 @@
 import { http, HttpResponse } from "msw";
+import type { GraphQLSchemaInfo } from "@/api/admin/hooks";
 import type {
   ConnectionInstance,
   EnrichmentRule,
@@ -12,6 +13,7 @@ import {
   mockConnectionOAuthStatus,
   mockConnectionAuthEvents,
   mockGatewayConnectionStatus,
+  mockGraphQLSchemaState,
 } from "../data/connections";
 
 // ADMIN_BASE mirrors handlers.ts. These handlers only cover the
@@ -25,6 +27,8 @@ import {
 //   GET    /connections/:kind/:name/auth-events        (history timeline)
 //   POST   /connections/:kind/:name/oauth-start
 //   POST   /connections/:kind/:name/reacquire-oauth
+//   GET    /connection-instances/graphql/:name/schema   (schema state)
+//   POST   /connection-instances/graphql/:name/refresh-schema
 //   GET    /gateway/connections/:name/status
 //   POST   /gateway/connections/:name/test
 //   POST   /gateway/connections/:name/refresh
@@ -81,6 +85,52 @@ export const connectionInstanceHandlers = [
 
   http.delete(`${ADMIN_BASE}/connection-instances/:kind/:name`, () =>
     new HttpResponse(null, { status: 204 }),
+  ),
+
+  // --- GraphQL connection schemas ---
+  // The state a graphql connection's Schema card reads. Both fixtures carry an
+  // error: one holds a schema whose last re-read the endpoint refused, the
+  // other holds none at all.
+  http.get(
+    `${ADMIN_BASE}/connection-instances/graphql/:name/schema`,
+    ({ params }) => {
+      const name = decodeURIComponent(String(params["name"]));
+      const info = mockGraphQLSchemaState[name];
+      if (!info) return new HttpResponse(null, { status: 404 });
+      return HttpResponse.json(info);
+    },
+  ),
+
+  // One route, both ways a schema arrives, as the real one works: an empty
+  // body re-reads the endpoint, and a body is the schema itself. Neither
+  // fixture's endpoint answers introspection, so a re-read is the upstream's
+  // refusal at 502 and leaves the stored state alone; a pasted schema is
+  // accepted and becomes what the connection holds.
+  http.post(
+    `${ADMIN_BASE}/connection-instances/graphql/:name/refresh-schema`,
+    async ({ params, request }) => {
+      const name = decodeURIComponent(String(params["name"]));
+      const info = mockGraphQLSchemaState[name];
+      if (!info) return new HttpResponse(null, { status: 404 });
+      const body = (await request.text().catch(() => "")).trim();
+      if (body === "") {
+        return HttpResponse.json(
+          { detail: info.error ?? "the endpoint refused the introspection query" },
+          { status: 502 },
+        );
+      }
+      const applied: GraphQLSchemaInfo = {
+        connection: name,
+        schema_hash: `a1b2c3d4e5f6${String(body.length).padStart(4, "0")}`,
+        source: "upload",
+        fetched_at: new Date().toISOString(),
+        // The operation count is the schema's root fields; the fixture counts
+        // the SDL's root-level field lines rather than parsing it.
+        operation_count: Math.max(1, (body.match(/^\s{2}\w+\(/gm) ?? []).length),
+      };
+      mockGraphQLSchemaState[name] = applied;
+      return HttpResponse.json(applied);
+    },
   ),
 
   // --- Unified OAuth (any connection kind) ---
