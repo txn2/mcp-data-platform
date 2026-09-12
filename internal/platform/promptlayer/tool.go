@@ -17,6 +17,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 	"github.com/txn2/mcp-data-platform/pkg/textpatch"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 // ToolNameManagePrompt is the MCP tool name of the prompt-management tool,
@@ -141,6 +142,8 @@ func (h *Handle) RegisterTool(server *mcp.Server) {
 			"toolkit prompts too. " +
 			textpatch.VerbsDescription,
 		InputSchema: promptschema.ManagePrompt(h.commandNames()),
+		// delete removes a prompt and update overwrites its content.
+		Annotations: toolkit.WriteAnnotations(true),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input managePromptInput) (*mcp.CallToolResult, any, error) {
 		return h.handleManagePrompt(ctx, input)
 	})

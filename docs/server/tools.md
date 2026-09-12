@@ -67,6 +67,26 @@ The name is `purpose`, not `intent`, because [`search`](#search) already takes a
 
 ---
 
+## Tool annotations
+
+Every tool the platform registers advertises MCP tool annotations on `tools/list`, so a client can tell a read from a write before it calls anything.
+
+| Annotation | What it says |
+|------------|--------------|
+| `readOnlyHint` | `true` when no call to the tool modifies state. |
+| `destructiveHint` | On a write, `true` when some action removes or overwrites state that is already there, `false` when every action only adds. |
+| `idempotentHint` | `true` on a read, where calling again changes nothing. |
+
+Clients are told by the specification to assume a tool is **not** read-only when `readOnlyHint` is absent, and some act on that by asking the user to confirm every unannotated call. The platform therefore states the hint on every tool rather than leaving any to the default: a session that opens with `platform_info`, then `search`, then `fetch` is three pure reads, and on a strict client each one used to arrive as a write confirmation.
+
+The hint describes the tool, not the call. `manage_asset`, `manage_table`, `manage_resource`, `manage_prompt`, `manage_script`, `memory_manage` and `s3_object` all expose reads alongside writes, and each advertises the most it can do, so a list action on one of them is still a tool a client may confirm.
+
+These tools advertise `readOnlyHint: true`: `platform_info`, `search`, `fetch`, `list_connections`, `platform_find_tools`, `show_prompts`, `show_scripts`, `api_discover`, `graphql_discover`, `s3_list`, `trino_query`, `trino_explain`, `trino_browse`, `trino_describe_table`, `datahub_browse` and the `datahub_get_*` reads. Everything else advertises `readOnlyHint: false`.
+
+A tool proxied from an upstream MCP server through the [gateway toolkit](gateway.md) carries the upstream's own annotations unchanged, including none at all where the upstream publishes none. The three toolkits built on the `mcp-trino`, `mcp-datahub` and `mcp-s3` libraries take their annotations from those libraries, and an operator can override them per deployment under a toolkit's `annotations:` key.
+
+---
+
 ## Trino Tools
 
 ### trino_query

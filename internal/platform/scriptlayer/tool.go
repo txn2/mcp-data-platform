@@ -10,6 +10,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/script"
 	"github.com/txn2/mcp-data-platform/pkg/textpatch"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 // ToolNameManageScript is the MCP tool name of the script-management tool,
@@ -145,6 +146,9 @@ func (h *Handle) RegisterTool(server *mcp.Server) {
 		Title:       "Manage Scripts",
 		Description: manageScriptDescription,
 		InputSchema: manageScriptSchema(),
+		// delete removes a script, and update and the content verbs
+		// overwrite one.
+		Annotations: toolkit.WriteAnnotations(true),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input manageScriptInput) (*mcp.CallToolResult, any, error) {
 		return h.handleManageScript(ctx, input)
 	})

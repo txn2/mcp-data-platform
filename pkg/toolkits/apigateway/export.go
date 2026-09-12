@@ -271,9 +271,9 @@ func (t *Toolkit) registerExportTool(s *mcp.Server) {
 			"NAMING: keep `name` short and portable, ASCII letters / digits / spaces / hyphens / dots only. " +
 			"The name doubles as the download filename.",
 		InputSchema: apiExportInputSchema,
-		Annotations: &mcp.ToolAnnotations{
-			ReadOnlyHint: false,
-		},
+		// An export lands a new asset, or the next version of a managed
+		// resource with the earlier versions kept, so it only adds.
+		Annotations: toolkit.WriteAnnotations(false),
 	}, t.handleExport)
 }
 

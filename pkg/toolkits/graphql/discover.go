@@ -148,6 +148,7 @@ func discoverTool() *mcp.Tool {
 			"Operations the persona's route rules deny are absent, and those rules still apply at query time. " +
 			"Use list_connections to discover available kind=graphql connections.",
 		InputSchema: discoverSchema,
+		Annotations: toolkit.ReadOnlyAnnotations(),
 	}
 }
 

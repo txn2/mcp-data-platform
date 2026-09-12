@@ -12,6 +12,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	s3client "github.com/txn2/mcp-s3/pkg/client"
 	s3tools "github.com/txn2/mcp-s3/pkg/tools"
+
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 // The two tools this toolkit registers (#1591). s3_list is buckets when no
@@ -56,9 +58,10 @@ const (
 )
 
 var (
-	destructive       = true
-	listAnnotations   = &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true}
-	objectAnnotations = &mcp.ToolAnnotations{DestructiveHint: &destructive}
+	listAnnotations = toolkit.ReadOnlyAnnotations()
+	// s3_object carries the read actions too, but put, copy and delete
+	// overwrite and remove, so the tool advertises the most it can do.
+	objectAnnotations = toolkit.WriteAnnotations(true)
 
 	// The output schemas are the union of upstream's per-tool schemas for the
 	// operations each tool performs. Upstream declares no required properties,

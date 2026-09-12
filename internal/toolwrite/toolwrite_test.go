@@ -239,3 +239,40 @@ func TestClassified(t *testing.T) {
 	require.False(t, Classified("vendor__create_invoice"))
 	require.False(t, Classified(""))
 }
+
+// TestReadOnly covers the per-tool question a registration asks before it
+// advertises readOnlyHint (#1692), including the three answers that differ
+// from Classify's per-call one: an action tool whose call happens to read is
+// still not a read-only TOOL, a write tool is not, and a tool nobody named is
+// not.
+func TestReadOnly(t *testing.T) {
+	for name, want := range map[string]bool{
+		"platform_info":    true,
+		"search":           true,
+		"fetch":            true,
+		"api_discover":     true,
+		"graphql_discover": true,
+		"s3_list":          true,
+		// Action tools: some of their calls read, the tool does not.
+		"manage_asset":    false,
+		"manage_resource": false,
+		"s3_object":       false,
+		"memory_manage":   false,
+		// Writes.
+		"save_asset":      false,
+		"apply_knowledge": false,
+		"trino_export":    false,
+		// Sent-dependent, and unknown.
+		"api_invoke_endpoint": false,
+		"graphql_query":       false,
+		"no_such_tool":        false,
+	} {
+		if got := ReadOnly(name); got != want {
+			t.Errorf("ReadOnly(%q) = %t, want %t", name, got, want)
+		}
+	}
+
+	if !ReadOnly("  search  ") {
+		t.Error("ReadOnly should trim its argument, as Classify does")
+	}
+}
