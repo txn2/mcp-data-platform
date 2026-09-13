@@ -32,14 +32,15 @@ export function useCreateAPIKey() {
   });
 }
 
+// useDeleteAPIKey refreshes the listing whether the delete succeeded or not: a
+// refused delete is most often a key another admin or replica already removed
+// (404), and the row it was clicked on should go with it (#1715).
 export function useDeleteAPIKey() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (name: string) =>
-      apiFetchRaw(`/auth/keys/${name}`, { method: "DELETE" }).then((res) => {
-        if (!res.ok) throw new Error("Failed to delete");
-      }),
-    onSuccess: () => {
+      apiFetch<{ status: string }>(`/auth/keys/${encodeURIComponent(name)}`, { method: "DELETE" }),
+    onSettled: () => {
       void qc.invalidateQueries({ queryKey: ["auth", "keys"] });
     },
   });

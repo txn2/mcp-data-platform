@@ -7,17 +7,30 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
+	"slices"
 	"sort"
 	"sync"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/sync/singleflight"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
 
 // generatedKeyBytes is the number of random bytes for generated API keys.
 const generatedKeyBytes = 32
+
+// hashedKeySyncTimeout bounds the store read a refused key shares with every
+// other refused key arriving at the same moment. It is detached from the one
+// request that started it, so that request going away does not refuse the
+// others.
+const hashedKeySyncTimeout = 5 * time.Second
+
+// errInvalidAPIKey is the refusal for a token no key matches.
+var errInvalidAPIKey = errors.New("invalid API key")
 
 // APIKeyConfig holds API key configuration.
 type APIKeyConfig struct {
@@ -25,8 +38,8 @@ type APIKeyConfig struct {
 }
 
 // API key provenance, surfaced in APIKeySummary.Source. Config-file keys reappear
-// on restart and are protected from admin-API deletion; database keys (including
-// admin-API-generated keys, which are persisted to the store) are deletable.
+// on restart and are protected from admin-API deletion; database keys, which
+// include every key the admin API generates, are deletable.
 const (
 	sourceFile     = "file"
 	sourceDatabase = "database"
@@ -42,10 +55,6 @@ type APIKey struct {
 	Description string     // Human-readable description of what this key is for
 	Roles       []string   // Roles assigned to this key
 	ExpiresAt   *time.Time // Optional expiration time (nil = never expires)
-	// Source is the provenance reported by ListKeys for plaintext (fileKeys)
-	// entries: empty/"file" for config-file keys, "database" for admin-generated
-	// keys. It disambiguates the fileKeys map, which holds both.
-	Source string
 }
 
 // IsExpired returns true if the key has an expiration date that has passed.
@@ -64,14 +73,35 @@ type APIKeySummary struct {
 	Source      string     `json:"source,omitempty" example:"database"` // "file", "database", or "both"
 }
 
+// HashedKeySource is the store the database-managed keys live in. Every
+// replica of a deployment reads the one store, so when a source is attached it
+// is the record of which of those keys exist, and the keys the authenticator
+// holds in memory are a copy of it that another replica's write can make stale
+// (#1715).
+type HashedKeySource interface {
+	// HashedKeys returns every key the store holds, each with its bcrypt hash.
+	HashedKeys(ctx context.Context) ([]APIKey, error)
+	// HoldsKey reports whether the store holds the key named name with the
+	// bcrypt hash keyHash. A key deleted and created again under the same name
+	// carries a different hash, so the old one is not held.
+	HoldsKey(ctx context.Context, name, keyHash string) (bool, error)
+}
+
 // APIKeyAuthenticator authenticates using API keys.
 // File-loaded keys (plaintext) are stored in fileKeys for O(1) lookup.
 // DB-loaded keys (bcrypt hashed) are stored in hashedKeys as a slice,
 // checked via bcrypt only when no file key matches — limiting DoS surface.
+//
+// With a HashedKeySource attached, a DB-loaded key is accepted only while the
+// store still holds it, and a token that matches none of them re-reads the
+// store once before it is refused, so a key written through another replica
+// takes effect here the moment that write returns.
 type APIKeyAuthenticator struct {
 	mu         sync.RWMutex
 	fileKeys   map[string]*APIKey // indexed by raw key value
 	hashedKeys []*APIKey          // DB-loaded keys, checked via bcrypt
+	source     HashedKeySource
+	syncs      singleflight.Group
 }
 
 // NewAPIKeyAuthenticator creates a new API key authenticator.
@@ -97,43 +127,170 @@ func (a *APIKeyAuthenticator) Authenticate(ctx context.Context) (*middleware.Use
 	}
 
 	a.mu.RLock()
-	defer a.mu.RUnlock()
+	fileKey := a.matchFileKey(token)
+	// A copy: dropHashedKey rewrites the slice in place, and the bcrypt
+	// comparisons below run without the lock.
+	hashed := slices.Clone(a.hashedKeys)
+	source := a.source
+	a.mu.RUnlock()
 
-	var matchedKey *APIKey
-
-	// Fast path: O(1) map lookup for file-loaded keys.
-	if candidate, ok := a.fileKeys[token]; ok {
-		if subtle.ConstantTimeCompare([]byte(candidate.Key), []byte(token)) == 1 {
-			matchedKey = candidate
-		}
+	if fileKey != nil {
+		return keyUserInfo(fileKey)
 	}
 
 	// Slow path: bcrypt comparison for DB-loaded hashed keys.
 	// Only attempted when no file key matched, limiting DoS surface.
-	if matchedKey == nil {
-		for _, v := range a.hashedKeys {
-			if bcrypt.CompareHashAndPassword([]byte(v.KeyHash), []byte(token)) == nil {
-				matchedKey = v
-				break
-			}
+	matched := matchHashedKey(hashed, token)
+	if source == nil {
+		if matched == nil {
+			return nil, errInvalidAPIKey
+		}
+		return keyUserInfo(matched)
+	}
+	if matched == nil {
+		matched = a.matchAfterSync(ctx, hashed, token)
+		if matched == nil {
+			return nil, errInvalidAPIKey
 		}
 	}
-
-	if matchedKey == nil {
-		return nil, errors.New("invalid API key")
+	if err := a.confirmHeld(ctx, source, matched); err != nil {
+		return nil, err
 	}
+	return keyUserInfo(matched)
+}
 
-	if matchedKey.IsExpired() {
-		return nil, fmt.Errorf("api key %q has expired", matchedKey.Name)
+// matchFileKey returns the file key token is, or nil. The caller holds a.mu.
+func (a *APIKeyAuthenticator) matchFileKey(token string) *APIKey {
+	candidate, ok := a.fileKeys[token]
+	if !ok || subtle.ConstantTimeCompare([]byte(candidate.Key), []byte(token)) != 1 {
+		return nil
 	}
+	return candidate
+}
 
+// matchHashedKey returns the key in keys whose hash token matches, or nil.
+func matchHashedKey(keys []*APIKey, token string) *APIKey {
+	for _, k := range keys {
+		if bcrypt.CompareHashAndPassword([]byte(k.KeyHash), []byte(token)) == nil {
+			return k
+		}
+	}
+	return nil
+}
+
+// matchAfterSync is the second look for a token no held key matched: it
+// re-reads the store and compares the token with the keys that read added.
+// Only a token shaped like a key the admin API generates can be one of those,
+// so any other token (a JWT another authenticator refused, a config-file key
+// mistyped) never reaches the store.
+func (a *APIKeyAuthenticator) matchAfterSync(ctx context.Context, seen []*APIKey, token string) *APIKey {
+	if !isGeneratedKeyShape(token) {
+		return nil
+	}
+	if err := a.syncShared(ctx); err != nil {
+		slog.Warn("api key: re-reading the key store for an unrecognized key failed", "error", logsan.SanitizeForLog(err.Error()))
+		return nil
+	}
+	seenHashes := make(map[string]bool, len(seen))
+	for _, k := range seen {
+		seenHashes[k.KeyHash] = true
+	}
+	a.mu.RLock()
+	added := make([]*APIKey, 0, len(a.hashedKeys))
+	for _, k := range a.hashedKeys {
+		if !seenHashes[k.KeyHash] {
+			added = append(added, k)
+		}
+	}
+	a.mu.RUnlock()
+	return matchHashedKey(added, token)
+}
+
+// syncShared re-reads the store once for every caller waiting on it at the same
+// moment, so a burst of refused keys costs one query rather than one each.
+func (a *APIKeyAuthenticator) syncShared(ctx context.Context) error {
+	_, err, _ := a.syncs.Do("sync", func() (any, error) {
+		syncCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), hashedKeySyncTimeout)
+		defer cancel()
+		return nil, a.SyncHashedKeys(syncCtx)
+	})
+	return err //nolint:wrapcheck // SyncHashedKeys wraps its own error
+}
+
+// confirmHeld refuses a matched key the store no longer holds, and drops it
+// from memory so the next request with it is refused without a comparison. A
+// store that cannot answer refuses the key too: a deleted key must not be
+// accepted because the one place that records its deletion was unreachable.
+func (a *APIKeyAuthenticator) confirmHeld(ctx context.Context, source HashedKeySource, key *APIKey) error {
+	held, err := source.HoldsKey(ctx, key.Name, key.KeyHash)
+	if err != nil {
+		slog.Warn("api key: confirming a key against the key store failed",
+			"name", logsan.SanitizeForLog(key.Name), "error", logsan.SanitizeForLog(err.Error()))
+		return fmt.Errorf("api key %q could not be confirmed against the key store: %w", key.Name, err)
+	}
+	if !held {
+		a.dropHashedKey(key)
+		return errInvalidAPIKey
+	}
+	return nil
+}
+
+// dropHashedKey removes the entry key points at, if memory still holds it.
+func (a *APIKeyAuthenticator) dropHashedKey(key *APIKey) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.hashedKeys = slices.DeleteFunc(a.hashedKeys, func(k *APIKey) bool { return k == key })
+}
+
+// isGeneratedKeyShape reports whether token has the form GenerateKey produces:
+// the hex encoding of generatedKeyBytes random bytes.
+func isGeneratedKeyShape(token string) bool {
+	if len(token) != hex.EncodedLen(generatedKeyBytes) {
+		return false
+	}
+	_, err := hex.DecodeString(token)
+	return err == nil
+}
+
+// keyUserInfo is the identity a matched key authenticates as, or the refusal
+// for a key past its expiry.
+func keyUserInfo(key *APIKey) (*middleware.UserInfo, error) {
+	if key.IsExpired() {
+		return nil, fmt.Errorf("api key %q has expired", key.Name)
+	}
 	return &middleware.UserInfo{
-		UserID:   "apikey:" + matchedKey.Name,
-		Email:    apiKeyEmail(*matchedKey),
+		UserID:   "apikey:" + key.Name,
+		Email:    apiKeyEmail(*key),
 		Claims:   make(map[string]any),
-		Roles:    matchedKey.Roles,
+		Roles:    key.Roles,
 		AuthType: middleware.AuthTypeAPIKey,
 	}, nil
+}
+
+// SetHashedKeySource attaches the store the database-managed keys live in. It
+// may be called while requests are being authenticated.
+func (a *APIKeyAuthenticator) SetHashedKeySource(source HashedKeySource) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.source = source
+}
+
+// SyncHashedKeys replaces the database-managed keys held in memory with the
+// ones the attached store holds. With no store attached it changes nothing:
+// the keys held are all there are.
+func (a *APIKeyAuthenticator) SyncHashedKeys(ctx context.Context) error {
+	a.mu.RLock()
+	source := a.source
+	a.mu.RUnlock()
+	if source == nil {
+		return nil
+	}
+	keys, err := source.HashedKeys(ctx)
+	if err != nil {
+		return fmt.Errorf("reading api keys from the key store: %w", err)
+	}
+	a.ReplaceHashedKeys(keys)
+	return nil
 }
 
 // AddKey adds a plaintext API key at runtime.
@@ -190,12 +347,6 @@ func (a *APIKeyAuthenticator) ListKeys() []APIKeySummary {
 
 	byName := make(map[string]APIKeySummary, len(a.fileKeys)+len(a.hashedKeys))
 	for _, k := range a.fileKeys {
-		// fileKeys holds both config-file keys (empty Source) and admin-generated
-		// keys (Source "database"); default the empty case to "file".
-		source := k.Source
-		if source == "" {
-			source = sourceFile
-		}
 		byName[k.Name] = APIKeySummary{
 			Name:        k.Name,
 			Email:       apiKeyEmail(*k),
@@ -203,7 +354,7 @@ func (a *APIKeyAuthenticator) ListKeys() []APIKeySummary {
 			Roles:       k.Roles,
 			ExpiresAt:   k.ExpiresAt,
 			Expired:     k.IsExpired(),
-			Source:      source,
+			Source:      sourceFile,
 		}
 	}
 	for _, k := range a.hashedKeys {
@@ -233,40 +384,15 @@ func (a *APIKeyAuthenticator) ListKeys() []APIKeySummary {
 	return summaries
 }
 
-// RemoveByName removes an API key by its display name.
-// Searches both file keys and hashed keys. Returns true if a key was found
-// and removed.
-func (a *APIKeyAuthenticator) RemoveByName(name string) bool {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
-	// Check file keys first.
-	for k, v := range a.fileKeys {
-		if v.Name == name {
-			delete(a.fileKeys, k)
-			return true
-		}
-	}
-
-	// Check hashed keys.
-	for i, v := range a.hashedKeys {
-		if v.Name == name {
-			// Remove by swapping with last element (order doesn't matter).
-			a.hashedKeys[i] = a.hashedKeys[len(a.hashedKeys)-1]
-			a.hashedKeys[len(a.hashedKeys)-1] = nil // avoid memory leak
-			a.hashedKeys = a.hashedKeys[:len(a.hashedKeys)-1]
-			return true
-		}
-	}
-
-	return false
-}
-
-// GenerateKey creates a new API key with server-generated value.
-// Returns the key value (shown only once) or an error if the name is duplicate.
+// GenerateKey returns a new server-generated value for a key named def.Name,
+// shown only once, or an error when a key already held carries that name. It
+// holds nothing: the caller stores the key's hash, and the key authenticates
+// once it is in the store and reaches memory through SyncHashedKeys. A value
+// held in plaintext here as well would be a second copy that deleting the
+// stored key does not remove.
 func (a *APIKeyAuthenticator) GenerateKey(def APIKey) (string, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 
 	// Check for duplicate name across both collections.
 	for _, v := range a.fileKeys {
@@ -285,17 +411,7 @@ func (a *APIKeyAuthenticator) GenerateKey(def APIKey) (string, error) {
 	if _, err := rand.Read(b); err != nil {
 		return "", fmt.Errorf("generating random key: %w", err)
 	}
-	keyValue := hex.EncodeToString(b)
-
-	def.Key = keyValue
-	def.KeyHash = "" // generated keys are plaintext (value is known)
-	// Admin-generated keys are persisted to the database by the handler, so they
-	// are database-sourced (and deletable), not config-file keys — even though
-	// they live in fileKeys for O(1) plaintext lookup this session.
-	def.Source = sourceDatabase
-	a.fileKeys[keyValue] = &def
-
-	return keyValue, nil
+	return hex.EncodeToString(b), nil
 }
 
 // SyntheticEmailDomain is the domain the platform mints an address in for an

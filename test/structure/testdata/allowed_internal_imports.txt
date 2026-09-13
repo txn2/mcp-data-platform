@@ -176,6 +176,7 @@ internal/notification/notifyworker -> internal/notification/notifyrender
 internal/notification/notifyworker -> internal/notification/notifysend
 internal/notification/notifyworker -> pkg/notification
 internal/notification/notifyworker -> pkg/notification/smtp
+internal/platform/apikeystore -> pkg/auth
 internal/platform/assetindex -> pkg/indexjobs
 internal/platform/assetindex -> pkg/portal
 internal/platform/auditwiring -> internal/platform/callrecord

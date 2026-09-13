@@ -2885,29 +2885,21 @@ func (p *Platform) loadDBPersonas() {
 	}
 }
 
-// loadDBAPIKeys loads API key definitions from the database and registers
-// them in the API key authenticator using bcrypt hashes.
+// loadDBAPIKeys attaches the API key store to the API key authenticator and
+// loads the keys it holds. From then on the authenticator confirms every
+// database-managed key against the store, which every replica shares (#1715).
+// The no-database store is not attached: it holds no key, and a deployment
+// without a database has no admin route that creates one.
 func (p *Platform) loadDBAPIKeys() {
 	if p.apiKeyStore == nil || p.apiKeyAuth == nil {
 		return
 	}
-	defs, err := p.apiKeyStore.List(context.Background())
-	if err != nil {
-		slog.Warn("failed to load DB api keys", logKeyError, err)
+	if _, noop := p.apiKeyStore.(*NoopAPIKeyStore); noop {
 		return
 	}
-	for _, def := range defs {
-		p.apiKeyAuth.AddHashedKey(auth.APIKey{
-			KeyHash:     def.KeyHash,
-			Name:        def.Name,
-			Email:       def.Email,
-			Description: def.Description,
-			Roles:       def.Roles,
-			ExpiresAt:   def.ExpiresAt,
-		})
-	}
-	if len(defs) > 0 {
-		slog.Info("loaded DB api keys", logKeyCount, len(defs))
+	p.apiKeyAuth.SetHashedKeySource(p.apiKeyStore)
+	if err := p.apiKeyAuth.SyncHashedKeys(context.Background()); err != nil {
+		slog.Warn("failed to load DB api keys", logKeyError, err)
 	}
 }
 

@@ -19,6 +19,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/apikeystore"
 	"github.com/txn2/mcp-data-platform/internal/platform/cfgmap"
@@ -4446,7 +4447,8 @@ func TestPersonaStoreAccessor(t *testing.T) {
 	}
 }
 
-// mockAPIKeyStoreForTest is a simple mock for testing loadDBAPIKeys.
+// mockAPIKeyStoreForTest is a simple mock for testing loadDBAPIKeys. Like the
+// Postgres store, it holds a key by name and hash.
 type mockAPIKeyStoreForTest struct {
 	defs    []APIKeyDefinition
 	listErr error
@@ -4456,10 +4458,30 @@ func (m *mockAPIKeyStoreForTest) List(_ context.Context) ([]APIKeyDefinition, er
 	return m.defs, m.listErr
 }
 
-func (*mockAPIKeyStoreForTest) Set(_ context.Context, _ APIKeyDefinition) error { return nil }
+func (*mockAPIKeyStoreForTest) Create(_ context.Context, _ APIKeyDefinition) error { return nil }
 
 func (*mockAPIKeyStoreForTest) Delete(_ context.Context, _ string) error {
 	return ErrAPIKeyNotFound
+}
+
+func (m *mockAPIKeyStoreForTest) HashedKeys(_ context.Context) ([]auth.APIKey, error) {
+	if m.listErr != nil {
+		return nil, m.listErr
+	}
+	keys := make([]auth.APIKey, 0, len(m.defs))
+	for _, d := range m.defs {
+		keys = append(keys, auth.APIKey{Name: d.Name, KeyHash: d.KeyHash, Email: d.Email, Roles: d.Roles})
+	}
+	return keys, nil
+}
+
+func (m *mockAPIKeyStoreForTest) HoldsKey(_ context.Context, name, keyHash string) (bool, error) {
+	for _, d := range m.defs {
+		if d.Name == name && d.KeyHash == keyHash {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func TestLoadDBAPIKeys(t *testing.T) {
@@ -4513,6 +4535,41 @@ func TestLoadDBAPIKeys(t *testing.T) {
 	t.Run("nil store is safe", func(_ *testing.T) {
 		p := &Platform{apiKeyStore: nil}
 		p.loadDBAPIKeys() // should not panic
+	})
+
+	t.Run("attaches the store, so a key it stops holding is refused", func(t *testing.T) {
+		const token = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+		hash, err := bcrypt.GenerateFromPassword([]byte(token), bcrypt.MinCost)
+		if err != nil {
+			t.Fatalf("hashing: %v", err)
+		}
+		store := &mockAPIKeyStoreForTest{defs: []APIKeyDefinition{{Name: "db-key", KeyHash: string(hash), Roles: []string{"analyst"}}}}
+		apiKeyAuth := auth.NewAPIKeyAuthenticator(auth.APIKeyConfig{})
+		p := &Platform{apiKeyAuth: apiKeyAuth, apiKeyStore: store}
+		p.loadDBAPIKeys()
+
+		ctx := auth.WithToken(context.Background(), token)
+		if _, err := apiKeyAuth.Authenticate(ctx); err != nil {
+			t.Fatalf("a stored key was refused: %v", err)
+		}
+		store.defs = nil
+		if _, err := apiKeyAuth.Authenticate(ctx); err == nil {
+			t.Error("a key the store stopped holding still authenticated")
+		}
+	})
+
+	t.Run("the no-database store is not attached", func(t *testing.T) {
+		apiKeyAuth := auth.NewAPIKeyAuthenticator(auth.APIKeyConfig{})
+		apiKeyAuth.AddHashedKey(auth.APIKey{Name: "held", KeyHash: "$2a$10$placeholder"})
+		p := &Platform{apiKeyAuth: apiKeyAuth, apiKeyStore: &NoopAPIKeyStore{}}
+		p.loadDBAPIKeys()
+
+		if err := apiKeyAuth.SyncHashedKeys(context.Background()); err != nil {
+			t.Fatalf("SyncHashedKeys: %v", err)
+		}
+		if keys := apiKeyAuth.ListKeys(); len(keys) != 1 || keys[0].Name != "held" {
+			t.Errorf("keys = %+v; the noop store was attached and its empty key set replaced the held key", keys)
+		}
 	})
 }
 

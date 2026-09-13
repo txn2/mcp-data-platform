@@ -4138,8 +4138,9 @@ export const handlers = [
     });
   }),
 
+  // The Go route answers 200 with a status body, which the delete hook parses.
   http.delete(`${ADMIN_BASE}/auth/keys/:name`, () => {
-    return new HttpResponse(null, { status: 204 });
+    return HttpResponse.json({ status: "deleted" });
   }),
 
   // =========================================================================

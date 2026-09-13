@@ -127,79 +127,6 @@ func TestListKeysIncludesHashedKeys(t *testing.T) {
 	}
 }
 
-func TestRemoveByName(t *testing.T) {
-	cfg := APIKeyConfig{
-		Keys: []APIKey{
-			{Key: "key-1", Name: "one", Roles: []string{testRoleAdmin}},
-			{Key: "key-2", Name: "two", Roles: []string{testRoleAnalyst}},
-		},
-	}
-	auth := NewAPIKeyAuthenticator(cfg)
-
-	t.Run("removes existing key by name", func(t *testing.T) {
-		if !auth.RemoveByName("one") {
-			t.Error("RemoveByName() returned false for existing key")
-		}
-
-		ctx := WithToken(context.Background(), "key-1")
-		_, err := auth.Authenticate(ctx)
-		if err == nil {
-			t.Error("Authenticate() should fail after RemoveByName")
-		}
-	})
-
-	t.Run("returns false for non-existent name", func(t *testing.T) {
-		if auth.RemoveByName("nonexistent") {
-			t.Error("RemoveByName() returned true for non-existent key")
-		}
-	})
-}
-
-func TestRemoveByNameHashedKey(t *testing.T) {
-	auth := NewAPIKeyAuthenticator(APIKeyConfig{})
-
-	rawKey := "hashed-remove-test"
-	hash, err := bcrypt.GenerateFromPassword([]byte(rawKey), bcrypt.MinCost)
-	if err != nil {
-		t.Fatalf("generating bcrypt hash: %v", err)
-	}
-
-	auth.AddHashedKey(APIKey{
-		KeyHash: string(hash),
-		Name:    "db-key-to-remove",
-		Roles:   []string{testRoleAdmin},
-	})
-
-	// Verify the key works before removal.
-	ctx := WithToken(context.Background(), rawKey)
-	_, err = auth.Authenticate(ctx)
-	if err != nil {
-		t.Fatalf("Authenticate() before removal: %v", err)
-	}
-
-	// Remove by name.
-	if !auth.RemoveByName("db-key-to-remove") {
-		t.Fatal("RemoveByName() returned false for existing hashed key")
-	}
-
-	// Verify authentication fails after removal.
-	_, err = auth.Authenticate(ctx)
-	if err == nil {
-		t.Error("Authenticate() should fail after RemoveByName on hashed key")
-	}
-
-	// Verify it's gone from ListKeys.
-	for _, s := range auth.ListKeys() {
-		if s.Name == "db-key-to-remove" {
-			t.Error("removed hashed key still appears in ListKeys()")
-		}
-	}
-}
-
-// TestReplaceHashedKeys proves the cross-replica reconcile path (issue
-// #501): replacing the DB-key set drops a revoked key (it stops
-// authenticating) and admits a newly added one, while file-config keys
-// are untouched.
 func TestReplaceHashedKeys(t *testing.T) {
 	auth := NewAPIKeyAuthenticator(APIKeyConfig{
 		Keys: []APIKey{{Key: "file-key", Name: "file", Roles: []string{testRoleAdmin}}},
@@ -242,65 +169,52 @@ func TestReplaceHashedKeys(t *testing.T) {
 }
 
 func TestGenerateKey(t *testing.T) {
-	auth := NewAPIKeyAuthenticator(APIKeyConfig{})
+	auth := NewAPIKeyAuthenticator(APIKeyConfig{
+		Keys: []APIKey{{Key: "file-secret", Name: "from-file", Roles: []string{testRoleAdmin}}},
+	})
+	auth.AddHashedKey(APIKey{KeyHash: "$2a$10$placeholder", Name: "from-db", Roles: []string{testRoleAnalyst}})
 
-	t.Run("generates valid key", func(t *testing.T) {
-		keyValue, err := auth.GenerateKey(APIKey{Name: "test-gen", Roles: []string{testRoleAdmin}})
+	t.Run("generates a value in the generated-key shape", func(t *testing.T) {
+		first, err := auth.GenerateKey(APIKey{Name: "test-gen", Roles: []string{testRoleAdmin}})
 		if err != nil {
 			t.Fatalf("GenerateKey() error = %v", err)
 		}
-		// 32 bytes hex-encoded = 64 chars
-		if len(keyValue) != 64 {
-			t.Errorf("key length = %d, want 64", len(keyValue))
-		}
-
-		// Key should be usable for authentication
-		ctx := WithToken(context.Background(), keyValue)
-		info, err := auth.Authenticate(ctx)
+		second, err := auth.GenerateKey(APIKey{Name: "test-gen", Roles: []string{testRoleAdmin}})
 		if err != nil {
-			t.Fatalf("Authenticate() after GenerateKey error = %v", err)
+			t.Fatalf("GenerateKey() error = %v", err)
 		}
-		if info.Roles[0] != testRoleAdmin {
-			t.Errorf("Roles = %v, want [%s]", info.Roles, testRoleAdmin)
+		if !isGeneratedKeyShape(first) || len(first) != 64 {
+			t.Errorf("key %q is not the hex of %d random bytes", first, generatedKeyBytes)
 		}
-	})
-
-	t.Run("rejects duplicate name", func(t *testing.T) {
-		_, err := auth.GenerateKey(APIKey{Name: "test-gen", Roles: []string{testRoleAnalyst}})
-		if err == nil {
-			t.Error("GenerateKey() expected error for duplicate name")
+		if first == second {
+			t.Error("two generated values are equal")
 		}
 	})
 
-	t.Run("rejects duplicate name from hashed keys", func(t *testing.T) {
-		auth.AddHashedKey(APIKey{
-			KeyHash: "$2a$10$placeholder",
-			Name:    "db-dup-check",
-			Roles:   []string{testRoleAnalyst},
-		})
-		_, err := auth.GenerateKey(APIKey{Name: "db-dup-check", Roles: []string{testRoleAdmin}})
-		if err == nil {
-			t.Error("GenerateKey() should reject name that exists in hashed keys")
+	t.Run("holds nothing until the key is stored", func(t *testing.T) {
+		keyValue, err := auth.GenerateKey(APIKey{Name: "unstored", Roles: []string{testRoleAdmin}})
+		if err != nil {
+			t.Fatalf("GenerateKey() error = %v", err)
 		}
-	})
-
-	t.Run("appears in ListKeys as database source", func(t *testing.T) {
-		summaries := auth.ListKeys()
-		found := false
-		for _, s := range summaries {
-			if s.Name == "test-gen" {
-				found = true
-				// Generated keys are persisted to the DB, so they must report
-				// "database" (deletable), not "file" (which the admin API blocks
-				// from deletion). Regression guard for the undeletable-key bug.
-				if s.Source != sourceDatabase {
-					t.Errorf("generated key Source = %q, want %q", s.Source, sourceDatabase)
-				}
-				break
+		if _, err := auth.Authenticate(WithToken(context.Background(), keyValue)); err == nil {
+			t.Error("a generated value authenticated before any store held its hash")
+		}
+		for _, s := range auth.ListKeys() {
+			if s.Name == "unstored" {
+				t.Errorf("ListKeys() carries a key that was only generated: %+v", s)
 			}
 		}
-		if !found {
-			t.Error("generated key not found in ListKeys()")
+	})
+
+	t.Run("rejects a name a file key carries", func(t *testing.T) {
+		if _, err := auth.GenerateKey(APIKey{Name: "from-file"}); err == nil {
+			t.Error("GenerateKey() accepted the name of a file key")
+		}
+	})
+
+	t.Run("rejects a name a stored key carries", func(t *testing.T) {
+		if _, err := auth.GenerateKey(APIKey{Name: "from-db"}); err == nil {
+			t.Error("GenerateKey() accepted the name of a stored key")
 		}
 	})
 }

@@ -106,7 +106,7 @@ func TestPostgresAPIKeyStoreList_ScanError(t *testing.T) {
 	}
 }
 
-func TestPostgresAPIKeyStoreSet(t *testing.T) {
+func TestPostgresAPIKeyStoreCreate(t *testing.T) {
 	store, mock := newTestAPIKeyStore(t)
 	now := time.Now()
 	exp := now.Add(24 * time.Hour)
@@ -122,15 +122,16 @@ func TestPostgresAPIKeyStoreSet(t *testing.T) {
 		CreatedAt:   now,
 	}
 
-	mock.ExpectExec("INSERT INTO api_keys").
+	// The statement must not replace a stored key: DO NOTHING, never DO UPDATE.
+	mock.ExpectExec(`INSERT INTO api_keys .* ON CONFLICT \(name\) DO NOTHING`).
 		WithArgs(
 			def.Name, def.KeyHash, def.Email, def.Description,
-			sqlmock.AnyArg(), // roles JSON
+			[]byte(`["admin","viewer"]`),
 			def.ExpiresAt, def.CreatedBy,
 		).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	err := store.Set(context.Background(), def)
+	err := store.Create(context.Background(), def)
 	require.NoError(t, err)
 
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -138,23 +139,101 @@ func TestPostgresAPIKeyStoreSet(t *testing.T) {
 	}
 }
 
-func TestPostgresAPIKeyStoreSet_ExecError(t *testing.T) {
+func TestPostgresAPIKeyStoreCreate_NameTaken(t *testing.T) {
 	store, mock := newTestAPIKeyStore(t)
 
 	mock.ExpectExec("INSERT INTO api_keys").
-		WithArgs(
-			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
-			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
-		).
-		WillReturnError(errors.New("exec error"))
+		WillReturnResult(driver.RowsAffected(0))
 
-	err := store.Set(context.Background(), Definition{Name: "test"})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "upserting api key")
+	err := store.Create(context.Background(), Definition{Name: "taken"})
+	assert.ErrorIs(t, err, ErrExists)
 
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf(apikeyFmtUnmetExpect, err)
 	}
+}
+
+func TestPostgresAPIKeyStoreCreate_ExecError(t *testing.T) {
+	store, mock := newTestAPIKeyStore(t)
+
+	mock.ExpectExec("INSERT INTO api_keys").
+		WillReturnError(errors.New("exec error"))
+
+	err := store.Create(context.Background(), Definition{Name: "test"})
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, ErrExists)
+	assert.Contains(t, err.Error(), "inserting api key")
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf(apikeyFmtUnmetExpect, err)
+	}
+}
+
+func TestPostgresAPIKeyStoreCreate_RowsAffectedError(t *testing.T) {
+	store, mock := newTestAPIKeyStore(t)
+
+	mock.ExpectExec("INSERT INTO api_keys").
+		WillReturnResult(sqlmock.NewErrorResult(errors.New("no count")))
+
+	err := store.Create(context.Background(), Definition{Name: "test"})
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, ErrExists)
+	assert.Contains(t, err.Error(), "checking insert result")
+}
+
+func TestPostgresAPIKeyStoreHoldsKey(t *testing.T) {
+	for _, held := range []bool{true, false} {
+		store, mock := newTestAPIKeyStore(t)
+		mock.ExpectQuery(`SELECT EXISTS \(SELECT 1 FROM api_keys WHERE name = \$1 AND key_hash = \$2\)`).
+			WithArgs("ci", "$2a$10$hash").
+			WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(held))
+
+		got, err := store.HoldsKey(context.Background(), "ci", "$2a$10$hash")
+		require.NoError(t, err)
+		assert.Equal(t, held, got)
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Errorf(apikeyFmtUnmetExpect, err)
+		}
+	}
+}
+
+func TestPostgresAPIKeyStoreHoldsKey_QueryError(t *testing.T) {
+	store, mock := newTestAPIKeyStore(t)
+	mock.ExpectQuery("SELECT EXISTS").WillReturnError(errors.New("connection reset"))
+
+	held, err := store.HoldsKey(context.Background(), "ci", "$2a$10$hash")
+	require.Error(t, err)
+	assert.False(t, held)
+	assert.Contains(t, err.Error(), "checking api key")
+}
+
+func TestPostgresAPIKeyStoreHashedKeys(t *testing.T) {
+	store, mock := newTestAPIKeyStore(t)
+	exp := time.Now().Add(time.Hour).UTC()
+	mock.ExpectQuery("SELECT name, key_hash").
+		WillReturnRows(sqlmock.NewRows(apikeyColumns).
+			AddRow("ci", "$2a$10$hash", "ci@example.com", "pipeline", []byte(`["analyst"]`), exp, "admin@example.com", time.Now()))
+
+	keys, err := store.HashedKeys(context.Background())
+	require.NoError(t, err)
+	require.Len(t, keys, 1)
+	assert.Equal(t, "ci", keys[0].Name)
+	assert.Equal(t, "$2a$10$hash", keys[0].KeyHash)
+	assert.Empty(t, keys[0].Key, "a stored key carries no plaintext")
+	assert.Equal(t, "ci@example.com", keys[0].Email)
+	assert.Equal(t, "pipeline", keys[0].Description)
+	assert.Equal(t, []string{"analyst"}, keys[0].Roles)
+	require.NotNil(t, keys[0].ExpiresAt)
+	assert.True(t, exp.Equal(*keys[0].ExpiresAt))
+}
+
+func TestPostgresAPIKeyStoreHashedKeys_ListError(t *testing.T) {
+	store, mock := newTestAPIKeyStore(t)
+	mock.ExpectQuery("SELECT name, key_hash").WillReturnError(errors.New("connection reset"))
+
+	keys, err := store.HashedKeys(context.Background())
+	require.Error(t, err)
+	assert.Nil(t, keys)
 }
 
 func TestPostgresAPIKeyStoreDelete(t *testing.T) {
@@ -213,9 +292,21 @@ func TestNoopAPIKeyStore(t *testing.T) {
 		assert.Nil(t, defs)
 	})
 
-	t.Run("Set returns nil", func(t *testing.T) {
-		err := store.Set(ctx, Definition{Name: "test"})
+	t.Run("Create returns nil", func(t *testing.T) {
+		err := store.Create(ctx, Definition{Name: "test"})
 		assert.NoError(t, err)
+	})
+
+	t.Run("HashedKeys returns nil nil", func(t *testing.T) {
+		keys, err := store.HashedKeys(ctx)
+		assert.NoError(t, err)
+		assert.Nil(t, keys)
+	})
+
+	t.Run("HoldsKey holds nothing", func(t *testing.T) {
+		held, err := store.HoldsKey(ctx, "anything", "$2a$10$hash")
+		assert.NoError(t, err)
+		assert.False(t, held)
 	})
 
 	t.Run("Delete returns ErrNotFound", func(t *testing.T) {

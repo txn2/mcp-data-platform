@@ -28,6 +28,7 @@ func keyPersonaDeps(t *testing.T, mgr *mockAPIKeyManager, personas ...*persona.P
 		// The create route is registered only when keys can be persisted.
 		ConfigStore:     &mockConfigStore{mode: "database"},
 		APIKeyManager:   mgr,
+		APIKeyStore:     &mockAPIKeyStore{},
 		PersonaRegistry: reg,
 		PersonaResolver: &persona.OIDCRoleMapper{
 			PersonaMapping: map[string]string{"sso_admins": "admin"},

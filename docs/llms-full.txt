@@ -3582,8 +3582,9 @@ Cross-kind embedding-index health for every `index_jobs` consumer; backs the adm
 ## Auth Key Endpoints
 
 - `GET /auth/keys` — List API keys (values never exposed); each carries `persona`, the persona its roles reach by the MCP authorizer's rules (an explicit `personas.role_mapping.oidc_to_persona` entry, then the personas' `roles`), or `no_persona: true` when they reach none, which means the key authenticates and lists no tools (#1705); the portal's API Keys page badges such a key "No persona"
-- `POST /auth/keys` — Generate new API key (database config mode only, key shown once); a key whose roles reach no persona is still created (the persona may be defined afterward) and the 201 carries `warnings` naming the roles the personas do carry, and, when a requested role is a persona's NAME, that persona's roles; a key that reaches one carries `persona`; the portal shows the warnings in the created-key banner
-- `DELETE /auth/keys/{name}` — Delete API key (database config mode only)
+- `POST /auth/keys` — Generate new API key (database config mode only, key shown once, 64 hex characters); a key whose roles reach no persona is still created (the persona may be defined afterward) and the 201 carries `warnings` naming the roles the personas do carry, and, when a requested role is a persona's NAME, that persona's roles; a key that reaches one carries `persona`; the portal shows the warnings in the created-key banner
+- `DELETE /auth/keys/{name}` — Delete API key (database config mode only); 404 for a name no replica holds, 409 for a key only the config file declares
+- Every replica answers the key routes and authenticates keys from the one key store (#1715): a created key is listed and authenticates on every replica as soon as the create returns, a deleted key is refused by every replica as soon as the delete returns, a database key is confirmed against the store on each request, two concurrent creates of one name produce one 201 and one 409, and an unreadable store answers 500 on the routes and refuses database keys
 
 ## User Endpoints
 

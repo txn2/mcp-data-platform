@@ -741,6 +741,8 @@ Deletes a persona. Only available in `database` config mode. Cannot delete the a
 
 ## Auth Key Endpoints
 
+Every replica of a deployment answers these routes, and authenticates API keys, from the one key store in the database. A key created through one replica is listed by, and authenticates on, every replica as soon as the create returns; a deleted key is refused by every replica as soon as the delete returns, and its name can be used again at once. A replica confirms a database key against the store on each request that presents it, so a deleted key is never accepted because a replica had not yet heard of the delete. When the store cannot be read, the key routes answer `500 Internal Server Error` rather than a listing that may be out of date, and a database key is refused rather than accepted unconfirmed. Keys declared in the configuration file are unaffected by the store.
+
 ### List Auth Keys
 
 ```
@@ -784,13 +786,15 @@ Returns all API keys (key values are never exposed, only names and roles). Each 
 }
 ```
 
+**Status Codes:** `200 OK`, `500 Internal Server Error` (key store unreadable)
+
 ### Create Auth Key
 
 ```
 POST /api/v1/admin/auth/keys
 ```
 
-Generates a new API key. Only available in `database` config mode. The key value is returned only once.
+Generates a new API key: 64 hexadecimal characters, the encoding of 32 random bytes. Only available in `database` config mode. The key value is returned only once; the store keeps its bcrypt hash.
 
 **Request Body:**
 
@@ -819,7 +823,7 @@ Generates a new API key. Only available in `database` config mode. The key value
   "name": "ci-pipeline",
   "email": "ci@example.com",
   "description": "CI/CD pipeline integration",
-  "key": "mdp_a1b2c3d4e5f6...",
+  "key": "3f9a1c07e2b84d56a0c3e1f7b9d2468ace13579bdf02468ace13579bdf024681",
   "roles": ["analyst"],
   "expires_at": "2026-05-18T14:30:00Z",
   "warning": "Store this key securely. It will not be shown again.",
@@ -832,7 +836,7 @@ A key whose roles reach no persona is still created, since the persona carrying 
 ```json
 {
   "name": "ci-pipeline",
-  "key": "mdp_a1b2c3d4e5f6...",
+  "key": "3f9a1c07e2b84d56a0c3e1f7b9d2468ace13579bdf02468ace13579bdf024681",
   "roles": ["finance"],
   "warning": "Store this key securely. It will not be shown again.",
   "warnings": [
@@ -843,7 +847,7 @@ A key whose roles reach no persona is still created, since the persona carrying 
 
 The portal shows each warning in the banner that shows the new key.
 
-**Status Codes:** `201 Created`, `400 Bad Request`, `409 Conflict` (name exists or file mode)
+**Status Codes:** `201 Created`, `400 Bad Request`, `409 Conflict` (a key with the name exists, whichever replica created it; of two creates of one name at once, one answers `201` and the other `409`), `500 Internal Server Error` (key store unreadable), `405 Method Not Allowed` (file config mode)
 
 ### Delete Auth Key
 
@@ -851,16 +855,17 @@ The portal shows each warning in the banner that shows the new key.
 DELETE /api/v1/admin/auth/keys/{name}
 ```
 
-Deletes an API key. Only available in `database` config mode.
+Deletes an API key. Only available in `database` config mode. A key declared in the configuration file cannot be deleted here; a key that is both in the file and in the store loses its store half and keeps authenticating with the file's value.
 
 **Response** (`200 OK`):
 
 ```json
 {
-  "message": "key deleted",
-  "name": "ci-pipeline"
+  "status": "deleted"
 }
 ```
+
+**Status Codes:** `200 OK`, `404 Not Found` (no key with the name, including one already deleted through another replica), `409 Conflict` (the key is declared only in the configuration file), `500 Internal Server Error` (key store unreadable), `405 Method Not Allowed` (file config mode)
 
 ## User Endpoints
 

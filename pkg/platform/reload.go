@@ -6,7 +6,6 @@ import (
 	"log/slog"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/graphqlwiring"
-	"github.com/txn2/mcp-data-platform/pkg/auth"
 	"github.com/txn2/mcp-data-platform/pkg/connreconcile"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 )
@@ -156,29 +155,17 @@ func (p *Platform) reloadPersonaLocal() {
 	p.loadDBPersonas()
 }
 
-// reloadAPIKeyLocal re-syncs the in-memory DB-loaded API keys from the
-// store on this replica, dropping revoked keys (ReplaceHashedKeys).
+// reloadAPIKeyLocal re-syncs the in-memory DB-loaded API keys from the store
+// on this replica, dropping revoked keys. A key a peer wrote is already in
+// effect here, because the authenticator confirms database keys against the
+// store; this keeps the copy in memory from growing stale between requests.
 func (p *Platform) reloadAPIKeyLocal() {
-	if p.apiKeyStore == nil || p.apiKeyAuth == nil {
+	if p.apiKeyAuth == nil {
 		return
 	}
-	defs, err := p.apiKeyStore.List(context.Background())
-	if err != nil {
+	if err := p.apiKeyAuth.SyncHashedKeys(context.Background()); err != nil {
 		slog.Warn("reload-bus: failed to list api keys for reload", logKeyError, err)
-		return
 	}
-	keys := make([]auth.APIKey, 0, len(defs))
-	for _, d := range defs {
-		keys = append(keys, auth.APIKey{
-			KeyHash:     d.KeyHash,
-			Name:        d.Name,
-			Email:       d.Email,
-			Description: d.Description,
-			Roles:       d.Roles,
-			ExpiresAt:   d.ExpiresAt,
-		})
-	}
-	p.apiKeyAuth.ReplaceHashedKeys(keys)
 }
 
 // PublishConnectionReload announces a connection config change to peer
