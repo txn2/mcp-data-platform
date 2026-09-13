@@ -215,8 +215,12 @@ func TestParseConfig_DeprecationWarnOncePerConnection(t *testing.T) {
 		"auth_mode":        "oauth2_client_credentials",
 		"oauth2_token_url": "https://idp/token",
 	}
-	// Use unique names so this test is independent of any other test
-	// that may have populated the package-level dedup map.
+	// The dedup map is process-wide and outlives a run, so a second run
+	// (-count) would find both names already warned. Unique names keep
+	// other tests out; forgetting them keeps earlier runs out.
+	for _, name := range []string{"warn-once-conn", "warn-once-other"} {
+		deprecationWarned.Delete("api/" + name)
+	}
 	for range 3 {
 		if _, err := ParseConfig("api", "warn-once-conn", legacyCfg); err != nil {
 			t.Fatalf("ParseConfig: %v", err)

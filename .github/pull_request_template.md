@@ -20,6 +20,18 @@
 
 Fixes #
 
+## Readers of this state
+
+<!--
+Required when this PR changes what an API, a tool or a stored record answers
+with, including the meaning of a field it already had. `make
+state-readers-check` lists the contract changes it can see. For each state
+this PR redefines, name what you checked reads it and what it now shows:
+the API route, the portal card or page, the admin listing, the second
+replica, a restart, and tools/list. Write "None: this PR redefines no state"
+when that is true.
+-->
+
 ## Testing
 
 <!-- How was this tested? Include steps to reproduce if applicable -->
