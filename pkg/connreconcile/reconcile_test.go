@@ -60,6 +60,19 @@ func (t *updatingToolkit) UpdateConnection(name string, config map[string]any) e
 	return t.updateErr
 }
 
+// adoptingToolkit is a recordingToolkit that also implements
+// toolkit.ConnectionAdopter: a peer's announcement is handed to it whole.
+type adoptingToolkit struct {
+	recordingToolkit
+	adoptErr error
+}
+
+func (t *adoptingToolkit) AdoptConnection(name string, config map[string]any) error {
+	t.events = append(t.events, "adopt:"+name)
+	t.addConfigs = append(t.addConfigs, config)
+	return t.adoptErr
+}
+
 // plainToolkit implements registry.Toolkit but NOT ConnectionManager, so the
 // reconciler must skip it even when its kind matches.
 type plainToolkit struct{ kind, name string }
@@ -206,6 +219,59 @@ func TestReconciler_Upsert(t *testing.T) {
 	})
 }
 
+func TestReconciler_Adopt(t *testing.T) {
+	const kind, name = "graphql", "c1"
+	cfg := map[string]any{"endpoint_url": "https://new"}
+
+	t.Run("an adopter is handed the announcement whether or not it holds the connection", func(t *testing.T) {
+		for _, has := range []bool{false, true} {
+			tk := &adoptingToolkit{recordingToolkit: recordingToolkit{kind: kind, has: has}}
+			if failures := New(mustRegister(t, tk)).Adopt(kind, name, cfg); len(failures) != 0 {
+				t.Fatalf("has=%v: failures = %v", has, failures)
+			}
+			if got := tk.events; len(got) != 1 || got[0] != "adopt:c1" {
+				t.Errorf("has=%v: events = %v, want [adopt:c1]", has, got)
+			}
+			if len(tk.addConfigs) != 1 || tk.addConfigs[0]["endpoint_url"] != "https://new" {
+				t.Errorf("has=%v: adopt config = %v", has, tk.addConfigs)
+			}
+		}
+	})
+
+	t.Run("any other toolkit is reconciled as Upsert reconciles it", func(t *testing.T) {
+		plain := &recordingToolkit{kind: kind, name: "plain", has: true}
+		updater := &updatingToolkit{recordingToolkit: recordingToolkit{kind: kind, name: "updater", has: true}}
+		New(mustRegister(t, plain, updater)).Adopt(kind, name, cfg)
+		if got := plain.events; len(got) != 2 || got[0] != "remove:c1" || got[1] != "add:c1" {
+			t.Errorf("plain events = %v, want [remove:c1 add:c1]", got)
+		}
+		if got := updater.events; len(got) != 1 || got[0] != "update:c1" {
+			t.Errorf("updater events = %v, want [update:c1]", got)
+		}
+	})
+
+	t.Run("a failed adoption is reported as its own phase and does not stop other toolkits", func(t *testing.T) {
+		failing := &adoptingToolkit{recordingToolkit: recordingToolkit{kind: kind, name: "failing"}, adoptErr: errors.New("bad config")}
+		healthy := &recordingToolkit{kind: kind, name: "healthy"}
+		failures := New(mustRegister(t, failing, healthy)).Adopt(kind, name, cfg)
+		if len(failures) != 1 || failures[0].Phase != PhaseAdopt {
+			t.Errorf("failures = %v, want one PhaseAdopt", failures)
+		}
+		if got := healthy.events; len(got) != 1 || got[0] != "add:c1" {
+			t.Errorf("healthy events = %v, want [add:c1]", got)
+		}
+		if f := New(mustRegister(t, &recordingToolkit{kind: kind, has: true, removeErr: errors.New("stuck")})).Adopt(kind, name, cfg); len(f) != 1 || f[0].Phase != PhaseRemove {
+			t.Errorf("a non-adopter's failed remove = %v, want one PhaseRemove", f)
+		}
+	})
+
+	t.Run("nil source is a no-op", func(t *testing.T) {
+		if f := New(nil).Adopt(kind, name, cfg); f != nil {
+			t.Errorf("Adopt on nil source = %v, want nil", f)
+		}
+	})
+}
+
 func TestReconciler_SkipsNonManagerAndNilSource(t *testing.T) {
 	const kind, name = "api", "c1"
 
@@ -235,6 +301,9 @@ func TestReconciler_SkipsNonManagerAndNilSource(t *testing.T) {
 func TestPhaseStringNamesEveryPhase(t *testing.T) {
 	if got := PhaseUpdate.String(); got != "update" {
 		t.Errorf("PhaseUpdate.String() = %q", got)
+	}
+	if got := PhaseAdopt.String(); got != "adopt" {
+		t.Errorf("PhaseAdopt.String() = %q", got)
 	}
 }
 

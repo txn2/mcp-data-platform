@@ -77,6 +77,23 @@ func (s *Store) GetSchema(ctx context.Context, connection string) (graphqlkit.St
 	}, nil
 }
 
+// SchemaVersion returns a connection's stored schema version without its
+// SDL: the columns a replica compares with what it holds.
+func (s *Store) SchemaVersion(ctx context.Context, connection string) (graphqlkit.StoredSchema, error) {
+	const q = `SELECT schema_hash, source, fetched_at, read_error
+	             FROM graphql_connection_schemas
+	            WHERE connection = $1`
+	v := graphqlkit.StoredSchema{Connection: connection}
+	err := s.db.QueryRowContext(ctx, q, connection).Scan(&v.Hash, &v.Source, &v.FetchedAt, &v.ReadError)
+	if errors.Is(err, sql.ErrNoRows) {
+		return graphqlkit.StoredSchema{}, fmt.Errorf("connection %s: %w", connection, graphqlkit.ErrSchemaNotFound)
+	}
+	if err != nil {
+		return graphqlkit.StoredSchema{}, fmt.Errorf("graphqlstore: reading schema version: %w", err)
+	}
+	return v, nil
+}
+
 // PutSchema writes a connection's schema, replacing any previous one.
 func (s *Store) PutSchema(ctx context.Context, schema graphqlkit.StoredSchema) error {
 	gz, err := compress(schema.SDL)

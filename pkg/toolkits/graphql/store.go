@@ -54,6 +54,12 @@ type SchemaStore interface {
 	// GetSchema returns the stored schema for a connection, or an error
 	// wrapping ErrSchemaNotFound when there is none.
 	GetSchema(ctx context.Context, connection string) (StoredSchema, error)
+	// SchemaVersion returns what names the stored schema's version, the
+	// hash, source, read time and recorded refusal, without the schema
+	// itself, or an error wrapping ErrSchemaNotFound when there is none.
+	// It is read on every request that uses a connection's schema, so
+	// the SDL is left out of it.
+	SchemaVersion(ctx context.Context, connection string) (StoredSchema, error)
 	// PutSchema writes a connection's schema, replacing any previous
 	// one.
 	PutSchema(ctx context.Context, s StoredSchema) error
@@ -68,6 +74,17 @@ type SchemaStore interface {
 	// DeleteSchema removes a connection's schema, called when the
 	// connection is deleted.
 	DeleteSchema(ctx context.Context, connection string) error
+}
+
+// ConnectionStore reads the configuration a connection is saved under,
+// which every replica of a deployment shares. It is how a replica answers a
+// request for a connection another replica saved before the announcement of
+// that save has reached it (#1714).
+type ConnectionStore interface {
+	// GetConnection returns the saved configuration of the graphql
+	// connection name, in the generic form AddConnection takes, or an
+	// error wrapping ErrConnectionNotFound when none is saved.
+	GetConnection(ctx context.Context, name string) (map[string]any, error)
 }
 
 // VectorReader loads the operation embeddings written by the platform's

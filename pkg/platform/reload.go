@@ -86,7 +86,8 @@ func parseConnectionReloadOp(s string) ConnectionReloadOp {
 //     in place. Removing here would drop a healthy connection over a
 //     database blip; a later upsert event re-materializes it.
 //   - not found (raced with a concurrent delete): remove it.
-//   - present: remove-then-add so the changed config takes effect.
+//   - present: adopt the stored config, so the changed config takes effect
+//     with the state the saving replica stored (#1714).
 //
 // Neither removal applies to a connection this replica's config file declares:
 // an absent row is not evidence it should stop serving, because the file is
@@ -113,7 +114,7 @@ func (p *Platform) reloadConnectionLocal(kind, name, op string) {
 	default:
 		// A failure here leaves a toolkit out of sync with the store, so it is
 		// logged at ERROR; the reconciler still updates the other toolkits.
-		for _, f := range rec.Upsert(kind, name, inst.Config) {
+		for _, f := range rec.Adopt(kind, name, inst.Config) {
 			slog.Error("reload-bus: failed to reconcile connection onto toolkit",
 				logKeyKind, kind, logKeyName, name, "phase", f.Phase.String(), logKeyError, f.Err)
 		}

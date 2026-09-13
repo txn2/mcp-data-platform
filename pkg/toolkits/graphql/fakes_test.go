@@ -50,6 +50,9 @@ type memorySchemaStore struct {
 	getErr    error
 	recordErr error
 	putCalls  int
+
+	getCalls     int
+	versionCalls int
 }
 
 func newMemorySchemaStore() *memorySchemaStore {
@@ -59,6 +62,12 @@ func newMemorySchemaStore() *memorySchemaStore {
 func (m *memorySchemaStore) GetSchema(_ context.Context, connection string) (StoredSchema, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.getCalls++
+	return m.schemaLocked(connection)
+}
+
+// schemaLocked is the row for a connection, for a caller holding mu.
+func (m *memorySchemaStore) schemaLocked(connection string) (StoredSchema, error) {
 	if m.getErr != nil {
 		return StoredSchema{}, m.getErr
 	}
@@ -67,6 +76,29 @@ func (m *memorySchemaStore) GetSchema(_ context.Context, connection string) (Sto
 		return StoredSchema{}, fmt.Errorf("connection %s: %w", connection, ErrSchemaNotFound)
 	}
 	return s, nil
+}
+
+// SchemaVersion is GetSchema without the SDL, counted so a test can see a
+// request read the version and not the schema.
+func (m *memorySchemaStore) SchemaVersion(_ context.Context, connection string) (StoredSchema, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.versionCalls++
+	s, err := m.schemaLocked(connection)
+	s.SDL = ""
+	return s, err
+}
+
+func (m *memorySchemaStore) getCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.getCalls
+}
+
+func (m *memorySchemaStore) versionCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.versionCalls
 }
 
 func (m *memorySchemaStore) PutSchema(_ context.Context, s StoredSchema) error {

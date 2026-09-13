@@ -101,3 +101,13 @@ type ConnectionManager interface {
 type ConnectionUpdater interface {
 	UpdateConnection(name string, config map[string]any) error
 }
+
+// ConnectionAdopter is an optional interface for a ConnectionManager whose
+// connections carry state another replica already derived and stored (a
+// schema read from the endpoint). A replica applying a peer's announcement of
+// a saved connection calls AdoptConnection in place of AddConnection or
+// UpdateConnection: the stored state is installed rather than derived again,
+// and the connection is served only once it is complete (#1714).
+type ConnectionAdopter interface {
+	AdoptConnection(name string, config map[string]any) error
+}
