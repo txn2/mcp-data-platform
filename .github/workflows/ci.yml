@@ -80,6 +80,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The schedule lane diffs against the merge base with main.
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -91,6 +94,14 @@ jobs:
         env:
           MIGRATE_TEST_DSN: postgres://migrate:migrate@localhost:5432/migrate_check?sslmode=disable
         run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
+
+      # Every Go package the pull request changed, at -race -cpu=1,2 -count=5,
+      # the same target `make verify` runs (#1711). A test whose assertion
+      # depends on goroutine ordering passes the single run above and fails
+      # here at one CPU.
+      - name: Schedule lane (changed packages at -cpu=1,2 -count=5)
+        if: github.event_name == 'pull_request'
+        run: make schedule-lane
 
       # Real-DB round-trip gate for tool write paths. Self-provisions pgvector
       # via testcontainers (Docker is available on ubuntu-latest runners) and

@@ -46,7 +46,7 @@ GOFMT := gofmt
 GOLINT := golangci-lint
 
 .PHONY: all build test lint lint-full fmt clean install help docs-serve docs-build verify verify-release \
-	tools-check dead-code mutate patch-coverage doc-check acceptance acceptance-check acceptance-release-check posture-check swagger swagger-check verify-checks verify-go verify-lint verify-docker verify-ui \
+	tools-check dead-code mutate patch-coverage doc-check acceptance acceptance-check acceptance-release-check schedule-lane schedule-lane-ui state-readers-check posture-check swagger swagger-check verify-checks verify-go verify-lint verify-docker verify-ui \
 	semgrep codeql sast osv embed-clean migrate-check \
 	frontend-install frontend-build frontend-build-content-viewer content-viewer-embed \
 	frontend-dev frontend-mock frontend-test frontend-lint frontend-e2e \
@@ -457,6 +457,26 @@ doc-check:
 acceptance-check:
 	@./scripts/acceptance-check.sh
 
+## state-readers-check: Warn when an API contract field or swagger.json changed and nothing under ui/src did (#1709)
+state-readers-check:
+	@python3 scripts/state-readers-check.py
+
+## schedule-lane: Run every changed Go package at -race -cpu=1,2 -count=5 (ordering-dependent tests, #1711)
+## `test` runs each test once at this machine's CPU count, which is not the
+## schedule a loaded CI runner chooses. TestWithRevocations_WiredLate passed
+## two verify runs on 18 cores and fails 140 of 300 runs at -cpu=1. CI runs
+## this same target on every pull request.
+schedule-lane:
+	@python3 scripts/schedule-lane.py go
+
+## schedule-lane-ui: Run the vitest suite with every changed *.test.ts(x) file run five times beside it (#1711)
+## An assertion on a count recorded in a useEffect passed on an idle machine
+## and failed CI's Frontend Build job; the repeats run while the suite loads
+## the machine. It runs the full suite, so verify-ui calls it in place of
+## frontend-test.
+schedule-lane-ui:
+	@python3 scripts/schedule-lane.py ui
+
 ## acceptance: Run the per-ticket acceptance suite as a real MCP client against a running server (make dev)
 ## Each test/acceptance/issue_<n>_test.go executes one ticket's acceptance
 ## criteria through the tool surface a user calls. It fails, rather than
@@ -719,6 +739,7 @@ verify-checks: verify-go verify-lint verify-docker verify-ui
 verify-go:
 	@echo "[lane start $$(date +%T)] verify-go"
 	@$(MAKE) --no-print-directory test
+	@$(MAKE) --no-print-directory schedule-lane
 	@$(MAKE) --no-print-directory coverage-report
 	@$(MAKE) --no-print-directory patch-coverage
 	@$(MAKE) --no-print-directory security
@@ -728,6 +749,7 @@ verify-go:
 	@$(MAKE) --no-print-directory bench-report-check
 	@$(MAKE) --no-print-directory doc-check
 	@$(MAKE) --no-print-directory acceptance-check
+	@$(MAKE) --no-print-directory state-readers-check
 	@echo "[lane done  $$(date +%T)] verify-go"
 
 ## verify-lint: the two lint targets, in order.
@@ -752,10 +774,11 @@ verify-docker:
 	@echo "[lane done  $$(date +%T)] verify-docker"
 
 ## verify-ui: the frontend steps, then the release build that rebuilds the UI
-## from scratch and must not overlap them.
+## from scratch and must not overlap them. schedule-lane-ui is frontend-test
+## with the changed test files repeated beside it.
 verify-ui:
 	@echo "[lane start $$(date +%T)] verify-ui"
-	@$(MAKE) --no-print-directory frontend-test
+	@$(MAKE) --no-print-directory schedule-lane-ui
 	@$(MAKE) --no-print-directory frontend-lint
 	@$(MAKE) --no-print-directory frontend-e2e
 	@$(MAKE) --no-print-directory release-check
