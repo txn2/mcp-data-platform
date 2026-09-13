@@ -319,6 +319,12 @@ func (s peerSchemaStore) GetSchema(_ context.Context, connection string) (graphq
 	return stored, nil
 }
 
+func (s peerSchemaStore) SchemaVersion(ctx context.Context, connection string) (graphqlkit.StoredSchema, error) {
+	stored, err := s.GetSchema(ctx, connection)
+	stored.SDL = ""
+	return stored, err
+}
+
 func (s peerSchemaStore) PutSchema(_ context.Context, stored graphqlkit.StoredSchema) error {
 	s.schemas[stored.Connection] = stored
 	return nil

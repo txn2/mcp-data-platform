@@ -146,6 +146,40 @@ func TestRealDB_ASecondInstanceServesTheStoredSchema(t *testing.T) {
 	require.ErrorIs(t, first.LoadStoredSchema(ctx, "erp"), graphqlkit.ErrSchemaNotFound)
 }
 
+// TestRealDB_AnUploadThroughOneInstanceIsServedByASecondWithoutAnAnnouncement
+// is #1714's schema half: a request on an instance that was never told of
+// another instance's upload answers with the upload, because the version the
+// store holds is read on the request, and the version is the row the upload
+// wrote.
+func TestRealDB_AnUploadThroughOneInstanceIsServedByASecondWithoutAnAnnouncement(t *testing.T) {
+	db := testdb.New(t)
+	store := New(db)
+	ctx := context.Background()
+	endpoint := refusingEndpoint(t)
+	first := instance(t, store, endpoint)
+	second := instance(t, store, endpoint)
+
+	require.NoError(t, first.SetSchema(ctx, "erp", []byte(uploadedSchema)))
+	onFirst, err := first.SchemaInfo("erp")
+	require.NoError(t, err)
+
+	stored, err := store.GetSchema(ctx, "erp")
+	require.NoError(t, err)
+	version, err := store.SchemaVersion(ctx, "erp")
+	require.NoError(t, err)
+	stored.SDL = ""
+	assert.Equal(t, stored, version, "the version is the row GetSchema reads, without its SDL")
+
+	onSecond, err := second.CurrentSchemaInfo(ctx, "erp")
+	require.NoError(t, err)
+	assert.Equal(t, onFirst.Hash, onSecond.Hash)
+	assert.Equal(t, 2, onSecond.OperationCount)
+	assert.True(t, onSecond.FetchedAt.Equal(onFirst.FetchedAt))
+
+	_, err = store.SchemaVersion(ctx, "absent")
+	require.ErrorIs(t, err, graphqlkit.ErrSchemaNotFound)
+}
+
 // TestRealDB_ARefusalRecordedThroughOneInstanceIsReadThroughASecond is
 // #1703's first defect: a re-read the endpoint refused was held in the memory
 // of the instance that ran it, so another instance over the same database

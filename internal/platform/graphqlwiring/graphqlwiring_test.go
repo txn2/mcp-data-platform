@@ -3,6 +3,7 @@ package graphqlwiring
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -120,6 +121,91 @@ func TestWireRecordsWhyASchemaCouldNotBeRead(t *testing.T) {
 	}
 }
 
+// savedConfigs is a graphqlkit.ConnectionStore holding what another
+// replica saved.
+type savedConfigs map[string]map[string]any
+
+func (s savedConfigs) GetConnection(_ context.Context, name string) (map[string]any, error) {
+	cfg, ok := s[name]
+	if !ok {
+		return nil, graphqlkit.ErrConnectionNotFound
+	}
+	return cfg, nil
+}
+
+// record is a connection store's record in these tests.
+type record struct{ config map[string]any }
+
+var errNoRecord = errors.New("no record")
+
+// recordStore is a RecordStore over a map, recording the kinds read.
+type recordStore struct {
+	records    map[string]*record
+	err        error
+	persistent bool
+	kinds      []string
+}
+
+func (s *recordStore) Get(_ context.Context, kind, name string) (*record, error) {
+	s.kinds = append(s.kinds, kind)
+	if s.err != nil {
+		return nil, s.err
+	}
+	r, ok := s.records[name]
+	if !ok {
+		return nil, errNoRecord
+	}
+	return r, nil
+}
+
+func (s *recordStore) Persistent() bool { return s.persistent }
+
+func TestSavedConnectionsReadsTheGraphQLKindOutOfAStoreThatPersists(t *testing.T) {
+	config := func(r *record) map[string]any { return r.config }
+	if SavedConnections[*record](nil, errNoRecord, config) != nil {
+		t.Error("a nil store adapted to a connection store")
+	}
+	if SavedConnections[*record](&recordStore{}, errNoRecord, config) != nil {
+		t.Error("a store that does not persist adapted to a connection store")
+	}
+
+	store := &recordStore{persistent: true, records: map[string]*record{"erp": {config: map[string]any{"endpoint_url": "https://erp.example.com/graphql"}}}}
+	saved := SavedConnections[*record](store, errNoRecord, config)
+	got, err := saved.GetConnection(context.Background(), "erp")
+	if err != nil || got["endpoint_url"] != "https://erp.example.com/graphql" {
+		t.Errorf("GetConnection = %v, %v", got, err)
+	}
+	if len(store.kinds) != 1 || store.kinds[0] != graphqlkit.Kind {
+		t.Errorf("read kinds %v; want only %q", store.kinds, graphqlkit.Kind)
+	}
+	if _, err := saved.GetConnection(context.Background(), "absent"); !errors.Is(err, graphqlkit.ErrConnectionNotFound) {
+		t.Errorf("an absent record gave %v; want ErrConnectionNotFound", err)
+	}
+	store.err = errors.New("db unavailable")
+	if _, err := saved.GetConnection(context.Background(), "erp"); err == nil || errors.Is(err, graphqlkit.ErrConnectionNotFound) {
+		t.Errorf("a store failure gave %v; want a failure that is not a missing connection", err)
+	}
+}
+
+func TestWireServesAConnectionAnotherReplicaSaved(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(introspectionResult))
+	}))
+	defer server.Close()
+	reg := newRegistry(t, server.URL)
+	tk := Toolkits(reg)[0]
+	if tk.ServesConnection(context.Background(), "saved") {
+		t.Fatal("a connection nobody handed over was served before wiring")
+	}
+
+	Wire(context.Background(), Deps{Registry: reg, Connections: savedConfigs{"saved": {"endpoint_url": server.URL}}})
+
+	if !tk.ServesConnection(context.Background(), "saved") {
+		t.Error("wiring did not give the toolkit the connection store")
+	}
+}
+
 // memoryStore is a graphqlkit.SchemaStore over a map: what a peer replica
 // wrote, as this replica reads it.
 type memoryStore struct {
@@ -132,6 +218,12 @@ func (m *memoryStore) GetSchema(_ context.Context, connection string) (graphqlki
 		return graphqlkit.StoredSchema{}, graphqlkit.ErrSchemaNotFound
 	}
 	return s, nil
+}
+
+func (m *memoryStore) SchemaVersion(ctx context.Context, connection string) (graphqlkit.StoredSchema, error) {
+	s, err := m.GetSchema(ctx, connection)
+	s.SDL = ""
+	return s, err
 }
 
 func (m *memoryStore) PutSchema(_ context.Context, s graphqlkit.StoredSchema) error {

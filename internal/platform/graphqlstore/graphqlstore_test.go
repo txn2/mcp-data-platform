@@ -108,6 +108,37 @@ func TestGetSchemaRefusesACorruptedRow(t *testing.T) {
 	}
 }
 
+func TestSchemaVersionReadsTheVersionWithoutTheSchema(t *testing.T) {
+	store, mock := newStore(t)
+	at := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	mock.ExpectQuery(`SELECT schema_hash, source, fetched_at, read_error\s+FROM graphql_connection_schemas\s+WHERE connection = \$1`).
+		WithArgs("gql").
+		WillReturnRows(sqlmock.NewRows([]string{"schema_hash", "source", "fetched_at", "read_error"}).
+			AddRow("abc", "upload", at, "HTTP 302"))
+
+	v, err := store.SchemaVersion(context.Background(), "gql")
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	want := graphqlkit.StoredSchema{Connection: "gql", Hash: "abc", Source: "upload", FetchedAt: at, ReadError: "HTTP 302"}
+	if v != want {
+		t.Errorf("version = %+v; want %+v", v, want)
+	}
+}
+
+func TestSchemaVersionReportsTheAbsentCaseAndAFailureDistinctly(t *testing.T) {
+	store, mock := newStore(t)
+	mock.ExpectQuery("SELECT schema_hash, source, fetched_at, read_error").WillReturnError(sql.ErrNoRows)
+	if _, err := store.SchemaVersion(context.Background(), "gql"); !errors.Is(err, graphqlkit.ErrSchemaNotFound) {
+		t.Errorf("absent row gave %v; want ErrSchemaNotFound", err)
+	}
+	mock.ExpectQuery("SELECT schema_hash, source, fetched_at, read_error").WillReturnError(errors.New("connection reset"))
+	_, err := store.SchemaVersion(context.Background(), "gql")
+	if err == nil || errors.Is(err, graphqlkit.ErrSchemaNotFound) {
+		t.Errorf("a read failure gave %v; want a failure that is not ErrSchemaNotFound", err)
+	}
+}
+
 func TestPutSchemaReportsAWriteFailure(t *testing.T) {
 	store, mock := newStore(t)
 	mock.ExpectExec("INSERT INTO graphql_connection_schemas").WillReturnError(errors.New("disk full"))

@@ -11,6 +11,8 @@ package graphqlwiring
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"fmt"
 	"log/slog"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
@@ -36,6 +38,11 @@ type Deps struct {
 	// DB backs the schema store and the operation-embedding reads. Nil
 	// keeps schemas in memory for the process's life.
 	DB *sql.DB
+	// Connections is the store connections are saved in. A request for a
+	// connection this replica does not serve is answered from it, so one
+	// another replica saved is served here before that save's announcement
+	// arrives (#1714). Nil serves only the connections handed over.
+	Connections graphqlkit.ConnectionStore
 	// Embedder embeds a caller's query for semantic and hybrid ranking.
 	Embedder embedding.Provider
 	// RoutePolicy authorizes one operation. Nil leaves the platform's
@@ -49,6 +56,46 @@ type Deps struct {
 	MemBudget *membudget.Budget
 	// Metrics instruments outbound calls.
 	Metrics *observability.Metrics
+}
+
+// RecordStore is the platform's connection store, as far as the graphql
+// kind reads it: one saved connection of a kind, as the record type the
+// store keeps, and whether the store outlives the process.
+type RecordStore[R any] interface {
+	Get(ctx context.Context, kind, name string) (R, error)
+	Persistent() bool
+}
+
+// SavedConnections adapts the platform's connection store to the one the
+// graphql toolkit answers a request for a connection it does not hold from
+// (#1714). notFound is the store's error for a connection it does not
+// hold, and config reads a record's configuration. A nil store, or one
+// that does not outlive the process and so holds nothing another replica
+// wrote, adapts to nil.
+func SavedConnections[R any](store RecordStore[R], notFound error, config func(R) map[string]any) graphqlkit.ConnectionStore {
+	if store == nil || !store.Persistent() {
+		return nil
+	}
+	return savedConnections[R]{store: store, notFound: notFound, config: config}
+}
+
+// savedConnections is SavedConnections' adapter.
+type savedConnections[R any] struct {
+	store    RecordStore[R]
+	notFound error
+	config   func(R) map[string]any
+}
+
+// GetConnection implements graphqlkit.ConnectionStore.
+func (s savedConnections[R]) GetConnection(ctx context.Context, name string) (map[string]any, error) {
+	record, err := s.store.Get(ctx, graphqlkit.Kind, name)
+	if errors.Is(err, s.notFound) {
+		return nil, fmt.Errorf("graphql: %s: %w", name, graphqlkit.ErrConnectionNotFound)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reading graphql connection %s: %w", name, err)
+	}
+	return s.config(record), nil
 }
 
 // Toolkits returns the live graphql toolkits in a registry.
@@ -139,6 +186,9 @@ func attach(tk *graphqlkit.Toolkit, d Deps, store *graphqlstore.Store) {
 	if store != nil {
 		tk.SetSchemaStore(store)
 		tk.SetVectorReader(store)
+	}
+	if d.Connections != nil {
+		tk.SetConnectionStore(d.Connections)
 	}
 	if d.Embedder != nil {
 		tk.SetEmbeddingProvider(d.Embedder)

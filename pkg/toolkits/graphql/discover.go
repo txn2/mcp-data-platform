@@ -157,11 +157,12 @@ func (t *Toolkit) handleDiscover(ctx context.Context, _ *mcp.CallToolRequest, in
 	if in.Connection == "" {
 		return toolkit.ErrorResult("connection is required"), nil, nil
 	}
-	c, policy, ok := t.lookup(in.Connection)
+	c, policy, ok := t.serving(ctx, in.Connection)
 	if !ok {
 		return toolkit.ErrorResult(fmt.Sprintf(
 			"connection %q not found (use list_connections to discover graphql connections)", in.Connection)), nil, nil
 	}
+	t.syncStored(ctx, c)
 	mode, err := ParseRankingMode(in.Ranking)
 	if err != nil {
 		return toolkit.ErrorResult(err.Error()), nil, nil
@@ -189,11 +190,12 @@ func (t *Toolkit) handleDiscover(ctx context.Context, _ *mcp.CallToolRequest, in
 // for, naming the cause when there is one rather than reporting an
 // empty schema.
 func noSchemaMessage(connection, schemaErr string) string {
-	msg := fmt.Sprintf("connection %q has no schema: the platform could not read one from its endpoint", connection)
-	if schemaErr != "" {
-		msg += " (" + schemaErr + ")"
+	if schemaErr == "" {
+		return fmt.Sprintf("connection %q has no schema yet: the platform has not finished reading one from its endpoint. "+
+			"Retry the call; an administrator can see the connection's schema state, re-read it or upload one, from Admin > Connections.", connection)
 	}
-	return msg + ". An administrator can retry the read, or upload the schema, from Admin > Connections."
+	return fmt.Sprintf("connection %q has no schema: the platform could not read one from its endpoint (%s). "+
+		"An administrator can retry the read, or upload the schema, from Admin > Connections.", connection, schemaErr)
 }
 
 // discoverOperation answers the operation level.

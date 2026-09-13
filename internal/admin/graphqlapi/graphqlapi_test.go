@@ -107,6 +107,36 @@ func TestGetSchemaOnAConnectionThisDeploymentDoesNotHold(t *testing.T) {
 	}
 }
 
+// savedConnections is a graphqlkit.ConnectionStore holding connections
+// another replica saved.
+type savedConnections map[string]map[string]any
+
+func (s savedConnections) GetConnection(_ context.Context, name string) (map[string]any, error) {
+	cfg, ok := s[name]
+	if !ok {
+		return nil, graphqlkit.ErrConnectionNotFound
+	}
+	return cfg, nil
+}
+
+func TestTheSchemaRoutesFindAConnectionAnotherReplicaSaved(t *testing.T) {
+	server := endpoint(t, introspectionResult)
+	mux, tk := mount(t, server.URL, true)
+	tk.SetConnectionStore(savedConnections{"saved": {"endpoint_url": server.URL}, "reread": {"endpoint_url": server.URL}})
+
+	rec := call(t, mux, http.MethodGet, "/api/v1/admin/connection-instances/graphql/saved/schema", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET status = %d: %s", rec.Code, rec.Body)
+	}
+	if info := decodeInfo(t, rec); info.Connection != "saved" || info.OperationCount != 1 {
+		t.Errorf("info = %+v", info)
+	}
+	rec = call(t, mux, http.MethodPost, "/api/v1/admin/connection-instances/graphql/reread/refresh-schema", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("refresh status = %d: %s", rec.Code, rec.Body)
+	}
+}
+
 func TestRefreshWithNoBodyReadsTheEndpoint(t *testing.T) {
 	server := endpoint(t, introspectionResult)
 	mux, _ := mount(t, server.URL, true)

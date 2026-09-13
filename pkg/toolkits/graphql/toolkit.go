@@ -8,9 +8,11 @@ import (
 	"net/http"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/txn2/mcp-data-platform/internal/gqlschema"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
@@ -67,11 +69,19 @@ type Toolkit struct {
 	connOAuthStore connoauth.Store
 	authEvents     *authevents.Writer
 	schemaStore    SchemaStore
+	connStore      ConnectionStore
 	vectorReader   VectorReader
 	embedder       embedding.Provider
 	metrics        *observability.Metrics
 	memBudget      *membudget.Budget
 	exportDeps     *ExportDeps
+
+	// changes serializes, per connection name, everything that replaces a
+	// served connection or changes the schema it holds.
+	changes connLocks
+	// catchUp shares one connection-store read among the requests that
+	// arrive for a connection this instance does not yet serve.
+	catchUp singleflight.Group
 }
 
 // conn is the materialized state of one registered connection: its
@@ -82,6 +92,13 @@ type conn struct {
 	cfg    Config
 	auth   Authenticator
 	client *http.Client
+
+	// name is the registry name the connection is served under, set when
+	// it is put in service.
+	name string
+	// phase is where the connection is in its life: being prepared,
+	// served, or retired by a replacement or a deletion.
+	phase atomic.Int32
 
 	// schemaMu guards the schema and everything derived from it, which
 	// a schema refresh replaces wholesale while calls are in flight.
@@ -147,20 +164,57 @@ func (t *Toolkit) addParsedConnection(name string, cfg Config) error {
 	if cfg.ConnectionName == "" {
 		cfg.ConnectionName = name
 	}
-	auth, err := NewAuthenticator(cfg)
+	c, err := newConn(cfg)
 	if err != nil {
 		return err
 	}
-	c := &conn{cfg: cfg, auth: auth, client: newHTTPClient(cfg)}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if _, exists := t.connections[name]; exists {
-		return fmt.Errorf("graphql: %s: %w", name, ErrConnectionExists)
-	}
-	upstreamauth.SetConnOAuthStore(auth, t.connOAuthStore)
-	upstreamauth.SetAuthEvents(auth, t.authEvents)
-	t.connections[name] = c
+	t.serve(name, c)
 	return nil
+}
+
+// newConn materializes a connection's authenticator and transport. The
+// connection is not served until serve puts it in the registry, which is
+// what lets its schema be brought up first.
+func newConn(cfg Config) (*conn, error) {
+	auth, err := NewAuthenticator(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return &conn{cfg: cfg, auth: auth, client: newHTTPClient(cfg)}, nil
+}
+
+// serve puts c in service under name, replacing and retiring any
+// connection served under it, with the token store and auth-event writer
+// in force threaded through its authenticator. A caller other than the
+// constructor holds the name's lock, and has decided under it that c is
+// what the name serves.
+func (t *Toolkit) serve(name string, c *conn) {
+	t.mu.Lock()
+	previous, held := t.connections[name]
+	upstreamauth.SetConnOAuthStore(c.auth, t.connOAuthStore)
+	upstreamauth.SetAuthEvents(c.auth, t.authEvents)
+	c.name = name
+	c.phase.Store(phaseServed)
+	t.connections[name] = c
+	t.mu.Unlock()
+	if held {
+		retire(previous)
+	}
+}
+
+// retire marks a connection that is no longer served and releases its
+// idle transports. A read that was in flight on it installs nothing.
+func retire(c *conn) {
+	c.phase.Store(phaseRetired)
+	closeIdle(c)
+}
+
+// closeIdle releases a connection's idle transports. Calls in flight keep
+// the ones they hold.
+func closeIdle(c *conn) {
+	if c.client != nil {
+		c.client.CloseIdleConnections()
+	}
 }
 
 // Kind returns the connection-instance kind discriminator.
@@ -252,6 +306,16 @@ func (t *Toolkit) SetSchemaStore(s SchemaStore) {
 	t.schemaStore = s
 }
 
+// SetConnectionStore wires the store connections are saved in, which a
+// request for a connection this instance does not serve is answered from.
+// Passing nil leaves this instance serving only the connections it was
+// handed.
+func (t *Toolkit) SetConnectionStore(s ConnectionStore) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.connStore = s
+}
+
 // SetVectorReader wires the reader of persisted operation embeddings.
 func (t *Toolkit) SetVectorReader(r VectorReader) {
 	t.mu.Lock()
@@ -295,17 +359,34 @@ func (t *Toolkit) SetMemBudget(b *membudget.Budget) {
 // The read goes to the endpoint first and the store second: a connection
 // created here is new to this process, and what the store holds for it
 // (a schema another replica read or was handed) is what serves it when
-// the endpoint will not (#1676).
+// the endpoint will not (#1676). The connection is served once the read
+// is over, so no call finds it without the schema the read brought up
+// (#1714).
 func (t *Toolkit) AddConnection(name string, config map[string]any) error {
 	cfg, err := ParseConfig(config)
 	if err != nil {
 		return err
 	}
 	cfg.ConnectionName = name
-	if err := t.addParsedConnection(name, cfg); err != nil {
+	c, err := newConn(cfg)
+	if err != nil {
 		return err
 	}
-	t.readOrLoadStored(context.Background(), name)
+	if t.HasConnection(name) {
+		closeIdle(c)
+		return fmt.Errorf("graphql: %s: %w", name, ErrConnectionExists)
+	}
+	ctx := context.Background()
+	t.readOrLoadStored(ctx, c)
+	unlock := t.changes.lock(name)
+	defer unlock()
+	if t.HasConnection(name) {
+		// A request took the connection on from the store while the read
+		// ran, and could have had a schema uploaded to it since; the store
+		// holds whichever of that and this read came last.
+		_, _ = t.loadStored(ctx, c)
+	}
+	t.serve(name, c)
 	return nil
 }
 
@@ -323,25 +404,32 @@ func (t *Toolkit) UpdateConnection(name string, config map[string]any) error {
 		return err
 	}
 	cfg.ConnectionName = name
-	auth, err := NewAuthenticator(cfg)
+	c, err := newConn(cfg)
 	if err != nil {
 		return err
 	}
-	existing, _, ok := t.lookup(name)
-	if !ok {
+	ctx := context.Background()
+	if !t.replaceCarrying(ctx, name, c) {
+		closeIdle(c)
 		return notFound(name)
 	}
-	ctx := context.Background()
-	c := &conn{cfg: cfg, auth: auth, client: newHTTPClient(cfg)}
-	t.carrySchema(ctx, existing, c)
-	t.mu.Lock()
-	t.connections[name] = c
-	t.mu.Unlock()
-	if existing.client != nil {
-		existing.client.CloseIdleConnections()
-	}
-	t.readOrLoadStored(ctx, name)
+	t.readOrLoadStored(ctx, c)
 	return nil
+}
+
+// replaceCarrying serves c in place of the connection held under name,
+// carrying that connection's schema onto it, and reports false when no
+// connection is held. The endpoint is read afterwards, outside the lock.
+func (t *Toolkit) replaceCarrying(ctx context.Context, name string, c *conn) bool {
+	unlock := t.changes.lock(name)
+	defer unlock()
+	existing, _, ok := t.lookup(name)
+	if !ok {
+		return false
+	}
+	t.carrySchema(ctx, existing, c)
+	t.serve(name, c)
+	return true
 }
 
 // carrySchema installs the schema one connection holds on its
@@ -366,6 +454,8 @@ func (t *Toolkit) carrySchema(ctx context.Context, from, to *conn) {
 // later connection of the same name to inherit. A configuration change
 // arrives through UpdateConnection instead.
 func (t *Toolkit) RemoveConnection(name string) error {
+	unlock := t.changes.lock(name)
+	defer unlock()
 	t.mu.Lock()
 	c, ok := t.connections[name]
 	store := t.schemaStore
@@ -376,9 +466,7 @@ func (t *Toolkit) RemoveConnection(name string) error {
 	if !ok {
 		return notFound(name)
 	}
-	if c.client != nil {
-		c.client.CloseIdleConnections()
-	}
+	retire(c)
 	if store != nil {
 		if err := store.DeleteSchema(context.Background(), c.cfg.ConnectionName); err != nil {
 			slog.Warn("graphql: dropping stored schema failed",

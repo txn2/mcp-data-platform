@@ -63,10 +63,12 @@ func (t *Toolkit) loadOrRefresh(ctx context.Context, name string) {
 	if !ok {
 		return
 	}
-	if loaded, _ := t.loadStored(ctx, c); loaded {
+	loaded := false
+	t.commit(c, func() { loaded, _ = t.loadStored(ctx, c) })
+	if loaded {
 		return
 	}
-	if err := t.RefreshSchema(ctx, name); err != nil {
+	if err := t.refresh(ctx, c); err != nil {
 		slog.Warn("graphql: reading the endpoint's schema failed",
 			logKeyConnection, logsan.SanitizeForLog(name), logKeyError, logsan.SanitizeForLog(err.Error()))
 	}
@@ -81,20 +83,42 @@ func (t *Toolkit) loadOrRefresh(ctx context.Context, name string) {
 // than nothing (#1676). A deployment without a store keeps what the
 // connection already held, which is the schema it had before a
 // reconcile.
-func (t *Toolkit) readOrLoadStored(ctx context.Context, name string) {
-	err := t.RefreshSchema(ctx, name)
+func (t *Toolkit) readOrLoadStored(ctx context.Context, c *conn) {
+	err := t.refresh(ctx, c)
 	if err == nil {
 		return
 	}
 	slog.Warn("graphql: reading the endpoint's schema failed",
-		logKeyConnection, logsan.SanitizeForLog(name), logKeyError, logsan.SanitizeForLog(err.Error()))
-	c, _, ok := t.lookup(name)
-	if !ok {
-		return
-	}
+		logKeyConnection, logsan.SanitizeForLog(c.cfg.ConnectionName), logKeyError, logsan.SanitizeForLog(err.Error()))
 	// A store with nothing for the connection leaves what it held; any
 	// other failure is logged where it happens.
-	_, _ = t.loadStored(ctx, c)
+	t.commit(c, func() { _, _ = t.loadStored(ctx, c) })
+}
+
+// loadOrRead brings up the schema of a connection this instance takes on
+// from another replica's save: the one the store holds, which the saving
+// replica wrote before the save returned, and a read of the endpoint only
+// when the store holds none (#1714). What that read finds is installed and
+// not stored. The store is written by the replica that took the save and
+// by an operator's re-read or upload; a replica catching up that wrote it
+// too could leave a schema behind for a connection deleted while it read,
+// for a later connection of that name to inherit.
+//
+// The connection is one still being prepared, by a caller holding its
+// name's lock.
+func (t *Toolkit) loadOrRead(ctx context.Context, c *conn) {
+	if loaded, _ := t.loadStored(ctx, c); loaded {
+		return
+	}
+	held := c.heldVersion()
+	parsed, err := t.readEndpoint(ctx, c)
+	if err != nil {
+		err = t.recordSchemaError(ctx, c, held, err)
+		slog.Warn("graphql: reading the endpoint's schema failed",
+			logKeyConnection, logsan.SanitizeForLog(c.cfg.ConnectionName), logKeyError, logsan.SanitizeForLog(err.Error()))
+		return
+	}
+	t.install(ctx, c, schemaVersion{schema: parsed, source: SchemaSourceIntrospection, fetchedAt: readTime()})
 }
 
 // LoadStoredSchema installs the schema the store holds for a connection,
@@ -107,6 +131,8 @@ func (t *Toolkit) readOrLoadStored(ctx context.Context, name string) {
 // by it. An instance with no store has nothing to load and is left as it
 // is.
 func (t *Toolkit) LoadStoredSchema(ctx context.Context, name string) error {
+	unlock := t.changes.lock(name)
+	defer unlock()
 	c, _, ok := t.lookup(name)
 	if !ok {
 		return notFound(name)
@@ -147,6 +173,60 @@ func (t *Toolkit) loadStored(ctx context.Context, c *conn) (bool, error) {
 	return true, nil
 }
 
+// syncStored brings a served connection up to the schema version the
+// store holds, when another replica changed it since this instance last
+// installed one: an upload, a re-read, a refusal recorded beside the
+// schema. The version is read alone, and the schema only when the version
+// differs, so every request that uses a connection's schema can afford
+// it. A request that arrives after another replica's change returned is
+// answered with that change, rather than once the change's announcement
+// reaches this instance (#1714).
+//
+// A store holding nothing for the connection changes nothing here: a
+// schema this instance read and could not store, and a refusal of a read
+// with no schema to record it beside, exist only where they happened.
+func (t *Toolkit) syncStored(ctx context.Context, c *conn) {
+	t.mu.RLock()
+	store := t.schemaStore
+	t.mu.RUnlock()
+	if store == nil {
+		return
+	}
+	stored, err := store.SchemaVersion(ctx, c.cfg.ConnectionName)
+	if err != nil {
+		if !errors.Is(err, ErrSchemaNotFound) {
+			slog.Warn("graphql: reading the stored schema version failed",
+				logKeyConnection, logsan.SanitizeForLog(c.cfg.ConnectionName), logKeyError, logsan.SanitizeForLog(err.Error()))
+		}
+		return
+	}
+	if c.holdsVersion(stored) {
+		return
+	}
+	t.commit(c, func() { _, _ = t.loadStored(ctx, c) })
+}
+
+// holdsVersion reports whether a connection holds the stored version v
+// names, with the refusal the store records beside it.
+func (c *conn) holdsVersion(v StoredSchema) bool {
+	c.schemaMu.RLock()
+	defer c.schemaMu.RUnlock()
+	held := c.versionLocked()
+	return held.Hash == v.Hash && held.FetchedAt.Equal(v.FetchedAt) && c.schemaErr == v.ReadError
+}
+
+// CurrentSchemaInfo is SchemaInfo for a request: the connection is found
+// the way a tool call finds it, including one another replica saved, and
+// brought up to what the store holds before it is reported (#1714).
+func (t *Toolkit) CurrentSchemaInfo(ctx context.Context, name string) (SchemaInfo, error) {
+	c, _, ok := t.serving(ctx, name)
+	if !ok {
+		return SchemaInfo{}, notFound(name)
+	}
+	t.syncStored(ctx, c)
+	return t.SchemaInfo(name)
+}
+
 // RefreshSchema reads a connection's schema from its endpoint by
 // introspection, stores it, and rebuilds the operation index. It is
 // what the admin refresh action calls, and what a connection falls back
@@ -161,20 +241,42 @@ func (t *Toolkit) RefreshSchema(ctx context.Context, name string) error {
 	if !ok {
 		return notFound(name)
 	}
+	// A refusal is recorded beside the version the read began from, so
+	// that version is the store's, not the one this instance was last
+	// told of (#1714).
+	t.syncStored(ctx, c)
+	return t.refresh(ctx, c)
+}
+
+// refresh is RefreshSchema for a connection in hand, served or not yet.
+// The endpoint is read outside the connection's lock, so an announcement
+// of a peer's upload is installed while the read is in flight rather than
+// waiting behind it.
+func (t *Toolkit) refresh(ctx context.Context, c *conn) error {
 	held := c.heldVersion()
+	parsed, err := t.readEndpoint(ctx, c)
+	if err != nil {
+		return t.recordSchemaError(ctx, c, held, err)
+	}
+	if !t.commit(c, func() { t.store(ctx, c, parsed, SchemaSourceIntrospection) }) {
+		slog.Info("graphql: a read finished after its connection was replaced or deleted, and was not installed",
+			logKeyConnection, logsan.SanitizeForLog(c.cfg.ConnectionName))
+	}
+	return nil
+}
+
+// readEndpoint reads a connection's schema from its endpoint by
+// introspection. It changes nothing: the caller records what it found.
+func (t *Toolkit) readEndpoint(ctx context.Context, c *conn) (*gqlschema.Schema, error) {
 	res, err := t.execute(ctx, c, graphQLRequest{Query: gqlschema.IntrospectionQuery})
 	if err != nil {
-		return t.recordSchemaError(ctx, c, held, err)
+		return nil, err
 	}
 	if err := introspectionFailure(res); err != nil {
-		return t.recordSchemaError(ctx, c, held, err)
+		return nil, err
 	}
-	parsed, err := gqlschema.LoadIntrospection(res.body)
-	if err != nil {
-		return t.recordSchemaError(ctx, c, held, err)
-	}
-	t.store(ctx, c, parsed, SchemaSourceIntrospection)
-	return nil
+	//nolint:wrapcheck // the loader's message is already operator-facing, and is recorded on the connection as it is
+	return gqlschema.LoadIntrospection(res.body)
 }
 
 // SetSchema installs a schema an operator supplied, accepting either
@@ -184,6 +286,8 @@ func (t *Toolkit) RefreshSchema(ctx context.Context, name string) error {
 // returned to them; it is not recorded on the connection, whose state is
 // whatever it held before the attempt.
 func (t *Toolkit) SetSchema(ctx context.Context, name string, payload []byte) error {
+	unlock := t.changes.lock(name)
+	defer unlock()
 	c, _, ok := t.lookup(name)
 	if !ok {
 		return notFound(name)
@@ -232,11 +336,7 @@ func introspectionFailure(res *execution) error {
 // in memory, and refusing the refresh over a storage failure would take
 // a working connection down.
 func (t *Toolkit) store(ctx context.Context, c *conn, parsed *gqlschema.Schema, source string) {
-	// The store keeps fetched_at at microsecond precision (TIMESTAMPTZ),
-	// and what this instance holds must be what every other instance
-	// reads back, so the time is written at that precision from the
-	// start rather than differing by the nanoseconds the column drops.
-	now := time.Now().UTC().Truncate(time.Microsecond)
+	now := readTime()
 	t.install(ctx, c, schemaVersion{schema: parsed, source: source, fetchedAt: now})
 	t.mu.RLock()
 	schemaStore := t.schemaStore
@@ -255,6 +355,15 @@ func (t *Toolkit) store(ctx context.Context, c *conn, parsed *gqlschema.Schema, 
 		slog.Warn("graphql: persisting the schema failed",
 			logKeyConnection, logsan.SanitizeForLog(c.cfg.ConnectionName), logKeyError, err)
 	}
+}
+
+// readTime is the time a schema is recorded as read. The store keeps
+// fetched_at at microsecond precision (TIMESTAMPTZ), and what this instance
+// holds must be what every other instance reads back, so the time is taken
+// at that precision from the start rather than differing by the
+// nanoseconds the column drops.
+func readTime() time.Time {
+	return time.Now().UTC().Truncate(time.Microsecond)
 }
 
 // schemaVersion is one schema as a connection installs it: the parsed
@@ -341,6 +450,15 @@ func (t *Toolkit) ReloadVectors(ctx context.Context, name string) {
 // on. A store write that fails is logged rather than returned, for the
 // reason store gives.
 func (t *Toolkit) recordSchemaError(ctx context.Context, c *conn, held StoredSchema, err error) error {
+	if !t.commit(c, func() { t.recordRefusal(ctx, c, held, err) }) {
+		slog.Info("graphql: a refused read finished after its connection was replaced or deleted, and was not recorded",
+			logKeyConnection, logsan.SanitizeForLog(c.cfg.ConnectionName), logKeyError, logsan.SanitizeForLog(err.Error()))
+	}
+	return err
+}
+
+// recordRefusal is recordSchemaError's change, made where commit puts it.
+func (t *Toolkit) recordRefusal(ctx context.Context, c *conn, held StoredSchema, err error) {
 	c.schemaMu.Lock()
 	now := c.versionLocked()
 	current := now.Hash == held.Hash && now.FetchedAt.Equal(held.FetchedAt)
@@ -351,20 +469,19 @@ func (t *Toolkit) recordSchemaError(ctx context.Context, c *conn, held StoredSch
 	if !current {
 		slog.Info("graphql: a refused read was superseded by a schema installed while it ran",
 			logKeyConnection, logsan.SanitizeForLog(c.cfg.ConnectionName), logKeyError, logsan.SanitizeForLog(err.Error()))
-		return err
+		return
 	}
 	t.mu.RLock()
 	schemaStore := t.schemaStore
 	t.mu.RUnlock()
 	if schemaStore == nil || held.Hash == "" {
-		return err
+		return
 	}
 	held.ReadError = err.Error()
 	if werr := schemaStore.RecordReadError(ctx, held); werr != nil {
 		slog.Warn("graphql: recording the refused read failed",
 			logKeyConnection, logsan.SanitizeForLog(c.cfg.ConnectionName), logKeyError, logsan.SanitizeForLog(werr.Error()))
 	}
-	return err
 }
 
 // heldVersion names the schema version a connection holds, by the hash

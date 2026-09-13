@@ -29,6 +29,8 @@ const (
 	PhaseAdd
 	// PhaseUpdate marks a failure returned by UpdateConnection.
 	PhaseUpdate
+	// PhaseAdopt marks a failure returned by AdoptConnection.
+	PhaseAdopt
 )
 
 // String renders the phase for structured log output.
@@ -38,6 +40,8 @@ func (p Phase) String() string {
 		return "add"
 	case PhaseUpdate:
 		return "update"
+	case PhaseAdopt:
+		return "adopt"
 	default:
 		return "remove"
 	}
@@ -104,6 +108,29 @@ func (r *Reconciler) Remove(kind, name string) []Failure {
 func (r *Reconciler) Upsert(kind, name string, config map[string]any) []Failure {
 	var failures []Failure
 	for _, cm := range r.managers(kind) {
+		if f, ok := upsertOne(cm, name, config); !ok {
+			failures = append(failures, f)
+		}
+	}
+	return failures
+}
+
+// Adopt makes config the live config for name on every matching toolkit, as a
+// connection another replica saved: it is how the reload bus applies a peer's
+// announcement. A toolkit that implements toolkit.ConnectionAdopter is handed
+// the change whole, so it installs the state the saving replica stored rather
+// than deriving it again (#1714); any other toolkit is reconciled exactly as
+// Upsert reconciles it. Returns one Failure per failed operation, in
+// registration order.
+func (r *Reconciler) Adopt(kind, name string, config map[string]any) []Failure {
+	var failures []Failure
+	for _, cm := range r.managers(kind) {
+		if adopter, adopts := cm.(toolkit.ConnectionAdopter); adopts {
+			if err := adopter.AdoptConnection(name, config); err != nil {
+				failures = append(failures, Failure{Phase: PhaseAdopt, Err: err})
+			}
+			continue
+		}
 		if f, ok := upsertOne(cm, name, config); !ok {
 			failures = append(failures, f)
 		}

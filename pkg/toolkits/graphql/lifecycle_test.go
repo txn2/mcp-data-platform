@@ -344,7 +344,8 @@ func TestARefusalAboutAnOlderVersionIsNotRecordedBesideANewerOne(t *testing.T) {
 			t.Errorf("upload: %v", err)
 		}
 	}
-	reader.readOrLoadStored(ctx, "gql")
+	c, _, _ := reader.lookup("gql")
+	reader.readOrLoadStored(ctx, c)
 
 	stored, _ := store.GetSchema(ctx, "gql")
 	if stored.Hash == "" || stored.ReadError != "" {

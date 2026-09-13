@@ -47,6 +47,8 @@ func (p *Platform) WireGraphQL(ctx context.Context) {
 		AuthEvents:  p.connAuth.AuthEventWriter(),
 		MemBudget:   p.apiMemBudget,
 		Metrics:     p.Metrics(),
+		Connections: graphqlwiring.SavedConnections[*ConnectionInstance](p.connectionStore, ErrConnectionNotFound,
+			func(inst *ConnectionInstance) map[string]any { return inst.Config }),
 	})
 }
 

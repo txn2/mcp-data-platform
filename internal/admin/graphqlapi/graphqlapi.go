@@ -74,12 +74,12 @@ func Register(mux *http.ServeMux, cfg Config) {
 // @Router       /admin/connection-instances/graphql/{name}/schema [get]
 func (h *handler) getSchema(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue(pathKeyName)
-	tk := h.toolkitFor(name)
+	tk := h.toolkitFor(r.Context(), name)
 	if tk == nil {
 		httpjson.WriteError(w, http.StatusNotFound, "no graphql connection named "+name)
 		return
 	}
-	info, err := tk.SchemaInfo(name)
+	info, err := tk.CurrentSchemaInfo(r.Context(), name)
 	if err != nil {
 		httpjson.WriteError(w, http.StatusNotFound, err.Error())
 		return
@@ -108,7 +108,7 @@ func (h *handler) getSchema(w http.ResponseWriter, r *http.Request) {
 // @Router       /admin/connection-instances/graphql/{name}/refresh-schema [post]
 func (h *handler) refreshSchema(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue(pathKeyName)
-	tk := h.toolkitFor(name)
+	tk := h.toolkitFor(r.Context(), name)
 	if tk == nil {
 		httpjson.WriteError(w, http.StatusNotFound, "no graphql connection named "+name)
 		return
@@ -160,14 +160,16 @@ func isReread(payload []byte) bool {
 	return strings.TrimSpace(string(payload)) == ""
 }
 
-// toolkitFor finds the live graphql toolkit holding a connection.
-func (h *handler) toolkitFor(name string) *graphqlkit.Toolkit {
+// toolkitFor finds the live graphql toolkit serving a connection, including
+// one another replica saved whose announcement this replica has not applied
+// yet (#1714).
+func (h *handler) toolkitFor(ctx context.Context, name string) *graphqlkit.Toolkit {
 	if name == "" {
 		return nil
 	}
 	for _, tk := range h.cfg.Toolkits() {
 		gql, ok := tk.(*graphqlkit.Toolkit)
-		if ok && gql.HasConnection(name) {
+		if ok && gql.ServesConnection(ctx, name) {
 			return gql
 		}
 	}

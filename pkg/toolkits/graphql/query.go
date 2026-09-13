@@ -133,7 +133,7 @@ type prepared struct {
 // prepare parses, validates and authorizes a document. The returned
 // string is the caller-facing refusal when it is not empty.
 func (t *Toolkit) prepare(ctx context.Context, in QueryInput) (ready prepared, refusal string) {
-	c, policy, refusal := t.resolve(in)
+	c, policy, refusal := t.resolve(ctx, in)
 	if refusal != "" {
 		return prepared{}, refusal
 	}
@@ -179,18 +179,19 @@ func (t *Toolkit) prepare(ctx context.Context, in QueryInput) (ready prepared, r
 // root fields, which no persona rule for this kind is written against
 // (#1676). The refusal names the cause the connection recorded, the
 // same one graphql_discover reports.
-func (t *Toolkit) resolve(in QueryInput) (c *conn, policy RoutePolicy, refusal string) {
+func (t *Toolkit) resolve(ctx context.Context, in QueryInput) (c *conn, policy RoutePolicy, refusal string) {
 	if in.Connection == "" {
 		return nil, nil, "connection is required"
 	}
 	if strings.TrimSpace(in.Query) == "" {
 		return nil, nil, "query is required: pass the GraphQL document to execute (graphql_discover renders one)"
 	}
-	c, policy, ok := t.lookup(in.Connection)
+	c, policy, ok := t.serving(ctx, in.Connection)
 	if !ok {
 		return nil, nil, fmt.Sprintf(
 			"connection %q not found (use list_connections to discover graphql connections)", in.Connection)
 	}
+	t.syncStored(ctx, c)
 	c.schemaMu.RLock()
 	schema, schemaErr := c.schema, c.schemaErr
 	c.schemaMu.RUnlock()

@@ -52,7 +52,13 @@ The platform keeps each connection's schema and serves discovery from it rather 
 
 **A read that fails keeps the schema the connection holds** and reports the failure beside it: `error` is filled, `schema_hash` and `operation_count` are unchanged, whatever the schema's source. A configuration save is a change to the connection, not a deletion followed by a registration, so the stored schema is kept through it; deleting the connection is what drops the schema. When the re-read fails, the connection loads what the store holds, which on a multi-replica deployment may be a schema another replica read or was handed.
 
-**The store is the source of truth across replicas.** A schema stored on one replica, by an upload or a re-read, is announced on the reload bus, and every other replica installs it from the store without touching the endpoint. Two replicas therefore answer one schema state for one connection, and a replica whose own read fails serves what the store holds rather than nothing.
+**The store is the source of truth across replicas.** The replica that takes a save serves the connection once its read is over and stores what the read found before the save returns. Every other replica answers from the store from that moment, without waiting for the save's announcement on the reload bus:
+
+- A request for a connection a replica does not hold yet reads the connection's saved configuration and its stored schema, and serves it. A connection the store no longer holds is not served.
+- A request that uses a connection's schema (`graphql_discover`, `graphql_query`, `graphql_export`, the schema route, a re-read) first reads the stored schema's version: its hash, when it was read, and the refusal recorded beside it. When that differs from what the replica holds, the replica installs the stored schema before answering. The schema itself is read only then.
+- The announcement of a saved connection installs it the same way, from the store, and reads the endpoint only when the store holds no schema for it. What such a read finds is served on that replica and not stored.
+
+Two replicas therefore answer one schema state for one connection from the moment a save, an upload or a re-read returns, and a replica whose own read fails serves what the store holds rather than nothing.
 
 **A refused read is kept with the schema it is reported beside** (`read_error` on `graphql_connection_schemas`, migration 000144). The re-read route runs on one replica, so its refusal is written to the stored row and announced like a stored schema: every replica reports the same `error`, and so does a replica that restarts afterwards. A read or an upload that installs a schema clears it. A connection the platform holds no schema for has no row to write to; each replica reads such a connection's endpoint when it starts and reports its own answer.
 
