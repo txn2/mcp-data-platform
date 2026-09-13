@@ -22,15 +22,22 @@ func (fakeConnStore) Set(context.Context, ConnectionInstance) error { return nil
 func (fakeConnStore) Delete(context.Context, string, string) error  { return nil }
 func (fakeConnStore) Persistent() bool                              { return false }
 
-// fakeAPIKeyStore returns a single DB key so reloadAPIKeyLocal's
-// definition-to-APIKey mapping loop is exercised.
+// fakeAPIKeyStore holds a single DB key, which reloadAPIKeyLocal brings into
+// the authenticator.
 type fakeAPIKeyStore struct{}
 
 func (fakeAPIKeyStore) List(context.Context) ([]APIKeyDefinition, error) {
 	return []APIKeyDefinition{{Name: "db-key", KeyHash: "$2a$hash", Roles: []string{"analyst"}}}, nil
 }
-func (fakeAPIKeyStore) Set(context.Context, APIKeyDefinition) error { return nil }
-func (fakeAPIKeyStore) Delete(context.Context, string) error        { return nil }
+func (fakeAPIKeyStore) Create(context.Context, APIKeyDefinition) error { return nil }
+func (fakeAPIKeyStore) Delete(context.Context, string) error           { return nil }
+func (fakeAPIKeyStore) HashedKeys(context.Context) ([]auth.APIKey, error) {
+	return []auth.APIKey{{Name: "db-key", KeyHash: "$2a$hash", Roles: []string{"analyst"}}}, nil
+}
+
+func (fakeAPIKeyStore) HoldsKey(_ context.Context, name, keyHash string) (bool, error) {
+	return name == "db-key" && keyHash == "$2a$hash", nil
+}
 
 // TestPlatform_ReloadWiring exercises the platform-level reload surface: the
 // sessions-handle assembly (memory fallback, no db) that carries the injected
@@ -73,7 +80,11 @@ func TestPlatform_ReloadWiring(t *testing.T) {
 	p.reloadConnectionLocal("mcp", "ignored", ReloadUpsert.String()) // wrong kind: no-op, exercises the skip
 	p.reloadCatalogLocal("cat-1")                                    // ReloadConnectionsByCatalog on the api toolkit
 	p.reloadPersonaLocal()                                           // reconcile personas from store
-	p.reloadAPIKeyLocal()                                            // re-sync api keys from store
+	p.apiKeyAuth.SetHashedKeySource(fakeAPIKeyStore{})
+	p.reloadAPIKeyLocal() // re-sync api keys from store
+	if keys := p.apiKeyAuth.ListKeys(); len(keys) != 1 || keys[0].Name != "db-key" {
+		t.Errorf("reloadAPIKeyLocal left keys %+v; want the stored db-key", keys)
+	}
 
 	// Publish delegators (memory bus; no subscriber needed for coverage).
 	p.PublishConnectionReload("api", "c1", ReloadUpsert)

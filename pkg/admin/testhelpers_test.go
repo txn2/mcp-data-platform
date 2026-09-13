@@ -183,9 +183,9 @@ var _ PersonaRegistry = (*mockPersonaRegistry)(nil)
 // --- Mock APIKeyStore ---
 
 type mockAPIKeyStore struct {
-	setErr      error
+	createErr   error
 	deleteErr   error
-	setCalls    []platform.APIKeyDefinition
+	createCalls []platform.APIKeyDefinition
 	deleteCalls []string
 }
 
@@ -193,9 +193,17 @@ func (*mockAPIKeyStore) List(_ context.Context) ([]platform.APIKeyDefinition, er
 	return nil, nil
 }
 
-func (m *mockAPIKeyStore) Set(_ context.Context, def platform.APIKeyDefinition) error {
-	m.setCalls = append(m.setCalls, def)
-	return m.setErr
+func (m *mockAPIKeyStore) Create(_ context.Context, def platform.APIKeyDefinition) error {
+	m.createCalls = append(m.createCalls, def)
+	return m.createErr
+}
+
+func (*mockAPIKeyStore) HashedKeys(_ context.Context) ([]auth.APIKey, error) {
+	return nil, nil
+}
+
+func (*mockAPIKeyStore) HoldsKey(_ context.Context, _, _ string) (bool, error) {
+	return false, nil
 }
 
 func (m *mockAPIKeyStore) Delete(_ context.Context, name string) error {
@@ -280,7 +288,11 @@ var _ AuditQuerier = (*recordingAuditQuerier)(nil)
 type mockAPIKeyManager struct {
 	keys       []auth.APIKeySummary
 	generateFn func(def auth.APIKey) (string, error)
-	removeFn   func(name string) bool
+	// syncErrs is returned by successive SyncHashedKeys calls; a call past
+	// its end succeeds.
+	syncErrs  []error
+	syncs     int
+	generates int
 }
 
 func (m *mockAPIKeyManager) ListKeys() []auth.APIKeySummary {
@@ -288,17 +300,19 @@ func (m *mockAPIKeyManager) ListKeys() []auth.APIKeySummary {
 }
 
 func (m *mockAPIKeyManager) GenerateKey(def auth.APIKey) (string, error) {
+	m.generates++
 	if m.generateFn != nil {
 		return m.generateFn(def)
 	}
 	return "generated-key-value", nil
 }
 
-func (m *mockAPIKeyManager) RemoveByName(name string) bool {
-	if m.removeFn != nil {
-		return m.removeFn(name)
+func (m *mockAPIKeyManager) SyncHashedKeys(_ context.Context) error {
+	m.syncs++
+	if m.syncs <= len(m.syncErrs) {
+		return m.syncErrs[m.syncs-1]
 	}
-	return false
+	return nil
 }
 
 // Verify interface compliance.

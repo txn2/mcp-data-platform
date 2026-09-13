@@ -24,5 +24,9 @@ type (
 // ErrAPIKeyNotFound is returned when an API key does not exist in the database.
 var ErrAPIKeyNotFound = apikeystore.ErrNotFound
 
+// ErrAPIKeyExists is returned when an API key is created under a name the
+// database holds.
+var ErrAPIKeyExists = apikeystore.ErrExists
+
 // NewPostgresAPIKeyStore creates a new PostgreSQL-backed API key store.
 func NewPostgresAPIKeyStore(db *sql.DB) *PostgresAPIKeyStore { return apikeystore.NewPostgres(db) }

@@ -62,7 +62,9 @@ type PersonaResolver interface {
 type APIKeyManager interface {
 	ListKeys() []auth.APIKeySummary
 	GenerateKey(def auth.APIKey) (string, error)
-	RemoveByName(name string) bool
+	// SyncHashedKeys replaces the database-managed keys held in memory with
+	// the ones the key store holds, which another replica may have changed.
+	SyncHashedKeys(ctx context.Context) error
 }
 
 // PromptRegistrar registers/unregisters prompts with the live MCP server.

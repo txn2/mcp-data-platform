@@ -16,10 +16,15 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/pkg/auth"
 )
 
 // ErrNotFound is returned when an API key does not exist in the database.
 var ErrNotFound = errors.New("api key not found")
+
+// ErrExists is returned when Create is asked for a name the database holds.
+var ErrExists = errors.New("api key already exists")
 
 // Definition represents a database-managed API key.
 type Definition struct {
@@ -33,10 +38,16 @@ type Definition struct {
 	CreatedAt   time.Time  `json:"created_at"`
 }
 
-// Store manages API key persistence.
+// Store manages API key persistence. It is the record of which
+// database-managed keys exist for every replica of a deployment, which is why
+// it is also the auth.HashedKeySource the authenticator confirms keys against.
 type Store interface {
+	auth.HashedKeySource
 	List(ctx context.Context) ([]Definition, error)
-	Set(ctx context.Context, def Definition) error
+	// Create adds a key, returning ErrExists when the name is taken. It never
+	// replaces a key: two replicas creating one name at once must not both
+	// succeed with the second write discarding the first key.
+	Create(ctx context.Context, def Definition) error
 	Delete(ctx context.Context, name string) error
 }
 
@@ -74,24 +85,68 @@ func (s *PostgresStore) List(ctx context.Context) ([]Definition, error) {
 	return defs, nil
 }
 
-// Set creates or updates an API key definition.
-func (s *PostgresStore) Set(ctx context.Context, def Definition) error {
+// Create adds an API key definition, or returns ErrExists when the name is
+// taken.
+func (s *PostgresStore) Create(ctx context.Context, def Definition) error {
 	roles, _ := json.Marshal(def.Roles)
 
-	_, err := s.db.ExecContext(ctx,
+	result, err := s.db.ExecContext(ctx,
 		`INSERT INTO api_keys
 		 (name, key_hash, email, description, roles, expires_at, created_by, created_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-		 ON CONFLICT (name) DO UPDATE SET
-		  key_hash = $2, email = $3, description = $4, roles = $5,
-		  expires_at = $6, created_by = $7`,
+		 ON CONFLICT (name) DO NOTHING`,
 		def.Name, def.KeyHash, def.Email, def.Description,
 		roles, def.ExpiresAt, def.CreatedBy,
 	)
 	if err != nil {
-		return fmt.Errorf("upserting api key: %w", err)
+		return fmt.Errorf("inserting api key: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("checking insert result: %w", err)
+	}
+	if affected == 0 {
+		return ErrExists
 	}
 	return nil
+}
+
+// HashedKeys returns every stored key in the form the authenticator holds.
+func (s *PostgresStore) HashedKeys(ctx context.Context) ([]auth.APIKey, error) {
+	defs, err := s.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return authKeys(defs), nil
+}
+
+// HoldsKey reports whether the key named name is stored with keyHash.
+func (s *PostgresStore) HoldsKey(ctx context.Context, name, keyHash string) (bool, error) {
+	var held bool
+	err := s.db.QueryRowContext(ctx,
+		`SELECT EXISTS (SELECT 1 FROM api_keys WHERE name = $1 AND key_hash = $2)`,
+		name, keyHash,
+	).Scan(&held)
+	if err != nil {
+		return false, fmt.Errorf("checking api key: %w", err)
+	}
+	return held, nil
+}
+
+// authKeys converts stored definitions to the keys the authenticator holds.
+func authKeys(defs []Definition) []auth.APIKey {
+	keys := make([]auth.APIKey, 0, len(defs))
+	for _, d := range defs {
+		keys = append(keys, auth.APIKey{
+			KeyHash:     d.KeyHash,
+			Name:        d.Name,
+			Email:       d.Email,
+			Description: d.Description,
+			Roles:       d.Roles,
+			ExpiresAt:   d.ExpiresAt,
+		})
+	}
+	return keys
 }
 
 // Delete removes an API key definition by name.
@@ -137,8 +192,18 @@ func (*NoopStore) List(_ context.Context) ([]Definition, error) {
 	return nil, nil
 }
 
-// Set is a no-op.
-func (*NoopStore) Set(_ context.Context, _ Definition) error { return nil }
+// Create is a no-op.
+func (*NoopStore) Create(_ context.Context, _ Definition) error { return nil }
+
+// HashedKeys returns nil for the noop store.
+func (*NoopStore) HashedKeys(_ context.Context) ([]auth.APIKey, error) {
+	return nil, nil
+}
+
+// HoldsKey reports false: the noop store holds no key.
+func (*NoopStore) HoldsKey(_ context.Context, _, _ string) (bool, error) {
+	return false, nil
+}
 
 // Delete returns ErrNotFound for the noop store.
 func (*NoopStore) Delete(_ context.Context, _ string) error {

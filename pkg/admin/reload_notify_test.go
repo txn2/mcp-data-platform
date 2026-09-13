@@ -105,9 +105,10 @@ func TestReloadNotifier_PersonaBroadcast(t *testing.T) {
 // each broadcast an api-key reload to peer replicas (issue #501 authn gap).
 func TestReloadNotifier_APIKeyBroadcast(t *testing.T) {
 	notifier := &fakeReloadNotifier{}
-	mgr := &mockAPIKeyManager{removeFn: func(_ string) bool { return true }}
+	mgr := &mockAPIKeyManager{}
 	h := NewHandler(Deps{
 		APIKeyManager:   mgr,
+		APIKeyStore:     &mockAPIKeyStore{},
 		PersonaRegistry: &mockPersonaRegistry{},
 		Config:          testConfig(),
 		ConfigStore:     &mockConfigStore{mode: "database"},

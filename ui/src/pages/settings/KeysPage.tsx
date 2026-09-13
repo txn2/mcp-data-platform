@@ -5,6 +5,7 @@ import { EmptyState } from "@/components/patterns/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Plus, KeyRound, ChevronUp } from "lucide-react";
 import { PanelShell } from "./panels";
+import { ErrorBanner } from "./settingsChrome";
 import { AddKeyForm } from "./keys/AddKeyForm";
 import { CreatedKeyBanner } from "./keys/CreatedKeyBanner";
 import { KeysTable } from "./keys/KeysTable";
@@ -15,7 +16,7 @@ import { KeysTable } from "./keys/KeysTable";
 export function KeysPage() {
   const { data: systemInfo } = useSystemInfo();
   const isReadOnly = systemInfo?.config_mode === "file";
-  const { data: keyList, isLoading } = useAPIKeys();
+  const { data: keyList, isLoading, isError, error: listError, refetch } = useAPIKeys();
   const keys = keyList?.keys ?? [];
 
   const [showForm, setShowForm] = useState(false);
@@ -28,9 +29,18 @@ export function KeysPage() {
     setShowForm(false);
   }, []);
 
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   const handleDelete = useCallback(
     (name: string) => {
-      deleteMutation.mutate(name, { onSuccess: () => setDeleteConfirm(null) });
+      setDeleteError(null);
+      deleteMutation.mutate(name, {
+        onSuccess: () => setDeleteConfirm(null),
+        onError: (err) => {
+          setDeleteConfirm(null);
+          setDeleteError(`Could not delete "${name}": ${err instanceof Error ? err.message : "the request failed"}`);
+        },
+      });
     },
     [deleteMutation],
   );
@@ -39,6 +49,17 @@ export function KeysPage() {
     <PanelShell
       title="API Keys"
       description="Manage API keys for programmatic access"
+      notices={
+        <>
+          {isError && (
+            <ErrorBanner
+              message={`Failed to load API keys: ${listError instanceof Error ? listError.message : "the server may be unavailable"}`}
+              onRetry={() => void refetch()}
+            />
+          )}
+          {deleteError && <ErrorBanner message={deleteError} />}
+        </>
+      }
       action={
         !isReadOnly && (
           <Button
@@ -79,7 +100,7 @@ export function KeysPage() {
           <p className="py-16 text-center text-sm text-muted-foreground">
             Loading...
           </p>
-        ) : keys.length === 0 ? (
+        ) : isError ? null : keys.length === 0 ? (
           <div className="p-5">
             <EmptyState icon={KeyRound}>
               <p>No API keys configured</p>

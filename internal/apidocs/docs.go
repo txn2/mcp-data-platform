@@ -2672,6 +2672,12 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/admin.authKeyListResponse"
                         }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
                     }
                 }
             },
@@ -2724,6 +2730,12 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/admin.problemDetail"
                         }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
                     }
                 }
             }
@@ -2764,6 +2776,18 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/admin.problemDetail"
                         }
@@ -19375,7 +19399,7 @@ const docTemplate = `{
                 },
                 "key": {
                     "type": "string",
-                    "example": "mdp_a1b2c3d4e5f6g7h8i9j0"
+                    "example": "3f9a1c07e2b84d56a0c3e1f7b9d2468ace13579bdf02468ace13579bdf024681"
                 },
                 "name": {
                     "type": "string",

@@ -71,7 +71,7 @@ Configuring and operating the platform. These are the pages under `docs` > Admin
 ### Connections, portal and API
 
 - [Multi-Provider](https://mcp-data-platform.txn2.com/server/multi-provider/): Connect multiple instances of each service
-- [Admin API](https://mcp-data-platform.txn2.com/server/admin-api/): REST endpoints backing the admin portal: system info, config, personas, keys (each with the persona its roles reach, or no_persona and a creation warning when they reach none), tools (schemas and detail carrying the annotations tools/list advertises), users, audit, sessions (derived from audit history: the list with its filters, and one session with its outputs and paged call timeline), knowledge, connections, and index-jobs health. Interactive Swagger UI at /api/v1/admin/docs/
+- [Admin API](https://mcp-data-platform.txn2.com/server/admin-api/): REST endpoints backing the admin portal: system info, config, personas, keys (each with the persona its roles reach, or no_persona and a creation warning when they reach none; every replica reads and authenticates them from the one key store, so a create or delete takes effect everywhere when it returns), tools (schemas and detail carrying the annotations tools/list advertises), users, audit, sessions (derived from audit history: the list with its filters, and one session with its outputs and paged call timeline), knowledge, connections, and index-jobs health. Interactive Swagger UI at /api/v1/admin/docs/
 - [Admin API](https://mcp-data-platform.txn2.com/knowledge/admin-api/): REST endpoints for managing insights and changesets
 
 ### Operations
