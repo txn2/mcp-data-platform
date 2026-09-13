@@ -47,6 +47,17 @@ type PersonaRegistry interface {
 	Unregister(name string) error
 }
 
+// PersonaResolver answers which persona a set of roles acts as, by the same
+// rules the MCP authorizer applies (#1705). The admin API asks it about an API
+// key's roles, so a key whose roles reach no persona is flagged instead of
+// authenticating to an empty tool list.
+type PersonaResolver interface {
+	// Resolve returns the persona roles map to, or (nil, false) for none.
+	Resolve(roles []string) (*persona.Persona, bool)
+	// GrantingRoles lists every role that maps to a persona on its own.
+	GrantingRoles() []string
+}
+
 // APIKeyManager manages API keys at runtime.
 type APIKeyManager interface {
 	ListKeys() []auth.APIKeySummary
@@ -118,9 +129,12 @@ type Deps struct {
 	CallCatalog CallCatalog
 	// CallPromoter publishes a reviewed record. nil leaves the promote and
 	// reject actions unregistered.
-	CallPromoter      *CallPromoter
-	Knowledge         *KnowledgeHandler
-	APIKeyManager     APIKeyManager
+	CallPromoter  *CallPromoter
+	Knowledge     *KnowledgeHandler
+	APIKeyManager APIKeyManager
+	// PersonaResolver resolves an API key's roles to the persona the key acts
+	// as. nil leaves the key routes' persona and warning fields empty.
+	PersonaResolver   PersonaResolver
 	BrowserAuth       *browsersession.Authenticator
 	DatabaseAvailable bool
 	PlatformTools     []platform.ToolInfo

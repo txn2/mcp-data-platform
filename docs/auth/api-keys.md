@@ -79,6 +79,8 @@ keys:
 
 These roles are used for persona mapping. A key with roles `["analyst", "data_engineer"]` could map to either persona if both roles are configured.
 
+A key's roles are matched against each persona's `roles` list, not against persona names. A key whose roles no persona carries still authenticates, and lists no tools. The admin API and the portal flag such a key: creating one answers with a warning naming the roles the personas do carry, and the key listing marks it `no_persona` (badged **No persona** on Admin > API Keys).
+
 ![Admin API Keys: the keys defined on the deployment](../images/screenshots/light/admin-admin-keys-light.webp#only-light)![Admin API Keys: the keys defined on the deployment](../images/screenshots/dark/admin-admin-keys-dark.webp#only-dark)
 
 **Admin > API Keys** lists every key beside the ones this YAML declares. Each
@@ -241,6 +243,10 @@ Invalid keys return 401 Unauthorized.
 - Check the key definition in configuration
 - Verify the correct key is being used
 - Review persona mapping for those roles
+
+**Key connects but lists no tools:**
+- Its roles reach no persona. Admin > API Keys badges the key **No persona**, and `GET /api/v1/admin/auth/keys` reports `no_persona: true`
+- Give the key a role a persona's `roles` list carries; a persona's name is not one of its roles
 
 **Key works locally but not in production:**
 - Environment variables may differ between environments

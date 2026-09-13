@@ -513,3 +513,70 @@ func TestChainedRoleMapper_MapToPersona_AllMappersFail(t *testing.T) {
 		t.Error("expected non-nil default persona")
 	}
 }
+
+// TestOIDCRoleMapper_Resolve holds the three answers MapToPersona collapses:
+// an explicit mapping, a registry role match, and no persona at all, which
+// Resolve reports as unmapped instead of the deny-all default (#1705).
+func TestOIDCRoleMapper_Resolve(t *testing.T) {
+	registry := NewRegistry()
+	_ = registry.Register(&Persona{Name: "analyst", Roles: []string{"dp_analyst"}, Priority: 1})
+	_ = registry.Register(&Persona{Name: "admin", Roles: []string{"dp_admin"}, Priority: 10})
+	mapper := &OIDCRoleMapper{
+		PersonaMapping: map[string]string{"sso_admins": "admin", "retired": "gone"},
+		Registry:       registry,
+	}
+
+	for _, tc := range []struct {
+		name  string
+		roles []string
+		want  string
+	}{
+		{"explicit mapping wins", []string{"dp_analyst", "sso_admins"}, "admin"},
+		{"registry role match", []string{"dp_analyst"}, "analyst"},
+		{"highest priority of several matches", []string{"dp_analyst", "dp_admin"}, "admin"},
+		{"a persona name is not a role", []string{"admin"}, ""},
+		{"mapping to an unregistered persona", []string{"retired"}, ""},
+		{"no roles", nil, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, ok := mapper.Resolve(tc.roles)
+			if tc.want == "" {
+				if ok || p != nil {
+					t.Fatalf("Resolve(%v) = %+v, true; want unmapped", tc.roles, p)
+				}
+				return
+			}
+			if !ok || p.Name != tc.want {
+				t.Fatalf("Resolve(%v) = %+v, %v; want %s", tc.roles, p, ok, tc.want)
+			}
+		})
+	}
+}
+
+// TestOIDCRoleMapper_GrantingRoles lists what an operator may choose a key's
+// roles from: every persona role and every mapped role whose persona exists,
+// sorted, once each.
+func TestOIDCRoleMapper_GrantingRoles(t *testing.T) {
+	registry := NewRegistry()
+	_ = registry.Register(&Persona{Name: "analyst", Roles: []string{"dp_analyst", "analyst"}})
+	_ = registry.Register(&Persona{Name: "admin", Roles: []string{"dp_admin", "analyst"}})
+	mapper := &OIDCRoleMapper{
+		PersonaMapping: map[string]string{"sso_admins": "admin", "retired": "gone"},
+		Registry:       registry,
+	}
+
+	got := mapper.GrantingRoles()
+	want := []string{"analyst", "dp_admin", "dp_analyst", "sso_admins"}
+	if len(got) != len(want) {
+		t.Fatalf("GrantingRoles() = %v; want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("GrantingRoles() = %v; want %v", got, want)
+		}
+	}
+
+	if roles := (&OIDCRoleMapper{Registry: NewRegistry()}).GrantingRoles(); len(roles) != 0 {
+		t.Fatalf("a deployment with no personas grants no roles, got %v", roles)
+	}
+}

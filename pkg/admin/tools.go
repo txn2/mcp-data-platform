@@ -24,12 +24,41 @@ type toolSchema struct {
 	Kind        string `json:"kind" example:"trino"`
 	Description string `json:"description" example:"Execute a SQL query against Trino and return results."`
 	Parameters  any    `json:"parameters"`
+	// Annotations are the behavior hints tools/list advertises for the tool,
+	// after any per-deployment override. Absent when the tool states none.
+	Annotations *ToolAnnotations `json:"annotations,omitempty"`
+}
+
+// ToolAnnotations is the MCP ToolAnnotations object as the admin API returns
+// it (#1706): the same keys, in the same camelCase, that a client reads off
+// tools/list, so an operator compares the two without translating. The two
+// hints whose absence means true in the MCP specification stay pointers, so a
+// hint the tool leaves unstated is not reported as false.
+type ToolAnnotations struct {
+	ReadOnlyHint    bool  `json:"readOnlyHint" example:"true"`
+	DestructiveHint *bool `json:"destructiveHint,omitempty" example:"false"`
+	IdempotentHint  bool  `json:"idempotentHint" example:"true"`
+	OpenWorldHint   *bool `json:"openWorldHint,omitempty" example:"false"`
+}
+
+// annotationsFromMCP converts a tool's advertised annotations, or returns nil
+// for a tool that advertises none.
+func annotationsFromMCP(a *mcp.ToolAnnotations) *ToolAnnotations {
+	if a == nil {
+		return nil
+	}
+	return &ToolAnnotations{
+		ReadOnlyHint:    a.ReadOnlyHint,
+		DestructiveHint: a.DestructiveHint,
+		IdempotentHint:  a.IdempotentHint,
+		OpenWorldHint:   a.OpenWorldHint,
+	}
 }
 
 // getToolSchemas handles GET /api/v1/admin/tools/schemas.
 //
 // @Summary      Get tool schemas
-// @Description  Returns JSON schemas for all registered tools including parameter definitions.
+// @Description  Returns JSON schemas for all registered tools including parameter definitions and the annotations tools/list advertises for each.
 // @Tags         Tools
 // @Produce      json
 // @Success      200  {object}  toolSchemaResponse
@@ -70,6 +99,7 @@ func (h *Handler) getToolSchemas(w http.ResponseWriter, r *http.Request) {
 			Kind:        kind,
 			Description: tool.Description,
 			Parameters:  tool.InputSchema,
+			Annotations: annotationsFromMCP(tool.Annotations),
 		}
 	}
 

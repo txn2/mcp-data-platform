@@ -747,7 +747,7 @@ Deletes a persona. Only available in `database` config mode. Cannot delete the a
 GET /api/v1/admin/auth/keys
 ```
 
-Returns all API keys (key values are never exposed, only names and roles).
+Returns all API keys (key values are never exposed, only names and roles). Each key carries `persona`, the persona its roles reach by the rules the MCP authorizer applies (an explicit `personas.role_mapping.oidc_to_persona` entry, then the personas' `roles`), or `no_persona: true` when they reach none. A key flagged `no_persona` authenticates and lists no tools; the portal's API Keys page badges it **No persona**.
 
 **Response:**
 
@@ -757,7 +757,8 @@ Returns all API keys (key values are never exposed, only names and roles).
     {
       "name": "admin",
       "roles": ["admin"],
-      "source": "file"
+      "source": "file",
+      "persona": "admin"
     },
     {
       "name": "ci-pipeline",
@@ -765,7 +766,8 @@ Returns all API keys (key values are never exposed, only names and roles).
       "description": "CI/CD pipeline integration",
       "roles": ["analyst"],
       "expires_at": "2026-07-15T00:00:00Z",
-      "source": "database"
+      "source": "database",
+      "persona": "analyst"
     },
     {
       "name": "expired-key",
@@ -774,7 +776,8 @@ Returns all API keys (key values are never exposed, only names and roles).
       "roles": ["viewer"],
       "expires_at": "2026-03-31T00:00:00Z",
       "expired": true,
-      "source": "database"
+      "source": "database",
+      "no_persona": true
     }
   ],
   "total": 3
@@ -819,9 +822,26 @@ Generates a new API key. Only available in `database` config mode. The key value
   "key": "mdp_a1b2c3d4e5f6...",
   "roles": ["analyst"],
   "expires_at": "2026-05-18T14:30:00Z",
-  "warning": "Store this key securely. It will not be shown again."
+  "warning": "Store this key securely. It will not be shown again.",
+  "persona": "analyst"
 }
 ```
+
+A key whose roles reach no persona is still created, since the persona carrying them may be defined afterward, and the response names the problem in `warnings` in place of `persona`:
+
+```json
+{
+  "name": "ci-pipeline",
+  "key": "mdp_a1b2c3d4e5f6...",
+  "roles": ["finance"],
+  "warning": "Store this key securely. It will not be shown again.",
+  "warnings": [
+    "No persona carries any of the roles \"finance\", so this key authenticates and lists no tools. Roles the personas carry: \"admin\", \"analyst\", \"dp_finance\". \"finance\" is the name of a persona, not one of its roles; that persona carries \"dp_finance\"."
+  ]
+}
+```
+
+The portal shows each warning in the banner that shows the new key.
 
 **Status Codes:** `201 Created`, `400 Bad Request`, `409 Conflict` (name exists or file mode)
 

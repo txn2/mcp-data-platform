@@ -43,7 +43,7 @@ export function KeysTable({
         <TableRow className="bg-muted/30 text-xs text-muted-foreground hover:bg-muted/30">
           <TableHead className="px-5">Name</TableHead>
           <TableHead className="px-5">Email</TableHead>
-          <TableHead className="px-5">Description</TableHead>
+          <TableHead className="w-full px-5">Description</TableHead>
           <TableHead className="px-5">Roles</TableHead>
           <TableHead className="px-5">Expiration</TableHead>
           {!isReadOnly && <TableHead className="w-20 px-5">Actions</TableHead>}
@@ -84,22 +84,29 @@ function KeyRow({
   onCancelDelete: () => void;
   onConfirmDelete: (name: string) => void;
 }) {
-  // ui/table sets whitespace-nowrap on every cell; with six columns the prose
-  // ones have to wrap, or the Actions column is pushed out of the card and
-  // behind a horizontal scroll.
+  // Email and name are identifiers: a line break inside one is harder to read
+  // than a wider column, so they stay on one line. The name's badges and the
+  // roles' persona wrap beneath instead of widening their columns, and the
+  // description takes whatever width is left (w-full on its header, max-w-0
+  // so truncate can bite inside an auto-layout table), truncated with the full
+  // text on hover, so short names and emails get short columns and Actions
+  // stays inside the card.
   return (
     <TableRow className={cn(k.expired && "opacity-50")}>
       <TableCell className="whitespace-normal px-5 py-3 font-medium">
         <KeyName apiKey={k} />
       </TableCell>
-      <TableCell className="whitespace-normal break-all px-5 py-3 text-muted-foreground">
+      <TableCell className="px-5 py-3 text-muted-foreground">
         {k.email || <span className="italic opacity-50">--</span>}
       </TableCell>
-      <TableCell className="max-w-[18rem] truncate px-5 py-3 text-muted-foreground">
+      <TableCell
+        className="max-w-0 truncate px-5 py-3 text-muted-foreground"
+        title={k.description || undefined}
+      >
         {k.description || <span className="italic opacity-50">--</span>}
       </TableCell>
       <TableCell className="whitespace-normal px-5 py-3">
-        <KeyRoles roles={k.roles} />
+        <KeyRoles roles={k.roles} persona={k.persona} />
       </TableCell>
       <TableCell className="px-5 py-3 text-muted-foreground">
         {formatExpiration(k.expires_at)}
@@ -126,8 +133,8 @@ function KeyRow({
 // lapsed.
 function KeyName({ apiKey: k }: { apiKey: APIKeySummary }) {
   return (
-    <div className="flex items-center gap-2">
-      <span className={cn(k.expired && "line-through")}>{k.name}</span>
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      <span className={cn("whitespace-nowrap", k.expired && "line-through")}>{k.name}</span>
       {k.source && (
         <Badge
           variant={k.source === "file" ? "muted" : "info"}
@@ -137,23 +144,38 @@ function KeyName({ apiKey: k }: { apiKey: APIKeySummary }) {
         </Badge>
       )}
       {k.expired && <Badge variant="danger">Expired</Badge>}
+      {k.no_persona && (
+        <Badge
+          variant="danger"
+          title="No persona carries any of this key's roles, so the key authenticates and lists no tools."
+        >
+          No persona
+        </Badge>
+      )}
     </div>
   );
 }
 
-function KeyRoles({ roles }: { roles: string[] }) {
+// KeyRoles lists the key's roles and the persona they reach, since the persona
+// is what decides which tools the key lists and the roles alone do not say.
+function KeyRoles({ roles, persona }: { roles: string[]; persona?: string }) {
   if (roles.length === 0) {
     return (
       <span className="text-xs italic text-muted-foreground opacity-50">None</span>
     );
   }
   return (
-    <div className="flex flex-wrap gap-1">
-      {roles.map((r) => (
-        <Badge key={r} variant="outline">
-          {r}
-        </Badge>
-      ))}
+    <div className="space-y-1">
+      <div className="flex flex-wrap gap-1">
+        {roles.map((r) => (
+          <Badge key={r} variant="outline">
+            {r}
+          </Badge>
+        ))}
+      </div>
+      {persona && (
+        <div className="whitespace-nowrap text-xs text-muted-foreground">as {persona}</div>
+      )}
     </div>
   );
 }

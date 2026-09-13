@@ -262,6 +262,7 @@ This connection option supports the built-in self-configuration connection (see 
 | Key | Type | Meaning |
 |---|---|---|
 | `identity_passthrough` | bool | Forward the acting caller's inbound bearer token as the outbound `Authorization` header instead of applying this connection's shared credential. Requires `auth_mode: none`. A call with no caller token fails rather than calling anonymously. Intended for loopback calls to the platform's own API where the change must be attributed to the real user, not a shared identity. |
+| `required_path_prefix` | string | A path, such as `/api/v1`, that every raw `method` + `path` call on the connection must start with. `api_invoke_endpoint` and `api_export` refuse a path outside it before sending anything, naming the path with the prefix added and, when the catalog declares an operation there, its `operation_id`. Calls addressed by `operation_id` are unaffected, and so is a connection whose `base_url` path already ends with the prefix, which supplies it. For an upstream whose `base_url` is a host root that also serves routes the catalog does not describe, where a missing prefix would reach the wrong handler instead of failing. |
 
 There is no per-connection "admin only" flag. Connections are deny-by-default ([Personas](../personas/overview.md)): a connection is reachable only by personas whose `connections.allow` lists it, so restricting a connection to admins is just a matter of not granting it to other personas.
 

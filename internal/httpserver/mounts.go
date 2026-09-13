@@ -656,10 +656,17 @@ func buildAdminAuth(p *platform.Platform) func(http.Handler) http.Handler {
 // buildAdminHandler constructs the admin REST API handler from the platform.
 func buildAdminHandler(p *platform.Platform, notify *notifydelivery.Handle) http.Handler {
 	deps := admin.Deps{
-		Config:            p.Config(),
-		ConfigStore:       p.ConfigStore(),
-		FileDefaults:      p.FileDefaults(),
-		PersonaRegistry:   p.PersonaRegistry(),
+		Config:          p.Config(),
+		ConfigStore:     p.ConfigStore(),
+		FileDefaults:    p.FileDefaults(),
+		PersonaRegistry: p.PersonaRegistry(),
+		// The key routes resolve a key's roles by the rules the MCP
+		// authorizer applies: the explicit role mapping, then the
+		// registry's role match (#1705).
+		PersonaResolver: &persona.OIDCRoleMapper{
+			PersonaMapping: p.Config().Personas.RoleMapping.OIDCToPersona,
+			Registry:       p.PersonaRegistry(),
+		},
 		ToolkitRegistry:   p.ToolkitRegistry(),
 		ReloadNotifier:    p,
 		MCPServer:         p.MCPServer(),

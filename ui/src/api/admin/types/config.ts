@@ -40,6 +40,10 @@ export interface APIKeySummary {
   expires_at?: string;
   expired?: boolean;
   source?: "file" | "database" | "both";
+  /** The persona the key's roles reach. Absent when they reach none. */
+  persona?: string;
+  /** True when no persona carries any of the key's roles, so it lists no tools (#1705). */
+  no_persona?: boolean;
 }
 
 export interface APIKeyListResponse {
@@ -55,6 +59,10 @@ export interface APIKeyCreateResponse {
   roles: string[];
   expires_at?: string;
   warning: string;
+  /** The persona the key's roles reach. Absent when they reach none. */
+  persona?: string;
+  /** What is wrong with the key as created; the key exists regardless (#1705). */
+  warnings?: string[];
 }
 
 // --- Config entries ---

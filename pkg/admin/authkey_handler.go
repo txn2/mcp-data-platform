@@ -31,18 +31,33 @@ type authKeyCreateResponse struct {
 	Roles       []string   `json:"roles" example:"analyst"`
 	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
 	Warning     string     `json:"warning" example:"Store this key securely. It will not be shown again."`
+	// Persona is the persona the key acts as. Absent when its roles reach none.
+	Persona string `json:"persona,omitempty" example:"analyst"`
+	// Warnings name what is wrong with the key as created. The key is created
+	// regardless: a persona carrying its roles may be defined afterward.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // authKeyListResponse wraps a list of API keys.
 type authKeyListResponse struct {
-	Keys  []auth.APIKeySummary `json:"keys"`
-	Total int                  `json:"total" example:"3"`
+	Keys  []authKeySummary `json:"keys"`
+	Total int              `json:"total" example:"3"`
+}
+
+// authKeySummary is one listed key and the persona its roles reach (#1705).
+type authKeySummary struct {
+	auth.APIKeySummary
+	// Persona is the persona the key acts as. Absent when its roles reach none.
+	Persona string `json:"persona,omitempty" example:"analyst"`
+	// NoPersona is true when the key's roles reach no persona, so the key
+	// authenticates and lists no tools.
+	NoPersona bool `json:"no_persona,omitempty" example:"false"`
 }
 
 // listAuthKeys handles GET /api/v1/admin/auth/keys.
 //
 // @Summary      List auth keys
-// @Description  Returns all API keys (key values are never exposed, only names and roles).
+// @Description  Returns all API keys (key values are never exposed, only names and roles), each with the persona its roles reach, or no_persona when they reach none.
 // @Tags         Auth Keys
 // @Produce      json
 // @Success      200  {object}  authKeyListResponse
@@ -51,13 +66,19 @@ type authKeyListResponse struct {
 // @Router       /admin/auth/keys [get]
 func (h *Handler) listAuthKeys(w http.ResponseWriter, _ *http.Request) {
 	keys := h.deps.APIKeyManager.ListKeys()
-	writeJSON(w, http.StatusOK, authKeyListResponse{Keys: keys, Total: len(keys)})
+	out := make([]authKeySummary, 0, len(keys))
+	for _, k := range keys {
+		entry := authKeySummary{APIKeySummary: k}
+		entry.Persona, entry.NoPersona = h.keyPersona(k.Roles)
+		out = append(out, entry)
+	}
+	writeJSON(w, http.StatusOK, authKeyListResponse{Keys: out, Total: len(out)})
 }
 
 // createAuthKey handles POST /api/v1/admin/auth/keys.
 //
 // @Summary      Create auth key
-// @Description  Generates a new API key. The key value is returned only once.
+// @Description  Generates a new API key. The key value is returned only once. A key whose roles reach no persona is still created, and the response carries a warning naming the roles the personas carry.
 // @Tags         Auth Keys
 // @Accept       json
 // @Produce      json
@@ -122,7 +143,7 @@ func (h *Handler) createAuthKey(w http.ResponseWriter, r *http.Request) {
 		h.deps.ReloadNotifier.PublishAPIKeyReload()
 	}
 
-	writeJSON(w, http.StatusCreated, authKeyCreateResponse{
+	resp := authKeyCreateResponse{
 		Name:        req.Name,
 		Email:       apiKeyEmailFallback(req.Email, req.Name),
 		Description: req.Description,
@@ -130,7 +151,13 @@ func (h *Handler) createAuthKey(w http.ResponseWriter, r *http.Request) {
 		Roles:       req.Roles,
 		ExpiresAt:   def.ExpiresAt,
 		Warning:     "Store this key securely. It will not be shown again.",
-	})
+	}
+	var unmapped bool
+	resp.Persona, unmapped = h.keyPersona(req.Roles)
+	if unmapped {
+		resp.Warnings = []string{h.noPersonaWarning(req.Roles)}
+	}
+	writeJSON(w, http.StatusCreated, resp)
 }
 
 // deleteAuthKey handles DELETE /api/v1/admin/auth/keys/{name}.

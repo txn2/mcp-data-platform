@@ -29,6 +29,7 @@ func newTestMCPServer() *mcp.Server {
 	server.AddTool(&mcp.Tool{
 		Name:        "trino_query",
 		Description: "Execute a SQL query",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: new(bool)},
 		InputSchema: json.RawMessage(`{"type":"object","required":["sql"],"properties":{"sql":{"type":"string","description":"The SQL query"},"connection":{"type":"string","description":"Connection name"}}}`),
 	}, func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return &mcp.CallToolResult{
@@ -39,6 +40,10 @@ func newTestMCPServer() *mcp.Server {
 	server.AddTool(&mcp.Tool{
 		Name:        "datahub_search",
 		Description: "Search DataHub catalog",
+		// A write that states it destroys nothing and leaves openWorldHint
+		// unstated, so the admin routes are held to keeping "stated false"
+		// and "not stated" apart (#1706).
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: new(bool)},
 		InputSchema: json.RawMessage(`{"type":"object","required":["query"],"properties":{"query":{"type":"string","description":"Search query"}}}`),
 	}, func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return &mcp.CallToolResult{
@@ -46,6 +51,20 @@ func newTestMCPServer() *mcp.Server {
 		}, nil
 	})
 
+	return server
+}
+
+// newTestMCPServerWithUnannotatedTool is newTestMCPServer plus a tool that
+// states no annotations at all.
+func newTestMCPServerWithUnannotatedTool() *mcp.Server {
+	server := newTestMCPServer()
+	server.AddTool(&mcp.Tool{
+		Name:        "plain_tool",
+		Description: "States no behavior hints",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+	}, func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return &mcp.CallToolResult{}, nil
+	})
 	return server
 }
 
@@ -81,6 +100,30 @@ func TestGetToolSchemas(t *testing.T) {
 		dhSchema, ok := body.Schemas["datahub_search"]
 		require.True(t, ok, "datahub_search schema should be present")
 		assert.Equal(t, "datahub", dhSchema.Kind)
+	})
+
+	t.Run("carries the annotations tools/list advertises", func(t *testing.T) {
+		h := NewHandler(Deps{MCPServer: newTestMCPServerWithUnannotatedTool()}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/tools/schemas", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+
+		// Decoded as raw JSON rather than into toolSchema, so an absent key
+		// and a false one are told apart the way a client reading the
+		// response tells them apart.
+		var raw struct {
+			Schemas map[string]map[string]json.RawMessage `json:"schemas"`
+		}
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&raw))
+
+		assert.JSONEq(t, `{"readOnlyHint":true,"idempotentHint":true,"openWorldHint":false}`,
+			string(raw.Schemas["trino_query"]["annotations"]))
+		assert.JSONEq(t, `{"readOnlyHint":false,"idempotentHint":false,"destructiveHint":false}`,
+			string(raw.Schemas["datahub_search"]["annotations"]))
+		_, stated := raw.Schemas["plain_tool"]["annotations"]
+		assert.False(t, stated, "a tool that advertises no annotations carries no annotations key")
 	})
 
 	t.Run("returns empty schemas when no MCP server", func(t *testing.T) {

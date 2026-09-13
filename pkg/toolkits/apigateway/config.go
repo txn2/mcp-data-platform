@@ -265,6 +265,15 @@ type Config struct {
 	// (the shared-credential Authenticator is skipped) and an empty
 	// inbound token is a hard error rather than an anonymous call.
 	IdentityPassthrough bool
+	// RequiredPathPrefix is the path every raw method+path call on the
+	// connection must start with; a path outside it is refused before it
+	// is sent, naming the prefixed path and the operation_id the catalog
+	// lists for it. Empty = no prefix is required. It exists for an
+	// upstream whose base URL is a host root that also serves routes the
+	// connection does not describe, so a missing prefix reaches the wrong
+	// handler instead of failing: the built-in platform-admin connection
+	// sets "/api/v1" (#1707).
+	RequiredPathPrefix string
 }
 
 // OAuth2Config describes the OAuth 2.1 client_credentials grant
@@ -391,6 +400,7 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 	c.CatalogID = cfgmap.String(cfg, cfgKeyCatalogID)
 	c.Description = cfgmap.String(cfg, cfgKeyDescription)
 	c.Handler = cfgmap.String(cfg, cfgKeyHandler)
+	c.RequiredPathPrefix = trimTrailingSlash(cfgmap.String(cfg, cfgKeyRequiredPathPrefix))
 	if c.Handler == HandlerInternal && c.BaseURL == "" {
 		c.BaseURL = internalBaseURL
 	}
@@ -433,6 +443,7 @@ func (c Config) Validate() error {
 		up.ValidateIdentityPassthrough,
 		c.validateHandler,
 		up.ValidateTLSMaterial,
+		c.validateRequiredPathPrefix,
 	)
 }
 

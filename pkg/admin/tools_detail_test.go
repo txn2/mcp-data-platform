@@ -126,6 +126,14 @@ func TestGetToolDetail_FullJoin(t *testing.T) {
 	assert.True(t, d.HiddenByPersona["viewer"])
 	assert.NotContains(t, d.HiddenByPersona, "analyst")
 
+	// Annotations are the ones the server advertises for the tool (#1706).
+	require.NotNil(t, d.Annotations)
+	assert.True(t, d.Annotations.ReadOnlyHint)
+	assert.True(t, d.Annotations.IdempotentHint)
+	assert.Nil(t, d.Annotations.DestructiveHint)
+	require.NotNil(t, d.Annotations.OpenWorldHint)
+	assert.False(t, *d.Annotations.OpenWorldHint)
+
 	// Global deny does not match this tool.
 	assert.False(t, d.HiddenByGlobalDeny)
 	assert.Empty(t, d.GlobalDenyPattern)
