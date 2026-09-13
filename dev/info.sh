@@ -13,6 +13,8 @@ set -euo pipefail
 # the defaults when the file is absent (dev never started this session).
 DEV_API_PORT=8080
 DEV_OLLAMA_PORT=11434
+DEV_API_PORT_B=""
+DEV_PROXY_PORT=""
 if [ -f dev/.dev-ports.env ]; then
   # shellcheck disable=SC1091
   source dev/.dev-ports.env
@@ -30,6 +32,10 @@ echo -e "${BOLD}${GREEN}Local dev login${NC}"
 echo ""
 echo -e "  Portal UI:    ${CYAN}http://localhost:5173/portal/${NC}"
 echo -e "  Go API:       ${CYAN}http://localhost:${DEV_API_PORT}${NC}"
+if [ -n "$DEV_PROXY_PORT" ]; then
+  echo -e "  2nd replica:  ${CYAN}http://localhost:${DEV_API_PORT_B}${NC}"
+  echo -e "  Proxy:        ${CYAN}http://localhost:${DEV_PROXY_PORT}${NC}   (both replicas, round robin; make acceptance connects here)"
+fi
 echo -e "  API key:      ${CYAN}acme-dev-key-2024${NC}   (send as ${BOLD}X-API-Key${NC} header)"
 echo -e "  Non-admin:    ${CYAN}acme-owner-key${NC} (asset.owner@example.com), ${CYAN}acme-peer-key${NC} (asset.peer@example.com)"
 echo -e "  Automated:    ${CYAN}acme-ingest-key${NC} (ingest.service@example.com, persona ingest-service: audited, never cataloged)"

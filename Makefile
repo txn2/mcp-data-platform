@@ -481,7 +481,9 @@ schedule-lane-ui:
 ## Each test/acceptance/issue_<n>_test.go executes one ticket's acceptance
 ## criteria through the tool surface a user calls. It fails, rather than
 ## skips, when no server answers. Override the target with MCP_BASE_URL and
-## MCP_API_KEY (defaults: the dev server on DEV_API_PORT, the dev API key).
+## MCP_API_KEY (defaults: the proxy in front of the dev stack's two replicas on
+## DEV_PROXY_PORT, or the single dev server on DEV_API_PORT under
+## DEV_REPLICAS=1, and the dev API key; #1708).
 ## ACCEPTANCE_TIMEOUT bounds the whole binary, not one test. Go's default is
 ## 10 minutes and the suite runs for most of that against a healthy stack --
 ## several criteria wait past a cadence that fires every minute, and every
@@ -498,7 +500,7 @@ acceptance:
 	@# dev/start.sh relocates the stack when the default ports are busy and
 	@# records where it went; the suite follows it unless MCP_BASE_URL is set.
 	@set -a; [ -f dev/.dev-ports.env ] && . ./dev/.dev-ports.env; set +a; \
-	echo "Running acceptance suite against $${MCP_BASE_URL:-http://localhost:$${DEV_API_PORT:-8080}}..."; \
+	echo "Running acceptance suite against $${MCP_BASE_URL:-http://localhost:$${DEV_PROXY_PORT:-$${DEV_API_PORT:-8080}}}..."; \
 	run_flag=""; \
 	if [ -n "$(ISSUE)" ]; then run_flag="-run TestIssue$(ISSUE)_"; echo "  limited to #$(ISSUE)"; fi; \
 	set -o pipefail; \
@@ -1023,7 +1025,7 @@ dev-up:
 ## the portal has made and the queue starts the whole library again from zero.
 dev-stop:
 	@echo "Stopping ACME dev environment (keeping volumes)..."
-	$(DEV_COMPOSE) stop
+	$(DEV_COMPOSE) --profile replicas stop
 	$(MAKE) --no-print-directory dev-kill-hosts
 	@echo "ACME dev environment stopped. Data kept; 'make dev' resumes it."
 
@@ -1033,7 +1035,7 @@ dev-stop:
 ## without losing any of that, use `make dev-stop`.
 dev-down:
 	@echo "Stopping ACME dev environment and REMOVING its volumes (data will be lost)..."
-	$(DEV_COMPOSE) down -v
+	$(DEV_COMPOSE) --profile replicas down -v
 	$(MAKE) --no-print-directory dev-kill-hosts
 	@echo "ACME dev environment stopped and its data removed."
 
@@ -1044,6 +1046,7 @@ dev-down:
 ## 9180 and the next `make dev` fails its port pre-flight.
 dev-kill-hosts:
 	@pkill -f "build/air/mcp-data-platform" 2>/dev/null || true
+	@pkill -f "build/air-b/mcp-data-platform" 2>/dev/null || true
 	@pkill -f "air -c dev/.air.toml" 2>/dev/null || true
 	@pkill -f "ui/node_modules/.bin/vite" 2>/dev/null || true
 	@pkill -f "@esbuild/.*/bin/esbuild --service" 2>/dev/null || true

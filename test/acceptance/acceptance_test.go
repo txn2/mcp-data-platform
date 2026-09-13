@@ -23,7 +23,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -64,11 +66,16 @@ type client struct {
 	base string
 }
 
-// baseURL is where the suite connects: MCP_BASE_URL, or the dev server on
-// DEV_API_PORT (dev/start.sh relocates the stack when 8080 is busy).
+// baseURL is where the suite connects: MCP_BASE_URL; or the proxy dev/start.sh
+// puts in front of its two replicas, on DEV_PROXY_PORT (#1708); or, for the
+// single-process stack, the dev server on DEV_API_PORT (dev/start.sh relocates
+// the stack when 8080 is busy).
 func baseURL() string {
 	if v := os.Getenv("MCP_BASE_URL"); v != "" {
 		return v
+	}
+	if port := os.Getenv("DEV_PROXY_PORT"); port != "" {
+		return "http://localhost:" + port
 	}
 	port := os.Getenv("DEV_API_PORT")
 	if port == "" {
@@ -104,26 +111,130 @@ func connectAs(t *testing.T, apiKey string) *client {
 	return connectAt(t, baseURL(), apiKey)
 }
 
-// connectPeer opens a session on a second replica of the same deployment, the
-// one MCP_PEER_BASE_URL names. A criterion about what every replica answers
-// needs two processes over one database, and nothing stands in for the second
-// one: the criterion fails, rather than skips, when no peer is named.
-func connectPeer(t *testing.T) *client {
+// instanceHeader names the platform process that answered a response
+// (internal/httpserver, #1708).
+const instanceHeader = "X-Platform-Instance"
+
+// replicaDiscoveryRequests bounds how many requests the suite sends through
+// the proxy to hear from every replica behind it. Round robin answers from
+// each of two within two requests; the rest cover a replica the proxy has set
+// aside for a moment while it restarts.
+const replicaDiscoveryRequests = 20
+
+// replica is one platform process of the deployment the suite runs against:
+// the name it answers with, and the address that reaches it alone.
+type replica struct {
+	name string
+	base string
+}
+
+// instanceAt returns the X-Platform-Instance of one response from target.
+func instanceAt(t *testing.T, target string) string {
 	t.Helper()
-	target := os.Getenv("MCP_PEER_BASE_URL")
-	if target == "" {
-		t.Fatal("MCP_PEER_BASE_URL is not set. This criterion runs against two replicas of one deployment: start a second platform process from the same configuration on another port, against the same database, and set MCP_PEER_BASE_URL to it")
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, target+"/healthz", http.NoBody) // #nosec G704 -- the platform under test, named by the suite's own environment
+	if err != nil {
+		t.Fatalf("GET %s/healthz: %v", target, err)
 	}
-	return connectAt(t, target, devAPIKey())
+	res, err := http.DefaultClient.Do(req) // #nosec G704 -- the platform under test, named by the suite's own environment
+	if err != nil {
+		t.Fatalf("no platform answers at %s (%v). Start one with `make dev`, or set MCP_BASE_URL", target, err)
+	}
+	_ = res.Body.Close() //nolint:errcheck // only the header is read
+	name := res.Header.Get(instanceHeader)
+	if name == "" {
+		t.Fatalf("%s answered HTTP %d with no %s header, so which replica served it cannot be told", target, res.StatusCode, instanceHeader)
+	}
+	return name
+}
+
+// replicas returns every platform process behind baseURL, each with the
+// address that reaches it directly. MCP_PEER_BASE_URL names a second replica
+// explicitly; otherwise the replicas are the distinct X-Platform-Instance
+// names the proxy answers with, each reached on the port its name carries,
+// which is how dev/start.sh runs them. A criterion about what every replica
+// answers needs two processes over one database, and nothing stands in for
+// the second: it fails, rather than skips, when only one answers.
+func replicas(t *testing.T) []replica {
+	t.Helper()
+	if peer := os.Getenv("MCP_PEER_BASE_URL"); peer != "" {
+		return []replica{{name: instanceAt(t, baseURL()), base: baseURL()}, {name: instanceAt(t, peer), base: peer}}
+	}
+	proxy, err := url.Parse(baseURL())
+	if err != nil {
+		t.Fatalf("parsing %s: %v", baseURL(), err)
+	}
+	var found []replica
+	seen := map[string]bool{}
+	for range replicaDiscoveryRequests {
+		name := instanceAt(t, baseURL())
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		found = append(found, replica{name: name, base: replicaBase(t, proxy, name)})
+	}
+	if len(found) < 2 {
+		t.Fatalf("%d requests to %s were all answered by %v. This criterion runs against two replicas of one deployment: run `make dev` without DEV_REPLICAS=1, or set MCP_PEER_BASE_URL to a second platform process over the same database", replicaDiscoveryRequests, baseURL(), found)
+	}
+	for _, r := range found {
+		if got := instanceAt(t, r.base); got != r.name {
+			t.Fatalf("the proxy named a replica %s, and %s answers as %s", r.name, r.base, got)
+		}
+	}
+	return found
+}
+
+// replicaBase is the address of the replica named name (hostname:port) behind
+// a proxy on a loopback address: the proxy's scheme and host, and the port the
+// replica listens on. A replica behind a remote proxy is not reachable on its
+// own, and the suite says so rather than dialing a name only that network
+// resolves.
+func replicaBase(t *testing.T, proxy *url.URL, name string) string {
+	t.Helper()
+	_, port, err := net.SplitHostPort(name)
+	if err != nil {
+		t.Fatalf("replica name %q carries no port: %v", name, err)
+	}
+	host := proxy.Hostname()
+	if ip := net.ParseIP(host); host != "localhost" && (ip == nil || !ip.IsLoopback()) {
+		t.Fatalf("the replicas behind %s cannot be reached one at a time from here; set MCP_BASE_URL and MCP_PEER_BASE_URL to two of them", proxy)
+	}
+	return proxy.Scheme + "://" + net.JoinHostPort(host, port)
+}
+
+// forEachReplica runs fn once per replica, as a subtest named for it, with a
+// session opened on that replica alone.
+func forEachReplica(t *testing.T, fn func(t *testing.T, c *client)) {
+	t.Helper()
+	for _, r := range replicas(t) {
+		t.Run(r.name, func(t *testing.T) {
+			fn(t, connectAt(t, r.base, devAPIKey()))
+		})
+	}
+}
+
+// connectReplicaPair opens a session on each of two distinct replicas, for a
+// criterion about a write on one replica and what the other answers.
+func connectReplicaPair(t *testing.T) (a, b *client) {
+	t.Helper()
+	found := replicas(t)
+	return connectAt(t, found[0].base, devAPIKey()), connectAt(t, found[1].base, devAPIKey())
 }
 
 // connectAt opens a session on one platform process as one identity.
 func connectAt(t *testing.T, target, apiKey string) *client {
 	t.Helper()
+	return connectVia(t, target, apiKey, http.DefaultTransport)
+}
+
+// connectVia is connectAt over a given transport, for a criterion that reads
+// what the HTTP exchanges under a session carried.
+func connectVia(t *testing.T, target, apiKey string, transport http.RoundTripper) *client {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), sessionTimeout)
 	t.Cleanup(cancel)
 
-	httpClient := &http.Client{Transport: authRoundTripper{key: apiKey, base: http.DefaultTransport}}
+	httpClient := &http.Client{Transport: authRoundTripper{key: apiKey, base: transport}}
 	mc := mcp.NewClient(&mcp.Implementation{Name: "acceptance", Version: "1.0.0"}, nil)
 	session, err := mc.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: target, HTTPClient: httpClient}, nil)
 	if err != nil {

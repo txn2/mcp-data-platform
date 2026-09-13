@@ -149,6 +149,27 @@ services:
     depends_on:
       - api-test
 
+  # platform-lb: the two platform processes dev/start.sh runs, round-robined
+  # behind one address with no session affinity, the way two pods behind a
+  # service are (#1708). It also replaces origin 502 and 504 bodies the way the
+  # CDN in front of a deployment does. `make acceptance` targets it. Started
+  # only under the `replicas` profile, which dev/start.sh activates unless
+  # DEV_REPLICAS=1.
+  platform-lb:
+    image: nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
+    container_name: acme-dev-platform-lb
+    profiles: ["replicas"]
+    environment:
+      DEV_API_PORT: "${DEV_API_PORT:-8080}"
+      DEV_API_PORT_B: "${DEV_API_PORT_B:-8081}"
+    volumes:
+      - ./lb/platform-lb.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./lb/15-platform-host.envsh:/docker-entrypoint.d/15-platform-host.envsh:ro
+    ports:
+      - "127.0.0.1:${DEV_PROXY_PORT:-8082}:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
   # Keycloak: real OIDC + OAuth 2.1 IdP backing both:
   #   - operator portal login (auth.oidc + browser_session in platform.yaml)
   #   - the pre-seeded oauth-mcp-dev / oauth-api-dev connection fixtures

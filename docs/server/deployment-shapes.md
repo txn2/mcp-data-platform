@@ -107,6 +107,32 @@ Attach a warehouse and catalog to an API-and-knowledge deployment, or add API co
 
 This is where cross-enrichment pays off most, because captured knowledge and proxied API responses sit alongside warehouse data under one auth, persona, and audit pipeline.
 
+## Replicas
+
+A database-backed deployment of any shape can run several replicas of the platform over one database, behind a load balancer. What a replica holds in the database is shared; what it holds in its own memory is not, so every piece of state a request writes has to be readable by the replica that serves the next request. Set `sessions.store: database` so an MCP session opened on one replica continues on another (see [Session Externalization](session-externalization.md)).
+
+Every HTTP response carries an `X-Platform-Instance` header naming the process that served it: its hostname and listen port, such as `mcp-data-platform-7d9f-abcde:8080`. The hostname separates pods; the port separates two processes on one machine. When two replicas answer the same read differently, the header says which replica gave which answer.
+
+### The local two-replica lane
+
+`make dev` runs this shape on one machine, because a defect that exists only between replicas cannot be seen with one process:
+
+```mermaid
+graph LR
+    Acceptance["make acceptance"] --> LB["nginx platform-lb<br/>DEV_API_PORT + 2<br/>round robin, no affinity"]
+    LB --> A["replica A<br/>DEV_API_PORT"]
+    LB --> B["replica B<br/>DEV_API_PORT + 1"]
+    Portal["Vite portal :5173"] --> A
+    A --> PG[(PostgreSQL)]
+    B --> PG
+```
+
+- Both processes run the same `dev/platform.yaml` against the same PostgreSQL, SeaweedFS and Keycloak, with database-backed sessions.
+- The proxy (`dev/lb/platform-lb.conf.template`) sends each request to the next replica, so a request and the one after it are served by different processes.
+- The proxy replaces the body of any origin 502 or 504 with `error code: <status>` as `text/plain`, which is what the CDN in front of a deployment does. A route that explains a failure in a 502 or 504 body loses that explanation behind a CDN, and it loses it locally too.
+- `make acceptance` connects to the proxy by default; `MCP_BASE_URL` overrides it. A criterion about every replica discovers them from the `X-Platform-Instance` values the proxy answers with and opens a session on each directly (`forEachReplica` and `connectReplicaPair` in `test/acceptance/acceptance_test.go`).
+- `DEV_REPLICAS=1 make dev` runs a single process with no proxy, for a machine that cannot afford two. The acceptance suite then connects to that process, and a criterion about two replicas fails, as it would against any single-process deployment.
+
 ## Relationship to operating modes
 
 Shape and mode are orthogonal:

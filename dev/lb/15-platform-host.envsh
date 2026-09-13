@@ -1,0 +1,16 @@
+#!/bin/sh
+# Sourced by the nginx image's entrypoint before it renders the templates, so
+# the value exported here is substituted into platform-lb.conf.template.
+#
+# host.docker.internal resolves to an IPv4 and an IPv6 address, and nginx
+# takes every address of an upstream name as a server of its own. The IPv6
+# address is unreachable from the container, so each replica would be listed
+# twice, once dead: every request that picked a dead entry was retried on the
+# next, and a request and the one after it could land on the same replica.
+# The upstream names the IPv4 address alone.
+DEV_PLATFORM_HOST=$(getent ahostsv4 host.docker.internal | awk 'NR==1 { print $1 }')
+if [ -z "$DEV_PLATFORM_HOST" ]; then
+  echo "platform-lb: host.docker.internal has no IPv4 address" >&2
+  exit 1
+fi
+export DEV_PLATFORM_HOST

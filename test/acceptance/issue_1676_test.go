@@ -7,7 +7,8 @@ package acceptance
 // answered different schema state for one connection.
 //
 // Every criterion runs against two replicas of the platform over one database
-// (the session at MCP_BASE_URL and the one at MCP_PEER_BASE_URL), with a
+// (the two behind the dev stack's proxy, or MCP_BASE_URL and
+// MCP_PEER_BASE_URL; see replicas), with a
 // connection whose endpoint refuses the introspection query the way the
 // ticket's did: HTTP 302 and no GraphQL body. The endpoint is the real GraphQL
 // server #1277's criteria run against, DataHub's GMS, reached through a
@@ -258,7 +259,7 @@ func TestIssue1676_AConfigurationSaveKeepsTheUploadedSchemaOnEveryReplica(t *tes
 	forms := map[string]string{"sdl": issue1676SDL, "introspection": issue1676Introspection}
 	for form, payload := range forms {
 		t.Run(form, func(t *testing.T) {
-			a, b := connect(t), connectPeer(t)
+			a, b := connectReplicaPair(t)
 			name, cfg := issue1676Connect(t, a, form, issue1676Upstream(t))
 
 			// Registration reads the endpoint on both replicas, and the
@@ -302,7 +303,7 @@ func TestIssue1676_AConfigurationSaveKeepsTheUploadedSchemaOnEveryReplica(t *tes
 // admits, and the document runs against the real server through the
 // forwarder.
 func TestIssue1676_ANamespacedDocumentReportsTheDottedOperationFromEveryReplica(t *testing.T) {
-	a, b := connect(t), connectPeer(t)
+	a, b := connectReplicaPair(t)
 	name, _ := issue1676Connect(t, a, "dotted", issue1676Upstream(t))
 	issue1676Upload(t, a, name, issue1676SDL)
 	fromStore := func(info map[string]any) bool { s, _ := info["source"].(string); return s == "upload" }
@@ -340,7 +341,7 @@ func TestIssue1676_ANamespacedDocumentReportsTheDottedOperationFromEveryReplica(
 // Without an index there is nothing to reduce a document to, and the call is
 // refused with the cause, on every replica.
 func TestIssue1676_AConnectionWithNoSchemaRefusesADocumentRatherThanAuthorizingItsRootField(t *testing.T) {
-	a, b := connect(t), connectPeer(t)
+	a, b := connectReplicaPair(t)
 	name, _ := issue1676Connect(t, a, "noschema", issue1676Upstream(t))
 	refused := func(info map[string]any) bool { e, _ := info["error"].(string); return e != "" }
 	issue1676WaitSchema(t, a, name, refused)

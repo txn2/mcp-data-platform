@@ -1,0 +1,58 @@
+# The platform's two dev replicas behind one address (#1708).
+#
+# Round robin with no session affinity: a request and the next one land on
+# different processes, which is what makes a state one replica holds in memory
+# visible to a client. Affinity would hide exactly that. An MCP session survives
+# the alternation because dev/platform.yaml keeps sessions in the database.
+#
+# The two processes run on the host (dev/start.sh), so they are reached at the
+# host's IPv4 address, which 15-platform-host.envsh resolves when the container
+# starts. ${DEV_PLATFORM_HOST}, ${DEV_API_PORT} and ${DEV_API_PORT_B} are
+# substituted by the nginx image's template step.
+upstream platform_replicas {
+  # The round-robin position lives in shared memory. Without a zone each nginx
+  # worker keeps its own, and consecutive requests accepted by different
+  # workers can land on the same replica.
+  zone platform_replicas 64k;
+  server ${DEV_PLATFORM_HOST}:${DEV_API_PORT};
+  server ${DEV_PLATFORM_HOST}:${DEV_API_PORT_B};
+}
+
+server {
+  listen 8080;
+
+  # MCP streamable HTTP holds a response open for server-sent events, and an
+  # upload streams its body: neither is buffered, and neither is cut short.
+  proxy_http_version 1.1;
+  proxy_set_header Connection "";
+  proxy_set_header Host $http_host;
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  proxy_set_header X-Forwarded-Proto $scheme;
+  proxy_buffering off;
+  proxy_request_buffering off;
+  proxy_read_timeout 1h;
+  proxy_send_timeout 1h;
+  client_max_body_size 0;
+
+  # The CDN in front of a deployment replaces the body of an origin 502 or 504
+  # with a line of its own, so a route that explains its failure in a 502 or
+  # 504 body reaches a browser as `error code: 502` and nothing else (#1704).
+  # The origin's status is kept; its body and headers are not.
+  proxy_intercept_errors on;
+  error_page 502 @origin_502;
+  error_page 504 @origin_504;
+
+  location / {
+    proxy_pass http://platform_replicas;
+  }
+
+  location @origin_502 {
+    default_type text/plain;
+    return 502 "error code: 502";
+  }
+
+  location @origin_504 {
+    default_type text/plain;
+    return 504 "error code: 504";
+  }
+}

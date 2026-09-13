@@ -7,7 +7,8 @@ package acceptance
 // from that replica only, and a restart forgot it while the schema survived.
 //
 // Every criterion runs against two replicas of the platform over one database
-// (MCP_BASE_URL and MCP_PEER_BASE_URL), with a connection whose endpoint
+// (the two behind the dev stack's proxy, or MCP_BASE_URL and
+// MCP_PEER_BASE_URL; see replicas), with a connection whose endpoint
 // refuses the introspection query the way the ticket's did: HTTP 302 and no
 // GraphQL body, from the forwarder #1676's criteria put in front of DataHub's
 // GMS. The re-read is sent to one replica only, which is the path the ticket
@@ -66,7 +67,7 @@ func issue1703Uploaded(t *testing.T, a, b *client, label, payload string) (name,
 func TestIssue1703_ARefusedRereadOnOneReplicaIsReportedByEveryReplica(t *testing.T) {
 	for form, payload := range issue1703Forms {
 		t.Run(form, func(t *testing.T) {
-			a, b := connect(t), connectPeer(t)
+			a, b := connectReplicaPair(t)
 			name, hash, count := issue1703Uploaded(t, a, b, "reread-"+form, payload)
 
 			status, answered := issue1703Reread(t, a, name)
@@ -99,7 +100,7 @@ func TestIssue1703_ARefusedRereadOnOneReplicaIsReportedByEveryReplica(t *testing
 func TestIssue1703_AnUploadAfterARefusalClearsItOnEveryReplica(t *testing.T) {
 	for form, payload := range issue1703Forms {
 		t.Run(form, func(t *testing.T) {
-			a, b := connect(t), connectPeer(t)
+			a, b := connectReplicaPair(t)
 			name, hash, count := issue1703Uploaded(t, a, b, "clear-"+form, payload)
 
 			if status, answered := issue1703Reread(t, b, name); status != http.StatusOK {

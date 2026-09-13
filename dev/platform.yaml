@@ -14,7 +14,9 @@ server:
   name: acme-data-platform
   transport: http
   # DEV_API_PORT is auto-relocated by dev/start.sh when :8080 is held by
-  # another stack (e.g. a running DataHub). Defaults to 8080 when free.
+  # another stack (e.g. a running DataHub). Defaults to 8080 when free. The
+  # second replica dev/start.sh runs is started with DEV_API_PORT set to its
+  # own port (#1708).
   address: ":${DEV_API_PORT:-8080}"
   description: |
     ACME Corp's unified data platform providing governed access to the enterprise
@@ -118,6 +120,14 @@ auth:
 
 oauth:
   enabled: false
+
+# Sessions live in the database because dev runs two replicas behind a
+# round-robin proxy (#1708, dev/lb/platform-lb.conf.template): a session opened
+# on one process is continued on the other, which an in-memory store refuses.
+# The single-process stack (DEV_REPLICAS=1) uses the same store, so the two
+# shapes differ only in the number of processes.
+sessions:
+  store: database
 
 database:
   dsn: "postgres://platform:platform_secret@localhost:${DEV_PG_PORT:-5432}/mcp_platform?sslmode=disable"
@@ -490,7 +500,10 @@ tuning:
 
 portal:
   enabled: true
-  public_base_url: "http://localhost:${DEV_API_PORT:-8080}"
+  # DEV_PUBLIC_API_PORT, not DEV_API_PORT: dev/start.sh runs a second replica
+  # on its own listen port (#1708), and both replicas advertise the one address
+  # a person reaches the platform on, as the pods of a deployment do.
+  public_base_url: "http://localhost:${DEV_PUBLIC_API_PORT:-8080}"
   s3_connection: dev-s3
   s3_bucket: portal-assets
 
