@@ -160,12 +160,29 @@ port_free() { probe_bind 127.0.0.1 "$1"; }
 # Keycloak's 9090 -- over an address that port's holder never binds.
 api_port_free() { probe_bind 127.0.0.1 "$1" && probe_bind "" "$1"; }
 
-# reloc_free routes one relocatable port at one offset to the right probe.
+# DEV_REPLICAS is how many platform processes the stack runs: 2 by default, 1
+# for a machine that cannot afford the second. Two replicas share one
+# database, the second listens on the API port + 1, and nginx round-robins them
+# on the API port + 2 (#1708), which is where `make acceptance` connects. A
+# defect that exists only between two replicas -- state one process holds in
+# memory -- has no other local lane that can see it.
+DEV_REPLICAS="${DEV_REPLICAS:-2}"
+case "$DEV_REPLICAS" in
+  1|2) ;;
+  *) fail "DEV_REPLICAS must be 1 or 2, not '$DEV_REPLICAS'" ;;
+esac
+
+# reloc_free routes one relocatable port at one offset to the right probe. The
+# API port carries the second replica's port and the proxy's with it, so the
+# three move as one block.
 reloc_free() {
-  if [ "$1" = 8080 ]; then
-    api_port_free "$(( $1 + $2 ))"
-  else
+  if [ "$1" != 8080 ]; then
     port_free "$(( $1 + $2 ))"
+    return
+  fi
+  api_port_free "$(( $1 + $2 ))" || return 1
+  if [ "$DEV_REPLICAS" = 2 ]; then
+    api_port_free "$(( $1 + $2 + 1 ))" && port_free "$(( $1 + $2 + 2 ))"
   fi
 }
 
@@ -185,6 +202,19 @@ if [ "$NEED_SHIFT" = 1 ]; then
 fi
 export DEV_PG_PORT=$((5432 + DEV_OFFSET))
 export DEV_API_PORT=$((8080 + DEV_OFFSET))
+# The address both replicas advertise (portal.public_base_url in
+# dev/platform.yaml). It stays replica A's port: the second replica is started
+# with DEV_API_PORT set to its own listen port.
+export DEV_PUBLIC_API_PORT=$DEV_API_PORT
+DEV_API_PORT_B=""
+DEV_PROXY_PORT=""
+if [ "$DEV_REPLICAS" = 2 ]; then
+  export DEV_API_PORT_B=$((DEV_API_PORT + 1))
+  export DEV_PROXY_PORT=$((DEV_API_PORT + 2))
+  # Every docker compose command below, the exit trap's included, then covers
+  # the proxy service (dev/docker-compose.yml, profile `replicas`).
+  export COMPOSE_PROFILES=replicas
+fi
 export DEV_S3_PORT=$((9000 + DEV_OFFSET))
 # MinIO's TLS port moves with the S3 window rather than being relocated on its
 # own, so the two object stores stay in one addressable block.
@@ -206,6 +236,9 @@ DEV_S3_PORT=$DEV_S3_PORT
 DEV_S3_TLS_PORT=$DEV_S3_TLS_PORT
 DEV_OLLAMA_PORT=$DEV_OLLAMA_PORT
 DEV_PLATFORM_TMPDIR=$DEV_PLATFORM_TMPDIR
+DEV_REPLICAS=$DEV_REPLICAS
+DEV_API_PORT_B=$DEV_API_PORT_B
+DEV_PROXY_PORT=$DEV_PROXY_PORT
 EOF
 if [ "$DEV_OFFSET" != 0 ]; then
   info "Default ports busy — relocated the dev stack by +$DEV_OFFSET (pg:$DEV_PG_PORT api:$DEV_API_PORT s3:$DEV_S3_PORT ollama:$DEV_OLLAMA_PORT)"
@@ -213,9 +246,15 @@ fi
 
 # Port checks. The four relocatable ports use their resolved values; the
 # fixed ports (5173 vite, 9090 keycloak, 9091 prometheus, 9180/9181 mock,
-# 9281/9282 fixtures, 9464 metrics) still fail loudly if contended.
-for port in "$DEV_PG_PORT" "$DEV_API_PORT" 5173 "$DEV_S3_PORT" "$DEV_S3_TLS_PORT" 9090 9091 9180 9181 9281 9282 9283 9284 9464 "$DEV_OLLAMA_PORT"; do
-  if [ "$port" = "$DEV_API_PORT" ]; then
+# 9281/9282 fixtures, 9464 metrics) still fail loudly if contended. Two
+# replicas add the second API port, the proxy port and the second replica's
+# metrics port, 9465.
+REPLICA_PORTS=()
+if [ "$DEV_REPLICAS" = 2 ]; then
+  REPLICA_PORTS=("$DEV_API_PORT_B" "$DEV_PROXY_PORT" 9465)
+fi
+for port in "$DEV_PG_PORT" "$DEV_API_PORT" 5173 "$DEV_S3_PORT" "$DEV_S3_TLS_PORT" 9090 9091 9180 9181 9281 9282 9283 9284 9464 "$DEV_OLLAMA_PORT" "${REPLICA_PORTS[@]+"${REPLICA_PORTS[@]}"}"; do
+  if [ "$port" = "$DEV_API_PORT" ] || [ "$port" = "$DEV_API_PORT_B" ]; then
     api_port_free "$port" && continue
   else
     port_free "$port" && continue
@@ -576,6 +615,54 @@ for i in $(seq 1 60); do
   sleep 1
 done
 ok "Go server ready on :$DEV_API_PORT"
+
+if [ "$DEV_REPLICAS" = 2 ]; then
+  # The second replica: the same configuration and database, its own listen
+  # port and metrics port, and its own build output so the two air processes
+  # never replace each other's binary. It starts after the first is healthy,
+  # so the migrations the first ran are in place.
+  AIR_B_LOG="/tmp/mcp-dev-air-b.log"
+  DEV_API_PORT="$DEV_API_PORT_B" OTEL_METRICS_ADDR=":9465" air -c dev/.air.toml \
+    -tmp_dir build/air-b \
+    -build.cmd "go build -o ./build/air-b/mcp-data-platform ./cmd/mcp-data-platform" \
+    -build.bin ./build/air-b/mcp-data-platform \
+    -build.full_bin "TMPDIR=$DEV_PLATFORM_TMPDIR ./build/air-b/mcp-data-platform" \
+    > "$AIR_B_LOG" 2>&1 &
+  PIDS+=($!)
+  info "Starting the second replica..."
+  for i in $(seq 1 60); do
+    if curl -sf "http://localhost:$DEV_API_PORT_B/healthz" > /dev/null 2>&1; then
+      break
+    fi
+    if [ "$i" -eq 60 ]; then
+      echo -e "  ${RED}Air log, second replica (last 20 lines):${NC}"
+      tail -20 "$AIR_B_LOG" 2>/dev/null | sed 's/^/    /'
+      fail "The second replica did not become healthy within 60s"
+    fi
+    sleep 1
+  done
+  ok "Second replica ready on :$DEV_API_PORT_B"
+
+  # The proxy is ready when it has answered from both replicas. A replica it
+  # reached before that replica listened is set aside for a few seconds, so
+  # this waits that out rather than reporting a one-replica lane.
+  info "Waiting for the proxy to reach both replicas..."
+  for i in $(seq 1 30); do
+    SEEN=$(for _ in 1 2 3 4; do
+      { curl -s -o /dev/null -D - "http://localhost:$DEV_PROXY_PORT/healthz" 2>/dev/null || true; } \
+        | tr -d '\r' | awk -F': ' 'tolower($1)=="x-platform-instance"{print $2}'
+    done | sort -u | wc -l | tr -d ' ')
+    if [ "$SEEN" = 2 ]; then
+      break
+    fi
+    if [ "$i" -eq 30 ]; then
+      docker logs --tail 20 acme-dev-platform-lb 2>&1 | sed 's/^/    /'
+      fail "The proxy on :$DEV_PROXY_PORT answered from $SEEN of 2 replicas within 30s"
+    fi
+    sleep 1
+  done
+  ok "Proxy round-robins both replicas on :$DEV_PROXY_PORT"
+fi
 
 echo ""
 
@@ -1037,6 +1124,10 @@ echo -e "${BOLD}${GREEN}══════════════════�
 echo ""
 echo -e "  Portal UI:        ${CYAN}http://localhost:5173/portal/${NC}"
 echo -e "  Go API:           ${CYAN}http://localhost:$DEV_API_PORT${NC}"
+if [ "$DEV_REPLICAS" = 2 ]; then
+  echo -e "  Second replica:   ${CYAN}http://localhost:$DEV_API_PORT_B${NC}"
+  echo -e "  Replica proxy:    ${CYAN}http://localhost:$DEV_PROXY_PORT${NC}  (round robin, no affinity; make acceptance connects here)"
+fi
 echo -e "  Postgres:         ${CYAN}localhost:$DEV_PG_PORT${NC} (platform / platform_secret, db mcp_platform)"
 echo -e "  S3 (SeaweedFS):   ${CYAN}http://localhost:$DEV_S3_PORT${NC}"
 echo -e "  S3 (MinIO, TLS):  ${CYAN}https://localhost:$DEV_S3_TLS_PORT${NC}  (managed resources)"

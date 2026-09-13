@@ -29,18 +29,26 @@ const (
 	outboundMetric    = "apigateway_outbound_total"
 )
 
-// metricsURL is the platform's own Prometheus endpoint. dev/start.sh pins
-// OTEL_METRICS_ADDR to :9464; a deployment the suite is pointed at elsewhere
-// supplies its own.
-func metricsURL() string {
+// metricsURLs are the platform's own Prometheus endpoints, one per replica: a
+// counter is kept by the process that served the call, so a deployment's
+// total is the sum over its replicas, which is what Prometheus charts.
+// dev/start.sh pins OTEL_METRICS_ADDR to :9464, and to :9465 for the second
+// replica (#1708); a deployment the suite is pointed at elsewhere supplies its
+// own, comma-separated.
+func metricsURLs() []string {
 	if v := os.Getenv("ACCEPTANCE_METRICS_URL"); v != "" {
-		return v
+		return strings.Split(v, ",")
 	}
-	return "http://127.0.0.1:9464/metrics"
+	urls := []string{"http://127.0.0.1:9464/metrics"}
+	if os.Getenv("DEV_REPLICAS") == "2" {
+		urls = append(urls, "http://127.0.0.1:9465/metrics")
+	}
+	return urls
 }
 
-// scrapeOutbound reads /metrics and returns the value of every
-// apigateway_outbound_total series, keyed by its full label set.
+// scrapeOutbound reads every replica's /metrics and returns the value of every
+// apigateway_outbound_total series, keyed by its full label set and summed
+// over the replicas.
 func scrapeOutbound(t *testing.T) map[string]float64 {
 	t.Helper()
 	out := map[string]float64{}
@@ -56,7 +64,7 @@ func scrapeOutbound(t *testing.T) map[string]float64 {
 		if convErr != nil {
 			continue
 		}
-		out[line[lb+1:rb]] = value
+		out[line[lb+1:rb]] += value
 	}
 	return out
 }
@@ -101,16 +109,28 @@ func TestIssue1615_AnOutboundCallRecordsTheCallingPersona(t *testing.T) {
 	}
 }
 
-// scrapeRaw returns the whole scrape body, for assertions that span metrics.
+// scrapeRaw returns every replica's scrape body, one after another, for
+// assertions that span metrics.
 func scrapeRaw(t *testing.T) string {
 	t.Helper()
-	req, err := http.NewRequest(http.MethodGet, metricsURL(), http.NoBody)
+	targets := metricsURLs()
+	bodies := make([]string, 0, len(targets))
+	for _, target := range targets {
+		bodies = append(bodies, scrapeOne(t, target))
+	}
+	return strings.Join(bodies, "\n")
+}
+
+// scrapeOne returns one metrics endpoint's scrape body.
+func scrapeOne(t *testing.T, target string) string {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, target, http.NoBody)
 	if err != nil {
 		t.Fatalf("building the scrape request: %v", err)
 	}
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatalf("no metrics endpoint answers at %s (%v). `make dev` starts one; otherwise set ACCEPTANCE_METRICS_URL", metricsURL(), err)
+		t.Fatalf("no metrics endpoint answers at %s (%v). `make dev` starts one per replica; otherwise set ACCEPTANCE_METRICS_URL", target, err)
 	}
 	defer res.Body.Close() //nolint:errcheck // best-effort close after read
 	body, err := io.ReadAll(res.Body)

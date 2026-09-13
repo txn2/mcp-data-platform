@@ -21,6 +21,7 @@ import (
 	_ "github.com/txn2/mcp-data-platform/internal/apidocs" // Swagger API docs
 	"github.com/txn2/mcp-data-platform/internal/httpserver/health"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/httpauth"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/instanceheader"
 	"github.com/txn2/mcp-data-platform/internal/ui"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
@@ -254,7 +255,7 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	mountRootHandler(mux, rootHandler, hcfg, rmURL)
 
 	hcfg.mcpServer = mcpServer
-	return listenAndServe(ctx, address, corsMiddleware(mux), hcfg, hc)
+	return listenAndServe(ctx, address, instanceheader.Middleware(instanceheader.HostName(address), corsMiddleware(mux)), hcfg, hc)
 }
 
 // buildRootHandler constructs the MCP streamable HTTP handler with optional

@@ -54,6 +54,7 @@ internal/httpserver -> internal/httpserver/datahubapi
 internal/httpserver -> internal/httpserver/gatewayhttp
 internal/httpserver -> internal/httpserver/health
 internal/httpserver -> internal/httpserver/httpauth
+internal/httpserver -> internal/httpserver/instanceheader
 internal/httpserver -> internal/httpserver/mentionhttp
 internal/httpserver -> internal/httpserver/notifyhttp
 internal/httpserver -> internal/httpserver/scripthttp

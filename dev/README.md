@@ -25,7 +25,9 @@ This starts:
 |---------|-----------|-------|
 | PostgreSQL | `:5432` | Auto-migrated on startup |
 | SeaweedFS (S3) | `:9000` | Portal asset storage |
-| Go API server | `http://localhost:8080` | Hot-reloads on `.go` file changes via air |
+| Go API server (replica A) | `http://localhost:8080` | Hot-reloads on `.go` file changes via air; the portal's Vite proxy targets it |
+| Go API server (replica B) | `http://localhost:8081` | The same configuration and database, its own air process and build output (`build/air-b`), metrics on `:9465` |
+| Replica proxy | `http://localhost:8082` | nginx round-robins A and B with no affinity; `make acceptance` connects here |
 | Vite UI | `http://localhost:5173/portal/` | Hot module replacement |
 | dev-mcp-mock | `:9180` (OAuth) / `:9181` (MCP) | In-process mock — exercises the MCP gateway + OAuth grants |
 | mcp-test fixture | `http://localhost:9281/` | `ghcr.io/plexara/mcp-test` — 12-tool deterministic MCP upstream + portal at `/portal/` |
@@ -132,6 +134,34 @@ fixture at `https://localhost:9284` and trusts that certificate through
 `http://` into its `Link` and `@odata.nextLink` values. That is the shape a
 deployment behind a TLS-terminating proxy has, and the acceptance suite walks
 it (#1543); nothing else in the stack uses this connection.
+
+### Two replicas behind a proxy
+
+`make dev` runs two platform processes over one database, and
+`acme-dev-platform-lb` (nginx, `dev/lb/platform-lb.conf.template`)
+round-robins them with no session affinity, so a request and the next one are
+served by different processes. A defect that exists only between replicas,
+such as state one process keeps in memory and the other never sees, shows up
+here before a deployment running two pods finds it (#1708). Sessions are kept
+in the database (`sessions.store: database` in `dev/platform.yaml`) so an MCP
+session continues across the alternation.
+
+Every response names the process that served it in `X-Platform-Instance`
+(hostname and listen port):
+
+```bash
+for i in 1 2 3 4; do curl -s -o /dev/null -D - http://localhost:8082/healthz | grep -i x-platform-instance; done
+```
+
+The proxy also replaces the body of an origin 502 or 504 with
+`error code: <status>`, as the CDN in front of a deployment does. `make
+acceptance` connects to the proxy; set `MCP_BASE_URL` to target one process.
+
+The second replica's ports move with the API port when `dev/start.sh`
+relocates the stack, and the resolved values are written to
+`dev/.dev-ports.env` (`DEV_API_PORT_B`, `DEV_PROXY_PORT`). `DEV_REPLICAS=1 make
+dev` runs one process and no proxy, for a machine that cannot afford two;
+criteria about two replicas then fail rather than pass against one.
 
 ### Trino and registered tables
 

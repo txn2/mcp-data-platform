@@ -25,6 +25,20 @@ import (
 // strings. The one form of each is what every check below sends as literal
 // tools/call params.
 
+// issue1696PortalBase is the address the deployment says its portal is at,
+// portal.public_base_url, as platform_info reports it. It is the address the
+// suite connects to only when nothing stands between them: the dev stack's
+// replicas sit behind a proxy while the portal is served from the first one
+// (#1708).
+func issue1696PortalBase(t *testing.T, c *client) string {
+	t.Helper()
+	base, _ := c.call("platform_info", nil)["portal_url"].(string)
+	if base == "" {
+		t.Fatal("platform_info reports no portal_url, so there is no address a page link could be built on")
+	}
+	return base
+}
+
 // issue1696PagePath is the portal route a knowledge page is opened at. The
 // address the tool reports must end in it, because that is what a browser
 // resolves.
@@ -80,7 +94,7 @@ func TestIssue1696_APromotedPageReportsTheAddressItOpensAt(t *testing.T) {
 	if portalURL == "" {
 		t.Fatalf("the promotion hands back no address for the page it wrote: %v", out)
 	}
-	if want := c.base + issue1696PagePath + pageID; portalURL != want {
+	if want := issue1696PortalBase(t, c) + issue1696PagePath + pageID; portalURL != want {
 		t.Errorf("portal_url = %q; want the address the portal opens the page at, %q", portalURL, want)
 	}
 	if msg, _ := out["message"].(string); !strings.Contains(msg, portalURL) {
@@ -168,7 +182,7 @@ func TestIssue1696_ADivertedRuleReportsItsPageAddress(t *testing.T) {
 		t.Fatalf("the rule was not diverted onto a page: %v", out)
 	}
 	portalURL, _ := out["portal_url"].(string)
-	if want := c.base + issue1696PagePath + pageID; portalURL != want {
+	if want := issue1696PortalBase(t, c) + issue1696PagePath + pageID; portalURL != want {
 		t.Errorf("portal_url = %q; want %q", portalURL, want)
 	}
 

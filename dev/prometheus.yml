@@ -15,4 +15,6 @@ global:
 scrape_configs:
   - job_name: mcp-data-platform
     static_configs:
-      - targets: ["host.docker.internal:9464"]
+      # 9465 is the second replica dev/start.sh runs (#1708); a scrape of it
+      # fails, harmlessly, under DEV_REPLICAS=1.
+      - targets: ["host.docker.internal:9464", "host.docker.internal:9465"]
