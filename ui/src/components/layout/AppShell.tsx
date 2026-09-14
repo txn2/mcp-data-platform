@@ -111,6 +111,7 @@ const pageTitles: Record<string, string> = {
   "/admin/description": "Description",
   "/admin/agent-instructions": "Agent Instructions",
   "/admin/api-catalogs": "API Catalogs",
+  "/admin/api-reference": "API Reference",
   "/admin/apis": "APIs",
   "/admin/connections": "Connections",
   "/admin/personas": "Personas",

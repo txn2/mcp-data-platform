@@ -608,7 +608,7 @@ POST /api/v1/gateway/{connection}/invoke
 
 Auth is the same as every other REST surface on the platform: `Authorization: Bearer <token>` or `X-API-Key: <key>`. The credential resolves to a user identity, persona, and audit subject through the same MCP middleware chain the MCP transport uses, so persona allowlists for `api_invoke_endpoint` and route-policy rules apply identically.
 
-A client composing one of these calls learns which connections exist and what each exposes from the [operation browser](../portal/apis.md), which reads with the same credential and hands back the `curl` for any operation.
+A client composing one of these calls learns which connections exist and what each exposes from the [operation browser](../portal/apis.md), which reads with the same credential and hands back the `curl` for any operation. Both routes below are in the platform's own served API reference under the `Gateway` tag, alongside every other REST surface and the two auth schemes; see [Admin API](admin-api.md#interactive-api-documentation-swagger-ui) for where a deployment serves it.
 
 The REST surface is exempt from the agent-oriented **session-handle requirement**. When the explicit session gate is enabled (`session.require`), MCP agents must call `platform_info` to mint a `session_id` and thread it on every subsequent tool call, or the call is refused with `SESSION_REQUIRED`. REST callers are stateless automation (NiFi, cronjobs, `curl`): each request is an independent HTTP call with no way to mint or carry a session handle, so the gate does not apply to them. Authentication, persona authorization, route policy, and audit still apply in full. The exemption is scoped narrowly to the session-handle handshake, not to access control.
 
@@ -621,9 +621,21 @@ Request body (the `connection` is taken from the URL and overrides any value in 
   "query_params":    { "limit": 50 },
   "headers":         { "X-Trace": "abc" },
   "body":            null,
-  "timeout_seconds": 30
+  "timeout_seconds": 30,
+  "paginate":        { "items": "data", "cursor_param": "cursor", "max_pages": 10 }
 }
 ```
+
+`paginate` is the same block `api_invoke_endpoint` takes, and it does the same
+thing here: the gateway follows the response's pagination signal itself and
+returns the merged array, so a REST caller reaching a paginated upstream does
+not have to reimplement the follow loop the gateway already owns. It is refused
+on `/invoke-raw`, where there is nothing to merge in a byte stream.
+
+The remaining `api_invoke_endpoint` parameters are MCP-tool-only and are not
+bound on this route: `operation_id`, `path_params`, `spec` and `decode`. A REST
+caller addresses an operation by `method` and `path`, which the operation
+browser hands it ready-made.
 
 Response: HTTP 200 with the toolkit's [`InvokeOutput`](https://github.com/txn2/mcp-data-platform/blob/main/pkg/toolkits/apigateway/invoke.go) shape. The upstream HTTP status is returned in `status`, not in the platform's response code:
 

@@ -1,0 +1,19 @@
+/*
+ * One correction to ReDoc's own styling, for the dark theme.
+ *
+ * ReDoc paints the selected sample tab in the right-hand panel with
+ * `rightPanel.textColor` (white) behind `colors.text.primary` as the label.
+ * Those two are the same end of the ramp on the dark theme, so the selected
+ * tab reads as an empty white pill: white ink on white. Neither can be moved
+ * in the theme without breaking what else reads them -- the label color is
+ * every heading and paragraph in the document, and the panel's text color is
+ * the copy on its own dark ground.
+ *
+ * The response tabs are left alone: they carry their own status colors
+ * (green, amber, red), which are legible on the white pill in both themes.
+ */
+.dark .redoc-host .react-tabs__tab--selected:not(.tab-success):not(.tab-redirect):not(.tab-info):not(.tab-error) {
+  /* --foreground of the light palette: dark ink, for the one element that
+     keeps a light ground on the dark theme. */
+  color: #020817;
+}

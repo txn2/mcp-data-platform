@@ -18,38 +18,22 @@ func (h *handler) knowledgeRoute() reviewAlertRoute {
 	return reviewAlertRoute{store: h.cfg.ReviewAlert, target: reviewalert.KnowledgeTarget()}
 }
 
-// alertRoutes is one queue's pair of settings routes: where they live, the
-// store that decides whether they exist at all, and the handlers behind them.
-type alertRoutes struct {
-	path  string
-	store reviewalert.SettingsStore
-	get   http.HandlerFunc
-	set   http.HandlerFunc
-}
+// reviewAlertPath is where the review-queue alert settings routes live.
+const reviewAlertPath = "/api/v1/admin/settings/review-queue-alert"
 
 // registerReviewAlert mounts the knowledge review-queue alert settings
 // routes. Like the SMTP routes, reads need only the store and writes need
 // database config mode.
 func registerReviewAlert(mux *http.ServeMux, h *handler) {
-	registerAlertRoutes(mux, h, alertRoutes{
-		path:  "/api/v1/admin/settings/review-queue-alert",
-		store: h.cfg.ReviewAlert, get: h.getReviewAlert, set: h.setReviewAlert,
-	})
-}
-
-// registerAlertRoutes mounts one queue's pair of routes, leaving both unmounted
-// when the queue has no store: an operator must not be able to configure an
-// alert nothing will ever send.
-func registerAlertRoutes(mux *http.ServeMux, h *handler, route alertRoutes) {
-	if route.store == nil {
+	if h.cfg.ReviewAlert == nil {
 		return
 	}
-	mux.HandleFunc("GET "+route.path, route.get)
+	mux.HandleFunc("GET "+reviewAlertPath, h.getReviewAlert)
 	if h.cfg.Mutable {
-		mux.HandleFunc("PUT "+route.path, route.set)
+		mux.HandleFunc("PUT "+reviewAlertPath, h.setReviewAlert)
 		return
 	}
-	mux.Handle("PUT "+route.path, h.cfg.ReadOnly)
+	mux.Handle("PUT "+reviewAlertPath, h.cfg.ReadOnly)
 }
 
 // getReviewAlert handles GET /api/v1/admin/settings/review-queue-alert.

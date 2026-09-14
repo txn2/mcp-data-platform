@@ -1064,3 +1064,70 @@ func TestCatalogEntity_NotHeldIsNotFound(t *testing.T) {
 		})
 	}
 }
+
+// TestEntityDocuments_NotHeldIsNotFound extends #1610 to the documents read
+// beside the entity read. Both are scoped to one URN, and both are reached from
+// the same portal view, so the same unknown URN answering 404 on one and 503 on
+// the other told the reader the catalog was down when it was merely empty.
+func TestEntityDocuments_NotHeldIsNotFound(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"a URN the catalog does not hold", fmt.Errorf("datahub holds no entity: %w", semantic.ErrNotFound), http.StatusNotFound},
+		{"a catalog that could not be reached", errors.New("dial tcp: connection refused"), http.StatusServiceUnavailable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := newFakeDataHub()
+			backend.readErr = tc.err
+			h := newTestHandler(backend, true, writerResolver(), &fakeAuditLogger{})
+
+			rec := serve(h, viewer, "GET", "/api/v1/portal/datahub/primary/catalog/entity/documents?urn="+dhTestURN, "")
+			if rec.Code != tc.want {
+				t.Fatalf("status = %d, want %d (%s)", rec.Code, tc.want, rec.Body.String())
+			}
+		})
+	}
+}
+
+// TestOwnersRouteRefusesAddField asserts that owner URNs sent in the shared
+// `add` field are refused rather than silently dropped.
+//
+// catalogChangeRequest is shared by every catalog edit, so `add` decodes and
+// normalizes on an owners call as readily as on a tags one. The owners writer
+// only ever reads add_owners, which carries each owner's ownership type. Before
+// this refusal the mismatch produced the worst available outcome: HTTP 200, an
+// audit record, and not one owner applied, which a client cannot tell apart
+// from success.
+func TestOwnersRouteRefusesAddField(t *testing.T) {
+	const endpoint = "/api/v1/portal/datahub/primary/catalog/entity/owners"
+	backend := newFakeDataHub()
+	h := newTestHandler(backend, true, writerResolver(), &fakeAuditLogger{})
+
+	body := fmt.Sprintf(`{"urn":%q,"add":["urn:li:corpuser:alice"]}`, dhTestURN)
+	rec := serve(h, viewer, "PUT", endpoint, body)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 (%s)", rec.Code, rec.Body.String())
+	}
+	var pd problemDetail
+	_ = json.Unmarshal(rec.Body.Bytes(), &pd)
+	if !strings.Contains(pd.Detail, "add_owners") {
+		t.Errorf("detail = %q, want it to name add_owners as the field to use", pd.Detail)
+	}
+	if len(backend.calls) != 0 {
+		t.Errorf("writer must not be called when owners are sent in add, got %v", backend.calls)
+	}
+
+	// The supported spelling still works, so the refusal is scoped to the
+	// unread field and has not broken the route.
+	backend2 := newFakeDataHub()
+	h2 := newTestHandler(backend2, true, writerResolver(), &fakeAuditLogger{})
+	ok := fmt.Sprintf(`{"urn":%q,"add_owners":[{"owner_urn":"urn:li:corpuser:alice"}]}`, dhTestURN)
+	if rec := serve(h2, viewer, "PUT", endpoint, ok); rec.Code != http.StatusOK {
+		t.Errorf("add_owners status = %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+	if len(backend2.calls) == 0 {
+		t.Error("add_owners must reach the writer")
+	}
+}

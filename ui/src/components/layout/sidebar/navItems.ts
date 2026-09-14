@@ -20,6 +20,7 @@ import {
   History,
   Table2,
   Network,
+  BookMarked,
   type LucideIcon,
 } from "lucide-react";
 
@@ -61,6 +62,9 @@ export const adminNavItems: NavItem[] = [
   { path: "/admin", label: "Dashboard", icon: Home },
   { path: "/admin/agent-instructions", label: "Agent Instructions", icon: Bot },
   { path: "/admin/api-catalogs", label: "API Catalogs", icon: BookOpen },
+  // The platform's own REST surface (#1742), rendered from the document the
+  // server serves at /api/v1/admin/docs/doc.json.
+  { path: "/admin/api-reference", label: "API Reference", icon: BookMarked },
   { path: "/admin/apis", label: "APIs", icon: Network },
   { path: "/admin/assets", label: "Assets", icon: LayoutGrid },
   { path: "/admin/calls", label: "Calls", icon: PhoneCall },

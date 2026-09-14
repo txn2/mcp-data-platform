@@ -403,6 +403,26 @@ describe("the call snippet", () => {
 
     expect(screen.getByText("POST https://api.stripe.com/v1/customers")).toBeInTheDocument();
   });
+
+  it("points at the platform's own reference, opened on the gateway routes", () => {
+    render(
+      <CallSnippet
+        connection="acme-billing"
+        detail={detail()}
+        origin="https://platform.example.com"
+      />,
+    );
+
+    // The snippet says what to send; the reference says what the route
+    // authenticates with and what it answers (#1742). The fragment is the one
+    // the served Swagger UI mints for a tag, so it opens on the gateway routes
+    // rather than at the top of a document that describes a few hundred paths.
+    const link = screen.getByRole("link", {
+      name: "Platform REST reference (auth, gateway routes, status codes)",
+    });
+    expect(link).toHaveAttribute("href", "/api/v1/admin/docs/index.html#/Gateway");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  });
 });
 
 describe("the browser page", () => {

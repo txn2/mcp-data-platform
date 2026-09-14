@@ -105,22 +105,26 @@ func (h *Handler) Routes(mux *http.ServeMux, wrap func(http.Handler) http.Handle
 	register("GET /api/v1/tables", h.listAll)
 	register("GET /api/v1/tables/{regID}", h.getOne)
 
+	// Each kind's three routes are registered with literal patterns rather
+	// than assembled from the kind's prefix: the route-parity gate reads
+	// registration patterns statically, and a pattern built from a
+	// parameter is a route it cannot see (see TestAdminCatalogRouteParity).
+	//
+	// They are also registered through a named method per route rather than
+	// through the shared implementation directly: swaggo documents one
+	// operation per annotated function, and the two kinds differ in what
+	// {id} names and in who may act on it, which is a sentence each rather
+	// than one generic sentence twice.
 	if h.deps.Resources != nil {
-		h.kindRoutes(register, "resources", tableregister.KindResource, h.deps.Resources)
+		register("GET /api/v1/resources/{id}/tables", h.listResourceTables)
+		register("POST /api/v1/resources/{id}/tables", h.registerResourceTable)
+		register("DELETE /api/v1/resources/{id}/tables/{regID}", h.unregisterResourceTable)
 	}
 	if h.deps.Assets != nil {
-		h.kindRoutes(register, "portal/assets", tableregister.KindAsset, h.deps.Assets)
+		register("GET /api/v1/portal/assets/{id}/tables", h.listAssetTables)
+		register("POST /api/v1/portal/assets/{id}/tables", h.registerAssetTable)
+		register("DELETE /api/v1/portal/assets/{id}/tables/{regID}", h.unregisterAssetTable)
 	}
-}
-
-// kindRoutes registers one kind's three routes.
-func (h *Handler) kindRoutes(
-	register func(string, http.HandlerFunc), prefix, kind string, subject Subject,
-) {
-	base := "/api/v1/" + prefix + "/{id}/tables"
-	register("GET "+base, h.list(kind, subject))
-	register("POST "+base, h.register(subject))
-	register("DELETE "+base+"/{regID}", h.unregister(subject))
 }
 
 // registerRequest is the body of a register call.
@@ -169,77 +173,212 @@ func viewOf(reg tableregister.Registration, src tableregister.Source) registrati
 	}
 }
 
-func (h *Handler) list(kind string, subject Subject) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		_, src, ok := h.resolve(w, r, subject)
-		if !ok {
-			return
-		}
-		regs, err := h.deps.Registrar.BySource(r.Context(), kind, src.ID)
-		if err != nil {
-			problem(w, http.StatusInternalServerError, "could not read the registrations of this file")
-			slog.Warn("table registrations: list failed", "error", logsan.SanitizeForLog(err.Error()))
-			return
-		}
-		views := make([]registrationView, 0, len(regs))
-		for _, reg := range regs {
-			views = append(views, viewOf(reg, src))
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"table_registrations": views})
+// listTables answers the registrations over one source, for either kind.
+func (h *Handler) listTables(w http.ResponseWriter, r *http.Request, kind string, subject Subject) {
+	_, src, ok := h.resolve(w, r, subject)
+	if !ok {
+		return
 	}
+	regs, err := h.deps.Registrar.BySource(r.Context(), kind, src.ID)
+	if err != nil {
+		problem(w, http.StatusInternalServerError, "could not read the registrations of this file")
+		slog.Warn("table registrations: list failed", "error", logsan.SanitizeForLog(err.Error()))
+		return
+	}
+	views := make([]registrationView, 0, len(regs))
+	for _, reg := range regs {
+		views = append(views, viewOf(reg, src))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"table_registrations": views})
 }
 
-func (h *Handler) register(subject Subject) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		caller, src, ok := h.resolve(w, r, subject)
-		if !ok {
-			return
-		}
-		var req registerRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			problem(w, http.StatusBadRequest, "the request body is not valid JSON")
-			return
-		}
-		if strings.TrimSpace(req.Connection) == "" {
-			problem(w, http.StatusBadRequest, "name the connection to register the table on")
-			return
-		}
-
-		res, err := h.deps.Registrar.Register(r.Context(), caller, src, tableregister.Request{
-			Connection: req.Connection,
-			TableName:  req.TableName,
-			Source:     "portal",
-			Repair:     req.Repair,
-			Follow:     followRequested(req.Follow),
-		})
-		if err != nil {
-			refuse(w, "registering a table", err)
-			return
-		}
-		// The source the registration was built over, not the one that was
-		// resolved: a file corrected on the way in is registered over the
-		// version the correction wrote, and staleness measured against the
-		// version it replaced would mark a fresh registration stale.
-		view := viewOf(res.Registration, res.Source)
-		view.Repaired = res.Correction.Summary()
-		writeJSON(w, http.StatusCreated, view)
+// registerTable makes one source readable as a table, for either kind.
+func (h *Handler) registerTable(w http.ResponseWriter, r *http.Request, subject Subject) {
+	caller, src, ok := h.resolve(w, r, subject)
+	if !ok {
+		return
 	}
+	var req registerRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		problem(w, http.StatusBadRequest, "the request body is not valid JSON")
+		return
+	}
+	if strings.TrimSpace(req.Connection) == "" {
+		problem(w, http.StatusBadRequest, "name the connection to register the table on")
+		return
+	}
+
+	res, err := h.deps.Registrar.Register(r.Context(), caller, src, tableregister.Request{
+		Connection: req.Connection,
+		TableName:  req.TableName,
+		Source:     "portal",
+		Repair:     req.Repair,
+		Follow:     followRequested(req.Follow),
+	})
+	if err != nil {
+		refuse(w, "registering a table", err)
+		return
+	}
+	// The source the registration was built over, not the one that was
+	// resolved: a file corrected on the way in is registered over the
+	// version the correction wrote, and staleness measured against the
+	// version it replaced would mark a fresh registration stale.
+	view := viewOf(res.Registration, res.Source)
+	view.Repaired = res.Correction.Summary()
+	writeJSON(w, http.StatusCreated, view)
 }
 
-func (h *Handler) unregister(subject Subject) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		caller, _, ok := h.resolve(w, r, subject)
-		if !ok {
-			return
-		}
-		if err := h.deps.Registrar.Unregister(r.Context(), caller, r.PathValue("regID"), "portal"); err != nil {
-			refuse(w, "dropping a registered table", err)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
+// unregisterTable drops one registration, for either kind.
+func (h *Handler) unregisterTable(w http.ResponseWriter, r *http.Request, subject Subject) {
+	caller, _, ok := h.resolve(w, r, subject)
+	if !ok {
+		return
 	}
+	if err := h.deps.Registrar.Unregister(r.Context(), caller, r.PathValue("regID"), "portal"); err != nil {
+		refuse(w, "dropping a registered table", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
+// listResourceTables handles GET /api/v1/resources/{id}/tables.
+//
+// @Summary      List the tables registered over a managed resource
+// @Description  Returns the registrations built over one managed resource under a `table_registrations` key, each with its fully qualified query name, a sample SELECT, and whether the table has fallen behind the file. Requires authority to change the resource -- the uploader, a platform administrator, or an administrator of the scope the resource lives in; a resource outside that authority is answered as not found.
+// @Tags         Tables
+// @Produce      json
+// @Param        id  path  string  true  "Managed resource ID"
+// @Success      200  {object}  map[string][]registrationView
+// @Failure      401  {object}  httpjson.ProblemDetail
+// @Failure      404  {object}  httpjson.ProblemDetail
+// @Failure      500  {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /resources/{id}/tables [get]
+func (h *Handler) listResourceTables(w http.ResponseWriter, r *http.Request) {
+	h.listTables(w, r, tableregister.KindResource, h.deps.Resources)
+}
+
+// registerResourceTable handles POST /api/v1/resources/{id}/tables.
+//
+// @Summary      Register a managed resource as a query-engine table
+// @Description  Creates an external table over the resource's directory on the named connection, so the CSV stored there can be queried. Requires authority to change the resource -- the uploader, a platform administrator, or an administrator of the scope the resource lives in -- because registering publishes the file's contents into a schema everyone granted the connection can read.
+// @Description  A file that cannot be read as a table the way it is stored is refused with the problem type `urn:mcp-data-platform:problem:csv-needs-repair`; resubmitting with `repair: true` saves a corrected version of the file first and registers over that.
+// @Tags         Tables
+// @Accept       json
+// @Produce      json
+// @Param        id    path  string           true  "Managed resource ID"
+// @Param        body  body  registerRequest  true  "Connection to register on, and the optional table name, repair and follow choices"
+// @Success      201  {object}  registrationView
+// @Failure      400  {object}  httpjson.ProblemDetail
+// @Failure      401  {object}  httpjson.ProblemDetail
+// @Failure      403  {object}  httpjson.ProblemDetail
+// @Failure      404  {object}  httpjson.ProblemDetail
+// @Failure      409  {object}  httpjson.ProblemDetail
+// @Failure      500  {object}  httpjson.ProblemDetail
+// @Failure      503  {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /resources/{id}/tables [post]
+func (h *Handler) registerResourceTable(w http.ResponseWriter, r *http.Request) {
+	h.registerTable(w, r, h.deps.Resources)
+}
+
+// unregisterResourceTable handles DELETE /api/v1/resources/{id}/tables/{regID}.
+//
+// @Summary      Drop a table registered over a managed resource
+// @Description  Drops the external table and forgets the registration. The resource itself is untouched: dropping a Hive external table removes the metastore entry and leaves the stored objects. Only the person who registered the table or an administrator may remove it, and the record goes even when the DROP fails, so a table nobody can remove through the platform is never left behind.
+// @Tags         Tables
+// @Param        id     path  string  true  "Managed resource ID"
+// @Param        regID  path  string  true  "Table registration ID"
+// @Success      204
+// @Failure      401  {object}  httpjson.ProblemDetail
+// @Failure      403  {object}  httpjson.ProblemDetail
+// @Failure      404  {object}  httpjson.ProblemDetail
+// @Failure      409  {object}  httpjson.ProblemDetail
+// @Failure      500  {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /resources/{id}/tables/{regID} [delete]
+func (h *Handler) unregisterResourceTable(w http.ResponseWriter, r *http.Request) {
+	h.unregisterTable(w, r, h.deps.Resources)
+}
+
+// listAssetTables handles GET /api/v1/portal/assets/{id}/tables.
+//
+// @Summary      List the tables registered over a portal asset
+// @Description  Returns the registrations built over one portal asset under a `table_registrations` key, each with its fully qualified query name, a sample SELECT, and whether the table has fallen behind the file. Restricted to the asset's owner and to administrators -- an editor share does not carry it -- and a soft-deleted asset is answered as not found.
+// @Tags         Tables
+// @Produce      json
+// @Param        id  path  string  true  "Portal asset ID"
+// @Success      200  {object}  map[string][]registrationView
+// @Failure      401  {object}  httpjson.ProblemDetail
+// @Failure      404  {object}  httpjson.ProblemDetail
+// @Failure      500  {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/assets/{id}/tables [get]
+func (h *Handler) listAssetTables(w http.ResponseWriter, r *http.Request) {
+	h.listTables(w, r, tableregister.KindAsset, h.deps.Assets)
+}
+
+// registerAssetTable handles POST /api/v1/portal/assets/{id}/tables.
+//
+// @Summary      Register a portal asset as a query-engine table
+// @Description  Creates an external table over the asset's directory on the named connection, so the CSV stored there can be queried. Restricted to the asset's owner and to administrators -- an editor share does not carry it -- because registering publishes the file's contents into a schema everyone granted the connection can read.
+// @Description  A file that cannot be read as a table the way it is stored is refused with the problem type `urn:mcp-data-platform:problem:csv-needs-repair`; resubmitting with `repair: true` saves a corrected version of the file first and registers over that.
+// @Tags         Tables
+// @Accept       json
+// @Produce      json
+// @Param        id    path  string           true  "Portal asset ID"
+// @Param        body  body  registerRequest  true  "Connection to register on, and the optional table name, repair and follow choices"
+// @Success      201  {object}  registrationView
+// @Failure      400  {object}  httpjson.ProblemDetail
+// @Failure      401  {object}  httpjson.ProblemDetail
+// @Failure      403  {object}  httpjson.ProblemDetail
+// @Failure      404  {object}  httpjson.ProblemDetail
+// @Failure      409  {object}  httpjson.ProblemDetail
+// @Failure      500  {object}  httpjson.ProblemDetail
+// @Failure      503  {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/assets/{id}/tables [post]
+func (h *Handler) registerAssetTable(w http.ResponseWriter, r *http.Request) {
+	h.registerTable(w, r, h.deps.Assets)
+}
+
+// unregisterAssetTable handles DELETE /api/v1/portal/assets/{id}/tables/{regID}.
+//
+// @Summary      Drop a table registered over a portal asset
+// @Description  Drops the external table and forgets the registration. The asset itself is untouched: dropping a Hive external table removes the metastore entry and leaves the stored objects. Only the person who registered the table or an administrator may remove it, and the record goes even when the DROP fails, so a table nobody can remove through the platform is never left behind.
+// @Tags         Tables
+// @Param        id     path  string  true  "Portal asset ID"
+// @Param        regID  path  string  true  "Table registration ID"
+// @Success      204
+// @Failure      401  {object}  httpjson.ProblemDetail
+// @Failure      403  {object}  httpjson.ProblemDetail
+// @Failure      404  {object}  httpjson.ProblemDetail
+// @Failure      409  {object}  httpjson.ProblemDetail
+// @Failure      500  {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/assets/{id}/tables/{regID} [delete]
+func (h *Handler) unregisterAssetTable(w http.ResponseWriter, r *http.Request) {
+	h.unregisterTable(w, r, h.deps.Assets)
+}
+
+// listConnections handles GET /api/v1/table-connections.
+//
+// @Summary      List the connections a table can be registered on
+// @Description  Returns, under a `connections` key, the connections this caller may register a new table onto: granted to their persona, carrying a scratch catalog and schema, and accepting writes. It is the register form's only source, so every connection offered here is one the register routes accept.
+// @Description  It is deliberately narrower than the set a listing shows: a connection turned read-only after a registration still appears in `GET /tables` and no longer appears here. A deployment that cannot enumerate its connections answers an empty list rather than an error.
+// @Tags         Tables
+// @Produce      json
+// @Success      200  {object}  map[string][]ConnectionChoice
+// @Failure      401  {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /table-connections [get]
 func (h *Handler) listConnections(w http.ResponseWriter, r *http.Request) {
 	user := portal.GetUser(r.Context())
 	if user == nil {

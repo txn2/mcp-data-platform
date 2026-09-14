@@ -55,11 +55,38 @@ describe("isNavActive", () => {
     expect(isNavActive("/admin/settings#smtp", "/admin/settings#alerts")).toBe(false);
   });
 
+  it("does not let the reference route light the APIs item, or the reverse", () => {
+    // "/admin/apis" and "/admin/api-reference" are two sections whose paths
+    // share a prefix (#1742). Neither is a route beneath the other.
+    expect(isNavActive("/admin/apis", "/admin/api-reference")).toBe(false);
+    expect(isNavActive("/admin/api-reference", "/admin/apis")).toBe(false);
+    expect(isNavActive("/admin/api-catalogs", "/admin/api-reference")).toBe(false);
+  });
+
   it("lights exactly one item for any route the rail offers", () => {
     const items = [...portalNavItems, ...adminNavItems];
     for (const item of items) {
       const lit = items.filter((i) => isNavActive(i.path, item.path));
       expect(lit.map((i) => i.path), item.path).toEqual([item.path]);
     }
+  });
+});
+
+describe("the admin rail", () => {
+  it("keeps Dashboard first and everything after it alphabetized", () => {
+    // The order is what a reader scans, so a new section that lands in the
+    // middle of the list is the failure this holds against.
+    const [first, ...rest] = adminNavItems;
+    expect(first?.label).toBe("Dashboard");
+    const labels = rest.map((i) => i.label.toLowerCase());
+    expect(labels).toEqual([...labels].sort());
+  });
+
+  it("offers the served API reference, in the admin section alone", () => {
+    const item = adminNavItems.find((i) => i.path === "/admin/api-reference");
+    expect(item?.label).toBe("API Reference");
+    // The portal rail is every reader's; the reference is reached from the
+    // administrator's section (#1742).
+    expect(portalNavItems.some((i) => i.path.startsWith("/admin"))).toBe(false);
   });
 });

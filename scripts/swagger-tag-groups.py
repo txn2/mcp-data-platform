@@ -96,6 +96,52 @@ TAG_DESCRIPTIONS = {
         "Tool schema introspection and interactive execution. Browse JSON schemas for all "
         "registered tools and execute tool calls with parameter validation."
     ),
+    "DataHub": (
+        "The DataHub catalog surface behind the portal: search and browse entities, read "
+        "and edit their descriptions, tags, owners, glossary terms and domain, and manage "
+        "the glossary hierarchy and the governance vocabularies."
+    ),
+    "Tables": (
+        "Query-engine tables registered against a managed resource or a portal asset, so a "
+        "file's contents can be queried through the platform's SQL surface."
+    ),
+    "Gateway": (
+        "The API gateway data plane: call a configured upstream connection over REST, "
+        "enveloped or streamed. This is what a non-MCP client (NiFi, Airflow, curl) uses "
+        "in place of the api_invoke_endpoint tool."
+    ),
+    "APIs": (
+        "The caller's view of the API catalogs: browse the connections this identity may "
+        "reach, read an operation's parameters and schemas, and copy the gateway call."
+    ),
+    "API Catalogs": (
+        "Administration of the OpenAPI documents behind API connections. Register a spec "
+        "inline, by URL, or by upload, refresh it, and manage its embedding jobs."
+    ),
+    "Portal": (
+        "Portal surfaces that are not asset content: navigation, search, and the pages "
+        "the web UI is assembled from."
+    ),
+    "Portal Assets": (
+        "Asset operations served to the portal UI: references, attachments, versions, and "
+        "the managed resources an asset's content points at."
+    ),
+    "Feedback": (
+        "Review threads on assets and knowledge: comments, activity, worklists, sign-off, "
+        "and capturing a thread's conclusion as an insight."
+    ),
+    "Notifications": (
+        "Email notification preferences, delivery history, and per-user unsubscribe. "
+        "Mail-server settings live under Settings."
+    ),
+    "Settings": (
+        "Deployment settings an administrator edits at runtime: the mail server and the "
+        "review-queue alert thresholds."
+    ),
+    "Users": (
+        "The directory of known people, keyed by email. Administrative counterpart to the "
+        "single-identity User tag."
+    ),
 }
 
 TAG_GROUPS = [
@@ -104,28 +150,39 @@ TAG_GROUPS = [
         "tags": [
             "User",
             "Activity",
+            "APIs",
             "Assets",
             "Collections",
+            "DataHub",
+            "Feedback",
+            "Gateway",
             "Knowledge",
             "Memory",
+            "Portal",
+            "Portal Assets",
             "Prompts",
             "Resources",
             "Shares",
+            "Tables",
         ],
     },
     {
         "name": "Admin API",
         "tags": [
+            "API Catalogs",
             "Audit",
             "Auth Keys",
             "Calls",
             "Config",
             "Connections",
+            "Notifications",
             "Personas",
             "Scripts",
             "Sessions",
+            "Settings",
             "System",
             "Tools",
+            "Users",
         ],
     },
 ]

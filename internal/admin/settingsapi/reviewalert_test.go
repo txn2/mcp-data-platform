@@ -11,8 +11,6 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/reviewalert"
 )
 
-const reviewAlertPath = "/api/v1/admin/settings/review-queue-alert"
-
 // fakeReviewAlert implements reviewalert.SettingsStore, modeling the real
 // store's contract: an unwritten section reads as ErrNotFound, not as a
 // zero-valued configuration.

@@ -400,6 +400,16 @@ export const routes: ScreenshotRoute[] = [
     category: "admin",
   },
   ...apiBrowserAdminRoutes,
+  {
+    // The platform's own REST surface, rendered from the document it serves
+    // (#1742). ReDoc fetches that document and converts it before it paints
+    // anything, so the capture waits for a tag section rather than for the
+    // page: the shell is ready long before the reference is.
+    slug: "admin-api-reference",
+    path: "/portal/admin/api-reference",
+    category: "admin",
+    waitFor: "h2:has-text('Gateway')",
+  },
   // Config editors (CodeMirror MarkdownEditor). These were excluded over a
   // duplicate-@codemirror/state crash in headless mode, now fixed via
   // resolve.dedupe in vite.config.ts.

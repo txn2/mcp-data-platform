@@ -17,6 +17,7 @@ import { agentSessions, mockAuditEvents } from "./data/audit";
 import { mockInsights, mockChangesets } from "./data/knowledge";
 import { mockAPIRouteConnections } from "./data/apis";
 import { mockPersonas, mockPersonaDetails } from "./data/personas";
+import { mockPlatformSpec } from "./data/platformSpec";
 import { mockSystemInfo, mockTools, mockConnections } from "./data/system";
 import { mockToolSchemas, generateMockResult } from "./data/tools";
 import { mockEnrichmentRules } from "./data/enrichment";
@@ -1233,6 +1234,11 @@ export const handlers = [
       oidc_enabled: false,
     }),
   ),
+
+  // The platform's own OpenAPI document. Served from the same public mux as
+  // the Swagger UI over it (pkg/admin/handler.go, docsPrefix), which is why
+  // the API Reference page can read it without a session of its own.
+  http.get(`${ADMIN_BASE}/docs/doc.json`, () => HttpResponse.json(mockPlatformSpec)),
 
   // =========================================================================
   // Portal — /me (mock: return admin user)

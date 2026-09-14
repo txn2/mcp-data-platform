@@ -93,6 +93,31 @@ func TestBuildInvokeArgs(t *testing.T) {
 				"path":       "/v1/things",
 			},
 		},
+		{
+			name:       "paginate reaches the tool arguments",
+			connection: "acme",
+			req: invokeRequest{
+				Method:   "GET",
+				Path:     "/v1/things",
+				Paginate: &apigatewaykit.PaginateInput{Items: "data", CursorParam: "cursor", MaxPages: 5},
+			},
+			want: map[string]any{
+				"connection": "acme",
+				"method":     "GET",
+				"path":       "/v1/things",
+				"paginate":   &apigatewaykit.PaginateInput{Items: "data", CursorParam: "cursor", MaxPages: 5},
+			},
+		},
+		{
+			name:       "absent paginate adds no key",
+			connection: "acme",
+			req:        invokeRequest{Method: "GET", Path: "/v1/things", Paginate: nil},
+			want: map[string]any{
+				"connection": "acme",
+				"method":     "GET",
+				"path":       "/v1/things",
+			},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -144,6 +169,22 @@ func TestDecodeInvokeRequest(t *testing.T) {
 			name:    "whitespace-only path",
 			body:    `{"method":"GET","path":"   "}`,
 			wantErr: "path is required",
+		},
+		{
+			name: "paginate block binds",
+			body: `{"method":"GET","path":"/v1/things","paginate":` +
+				`{"items":"data","cursor_param":"cursor","page_param":"page","page_step":50,"max_pages":3}}`,
+			wantReq: &invokeRequest{
+				Method: "GET",
+				Path:   "/v1/things",
+				Paginate: &apigatewaykit.PaginateInput{
+					Items:       "data",
+					CursorParam: "cursor",
+					PageParam:   "page",
+					PageStep:    50,
+					MaxPages:    3,
+				},
+			},
 		},
 	}
 	for _, tc := range tests {

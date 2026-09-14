@@ -83,19 +83,14 @@ var (
 // The delete takes either kind on one route because upstream is one call
 // (DeleteGlossaryEntity): a route per kind would differ only in which URN it
 // accepts, which the shared URN validation already covers.
-func (h *Handler) glossaryRoutes(mux *http.ServeMux, base string) {
-	const path = "/{conn}/catalog/glossary"
-	mux.HandleFunc("GET "+base+path+"/roots", h.browseGlossaryRoots)
-	mux.HandleFunc("GET "+base+path+"/children", h.browseGlossaryChildren)
-	mux.HandleFunc("GET "+base+path+"/parents", h.getGlossaryParents)
-	mux.HandleFunc("GET "+base+path+"/term", h.getGlossaryTerm)
-	mux.HandleFunc("POST "+base+path+"/nodes", func(w http.ResponseWriter, r *http.Request) {
-		h.createGlossaryEntity(w, r, glossaryNodeKind)
-	})
-	mux.HandleFunc("POST "+base+path+"/terms", func(w http.ResponseWriter, r *http.Request) {
-		h.createGlossaryEntity(w, r, glossaryTermKind)
-	})
-	mux.HandleFunc("DELETE "+base+path+"/entity", h.deleteGlossaryEntity)
+func (h *Handler) glossaryRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/v1/portal/datahub/{conn}/catalog/glossary/roots", h.browseGlossaryRoots)
+	mux.HandleFunc("GET /api/v1/portal/datahub/{conn}/catalog/glossary/children", h.browseGlossaryChildren)
+	mux.HandleFunc("GET /api/v1/portal/datahub/{conn}/catalog/glossary/parents", h.getGlossaryParents)
+	mux.HandleFunc("GET /api/v1/portal/datahub/{conn}/catalog/glossary/term", h.getGlossaryTerm)
+	mux.HandleFunc("POST /api/v1/portal/datahub/{conn}/catalog/glossary/nodes", h.createGlossaryNode)
+	mux.HandleFunc("POST /api/v1/portal/datahub/{conn}/catalog/glossary/terms", h.createGlossaryTerm)
+	mux.HandleFunc("DELETE /api/v1/portal/datahub/{conn}/catalog/glossary/entity", h.deleteGlossaryEntity)
 }
 
 // glossaryTermFilters turns the glossary-term query parameters into advanced
@@ -133,6 +128,22 @@ type glossaryRootsResponse struct {
 // browseGlossaryRoots returns the top of the glossary: the nodes and the terms
 // with no parent. The two reads are independent upstream calls, so they run
 // concurrently and the handler fails on the first error.
+//
+// @Summary      Browse the roots of the business glossary
+// @Description  Returns the glossary nodes and the glossary terms that have no parent. Nodes and terms are paged independently upstream, so each carries its own total.
+// @Tags         DataHub
+// @Produce      json
+// @Param        conn    path   string  true   "DataHub connection name"
+// @Param        offset  query  int     false  "Row offset into each list (default 0)"
+// @Param        limit   query  int     false  "Rows per list (default 25, max 200)"
+// @Success      200  {object}  glossaryRootsResponse
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      503  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/datahub/{conn}/catalog/glossary/roots [get]
 func (h *Handler) browseGlossaryRoots(w http.ResponseWriter, r *http.Request) {
 	reader, ok := h.dataHubReader(w, r)
 	if !ok {
@@ -171,6 +182,24 @@ func (h *Handler) browseGlossaryRoots(w http.ResponseWriter, r *http.Request) {
 // browseGlossaryChildren returns one page of the nodes and terms directly under a
 // glossary node. Children are served from DataHub's asynchronously populated
 // graph index, so an entity created moments earlier may not appear yet.
+//
+// @Summary      Browse the children of a glossary node
+// @Description  Returns one page of the nodes and terms directly under a glossary node. Children come from DataHub's asynchronously populated graph index, so an entity created moments earlier may not appear yet.
+// @Tags         DataHub
+// @Produce      json
+// @Param        conn    path   string  true   "DataHub connection name"
+// @Param        urn     query  string  true   "Parent node URN (urn:li:glossaryNode:<id>)"
+// @Param        offset  query  int     false  "Row offset (default 0)"
+// @Param        limit   query  int     false  "Rows per page (default 25, max 200)"
+// @Success      200  {object}  semantic.GlossaryChildren
+// @Failure      400  {object}  problemDetail
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      503  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/datahub/{conn}/catalog/glossary/children [get]
 func (h *Handler) browseGlossaryChildren(w http.ResponseWriter, r *http.Request) {
 	reader, ok := h.dataHubReader(w, r)
 	if !ok {
@@ -204,6 +233,22 @@ func (h *Handler) browseGlossaryChildren(w http.ResponseWriter, r *http.Request)
 // getGlossaryParents returns the ancestor nodes of a glossary term or node,
 // direct parent first, so the UI can render the breadcrumb for an entity it
 // reached without walking the tree.
+//
+// @Summary      Get the ancestors of a glossary entity
+// @Description  Returns the glossary nodes above a term or node, direct parent first, so a breadcrumb can be rendered for an entity reached without walking the tree.
+// @Tags         DataHub
+// @Produce      json
+// @Param        conn  path   string  true  "DataHub connection name"
+// @Param        urn   query  string  true  "Glossary term or node URN (urn:li:glossaryTerm:<id> or urn:li:glossaryNode:<id>)"
+// @Success      200  {object}  map[string][]semantic.GlossaryNode
+// @Failure      400  {object}  problemDetail
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      503  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/datahub/{conn}/catalog/glossary/parents [get]
 func (h *Handler) getGlossaryParents(w http.ResponseWriter, r *http.Request) {
 	reader, ok := h.dataHubReader(w, r)
 	if !ok {
@@ -228,6 +273,22 @@ func (h *Handler) getGlossaryParents(w http.ResponseWriter, r *http.Request) {
 //
 // There is no node counterpart because upstream has no by-URN node read; a node
 // is reached through the hierarchy, which is how the Glossary tab browses it.
+//
+// @Summary      Get one glossary term by URN
+// @Description  Returns a single glossary term: its name and its definition. There is no node counterpart, because upstream has no by-URN node read.
+// @Tags         DataHub
+// @Produce      json
+// @Param        conn  path   string  true  "DataHub connection name"
+// @Param        urn   query  string  true  "Glossary term URN (urn:li:glossaryTerm:<id>)"
+// @Success      200  {object}  semantic.GlossaryTerm
+// @Failure      400  {object}  problemDetail
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      503  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/datahub/{conn}/catalog/glossary/term [get]
 func (h *Handler) getGlossaryTerm(w http.ResponseWriter, r *http.Request) {
 	reader, ok := h.dataHubReader(w, r)
 	if !ok {
@@ -291,6 +352,53 @@ type glossaryEntityRequest struct {
 	ParentNode string `json:"parent_node,omitempty"`
 }
 
+// createGlossaryNode creates a glossary node (a folder in the hierarchy).
+// Named rather than an inline closure so the route carries its own
+// documentation and the registration pattern stays a literal.
+//
+// @Summary      Create a glossary node
+// @Description  Defines a glossary node, the folder that terms and other nodes sit in, and returns the URN DataHub assigned it. An empty parent_node creates the node at the root of the glossary.
+// @Tags         DataHub
+// @Accept       json
+// @Produce      json
+// @Param        conn     path  string                 true  "DataHub connection name"
+// @Param        request  body  glossaryEntityRequest  true  "Node name, definition, and optional parent node URN"
+// @Success      201  {object}  map[string]string
+// @Failure      400  {object}  problemDetail
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      503  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/datahub/{conn}/catalog/glossary/nodes [post]
+func (h *Handler) createGlossaryNode(w http.ResponseWriter, r *http.Request) {
+	h.createGlossaryEntity(w, r, glossaryNodeKind)
+}
+
+// createGlossaryTerm creates a glossary term (a leaf that datasets and
+// columns are tagged with).
+//
+// @Summary      Create a glossary term
+// @Description  Defines a glossary term, the named piece of business vocabulary datasets and columns are tagged with, and returns the URN DataHub assigned it. An empty parent_node creates the term at the root of the glossary.
+// @Tags         DataHub
+// @Accept       json
+// @Produce      json
+// @Param        conn     path  string                 true  "DataHub connection name"
+// @Param        request  body  glossaryEntityRequest  true  "Term name, definition, and optional parent node URN"
+// @Success      201  {object}  map[string]string
+// @Failure      400  {object}  problemDetail
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      503  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/datahub/{conn}/catalog/glossary/terms [post]
+func (h *Handler) createGlossaryTerm(w http.ResponseWriter, r *http.Request) {
+	h.createGlossaryEntity(w, r, glossaryTermKind)
+}
+
 // createGlossaryEntity adds a term or a node to the business glossary. Gated on
 // the datahub_create grant, like every other create on this surface.
 //
@@ -340,6 +448,22 @@ func (h *Handler) createGlossaryEntity(w http.ResponseWriter, r *http.Request, k
 // Nothing here checks what the entity holds or what carries it: DataHub removes
 // a node without removing its children, which is why the portal shows a node's
 // children and a term's usage before offering the delete.
+//
+// @Summary      Delete a glossary term or node
+// @Description  Retires a glossary term or node by URN. A node is removed without its children, so the portal shows a node's children and a term's usage before offering the delete.
+// @Tags         DataHub
+// @Produce      json
+// @Param        conn  path   string  true  "DataHub connection name"
+// @Param        urn   query  string  true  "Glossary term or node URN (urn:li:glossaryTerm:<id> or urn:li:glossaryNode:<id>)"
+// @Success      200  {object}  map[string]string
+// @Failure      400  {object}  problemDetail
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      503  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/datahub/{conn}/catalog/glossary/entity [delete]
 func (h *Handler) deleteGlossaryEntity(w http.ResponseWriter, r *http.Request) {
 	auth, ok := h.authorizeWrite(w, r, datahubDeleteTool)
 	if !ok {

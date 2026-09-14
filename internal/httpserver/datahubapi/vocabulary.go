@@ -132,11 +132,95 @@ func (h *Handler) deleteVocabularyEntry(w http.ResponseWriter, r *http.Request, 
 
 // vocabularyRoutes registers the create and delete for one vocabulary under
 // base/{conn}/catalog/<path>.
-func (h *Handler) vocabularyRoutes(mux *http.ServeMux, base, path string, v vocabulary) {
-	mux.HandleFunc("POST "+base+"/{conn}/catalog/"+path, func(w http.ResponseWriter, r *http.Request) {
-		h.createVocabularyEntry(w, r, v)
-	})
-	mux.HandleFunc("DELETE "+base+"/{conn}/catalog/"+path, func(w http.ResponseWriter, r *http.Request) {
-		h.deleteVocabularyEntry(w, r, v)
-	})
+func (h *Handler) vocabularyRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("POST /api/v1/portal/datahub/{conn}/catalog/tags", h.createTag)
+	mux.HandleFunc("DELETE /api/v1/portal/datahub/{conn}/catalog/tags", h.deleteTag)
+	mux.HandleFunc("POST /api/v1/portal/datahub/{conn}/catalog/domains", h.createDomain)
+	mux.HandleFunc("DELETE /api/v1/portal/datahub/{conn}/catalog/domains", h.deleteDomain)
+}
+
+// createTag defines a tag in the governance vocabulary (#1156).
+//
+// @Summary      Create a tag
+// @Description  Defines a tag in the governance vocabulary and returns the URN DataHub assigned it. The tag is not immediately listable: the lookup read is served from DataHub's asynchronously populated index, so the returned URN is authoritative in the meantime.
+// @Tags         DataHub
+// @Accept       json
+// @Produce      json
+// @Param        conn     path  string             true  "DataHub connection name"
+// @Param        request  body  vocabularyRequest  true  "Tag name and optional description"
+// @Success      201  {object}  map[string]string
+// @Failure      400  {object}  problemDetail
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      503  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/datahub/{conn}/catalog/tags [post]
+func (h *Handler) createTag(w http.ResponseWriter, r *http.Request) {
+	h.createVocabularyEntry(w, r, tagVocabulary)
+}
+
+// deleteTag retires a tag from the governance vocabulary (#1156).
+//
+// @Summary      Delete a tag
+// @Description  Retires a tag by URN. The URN is a query parameter rather than a path segment because a tag URN is itself colon-delimited.
+// @Tags         DataHub
+// @Produce      json
+// @Param        conn  path   string  true  "DataHub connection name"
+// @Param        urn   query  string  true  "Tag URN (urn:li:tag:<id>)"
+// @Success      200  {object}  map[string]string
+// @Failure      400  {object}  problemDetail
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      503  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/datahub/{conn}/catalog/tags [delete]
+func (h *Handler) deleteTag(w http.ResponseWriter, r *http.Request) {
+	h.deleteVocabularyEntry(w, r, tagVocabulary)
+}
+
+// createDomain defines a domain in the governance vocabulary (#1157).
+//
+// @Summary      Create a domain
+// @Description  Defines a domain in the governance vocabulary and returns the URN DataHub assigned it. The domain is not immediately listable: the lookup read is served from DataHub's asynchronously populated index, so the returned URN is authoritative in the meantime.
+// @Tags         DataHub
+// @Accept       json
+// @Produce      json
+// @Param        conn     path  string             true  "DataHub connection name"
+// @Param        request  body  vocabularyRequest  true  "Domain name and optional description"
+// @Success      201  {object}  map[string]string
+// @Failure      400  {object}  problemDetail
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      503  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/datahub/{conn}/catalog/domains [post]
+func (h *Handler) createDomain(w http.ResponseWriter, r *http.Request) {
+	h.createVocabularyEntry(w, r, domainVocabulary)
+}
+
+// deleteDomain retires a domain from the governance vocabulary (#1157).
+//
+// @Summary      Delete a domain
+// @Description  Retires a domain by URN. The URN is a query parameter rather than a path segment because a domain URN is itself colon-delimited.
+// @Tags         DataHub
+// @Produce      json
+// @Param        conn  path   string  true  "DataHub connection name"
+// @Param        urn   query  string  true  "Domain URN (urn:li:domain:<id>)"
+// @Success      200  {object}  map[string]string
+// @Failure      400  {object}  problemDetail
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      503  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/datahub/{conn}/catalog/domains [delete]
+func (h *Handler) deleteDomain(w http.ResponseWriter, r *http.Request) {
+	h.deleteVocabularyEntry(w, r, domainVocabulary)
 }

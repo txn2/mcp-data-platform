@@ -59,6 +59,13 @@ The upstream call the gateway will make is stated above the snippet. The connect
 
 This is what an Apache NiFi `InvokeHTTP` processor, a cron job, or a shell needs, which is the second reason the browser exists: a client driving the platform over plain HTTP had no way to learn which connections exist or what they expose.
 
+Beside the snippet is a link to the platform's own REST reference at the
+`Gateway` tag, which is where the rest of what that client needs lives: the two
+auth schemes, the full request body the invoke route accepts, the split between
+a platform status and the upstream status carried inside the body, and the
+retry rules for `413` and `429`. The reference covers the whole REST surface,
+not just the gateway; see [Admin API](../server/admin-api.md#interactive-api-documentation-swagger-ui).
+
 The page makes no upstream calls. It names operations and writes text.
 
 ## The read routes
