@@ -239,7 +239,7 @@ func TestIssue1694_TheOperatorWhoAuthorizedItIsTold(t *testing.T) {
 	up.rejects.Store(true)
 	issue1694Revoke(t, c, name)
 
-	rows := issue1694AwaitAlert(t, c, issue1694Operator, name, 30*time.Second)
+	rows := issue1694AwaitAlert(t, c, issue1694Operator, name, issue1694FirstAlertWait)
 	if len(rows) == 0 {
 		t.Fatalf("nothing was queued for %s after %s was revoked", issue1694Operator, name)
 	}
@@ -270,7 +270,7 @@ func TestIssue1694_OneAlertPerRevocation(t *testing.T) {
 	up.rejects.Store(true)
 	issue1694Revoke(t, c, name)
 
-	if rows := issue1694AwaitAlert(t, c, issue1694Operator, name, 30*time.Second); len(rows) != 1 {
+	if rows := issue1694AwaitAlert(t, c, issue1694Operator, name, issue1694FirstAlertWait); len(rows) != 1 {
 		t.Fatalf("the first revocation queued %d alerts; want exactly 1", len(rows))
 	}
 
@@ -300,7 +300,7 @@ func TestIssue1694_ReauthorizingMakesTheNextRevocationNews(t *testing.T) {
 	name := issue1694Connect(t, c, up, "again")
 	up.rejects.Store(true)
 	issue1694Revoke(t, c, name)
-	if rows := issue1694AwaitAlert(t, c, issue1694Operator, name, 30*time.Second); len(rows) != 1 {
+	if rows := issue1694AwaitAlert(t, c, issue1694Operator, name, issue1694FirstAlertWait); len(rows) != 1 {
 		t.Fatalf("the first revocation queued %d alerts; want 1", len(rows))
 	}
 
@@ -323,12 +323,33 @@ func TestIssue1694_ReauthorizingMakesTheNextRevocationNews(t *testing.T) {
 	}
 }
 
+const (
+	// issue1694FirstAlertWait bounds the wait for the operator's alert, which
+	// the revocation enqueues directly.
+	issue1694FirstAlertWait = 30 * time.Second
+	// issue1694EscalationWait bounds the wait for the escalation, which the
+	// sweep raises on its own once-a-minute schedule
+	// (connalert.DefaultSweepInterval).
+	issue1694EscalationWait = 150 * time.Second
+	// issue1694OneMoreSweep spans a further sweep, so the count that follows
+	// it is a count after the sweep had a second chance to raise a duplicate.
+	issue1694OneMoreSweep = 65 * time.Second
+)
+
+// issue1694EscalationSession is how long the escalation criterion's session
+// has to live. The criterion waits out three things the platform drives --
+// the first alert, the escalation sweep and one more sweep after it -- and the
+// suite's default session deadline is shorter than their sum, so the session
+// is sized to them plus margin for the calls between (#1738).
+const issue1694EscalationSession = issue1694FirstAlertWait +
+	issue1694EscalationWait + issue1694OneMoreSweep + time.Minute
+
 // TestIssue1694_ARevocationNobodyActedOnIsEscalated is the second half of the
 // ticket: the first alert's recipient can be unreachable for days, which is the
 // premise the whole feature rests on, so a revocation still open after the
 // administrator's window reaches the addresses they named.
 func TestIssue1694_ARevocationNobodyActedOnIsEscalated(t *testing.T) {
-	c := connect(t)
+	c := connectFor(t, issue1694EscalationSession)
 	issue1694SetAlert(t, c, true, 1, []string{issue1694Escalation})
 	t.Cleanup(func() { issue1694SetAlert(t, c, true, 24, []string{}) })
 
@@ -336,7 +357,7 @@ func TestIssue1694_ARevocationNobodyActedOnIsEscalated(t *testing.T) {
 	name := issue1694Connect(t, c, up, "escalated")
 	up.rejects.Store(true)
 	issue1694Revoke(t, c, name)
-	if rows := issue1694AwaitAlert(t, c, issue1694Operator, name, 30*time.Second); len(rows) != 1 {
+	if rows := issue1694AwaitAlert(t, c, issue1694Operator, name, issue1694FirstAlertWait); len(rows) != 1 {
 		t.Fatalf("the revocation queued %d alerts for the operator; want 1", len(rows))
 	}
 
@@ -346,7 +367,7 @@ func TestIssue1694_ARevocationNobodyActedOnIsEscalated(t *testing.T) {
 	// running platform's own.
 	issue1694Backdate(t, name, 3*time.Hour)
 
-	rows := issue1694AwaitAlert(t, c, issue1694Escalation, name, 150*time.Second)
+	rows := issue1694AwaitAlert(t, c, issue1694Escalation, name, issue1694EscalationWait)
 	if len(rows) == 0 {
 		t.Fatalf("nothing reached %s for a revocation nobody acted on", issue1694Escalation)
 	}
@@ -359,7 +380,7 @@ func TestIssue1694_ARevocationNobodyActedOnIsEscalated(t *testing.T) {
 	}
 
 	// And it is raised once, not once per sweep.
-	time.Sleep(65 * time.Second)
+	time.Sleep(issue1694OneMoreSweep)
 	if got := issue1694CountFor(issue1694Alerts(t, c, issue1694Escalation), name); got != 1 {
 		t.Fatalf("%d escalations for one revocation; want exactly 1", got)
 	}

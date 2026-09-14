@@ -59,11 +59,11 @@ func NewAuthenticator(c Config) (Authenticator, error) {
 		case connoauth.GrantJWTBearer:
 			return newJWTBearerAuth(c)
 		default:
-			return newOAuth2ClientCredentialsAuth(c), nil
+			return newOAuth2ClientCredentialsAuth(c, time.Now), nil
 		}
 	case AuthModeOAuth2ClientCredentials:
 		// Legacy auth_mode (hand-built Configs that bypass Parse).
-		return newOAuth2ClientCredentialsAuth(c), nil
+		return newOAuth2ClientCredentialsAuth(c, time.Now), nil
 	case AuthModeOAuth2AuthorizationCode:
 		// Legacy auth_mode (hand-built Configs that bypass Parse).
 		return newOAuth2AuthorizationCodeAuth(c), nil
@@ -206,12 +206,15 @@ func (b basicAuth) Apply(req *http.Request) error {
 
 // oauth2ClientCredentialsAuth applies an OAuth 2.1 access token
 // acquired via the client_credentials grant. Token caching and
-// refresh-on-expiry are delegated to the standard
-// golang.org/x/oauth2 library: the underlying TokenSource fetches
-// once, caches in memory, and re-fetches transparently when the
-// token expires. No DB state is required because the authoritative
-// inputs (client_id + client_secret) survive process restarts as
-// part of the connection's encrypted credentials blob.
+// refresh-on-expiry are delegated to golang.org/x/oauth2: the
+// token source fetches once, caches in memory, and fetches again
+// transparently when the token expires. An upstream that answers
+// without expires_in is held to DefaultUpstreamAccessTokenLifetime,
+// since the library would otherwise treat such a token as valid
+// for the life of the process (#1737). No DB state is required
+// because the authoritative inputs (client_id + client_secret)
+// survive process restarts as part of the connection's encrypted
+// credentials blob.
 //
 // SECURITY: this struct intentionally does NOT carry the client
 // secret in its log/error string output. tokenFetchError below
@@ -279,7 +282,11 @@ func newTokenExchangeClient(cfg Config) *http.Client {
 	return client
 }
 
-func newOAuth2ClientCredentialsAuth(c Config) oauth2ClientCredentialsAuth {
+// newOAuth2ClientCredentialsAuth builds the client_credentials authenticator.
+// now is the clock the bounded-expiry fallback stamps from: time.Now in
+// production and a stub in tests, which is the only way a test reaches the
+// window without waiting it out.
+func newOAuth2ClientCredentialsAuth(c Config, now func() time.Time) oauth2ClientCredentialsAuth {
 	authStyle := oauth2.AuthStyleInHeader
 	if c.OAuth2.EndpointAuthStyle == OAuth2AuthStyleParams {
 		authStyle = oauth2.AuthStyleInParams
@@ -300,12 +307,17 @@ func newOAuth2ClientCredentialsAuth(c Config) oauth2ClientCredentialsAuth {
 	// attacker URL. When the connection carries a TLS CA bundle, the
 	// same bundle is honored here so IdPs behind a private CA work.
 	ctx := context.WithValue(context.Background(), oauth2.HTTPClient, newTokenExchangeClient(c))
-	// The token source caches in-memory and re-fetches when expired.
-	// Wrap with oauth2.ReuseTokenSource so the cache is reused
-	// across Apply calls; clientcredentials.Config.TokenSource
-	// already does this internally but the wrap is explicit
-	// defense against future library changes.
-	src := oauth2.ReuseTokenSource(nil, cfg.TokenSource(ctx))
+	// One cache, over a bounded token: oauth2.ReuseTokenSource holds the
+	// token across Apply calls and re-fetches when it expires, and
+	// withBoundedExpiry inside it gives a response with no expires_in an
+	// expiry to be held against (#1737). clientcredentials.Config.TokenSource
+	// is deliberately not used here: it is its own ReuseTokenSource, and
+	// caching the unstamped token inside this one would hold the first token
+	// for the life of the process however the token above it was stamped.
+	// cfg.Token is the uncached fetch, which is what jwt_bearer exchanges
+	// through as well.
+	src := oauth2.ReuseTokenSource(nil, withBoundedExpiry(
+		tokenFunc(func() (*oauth2.Token, error) { return cfg.Token(ctx) }), now))
 	return oauth2ClientCredentialsAuth{cfg: c, src: src}
 }
 
