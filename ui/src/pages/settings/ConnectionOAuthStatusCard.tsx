@@ -39,16 +39,31 @@ interface Props {
   // status fetch, which previously caused the entire OAuth section to
   // silently disappear on a slow / failed / loading status response.
   authMode: string;
+  // grant is the connection's oauth_grant value. Only the
+  // authorization_code grant has a sign-in to complete and a stored token
+  // to report; the status route answers 409 for the others.
+  grant?: string;
 }
 
-const OAUTH_AUTH_MODES = new Set(["oauth", "oauth2_authorization_code"]);
+// hasAuthorizationCodeState reports whether a connection's stored config
+// selects the authorization_code grant, in either spelling: the legacy
+// auth_mode that encoded it, or auth_mode "oauth" with the grant stated.
+// An oauth connection that states no grant is client_credentials, which
+// is the server's default.
+export function hasAuthorizationCodeState(authMode: string, grant?: string): boolean {
+  if (authMode === "oauth2_authorization_code") return true;
+  return authMode === "oauth" && grant === "authorization_code";
+}
 
-export function ConnectionOAuthStatusCard({ kind, name, authMode }: Props) {
-  // Render NOTHING (intentionally) only when the connection is not an
-  // OAuth-mode at all. Past this gate, the card always renders — even
-  // while the status fetch is loading or errored — so the operator is
-  // never left wondering "where did the OAuth section go?".
-  if (!OAUTH_AUTH_MODES.has(authMode)) {
+export function ConnectionOAuthStatusCard({ kind, name, authMode, grant }: Props) {
+  // Render NOTHING (intentionally) only when the connection has no
+  // authorization_code state to show: not OAuth at all, or a grant with
+  // no browser sign-in (client_credentials, jwt_bearer), where a Connect
+  // button would start a flow the server refuses. Past this gate, the
+  // card always renders — even while the status fetch is loading or
+  // errored — so the operator is never left wondering "where did the
+  // OAuth section go?".
+  if (!hasAuthorizationCodeState(authMode, grant)) {
     return null;
   }
   // Key on (kind, name) so React unmounts/remounts the inner card

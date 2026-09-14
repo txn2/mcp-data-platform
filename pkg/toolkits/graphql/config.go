@@ -150,8 +150,10 @@ type Config struct {
 	Password            string
 	OAuth2              OAuth2Config
 	// SignedJWT carries the assertion parameters used when AuthMode is
-	// AuthModeSignedJWT: the platform mints a short-lived JWT per call
-	// from an identifier and a signing key issued out of band. Aliased
+	// AuthModeSignedJWT, where the platform mints a short-lived JWT per call
+	// from an identifier and a signing key issued out of band, and when
+	// the OAuth grant is jwt_bearer, where that assertion is exchanged
+	// at the token endpoint for an access token. Aliased
 	// straight from the shared seam rather than mirrored, because
 	// nothing in it is this kind's to define.
 	SignedJWT SignedJWTConfig
@@ -226,8 +228,8 @@ const (
 // the canonical oauth mode. Mirrors the API gateway's, because both
 // are projections of the same shared seam.
 type OAuth2Config struct {
-	// Grant is the OAuth flow: client_credentials or
-	// authorization_code.
+	// Grant is the OAuth flow: client_credentials, authorization_code
+	// or jwt_bearer.
 	Grant string
 	// TokenURL is the upstream's token endpoint.
 	TokenURL string

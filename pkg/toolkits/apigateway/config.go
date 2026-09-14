@@ -214,8 +214,10 @@ type Config struct {
 	// is oauth2_client_credentials. Empty for non-OAuth modes.
 	OAuth2 OAuth2Config
 	// SignedJWT carries the assertion parameters used when AuthMode is
-	// AuthModeSignedJWT: the gateway mints a short-lived JWT per call
-	// from an identifier and a signing key issued out of band. Aliased
+	// AuthModeSignedJWT, where the gateway mints a short-lived JWT per call
+	// from an identifier and a signing key issued out of band, and when
+	// the OAuth grant is jwt_bearer, where that assertion is exchanged
+	// at the token endpoint for an access token. Aliased
 	// straight from the shared seam rather than mirrored, because
 	// nothing in it is this toolkit's to define.
 	SignedJWT SignedJWTConfig
@@ -276,29 +278,28 @@ type Config struct {
 	RequiredPathPrefix string
 }
 
-// OAuth2Config describes the OAuth 2.1 client_credentials grant
-// parameters. The platform exchanges ClientID + ClientSecret at
-// TokenURL for an access token (cached + refreshed by the
-// golang.org/x/oauth2 library) and applies it as
-// "Authorization: Bearer <token>" on outbound calls.
-//
-// Authorization-code (browser-driven, refresh-token-persisting)
-// grants are deferred to a follow-up — they require DB state
-// (PKCE verifier table, refresh-token cache) and an admin reauth
-// callback handler that this PR intentionally does not bring in.
+// OAuth2Config describes the OAuth 2.1 grant parameters. The platform
+// obtains an access token at TokenURL and applies it as
+// "Authorization: Bearer <token>" on outbound calls: by exchanging
+// ClientID + ClientSecret (client_credentials), by refreshing the token
+// an administrator's one-time browser sign-in persisted
+// (authorization_code), or by exchanging an assertion signed with the
+// connection's SignedJWT key (jwt_bearer).
 type OAuth2Config struct {
 	// Grant is the OAuth flow, populated by ParseConfig from the
 	// canonical oauth_grant (or derived from a legacy auth_mode). One
-	// of connoauth.GrantClientCredentials or
-	// connoauth.GrantAuthorizationCode. The authenticator and
-	// validation dispatch on this rather than on the auth_mode string.
+	// of connoauth.GrantClientCredentials,
+	// connoauth.GrantAuthorizationCode or connoauth.GrantJWTBearer. The
+	// authenticator and validation dispatch on this rather than on the
+	// auth_mode string.
 	Grant string
 	// TokenURL is the upstream's token endpoint. Required.
 	TokenURL string
-	// ClientID is the platform's registered client id. Required.
+	// ClientID is the platform's registered client id. Required, except
+	// for jwt_bearer, where the assertion identifies the client.
 	ClientID string
 	// ClientSecret is the platform's registered client secret.
-	// Required. Encrypted at rest via the platform's
+	// Required, except for jwt_bearer. Encrypted at rest via the platform's
 	// FieldEncryptor (sensitive-key list already includes
 	// "client_secret"; the nested map's value is encrypted before
 	// storage in connection_instances.config).

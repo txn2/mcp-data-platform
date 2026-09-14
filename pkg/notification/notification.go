@@ -169,6 +169,16 @@ type ConnectionAuth struct {
 	// it. The email states which of those two it was, because they ask the
 	// recipient for different things.
 	Reason string `json:"reason,omitempty"`
+	// Description is the upstream's error_description, bounded by the
+	// platform. Carried for a refused jwt_bearer assertion, where it is
+	// usually the only statement of which upstream approval is missing.
+	Description string `json:"description,omitempty"`
+	// SignedAssertion marks a refused jwt_bearer assertion rather than a
+	// revoked authorization (#1734). The email then says there is nothing to
+	// reconnect and sends the reader to the upstream: the key, the integration
+	// user or the clocks, and it says the alert clears itself when an exchange
+	// is next accepted.
+	SignedAssertion bool `json:"signed_assertion,omitempty"`
 	// AuthorizedBy is the identity that authorized the connection, and the
 	// address the first alert is sent to. It is carried in the payload as well
 	// so the escalation to the operator's chosen recipients can say whose

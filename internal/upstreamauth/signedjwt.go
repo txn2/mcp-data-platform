@@ -1,6 +1,9 @@
 package upstreamauth
 
 import (
+	"crypto/rand"
+	"encoding/hex"
+	"io"
 	"net/http"
 	"sync"
 	"time"
@@ -76,9 +79,10 @@ const (
 // generated and the audience to the API URL byte for byte, and answers
 // a mismatch with a 401 naming the claim.
 type SignedJWTConfig struct {
-	// Algorithm is one of SignedJWTAlgHS256 (the default),
-	// SignedJWTAlgRS256 or SignedJWTAlgES256. It selects the signing
-	// method and which key field is required.
+	// Algorithm is one of SignedJWTAlgHS256, SignedJWTAlgRS256 or
+	// SignedJWTAlgES256. It selects the signing method and which key
+	// field is required. Defaults to HS256 for auth_mode=signed_jwt and
+	// to RS256 for oauth_grant=jwt_bearer.
 	Algorithm string
 	// ClientSecret is the HMAC shared secret. Required for HS256 and
 	// refused for the asymmetric algorithms. Encrypted at rest via the
@@ -102,9 +106,10 @@ type SignedJWTConfig struct {
 	// identifies nobody is not one any upstream in this class accepts.
 	Issuer  string
 	Subject string
-	// Audience is the "aud" claim. Defaults to the connection's
-	// endpoint URL at parse time; the value must match what the
-	// upstream registered, byte for byte.
+	// Audience is the "aud" claim. Defaults at parse time to the
+	// connection's endpoint URL for auth_mode=signed_jwt and to
+	// oauth_token_url for oauth_grant=jwt_bearer; the value must match
+	// what the upstream registered, byte for byte.
 	Audience string
 	// TokenLifetime is exp - iat. Defaults to
 	// DefaultSignedJWTTokenLifetime.
@@ -122,19 +127,22 @@ type SignedJWTConfig struct {
 	IssuedAtSkew time.Duration
 }
 
-// parseSignedJWT reads the mode's keys out of a connection's config map
-// and applies the defaults. audience falls back to the connection's
-// endpoint URL, which is what the upstreams in this class register when
-// the operator does not choose something else.
-func parseSignedJWT(endpointURL string, cfg map[string]any) SignedJWTConfig {
+// parseSignedJWT reads the assertion keys out of a connection's config
+// map and applies the defaults. They are read the same way for
+// auth_mode=signed_jwt and for oauth_grant=jwt_bearer; what differs is
+// the default algorithm and what the audience falls back to. signed_jwt
+// defaults to HS256 and the connection's endpoint URL, which is what the
+// upstreams it reaches register; jwt_bearer defaults to RS256 and the
+// token endpoint, which is what RFC 7523 section 3 names as the audience.
+func parseSignedJWT(defaultAlgorithm, defaultAudience string, cfg map[string]any) SignedJWTConfig {
 	return SignedJWTConfig{
-		Algorithm:     cfgmap.StringDefault(cfg, cfgKeyJWTAlgorithm, SignedJWTAlgHS256),
+		Algorithm:     cfgmap.StringDefault(cfg, cfgKeyJWTAlgorithm, defaultAlgorithm),
 		ClientSecret:  cfgmap.String(cfg, cfgKeyJWTClientSecret),
 		PrivateKeyPEM: cfgmap.String(cfg, cfgKeyJWTPrivateKeyPEM),
 		KeyID:         cfgmap.String(cfg, cfgKeyJWTKeyID),
 		Issuer:        cfgmap.String(cfg, cfgKeyJWTIssuer),
 		Subject:       cfgmap.String(cfg, cfgKeyJWTSubject),
-		Audience:      cfgmap.StringDefault(cfg, cfgKeyJWTAudience, endpointURL),
+		Audience:      cfgmap.StringDefault(cfg, cfgKeyJWTAudience, defaultAudience),
 		TokenLifetime: cfgmap.Duration(cfg, cfgKeyJWTTokenLifetime, DefaultSignedJWTTokenLifetime),
 		IssuedAtSkew:  cfgmap.Duration(cfg, cfgKeyJWTIssuedAtSkew, DefaultSignedJWTIssuedAtSkew),
 	}
@@ -155,6 +163,13 @@ func (c Config) validateSignedJWTAuth() error {
 	if j.Audience == "" {
 		return c.errf("%s is required when auth_mode is %q and the connection has no endpoint URL to default it from", cfgKeyJWTAudience, AuthModeSignedJWT)
 	}
+	return c.validateAssertionTiming()
+}
+
+// validateAssertionTiming enforces the lifetime and skew rules every
+// minted assertion is held to, whichever mode mints it.
+func (c Config) validateAssertionTiming() error {
+	j := c.SignedJWT
 	if j.TokenLifetime <= 0 {
 		return c.errf("%s must be positive", cfgKeyJWTTokenLifetime)
 	}
@@ -229,13 +244,8 @@ type signedJWTSigner struct {
 // reused until it is within IssuedAtSkew of its own expiry, so a token
 // is never presented so close to exp that the upstream's clock could
 // have passed it in flight.
-//
-// SECURITY: no field of this struct is ever formatted into a message.
-// The signing key and the shared secret are held only to sign with, and
-// the errors Apply returns name the failing step, never the material.
 type signedJWTAuth struct {
-	cfg    Config
-	signer signedJWTSigner
+	minter assertionMinter
 
 	// now is time.Now in production and a stub in tests, which is the
 	// only way to observe the cache boundary without sleeping through a
@@ -263,7 +273,10 @@ func newSignedJWTAuth(c Config) (*signedJWTAuth, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &signedJWTAuth{cfg: c, signer: signer, now: time.Now}, nil
+	return &signedJWTAuth{
+		minter: assertionMinter{cfg: c, signer: signer, mode: AuthModeSignedJWT},
+		now:    time.Now,
+	}, nil
 }
 
 // Apply mints (or reuses) the assertion and attaches it as the
@@ -283,10 +296,10 @@ func (a *signedJWTAuth) assertion() (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	now := a.now()
-	if a.token != "" && now.Add(a.cfg.SignedJWT.IssuedAtSkew).Before(a.expiresAt) {
+	if a.token != "" && now.Add(a.minter.cfg.SignedJWT.IssuedAtSkew).Before(a.expiresAt) {
 		return a.token, nil
 	}
-	token, expiresAt, err := a.mint(now)
+	token, expiresAt, err := a.minter.mint(now)
 	if err != nil {
 		return "", err
 	}
@@ -294,11 +307,38 @@ func (a *signedJWTAuth) assertion() (string, error) {
 	return token, nil
 }
 
+// assertionMinter builds and signs one assertion from a connection's
+// SignedJWTConfig. It is the one copy of the claim set, shared by
+// auth_mode=signed_jwt, which presents the assertion as the bearer
+// token, and oauth_grant=jwt_bearer, which exchanges it at the token
+// endpoint.
+//
+// SECURITY: no field of this struct is ever formatted into a message.
+// The signing key and the shared secret are held only to sign with, and
+// the errors mint returns name the failing step, never the material.
+type assertionMinter struct {
+	cfg    Config
+	signer signedJWTSigner
+	// mode names the configuration that asked for the assertion in the
+	// errors mint returns ("signed_jwt", or the jwt_bearer grant), so a
+	// failure reads against the setting the operator chose.
+	mode string
+	// withJTI adds a random "jti" claim to every assertion. The
+	// jwt_bearer exchange sets it: RFC 7523 section 3 lets a token
+	// endpoint refuse a replayed assertion, and two replicas exchanging
+	// in the same second would otherwise sign byte-identical ones. The
+	// signed_jwt mode leaves it off, because the upstreams it reaches
+	// validate a fixed claim set.
+	withJTI bool
+	// rand is the jti source; crypto/rand in production.
+	rand io.Reader
+}
+
 // mint builds and signs one assertion. iat is set back by IssuedAtSkew
 // and exp is IssuedAtSkew + TokenLifetime ahead of it, so exp - iat is
 // exactly the configured lifetime whatever the skew.
-func (a *signedJWTAuth) mint(now time.Time) (token string, expiresAt time.Time, err error) {
-	j := a.cfg.SignedJWT
+func (m assertionMinter) mint(now time.Time) (token string, expiresAt time.Time, err error) {
+	j := m.cfg.SignedJWT
 	issuedAt := now.Add(-j.IssuedAtSkew)
 	expiry := issuedAt.Add(j.TokenLifetime)
 	claims := jwt.MapClaims{
@@ -316,16 +356,36 @@ func (a *signedJWTAuth) mint(now time.Time) (token string, expiresAt time.Time, 
 	if j.Subject != "" {
 		claims["sub"] = j.Subject
 	}
-	t := jwt.NewWithClaims(a.signer.method, claims)
+	if m.withJTI {
+		id, idErr := m.jti()
+		if idErr != nil {
+			return "", time.Time{}, m.cfg.errf("%s: minting the assertion id failed: %w", m.mode, idErr)
+		}
+		claims["jti"] = id
+	}
+	t := jwt.NewWithClaims(m.signer.method, claims)
 	if j.KeyID != "" {
 		t.Header["kid"] = j.KeyID
 	}
-	signed, signErr := t.SignedString(a.signer.key)
+	signed, signErr := t.SignedString(m.signer.key)
 	if signErr != nil {
 		// The error is stated without the library's message: a future
 		// signing method could format the key into it, and this path
 		// reaches the model.
-		return "", time.Time{}, a.cfg.errf("%s: signing the assertion failed", AuthModeSignedJWT)
+		return "", time.Time{}, m.cfg.errf("%s: signing the assertion failed", m.mode)
 	}
 	return signed, expiry, nil
+}
+
+// jti returns 128 random bits, hex-encoded.
+func (m assertionMinter) jti() (string, error) {
+	src := m.rand
+	if src == nil {
+		src = rand.Reader
+	}
+	var b [16]byte
+	if _, err := io.ReadFull(src, b[:]); err != nil {
+		return "", err //nolint:wrapcheck // the caller names the step
+	}
+	return hex.EncodeToString(b[:]), nil
 }

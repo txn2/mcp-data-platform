@@ -304,3 +304,26 @@ func TestParseConfig_RejectsInvalidEndpointAuthStyle(t *testing.T) {
 		t.Fatal("expected error for invalid endpoint_auth_style")
 	}
 }
+
+// TestParseConfig_RefusesTheJWTBearerGrant keeps the MCP gateway kind from
+// accepting a grant it cannot honor. The shared OAuth parse reads jwt_bearer
+// for every kind, and only the HTTP-based kinds built on internal/upstreamauth
+// sign the assertion; an MCP connection saved with it must be refused at save
+// rather than fail on its first call.
+func TestParseConfig_RefusesTheJWTBearerGrant(t *testing.T) {
+	_, err := ParseConfig(map[string]any{
+		"endpoint":            "https://u.example.com",
+		"auth_mode":           AuthModeOAuth,
+		"oauth_grant":         "jwt_bearer",
+		"oauth_token_url":     "https://idp/token",
+		"oauth_client_id":     "cid",
+		"oauth_client_secret": "csec",
+	})
+	if err == nil {
+		t.Fatal("an mcp connection was accepted with the jwt_bearer grant")
+	}
+	const want = `gateway: oauth.grant "jwt_bearer" not supported`
+	if !strings.Contains(err.Error(), want) {
+		t.Errorf("error = %q, want it to contain %q", err, want)
+	}
+}

@@ -14,6 +14,15 @@ No other mode can produce that assertion:
 - `oauth` exchanges credentials at a token endpoint. There is no token endpoint to exchange against.
 - `api_key` and `basic` send a static credential, not a signed, time-bounded claim set.
 
+## `signed_jwt` or the `jwt_bearer` grant
+
+The same keys sign an assertion for a second configuration: `auth_mode: oauth` with `oauth_grant: jwt_bearer` (RFC 7523). The claims and the keys are the same, and the difference is what happens to the assertion:
+
+- `signed_jwt` presents the assertion itself as `Authorization: Bearer <jwt>`. Use it when the upstream validates a JWT the client minted: its setup produces a client id and a secret or key, and nothing mentions a token endpoint.
+- `jwt_bearer` POSTs the assertion to the upstream's token endpoint and presents the access token the upstream issues in exchange. Use it when the upstream's setup names a token URL and a "JWT bearer" or "JWT authorization grant" flow, which is how many OAuth providers offer unattended server-to-server access. An upstream that validates only tokens it issued rejects a `signed_jwt` assertion however correct its claims are.
+
+Under `jwt_bearer` the algorithm defaults to `RS256`, the audience to `oauth_token_url`, and both `jwt_issuer` and `jwt_subject` are required. A refusal comes back as the token endpoint's error code and description rather than a 401 body, and alerts the connection alert recipients. [API Gateway: OAuth JWT bearer grant](api-gateway.md#oauth-jwt-bearer-grant-rfc-7523) documents the grant.
+
 ## Configuration
 
 | Key | Meaning |

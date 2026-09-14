@@ -90,12 +90,18 @@ func (a *Alerter) Revoked(ctx context.Context, rev authevents.Revocation) {
 		return
 	}
 	alert := Alert{
-		Kind:         rev.Kind,
-		Name:         rev.Name,
-		AuthorizedBy: rev.AuthorizedBy,
-		IDPHost:      rev.IDPHost,
-		Reason:       rev.Reason,
-		RevokedAt:    revokedAt(rev, a.cfg.Now),
+		Kind:            rev.Kind,
+		Name:            rev.Name,
+		AuthorizedBy:    rev.AuthorizedBy,
+		IDPHost:         rev.IDPHost,
+		Reason:          rev.Reason,
+		RevokedAt:       revokedAt(rev, a.cfg.Now),
+		SignedAssertion: rev.SignedAssertion,
+		Description:     rev.Description,
+	}
+	if alert.SignedAssertion {
+		a.announceRefusedAssertion(ctx, settings, alert)
+		return
 	}
 	// The row is opened even when there is nobody to mail. An unattributed
 	// connection is exactly the one whose revocation needs to reach the
@@ -116,6 +122,49 @@ func (a *Alerter) Revoked(ctx context.Context, rev authevents.Revocation) {
 		return
 	}
 	a.deliver(ctx, []string{alert.AuthorizedBy}, alert, nil)
+}
+
+// announceRefusedAssertion opens the row for a refused jwt_bearer assertion and
+// mails the operator's recipients straight away. There is no person who
+// authorized the connection to hear first and no escalation later: the
+// recipients are the only people the platform can tell, and the escalation
+// sweep skips the row.
+//
+// With no recipients configured the row is not opened. Nothing else reads it
+// and it would never be escalated, so an open row would only swallow the
+// refusals after an operator names recipients; left unopened, the next refusal
+// after that is announced.
+func (a *Alerter) announceRefusedAssertion(ctx context.Context, settings Settings, alert Alert) {
+	recipients := settings.EscalatesTo()
+	if len(recipients) == 0 {
+		slog.Warn("a connection's signed assertion was refused and no connection alert recipients are configured",
+			logKeyKind, logsan.SanitizeForLog(alert.Kind), logKeyName, logsan.SanitizeForLog(alert.Name))
+		return
+	}
+	opened, err := a.cfg.Alerts.Open(ctx, alert)
+	if err != nil {
+		warn("connection alert: recording a refused assertion failed", alert.Kind, alert.Name, err)
+		return
+	}
+	if !opened {
+		return
+	}
+	a.deliver(ctx, recipients, alert, nil)
+}
+
+// Restored forgets a connection's open alert once a jwt_bearer exchange has
+// been accepted. It runs on every accepted exchange, on every replica, so
+// clearing a connection with nothing open is the common case and costs one
+// statement; a failure is logged and the exchange's caller is unaffected.
+func (a *Alerter) Restored(ctx context.Context, kind, name string) {
+	if a == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), writeTimeout)
+	defer cancel()
+	if err := a.cfg.Alerts.Clear(ctx, kind, name); err != nil {
+		warn("connection alert: clearing after an accepted exchange failed", kind, name, err)
+	}
 }
 
 // escalation describes the second alert: the window that elapsed before the
@@ -157,6 +206,8 @@ func (a *Alerter) deliver(ctx context.Context, recipients []string, alert Alert,
 			Name:                alert.Name,
 			IDPHost:             alert.IDPHost,
 			Reason:              alert.Reason,
+			Description:         alert.Description,
+			SignedAssertion:     alert.SignedAssertion,
 			AuthorizedBy:        alert.AuthorizedBy,
 			RevokedAt:           alert.RevokedAt,
 			Escalated:           esc != nil,

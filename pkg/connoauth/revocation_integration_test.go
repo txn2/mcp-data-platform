@@ -23,6 +23,9 @@ func (s *capturedSink) Revoked(_ context.Context, rev authevents.Revocation) {
 	s.seen = append(s.seen, rev)
 }
 
+// Restored is part of the sink contract; no refresh path calls it.
+func (*capturedSink) Restored(context.Context, string, string) {}
+
 func (s *capturedSink) all() []authevents.Revocation {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -147,3 +147,65 @@ describe("ApiGatewayAuthFields — the browser sign-in flow", () => {
     expect(useStartConnectionOAuth).not.toHaveBeenCalledWith("api");
   });
 });
+
+// #1734: the HTTP-based kinds sign an RFC 7523 assertion and exchange it at the
+// token endpoint. The grant carries no browser flow and needs the signing
+// fields the server requires, and the client credential becomes optional.
+describe("ApiGatewayAuthFields — the jwt_bearer grant", () => {
+  const jwtBearer = {
+    auth_mode: "oauth",
+    oauth_grant: "jwt_bearer",
+    oauth_token_url: "https://login.example.com/services/oauth2/token",
+    jwt_private_key_pem: "[REDACTED]",
+    jwt_issuer: "3MVG9-consumer-key",
+    jwt_subject: "integration@example.com",
+  };
+
+  it("is offered by the grant picker", () => {
+    renderFields({ auth_mode: "oauth" });
+
+    fireEvent.click(screen.getByRole("combobox", { name: /grant type/i }));
+    expect(
+      screen.getByRole("option", { name: /^jwt_bearer/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("renders the signing fields with the RS256 default and no browser flow", () => {
+    renderFields(jwtBearer);
+
+    expect(screen.getByText("Signed assertion (RFC 7523)")).toBeInTheDocument();
+    expect(screen.getByLabelText(/signing key/i)).toHaveValue("[REDACTED]");
+    expect(screen.queryByLabelText(/^client secret$/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/issuer/i)).toHaveValue("3MVG9-consumer-key");
+    expect(screen.getByLabelText(/subject/i)).toHaveValue(
+      "integration@example.com",
+    );
+    expect(screen.getByLabelText(/audience/i)).toHaveAttribute(
+      "placeholder",
+      "(the token URL)",
+    );
+    expect(
+      screen.queryByLabelText(/^Authorization URL$/i),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /^Connect$/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/^Client ID$/i)).toHaveAccessibleDescription(
+      /optional/i,
+    );
+  });
+
+  it("writes the signing fields under the keys the server reads", () => {
+    const onChange = renderFields(jwtBearer);
+
+    fireEvent.change(screen.getByLabelText(/subject/i), {
+      target: { value: "svc-reporting@example.com" },
+    });
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        oauth_grant: "jwt_bearer",
+        jwt_subject: "svc-reporting@example.com",
+      }),
+    );
+  });
+});

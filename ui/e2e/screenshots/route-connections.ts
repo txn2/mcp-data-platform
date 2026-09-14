@@ -98,6 +98,29 @@ export const adminConnectionRoutes: ScreenshotRoute[] = [
     },
   },
   {
+    // The OAuth block on the jwt_bearer grant (#1734): the grant picker, the
+    // token endpoint and optional client credential, and the signed-assertion
+    // fields the grant adds.
+    slug: "admin-connection-jwt-bearer",
+    path: "/portal/admin/connections?kind=api&name=acme-ledger-api",
+    category: "admin",
+    beforeCapture: async (page) => {
+      const edit = page.locator("button:has-text('Edit')").first();
+      if (await edit.isVisible()) {
+        await edit.click();
+        await page.waitForTimeout(600);
+      }
+      // The grant picker is already in the first frame, so it is placed at
+      // the top rather than merely brought into view: what the capture is
+      // for is the signed-assertion block beneath it.
+      const grant = page.locator("text=Grant type").first();
+      if (await grant.isVisible()) {
+        await grant.evaluate((el) => el.scrollIntoView({ block: "start" }));
+        await page.waitForTimeout(300);
+      }
+    },
+  },
+  {
     // The Schema card on a graphql connection that holds a schema whose last
     // re-read the endpoint refused (#1689). The card renders the held schema
     // -- operation count, source, read time, hash -- with the refusal beside

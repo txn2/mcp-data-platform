@@ -24,6 +24,7 @@ import { useConnectionOAuthStatus } from "@/api/admin/hooks";
 import {
   ConnectionOAuthStatusCard,
   describeVerdictCode,
+  hasAuthorizationCodeState,
   formatActionError,
   renderDetailHint,
   revocationHeadline,
@@ -297,4 +298,34 @@ describe("History row labels distinguish IdP-rejected from locally-decided", () 
     });
     expect(hint).toBe("");
   });
+});
+
+// Only the authorization_code grant has a sign-in to complete and a stored
+// token to report; the status route answers 409 for every other grant. A card
+// rendered for them offered a Connect button that starts a flow the server
+// refuses, beside a "Status unavailable" error (#1734).
+describe("ConnectionOAuthStatusCard — which connections it renders for", () => {
+  it("renders only for the authorization_code grant, in either spelling", () => {
+    expect(hasAuthorizationCodeState("oauth2_authorization_code")).toBe(true);
+    expect(hasAuthorizationCodeState("oauth", "authorization_code")).toBe(true);
+    expect(hasAuthorizationCodeState("oauth", "client_credentials")).toBe(false);
+    expect(hasAuthorizationCodeState("oauth", "jwt_bearer")).toBe(false);
+    expect(hasAuthorizationCodeState("oauth")).toBe(false);
+    expect(hasAuthorizationCodeState("oauth2_client_credentials")).toBe(false);
+    expect(hasAuthorizationCodeState("signed_jwt")).toBe(false);
+  });
+
+  it.each(["jwt_bearer", "client_credentials"])(
+    "renders nothing for an oauth connection on the %s grant",
+    (grant) => {
+      mockStatus.mockClear();
+      const { container } = render(
+        <ConnectionOAuthStatusCard kind="api" name="erp" authMode="oauth" grant={grant} />,
+        { wrapper },
+      );
+
+      expect(container).toBeEmptyDOMElement();
+      expect(mockStatus).not.toHaveBeenCalled();
+    },
+  );
 });

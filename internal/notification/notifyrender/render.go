@@ -292,7 +292,7 @@ func buildItem(n notification.Notification) emailItem {
 		item.Message = ""
 	case notification.KindConnectionAuth:
 		item.Body = connAuthBody(n.Payload.Connection)
-		item.LinkText = connAuthLinkText
+		item.LinkText = connAuthLinkTextFor(n.Payload.Connection)
 	}
 	return item
 }

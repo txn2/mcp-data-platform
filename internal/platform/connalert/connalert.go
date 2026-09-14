@@ -18,10 +18,12 @@
 //	Settings   the operator's escalation window and recipient list, stored in
 //	           the platform_settings section the admin API writes
 //	AlertStore the open revocations: one row per connection, inserted when the
-//	           credential is discarded, deleted when it is authorized again,
+//	           credential is discarded or a jwt_bearer assertion is refused,
+//	           deleted when it is authorized again or an exchange is accepted,
 //	           and stamped once when the escalation goes out
 //	Alerter    the authevents.RevocationSink that opens the row and mails the
-//	           person whose authorization lapsed
+//	           person whose authorization lapsed, or the operator's recipients
+//	           when a signed assertion nobody authorized was refused
 //	Escalator  the timer that mails the operator's recipients about a
 //	           revocation nobody has acted on
 //
@@ -133,4 +135,11 @@ type Alert struct {
 	// RevokedAt is when the credential was discarded, and the instant the
 	// escalation window is measured from.
 	RevokedAt time.Time
+	// SignedAssertion marks a refused jwt_bearer assertion rather than a
+	// revoked authorization: nobody authorized it, so its one alert goes to
+	// the operator's recipients and is never escalated, and an accepted
+	// exchange clears it.
+	SignedAssertion bool
+	// Description is the upstream's error_description, when it sent one.
+	Description string
 }

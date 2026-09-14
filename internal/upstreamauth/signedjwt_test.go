@@ -440,9 +440,12 @@ func TestSignedJWTApplyReportsASigningFailure(t *testing.T) {
 	}
 	// An HMAC method handed an RSA key: SignedString refuses it.
 	a := &signedJWTAuth{
-		cfg:    cfg,
-		signer: signedJWTSigner{method: jwt.SigningMethodHS256, key: rsaKey},
-		now:    time.Now,
+		minter: assertionMinter{
+			cfg:    cfg,
+			signer: signedJWTSigner{method: jwt.SigningMethodHS256, key: rsaKey},
+			mode:   AuthModeSignedJWT,
+		},
+		now: time.Now,
 	}
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "https://erp.example.com/v1/thing", http.NoBody)

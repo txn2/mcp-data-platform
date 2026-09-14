@@ -12,6 +12,19 @@ import (
 // action the recipient came to perform.
 const connAuthLinkText = "Reauthorize the connection"
 
+// connAssertionLinkText labels the button on a refused-assertion alert. There
+// is nothing on the connection page to reauthorize: the reader goes there to
+// read which key, subject and token endpoint the connection uses.
+const connAssertionLinkText = "Open the connection"
+
+// connAuthLinkTextFor is the button label for an alert.
+func connAuthLinkTextFor(c *notification.ConnectionAuth) string {
+	if c != nil && c.SignedAssertion {
+		return connAssertionLinkText
+	}
+	return connAuthLinkText
+}
+
 // Reasons the platform reached the verdict without the upstream answering. The
 // email says so rather than reporting a rejection nobody made: "your
 // authorization was rejected" and "your authorization ran out" ask the reader
@@ -33,6 +46,9 @@ func connAuthSubject(c *notification.ConnectionAuth) string {
 	if c == nil || c.Name == "" {
 		return "A connection needs to be reauthorized"
 	}
+	if c.SignedAssertion {
+		return fmt.Sprintf("The connection %q cannot get an access token", c.Name)
+	}
 	if c.Escalated {
 		return fmt.Sprintf("The connection %q is still unauthorized", c.Name)
 	}
@@ -46,6 +62,9 @@ func connAuthSubject(c *notification.ConnectionAuth) string {
 func connAuthBody(c *notification.ConnectionAuth) string {
 	if c == nil {
 		return ""
+	}
+	if c.SignedAssertion {
+		return connAssertionBody(c)
 	}
 	sentences := []string{connAuthOpening(c)}
 	if !c.RevokedAt.IsZero() {
@@ -113,4 +132,37 @@ func connAuthConsequence(c *notification.ConnectionAuth) string {
 	}
 	return fmt.Sprintf("%s It has been %s and the connection has not been reauthorized, "+
 		"which is why this reached you.", stopped, waited)
+}
+
+// connAssertionBody is the body of a refused jwt_bearer assertion alert
+// (#1734). It differs from the revocation's in what it asks for: nothing was
+// discarded and nothing can be reconnected, so it names what the upstream said
+// and the three causes an operator fixes at the upstream, and says the alert
+// clears itself.
+func connAssertionBody(c *notification.ConnectionAuth) string {
+	at := "The upstream token endpoint"
+	if c.IDPHost != "" {
+		at = "The token endpoint at " + c.IDPHost
+	}
+	opening := at + " refused the signed assertion this connection exchanges for its access token"
+	switch {
+	case c.Reason != "" && c.Description != "":
+		opening += fmt.Sprintf(", answering %s: %q.", c.Reason, c.Description)
+	case c.Reason != "":
+		opening += ", answering " + c.Reason + "."
+	default:
+		opening += "."
+	}
+	sentences := []string{opening}
+	if !c.RevokedAt.IsZero() {
+		sentences = append(sentences,
+			fmt.Sprintf("That was at %s.", c.RevokedAt.UTC().Format("2006-01-02 15:04 UTC")))
+	}
+	sentences = append(sentences,
+		"Every call through this connection fails until the upstream accepts the assertion again, "+
+			"including the scheduled ones nobody is watching.",
+		"There is nothing to reconnect: the usual causes are a signing key or an integration user the upstream "+
+			"has not approved, or a clock that disagrees with the upstream's.",
+		"The platform signs a new assertion on the next call, and this alert clears the first time the upstream accepts one.")
+	return strings.Join(sentences, " ")
 }

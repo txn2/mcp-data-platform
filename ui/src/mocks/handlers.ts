@@ -1863,6 +1863,33 @@ export const handlers = [
         updated_at: new Date(Date.now() - 5 * 86400000).toISOString(),
       },
       {
+        // The api kind on the OAuth jwt_bearer grant (#1734).
+        kind: "api",
+        name: "acme-ledger-api",
+        connection: "acme-ledger-api",
+        description:
+          "Ledger REST API reached unattended: the platform signs an RS256 assertion with the key the ledger registered and exchanges it for an access token (RFC 7523).",
+        source: "database",
+        tools: ["api_discover", "api_invoke_endpoint", "api_export"],
+        config: {
+          base_url: "https://ledger.example.com/services/data/v61.0",
+          auth_mode: "oauth",
+          oauth_grant: "jwt_bearer",
+          oauth_token_url: "https://login.ledger.example.com/services/oauth2/token",
+          oauth_scope: "api",
+          jwt_algorithm: "RS256",
+          jwt_private_key_pem: "[REDACTED]",
+          jwt_key_id: "ledger-2026",
+          jwt_issuer: "3MVG9-acme-ledger-consumer",
+          jwt_subject: "integration@acme.example.com",
+          jwt_audience: "https://login.ledger.example.com",
+          jwt_token_lifetime: "180s",
+          jwt_issued_at_skew: "30s",
+        },
+        created_by: "admin@example.com",
+        updated_at: new Date(Date.now() - 6 * 86400000).toISOString(),
+      },
+      {
         kind: "mcp",
         name: "acme-crm-gateway",
         connection: "acme-crm-gateway",
