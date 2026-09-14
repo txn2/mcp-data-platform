@@ -9,6 +9,7 @@ import (
 
 	"github.com/getkin/kin-openapi/openapi3"
 
+	"github.com/txn2/mcp-data-platform/internal/soap"
 	"github.com/txn2/mcp-data-platform/internal/xmltree"
 )
 
@@ -46,6 +47,13 @@ type responseDecoder struct {
 	// SOAP or WebDAV answer without the caller passing anything, while a
 	// catalog-less connection keeps returning the raw text it always has.
 	declaredXML bool
+	// soapOperation records that the operation is a SOAP one. It does two
+	// things: it makes auto mode read an XML response without the catalog
+	// having declared one, because a SOAP operation answers XML by
+	// definition, and it makes the decoded tree worth checking for a
+	// soap:Fault. Both are confined to auto and the XML branch, so a caller
+	// who pinned decode=text gets the text they asked for.
+	soapOperation bool
 }
 
 // The media types this file names more than once: the XML type an operation
@@ -65,7 +73,10 @@ const (
 // resolving it is a path match against every spec of the connection on a call
 // whose answer is already known.
 func newResponseDecoder(in InvokeInput, specs map[string]*specState) responseDecoder {
-	d := responseDecoder{mode: in.Decode}
+	d := responseDecoder{
+		mode:          in.Decode,
+		soapOperation: resolveSOAPOperation(specs, in.Method, in.Path) != nil,
+	}
 	if in.Decode == "" || in.Decode == DecodeAuto {
 		d.declaredXML = resolveDeclaresXMLResponse(specs, in.Method, in.Path)
 	}
@@ -79,6 +90,10 @@ type decoded struct {
 	body any
 	json bool
 	note string
+	// fault is a soap:Fault's own message, empty when the response is not
+	// one. It becomes InvokeOutput.Error, which is what the audit record
+	// and the caller read the failure by.
+	fault string
 }
 
 // decode parses a response body according to the mode, the response
@@ -95,7 +110,13 @@ func (d responseDecoder) decode(contentType string, body []byte) decoded {
 	case DecodeJSON:
 		return decodeJSONBody(body)
 	case DecodeXML:
-		return decodeXMLBody(body)
+		out, root := decodeXMLBody(body)
+		if d.soapOperation {
+			if fault, isFault := soap.FaultFromTree(root); isFault {
+				out.fault = fault.Message()
+			}
+		}
+		return out
 	default:
 		return decoded{body: string(body)}
 	}
@@ -117,7 +138,7 @@ func (d responseDecoder) effectiveMode(contentType string) string {
 	if strings.Contains(mediaType, "json") {
 		return DecodeJSON
 	}
-	if d.declaredXML && (mediaType == "" || isXMLMediaType(mediaType)) {
+	if (d.declaredXML || d.soapOperation) && (mediaType == "" || isXMLMediaType(mediaType)) {
 		return DecodeXML
 	}
 	return DecodeText
@@ -137,12 +158,16 @@ func decodeJSONBody(body []byte) decoded {
 
 // decodeXMLBody parses XML into the same tree a managed script's xml.decode
 // produces, so one document reads the same way through either surface.
-func decodeXMLBody(body []byte) decoded {
+//
+// The parsed root is returned beside the rendered value so a caller that has
+// more to ask of the document — whether it is a soap:Fault — reads the tree
+// that was already built rather than parsing the body a second time.
+func decodeXMLBody(body []byte) (decoded, *xmltree.Node) {
 	root, err := xmltree.Decode(string(body), xmltree.DefaultLimits)
 	if err != nil {
-		return decoded{body: string(body), note: xmlDecodeNote(err)}
+		return decoded{body: string(body), note: xmlDecodeNote(err)}, nil
 	}
-	return decoded{body: xmlValue(root)}
+	return decoded{body: xmlValue(root)}, root
 }
 
 // xmlDecodeNote is the hint on a response that could not be read as XML. It

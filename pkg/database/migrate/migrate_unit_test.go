@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	migrateTestFileCount    = 290
+	migrateTestFileCount    = 292
 	migrateTestSuccess      = "success"
 	migrateTestFactoryError = "factory error"
 )
@@ -110,6 +110,11 @@ func TestMigrationsEmbedded(t *testing.T) {
 		"000052_drop_api_catalog_embedding_jobs.down.sql",
 		"000053_tool_embeddings.up.sql",
 		"000053_tool_embeddings.down.sql",
+		// The newest pair, so the spot-check covers the end of the
+		// sequence as well as its start: a migration added without its
+		// down file fails here rather than only at the count.
+		"000146_api_catalog_specs_spec_format.up.sql",
+		"000146_api_catalog_specs_spec_format.down.sql",
 	}
 
 	fileNames := make(map[string]bool)

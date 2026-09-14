@@ -142,6 +142,61 @@ Rules worth knowing before you wire one up:
 
 `trino_export` and `graphql_export` take the same `resource` block for a query result and a GraphQL document's result, on the same terms with one difference: both build their result in memory before any destination is chosen, so `portal.export.max_bytes` still bounds what they produce, and the library's ceiling applies on top of it. A managed script reaches the same destination through `platform.export(..., destination="resources", key="datasets/orders.csv")`; see [Running a script](../scripts/running.md).
 
+## SOAP upstreams and WSDL
+
+An API catalog spec entry carries a `spec_format`, which is `openapi` unless it says otherwise. Setting it to `wsdl` lets a connection be described by the WSDL its upstream already publishes, so a SOAP service gets everything the catalog gives every other connection: `api_discover` finds its operations, each operation carries the schema its XSD declares, semantic ranking has something to index, and per-operation route rules can be written.
+
+`spec_format` is orthogonal to `source_kind`. A WSDL can be pasted (`inline`), uploaded, or fetched from its `?wsdl` URL and refreshed from there, exactly like an OpenAPI document.
+
+```bash
+curl -X PUT "$PLATFORM/api/v1/admin/api-catalogs/orders/specs/default" \
+  -H "X-API-Key: $KEY" -H 'Content-Type: application/json' \
+  -d '{"source_kind":"url","spec_format":"wsdl","source_url":"https://erp.example.org/Orders.svc?wsdl"}'
+```
+
+The WSDL is converted to an OpenAPI document at save time and that document is what the gateway serves. The WSDL itself is kept beside it, so reading the spec back returns what was written rather than a generated document, and a refresh re-fetches and re-imports. A WSDL that cannot be imported fails the save, naming what was wrong, rather than registering a connection with no operations.
+
+### Calling a SOAP operation
+
+The caller sends the operation's fields. The gateway writes the envelope:
+
+```json
+{
+  "connection": "orders",
+  "operation_id": "GetOrder",
+  "body": {"OrderId": "A-9", "Detail": true}
+}
+```
+
+From the WSDL the gateway knows which envelope version to write, which media type to send (`text/xml` for SOAP 1.1, `application/soap+xml` for 1.2), where to announce the action (a quoted `SOAPAction` header for 1.1, a `action=` Content-Type parameter for 1.2), which namespace the body element is in, whether the schema qualifies its child elements, which fields are XML attributes rather than child elements, and what order an `xsd:sequence` requires them in. None of that is the caller's to get right.
+
+A **string** `body` is still sent verbatim, so a caller holding an envelope of their own — one a vendor's documentation supplies, one whose shape the schema cannot express — keeps that way through. A body that is neither an object nor a string is refused by name.
+
+### Faults
+
+A `soap:Fault` is reported as the upstream's own error: `error` carries the fault's code and its text, in either version's spelling (`faultcode`/`faultstring`, or `Code/Value` and `Reason/Text`). Without it the call reports only the HTTP status the fault is carried by, which is `500 Internal Server Error` while the sentence that explains the failure sits in the body. The full response body is returned as well, decoded as an XML tree, because the generated document declares the envelope media type on the operation's success response.
+
+### Route rules on a SOAP connection
+
+Every operation of a SOAP service is a POST to one address, which one OpenAPI path item cannot hold. The generated document therefore keys each operation under the service path followed by the operation name — `/Orders.svc/GetOrder` — and carries the real address separately. That key is what `api_discover` lists as the operation's path and what a persona's `api_routes` path glob matches, so a path rule names one operation exactly:
+
+```yaml
+api_routes:
+  - connection: orders
+    paths: ["/**"]
+  - connection: orders
+    paths: ["/Orders.svc/DeleteOrder"]
+    action: deny
+```
+
+The request still reaches `/Orders.svc`; only the addressing is per-operation.
+
+### What is not imported
+
+Document/literal bindings over SOAP 1.1 and 1.2, which is the overwhelming majority of what is deployed. RPC and encoded bindings are refused by name rather than imported wrongly — their body element is assembled from operation and part names rather than declared by a schema, so importing them as document/literal would describe a request shape that does not exist. Also out of scope: WSDL 2.0, MTOM attachments, and WS-Security headers beyond what `static_headers` or the connection's own auth mode already provide.
+
+References inside a WSDL are resolved by the local part of their name, within the document. A WSDL whose messages or types live in a schema it imports is refused, naming what could not be resolved, rather than silently importing an operation with an empty body shape.
+
 ## Request bodies
 
 The `body` argument is a JSON value, and the connection's catalog decides how it reaches the upstream. The resolved operation's declared `requestBody` media type drives the encoding, so a caller passes the data and never the framing:

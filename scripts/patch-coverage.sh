@@ -54,8 +54,11 @@ git diff --unified=0 "$MERGE_BASE" | awk '
         f = substr($0, 7)
         # skip non-Go and test files; skip dev-only fixtures whose
         # purpose is local-dev support rather than runtime behavior.
+        # cmd/dev-*-mock are the stand-in upstreams dev/start.sh runs
+        # (dev-mcp-mock, dev-soap-mock): they exercise the platform and
+        # ship in no release, so they are outside this gate.
         if (f !~ /\.go$/ || f ~ /_test\.go$/) f = ""
-        if (f ~ /^cmd\/dev-mcp-mock\//) f = ""
+        if (f ~ /^cmd\/dev-[a-z0-9-]+-mock\//) f = ""
         # internal/httpserver/dbmounts.go holds the two composition-root mount
         # functions whose bodies only run against a live Postgres (portal/
         # resource store assembly). Real-DB tests are confined to the

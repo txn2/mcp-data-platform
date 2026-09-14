@@ -61,7 +61,7 @@ func (h *handler) listSpecOperations(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	ops, basePath, err := apigatewaykit.SpecOperations(spec.Content, spec.SpecName, spec.BasePath)
+	ops, basePath, err := apigatewaykit.SpecOperations(spec.Effective(), spec.SpecName, spec.BasePath)
 	if err != nil {
 		// The spec is stored but does not parse. That is a real state —
 		// content can be written before a parser upgrade, or fetched from
@@ -111,7 +111,7 @@ func (h *handler) getSpecOperation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	detail, err := apigatewaykit.SpecOperation(
-		spec.Content, spec.SpecName, spec.BasePath, r.PathValue(catalogPathOperation))
+		spec.Effective(), spec.SpecName, spec.BasePath, r.PathValue(catalogPathOperation))
 	switch {
 	case errors.Is(err, apigatewaykit.ErrOperationNotFound):
 		httpjson.WriteError(w, http.StatusNotFound, "operation not found")

@@ -549,6 +549,8 @@ func (h *handler) copyCatalogSpecs(w http.ResponseWriter, r *http.Request, srcID
 			Description:    s.Description,
 			LastFetchedAt:  s.LastFetchedAt,
 			OperationCount: s.OperationCount,
+			SpecFormat:     s.SpecFormat,
+			OpenAPIContent: s.OpenAPIContent,
 		}
 		if upErr := h.cfg.Catalogs.UpsertSpec(r.Context(), dstID, clone); upErr != nil {
 			httpjson.WriteError(w, http.StatusInternalServerError,
@@ -588,9 +590,14 @@ func (h *handler) copyCatalogSpecs(w http.ResponseWriter, r *http.Request, srcID
 // See catalog.NormalizeBasePath for the leading-slash / trailing-
 // slash / control-character rules enforced on write.
 type specResponse struct {
-	SpecName   string `json:"spec_name"`
+	SpecName string `json:"spec_name"`
+	// Content is what the operator supplied, in the format spec_format
+	// names. For a wsdl spec it is the WSDL, not the OpenAPI document the
+	// gateway serves, so the editor round-trips what was written.
 	Content    string `json:"content,omitempty"`
 	SourceKind string `json:"source_kind"`
+	// SpecFormat is what Content is: "openapi" or "wsdl".
+	SpecFormat string `json:"spec_format"`
 	SourceURL  string `json:"source_url,omitempty"`
 	ETag       string `json:"etag,omitempty"`
 	BasePath   string `json:"base_path,omitempty"`
@@ -709,7 +716,12 @@ func (h *handler) getCatalogSpec(w http.ResponseWriter, r *http.Request) {
 // via catalog.NormalizeSpecTitle / NormalizeSpecDescription at write
 // time: trimmed, no CR/LF/NUL, capped at 200 / 2000 chars.
 type upsertCatalogSpecRequest struct {
-	SourceKind  string `json:"source_kind"`
+	SourceKind string `json:"source_kind"`
+	// SpecFormat is what Content is: "openapi" (the default, and what an
+	// omitted value means) or "wsdl". It is orthogonal to SourceKind, so a
+	// WSDL can be pasted, uploaded, or fetched and refreshed from its ?wsdl
+	// URL exactly like an OpenAPI document.
+	SpecFormat  string `json:"spec_format,omitempty"`
 	Content     string `json:"content,omitempty"`
 	SourceURL   string `json:"source_url,omitempty"`
 	BasePath    string `json:"base_path,omitempty"`
@@ -763,11 +775,10 @@ func (h *handler) upsertCatalogSpec(w http.ResponseWriter, r *http.Request) {
 		httpjson.WriteError(w, status, err.Error())
 		return
 	}
-	if err := apicatalog.ValidateContent(entry.Content); err != nil {
+	if err := prepareSpec(&entry); err != nil {
 		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	entry.OperationCount = apicatalog.CountOperations(entry.Content)
 	if err := h.cfg.Catalogs.UpsertSpec(r.Context(), id, entry); err != nil {
 		httpjson.WriteError(w, h.specErrorStatus(err), "failed to save spec: "+err.Error())
 		return
@@ -797,6 +808,7 @@ func (*handler) materializeSpec(ctx context.Context, specName string, req upsert
 			SpecName:    specName,
 			Content:     req.Content,
 			SourceKind:  apicatalog.SourceInline,
+			SpecFormat:  req.SpecFormat,
 			BasePath:    req.BasePath,
 			Title:       req.Title,
 			Description: req.Description,
@@ -813,6 +825,7 @@ func (*handler) materializeSpec(ctx context.Context, specName string, req upsert
 			SpecName:      specName,
 			Content:       res.Content,
 			SourceKind:    apicatalog.SourceURL,
+			SpecFormat:    req.SpecFormat,
 			SourceURL:     req.SourceURL,
 			ETag:          res.ETag,
 			BasePath:      req.BasePath,
@@ -924,8 +937,12 @@ func applyUploadSpecMetadata(entry *apicatalog.SpecEntry, q url.Values, existing
 	entry.BasePath = q.Get("base_path")
 	entry.Title = q.Get("title")
 	entry.Description = q.Get("description")
+	entry.SpecFormat = q.Get("spec_format")
 	if existing == nil {
 		return
+	}
+	if entry.SpecFormat == "" {
+		entry.SpecFormat = existing.SpecFormat
 	}
 	if entry.BasePath == "" {
 		entry.BasePath = existing.BasePath
@@ -947,6 +964,7 @@ func applyUploadSpecMetadata(entry *apicatalog.SpecEntry, q url.Values, existing
 // @Produce      json
 // @Param        id           path      string  true   "Catalog ID"
 // @Param        spec         path      string  true   "Spec name"
+// @Param        spec_format  query     string  false  "Spec format: openapi (default) or wsdl"
 // @Param        base_path    query     string  false  "Operator base_path override"
 // @Param        title        query     string  false  "Operator title override"
 // @Param        description  query     string  false  "Operator description override"
@@ -982,11 +1000,10 @@ func (h *handler) uploadCatalogSpec(w http.ResponseWriter, r *http.Request) {
 		existing = nil
 	}
 	applyUploadSpecMetadata(&entry, r.URL.Query(), existing)
-	if err := apicatalog.ValidateContent(entry.Content); err != nil {
+	if err := prepareSpec(&entry); err != nil {
 		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	entry.OperationCount = apicatalog.CountOperations(entry.Content)
 	if err := h.cfg.Catalogs.UpsertSpec(r.Context(), id, entry); err != nil {
 		httpjson.WriteError(w, h.specErrorStatus(err), "failed to save spec: "+err.Error())
 		return
@@ -1040,16 +1057,23 @@ func (h *handler) refreshCatalogSpec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	entry := apicatalog.SpecEntry{
-		SpecName:       specName,
-		Content:        res.Content,
-		SourceKind:     apicatalog.SourceURL,
-		SourceURL:      existing.SourceURL,
-		ETag:           res.ETag,
-		BasePath:       existing.BasePath,
-		Title:          existing.Title,
-		Description:    existing.Description,
-		LastFetchedAt:  res.FetchedAt,
-		OperationCount: apicatalog.CountOperations(res.Content),
+		SpecName:      specName,
+		Content:       res.Content,
+		SourceKind:    apicatalog.SourceURL,
+		SpecFormat:    existing.SpecFormat,
+		SourceURL:     existing.SourceURL,
+		ETag:          res.ETag,
+		BasePath:      existing.BasePath,
+		Title:         existing.Title,
+		Description:   existing.Description,
+		LastFetchedAt: res.FetchedAt,
+	}
+	// A WSDL refreshed from its ?wsdl URL is re-imported here, so a spec
+	// whose upstream regenerated its service description picks up the new
+	// operations rather than keeping the render of the document it replaced.
+	if err := prepareSpec(&entry); err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 	if err := h.cfg.Catalogs.UpsertSpec(r.Context(), id, entry); err != nil {
 		httpjson.WriteError(w, http.StatusInternalServerError, "failed to save refreshed spec: "+err.Error())
@@ -1123,6 +1147,7 @@ func specToResponse(s apicatalog.SpecEntry, includeContent bool) specResponse {
 	resp := specResponse{
 		SpecName:      s.SpecName,
 		SourceKind:    s.SourceKind,
+		SpecFormat:    s.Format(),
 		SourceURL:     s.SourceURL,
 		ETag:          s.ETag,
 		BasePath:      s.BasePath,

@@ -16,7 +16,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import { EmbeddingStatusBadge, SourceBadge } from "./badges";
+import { EmbeddingStatusBadge, FormatBadge, SourceBadge } from "./badges";
 
 export interface SpecRowActions {
   pendingRetry: Set<string>;
@@ -148,7 +148,10 @@ export function SpecList({
               <TableRow key={s.spec_name}>
                 <TableCell className="font-mono">{s.spec_name}</TableCell>
                 <TableCell>
-                  <SourceBadge kind={s.source_kind} url={s.source_url} />
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <SourceBadge kind={s.source_kind} url={s.source_url} />
+                    <FormatBadge format={s.spec_format} />
+                  </div>
                 </TableCell>
                 <TableCell>
                   <EmbeddingStatusBadge status={status} />

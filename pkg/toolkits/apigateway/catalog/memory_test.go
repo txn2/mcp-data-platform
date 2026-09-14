@@ -614,3 +614,47 @@ func TestMemoryStore_EmbeddingCoverage(t *testing.T) {
 		t.Errorf("coverage = (indexed %d, expected %d); want (3, 4)", indexed, expected)
 	}
 }
+
+// TestMemoryStore_UpsertSpec_RejectsAnUnknownSpecFormat holds the in-memory
+// store to the same validation the Postgres one applies. A deployment with no
+// database registers its catalogs here, so a format neither store understands
+// has to be refused by both or the two disagree about what is storable.
+func TestMemoryStore_UpsertSpec_RejectsAnUnknownSpecFormat(t *testing.T) {
+	t.Parallel()
+	store := NewMemoryStore()
+	ctx := context.Background()
+	if err := store.CreateCatalog(ctx, Catalog{ID: "erp", Name: "erp", DisplayName: "ERP"}); err != nil {
+		t.Fatalf("CreateCatalog: %v", err)
+	}
+	err := store.UpsertSpec(ctx, "erp", SpecEntry{
+		SpecName: "orders", Content: "x", SourceKind: SourceInline, SpecFormat: "raml",
+	})
+	if !errors.Is(err, ErrInvalidSpecFormat) {
+		t.Fatalf("err=%v want ErrInvalidSpecFormat", err)
+	}
+}
+
+// The two known formats are both storable, and an empty value means openapi so
+// a caller written before the field is not required to start sending it.
+func TestMemoryStore_UpsertSpec_AcceptsEveryKnownSpecFormat(t *testing.T) {
+	t.Parallel()
+	store := NewMemoryStore()
+	ctx := context.Background()
+	if err := store.CreateCatalog(ctx, Catalog{ID: "erp", Name: "erp", DisplayName: "ERP"}); err != nil {
+		t.Fatalf("CreateCatalog: %v", err)
+	}
+	for _, format := range []string{"", FormatOpenAPI, FormatWSDL} {
+		if err := store.UpsertSpec(ctx, "erp", SpecEntry{
+			SpecName: "orders", Content: "x", SourceKind: SourceInline, SpecFormat: format,
+		}); err != nil {
+			t.Errorf("spec_format %q was refused: %v", format, err)
+		}
+	}
+	saved, err := store.GetSpec(ctx, "erp", "orders")
+	if err != nil {
+		t.Fatalf("GetSpec: %v", err)
+	}
+	if saved.Format() != FormatWSDL {
+		t.Errorf("Format() = %q after the last write, want %q", saved.Format(), FormatWSDL)
+	}
+}

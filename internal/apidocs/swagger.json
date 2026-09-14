@@ -1030,6 +1030,12 @@
                     },
                     {
                         "type": "string",
+                        "description": "Spec format: openapi (default) or wsdl",
+                        "name": "spec_format",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
                         "description": "Operator base_path override",
                         "name": "base_path",
                         "in": "query"
@@ -26024,6 +26030,7 @@
                     "type": "string"
                 },
                 "content": {
+                    "description": "Content is what the operator supplied, in the format spec_format\nnames. For a wsdl spec it is the WSDL, not the OpenAPI document the\ngateway serves, so the editor round-trips what was written.",
                     "type": "string"
                 },
                 "created_at": {
@@ -26062,6 +26069,10 @@
                     "type": "string"
                 },
                 "source_url": {
+                    "type": "string"
+                },
+                "spec_format": {
+                    "description": "SpecFormat is what Content is: \"openapi\" or \"wsdl\".",
                     "type": "string"
                 },
                 "spec_name": {
@@ -26109,6 +26120,10 @@
                     "type": "string"
                 },
                 "source_url": {
+                    "type": "string"
+                },
+                "spec_format": {
+                    "description": "SpecFormat is what Content is: \"openapi\" (the default, and what an\nomitted value means) or \"wsdl\". It is orthogonal to SourceKind, so a\nWSDL can be pasted, uploaded, or fetched and refreshed from its ?wsdl\nURL exactly like an OpenAPI document.",
                     "type": "string"
                 },
                 "title": {

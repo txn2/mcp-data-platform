@@ -901,7 +901,10 @@ func (t *Toolkit) buildConnSpecs(connName, catalogID, connBaseURL string) (
 	specs = make(map[string]*specState, len(entries))
 	vectors = make(map[embedKey][]float32)
 	for _, e := range entries {
-		doc, perr := parseOpenAPISpec(e.Content)
+		// Effective, not Content: a spec supplied as a WSDL stores the
+		// operator's document and the OpenAPI the importer rendered from
+		// it, and the gateway serves the latter.
+		doc, perr := parseOpenAPISpec(e.Effective())
 		if perr != nil {
 			slog.Warn("apigateway: skipping unparseable spec",
 				logKeyConnection, logsan.SanitizeForLog(connName), logKeyCatalogID, logsan.SanitizeForLog(catalogID),

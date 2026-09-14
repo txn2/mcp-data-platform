@@ -54,7 +54,7 @@ func (s *catalogSource) LoadItems(ctx context.Context, sourceID string) ([]index
 	if err != nil {
 		return nil, fmt.Errorf("catalogSource: get spec: %w", err)
 	}
-	ops, err := apigatewaykit.BuildOperationItems(spec.Content, specName)
+	ops, err := apigatewaykit.BuildOperationItems(spec.Effective(), specName)
 	if err != nil {
 		return nil, fmt.Errorf("catalogSource: build items: %w", err)
 	}

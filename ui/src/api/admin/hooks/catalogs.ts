@@ -18,6 +18,12 @@ export interface APICatalogSummary {
   ref_count: number;
 }
 
+// APISpecFormat is what a spec entry's `content` is. It is declared once here
+// and used by every reader, so the form that writes it and the type that
+// carries it cannot disagree about which formats exist. Keep it in sync with
+// catalog.FormatOpenAPI / FormatWSDL.
+export type APISpecFormat = "openapi" | "wsdl";
+
 export interface APICatalogSpec {
   spec_name: string;
   content?: string;
@@ -27,6 +33,12 @@ export interface APICatalogSpec {
   // do not persist; the portal treats them as read-only. Keep this union
   // in sync with the backend's source-kind constants.
   source_kind: "inline" | "upload" | "url" | "embedded";
+  // What `content` is. "wsdl" specs store the WSDL the operator supplied and
+  // serve an OpenAPI document the platform renders from it, so `content` here
+  // is always what was written rather than what the gateway parses. Orthogonal
+  // to source_kind: a WSDL can be pasted, uploaded, or refreshed from a URL.
+  // Keep this union in sync with catalog.FormatOpenAPI / FormatWSDL.
+  spec_format?: APISpecFormat;
   source_url?: string;
   etag?: string;
   // Operator-set per-spec URL prefix applied at api_discover
@@ -217,6 +229,7 @@ export function useUpsertAPICatalogSpec() {
       catalogID: string;
       specName: string;
       source_kind: "inline" | "url";
+      spec_format?: APISpecFormat;
       content?: string;
       source_url?: string;
       base_path?: string;
@@ -236,6 +249,30 @@ export function useUpsertAPICatalogSpec() {
   });
 }
 
+// uploadSpecQuery builds the override query string the upload route reads.
+// The multipart body carries only the file, so every piece of metadata — the
+// format the document is in, and the three display overrides — travels here.
+// An empty or whitespace-only override is omitted rather than sent, which is
+// what preserves the previously stored value on a routine re-upload.
+function uploadSpecQuery(overrides: {
+  spec_format?: APISpecFormat;
+  base_path?: string;
+  title?: string;
+  description?: string;
+}): string {
+  const params = new URLSearchParams();
+  if (overrides.spec_format) params.set("spec_format", overrides.spec_format);
+  const trimmed: [string, string | undefined][] = [
+    ["base_path", overrides.base_path],
+    ["title", overrides.title],
+    ["description", overrides.description],
+  ];
+  for (const [key, raw] of trimmed) {
+    if (raw && raw.trim() !== "") params.set(key, raw.trim());
+  }
+  return params.toString() ? `?${params.toString()}` : "";
+}
+
 export function useUploadAPICatalogSpec() {
   const qc = useQueryClient();
   return useMutation({
@@ -243,6 +280,7 @@ export function useUploadAPICatalogSpec() {
       catalogID,
       specName,
       file,
+      spec_format,
       base_path,
       title,
       description,
@@ -250,17 +288,14 @@ export function useUploadAPICatalogSpec() {
       catalogID: string;
       specName: string;
       file: File;
+      spec_format?: APISpecFormat;
       base_path?: string;
       title?: string;
       description?: string;
     }) => {
       const form = new FormData();
       form.append("file", file);
-      const params = new URLSearchParams();
-      if (base_path && base_path.trim() !== "") params.set("base_path", base_path.trim());
-      if (title && title.trim() !== "") params.set("title", title.trim());
-      if (description && description.trim() !== "") params.set("description", description.trim());
-      const qs = params.toString() ? `?${params.toString()}` : "";
+      const qs = uploadSpecQuery({ spec_format, base_path, title, description });
       const res = await apiFetchRaw(
         `/api-catalogs/${catalogID}/specs/${specName}/upload${qs}`,
         { method: "PUT", body: form },

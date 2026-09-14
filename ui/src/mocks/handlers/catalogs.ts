@@ -170,6 +170,7 @@ export const catalogHandlers = [
       const spec: APICatalogSpec = {
         spec_name: name,
         source_kind: body.source_kind ?? "inline",
+        spec_format: body.spec_format ?? existing?.spec_format ?? "openapi",
         content: body.content ?? existing?.content,
         source_url: body.source_url ?? existing?.source_url,
         base_path: body.base_path ?? existing?.base_path,
@@ -205,6 +206,10 @@ export const catalogHandlers = [
       const spec: APICatalogSpec = {
         spec_name: name,
         source_kind: "upload",
+        spec_format:
+          (url.searchParams.get("spec_format") as APICatalogSpec["spec_format"]) ??
+          existing?.spec_format ??
+          "openapi",
         content: existing?.content,
         base_path: url.searchParams.get("base_path") ?? existing?.base_path,
         title: url.searchParams.get("title") ?? existing?.title,
