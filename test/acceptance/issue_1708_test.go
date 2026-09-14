@@ -211,7 +211,7 @@ func (r *issue1708Recorder) RoundTrip(req *http.Request) (*http.Response, error)
 // call succeeds, and both processes answered part of the session.
 func TestIssue1708_AnMCPSessionContinuesOnBothReplicas(t *testing.T) {
 	rec := &issue1708Recorder{instances: map[string]int{}}
-	c := connectVia(t, baseURL(), devAPIKey(), rec)
+	c := connectVia(t, baseURL(), devAPIKey(), rec, sessionTimeout)
 	for range 4 {
 		out := c.call("list_connections", nil)
 		if len(out) == 0 {

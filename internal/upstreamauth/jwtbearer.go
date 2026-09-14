@@ -21,16 +21,6 @@ import (
 // for exchanging a JWT assertion at a token endpoint.
 const JWTBearerGrantType = "urn:ietf:params:oauth:grant-type:jwt-bearer" // #nosec G101 -- grant type URN, not a credential
 
-// DefaultJWTBearerAccessTokenLifetime is how long an access token from a
-// jwt_bearer exchange is reused when the token endpoint's response carries
-// no expires_in. RFC 6749 section 5.1 makes expires_in optional, and
-// golang.org/x/oauth2 treats a token with no expiry as valid forever, so an
-// upstream that omits it would otherwise have its first access token
-// presented until the session behind it ended and every call failed. The
-// exchange is unattended and costs one request, so a window this short
-// bounds how long an ended session can go unnoticed for little cost.
-const DefaultJWTBearerAccessTokenLifetime = 15 * time.Minute
-
 // jwtBearerMode names this grant in the errors the authenticator returns.
 const jwtBearerMode = "oauth jwt_bearer" // #nosec G101 -- mode name, not a credential
 
@@ -125,7 +115,7 @@ func newJWTBearerAuth(c Config) (*jwtBearerAuth, error) {
 		now:      time.Now,
 		accepted: a.accepted,
 	}
-	a.src = oauth2.ReuseTokenSource(nil, exchange)
+	a.src = oauth2.ReuseTokenSource(nil, withBoundedExpiry(exchange, exchange.now))
 	return a, nil
 }
 
@@ -265,9 +255,6 @@ func (e *jwtBearerExchange) Token() (*oauth2.Token, error) {
 	tok, err := e.request(assertion).Token(e.ctx)
 	if err != nil {
 		return nil, err //nolint:wrapcheck // Apply classifies and scrubs the library's error
-	}
-	if tok.Expiry.IsZero() {
-		tok.Expiry = now.Add(DefaultJWTBearerAccessTokenLifetime)
 	}
 	// A refresh token is not used by this grant; it is not held.
 	tok.RefreshToken = ""

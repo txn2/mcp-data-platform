@@ -370,9 +370,10 @@ func TestJWTBearerReusesTheAccessToken(t *testing.T) {
 }
 
 // TestJWTBearerBoundsATokenWithNoExpiry covers an upstream whose response has
-// no expires_in: the token is given DefaultJWTBearerAccessTokenLifetime rather
-// than the unbounded lifetime the library would infer, and any refresh token
-// in the response is not held.
+// no expires_in: the exchange composed as newJWTBearerAuth composes it gives
+// the token DefaultUpstreamAccessTokenLifetime rather than the unbounded
+// lifetime the library would infer, and any refresh token in the response is
+// not held.
 func TestJWTBearerBoundsATokenWithNoExpiry(t *testing.T) {
 	endpoint := newTokenEndpoint(t)
 	endpoint.answer(http.StatusOK, `{"access_token":"at-forever","token_type":"Bearer","refresh_token":"rt-unused"}`)
@@ -390,11 +391,11 @@ func TestJWTBearerBoundsATokenWithNoExpiry(t *testing.T) {
 		now:      func() time.Time { return now },
 		accepted: func(context.Context) { accepted++ },
 	}
-	tok, err := exchange.Token()
+	tok, err := withBoundedExpiry(exchange, exchange.now).Token()
 	if err != nil {
 		t.Fatalf("Token: %v", err)
 	}
-	if want := now.Add(DefaultJWTBearerAccessTokenLifetime); !tok.Expiry.Equal(want) {
+	if want := now.Add(DefaultUpstreamAccessTokenLifetime); !tok.Expiry.Equal(want) {
 		t.Errorf("expiry = %s, want %s", tok.Expiry, want)
 	}
 	if tok.RefreshToken != "" {

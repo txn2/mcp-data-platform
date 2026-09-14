@@ -92,6 +92,16 @@ func connect(t *testing.T) *client {
 	return connectAs(t, devAPIKey())
 }
 
+// connectFor is connect for a criterion whose own waits outlast
+// sessionTimeout. The default is sized for a criterion that calls and asserts;
+// one that waits on something the platform runs on its own schedule has to say
+// how long it waits for, or its last assertion fails on the suite's deadline
+// rather than on the platform's behavior (#1738).
+func connectFor(t *testing.T, timeout time.Duration) *client {
+	t.Helper()
+	return connectAtFor(t, baseURL(), devAPIKey(), timeout)
+}
+
 // devAPIKey is the administrator key the suite authenticates with: MCP_API_KEY,
 // or the dev stack's.
 func devAPIKey() string {
@@ -224,14 +234,23 @@ func connectReplicaPair(t *testing.T) (a, b *client) {
 // connectAt opens a session on one platform process as one identity.
 func connectAt(t *testing.T, target, apiKey string) *client {
 	t.Helper()
-	return connectVia(t, target, apiKey, http.DefaultTransport)
+	return connectAtFor(t, target, apiKey, sessionTimeout)
 }
 
-// connectVia is connectAt over a given transport, for a criterion that reads
-// what the HTTP exchanges under a session carried.
-func connectVia(t *testing.T, target, apiKey string, transport http.RoundTripper) *client {
+// connectAtFor is connectAt for a criterion that waits longer than
+// sessionTimeout on one named replica, rather than on whichever the proxy
+// picks.
+func connectAtFor(t *testing.T, target, apiKey string, timeout time.Duration) *client {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), sessionTimeout)
+	return connectVia(t, target, apiKey, http.DefaultTransport, timeout)
+}
+
+// connectVia is connectAt over a given transport and deadline, for a criterion
+// that reads what the HTTP exchanges under a session carried, or one that
+// waits longer than sessionTimeout.
+func connectVia(t *testing.T, target, apiKey string, transport http.RoundTripper, timeout time.Duration) *client {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	t.Cleanup(cancel)
 
 	httpClient := &http.Client{Transport: authRoundTripper{key: apiKey, base: transport}}
