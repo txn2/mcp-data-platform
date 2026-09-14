@@ -230,6 +230,7 @@ export function ApiGatewayAuthFields({
           config={config}
           onChange={onChange}
           endpointAuthStyle
+          jwtBearer
           connect={
             <ConnectPanel
               kind={kind}

@@ -110,20 +110,33 @@ Connections of kind `api`, `graphql` and `mcp` share one OAuth block, because
 all three read the same connection-config keys. Selecting **OAuth 2.1** as the
 auth mode reveals it:
 
-- **Grant type** (`oauth_grant`) — `client_credentials` (machine-to-machine) or
-  `authorization_code + PKCE` (browser sign-in). The grant is its own field, not
-  part of the mode name, which is why one mode serves both flows.
+- **Grant type** (`oauth_grant`) — `client_credentials` (machine-to-machine),
+  `authorization_code + PKCE` (browser sign-in), or, on the `api` and `graphql`
+  kinds, `jwt_bearer` (a signed assertion exchanged for an access token, RFC
+  7523). The grant is its own field, not part of the mode name, which is why one
+  mode serves every flow. The `mcp` kind does not offer `jwt_bearer`.
 - **Authorization URL** (`oauth_authorization_url`) — appears only for
   `authorization_code`, with the **Connect** button beneath it.
 - **Token URL** (`oauth_token_url`) — the endpoint the platform POSTs the grant to.
 - **Client ID** and **Client Secret** (`oauth_client_id`, `oauth_client_secret`) —
   the secret is encrypted at rest and shown back as `[REDACTED]`. Re-saving with
-  `[REDACTED]` keeps the stored value; pasting a new one rotates it.
+  `[REDACTED]` keeps the stored value; pasting a new one rotates it. Optional
+  under `jwt_bearer`, for an upstream that also authenticates the client on the
+  token request.
 - **Scope** (`oauth_scope`) — one space-delimited string, the OAuth 2.0 wire form.
 - **Endpoint auth style** (`oauth_endpoint_auth_style`) — `header` (the OAuth 2.1
   default) or `params`, which some identity providers require. Shown for the
   HTTP-based kinds.
 - **OIDC prompt** (`oauth_prompt`) — `authorization_code` only.
+- **Signed assertion (RFC 7523)** — `jwt_bearer` only: the Signed JWT block
+  below, with the algorithm defaulting to `RS256`, the audience to the token
+  URL, and **Issuer** and **Subject** both required. The issuer is usually the
+  application's client id and the subject the integration user the upstream
+  approved for it.
+
+The OAuth status card, with its **Connect** and **Refresh now** buttons, is
+shown only for `authorization_code`: it reports the token a browser sign-in
+stored, and the other grants store none.
 
 ![OAuth 2.1 credentials](../images/screenshots/light/admin-admin-connection-oauth-light.webp#only-light)![OAuth 2.1 credentials](../images/screenshots/dark/admin-admin-connection-oauth-dark.webp#only-dark)
 
@@ -143,6 +156,11 @@ ignored keys. The canonical value is the live one, so the field the editor
 shows is the field to correct; saving the connection drops the rest.
 
 ![Shadowed OAuth keys](../images/screenshots/light/admin-admin-connection-oauth-shadowed-light.webp#only-light)![Shadowed OAuth keys](../images/screenshots/dark/admin-admin-connection-oauth-shadowed-dark.webp#only-dark)
+
+An `api` connection on the `jwt_bearer` grant, with the token endpoint, the
+optional client credential and the signed assertion's fields:
+
+![OAuth JWT bearer credentials](../images/screenshots/light/admin-admin-connection-jwt-bearer-light.webp#only-light)![OAuth JWT bearer credentials](../images/screenshots/dark/admin-admin-connection-jwt-bearer-dark.webp#only-dark)
 
 ### HTTP Connections: the Signed JWT block
 

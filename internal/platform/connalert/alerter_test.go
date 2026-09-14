@@ -237,6 +237,124 @@ func TestAlerter_QuietPaths(t *testing.T) {
 	})
 }
 
+// refusedAssertion is what a jwt_bearer connection's refused exchange
+// announces: no person authorized it, and the upstream said why.
+func refusedAssertion() authevents.Revocation {
+	return authevents.Revocation{
+		Kind: "graphql", Name: "erp", IDPHost: "login.example.com",
+		Reason: "invalid_grant", Description: "user hasn't approved this consumer",
+		SignedAssertion: true, At: time.Date(2026, 9, 13, 9, 0, 0, 0, time.UTC),
+	}
+}
+
+// TestAlerter_RefusedAssertionTellsTheRecipientsAtOnce is the #1734 alert
+// criterion: nobody authorized a signed assertion, so the operator's
+// recipients are told on the first refusal rather than after the escalation
+// window, with the upstream's description, and once per open refusal.
+func TestAlerter_RefusedAssertionTellsTheRecipientsAtOnce(t *testing.T) {
+	a, alerts, queue := harness(t, Settings{
+		Enabled: true, EscalateAfterHours: 24,
+		Recipients: []string{"oncall@example.com", " ", "platform@example.com"},
+	})
+
+	a.Revoked(t.Context(), refusedAssertion())
+	a.Revoked(t.Context(), refusedAssertion())
+
+	rows := queue.all()
+	require.Len(t, rows, 2, "one alert per configured recipient, once per open refusal")
+	assert.Equal(t, "oncall@example.com", rows[0].recipient)
+	assert.Equal(t, "platform@example.com", rows[1].recipient)
+	conn := rows[0].payload.Connection
+	require.NotNil(t, conn)
+	assert.True(t, conn.SignedAssertion)
+	assert.Equal(t, "user hasn't approved this consumer", conn.Description)
+	assert.Equal(t, "invalid_grant", conn.Reason)
+	assert.False(t, conn.Escalated)
+
+	open := alerts.open["graphql/erp"]
+	assert.True(t, open.SignedAssertion, "the row carries the marker so a later read renders the same alert")
+	assert.Equal(t, "user hasn't approved this consumer", open.Description)
+
+	a.Restored(t.Context(), "graphql", "erp")
+	assert.Empty(t, alerts.open, "an accepted exchange closes the alert")
+	a.Revoked(t.Context(), refusedAssertion())
+	assert.Len(t, queue.all(), 4, "a refusal after the connection recovered is news again")
+}
+
+func TestAlerter_RefusedAssertionQuietPaths(t *testing.T) {
+	t.Run("no recipients configured opens nothing, so naming recipients later is not swallowed", func(t *testing.T) {
+		settings := DefaultSettings()
+		alerts := newFakeAlerts()
+		queue := &recordingQueue{}
+		enq := notification.NewEnqueuer(openPrefs{}, queue, 13)
+		t.Cleanup(enq.Close)
+		store := &mutableSettings{settings: settings}
+		a := NewAlerter(Config{Settings: store, Alerts: alerts, Enqueuer: enq})
+		require.NotNil(t, a)
+
+		a.Revoked(t.Context(), refusedAssertion())
+		assert.Empty(t, queue.all())
+		assert.Empty(t, alerts.open)
+
+		store.settings.Recipients = []string{"oncall@example.com"}
+		a.Revoked(t.Context(), refusedAssertion())
+		assert.Len(t, queue.all(), 1, "the first refusal after recipients are named is announced")
+	})
+
+	t.Run("a failed write announces nothing", func(t *testing.T) {
+		a, alerts, queue := harness(t, Settings{Enabled: true, Recipients: []string{"oncall@example.com"}})
+		alerts.openErr = errors.New("boom")
+		a.Revoked(t.Context(), refusedAssertion())
+		assert.Empty(t, queue.all())
+	})
+
+	t.Run("a disabled deployment records nothing", func(t *testing.T) {
+		a, alerts, queue := harness(t, Settings{Enabled: false, Recipients: []string{"oncall@example.com"}})
+		a.Revoked(t.Context(), refusedAssertion())
+		assert.Empty(t, queue.all())
+		assert.Empty(t, alerts.open)
+	})
+
+	t.Run("restoring a connection with nothing open is harmless", func(t *testing.T) {
+		a, alerts, _ := harness(t, DefaultSettings())
+		a.Restored(t.Context(), "api", "billing")
+		assert.Equal(t, []string{"api/billing"}, alerts.cleared)
+	})
+
+	t.Run("a failed clear is logged, not raised", func(t *testing.T) {
+		queue := &recordingQueue{}
+		enq := notification.NewEnqueuer(openPrefs{}, queue, 13)
+		t.Cleanup(enq.Close)
+		a := NewAlerter(Config{
+			Settings: stubSettings{settings: &Settings{Enabled: true}},
+			Alerts:   failingClear{fakeAlerts: newFakeAlerts()},
+			Enqueuer: enq,
+		})
+		require.NotNil(t, a)
+		assert.NotPanics(t, func() { a.Restored(t.Context(), "api", "billing") })
+	})
+
+	t.Run("a nil alerter is a usable sink", func(t *testing.T) {
+		var a *Alerter
+		assert.NotPanics(t, func() { a.Restored(t.Context(), "api", "billing") })
+	})
+}
+
+// mutableSettings is a SettingsStore a test can change between calls.
+type mutableSettings struct{ settings Settings }
+
+func (m *mutableSettings) Get(context.Context) (*Settings, error) {
+	s := m.settings
+	return &s, nil
+}
+
+func (*mutableSettings) Set(context.Context, Settings, string) error { return nil }
+
+// failingClear is an AlertStore whose Clear fails.
+type failingClear struct{ *fakeAlerts }
+
+func (failingClear) Clear(context.Context, string, string) error { return errors.New("boom") }
+
 // TestNewAlerter_RequiresItsDependencies proves the composition root's "this
 // deployment has no database" path: a missing dependency yields the nil sink
 // rather than one that fails on every revocation.

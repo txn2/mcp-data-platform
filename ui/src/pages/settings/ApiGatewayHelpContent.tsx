@@ -100,6 +100,24 @@ export function ApiGatewayAuthHelp() {
             for all subsequent calls.
           </Row>
           <Row
+            label="OAuth 2.1, JWT bearer (RFC 7523)"
+            mode="oauth + oauth_grant: jwt_bearer"
+            sends="Authorization: Bearer <token the upstream issued>"
+          >
+            Unattended server-to-server OAuth for upstreams that register a
+            signing key for an integration: the platform signs a short-lived
+            assertion (<code>iss</code> the client id, <code>sub</code> the
+            integration user, <code>aud</code> the token endpoint by default)
+            and exchanges it at the token endpoint for an access token, again
+            as each token nears expiry. No browser, no refresh token, and no
+            client secret unless the upstream also asks for one. Pick this
+            rather than Signed JWT when the upstream accepts only tokens it
+            issued itself. A refusal (<code>invalid_grant</code>,{" "}
+            <code>invalid_client</code>) comes back with the upstream's
+            description and alerts the connection alert recipients; it clears
+            when an exchange is next accepted.
+          </Row>
+          <Row
             label="mTLS (client certificate)"
             mode="mtls"
             sends="(no header, client certificate at TLS handshake)"

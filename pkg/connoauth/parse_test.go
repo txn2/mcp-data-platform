@@ -128,6 +128,21 @@ func TestParseConfig(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "jwt_bearer grant",
+			cfg: map[string]any{
+				"auth_mode":       "oauth",
+				"oauth_grant":     "jwt_bearer",
+				"oauth_token_url": "https://idp/token",
+				"oauth_scope":     "api",
+			},
+			want: Config{
+				Grant:             "jwt_bearer",
+				TokenURL:          "https://idp/token",
+				Scopes:            []string{"api"},
+				EndpointAuthStyle: oauth2.AuthStyleInHeader,
+			},
+		},
+		{
 			name:    "unknown grant",
 			cfg:     map[string]any{"oauth_grant": "device_code"},
 			wantErr: true,
@@ -258,5 +273,19 @@ func TestParseConfig_CanonicalEmitsNoDeprecation(t *testing.T) {
 	}
 	if strings.Contains(buf.String(), "deprecated") {
 		t.Errorf("canonical config should not warn, got: %s", buf.String())
+	}
+}
+
+// TestParseConfig_UnknownGrantNamesEveryGrant pins the refusal an operator
+// reads when oauth_grant is mistyped: it lists every grant the parse accepts,
+// jwt_bearer included, so the fix is readable from the message alone.
+func TestParseConfig_UnknownGrantNamesEveryGrant(t *testing.T) {
+	_, err := ParseConfig("api", "unknown-grant", map[string]any{"oauth_grant": "jwt-bearer"})
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("err=%v want errors.Is ErrInvalidConfig", err)
+	}
+	const want = `unknown oauth_grant "jwt-bearer" (want authorization_code, client_credentials or jwt_bearer)`
+	if !strings.Contains(err.Error(), want) {
+		t.Errorf("err=%q want it to contain %q", err, want)
 	}
 }

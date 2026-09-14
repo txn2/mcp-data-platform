@@ -33,7 +33,8 @@ type AlertStore interface {
 	// call.
 	Open(ctx context.Context, a Alert) (bool, error)
 	// Clear forgets a connection's open revocation. Called when the connection
-	// is authorized again, which is what makes a later revocation news.
+	// is authorized again, or when a jwt_bearer exchange is accepted, which is
+	// what makes a later revocation news.
 	Clear(ctx context.Context, kind, name string) error
 	// ClaimEscalations stamps and returns every revocation older than window
 	// that has not been escalated and whose connection is still unauthorized.
@@ -103,15 +104,17 @@ func (s *PostgresStore) Set(ctx context.Context, in Settings, author string) err
 // rather than being pushed back by every later one.
 const openSQL = `
 INSERT INTO connection_auth_alerts
-       (connection_kind, connection_name, authorized_by, idp_host, reason, revoked_at)
-VALUES ($1, $2, $3, $4, $5, $6)
+       (connection_kind, connection_name, authorized_by, idp_host, reason, revoked_at,
+        signed_assertion, description)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 ON CONFLICT (connection_kind, connection_name) DO NOTHING`
 
 // Open records a revocation, reporting whether it was this call that recorded
 // it.
 func (s *PostgresStore) Open(ctx context.Context, a Alert) (bool, error) {
 	res, err := s.db.ExecContext(ctx, openSQL,
-		a.Kind, a.Name, a.AuthorizedBy, a.IDPHost, a.Reason, a.RevokedAt.UTC())
+		a.Kind, a.Name, a.AuthorizedBy, a.IDPHost, a.Reason, a.RevokedAt.UTC(),
+		a.SignedAssertion, a.Description)
 	if err != nil {
 		return false, fmt.Errorf("recording a connection revocation: %w", err)
 	}
@@ -142,17 +145,23 @@ func (s *PostgresStore) Clear(ctx context.Context, kind, name string) error {
 // than trusting that it happened: a connection holding a token is authorized,
 // whatever this table still says, and telling a room of people to go and
 // reconnect something that already works is worse than saying nothing.
+//
+// A refused signed assertion is never escalated. Its first alert already went
+// to the operator's recipients, because nobody authorized the connection to be
+// told before them, and there is no credential table to check it against.
 const claimEscalationsSQL = `
 UPDATE connection_auth_alerts a
    SET escalated_at = $1
  WHERE a.escalated_at IS NULL
+   AND NOT a.signed_assertion
    AND a.revoked_at <= $2
    AND NOT EXISTS (
          SELECT 1
            FROM connection_oauth_tokens t
           WHERE t.connection_kind = a.connection_kind
             AND t.connection_name = a.connection_name)
-RETURNING connection_kind, connection_name, authorized_by, idp_host, reason, revoked_at`
+RETURNING connection_kind, connection_name, authorized_by, idp_host, reason, revoked_at,
+          signed_assertion, description`
 
 // ClaimEscalations stamps and returns the revocations due for escalation.
 func (s *PostgresStore) ClaimEscalations(ctx context.Context, window time.Duration, now time.Time) ([]Alert, error) {
@@ -164,7 +173,8 @@ func (s *PostgresStore) ClaimEscalations(ctx context.Context, window time.Durati
 	var out []Alert
 	for rows.Next() {
 		var a Alert
-		if err := rows.Scan(&a.Kind, &a.Name, &a.AuthorizedBy, &a.IDPHost, &a.Reason, &a.RevokedAt); err != nil {
+		if err := rows.Scan(&a.Kind, &a.Name, &a.AuthorizedBy, &a.IDPHost, &a.Reason, &a.RevokedAt,
+			&a.SignedAssertion, &a.Description); err != nil {
 			return nil, fmt.Errorf("reading a claimed connection revocation: %w", err)
 		}
 		out = append(out, a)

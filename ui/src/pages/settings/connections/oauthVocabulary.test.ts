@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
 
-import { canonicalizeOAuthConfig, shadowedOAuthKeys } from "./oauthVocabulary";
+import {
+  canonicalizeOAuthConfig,
+  shadowedOAuthKeys,
+  storedOAuthGrant,
+} from "./oauthVocabulary";
 
 // A connection's OAuth configuration reaches the editor in whichever spelling
 // it was stored in. The editor speaks one, so it folds the other onto it as it
@@ -123,5 +127,33 @@ describe("shadowedOAuthKeys", () => {
         oauth2_client_id: "c",
       }),
     ).toEqual([]);
+  });
+});
+
+describe("storedOAuthGrant", () => {
+  it("reads the grant in every spelling a stored connection carries", () => {
+    expect(storedOAuthGrant({ auth_mode: "oauth", oauth_grant: "jwt_bearer" })).toBe(
+      "jwt_bearer",
+    );
+    expect(
+      storedOAuthGrant({ auth_mode: "oauth", oauth: { grant: "authorization_code" } }),
+    ).toBe("authorization_code");
+    expect(storedOAuthGrant({ auth_mode: "oauth2_authorization_code" })).toBe(
+      "authorization_code",
+    );
+    expect(
+      storedOAuthGrant({
+        auth_mode: "oauth",
+        oauth_grant: "client_credentials",
+        oauth: { grant: "authorization_code" },
+      }),
+    ).toBe("client_credentials");
+  });
+
+  it("is empty when nothing states a grant", () => {
+    expect(storedOAuthGrant(undefined)).toBe("");
+    expect(storedOAuthGrant({ auth_mode: "oauth" })).toBe("");
+    expect(storedOAuthGrant({ auth_mode: "oauth", oauth: ["not", "a", "block"] })).toBe("");
+    expect(storedOAuthGrant({ auth_mode: "bearer", oauth_grant: "" })).toBe("");
   });
 });

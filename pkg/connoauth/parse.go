@@ -20,8 +20,8 @@ const (
 	// ConfigKeyAuthMode is the top-level auth selector. The OAuth value
 	// is AuthModeOAuth; the specific flow is carried by ConfigKeyGrant.
 	ConfigKeyAuthMode = "auth_mode"
-	// ConfigKeyGrant selects the OAuth flow: GrantAuthorizationCode or
-	// GrantClientCredentials.
+	// ConfigKeyGrant selects the OAuth flow: GrantAuthorizationCode,
+	// GrantClientCredentials or GrantJWTBearer.
 	ConfigKeyGrant = "oauth_grant"
 	// ConfigKeyTokenURL is the IdP token endpoint.
 	ConfigKeyTokenURL = "oauth_token_url" // #nosec G101 -- config-map key, not a credential
@@ -50,6 +50,16 @@ const (
 	GrantAuthorizationCode = "authorization_code"
 	// GrantClientCredentials is the machine-to-machine flow.
 	GrantClientCredentials = "client_credentials"
+	// GrantJWTBearer is the RFC 7523 section 2.1 flow: the client signs a
+	// short-lived assertion with a key it registered with the upstream and
+	// exchanges it at the token endpoint for an access token. No browser,
+	// no refresh token, and no client secret is required on the wire.
+	//
+	// Only the HTTP-based kinds built on internal/upstreamauth (api and
+	// graphql) sign the assertion; the parse accepts the grant for every
+	// kind, and a kind that cannot honor it refuses it in its own
+	// validation.
+	GrantJWTBearer = "jwt_bearer"
 )
 
 // AuthModeOAuth is the canonical ConfigKeyAuthMode value for an OAuth
@@ -176,11 +186,13 @@ func ParseConfig(kind, name string, cfg map[string]any) (Config, error) {
 // non-OAuth auth_mode with no grant is an error.
 func resolveGrant(cfg map[string]any, legacy *bool) (string, error) {
 	if g := getStringValue(cfg, ConfigKeyGrant); g != "" {
-		if g != GrantAuthorizationCode && g != GrantClientCredentials {
-			return "", fmt.Errorf("unknown oauth_grant %q (want %q or %q): %w",
-				g, GrantAuthorizationCode, GrantClientCredentials, ErrInvalidConfig)
+		switch g {
+		case GrantAuthorizationCode, GrantClientCredentials, GrantJWTBearer:
+			return g, nil
+		default:
+			return "", fmt.Errorf("unknown oauth_grant %q (want %s, %s or %s): %w",
+				g, GrantAuthorizationCode, GrantClientCredentials, GrantJWTBearer, ErrInvalidConfig)
 		}
-		return g, nil
 	}
 	switch mode := getStringValue(cfg, ConfigKeyAuthMode); mode {
 	case legacyAuthModeAuthorizationCode:

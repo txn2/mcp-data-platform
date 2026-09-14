@@ -140,3 +140,55 @@ func TestConnAuthOutcome_UnknownUpstream(t *testing.T) {
 		t.Errorf("a revocation with no reason must not invent one, got %q", noReason)
 	}
 }
+
+// TestConnAuth_RefusedAssertion pins the alert a refused jwt_bearer assertion
+// raises (#1734): it names what the upstream said and where, asks for nothing
+// the platform can do, and sends the reader to the upstream.
+func TestConnAuth_RefusedAssertion(t *testing.T) {
+	n := revokedNotification(func(c *notification.ConnectionAuth) {
+		c.SignedAssertion = true
+		c.AuthorizedBy = ""
+		c.IDPHost = "login.example.com"
+		c.Description = "user hasn't approved this consumer"
+	})
+
+	subject := Subject(n)
+	if subject != `The connection "billing" cannot get an access token` {
+		t.Errorf("subject = %q", subject)
+	}
+	if strings.Contains(subject, "reauthorized") {
+		t.Errorf("a refused assertion has nothing to reauthorize, subject %q", subject)
+	}
+
+	item := buildItem(n)
+	const wantOpening = `The token endpoint at login.example.com refused the signed assertion this connection ` +
+		`exchanges for its access token, answering invalid_grant: "user hasn't approved this consumer".`
+	if !strings.HasPrefix(item.Body, wantOpening) {
+		t.Errorf("opening = %q\nwant      %q", item.Body, wantOpening)
+	}
+	for _, want := range []string{"2026-09-12 08:30 UTC", "nothing to reconnect", "integration user", "clears"} {
+		if !strings.Contains(item.Body, want) {
+			t.Errorf("body must carry %q, got %q", want, item.Body)
+		}
+	}
+	for _, refused := range []string{"reauthoriz", "Reconnecting", "discarded"} {
+		if strings.Contains(item.Body, refused) {
+			t.Errorf("body carries the revocation's %q: %q", refused, item.Body)
+		}
+	}
+	if item.LinkText != connAssertionLinkText {
+		t.Errorf("link text = %q, want %q", item.LinkText, connAssertionLinkText)
+	}
+
+	bare := connAssertionBody(&notification.ConnectionAuth{SignedAssertion: true})
+	if !strings.HasPrefix(bare, "The upstream token endpoint refused the signed assertion this connection exchanges for its access token. Every call") {
+		t.Errorf("a refusal with no host, code or time: %q", bare)
+	}
+	codeOnly := connAssertionBody(&notification.ConnectionAuth{SignedAssertion: true, Reason: "invalid_client"})
+	if !strings.Contains(codeOnly, "access token, answering invalid_client. Every call") {
+		t.Errorf("a refusal with a code and no description: %q", codeOnly)
+	}
+	if connAuthLinkTextFor(nil) != connAuthLinkText {
+		t.Error("a payload with no connection keeps the revocation's button")
+	}
+}

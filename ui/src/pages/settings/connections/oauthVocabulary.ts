@@ -48,6 +48,29 @@ export const LEGACY_OAUTH_AUTH_MODES: Record<string, string> = {
 
 type Config = Record<string, unknown>;
 
+// storedOAuthGrant reads the grant a stored connection config selects: the
+// canonical oauth_grant, the grant under an mcp connection's nested "oauth"
+// block (which the server flattens onto oauth_grant), or the grant a legacy
+// auth_mode encoded. Empty when the config states none.
+export function storedOAuthGrant(config: Config | undefined): string {
+  if (!config) return "";
+  return (
+    stringValue(config.oauth_grant) ||
+    stringValue(nestedBlock(config.oauth).grant) ||
+    (LEGACY_OAUTH_AUTH_MODES[String(config.auth_mode ?? "")] ?? "")
+  );
+}
+
+// stringValue is v when it is a string, and "" otherwise.
+function stringValue(v: unknown): string {
+  return typeof v === "string" ? v : "";
+}
+
+// nestedBlock is v when it is a plain object, and an empty one otherwise.
+function nestedBlock(v: unknown): Config {
+  return v && typeof v === "object" && !Array.isArray(v) ? (v as Config) : {};
+}
+
 // legacyScopeToCanonical turns the legacy scope array into the canonical
 // space-delimited string. A value that is already a string is passed through:
 // some externally-authored configs wrote one.

@@ -281,6 +281,23 @@ escalation and it is raised once. It also re-checks the credential table
 before mailing anyone: a connection that holds a credential again is never
 escalated, whatever the bookkeeping row says.
 
+**A refused `jwt_bearer` assertion.** A connection on `oauth_grant: jwt_bearer`
+holds no stored credential: it signs an assertion with a key the upstream
+registered and exchanges it at the token endpoint. When the endpoint refuses it
+(`invalid_grant`, `invalid_client` or `unauthorized_client`), every call
+through the connection fails until the upstream is fixed, which is the same
+incident, and it is told through the same row and settings with three
+differences. Nobody signed in to authorize the connection, so the alert goes to
+the configured `recipients` at once rather than after the window, and is never
+escalated; with no recipients configured nothing is recorded, so the first
+refusal after an operator names recipients is announced. The email
+says the upstream refused the signed assertion, quotes the upstream's
+`error_description`, and names the causes an operator fixes at the upstream
+(an unapproved key or integration user, or clock skew) instead of asking
+anyone to reconnect. And the row is cleared by the first exchange the upstream
+next accepts, on whichever replica makes it, because there is no callback to
+clear it. See [OAuth JWT bearer grant](api-gateway.md#oauth-jwt-bearer-grant-rfc-7523).
+
 **Preferences.** Like the review-queue alert, this category has no per-user
 toggle. Its first recipient is addressed by responsibility rather than by
 interest, and its second was named by the operator. A recipient still opts out

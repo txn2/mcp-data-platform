@@ -230,7 +230,8 @@ type Config struct {
 	// AuthModeOAuth. Empty for non-OAuth modes.
 	OAuth2 OAuth2Config
 	// SignedJWT carries the assertion parameters used when AuthMode is
-	// AuthModeSignedJWT. Empty for every other mode.
+	// AuthModeSignedJWT, or AuthModeOAuth with the jwt_bearer grant.
+	// Empty otherwise.
 	SignedJWT SignedJWTConfig
 
 	// ConnectTimeout caps the dial step (TCP + TLS handshake) on each
@@ -287,8 +288,8 @@ type Config struct {
 type OAuth2Config struct {
 	// Grant is the OAuth flow, populated by Parse from the canonical
 	// oauth_grant (or derived from a legacy auth_mode). One of
-	// connoauth.GrantClientCredentials or
-	// connoauth.GrantAuthorizationCode. The authenticator and
+	// connoauth.GrantClientCredentials, connoauth.GrantAuthorizationCode
+	// or connoauth.GrantJWTBearer. The authenticator and
 	// validation dispatch on this rather than on the auth_mode string.
 	Grant string
 	// TokenURL is the upstream's token endpoint. Required.
@@ -367,8 +368,11 @@ func Parse(kind, errPrefix, endpointURL string, cfg map[string]any) (Config, err
 		c.AuthMode = AuthModeOAuth
 		c.OAuth2 = oauth2ConfigFromConnoauth(parsed)
 	}
-	if c.AuthMode == AuthModeSignedJWT {
-		c.SignedJWT = parseSignedJWT(endpointURL, cfg)
+	switch {
+	case c.AuthMode == AuthModeSignedJWT:
+		c.SignedJWT = parseSignedJWT(SignedJWTAlgHS256, endpointURL, cfg)
+	case c.AuthMode == AuthModeOAuth && c.OAuth2.Grant == connoauth.GrantJWTBearer:
+		c.SignedJWT = parseSignedJWT(SignedJWTAlgRS256, c.OAuth2.TokenURL, cfg)
 	}
 	c.StaticHeaders = cfgmap.StringMap(cfg, cfgKeyStaticHeaders)
 	c.MTLSClientCertPEM = cfgmap.String(cfg, cfgKeyMTLSClientCertPEM)
@@ -458,10 +462,14 @@ func (c Config) validateOAuthAuth() error {
 	case AuthModeOAuth2AuthorizationCode:
 		return c.validateOAuth2AuthCode()
 	}
-	if c.OAuth2.Grant == connoauth.GrantAuthorizationCode {
+	switch c.OAuth2.Grant {
+	case connoauth.GrantAuthorizationCode:
 		return c.validateOAuth2AuthCode()
+	case connoauth.GrantJWTBearer:
+		return c.validateOAuth2JWTBearer()
+	default:
+		return c.validateOAuth2()
 	}
-	return c.validateOAuth2()
 }
 
 // validateBasicAuth enforces RFC 7617 + the platform's smuggling
@@ -544,6 +552,12 @@ func (c Config) validateOAuth2() error {
 	if c.OAuth2.ClientSecret == "" {
 		return c.errf(errOAuthFieldRequired, connoauth.ConfigKeyClientSecret, c.oauthRequirement())
 	}
+	return c.validateEndpointAuthStyle()
+}
+
+// validateEndpointAuthStyle refuses a token-endpoint credential placement
+// the authenticators do not know.
+func (c Config) validateEndpointAuthStyle() error {
 	switch c.OAuth2.EndpointAuthStyle {
 	case OAuth2AuthStyleHeader, OAuth2AuthStyleParams:
 		return nil

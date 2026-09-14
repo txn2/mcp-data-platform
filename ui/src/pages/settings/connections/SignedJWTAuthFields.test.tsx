@@ -99,3 +99,45 @@ describe("SignedJWTAuthFields — the claims", () => {
     expect(screen.getByLabelText(/audience/i)).toHaveValue("");
   });
 });
+
+// Under oauth_grant=jwt_bearer the same block states the grant's defaults:
+// RS256, the token URL as the audience, and issuer and subject required.
+describe("SignedJWTAuthFields — the jwt_bearer variant", () => {
+  it("defaults to RS256 when the connection states no algorithm", () => {
+    render(
+      <SignedJWTAuthFields config={{}} onChange={vi.fn()} variant="jwt_bearer" />,
+    );
+
+    expect(screen.getByLabelText(/signing key/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/client secret/i)).not.toBeInTheDocument();
+  });
+
+  it("still signs with a shared secret when HS256 is chosen", () => {
+    render(
+      <SignedJWTAuthFields
+        config={{ jwt_algorithm: "HS256" }}
+        onChange={vi.fn()}
+        variant="jwt_bearer"
+      />,
+    );
+
+    expect(screen.getByLabelText(/client secret/i)).toBeInTheDocument();
+  });
+
+  it("names the token URL as the audience default and marks the identity claims required", () => {
+    render(
+      <SignedJWTAuthFields config={{}} onChange={vi.fn()} variant="jwt_bearer" />,
+    );
+
+    expect(screen.getByLabelText(/audience/i)).toHaveAttribute(
+      "placeholder",
+      "(the token URL)",
+    );
+    expect(screen.getByLabelText(/issuer/i)).toHaveAccessibleDescription(
+      /^Required\./,
+    );
+    expect(screen.getByLabelText(/subject/i)).toHaveAccessibleDescription(
+      /^Required\./,
+    );
+  });
+});

@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 import { GatewayActionBar, GatewayRulesDrawer } from "../GatewayActions";
 import { ConnectionOAuthStatusCard } from "../ConnectionOAuthStatusCard";
 import { CONFIG_LABELS, kindColor } from "./constants";
-import { shadowedOAuthKeys } from "./oauthVocabulary";
+import { shadowedOAuthKeys, storedOAuthGrant } from "./oauthVocabulary";
 import { GatewayHealthDetail } from "./HealthBadges";
 import { GraphQLSchemaCard } from "./GraphQLSchemaCard";
 
@@ -215,14 +215,15 @@ export function ConnectionViewer({
 
       {/* OAuth status — shown for every connection kind that supports
           authorization_code. The card hides itself when the
-          connection's auth_mode is not OAuth, so it's safe to render
-          unconditionally. Consistent surface across mcp / api / future
-          kinds. */}
+          connection's grant is not authorization_code, so it's safe to
+          render unconditionally. Consistent surface across mcp / api /
+          future kinds. */}
       {!isReadOnly && (
         <ConnectionOAuthStatusCard
           kind={connection.kind}
           name={connection.name}
           authMode={String(connection.config?.auth_mode ?? "")}
+          grant={storedOAuthGrant(connection.config)}
         />
       )}
 

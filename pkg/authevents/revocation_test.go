@@ -11,14 +11,21 @@ import (
 
 // recordingSink captures what the Writer announced.
 type recordingSink struct {
-	mu   sync.Mutex
-	seen []Revocation
+	mu       sync.Mutex
+	seen     []Revocation
+	restored []string
 }
 
 func (s *recordingSink) Revoked(_ context.Context, rev Revocation) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.seen = append(s.seen, rev)
+}
+
+func (s *recordingSink) Restored(_ context.Context, kind, name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.restored = append(s.restored, kind+"/"+name)
 }
 
 func (s *recordingSink) all() []Revocation {
@@ -118,4 +125,59 @@ func TestWithRevocations_WiredLate(t *testing.T) {
 	wg.Wait()
 
 	assert.NotEmpty(t, sink.all(), "the first revocation after the sink is attached must reach it")
+}
+
+func (s *recordingSink) restoredAll() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.restored...)
+}
+
+// TestAssertionRejected_AnnouncesWithoutAHistoryRow covers the jwt_bearer
+// refusal: the sink is told what the upstream said, marked as a signed
+// assertion so nobody is asked to reconnect, and no token-history row is
+// written for a credential that was never stored.
+func TestAssertionRejected_AnnouncesWithoutAHistoryRow(t *testing.T) {
+	store := NewMemoryStore()
+	sink := &recordingSink{}
+	w := NewWriter(store, nil).WithRevocations(sink)
+
+	w.AssertionRejected(t.Context(), AssertionRefusal{
+		Kind: "graphql", Name: "erp", TokenURL: "https://login.example.com/services/oauth2/token",
+		Code: "invalid_grant", Description: "user hasn't approved this consumer",
+	})
+
+	events, err := store.List(t.Context(), Filter{Limit: 10})
+	require.NoError(t, err)
+	assert.Empty(t, events, "a refused assertion has no stored credential whose history it belongs to")
+
+	announced := sink.all()
+	require.Len(t, announced, 1)
+	got := announced[0]
+	assert.Equal(t, "graphql", got.Kind)
+	assert.Equal(t, "erp", got.Name)
+	assert.Equal(t, "login.example.com", got.IDPHost)
+	assert.Equal(t, "invalid_grant", got.Reason)
+	assert.Equal(t, "user hasn't approved this consumer", got.Description)
+	assert.True(t, got.SignedAssertion)
+	assert.Empty(t, got.AuthorizedBy, "nobody authorized a signed assertion")
+	assert.False(t, got.At.IsZero())
+}
+
+// TestAssertionAccepted_TellsTheSink proves an accepted exchange reaches the
+// sink as a restoration, and that every absent piece is tolerated.
+func TestAssertionAccepted_TellsTheSink(t *testing.T) {
+	sink := &recordingSink{}
+	w := NewWriter(NewMemoryStore(), nil).WithRevocations(sink)
+	w.AssertionAccepted(t.Context(), "api", "billing")
+	assert.Equal(t, []string{"api/billing"}, sink.restoredAll())
+	assert.Empty(t, sink.all(), "an accepted exchange is not a revocation")
+
+	assert.NotPanics(t, func() {
+		NewWriter(NewMemoryStore(), nil).AssertionAccepted(t.Context(), "api", "billing")
+		NewWriter(NewMemoryStore(), nil).AssertionRejected(t.Context(), AssertionRefusal{Kind: "api", Name: "billing", Code: "invalid_client"})
+		var nilWriter *Writer
+		nilWriter.AssertionAccepted(t.Context(), "api", "billing")
+		nilWriter.AssertionRejected(t.Context(), AssertionRefusal{Kind: "api", Name: "billing", Code: "invalid_client"})
+	})
 }

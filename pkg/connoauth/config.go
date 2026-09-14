@@ -12,8 +12,9 @@ import "golang.org/x/oauth2"
 // material out of model/log output (see source.go:tokenFetchError).
 type Config struct {
 	// Grant is the OAuth flow the connection uses. One of
-	// `authorization_code` (browser-driven, refresh-token-persisting)
-	// or `client_credentials` (machine-to-machine). Surfaced through
+	// `authorization_code` (browser-driven, refresh-token-persisting),
+	// `client_credentials` (machine-to-machine) or `jwt_bearer` (a
+	// signed assertion exchanged at the token endpoint). Surfaced through
 	// Status so the admin UI can adapt its prompts. The Source itself
 	// uses the value only for status reporting — refresh-token
 	// exchanges are identical for both grants once the initial token

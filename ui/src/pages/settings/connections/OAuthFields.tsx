@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 import { ConfigField, ConfigGroup, ConfigSelect, update } from "./fields";
 import type { ConfigFormProps } from "./fields";
+import { SignedJWTAuthFields } from "./SignedJWTAuthFields";
 
 // The OAuth 2.1 block of a connection editor, in one copy.
 //
@@ -13,7 +14,7 @@ import type { ConfigFormProps } from "./fields";
 // connection rendered with no auth configuration at all (#1681).
 //
 // The grant is a field of its own (oauth_grant) rather than part of the mode
-// name, which is what lets one block serve both flows.
+// name, which is what lets one block serve every flow.
 
 const GRANTS = [
   {
@@ -25,6 +26,61 @@ const GRANTS = [
     label: "authorization_code + PKCE (browser sign-in)",
   },
 ];
+
+// JWT_BEARER_GRANT is offered only by the kinds that sign the assertion: the
+// HTTP-based ones built on internal/upstreamauth. The mcp kind refuses the
+// grant on save, so its editor does not list it.
+const JWT_BEARER_GRANT = {
+  value: "jwt_bearer",
+  label: "jwt_bearer (signed assertion, RFC 7523)",
+};
+
+// COPY is the help text that differs between the editors that offer the
+// jwt_bearer grant and the one that does not, and on the grant itself.
+const COPY = {
+  grantHelp:
+    "Use authorization_code for upstreams that require a human sign-in (Google, Salesforce, Keycloak). After saving the connection, click Connect to authorize once — the platform refreshes the token automatically thereafter.",
+  grantHelpWithJWTBearer:
+    "Use authorization_code for upstreams that require a human sign-in (Google, Salesforce, Keycloak); after saving, click Connect to authorize once. Use jwt_bearer when the upstream registered a signing key for unattended server-to-server access: the platform signs a short-lived assertion and exchanges it for an access token, with no browser and no refresh token.",
+  tokenURL: "OAuth token endpoint. The platform POSTs the grant here.",
+  tokenURLJWTBearer:
+    "OAuth token endpoint. The platform POSTs the signed assertion here, and it is the assertion's default audience.",
+  secret:
+    "Encrypted at rest. Use [REDACTED] to keep the existing value when re-saving.",
+  secretJWTBearer:
+    "Optional, as the client id. Encrypted at rest. Use [REDACTED] to keep the existing value when re-saving.",
+  clientIDJWTBearer:
+    "Optional. Only for an upstream that also authenticates the client on the token request; the assertion identifies it otherwise.",
+};
+
+// ClientCredentialFields edits the client id and secret. Every grant but
+// jwt_bearer requires both; under jwt_bearer they are optional client
+// authentication on the token request, and the help says so.
+function ClientCredentialFields({
+  config,
+  onChange,
+  isJWTBearer,
+}: ConfigFormProps & { isJWTBearer: boolean }) {
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      <ConfigField
+        label="Client ID"
+        help={isJWTBearer ? COPY.clientIDJWTBearer : undefined}
+        value={stored(config, "oauth_client_id")}
+        onChange={(v) => onChange(update(config, "oauth_client_id", v))}
+        placeholder="platform-client"
+        mono
+      />
+      <ConfigField
+        label="Client Secret"
+        help={isJWTBearer ? COPY.secretJWTBearer : COPY.secret}
+        value={stored(config, "oauth_client_secret")}
+        onChange={(v) => onChange(update(config, "oauth_client_secret", v))}
+        sensitive
+      />
+    </div>
+  );
+}
 
 const PROMPTS = [
   { value: "", label: "(default — no prompt parameter)" },
@@ -104,26 +160,31 @@ function ScopeField({
 // chosen grant needs, on the canonical oauth_* keys.
 //
 // endpointAuthStyle adds the token-endpoint credential placement, which the
-// HTTP-based kinds expose. connect is the browser sign-in affordance, rendered
-// under the authorization_code fields by the kinds whose editor carries one.
+// HTTP-based kinds expose. jwtBearer offers the RFC 7523 grant and its signing
+// fields, which only those kinds implement. connect is the browser sign-in
+// affordance, rendered under the authorization_code fields by the kinds whose
+// editor carries one.
 export function OAuthFields({
   config,
   onChange,
   endpointAuthStyle,
+  jwtBearer,
   connect,
 }: ConfigFormProps & {
   endpointAuthStyle?: boolean;
+  jwtBearer?: boolean;
   connect?: ReactNode;
 }) {
   const isAuthCode = config.oauth_grant === "authorization_code";
+  const isJWTBearer = jwtBearer === true && config.oauth_grant === "jwt_bearer";
   return (
     <ConfigGroup title="OAuth 2.1">
       <ConfigSelect
         label="Grant type"
         value={stored(config, "oauth_grant", "client_credentials")}
         onChange={(v) => onChange(update(config, "oauth_grant", v))}
-        options={GRANTS}
-        help="Use authorization_code for upstreams that require a human sign-in (Google, Salesforce, Keycloak). After saving the connection, click Connect to authorize once — the platform refreshes the token automatically thereafter."
+        options={jwtBearer ? [...GRANTS, JWT_BEARER_GRANT] : GRANTS}
+        help={jwtBearer ? COPY.grantHelpWithJWTBearer : COPY.grantHelp}
       />
       {isAuthCode && (
         <ConfigField
@@ -139,28 +200,17 @@ export function OAuthFields({
       )}
       <ConfigField
         label="Token URL"
-        help="OAuth token endpoint. The platform POSTs the grant here."
+        help={isJWTBearer ? COPY.tokenURLJWTBearer : COPY.tokenURL}
         value={stored(config, "oauth_token_url")}
         onChange={(v) => onChange(update(config, "oauth_token_url", v))}
         placeholder="https://idp.example.com/oauth/token"
         mono
       />
-      <div className="grid grid-cols-2 gap-3">
-        <ConfigField
-          label="Client ID"
-          value={stored(config, "oauth_client_id")}
-          onChange={(v) => onChange(update(config, "oauth_client_id", v))}
-          placeholder="platform-client"
-          mono
-        />
-        <ConfigField
-          label="Client Secret"
-          help="Encrypted at rest. Use [REDACTED] to keep the existing value when re-saving."
-          value={stored(config, "oauth_client_secret")}
-          onChange={(v) => onChange(update(config, "oauth_client_secret", v))}
-          sensitive
-        />
-      </div>
+      <ClientCredentialFields
+        config={config}
+        onChange={onChange}
+        isJWTBearer={isJWTBearer}
+      />
       <ScopeField config={config} onChange={onChange} isAuthCode={isAuthCode} />
       {endpointAuthStyle && (
         <ConfigSelect
@@ -174,6 +224,13 @@ export function OAuthFields({
       )}
       {isAuthCode && (
         <AuthCodeTail config={config} onChange={onChange} connect={connect} />
+      )}
+      {isJWTBearer && (
+        <SignedJWTAuthFields
+          config={config}
+          onChange={onChange}
+          variant="jwt_bearer"
+        />
       )}
     </ConfigGroup>
   );

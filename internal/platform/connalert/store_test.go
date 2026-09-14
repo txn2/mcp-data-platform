@@ -99,10 +99,27 @@ func TestPostgresStore_Open(t *testing.T) {
 	t.Run("a first revocation is recorded", func(t *testing.T) {
 		store, mock := newMockStore(t)
 		mock.ExpectExec("INSERT INTO connection_auth_alerts").
-			WithArgs("api", "billing", "ops@example.com", "idp.example.com", "invalid_grant", revoked).
+			WithArgs("api", "billing", "ops@example.com", "idp.example.com", "invalid_grant", revoked,
+				false, "").
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
 		opened, err := store.Open(t.Context(), alert)
+		require.NoError(t, err)
+		assert.True(t, opened)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("a refused signed assertion records its marker and description", func(t *testing.T) {
+		store, mock := newMockStore(t)
+		mock.ExpectExec("INSERT INTO connection_auth_alerts").
+			WithArgs("graphql", "erp", "", "login.example.com", "invalid_grant", revoked,
+				true, "user hasn't approved this consumer").
+			WillReturnResult(sqlmock.NewResult(0, 1))
+
+		opened, err := store.Open(t.Context(), Alert{
+			Kind: "graphql", Name: "erp", IDPHost: "login.example.com", Reason: "invalid_grant",
+			RevokedAt: revoked, SignedAssertion: true, Description: "user hasn't approved this consumer",
+		})
 		require.NoError(t, err)
 		assert.True(t, opened)
 		assert.NoError(t, mock.ExpectationsWereMet())
@@ -156,8 +173,8 @@ func TestPostgresStore_ClaimEscalations(t *testing.T) {
 			WithArgs(now, now.Add(-24*time.Hour)).
 			WillReturnRows(sqlmock.NewRows([]string{
 				"connection_kind", "connection_name", "authorized_by",
-				"idp_host", "reason", "revoked_at",
-			}).AddRow("api", "billing", "ops@example.com", "idp.example.com", "invalid_grant", revoked))
+				"idp_host", "reason", "revoked_at", "signed_assertion", "description",
+			}).AddRow("api", "billing", "ops@example.com", "idp.example.com", "invalid_grant", revoked, false, ""))
 
 		claimed, err := store.ClaimEscalations(t.Context(), 24*time.Hour, now)
 		require.NoError(t, err)
@@ -168,12 +185,18 @@ func TestPostgresStore_ClaimEscalations(t *testing.T) {
 		assert.NoError(t, mock.ExpectationsWereMet())
 	})
 
+	t.Run("a refused signed assertion is never claimed", func(t *testing.T) {
+		// Its one alert already went to the recipients the escalation would
+		// mail, and there is no credential table to check it against.
+		assert.Contains(t, claimEscalationsSQL, "AND NOT a.signed_assertion")
+	})
+
 	t.Run("claiming nothing is not an error", func(t *testing.T) {
 		store, mock := newMockStore(t)
 		mock.ExpectQuery("UPDATE connection_auth_alerts").
 			WillReturnRows(sqlmock.NewRows([]string{
 				"connection_kind", "connection_name", "authorized_by",
-				"idp_host", "reason", "revoked_at",
+				"idp_host", "reason", "revoked_at", "signed_assertion", "description",
 			}))
 
 		claimed, err := store.ClaimEscalations(t.Context(), 24*time.Hour, now)

@@ -53,10 +53,14 @@ func NewAuthenticator(c Config) (Authenticator, error) {
 		// NewAuthenticator alone cannot supply one (it has no DB
 		// handle), so the kind's connection wiring calls
 		// SetConnOAuthStore immediately after this returns.
-		if c.OAuth2.Grant == connoauth.GrantAuthorizationCode {
+		switch c.OAuth2.Grant {
+		case connoauth.GrantAuthorizationCode:
 			return newOAuth2AuthorizationCodeAuth(c), nil
+		case connoauth.GrantJWTBearer:
+			return newJWTBearerAuth(c)
+		default:
+			return newOAuth2ClientCredentialsAuth(c), nil
 		}
-		return newOAuth2ClientCredentialsAuth(c), nil
 	case AuthModeOAuth2ClientCredentials:
 		// Legacy auth_mode (hand-built Configs that bypass Parse).
 		return newOAuth2ClientCredentialsAuth(c), nil
