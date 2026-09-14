@@ -194,7 +194,21 @@ WHAT IS AVAILABLE
       than a string: the surfaces that ask for one offer the connections this
       script may reach, and a name outside them is refused where it was
       entered instead of failing the run.
-  json.encode / json.decode / json.indent
+  json.encode / json.decode / json.indent / json.encode_indent  encode_indent
+      is encode followed by indent, taking prefix= and indent= keywords.
+  xml.decode(s)  Parses an XML or SOAP document into its root element. An
+      element has .tag (local name), .ns (namespace URI, "" when none),
+      .attrs, .text (its own character data, trimmed) and .children (child
+      elements in document order). json.encode renders an element as those
+      five fields.
+  xml.find(node, path) / xml.findall(node, path)  Child steps a/b/c, a
+      descendant step //c, the wildcard *, [@name='value'] and a 1-based
+      [n]. Names match on their local part, so an upstream's namespace
+      prefix does not matter. find returns None when nothing matches;
+      anything outside this path subset fails the run rather than matching
+      nothing.
+  xml.encode(tree)  Writes an element, or a dict of the same five fields,
+      back to a document — for building a SOAP request body from data.
   date.of, date.parse, date.format, date.add_days, date.add_months,
       date.diff_days, date.start_of_month, date.weekday  All dates are
       YYYY-MM-DD strings. date.format uses YYYY, MM and DD tokens.
@@ -206,7 +220,7 @@ WHAT IS AVAILABLE
       dict methods (including "{}".format(x) and "%d" % x).
 
 WHAT IS NOT, AND WHAT TO WRITE INSTEAD
-  import              There is no module system. json and date are already here.
+  import              There is no module system. json, xml and date are here.
   try / except        Errors fail the run by design, so the failure is recorded
                       rather than swallowed. Check first, or call fail("why").
                       A rate-limit refusal of a call is not an error the script

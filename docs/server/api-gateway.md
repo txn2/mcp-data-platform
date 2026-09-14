@@ -157,6 +157,25 @@ The `body` argument is a JSON value, and the connection's catalog decides how it
 
 An explicit `Content-Type` in `headers` overrides catalog negotiation and sends the bytes as typed — the exception is multipart, below.
 
+## Response bodies
+
+A response is returned as JSON when it declares JSON, and as a string otherwise. The `decode` argument changes that:
+
+| `decode` | What comes back in `body` |
+| --- | --- |
+| `auto` (default) | JSON when the response declares JSON; a parsed XML tree when the catalog declares an XML media type on the operation's success response; raw text otherwise |
+| `xml` | a parsed XML tree, whatever the response declares |
+| `json` | parsed JSON, whatever the response declares |
+| `text` | the raw string, parsing nothing |
+
+An XML tree is nested objects of `{tag, ns, attrs, text, children}`: `tag` and the attribute names are local names, so the upstream's namespace prefix does not matter and `ns` carries the namespace URI for a caller that needs it; `text` is the element's own character data, trimmed; `children` are the child elements in document order. A response the decoder cannot parse is returned as text with the reason in `hint`, so an HTML error page from a SOAP endpoint is readable rather than lost.
+
+`auto` never decodes XML on the response `Content-Type` alone. A connection with no catalog — and every WebDAV route, whose `PROPFIND` multistatus is XML by definition — returns the same string it always has until an operator declares the media type in the catalog or a caller passes `decode`.
+
+`decode` is refused together with `paginate`: a walk merges the pages it collects, so there is no single response to decode.
+
+The same tree, from the same parser, is what a managed script's `xml` module produces (`internal/xmltree`), so a SOAP response reads identically whether it arrives through a tool call or inside a script.
+
 ### Multipart form data
 
 An operation declaring `multipart/form-data` takes an **object of form fields**, and the platform assembles the parts:

@@ -161,10 +161,18 @@ function capturable(subject: ThumbnailSubject, canModify: boolean): boolean {
   );
 }
 
-/** What the panel says about the image it is showing, or about the one coming. */
+/**
+ * What the panel says about the image it is showing, or about the one coming.
+ *
+ * Written for the person looking at the page, not for the person who built it:
+ * what is happening, when it will be over, and what to do if it is not. How
+ * the picture is produced -- an idle-time capture in this browser, discarded
+ * when a file the document links to fails to load -- is machinery, and reaches
+ * the reader only as the one consequence they can act on.
+ */
 function explain(capturing: boolean): string {
   return capturing
-    ? "A new capture is taken in the browser the next time this page is idle. A capture whose referenced files did not load is discarded, so a file naming something that is gone keeps waiting."
+    ? "The preview picture is being made and will appear here in a moment. If it never appears, a file this document links to could not be loaded."
     : "This image is what the file shows on cards, in collections, and on a share page.";
 }
 

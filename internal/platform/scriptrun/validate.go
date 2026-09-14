@@ -259,7 +259,7 @@ var dialectCorrections = []struct {
 	{"does not support while loops", "Unbounded loops are disabled so a script's cost is predictable from its source. Iterate over a list with `for`, or express the repetition in SQL."},
 	{"called recursively", "Recursion is disabled for the same reason as `while`. Flatten the work into a loop over a list, or do it in SQL."},
 	{"undefined: ", undefinedNameHint},
-	{`got import\b`, "There is no `import`. Query results come from `platform.query`; JSON is the predeclared `json` module; dates are the predeclared `date` module."},
+	{`got import\b`, "There is no `import`. Query results come from `platform.query`; JSON is the predeclared `json` module, XML the `xml` module; dates are the predeclared `date` module."},
 	{`got (?:try|except|finally)\b`, "There is no `try`/`except`. An error fails the run by design, so the failure is visible in the run record instead of being swallowed."},
 	{`got class\b`, "There are no classes. Use dicts for structured values and functions for behavior."},
 	{`got with\b`, "There is no `with`. Nothing a script touches needs to be opened or closed."},
@@ -314,7 +314,7 @@ var sourcePatterns = []sourcePattern{
 		re:       regexp.MustCompile(`(?m)^\s*(?:import\s+\w|from\s+\w+\s+import\b)`),
 		severity: SeverityError,
 		message:  "`import` is not available",
-		hint:     "There is no module system. Data comes from `platform.query`; `json` and `date` are already predeclared.",
+		hint:     "There is no module system. Data comes from `platform.query`; `json`, `xml` and `date` are already predeclared.",
 	},
 	{
 		re:       regexp.MustCompile(`(?m)^\s*(?:try|except|finally)\s*:`),

@@ -270,7 +270,7 @@ func TestAPITools_ValidArgumentsUnaffected(t *testing.T) {
 		"method": "GET", "path": "/v1/things", "query": "things", "limit": 5,
 		"ranking": "lexical", "path_params": map[string]any{"id": "1"},
 		"query_params": map[string]any{"limit": 1}, "headers": map[string]any{"X-Trace": "t"},
-		"body": map[string]any{"k": "v"}, "timeout_seconds": 5,
+		"body": map[string]any{"k": "v"}, "timeout_seconds": 5, "decode": "auto",
 		"name": "things", "description": "d", "tags": []any{"t"},
 		"idempotency_key": "k1", "create_public_link": false,
 		"paginate": map[string]any{"items": "data", "max_pages": 1},

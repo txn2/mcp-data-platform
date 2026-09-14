@@ -327,34 +327,41 @@ func TestReadBody_PropagatesError(t *testing.T) {
 }
 
 func TestDecodeBody_JSONContentType(t *testing.T) {
-	got := decodeBody("application/json", []byte(`{"a":1}`))
-	m, ok := got.(map[string]any)
+	got := responseDecoder{}.decode("application/json", []byte(`{"a":1}`))
+	m, ok := got.body.(map[string]any)
 	if !ok {
-		t.Fatalf("got %#v; want map", got)
+		t.Fatalf("got %#v; want map", got.body)
 	}
 	val, ok := m["a"].(float64)
 	if !ok || val != 1 {
 		t.Errorf("m[\"a\"] = %#v; want 1", m["a"])
 	}
+	if !got.json {
+		t.Error("decoded.json = false; want true so the pagination probe runs")
+	}
 }
 
 func TestDecodeBody_NonJSONReturnsString(t *testing.T) {
-	got := decodeBody("text/html", []byte("<p>hi</p>"))
-	if s, ok := got.(string); !ok || s != "<p>hi</p>" {
-		t.Errorf("got %#v; want string", got)
+	got := responseDecoder{}.decode("text/html", []byte("<p>hi</p>"))
+	if s, ok := got.body.(string); !ok || s != "<p>hi</p>" {
+		t.Errorf("got %#v; want string", got.body)
 	}
 }
 
 func TestDecodeBody_JSONFallsBackOnInvalid(t *testing.T) {
-	got := decodeBody("application/json", []byte("not json"))
-	if s, ok := got.(string); !ok || s != "not json" {
-		t.Errorf("got %#v; want raw string fallback", got)
+	got := responseDecoder{}.decode("application/json", []byte("not json"))
+	if s, ok := got.body.(string); !ok || s != "not json" {
+		t.Errorf("got %#v; want raw string fallback", got.body)
+	}
+	if got.json {
+		t.Error("decoded.json = true on a body that is not JSON")
 	}
 }
 
 func TestDecodeBody_EmptyReturnsNil(t *testing.T) {
-	if got := decodeBody("application/json", nil); got != nil {
-		t.Errorf("got %#v; want nil", got)
+	got := responseDecoder{}.decode("application/json", nil)
+	if got.body != nil {
+		t.Errorf("got %#v; want nil", got.body)
 	}
 }
 

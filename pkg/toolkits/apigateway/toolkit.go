@@ -1090,6 +1090,14 @@ func (t *Toolkit) handleInvoke(ctx context.Context, _ *mcp.CallToolRequest, in I
 
 	inv := invocation{cfg: c.cfg, auth: c.auth, client: c.client, specs: c.specs, webdavRoutes: c.webdavRoutes(), budget: budget, inlineBudget: inlineBudgetFor(ctx, c.cfg)}
 	if in.Paginate != nil {
+		// A walk returns one merged collection assembled by
+		// internal/pagewalk from every page's own body, not a single
+		// decoded response, so there is nothing for a decode mode to
+		// apply to. Refusing says so rather than accepting the
+		// parameter and ignoring it.
+		if in.Decode != "" && in.Decode != DecodeAuto {
+			return toolkit.ErrorResult("decode is not available with paginate: a walk merges the pages it collects. Fetch a single page without paginate to decode one response."), nil, nil
+		}
 		return handleInvokeWalk(ctx, inv, pageAuthorizer(ctx, policy, c), in, hasExport)
 	}
 
