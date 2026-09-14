@@ -136,6 +136,63 @@ about runaway work rather than authority: a run executes one at a time, so a
 script waiting on a run it started would be waiting on the worker running it.
 Give the second script its own schedule.
 
+## Reading an XML or SOAP answer
+
+An upstream that answers in XML — a SOAP service, a WebDAV `PROPFIND`, an RSS
+or Atom feed, a sitemap — hands the script a string unless something parses it.
+`xml.decode` is that something, and the tree it returns is read by local name,
+so the prefixes the sender chose (`soap:`, `soapenv:`, `S:`) never appear in
+the script:
+
+```python
+envelope = xml.encode({
+    "tag": "Envelope",
+    "ns": "http://schemas.xmlsoap.org/soap/envelope/",
+    "children": [{
+        "tag": "Body",
+        "ns": "http://schemas.xmlsoap.org/soap/envelope/",
+        "children": [{"tag": "GetRates", "ns": "urn:acme:rates", "text": run.fire_time}],
+    }],
+})
+
+resp = platform.call("api_invoke_endpoint", {
+    "connection": "erp",
+    "method": "POST",
+    "path": "/services/rates",
+    "headers": {"Content-Type": "text/xml", "SOAPAction": "urn:acme:rates#GetRates"},
+    "body": envelope,
+})
+
+doc = xml.decode(resp["body"])
+fault = xml.find(doc, "//Fault")
+if fault:
+    fail("upstream fault: " + xml.find(fault, "faultstring").text)
+
+rows = [
+    {"currency": rate.attrs["currency"], "rate": float(rate.text)}
+    for rate in xml.findall(doc, "//Rate")
+]
+platform.export("fx-rates", rows, format="csv")
+```
+
+Three things in that script are worth stating on their own.
+
+`ns` is per element in the dict form. A child without one is in no namespace,
+which is what the encoder writes as `xmlns=""` — correct XML, and rarely what
+the author meant. Give every element its namespace, as the envelope above does.
+
+`resp["body"]` is a string here because the connection has no catalog. With one
+that declares `text/xml` on the operation's success response, or with
+`"decode": "xml"` in the call, `body` arrives already decoded as the same
+`{tag, ns, attrs, text, children}` shape and `xml.decode` is unnecessary.
+
+A path outside the supported subset fails the run. `//Rate`, `Body/GetRates`,
+`*`, `[@currency='EUR']` and `[1]` are the whole language; anything else —
+`text()`, `last()`, an axis, a bare `[@attr]` existence test — is refused where
+it was written rather than answered with no matches, because a path language
+that returns nothing for a construct it does not implement teaches the author
+that the data is missing.
+
 ## A saved script runs
 
 Saving a version makes it the version that runs, immediately, under the access

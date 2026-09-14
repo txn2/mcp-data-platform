@@ -108,6 +108,7 @@ nav:
       - Registered Tables: server/registered-tables.md
       - Session-Start Notices: server/session-notices.md
       - Managed Scripts: scripts/running.md
+      - Reading XML in a Script: scripts/xml.md
       - Knowledge Capture: knowledge/overview.md
       - Knowledge Governance: knowledge/governance.md
       - Memory Layer: memory/overview.md

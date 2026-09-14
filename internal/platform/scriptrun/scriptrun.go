@@ -48,6 +48,7 @@ import (
 	"go.starlark.net/syntax"
 
 	"github.com/txn2/mcp-data-platform/internal/scriptdate"
+	"github.com/txn2/mcp-data-platform/internal/scriptxml"
 	"github.com/txn2/mcp-data-platform/internal/toolwrite"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -550,7 +551,7 @@ func classifyExecError(ctx context.Context, err error, overStep bool, maxSteps u
 // one and absent from the other is the defect that let the contract advertise
 // a built-in the environment did not have (#1414): validation would resolve a
 // name the run cannot bind, or refuse one it can.
-var PredeclaredNames = []string{"platform", "json", "date", "run", sumBuiltinName}
+var PredeclaredNames = []string{"platform", "json", "xml", "date", "run", sumBuiltinName}
 
 // predeclared builds the global environment a script sees. Everything absent
 // from this dict is absent from the language: no imports, no filesystem, no
@@ -570,6 +571,7 @@ func predeclared(host *hostState) starlark.StringDict {
 			},
 		},
 		"json":         json.Module,
+		"xml":          scriptxml.Module,
 		"date":         scriptdate.Module,
 		"run":          host.runValue(),
 		sumBuiltinName: sumBuiltin,

@@ -7,8 +7,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	starlarkjson "go.starlark.net/lib/json"
+	"go.starlark.net/starlark"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
+	"github.com/txn2/mcp-data-platform/internal/scriptdate"
+	"github.com/txn2/mcp-data-platform/internal/scriptxml"
 )
 
 // This file pins the shipped dialect contract against the environment a script
@@ -101,4 +105,66 @@ func TestDialectContract_ExportStatesTheDocumentChoice(t *testing.T) {
 		assert.Containsf(t, entry, want,
 			"the export entry states no %q half of the discriminator", want)
 	}
+}
+
+// moduleMemberPattern captures a `module.member` mention anywhere in the
+// contract. The trailing boundary keeps `json.encode / json.decode` and
+// `date.of, date.parse` both readable as mentions.
+var moduleMemberPattern = regexp.MustCompile(`\b(json|xml|date)\.([a-z_]+)`)
+
+// TestDialectContract_EveryAdvertisedModuleMemberExists is the member-level
+// half of the check #1414 was missing. TestDialectContract_EveryAdvertisedBuiltinResolves
+// covers the Starlark built-ins, and the validator resolves a global name, but
+// Starlark resolves an attribute at run time: the contract could advertise
+// `xml.parse` on a module that has only `decode` and nothing would fail until
+// an author's run did.
+func TestDialectContract_EveryAdvertisedModuleMemberExists(t *testing.T) {
+	members := map[string]map[string]bool{
+		"json": memberSet(starlarkjson.Module.Members),
+		"xml":  memberSet(scriptxml.Module.Members),
+		"date": memberSet(scriptdate.Module.Members),
+	}
+
+	matches := moduleMemberPattern.FindAllStringSubmatch(DialectContract, -1)
+	require.NotEmpty(t, matches, "the contract no longer mentions any module member")
+	seen := map[string]bool{}
+	for _, m := range matches {
+		module, member := m[1], m[2]
+		if seen[module+"."+member] {
+			continue
+		}
+		seen[module+"."+member] = true
+		if !members[module][member] {
+			t.Errorf("the contract advertises %s.%s but the %s module has no such member", module, member, module)
+		}
+	}
+}
+
+// TestDialectContract_AdvertisesEveryModuleMember is the other direction: a
+// member the platform ships and does not document is one no author will use.
+func TestDialectContract_AdvertisesEveryModuleMember(t *testing.T) {
+	modules := map[string]starlark.StringDict{
+		"json": starlarkjson.Module.Members,
+		"xml":  scriptxml.Module.Members,
+		"date": scriptdate.Module.Members,
+	}
+	for module, members := range modules {
+		for member := range members {
+			// Checked by hand rather than with assert.Contains so a
+			// failure names the missing member instead of printing
+			// the whole contract.
+			if !strings.Contains(DialectContract, module+"."+member) {
+				t.Errorf("%s.%s is in the script environment but the contract never mentions it", module, member)
+			}
+		}
+	}
+}
+
+// memberSet reduces a module's members to the names it defines.
+func memberSet(members starlark.StringDict) map[string]bool {
+	out := make(map[string]bool, len(members))
+	for name := range members {
+		out[name] = true
+	}
+	return out
 }

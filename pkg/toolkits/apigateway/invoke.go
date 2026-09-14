@@ -85,6 +85,7 @@ type InvokeInput struct {
 	Query          map[string]any    `json:"query_params,omitempty"`
 	Headers        map[string]string `json:"headers,omitempty"`
 	Body           any               `json:"body,omitempty"`
+	Decode         string            `json:"decode,omitempty"`
 	TimeoutSeconds int               `json:"timeout_seconds,omitempty"`
 	// Paginate, when set, makes the call a page walk (issue #1535): the
 	// gateway follows the response's pagination signal itself and returns
@@ -221,6 +222,7 @@ func invoke(ctx context.Context, inv invocation, in InvokeInput) (InvokeOutput, 
 		budget:     inv.budget,
 		connection: inv.cfg.ConnectionName,
 		path:       in.Path,
+		decoder:    newResponseDecoder(in, inv.specs),
 	})
 }
 
@@ -1143,6 +1145,10 @@ type execParams struct {
 	budget     *MemBudget
 	connection string
 	path       string
+	// decoder turns the response body into the value the tool returns.
+	// It is resolved in invoke, where the caller's `decode` input and the
+	// parsed catalog are both in hand; executeRequest only applies it.
+	decoder responseDecoder
 }
 
 // executeRequest performs the upstream call and buffers the response.
@@ -1221,26 +1227,35 @@ func executeRequest(p execParams) (InvokeOutput, error) {
 			DurationMs: time.Since(start).Milliseconds(),
 		}, nil
 	}
-	parsed := decodeBody(respContentType, body)
+	dec := p.decoder.decode(respContentType, body)
+	// The pagination probe reads cursor keys off a JSON object. It is
+	// handed the body only when the body IS one: an XML tree is a
+	// map[string]any too, and a document whose root happened to carry a
+	// `next` key would otherwise be read as a page cursor. The Link-header
+	// half of the probe is format-agnostic and still runs.
+	var jsonBody any
+	if dec.json {
+		jsonBody = dec.body
+	}
 	out := InvokeOutput{
 		Status:        resp.StatusCode,
 		Headers:       selectResponseHeaders(resp.Header),
-		Body:          parsed,
+		Body:          dec.body,
 		BodyTruncated: truncated,
 		BodyBytes:     int64(len(body)),
-		Pagination:    detectPagination(resp.Header, parsed),
+		Pagination:    detectPagination(resp.Header, jsonBody),
+		Hint:          dec.note,
 		DurationMs:    time.Since(start).Milliseconds(),
 	}
 	if truncated {
+		// A cut body cannot parse, so the decode note on a truncated
+		// response is a symptom of the cut. The steer to api_export is
+		// the one that resolves both.
 		out.Hint = inlineBudgetHint(readCap, resp.ContentLength)
 	}
 	return out, nil
 }
 
-// decodeBody parses a JSON response into a Go value when the
-// Content-Type indicates JSON; otherwise returns the body as a
-// string. Decoding failure on a JSON-typed response falls back to
-// returning the raw text so the model still sees something useful.
 // isInlineableContentType reports whether a response with this
 // Content-Type is safe to buffer and return inline through the MCP/JSON
 // channel. Text-shaped bodies (text/*, JSON, XML, form, JavaScript) are
@@ -1279,20 +1294,6 @@ func isInlineableContentType(contentType string) bool {
 	default:
 		return false
 	}
-}
-
-func decodeBody(contentType string, body []byte) any {
-	if len(body) == 0 {
-		return nil
-	}
-	if !strings.Contains(strings.ToLower(contentType), "json") {
-		return string(body)
-	}
-	var v any
-	if err := json.Unmarshal(body, &v); err != nil {
-		return string(body)
-	}
-	return v
 }
 
 // passthroughResponseHeaders is the closed set of response headers

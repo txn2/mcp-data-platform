@@ -220,6 +220,11 @@ var invokeEndpointSchema = json.RawMessage(`{
     "body": {
       "description": "Optional request body. When the connection's OpenAPI catalog declares application/json on the resolved operation, objects/arrays are JSON-encoded and strings that parse as JSON pass through verbatim, both with Content-Type: application/json. Strings that do not parse as JSON, and bodies on operations the catalog does not declare, fall back to: objects/arrays as application/json, strings as text/plain. When the catalog declares multipart/form-data, pass an object of form fields: a scalar becomes a text field, an array becomes one part per element, and a file part is {\"filename\": \"data.csv\", \"content_type\": \"text/csv\", \"content\": \"...\"} — use \"content_base64\" instead of \"content\" for binary. The platform generates the multipart boundary, so never assemble a multipart body by hand or set its Content-Type. An explicit Content-Type in headers otherwise wins. Ignored for GET, HEAD, and MKCOL."
     },
+    "decode": {
+      "type": "string",
+      "enum": ["auto", "json", "xml", "text"],
+      "description": "How to read the response body. Default \"auto\": JSON when the response declares JSON, a parsed XML tree when the connection's catalog declares an XML media type on the operation's success response, and raw text otherwise. \"xml\" parses the body as XML whatever it declares — use it for a SOAP, WebDAV PROPFIND, RSS or Atom response on a connection with no catalog. An XML tree is nested objects of {tag, ns, attrs, text, children}: tag and attribute names are local names, so the upstream's namespace prefix does not matter, text is the element's own character data, and children are the child elements in document order. \"json\" and \"text\" force those readings. A body that does not parse is returned as text with the reason in hint."
+    },
     "timeout_seconds": {
       "type": "integer",
       "minimum": 1,
